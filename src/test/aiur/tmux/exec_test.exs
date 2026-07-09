@@ -25,14 +25,15 @@ defmodule Aiur.Tmux.ExecTest do
     assert {:ok, []} = Task.await(task, 1_000)
   end
 
-  test "run_args/2 emits quoted span as one token (FI-TUI-002)" do
+  # FI-TUI-002: split_command/1 parses "hello world" (double-quoted span) as a
+  # single argv element. This test exercises the run_args side: given a pre-split
+  # list where the quoted span is already one element, the mock transport receives
+  # a space-joined string with no outer quotes. split_command itself is called only
+  # on :shell transport (System.cmd path) and is not exercised here.
+  test "run_args/2 emits pre-split args joined with spaces (FI-TUI-002 run_args side)" do
     parent = self()
     state = mock_state()
 
-    # split_command("send-keys -t %42 \"hello world\"") produces
-    # ["send-keys", "-t", "%42", "hello world"] — the quoted span becomes
-    # one element. run_args then Enum.join-s with " ", so the token survives
-    # in the emitted string as "hello world" (no outer quotes).
     task =
       Task.async(fn ->
         send(parent, :ready)
