@@ -1080,15 +1080,15 @@ defmodule Aiur.Claude.ReplAgent do
   defp build_command(workspace, model, effort, rc?, rc_name, settings_path, resume_id) do
     flags =
       ["claude"]
-      |> append_if(rc?, ["--remote-control", shell_escape(rc_name)])
-      |> append_if(is_binary(resume_id), ["--resume", shell_escape(resume_id || "")])
-      |> Kernel.++(["--permission-mode", shell_escape(Config.permission_mode())])
-      |> append_if(is_binary(model), ["--model", shell_escape(model || "")])
-      |> append_if(is_binary(effort), ["--effort", shell_escape(effort || "")])
-      |> append_if(is_binary(settings_path), ["--settings", shell_escape(settings_path || "")])
+      |> append_if(rc?, ["--remote-control", Aiur.Shell.escape(rc_name)])
+      |> append_if(is_binary(resume_id), ["--resume", Aiur.Shell.escape(resume_id || "")])
+      |> Kernel.++(["--permission-mode", Aiur.Shell.escape(Config.permission_mode())])
+      |> append_if(is_binary(model), ["--model", Aiur.Shell.escape(model || "")])
+      |> append_if(is_binary(effort), ["--effort", Aiur.Shell.escape(effort || "")])
+      |> append_if(is_binary(settings_path), ["--settings", Aiur.Shell.escape(settings_path || "")])
       |> Enum.join(" ")
 
-    "cd #{shell_escape(workspace)} && exec #{flags}"
+    "cd #{Aiur.Shell.escape(workspace)} && exec #{flags}"
   end
 
   # The claude session id to `--resume` on this spawn, or nil for a clean start.
@@ -1167,9 +1167,5 @@ defmodule Aiur.Claude.ReplAgent do
       Process.sleep(@ready_poll_ms)
       do_await_ready(tmux, pane_id, deadline)
     end
-  end
-
-  defp shell_escape(value) when is_binary(value) do
-    "'" <> String.replace(value, "'", "'\\''") <> "'"
   end
 end

@@ -194,7 +194,7 @@ defmodule Aiur.Codex.CodingAgent do
   defp remote_launch_command(workspace, model, effort) do
     [
       AgentEnvironment.workspace_env_export_prefix(workspace),
-      "cd #{shell_escape(workspace)}",
+      "cd #{Aiur.Shell.escape(workspace)}",
       AgentEnvironment.scrub_shell_command(codex_command(model, effort), exec: true)
     ]
     |> Enum.reject(&(&1 == ""))
@@ -217,7 +217,7 @@ defmodule Aiur.Codex.CodingAgent do
   defp append_config(command, _key, nil), do: command
 
   defp append_config(command, key, value) when is_binary(value) do
-    command <> " --config " <> shell_escape(~s(#{key}="#{value}"))
+    command <> " --config " <> Aiur.Shell.escape(~s(#{key}="#{value}"))
   end
 
   defp port_metadata(port, worker_host \\ nil) when is_port(port) do
@@ -1034,10 +1034,6 @@ defmodule Aiur.Codex.CodingAgent do
             :ok
         end
     end
-  end
-
-  defp shell_escape(value) when is_binary(value) do
-    "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
   end
 
   @impl Aiur.CodingAgent
