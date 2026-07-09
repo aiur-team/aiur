@@ -7,8 +7,8 @@ defmodule Aiur.Codex.CodingAgent do
   @behaviour Aiur.AppServer.Adapter
 
   require Logger
-  alias Aiur.AppServer.{Adapter, Messages, OperatorDelivery, Rpc, TurnState}
-  alias Aiur.Codex.{AppServerPort, Frames, Handshake}
+  alias Aiur.AppServer.{Adapter, Messages, Rpc}
+  alias Aiur.Codex.{AppServerPort, Frames, Handshake, Interrupts, OperatorDelivery, TurnLoop}
   alias Aiur.Config
   alias Aiur.Protocol.MapAccess
   alias Aiur.TokenUsage
@@ -110,22 +110,7 @@ defmodule Aiur.Codex.CodingAgent do
   @spec send_operator_message(session(), Aiur.CodingAgent.operator_payload()) ::
           {:ok, integer()} | {:error, term()}
   @impl Aiur.CodingAgent.Backend
-  def send_operator_message(
-        %{port: port, thread_id: thread_id, workspace: workspace} = session,
-        %{kind: :text, body: text}
-      )
-      when is_port(port) and is_binary(thread_id) and is_binary(workspace) and is_binary(text) do
-    request_id = :erlang.unique_integer([:positive])
-
-    frame = Frames.operator_turn_frame(session, request_id, text)
-
-    send_message(port, frame)
-    {:ok, request_id}
-  rescue
-    ArgumentError -> {:error, :port_closed}
-  end
-
-  def send_operator_message(_session, _payload), do: {:error, :invalid_session}
+  def send_operator_message(session, payload), do: OperatorDelivery.send_operator_message(session, payload)
 
   defp session_policies(workspace, nil) do
     Config.codex_runtime_settings(workspace)
@@ -155,235 +140,56 @@ defmodule Aiur.Codex.CodingAgent do
   @impl Aiur.AppServer.Adapter
   @doc false
   @spec handle_interrupt_error(map(), term()) :: {:continue, map()} | {:error, term()}
-  def handle_interrupt_error(state, error) do
-    if no_active_turn_error?(error) do
-      # Codex says "no active turn to interrupt" (-32600). The turn
-      # ended on its own between us deciding to interrupt and codex
-      # processing the request. There's nothing left to interrupt —
-      # treat it the same as a successful interrupt so the operator
-      # message / pause request gets handled on the next cycle.
-      # Without this, the AgentRunner Task crashes with
-      # `{:turn_interrupt_failed, ...}` and the orchestrator dumps a
-      # `system:` line into the chat pane (recurrent issue
-      # triggered by U5's reactivation flow, where a fresh agent
-      # task receives an operator-queue update before its first
-      # codex turn has spawned).
-      {:continue, %{state | pending_interrupt_request_id: nil}}
-    else
-      {:error, {:turn_interrupt_failed, error}}
-    end
-  end
+  def handle_interrupt_error(state, error), do: Interrupts.handle_interrupt_error(state, error)
 
   @impl Aiur.AppServer.Adapter
   @doc false
   @spec handle_method(map(), map(), map(), String.t(), String.t()) :: term()
-  def handle_method(session, state, %{"method" => "turn/completed"} = payload, payload_string, _method) do
-    emit_turn_event(state.on_message, :turn_completed, payload, payload_string, session.port, payload)
-
-    case TurnState.turn_completion_status(payload) do
-      "interrupted" -> TurnState.continue_after_turn_interrupted(state, payload)
-      _ -> TurnState.continue_after_turn_completion(state)
-    end
-  end
-
-  def handle_method(session, state, %{"method" => "turn/failed", "params" => params} = payload, payload_string, _method) do
-    emit_turn_event(state.on_message, :turn_failed, payload, payload_string, session.port, params)
-    TurnState.fail_pending_operator_requests(state.pending_operator_requests, {:turn_failed, params})
-    {:error, {:turn_failed, params}}
-  end
-
-  def handle_method(session, state, %{"method" => "turn/cancelled", "params" => params} = payload, payload_string, _method) do
-    emit_turn_event(state.on_message, :turn_cancelled, payload, payload_string, session.port, params)
-    TurnState.fail_pending_operator_requests(state.pending_operator_requests, {:turn_cancelled, params})
-
-    if is_integer(state.pause_request_id) do
-      {:paused,
-       %{
-         request_id: state.pause_request_id,
-         turn_id: state.current_turn_id,
-         details: params
-       }}
-    else
-      {:error, {:turn_cancelled, params}}
-    end
-  end
-
-  def handle_method(session, state, %{"method" => method} = payload, payload_string, _method)
-      when is_binary(method) do
-    handle_turn_method(session, state, payload, payload_string, method)
-  end
+  def handle_method(session, state, payload, payload_string, method),
+    do: TurnLoop.handle_method(session, state, payload, payload_string, method)
 
   @impl Aiur.AppServer.Adapter
   @doc false
   @spec handle_malformed(map(), String.t(), port()) :: {:continue, map()}
-  def handle_malformed(state, payload_string, port) do
-    Rpc.log_non_json_stream_line(payload_string, "turn stream", "Codex")
+  def handle_malformed(state, payload_string, port), do: TurnLoop.handle_malformed(state, payload_string, port)
 
-    if protocol_message_candidate?(payload_string) do
-      Messages.emit_message(
-        state.on_message,
-        :malformed,
-        %{
-          payload: payload_string,
-          raw: payload_string
-        },
-        metadata_from_message(port, %{raw: payload_string})
-      )
-    end
+  @doc false
+  @spec checkpoint_for_method(String.t()) :: map()
+  def checkpoint_for_method("item/tool/call"), do: %{kind: :tool_result, method: "item/tool/call"}
+  def checkpoint_for_method(method), do: %{kind: :notification, method: method}
 
-    {:continue, state}
-  end
+  @doc false
+  @spec thread_idle_status?(String.t(), map()) :: boolean()
+  def thread_idle_status?("thread/status/changed", %{"params" => %{"status" => %{"type" => "idle"}}}), do: true
+  def thread_idle_status?("thread/status/changed", %{"status" => %{"type" => "idle"}}), do: true
+  def thread_idle_status?(_method, _payload), do: false
 
-  defp protocol_message_candidate?(payload_string) do
-    payload_string
-    |> to_string()
-    |> String.trim_leading()
-    |> String.starts_with?(["{", "["])
-  end
+  @doc false
+  @spec turn_started_method?(String.t()) :: boolean()
+  def turn_started_method?("turn/started"), do: true
+  def turn_started_method?(_method), do: false
 
-  defp emit_turn_event(on_message, event, payload, payload_string, port, payload_details) do
-    Messages.emit_message(
-      on_message,
-      event,
-      %{
-        payload: payload,
-        raw: payload_string,
-        details: payload_details
-      },
-      metadata_from_message(port, payload)
-    )
-  end
-
-  defp handle_turn_method(%{port: port} = session, state, payload, payload_string, method) do
-    on_message = state.on_message
-    metadata = metadata_from_message(port, payload)
-
-    case maybe_handle_approval_request(
-           port,
-           method,
-           payload,
-           payload_string,
-           on_message,
-           metadata,
-           state.tool_executor,
-           state.auto_approve_requests
-         ) do
-      :input_required ->
-        Messages.emit_message(
-          on_message,
-          :turn_input_required,
-          %{payload: payload, raw: payload_string},
-          metadata
-        )
-
-        {:error, {:turn_input_required, payload}}
-
-      :approved ->
-        {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, checkpoint_for_method(method))}
-
-      :approval_required ->
-        Messages.emit_message(
-          on_message,
-          :approval_required,
-          %{payload: payload, raw: payload_string},
-          metadata
-        )
-
-        {:error, {:approval_required, payload}}
-
-      :unhandled ->
-        handle_unhandled_method(session, state, method, payload, payload_string, on_message, metadata)
-    end
-  end
-
-  defp handle_unhandled_method(session, state, method, payload, payload_string, on_message, metadata) do
-    if needs_input?(method, payload) do
-      Messages.emit_message(on_message, :turn_input_required, %{payload: payload, raw: payload_string}, metadata)
-      {:error, {:turn_input_required, payload}}
-    else
-      Messages.emit_message(on_message, :notification, %{payload: payload, raw: payload_string}, metadata)
-      handle_notification_outcome(session, state, method, payload)
-    end
-  end
-
-  # Surface error-class notifications at info level with the full payload
-  # so the operator log shows the actual codex failure (API rate limit,
-  # auth error, bwrap sandbox refusal, etc.) instead of an opaque
-  # `Codex notification: "error"` line that requires combing through
-  # 1000s of lines of debug-tier `Ignoring message while waiting for
-  # response` detail to reconstruct.
-  #
-  # When codex reports it will not retry (e.g. usageLimitExceeded with
-  # willRetry:false) end the turn as a hard failure instead of :continue.
-  # :continue lets the turn finish "normally", after which the
-  # orchestrator respawns it every ~1s, uncapped; a hard failure routes
-  # through the orchestrator's max_retry_attempts cap and backoff.
-  defp handle_notification_outcome(session, state, method, payload) do
-    cond do
-      codex_quota_exhausted?(method, payload) ->
-        Logger.warning("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; codex account usage quota exhausted — pausing agent instead of burning retries")
-
-        {:paused, usage_limit_pause(payload, method)}
-
-      codex_error_method?(method) and unretryable_codex_error?(payload) ->
-        Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; willRetry=false, ending turn as unretryable")
-        {:error, {:turn_unretryable, codex_error_reason(payload, method)}}
-
-      turn_started_method?(method) ->
-        checkpoint = checkpoint_for_method(method)
-
-        next_state =
-          session
-          |> OperatorDelivery.maybe_process_safe_checkpoint(%{state | turn_started?: true}, checkpoint)
-
-        {:continue, next_state}
-
-      state.turn_started? and thread_idle_status?(method, payload) ->
-        Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; treating idle status as turn completion")
-        TurnState.continue_after_turn_completion(state)
-
-      codex_error_method?(method) ->
-        Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}")
-        {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, checkpoint_for_method(method))}
-
-      true ->
-        Logger.debug("Codex notification: #{inspect(method)}")
-        {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, checkpoint_for_method(method))}
-    end
-  end
-
-  defp checkpoint_for_method("item/tool/call"), do: %{kind: :tool_result, method: "item/tool/call"}
-  defp checkpoint_for_method(method), do: %{kind: :notification, method: method}
-
-  defp thread_idle_status?("thread/status/changed", %{"params" => %{"status" => %{"type" => "idle"}}}), do: true
-  defp thread_idle_status?("thread/status/changed", %{"status" => %{"type" => "idle"}}), do: true
-  defp thread_idle_status?(_method, _payload), do: false
-
-  defp turn_started_method?("turn/started"), do: true
-  defp turn_started_method?(_method), do: false
-
-  # Codex's "no active turn to interrupt" response. Treated as a
-  # successful interrupt by `handle_decoded_incoming/6` because the
-  # turn has already ended — there's nothing to wait for, the
-  # operator message / pause request can proceed on the next cycle.
-  defp no_active_turn_error?(%{"code" => -32_600}), do: true
-
-  defp no_active_turn_error?(%{"message" => message}) when is_binary(message) do
-    String.contains?(message, "no active turn")
-  end
-
-  defp no_active_turn_error?(_), do: false
-
-  defp maybe_handle_approval_request(
-         port,
-         "item/commandExecution/requestApproval",
-         %{"id" => id} = payload,
-         payload_string,
-         on_message,
-         metadata,
-         _tool_executor,
-         auto_approve_requests
-       ) do
+  @doc false
+  @spec maybe_handle_approval_request(
+          port(),
+          String.t(),
+          map(),
+          String.t(),
+          (map() -> term()),
+          map(),
+          (term(), term() -> term()),
+          boolean()
+        ) :: :approved | :approval_required | :input_required | :unhandled
+  def maybe_handle_approval_request(
+        port,
+        "item/commandExecution/requestApproval",
+        %{"id" => id} = payload,
+        payload_string,
+        on_message,
+        metadata,
+        _tool_executor,
+        auto_approve_requests
+      ) do
     approve_or_require(
       port,
       id,
@@ -396,16 +202,16 @@ defmodule Aiur.Codex.CodingAgent do
     )
   end
 
-  defp maybe_handle_approval_request(
-         port,
-         "item/tool/call",
-         %{"id" => id, "params" => params} = payload,
-         payload_string,
-         on_message,
-         metadata,
-         tool_executor,
-         _auto_approve_requests
-       ) do
+  def maybe_handle_approval_request(
+        port,
+        "item/tool/call",
+        %{"id" => id, "params" => params} = payload,
+        payload_string,
+        on_message,
+        metadata,
+        tool_executor,
+        _auto_approve_requests
+      ) do
     tool_name = Messages.tool_call_name(params)
     arguments = Messages.tool_call_arguments(params)
 
@@ -428,16 +234,16 @@ defmodule Aiur.Codex.CodingAgent do
     :approved
   end
 
-  defp maybe_handle_approval_request(
-         port,
-         "execCommandApproval",
-         %{"id" => id} = payload,
-         payload_string,
-         on_message,
-         metadata,
-         _tool_executor,
-         auto_approve_requests
-       ) do
+  def maybe_handle_approval_request(
+        port,
+        "execCommandApproval",
+        %{"id" => id} = payload,
+        payload_string,
+        on_message,
+        metadata,
+        _tool_executor,
+        auto_approve_requests
+      ) do
     approve_or_require(
       port,
       id,
@@ -450,16 +256,16 @@ defmodule Aiur.Codex.CodingAgent do
     )
   end
 
-  defp maybe_handle_approval_request(
-         port,
-         "applyPatchApproval",
-         %{"id" => id} = payload,
-         payload_string,
-         on_message,
-         metadata,
-         _tool_executor,
-         auto_approve_requests
-       ) do
+  def maybe_handle_approval_request(
+        port,
+        "applyPatchApproval",
+        %{"id" => id} = payload,
+        payload_string,
+        on_message,
+        metadata,
+        _tool_executor,
+        auto_approve_requests
+      ) do
     approve_or_require(
       port,
       id,
@@ -472,16 +278,16 @@ defmodule Aiur.Codex.CodingAgent do
     )
   end
 
-  defp maybe_handle_approval_request(
-         port,
-         "item/fileChange/requestApproval",
-         %{"id" => id} = payload,
-         payload_string,
-         on_message,
-         metadata,
-         _tool_executor,
-         auto_approve_requests
-       ) do
+  def maybe_handle_approval_request(
+        port,
+        "item/fileChange/requestApproval",
+        %{"id" => id} = payload,
+        payload_string,
+        on_message,
+        metadata,
+        _tool_executor,
+        auto_approve_requests
+      ) do
     approve_or_require(
       port,
       id,
@@ -494,16 +300,16 @@ defmodule Aiur.Codex.CodingAgent do
     )
   end
 
-  defp maybe_handle_approval_request(
-         port,
-         "item/tool/requestUserInput",
-         %{"id" => id, "params" => params} = payload,
-         payload_string,
-         on_message,
-         metadata,
-         _tool_executor,
-         auto_approve_requests
-       ) do
+  def maybe_handle_approval_request(
+        port,
+        "item/tool/requestUserInput",
+        %{"id" => id, "params" => params} = payload,
+        payload_string,
+        on_message,
+        metadata,
+        _tool_executor,
+        auto_approve_requests
+      ) do
     maybe_auto_answer_tool_request_user_input(
       port,
       id,
@@ -516,16 +322,16 @@ defmodule Aiur.Codex.CodingAgent do
     )
   end
 
-  defp maybe_handle_approval_request(
-         _port,
-         _method,
-         _payload,
-         _payload_string,
-         _on_message,
-         _metadata,
-         _tool_executor,
-         _auto_approve_requests
-       ) do
+  def maybe_handle_approval_request(
+        _port,
+        _method,
+        _payload,
+        _payload_string,
+        _on_message,
+        _metadata,
+        _tool_executor,
+        _auto_approve_requests
+      ) do
     :unhandled
   end
 
@@ -875,12 +681,14 @@ defmodule Aiur.Codex.CodingAgent do
     Aiur.Codex.Rpc.send_message(port, message)
   end
 
-  defp needs_input?(method, payload)
-       when is_binary(method) and is_map(payload) do
+  @doc false
+  @spec needs_input?(String.t(), map()) :: boolean()
+  def needs_input?(method, payload)
+      when is_binary(method) and is_map(payload) do
     String.starts_with?(method, "turn/") && input_required_method?(method, payload)
   end
 
-  defp needs_input?(_method, _payload), do: false
+  def needs_input?(_method, _payload), do: false
 
   # Identify error-class notifications that should be surfaced at info
   # level with their payload, not buried at debug. Codex sends "error"
@@ -889,7 +697,9 @@ defmodule Aiur.Codex.CodingAgent do
   # subsystem failures. Without these surfacing rules an operator
   # debugging a stuck agent has to enable debug logging globally and
   # then grep through 1000s of lines of routine MCP notifications.
-  defp codex_error_method?(method) when is_binary(method) do
+  @doc false
+  @spec codex_error_method?(String.t()) :: boolean()
+  def codex_error_method?(method) when is_binary(method) do
     method == "error" or String.ends_with?(method, "/error")
   end
 
@@ -975,13 +785,31 @@ defmodule Aiur.Codex.CodingAgent do
   @spec usage_limit_reset_hint_for_test(map()) :: String.t() | nil
   def usage_limit_reset_hint_for_test(payload) when is_map(payload), do: usage_limit_reset_hint(payload)
 
-  # Routing-only helper: the quota-pause and unretryable-error cond clauses both
-  # return without dereferencing `session`/`state`, so dummy maps are safe HERE.
-  # Do not reuse this for other branches — they read from session/state.
+  # Routing-only helper for quota-pause and unretryable-error branches.
   @doc false
   @spec notification_outcome_for_test(String.t(), map()) :: tuple()
   def notification_outcome_for_test(method, payload) when is_binary(method) and is_map(payload) do
-    handle_notification_outcome(%{}, %{}, method, payload)
+    port =
+      Port.open(
+        {:spawn_executable, System.find_executable("cat") |> String.to_charlist()},
+        [:binary, :exit_status, {:line, 64_000}]
+      )
+
+    try do
+      payload = Map.put(payload, "method", method)
+
+      state = %{
+        on_message: fn _message -> :ok end,
+        tool_executor: fn _tool, _arguments -> %{} end,
+        auto_approve_requests: false,
+        pending_operator_requests: %{},
+        turn_started?: false
+      }
+
+      TurnLoop.handle_method(%{port: port}, state, payload, Jason.encode!(payload), method)
+    after
+      Port.close(port)
+    end
   end
 
   @doc false
@@ -993,7 +821,9 @@ defmodule Aiur.Codex.CodingAgent do
   # The flag can ride on the notification root or inside `params`, and
   # codex has used both camelCase and snake_case across versions, so
   # check all four positions (mirrors `request_payload_requires_input?`).
-  defp unretryable_codex_error?(payload) do
+  @doc false
+  @spec unretryable_codex_error?(map()) :: boolean()
+  def unretryable_codex_error?(payload) do
     will_retry_false?(payload) || will_retry_false?(Map.get(payload, "params"))
   end
 
@@ -1008,10 +838,10 @@ defmodule Aiur.Codex.CodingAgent do
   # names a usage limit. Gating on `unretryable_codex_error?` as well keeps a
   # merely transient error that happens to mention "usage limit" from stranding
   # the agent in a pause — a pause has no auto-resume timer, so such errors must
-  # fall through to the normal retry path instead. Folding the checks into one
-  # predicate keeps `handle_notification_outcome/4` within its
-  # cyclomatic-complexity budget.
-  defp codex_quota_exhausted?(method, payload) do
+  # fall through to the normal retry path instead.
+  @doc false
+  @spec codex_quota_exhausted?(String.t(), map()) :: boolean()
+  def codex_quota_exhausted?(method, payload) do
     codex_error_method?(method) and unretryable_codex_error?(payload) and
       usage_limit_exceeded?(payload)
   end
@@ -1034,7 +864,9 @@ defmodule Aiur.Codex.CodingAgent do
   # Pause payload for a quota-exhaustion turn error. `kind` lets the agent
   # runner emit the operator alert; `reset_hint` carries the human-readable
   # "try again at …" time when codex provides one.
-  defp usage_limit_pause(payload, method) do
+  @doc false
+  @spec usage_limit_pause(map(), String.t()) :: map()
+  def usage_limit_pause(payload, method) do
     %{
       kind: :usage_limit_exhausted,
       reason: codex_error_reason(payload, method),
@@ -1057,7 +889,9 @@ defmodule Aiur.Codex.CodingAgent do
   # versions, so check the known positions (root + params + nested error) and
   # fall back to the method when no recognizable detail is present — never the
   # bare opaque `"error"` when a detail is actually available.
-  defp codex_error_reason(payload, method) do
+  @doc false
+  @spec codex_error_reason(map(), String.t()) :: String.t()
+  def codex_error_reason(payload, method) do
     case codex_error_detail(payload) do
       detail when is_binary(detail) and detail != "" -> "#{method}: #{detail}"
       _ -> method
