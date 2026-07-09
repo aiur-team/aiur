@@ -28,6 +28,22 @@ if config_env() == :test do
   config :aiur, :resolve_github_token_on_boot, false
   config :aiur, :workspace_github_preflight_enabled, false
 
+  # Suite-global :log_file isolation. The :aiur app boots BEFORE
+  # test/test_helper.exs runs (mix test starts apps first), and
+  # Aiur.Events.IdGenerator persists <log_root>/<repo>.event_id during
+  # init — so this is the only hook early enough to keep boot-time and
+  # non-TestSupport test writes out of the shared <cwd>/log. Per-test
+  # overrides (Aiur.TestSupport, subscription_store_test) still win;
+  # test_helper.exs verifies this value and removes the directory in
+  # after_suite.
+  test_log_root =
+    Path.join(
+      System.tmp_dir!(),
+      "aiur-test-logs-#{System.os_time(:millisecond)}-#{System.pid()}"
+    )
+
+  config :aiur, :log_file, Path.join(test_log_root, "aiur.log")
+
   config :aiur, :server_host_override, "127.0.0.1"
   config :aiur, :server_port_override, 0
   config :aiur, :opencode_bridge_host_override, "127.0.0.1"

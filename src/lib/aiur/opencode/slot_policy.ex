@@ -42,7 +42,11 @@ defmodule Aiur.Opencode.SlotPolicy do
   alias Aiur.Boot
   alias Aiur.Opencode.{Slot, SlotSupervisor}
 
-  defstruct target_count: 0, highest_started: 0, max_slots: 0, pubsub: Aiur.PubSub
+  defstruct target_count: 0,
+            highest_started: 0,
+            max_slots: 0,
+            pubsub: Aiur.PubSub,
+            slot_starter: SlotSupervisor
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -139,6 +143,7 @@ defmodule Aiur.Opencode.SlotPolicy do
       end)
 
     pubsub = Keyword.get(opts, :pubsub, Aiur.PubSub)
+    slot_starter = Keyword.get(opts, :slot_starter, SlotSupervisor)
 
     Logger.info("opencode_slot_policy phase=init elapsed_ms=#{Boot.elapsed_ms()} target_count=#{target_count} max_slots=#{max_slots} mode=parallel")
 
@@ -151,7 +156,8 @@ defmodule Aiur.Opencode.SlotPolicy do
        target_count: target_count,
        highest_started: 0,
        max_slots: max_slots,
-       pubsub: pubsub
+       pubsub: pubsub,
+       slot_starter: slot_starter
      }}
   end
 
@@ -169,7 +175,7 @@ defmodule Aiur.Opencode.SlotPolicy do
     highest =
       1..target
       |> Enum.reduce(0, fn slot_index, acc ->
-        case SlotSupervisor.start_slot(slot_index) do
+        case state.slot_starter.start_slot(slot_index) do
           {:ok, _pid} ->
             Phoenix.PubSub.broadcast(
               pubsub,
@@ -258,7 +264,7 @@ defmodule Aiur.Opencode.SlotPolicy do
   def handle_call(:grow_slot, _from, %{highest_started: highest, pubsub: pubsub} = state) do
     next = highest + 1
 
-    case SlotSupervisor.start_slot(next) do
+    case state.slot_starter.start_slot(next) do
       {:ok, pid} ->
         Phoenix.PubSub.broadcast(pubsub, Slot.slots_topic(), {:slot_starting, next})
 
