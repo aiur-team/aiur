@@ -1633,8 +1633,6 @@ defmodule Aiur.Orchestrator do
     Workspace.remove_issue_workspaces(issue_id, Map.get(running_entry, :worker_host))
   end
 
-  defp cleanup_pr_anchored_workspace(_issue_id, _running_entry), do: :ok
-
   # Emit the SAME PR-number reactivation signal U2 uses
   # (`ticket.<pr#>.pr.review_comment`) with `bypass_contamination: true` so it
   # reaches the orchestrator even though the commanded PR is absent from the
