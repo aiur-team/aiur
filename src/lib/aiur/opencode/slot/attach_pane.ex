@@ -65,9 +65,7 @@ defmodule Aiur.Opencode.Slot.AttachPane do
       _ = Tmux.command(Tmux, "kill-pane -t #{state.pane_id}")
     end
 
-    case Tmux.split_pane(Tmux, keep_alive_pane, :horizontal, @hidden_split_percent, attach_cmd,
-           silent: true
-         ) do
+    case Tmux.split_pane(Tmux, keep_alive_pane, :horizontal, @hidden_split_percent, attach_cmd, silent: true) do
       {:ok, pane_id} ->
         Aiur.Perf.span_end(span,
           slot: state.slot_index,
