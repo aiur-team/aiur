@@ -1,5 +1,5 @@
 defmodule Aiur.PeriodicWorkerTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   import ExUnit.CaptureLog
 

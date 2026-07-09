@@ -71,12 +71,10 @@ defmodule Aiur.PeriodicWorker do
     error ->
       Logger.warning("#{worker_label(module)} tick raised: #{Exception.message(error)} (#{inspect(error.__struct__)})")
 
-      Logger.flush()
       state
   catch
     kind, reason ->
       Logger.warning("#{worker_label(module)} tick caught #{kind}: #{inspect(reason)}")
-      Logger.flush()
       state
   end
 
