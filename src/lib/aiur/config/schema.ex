@@ -457,7 +457,7 @@ defmodule Aiur.Config.Schema do
 
     @primary_key false
     embedded_schema do
-      # `enabled` defaults true so machines already using `alerts.yaml` +
+      # `enabled` defaults true so machines already using `.aiur/alerts` +
       # `~/alerts/*.wav` keep playing without an `alerts:` section (the OS-default
       # cross-platform set is the opt-in piece, gated by `use_os_default_sounds`).
       field(:enabled, :boolean, default: true)
@@ -471,7 +471,7 @@ defmodule Aiur.Config.Schema do
       # Optional topic→sound map. `aiur init` scaffolds `.aiur/alerts` and points
       # here with `alerts_file: alerts` (a relative value resolves next to the
       # config dir; see `Aiur.Workflow`). Absolute / `~/` paths are honoured
-      # as-is. When unset or missing, the bundled repo `alerts.yaml` is used.
+      # as-is. When unset or missing, the bundled repo `.aiur/alerts` is used.
       field(:alerts_file, :string)
     end
 

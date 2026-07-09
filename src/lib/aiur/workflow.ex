@@ -187,7 +187,7 @@ defmodule Aiur.Workflow do
   # dir — mirroring `hooks_file`/`prompt_file` — so `alerts_file: alerts` resolves
   # next to the config regardless of the daemon's cwd. Absolute and `~/` paths are
   # left untouched (expanded later by `Aiur.Alerts`); an absent or empty value is
-  # left as-is so the bundled `alerts.yaml` fallback still applies. The pointed-at
+  # left as-is so the bundled `.aiur/alerts` fallback still applies. The pointed-at
   # file is read lazily at emit time, so a missing file is not an error here.
   defp resolve_alerts(config, path) do
     with %{} = alerts <- Map.get(config, "alerts"),
