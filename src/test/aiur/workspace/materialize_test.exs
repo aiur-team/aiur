@@ -36,4 +36,20 @@ defmodule Aiur.Workspace.MaterializeTest do
     assert File.dir?(workspace)
     assert File.exists?(Path.join(workspace, "README.md"))
   end
+
+  test "materialize_from_base/3 with non-existent base returns error and cleans up workspace", %{tmp: tmp} do
+    workspace = Path.join(tmp, "ws3")
+    base_missing = Path.join(tmp, "no_such_base")
+
+    assert {:error, _} = Materialize.materialize_from_base(base_missing, workspace, "my-branch")
+    refute File.exists?(workspace)
+  end
+
+  test "materialize_from_base/3 with valid base creates workspace on the pr branch", %{tmp: tmp, base: base} do
+    workspace = Path.join(tmp, "ws4")
+
+    assert :ok = Materialize.materialize_from_base(base, workspace, "my-pr-branch")
+    assert File.dir?(workspace)
+    assert File.exists?(Path.join(workspace, "README.md"))
+  end
 end

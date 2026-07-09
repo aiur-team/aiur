@@ -27,6 +27,14 @@ defmodule Aiur.Workspace.BootstrapImageTest do
     assert script =~ "_build"
   end
 
+  test "bootstrap_image_copy_script/0 starts with set -eu and contains a for-loop over cache paths" do
+    script = BootstrapImage.bootstrap_image_copy_script()
+
+    assert String.starts_with?(script, "set -eu\n")
+    assert script =~ "for path in"
+    assert script =~ "found=0"
+  end
+
   test "bootstrap_image_script/3 includes docker pull when pull? true, omits it when false" do
     workspace = "/tmp/test-workspace"
     image = "test-image:latest"

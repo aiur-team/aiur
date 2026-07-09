@@ -49,6 +49,21 @@ defmodule Aiur.Workspace.HooksTest do
     assert :ok = Hooks.run_after_run(workspace, issue_context, nil)
   end
 
+  test "run_github_preflight/3 with preflight disabled returns :ok", %{workspace: workspace} do
+    prev = Application.get_env(:aiur, :workspace_github_preflight_enabled)
+    Application.put_env(:aiur, :workspace_github_preflight_enabled, false)
+
+    on_exit(fn ->
+      case prev do
+        nil -> Application.delete_env(:aiur, :workspace_github_preflight_enabled)
+        v -> Application.put_env(:aiur, :workspace_github_preflight_enabled, v)
+      end
+    end)
+
+    issue_context = %{issue_id: 1, issue_identifier: "test", issue_state: nil, issue_labels: [], pr_head_ref: nil}
+    assert :ok = Hooks.run_github_preflight(workspace, issue_context, nil)
+  end
+
   test "run_hook/5 local applies env scrub (RELEASE_NODE stripped from hook env)", %{workspace: workspace} do
     prev = System.get_env("RELEASE_NODE")
     System.put_env("RELEASE_NODE", "hooks-test")

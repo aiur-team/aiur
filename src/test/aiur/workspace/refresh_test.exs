@@ -29,6 +29,23 @@ defmodule Aiur.Workspace.RefreshTest do
     assert :ok = Refresh.run(workspace, issue_context, nil)
   end
 
+  test "run/3 exit-65 on todo dispatch recreates workspace and re-runs before_run", %{workspace: workspace, test_root: test_root} do
+    sentinel = Path.join(workspace, "leftover-sentinel")
+    File.write!(sentinel, "leftover")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      workspace_root: test_root,
+      hook_before_run: "exit 65"
+    )
+
+    # Use the raw issue map form so Context.build picks up state: "todo" as todo_dispatch?
+    issue = %{id: 1, identifier: "test", state: "todo", labels: [], pr_head_ref: nil}
+
+    # Recreation happens: sentinel gone, before_run fails again → error propagates
+    assert {:error, _} = Refresh.run(workspace, issue, nil)
+    refute File.exists?(sentinel)
+  end
+
   test "run/3 exit-65 on non-todo dispatch returns :ok (WIP skip)", %{workspace: workspace, test_root: test_root} do
     write_workflow_file!(Workflow.workflow_file_path(),
       workspace_root: test_root,

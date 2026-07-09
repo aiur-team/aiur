@@ -29,6 +29,14 @@ defmodule Aiur.Workspace.Refresh do
   end
 
   @doc false
+  @spec maybe_recreate_stale_workspace(
+          {:error, term()},
+          term(),
+          String.t() | nil,
+          Path.t(),
+          map(),
+          String.t() | nil
+        ) :: :ok | {:error, term()}
   def maybe_recreate_stale_workspace(error, reason, before_run, workspace, issue_context, worker_host) do
     cond do
       is_nil(before_run) ->

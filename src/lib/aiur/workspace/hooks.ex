@@ -143,6 +143,7 @@ defmodule Aiur.Workspace.Hooks do
   def ignore_hook_failure(:ok), do: :ok
   def ignore_hook_failure({:error, _reason}), do: :ok
 
+  @doc false
   @spec run_github_preflight(Path.t(), map(), String.t() | nil) :: :ok | {:error, term()}
   def run_github_preflight(workspace, issue_context, worker_host) do
     if github_workspace_preflight_enabled?() do

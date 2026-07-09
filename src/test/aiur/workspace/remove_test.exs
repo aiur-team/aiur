@@ -27,6 +27,13 @@ defmodule Aiur.Workspace.RemoveTest do
     assert :ok = Remove.remove_issue_workspaces(123)
   end
 
+  test "remove/1 on a non-existent workspace returns {ok, []}", %{test_root: test_root} do
+    write_workflow_file!(Workflow.workflow_file_path(), workspace_root: test_root)
+
+    missing = Path.join(test_root, "never-existed")
+    assert {:ok, []} = Remove.remove(missing)
+  end
+
   test "remove/2 with a failing before_remove hook still removes the workspace", %{workspace: workspace, test_root: test_root} do
     write_workflow_file!(Workflow.workflow_file_path(),
       workspace_root: test_root,
