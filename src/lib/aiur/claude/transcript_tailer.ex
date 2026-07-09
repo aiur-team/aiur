@@ -24,6 +24,7 @@ defmodule Aiur.Claude.TranscriptTailer do
   require Logger
 
   alias Aiur.Claude.Transcript
+  alias Aiur.Jsonl
 
   @default_interval_ms 400
 
@@ -201,9 +202,9 @@ defmodule Aiur.Claude.TranscriptTailer do
   end
 
   defp decode(line) do
-    case Jason.decode(line) do
-      {:ok, record} when is_map(record) -> {:ok, record}
-      _ -> :error
+    case Jsonl.decode_line(line) do
+      {:ok, record} -> {:ok, record}
+      :skip -> :error
     end
   end
 

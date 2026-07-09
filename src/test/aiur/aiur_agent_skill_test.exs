@@ -168,7 +168,7 @@ defmodule Aiur.AiurAgentSkillTest do
     end
   end
 
-  test "agent operating guidance requires the full pre-PR verification gate" do
+  test "agent operating guidance scopes local pre-PR verification to affected tests" do
     dev_loop = File.read!(Path.join([@repo_root, ".claude", "skills", "using-aiur", "dev-loop.md"]))
     repo_prompt = File.read!(Path.join(@repo_root, ".aiur/prompt.md"))
 
@@ -176,14 +176,18 @@ defmodule Aiur.AiurAgentSkillTest do
       assert source =~ "pre-PR"
       assert source =~ "mix compile --warnings-as-errors"
       assert source =~ "mix format --check-formatted"
-      assert source =~ "mix test"
+      assert source =~ "affected tests only"
       assert source =~ "mix credo --strict"
-      assert source =~ "mix dialyzer"
+      assert source =~ "changed files"
+      assert source =~ "full `make ci`"
+      assert source =~ "authoritative full-suite gate"
+      assert source =~ "Do not gate PR-opening on a clean full-suite `mix test` run"
+      refute source =~ "mix dialyzer"
     end
 
-    assert one_line(dev_loop) =~ "Do not substitute a smaller local gate"
-    assert one_line(dev_loop) =~ "Re-run the pre-PR verification gate after review fixes"
-    assert one_line(repo_prompt) =~ "fix failures before opening/finalizing a PR"
+    assert one_line(dev_loop) =~ "loop on unrelated suite flakes"
+    assert one_line(dev_loop) =~ "Re-run the scoped local pre-PR verification gate"
+    assert one_line(repo_prompt) =~ "Fix failures in this scoped gate"
   end
 
   defp assert_codex_skill_symlink_resolves_to_claude(skill) do

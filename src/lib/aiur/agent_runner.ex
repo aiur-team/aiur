@@ -26,6 +26,7 @@ defmodule Aiur.AgentRunner do
   alias Aiur.Events.{DebugLog, IdGenerator, Publisher, Sanitizer, SubscriptionStore, Topic, UniversalSubscriptions}
   alias Aiur.GitHub.IssueDependencies
   alias Aiur.Opencode.{ActiveTurns, ApiClient, SessionWriterRegistry, TurnMarkers}
+  alias Aiur.Protocol.MapAccess
 
   @type worker_host :: String.t() | nil
 
@@ -594,11 +595,7 @@ defmodule Aiur.AgentRunner do
   # Look up `key` in `map` using both atom and binary forms so we tolerate
   # either shape (`%{event: "..."}` or `%{"event" => "..."}`) — codex events
   # arrive as string-keyed JSON, while internal messages stay atom-keyed.
-  defp get(map, key) when is_map(map) and is_atom(key) do
-    Map.get(map, key) || Map.get(map, Atom.to_string(key))
-  end
-
-  defp get(_map, _key), do: nil
+  defp get(map, key), do: MapAccess.get(map, key)
 
   defp timestamp_for(message) do
     case Map.get(message, :timestamp) || Map.get(message, "timestamp") do
@@ -631,40 +628,46 @@ defmodule Aiur.AgentRunner do
 
   defp send_worker_runtime_info(_recipient, _issue, _worker_host, _workspace), do: :ok
 
-  # The persistent-REPL pane + claude OS pid are owned by this runner task.
-  # An abort/shutdown brutally kills the task, skipping the `after
-  # stop_session` cleanup, so report them to the orchestrator's running
-  # entry — the only place an abort path can still reach them.
-  defp report_repl_session(recipient, %Issue{id: issue_id}, %{backend: "claude-repl"} = session)
+  # The live session's OS-level runtime (REPL pane + agent os pid, or the
+  # headless wrapper's bash pid) is owned by this runner task. An
+  # abort/shutdown brutally kills the task, skipping the `after
+  # stop_session` cleanup, so report it to the orchestrator's running
+  # entry — the only place an abort path can still reach it. What gets
+  # reported is the backend's registry-declared `runtime_report`
+  # capability (`Aiur.CodingAgent.runtime_report/1`).
+  defp report_repl_session(recipient, %Issue{id: issue_id}, session)
        when is_binary(issue_id) and is_pid(recipient) do
-    send(
-      recipient,
-      {:repl_session_runtime, issue_id,
-       %{
-         pane_id: Map.get(session, :pane_id),
-         os_pid: Map.get(session, :os_pid),
-         session_url: Map.get(session, :session_url)
-       }}
-    )
+    case session_runtime_info(session) do
+      nil ->
+        :ok
 
-    :ok
-  end
-
-  # The headless `claude` backend runs under a `bash -lc` wrapper that does
-  # not exec; its claude/node grandchildren reparent to init when the bash
-  # pid dies, so report the bash os_pid for the orchestrator to tree-reap on
-  # brutal-kill teardown (the runner task's `after stop_session` is skipped).
-  defp report_repl_session(recipient, %Issue{id: issue_id}, %{backend: "claude"} = session)
-       when is_binary(issue_id) and is_pid(recipient) do
-    case headless_os_pid(session) do
-      nil -> :ok
-      pid -> send(recipient, {:repl_session_runtime, issue_id, %{headless_os_pid: pid}})
+      info ->
+        send(recipient, {:repl_session_runtime, issue_id, info})
+        :ok
     end
-
-    :ok
   end
 
   defp report_repl_session(_recipient, _issue, _session), do: :ok
+
+  defp session_runtime_info(session) do
+    case CodingAgent.runtime_report(session_backend(session)) do
+      :repl_pane ->
+        %{
+          pane_id: Map.get(session, :pane_id),
+          os_pid: Map.get(session, :os_pid),
+          session_url: Map.get(session, :session_url)
+        }
+
+      :headless_wrapper ->
+        case headless_os_pid(session) do
+          nil -> nil
+          pid -> %{headless_os_pid: pid}
+        end
+
+      nil ->
+        nil
+    end
+  end
 
   defp headless_os_pid(%{metadata: %{claude_app_server_pid: pid}}) when is_binary(pid) do
     case Integer.parse(pid) do
@@ -790,13 +793,14 @@ defmodule Aiur.AgentRunner do
     end
   end
 
-  # Only the hook-driven RC claude-repl session feeds the display tailer.
-  # A headless-claude fallback (backend "claude"), codex, or RC-off REPL
-  # streams its own rich transcript and must not get a second display source.
+  # Only a backend that declares the `rc_display_tail` capability (the
+  # hook-driven RC REPL) feeds the display tailer. A spawn-fallback
+  # headless session, codex, or an RC-off REPL streams its own rich
+  # transcript and must not get a second display source.
   @doc false
   @spec should_display_tail?(String.t() | nil, boolean(), String.t() | nil) :: boolean()
   def should_display_tail?(backend, rc?, identifier) do
-    rc? and backend == "claude-repl" and is_binary(identifier)
+    rc? and CodingAgent.rc_display_tail?(backend) and is_binary(identifier)
   end
 
   defp stop_display_tailer(nil), do: :ok
@@ -816,12 +820,14 @@ defmodule Aiur.AgentRunner do
   defp maybe_put_rc_name(opts, true, issue), do: Keyword.put(opts, :rc_name, rc_session_name(issue))
   defp maybe_put_rc_name(opts, false, _issue), do: opts
 
-  # Remote control physically runs on the persistent-REPL transport, so a
-  # remote-on claude issue dispatches `claude-repl` (carrying the resolved
-  # model). Other backends — and non-remote claude — run as resolved.
+  # Remote control physically rides the persistent-REPL transport, so an
+  # RC-on dispatch is promoted to its registry-declared `remote_transport`
+  # (`Aiur.CodingAgent.remote_transport/1`, carrying the resolved model).
+  # Backends without the capability — and every RC-off dispatch — run as
+  # resolved.
   @doc false
   @spec remote_session_backend(String.t(), boolean()) :: String.t()
-  def remote_session_backend("claude", true), do: "claude-repl"
+  def remote_session_backend(backend, true), do: CodingAgent.remote_transport(backend)
   def remote_session_backend(backend, _rc?), do: backend
 
   # Load the prior thread id to resume from, or nil for a clean start. Only a
@@ -1027,11 +1033,13 @@ defmodule Aiur.AgentRunner do
 
   @doc false
   # Start the resolved backend's session, tagging it with its backend so
-  # later dispatch resolves the right adapter. The persistent-REPL backend
-  # can fail to start (no tmux, REPL never ready, RC activation failed); a
-  # tmux/RC problem must never strand an issue, so fall back once to the
-  # headless `claude` backend and record why. `start_fun` is injectable for
-  # tests; production uses `CodingAgent.start_session/2`.
+  # later dispatch resolves the right adapter. A backend may declare a
+  # registry `fallback_backend` (the persistent REPL can fail to start: no
+  # tmux, REPL never ready, RC activation failed — and a tmux/RC problem
+  # must never strand an issue); on a start failure the fallback backend
+  # is tried once, with `:remote_control` stripped, and the reason
+  # recorded. `start_fun` is injectable for tests; production uses
+  # `CodingAgent.start_session/2`.
   @spec start_agent_session(Path.t(), keyword(), (Path.t(), keyword() -> {:ok, map()} | {:error, term()})) ::
           {:ok, map()} | {:error, term()}
   def start_agent_session(workspace, opts, start_fun \\ &CodingAgent.start_session/2) do
@@ -1041,20 +1049,24 @@ defmodule Aiur.AgentRunner do
       {:ok, session} ->
         {:ok, Map.put(session, :backend, backend)}
 
-      {:error, reason} when backend == "claude-repl" ->
-        Aiur.Perf.event(:repl_start_fallback, backend: backend, reason: inspect(reason))
-
-        Logger.warning("claude-repl start_session failed (#{inspect(reason)}); falling back to headless claude")
-
-        fallback_opts = opts |> Keyword.put(:backend, "claude") |> Keyword.delete(:remote_control)
-
-        case start_fun.(workspace, fallback_opts) do
-          {:ok, session} -> {:ok, Map.put(session, :backend, "claude")}
-          {:error, _} = error -> error
+      {:error, reason} = error ->
+        case CodingAgent.fallback_backend(backend) do
+          nil -> error
+          fallback -> start_fallback_session(workspace, opts, start_fun, backend, fallback, reason)
         end
+    end
+  end
 
-      {:error, _} = error ->
-        error
+  defp start_fallback_session(workspace, opts, start_fun, backend, fallback, reason) do
+    Aiur.Perf.event(:repl_start_fallback, backend: backend, reason: inspect(reason))
+
+    Logger.warning("#{backend} start_session failed (#{inspect(reason)}); falling back to #{fallback}")
+
+    fallback_opts = opts |> Keyword.put(:backend, fallback) |> Keyword.delete(:remote_control)
+
+    case start_fun.(workspace, fallback_opts) do
+      {:ok, session} -> {:ok, Map.put(session, :backend, fallback)}
+      {:error, _} = error -> error
     end
   end
 
@@ -1674,7 +1686,7 @@ defmodule Aiur.AgentRunner do
   defp render_event_line(other), do: inspect(other)
 
   defp event_field(event, key) when is_atom(key) do
-    Map.get(event, key) || Map.get(event, Atom.to_string(key))
+    MapAccess.get(event, key)
   end
 
   defp event_summary(event) do
