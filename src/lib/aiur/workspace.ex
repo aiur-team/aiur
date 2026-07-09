@@ -4,13 +4,13 @@ defmodule Aiur.Workspace do
   """
 
   require Logger
-  alias Aiur.{Alerts, Config, RepoBase}
+  alias Aiur.{Alerts, Config}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Tracker, as: GitHubTracker
-  alias Aiur.Workspace.{Checkout, Context, GitMetadata, Layout, Remote}
+  alias Aiur.Workspace.{Context, GitMetadata, Layout, Remote}
+  alias Aiur.Workspace.Provisioner
 
-  @remote_workspace_marker "__AIUR_WORKSPACE__"
   @warm_cache_paths ["src/deps", "src/_build", "deps", "_build"]
 
   @type worker_host :: String.t() | nil
@@ -26,10 +26,10 @@ defmodule Aiur.Workspace do
       with {:ok, workspace} <- Layout.workspace_path_for_issue(safe_id, worker_host),
            :ok <- Layout.validate_workspace_path(workspace, worker_host),
            {:ok, workspace, created?} <-
-             ensure_workspace(workspace, worker_host, issue_context.pr_head_ref),
+             Provisioner.ensure_workspace(workspace, worker_host, issue_context.pr_head_ref),
            :ok <- maybe_run_after_create_hook(workspace, issue_context, created?, worker_host),
            :ok <- maybe_run_github_workspace_preflight(workspace, issue_context, worker_host) do
-        maybe_install_agent_skills(workspace, worker_host)
+        Provisioner.maybe_install_agent_skills(workspace, worker_host)
         {:ok, workspace}
       end
     rescue
@@ -39,92 +39,13 @@ defmodule Aiur.Workspace do
     end
   end
 
-  # Install aiur's bundled agent-operating skills (`using-aiur`, `/aiur-agent`)
-  # into the freshly populated workspace so the agent can load the skills the
-  # per-turn prompt routes it to instead of full-disk-searching (#689). Local
-  # worker only — a remote worker materializes on another host where these local
-  # file writes wouldn't land. Idempotent, so reuse + re-dispatch are safe.
-  defp maybe_install_agent_skills(workspace, nil), do: Aiur.AgentSkills.install(workspace)
-  defp maybe_install_agent_skills(_workspace, worker_host) when is_binary(worker_host), do: :ok
+  @doc false
+  @spec materialize_from_base(Path.t(), Path.t()) :: :ok | {:error, term()}
+  defdelegate materialize_from_base(base, workspace), to: Aiur.Workspace.Materialize
 
-  # PR-anchored creation (`pr_head_ref` set) is only wired for the local
-  # worker today; a remote worker_host ignores it and keeps the legacy
-  # `aiur/<id>` remote path byte-for-byte (SSH PR-anchored is out of scope
-  # for this unit). The 3-arity head delegates to the unchanged 2-arity
-  # clauses for the legacy (`pr_head_ref == nil`) path.
-  defp ensure_workspace(workspace, worker_host, nil), do: ensure_workspace(workspace, worker_host)
-
-  defp ensure_workspace(workspace, nil, pr_head_ref) when is_binary(pr_head_ref) do
-    cond do
-      File.dir?(workspace) ->
-        {:ok, workspace, false}
-
-      File.exists?(workspace) ->
-        File.rm_rf!(workspace)
-        create_or_materialize(workspace, pr_head_ref)
-
-      true ->
-        create_or_materialize(workspace, pr_head_ref)
-    end
-  end
-
-  defp ensure_workspace(workspace, worker_host, pr_head_ref)
-       when is_binary(worker_host) and is_binary(pr_head_ref) do
-    ensure_workspace(workspace, worker_host)
-  end
-
-  defp ensure_workspace(workspace, nil) do
-    cond do
-      File.dir?(workspace) ->
-        {:ok, workspace, false}
-
-      File.exists?(workspace) ->
-        File.rm_rf!(workspace)
-        create_or_materialize(workspace)
-
-      true ->
-        create_or_materialize(workspace)
-    end
-  end
-
-  defp ensure_workspace(workspace, worker_host) when is_binary(worker_host) do
-    script =
-      [
-        "set -eu",
-        Remote.remote_shell_assign("workspace", workspace),
-        "if [ -d \"$workspace\" ]; then",
-        "  created=0",
-        "elif [ -e \"$workspace\" ]; then",
-        "  rm -rf \"$workspace\"",
-        "  mkdir -p \"$workspace\"",
-        "  created=1",
-        "else",
-        "  mkdir -p \"$workspace\"",
-        "  created=1",
-        "fi",
-        "cd \"$workspace\"",
-        "printf '%s\\t%s\\t%s\\n' '#{@remote_workspace_marker}' \"$created\" \"$(pwd -P)\""
-      ]
-      |> Enum.reject(&(&1 == ""))
-      |> Enum.join("\n")
-
-    case Remote.run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
-      {:ok, {output, 0}} ->
-        parse_remote_workspace_output(output)
-
-      {:ok, {output, status}} ->
-        {:error, {:workspace_prepare_failed, worker_host, status, output}}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp create_workspace(workspace) do
-    File.rm_rf!(workspace)
-    File.mkdir_p!(workspace)
-    {:ok, workspace, true}
-  end
+  @doc false
+  @spec materialize_from_base(Path.t(), Path.t(), String.t()) :: :ok | {:error, term()}
+  defdelegate materialize_from_base(base, workspace, pr_head_ref), to: Aiur.Workspace.Materialize
 
   defp maybe_run_github_workspace_preflight(workspace, issue_context, worker_host) do
     if github_workspace_preflight_enabled?() do
@@ -195,94 +116,6 @@ defmodule Aiur.Workspace do
     "GET https://api.github.com/rate_limit; " <>
       "GET https://api.github.com/repos/#{repo}; " <>
       "GET https://api.github.com/repos/#{repo}/issues?state=open&per_page=1"
-  end
-
-  # When pre-warm is enabled and the shared base is ready, materialize the
-  # workspace from it (copy-on-write where the filesystem supports it, carrying
-  # the warm `_build`/deps) instead of cold-cloning + recompiling. Anything that
-  # rules pre-warm out — disabled, base not ready, missing, or a copy failure —
-  # falls through to the unchanged cold `create_workspace/1` path.
-  defp create_or_materialize(workspace) do
-    with true <- Config.prewarm_enabled?(),
-         {:ready, base} when is_binary(base) <- RepoBase.status(),
-         true <- File.dir?(base),
-         :ok <- materialize_from_base(base, workspace) do
-      {:ok, workspace, :materialized}
-    else
-      _ -> create_workspace(workspace)
-    end
-  end
-
-  # PR-anchored variant: materialize from the warm base (CoW) but check out
-  # the PR's existing head branch (`pr_head_ref`) instead of creating a fresh
-  # `aiur/<id>`. When pre-warm is unavailable, fall back to the unchanged cold
-  # `create_workspace/1` path (the operator's after_create hook owns the clone;
-  # PR-anchored cold-clone branch selection is out of scope for this unit).
-  defp create_or_materialize(workspace, pr_head_ref) when is_binary(pr_head_ref) do
-    with true <- Config.prewarm_enabled?(),
-         {:ready, base} when is_binary(base) <- RepoBase.status(),
-         true <- File.dir?(base),
-         :ok <- materialize_from_base(base, workspace, pr_head_ref) do
-      {:ok, workspace, :materialized}
-    else
-      _ -> create_workspace(workspace)
-    end
-  end
-
-  @doc false
-  # Copy the warm base into `workspace` (CoW when the FS supports it) and branch
-  # off the base's HEAD as `aiur/<id>`. Public for tests; callers go through
-  # `create_or_materialize/1`.
-  @spec materialize_from_base(Path.t(), Path.t()) :: :ok | {:error, term()}
-  def materialize_from_base(base, workspace) do
-    File.rm_rf!(workspace)
-    # The repo-namespaced layout (`<root>/<repo>/<issue>`) means the `<repo>`
-    # parent dir may not exist yet for the first agent of a repo; `cp` needs it
-    # present. The cold `create_workspace/1` path gets this via `mkdir_p!`; the
-    # materialize path must create the parent itself (the leaf is made by `cp`).
-    File.mkdir_p!(Path.dirname(workspace))
-
-    with {_out, 0} <- copy_tree(base, workspace),
-         :ok <- Checkout.checkout_fresh_branch(workspace) do
-      :ok
-    else
-      other ->
-        Logger.warning("prewarm materialize failed (#{inspect(other)}); falling back to cold clone")
-        File.rm_rf!(workspace)
-        {:error, other}
-    end
-  end
-
-  @doc false
-  # PR-anchored materialize: copy the warm base (CoW) then check out the PR's
-  # existing head branch (`pr_head_ref`) instead of creating `aiur/<id>`. The PR
-  # branch is a human's existing branch — the agent works it directly and pushes
-  # back there, never opening a new `aiur/<id>` PR. Public for tests; callers go
-  # through `create_or_materialize/2`.
-  @spec materialize_from_base(Path.t(), Path.t(), String.t()) :: :ok | {:error, term()}
-  def materialize_from_base(base, workspace, pr_head_ref) when is_binary(pr_head_ref) do
-    File.rm_rf!(workspace)
-    File.mkdir_p!(Path.dirname(workspace))
-
-    with {_out, 0} <- copy_tree(base, workspace),
-         :ok <- Checkout.checkout_existing_pr_branch(workspace, pr_head_ref) do
-      :ok
-    else
-      other ->
-        Logger.warning("prewarm materialize (PR-anchored) failed (#{inspect(other)}); falling back to cold clone")
-        File.rm_rf!(workspace)
-        {:error, other}
-    end
-  end
-
-  # macOS APFS clones via `cp -c`; Linux btrfs/xfs reflink via `cp --reflink=auto`
-  # (degrading to a full copy on ext4). Either way the warm `_build`/deps come
-  # along, so the agent skips the recompile.
-  defp copy_tree(base, workspace) do
-    case :os.type() do
-      {:unix, :darwin} -> System.cmd("cp", ["-Rc", base, workspace], stderr_to_stdout: true)
-      _ -> System.cmd("cp", ["-a", "--reflink=auto", base, workspace], stderr_to_stdout: true)
-    end
   end
 
   @spec remove(Path.t()) :: {:ok, [String.t()]} | {:error, term(), String.t()}
@@ -417,7 +250,7 @@ defmodule Aiur.Workspace do
           "Recreating stale leftover workspace after before_run dirty-refresh refusal #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=#{Context.worker_host_for_log(worker_host)}"
         )
 
-        with :ok <- recreate_workspace(workspace, worker_host),
+        with :ok <- Provisioner.recreate(workspace, worker_host),
              :ok <- run_before_run_command(before_run, workspace, issue_context, worker_host) do
           finalize_before_run_workspace(workspace, issue_context, worker_host)
         end
@@ -545,28 +378,6 @@ defmodule Aiur.Workspace do
   defp stale_leftover_refresh_refusal?({:workspace_hook_failed, "before_run", 65, _output}), do: true
 
   defp stale_leftover_refresh_refusal?(_reason), do: false
-
-  defp recreate_workspace(workspace, nil) do
-    {:ok, _workspace, _created?} = create_or_materialize(workspace)
-    :ok
-  end
-
-  defp recreate_workspace(workspace, worker_host) when is_binary(worker_host) do
-    script =
-      [
-        "set -eu",
-        Remote.remote_shell_assign("workspace", workspace),
-        "rm -rf \"$workspace\"",
-        "mkdir -p \"$workspace\""
-      ]
-      |> Enum.join("\n")
-
-    case Remote.run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
-      {:ok, {_output, 0}} -> :ok
-      {:ok, {output, status}} -> {:error, {:workspace_prepare_failed, worker_host, status, output}}
-      {:error, reason} -> {:error, reason}
-    end
-  end
 
   @doc false
   @spec ensure_git_metadata_writable(Path.t(), worker_host()) :: :ok | {:error, term()}
@@ -798,29 +609,6 @@ defmodule Aiur.Workspace do
 
       false ->
         binary_part(binary_output, 0, max_bytes) <> "... (truncated)"
-    end
-  end
-
-  defp parse_remote_workspace_output(output) do
-    lines = String.split(IO.iodata_to_binary(output), "\n", trim: true)
-
-    payload =
-      Enum.find_value(lines, fn line ->
-        case String.split(line, "\t", parts: 3) do
-          [@remote_workspace_marker, created, path] when created in ["0", "1"] and path != "" ->
-            {created == "1", path}
-
-          _ ->
-            nil
-        end
-      end)
-
-    case payload do
-      {created?, workspace} when is_boolean(created?) and is_binary(workspace) ->
-        {:ok, workspace, created?}
-
-      _ ->
-        {:error, {:workspace_prepare_failed, :invalid_output, output}}
     end
   end
 end
