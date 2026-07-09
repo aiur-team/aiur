@@ -1859,7 +1859,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     assert config.agent.turn_timeout_ms == 3_600_000
     assert config.agent.codex.read_timeout_ms == 5_000
-    assert config.agent.stall_timeout_ms == 3_600_000
+    assert config.agent.stall_timeout_ms == 300_000
 
     write_workflow_file!(Workflow.workflow_file_path(),
       codex_command: "codex --config 'model=\"gpt-5.5\"' app-server"

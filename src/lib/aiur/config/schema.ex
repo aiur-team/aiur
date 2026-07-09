@@ -288,7 +288,7 @@ defmodule Aiur.Config.Schema do
       # Backend-agnostic turn/stall timeouts (promoted from codex; claude-repl
       # already reads these via Config.agent_turn_timeout_ms/0).
       field(:turn_timeout_ms, :integer, default: 3_600_000)
-      field(:stall_timeout_ms, :integer, default: 3_600_000)
+      field(:stall_timeout_ms, :integer, default: 300_000)
       # Safety net: hard-kill an agent that has been actively running this
       # many minutes (paused/blocked time excluded). 0 disables.
       field(:max_agent_duration_minutes, :integer, default: 60)
