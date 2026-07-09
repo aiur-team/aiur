@@ -16,7 +16,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
   require Logger
 
   alias Aiur.{AgentPubSub, Issue, OperatorWaitLog}
-  alias Aiur.AgentRunner.{CheckpointDelivery, EventsDigest, SessionLifecycle, TurnLoop}
+  alias Aiur.AgentRunner.{CheckpointDelivery, EventsDigest, MessageHandler, SessionLifecycle, ToolExecutor, TurnAlerts, TurnLoop, TurnStreams}
   alias Aiur.Codex.DynamicTool
   alias Aiur.CodingAgent
 
@@ -26,7 +26,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
     receive do
       {:pause_agent, request_id} when is_integer(request_id) ->
         Logger.info("Agent already paused for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{request_id}")
-        Aiur.AgentRunner.send_control_state(codex_update_recipient, issue, :paused)
+        MessageHandler.send_control_state(codex_update_recipient, issue, :paused)
         wait_for_operator_message(app_session, issue, message_handler, orchestrator, codex_update_recipient)
     after
       0 -> drain_queued_operator_messages(app_session, issue, message_handler, orchestrator, codex_update_recipient)
@@ -68,12 +68,12 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
       {:pause_agent, request_id} when is_integer(request_id) ->
         Logger.info("Agent already paused for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{request_id}")
-        Aiur.AgentRunner.send_control_state(codex_update_recipient, issue, :paused)
+        MessageHandler.send_control_state(codex_update_recipient, issue, :paused)
         wait_for_operator_message(app_session, issue, message_handler, orchestrator, codex_update_recipient)
 
       {:resume_agent, request_id} when is_integer(request_id) ->
         Logger.info("Resuming paused agent for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{request_id}")
-        Aiur.AgentRunner.send_control_state(codex_update_recipient, issue, :working)
+        MessageHandler.send_control_state(codex_update_recipient, issue, :working)
         # An explicit resume drains the agent queue so restored items
         # land in the same turn instead of being deferred until the next
         # checkpoint of an initial-prompt turn.
@@ -141,7 +141,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
     case claim_after_queue_update(orchestrator, issue.identifier, deliver_now?) do
       {:ok, item} ->
         Logger.info("Resuming paused agent for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{item.id}")
-        Aiur.AgentRunner.send_control_state(codex_update_recipient, issue, :working)
+        MessageHandler.send_control_state(codex_update_recipient, issue, :working)
         run_operator_turn(app_session, issue, item, message_handler, orchestrator, codex_update_recipient)
 
       :empty ->
@@ -200,12 +200,12 @@ defmodule Aiur.AgentRunner.QueueDrain do
     backend = SessionLifecycle.session_backend(app_session)
 
     message_handler =
-      Aiur.AgentRunner.codex_message_handler(codex_update_recipient, issue, workspace, worker_host, backend, turn_id)
+      MessageHandler.build(codex_update_recipient, issue, workspace, worker_host, backend, turn_id)
 
     safe_checkpoint_handler = CheckpointDelivery.safe_checkpoint_handler(issue, orchestrator)
 
-    Aiur.AgentRunner.send_control_state(codex_update_recipient, issue, :working)
-    aiur_turn_id = Aiur.AgentRunner.open_aiur_turn_streams(issue)
+    MessageHandler.send_control_state(codex_update_recipient, issue, :working)
+    aiur_turn_id = TurnStreams.open(issue)
 
     :ok = DynamicTool.reset_turn_quotas()
 
@@ -218,14 +218,14 @@ defmodule Aiur.AgentRunner.QueueDrain do
         on_safe_checkpoint: safe_checkpoint_handler,
         on_operator_message: CheckpointDelivery.operator_immediate_handler(issue, orchestrator),
         tool_executor:
-          Aiur.AgentRunner.tool_executor(
+          ToolExecutor.build(
             issue,
             SessionLifecycle.session_workspace(app_session),
             SessionLifecycle.session_worker_host(app_session)
           )
       )
 
-    Aiur.AgentRunner.close_aiur_turn_streams(issue, aiur_turn_id, TurnLoop.turn_done_reason(result))
+    TurnStreams.close(issue, aiur_turn_id, TurnLoop.turn_done_reason(result))
 
     case result do
       {:ok, _turn_session} ->
@@ -238,7 +238,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
         drain_operator_messages(app_session, issue, message_handler, orchestrator, codex_update_recipient)
 
       {:paused, pause_payload} ->
-        Aiur.AgentRunner.maybe_emit_usage_limit_alert(
+        TurnAlerts.maybe_emit_usage_limit_alert(
           issue,
           SessionLifecycle.session_workspace(app_session),
           SessionLifecycle.session_worker_host(app_session),
@@ -252,7 +252,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
           SessionLifecycle.session_worker_host(app_session)
         )
 
-        Aiur.AgentRunner.send_control_state(codex_update_recipient, issue, :paused)
+        MessageHandler.send_control_state(codex_update_recipient, issue, :paused)
         wait_for_operator_message(app_session, issue, message_handler, orchestrator, codex_update_recipient)
 
       {:error, {:turn_start_failed, reason}} when reason in [:response_timeout, :turn_timeout] ->
