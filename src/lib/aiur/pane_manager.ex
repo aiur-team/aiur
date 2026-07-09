@@ -52,55 +52,12 @@ defmodule Aiur.PaneManager do
 
   alias Aiur.{AgentEvents, AgentPubSub, Boot, Tmux}
   alias Aiur.Opencode.{AttachPool, HiddenWindow, Slot, SlotPolicy, SlotRegistry, SlotSupervisor}
-  alias Aiur.PaneManager.Layout
+  alias Aiur.PaneManager.{Layout, OpenQueue, State}
 
   @type agent_id :: AgentEvents.agent_identifier()
   @type pane_id :: String.t()
 
-  defstruct identifier_to_pane: %{},
-            pane_to_identifier: %{},
-            pane_to_slot: %{},
-            slot_panes: %{},
-            cycle_index: 0,
-            max_vertical_panes: 3,
-            slot_count: 5,
-            agent_list_pane: nil,
-            window_target: nil,
-            orientation: :horizontal,
-            tmux: nil,
-            # FIFO queue of pending opens waiting on a `:slot_ready`
-            # broadcast. Each entry is `{identifier, from, timer_ref}`.
-            # The queue drains 1 entry per `:slot_ready` event in v1 —
-            # multi-drain optimization deferred until measured need.
-            open_queue: :queue.new(),
-            # identifier => timer_ref, so a duplicate-open request can
-            # detect the existing queued entry and refuse it without
-            # walking the queue.
-            open_queue_timers: %{},
-            # Tracks the most-recently-opened or -attached chat pane.
-            # Drives the `a` "attach to focused pane" keybind in
-            # `AgentList` (U6). Reset to nil when the corresponding
-            # slot signals `:slot_session_changed` with a nil identifier.
-            last_attached_pane_id: nil,
-            # identifier => %{pane_id: pane_id, slot: slot_index}
-            # Loading placeholders are real visible tmux panes before
-            # a Slot worker has produced the final opencode-attach pane.
-            # They are included in layout occupancy but not reported as
-            # open chat panes.
-            placeholder_panes: %{},
-            # identifier => issue title string, captured from the `:title`
-            # open/attach option. Used to build the "<id> <title>" tmux pane
-            # title set on every bind so the pane border names its agent.
-            title_by_identifier: %{}
-
   @type orientation :: :horizontal | :vertical
-
-  # How long a queued open will wait for a slot to become `:ready` before
-  # we reply `{:error, :no_ready_slot}` to the caller. Generous because
-  # chain pre-warm sets the lower bound (slot N takes ~5 s after N-1
-  # broadcasts ready); a stalled chain still completes within this window
-  # in any realistic configuration.
-  @open_queue_timeout_ms 60_000
 
   # Periodic screen-grab interval. Captures every tracked pane's content into the
   # log so post-mortem reviews can replay the visible state at each tick. Gated
@@ -211,7 +168,7 @@ defmodule Aiur.PaneManager do
     # exercise round-robin behavior with a known cap.
     slot_count =
       Keyword.get_lazy(opts, :slot_count, fn ->
-        grid = slot_count(max_vertical_panes)
+        grid = State.slot_count(max_vertical_panes)
 
         max_agents =
           try do
@@ -250,13 +207,13 @@ defmodule Aiur.PaneManager do
       end
 
       {:ok,
-       %__MODULE__{
+       %State{
          tmux: tmux,
          agent_list_pane: agent_list_pane,
          window_target: window_target,
          max_vertical_panes: max_vertical_panes,
          slot_count: slot_count,
-         slot_panes: empty_slot_panes(slot_count),
+         slot_panes: State.empty_slot_panes(slot_count),
          orientation: orientation
        }}
     else
@@ -298,7 +255,7 @@ defmodule Aiur.PaneManager do
   @impl true
   def handle_call({:open, identifier, command_to_run, opts}, from, state) do
     Aiur.Perf.event(:pane_open_request, identifier: identifier)
-    state = remember_title(state, identifier, opts)
+    state = State.remember_title(state, identifier, opts)
     state = reconcile_visible_panes(state)
 
     case Map.fetch(state.identifier_to_pane, identifier) do
@@ -315,7 +272,7 @@ defmodule Aiur.PaneManager do
             {:reply, {:ok, existing_pane}, state}
 
           {:error, _reason} ->
-            do_open(forget_pane_by_identifier(state, existing_pane), identifier, command_to_run, opts, from)
+            do_open(State.forget_pane_by_identifier(state, existing_pane), identifier, command_to_run, opts, from)
         end
 
       :error ->
@@ -324,7 +281,7 @@ defmodule Aiur.PaneManager do
   end
 
   def handle_call({:attach, identifier, _command, opts}, from, state) do
-    state = remember_title(state, identifier, opts)
+    state = State.remember_title(state, identifier, opts)
 
     cond do
       Map.has_key?(state.identifier_to_pane, identifier) ->
@@ -414,7 +371,7 @@ defmodule Aiur.PaneManager do
 
     new_state =
       if is_binary(pane_id) do
-        forget_pane_by_identifier(state, pane_id)
+        State.forget_pane_by_identifier(state, pane_id)
       else
         state
       end
@@ -470,35 +427,15 @@ defmodule Aiur.PaneManager do
     do: {:noreply, state}
 
   def handle_info({:open_queue_timeout, identifier}, state) do
-    case Map.fetch(state.open_queue_timers, identifier) do
-      :error ->
-        # Already drained — timer fired after the entry was dequeued
-        # but before the timer could be cancelled cleanly. No-op.
+    case OpenQueue.pluck(state.open_queue, state.open_queue_timers, identifier) do
+      :not_queued ->
         {:noreply, state}
 
-      {:ok, _timer_ref} ->
-        # Walk the queue once to find this identifier and pluck it.
-        {entries, dropped_from} =
-          state.open_queue
-          |> :queue.to_list()
-          |> Enum.reduce({[], nil}, fn
-            {^identifier, from, _ref}, {acc, nil} -> {acc, from}
-            other, {acc, dropped} -> {[other | acc], dropped}
-          end)
+      {from, new_queue, new_timers} ->
+        Logger.warning("aiur_pane_manager phase=open_queue_timeout elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier} timeout_ms=#{OpenQueue.timeout_ms()}")
 
-        case dropped_from do
-          nil ->
-            {:noreply, state}
-
-          from ->
-            new_queue = :queue.from_list(Enum.reverse(entries))
-            new_timers = Map.delete(state.open_queue_timers, identifier)
-
-            Logger.warning("aiur_pane_manager phase=open_queue_timeout elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier} timeout_ms=#{@open_queue_timeout_ms}")
-
-            GenServer.reply(from, {:error, :no_ready_slot})
-            {:noreply, %{state | open_queue: new_queue, open_queue_timers: new_timers}}
-        end
+        GenServer.reply(from, {:error, :no_ready_slot})
+        {:noreply, %{state | open_queue: new_queue, open_queue_timers: new_timers}}
     end
   end
 
@@ -532,7 +469,7 @@ defmodule Aiur.PaneManager do
           state
           |> record_slot_pane(slot_index, real_pane_id, identifier)
           |> Map.put(:last_attached_pane_id, real_pane_id)
-          |> drop_placeholder(identifier)
+          |> State.drop_placeholder(identifier)
 
         _ = apply_layout(new_state)
         AgentPubSub.broadcast_status_change(identifier, :pane_opened)
@@ -570,7 +507,7 @@ defmodule Aiur.PaneManager do
         # Best effort: kill the placeholder so the user isn't stuck
         # staring at a loading screen forever.
         _ = Tmux.command(state.tmux, "kill-pane -t #{placeholder_pane_id}")
-        {:noreply, drop_placeholder(state, identifier)}
+        {:noreply, State.drop_placeholder(state, identifier)}
     end
   end
 
@@ -586,7 +523,7 @@ defmodule Aiur.PaneManager do
     Aiur.Perf.event(:placeholder_failed, identifier: identifier, reason: reason)
 
     _ = Tmux.command(state.tmux, "kill-pane -t #{placeholder_pane_id}")
-    new_state = drop_placeholder(state, identifier)
+    new_state = State.drop_placeholder(state, identifier)
     _ = apply_layout(new_state)
     {:noreply, new_state}
   end
@@ -699,9 +636,9 @@ defmodule Aiur.PaneManager do
   # slot. If no slot is ready, leave the entry queued and wait for the
   # next `:slot_ready` broadcast. v1: drains 1 entry per broadcast.
   defp drain_open_queue(state) do
-    case :queue.out(state.open_queue) do
-      {:empty, _} -> state
-      {{:value, entry}, rest} -> drain_open_entry(state, entry, rest)
+    case OpenQueue.pop(state.open_queue) do
+      :empty -> state
+      {entry, rest} -> drain_open_entry(state, entry, rest)
     end
   end
 
@@ -776,7 +713,7 @@ defmodule Aiur.PaneManager do
 
         case Tmux.move_pane_hidden(state.tmux, pane_id, hidden_window) do
           :ok ->
-            new_state = forget_pane_by_identifier(state, pane_id)
+            new_state = State.forget_pane_by_identifier(state, pane_id)
             _ = apply_layout(new_state)
             AgentPubSub.broadcast_status_change(identifier, :pane_closed)
             refocus_agent_list_if_focused(new_state, pane_id)
@@ -809,7 +746,7 @@ defmodule Aiur.PaneManager do
         case Tmux.move_pane_hidden(state.tmux, pane_id, hidden_window) do
           :ok ->
             :ok = Slot.deselect(slot_pid)
-            new_state = forget_pane_by_identifier(state, pane_id)
+            new_state = State.forget_pane_by_identifier(state, pane_id)
             _ = apply_layout(new_state)
 
             # Broadcast so the agent list drops 🟢 back to ⚪/🔘.
@@ -835,7 +772,7 @@ defmodule Aiur.PaneManager do
       :not_found ->
         # Generic (non-opencode) pane — kill behavior.
         _ = Tmux.command(state.tmux, "kill-pane -t #{pane_id}")
-        new_state = forget_pane_by_identifier(state, pane_id)
+        new_state = State.forget_pane_by_identifier(state, pane_id)
         _ = apply_layout(new_state)
         {:reply, :ok, new_state}
     end
@@ -863,7 +800,7 @@ defmodule Aiur.PaneManager do
       {:ok, pane_id, new_state} ->
         AgentPubSub.broadcast_status_change(identifier, :pane_opened)
         _ = apply_layout(new_state)
-        {:reply, {:ok, pane_id}, advance_cycle(new_state)}
+        {:reply, {:ok, pane_id}, State.advance_cycle(new_state)}
 
       {:error, reason} ->
         Logger.warning("PaneManager.open identifier=#{identifier} slot=#{slot} failed: #{inspect(reason)}")
@@ -1027,7 +964,7 @@ defmodule Aiur.PaneManager do
     # regardless of opencode-serve readiness. The real attach pane is
     # built asynchronously and swapped in when ready.
     placeholder_span = Aiur.Perf.span_begin(:placeholder_spawn, identifier: identifier)
-    visual_slot = first_available_visual_slot(state) || state.slot_count
+    visual_slot = State.first_available_visual_slot(state) || state.slot_count
 
     case spawn_placeholder_pane(state, identifier) do
       {:ok, placeholder_pane_id} ->
@@ -1121,22 +1058,9 @@ defmodule Aiur.PaneManager do
   defp horizontal_orientation(_), do: :horizontal
 
   defp record_placeholder(state, identifier, placeholder_pane_id, slot) do
-    placeholders = Map.get(state, :placeholder_panes, %{})
-
-    new_state =
-      Map.put(
-        state,
-        :placeholder_panes,
-        Map.put(placeholders, identifier, %{pane_id: placeholder_pane_id, slot: slot})
-      )
-
+    new_state = State.record_placeholder(state, identifier, placeholder_pane_id, slot)
     set_pane_title(new_state, placeholder_pane_id, identifier)
     new_state
-  end
-
-  defp drop_placeholder(state, identifier) do
-    placeholders = Map.get(state, :placeholder_panes, %{})
-    Map.put(state, :placeholder_panes, Map.delete(placeholders, identifier))
   end
 
   # Poll the opencode-attach pane for the convo render marker. opencode
@@ -1404,7 +1328,7 @@ defmodule Aiur.PaneManager do
             # opencode-attach with `--session <id>`, so
             # respawn_attach_with_session kills the old pane itself
             # before splitting a new one.
-            new_state = forget_identifier_for_pane(state, pane_id)
+            new_state = State.forget_identifier_for_pane(state, pane_id)
             attach_identifier_to_slot(new_state, identifier, slot_index, slot_pid, from)
 
           :not_found ->
@@ -1422,7 +1346,7 @@ defmodule Aiur.PaneManager do
   end
 
   defp enqueue_open(state, identifier, from) do
-    case Map.has_key?(state.open_queue_timers, identifier) do
+    case OpenQueue.queued?(state.open_queue_timers, identifier) do
       true ->
         # Duplicate open while a previous one for the same identifier is
         # still queued. Refuse rather than coalesce — simpler to reason
@@ -1431,9 +1355,10 @@ defmodule Aiur.PaneManager do
         {:reply, {:error, :already_queued}, state}
 
       false ->
-        timer_ref = Process.send_after(self(), {:open_queue_timeout, identifier}, @open_queue_timeout_ms)
-        new_queue = :queue.in({identifier, from, timer_ref}, state.open_queue)
-        new_timers = Map.put(state.open_queue_timers, identifier, timer_ref)
+        timer_ref = Process.send_after(self(), {:open_queue_timeout, identifier}, OpenQueue.timeout_ms())
+
+        {new_queue, new_timers} =
+          OpenQueue.enqueue(state.open_queue, state.open_queue_timers, identifier, from, timer_ref)
 
         new_state = %{state | open_queue: new_queue, open_queue_timers: new_timers}
 
@@ -1441,10 +1366,6 @@ defmodule Aiur.PaneManager do
 
         {:noreply, new_state}
     end
-  end
-
-  defp advance_cycle(%__MODULE__{} = state) do
-    %{state | cycle_index: rem(state.cycle_index + 1, state.slot_count)}
   end
 
   defp open_in_slot(state, slot, identifier, wrapped) do
@@ -1467,7 +1388,7 @@ defmodule Aiur.PaneManager do
       :ok ->
         new_state =
           state
-          |> forget_identifier_for_pane(existing_pane)
+          |> State.forget_identifier_for_pane(existing_pane)
           |> record_slot_pane(slot, existing_pane, identifier)
 
         {:ok, existing_pane, new_state}
@@ -1475,7 +1396,7 @@ defmodule Aiur.PaneManager do
       {:error, _} ->
         # Cached pane id is stale (tmux killed it under us). Forget it
         # and create a fresh pane in this slot.
-        create_pane_for_slot(forget_dead_slot(state, slot), slot, identifier, wrapped)
+        create_pane_for_slot(State.forget_dead_slot(state, slot), slot, identifier, wrapped)
     end
   end
 
@@ -1503,7 +1424,7 @@ defmodule Aiur.PaneManager do
              h,
              state.max_vertical_panes,
              state.agent_list_pane,
-             visible_panes_packed(state),
+             State.visible_panes_packed(state),
              state.orientation
            ),
          _ = log_layout_apply(state, w, h, layout_string),
@@ -1529,79 +1450,12 @@ defmodule Aiur.PaneManager do
     :ok
   end
 
-  # Raw slot-indexed view: position i = whatever pane (placeholder OR
-  # real) is currently assigned to slot index i+1, or nil if free.
-  # Used by `first_available_visual_slot` and other state-introspection
-  # code that needs to know "which slot index is free for a new
-  # placeholder". DO NOT use this for layout — see `visible_panes_packed`.
-  defp slot_panes_list(%__MODULE__{} = state) do
-    placeholder_slots =
-      state.placeholder_panes
-      |> Map.values()
-      |> Map.new(fn %{pane_id: pane_id, slot: slot} -> {slot, pane_id} end)
-
-    for slot <- 1..state.slot_count do
-      Map.get(placeholder_slots, slot) || Map.get(state.slot_panes, slot)
-    end
-  end
-
-  # Layout-ready view: visible chat panes packed left-to-right,
-  # padded to slot_count with nils. Slot indexes are an internal
-  # pre-warm detail; the grid should fill from the primary row first.
-  # Without packing, a single visible pane that happens to be slot 4
-  # renders alone in the secondary row while the agent list sits
-  # alone in the primary row — which is the "chat opens under the
-  # agent list" report from the user.
-  defp visible_panes_packed(%__MODULE__{} = state) do
-    raw = slot_panes_list(state)
-    visible = Enum.reject(raw, &is_nil/1)
-    padding = List.duplicate(nil, state.slot_count - length(visible))
-    visible ++ padding
-  end
-
-  defp first_available_visual_slot(%__MODULE__{} = state) do
-    state
-    |> slot_panes_list()
-    |> Enum.find_index(&is_nil/1)
-    |> case do
-      nil -> nil
-      index -> index + 1
-    end
-  end
-
-  defp slot_count(max_vertical_panes), do: max_vertical_panes * 2 - 1
-
-  defp empty_slot_panes(slot_count) do
-    Map.new(1..slot_count, fn slot -> {slot, nil} end)
-  end
-
   # State bookkeeping --------------------------------------------------------
 
-  defp record_slot_pane(%__MODULE__{} = state, slot, pane_id, identifier) do
-    new_state = %{
-      state
-      | identifier_to_pane: Map.put(state.identifier_to_pane, identifier, pane_id),
-        pane_to_identifier: Map.put(state.pane_to_identifier, pane_id, identifier),
-        pane_to_slot: Map.put(state.pane_to_slot, pane_id, slot),
-        slot_panes: Map.put(state.slot_panes, slot, pane_id)
-    }
-
+  defp record_slot_pane(state, slot, pane_id, identifier) do
+    new_state = State.record_slot_pane(state, slot, pane_id, identifier)
     set_pane_title(new_state, pane_id, identifier)
     new_state
-  end
-
-  # Capture the issue title from the open/attach `:title` option so a later
-  # bind can render "<id> <title>" in the pane border. AgentList already
-  # resolves the title in-memory and passes it through; absent/blank titles
-  # leave the cache untouched and the pane shows the bare identifier.
-  defp remember_title(%__MODULE__{} = state, identifier, opts) do
-    case Keyword.get(opts, :title) do
-      title when is_binary(title) and title != "" ->
-        %{state | title_by_identifier: Map.put(state.title_by_identifier, identifier, title)}
-
-      _ ->
-        state
-    end
   end
 
   # Best-effort: set the pane's tmux title to "<id> <issue title>" so the
@@ -1609,81 +1463,16 @@ defmodule Aiur.PaneManager do
   # format truncates to the pane width with an ellipsis, so we always set the
   # full title and let tmux clip per pane size (and re-clip on resize). A
   # failed title set never blocks the open/swap that triggered it.
-  defp set_pane_title(%__MODULE__{} = state, pane_id, identifier) do
-    _ = Tmux.set_pane_title(state.tmux, pane_id, pane_title_text(state, identifier))
+  defp set_pane_title(state, pane_id, identifier) do
+    _ = Tmux.set_pane_title(state.tmux, pane_id, State.pane_title_text(state, identifier))
     :ok
-  end
-
-  defp pane_title_text(%__MODULE__{} = state, identifier) do
-    case Map.get(state.title_by_identifier, identifier) do
-      title when is_binary(title) and title != "" -> "#{identifier} #{scrub_title(title)}"
-      _ -> identifier
-    end
-  end
-
-  # The pane border is a single line, so a raw newline or control character in
-  # an issue title would garble it (no injection risk — the title is one argv
-  # element and tmux does not re-evaluate format sequences inside a pane title).
-  # Collapse any control char (incl. CR/LF/tab) to a space so the title stays
-  # on one line; tmux's `pane-border-format` handles width truncation.
-  defp scrub_title(title) do
-    String.replace(title, ~r/[\x00-\x1f\x7f]/, " ")
-  end
-
-  defp forget_identifier_for_pane(%__MODULE__{} = state, pane_id) do
-    case Map.get(state.pane_to_identifier, pane_id) do
-      nil ->
-        state
-
-      old_identifier ->
-        %{
-          state
-          | identifier_to_pane: Map.delete(state.identifier_to_pane, old_identifier),
-            title_by_identifier: Map.delete(state.title_by_identifier, old_identifier)
-        }
-    end
-  end
-
-  defp forget_pane_by_identifier(%__MODULE__{} = state, pane_id) do
-    identifier = Map.get(state.pane_to_identifier, pane_id)
-    slot = Map.get(state.pane_to_slot, pane_id)
-
-    new_state = %{
-      state
-      | pane_to_identifier: Map.delete(state.pane_to_identifier, pane_id),
-        pane_to_slot: Map.delete(state.pane_to_slot, pane_id)
-    }
-
-    new_state =
-      if identifier do
-        %{
-          new_state
-          | identifier_to_pane: Map.delete(new_state.identifier_to_pane, identifier),
-            title_by_identifier: Map.delete(new_state.title_by_identifier, identifier)
-        }
-      else
-        new_state
-      end
-
-    if slot do
-      %{new_state | slot_panes: Map.put(new_state.slot_panes, slot, nil)}
-    else
-      new_state
-    end
-  end
-
-  defp forget_dead_slot(%__MODULE__{} = state, slot) do
-    case Map.get(state.slot_panes, slot) do
-      nil -> state
-      pane_id -> forget_pane_by_identifier(state, pane_id)
-    end
   end
 
   defp handle_pane_closed(state, pane_id) do
     case Map.fetch(state.pane_to_identifier, pane_id) do
       {:ok, identifier} ->
         AgentPubSub.broadcast_status_change(identifier, :pane_closed)
-        new_state = forget_pane_by_identifier(state, pane_id)
+        new_state = State.forget_pane_by_identifier(state, pane_id)
         _ = apply_layout(new_state)
         refocus_agent_list_if_focused(new_state, pane_id)
 
@@ -1693,8 +1482,8 @@ defmodule Aiur.PaneManager do
         # or placeholder mapping.
         new_state =
           state
-          |> forget_pane_by_identifier(pane_id)
-          |> drop_placeholder_by_pane(pane_id)
+          |> State.forget_pane_by_identifier(pane_id)
+          |> State.drop_placeholder_by_pane(pane_id)
 
         _ = apply_layout(new_state)
         refocus_agent_list_if_focused(new_state, pane_id)
@@ -1716,7 +1505,7 @@ defmodule Aiur.PaneManager do
     end
   end
 
-  defp reconcile_visible_panes(%__MODULE__{} = state) do
+  defp reconcile_visible_panes(%State{} = state) do
     if map_size(state.pane_to_identifier) == 0 and map_size(state.placeholder_panes) == 0 do
       state
     else
@@ -1758,7 +1547,7 @@ defmodule Aiur.PaneManager do
     Logger.info("aiur_pane_manager phase=reconcile_drop_stale_pane identifier=#{identifier} slot=#{slot} pane_id=#{pane_id}")
 
     state
-    |> forget_pane_by_identifier(pane_id)
+    |> State.forget_pane_by_identifier(pane_id)
     |> refocus_agent_list_if_focused(pane_id)
   end
 
@@ -1767,17 +1556,8 @@ defmodule Aiur.PaneManager do
     |> Enum.reject(fn {_identifier, %{pane_id: pane_id}} -> MapSet.member?(live_panes, pane_id) end)
     |> Enum.reduce(state, fn {identifier, %{pane_id: pane_id, slot: slot}}, acc ->
       Logger.info("aiur_pane_manager phase=reconcile_drop_stale_placeholder identifier=#{identifier} slot=#{slot} pane_id=#{pane_id}")
-      drop_placeholder(acc, identifier)
+      State.drop_placeholder(acc, identifier)
     end)
-  end
-
-  defp drop_placeholder_by_pane(state, pane_id) do
-    case Enum.find(state.placeholder_panes, fn {_identifier, placeholder} ->
-           placeholder.pane_id == pane_id
-         end) do
-      {identifier, _placeholder} -> drop_placeholder(state, identifier)
-      nil -> state
-    end
   end
 
   # Distribution wrapping ----------------------------------------------------
