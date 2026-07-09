@@ -62,7 +62,7 @@ defmodule Aiur.Init.GitHubTest do
 
     test "unknown term is inspected" do
       msg = GitHub.label_error_message(:something_else)
-      assert is_binary(msg)
+      assert msg =~ "something_else"
     end
   end
 

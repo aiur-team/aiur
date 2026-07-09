@@ -38,6 +38,12 @@ defmodule Aiur.Codeowners.EditTest do
       assert result =~ "@alice @bob #"
     end
 
+    test "appends login after existing owners on wildcard rule without comment" do
+      content = "* @alice\n"
+      result = Edit.content_with_login(content, "bob")
+      assert result =~ "@alice @bob"
+    end
+
     test "appends new wildcard rule when no wildcard rule exists" do
       content = "# just a comment\n"
       result = Edit.content_with_login(content, "bob")

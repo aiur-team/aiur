@@ -97,6 +97,30 @@ defmodule Aiur.Init.LabelsTest do
     assert Enum.any?(messages, fn m -> m =~ "gh label create" end)
   end
 
+  test "confirms complexity labels: create_labels called with complexity labels" do
+    parent = self()
+    lifecycle = all_lifecycle_labels()
+
+    deps = %{
+      list_labels: fn _tracker -> {:ok, lifecycle} end,
+      create_labels: fn _tracker, labels ->
+        send(parent, {:create_called, labels})
+        :ok
+      end
+    }
+
+    answers = %{
+      confirm: %{
+        "Create the complexity labels?" => true,
+        "Create the model labels?" => false
+      }
+    }
+
+    InitLabels.setup_labels(io(parent, answers), deps, %{kind: "github", repo: "o/r"}, ["claude"])
+    assert_received {:create_called, created}
+    assert Enum.all?(Labels.complexity_labels(), &(&1 in created))
+  end
+
   test "no alias_labels: remote stage skipped" do
     parent = self()
     lifecycle = all_lifecycle_labels()
