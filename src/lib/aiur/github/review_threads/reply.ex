@@ -42,7 +42,9 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
     end
   end
 
-  @spec do_reply_to_review_thread(function(), String.t(), String.t(), String.t(), pos_integer(), keyword(), pos_integer()) ::
+  @spec do_reply_to_review_thread(
+          function(), String.t(), String.t(), String.t(), pos_integer(), keyword(), pos_integer()
+        ) ::
           {:ok, map()} | {:error, term()}
   def do_reply_to_review_thread(request_fun, token, thread_id, body, max_attempts, opts, attempt) do
     case add_review_thread_reply(request_fun, token, thread_id, body) do
