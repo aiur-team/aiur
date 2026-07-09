@@ -192,6 +192,15 @@ defmodule Aiur.Config do
   end
 
   @doc """
+  Maximum number of agent-launched Mix compile/test commands allowed across the
+  local workspace fleet. `0` disables the build gate intentionally.
+  """
+  @spec max_concurrent_builds() :: non_neg_integer()
+  def max_concurrent_builds do
+    settings!().agent.max_concurrent_builds
+  end
+
+  @doc """
   Number of opencode-serve instances to pre-warm at boot. Each pre-
   warmed slot binds to a different active ticket as its leadoff so
   the user's first click on that ticket opens its chat pane in
