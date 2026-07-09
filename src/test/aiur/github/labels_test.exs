@@ -8,6 +8,7 @@ defmodule Aiur.GitHub.LabelsTest do
       labels = Labels.label_set("aiur", ["claude", "codex"])
 
       assert "aiur:todo" in labels
+      assert "aiur:ci-wait" in labels
       assert "aiur:human-review" in labels
       assert "model:claude" in labels
       assert "model:claude-opus" in labels
@@ -79,6 +80,7 @@ defmodule Aiur.GitHub.LabelsTest do
   describe "describe/1" do
     test "gives a short description for each label family" do
       assert Labels.describe("agent:todo") == "ready to be worked"
+      assert Labels.describe("agent:ci-wait") == "awaiting CI before human review"
       assert Labels.describe("model:remote") == "Supports claude remote-control"
       assert Labels.describe("model:claude") =~ "route this issue to claude"
       assert Labels.describe("model:claude-haiku") =~ "route this issue to claude-haiku"

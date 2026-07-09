@@ -77,6 +77,7 @@ defmodule Aiur.Events.Sanitizer do
     |> scrub_pr()
     |> scrub_comment()
     |> scrub_review()
+    |> scrub_ci_failure()
   end
 
   def scrub(other), do: other
@@ -164,7 +165,36 @@ defmodule Aiur.Events.Sanitizer do
 
   defp scrub_review(payload), do: payload
 
+  defp scrub_ci_failure(%{failure_excerpt: excerpt} = payload) when is_binary(excerpt) do
+    payload
+    |> Map.put(:failure_excerpt, clean(excerpt, :comment_body))
+    |> scrub_ci_checks()
+  end
+
+  defp scrub_ci_failure(payload), do: scrub_ci_checks(payload)
+
+  defp scrub_ci_checks(%{checks: checks} = payload) when is_list(checks) do
+    Map.put(payload, :checks, Enum.map(checks, &scrub_ci_check/1))
+  end
+
+  defp scrub_ci_checks(payload), do: payload
+
+  defp scrub_ci_check(check) when is_map(check) do
+    check
+    |> update_atom_string(:name, &clean(&1, :commit_subject))
+    |> update_atom_string(:excerpt, &clean(&1, :comment_body))
+  end
+
+  defp scrub_ci_check(check), do: check
+
   defp update_string(map, key, fun) do
+    case Map.get(map, key) do
+      value when is_binary(value) -> Map.put(map, key, fun.(value))
+      _ -> map
+    end
+  end
+
+  defp update_atom_string(map, key, fun) do
     case Map.get(map, key) do
       value when is_binary(value) -> Map.put(map, key, fun.(value))
       _ -> map

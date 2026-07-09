@@ -1565,19 +1565,40 @@ defmodule Aiur.AgentRunner do
   # publish time (U7) and persisted on disk by `IssueLog.format_event_marker/2`
   # so U2 replays carry it through. Events from `:source: :github`
   # missing the flag (older log lines, partial restores, parse
-  # failures) are filtered out of the digest — the operator still
-  # sees them in the per-issue log + dashboard. Non-github events
-  # (agent emissions, orchestrator events) pass through; they are
-  # not user-content channels and don't need the CODEOWNERS gate.
+  # failures) are filtered out of the digest — except CI lifecycle
+  # events constructed and sanitized by the orchestrator from GitHub's
+  # check API. They have no human author, must wake a paused agent on
+  # failure, and remain wrapped as external GitHub data below. The
+  # operator still sees every other filtered event in the per-issue log +
+  # dashboard. Non-github events (agent emissions, orchestrator events)
+  # pass through; they are not user-content channels and don't need the
+  # CODEOWNERS gate.
   defp author_trusted_for_digest?(event) when is_map(event) do
-    case event_field(event, :source) do
-      :github -> event_field(event, :author_trusted?) == true
-      "github" -> event_field(event, :author_trusted?) == true
-      _ -> true
+    if ci_lifecycle_event?(event_field(event, :topic)) do
+      true
+    else
+      case event_field(event, :source) do
+        :github -> event_field(event, :author_trusted?) == true
+        "github" -> event_field(event, :author_trusted?) == true
+        _ -> true
+      end
     end
   end
 
   defp author_trusted_for_digest?(_), do: true
+
+  defp ci_lifecycle_event?(topic) when is_binary(topic) do
+    case String.split(topic, ".") do
+      ["ticket", identifier, "ci", outcome]
+      when identifier != "" and outcome in ["passed", "failed"] ->
+        true
+
+      _ ->
+        false
+    end
+  end
+
+  defp ci_lifecycle_event?(_), do: false
 
   # Coalesce block/unblock oscillation: group by (ticket_id, kind); within the
   # configured debounce window (default 10s), only the latest survives in

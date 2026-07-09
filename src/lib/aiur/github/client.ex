@@ -536,6 +536,39 @@ defmodule Aiur.GitHub.Client do
   end
 
   @doc """
+  Fetches the GitHub check runs and legacy combined commit status for `sha`.
+
+  The two APIs coexist in GitHub: GitHub Actions and GitHub Apps report check
+  runs, while older integrations report commit statuses. Callers need both to
+  decide whether a pull request head is still pending or has reached a terminal
+  result.
+  """
+  @spec fetch_commit_ci_status(String.t(), keyword()) ::
+          {:ok, %{check_runs: [map()], commit_status: map()}} | {:error, term()}
+  def fetch_commit_ci_status(sha, opts \\ [])
+
+  def fetch_commit_ci_status(sha, opts) when is_binary(sha) and sha != "" do
+    with {:ok, {owner, repo}} <- parse_repo(),
+         {:ok, token} <- require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+      encoded_sha = URI.encode(sha)
+      base_url = "#{@base_url}/repos/#{owner}/#{repo}/commits/#{encoded_sha}"
+
+      with {:ok, %{"check_runs" => check_runs}} when is_list(check_runs) <-
+             fetch_json_map(request_fun, token, base_url <> "/check-runs?filter=latest&per_page=100"),
+           {:ok, commit_status} when is_map(commit_status) <-
+             fetch_json_map(request_fun, token, base_url <> "/status") do
+        {:ok, %{check_runs: check_runs, commit_status: commit_status}}
+      else
+        {:ok, _unexpected} -> {:error, :invalid_ci_status_response}
+        {:error, _reason} = error -> error
+      end
+    end
+  end
+
+  def fetch_commit_ci_status(sha, _opts), do: {:error, {:invalid_commit_sha, sha}}
+
+  @doc """
   Fetches the OPEN pull requests carrying `label` (e.g. `"agent:watch"`),
   repo-wide, for opt-in PR comment watching.
 
@@ -1220,6 +1253,19 @@ defmodule Aiur.GitHub.Client do
   defp fetch_json_list(request_fun, token, url) do
     case request_fun.(%{method: :get, url: url, token: token}) do
       {:ok, %{status: 200, body: body}} when is_list(body) ->
+        {:ok, body}
+
+      {:ok, %{status: _status} = response} ->
+        {:error, github_status_error(response)}
+
+      {:error, reason} ->
+        {:error, classify_error({:error, reason})}
+    end
+  end
+
+  defp fetch_json_map(request_fun, token, url) do
+    case request_fun.(%{method: :get, url: url, token: token}) do
+      {:ok, %{status: 200, body: body}} when is_map(body) ->
         {:ok, body}
 
       {:ok, %{status: _status} = response} ->

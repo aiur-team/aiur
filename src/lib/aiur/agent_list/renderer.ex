@@ -1830,6 +1830,10 @@ defmodule Aiur.AgentList.Renderer do
   defp publish_event_phrase("pr.review_comment", body),
     do: {"got a PR review comment:", comment_body_summary(body)}
 
+  defp publish_event_phrase("ci.passed", _body), do: {"CI passed", ""}
+
+  defp publish_event_phrase("ci.failed", body), do: {"CI failed:", inline_summary(body)}
+
   defp publish_event_phrase("branch.push", body),
     do: branch_push_phrase(body)
 
@@ -1914,6 +1918,8 @@ defmodule Aiur.AgentList.Renderer do
   defp cross_receive_verb("pr.opened"), do: "opened a PR"
   defp cross_receive_verb("pr.merged"), do: "merged a PR"
   defp cross_receive_verb("pr.review_comment"), do: "PR review comment"
+  defp cross_receive_verb("ci.passed"), do: "CI passed"
+  defp cross_receive_verb("ci.failed"), do: "CI failed"
   defp cross_receive_verb("issue.commented"), do: "commented"
   defp cross_receive_verb("agent.unblocked"), do: "unblocked"
   defp cross_receive_verb("agent.blocked"), do: "blocked"

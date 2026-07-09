@@ -110,6 +110,15 @@ defmodule Aiur.OrchestratorDeactivateTest do
     defp recipient, do: Application.get_env(:aiur, :direct_dispatch_recipient)
   end
 
+  defmodule CIWatcherGitHubClient do
+    def update_issue_state(issue_id, state_name) do
+      if is_pid(recipient()), do: send(recipient(), {:ci_watcher_update, issue_id, state_name})
+      :ok
+    end
+
+    defp recipient, do: Application.get_env(:aiur, :ci_watcher_recipient)
+  end
+
   describe "reconcile with nil / non-binary issue state (crash regression)" do
     # Live crash signature (from production logs):
     #   ** (FunctionClauseError) no function clause matching in
@@ -184,6 +193,213 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       result = Orchestrator.reconcile_issue_states_for_test([issue], state)
       assert result == state
+    end
+  end
+
+  describe "GitHub CI feedback poller" do
+    setup do
+      previous_client = Application.get_env(:aiur, :github_client_module)
+      previous_recipient = Application.get_env(:aiur, :ci_watcher_recipient)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"]
+      )
+
+      Application.put_env(:aiur, :github_client_module, CIWatcherGitHubClient)
+      Application.put_env(:aiur, :ci_watcher_recipient, self())
+
+      on_exit(fn ->
+        restore_application_env(:github_client_module, previous_client)
+        restore_application_env(:ci_watcher_recipient, previous_recipient)
+      end)
+
+      :ok
+    end
+
+    test "pending CI moves a human-review ticket into ci-wait" do
+      issue = %Issue{id: "821", identifier: "821", state: "human-review", title: "Awaiting CI"}
+
+      state =
+        Orchestrator.poll_github_ci_for_test(empty_orchestrator_state(),
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
+          ci_poller: fn ["821"], _opts -> {:ok, %{results: [%{target: "821", decision: :pending}], errors: []}} end
+        )
+
+      assert_receive {:ci_watcher_update, "821", "ci-wait"}
+      assert state.running == %{}
+    end
+
+    test "pending CI pauses the active runner instead of deactivating it" do
+      identifier = "825"
+      issue = %Issue{id: identifier, identifier: identifier, state: "human-review", title: "Awaiting CI"}
+      agent_pid = control_test_agent(self())
+
+      on_exit(fn ->
+        if Process.alive?(agent_pid), do: Process.exit(agent_pid, :kill)
+      end)
+
+      state =
+        Orchestrator.poll_github_ci_for_test(human_review_running_state(identifier, agent_pid),
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
+          ci_poller: fn [^identifier], _opts ->
+            {:ok, %{results: [%{target: identifier, decision: :pending}], errors: []}}
+          end
+        )
+
+      assert_receive {:ci_wait_control, {:pause_agent, _request_id}}
+      assert_receive {:ci_watcher_update, ^identifier, "ci-wait"}
+
+      entry = Map.fetch!(state.running, identifier)
+      assert get_in(entry, [:control, :status]) == :paused
+      assert entry.paused_reason == :ci_wait
+      assert entry.issue.state == "ci-wait"
+      assert Process.alive?(agent_pid)
+    end
+
+    test "passing CI promotes ci-wait only after the successful observation" do
+      issue = %Issue{id: "822", identifier: "822", state: "ci-wait", title: "CI gate"}
+
+      Orchestrator.poll_github_ci_for_test(empty_orchestrator_state(),
+        ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
+        ci_poller: fn ["822"], _opts ->
+          {:ok, %{results: [%{target: "822", decision: :passed, head_sha: "new-head", pr_number: 822}], errors: []}}
+        end
+      )
+
+      assert_receive {:ci_watcher_update, "822", "human-review"}
+    end
+
+    test "failing CI changes the ticket to rework before publishing a sanitized wake event" do
+      identifier = "823"
+      topic = "ticket.#{identifier}.ci.failed"
+      issue = %Issue{id: identifier, identifier: identifier, state: "ci-wait", title: "CI gate"}
+      :ok = Exchange.subscribe(topic)
+
+      try do
+        Orchestrator.poll_github_ci_for_test(empty_orchestrator_state(),
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
+          ci_poller: fn [^identifier], _opts ->
+            {:ok,
+             %{
+               results: [
+                 %{
+                   target: identifier,
+                   decision: :failed,
+                   head_sha: "failed-head",
+                   pr_number: 823,
+                   failures: [
+                     %{
+                       name: "lint <unsafe>",
+                       excerpt: "ghp_" <> String.duplicate("X", 40),
+                       result: "failure"
+                     }
+                   ]
+                 }
+               ],
+               errors: []
+             }}
+          end
+        )
+
+        assert_receive {:ci_watcher_update, ^identifier, "rework"}
+
+        assert_receive {:event,
+                        %{
+                          topic: ^topic,
+                          source: :github,
+                          message: message,
+                          failure_excerpt: excerpt,
+                          checks: [%{name: "lint &lt;unsafe&gt;"}]
+                        }},
+                       500
+
+        assert excerpt =~ "[REDACTED:ghp]"
+        assert message =~ "CI failed: lint &lt;unsafe&gt;"
+        assert message =~ "Failure excerpt: [REDACTED:ghp]"
+      after
+        if Process.whereis(Exchange), do: Exchange.unsubscribe(topic)
+      end
+    end
+
+    test "CI failure resumes a ci-wait agent for rework" do
+      identifier = "826"
+      issue = %Issue{id: identifier, identifier: identifier, state: "ci-wait", title: "Fix CI"}
+      agent_pid = control_test_agent(self())
+
+      on_exit(fn ->
+        if Process.alive?(agent_pid), do: Process.exit(agent_pid, :kill)
+      end)
+
+      state =
+        human_review_running_state(identifier, agent_pid)
+        |> put_in([Access.key(:running), identifier, :issue], issue)
+        |> put_in([Access.key(:running), identifier, :control], %{status: :paused})
+        |> put_in([Access.key(:running), identifier, :paused_reason], :ci_wait)
+        |> put_in([Access.key(:running), identifier, :paused_at], DateTime.utc_now())
+
+      state =
+        Orchestrator.poll_github_ci_for_test(state,
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
+          ci_poller: fn [^identifier], _opts ->
+            {:ok,
+             %{
+               results: [
+                 %{
+                   target: identifier,
+                   decision: :failed,
+                   head_sha: "failed-head",
+                   pr_number: 826,
+                   failures: [%{name: "test", result: "failure", excerpt: "failed assertion"}]
+                 }
+               ],
+               errors: []
+             }}
+          end
+        )
+
+      assert_receive {:ci_wait_control, {:resume_agent, _request_id}}
+      assert_receive {:ci_watcher_update, ^identifier, "rework"}
+
+      entry = Map.fetch!(state.running, identifier)
+      assert get_in(entry, [:control, :status]) == :working
+      refute Map.has_key?(entry, :paused_reason)
+      assert entry.issue.state == "rework"
+    end
+
+    test "CI failure topic parser accepts only ticket-local failure events" do
+      assert {:ok, "824"} = Orchestrator.parse_ci_failed_topic_for_test("ticket.824.ci.failed")
+
+      for topic <- ["ticket.824.ci.passed", "ticket.824.ci.failed.extra", "ticket.824.pr.review_comment"] do
+        assert :nomatch = Orchestrator.parse_ci_failed_topic_for_test(topic)
+      end
+    end
+
+    test "CI failure events do not resume an operator-paused runner" do
+      identifier = "827"
+      agent_pid = control_test_agent(self())
+
+      on_exit(fn ->
+        if Process.alive?(agent_pid), do: Process.exit(agent_pid, :kill)
+      end)
+
+      state =
+        human_review_running_state(identifier, agent_pid)
+        |> put_in([Access.key(:running), identifier, :control], %{status: :paused})
+        |> put_in([Access.key(:running), identifier, :paused_reason], :label_override)
+
+      assert {:noreply, next_state} =
+               Orchestrator.handle_info(
+                 {:event, %{topic: "ticket.#{identifier}.ci.failed"}},
+                 state
+               )
+
+      refute_receive {:ci_wait_control, {:resume_agent, _request_id}}
+      assert get_in(next_state.running[identifier], [:control, :status]) == :paused
+      assert next_state.running[identifier].paused_reason == :label_override
     end
   end
 
@@ -4810,6 +5026,21 @@ defmodule Aiur.OrchestratorDeactivateTest do
       codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
       retry_attempts: %{}
     }
+  end
+
+  defp control_test_agent(test_pid) do
+    spawn(fn -> control_test_agent_loop(test_pid) end)
+  end
+
+  # Models a long-lived agent process: it forwards each control message to the
+  # test and stays alive, so a paused runner (CI-wait) remains alive exactly as
+  # a real agent would rather than exiting after one message.
+  defp control_test_agent_loop(test_pid) do
+    receive do
+      message ->
+        send(test_pid, {:ci_wait_control, message})
+        control_test_agent_loop(test_pid)
+    end
   end
 
   defp human_review_issue(issue_id) do

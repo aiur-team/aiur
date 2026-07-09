@@ -843,5 +843,25 @@ defmodule Aiur.AgentControlCLITest do
       assert output =~ ~r/#44 stuck/
       assert output =~ ~r/#45 human-review · needs review\/merge/
     end
+
+    test "CI-wait remains visible as an automatic gate, not a review-ready ticket", %{
+      orchestrator: pid,
+      watch_root: root
+    } do
+      :sys.replace_state(pid, fn state ->
+        %{
+          state
+          | running: %{
+              "issue-46" => watch_entry("issue-46", "repo#46", state: "ci-wait", work_state: :paused)
+            }
+        }
+      end)
+
+      output = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end)
+
+      assert output =~ ~r/#46\s+ci-wait/
+      assert output =~ "waiting for CI"
+      refute output =~ "#46 ci-wait · needs review/merge"
+    end
   end
 end
