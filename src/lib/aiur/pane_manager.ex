@@ -483,5 +483,4 @@ defmodule Aiur.PaneManager do
         state
     end
   end
-
 end
