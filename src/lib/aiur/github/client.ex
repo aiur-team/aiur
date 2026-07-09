@@ -23,24 +23,6 @@ defmodule Aiur.GitHub.Client do
 
   @preserved_prefixed_label_suffixes ~w(paused watch)
 
-  @reply_review_thread_mutation """
-  mutation AiurReplyReviewThread($threadId: ID!, $body: String!) {
-    addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: $threadId, body: $body}) {
-      comment {
-        id
-        databaseId
-        body
-        createdAt
-        updatedAt
-        url
-        author {
-          login
-        }
-      }
-    }
-  }
-  """
-
   @resolve_review_thread_mutation """
   mutation AiurResolveReviewThread($threadId: ID!) {
     resolveReviewThread(input: {threadId: $threadId}) {
@@ -190,20 +172,12 @@ defmodule Aiur.GitHub.Client do
 
   @spec reply_to_review_thread(String.t(), String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
-  def reply_to_review_thread(review_thread_id, body, opts \\ []) do
-    with {:ok, thread_id} <- normalize_review_thread_id(review_thread_id),
-         {:ok, body} <- normalize_review_thread_reply_body(body),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      attempts = normalize_positive_integer(Keyword.get(opts, :attempts), 3)
-
-      do_reply_to_review_thread(request_fun, token, thread_id, body, attempts, opts, 1)
-    end
-  end
+  def reply_to_review_thread(review_thread_id, body, opts \\ []),
+    do: ReviewThreads.Reply.reply_to_review_thread(review_thread_id, body, opts)
 
   @spec resolve_review_thread(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def resolve_review_thread(review_thread_id, opts \\ []) do
-    with {:ok, thread_id} <- normalize_review_thread_id(review_thread_id),
+    with {:ok, thread_id} <- ReviewThreads.Reply.normalize_review_thread_id(review_thread_id),
          {:ok, terminal_reply_body} <-
            normalize_review_thread_terminal_reply_body(Keyword.get(opts, :terminal_reply_body)),
          {:ok, token} <- Transport.require_token(opts) do
@@ -293,110 +267,6 @@ defmodule Aiur.GitHub.Client do
   end
 
   # -- Private helpers --------------------------------------------------------
-
-  defp do_reply_to_review_thread(request_fun, token, thread_id, body, max_attempts, opts, attempt) do
-    case add_review_thread_reply(request_fun, token, thread_id, body) do
-      {:ok, mutation_body} ->
-        Logger.info("GitHub review thread reply mutation response: #{inspect(mutation_body)}")
-
-        build_review_thread_retry_context(
-          request_fun,
-          token,
-          thread_id,
-          body,
-          max_attempts,
-          opts,
-          mutation_body
-        )
-        |> verify_after_review_thread_reply(attempt)
-
-      {:error, reason} ->
-        Logger.warning("GitHub review thread reply mutation failed: #{inspect(reason)}")
-
-        if Errors.retryable_github_error?(reason) and attempt < max_attempts do
-          sleep_review_thread_retry(opts, attempt)
-
-          do_reply_to_review_thread(
-            request_fun,
-            token,
-            thread_id,
-            body,
-            max_attempts,
-            opts,
-            attempt + 1
-          )
-        else
-          {:error, reason}
-        end
-    end
-  end
-
-  defp retry_review_thread_reply(context, attempt, reason) do
-    if retryable_review_thread_verification_error?(reason) and attempt < context.max_attempts do
-      sleep_review_thread_retry(context.opts, attempt)
-
-      verify_after_review_thread_reply(context, attempt + 1)
-    else
-      {:error,
-       {:review_thread_reply_not_verified,
-        %{
-          review_thread_id: context.thread_id,
-          attempts: attempt,
-          reason: reason,
-          mutation_response: context.mutation_body
-        }}}
-    end
-  end
-
-  defp verify_after_review_thread_reply(context, attempt) do
-    case verify_review_thread_reply(
-           context.request_fun,
-           context.token,
-           context.thread_id,
-           context.body,
-           context.opts
-         ) do
-      {:ok, verification} ->
-        {:ok,
-         %{
-           verified: true,
-           review_thread_id: context.thread_id,
-           attempt: attempt,
-           mutation_response: context.mutation_body,
-           verification: verification
-         }}
-
-      {:error, reason} ->
-        retry_review_thread_reply(context, attempt, reason)
-    end
-  end
-
-  defp build_review_thread_retry_context(
-         request_fun,
-         token,
-         thread_id,
-         body,
-         max_attempts,
-         opts,
-         mutation_body
-       ) do
-    %{
-      request_fun: request_fun,
-      token: token,
-      thread_id: thread_id,
-      body: body,
-      max_attempts: max_attempts,
-      opts: opts,
-      mutation_body: mutation_body
-    }
-  end
-
-  defp add_review_thread_reply(request_fun, token, thread_id, body) do
-    Transport.github_graphql(request_fun, token, @reply_review_thread_mutation, %{
-      "threadId" => thread_id,
-      "body" => body
-    })
-  end
 
   defp do_resolve_review_thread(request_fun, token, thread_id, terminal_reply_body, opts) do
     with {:ok, verification} <-
@@ -734,110 +604,6 @@ defmodule Aiur.GitHub.Client do
     %{"path" => Map.get(thread, "path")}
   end
 
-  defp verify_review_thread_reply(request_fun, token, thread_id, body, opts) do
-    case ReviewThreads.fetch_review_thread(request_fun, token, thread_id) do
-      {:ok, thread_body} ->
-        Logger.info("GitHub review thread reply verification response: #{inspect(thread_body)}")
-
-        verify_latest_review_thread_comment(
-          thread_body,
-          thread_id,
-          body,
-          request_fun,
-          token,
-          opts
-        )
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp verify_latest_review_thread_comment(thread_body, thread_id, body, request_fun, token, opts) do
-    latest =
-      thread_body
-      |> ReviewThreads.review_thread_from_body()
-      |> ReviewThreads.thread_comments()
-      |> List.last()
-
-    with {:ok, bot_account} <- BotIdentity.bot_account(opts, request_fun, token) do
-      cond do
-        is_nil(latest) ->
-          {:error, :review_thread_latest_comment_missing}
-
-        get_in(latest, ["author", "login"]) != bot_account ->
-          latest_comment_author_mismatch(bot_account, latest)
-
-        Map.get(latest, "body") != body ->
-          latest_comment_body_mismatch(body, latest)
-
-        true ->
-          {:ok,
-           %{
-             "review_thread_id" => thread_id,
-             "latest_comment" => ReviewThreads.normalize_verified_thread_comment(latest)
-           }}
-      end
-    end
-  end
-
-  defp latest_comment_author_mismatch(bot_account, latest) do
-    detail = %{
-      expected: bot_account,
-      actual: get_in(latest, ["author", "login"])
-    }
-
-    {:error, {:review_thread_latest_comment_author_mismatch, detail}}
-  end
-
-  defp latest_comment_body_mismatch(body, latest) do
-    detail = %{
-      expected: body,
-      actual: Map.get(latest, "body")
-    }
-
-    {:error, {:review_thread_latest_comment_body_mismatch, detail}}
-  end
-
-  defp retryable_review_thread_verification_error?({:github, kind, _detail})
-       when kind in [:dns, :timeout, :tls, :transport, :rate_limited],
-       do: true
-
-  defp retryable_review_thread_verification_error?({:review_thread_latest_comment_author_mismatch, _}),
-    do: true
-
-  defp retryable_review_thread_verification_error?({:review_thread_latest_comment_body_mismatch, _}),
-    do: true
-
-  defp retryable_review_thread_verification_error?(:review_thread_latest_comment_missing),
-    do: true
-
-  defp retryable_review_thread_verification_error?(_reason), do: false
-
-  defp sleep_review_thread_retry(opts, attempt) do
-    delay_ms = normalize_non_negative_integer(Keyword.get(opts, :retry_delay_ms), 250) * attempt
-    sleep_fun = Keyword.get(opts, :sleep_fun, &Process.sleep/1)
-    sleep_fun.(delay_ms)
-  end
-
-  defp normalize_review_thread_id(id) when is_binary(id) do
-    case String.trim(id) do
-      "" -> {:error, :missing_review_thread_id}
-      trimmed -> {:ok, trimmed}
-    end
-  end
-
-  defp normalize_review_thread_id(_id), do: {:error, :missing_review_thread_id}
-
-  defp normalize_review_thread_reply_body(body) when is_binary(body) do
-    case String.trim(body) do
-      "" -> {:error, :missing_review_thread_reply_body}
-      _trimmed -> {:ok, body}
-    end
-  end
-
-  defp normalize_review_thread_reply_body(_body), do: {:error, :missing_review_thread_reply_body}
-
   defp normalize_review_thread_terminal_reply_body(body) when is_binary(body) do
     case String.trim(body) do
       "" -> {:error, :missing_review_thread_terminal_reply_body}
@@ -847,14 +613,6 @@ defmodule Aiur.GitHub.Client do
 
   defp normalize_review_thread_terminal_reply_body(_body),
     do: {:error, :missing_review_thread_terminal_reply_body}
-
-  defp normalize_positive_integer(value, _default) when is_integer(value) and value > 0, do: value
-  defp normalize_positive_integer(_value, default), do: default
-
-  defp normalize_non_negative_integer(value, _default) when is_integer(value) and value >= 0,
-    do: value
-
-  defp normalize_non_negative_integer(_value, default), do: default
 
   defp do_update_issue_state(update_context, state_name) do
     new_label = StatePolicy.state_label(update_context.prefix, state_name)
