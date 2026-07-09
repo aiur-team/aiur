@@ -111,15 +111,15 @@ defmodule Aiur.AgentLog do
   end
 
   defp parse_structured_line(line) do
-    case Jason.decode(line) do
-      {:ok, %{} = record} ->
+    case Jsonl.decode_line(line) do
+      {:ok, record} ->
         timestamp = record |> Map.get("timestamp") |> format_log_timestamp()
         event = Map.get(record, "event") || "event"
         {payload, raw_body} = display_payload(record, line)
 
         parse_json_log_entry(timestamp, event, payload, raw_body)
 
-      _ ->
+      :skip ->
         nil
     end
   end
