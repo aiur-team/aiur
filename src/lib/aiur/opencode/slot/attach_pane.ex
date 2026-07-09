@@ -24,13 +24,12 @@ defmodule Aiur.Opencode.Slot.AttachPane do
 
   def terminate_pane_command(_state), do: nil
 
-  @doc "Spawn the initial no-session attach pane in the hidden window."
-  @spec spawn(integer(), String.t()) :: {:ok, String.t()} | term()
-  def spawn(_slot_index, base_url) do
-    with {:ok, keep_alive_pane} <- hidden_window_target(),
-         :ok <- reflow_hidden_window(keep_alive_pane),
-         attach_cmd = Protocol.attach_command(base_url),
-         {:ok, pane_id} <-
+  @doc "Spawn the initial no-session attach pane into `keep_alive_pane`'s window."
+  @spec spawn(integer(), String.t(), String.t()) :: {:ok, String.t()} | term()
+  def spawn(_slot_index, base_url, keep_alive_pane) do
+    attach_cmd = Protocol.attach_command(base_url)
+
+    with {:ok, pane_id} <-
            Tmux.split_pane(
              Tmux,
              keep_alive_pane,
@@ -48,10 +47,11 @@ defmodule Aiur.Opencode.Slot.AttachPane do
   Kill the existing attach pane and spawn a fresh one bound to `session_id`.
   `attach_cmd` must be pre-built as `Protocol.attach_command(state.base_url, session_id)`
   by the caller (slot.ex) — the regression test pins that literal in slot.ex source.
+  `keep_alive_pane` must be pre-fetched and reflowed by the caller before this call.
   """
-  @spec respawn_with_session(map(), String.t(), String.t()) ::
+  @spec respawn_with_session(map(), String.t(), String.t(), String.t()) ::
           {:ok, String.t()} | {:error, :respawn_failed}
-  def respawn_with_session(state, session_id, attach_cmd) do
+  def respawn_with_session(state, session_id, attach_cmd, keep_alive_pane) do
     span =
       Aiur.Perf.span_begin(:slot_respawn_attach,
         slot: state.slot_index,
@@ -65,28 +65,21 @@ defmodule Aiur.Opencode.Slot.AttachPane do
       _ = Tmux.command(Tmux, "kill-pane -t #{state.pane_id}")
     end
 
-    with {:ok, keep_alive_pane} <- hidden_window_target(),
-         :ok <- reflow_hidden_window(keep_alive_pane),
-         {:ok, pane_id} <-
-           Tmux.split_pane(
-             Tmux,
-             keep_alive_pane,
-             :horizontal,
-             @hidden_split_percent,
-             attach_cmd,
-             silent: true
-           ) do
-      Aiur.Perf.span_end(span,
-        slot: state.slot_index,
-        session_id: session_id,
-        pane_id: pane_id
-      )
+    case Tmux.split_pane(Tmux, keep_alive_pane, :horizontal, @hidden_split_percent, attach_cmd,
+           silent: true
+         ) do
+      {:ok, pane_id} ->
+        Aiur.Perf.span_end(span,
+          slot: state.slot_index,
+          session_id: session_id,
+          pane_id: pane_id
+        )
 
-      Aiur.ProcessReaper.register(:agent, {:pane, pane_id})
-      maybe_start_pipe_pane(state.slot_index, pane_id)
+        Aiur.ProcessReaper.register(:agent, {:pane, pane_id})
+        maybe_start_pipe_pane(state.slot_index, pane_id)
 
-      {:ok, pane_id}
-    else
+        {:ok, pane_id}
+
       error ->
         Logger.warning("opencode_slot phase=respawn_attach_failed slot=#{state.slot_index} session_id=#{session_id} reason=#{inspect(error)}")
 

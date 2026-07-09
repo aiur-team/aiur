@@ -190,7 +190,8 @@ defmodule Aiur.Opencode.Slot.State do
   end
 
   @doc "Record poll probe; owns the debounce (giant-slot.md §4 risk 2). Returns `{:alive,s}`, `{:retry,n,raw,s}`, or `{:dead,n,raw,s}`."
-  @spec record_poll(t(), :alive | {:missing, term()}) :: {:alive, t()} | {:retry, non_neg_integer(), term(), t()} | {:dead, non_neg_integer(), term(), t()}
+  @spec record_poll(t(), :alive | {:missing, term()}) ::
+          {:alive, t()} | {:retry, non_neg_integer(), term(), t()} | {:dead, non_neg_integer(), term(), t()}
   def record_poll(state, :alive), do: {:alive, %{state | poll_death_count: 0}}
 
   def record_poll(state, {:missing, raw}) do
