@@ -3,6 +3,82 @@ defmodule Aiur.Codex.DynamicTool.ReviewThreadsTest do
 
   alias Aiur.Codex.DynamicTool.ReviewThreads
 
+  describe "input validation — aiur_reply_review_thread" do
+    test "missing review_thread_id returns required error" do
+      response =
+        ReviewThreads.execute(
+          "aiur_reply_review_thread",
+          %{"body" => "Fixed."},
+          review_thread_replier: fn _id, _body, _opts -> {:ok, %{}} end
+        )
+
+      assert response["success"] == false
+      assert Jason.decode!(response["output"])["error"]["message"] =~ "review_thread_id"
+    end
+
+    test "missing body returns required error" do
+      response =
+        ReviewThreads.execute(
+          "aiur_reply_review_thread",
+          %{"review_thread_id" => "PRRT_abc"},
+          review_thread_replier: fn _id, _body, _opts -> {:ok, %{}} end
+        )
+
+      assert response["success"] == false
+      assert Jason.decode!(response["output"])["error"]["message"] =~ "body"
+    end
+
+    test "non-map arguments return invalid arguments error" do
+      response =
+        ReviewThreads.execute(
+          "aiur_reply_review_thread",
+          "not a map",
+          review_thread_replier: fn _id, _body, _opts -> {:ok, %{}} end
+        )
+
+      assert response["success"] == false
+      assert Jason.decode!(response["output"])["error"]["message"] =~ "aiur_reply_review_thread"
+    end
+  end
+
+  describe "input validation — aiur_resolve_review_thread" do
+    test "missing review_thread_id returns required error" do
+      response =
+        ReviewThreads.execute(
+          "aiur_resolve_review_thread",
+          %{"terminal_reply_body" => "Done."},
+          review_thread_resolver: fn _id, _opts -> {:ok, %{}} end
+        )
+
+      assert response["success"] == false
+      assert Jason.decode!(response["output"])["error"]["message"] =~ "review_thread_id"
+    end
+
+    test "missing terminal_reply_body returns required error" do
+      response =
+        ReviewThreads.execute(
+          "aiur_resolve_review_thread",
+          %{"review_thread_id" => "PRRT_abc"},
+          review_thread_resolver: fn _id, _opts -> {:ok, %{}} end
+        )
+
+      assert response["success"] == false
+      assert Jason.decode!(response["output"])["error"]["message"] =~ "terminal_reply_body"
+    end
+
+    test "non-map arguments return invalid arguments error" do
+      response =
+        ReviewThreads.execute(
+          "aiur_resolve_review_thread",
+          nil,
+          review_thread_resolver: fn _id, _opts -> {:ok, %{}} end
+        )
+
+      assert response["success"] == false
+      assert Jason.decode!(response["output"])["error"]["message"] =~ "aiur_resolve_review_thread"
+    end
+  end
+
   describe "execute/3 — aiur_reply_review_thread" do
     test "happy path via injected replier" do
       test_pid = self()

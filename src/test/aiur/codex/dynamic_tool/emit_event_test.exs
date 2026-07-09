@@ -135,7 +135,7 @@ defmodule Aiur.Codex.DynamicTool.EmitEventTest do
   end
 
   describe "required field validation" do
-    test "missing name returns error" do
+    test "missing name returns required error" do
       response =
         EmitEvent.execute(
           "emit_event",
@@ -144,9 +144,10 @@ defmodule Aiur.Codex.DynamicTool.EmitEventTest do
         )
 
       assert response["success"] == false
+      assert Jason.decode!(response["output"])["error"]["message"] =~ "name"
     end
 
-    test "missing message returns error" do
+    test "missing message returns required error" do
       response =
         EmitEvent.execute(
           "emit_event",
@@ -155,6 +156,19 @@ defmodule Aiur.Codex.DynamicTool.EmitEventTest do
         )
 
       assert response["success"] == false
+      assert Jason.decode!(response["output"])["error"]["message"] =~ "message"
+    end
+
+    test "non-map arguments return invalid arguments error" do
+      response =
+        EmitEvent.execute(
+          "emit_event",
+          "not a map",
+          event_publisher: publisher()
+        )
+
+      assert response["success"] == false
+      assert Jason.decode!(response["output"])["error"]["message"] =~ "emit_event"
     end
 
     test "missing publisher returns unavailable error" do
