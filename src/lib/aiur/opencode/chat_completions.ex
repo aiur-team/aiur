@@ -7,7 +7,7 @@ defmodule Aiur.Opencode.ChatCompletions do
   alias Aiur.Events.DebugLog
 
   alias Aiur.Opencode.OperatorText
-  alias Aiur.Opencode.ChatCompletions.{DeltaRenderer, StreamPolicy, TurnRequest}
+  alias Aiur.Opencode.ChatCompletions.{Caller, DeltaRenderer, Sse, StreamPolicy, TurnRequest}
 
   alias Aiur.Opencode.{
     ActiveTurns,
@@ -15,9 +15,6 @@ defmodule Aiur.Opencode.ChatCompletions do
     Db,
     EventRow,
     SessionWriterRegistry,
-    Slot,
-    SlotRegistry,
-    TokenRegistry,
     TurnMarkers
   }
 
@@ -49,17 +46,17 @@ defmodule Aiur.Opencode.ChatCompletions do
       {:error, :placeholder_session} ->
         # Stray call against the warm placeholder session. Return an empty
         # SSE stream so opencode doesn't render an error toast.
-        empty_stream(conn)
+        Sse.empty_stream(conn)
 
       {:error, reason} ->
-        json(conn, 400, %{error: inspect(reason)})
+        Sse.json(conn, 400, %{error: inspect(reason)})
     end
   end
 
   defp handle_identified(body, conn, identifier) do
     case TurnRequest.last_user_text(body) do
       {:ok, text} -> handle_identified_text(body, conn, identifier, text)
-      {:error, reason} -> json(conn, 400, %{error: inspect(reason)})
+      {:error, reason} -> Sse.json(conn, 400, %{error: inspect(reason)})
     end
   end
 
@@ -74,21 +71,21 @@ defmodule Aiur.Opencode.ChatCompletions do
         stream_codex_turn(conn, identifier, aiur_turn_id)
 
       _ ->
-        json(conn, 400, %{error: "invalid turn marker"})
+        Sse.json(conn, 400, %{error: "invalid turn marker"})
     end
   end
 
   defp handle_identified_text(_body, conn, identifier, @stream_marker_prefix <> _ = marker) do
     cond do
       Regex.match?(@nudge_marker_regex, marker) ->
-        empty_stream(conn)
+        Sse.empty_stream(conn)
 
       match = Regex.run(@stream_marker_regex, marker) ->
         [_, message_id] = match
         replay_message_as_stream(conn, identifier, message_id)
 
       true ->
-        json(conn, 400, %{error: "invalid stream marker"})
+        Sse.json(conn, 400, %{error: "invalid stream marker"})
     end
   end
 
@@ -119,7 +116,7 @@ defmodule Aiur.Opencode.ChatCompletions do
   # lookup with the suffixed id would phantom-close every segment).
   defp stream_codex_turn(conn, identifier, marker_turn_id) do
     {parent_id, seg_n} = TurnMarkers.parse_turn_id(marker_turn_id)
-    completion_id = "chatcmpl-" <> random_id()
+    completion_id = "chatcmpl-" <> Sse.random_id()
     # Subscribe first so a close broadcast that races our ActiveTurns
     # lookup still lands in the mailbox; we drain it inside the loop.
     :ok = AgentPubSub.subscribe_agent(identifier)
@@ -144,7 +141,7 @@ defmodule Aiur.Opencode.ChatCompletions do
           n: seg_n,
           # nil writer = cannot resolve the caller's serve; segmentation is
           # disabled for this stream and it degrades to the long-held SSE.
-          writer: originating_writer(conn, identifier),
+          writer: Caller.writer(conn, identifier),
           opened_at: now_ms(),
           last_event_at: now_ms(),
           streamed?: false,
@@ -198,7 +195,7 @@ defmodule Aiur.Opencode.ChatCompletions do
 
             body ->
               delta = DeltaRenderer.bar_connector(last_role, :event_debug) <> "\n#{body}\n"
-              conn = chunk(conn, completion_id, delta, nil)
+              conn = Sse.chunk(conn, completion_id, delta, nil)
               seg = %{seg | last_event_at: now_ms(), streamed?: true}
               codex_turn_stream_loop(conn, identifier, parent_id, completion_id, :event_debug, seg)
           end
@@ -232,7 +229,7 @@ defmodule Aiur.Opencode.ChatCompletions do
           # Empty-delta chunk keeps opencode's HTTP client from timing
           # out and reopening the chat-completion request mid-turn. The
           # chunk renders as nothing in the chat pane.
-          conn = chunk(conn, completion_id, nil, nil)
+          conn = Sse.chunk(conn, completion_id, nil, nil)
           Process.send_after(self(), :heartbeat, StreamPolicy.heartbeat_ms())
           codex_turn_stream_loop(conn, identifier, parent_id, completion_id, last_role, seg)
         end
@@ -260,14 +257,14 @@ defmodule Aiur.Opencode.ChatCompletions do
             unsubscribe_stream(identifier)
 
             conn =
-              chunk(
+              Sse.chunk(
                 conn,
                 completion_id,
                 "\n**system:** 💤 No turn activity in #{div(StreamPolicy.watchdog_ms(), 60_000)} minutes; closing stream.",
                 nil
               )
 
-            chunk(conn, completion_id, nil, "timeout")
+            Sse.chunk(conn, completion_id, nil, "timeout")
         end
 
       _other ->
@@ -292,7 +289,7 @@ defmodule Aiur.Opencode.ChatCompletions do
   defp stream_event_then_continue(conn, identifier, parent_id, completion_id, last_role, seg, event) do
     case DeltaRenderer.transcript_delta(event, last_role) do
       {:delta, delta, new_role} ->
-        conn = chunk(conn, completion_id, delta, nil)
+        conn = Sse.chunk(conn, completion_id, delta, nil)
         seg = %{seg | last_event_at: now_ms(), streamed?: true}
 
         if seg.writer != nil and
@@ -317,74 +314,39 @@ defmodule Aiur.Opencode.ChatCompletions do
 
     :ok = TurnMarkers.post_continuation(identifier, parent_id, seg.n + 1, seg.writer)
     unsubscribe_stream(identifier)
-    chunk(conn, completion_id, nil, "stop")
-  end
-
-  # Resolve the writer (serve base_url + session id) whose opencode issued
-  # THIS chat-completion request — continuations must go only to the
-  # originating serve or N attached panes would multiply segment streams
-  # combinatorially. nil disables segmentation for the stream (degrades to
-  # the long-held SSE).
-  defp originating_writer(conn, identifier) do
-    with {:ok, base_url} <- caller_base_url(conn),
-         {:ok, %{session_id: session_id}} <- SessionWriterRegistry.lookup(identifier, base_url) do
-      %{session_id: session_id, base_url: base_url}
-    else
-      _ ->
-        # Always-on: a nil writer disables segmentation for this stream, so
-        # opencode never gets a segment-close to flush its TUI-local input
-        # queue — typed operator text then sits QUEUED for the whole turn.
-        # Surfacing it at info makes a stuck-codex-input repro diagnosable.
-        Logger.info("opencode_bridge segment_writer_unresolved identifier=#{identifier}")
-        nil
-    end
+    Sse.chunk(conn, completion_id, nil, "stop")
   end
 
   defp now_ms, do: System.monotonic_time(:millisecond)
 
   defp finalize_stream(conn, completion_id, {:failed, reason} = r) do
-    conn = chunk(conn, completion_id, "\n**system:** " <> inspect(reason), nil)
-    chunk(conn, completion_id, nil, finish_reason_for(r))
+    conn = Sse.chunk(conn, completion_id, "\n**system:** " <> inspect(reason), nil)
+    Sse.chunk(conn, completion_id, nil, Sse.finish_reason_for(r))
   end
 
   defp finalize_stream(conn, completion_id, :input_required = r) do
     conn =
-      chunk(
+      Sse.chunk(
         conn,
         completion_id,
         "\n**system:** Agent is awaiting approval. Resolve in the dashboard to continue.",
         nil
       )
 
-    chunk(conn, completion_id, nil, finish_reason_for(r))
+    Sse.chunk(conn, completion_id, nil, Sse.finish_reason_for(r))
   end
 
   defp finalize_stream(conn, completion_id, reason),
-    do: chunk(conn, completion_id, nil, finish_reason_for(reason))
-
-  # OpenAI finish_reason for a closed bridge turn. Always "stop".
-  #
-  # Critically NOT "tool_calls" for :input_required: a "tool_calls"
-  # finish with no tool-call payload makes opencode's agent loop re-open
-  # the chat-completion request to "run the tools and continue". But the
-  # last user message is still the unanswered `__aiur_turn__:<id>` marker
-  # whose ActiveTurns entry is now {:closed, :input_required}, so every
-  # re-open returns "tool_calls" again and opencode busy-loops until the
-  # entry expires (~60s) — pegging CPU and starving the TUI input loop.
-  # "stop" ends the turn cleanly; the agent resumes via a fresh marker
-  # once the approval is resolved in the dashboard.
-  @doc false
-  @spec finish_reason_for(term()) :: String.t()
-  def finish_reason_for(_reason), do: "stop"
+    do: Sse.chunk(conn, completion_id, nil, Sse.finish_reason_for(reason))
 
   defp dispatch_user_text(body, conn, identifier, raw_text) do
     with {:ok, sanitized} <- TurnRequest.validate_body(raw_text),
-         {:ok, conn} <- maybe_authorized(conn, identifier) do
+         {:ok, conn} <- Caller.authorize(conn) do
       route_turn(conn, identifier, sanitized, Map.get(body, "stream", true))
     else
-      {:error, :unauthorized} -> json(conn, 401, auth_failed_body())
-      {:error, :body_too_large} -> json(conn, 400, %{error: "body too large"})
-      {:error, reason} -> json(conn, 400, %{error: inspect(reason)})
+      {:error, :unauthorized} -> Sse.json(conn, 401, Caller.auth_failed_body())
+      {:error, :body_too_large} -> Sse.json(conn, 400, %{error: "body too large"})
+      {:error, reason} -> Sse.json(conn, 400, %{error: inspect(reason)})
     end
   end
 
@@ -393,23 +355,6 @@ defmodule Aiur.Opencode.ChatCompletions do
 
   defp route_turn(conn, identifier, sanitized, _),
     do: non_stream_turn(conn, identifier, sanitized)
-
-  @spec build_chunk(String.t(), map()) :: map()
-  def build_chunk(completion_id, %{content: content, finish_reason: finish_reason}) do
-    %{
-      id: completion_id,
-      object: "chat.completion.chunk",
-      created: System.system_time(:second),
-      model: "aiur",
-      choices: [
-        %{
-          index: 0,
-          delta: delta(content),
-          finish_reason: finish_reason
-        }
-      ]
-    }
-  end
 
   # The operator-message SSE no longer waits for the agent to reply. As
   # soon as `AgentChat.send` accepts the message (either delivers via
@@ -420,8 +365,8 @@ defmodule Aiur.Opencode.ChatCompletions do
   # turn fires — no need to hold this SSE open on a bridge-local turn_id
   # pin that codex transcript events would never match.
   defp stream_turn(conn, identifier, text) do
-    turn_id = random_id()
-    completion_id = "chatcmpl-" <> random_id()
+    turn_id = Sse.random_id()
+    completion_id = "chatcmpl-" <> Sse.random_id()
 
     conn =
       conn
@@ -430,7 +375,7 @@ defmodule Aiur.Opencode.ChatCompletions do
 
     case send_operator(identifier, text, turn_id) do
       {:ok, _request_id} ->
-        chunk(conn, completion_id, nil, "stop")
+        Sse.chunk(conn, completion_id, nil, "stop")
 
       {:error, reason} ->
         emit_error_and_close(conn, completion_id, reason)
@@ -438,18 +383,18 @@ defmodule Aiur.Opencode.ChatCompletions do
   end
 
   defp non_stream_turn(conn, identifier, text) do
-    turn_id = random_id()
+    turn_id = Sse.random_id()
 
     case send_operator(identifier, text, turn_id) do
       {:ok, _request_id} ->
-        json(conn, 200, %{
-          id: "chatcmpl-" <> random_id(),
+        Sse.json(conn, 200, %{
+          id: "chatcmpl-" <> Sse.random_id(),
           object: "chat.completion",
           choices: [%{index: 0, message: %{role: "assistant", content: ""}, finish_reason: "stop"}]
         })
 
       {:error, reason} ->
-        json(conn, 200, %{error: inspect(reason)})
+        Sse.json(conn, 200, %{error: inspect(reason)})
     end
   end
 
@@ -495,32 +440,9 @@ defmodule Aiur.Opencode.ChatCompletions do
   end
 
   defp emit_error_and_close(conn, completion_id, reason) do
-    conn = chunk(conn, completion_id, "**system:** " <> inspect(reason), nil)
-    chunk(conn, completion_id, nil, "stop")
+    conn = Sse.chunk(conn, completion_id, "**system:** " <> inspect(reason), nil)
+    Sse.chunk(conn, completion_id, nil, "stop")
   end
-
-  defp chunk(conn, completion_id, content, finish_reason) do
-    payload = build_chunk(completion_id, %{content: content, finish_reason: finish_reason})
-
-    case Plug.Conn.chunk(conn, "data: " <> Jason.encode!(payload) <> "\n\n") do
-      {:ok, conn} ->
-        conn
-
-      {:error, reason} ->
-        # opencode disconnected the SSE — common when it kills/respawns
-        # the attach pane or hits its read timeout. Crashing the bridge
-        # handler with a MatchError takes down the whole codex turn
-        # rendering; instead, log once and return the conn unchanged so
-        # the loop can finish via the `:aiur_turn_done` close broadcast
-        # (subsequent writes will fast-fail the same way and be silently
-        # dropped here).
-        Logger.debug("opencode_bridge chunk_write_closed reason=#{inspect(reason)}")
-        conn
-    end
-  end
-
-  defp delta(nil), do: %{}
-  defp delta(content), do: %{content: content}
 
   defp identifier_from_model(model) when is_binary(model) do
     if placeholder_model?(model) do
@@ -552,23 +474,13 @@ defmodule Aiur.Opencode.ChatCompletions do
     model == "placeholder" or model == "#{prefix}/placeholder"
   end
 
-  defp empty_stream(conn) do
-    conn =
-      conn
-      |> Plug.Conn.put_resp_header("content-type", "text/event-stream")
-      |> Plug.Conn.send_chunked(200)
-
-    {:ok, conn} = Plug.Conn.chunk(conn, "data: [DONE]\n\n")
-    conn
-  end
-
   # Synthetic-marker round-trip: `SessionWriter` writes assistant rows
   # directly into opencode's SQLite, then POSTs a synthetic user message
   # carrying `__aiur_stream__:<msg_id>`. opencode triggers a chat-completion
   # call here; we read the just-written rows back and stream them as
   # assistant deltas so the attached TUI renders them in real time.
   defp replay_message_as_stream(conn, identifier, message_id) do
-    completion_id = "chatcmpl-" <> random_id()
+    completion_id = "chatcmpl-" <> Sse.random_id()
 
     conn =
       conn
@@ -580,13 +492,13 @@ defmodule Aiur.Opencode.ChatCompletions do
     case session_id && Db.fetch_message_with_parts(session_id, message_id) do
       {:ok, %{parts: parts}} ->
         conn = Enum.reduce(parts, conn, &chunk_part(&1, &2, completion_id))
-        chunk(conn, completion_id, nil, "stop")
+        Sse.chunk(conn, completion_id, nil, "stop")
 
       _ ->
         Logger.warning("opencode_bridge stream_replay message_not_found identifier=#{identifier} message_id=#{message_id}")
 
-        conn = chunk(conn, completion_id, "**system:** message not found", nil)
-        chunk(conn, completion_id, nil, "stop")
+        conn = Sse.chunk(conn, completion_id, "**system:** message not found", nil)
+        Sse.chunk(conn, completion_id, nil, "stop")
     end
   end
 
@@ -604,7 +516,7 @@ defmodule Aiur.Opencode.ChatCompletions do
   # correctly elsewhere. Returning nil here forces the same not-found
   # error path but with a clearer logged reason.
   defp resolve_session_for_replay(conn, identifier) do
-    case caller_base_url(conn) do
+    case Caller.base_url(conn) do
       {:ok, base_url} ->
         case SessionWriterRegistry.lookup(identifier, base_url) do
           {:ok, %{session_id: sid}} ->
@@ -623,20 +535,9 @@ defmodule Aiur.Opencode.ChatCompletions do
     end
   end
 
-  defp caller_base_url(conn) do
-    with ["Bearer " <> token] <- Plug.Conn.get_req_header(conn, "authorization"),
-         {:ok, slot_index} <- TokenRegistry.lookup_slot(token),
-         {:ok, slot_pid} <- SlotRegistry.lookup(slot_index),
-         %{base_url: base_url} when is_binary(base_url) <- Slot.snapshot(slot_pid) do
-      {:ok, base_url}
-    else
-      _ -> :error
-    end
-  end
-
   defp chunk_part(%{"type" => "text", "text" => text}, conn, completion_id)
        when is_binary(text) and text != "" do
-    chunk(conn, completion_id, text, nil)
+    Sse.chunk(conn, completion_id, text, nil)
   end
 
   defp chunk_part(_, conn, _completion_id), do: conn
@@ -653,7 +554,7 @@ defmodule Aiur.Opencode.ChatCompletions do
       case TurnRequest.validate_body(text) do
         {:ok, sanitized} when sanitized != "" ->
           Logger.info("opencode_bridge coalesced_operator_text identifier=#{identifier}")
-          _ = send_operator(identifier, sanitized, random_id())
+          _ = send_operator(identifier, sanitized, Sse.random_id())
 
         _ ->
           :ok
@@ -671,7 +572,7 @@ defmodule Aiur.Opencode.ChatCompletions do
       |> Enum.filter(&String.starts_with?(&1, @turn_marker_prefix))
 
     with [_ | _] <- markers,
-         writer when not is_nil(writer) <- originating_writer(conn, identifier) do
+         writer when not is_nil(writer) <- Caller.writer(conn, identifier) do
       Enum.each(markers, fn @turn_marker_prefix <> marker_id ->
         Logger.info("opencode_bridge shadowed_marker_repost identifier=#{identifier} marker=#{marker_id}")
         TurnMarkers.post_marker(identifier, marker_id, writer)
@@ -681,35 +582,4 @@ defmodule Aiur.Opencode.ChatCompletions do
     end
   end
 
-  defp maybe_authorized(conn, _identifier) do
-    # Token validity is independent of identifier; the identifier comes
-    # from the request body's `model` field via `identifier_from_model/1`
-    # and routes the request, while the bearer just authorizes "this is
-    # a live aiur workspace."
-    with ["Bearer " <> token] <- Plug.Conn.get_req_header(conn, "authorization"),
-         true <- TokenRegistry.valid?(token) do
-      {:ok, conn}
-    else
-      _ -> {:error, :unauthorized}
-    end
-  end
-
-  defp auth_failed_body do
-    %{
-      error: "auth_failed",
-      message: "Bridge token did not match an active workspace. If Aiur was restarted, close and reopen the pane to refresh the token."
-    }
-  end
-
-  defp json(conn, status, body) do
-    conn
-    |> Plug.Conn.put_resp_content_type("application/json")
-    |> Plug.Conn.send_resp(status, Jason.encode!(body))
-  end
-
-  defp random_id do
-    16
-    |> :crypto.strong_rand_bytes()
-    |> Base.encode16(case: :lower)
-  end
 end
