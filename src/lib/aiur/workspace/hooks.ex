@@ -1,0 +1,243 @@
+defmodule Aiur.Workspace.Hooks do
+  @moduledoc "Workspace lifecycle hooks: run_hook/5 with env-scrub and Task-timeout envelope, after-create / after-run / before-remove dispatch, and GitHub connectivity preflight."
+
+  require Logger
+  alias Aiur.{Alerts, Config}
+  alias Aiur.GitHub.Client, as: GitHubClient
+  alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.GitHub.Tracker, as: GitHubTracker
+  alias Aiur.Workspace.{Context, Remote}
+
+  @spec run_after_create(Path.t(), map(), boolean() | :materialized, String.t() | nil) ::
+          :ok | {:error, term()}
+  def run_after_create(workspace, issue_context, created?, worker_host) do
+    hooks = Config.settings!().hooks
+
+    case created? do
+      true ->
+        case hooks.after_create do
+          nil ->
+            :ok
+
+          command ->
+            run_hook(command, workspace, issue_context, "after_create", worker_host)
+        end
+
+      # Materialized from the warm base — aiur already populated + branched the
+      # workspace, so the cold-clone after_create hook must NOT run.
+      :materialized ->
+        :ok
+
+      false ->
+        :ok
+    end
+  end
+
+  @spec run_after_run(Path.t(), map() | String.t() | nil, String.t() | nil) :: :ok
+  def run_after_run(workspace, issue_or_identifier, worker_host \\ nil) when is_binary(workspace) do
+    issue_context = Context.build(issue_or_identifier)
+    hooks = Config.settings!().hooks
+
+    case hooks.after_run do
+      nil ->
+        :ok
+
+      command ->
+        run_hook(command, workspace, issue_context, "after_run", worker_host)
+        |> ignore_hook_failure()
+    end
+  end
+
+  @spec run_hook(String.t(), Path.t(), map(), String.t(), String.t() | nil) ::
+          :ok | {:error, term()}
+  def run_hook(command, workspace, issue_context, hook_name, nil) do
+    timeout_ms = Config.settings!().hooks.timeout_ms
+    started_at = System.monotonic_time(:millisecond)
+
+    Logger.info("Running workspace hook hook=#{hook_name} #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=local")
+
+    # Scrub Erlang distribution env before running the hook command.
+    # Without this, the operator's ERL_AFLAGS / RELEASE_NODE /
+    # RELEASE_COOKIE propagate into the hook, and any `mix` call in
+    # the hook tries to start an Erlang node with the operator's
+    # name and fails instantly:
+    #   `Protocol 'inet_tcp': the name aiur-orangekid@127.0.0.1
+    #    seems to be in use by another Erlang node`
+    # The error is non-fatal at the shell level (hook continues to
+    # the next `&&` chain step which also fails), so deps.get +
+    # compile silently produce nothing and the agent pays the cost
+    # of the cold fetch on its first turn. Reuses the same scrub
+    # that AgentEnvironment applies for the agent's own shell.
+    scrubbed_command = Aiur.AgentEnvironment.scrub_shell_command(command)
+
+    task =
+      Task.async(fn ->
+        System.cmd("sh", ["-lc", scrubbed_command],
+          cd: workspace,
+          stderr_to_stdout: true,
+          env: hook_env()
+        )
+      end)
+
+    case Task.yield(task, timeout_ms) do
+      {:ok, cmd_result} ->
+        elapsed_ms = System.monotonic_time(:millisecond) - started_at
+
+        Logger.info("aiur_perf workspace_hook phase=done hook=#{hook_name} #{Context.log_context(issue_context)} elapsed_ms=#{elapsed_ms}")
+
+        handle_hook_command_result(cmd_result, workspace, issue_context, hook_name)
+
+      nil ->
+        Task.shutdown(task, :brutal_kill)
+
+        Logger.warning("Workspace hook timed out hook=#{hook_name} #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=local timeout_ms=#{timeout_ms}")
+
+        {:error, {:workspace_hook_timeout, hook_name, timeout_ms}}
+    end
+  end
+
+  def run_hook(command, workspace, issue_context, hook_name, worker_host) when is_binary(worker_host) do
+    timeout_ms = Config.settings!().hooks.timeout_ms
+
+    Logger.info("Running workspace hook hook=#{hook_name} #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=#{worker_host}")
+
+    case Remote.run_remote_command(worker_host, "cd #{Aiur.Shell.escape(workspace)} && #{command}", timeout_ms) do
+      {:ok, cmd_result} ->
+        handle_hook_command_result(cmd_result, workspace, issue_context, hook_name)
+
+      {:error, {:workspace_hook_timeout, ^hook_name, _timeout_ms} = reason} ->
+        {:error, reason}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc false
+  @spec handle_hook_command_result({iodata(), non_neg_integer()}, Path.t(), map(), String.t()) ::
+          :ok | {:error, term()}
+  def handle_hook_command_result({output, 0}, _workspace, issue_context, hook_name) do
+    # Log a small tail of successful output. Hooks pre-warm deps and
+    # compile; when the hook silently does nothing (e.g. `mix
+    # deps.get` was no-op because the inner shell exited early on a
+    # masked error), the elapsed time looks fine but agents still pay
+    # the deps.get cost on first turn. Visible tail catches that
+    # regression early.
+    tail = sanitize_hook_output_for_log(output, 512)
+
+    Logger.debug("Workspace hook ok hook=#{hook_name} #{Context.log_context(issue_context)} output_tail=#{inspect(tail)}")
+
+    :ok
+  end
+
+  def handle_hook_command_result({output, status}, workspace, issue_context, hook_name) do
+    sanitized_output = sanitize_hook_output_for_log(output)
+
+    Logger.warning("Workspace hook failed hook=#{hook_name} #{Context.log_context(issue_context)} workspace=#{workspace} status=#{status} output=#{inspect(sanitized_output)}")
+
+    {:error, {:workspace_hook_failed, hook_name, status, output}}
+  end
+
+  @doc false
+  @spec ignore_hook_failure(:ok | {:error, term()}) :: :ok
+  def ignore_hook_failure(:ok), do: :ok
+  def ignore_hook_failure({:error, _reason}), do: :ok
+
+  @spec run_github_preflight(Path.t(), map(), String.t() | nil) :: :ok | {:error, term()}
+  def run_github_preflight(workspace, issue_context, worker_host) do
+    if github_workspace_preflight_enabled?() do
+      case run_workspace_github_preflight(workspace, worker_host) do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          emit_workspace_github_preflight_alert(workspace, issue_context, worker_host, reason)
+          {:error, {:workspace_github_connectivity_failed, workspace, reason}}
+
+        other ->
+          reason = {:unexpected_workspace_github_preflight_result, other}
+          emit_workspace_github_preflight_alert(workspace, issue_context, worker_host, reason)
+          {:error, {:workspace_github_connectivity_failed, workspace, reason}}
+      end
+    else
+      :ok
+    end
+  end
+
+  # Env exported to workspace hooks. `THIS_REPOSITORY_URL` is the repo aiur is
+  # operating on (the user's repo, not aiur), so an `after_create` hook can
+  # `git clone "$THIS_REPOSITORY_URL" .` without hardcoding the URL. Resolved
+  # from the same source aiur polls issues with, so it tracks repo-local and
+  # global/auto-detected configs alike.
+  defp hook_env do
+    with "github" <- Config.settings!().tracker.kind,
+         repo when is_binary(repo) and repo != "" <- Aiur.GitHub.Config.repo() do
+      [{"THIS_REPOSITORY_URL", "https://github.com/#{repo}.git"}]
+    else
+      _ -> []
+    end
+  end
+
+  defp sanitize_hook_output_for_log(output, max_bytes \\ 2_048) do
+    binary_output = IO.iodata_to_binary(output)
+
+    case byte_size(binary_output) <= max_bytes do
+      true ->
+        binary_output
+
+      false ->
+        binary_part(binary_output, 0, max_bytes) <> "... (truncated)"
+    end
+  end
+
+  defp github_workspace_preflight_enabled? do
+    Application.get_env(:aiur, :workspace_github_preflight_enabled, true) == true and
+      Config.tracker_kind() == "github"
+  rescue
+    _ -> false
+  end
+
+  defp run_workspace_github_preflight(workspace, worker_host) do
+    fun =
+      Application.get_env(:aiur, :workspace_github_preflight_fun, fn _workspace, _worker_host ->
+        GitHubTracker.auth_preflight()
+      end)
+
+    cond do
+      is_function(fun, 2) -> fun.(workspace, worker_host)
+      is_function(fun, 1) -> fun.(workspace)
+      is_function(fun, 0) -> fun.()
+      true -> {:error, {:invalid_workspace_github_preflight_fun, inspect(fun)}}
+    end
+  end
+
+  defp emit_workspace_github_preflight_alert(workspace, issue_context, worker_host, reason) do
+    message = github_workspace_preflight_message(workspace, issue_context, reason)
+
+    Alerts.emit_custom("system.github.connectivity_lost", message,
+      reason: message,
+      needs_attention: true,
+      severity: "warning",
+      workspace: workspace,
+      worker_host: worker_host
+    )
+  end
+
+  defp github_workspace_preflight_message(workspace, issue_context, reason) do
+    repo = GitHubConfig.repo() || "(unknown repo)"
+    formatted = GitHubClient.format_auth_preflight_error(reason)
+
+    "GitHub workspace preflight failed #{Context.log_context(issue_context)} workspace=#{workspace} " <>
+      "repo=#{repo}. Probe: #{github_preflight_probe(repo)}. Reason: #{formatted}"
+  end
+
+  defp github_preflight_probe("(unknown repo)") do
+    "GET https://api.github.com/rate_limit"
+  end
+
+  defp github_preflight_probe(repo) do
+    "GET https://api.github.com/rate_limit; " <>
+      "GET https://api.github.com/repos/#{repo}; " <>
+      "GET https://api.github.com/repos/#{repo}/issues?state=open&per_page=1"
+  end
+end
