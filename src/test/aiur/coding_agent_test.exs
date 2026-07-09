@@ -4,6 +4,7 @@ defmodule Aiur.CodingAgentTest do
   alias Aiur.Claude.CodingAgent, as: ClaudeAgent
   alias Aiur.Codex.CodingAgent, as: CodexAgent
   alias Aiur.Codex.Config, as: CodexConfig
+  alias Aiur.Codex.NotificationPolicy
   alias Aiur.CodingAgent
   alias Aiur.Issue
 
@@ -356,38 +357,38 @@ defmodule Aiur.CodingAgentTest do
   describe "unretryable codex error detection" do
     test "willRetry:false inside params trips the unretryable path" do
       payload = %{"method" => "error", "params" => %{"willRetry" => false, "message" => "usageLimitExceeded"}}
-      assert CodexAgent.unretryable_codex_error_for_test(payload)
-      assert CodexAgent.codex_error_reason_for_test(payload, "error") == "error: usageLimitExceeded"
+      assert NotificationPolicy.unretryable_codex_error?(payload)
+      assert NotificationPolicy.codex_error_reason(payload, "error") == "error: usageLimitExceeded"
     end
 
     test "willRetry:false at the notification root also trips it" do
-      assert CodexAgent.unretryable_codex_error_for_test(%{"willRetry" => false})
+      assert NotificationPolicy.unretryable_codex_error?(%{"willRetry" => false})
     end
 
     test "snake_case will_retry:false is honored" do
-      assert CodexAgent.unretryable_codex_error_for_test(%{"params" => %{"will_retry" => false}})
+      assert NotificationPolicy.unretryable_codex_error?(%{"params" => %{"will_retry" => false}})
     end
 
     test "willRetry:true is retryable (continues, not a hard failure)" do
-      refute CodexAgent.unretryable_codex_error_for_test(%{"params" => %{"willRetry" => true}})
+      refute NotificationPolicy.unretryable_codex_error?(%{"params" => %{"willRetry" => true}})
     end
 
     test "absent willRetry is retryable" do
-      refute CodexAgent.unretryable_codex_error_for_test(%{"params" => %{"message" => "transient blip"}})
+      refute NotificationPolicy.unretryable_codex_error?(%{"params" => %{"message" => "transient blip"}})
     end
 
     test "reason falls back to the method when no detail field is present" do
-      assert CodexAgent.codex_error_reason_for_test(%{"params" => %{"willRetry" => false}}, "task/error") == "task/error"
+      assert NotificationPolicy.codex_error_reason(%{"params" => %{"willRetry" => false}}, "task/error") == "task/error"
     end
 
     test "reason reaches a codexErrorInfo detail instead of the bare method" do
       payload = %{"params" => %{"willRetry" => false, "codexErrorInfo" => "usageLimitExceeded"}}
-      assert CodexAgent.codex_error_reason_for_test(payload, "error") == "error: usageLimitExceeded"
+      assert NotificationPolicy.codex_error_reason(payload, "error") == "error: usageLimitExceeded"
     end
 
     test "reason reaches a nested error.message detail" do
       payload = %{"params" => %{"error" => %{"message" => "overloaded"}}}
-      assert CodexAgent.codex_error_reason_for_test(payload, "task/error") == "task/error: overloaded"
+      assert NotificationPolicy.codex_error_reason(payload, "task/error") == "task/error: overloaded"
     end
   end
 
@@ -402,12 +403,12 @@ defmodule Aiur.CodingAgentTest do
         }
       }
 
-      assert CodexAgent.usage_limit_exceeded_for_test(payload)
+      assert NotificationPolicy.usage_limit_exceeded?(payload)
     end
 
     test "an ordinary willRetry:false error is not a quota pause" do
       payload = %{"method" => "error", "params" => %{"willRetry" => false, "message" => "bwrap: sandbox refused"}}
-      refute CodexAgent.usage_limit_exceeded_for_test(payload)
+      refute NotificationPolicy.usage_limit_exceeded?(payload)
     end
 
     test "the reset time is extracted from the human message" do
@@ -415,11 +416,11 @@ defmodule Aiur.CodingAgentTest do
         "params" => %{"message" => "You've hit your usage limit. Purchase more credits or try again at 11:43 PM."}
       }
 
-      assert CodexAgent.usage_limit_reset_hint_for_test(payload) == "11:43 PM"
+      assert NotificationPolicy.usage_limit_reset_hint(payload) == "11:43 PM"
     end
 
     test "the reset hint is nil when no try-again phrase is present" do
-      refute CodexAgent.usage_limit_reset_hint_for_test(%{"params" => %{"message" => "usageLimitExceeded"}})
+      refute NotificationPolicy.usage_limit_reset_hint(%{"params" => %{"message" => "usageLimitExceeded"}})
     end
 
     test "a quota error routes to a pause carrying the reset hint, not an unretryable error" do
@@ -432,7 +433,8 @@ defmodule Aiur.CodingAgentTest do
         }
       }
 
-      assert {:paused, pause} = CodexAgent.notification_outcome_for_test("error", payload)
+      assert NotificationPolicy.codex_quota_exhausted?("error", payload)
+      pause = NotificationPolicy.usage_limit_pause(payload, "error")
       assert pause.kind == :usage_limit_exhausted
       assert pause.reset_hint == "11:43 PM"
       # The pause carries the real backend detail, never the opaque bare "error".
@@ -443,16 +445,17 @@ defmodule Aiur.CodingAgentTest do
     test "an ordinary unretryable error still routes to a turn_unretryable error, not a pause" do
       payload = %{"method" => "error", "params" => %{"willRetry" => false, "message" => "bwrap: sandbox refused"}}
 
-      assert {:error, {:turn_unretryable, "error: bwrap: sandbox refused"}} =
-               CodexAgent.notification_outcome_for_test("error", payload)
+      refute NotificationPolicy.codex_quota_exhausted?("error", payload)
+      assert NotificationPolicy.codex_error_method?("error") and NotificationPolicy.unretryable_codex_error?(payload)
+      assert NotificationPolicy.codex_error_reason(payload, "error") == "error: bwrap: sandbox refused"
     end
 
     test "a retryable error mentioning a usage limit is NOT a quota pause" do
       # willRetry:true means codex will retry; pausing would strand the agent
-      # (no auto-resume), so a transient \"usage limit\" mention must not pause.
+      # (no auto-resume), so a transient "usage limit" mention must not pause.
       payload = %{"method" => "error", "params" => %{"willRetry" => true, "message" => "approaching usage limit, retrying"}}
 
-      refute CodexAgent.codex_quota_exhausted_for_test("error", payload)
+      refute NotificationPolicy.codex_quota_exhausted?("error", payload)
     end
   end
 
