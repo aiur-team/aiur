@@ -11,8 +11,6 @@ defmodule Aiur.Init.Prewarm do
 
   @prewarm_file_name "prewarm"
 
-  # Skip pre-warm for a global config: the warm base lives at a per-repo path,
-  # so it is configured when init runs inside the repo, not globally.
   @doc false
   @spec prompt_prewarm(Aiur.Init.io(), Aiur.Init.deps(), atom()) :: %{enabled: boolean(), base_build: String.t() | nil}
   def prompt_prewarm(_io, _deps, :global), do: %{enabled: false, base_build: nil}
@@ -65,10 +63,6 @@ defmodule Aiur.Init.Prewarm do
     ])
   end
 
-  # Detection found several competing build roots (e.g. a polyglot monorepo).
-  # Pre-warm builds a single base, so rather than silently picking one — or
-  # misreporting "couldn't detect" — disclose what was found and hand the operator
-  # the same agent prompt to pick one (or describe a combined build).
   @doc false
   @spec print_prewarm_ambiguous(Aiur.Init.io(), [map()]) :: :ok
   def print_prewarm_ambiguous(io, candidates) do
@@ -135,8 +129,6 @@ defmodule Aiur.Init.Prewarm do
     """
   end
 
-  # On opt-in, build the warm base once during init (one-time clone + compile) so
-  # the first `aiur` run dispatches immediately. Mockable via deps for tests.
   @doc false
   @spec maybe_first_prewarm(Aiur.Init.io(), Aiur.Init.deps(), map(), map()) :: :ok
   def maybe_first_prewarm(io, deps, tracker, %{enabled: true, base_build: cmd})
@@ -179,10 +171,6 @@ defmodule Aiur.Init.Prewarm do
 
   def prewarm_from_config(_config), do: %{enabled: false, base_build: nil}
 
-  # The `prewarm:` block, matching the committed config example. Only rendered on
-  # opt-in (`enabled: true`); the command lives in the sibling `.aiur/prewarm`
-  # script (written by `first_prewarm_backfill/5`), so the block points at it via
-  # `base_build_file` rather than inlining the command (mirrors fresh setup).
   @doc false
   @spec prewarm_section_yaml(map()) :: iodata()
   def prewarm_section_yaml(_prewarm) do
@@ -195,9 +183,6 @@ defmodule Aiur.Init.Prewarm do
     ]
   end
 
-  # Backfill side effect for the prewarm section: write the sibling `.aiur/prewarm`
-  # script the appended `base_build_file` points at, then run the one-time first
-  # build — mirroring fresh setup's `ensure_prewarm_file` + `maybe_first_prewarm`.
   @doc false
   @spec first_prewarm_backfill(Aiur.Init.io(), Aiur.Init.deps(), Path.t(), map(), map()) :: :ok
   def first_prewarm_backfill(io, deps, target, tracker, answer) do
@@ -205,9 +190,6 @@ defmodule Aiur.Init.Prewarm do
     maybe_first_prewarm(io, deps, tracker, answer)
   end
 
-  # Write the detected base build command to a sibling `.aiur/prewarm` script so
-  # the multi-line shell stays out of the config (which points at it via
-  # `prewarm.base_build_file`). Only on opt-in; never clobbers an existing script.
   @doc false
   @spec ensure_prewarm_file(Aiur.Init.io(), Aiur.Init.deps(), Path.t(), map()) :: :ok
   def ensure_prewarm_file(io, deps, target, %{enabled: true, base_build: cmd})

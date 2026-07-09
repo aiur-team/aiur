@@ -55,8 +55,6 @@ defmodule Aiur.Init.Scaffold do
     end
   end
 
-  # Append a config section to an existing file, separated by a blank line, so a
-  # resume backfill adds the block without disturbing the user's other settings.
   @doc false
   @spec append_config_section(Path.t(), iodata()) :: {:ok, Path.t()} | {:error, term()}
   def append_config_section(target, block) do
@@ -106,8 +104,6 @@ defmodule Aiur.Init.Scaffold do
     end
   end
 
-  # Append an entry to the repo's `.gitignore` (creating it if absent), unless the
-  # entry is already present. Idempotent; returns `:exists` when nothing changed.
   @doc false
   @spec add_gitignore_entry(String.t()) :: {:added | :exists, Path.t()}
   def add_gitignore_entry(entry), do: add_gitignore_entry(File.cwd!(), entry)
@@ -153,8 +149,6 @@ defmodule Aiur.Init.Scaffold do
   @spec same_path?(Path.t(), Path.t()) :: boolean()
   def same_path?(left, right), do: Path.expand(left) == Path.expand(right)
 
-  # Create the per-repo prompt file the config points at so the very next
-  # config load (auth checks, then boot) doesn't fail on a missing file.
   @doc false
   @spec ensure_prompt_file(Aiur.Init.io(), Aiur.Init.deps(), Path.t(), String.t() | nil, String.t() | nil) :: :ok
   def ensure_prompt_file(_io, _deps, _target, prompt_file, _repo) when prompt_file in [nil, ""], do: :ok
@@ -166,9 +160,6 @@ defmodule Aiur.Init.Scaffold do
     end
   end
 
-  # The scaffolded config references the hooks file via `hooks_file: hooks`, so
-  # make sure `.aiur/hooks` exists (created from .aiurhooks.example). Never clobber
-  # an existing one — the dev may have tuned it for their toolchain.
   @doc false
   @spec ensure_aiurhooks(Aiur.Init.io(), Aiur.Init.deps(), Path.t()) :: :ok
   def ensure_aiurhooks(io, deps, target) do
@@ -178,9 +169,6 @@ defmodule Aiur.Init.Scaffold do
     end
   end
 
-  # Repo-local only: offer to gitignore the whole `.aiur/` folder. Declining leaves
-  # it tracked (team-shared config, as `.aiurconfig` was). Global setup has nothing
-  # in the repo to ignore, so the prompt is skipped.
   @doc false
   @spec maybe_offer_gitignore(Aiur.Init.io(), Aiur.Init.deps(), atom()) :: :ok
   def maybe_offer_gitignore(_io, _deps, :global), do: :ok
@@ -196,8 +184,6 @@ defmodule Aiur.Init.Scaffold do
     end
   end
 
-  # GitHub is the only tracker that reads a secret from the environment, so the
-  # wizard scaffolds `.env` only on that path. Linear collects its key inline.
   @doc false
   @spec setup_env(Aiur.Init.io(), Aiur.Init.deps(), map()) :: :ok
   def setup_env(io, deps, %{kind: "github"}) do

@@ -2,13 +2,6 @@ defmodule Aiur.Init do
   @moduledoc """
   Interactive `aiur init` wizard.
 
-  Runs as a foreground command (never the tmux-backed TUI): it asks the
-  decisions that branch behavior using interactive Owl components, fills the
-  committed config example template, writes the result to the chosen target
-  (`./.aiur/config` or the global `~/.aiur/config`, alongside `hooks`,
-  `prompt.md`, and `examples/`), and — for GitHub trackers — creates the labels
-  aiur depends on.
-
   The wizard takes an injected `io` (prompt/print) and `deps` (filesystem,
   network, auth) so it is fully unit-testable with no real side effects.
   """
@@ -27,23 +20,14 @@ defmodule Aiur.Init do
   alias Aiur.Init.Templates
   alias Aiur.Prewarm.Detect
 
-  # New layout: aiur files live in a `.aiur/` folder (`.aiur/config`, `.aiur/hooks`,
-  # `.aiur/prompt.md`, `.aiur/examples/`). `@config_file_name` is the repo-relative
-  # path used for both the target and user-facing messages; the legacy root
-  # `.aiurconfig` is still honored on read (see `Aiur.Workflow`) and is what the
-  # migration path (resume) moves into the folder.
   @config_file_name ".aiur/config"
   @prompt_basename "prompt.md"
-  @gitignore_entry ".aiur/"
   @env_file_name ".env"
   @codeowners_file_name ".github/CODEOWNERS"
   @token_url "https://github.com/settings/tokens"
   @linear_key_url "https://linear.app/settings/api"
 
-  # The workflow-state label namespace is fixed (operators don't customize it):
-  # aiur picks up issues tagged `agent:todo` and walks them through `agent:*`.
   @label_prefix "agent"
-  # Low complexity routes to the first kind, high to the last.
   @routing_order ["claude", "codex"]
 
   @type io :: %{
@@ -99,29 +83,16 @@ defmodule Aiur.Init do
         location = Questions.prompt_location(io)
         fresh_setup(io, deps, location, deps.config_target.(location))
 
-      # Resume re-provisions labels/auth AND backfills config sections added by
-      # newer features. `resume/3` walks `promptable_sections/0` and, for any
-      # registered section the saved config lacks (e.g. the `prewarm` block from
-      # #410), reuses that section's fresh-setup prompt to offer adding it —
-      # appending to the existing config instead of regenerating it. CONVENTION
-      # (#411): whenever you add a new init prompt for a new config section,
-      # register it in `promptable_sections/0` so a standard `aiur init`
-      # backfills it for existing users without needing `--force`.
       target ->
         resume(io, deps, target)
     end
   end
 
-  # Shown once at the top of every `aiur init`: aiur runs agents with all
-  # permission prompts bypassed, so the operator should know the risk up front.
   defp init_warning do
     "⚠️  Use at your own risk: aiur bypasses all agent permissions, is an unstable preview, and " <>
       "has minimal token-efficiency optimization. Best for simple tasks under supervision.\n"
   end
 
-  # On a re-run, an existing repo-local (preferred) or global config is detected
-  # before asking anything, so setup resumes from the saved answers instead of
-  # re-prompting for location. `--force` always starts fresh.
   defp existing_config_target(%{force: true}, _deps), do: nil
 
   defp existing_config_target(_opts, deps) do
@@ -130,9 +101,6 @@ defmodule Aiur.Init do
     end)
   end
 
-  # Probe order mirrors `Aiur.Workflow` discovery: repo `.aiur/`, repo legacy,
-  # global `.aiur/`, global legacy. A `:legacy` hit drives the migration on
-  # resume; a `:new` hit just resumes in place.
   defp config_probe_targets(deps) do
     [
       {:new, :repo_local, deps.config_target.(:repo_local)},
@@ -142,19 +110,14 @@ defmodule Aiur.Init do
     ]
   end
 
-  # A re-run over an existing config skips the intro questions, shows what was
-  # saved, and picks the token/label flow back up — so adding a token and
-  # re-running just continues setup instead of starting over. When the config
-  # sits at a legacy root location, the re-run also offers to migrate it into the
-  # `.aiur/` folder (settings unchanged) before continuing.
   defp resume(io, deps, {kind, location, target}) do
     case deps.load_config.(target) do
       {:ok, config} ->
         io.puts.("Found an existing config at #{target}; resuming setup.")
         Resume.print_saved_summary(io, config)
-        effective_target = maybe_migrate_layout(io, deps, kind, location, target)
+        effective_target = Resume.maybe_migrate_layout(io, deps, kind, location, target)
         tracker = Resume.tracker_from_config(deps, config)
-        backfill_missing_sections(io, deps, location, tracker, config, effective_target)
+        Resume.backfill_missing_sections(io, deps, location, tracker, config, effective_target)
         Prewarm.maybe_resume_prewarm(io, deps, tracker, config)
         setup_codeowners(io, deps, tracker)
         provision(io, deps, tracker, Resume.agents_from_config(config))
@@ -165,40 +128,6 @@ defmodule Aiur.Init do
            "Pass --force to recreate it: aiur init --force"}
     end
   end
-
-  # Returns the path the config now lives at, so a later backfill appends to the
-  # right file even after a migration moved it.
-
-  # `:new` — already on the `.aiur/` layout, nothing to migrate.
-  defp maybe_migrate_layout(_io, _deps, :new, _location, target), do: target
-
-  # `:legacy` — root-level files. Offer to move them into `.aiur/` (settings
-  # preserved verbatim), and for a repo-local layout, optionally gitignore the
-  # folder. Declining leaves the legacy layout, which still loads.
-  defp maybe_migrate_layout(io, deps, :legacy, location, legacy_target) do
-    io.puts.("\naiur now keeps its files in a #{layout_label(location)} folder; yours use the legacy root layout.")
-
-    if io.confirm.("Migrate them into #{layout_label(location)} now?", true) do
-      ignore? = location == :repo_local and io.confirm.("Also add #{@gitignore_entry} to .gitignore?", false)
-      new_target = deps.config_target.(location)
-
-      case deps.migrate_layout.(%{legacy_config: legacy_target, new_config: new_target, ignore: ignore?}) do
-        {:ok, _summary} ->
-          io.puts.(["Migrated to: ", Format.dim(new_target)])
-          new_target
-
-        {:error, reason} ->
-          io.puts.("⚠️ Migration failed (#{inspect(reason)}); keeping the legacy layout.")
-          legacy_target
-      end
-    else
-      io.puts.("Skipped. aiur still reads your legacy layout.")
-      legacy_target
-    end
-  end
-
-  defp layout_label(:global), do: "~/.aiur/"
-  defp layout_label(:repo_local), do: ".aiur/"
 
   defp fresh_setup(io, deps, location, target) do
     tracker = Questions.prompt_tracker(io, deps, location)
@@ -212,7 +141,6 @@ defmodule Aiur.Init do
 
     pre_warmed = Questions.prompt_int(io, "How many opencode sessions would you like to pre-warm?", 3, 0)
     polling = Questions.prompt_int(io, "How often should aiur check the tracker for new work? (seconds)", 30, 1)
-    # prompt_file is repo-specific, so the general global config omits it.
     prompt_file = if location == :global, do: "", else: io.input.("Per-repo agent prompt file", @prompt_basename, nil)
     prewarm = Prewarm.prompt_prewarm(io, deps, location)
     alerts = Alerts.prompt_alerts(io, deps, target)
@@ -254,17 +182,12 @@ defmodule Aiur.Init do
     end
   end
 
-  # After the config is written (or found on a re-run), wire up secrets and
-  # labels. GitHub gates label creation on a token being present: with no
-  # token yet, the wizard calmly explains the single next step instead of
-  # warning, so a first run never looks like a failure.
   defp provision(io, deps, %{kind: "github"} = tracker, agents) do
     check_agent_clis(io, deps, agents)
 
     if github_token_present?(deps) do
       case setup_labels(io, deps, tracker, agents) do
         :ok -> final_screen(io)
-        # The gh fallback was printed; don't claim setup is finished.
         :error -> :ok
       end
     else
@@ -289,77 +212,9 @@ defmodule Aiur.Init do
 
   defp github_token_present?(deps), do: deps.github_token.() not in [nil, ""]
 
-  # --- Resume backfill of init-promptable sections (#411) ---
-
-  # The registry of config sections a standard `aiur init` resume can backfill.
-  # See the convention note on `run/3`: each entry pairs a top-level config key
-  # with the fresh-setup prompt that configures it, so an existing user is
-  # offered any section their config predates — no per-feature resume code.
-  #
-  # Each entry:
-  #   * `key`       — top-level config key; its absence marks the section missing
-  #   * `label`     — human name for the "Added …" confirmation line
-  #   * `prompt`    — `(io, deps, location) -> answer`; the fresh-setup prompt
-  #   * `opted_in?` — `(answer) -> boolean`; did the user choose to add it?
-  #   * `to_yaml`   — `(answer) -> iodata`; the YAML block to append on opt-in
-  #   * `first_run` — `(io, deps, target, tracker, answer) -> any`; one-time side
-  #                   effect after the block is appended (gets the config target
-  #                   so it can write sibling files, e.g. the `prewarm` script)
-  defp promptable_sections do
-    [
-      %{
-        key: "prewarm",
-        label: "warm-base pre-warm",
-        prompt: &Prewarm.prompt_prewarm/3,
-        opted_in?: fn answer -> answer.enabled end,
-        to_yaml: &Prewarm.prewarm_section_yaml/1,
-        first_run: &Prewarm.first_prewarm_backfill/5
-      }
-    ]
-  end
-
-  # For each registered section the saved config lacks, reuse its fresh-setup
-  # prompt to offer adding it. On opt-in, append the rendered block to the
-  # existing file (never regenerate — hand-tuned settings stay put) and run the
-  # section's one-time side effect. Declining leaves the config untouched.
-  defp backfill_missing_sections(io, deps, location, tracker, config, target) do
-    promptable_sections()
-    |> Enum.filter(&missing_section?(config, &1.key))
-    |> Enum.each(&offer_section(io, deps, location, tracker, target, &1))
-  end
-
-  defp missing_section?(config, key), do: not Map.has_key?(config, key)
-
-  defp offer_section(io, deps, location, tracker, target, section) do
-    answer = section.prompt.(io, deps, location)
-
-    # Only run the one-time side effect once the section actually persisted —
-    # mirrors fresh setup, which builds the warm base only on a successful write.
-    if section.opted_in?.(answer) and append_section(io, deps, target, section, answer) == :ok do
-      section.first_run.(io, deps, target, tracker, answer)
-    end
-  end
-
-  defp append_section(io, deps, target, section, answer) do
-    case deps.append_config.(target, section.to_yaml.(answer)) do
-      {:ok, path} ->
-        io.puts.(["Added ", section.label, " to ", Format.dim(path)])
-        :ok
-
-      {:error, reason} ->
-        io.puts.(["⚠️  Couldn't update #{Path.basename(target)} (", inspect(reason), ")."])
-        :error
-    end
-  end
-
-  # --- Closing steps ---
-
   defp tracker_repo(%{repo: repo}), do: repo
   defp tracker_repo(_tracker), do: nil
 
-  # CODEOWNERS is part of the GitHub trust boundary: aiur uses it to decide whose
-  # PR/issue comments can drive agents. This runs on fresh setup and on resume so
-  # existing installs pick up the newer safety step without `--force`.
   defp setup_codeowners(io, deps, %{kind: "github"}) do
     repo_root = deps.repo_root.()
 
