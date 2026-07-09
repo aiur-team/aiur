@@ -73,35 +73,42 @@ defmodule Aiur.OrchestratorLoadGateTest do
     end
   end
 
-  describe "load_envelope/9" do
+  describe "load_envelope/4" do
     test "increases effective capacity below the per-scheduler target" do
-      assert {3, nil} = Orchestrator.load_envelope(1, nil, 6.0, 1.0, 12, 10, 2, 60_000, 1_000)
-      assert {5, nil} = Orchestrator.load_envelope(3, nil, 12.0, 1.0, 12, 10, 2, 60_000, 2_000)
+      assert {3, nil} = Orchestrator.load_envelope(1, nil, 6.0, envelope_options(ramp_step: 2, now_ms: 1_000))
+      assert {5, nil} = Orchestrator.load_envelope(3, nil, 12.0, envelope_options(ramp_step: 2, now_ms: 2_000))
     end
 
     test "never increases beyond the static/session concurrency cap" do
-      assert {10, nil} = Orchestrator.load_envelope(9, nil, 1.0, 1.0, 12, 10, 3, 60_000, 1_000)
+      assert {10, nil} = Orchestrator.load_envelope(9, nil, 1.0, envelope_options(ramp_step: 3, now_ms: 1_000))
     end
 
     test "decreases multiplicatively above target and honors the cooldown" do
-      assert {3, 1_000} = Orchestrator.load_envelope(5, nil, 13.0, 1.0, 12, 10, 1, 60_000, 1_000)
+      assert {3, 1_000} = Orchestrator.load_envelope(5, nil, 13.0, envelope_options(now_ms: 1_000))
 
       assert {3, 1_000} =
-               Orchestrator.load_envelope(3, 1_000, 13.0, 1.0, 12, 10, 1, 60_000, 2_000)
+               Orchestrator.load_envelope(3, 1_000, 13.0, envelope_options(now_ms: 2_000))
 
       assert {2, 61_000} =
-               Orchestrator.load_envelope(3, 1_000, 13.0, 1.0, 12, 10, 1, 60_000, 61_000)
+               Orchestrator.load_envelope(3, 1_000, 13.0, envelope_options(now_ms: 61_000))
 
       assert {1, 121_000} =
-               Orchestrator.load_envelope(2, 61_000, 13.0, 1.0, 12, 10, 1, 60_000, 121_000)
+               Orchestrator.load_envelope(2, 61_000, 13.0, envelope_options(now_ms: 121_000))
     end
 
     test "preserves capacity when load is unavailable and disables cleanly with a nil target" do
       assert {3, 1_000} =
-               Orchestrator.load_envelope(3, 1_000, :unavailable, 1.0, 12, 10, 1, 60_000, 2_000)
+               Orchestrator.load_envelope(3, 1_000, :unavailable, envelope_options(now_ms: 2_000))
 
-      assert {10, nil} = Orchestrator.load_envelope(3, 1_000, 99.0, nil, 12, 10, 1, 60_000, 2_000)
+      assert {10, nil} = Orchestrator.load_envelope(3, 1_000, 99.0, envelope_options(target: nil, now_ms: 2_000))
     end
+  end
+
+  defp envelope_options(overrides) do
+    Map.merge(
+      %{target: 1.0, schedulers: 12, static_limit: 10, ramp_step: 1, cooldown_ms: 60_000, now_ms: 0},
+      Map.new(overrides)
+    )
   end
 
   defp restore_app_env(key, nil), do: Application.delete_env(:aiur, key)

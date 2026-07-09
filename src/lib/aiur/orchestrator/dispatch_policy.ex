@@ -42,72 +42,49 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def load_gate(load, threshold, schedulers) when load > threshold * schedulers, do: :hold
   def load_gate(_load, _threshold, _schedulers), do: :dispatch
 
-  @spec load_envelope(
-          integer() | nil,
-          integer() | nil,
-          number() | :unavailable,
-          number() | nil,
-          pos_integer(),
-          pos_integer(),
-          pos_integer(),
-          non_neg_integer(),
-          integer()
-        ) :: {pos_integer(), integer() | nil}
-  def load_envelope(
-        _effective,
-        _last_decrease_ms,
-        _load,
-        nil,
-        _schedulers,
-        static_limit,
-        _ramp_step,
-        _cooldown_ms,
-        _now_ms
-      ),
-      do: {static_limit, nil}
+  @type envelope_options :: %{
+          target: number() | nil,
+          schedulers: pos_integer(),
+          static_limit: pos_integer(),
+          ramp_step: pos_integer(),
+          cooldown_ms: non_neg_integer(),
+          now_ms: integer()
+        }
 
-  def load_envelope(
-        effective,
-        last_decrease_ms,
-        :unavailable,
-        _target,
-        _schedulers,
-        static_limit,
-        _ramp_step,
-        _cooldown_ms,
-        _now_ms
-      ) do
+  @spec load_envelope(integer() | nil, integer() | nil, number() | :unavailable, envelope_options()) ::
+          {pos_integer(), integer() | nil}
+  def load_envelope(_effective, _last_decrease_ms, _load, %{target: nil, static_limit: static_limit}),
+    do: {static_limit, nil}
+
+  def load_envelope(effective, last_decrease_ms, :unavailable, %{static_limit: static_limit}) do
     {normalize_load_envelope_limit(effective, static_limit), last_decrease_ms}
   end
 
-  def load_envelope(
-        effective,
-        last_decrease_ms,
-        load,
-        target,
-        schedulers,
-        static_limit,
-        ramp_step,
-        cooldown_ms,
-        now_ms
-      )
-      when is_number(load) and is_number(target) and target > 0 and is_integer(schedulers) and schedulers > 0 and
-             is_integer(static_limit) and static_limit > 0 and is_integer(ramp_step) and ramp_step > 0 and
-             is_integer(cooldown_ms) and cooldown_ms >= 0 and is_integer(now_ms) do
+  def load_envelope(effective, last_decrease_ms, load, %{static_limit: static_limit} = options) when is_number(load) do
     effective = normalize_load_envelope_limit(effective, static_limit)
+    adjust_load_envelope(effective, last_decrease_ms, load, options)
+  end
 
-    cond do
-      load <= target * schedulers ->
-        {min(effective + ramp_step, static_limit), last_decrease_ms}
+  defp adjust_load_envelope(effective, last_decrease_ms, load, %{target: target, schedulers: schedulers} = options)
+       when load <= target * schedulers do
+    {min(effective + options.ramp_step, options.static_limit), last_decrease_ms}
+  end
 
-      cooldown_elapsed?(last_decrease_ms, cooldown_ms, now_ms) ->
-        reduced = max(div(effective + 1, 2), 1)
-        {reduced, if(reduced < effective, do: now_ms, else: last_decrease_ms)}
+  defp adjust_load_envelope(effective, last_decrease_ms, _load, options) do
+    decrease_load_envelope(effective, last_decrease_ms, options)
+  end
 
-      true ->
-        {effective, last_decrease_ms}
+  defp decrease_load_envelope(effective, last_decrease_ms, %{cooldown_ms: cooldown_ms, now_ms: now_ms}) do
+    if cooldown_elapsed?(last_decrease_ms, cooldown_ms, now_ms) do
+      reduced = max(div(effective + 1, 2), 1)
+      {reduced, next_decrease_time(effective, reduced, last_decrease_ms, now_ms)}
+    else
+      {effective, last_decrease_ms}
     end
   end
+
+  defp next_decrease_time(effective, reduced, _last_decrease_ms, now_ms) when reduced < effective, do: now_ms
+  defp next_decrease_time(_effective, _reduced, last_decrease_ms, _now_ms), do: last_decrease_ms
 
   defp normalize_load_envelope_limit(effective, static_limit)
        when is_integer(effective) and effective > 0 and is_integer(static_limit) and static_limit > 0,

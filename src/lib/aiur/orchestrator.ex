@@ -2279,29 +2279,9 @@ defmodule Aiur.Orchestrator do
   defdelegate load_gate(load, threshold, schedulers), to: DispatchPolicy
 
   @doc false
-  @spec load_envelope(
-          integer() | nil,
-          integer() | nil,
-          number() | :unavailable,
-          number() | nil,
-          pos_integer(),
-          pos_integer(),
-          pos_integer(),
-          non_neg_integer(),
-          integer()
-        ) :: {pos_integer(), integer() | nil}
-  defdelegate load_envelope(
-                effective,
-                last_decrease_ms,
-                load,
-                target,
-                schedulers,
-                static_limit,
-                ramp_step,
-                cooldown_ms,
-                now_ms
-              ),
-              to: DispatchPolicy
+  @spec load_envelope(integer() | nil, integer() | nil, number() | :unavailable, map()) ::
+          {pos_integer(), integer() | nil}
+  defdelegate load_envelope(effective, last_decrease_ms, load, options), to: DispatchPolicy
 
   defp update_load_envelope(state, load, target, schedulers, now_ms) do
     {effective, last_decrease_ms} =
@@ -2309,12 +2289,14 @@ defmodule Aiur.Orchestrator do
         state.effective_concurrent_agents,
         state.load_envelope_last_decrease_ms,
         load,
-        target,
-        schedulers,
-        max_concurrent_agent_limit(state),
-        Config.load_ramp_step(),
-        Config.load_cooldown_seconds() * 1_000,
-        now_ms
+        %{
+          target: target,
+          schedulers: schedulers,
+          static_limit: max_concurrent_agent_limit(state),
+          ramp_step: Config.load_ramp_step(),
+          cooldown_ms: Config.load_cooldown_seconds() * 1_000,
+          now_ms: now_ms
+        }
       )
 
     %{state | effective_concurrent_agents: effective, load_envelope_last_decrease_ms: last_decrease_ms}
