@@ -88,6 +88,57 @@ defmodule Aiur.Config.Schema.AgentValidationTest do
     end
   end
 
+  describe "validate_agent_routing/2" do
+    defp make_routing_changeset(value) do
+      {%{}, %{routing: :map}}
+      |> Changeset.cast(%{routing: value}, [:routing])
+    end
+
+    test "accepts a valid routing map" do
+      cs = make_routing_changeset(%{3 => "claude"}) |> AgentValidation.validate_agent_routing(:routing)
+      assert cs.valid?
+    end
+
+    test "accepts routing with model segment" do
+      cs = make_routing_changeset(%{2 => "codex:gpt-5.5"}) |> AgentValidation.validate_agent_routing(:routing)
+      assert cs.valid?
+    end
+
+    test "accepts +remote routing on a remote-capable backend" do
+      cs = make_routing_changeset(%{5 => "claude+remote"}) |> AgentValidation.validate_agent_routing(:routing)
+      assert cs.valid?
+    end
+
+    test "accepts routing with valid effort segment" do
+      cs = make_routing_changeset(%{3 => "codex::high"}) |> AgentValidation.validate_agent_routing(:routing)
+      assert cs.valid?
+    end
+
+    test "rejects non-positive complexity levels" do
+      cs = make_routing_changeset(%{0 => "claude"}) |> AgentValidation.validate_agent_routing(:routing)
+      refute cs.valid?
+      assert Keyword.has_key?(cs.errors, :routing)
+    end
+
+    test "rejects unknown backend" do
+      cs = make_routing_changeset(%{3 => "unknown-llm"}) |> AgentValidation.validate_agent_routing(:routing)
+      refute cs.valid?
+      assert Keyword.has_key?(cs.errors, :routing)
+    end
+
+    test "rejects +remote on non-remote-capable backend (codex)" do
+      cs = make_routing_changeset(%{3 => "codex+remote"}) |> AgentValidation.validate_agent_routing(:routing)
+      refute cs.valid?
+      assert Keyword.has_key?(cs.errors, :routing)
+    end
+
+    test "rejects invalid effort for backend" do
+      cs = make_routing_changeset(%{3 => "claude-repl::invalid-effort"}) |> AgentValidation.validate_agent_routing(:routing)
+      refute cs.valid?
+      assert Keyword.has_key?(cs.errors, :routing)
+    end
+  end
+
   describe "validate_complexity_prompts/2" do
     defp make_prompts_changeset(value) do
       {%{}, %{complexity_prompts: :map}}
