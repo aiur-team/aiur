@@ -9,7 +9,8 @@ contaminating_env_vars = [
   "AIUR_TMUX_CONF",
   "AIUR_TMUX_SESSION",
   "AIUR_TMUX_SOCKET",
-  "XDG_RUNTIME_DIR"
+  "XDG_RUNTIME_DIR",
+  "AIUR_LOGS_ROOT"
 ]
 
 for var <- contaminating_env_vars do
@@ -42,6 +43,21 @@ cond do
     :ok
 end
 
+# The suite-global :log_file isolation root is set in config/config.exs
+# (test block) so it is in force before the app boots. Fail loudly if it
+# is ever missing — without it, boot-time and non-TestSupport writes leak
+# into the shared <cwd>/log and unique_integer id reuse across VM boots
+# resurrects stale subscription state (ghost auto-resume flakes).
+global_log_file = Application.get_env(:aiur, :log_file)
+
+unless is_binary(global_log_file) and
+         String.starts_with?(global_log_file, System.tmp_dir!()) do
+  raise "config/config.exs must isolate :log_file under the system tmp dir " <>
+          "for the test env; got: #{inspect(global_log_file)}"
+end
+
+File.mkdir_p!(Path.dirname(global_log_file))
+
 # `:real_proc` tests spawn live processes and read the real /proc filesystem;
 # they only run where /proc exists (Linux CI / the dogfood box), and are
 # excluded elsewhere (e.g. macOS dev) rather than silently passing.
@@ -56,6 +72,11 @@ ExUnit.after_suite(fn _result ->
   end
 
   File.rm_rf(test_home)
+
+  # Best-effort: IdGenerator's terminate/2 flush at VM shutdown may
+  # recreate the counter file after this — a small leftover under the
+  # system tmp dir is harmless and tolerated.
+  File.rm_rf(Path.dirname(global_log_file))
 end)
 
 Code.require_file("support/snapshot_support.exs", __DIR__)

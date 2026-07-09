@@ -8,6 +8,8 @@ defmodule Aiur.Claude.HookSettings do
   alongside whatever the operator already configured.
   """
 
+  alias Aiur.Config.Paths
+
   # UserPromptSubmit = input received; PostToolUse = progress/heartbeat; Stop = turn done.
   @events ["UserPromptSubmit", "PostToolUse", "Stop"]
 
@@ -74,7 +76,7 @@ defmodule Aiur.Claude.HookSettings do
     end
   end
 
-  defp slug(identifier), do: String.replace(identifier, ~r/[^A-Za-z0-9_.-]/, "_")
+  defp slug(identifier), do: Paths.sanitize(identifier)
 
   defp single_quote(value), do: "'" <> String.replace(value, "'", "'\\''") <> "'"
 end

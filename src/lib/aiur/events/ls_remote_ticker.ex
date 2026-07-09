@@ -25,11 +25,10 @@ defmodule Aiur.Events.LsRemoteTicker do
   when an agent has actually pushed it for the first time.
   """
 
-  use GenServer
+  use Aiur.PeriodicWorker
 
   require Logger
 
-  alias Aiur.Alerts
   alias Aiur.Events.{GithubKeys, Publisher}
   alias Aiur.Git
   alias Aiur.GitHub.Connectivity
@@ -56,7 +55,7 @@ defmodule Aiur.Events.LsRemoteTicker do
       Tests drive `:tick` manually.
   """
   @spec start_link(keyword()) :: GenServer.on_start()
-  def start_link(opts \\ []) do
+  def start_link(opts) do
     name = Keyword.get(opts, :name, __MODULE__)
     GenServer.start_link(__MODULE__, opts, name: name)
   end
@@ -80,22 +79,7 @@ defmodule Aiur.Events.LsRemoteTicker do
       start_paused?: Keyword.get(opts, :start_paused?, false)
     }
 
-    unless state.start_paused?, do: schedule_tick(state.interval_ms)
-    {:ok, state}
-  end
-
-  @impl true
-  def handle_info(:tick, state) do
-    state = run_tick(state)
-    schedule_tick(state.next_delay_ms)
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_info(_other, state), do: {:noreply, state}
-
-  defp schedule_tick(interval_ms) when is_integer(interval_ms) and interval_ms > 0 do
-    Process.send_after(self(), :tick, interval_ms)
+    {:ok, Aiur.PeriodicWorker.schedule_first_tick(state)}
   end
 
   # The shell-out and Publisher.publish are wrapped to keep the
@@ -108,7 +92,9 @@ defmodule Aiur.Events.LsRemoteTicker do
   # auto-resume for every paused blockee. A push that lands between a
   # transient error and the next success is lost; the next successful
   # tick resumes from the observed ref state.
-  defp run_tick(state) do
+  @impl Aiur.PeriodicWorker
+  @spec tick(map()) :: map()
+  def tick(state) do
     case state.ls_remote_fun.(state.remote, [state.ref_pattern]) do
       {:ok, refs} when is_map(refs) ->
         state
@@ -123,15 +109,6 @@ defmodule Aiur.Events.LsRemoteTicker do
         Logger.warning("LsRemoteTicker unexpected ls_remote result: #{inspect(other)}")
         state
     end
-  rescue
-    error ->
-      Logger.warning("LsRemoteTicker tick raised: #{Exception.message(error)} (#{inspect(error.__struct__)})")
-
-      state
-  catch
-    kind, reason ->
-      Logger.warning("LsRemoteTicker tick caught #{kind}: #{inspect(reason)}")
-      state
   end
 
   defp note_connectivity_success(state) do
@@ -145,42 +122,17 @@ defmodule Aiur.Events.LsRemoteTicker do
   # Records a classified ls-remote failure and emits a single operator-visible
   # blocker once a sustained DNS/auth streak crosses the escalation threshold.
   defp note_connectivity_failure(state, classification) do
-    {streaks, alerts} =
-      Connectivity.note_failure(state.connectivity, :ls_remote, classification)
-
-    repo = state.repo || resolve_repo()
-
-    Enum.each(alerts, fn alert ->
-      message = Connectivity.alert_message(alert, repo: repo)
-
-      Alerts.emit_custom("system.github.connectivity_lost", message,
-        reason: message,
-        needs_attention: true,
-        severity: "warning"
+    {streaks, delay_ms} =
+      Connectivity.record_failure(
+        state.connectivity,
+        :ls_remote,
+        classification,
+        state.interval_ms,
+        repo: state.repo || resolve_repo()
       )
-    end)
-
-    delay_ms =
-      classification
-      |> Connectivity.backoff_ms(connectivity_streak_count(streaks), %{})
-      |> normalize_backoff_ms(state)
 
     %{state | connectivity: streaks, next_delay_ms: delay_ms}
   end
-
-  defp connectivity_streak_count(streaks) do
-    case Map.get(streaks, :ls_remote) do
-      {_classification, count} when is_integer(count) and count > 0 -> count
-      _ -> 1
-    end
-  end
-
-  defp normalize_backoff_ms(:escalate, _state), do: Connectivity.max_backoff_ms()
-
-  defp normalize_backoff_ms(delay_ms, _state) when is_integer(delay_ms) and delay_ms >= 0,
-    do: delay_ms
-
-  defp normalize_backoff_ms(_delay_ms, state), do: state.interval_ms
 
   defp fold_refs(state, current_refs) do
     repo = state.repo || resolve_repo()

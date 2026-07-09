@@ -476,7 +476,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
 
         assert_receive {:human_review_verify, ^issue_id}
-        refute_receive {:human_review_update, ^issue_id, "rework"}, 100
+        refute_received {:human_review_update, ^issue_id, "rework"}
         assert Process.alive?(agent_pid)
 
         entry = Map.fetch!(updated_state.running, issue_id)
@@ -545,7 +545,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
             updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
 
             assert_receive {:human_review_verify, ^issue_id}
-            refute_receive {:human_review_update, ^issue_id, "rework"}, 100
+            refute_received {:human_review_update, ^issue_id, "rework"}
             assert Process.alive?(agent_pid)
 
             entry = Map.fetch!(updated_state.running, issue_id)

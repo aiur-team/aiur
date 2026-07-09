@@ -296,12 +296,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
   end
 
   defp publish_comment(topic, payload, actor, publish_opts) do
-    sanitized =
-      payload
-      |> Map.put(:source, :github)
-      |> Sanitizer.scrub()
-      |> Sanitizer.stamp_author_trust(actor: actor)
-      |> Sanitizer.put_comment_message()
+    sanitized = Sanitizer.github_payload(payload, actor)
 
     publish_opts =
       publish_opts
