@@ -7,7 +7,7 @@ defmodule Aiur.Claude.CodingAgent do
   app-server and advertises the same Aiur DynamicTool surface.
   """
 
-  @behaviour Aiur.CodingAgent
+  @behaviour Aiur.CodingAgent.Backend
   @behaviour Aiur.AppServer.Adapter
 
   require Logger
@@ -26,8 +26,8 @@ defmodule Aiur.Claude.CodingAgent do
           model: String.t() | nil
         }
 
-  @impl Aiur.CodingAgent
   @spec start_session(Path.t(), keyword()) :: {:ok, session()} | {:error, term()}
+  @impl Aiur.CodingAgent.Backend
   def start_session(workspace, opts \\ []) do
     model = Keyword.get(opts, :model)
 
@@ -55,8 +55,8 @@ defmodule Aiur.Claude.CodingAgent do
     end
   end
 
-  @impl Aiur.CodingAgent
   @spec run_turn(session(), String.t(), map(), keyword()) :: {:ok, map()} | {:paused, map()} | {:error, term()}
+  @impl Aiur.CodingAgent.Backend
   def run_turn(
         %{
           thread_id: thread_id,
@@ -70,15 +70,15 @@ defmodule Aiur.Claude.CodingAgent do
     Adapter.run_turn(__MODULE__, session, prompt, issue, opts)
   end
 
-  @impl Aiur.CodingAgent
   @spec stop_session(session()) :: :ok
+  @impl Aiur.CodingAgent.Backend
   def stop_session(%{port: port}) when is_port(port) do
     stop_port(port)
   end
 
-  @impl Aiur.CodingAgent
   @spec send_operator_message(session(), Aiur.CodingAgent.operator_payload()) ::
           {:ok, integer()} | {:error, term()}
+  @impl Aiur.CodingAgent.Backend
   def send_operator_message(
         %{port: port, thread_id: thread_id, workspace: workspace} = session,
         %{kind: :text, body: text}
@@ -341,8 +341,8 @@ defmodule Aiur.Claude.CodingAgent do
     end
   end
 
-  @impl Aiur.CodingAgent
   @spec normalize_event(map()) :: map()
+  @impl Aiur.CodingAgent.Backend
   def normalize_event(event) when is_map(event) do
     event
     |> normalize_usage()

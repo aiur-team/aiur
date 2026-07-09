@@ -26,14 +26,6 @@ defmodule Aiur.CodingAgent do
           :noop
           | {:deliver_text, String.t(), (map() -> any()), (term() -> any())}
 
-  @callback start_session(Path.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  @callback run_turn(map(), String.t(), map(), keyword()) ::
-              {:ok, map()} | {:paused, map()} | {:error, term()}
-  @callback stop_session(map()) :: :ok
-  @callback normalize_event(map()) :: map()
-  @callback send_operator_message(map(), operator_payload()) ::
-              {:ok, request_id :: integer()} | {:error, term()}
-
   @complexity_label ~r/^complexity:(\d+)$/
   # `model:<backend>` selects a backend with its configured default model.
   # `model:<backend>-<variant>` additionally pins a model string passed to
@@ -65,7 +57,7 @@ defmodule Aiur.CodingAgent do
   `aiur-claude`, whose current app-server wrapper does not expose an effort
   option, so it intentionally has no effort vocabulary.
   """
-  @spec backends() :: %{backend() => map()}
+  @spec backends() :: %{backend() => Aiur.CodingAgent.Backend.capabilities()}
   def backends do
     %{
       "codex" => %{
@@ -87,6 +79,11 @@ defmodule Aiur.CodingAgent do
         can_interrupt: true,
         safe_checkpoints: [:notification],
         remote_control: true,
+        # Remote control physically runs on the persistent-REPL transport,
+        # so an RC-promoted claude issue dispatches claude-repl (carrying
+        # the resolved model). Declared here so dispatch code never
+        # hard-codes the swap.
+        remote_transport: "claude-repl",
         # Headless claude runs through the external `aiur-claude` app-server,
         # whose thread map is in-memory only (lost on restart) and whose
         # `thread/start` exposes no way to seed a prior session id. aiur can't
@@ -110,6 +107,11 @@ defmodule Aiur.CodingAgent do
         safe_checkpoints: [],
         immediate_delivery: true,
         remote_control: true,
+        # A tmux/RC start failure must never strand an issue: a failed
+        # claude-repl spawn falls back once to the headless claude
+        # backend. Declared here so the fallback never lives in a
+        # dispatch `case`.
+        fallback_backend: "claude",
         # The REPL spawns the `claude` CLI directly, so a respawn after an aiur
         # restart can `--resume <session-id>` against the on-disk transcript
         # jsonl (the session id is the transcript filename). The runner injects
@@ -393,6 +395,33 @@ defmodule Aiur.CodingAgent do
     case Map.fetch(backends(), backend) do
       {:ok, entry} -> Map.get(entry, :resumable, false)
       :error -> false
+    end
+  end
+
+  @doc """
+  The transport backend an RC-promoted session actually runs on.
+  `"claude"` declares the REPL backend as its remote transport; a backend
+  with no declared transport — and any unknown backend — promotes
+  to itself (no swap).
+  """
+  @spec remote_transport(backend()) :: backend()
+  def remote_transport(backend) do
+    case Map.fetch(backends(), backend) do
+      {:ok, entry} -> Map.get(entry, :remote_transport, backend)
+      :error -> backend
+    end
+  end
+
+  @doc """
+  The backend a failed spawn falls back to, or `nil` when the
+  backend declares no fallback. `"claude-repl"` falls back to the
+  headless claude backend. Unknown backends have no fallback.
+  """
+  @spec fallback_backend(backend()) :: backend() | nil
+  def fallback_backend(backend) do
+    case Map.fetch(backends(), backend) do
+      {:ok, entry} -> Map.get(entry, :fallback_backend, nil)
+      :error -> nil
     end
   end
 
