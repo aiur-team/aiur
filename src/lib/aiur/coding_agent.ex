@@ -84,6 +84,9 @@ defmodule Aiur.CodingAgent do
         # the resolved model). Declared here so dispatch code never
         # hard-codes the swap.
         remote_transport: "claude-repl",
+        # The headless `bash -lc` wrapper does not exec; report its os pid so
+        # brutal-kill teardown can tree-reap the reparented claude/node children.
+        runtime_report: :headless_wrapper,
         # Headless claude runs through the external `aiur-claude` app-server,
         # whose thread map is in-memory only (lost on restart) and whose
         # `thread/start` exposes no way to seed a prior session id. aiur can't
@@ -112,6 +115,11 @@ defmodule Aiur.CodingAgent do
         # backend. Declared here so the fallback never lives in a
         # dispatch `case`.
         fallback_backend: "claude",
+        # Only the hook-driven RC REPL needs the pane display tailer; every
+        # other backend streams its own rich transcript.
+        rc_display_tail: true,
+        # The persistent pane + REPL os pid are what an abort path must reap.
+        runtime_report: :repl_pane,
         # The REPL spawns the `claude` CLI directly, so a respawn after an aiur
         # restart can `--resume <session-id>` against the on-disk transcript
         # jsonl (the session id is the transcript filename). The runner injects
@@ -421,6 +429,35 @@ defmodule Aiur.CodingAgent do
   def fallback_backend(backend) do
     case Map.fetch(backends(), backend) do
       {:ok, entry} -> Map.get(entry, :fallback_backend, nil)
+      :error -> nil
+    end
+  end
+
+  @doc """
+  Whether a remote-control session on this backend feeds the pane
+  display tailer. True only for the hook-driven RC REPL, whose hook
+  path alone paints a sparse skeleton; every other backend streams its
+  own rich transcript and must not get a second display source.
+  """
+  @spec rc_display_tail?(backend()) :: boolean()
+  def rc_display_tail?(backend) do
+    case Map.fetch(backends(), backend) do
+      {:ok, entry} -> Map.get(entry, :rc_display_tail, false)
+      :error -> false
+    end
+  end
+
+  @doc """
+  How a live session's OS-level runtime is reported to the orchestrator
+  for brutal-kill teardown: `:repl_pane` (pane_id / os_pid /
+  session_url), `:headless_wrapper` (the non-exec bash wrapper pid to
+  tree-reap), or nil (the backend's ProcessReaper registration already
+  covers it).
+  """
+  @spec runtime_report(backend()) :: :repl_pane | :headless_wrapper | nil
+  def runtime_report(backend) do
+    case Map.fetch(backends(), backend) do
+      {:ok, entry} -> Map.get(entry, :runtime_report)
       :error -> nil
     end
   end

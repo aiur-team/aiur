@@ -511,4 +511,28 @@ defmodule Aiur.CodingAgentTest do
       assert CodingAgent.fallback_backend("nonexistent") == nil
     end
   end
+
+  describe "rc_display_tail?/1" do
+    test "only claude-repl feeds the RC display tailer" do
+      assert CodingAgent.rc_display_tail?("claude-repl")
+      refute CodingAgent.rc_display_tail?("claude")
+      refute CodingAgent.rc_display_tail?("codex")
+      refute CodingAgent.rc_display_tail?("mystery")
+    end
+  end
+
+  describe "runtime_report/1" do
+    test "claude-repl reports its pane runtime" do
+      assert CodingAgent.runtime_report("claude-repl") == :repl_pane
+    end
+
+    test "headless claude reports its wrapper pid" do
+      assert CodingAgent.runtime_report("claude") == :headless_wrapper
+    end
+
+    test "codex and unknown backends report nothing" do
+      assert CodingAgent.runtime_report("codex") == nil
+      assert CodingAgent.runtime_report("mystery") == nil
+    end
+  end
 end
