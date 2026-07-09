@@ -707,8 +707,9 @@ defmodule Aiur.Init do
     }
   end
 
+  @doc false
   @spec runtime_deps() :: deps()
-  defp runtime_deps do
+  def runtime_deps do
     %{
       config_target: &Scaffold.config_target/1,
       legacy_config_target: &Scaffold.legacy_config_target/1,
