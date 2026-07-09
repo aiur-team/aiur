@@ -83,6 +83,45 @@ mentioned in an index.
 
 ---
 
+## Operator update cadence — every 10 minutes (REQUIRED)
+
+**While an aiur run is live, it is your job to post the operator an update every
+10 minutes, automatically — the operator must NEVER have to ask.**
+
+**Drive it with an ARMED, time-based timer — never off event notifications.**
+The correct mechanism is the `/loop` skill: `/loop 10m /aiur-monitor` (the
+`aiur-monitor` skill compiles the board via `aiurdev watch` and posts it). If
+you are inside a `/goal` (not a `/loop`), arm the equivalent yourself: a
+background timer that sleeps ~570s, then wakes you to post the update, and that
+you **RE-ARM every tick**. Do **NOT** drive the cadence off PR/CI/review/subagent
+notifications — those have no time floor, so a long compile or a quiet stretch
+silently skips ticks. This is the #1 cause of the cadence drifting after a phase
+boundary or an aiur restart: rebuild the armed timer immediately after any
+restart. Post every tick even when nothing changed ("steady, no change since
+HH:MM") — a missing tick reads as "stopped watching."
+
+**Board tool:** `aiurdev watch --changes` (deltas + actionable, low-token) or
+`aiurdev watch --full` (whole board). It emits a server-computed row per agent
+(`TICKET · STATE · CX · AGE · DOING`) + an `ACTIONABLE` section — post it as-is.
+**Caveat:** under heavy multi-agent load the watch control RPC can time out at
+10s (#438-class); when it does, fall back to the log-derived table below.
+
+**Every update has three sections:**
+
+**1. Active agents** — a table, one row per working agent:
+
+| ID | Duration | Status |
+| --- | --- | --- |
+| `#<id>` | how long this agent has worked its ticket (from dispatch → now) | an emoji + a short phrase pulled from the logs saying what it is *specifically* doing (e.g. `🧪 running full suite (slow tail)`, `📝 self-review via ce-code-review`, `⏳ queued`) |
+
+**2. Next steps** — a short summary of what's coming. If the phase is split into
+sub-runs/waves, show a small table of the upcoming runs and their tickets.
+
+**3. Challenges since last update** — anything that went wrong: snags, agents
+misbehaving, agents not working/stalled, the daemon dropping. For each: whether
+you **filed a ticket** for it, and what you're **doing to mitigate**. If nothing
+went wrong, say so in one line.
+
 ## 1. Orient in five minutes
 
 1. Read this handoff top to bottom.
