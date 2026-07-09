@@ -50,6 +50,53 @@ defmodule Aiur.Config.PathsTest do
     end
   end
 
+  describe "sanitize/2 (identifier join key)" do
+    # Pins the EXACT current transformation shared by the five former
+    # copies (config/paths.ex, workspace.ex, opencode/config.ex,
+    # claude/hook_settings.ex, test_reset.ex). Workspace dir names,
+    # opencode model ids, and per-issue log/session filenames are join
+    # keys across subsystems: they must all derive identically or
+    # cross-subsystem lookups silently break. Any diff here is a breaking
+    # change to on-disk naming — never "fix" an expected value.
+    @sanitize_fixtures [
+      {"issue-123", "issue-123"},
+      {"ISSUE_42.v1-final", "ISSUE_42.v1-final"},
+      {"owner/repo#45", "owner_repo_45"},
+      {"a b\tc\nd", "a_b_c_d"},
+      {"../etc/passwd", ".._etc_passwd"},
+      {"..", ".."},
+      {".", "."},
+      {"..hidden..", "..hidden.."},
+      {"trailing.", "trailing."},
+      # The regex is byte-oriented (no /u modifier): every byte of a
+      # multi-byte UTF-8 character is replaced with one underscore.
+      {"héllo wörld", "h__llo_w__rld"},
+      {"ünïcode", "__n__code"},
+      {"🎉", "____"},
+      {"", ""}
+    ]
+
+    test "matches the historical transformation byte-for-byte" do
+      for {input, expected} <- @sanitize_fixtures do
+        assert Paths.sanitize(input) == expected
+        assert Paths.sanitize(input, "issue") == expected
+      end
+    end
+
+    test "nil falls back to the default" do
+      assert Paths.sanitize(nil, "issue") == "issue"
+    end
+
+    test "opencode safe_identifier stays a byte-identical delegate" do
+      for {input, _expected} <- @sanitize_fixtures do
+        assert Aiur.Opencode.Config.safe_identifier(input) ==
+                 Paths.sanitize(input, "issue")
+      end
+
+      assert Aiur.Opencode.Config.safe_identifier(nil) == "issue"
+    end
+  end
+
   describe "repo_name/0" do
     test "returns 'aiur' when project_identity throws" do
       # Default test workflow has no tracker — should fall through to "aiur"
