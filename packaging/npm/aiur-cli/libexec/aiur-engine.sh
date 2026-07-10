@@ -505,8 +505,7 @@ run_session() {
   # session whose BEAM/control plane is gone should be reclaimed before retry.
   if [ "$mode" = "background" ] && "$tmux_bin" -L "$socket" -f "$conf" has-session -t "$session" 2>/dev/null; then
     if [ "$(probe_control_liveness)" = "up" ]; then
-      # Keep the live run's record intact: it owns the BEAM-written workspace
-      # root handoff. This invocation's temporary handoff is removed below.
+      write_aiur_instance_record "$session" "$socket"
       echo "aiur is already running in the background (tmux session ${session})." >&2
       echo "Use: aiur status   # inspect agents" >&2
       echo "Use: aiur stop     # stop it before starting a fresh session" >&2
