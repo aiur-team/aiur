@@ -170,19 +170,12 @@ defmodule Aiur.AgentRunner.EventsDigest do
   # dependent ticket: it must fetch the precise readable branch, not rebuild a
   # legacy `aiur/<id>` ref from the stable topic key.
   defp branch_push_ref(event) do
-    case event_field(event, :topic) do
-      topic when is_binary(topic) ->
-        if String.ends_with?(topic, ".branch.push") do
-          case event_field(event, :ref) do
-            ref when is_binary(ref) and ref != "" -> ref
-            _ -> nil
-          end
-        else
-          nil
-        end
-
-      _ ->
-        nil
+    with topic when is_binary(topic) <- event_field(event, :topic),
+         true <- String.ends_with?(topic, ".branch.push"),
+         ref when is_binary(ref) and ref != "" <- event_field(event, :ref) do
+      ref
+    else
+      _ -> nil
     end
   end
 
