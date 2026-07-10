@@ -19,6 +19,7 @@ defmodule Aiur.InitTest do
     "system.dispatch.todo_capacity_exceeded",
     "ticket.*.agent.error.tokens_exhausted",
     "ticket.*.agent.retry_exhausted",
+    "ticket.*.agent.review_feedback_delivery_deferred",
     "ticket.*.agent.paused",
     "ticket.*.agent.unpaused",
     "ticket.*.chat.opened",
@@ -623,6 +624,7 @@ defmodule Aiur.InitTest do
         # carry the `.phase.` segment or the sound never fires.
         assert template =~ "ticket.*.agent.phase.work.start"
         refute template =~ ~r/"ticket\.\*\.agent\.work\.start"/
+        assert template =~ "ticket.*.agent.review_feedback_delivery_deferred"
       end
 
       assert_filled_alert_template(macos, ~r{\A/System/Library/Sounds/.+\.aiff\z})
