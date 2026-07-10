@@ -32,7 +32,7 @@ defmodule Aiur.Regression.EnterOpensNewPaneTest do
                      "../../../lib/aiur/opencode/session_writer_registry.ex",
                      __DIR__
                    )
-  @pane_manager_source Path.expand("../../../lib/aiur/pane_manager.ex", __DIR__)
+  @opencode_open_source Path.expand("../../../lib/aiur/pane_manager/opencode_open.ex", __DIR__)
 
   describe "AgentList Enter behavior" do
     test "plain Enter dispatches :new_pane (not :swap_in_last_used)" do
@@ -91,13 +91,13 @@ defmodule Aiur.Regression.EnterOpensNewPaneTest do
 
   describe "PaneManager warm-open hot path is lock-free" do
     test "open_opencode_pane checks SlotRegistry.find_visible BEFORE AttachPool.consume" do
-      source = File.read!(@pane_manager_source)
+      source = File.read!(@opencode_open_source)
 
       open_block =
         source
-        |> String.split(~r/defp open_opencode_pane\(state, identifier, _opts, from\) do/, parts: 2)
+        |> String.split(~r/def open_opencode_pane\(state, identifier, _opts, from\) do/, parts: 2)
         |> List.last()
-        |> String.split(~r/defp move_warm_pane_visible/, parts: 2)
+        |> String.split(~r/def move_warm_pane_visible/, parts: 2)
         |> List.first()
 
       assert open_block =~ "SlotRegistry.find_visible",
