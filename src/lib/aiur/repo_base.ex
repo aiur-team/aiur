@@ -1,6 +1,6 @@
 defmodule Aiur.RepoBase do
   @moduledoc """
-  Maintains one warm, pre-compiled base checkout of the target repo's `main` at
+  Maintains one warm, pre-compiled base checkout of the target repo's base branch (`tracker.base_branch`, default `main`) at
   `~/.aiur/repo/<owner>/<name>` so per-issue workspaces materialize from it
   (copy-on-write) instead of cold-cloning + recompiling on every dispatch.
 
@@ -8,10 +8,10 @@ defmodule Aiur.RepoBase do
   responsive — the orchestrator's eager-dispatch gate reads `status/0` rather
   than blocking on a build. The build command is the repo-agnostic
   `prewarm.base_build` filled by toolchain detection at `aiur init`.
-  `_build`/deps are gitignored, so `reset --hard origin/main` updates tracked
+  `_build`/deps are gitignored, so `reset --hard origin/<base>` updates tracked
   source but leaves build artifacts — refreshes are incremental.
 
-  On every `main` advance the base is rebuilt; a newer advance detected
+  On every base-branch advance the base is rebuilt; a newer advance detected
   mid-build (via `git ls-remote`, which never touches the base working tree)
   PREEMPTS the in-flight build so workspaces never spin off a stale base. Phase
   events (`:cloning` -> `:fetching` -> `:building` -> `:ready` / `{:error, _}`)
@@ -48,19 +48,31 @@ defmodule Aiur.RepoBase do
   def status, do: GenServer.call(__MODULE__, :status)
 
   @doc """
-  Trigger an asynchronous refresh of the warm base toward latest `origin/main`.
+  Trigger an asynchronous refresh of the warm base toward the latest remote base branch.
   No-op when pre-warm is disabled / unconfigured. Safe to call every poll cycle:
-  rebuilds only when `main` advanced, and preempts an in-flight build when it
+  rebuilds only when the base branch advanced, and preempts an in-flight build when it
   has. Returns immediately.
   """
   @spec refresh_async() :: :ok
   def refresh_async, do: GenServer.cast(__MODULE__, :refresh_async)
 
+  @doc """
+  The branch the warm base tracks: `tracker.base_branch` from config, falling
+  back to `"main"` when unset, empty, or the config cannot be loaded.
+  """
+  @spec base_branch() :: String.t()
+  def base_branch do
+    case Config.settings() do
+      {:ok, %{tracker: %{base_branch: name}}} when is_binary(name) and name != "" -> name
+      _ -> @default_branch
+    end
+  end
+
   ## ---- Synchronous core (no GenServer; exercised directly in tests) ----
 
   @doc """
-  Ensures `base_path` is a clone of `repo_url` at latest `origin/main`, running
-  `base_build` on first build and after every `main` advance. Emits phase events
+  Ensures `base_path` is a clone of `repo_url` at the latest remote base branch, running
+  `base_build` on first build and after every base-branch advance. Emits phase events
   as it progresses. Returns `{:ok, base_path}` or `{:error, reason}`.
   """
   @spec refresh(Path.t(), String.t(), String.t() | nil) :: {:ok, Path.t()} | {:error, term()}
@@ -245,7 +257,7 @@ defmodule Aiur.RepoBase do
       File.rm_rf!(base_path)
       File.mkdir_p!(Path.dirname(base_path))
 
-      case git(["clone", "--branch", @default_branch, repo_url, base_path], nil) do
+      case git(["clone", "--branch", base_branch(), repo_url, base_path], nil) do
         {_out, 0} -> :ok
         {out, status} -> {:error, {:repo_base_clone_failed, status, out}}
       end
@@ -254,10 +266,11 @@ defmodule Aiur.RepoBase do
 
   defp fetch_and_reset(base_path) do
     emit(:fetching)
+    branch = base_branch()
 
-    with {_fetch, 0} <- git(["fetch", "origin", @default_branch, "--quiet"], base_path),
+    with {_fetch, 0} <- git(["fetch", "origin", branch, "--quiet"], base_path),
          {local, 0} <- git(["rev-parse", "HEAD"], base_path),
-         {remote, 0} <- git(["rev-parse", "origin/#{@default_branch}"], base_path) do
+         {remote, 0} <- git(["rev-parse", "origin/#{branch}"], base_path) do
       reset_if_changed(base_path, String.trim(local) == String.trim(remote))
     else
       {out, status} -> {:error, {:repo_base_fetch_failed, status, out}}
@@ -267,7 +280,7 @@ defmodule Aiur.RepoBase do
   defp reset_if_changed(_base_path, true), do: {:ok, false}
 
   defp reset_if_changed(base_path, false) do
-    case git(["reset", "--hard", "origin/#{@default_branch}"], base_path) do
+    case git(["reset", "--hard", "origin/#{base_branch()}"], base_path) do
       {_out, 0} -> {:ok, true}
       {out, status} -> {:error, {:repo_base_reset_failed, status, out}}
     end
@@ -356,7 +369,7 @@ defmodule Aiur.RepoBase do
   end
 
   defp remote_head(repo_url) do
-    case git(["ls-remote", repo_url, "refs/heads/#{@default_branch}"], nil) do
+    case git(["ls-remote", repo_url, "refs/heads/#{base_branch()}"], nil) do
       {out, 0} -> out |> String.split() |> List.first()
       _ -> nil
     end
