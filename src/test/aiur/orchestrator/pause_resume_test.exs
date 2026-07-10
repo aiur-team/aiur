@@ -6,7 +6,9 @@ defmodule Aiur.Orchestrator.PauseResumeTest do
   test "sets control status only for a known running entry" do
     state = %State{running: %{"known" => %{control: %{status: :working}}}}
 
-    assert get_in(PauseResume.put_running_control_status(state, "known", :paused).running, ["known", :control, :status]) == :paused
+    updated_state = PauseResume.put_running_control_status(state, "known", :paused)
+
+    assert get_in(updated_state.running, ["known", :control, :status]) == :paused
     assert PauseResume.put_running_control_status(state, "missing", :paused) == state
   end
 

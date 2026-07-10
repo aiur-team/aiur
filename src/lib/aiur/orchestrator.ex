@@ -3481,7 +3481,7 @@ defmodule Aiur.Orchestrator do
   defp record_session_completion_totals(state, running_entry) when is_map(running_entry),
     do: TokenAccounting.record_session_completion_totals(state, running_entry)
 
-  defp record_session_completion_totals(state, _running_entry), do: TokenAccounting.record_session_completion_totals(state, nil)
+  defp record_session_completion_totals(state, _running_entry), do: state
 
   defp refresh_runtime_config(%State{} = state) do
     config = Config.settings!()
@@ -3520,12 +3520,12 @@ defmodule Aiur.Orchestrator do
        when is_integer(input) and is_integer(output) and is_integer(total),
        do: TokenAccounting.apply_agent_token_delta(state, token_delta)
 
-  defp apply_agent_token_delta(state, _token_delta), do: TokenAccounting.apply_agent_token_delta(state, %{})
+  defp apply_agent_token_delta(state, _token_delta), do: state
 
   defp apply_agent_rate_limits(%State{} = state, update) when is_map(update),
     do: TokenAccounting.apply_agent_rate_limits(state, update)
 
-  defp apply_agent_rate_limits(state, _update), do: TokenAccounting.apply_agent_rate_limits(state, %{})
+  defp apply_agent_rate_limits(state, _update), do: state
   defp running_seconds(started_at, now), do: State.running_seconds(started_at, now)
   defp effective_runtime_seconds(entry, now), do: State.effective_runtime_seconds(entry, now)
 

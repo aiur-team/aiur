@@ -32,13 +32,23 @@ defmodule Aiur.Orchestrator.TokenAccountingTest do
       session_id: nil
     }
 
-    payload = %{"tokenUsage" => %{"total" => %{input_tokens: 10, output_tokens: 5, total_tokens: 15}}, method: "turn/completed", usage: %{input_tokens: 1, output_tokens: 1, total_tokens: 2}}
+    payload = %{
+      "tokenUsage" => %{"total" => %{input_tokens: 10, output_tokens: 5, total_tokens: 15}},
+      method: "turn/completed",
+      usage: %{input_tokens: 1, output_tokens: 1, total_tokens: 2}
+    }
 
-    {updated, _delta} = TokenAccounting.integrate_codex_update(entry, %{event: :turn_completed, timestamp: now, payload: payload})
+    {updated, _delta} =
+      TokenAccounting.integrate_codex_update(entry, %{event: :turn_completed, timestamp: now, payload: payload})
+
     assert {updated.agent_input_tokens, updated.agent_output_tokens, updated.agent_total_tokens} == {10, 5, 15}
 
     {again, delta} =
-      TokenAccounting.integrate_codex_update(updated, %{event: :turn_completed, timestamp: now, payload: %{method: "turn/completed", usage: %{input_tokens: 2, output_tokens: 1, total_tokens: 3}}})
+      TokenAccounting.integrate_codex_update(updated, %{
+        event: :turn_completed,
+        timestamp: now,
+        payload: %{method: "turn/completed", usage: %{input_tokens: 2, output_tokens: 1, total_tokens: 3}}
+      })
 
     assert {delta.input_tokens, delta.output_tokens, delta.total_tokens} == {0, 0, 0}
     assert {again.agent_input_tokens, again.agent_output_tokens, again.agent_total_tokens} == {10, 5, 15}
@@ -48,15 +58,28 @@ defmodule Aiur.Orchestrator.TokenAccountingTest do
     state = %State{agent_totals: nil, agent_rate_limits: nil}
     delta = %{input_tokens: 2, output_tokens: 3, total_tokens: 5}
 
-    assert TokenAccounting.apply_agent_token_delta(state, delta).agent_totals == %{input_tokens: 2, output_tokens: 3, total_tokens: 5, seconds_running: 0}
+    assert TokenAccounting.apply_agent_token_delta(state, delta).agent_totals == %{
+             input_tokens: 2,
+             output_tokens: 3,
+             total_tokens: 5,
+             seconds_running: 0
+           }
+
     assert TokenAccounting.apply_agent_rate_limits(state, %{rate_limits: %{primary: %{remaining: 1}}}).agent_rate_limits == nil
-    assert TokenAccounting.apply_agent_rate_limits(state, %{rate_limits: %{limit_id: "primary", primary: %{remaining: 1}}}).agent_rate_limits == %{limit_id: "primary", primary: %{remaining: 1}}
+
+    assert TokenAccounting.apply_agent_rate_limits(state, %{
+             rate_limits: %{limit_id: "primary", primary: %{remaining: 1}}
+           }).agent_rate_limits == %{limit_id: "primary", primary: %{remaining: 1}}
   end
 
   test "completion totals exclude a paused interval" do
     now = DateTime.utc_now()
     state = %State{agent_totals: nil}
-    entry = %{started_at: DateTime.add(now, -120, :second), paused_at: DateTime.add(now, -60, :second)}
+
+    entry = %{
+      started_at: DateTime.add(now, -120, :second),
+      paused_at: DateTime.add(now, -60, :second)
+    }
 
     assert TokenAccounting.record_session_completion_totals(state, entry).agent_totals.seconds_running in 59..61
   end

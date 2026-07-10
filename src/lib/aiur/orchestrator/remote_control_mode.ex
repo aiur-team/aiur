@@ -4,10 +4,12 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
   All functions execute inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{CodingAgent, Issue, Tracker}
   alias Aiur.Claude.{RemoteControl, ReplAgent}
+  alias Aiur.CodingAgent
+  alias Aiur.Issue
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{Dispatcher, State}
+  alias Aiur.Tracker
   require Logger
 
   @doc false

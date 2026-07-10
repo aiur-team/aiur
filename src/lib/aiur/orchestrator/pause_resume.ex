@@ -4,9 +4,16 @@ defmodule Aiur.Orchestrator.PauseResume do
   All functions execute inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{Config, Issue, Tracker}
+  alias Aiur.Config
+  alias Aiur.Issue
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{DispatchPolicy, Dispatcher, OperatorMessages, RemoteControlMode, Slots, State}
+  alias Aiur.Orchestrator.Dispatcher
+  alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.OperatorMessages
+  alias Aiur.Orchestrator.RemoteControlMode
+  alias Aiur.Orchestrator.Slots
+  alias Aiur.Orchestrator.State
+  alias Aiur.Tracker
   require Logger
 
   @spec resume_issue(State.t(), String.t()) :: {{:ok, :resumed} | {:error, term()}, State.t()}
@@ -334,7 +341,12 @@ defmodule Aiur.Orchestrator.PauseResume do
       State.active_running_count(state.running) >= Slots.max_concurrent_agent_limit(state) ->
         {{:error, :max_concurrent_agents_reached}, state}
 
-      not DispatchPolicy.dispatch_candidate?(issue, state, DispatchPolicy.active_state_set(), DispatchPolicy.terminal_state_set()) ->
+      not DispatchPolicy.dispatch_candidate?(
+        issue,
+        state,
+        DispatchPolicy.active_state_set(),
+        DispatchPolicy.terminal_state_set()
+      ) ->
         {{:error, :not_resumable}, state}
 
       true ->
