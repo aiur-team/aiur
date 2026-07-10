@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   Queues and routes operator messages and event digests to running agents. All functions execute inside the orchestrator GenServer process.
   """
   alias Aiur.{AgentQueue, Alerts}
+  alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator.{CommentWake, EventTopics, State}
   @max_operator_message_chars 8_000
 
@@ -34,7 +35,8 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     next_state
   end
 
-  @spec enqueue_operator_message(State.t(), String.t(), String.t(), map()) :: {{:ok, integer()} | {:error, term()}, State.t()}
+  @spec enqueue_operator_message(State.t(), String.t(), String.t(), map()) ::
+          {{:ok, integer()} | {:error, term()}, State.t()}
   def enqueue_operator_message(state, issue_identifier, body, payload) do
     delivery_policy = Map.get(payload, :delivery_policy, :checkpoint)
     fallback = Map.get(payload, :fallback)
@@ -315,7 +317,8 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     end
   end
 
-  @spec send_running_control_message(State.t(), String.t(), (integer() -> term())) :: {:ok, integer()} | {:error, atom()}
+  @spec send_running_control_message(State.t(), String.t(), (integer() -> term())) ::
+          {:ok, integer()} | {:error, atom()}
   def send_running_control_message(state, issue_identifier, build_message) do
     case State.find_running_by_identifier(state.running, issue_identifier) do
       nil ->
@@ -364,13 +367,10 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     end
   end
 
-  defp trusted_comment_wake_required?(running_entry, event_or_events) do
-    State.active_running_entry?(running_entry) and trusted_comment_event_digest?(event_or_events)
-  end
+  defp trusted_comment_wake_required?(running_entry, event_or_events),
+    do: State.active_running_entry?(running_entry) and trusted_comment_event_digest?(event_or_events)
 
-  defp trusted_comment_event_digest?(events) when is_list(events) do
-    Enum.any?(events, &trusted_comment_event_digest?/1)
-  end
+  defp trusted_comment_event_digest?(events) when is_list(events), do: Enum.any?(events, &trusted_comment_event_digest?/1)
 
   defp trusted_comment_event_digest?(event) when is_map(event) do
     comment_event_topic?(event) and CommentWake.trusted_comment_event?(event) and
@@ -402,15 +402,13 @@ defmodule Aiur.Orchestrator.OperatorMessages do
       (State.active_running_entry?(running_entry) and no_active_turn?(running_entry))
   end
 
-  defp no_active_turn?(%{identifier: identifier}) when is_binary(identifier), do: Aiur.Opencode.ActiveTurns.active_turn_ids(identifier) == []
+  defp no_active_turn?(%{identifier: identifier}) when is_binary(identifier), do: ActiveTurns.active_turn_ids(identifier) == []
 
   defp no_active_turn?(_running_entry), do: false
 
   @spec queue_depth_for_issue(State.t(), String.t()) :: non_neg_integer()
   def queue_depth_for_issue(%State{} = state, issue_identifier) when is_binary(issue_identifier) do
-    state.queue_store
-    |> Aiur.AgentQueueStore.list_pending(issue_identifier)
-    |> length()
+    state.queue_store |> Aiur.AgentQueueStore.list_pending(issue_identifier) |> length()
   end
 
   @spec pending_operator_messages_for_issue(State.t(), String.t()) :: [map()]

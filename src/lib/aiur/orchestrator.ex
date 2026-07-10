@@ -37,9 +37,9 @@ defmodule Aiur.Orchestrator do
   alias Aiur.Opencode.ActiveTurns
 
   alias Aiur.Orchestrator.{
+    AutoSubscriptions,
     CommandScan,
     CommentPolling,
-    AutoSubscriptions,
     CommentWake,
     DigestCoalescer,
     Dispatcher,

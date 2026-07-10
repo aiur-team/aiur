@@ -4,8 +4,8 @@ defmodule Aiur.Orchestrator.AutoSubscriptions do
   All functions execute inside the orchestrator GenServer process.
   """
 
-  alias Aiur.Issue
   alias Aiur.Events.SubscriptionStore
+  alias Aiur.Issue
   alias Aiur.Orchestrator.{IssueSync, State}
 
   # Asymmetric auto-subscribe: when the orchestrator's poll observes a new blocker on
