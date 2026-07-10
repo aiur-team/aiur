@@ -66,7 +66,7 @@ alerts:
   enabled: {{ALERTS_ENABLED}}                  # master switch for alert sound playback (macOS + Linux)
   use_os_default_sounds: {{ALERTS_OS_SOUNDS}}  # true = built-in OS system sounds; false = topic→sound map below
   # sound_dir: ~/alerts                        # custom sound folder: resolves the map's filenames, and (in OS-default mode) a <category>.<ext> file here overrides that category
-  alerts_file: alerts                          # topic→sound map; a relative path resolves next to this config (edit `.aiur/alerts`). Use an absolute or ~/ path to point elsewhere; a missing file falls back to the default `.aiur/alerts.yaml` next to the config
+  alerts_file: alerts                          # topic→sound map; a relative path resolves next to this config (edit `.aiur/alerts`). Use an absolute or ~/ path to point elsewhere; a missing file falls back to the default `.aiur/alerts` next to the config
 
 # === Repo-wide PR comment watching (opt-in; OFF by default) ===
 # Let aiur act on comments across the whole repo, not just its own aiur/<id> PRs.

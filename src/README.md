@@ -244,7 +244,7 @@ When `server.port` (or CLI `--port`) is set, Aiur exposes:
   points at a folder of custom clips that overrides the defaults; `alerts_file` points at the
   topic→sound map. `aiur init` scaffolds an editable `.aiur/alerts` and sets `alerts_file: alerts`
   (a relative value resolves next to `.aiur/config`); an absolute or `~/` path points elsewhere,
-  and when the file is unset or missing aiur falls back to the default `.aiur/alerts.yaml` next to
+  and when the file is unset or missing aiur falls back to the default `.aiur/alerts` next to
   the config. Playback is fully gated by `enabled` and is a no-op when no
   player binary or sound file is available.
 

@@ -2357,7 +2357,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
   test "alerts default to enabled with OS sounds off (back-compat) and round-trip overrides" do
     # Back-compat hard requirement: a machine with no `alerts:` section keeps
-    # playing its existing alerts.yaml + ~/alerts sounds, so the defaults must be
+    # playing its existing .aiur/alerts + ~/alerts sounds, so the defaults must be
     # enabled + OS-default sounds OFF. An explicit block must round-trip.
     assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})
     assert settings.alerts.enabled == true
