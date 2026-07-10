@@ -1,7 +1,22 @@
 defmodule Aiur.Orchestrator.CommentPollingTest do
-  use ExUnit.Case, async: true
+  use Aiur.TestSupport
 
   alias Aiur.Orchestrator.{CommentPolling, State}
+
+  setup do
+    previous_token = System.get_env("GITHUB_TOKEN")
+    System.put_env("GITHUB_TOKEN", "test-gh-token")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo",
+      tracker_label_prefix: "agent"
+    )
+
+    on_exit(fn -> restore_env("GITHUB_TOKEN", previous_token) end)
+
+    :ok
+  end
 
   defp base_state do
     %State{
@@ -50,13 +65,17 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
   describe "poll_github_firehose/2" do
     test "preserves stored etag on :not_modified response" do
       state = %{base_state() | events_etag: "abc123"}
-      # Inject a request_fun that returns :not_modified — but we use the GithubFirehose
-      # interface; test at the state level: etag unchanged on no-op
-      # Since GithubFirehose.poll is a real call, we test that etag is preserved
-      # by injecting the etag into state and confirming it's not cleared.
-      # We can't easily inject GithubFirehose here, so just confirm it doesn't crash.
-      assert is_struct(state, State)
-      assert state.events_etag == "abc123"
+      parent = self()
+
+      request_fun = fn request ->
+        send(parent, {:firehose_request, request})
+        {:ok, %{status: 304, headers: [{"ETag", "abc123"}, {"X-Poll-Interval", "60"}], body: ""}}
+      end
+
+      result = CommentPolling.poll_github_firehose(state, request_fun: request_fun)
+
+      assert result.events_etag == "abc123"
+      assert_receive {:firehose_request, %{etag: "abc123"}}
     end
   end
 

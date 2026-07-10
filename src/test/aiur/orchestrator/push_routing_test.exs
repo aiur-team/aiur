@@ -74,10 +74,8 @@ defmodule Aiur.Orchestrator.PushRoutingTest do
 
       state = %{base_state() | running: %{"issue-1" => running_entry}}
 
-      # transition_control_status lives in facade; in test env it may not be wired,
-      # so we just assert the call doesn't crash and returns a State
       result = PushRouting.maybe_mark_sleeping(state, "ISSUE-1")
-      assert is_struct(result, State)
+      assert result.running["issue-1"].control.status == :sleeping
     end
 
     test "leaves :paused entry unchanged" do

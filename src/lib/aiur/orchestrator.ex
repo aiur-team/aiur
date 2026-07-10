@@ -484,6 +484,10 @@ defmodule Aiur.Orchestrator do
     PushRouting.maybe_pause_on_request(state, identifier)
   end
 
+  defp maybe_notify_agents_on_default_branch_push(%State{} = state, branch, event) when is_binary(branch) do
+    PushRouting.maybe_notify_agents_on_default_branch_push(state, branch, event)
+  end
+
   defp maybe_notify_agents_on_default_branch_push(%State{} = state, branch, event) do
     PushRouting.maybe_notify_agents_on_default_branch_push(state, branch, event)
   end

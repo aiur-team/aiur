@@ -83,19 +83,18 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
   describe "comment_rework_retry_delay_ms/1" do
     test "returns base delay for attempt 1" do
-      delay = CommentWake.comment_rework_retry_delay_ms(1)
-      assert is_integer(delay) and delay > 0
+      assert CommentWake.comment_rework_retry_delay_ms(1) == 2_000
     end
 
     test "returns larger delay for attempt 2 (exponential backoff)" do
       delay1 = CommentWake.comment_rework_retry_delay_ms(1)
       delay2 = CommentWake.comment_rework_retry_delay_ms(2)
-      assert delay2 > delay1
+      assert delay1 == 2_000
+      assert delay2 == 4_000
     end
 
     test "delay is 2000-based (at attempt 1 returns base delay)" do
-      delay = CommentWake.comment_rework_retry_delay_ms(1)
-      assert delay >= 2_000
+      assert CommentWake.comment_rework_retry_delay_ms(5) == 32_000
     end
   end
 
@@ -109,9 +108,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
     test "returns state unchanged when no matching running entry exists" do
       state = base_state()
       result = CommentWake.mark_pr_merged_issue_done(state, "nonexistent-123")
-      # With no tracker configured, update_issue_state will return error
-      # and state is returned unchanged
-      assert is_struct(result, State) or result == state
+      assert result == state
     end
   end
 end

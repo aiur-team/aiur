@@ -1,7 +1,18 @@
 defmodule Aiur.Orchestrator.CommandScanTest do
-  use ExUnit.Case, async: true
+  use Aiur.TestSupport
 
   alias Aiur.Orchestrator.{CommandScan, State}
+
+  setup do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo",
+      tracker_label_prefix: "agent",
+      pr_watch_enabled: true
+    )
+
+    :ok
+  end
 
   defp base_state do
     %State{
@@ -39,25 +50,26 @@ defmodule Aiur.Orchestrator.CommandScanTest do
 
   describe "scan_pr_commands/2" do
     test "returns state unchanged when pr_watch is disabled" do
-      # pr_watch_enabled? returns false in test env (no config)
-      state = base_state()
-      result = CommandScan.scan_pr_commands(state)
-      assert result == state
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        pr_watch_enabled: false
+      )
+
+      assert CommandScan.scan_pr_commands(base_state()) == base_state()
     end
 
     test "with injected empty comment stream does not advance cursor" do
-      # When pr_watch IS enabled (stubbed via opts) with empty stream,
-      # since nothing is scanned, cursor stays nil
-      state = base_state()
+      state = %{base_state() | github_command_scan_since: "2024-01-01T00:00:00Z"}
 
       opts = [
         command_scan_review_comment_fetcher: fn _opts -> {:ok, []} end,
         command_scan_issue_comment_fetcher: fn _opts -> {:ok, []} end
       ]
 
-      # Without pr_watch configured, scan_pr_commands is a no-op
       result = CommandScan.scan_pr_commands(state, opts)
-      assert result == state
+      assert result.github_command_scan_since == state.github_command_scan_since
     end
   end
 

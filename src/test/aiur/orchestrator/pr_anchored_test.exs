@@ -1,7 +1,18 @@
 defmodule Aiur.Orchestrator.PrAnchoredTest do
-  use ExUnit.Case, async: true
+  use Aiur.TestSupport
 
   alias Aiur.Orchestrator.{PrAnchored, State}
+
+  setup do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo",
+      tracker_label_prefix: "agent",
+      pr_watch_enabled: true
+    )
+
+    :ok
+  end
 
   defp base_state do
     %State{
@@ -37,9 +48,8 @@ defmodule Aiur.Orchestrator.PrAnchoredTest do
     }
   end
 
-  describe "maybe_route_pr_anchored_or_legacy/5 with pr_watch disabled" do
-    test "performs no PR fetch and returns state from legacy path" do
-      # pr_watch_enabled? returns false in test environment (no config)
+  describe "maybe_route_pr_anchored_or_legacy/5" do
+    test "untrusted comments perform no PR fetch and return state unchanged" do
       # untrusted event -> legacy path -> transition_comment_issue_to_rework -> {:skip, :untrusted_author}
       state = base_state()
       event = %{author_trusted?: false}
@@ -48,26 +58,26 @@ defmodule Aiur.Orchestrator.PrAnchoredTest do
 
       assert result == state
     end
-  end
 
-  describe "maybe_route_pr_anchored_or_legacy/5 with injected fetcher" do
-    # pr_watch_enabled? returns false in test env (no Aiur.GitHub.Config),
-    # so both tests exercise the legacy fall-through regardless of fetcher.
-    # Integration-level routing (pr_watch enabled + open PR → dispatch) is
-    # covered by the wave-3 integration suite.
-    test "trusted event with open-PR fetcher falls through to legacy (pr_watch disabled in test env)" do
+    test "routes an open human PR through the injected dispatch function" do
       state = base_state()
+      parent = self()
 
       pr = %{"number" => 42, "title" => "My PR", "body" => "", "head" => %{"ref" => "feat/my-feature"}}
 
       event = %{
         author_trusted?: true,
-        open_pull_request_fetcher: fn _n -> {:ok, pr} end
+        open_pull_request_fetcher: fn _n -> {:ok, pr} end,
+        pr_anchored_dispatch_fun: fn current_state, issue ->
+          send(parent, {:pr_anchored_dispatch, issue})
+          current_state
+        end
       }
 
       result = PrAnchored.maybe_route_pr_anchored_or_legacy(state, "42", :github, event, 1)
 
-      assert is_struct(result, State)
+      assert result == state
+      assert_receive {:pr_anchored_dispatch, %{id: "pr-42", identifier: "42", state: "pr-watch"}}
     end
 
     test "falls through to legacy when fetcher returns nil (closed/missing PR)" do

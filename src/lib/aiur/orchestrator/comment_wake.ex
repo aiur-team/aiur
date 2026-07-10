@@ -16,7 +16,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   @comment_rework_retry_delay_ms 2_000
   @comment_rework_max_attempts 5
 
-  @spec maybe_reactivate_on_comment(State.t(), String.t() | integer(), atom(), map(), pos_integer()) :: State.t()
+  @spec maybe_reactivate_on_comment(State.t(), String.t() | integer(), String.t() | atom(), map(), pos_integer()) :: State.t()
   def maybe_reactivate_on_comment(%State{} = state, issue_number, source, event, attempt \\ 1) do
     case State.find_running_by_identifier(state.running, issue_number) do
       # An already-running entry (PR-anchored or legacy) resumes its SAME
@@ -69,7 +69,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   @spec maybe_transition_idle_issue_to_rework(
           State.t(),
           String.t() | integer(),
-          atom(),
+          String.t() | atom(),
           map(),
           pos_integer()
         ) :: State.t()
