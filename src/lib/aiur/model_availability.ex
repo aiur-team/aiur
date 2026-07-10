@@ -39,6 +39,7 @@ defmodule Aiur.ModelAvailability do
       entry =
         limits
         |> normalize_limits()
+        |> add_unknown_reset_deadlines(now)
         |> merge_entry(Map.get(backends, backend, %{}))
         |> Map.put("observed_at", DateTime.to_iso8601(now))
 
@@ -125,6 +126,18 @@ defmodule Aiur.ModelAvailability do
     existing
     |> Map.merge(Map.drop(new_entry, @windows))
     |> Map.merge(Map.take(new_entry, @windows))
+  end
+
+  defp add_unknown_reset_deadlines(entry, now) do
+    Enum.reduce(@windows, entry, fn window, acc ->
+      case Map.get(acc, window) do
+        %{"used" => used, "limit" => limit} = bucket when is_number(used) and is_number(limit) and used >= limit ->
+          Map.put(acc, window, Map.put_new(bucket, "reset_at", DateTime.add(now, @unknown_reset_ttl_seconds, :second) |> DateTime.to_iso8601()))
+
+        _ ->
+          acc
+      end
+    end)
   end
 
   defp maybe_add_bucket(limits, bucket, acc) do

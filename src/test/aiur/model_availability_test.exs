@@ -124,4 +124,9 @@ defmodule Aiur.ModelAvailabilityTest do
 
     assert ModelAvailability.available?("codex", path: path)
   end
+
+  test "gives an exhausted window without reset a bounded fallback deadline", %{path: path} do
+    assert :ok = ModelAvailability.observe("codex", %{hourly: %{used: 10, limit: 10}}, path: path)
+    refute ModelAvailability.available?("codex", path: path)
+  end
 end
