@@ -14,9 +14,9 @@ defmodule Aiur.Claude.Repl.TranscriptTurn do
 
   require Logger
 
+  alias Aiur.Claude.NotificationPolicy
   alias Aiur.Claude.RemoteControl
   alias Aiur.Claude.Repl.OperatorInject
-  alias Aiur.Claude.NotificationPolicy
   alias Aiur.Claude.Repl.PromptSubmit
   alias Aiur.Claude.Repl.Reaper
   alias Aiur.Claude.Repl.TurnEvents

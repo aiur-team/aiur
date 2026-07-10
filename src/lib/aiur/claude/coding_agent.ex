@@ -12,8 +12,8 @@ defmodule Aiur.Claude.CodingAgent do
 
   require Logger
   alias Aiur.AppServer.{Adapter, Messages, OperatorDelivery, Rpc, TurnState}
-  alias Aiur.Codex.DynamicTool
   alias Aiur.Claude.NotificationPolicy
+  alias Aiur.Codex.DynamicTool
   alias Aiur.Config
 
   @thread_start_id 2
