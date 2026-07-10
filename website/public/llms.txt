@@ -26,6 +26,8 @@ Install the published CLI globally with npm:
 npm install --global aiur-cli
 ```
 
+The CLI requires Node.js 18 or newer.
+
 The installed command is `aiur`. Aiur also supports a local developer command
 (`aiurdev`) when running from a clone of the repository.
 
