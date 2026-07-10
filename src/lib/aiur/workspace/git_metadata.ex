@@ -1,7 +1,7 @@
 defmodule Aiur.Workspace.GitMetadata do
   @moduledoc ".git writability probes and stale-lock repair, local and remote, including the git-dir-inside-workspace containment guard."
   alias Aiur.{Config, PathSafety}
-  alias Aiur.Workspace.{Checkout, Layout, Remote}
+  alias Aiur.Workspace.{Checkout, Remote}
   @type worker_host :: String.t() | nil
   @spec ensure_git_metadata_writable(Path.t(), worker_host()) :: :ok | {:error, term()}
   def ensure_git_metadata_writable(workspace, worker_host \\ nil)
@@ -43,11 +43,13 @@ defmodule Aiur.Workspace.GitMetadata do
         "  ( set -C; : > \"$lock_path\" )",
         "  rm -f \"$lock_path\"",
         "}",
-        "issue_id=\"$(basename \"$workspace\")\"",
         "probe_lock \"$git_dir_real/index.lock\"",
         "probe_lock \"$git_dir_real/FETCH_HEAD.lock\"",
         "probe_lock \"$git_dir_real/ORIG_HEAD.lock\"",
-        "probe_lock \"$git_dir_real/refs/remotes/origin/aiur/${issue_id}.lock\"",
+        "branch=\"$(git -C \"$workspace\" symbolic-ref --quiet --short HEAD || true)\"",
+        "if [ -n \"$branch\" ]; then",
+        "  probe_lock \"$git_dir_real/refs/remotes/origin/${branch}.lock\"",
+        "fi",
         "probe_file=\".aiur-git-index-write-probe.$$\"",
         "cleanup_probe() {",
         "  git -C \"$workspace\" reset -q -- \"$probe_file\" >/dev/null 2>&1 || true",
@@ -119,30 +121,23 @@ defmodule Aiur.Workspace.GitMetadata do
   end
 
   defp git_metadata_probe_paths(workspace, git_dir) do
-    issue_id = Path.basename(workspace)
-
     [
       Path.join(git_dir, "index.lock"),
       Path.join(git_dir, "FETCH_HEAD.lock"),
-      Path.join(git_dir, "ORIG_HEAD.lock"),
-      Path.join([git_dir, "refs", "remotes", "origin", "aiur", "#{issue_id}.lock"])
-    ] ++ pr_anchored_ref_lock_paths(workspace, git_dir)
+      Path.join(git_dir, "ORIG_HEAD.lock")
+    ] ++ current_branch_ref_lock_paths(workspace, git_dir)
   end
 
-  # A PR-anchored workspace (leaf `pr-<pr#>`) tracks the human PR's existing head
-  # branch, not `aiur/<id>`, so its remote-ref lock lives at
-  # `refs/remotes/origin/<head_ref>.lock`. Derive the head ref from the checked-out
-  # branch (the PR-anchored checkout set it) and pre-clear that lock too. Legacy
-  # `aiur/<id>` workspaces return `[]` here — their existing probe is unchanged.
-  defp pr_anchored_ref_lock_paths(workspace, git_dir) do
-    with true <- Layout.pr_anchored_workspace?(workspace),
-         branch when is_binary(branch) <- Checkout.current_branch(workspace) do
-      case String.split(branch, "/", trim: true) do
-        [] -> []
-        ref_segments -> [Path.join([git_dir, "refs", "remotes", "origin"] ++ ref_lock_segments(ref_segments))]
-      end
-    else
-      _ -> []
+  # Probe the actual checked-out remote ref rather than reconstructing one from
+  # the workspace leaf. This covers readable and legacy ticket branches as well
+  # as PR-anchored heads without coupling recovery to a branch-name convention.
+  defp current_branch_ref_lock_paths(workspace, git_dir) do
+    case Checkout.current_branch(workspace) do
+      branch when is_binary(branch) and branch != "" ->
+        [Path.join([git_dir, "refs", "remotes", "origin"] ++ ref_lock_segments(String.split(branch, "/", trim: true)))]
+
+      _ ->
+        []
     end
   end
 

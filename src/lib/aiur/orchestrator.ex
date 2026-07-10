@@ -20,6 +20,7 @@ defmodule Aiur.Orchestrator do
     PauseContainment,
     RepoBase,
     SessionHandle,
+    TicketBranch,
     Tracker,
     Workspace
   }
@@ -618,11 +619,11 @@ defmodule Aiur.Orchestrator do
   defp pr_head_ref(%{"head" => %{"ref" => ref}}) when is_binary(ref), do: ref
   defp pr_head_ref(_pr), do: nil
 
-  # A PR whose head is `aiur/<N>` is a LEGACY aiur-created PR — its comments
-  # must keep flowing through the unchanged `aiur/<id>` reactivation, never the
-  # PR-anchored path. Only an external/human branch is PR-anchored.
+  # A PR whose head is a legacy or readable Aiur ticket branch must keep flowing
+  # through tracker reactivation, never the PR-anchored path. Only an
+  # external/human branch is PR-anchored.
   defp aiur_owned_head_ref?(head_ref, pr_number) do
-    head_ref == "aiur/#{pr_number}"
+    TicketBranch.ticket_branch?(head_ref, pr_number)
   end
 
   # A synthetic, slot-respecting work unit for a watched/commanded human PR.

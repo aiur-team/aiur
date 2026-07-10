@@ -61,4 +61,56 @@ defmodule Aiur.Workspace.ProvisionerTest do
     assert {:ok, ^workspace, true} = Provisioner.ensure_workspace(workspace, nil)
     assert File.dir?(workspace)
   end
+
+  test "resolve_branch_name/3 resumes the checked-out branch after a title edit" do
+    root = Path.join(System.tmp_dir!(), "provisioner-branch-#{System.unique_integer([:positive])}")
+    workspace = Path.join(root, "123")
+    File.mkdir_p!(root)
+    init_repo!(workspace)
+    git!(["-C", workspace, "checkout", "--quiet", "-b", "aiur/123-fix-login"])
+
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    context = ticket_context("aiur/123-fix-login-and-signup")
+
+    assert Provisioner.resolve_branch_name(workspace, context, fn _ticket_id ->
+             flunk("a checked-out ticket branch must win over a fresh title slug")
+           end) == "aiur/123-fix-login"
+  end
+
+  test "resolve_branch_name/3 resumes an open PR head after a deleted workspace" do
+    workspace = Path.join(System.tmp_dir!(), "missing-#{System.unique_integer([:positive])}")
+    context = ticket_context("aiur/123-fix-login-and-signup")
+
+    assert Provisioner.resolve_branch_name(workspace, context, fn ticket_id ->
+             assert ticket_id == "123"
+             {:ok, %{"head" => %{"ref" => "aiur/123-fix-login"}}}
+           end) == "aiur/123-fix-login"
+  end
+
+  defp ticket_context(branch_name) do
+    %{
+      issue_id: "issue-123",
+      issue_identifier: "123",
+      issue_state: "rework",
+      issue_labels: ["agent:rework"],
+      pr_head_ref: nil,
+      branch_name: branch_name
+    }
+  end
+
+  defp init_repo!(repo) do
+    File.mkdir_p!(repo)
+    git!(["init", "--quiet", "-b", "main", repo])
+    git!(["-C", repo, "config", "user.email", "t@example.com"])
+    git!(["-C", repo, "config", "user.name", "T"])
+    File.write!(Path.join(repo, "README.md"), "initial\n")
+    git!(["-C", repo, "add", "."])
+    git!(["-C", repo, "commit", "--quiet", "-m", "initial"])
+  end
+
+  defp git!(args) do
+    {out, 0} = System.cmd("git", args, stderr_to_stdout: true)
+    out
+  end
 end

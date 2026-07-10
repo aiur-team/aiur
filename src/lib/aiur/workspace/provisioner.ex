@@ -2,8 +2,8 @@ defmodule Aiur.Workspace.Provisioner do
   @moduledoc "Workspace provisioning: ensure, create, materialize from prewarm base, recreate stale workspaces, and remote SSH shell provisioning."
 
   require Logger
-  alias Aiur.{Config, RepoBase}
-  alias Aiur.Workspace.{Materialize, Remote}
+  alias Aiur.{Config, RepoBase, TicketBranch, Tracker}
+  alias Aiur.Workspace.{Checkout, Context, Materialize, Remote}
 
   @remote_workspace_marker "__AIUR_WORKSPACE__"
 
@@ -19,31 +19,65 @@ defmodule Aiur.Workspace.Provisioner do
 
   @type worker_host :: String.t() | nil
 
+  @doc false
+  @spec resolve_branch_name(Path.t(), map()) :: String.t()
+  def resolve_branch_name(workspace, issue_context) do
+    resolve_branch_name(workspace, issue_context, &Tracker.fetch_open_pull_request_for_branch/1)
+  end
+
+  @doc false
+  @spec resolve_branch_name(Path.t(), map(), (String.t() -> {:ok, map() | nil} | {:error, term()})) ::
+          String.t()
+  def resolve_branch_name(workspace, issue_context, fetch_open_pull_request)
+      when is_binary(workspace) and is_function(fetch_open_pull_request, 1) do
+    branch_name = Map.fetch!(issue_context, :branch_name)
+
+    cond do
+      pr_head_ref = established_pr_head_ref(issue_context) ->
+        pr_head_ref
+
+      current_branch = established_workspace_branch(workspace, branch_name) ->
+        current_branch
+
+      Context.todo_dispatch?(issue_context) ->
+        branch_name
+
+      pr_branch = established_pull_request_branch(branch_name, fetch_open_pull_request) ->
+        pr_branch
+
+      true ->
+        branch_name
+    end
+  end
+
   @spec ensure_workspace(Path.t(), worker_host(), String.t() | nil) ::
           {:ok, Path.t(), boolean() | :materialized} | {:error, term()}
   # PR-anchored creation (`pr_head_ref` set) is only wired for the local
   # worker today; a remote worker_host ignores it and keeps the legacy
   # `aiur/<id>` remote path byte-for-byte (SSH PR-anchored is out of scope
-  # for this unit). The 3-arity head delegates to the unchanged 2-arity
-  # clauses for the legacy (`pr_head_ref == nil`) path.
-  def ensure_workspace(workspace, worker_host, nil), do: ensure_workspace(workspace, worker_host)
+  # for this unit). The 3-arity entrypoint retains the legacy branch for
+  # compatibility; tracker issue contexts use the 4-arity generated branch.
+  def ensure_workspace(workspace, worker_host, pr_head_ref),
+    do: ensure_workspace(workspace, worker_host, pr_head_ref, legacy_branch_name(workspace))
 
-  def ensure_workspace(workspace, nil, pr_head_ref) when is_binary(pr_head_ref) do
+  @spec ensure_workspace(Path.t(), worker_host(), String.t() | nil, String.t()) ::
+          {:ok, Path.t(), boolean() | :materialized} | {:error, term()}
+  def ensure_workspace(workspace, nil, pr_head_ref, branch_name) when is_binary(branch_name) do
     cond do
       File.dir?(workspace) ->
         {:ok, workspace, false}
 
       File.exists?(workspace) ->
         File.rm_rf!(workspace)
-        create_or_materialize(workspace, pr_head_ref)
+        create_or_materialize(workspace, branch_name, pr_head_ref)
 
       true ->
-        create_or_materialize(workspace, pr_head_ref)
+        create_or_materialize(workspace, branch_name, pr_head_ref)
     end
   end
 
-  def ensure_workspace(workspace, worker_host, pr_head_ref)
-      when is_binary(worker_host) and is_binary(pr_head_ref) do
+  def ensure_workspace(workspace, worker_host, _pr_head_ref, _branch_name)
+      when is_binary(worker_host) do
     ensure_workspace(workspace, worker_host)
   end
 
@@ -56,10 +90,10 @@ defmodule Aiur.Workspace.Provisioner do
 
       File.exists?(workspace) ->
         File.rm_rf!(workspace)
-        create_or_materialize(workspace)
+        create_or_materialize(workspace, legacy_branch_name(workspace), nil)
 
       true ->
-        create_or_materialize(workspace)
+        create_or_materialize(workspace, legacy_branch_name(workspace), nil)
     end
   end
 
@@ -124,7 +158,9 @@ defmodule Aiur.Workspace.Provisioner do
 
   @spec recreate(Path.t(), worker_host()) :: :ok | {:error, term()}
   def recreate(workspace, nil) do
-    {:ok, _workspace, _created?} = create_or_materialize(workspace)
+    {:ok, _workspace, _created?} =
+      create_or_materialize(workspace, legacy_branch_name(workspace), nil)
+
     :ok
   end
 
@@ -145,6 +181,15 @@ defmodule Aiur.Workspace.Provisioner do
     end
   end
 
+  @spec recreate(Path.t(), worker_host(), String.t() | nil, String.t()) :: :ok | {:error, term()}
+  def recreate(workspace, nil, pr_head_ref, branch_name) when is_binary(branch_name) do
+    {:ok, _workspace, _created?} = create_or_materialize(workspace, branch_name, pr_head_ref)
+    :ok
+  end
+
+  def recreate(workspace, worker_host, _pr_head_ref, _branch_name) when is_binary(worker_host),
+    do: recreate(workspace, worker_host)
+
   defp create_workspace(workspace) do
     File.rm_rf!(workspace)
     File.mkdir_p!(workspace)
@@ -156,30 +201,44 @@ defmodule Aiur.Workspace.Provisioner do
   # the warm `_build`/deps) instead of cold-cloning + recompiling. Anything that
   # rules pre-warm out — disabled, base not ready, missing, or a copy failure —
   # falls through to the unchanged cold `create_workspace/1` path.
-  defp create_or_materialize(workspace) do
+  defp create_or_materialize(workspace, branch_name, pr_head_ref) do
     with true <- Config.prewarm_enabled?(),
          {:ready, base} when is_binary(base) <- RepoBase.status(),
          true <- File.dir?(base),
-         :ok <- Materialize.materialize_from_base(base, workspace) do
+         :ok <- Materialize.materialize_from_base(base, workspace, branch_name, pr_head_ref) do
       {:ok, workspace, :materialized}
     else
       _ -> create_workspace(workspace)
     end
   end
 
-  # PR-anchored variant: materialize from the warm base (CoW) but check out
-  # the PR's existing head branch (`pr_head_ref`) instead of creating a fresh
-  # `aiur/<id>`. When pre-warm is unavailable, fall back to the unchanged cold
-  # `create_workspace/1` path (the operator's after_create hook owns the clone;
-  # PR-anchored cold-clone branch selection is out of scope for this unit).
-  defp create_or_materialize(workspace, pr_head_ref) when is_binary(pr_head_ref) do
-    with true <- Config.prewarm_enabled?(),
-         {:ready, base} when is_binary(base) <- RepoBase.status(),
-         true <- File.dir?(base),
-         :ok <- Materialize.materialize_from_base(base, workspace, pr_head_ref) do
-      {:ok, workspace, :materialized}
+  defp established_pr_head_ref(%{pr_head_ref: ref}) when is_binary(ref) and ref != "", do: ref
+  defp established_pr_head_ref(_issue_context), do: nil
+
+  defp established_workspace_branch(workspace, branch_name) do
+    with ticket_id when is_binary(ticket_id) <- TicketBranch.ticket_id(branch_name),
+         current_branch when is_binary(current_branch) <- Checkout.current_branch(workspace),
+         true <- TicketBranch.ticket_branch?(current_branch, ticket_id) do
+      current_branch
     else
-      _ -> create_workspace(workspace)
+      _ -> nil
     end
   end
+
+  defp established_pull_request_branch(branch_name, fetch_open_pull_request) do
+    with ticket_id when is_binary(ticket_id) <- TicketBranch.ticket_id(branch_name),
+         {:ok, pull_request} when is_map(pull_request) <- fetch_open_pull_request.(ticket_id),
+         head_ref when is_binary(head_ref) <- pull_request_head_ref(pull_request),
+         true <- TicketBranch.ticket_branch?(head_ref, ticket_id) do
+      head_ref
+    else
+      _ -> nil
+    end
+  end
+
+  defp pull_request_head_ref(%{"head" => %{"ref" => ref}}) when is_binary(ref), do: ref
+  defp pull_request_head_ref(%{head: %{ref: ref}}) when is_binary(ref), do: ref
+  defp pull_request_head_ref(_pull_request), do: nil
+
+  defp legacy_branch_name(workspace), do: TicketBranch.legacy_branch_name(Path.basename(workspace))
 end
