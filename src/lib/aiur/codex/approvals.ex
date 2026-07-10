@@ -27,10 +27,8 @@ defmodule Aiur.Codex.Approvals do
     # A latched pause only gates approval/tool requests, which carry a JSON-RPC
     # id. Id-less notifications (message/reasoning deltas, status) keep their
     # normal handling so a mid-turn pause does not crash the streaming loop.
-    maybe_handle_approval_request(
-      port, method, payload, payload_string, on_message,
-      metadata, tool_executor, auto_approve_requests, false
-    )
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    maybe_handle_approval_request(port, method, payload, payload_string, on_message, metadata, tool_executor, auto_approve_requests, false)
   end
 
   def maybe_handle_approval_request(
@@ -167,10 +165,8 @@ defmodule Aiur.Codex.Approvals do
           boolean()
         ) :: :approved | :approval_required | :input_required | :unhandled
   def maybe_handle_approval_request(port, method, payload, payload_string, on_message, metadata, tool_executor, auto_approve_requests) do
-    maybe_handle_approval_request(
-      port, method, payload, payload_string, on_message,
-      metadata, tool_executor, auto_approve_requests, false
-    )
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    maybe_handle_approval_request(port, method, payload, payload_string, on_message, metadata, tool_executor, auto_approve_requests, false)
   end
 
   defp approve_or_require(port, id, decision, payload, payload_string, on_message, metadata, true) do
