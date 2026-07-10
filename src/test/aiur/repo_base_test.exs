@@ -20,7 +20,7 @@ defmodule Aiur.RepoBaseTest do
 
     on_exit(fn -> File.rm_rf!(tmp) end)
 
-    {:ok, origin: origin, base: base}
+    {:ok, tmp: tmp, origin: origin, base: base}
   end
 
   describe "refresh/3" do
@@ -53,6 +53,46 @@ defmodule Aiur.RepoBaseTest do
 
       assert File.exists?(Path.join(base, "built_ran")), "base_build did not re-run after advance"
       assert head(base) == head(origin)
+    end
+
+    test "tracks configured v2 and ignores a main-only advance", %{origin: origin, base: base, tmp: tmp} do
+      git!(["-C", origin, "checkout", "-b", "v2"])
+      File.write!(Path.join(origin, "README.md"), "v2 initial\n")
+      git!(["-C", origin, "commit", "--quiet", "-am", "v2 initial"])
+      v2_initial = head(origin)
+
+      config = Path.join(tmp, "v2.aiurconfig")
+      previous_config = Application.get_env(:aiur, :workflow_file_path)
+      File.write!(config, "tracker:\n  kind: memory\n  base_branch: v2\n")
+      Aiur.Workflow.set_workflow_file_path(config)
+
+      on_exit(fn ->
+        case previous_config do
+          nil -> Aiur.Workflow.clear_workflow_file_path()
+          path -> Aiur.Workflow.set_workflow_file_path(path)
+        end
+      end)
+
+      assert {:ok, ^base} = RepoBase.refresh(base, origin, "touch built_ran")
+      assert head(base) == v2_initial
+      File.rm!(Path.join(base, "built_ran"))
+
+      git!(["-C", origin, "checkout", "main"])
+      File.write!(Path.join(origin, "README.md"), "main only\n")
+      git!(["-C", origin, "commit", "--quiet", "-am", "main only"])
+
+      assert {:ok, ^base} = RepoBase.refresh(base, origin, "touch built_ran")
+      assert head(base) == v2_initial
+      refute File.exists?(Path.join(base, "built_ran"))
+
+      git!(["-C", origin, "checkout", "v2"])
+      File.write!(Path.join(origin, "README.md"), "v2 advanced\n")
+      git!(["-C", origin, "commit", "--quiet", "-am", "v2 advanced"])
+      v2_advanced = head(origin)
+
+      assert {:ok, ^base} = RepoBase.refresh(base, origin, "touch built_ran")
+      assert head(base) == v2_advanced
+      assert File.exists?(Path.join(base, "built_ran"))
     end
 
     test "returns an error and skips the marker when base_build fails", %{origin: origin, base: base} do
