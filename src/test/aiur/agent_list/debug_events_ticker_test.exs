@@ -144,6 +144,27 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
       assert output =~ "💬 42 opened a PR: \"feat: add function_a\""
     end
 
+    test "CI events render recognizable pass and failure rows" do
+      events = [
+        debug_entry(:publish,
+          topic: "ticket.42.ci.passed",
+          id: 1,
+          body: %{"message" => "CI passed for the current PR head"}
+        ),
+        debug_entry(:publish,
+          topic: "ticket.42.ci.failed",
+          id: 2,
+          body: %{"message" => "CI failed: lint. Failure excerpt: undefined function"}
+        )
+      ]
+
+      state = build_state(debug_events: events)
+      output = state |> Renderer.render() |> IO.iodata_to_binary()
+
+      assert output =~ "💬 42 CI passed"
+      assert output =~ "💬 42 CI failed: \"CI failed: lint. Failure excerpt: undefined function\""
+    end
+
     test "self-receive of agent.* echoes is suppressed (publish covers it)" do
       events = [
         debug_entry(:publish,

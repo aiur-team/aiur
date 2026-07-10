@@ -107,6 +107,10 @@ defmodule Aiur.GitHub.Client do
   def fetch_open_pull_request_for_branch(issue_number, opts \\ []),
     do: PullRequests.fetch_open_pull_request_for_branch(issue_number, opts)
 
+  @spec fetch_commit_ci_status(String.t(), keyword()) ::
+          {:ok, %{check_runs: [map()], commit_status: map()}} | {:error, term()}
+  def fetch_commit_ci_status(sha, opts \\ []), do: PullRequests.fetch_commit_ci_status(sha, opts)
+
   @spec fetch_open_pull_requests_by_label(String.t(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_open_pull_requests_by_label(label, opts \\ []),
