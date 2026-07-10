@@ -39,8 +39,11 @@ agent:
   # unlabeled issues fall back to `kind`; a `model:<backend>` issue label
   # overrides both. (Requires a `claude:` block for the routed backend.)
   # routing:
-  #   4: claude
-  #   5: claude
+  #   1: codex:gpt-5.6-luna:low
+  #   2: codex:gpt-5.6-luna:medium
+  #   3: codex:gpt-5.6-terra:high
+  #   4: codex:gpt-5.6-terra:xhigh
+  #   5: codex:gpt-5.6-sol:max
 codex:
   command: codex app-server
 prompt_file: github-codex.prompt.md

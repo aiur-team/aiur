@@ -734,7 +734,7 @@ defmodule Aiur.Config.Schema do
   @doc """
   Splits a routing value into its backend and optional model. A routing
   value is `"<backend>"`, `"<backend>:<model>"` (e.g. `"claude:sonnet"`), or
-  `"<backend>:<model>:<effort>"` (e.g. `"codex:gpt-5.5:high"`), optionally
+  `"<backend>:<model>:<effort>"` (e.g. `"codex:gpt-5.6-terra:high"`), optionally
   with a trailing `+remote` flag (`"claude:haiku+remote"`) that is stripped
   here and surfaced separately by `routing_remote_flag?/1`. The optional
   trailing effort segment is dropped here and surfaced by `routing_effort/1`;
