@@ -14,6 +14,7 @@ defmodule Aiur.AgentList.Renderer do
   """
 
   alias Aiur.AgentEvents
+  alias Aiur.AgentList.Renderer.{EventsBlock, Links, Style, Text}
   alias Aiur.ProgressTracker
 
   # Fixed visual width for the state-emoji column. The glyph occupies
@@ -68,20 +69,6 @@ defmodule Aiur.AgentList.Renderer do
   # narrowness — but only after TITLE/LATEST are already at their minimums.
   @model_base_width 6
 
-  # ANSI palette.
-  @ansi_reset IO.ANSI.reset()
-  @ansi_bold IO.ANSI.bright()
-  @ansi_dim IO.ANSI.faint()
-  @ansi_cyan IO.ANSI.cyan()
-  @ansi_gray IO.ANSI.light_black()
-  @ansi_green IO.ANSI.green()
-  @ansi_red IO.ANSI.red()
-  @ansi_reverse IO.ANSI.reverse()
-  # ANSI fallbacks for the per-model colors below, used when the terminal
-  # has no 24-bit truecolor support (`:truecolor?` false).
-  @ansi_magenta IO.ANSI.magenta()
-  @ansi_blue IO.ANSI.blue()
-
   # Per-model text colors for the MODEL column, mirroring the website's
   # `.ag-opus` / `.ag-sonnet` / `.ag-codex` classes in
   # `website/src/styles.css`. Keep these hexes in sync with that file:
@@ -94,7 +81,7 @@ defmodule Aiur.AgentList.Renderer do
   # renders against an arbitrary terminal background, so it uses the
   # dark-theme values as the canonical mapping.
   @model_truecolor %{opus: "\e[38;2;198;155;255m", sonnet: "\e[38;2;89;176;255m", codex: "\e[38;2;63;185;80m"}
-  @model_ansi %{opus: @ansi_magenta, sonnet: @ansi_blue, codex: @ansi_green}
+  @model_ansi %{opus: Style.magenta(), sonnet: Style.blue(), codex: Style.green()}
 
   # Work states meaning the agent has finished this iteration. Used to
   # render 🏁 and to suppress the warming/starting LATEST placeholder so
@@ -179,7 +166,7 @@ defmodule Aiur.AgentList.Renderer do
       # a horizontal divider when present. When the budget is too tight
       # the events block collapses to zero rows automatically.
       events_budget = max(rows - base_lines - 1, 0)
-      {events_iodata, events_line_count} = events_block(state, inner_width, events_budget)
+      {events_iodata, events_line_count} = EventsBlock.events_block(state, inner_width, events_budget)
 
       [
         # Begin synchronized update (DEC 2026): the terminal buffers the
@@ -206,14 +193,14 @@ defmodule Aiur.AgentList.Renderer do
         "\e[?12l",
         "\e[H",
         title_row(inner_width),
-        eol(),
+        Text.eol(),
         metadata_rows(state, inner_width),
         separator_row(inner_width),
-        eol(),
+        Text.eol(),
         table_header_row(inner_width, layout),
-        eol(),
+        Text.eol(),
         table_separator_row(inner_width, layout),
-        eol(),
+        Text.eol(),
         render_rows(
           summaries,
           Map.get(state, :selection_index, 0),
@@ -224,7 +211,7 @@ defmodule Aiur.AgentList.Renderer do
         ),
         events_iodata,
         bottom_border(inner_width),
-        eol(),
+        Text.eol(),
         footer_render.iodata,
         clear_remaining(rows, base_lines + events_line_count),
         # Re-emit hide + no-blink + park-home AFTER all painting,
@@ -252,16 +239,16 @@ defmodule Aiur.AgentList.Renderer do
       [
         "\e[H",
         title_row(inner_width),
-        eol(),
+        Text.eol(),
         separator_row(inner_width),
-        eol()
+        Text.eol()
       ] ++
-        Enum.flat_map(body_rows, fn row -> [row, eol()] end) ++
+        Enum.flat_map(body_rows, fn row -> [row, Text.eol()] end) ++
         [
           bottom_border(inner_width),
-          eol(),
+          Text.eol(),
           help_footer_row(inner_width),
-          eol()
+          Text.eol()
         ]
 
     # 5 fixed chrome rows (title, separator, bottom border, footer) +
@@ -314,16 +301,16 @@ defmodule Aiur.AgentList.Renderer do
 
   defp help_heading_row(text, inner_width) do
     prefix = "│ "
-    bold = @ansi_bold <> text <> @ansi_reset
+    bold = Style.bold() <> text <> Style.reset()
     plain = prefix <> text
-    pad = padding_for(plain, inner_width)
+    pad = Text.padding_for(plain, inner_width)
     [prefix, bold, pad]
   end
 
   defp help_line_row(text, inner_width) do
     prefix = "│   "
     plain = prefix <> text
-    pad_width = max(inner_width - visual_width(plain), 0)
+    pad_width = max(inner_width - Text.visual_width(plain), 0)
     pad = String.duplicate(" ", pad_width)
     [prefix, text, pad]
   end
@@ -335,21 +322,21 @@ defmodule Aiur.AgentList.Renderer do
 
   defp help_footer_row(inner_width) do
     text = "  ? close help   q quit"
-    pad_with_ansi(@ansi_dim, text, inner_width, " ")
+    Text.pad_with_ansi(Style.dim(), text, inner_width, " ")
   end
 
   # ---------- header / metadata ---------------------------------------------
 
   defp title_row(inner_width) do
     title = "╭─ AIUR"
-    title_visual = visual_width(title)
+    title_visual = Text.visual_width(title)
 
     # `╮` rounded corner reserved at the far right; padding fills the gap
     # between the AIUR title and the corner.
     pad_count = max(inner_width - title_visual - 1, 1)
     pad = String.duplicate(" ", pad_count)
 
-    [@ansi_bold, title, @ansi_reset, pad, @ansi_gray, "╮", @ansi_reset]
+    [Style.bold(), title, Style.reset(), pad, Style.gray(), "╮", Style.reset()]
   end
 
   defp metadata_rows(state, inner_width) do
@@ -362,11 +349,11 @@ defmodule Aiur.AgentList.Renderer do
         Map.get(state, :max_agents_alert?) == true,
         inner_width
       ),
-      eol(),
+      Text.eol(),
       project_row(Map.get(state, :project_label), inner_width),
-      eol(),
+      Text.eol(),
       dashboard_row(Map.get(state, :dashboard_url), inner_width),
-      eol()
+      Text.eol()
     ]
   end
 
@@ -378,81 +365,81 @@ defmodule Aiur.AgentList.Renderer do
 
   defp agents_row(kind, count, _max, _focused?, _alert?, inner_width) when is_integer(count) do
     kind_value = if is_binary(kind) and kind != "", do: kind, else: "agents"
-    metadata_row_iolist("Agents:", "#{kind_value} (#{count})", @ansi_cyan, inner_width)
+    metadata_row_iolist("Agents:", "#{kind_value} (#{count})", Style.cyan(), inner_width)
   end
 
   defp agents_row(_kind, _count, _max, _focused?, _alert?, inner_width),
-    do: metadata_row_iolist("Agents:", "n/a", @ansi_gray, inner_width)
+    do: metadata_row_iolist("Agents:", "n/a", Style.gray(), inner_width)
 
   defp project_row(nil, inner_width),
-    do: metadata_row_iolist("Project:", "n/a", @ansi_gray, inner_width)
+    do: metadata_row_iolist("Project:", "n/a", Style.gray(), inner_width)
 
   defp project_row("", inner_width),
-    do: metadata_row_iolist("Project:", "n/a", @ansi_gray, inner_width)
+    do: metadata_row_iolist("Project:", "n/a", Style.gray(), inner_width)
 
   defp project_row(label, inner_width),
-    do: metadata_row_iolist("Project:", label, @ansi_cyan, inner_width)
+    do: metadata_row_iolist("Project:", label, Style.cyan(), inner_width)
 
   defp dashboard_row(nil, inner_width),
-    do: metadata_row_iolist("Dashboard:", "n/a", @ansi_gray, inner_width)
+    do: metadata_row_iolist("Dashboard:", "n/a", Style.gray(), inner_width)
 
   defp dashboard_row("", inner_width),
-    do: metadata_row_iolist("Dashboard:", "n/a", @ansi_gray, inner_width)
+    do: metadata_row_iolist("Dashboard:", "n/a", Style.gray(), inner_width)
 
   defp dashboard_row(url, inner_width),
-    do: metadata_row_iolist("Dashboard:", url, @ansi_cyan, inner_width)
+    do: metadata_row_iolist("Dashboard:", url, Style.cyan(), inner_width)
 
   defp metadata_row_iolist(label, value, value_color, inner_width) do
     prefix = "│ "
-    bold_label = @ansi_bold <> label <> @ansi_reset
-    colored_value = value_color <> value <> @ansi_reset
+    bold_label = Style.bold() <> label <> Style.reset()
+    colored_value = value_color <> value <> Style.reset()
     plain = prefix <> label <> " " <> value
-    pad = padding_for(plain, inner_width)
+    pad = Text.padding_for(plain, inner_width)
     [prefix, bold_label, " ", colored_value, pad]
   end
 
   defp agents_row_iolist(kind, count, max, focused?, alert?, inner_width) do
     label = "Agents:"
     prefix = "│ "
-    bold_label = @ansi_bold <> label <> @ansi_reset
+    bold_label = Style.bold() <> label <> Style.reset()
     max_text = if focused?, do: "[#{max}]", else: to_string(max)
     affordance = if focused?, do: "  ← →", else: ""
     drain_text = if count > max, do: " drain", else: ""
     plain = "#{prefix}#{label} #{kind} (#{count}/#{max_text}#{drain_text})#{affordance}"
-    pad = padding_for(plain, inner_width)
+    pad = Text.padding_for(plain, inner_width)
 
     max_style =
       cond do
-        alert? -> @ansi_red <> @ansi_reverse
-        focused? -> @ansi_reverse
-        true -> @ansi_cyan
+        alert? -> Style.red() <> Style.reverse()
+        focused? -> Style.reverse()
+        true -> Style.cyan()
       end
 
     [
       prefix,
       bold_label,
       " ",
-      @ansi_cyan,
+      Style.cyan(),
       kind,
       " (",
       Integer.to_string(count),
       "/",
       max_style,
       max_text,
-      @ansi_reset,
-      @ansi_cyan,
+      Style.reset(),
+      Style.cyan(),
       drain_text,
       ")",
       affordance,
-      @ansi_reset,
+      Style.reset(),
       pad
     ]
   end
 
   defp separator_row(inner_width) do
     [
-      pad_with_ansi(
-        @ansi_gray,
+      Text.pad_with_ansi(
+        Style.gray(),
         "├" <> String.duplicate("─", max(inner_width - 2, 0)),
         inner_width,
         "┤"
@@ -476,23 +463,23 @@ defmodule Aiur.AgentList.Renderer do
       trailing_fill = String.duplicate("─", max(inner_width - label_visual - 5, 0))
 
       [
-        @ansi_gray,
+        Style.gray(),
         "╰─ ",
-        @ansi_reset,
-        @ansi_gray,
+        Style.reset(),
+        Style.gray(),
         IO.ANSI.italic(),
         label_text,
-        @ansi_reset,
-        @ansi_gray,
+        Style.reset(),
+        Style.gray(),
         " ",
         trailing_fill,
         "╯",
-        @ansi_reset
+        Style.reset()
       ]
     else
       [
-        pad_with_ansi(
-          @ansi_gray,
+        Text.pad_with_ansi(
+          Style.gray(),
           "╰" <> String.duplicate("─", max(inner_width - 2, 0)),
           inner_width,
           "╯"
@@ -522,10 +509,10 @@ defmodule Aiur.AgentList.Renderer do
       text when is_binary(text) and text != "" ->
         rc_row = [
           left_only_row(
-            truncate(text, max(inner_width - @footer_left_padding - 1, 0)),
+            Text.truncate(text, max(inner_width - @footer_left_padding - 1, 0)),
             inner_width
           ),
-          eol()
+          Text.eol()
         ]
 
         %{iodata: [rc_row | base.iodata], line_count: base.line_count + 1}
@@ -536,15 +523,15 @@ defmodule Aiur.AgentList.Renderer do
   end
 
   defp footer_keybinds_split(inner_width) do
-    if visual_width(@footer_left_padding_str <> @keybinds_full) + 1 <= inner_width do
-      %{iodata: [left_only_row(@keybinds_full, inner_width), eol()], line_count: 1}
+    if Text.visual_width(@footer_left_padding_str <> @keybinds_full) + 1 <= inner_width do
+      %{iodata: [left_only_row(@keybinds_full, inner_width), Text.eol()], line_count: 1}
     else
       %{
         iodata: [
           left_only_row(@keybinds_primary, inner_width),
-          eol(),
+          Text.eol(),
           left_only_row(@keybinds_secondary, inner_width),
-          eol()
+          Text.eol()
         ],
         line_count: 2
       }
@@ -564,35 +551,35 @@ defmodule Aiur.AgentList.Renderer do
 
   defp left_only_row(text, inner_width) do
     body = String.duplicate(" ", @footer_left_padding) <> text
-    pad_with_ansi(@ansi_dim, body, inner_width, " ")
+    Text.pad_with_ansi(Style.dim(), body, inner_width, " ")
   end
 
   # ---------- table ----------------------------------------------------------
 
   defp table_header_row(inner_width, layout) do
     progress_header =
-      if layout.show_progress?, do: [" ", cell("PROGRESS", @progress_cell_width)], else: []
+      if layout.show_progress?, do: [" ", Text.cell("PROGRESS", @progress_cell_width)], else: []
 
-    runtime_header = [" ", cell("TIME", @runtime_cell_width)]
+    runtime_header = [" ", Text.cell("TIME", @runtime_cell_width)]
 
     model_header =
-      if layout.model_width > 0, do: [cell("MODEL", layout.model_width), " "], else: []
+      if layout.model_width > 0, do: [Text.cell("MODEL", layout.model_width), " "], else: []
 
     body = [
       "│   ",
-      cell("ID", layout.id_width),
-      cell("", @rc_cell_width),
-      cell("", @state_cell_width),
-      cell("", @attention_cell_width),
+      Text.cell("ID", layout.id_width),
+      Text.cell("", @rc_cell_width),
+      Text.cell("", @state_cell_width),
+      Text.cell("", @attention_cell_width),
       model_header,
-      cell("TITLE", layout.title_width),
+      Text.cell("TITLE", layout.title_width),
       " ",
-      cell("LATEST", layout.latest_width),
+      Text.cell("LATEST", layout.latest_width),
       progress_header,
       runtime_header
     ]
 
-    pad_with_ansi(@ansi_gray, IO.iodata_to_binary(body), inner_width)
+    Text.pad_with_ansi(Style.gray(), IO.iodata_to_binary(body), inner_width)
   end
 
   defp table_separator_row(inner_width, _layout) do
@@ -602,8 +589,8 @@ defmodule Aiur.AgentList.Renderer do
     # column-totals width and the rest of the row was blank space —
     # the right `│` border ended up disconnected from the divider.
     [
-      pad_with_ansi(
-        @ansi_gray,
+      Text.pad_with_ansi(
+        Style.gray(),
         "├" <> String.duplicate("─", max(inner_width - 2, 0)),
         inner_width,
         "┤"
@@ -613,8 +600,8 @@ defmodule Aiur.AgentList.Renderer do
 
   defp render_rows([], _idx, _selection_focus, inner_width, layout, _markers) do
     [
-      pad_with_ansi(@ansi_dim, "│   " <> empty_body_text(layout), inner_width),
-      eol()
+      Text.pad_with_ansi(Style.dim(), "│   " <> empty_body_text(layout), inner_width),
+      Text.eol()
     ]
   end
 
@@ -630,7 +617,7 @@ defmodule Aiur.AgentList.Renderer do
           layout,
           markers
         ),
-        eol()
+        Text.eol()
       ]
     end)
   end
@@ -659,36 +646,36 @@ defmodule Aiur.AgentList.Renderer do
 
     id_cell = id_cell_with_link(id_str, layout)
     phase = Map.get(Map.get(layout, :phase_by_identifier, %{}), id_str)
-    state_cell = emoji_cell(summary_emoji(summary, markers, phase), @state_cell_width)
+    state_cell = Text.emoji_cell(summary_emoji(summary, markers, phase), @state_cell_width)
     attention_cell = attention_cell(id_str, layout)
-    title_cell = cell(title, layout.title_width)
+    title_cell = Text.cell(title, layout.title_width)
     latest_cell = latest_cell(id_str, layout, summary)
     model_block = model_cell_block(summary, layout)
 
     progress_block =
       if layout.show_progress? do
-        [" ", @ansi_dim, progress_cell(id_str, layout), @ansi_reset]
+        [" ", Style.dim(), progress_cell(id_str, layout), Style.reset()]
       else
         []
       end
 
-    runtime_block = [" ", @ansi_dim, runtime_cell(summary), @ansi_reset]
+    runtime_block = [" ", Style.dim(), runtime_cell(summary), Style.reset()]
 
     body = [
       "│ ",
       marker,
-      @ansi_cyan,
+      Style.cyan(),
       id_cell,
-      @ansi_reset,
+      Style.reset(),
       rc_cell(summary),
       state_cell,
       attention_cell,
       model_block,
       title_cell,
       " ",
-      @ansi_dim,
+      Style.dim(),
       latest_cell,
-      @ansi_reset,
+      Style.reset(),
       progress_block,
       runtime_block
     ]
@@ -725,11 +712,11 @@ defmodule Aiur.AgentList.Renderer do
       highlighted =
         row
         |> IO.iodata_to_binary()
-        |> strip_csi()
+        |> Text.strip_csi()
 
-      [@ansi_reverse, highlighted, @ansi_reset, @ansi_gray, "│", @ansi_reset]
+      [Style.reverse(), highlighted, Style.reset(), Style.gray(), "│", Style.reset()]
     else
-      [row, @ansi_gray, "│", @ansi_reset]
+      [row, Style.gray(), "│", Style.reset()]
     end
   end
 
@@ -742,23 +729,14 @@ defmodule Aiur.AgentList.Renderer do
   # text. Width calculations are unaffected because OSC sequences
   # have zero visual width.
   defp id_cell_with_link(id_str, layout) do
-    padded = cell(id_str, layout.id_width)
+    padded = Text.cell(id_str, layout.id_width)
     project = Map.get(layout, :project_label)
 
-    case ticket_url(project, id_str) do
+    case Links.ticket_url(project, id_str) do
       nil -> padded
       url -> "\e]8;;" <> url <> "\e\\" <> padded <> "\e]8;;\e\\"
     end
   end
-
-  defp ticket_url(project, id_str) when is_binary(project) and is_binary(id_str) do
-    case Integer.parse(id_str) do
-      {n, ""} when n > 0 -> "https://github.com/" <> project <> "/issues/" <> Integer.to_string(n)
-      _ -> nil
-    end
-  end
-
-  defp ticket_url(_project, _id_str), do: nil
 
   # `❗` cell: blank-but-allocated when zero attentions open; `❗`
   # alone (two terminal columns + space) when one; `❗N` when more.
@@ -775,7 +753,7 @@ defmodule Aiur.AgentList.Renderer do
         true -> "❗#{count}"
       end
 
-    emoji_cell(text, @attention_cell_width)
+    Text.emoji_cell(text, @attention_cell_width)
   end
 
   # Remote-control indicator cell. `:launching` shows 📲 (registration
@@ -793,7 +771,7 @@ defmodule Aiur.AgentList.Renderer do
         _ -> ""
       end
 
-    emoji_cell(glyph, @rc_cell_width)
+    Text.emoji_cell(glyph, @rc_cell_width)
   end
 
   # Progress + ETA pair, rendered as one cell of fixed width 16:
@@ -806,7 +784,7 @@ defmodule Aiur.AgentList.Renderer do
   # `src/prompts/shared-agent-instructions.md`'s "Progress emits"
   # section), the bar is tinted green so the operator sees at a
   # glance that the agent is done for this iteration. The cell is
-  # otherwise wrapped in `@ansi_dim` at the call site; we reset and
+  # otherwise wrapped in `Style.dim()` at the call site; we reset and
   # re-apply dim around the green wrap so terminals render the
   # color cleanly.
   defp progress_cell(id, layout) do
@@ -819,7 +797,7 @@ defmodule Aiur.AgentList.Renderer do
 
       %{percent: 100} ->
         full_bar = ProgressTracker.bar(100, @progress_bar_width)
-        @ansi_reset <> @ansi_green <> full_bar <> @ansi_reset <> @ansi_dim
+        Style.reset() <> Style.green() <> full_bar <> Style.reset() <> Style.dim()
 
       %{percent: pct} ->
         ProgressTracker.bar(pct, @progress_bar_width)
@@ -836,7 +814,7 @@ defmodule Aiur.AgentList.Renderer do
   #   * ≥10h   → `Nh` short form (rare; stays inside the cell)
   defp runtime_cell(summary) do
     seconds = Map.get(summary, :runtime_seconds) || 0
-    cell(format_runtime(seconds), @runtime_cell_width)
+    Text.cell(format_runtime(seconds), @runtime_cell_width)
   end
 
   defp format_runtime(seconds) when is_integer(seconds) and seconds < 0, do: "0:00"
@@ -876,7 +854,7 @@ defmodule Aiur.AgentList.Renderer do
           event -> latest_event_message(event)
         end
 
-      cell(text, layout.latest_width)
+      Text.cell(text, layout.latest_width)
     end
   end
 
@@ -951,15 +929,15 @@ defmodule Aiur.AgentList.Renderer do
     else
       family = model_family(summary)
       text = model_text(summary, family, width)
-      padded = cell(text, width)
+      padded = Text.cell(text, width)
 
       case model_color(family, Map.get(layout, :truecolor?, true)) do
         # Families with no website color: dim the queued/unknown `–`
         # placeholder (family nil); leave a generic claude/haiku name in the
         # default foreground.
-        nil when is_nil(family) -> [@ansi_dim, padded, @ansi_reset, " "]
+        nil when is_nil(family) -> [Style.dim(), padded, Style.reset(), " "]
         nil -> [padded, " "]
-        color -> [color, padded, @ansi_reset, " "]
+        color -> [color, padded, Style.reset(), " "]
       end
     end
   end
@@ -1146,26 +1124,6 @@ defmodule Aiur.AgentList.Renderer do
   defp phase_emoji(:review), do: "🔍"
   defp phase_emoji(_), do: nil
 
-  defp emoji_cell("", width) do
-    # Reserved-but-empty cell: pad to the full visual width.
-    String.duplicate(" ", max(width, 0))
-  end
-
-  defp emoji_cell(glyph, width) do
-    # The leading grapheme is a 2-terminal-column emoji; everything
-    # after (digits, suffix) is 1 column per char. `❗3` reads as
-    # visual_width = 2 + 1 = 3; `❗9+` reads as 2 + 2 = 4. Pad with
-    # the remainder so the cell is exactly `width` columns wide.
-    visual =
-      case String.next_grapheme(glyph) do
-        {_first, rest} -> 2 + String.length(rest)
-        nil -> 0
-      end
-
-    pad = String.duplicate(" ", max(width - visual, 0))
-    glyph <> pad
-  end
-
   # Compute per-frame column widths so identifiers only take as much
   # space as they actually need, leaving the rest for the title.
   # Recomputed on every render so a wider pane reflows immediately
@@ -1273,207 +1231,6 @@ defmodule Aiur.AgentList.Renderer do
     }
   end
 
-  # ---------- helpers --------------------------------------------------------
-
-  defp cell(value, width) do
-    str =
-      value
-      |> to_string()
-      |> String.replace("\n", " ")
-      |> String.replace(~r/\s+/, " ")
-      |> String.trim()
-      |> truncate(width)
-
-    String.pad_trailing(str, width)
-  end
-
-  defp truncate(value, width) do
-    cond do
-      String.length(value) <= width -> value
-      width <= 3 -> String.slice(value, 0, width)
-      true -> String.slice(value, 0, width - 1) <> "…"
-    end
-  end
-
-  defp pad_with_ansi(ansi, text, inner_width, right_border \\ "│") do
-    # clip_and_pad fills to inner_width - 1 visual cols and then appends
-    # `right_border` so every row carries a closing vertical bar on the
-    # right side (matching the leading `│` on the left). Specific row
-    # types pass `╮` / `╯` / `┤` for corner / divider variants.
-    [
-      ansi,
-      clip_and_pad(text, max(inner_width - 1, 0)),
-      right_border,
-      @ansi_reset
-    ]
-  end
-
-  defp padding_for(text, inner_width) do
-    # Use visual_width, not String.length: emoji + CJK glyphs count as
-    # one grapheme but render as TWO terminal columns. Padding by
-    # grapheme count over-pads, the line exceeds inner_width, and the
-    # terminal wraps — which throws off our line-count bookkeeping and
-    # eventually scrolls the top of the pane off-screen.
-    #
-    # Reserve the last visual column for the right `│` border so each
-    # metadata row closes cleanly. The iodata returned here ends with
-    # the border glyph; callers don't need to append it themselves.
-    visible = visual_width(strip_ansi(text))
-    pad = String.duplicate(" ", max(inner_width - visible - 1, 0))
-    [pad, @ansi_gray, "│", @ansi_reset]
-  end
-
-  # Visual column width of `text` in terminal cells. Wide-grapheme
-  # detection follows the Unicode East-Asian-Width "Wide" + "Fullwidth"
-  # ranges plus the emoji blocks (1F000+). Common multi-byte symbols
-  # used in our chrome (·, →, …, box-drawing) intentionally score 1 so
-  # padding lines up.
-  defp visual_width(text) when is_binary(text) do
-    text
-    |> strip_ansi()
-    |> String.graphemes()
-    |> Enum.reduce(0, fn g, acc -> acc + grapheme_width(g) end)
-  end
-
-  defp grapheme_width(g) do
-    case String.to_charlist(g) do
-      [cp | _] -> codepoint_width(cp)
-      [] -> 0
-    end
-  end
-
-  # ASCII fast path.
-  defp codepoint_width(cp) when cp < 0x80, do: 1
-  # Zero-width: combining marks, ZWJ, variation selectors. Keep these
-  # at 0 so emoji presentation modifiers don't double-count.
-  defp codepoint_width(cp) when cp >= 0x300 and cp <= 0x36F, do: 0
-  defp codepoint_width(0x200B), do: 0
-  defp codepoint_width(0x200C), do: 0
-  defp codepoint_width(0x200D), do: 0
-  defp codepoint_width(0xFE0E), do: 0
-  defp codepoint_width(0xFE0F), do: 0
-  # East-Asian Wide + Fullwidth ranges.
-  defp codepoint_width(cp) when cp >= 0x1100 and cp <= 0x115F, do: 2
-  defp codepoint_width(cp) when cp >= 0x2E80 and cp <= 0x303E, do: 2
-  defp codepoint_width(cp) when cp >= 0x3041 and cp <= 0x33FF, do: 2
-  defp codepoint_width(cp) when cp >= 0x3400 and cp <= 0x4DBF, do: 2
-  defp codepoint_width(cp) when cp >= 0x4E00 and cp <= 0x9FFF, do: 2
-  defp codepoint_width(cp) when cp >= 0xA000 and cp <= 0xA4CF, do: 2
-  defp codepoint_width(cp) when cp >= 0xAC00 and cp <= 0xD7A3, do: 2
-  defp codepoint_width(cp) when cp >= 0xF900 and cp <= 0xFAFF, do: 2
-  defp codepoint_width(cp) when cp >= 0xFE30 and cp <= 0xFE4F, do: 2
-  defp codepoint_width(cp) when cp >= 0xFF00 and cp <= 0xFF60, do: 2
-  defp codepoint_width(cp) when cp >= 0xFFE0 and cp <= 0xFFE6, do: 2
-  # Selected symbol blocks that terminals render as wide / emoji-style.
-  # Many cells in 2600-26FF are 1 col in some terminals but render as
-  # 2 in modern emoji fonts — overcount is safer than wrap.
-  defp codepoint_width(cp) when cp >= 0x2600 and cp <= 0x27BF, do: 2
-  defp codepoint_width(cp) when cp >= 0x2B00 and cp <= 0x2BFF, do: 2
-  defp codepoint_width(cp) when cp >= 0x1F000, do: 2
-  # Everything else (Latin-1 supplement, arrows, box drawing, …) is 1.
-  defp codepoint_width(_cp), do: 1
-
-  @csi_re ~r/^\e\[[0-9;?]*[A-Za-z]/
-  # Matches both OSC 8 forms (open carries a URL, close has an empty URL),
-  # terminated by ST (`\e\\`) or BEL (`\a`).
-  @osc8_re ~r/^\e\]8;;[^\e\a]*(?:\e\\|\a)/
-  @osc8_close_re ~r/^\e\]8;;(?:\e\\|\a)/
-
-  # Truncate `text` to at most `limit` visual columns, splitting on
-  # grapheme boundaries so a multi-codepoint emoji is never cut. ANSI CSI
-  # runs and OSC 8 hyperlink wrappers pass through at zero width and are
-  # never split — counting their bytes against the budget would cut inside
-  # an escape sequence, and the terminal then swallows the broken run,
-  # hiding the whole line. If truncation lands inside an open hyperlink,
-  # the link is closed so the trailing ellipsis renders outside it.
-  defp truncate_visual(_text, limit) when limit <= 0, do: ""
-
-  defp truncate_visual(text, limit) do
-    {acc, _used, open_link?} = take_visible(text, limit, [], 0, false)
-    result = IO.iodata_to_binary(acc)
-    if open_link?, do: result <> "\e]8;;\e\\", else: result
-  end
-
-  defp take_visible("", _limit, acc, used, open?), do: {acc, used, open?}
-
-  defp take_visible(text, limit, acc, used, open?) do
-    case split_escape(text) do
-      {:osc_close, seq, rest} -> take_visible(rest, limit, [acc, seq], used, false)
-      {:osc_open, seq, rest} -> take_visible(rest, limit, [acc, seq], used, true)
-      {:csi, seq, rest} -> take_visible(rest, limit, [acc, seq], used, open?)
-      :none -> take_grapheme(text, limit, acc, used, open?)
-    end
-  end
-
-  defp take_grapheme(text, limit, acc, used, open?) do
-    {g, rest} = String.next_grapheme(text)
-    w = grapheme_width(g)
-
-    if used + w > limit do
-      {acc, used, open?}
-    else
-      take_visible(rest, limit, [acc, g], used + w, open?)
-    end
-  end
-
-  # Peel a leading ANSI/OSC escape sequence off `text`, returning its kind,
-  # the sequence, and the remainder — or `:none` when `text` starts with a
-  # visible grapheme.
-  defp split_escape(text) do
-    case Regex.run(@osc8_re, text, return: :binary) do
-      [seq | _] -> {osc_kind(seq), seq, drop_prefix(text, seq)}
-      nil -> split_csi(text)
-    end
-  end
-
-  defp split_csi(text) do
-    case Regex.run(@csi_re, text, return: :binary) do
-      [seq | _] -> {:csi, seq, drop_prefix(text, seq)}
-      nil -> :none
-    end
-  end
-
-  defp osc_kind(seq) do
-    if Regex.match?(@osc8_close_re, seq), do: :osc_close, else: :osc_open
-  end
-
-  defp drop_prefix(text, prefix) do
-    plen = byte_size(prefix)
-    binary_part(text, plen, byte_size(text) - plen)
-  end
-
-  # Pad a (raw, no-ansi) text to exactly `inner_width` visual columns,
-  # truncating with `…` if the text would otherwise wrap. Caller is
-  # responsible for any wrapping ANSI escapes.
-  defp clip_and_pad(text, inner_width) do
-    if visual_width(text) <= inner_width do
-      [text, String.duplicate(" ", max(inner_width - visual_width(text), 0))]
-    else
-      trimmed = truncate_visual(text, max(inner_width - 1, 0)) <> "…"
-      [trimmed, String.duplicate(" ", max(inner_width - visual_width(trimmed), 0))]
-    end
-  end
-
-  # Strip CSI sequences (colors, cursor moves) while leaving OSC 8
-  # hyperlink wrappers intact. Used to flatten a row's interior colors
-  # before wrapping it in the selected-row `reverse` highlight, without
-  # dropping the clickable ticket link.
-  defp strip_csi(text) do
-    Regex.replace(~r/\e\[[0-9;?]*[A-Za-z]/, text, "")
-  end
-
-  defp strip_ansi(text) do
-    text
-    # CSI (color/cursor) sequences: `\e[...m`, `\e[2J`, etc.
-    |> strip_csi()
-    # OSC 8 hyperlinks: `\e]8;;<url>\e\\<text>\e]8;;\e\\` (or BEL-terminated).
-    # The text between the brackets is the visible part — we keep
-    # everything between the ST and the closing OSC.
-    |> then(&Regex.replace(~r/\e\]8;;[^\e\a]*(\e\\|\a)/, &1, ""))
-  end
-
-  defp eol, do: ["\e[K", "\r\n"]
-
   # Approximate count of rows the frame will draw (used for "blank the
   # rest" below the last rendered row so old content doesn't linger
   # when the agent list shrinks). Fixed rows: title, agents, project,
@@ -1485,647 +1242,6 @@ defmodule Aiur.AgentList.Renderer do
     summaries = Map.get(state, :summaries, [])
     body_rows = if summaries == [], do: 1, else: length(summaries)
     8 + footer_lines + body_rows
-  end
-
-  # --- Debug perf footer ---------------------------------------------
-  # When AIUR_DEBUG=1, the agent list shows a fixed 3-row footer with
-  # the three milestones the user actually cares about:
-  #   1. agent list ready       (boot -> agent_list rendered)
-  #   2. chat pane visible      (Enter -> placeholder pane on screen)
-  #   3. opencode render        (Enter -> opencode-attach painted convo)
-  #
-  # Each row shows the last measured value or `…` while we wait.
-
-  # --- Events block (inside the AgentList box) ---------------------------
-  # The events block renders INSIDE the AgentList box, separated from the
-  # agent rows by a `├──...──┤` divider when there are events to show.
-  # Three kinds:
-  #
-  #   💬  publish — `Aiur.Events.Publisher.publish/3` accepted the event
-  #   📬  receive — `Aiur.Events.SubscriptionStore` delivered the event
-  #                  to a subscribing ticket
-  #   📄  read    — the agent's queue consumed an `events_digest` item
-  #                  (the digest reached the agent's prompt)
-  #
-  # Line format:
-  #   `💬 99 Agent: "<message>"` (publish — source ticket is the agent)
-  #   `📬 100 Agent received from 99: "<message>"` (cross-ticket receive)
-  #   `📄 100 Agent ingested:` (read — minimal context)
-  #
-  # The table takes precedence for space: when `budget` is too small for
-  # the divider + a single event row, the block collapses to nothing.
-
-  defp events_block(state, inner_width, budget) do
-    events = state |> Map.get(:debug_events, []) |> Enum.reject(&is_nil/1)
-
-    cond do
-      budget < 2 -> {[], 0}
-      inner_width < 4 -> {[], 0}
-      true -> render_events_block(state, events, inner_width, budget)
-    end
-  end
-
-  defp render_events_block(state, events, inner_width, budget) do
-    # Divider eats 1 row; remaining budget is the event capacity.
-    # The block ALWAYS uses the full budget — when there are fewer
-    # events than rows, empty `│ ... │` rows pad ABOVE the events so
-    # the newest line sits flush with the bottom border (chat-log
-    # layout: new at bottom, old scrolls up).
-    capacity = max(budget - 1, 0)
-    rendering_identifier = selected_identifier(state)
-    repo = repo_identity(state)
-
-    # state.debug_events is newest-first. Format each entry, drop the
-    # ones the formatter suppresses (self-echoes), then take the newest
-    # `capacity` so suppressed entries don't eat the budget.
-    visible_lines =
-      events
-      |> Stream.map(&format_event_line(&1, rendering_identifier, repo))
-      |> Stream.reject(&is_nil/1)
-      |> Enum.take(capacity)
-      |> Enum.reverse()
-
-    deficit = max(capacity - length(visible_lines), 0)
-    empty_rows = for _ <- 1..deficit//1, do: [empty_event_row(inner_width), eol()]
-
-    event_rows =
-      Enum.flat_map(visible_lines, &[event_box_inner_row(&1, inner_width), eol()])
-
-    iodata = [
-      events_divider_row(inner_width),
-      eol(),
-      empty_rows,
-      event_rows
-    ]
-
-    {iodata, 1 + capacity}
-  end
-
-  defp selected_identifier(%{selection_index: idx, summaries: summaries})
-       when is_list(summaries) do
-    case Enum.at(summaries, idx) do
-      %{identifier: id} when is_binary(id) -> id
-      _ -> nil
-    end
-  end
-
-  defp selected_identifier(_state), do: nil
-
-  defp events_divider_row(inner_width) do
-    # Inject an "oldest" label at the far-right of the divider so the
-    # operator can read the timeline direction:
-    #   `├──...── oldest ─┤`
-    # When the box is too narrow (`< 14` cols) for label + chrome, fall
-    # back to the plain divider so we never truncate the corner glyphs.
-    label_text = "oldest"
-    label_visual = String.length(label_text)
-    min_for_label = label_visual + 6
-
-    if inner_width >= min_for_label do
-      leading_fill = String.duplicate("─", max(inner_width - label_visual - 5, 0))
-
-      [
-        @ansi_gray,
-        "├",
-        leading_fill,
-        " ",
-        @ansi_reset,
-        @ansi_gray,
-        IO.ANSI.italic(),
-        label_text,
-        @ansi_reset,
-        @ansi_gray,
-        " ─┤",
-        @ansi_reset
-      ]
-    else
-      fill = String.duplicate("─", max(inner_width - 2, 0))
-      [@ansi_gray, "├", fill, "┤", @ansi_reset]
-    end
-  end
-
-  # `│ <text padded> │` — the `│ ` + ` │` chrome eats 4 visual columns.
-  defp event_box_inner_row(text, inner_width) do
-    body_width = max(inner_width - 4, 0)
-    padded = clip_and_pad(text, body_width)
-    [IO.ANSI.faint(), "│ ", padded, " │", IO.ANSI.reset()]
-  end
-
-  # Empty `│       │` row used to pad the events block up to its full
-  # budget when there are fewer events than rows available.
-  defp empty_event_row(inner_width) do
-    fill = String.duplicate(" ", max(inner_width - 2, 0))
-    [@ansi_gray, "│", @ansi_reset, fill, @ansi_gray, "│", @ansi_reset]
-  end
-
-  # Format an event-ticker entry as a natural-language line.
-  #
-  # The renderer is the one place that turns a `DebugLog` entry into
-  # operator-facing text. Key rules surfaced by live testing:
-  #
-  # - Self-receive of agent.* echoes (140 received from 140) gets
-  #   suppressed — the publish line already covered the same content.
-  # - Cross-ticket receives use `←` instead of "Agent received from":
-  #     `📬 140 ← 99: pushed "abc"`
-  # - When the topic is a comment (issue.commented, pr.review_comment),
-  #   the receive line reads `<id> new <Issue|PR> comment: "<body>"`.
-  # - Pushes extract commits[*].message and report count + last msg.
-  # - PRs (pr.opened / pr.merged) extract the PR title.
-  # - Events without a meaningful body drop the trailing colon.
-  defp format_event_line(%{kind: kind, topic: topic} = entry, rendering_identifier, repo) do
-    if ticker_self_echo?(kind, topic, entry) do
-      nil
-    else
-      glyph = event_glyph(kind)
-      body = Map.get(entry, :body)
-      source_id = event_source_ticket_id(topic)
-      subject_id = event_subject_id(kind, entry, source_id, rendering_identifier)
-      suffix = topic_suffix(topic)
-
-      {verb_phrase, summary} = describe_event(kind, subject_id, source_id, suffix, body)
-
-      # OSC 8 wraps. Subject id linkable to its issue; "PR" / "comment"
-      # tokens in the verb phrase get wrapped with the body's URL when
-      # available, falling back to the subject's issue URL.
-      linked_subject = link_ticket_id(subject_id, repo)
-      fallback_url = issue_url_for(subject_id, repo) || issue_url_for(source_id, repo)
-      linked_verb = link_verb_phrase(verb_phrase, kind, suffix, body, repo, fallback_url)
-
-      "#{glyph} #{linked_subject} #{linked_verb}#{summary}"
-    end
-  end
-
-  defp format_event_line(_entry, _rendering_identifier, _repo), do: nil
-
-  defp issue_url_for(id, repo) when is_binary(id) and is_binary(repo), do: issue_url(repo, id)
-  defp issue_url_for(_id, _repo), do: nil
-
-  defp event_glyph(:publish), do: "💬"
-  defp event_glyph(:receive), do: "📬"
-  defp event_glyph(:read), do: "📄"
-  defp event_glyph(_), do: "·"
-
-  defp event_source_ticket_id(topic) when is_binary(topic) do
-    case Regex.run(~r/^ticket\.([^.]+)\./, topic) do
-      [_, id] -> id
-      _ -> nil
-    end
-  end
-
-  defp event_source_ticket_id(_), do: nil
-
-  # Suppress noisy self-receives: an agent's own subscription fanning
-  # the agent.* event back to itself. The publish line above already
-  # carries the same content. Comments (issue.commented /
-  # pr.review_comment) survive because a comment on the agent's OWN
-  # ticket is a genuine signal worth surfacing.
-  defp ticker_self_echo?(:receive, topic, %{identifier: id})
-       when is_binary(topic) and is_binary(id) do
-    source = event_source_ticket_id(topic)
-    suffix = topic_suffix(topic)
-
-    source == id and not comment_topic?(suffix)
-  end
-
-  defp ticker_self_echo?(_kind, _topic, _entry), do: false
-
-  defp comment_topic?("issue.commented"), do: true
-  defp comment_topic?("pr.review_comment"), do: true
-  defp comment_topic?(_), do: false
-
-  # For publishes, the subject is the source ticket itself.
-  # For receives / reads, the subject is the receiving ticket.
-  defp event_subject_id(:publish, _entry, source_id, _rendering_identifier)
-       when is_binary(source_id),
-       do: source_id
-
-  defp event_subject_id(:receive, %{identifier: id}, _source_id, _rendering_identifier)
-       when is_binary(id),
-       do: id
-
-  defp event_subject_id(:read, %{identifier: id}, _source_id, _rendering_identifier)
-       when is_binary(id),
-       do: id
-
-  defp event_subject_id(:read, _entry, source_id, _rendering_identifier)
-       when is_binary(source_id),
-       do: source_id
-
-  defp event_subject_id(_kind, _entry, _source_id, rendering_identifier)
-       when is_binary(rendering_identifier),
-       do: rendering_identifier
-
-  defp event_subject_id(_kind, _entry, _source_id, _rendering_identifier), do: "?"
-
-  defp topic_suffix("ticket." <> rest) do
-    case String.split(rest, ".", parts: 2) do
-      [_id, suffix] -> suffix
-      _ -> rest
-    end
-  end
-
-  defp topic_suffix(topic) when is_binary(topic), do: topic
-  defp topic_suffix(_), do: ""
-
-  # ── describe_event: {verb_phrase, summary} ──────────────────────────────
-  # The verb phrase is the natural-language description of the topic.
-  # The summary is "" or " \"…body…\"" depending on whether we found
-  # something meaningful in the payload.
-
-  # --- Self-comment on the agent's own ticket / PR ----------------------
-  defp describe_event(:receive, subject_id, source_id, "issue.commented", body)
-       when subject_id == source_id do
-    {"new Issue comment:", comment_body_summary(body)}
-  end
-
-  defp describe_event(:receive, subject_id, source_id, "pr.review_comment", body)
-       when subject_id == source_id do
-    {"new PR comment:", comment_body_summary(body)}
-  end
-
-  # --- Cross-ticket receive: "<receiver> ← <source>: <verb>" ------------
-  defp describe_event(:receive, _subject_id, source_id, suffix, body) when is_binary(source_id) do
-    {"← #{source_id}: #{cross_receive_verb(suffix)}", cross_receive_summary(suffix, body)}
-  end
-
-  defp describe_event(:receive, _subject_id, _source_id, _suffix, _body) do
-    {"received", ""}
-  end
-
-  # --- Read events (digest ingestion) ----------------------------------
-  # A read entry is the receiver digesting an event from its inbox.
-  # The line reads `📄 <receiver> ingested <source>: <publish-verb>"<body>"`
-  # so the operator can see what the agent actually picked up. We
-  # reuse `publish_event_phrase/2` for the verb + body so reads share
-  # the same vocabulary as the originating publish line.
-  defp describe_event(:read, subject_id, source_id, suffix, body)
-       when is_binary(source_id) and source_id != subject_id do
-    {verb, summary} = publish_event_phrase(suffix, body)
-    {"ingested #{source_id}: #{verb}", summary}
-  end
-
-  defp describe_event(:read, _subject_id, _source_id, suffix, body) do
-    {verb, summary} = publish_event_phrase(suffix, body)
-    {"ingested: #{verb}", summary}
-  end
-
-  # --- Publishes -------------------------------------------------------
-  defp describe_event(:publish, _subject_id, _source_id, suffix, body) do
-    publish_event_phrase(suffix, body)
-  end
-
-  defp describe_event(_kind, _subject_id, _source_id, _suffix, _body), do: {"", ""}
-
-  # ── Publish topic → {verb_phrase, summary} ─────────────────────────────
-  # Verbs are written so the ID prefix reads as the implicit subject:
-  #   `💬 99 started work: "..."` — not `💬 99 Agent started work: "..."`.
-  # The leading "Agent" was dead weight that pushed real content off the
-  # right edge in the bordered event log.
-
-  defp publish_event_phrase("agent.phase." <> phase_step, body),
-    do: {phrase_for_phase(phase_step) <> ":", inline_summary(body)}
-
-  # The agent-driven progress sample. Carries `%{percent, label}`; the
-  # label *is* the natural-language summary, so render the explicit
-  # percent and let the operator read both.
-  defp publish_event_phrase("agent.progress.checkin", body),
-    do: progress_phrase("Check-in:", body)
-
-  defp publish_event_phrase("agent.progress.phase", body),
-    do: progress_phrase("Estimated progress:", body)
-
-  defp publish_event_phrase("agent.progress", body),
-    do: progress_phrase("Estimated progress:", body)
-
-  defp publish_event_phrase("agent.blocked", body),
-    do: {"blocked:", inline_summary(body)}
-
-  defp publish_event_phrase("agent.unblocked", body),
-    do: {"unblocked", inline_summary(body)}
-
-  defp publish_event_phrase("agent.pause.request", body),
-    do: {"requested pause", inline_summary(body)}
-
-  defp publish_event_phrase("agent.attention." <> _slug, body),
-    do: {"raised attention:", inline_summary(body)}
-
-  defp publish_event_phrase("agent.decision." <> slug, body),
-    do: {"decided #{slug}:", inline_summary(body)}
-
-  defp publish_event_phrase("agent." <> name, body),
-    do: {name <> ":", inline_summary(body)}
-
-  defp publish_event_phrase("operator.progress_request", _body),
-    do: {"check-in requested", ""}
-
-  defp publish_event_phrase("issue.label.added.agent." <> state, body),
-    do: {"labelled #{state}:", inline_summary(body)}
-
-  defp publish_event_phrase("pr.opened", body),
-    do: pr_event_phrase("opened a PR", body)
-
-  defp publish_event_phrase("pr.merged", body),
-    do: pr_event_phrase("merged a PR", body)
-
-  defp publish_event_phrase("pr.review_comment", body),
-    do: {"got a PR review comment:", comment_body_summary(body)}
-
-  defp publish_event_phrase("ci.passed", _body), do: {"CI passed", ""}
-
-  defp publish_event_phrase("ci.failed", body), do: {"CI failed:", inline_summary(body)}
-
-  defp publish_event_phrase("branch.push", body),
-    do: branch_push_phrase(body)
-
-  defp publish_event_phrase("issue.commented", body),
-    do: {"got an issue comment:", comment_body_summary(body)}
-
-  defp publish_event_phrase(other, body),
-    do: {other, inline_summary(body)}
-
-  # Renders `<verb> N% done "label"` so the bar update reads in plain
-  # English. Falls back to the raw inline_summary when the body has no
-  # percent field (defensive — shouldn't happen in practice).
-  defp progress_phrase(verb, body) do
-    case progress_percent_from(body) do
-      nil ->
-        {verb, inline_summary(body)}
-
-      pct ->
-        suffix =
-          case progress_label_from(body) do
-            nil -> ""
-            label -> " \"" <> clip_summary(label) <> "\""
-          end
-
-        {"#{verb} #{trunc(pct)}% done", suffix}
-    end
-  end
-
-  defp progress_percent_from(body) when is_map(body) do
-    cond do
-      is_number(body[:percent]) -> body[:percent]
-      is_number(body["percent"]) -> body["percent"]
-      true -> nil
-    end
-  end
-
-  defp progress_percent_from(_), do: nil
-
-  defp progress_label_from(body) when is_map(body) do
-    candidate = body[:label] || body["label"]
-    if is_binary(candidate) and String.trim(candidate) != "", do: candidate
-  end
-
-  defp progress_label_from(_), do: nil
-
-  defp pr_event_phrase(verb, body) do
-    case pr_title(body) do
-      nil -> {verb, ""}
-      title -> {verb <> ":", " \"" <> clip_summary(title) <> "\""}
-    end
-  end
-
-  defp branch_push_phrase(body) do
-    commits = get_in_safe(body, [:commits]) || get_in_safe(body, ["commits"]) || []
-
-    if is_list(commits) and commits != [] do
-      count = length(commits)
-      last = commits |> List.last() |> commit_message()
-
-      case last do
-        nil ->
-          {"pushed #{count} #{commits_word(count)}", ""}
-
-        msg ->
-          {"pushed #{count} #{commits_word(count)}, last:", " \"" <> clip_summary(msg) <> "\""}
-      end
-    else
-      {"pushed", ""}
-    end
-  end
-
-  defp commits_word(1), do: "commit"
-  defp commits_word(_), do: "commits"
-
-  defp commit_message(%{} = commit) do
-    Map.get(commit, "message") || Map.get(commit, :message)
-  end
-
-  defp commit_message(_), do: nil
-
-  defp cross_receive_verb("branch.push"), do: "pushed"
-  defp cross_receive_verb("pr.opened"), do: "opened a PR"
-  defp cross_receive_verb("pr.merged"), do: "merged a PR"
-  defp cross_receive_verb("pr.review_comment"), do: "PR review comment"
-  defp cross_receive_verb("ci.passed"), do: "CI passed"
-  defp cross_receive_verb("ci.failed"), do: "CI failed"
-  defp cross_receive_verb("issue.commented"), do: "commented"
-  defp cross_receive_verb("agent.unblocked"), do: "unblocked"
-  defp cross_receive_verb("agent.blocked"), do: "blocked"
-  defp cross_receive_verb("agent.phase." <> phase_step), do: phrase_for_phase(phase_step)
-  defp cross_receive_verb("agent.progress"), do: "progress"
-  defp cross_receive_verb("agent." <> name), do: name
-  defp cross_receive_verb(other), do: other
-
-  defp cross_receive_summary("branch.push", body) do
-    case branch_push_phrase(body) do
-      {_verb, ""} -> ""
-      {_verb, summary} -> summary
-    end
-  end
-
-  defp cross_receive_summary(suffix, body) when suffix in ["pr.opened", "pr.merged"] do
-    case pr_title(body) do
-      nil -> ""
-      title -> " \"" <> clip_summary(title) <> "\""
-    end
-  end
-
-  defp cross_receive_summary(suffix, body)
-       when suffix in ["issue.commented", "pr.review_comment"] do
-    comment_body_summary(body)
-  end
-
-  defp cross_receive_summary(_suffix, body), do: inline_summary(body)
-
-  defp phrase_for_phase("brainstorm.start"), do: "started brainstorm"
-  defp phrase_for_phase("brainstorm.end"), do: "finished brainstorm"
-  defp phrase_for_phase("plan.start"), do: "started plan"
-  defp phrase_for_phase("plan.end"), do: "finished plan"
-  defp phrase_for_phase("work.start"), do: "started work"
-  defp phrase_for_phase("work.end"), do: "finished work"
-  defp phrase_for_phase("review.start"), do: "started review"
-  defp phrase_for_phase("review.end"), do: "finished review"
-  defp phrase_for_phase(other), do: "phase " <> other
-
-  # ── Body extraction helpers ─────────────────────────────────────────────
-
-  @summary_keys ~w(message title summary subject name label commit_message)
-
-  defp inline_summary(body) when is_map(body) do
-    case extract_event_text(body, @summary_keys) do
-      nil -> ""
-      text -> " \"" <> clip_summary(text) <> "\""
-    end
-  end
-
-  defp inline_summary(_body), do: ""
-
-  defp comment_body_summary(body) when is_map(body) do
-    nested = get_in_safe(body, [:comment, "body"]) || get_in_safe(body, ["comment", "body"])
-
-    if is_binary(nested) and String.trim(nested) != "" do
-      " \"" <> clip_summary(String.trim(nested)) <> "\""
-    else
-      inline_summary(body)
-    end
-  end
-
-  defp comment_body_summary(_body), do: ""
-
-  defp pr_title(body) when is_map(body) do
-    candidate = get_in_safe(body, [:pr, "title"]) || get_in_safe(body, ["pr", "title"])
-
-    if is_binary(candidate) and String.trim(candidate) != "" do
-      String.trim(candidate)
-    end
-  end
-
-  defp pr_title(_body), do: nil
-
-  defp extract_event_text(body, keys) do
-    Enum.find_value(keys, fn k ->
-      val = Map.get(body, k) || Map.get(body, String.to_atom(k))
-
-      if is_binary(val) and String.trim(val) != "" do
-        String.trim(val)
-      end
-    end)
-  end
-
-  defp clip_summary(text) when is_binary(text) do
-    # Collapse every run of whitespace (including embedded newlines from
-    # workpad markdown, code fences, multi-line comments) into a single
-    # space so the terminal renders one row per event. Width-aware
-    # truncation happens downstream in clip_and_pad/2, which is called
-    # with the live pane width every render — that's why a resize
-    # re-flows historical lines. Hard-capping here to a fixed character
-    # count would defeat that and freeze old lines at the old width.
-    text
-    |> String.replace(~r/\s+/u, " ")
-    |> String.trim()
-  end
-
-  defp get_in_safe(nil, _path), do: nil
-  defp get_in_safe(body, []), do: body
-
-  defp get_in_safe(body, [key | rest]) when is_map(body) do
-    case Map.get(body, key) do
-      nil -> nil
-      child -> get_in_safe(child, rest)
-    end
-  end
-
-  defp get_in_safe(_body, _path), do: nil
-
-  # ── OSC 8 hyperlinks ────────────────────────────────────────────────────
-  # Modern terminals (iTerm2, Kitty, WezTerm, alacritty 0.11+, foot,
-  # Windows Terminal, VSCode integrated terminal) interpret the OSC 8
-  # escape as a clickable region — cmd-click opens the URL. tmux passes
-  # the sequence through. Terminals without support just render the
-  # plain text and ignore the escapes.
-
-  defp repo_identity(state) do
-    case Map.get(state, :repo_identity) || Map.get(state, :project_label) do
-      v when is_binary(v) and v != "" -> v
-      _ -> nil
-    end
-  end
-
-  defp osc8(url, text) when is_binary(url) and is_binary(text) do
-    "\e]8;;" <> url <> "\e\\" <> text <> "\e]8;;\e\\"
-  end
-
-  defp link_ticket_id(id, repo) when is_binary(id) and is_binary(repo) do
-    osc8(issue_url(repo, id), id)
-  end
-
-  defp link_ticket_id(id, _repo) when is_binary(id), do: id
-
-  defp issue_url(repo, id), do: "https://github.com/#{repo}/issues/#{id}"
-  defp pr_url(repo, number), do: "https://github.com/#{repo}/pull/#{number}"
-
-  # Linkify "PR" / "comment" tokens in the verb phrase. Falls back to
-  # the subject's issue URL when the body has no PR-specific URL.
-  defp link_verb_phrase(verb_phrase, _kind, suffix, body, repo, fallback_url)
-       when is_binary(verb_phrase) do
-    cond do
-      repo == nil ->
-        verb_phrase
-
-      String.contains?(verb_phrase, "PR") and pr_linkable?(suffix) ->
-        wrap_token(verb_phrase, "PR", pr_link_target(body, repo, fallback_url))
-
-      String.contains?(verb_phrase, "comment") ->
-        wrap_token(verb_phrase, "comment", comment_link_target(body, suffix, fallback_url))
-
-      true ->
-        verb_phrase
-    end
-  end
-
-  defp pr_linkable?("pr.opened"), do: true
-  defp pr_linkable?("pr.merged"), do: true
-  defp pr_linkable?("pr.review_comment"), do: true
-  defp pr_linkable?(_), do: false
-
-  defp pr_link_target(body, repo, fallback) when is_map(body) do
-    pr_html_url(body) || pr_number_url(body, repo) || fallback
-  end
-
-  defp pr_link_target(_body, _repo, fallback), do: fallback
-
-  defp pr_html_url(body) do
-    candidate = get_in_safe(body, [:pr, "html_url"]) || get_in_safe(body, ["pr", "html_url"])
-    if is_binary(candidate) and candidate != "", do: candidate
-  end
-
-  defp pr_number_url(body, repo) do
-    case get_in_safe(body, [:pr, "number"]) || get_in_safe(body, ["pr", "number"]) do
-      n when is_integer(n) -> pr_url(repo, n)
-      n when is_binary(n) and n != "" -> pr_url(repo, n)
-      _ -> nil
-    end
-  end
-
-  defp comment_link_target(body, suffix, fallback) when is_map(body) do
-    candidate =
-      get_in_safe(body, [:comment, "html_url"]) || get_in_safe(body, ["comment", "html_url"])
-
-    cond do
-      is_binary(candidate) and candidate != "" -> candidate
-      suffix == "pr.review_comment" -> pr_html_url(body) || fallback
-      true -> fallback
-    end
-  end
-
-  defp comment_link_target(_body, _suffix, fallback), do: fallback
-
-  # Wraps the first occurrence of `token` in `text` with an OSC 8
-  # link. No-op when target is nil/empty.
-  defp wrap_token(text, _token, target) when target in [nil, ""], do: text
-
-  defp wrap_token(text, token, target) when is_binary(target) do
-    case :binary.match(text, token) do
-      :nomatch ->
-        text
-
-      {start, length} ->
-        {prefix, rest} = String.split_at(text, start)
-        {match, suffix} = String.split_at(rest, length)
-        prefix <> osc8(target, match) <> suffix
-    end
   end
 
   defp clear_remaining(rows, lines_drawn) do

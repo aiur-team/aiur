@@ -132,7 +132,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
     request_fun = fn %{url: url} ->
       cond do
         String.contains?(url, "/pulls?") ->
-          head_number = Agent.get_and_update(calls, &{&1 + 1, &1 + 1})
+          head_number = Agent.get_and_update(calls, fn count -> {div(count, 2) + 1, count + 1} end)
           head_sha = "head-#{head_number}"
           {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"sha" => head_sha}}]}}
 
@@ -157,5 +157,65 @@ defmodule Aiur.Events.GithubCIPollerTest do
 
     assert {:ok, %{results: [%{decision: :passed, head_sha: "head-2"}]}} =
              GithubCIPoller.poll(["77"], request_fun: request_fun)
+  end
+
+  test "keeps CI pending when the head changes during an observation" do
+    {:ok, calls} = Agent.start_link(fn -> 0 end)
+
+    request_fun = fn %{url: url} ->
+      cond do
+        String.contains?(url, "/pulls?") ->
+          head_sha =
+            Agent.get_and_update(calls, fn
+              0 -> {"old-head", 1}
+              _ -> {"new-head", 2}
+            end)
+
+          {:ok, %{status: 200, body: [%{"number" => 78, "head" => %{"sha" => head_sha}}]}}
+
+        String.contains?(url, "/check-runs?") ->
+          {:ok, %{status: 200, body: %{"check_runs" => [%{"status" => "completed", "conclusion" => "success"}]}}}
+
+        String.ends_with?(url, "/status") ->
+          {:ok, %{status: 200, body: %{"state" => "success", "statuses" => []}}}
+      end
+    end
+
+    assert {:ok,
+            %{
+              results: [
+                %{decision: :pending, pending_reason: :head_changed, head_sha: "new-head"}
+              ]
+            }} = GithubCIPoller.poll(["78"], request_fun: request_fun)
+  end
+
+  test "does not pass when a later check-run page contains a failure" do
+    request_fun = fn %{url: url} ->
+      cond do
+        String.contains?(url, "/pulls?") ->
+          {:ok, %{status: 200, body: [%{"number" => 88, "head" => %{"sha" => "head-88"}}]}}
+
+        String.contains?(url, "page=2") ->
+          {:ok,
+           %{
+             status: 200,
+             body: %{"check_runs" => [%{"name" => "test", "status" => "completed", "conclusion" => "failure"}]}
+           }}
+
+        String.contains?(url, "/check-runs?") ->
+          {:ok,
+           %{
+             status: 200,
+             headers: [{"link", "<https://api.github.com/check-runs?page=2>; rel=\"next\""}],
+             body: %{"check_runs" => [%{"name" => "lint", "status" => "completed", "conclusion" => "success"}]}
+           }}
+
+        String.ends_with?(url, "/status") ->
+          {:ok, %{status: 200, body: %{"state" => "success", "statuses" => []}}}
+      end
+    end
+
+    assert {:ok, %{results: [%{decision: :failed, failures: [%{name: "test"}]}]}} =
+             GithubCIPoller.poll(["88"], request_fun: request_fun)
   end
 end

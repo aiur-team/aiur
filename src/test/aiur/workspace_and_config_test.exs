@@ -1,8 +1,8 @@
 defmodule Aiur.WorkspaceAndConfigTest do
   use Aiur.TestSupport
   alias Aiur.CodingAgent
-  alias Aiur.Config.Schema
-  alias Aiur.Config.Schema.{Codex, StringOrMap}
+  alias Aiur.Config.{RoutingValue, Schema}
+  alias Aiur.Config.Schema.{AgentValidation, Codex, StringOrMap}
   alias Aiur.Events.Exchange
   alias Aiur.Issue
   alias Aiur.Linear.Client
@@ -590,7 +590,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     end
   end
 
-  test "after_create hook receives THIS_REPOSITORY_URL for the configured repo" do
+  test "after_create hook receives repository URL and configured base branch" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -605,13 +605,63 @@ defmodule Aiur.WorkspaceAndConfigTest do
         workspace_root: workspace_root,
         tracker_kind: "github",
         tracker_repo: "test-org/test-repo",
-        hook_after_create: "printf '%s' \"$THIS_REPOSITORY_URL\" > #{out_file}"
+        tracker_base_branch: "v2",
+        hook_after_create: "printf '%s\\n%s' \"$THIS_REPOSITORY_URL\" \"$THIS_BASE_BRANCH\" > #{out_file}"
       )
 
       assert {:ok, _workspace} = Workspace.create_for_issue("S-URL")
-      assert File.read!(out_file) == "https://github.com/test-org/test-repo.git"
+      assert File.read!(out_file) == "https://github.com/test-org/test-repo.git\nv2"
     after
       File.rm_rf(test_root)
+    end
+  end
+
+  test "materialize branches from the live configured base rather than main" do
+    test_root = Path.join(System.tmp_dir!(), "aiur-workspace-configured-base-#{System.unique_integer([:positive])}")
+
+    try do
+      origin = Path.join(test_root, "origin.git")
+      seed = Path.join(test_root, "seed")
+      base = Path.join(test_root, "warm-base")
+      workspace = Path.join(test_root, "workspaces/909")
+
+      File.mkdir_p!(test_root)
+      assert {_, 0} = System.cmd("git", ["init", "--bare", "-b", "main", origin])
+      assert {_, 0} = System.cmd("git", ["clone", origin, seed])
+      assert {_, 0} = System.cmd("git", ["-C", seed, "config", "user.email", "test@example.com"])
+      assert {_, 0} = System.cmd("git", ["-C", seed, "config", "user.name", "Test User"])
+
+      File.write!(Path.join(seed, "README.md"), "main base\n")
+      assert {_, 0} = System.cmd("git", ["-C", seed, "add", "."])
+      assert {_, 0} = System.cmd("git", ["-C", seed, "commit", "-m", "main base"])
+      assert {_, 0} = System.cmd("git", ["-C", seed, "push", "origin", "main"])
+
+      assert {_, 0} = System.cmd("git", ["-C", seed, "checkout", "-b", "v2"])
+      File.write!(Path.join(seed, "README.md"), "v2 base\n")
+      assert {_, 0} = System.cmd("git", ["-C", seed, "commit", "-am", "v2 base"])
+      assert {_, 0} = System.cmd("git", ["-C", seed, "push", "origin", "v2"])
+      assert {_, 0} = System.cmd("git", ["clone", "--branch", "v2", origin, base])
+
+      assert {_, 0} = System.cmd("git", ["-C", seed, "checkout", "main"])
+      File.write!(Path.join(seed, "README.md"), "main advanced\n")
+      assert {_, 0} = System.cmd("git", ["-C", seed, "commit", "-am", "main advance"])
+      assert {_, 0} = System.cmd("git", ["-C", seed, "push", "origin", "main"])
+      main_tip = git_head!(seed)
+
+      assert {_, 0} = System.cmd("git", ["-C", seed, "checkout", "v2"])
+      File.write!(Path.join(seed, "README.md"), "v2 advanced\n")
+      assert {_, 0} = System.cmd("git", ["-C", seed, "commit", "-am", "v2 advance"])
+      assert {_, 0} = System.cmd("git", ["-C", seed, "push", "origin", "v2"])
+      v2_tip = git_head!(seed)
+
+      write_workflow_file!(Workflow.workflow_file_path(), tracker_base_branch: "v2")
+      assert :ok = Workspace.materialize_from_base(base, workspace)
+
+      assert git_head!(workspace) == v2_tip
+      refute git_head!(workspace) == main_tip
+      assert File.read!(Path.join(workspace, "README.md")) == "v2 advanced\n"
+    after
+      File.rm_rf!(test_root)
     end
   end
 
@@ -1859,7 +1909,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     assert config.agent.turn_timeout_ms == 3_600_000
     assert config.agent.codex.read_timeout_ms == 5_000
-    assert config.agent.stall_timeout_ms == 300_000
+    assert config.agent.stall_timeout_ms == 3_600_000
 
     write_workflow_file!(Workflow.workflow_file_path(),
       codex_command: "codex --config 'model=\"gpt-5.5\"' app-server"
@@ -2085,9 +2135,9 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert {:ok, %{"a" => 1}} = StringOrMap.dump(%{"a" => 1})
     assert :error = StringOrMap.dump(123)
 
-    assert Schema.normalize_state_limits(nil) == %{}
+    assert AgentValidation.normalize_state_limits(nil) == %{}
 
-    assert Schema.normalize_state_limits(%{"In Progress" => 2, todo: 1}) == %{
+    assert AgentValidation.normalize_state_limits(%{"In Progress" => 2, todo: 1}) == %{
              "todo" => 1,
              "in progress" => 2
            }
@@ -2095,7 +2145,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     changeset =
       {%{}, %{limits: :map}}
       |> Changeset.cast(%{limits: %{"" => 1, "todo" => 0}}, [:limits])
-      |> Schema.validate_state_limits(:limits)
+      |> AgentValidation.validate_state_limits(:limits)
 
     assert changeset.errors == [
              limits: {"state names must not be blank", []},
@@ -2104,9 +2154,9 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "agent routing normalizes string levels and rejects bad levels/backends" do
-    assert Schema.normalize_agent_routing(nil) == %{}
+    assert AgentValidation.normalize_agent_routing(nil) == %{}
 
-    assert Schema.normalize_agent_routing(%{"4" => "claude", 5 => :codex}) == %{
+    assert AgentValidation.normalize_agent_routing(%{"4" => "claude", 5 => :codex}) == %{
              4 => "claude",
              5 => "codex"
            }
@@ -2114,14 +2164,14 @@ defmodule Aiur.WorkspaceAndConfigTest do
     good =
       {%{}, %{routing: :map}}
       |> Changeset.cast(%{routing: %{4 => "claude", 5 => "codex"}}, [:routing])
-      |> Schema.validate_agent_routing(:routing)
+      |> AgentValidation.validate_agent_routing(:routing)
 
     assert good.errors == []
 
     bad =
       {%{}, %{routing: :map}}
       |> Changeset.cast(%{routing: %{0 => "claude", 4 => "bogus"}}, [:routing])
-      |> Schema.validate_agent_routing(:routing)
+      |> AgentValidation.validate_agent_routing(:routing)
 
     assert {:routing, {"complexity levels must be positive integers", []}} in bad.errors
 
@@ -2132,15 +2182,16 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     # backend:model:effort routing values: the backend part must be known,
     # the model suffix is free-form (e.g. complexity:5 -> claude:sonnet).
-    assert Schema.split_routing_value("claude") == {"claude", nil}
-    assert Schema.split_routing_value("claude:sonnet") == {"claude", "sonnet"}
-    assert Schema.split_routing_value("claude:sonnet:high") == {"claude", "sonnet"}
-    assert Schema.split_routing_value("claude::high") == {"claude", nil}
-    assert Schema.split_routing_value("codex:gpt-5.5") == {"codex", "gpt-5.5"}
-    assert Schema.routing_effort("claude:sonnet:high") == "high"
-    assert Schema.routing_effort("claude:sonnet:high+remote") == "high"
-    assert Schema.routing_effort("claude-repl::xhigh") == "xhigh"
-    assert Schema.routing_effort("claude:sonnet") == nil
+    assert RoutingValue.split_routing_value("claude") == {"claude", nil}
+    assert RoutingValue.split_routing_value("claude:sonnet") == {"claude", "sonnet"}
+    assert RoutingValue.split_routing_value("claude:sonnet:high") == {"claude", "sonnet"}
+    assert RoutingValue.split_routing_value("claude::high") == {"claude", nil}
+    assert RoutingValue.split_routing_value("codex:gpt-5.5") == {"codex", "gpt-5.5"}
+    assert RoutingValue.split_routing_value("codex:gpt-5.6-terra:xhigh") == {"codex", "gpt-5.6-terra"}
+    assert RoutingValue.routing_effort("claude:sonnet:high") == "high"
+    assert RoutingValue.routing_effort("claude:sonnet:high+remote") == "high"
+    assert RoutingValue.routing_effort("claude-repl::xhigh") == "xhigh"
+    assert RoutingValue.routing_effort("claude:sonnet") == nil
 
     with_model =
       {%{}, %{routing: :map}}
@@ -2156,16 +2207,16 @@ defmodule Aiur.WorkspaceAndConfigTest do
           :routing
         ]
       )
-      |> Schema.validate_agent_routing(:routing)
+      |> AgentValidation.validate_agent_routing(:routing)
 
     assert with_model.errors == []
 
     bad_effort =
       {%{}, %{routing: :map}}
-      |> Changeset.cast(%{routing: %{4 => "claude:sonnet:high", 5 => "codex:gpt-5.5:max"}}, [
+      |> Changeset.cast(%{routing: %{4 => "claude:sonnet:high", 5 => "codex:gpt-5.6-luna:minimal"}}, [
         :routing
       ])
-      |> Schema.validate_agent_routing(:routing)
+      |> AgentValidation.validate_agent_routing(:routing)
 
     assert Enum.count(bad_effort.errors) == 2
 
@@ -2175,14 +2226,14 @@ defmodule Aiur.WorkspaceAndConfigTest do
            end)
 
     assert Enum.any?(bad_effort.errors, fn
-             {:routing, {msg, []}} -> msg =~ ~s(invalid effort "max" for backend "codex")
+             {:routing, {msg, []}} -> msg =~ ~s(invalid effort "minimal" for backend "codex")
              _ -> false
            end)
 
     bad_model_backend =
       {%{}, %{routing: :map}}
       |> Changeset.cast(%{routing: %{4 => "bogus:sonnet"}}, [:routing])
-      |> Schema.validate_agent_routing(:routing)
+      |> AgentValidation.validate_agent_routing(:routing)
 
     assert Enum.any?(bad_model_backend.errors, fn
              {:routing, {msg, []}} -> msg =~ "unknown backend"
@@ -2192,28 +2243,28 @@ defmodule Aiur.WorkspaceAndConfigTest do
     repl =
       {%{}, %{routing: :map}}
       |> Changeset.cast(%{routing: %{4 => "claude-repl"}}, [:routing])
-      |> Schema.validate_agent_routing(:routing)
+      |> AgentValidation.validate_agent_routing(:routing)
 
     assert repl.errors == []
 
     # `+remote` flag: stripped from backend/model, surfaced by
     # routing_remote_flag?, and only valid on a remote-capable backend.
-    assert Schema.split_routing_value("claude:haiku+remote") == {"claude", "haiku"}
-    assert Schema.split_routing_value("claude+remote") == {"claude", nil}
-    assert Schema.routing_remote_flag?("claude:haiku+remote")
-    refute Schema.routing_remote_flag?("claude:haiku")
+    assert RoutingValue.split_routing_value("claude:haiku+remote") == {"claude", "haiku"}
+    assert RoutingValue.split_routing_value("claude+remote") == {"claude", nil}
+    assert RoutingValue.routing_remote_flag?("claude:haiku+remote")
+    refute RoutingValue.routing_remote_flag?("claude:haiku")
 
     remote_ok =
       {%{}, %{routing: :map}}
       |> Changeset.cast(%{routing: %{1 => "claude:haiku+remote"}}, [:routing])
-      |> Schema.validate_agent_routing(:routing)
+      |> AgentValidation.validate_agent_routing(:routing)
 
     assert remote_ok.errors == []
 
     remote_bad =
       {%{}, %{routing: :map}}
       |> Changeset.cast(%{routing: %{1 => "codex:gpt-5.4+remote"}}, [:routing])
-      |> Schema.validate_agent_routing(:routing)
+      |> AgentValidation.validate_agent_routing(:routing)
 
     assert Enum.any?(remote_bad.errors, fn
              {:routing, {msg, []}} -> msg =~ "remote-capable backend"
@@ -2238,9 +2289,9 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert CodingAgent.model_for(codex_issue) == nil
     assert CodingAgent.effort_for(codex_issue) == "high"
 
-    override_issue = %Issue{labels: ["complexity:4", "model:codex-gpt-5.5"]}
+    override_issue = %Issue{labels: ["complexity:4", "model:codex-gpt-5.6-sol"]}
     assert CodingAgent.backend_for(override_issue) == "codex"
-    assert CodingAgent.model_for(override_issue) == "gpt-5.5"
+    assert CodingAgent.model_for(override_issue) == "gpt-5.6-sol"
     assert CodingAgent.effort_for(override_issue) == nil
   end
 
@@ -2308,6 +2359,39 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     assert {:error, {:invalid_workflow_config, _}} =
              Schema.parse(%{tracker: %{kind: "memory"}, agent: %{max_load_average: 0}})
+  end
+
+  test "agent load envelope defaults safely, validates tuning, and preserves explicit disable" do
+    assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})
+    assert settings.agent.target_load_average == 1.0
+    assert settings.agent.load_ramp_step == 1
+    assert settings.agent.load_cooldown_seconds == 60
+
+    assert {:ok, settings} =
+             Schema.parse(%{
+               "tracker" => %{"kind" => "memory"},
+               "agent" => %{
+                 "target_load_average" => nil,
+                 "load_ramp_step" => 3,
+                 "load_cooldown_seconds" => 0
+               }
+             })
+
+    assert settings.agent.target_load_average == nil
+    assert settings.agent.max_load_average == 1.5
+    assert settings.agent.load_ramp_step == 3
+    assert settings.agent.load_cooldown_seconds == 0
+
+    for invalid_agent <- [
+          %{target_load_average: 0},
+          %{target_load_average: -1},
+          %{load_ramp_step: 0},
+          %{load_ramp_step: -1},
+          %{load_cooldown_seconds: -1}
+        ] do
+      assert {:error, {:invalid_workflow_config, _}} =
+               Schema.parse(%{tracker: %{kind: "memory"}, agent: invalid_agent})
+    end
   end
 
   test "agent.synthetic_load_process_cap defaults to derived nil and validates non-negative" do
@@ -2408,9 +2492,9 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "complexity prompts normalize string levels and reject bad levels/values" do
-    assert Schema.normalize_complexity_prompts(nil) == %{}
+    assert AgentValidation.normalize_complexity_prompts(nil) == %{}
 
-    assert Schema.normalize_complexity_prompts(%{"3" => "medium guidance", 5 => "be careful"}) ==
+    assert AgentValidation.normalize_complexity_prompts(%{"3" => "medium guidance", 5 => "be careful"}) ==
              %{
                3 => "medium guidance",
                5 => "be careful"
@@ -2419,14 +2503,14 @@ defmodule Aiur.WorkspaceAndConfigTest do
     good =
       {%{}, %{complexity_prompts: :map}}
       |> Changeset.cast(%{complexity_prompts: %{3 => "guidance"}}, [:complexity_prompts])
-      |> Schema.validate_complexity_prompts(:complexity_prompts)
+      |> AgentValidation.validate_complexity_prompts(:complexity_prompts)
 
     assert good.errors == []
 
     bad =
       {%{}, %{complexity_prompts: :map}}
       |> Changeset.cast(%{complexity_prompts: %{0 => "x", 4 => 99}}, [:complexity_prompts])
-      |> Schema.validate_complexity_prompts(:complexity_prompts)
+      |> AgentValidation.validate_complexity_prompts(:complexity_prompts)
 
     assert {:complexity_prompts, {"complexity levels must be positive integers", []}} in bad.errors
     assert {:complexity_prompts, {"complexity prompt values must be strings", []}} in bad.errors
@@ -2908,6 +2992,11 @@ defmodule Aiur.WorkspaceAndConfigTest do
   defp git!(args) do
     {output, 0} = System.cmd("git", args, stderr_to_stdout: true)
     output
+  end
+
+  defp git_head!(repo) do
+    {output, 0} = System.cmd("git", ["-C", repo, "rev-parse", "HEAD"], stderr_to_stdout: true)
+    String.trim(output)
   end
 
   defp shell_quote(value) do

@@ -93,6 +93,31 @@ should **NEVER** have to ask for the next update — see `aiur-monitor`'s "Monit
 the required rule, the board format, and the alert relay. (5 min is the recommended default; the
 operator picks the value once via the ask above.)
 
+**Update format (required — two tables).** Every cadence tick is posted as **two markdown tables**,
+not prose: **Table 1** the full refactor roadmap (`Ticket | Description | Phase | Status`, one row
+per ticket through the end — merged ✅ / active 🔵 / upcoming ⬜, contiguous done runs collapsible),
+and **Table 2** the optimization/bottleneck backlog (`# | Description | Status`, flagging the
+current top blocker). `aiur-monitor`'s "Progress-update format (required — two tables)" is the full
+spec. Short shape:
+
+```
+## Table 1 — Refactor tickets
+| Ticket | Description | Phase | Status |
+|---|---|---|---|
+| T-001–T-021 | Phase 1 safety-net + Phase 2 core seams | 1–2 | ✅ all merged |
+| T-024 | orchestrator: comment/PR paths | 3 | 🔵 #851 todo |
+| T-025 | orchestrator: sync subscriptions | 3 | ⬜ upcoming |
+| T-036 | runner: streams slim | 3 | 🔵 #879 in-progress |
+
+## Table 2 — Optimization / bottleneck tickets
+| # | Description | Status |
+|---|---|---|
+| #856 | Daemon hardening (scheduler cap + crash-dump) | ✅ merged |
+| #884 | Restore v2 coverage ≥85% | 🔴 in-progress — BLOCKS ALL MERGES |
+| #877 | Close the CI feedback loop | 🔵 in-progress |
+| #873 | Agents skip local credo (lint = #1 CPU) | 🟡 staged in prompt |
+```
+
 - **Agents** — start the cadence now by arming the loop at the chosen interval:
   `/loop <chosen>m /aiur-monitor` (e.g. `/loop 5m /aiur-monitor` for the default). There is no
   self-ticking fallback — if you do not arm `/loop`, no further updates will fire, which is the

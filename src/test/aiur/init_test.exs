@@ -19,6 +19,7 @@ defmodule Aiur.InitTest do
     "system.dispatch.todo_capacity_exceeded",
     "ticket.*.agent.error.tokens_exhausted",
     "ticket.*.agent.retry_exhausted",
+    "ticket.*.agent.review_feedback_delivery_deferred",
     "ticket.*.agent.paused",
     "ticket.*.agent.unpaused",
     "ticket.*.chat.opened",
@@ -623,6 +624,7 @@ defmodule Aiur.InitTest do
         # carry the `.phase.` segment or the sound never fires.
         assert template =~ "ticket.*.agent.phase.work.start"
         refute template =~ ~r/"ticket\.\*\.agent\.work\.start"/
+        assert template =~ "ticket.*.agent.review_feedback_delivery_deferred"
       end
 
       assert_filled_alert_template(macos, ~r{\A/System/Library/Sounds/.+\.aiff\z})
@@ -1399,6 +1401,7 @@ defmodule Aiur.InitTest do
             "complexity:1 backend" => "claude",
             "complexity:1 claude model" => "haiku",
             "complexity:2 backend" => "codex",
+            "complexity:2 codex model" => "gpt-5.6-luna",
             "complexity:2 codex effort" => "high",
             "complexity:5 backend" => "claude",
             "complexity:5 claude model" => "sonnet"
@@ -1409,7 +1412,7 @@ defmodule Aiur.InitTest do
 
       routing = written_config(target)["agent"]["routing"]
       assert routing[1] == "claude:haiku"
-      assert routing[2] == "codex::high"
+      assert routing[2] == "codex:gpt-5.6-luna:high"
       assert routing[5] == "claude:sonnet"
       # unscripted tags fall to the primary default; no remote prompt is asked.
       assert routing[3] == "claude"
@@ -1458,7 +1461,7 @@ defmodule Aiur.InitTest do
       refute_received {:select_opts, "complexity:1 claude effort", _claude_efforts}
 
       assert_received {:select_opts, "complexity:2 codex effort", codex_efforts}
-      assert codex_efforts == ["default effort", "low", "medium", "high"]
+      assert codex_efforts == ["default effort", "none", "low", "medium", "high", "xhigh", "max"]
     end
 
     test "interactive permission modes redirect to bypassPermissions", %{dir: dir, target: target} do

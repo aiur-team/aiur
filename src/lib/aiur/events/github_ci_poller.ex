@@ -18,6 +18,8 @@ defmodule Aiur.Events.GithubCIPoller do
   @successful_conclusions ~w(success neutral skipped)
   @failed_statuses ~w(error failure)
   @failed_conclusions ~w(action_required cancelled failure stale startup_failure timed_out)
+  @default_max_concurrency 4
+  @default_target_timeout 60_000
 
   @spec poll([target()], keyword()) :: {:ok, %{results: [map()], errors: [{String.t(), term()}]}}
   def poll(targets, opts \\ []) when is_list(targets) do
@@ -25,7 +27,12 @@ defmodule Aiur.Events.GithubCIPoller do
 
     results =
       targets
-      |> Enum.map(&poll_target(&1, opts))
+      |> target_task_results(opts)
+      |> Enum.zip(targets)
+      |> Enum.map(fn
+        {{:ok, result}, _target} -> result
+        {{:exit, reason}, target} -> poll_error(target, {:target, {:exit, reason}})
+      end)
 
     errors =
       results
@@ -35,6 +42,34 @@ defmodule Aiur.Events.GithubCIPoller do
       end)
 
     {:ok, %{results: results, errors: errors}}
+  end
+
+  defp target_task_results(targets, opts) do
+    run_target = &poll_target(&1, opts)
+
+    task_opts = [
+      max_concurrency: Keyword.get(opts, :max_concurrency, @default_max_concurrency),
+      timeout: Keyword.get(opts, :timeout, @default_target_timeout),
+      on_timeout: :kill_task
+    ]
+
+    case Process.whereis(Aiur.TaskSupervisor) do
+      pid when is_pid(pid) ->
+        pid
+        |> Task.Supervisor.async_stream_nolink(targets, run_target, task_opts)
+        |> Enum.to_list()
+
+      nil ->
+        previous_trap_exit = Process.flag(:trap_exit, true)
+
+        try do
+          targets
+          |> Task.async_stream(run_target, task_opts)
+          |> Enum.to_list()
+        after
+          Process.flag(:trap_exit, previous_trap_exit)
+        end
+    end
   end
 
   @doc false
@@ -66,12 +101,42 @@ defmodule Aiur.Events.GithubCIPoller do
     with {:ok, pr_number} <- positive_integer(Map.get(pr, "number")),
          {:ok, head_sha} <- head_sha(pr),
          {:ok, %{check_runs: check_runs, commit_status: commit_status}} <- Client.fetch_commit_ci_status(head_sha, opts) do
-      evaluation = evaluate(check_runs, commit_status)
-
-      Map.merge(evaluation, %{target: target, pr_number: pr_number, head_sha: head_sha})
+      poll_current_head_result(target, pr_number, head_sha, check_runs, commit_status, opts)
     else
       {:error, reason} -> poll_error(target, reason)
       other -> poll_error(target, {:unexpected_ci_status, other})
+    end
+  end
+
+  defp poll_current_head_result(target, pr_number, observed_head_sha, check_runs, commit_status, opts) do
+    case Client.fetch_open_pull_request_for_branch(target, opts) do
+      {:ok, current_pr} when is_map(current_pr) ->
+        case head_sha(current_pr) do
+          {:ok, ^observed_head_sha} ->
+            evaluate(check_runs, commit_status)
+            |> Map.merge(%{target: target, pr_number: pr_number, head_sha: observed_head_sha})
+
+          {:ok, current_head_sha} ->
+            %{
+              target: target,
+              pr_number: pr_number,
+              head_sha: current_head_sha,
+              decision: :pending,
+              pending_reason: :head_changed
+            }
+
+          {:error, reason} ->
+            poll_error(target, reason)
+        end
+
+      {:ok, nil} ->
+        %{target: target, decision: :pending, pending_reason: :open_pr_no_longer_visible}
+
+      {:error, reason} ->
+        poll_error(target, {:pr_recheck, reason})
+
+      other ->
+        poll_error(target, {:unexpected_pr_recheck, other})
     end
   end
 

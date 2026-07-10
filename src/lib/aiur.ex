@@ -100,6 +100,7 @@ defmodule Aiur.Application do
       # reaper outlives the runner tasks/ports whose OS processes it must
       # sweep in its terminate/2 backstop.
       Aiur.ProcessReaper,
+      Aiur.PauseContainment,
       Aiur.AgentResourceGuard,
       {Task.Supervisor, name: Aiur.TaskSupervisor},
       Aiur.WorkflowStore,

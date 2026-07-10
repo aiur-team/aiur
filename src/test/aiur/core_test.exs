@@ -70,6 +70,8 @@ defmodule Aiur.CoreTest do
     assert config.max_vertical_panes == 3
     assert Config.max_vertical_panes() == 3
     assert config.agent.max_turns == 20
+    assert config.agent.max_concurrent_builds == 2
+    assert Config.max_concurrent_builds() == 2
 
     write_workflow_file!(Workflow.workflow_file_path(), poll_interval_seconds: "invalid")
 
@@ -94,6 +96,13 @@ defmodule Aiur.CoreTest do
     write_workflow_file!(Workflow.workflow_file_path(), max_turns: 0)
     assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
     assert message =~ "agent.max_turns"
+
+    write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_builds: -1)
+    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert message =~ "agent.max_concurrent_builds"
+
+    write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_builds: 0)
+    assert Config.max_concurrent_builds() == 0
 
     write_workflow_file!(Workflow.workflow_file_path(), max_turns: 5)
     assert Config.settings!().agent.max_turns == 5

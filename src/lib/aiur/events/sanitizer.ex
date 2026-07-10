@@ -83,6 +83,24 @@ defmodule Aiur.Events.Sanitizer do
   def scrub(other), do: other
 
   @doc """
+  Prepare a GitHub-sourced payload for `Aiur.Events.Publisher.publish/3`.
+
+  Applies the full external-content pipeline in this exact order
+  (FI-GH-039): stamp `source: :github`, `scrub/1`,
+  `stamp_author_trust(actor: actor)`, `put_comment_message/1`. Every
+  GitHub event producer must publish through this single entry point so
+  no call site can skip or reorder the injection-safety steps.
+  """
+  @spec github_payload(map(), String.t() | nil) :: map()
+  def github_payload(payload, actor) when is_map(payload) do
+    payload
+    |> Map.put(:source, :github)
+    |> scrub()
+    |> stamp_author_trust(actor: actor)
+    |> put_comment_message()
+  end
+
+  @doc """
   Promote a sanitized GitHub comment body to the top-level `message`
   field consumed by logs and agent event digests.
   """

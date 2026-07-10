@@ -17,6 +17,34 @@ defmodule Aiur.Claude.RemoteControlTest do
       assert RemoteControl.parse_session_url("[bridge:init] Registered, server environmentId=env_x") == nil
       assert RemoteControl.parse_session_url("") == nil
     end
+
+    test "returns nil for a non-binary line" do
+      assert RemoteControl.parse_session_url(nil) == nil
+    end
+  end
+
+  describe "process liveness probes" do
+    test "reports the running BEAM as alive" do
+      # The containment loop polls process_alive? before reaping the paused root;
+      # a live root must read as alive so a cooperative pause is never force-reaped.
+      assert RemoteControl.process_alive?(String.to_integer(System.pid()))
+    end
+
+    test "treats a nil or non-positive pid / group as not alive" do
+      # A session that never reported a real os pid (nil / 0) has nothing to probe,
+      # so both liveness checks read false instead of shelling out to `kill`.
+      refute RemoteControl.process_alive?(nil)
+      refute RemoteControl.process_alive?(0)
+      refute RemoteControl.process_group_alive?(nil)
+      refute RemoteControl.process_group_alive?(0)
+    end
+
+    test "killing an absent process group short-circuits to :gone" do
+      # With no group id to signal, teardown reports the group already gone instead
+      # of blocking on a TERM/KILL grace wait for a group that never existed.
+      assert RemoteControl.graceful_kill_process_group(nil) == {:ok, :gone}
+      assert RemoteControl.graceful_kill_process_group(0) == {:ok, :gone}
+    end
   end
 
   describe "workspace_slug/1" do
@@ -195,6 +223,27 @@ defmodule Aiur.Claude.RemoteControlTest do
     end
 
     defp os_alive?(pid), do: match?({_, 0}, System.cmd("kill", ["-0", Integer.to_string(pid)], stderr_to_stdout: true))
+  end
+
+  describe "graceful_kill_process_group/1" do
+    test "reaps a child after its session leader exits" do
+      # Redirect the backgrounded child's stdio so the session leader can exit
+      # and `System.cmd` returns; an inherited stdout pipe would block the call
+      # until the child itself exits.
+      {out, 0} = System.cmd("setsid", ["sh", "-c", "sleep 600 >/dev/null 2>&1 & echo $!"], stderr_to_stdout: true)
+      child_pid = out |> String.trim() |> String.to_integer()
+
+      on_exit(fn ->
+        System.cmd("kill", ["-KILL", Integer.to_string(child_pid)], stderr_to_stdout: true)
+      end)
+
+      {pgid_out, 0} = System.cmd("ps", ["-o", "pgid=", "-p", Integer.to_string(child_pid)], stderr_to_stdout: true)
+      process_group_id = pgid_out |> String.trim() |> String.to_integer()
+
+      assert RemoteControl.process_group_alive?(process_group_id)
+      assert {:ok, :reaped} = RemoteControl.graceful_kill_process_group(process_group_id)
+      refute RemoteControl.process_group_alive?(process_group_id)
+    end
   end
 
   describe "reap_orphaned_servers/0" do

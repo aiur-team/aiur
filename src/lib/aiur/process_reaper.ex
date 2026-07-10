@@ -212,6 +212,16 @@ defmodule Aiur.ProcessReaper do
   end
 
   @impl true
+  # trap_exit is on (see init/1) so terminate/2 runs on tree teardown; that
+  # also delivers `{:EXIT, _, _}` for every dying port/process. The reaper acts
+  # on its `entries` map, not on EXIT signals, so swallow them — without this
+  # clause the GenServer default handler error-logs every trapped exit, and a
+  # burst of subprocess/port deaths floods the log and grows the mailbox until
+  # the node dies.
+  def handle_info({:EXIT, _from, _reason}, state), do: {:noreply, state}
+  def handle_info(_msg, state), do: {:noreply, state}
+
+  @impl true
   def terminate(_reason, state) do
     # Last-resort sweep for every entry still registered when the tree comes
     # down. Session deletion has already happened by now on the graceful

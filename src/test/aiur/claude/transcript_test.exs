@@ -195,7 +195,7 @@ defmodule Aiur.Claude.TranscriptTest do
   # these guard against a casing/keying regression in extract/2 that the
   # field-level assertions above would miss.
   describe "extract/2 → chat format_delta rendering" do
-    alias Aiur.Opencode.ChatCompletions
+    alias Aiur.Opencode.ChatCompletions.DeltaRenderer
 
     test "Edit renders a fenced diff with red/green +/- lines" do
       message =
@@ -207,7 +207,7 @@ defmodule Aiur.Claude.TranscriptTest do
         })
 
       assert {:ok, event} = Transcript.extract(message, nil)
-      rendered = ChatCompletions.format_delta(event.role, event.body, event)
+      rendered = DeltaRenderer.format_delta(event.role, event.body, event)
 
       assert rendered =~ "```diff"
       assert rendered =~ "- foo"
@@ -224,7 +224,7 @@ defmodule Aiur.Claude.TranscriptTest do
         })
 
       assert {:ok, event} = Transcript.extract(message, nil)
-      rendered = ChatCompletions.format_delta(event.role, event.body, event)
+      rendered = DeltaRenderer.format_delta(event.role, event.body, event)
 
       assert rendered =~ "```diff"
       assert rendered =~ "+ line one"
