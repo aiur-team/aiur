@@ -67,7 +67,7 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 | `agent.max_retry_backoff_ms` | integer | 300000 | Retry backoff ceiling in milliseconds. |
 | `agent.turn_timeout_ms` | integer | 3600000 | Backstop timeout for one turn. |
 | `agent.stall_timeout_ms` | integer | 3600000 | Silent-agent watchdog; 0 disables it. |
-| `agent.max_agent_duration_minutes` | integer | 60 | Active-runtime kill switch; 0 disables it. |
+| `agent.max_agent_duration_minutes` | integer | 60 | Active-runtime pause checkpoint; 0 disables it. |
 | `agent.max_load_average` | float | 1.5 | Holds dispatch above the load threshold; null disables it. |
 | `agent.target_load_average` | float | 1.0 | Adaptive per-scheduler load target; null disables the adaptive envelope. |
 | `agent.load_ramp_step` | integer | 1 | Capacity increase while load is below the target. |

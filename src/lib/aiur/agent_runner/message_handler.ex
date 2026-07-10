@@ -144,4 +144,14 @@ defmodule Aiur.AgentRunner.MessageHandler do
   end
 
   def send_control_state(_recipient, _issue, _status), do: :ok
+
+  @doc false
+  @spec send_control_state(pid() | nil, Issue.t(), :paused, map()) :: :ok
+  def send_control_state(recipient, %Issue{id: issue_id}, :paused, pause_payload)
+      when is_pid(recipient) and is_binary(issue_id) and is_map(pause_payload) do
+    send(recipient, {:worker_control_state, issue_id, :paused, pause_payload})
+    :ok
+  end
+
+  def send_control_state(_recipient, _issue, :paused, _pause_payload), do: :ok
 end

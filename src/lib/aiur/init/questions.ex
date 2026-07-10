@@ -126,7 +126,7 @@ defmodule Aiur.Init.Questions do
 
   @spec prompt_max_duration(Aiur.Init.io()) :: non_neg_integer()
   def prompt_max_duration(io) do
-    case normalize_int_or_none(io.input.("Max agent duration in minutes", "60", "Fallback for stuck agents: none = never auto-kill")) do
+    case normalize_int_or_none(io.input.("Max agent duration in minutes", "60", "Safety checkpoint: none = never auto-pause")) do
       :none ->
         0
 

@@ -34,6 +34,7 @@ defmodule Aiur.Orchestrator.PushRouting do
             # already-equal status short-circuit drops the duplicate
             # transition cleanly.
             _ = Orchestrator.send_pause_control_message(state, identifier)
+            running_entry = Map.put(running_entry, :paused_reason, :agent_pause_request)
             Orchestrator.transition_control_status(state, running_entry, :paused, "agent.pause.request")
         end
 
