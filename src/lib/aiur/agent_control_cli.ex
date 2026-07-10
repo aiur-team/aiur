@@ -1,7 +1,7 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
 
-  alias Aiur.{AgentChat, AlertFeed, Config, Orchestrator, PauseContainment}
+  alias Aiur.{AgentChat, AlertFeed, BuildGate, Config, Orchestrator, PauseContainment}
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
 
@@ -21,6 +21,8 @@ defmodule Aiur.AgentControlCLI do
         statuses
         |> Enum.filter(&visible_status_row?/1)
         |> print_status_table()
+
+        print_build_gate_status()
 
         exit_marker(0)
 
@@ -305,6 +307,16 @@ defmodule Aiur.AgentControlCLI do
         to_string(status.title || "")
       ])
     end)
+  end
+
+  defp print_build_gate_status do
+    case BuildGate.status() do
+      %{enabled?: true, capacity: capacity, active: active, queued: queued} when active > 0 or queued > 0 ->
+        IO.puts("BUILD GATE #{active}/#{capacity} active, #{queued} queued")
+
+      _ ->
+        :ok
+    end
   end
 
   defp visible_status_row?(%{work_state: :deactivated}), do: false

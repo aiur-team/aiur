@@ -2,6 +2,7 @@ defmodule Aiur.PaneManager.ScreenGrabTest do
   use ExUnit.Case, async: false
 
   alias Aiur.PaneManager.{ScreenGrab, State}
+  alias Aiur.Tmux
 
   setup do
     previous = System.get_env("AIUR_SCREEN_GRAB")
@@ -50,6 +51,49 @@ defmodule Aiur.PaneManager.ScreenGrabTest do
 
   test "interval is two seconds" do
     assert ScreenGrab.interval_ms() == 2_000
+  end
+
+  describe "log_screen_grab/1" do
+    setup do
+      test_pid = self()
+      tmux_name = Module.concat(__MODULE__, :"Tmux#{System.unique_integer([:positive])}")
+
+      {:ok, _} =
+        start_supervised(
+          {Tmux, [transport: {:mock, test_pid}, name: tmux_name, session: "test"]},
+          id: tmux_name
+        )
+
+      state = %State{
+        tmux: tmux_name,
+        agent_list_pane: "%1",
+        slot_panes: %{1 => "%10", 2 => nil},
+        pane_to_identifier: %{"%10" => "issue-1"}
+      }
+
+      %{tmux: tmux_name, state: state}
+    end
+
+    test "captures each tracked pane and returns :ok", %{tmux: tmux, state: state} do
+      task = Task.async(fn -> ScreenGrab.log_screen_grab(state) end)
+
+      for _i <- 1..2 do
+        assert_receive {:tmux_mock_out, "capture-pane -p -t " <> _}, 500
+        send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\nsome content\n%end 1 1 0\n"})
+      end
+
+      assert :ok = Task.await(task, 2000)
+    end
+
+    test "logs error when capture-pane fails", %{tmux: tmux, state: state} do
+      state = %{state | slot_panes: %{}}
+      task = Task.async(fn -> ScreenGrab.log_screen_grab(state) end)
+
+      assert_receive {:tmux_mock_out, "capture-pane -p -t %1"}, 500
+      send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%error\ncapture failed\n%end 1 1 0\n"})
+
+      assert :ok = Task.await(task, 2000)
+    end
   end
 
   defp restore_env(key, nil), do: System.delete_env(key)
