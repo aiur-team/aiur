@@ -367,26 +367,14 @@ defmodule Aiur.Orchestrator do
     {:noreply, state}
   end
 
-  def handle_info({:worker_control_state, issue_id, status}, %{running: running} = state)
+  def handle_info({:worker_control_state, issue_id, status}, state)
       when is_binary(issue_id) and status in [:paused, :working] do
-    case Map.get(running, issue_id) do
-      nil ->
-        {:noreply, state}
+    handle_worker_control_state(state, issue_id, status, %{})
+  end
 
-      running_entry ->
-        previous_status = get_in(running_entry, [:control, :status]) || :working
-
-        updated_running_entry =
-          running_entry
-          |> put_in([:control, :status], status)
-          |> apply_pause_runtime_clock(previous_status, status, DateTime.utc_now())
-
-        maybe_emit_agent_control_alert(previous_status, status, updated_running_entry)
-
-        state = %{state | running: Map.put(running, issue_id, updated_running_entry)}
-        notify_dashboard(state)
-        {:noreply, state}
-    end
+  def handle_info({:worker_control_state, issue_id, :paused, pause_payload}, state)
+      when is_binary(issue_id) and is_map(pause_payload) do
+    handle_worker_control_state(state, issue_id, :paused, pause_payload)
   end
 
   def handle_info({:retry_issue, issue_id, retry_token}, state) do
@@ -445,6 +433,31 @@ defmodule Aiur.Orchestrator do
   def handle_info(msg, state) do
     Logger.debug("Orchestrator ignored message: #{inspect(msg)}")
     {:noreply, state}
+  end
+
+  defp handle_worker_control_state(%{running: running} = state, issue_id, status, pause_payload) do
+    case Map.get(running, issue_id) do
+      nil ->
+        {:noreply, state}
+
+      running_entry ->
+        previous_status = get_in(running_entry, [:control, :status]) || :working
+        pause_reason = worker_pause_reason(running_entry, pause_payload)
+
+        updated_running_entry =
+          running_entry
+          |> put_in([:control, :status], status)
+          |> apply_pause_runtime_clock(previous_status, status, DateTime.utc_now())
+          |> maybe_put_worker_pause_reason(status, pause_reason)
+
+        maybe_log_worker_pause(status, updated_running_entry, pause_reason)
+        maybe_emit_agent_control_alert(previous_status, status, updated_running_entry)
+
+        state = %{state | running: Map.put(running, issue_id, updated_running_entry)}
+        state = maybe_auto_resume_spurious_worker_pause(state, updated_running_entry, status)
+        notify_dashboard(state)
+        {:noreply, state}
+    end
   end
 
   defp handle_agent_down(%{running: running} = state, ref, reason) do
@@ -1061,6 +1074,8 @@ defmodule Aiur.Orchestrator do
 
     case Tracker.fetch_candidate_issues() do
       {:ok, issues} ->
+        issues = PauseResume.recover_startup_pause_overrides(state, issues)
+
         state =
           state
           |> sync_polled_issue_state(issues)
@@ -1405,6 +1420,12 @@ defmodule Aiur.Orchestrator do
   @spec dispatch_candidate_for_test(Issue.t(), term()) :: boolean()
   def dispatch_candidate_for_test(%Issue{} = issue, %State{} = state) do
     dispatch_candidate?(issue, state, active_state_set(), terminal_state_set())
+  end
+
+  @doc false
+  @spec recover_startup_pause_overrides_for_test(State.t(), [term()]) :: [term()]
+  def recover_startup_pause_overrides_for_test(%State{} = state, issues) when is_list(issues) do
+    PauseResume.recover_startup_pause_overrides(state, issues)
   end
 
   @doc false
@@ -1888,7 +1909,7 @@ defmodule Aiur.Orchestrator do
       identifier = Map.get(running_entry, :identifier, issue_id)
       seconds = running_seconds(Map.get(running_entry, :started_at), now)
 
-      Logger.warning("Issue exceeded max_agent_duration: issue_id=#{issue_id} issue_identifier=#{identifier} running_seconds=#{seconds} cap_seconds=#{max_seconds}; pausing agent")
+      Logger.warning("orchestrator.pause issue_id=#{issue_id} issue_identifier=#{identifier} cause=max_agent_duration running_seconds=#{seconds} cap_seconds=#{max_seconds}")
 
       _ = send_pause_control_message(state, identifier)
 
@@ -1898,6 +1919,38 @@ defmodule Aiur.Orchestrator do
       state
     end
   end
+
+  defp maybe_auto_resume_spurious_worker_pause(state, %{paused_reason: reason} = running_entry, :paused)
+       when reason in [:input_required, :worker_pause_unknown, :pause_containment] do
+    case resume_paused_issue(state, running_entry) do
+      {{:ok, :resumed}, state} ->
+        state
+
+      {{:error, reason}, state} ->
+        Logger.warning("orchestrator.pause_resume_deferred issue_identifier=#{Map.get(running_entry, :identifier)} cause=#{Map.get(running_entry, :paused_reason)} reason=#{inspect(reason)}")
+        state
+    end
+  end
+
+  defp maybe_auto_resume_spurious_worker_pause(state, _running_entry, _status), do: state
+
+  defp worker_pause_reason(running_entry, pause_payload) do
+    Map.get(running_entry, :paused_reason) ||
+      Map.get(pause_payload, :kind) ||
+      Map.get(pause_payload, "kind") ||
+      if(Map.has_key?(pause_payload, :request_id), do: :pause_containment, else: :worker_pause_unknown)
+  end
+
+  defp maybe_put_worker_pause_reason(entry, :paused, pause_reason), do: Map.put(entry, :paused_reason, pause_reason)
+  defp maybe_put_worker_pause_reason(entry, _status, _pause_reason), do: entry
+
+  defp maybe_log_worker_pause(:paused, running_entry, pause_reason) do
+    Logger.warning(
+      "orchestrator.pause issue_id=#{get_in(running_entry, [:issue, Access.key(:id)])} issue_identifier=#{Map.get(running_entry, :identifier)} cause=#{pause_reason} source=worker_control_state"
+    )
+  end
+
+  defp maybe_log_worker_pause(_status, _running_entry, _pause_reason), do: :ok
 
   @doc false
   @spec reconcile_stalled_running_issues(State.t()) :: State.t()

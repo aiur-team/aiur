@@ -104,7 +104,8 @@ defmodule Aiur.Orchestrator.Interrupts do
   # because the optimistic transition is the source of truth for the UI.
   defp perform_pane_interrupt(:pause, state, entry, issue_identifier, _pane_id) do
     _ = PauseResume.send_pause_control_message(state, issue_identifier)
-    {{:ok, :paused}, Orchestrator.transition_control_status(state, entry, :paused, "pane.ctrl_c.pause")}
+    paused_entry = Map.put(entry, :paused_reason, :pane_ctrl_c)
+    {{:ok, :paused}, Orchestrator.transition_control_status(state, paused_entry, :paused, "pane.ctrl_c.pause")}
   end
 
   @doc """

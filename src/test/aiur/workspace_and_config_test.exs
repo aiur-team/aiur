@@ -2478,7 +2478,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "agent.max_agent_duration_minutes defaults to 60 and rejects negatives" do
-    # Safety-net cap the orchestrator's overrun watchdog reads; 0 disables.
+    # Safety-checkpoint cap the orchestrator's overrun watchdog reads; 0 disables.
     assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})
     assert settings.agent.max_agent_duration_minutes == 60
 

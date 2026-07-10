@@ -30,9 +30,9 @@ defmodule Aiur.Orchestrator.PauseResumeTest do
     refute Map.has_key?(PauseResume.reset_duration_clock_if_capped(running, "capped", now, false)["capped"], :paused_reason)
   end
 
-  test "leaves unmarked pauses untouched" do
+  test "clears other pause markers on resume" do
     running = %{"paused" => %{paused_reason: :operator}}
 
-    assert PauseResume.reset_duration_clock_if_capped(running, "paused", DateTime.utc_now(), true) == running
+    assert PauseResume.reset_duration_clock_if_capped(running, "paused", DateTime.utc_now(), true) == %{"paused" => %{}}
   end
 end

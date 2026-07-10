@@ -99,8 +99,8 @@ defmodule Aiur.Config.Schema.Agent do
     # already reads these via Config.agent_turn_timeout_ms/0).
     field(:turn_timeout_ms, :integer, default: 3_600_000)
     field(:stall_timeout_ms, :integer, default: 3_600_000)
-    # Safety net: hard-kill an agent that has been actively running this
-    # many minutes (paused/blocked time excluded). 0 disables.
+    # Safety checkpoint: pause an agent that has been actively running this
+    # many minutes (paused/blocked time excluded). 0 disables it.
     field(:max_agent_duration_minutes, :integer, default: 60)
     # Per-scheduler 1-min load ceiling for the dispatch load gate (#465).
     # Enabled by default so high-concurrency runs have protection without

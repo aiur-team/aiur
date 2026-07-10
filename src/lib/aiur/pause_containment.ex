@@ -61,6 +61,14 @@ defmodule Aiur.PauseContainment do
   @spec arm_target(GenServer.server(), String.t()) :: {:ok, handle()} | :not_registered
   def arm_target(server, target) when is_binary(target), do: call(server, {:arm_target, target})
 
+  @doc false
+  @spec release_target(String.t()) :: :ok
+  def release_target(target) when is_binary(target), do: release_target(__MODULE__, target)
+
+  @doc false
+  @spec release_target(GenServer.server(), String.t()) :: :ok
+  def release_target(server, target) when is_binary(target), do: call(server, {:release_target, target})
+
   @spec confirm(handle()) :: :ok
   def confirm(%{identifier: identifier, generation: generation}) when is_binary(identifier) and is_integer(generation) do
     confirm(__MODULE__, %{identifier: identifier, generation: generation})
@@ -190,6 +198,24 @@ defmodule Aiur.PauseContainment do
         cancel_timers(entry)
         released = %{entry | mode: :active, deadline_ref: nil, liveness_ref: nil}
         {:reply, :ok, put_in(state.entries[identifier], released)}
+
+      _ ->
+        {:reply, :ok, state}
+    end
+  end
+
+  def handle_call({:release_target, target}, _from, state) do
+    case find_target_entry(state.entries, target) do
+      {identifier, %{generation: generation}} when is_binary(identifier) and is_integer(generation) ->
+        case Map.get(state.entries, identifier) do
+          %{generation: ^generation, mode: mode} = entry when mode in [:armed, :paused, :failed, :reaping] ->
+            cancel_timers(entry)
+            released = %{entry | mode: :active, deadline_ref: nil, liveness_ref: nil}
+            {:reply, :ok, put_in(state.entries[identifier], released)}
+
+          _ ->
+            {:reply, :ok, state}
+        end
 
       _ ->
         {:reply, :ok, state}
