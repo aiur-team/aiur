@@ -80,10 +80,9 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
   end
 
   describe "human_review_comment_target_limit behavior" do
-    test "@human_review_comment_targets_per_poll is 25" do
-      # Drive through poll_github_comments with >25 idle review issues and confirm
-      # the resulting target count is capped. We verify this by testing the cap
-      # constant is 25 via the module attribute encoding.
+    test "caps human-review targets at 25 with more idle review issues" do
+      {:ok, probe} = Agent.start_link(fn -> 0 end)
+
       opts = [
         review_issue_fetcher: fn _states ->
           issues =
@@ -99,15 +98,17 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
           {:ok, issues}
         end,
         watch_pull_request_fetcher: fn _label -> {:ok, []} end,
-        review_pull_request_fetcher: fn _target -> {:ok, nil} end
+        review_pull_request_fetcher: fn _target ->
+          Agent.update(probe, &(&1 + 1))
+          {:ok, nil}
+        end
       ]
 
       state = base_state()
 
       result = CommentPolling.poll_github_comments(state, opts)
-      # With empty targets, poll_github_comment_targets short-circuits.
-      # The cap logic runs before the poll call.
       assert is_struct(result, State)
+      assert Agent.get(probe, & &1) == 25
     end
   end
 end
