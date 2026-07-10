@@ -151,6 +151,16 @@ defmodule Aiur.Codex.Approvals do
     :unhandled
   end
 
+  @spec maybe_handle_approval_request(
+          port(),
+          String.t(),
+          map(),
+          String.t(),
+          (map() -> term()),
+          map(),
+          (term(), term() -> term()),
+          boolean()
+        ) :: :approved | :approval_required | :input_required | :unhandled
   def maybe_handle_approval_request(port, method, payload, payload_string, on_message, metadata, tool_executor, auto_approve_requests) do
     maybe_handle_approval_request(port, method, payload, payload_string, on_message, metadata, tool_executor, auto_approve_requests, false)
   end

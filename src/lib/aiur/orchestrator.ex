@@ -5244,10 +5244,8 @@ defmodule Aiur.Orchestrator do
   end
 
   defp resume_contained_issue(state, running_entry) do
-    case do_reactivate(state, running_entry) do
-      {{:ok, :reactivated}, next_state} -> {{:ok, :started}, next_state}
-      other -> other
-    end
+    {{:ok, :reactivated}, next_state} = do_reactivate(state, running_entry)
+    {{:ok, :started}, next_state}
   end
 
   defp send_resume_control_message(%State{} = state, running_entry, operator?) do

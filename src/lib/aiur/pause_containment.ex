@@ -29,7 +29,6 @@ defmodule Aiur.PauseContainment do
     register(__MODULE__, identifier, root_pid, process_group_id, opts)
   end
 
-  @spec register(GenServer.server(), String.t(), pos_integer(), pos_integer(), keyword()) :: {:ok, handle()} | :ignored
   def register(server, identifier, root_pid, process_group_id)
       when is_binary(identifier) and is_integer(root_pid) and root_pid > 0 and is_integer(process_group_id) and process_group_id > 0 do
     register(server, identifier, root_pid, process_group_id, [])
@@ -37,6 +36,7 @@ defmodule Aiur.PauseContainment do
 
   def register(_identifier, _root_pid, _process_group_id, _opts), do: :ignored
 
+  @spec register(GenServer.server(), String.t(), pos_integer(), pos_integer(), keyword()) :: {:ok, handle()} | :ignored
   def register(server, identifier, root_pid, process_group_id, opts)
       when is_binary(identifier) and is_integer(root_pid) and root_pid > 0 and is_integer(process_group_id) and process_group_id > 0 do
     call(server, {:register, identifier, root_pid, process_group_id, Map.new(opts)})
