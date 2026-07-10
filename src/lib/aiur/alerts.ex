@@ -44,7 +44,7 @@ defmodule Aiur.Alerts do
 
   # Substring → category, in match order. The first match wins, so more specific
   # markers are listed ahead of broader ones. This drives OS-default-sound
-  # selection only; the topic→sound *mapping* in `.aiur/alerts` is the
+  # selection only; the topic→sound *mapping* in `.aiur/alerts.yaml` is the
   # source of truth for the non-OS-default path. Keep new alert topics in sync
   # across both. The `.paused` needle is delimiter-anchored so it does not also
   # match the `agent.unpaused` resume topic.
@@ -307,7 +307,7 @@ defmodule Aiur.Alerts do
   end
 
   # Path precedence: the `:alerts_file_path` app-env override (tests) wins, then
-  # the config `alerts.alerts_file`, then the default `<config-dir>/alerts`.
+  # the config `alerts.alerts_file`, then the default `<config-dir>/alerts.yaml`.
   defp alerts_path do
     cond do
       override = Application.get_env(:aiur, :alerts_file_path) ->
@@ -317,62 +317,24 @@ defmodule Aiur.Alerts do
         path
 
       true ->
-        default = default_alerts_path()
-        warn_if_legacy_yaml_only(default)
-        default
+        default_alerts_path()
     end
-  end
-
-  # The `.aiur/alerts.yaml` fallback was removed: only the extensionless
-  # `.aiur/alerts` file (or an explicit `alerts_file`) is loaded now. When the
-  # canonical file is absent but a legacy `.aiur/alerts.yaml` still sits next to
-  # the config, the mappings silently resolve to `%{}` and every alert goes
-  # quiet with no signal. Warn once — keyed on the legacy path via
-  # `:persistent_term`, so a single VM logs it a single time — so the operator
-  # knows to rename the file. The yaml is never read; only its presence is
-  # detected.
-  defp warn_if_legacy_yaml_only(nil), do: :ok
-
-  defp warn_if_legacy_yaml_only(path) do
-    legacy = path <> ".yaml"
-
-    if not File.exists?(path) and File.exists?(legacy) do
-      warn_legacy_yaml_once(path, legacy)
-    end
-
-    :ok
-  end
-
-  defp warn_legacy_yaml_once(path, legacy) do
-    key = {__MODULE__, :legacy_yaml_warned, legacy}
-
-    unless :persistent_term.get(key, false) do
-      :persistent_term.put(key, true)
-
-      Logger.warning(
-        "Alert sounds are disabled: the `.aiur/alerts.yaml` fallback was removed. " <>
-          "Found #{legacy} but no #{path}. Rename #{legacy} to #{path} " <>
-          "(drop the `.yaml` extension) to restore alert sounds."
-      )
-    end
-
-    :ok
   end
 
   # The default alert definitions live alongside the aiur config, at
-  # `<config-dir>/alerts` (i.e. `.aiur/alerts`). Resolved at RUNTIME
+  # `<config-dir>/alerts.yaml` (i.e. `.aiur/alerts.yaml`). Resolved at RUNTIME
   # from the active config path rather than a compile-time module attribute, so
   # it tracks the operator's `.aiur/` directory and resolves correctly inside an
   # assembled release/escript (a baked source path would not).
   defp default_alerts_path do
     case Workflow.workflow_file_path() do
-      path when is_binary(path) and path != "" -> Path.join(Path.dirname(path), "alerts")
+      path when is_binary(path) and path != "" -> Path.join(Path.dirname(path), "alerts.yaml")
       _ -> nil
     end
   end
 
   # A configured `alerts_file` is only honoured when it actually exists, so a
-  # typo'd or missing custom path falls back to the default `<config-dir>/alerts` rather
+  # typo'd or missing custom path falls back to the default `<config-dir>/alerts.yaml` rather
   # than silently dropping every alert sound. Relative paths are pre-resolved
   # against the config dir at load time (see `Aiur.Workflow`), so by here the
   # value is already absolute or a `~/`-prefixed path expanded below.
@@ -478,7 +440,7 @@ defmodule Aiur.Alerts do
   end
 
   # `use_os_default_sounds: false` (default) uses the topic→sound mapping from
-  # the alerts file; `true` maps the alert's category to a built-in OS system sound
+  # `alerts.yaml`; `true` maps the alert's category to a built-in OS system sound
   # (with a `sound_dir` per-category override).
   defp select_sound(topic, _definition, %{use_os_default_sounds: true} = settings) do
     os_default_sound(topic, settings)

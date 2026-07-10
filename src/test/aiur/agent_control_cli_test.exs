@@ -3,7 +3,7 @@ defmodule Aiur.AgentControlCLITest do
 
   import ExUnit.CaptureIO
 
-  alias Aiur.AgentControlCLI
+  alias Aiur.{AgentControlCLI, BuildGate}
 
   defp running_entry(issue_id, identifier, status, pid \\ self()) do
     %{
@@ -91,6 +91,32 @@ defmodule Aiur.AgentControlCLITest do
     assert populated_output =~ "#88    running Issue "
     assert populated_output =~ "worker-alpha running Issue worker-alpha"
     assert populated_output =~ "__AIUR_CONTROL_EXIT__:0"
+  end
+
+  test "status reports active build-gate contention" do
+    gate_dir = Path.join(System.tmp_dir!(), "aiur-build-gate-status-#{System.unique_integer([:positive])}")
+    previous = Application.get_env(:aiur, :build_gate_dir_override)
+
+    Application.put_env(:aiur, :build_gate_dir_override, gate_dir)
+    File.mkdir_p!(Path.join(gate_dir, "slot-1"))
+    File.mkdir_p!(Path.join(gate_dir, "queue"))
+    File.write!(Path.join(gate_dir, "slot-1/owner"), "pid=#{System.pid()}\n")
+    File.write!(Path.join(gate_dir, "queue/#{System.pid()}"), "pid=#{System.pid()}\n")
+
+    on_exit(fn ->
+      if is_nil(previous) do
+        Application.delete_env(:aiur, :build_gate_dir_override)
+      else
+        Application.put_env(:aiur, :build_gate_dir_override, previous)
+      end
+
+      File.rm_rf!(gate_dir)
+    end)
+
+    assert %{active: 1, queued: 1} = BuildGate.status()
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+    assert output =~ "BUILD GATE 1/2 active, 1 queued"
   end
 
   test "status hides closed cached issues and deactivated runtime entries", %{orchestrator: pid} do
@@ -842,6 +868,26 @@ defmodule Aiur.AgentControlCLITest do
       assert output =~ "ACTIONABLE"
       assert output =~ ~r/#44 stuck/
       assert output =~ ~r/#45 human-review · needs review\/merge/
+    end
+
+    test "CI-wait remains visible as an automatic gate, not a review-ready ticket", %{
+      orchestrator: pid,
+      watch_root: root
+    } do
+      :sys.replace_state(pid, fn state ->
+        %{
+          state
+          | running: %{
+              "issue-46" => watch_entry("issue-46", "repo#46", state: "ci-wait", work_state: :paused)
+            }
+        }
+      end)
+
+      output = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end)
+
+      assert output =~ ~r/#46\s+ci-wait/
+      assert output =~ "waiting for CI"
+      refute output =~ "#46 ci-wait · needs review/merge"
     end
   end
 end

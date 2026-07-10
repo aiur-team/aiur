@@ -43,9 +43,36 @@ defmodule Aiur.PaneManager.Layout do
 
   import Bitwise
 
+  require Logger
+
+  alias Aiur.PaneManager.State
+  alias Aiur.Tmux
+
   @type pane_id :: String.t()
 
   @type orientation :: :horizontal | :vertical
+
+  @spec apply(Aiur.PaneManager.State.t()) :: :ok | {:error, term()}
+  def apply(state) do
+    with {:ok, {w, h}} <- Tmux.window_size(state.tmux, state.agent_list_pane),
+         layout_string =
+           build(
+             w,
+             h,
+             state.max_vertical_panes,
+             state.agent_list_pane,
+             State.visible_panes_packed(state),
+             state.orientation
+           ),
+         _ = log_layout_apply(state, w, h, layout_string),
+         :ok <- Tmux.select_layout(state.tmux, state.window_target, layout_string) do
+      :ok
+    else
+      {:error, reason} = err ->
+        Logger.warning("PaneManager: layout apply failed: #{inspect(reason)}")
+        err
+    end
+  end
 
   @doc """
   Build the layout string for the current window dimensions and slot
@@ -195,5 +222,28 @@ defmodule Aiur.PaneManager.Layout do
     |> Integer.to_string(16)
     |> String.downcase()
     |> String.pad_leading(4, "0")
+  end
+
+  defp log_layout_apply(state, w, h, layout_string) do
+    if debug_mode?() do
+      slot_panes_summary =
+        state.slot_panes
+        |> Enum.sort_by(fn {slot, _} -> slot end)
+        |> Enum.map_join(",", fn {slot, pane} -> "#{slot}=>#{pane || "_"}" end)
+
+      Logger.info("aiur_tmux_layout window=#{w}x#{h} slot_panes=#{slot_panes_summary} agent_list=#{state.agent_list_pane} layout=#{inspect(layout_string)}")
+    end
+
+    :ok
+  end
+
+  defp debug_mode? do
+    case System.get_env("AIUR_DEBUG") do
+      value when is_binary(value) ->
+        String.downcase(String.trim(value)) in ["1", "true", "yes"]
+
+      _ ->
+        false
+    end
   end
 end

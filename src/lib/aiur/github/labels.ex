@@ -23,7 +23,7 @@ defmodule Aiur.GitHub.Labels do
   # Agent lifecycle state suffixes the orchestrator manages. Source of truth is
   # the live label set in `Aiur.TestReset.reset_labels_command_args/1`; keep the
   # two in sync.
-  @state_suffixes ~w(todo in-progress human-review rework merging done error cancelled canceled)
+  @state_suffixes ~w(todo in-progress ci-wait human-review rework merging done error cancelled canceled)
 
   # Marker labels. NOT lifecycle states — the orchestrator never treats these as
   # dispatch states. Kept out of `@state_suffixes` so they never enter the state
@@ -97,6 +97,7 @@ defmodule Aiur.GitHub.Labels do
   defp state_description("paused"), do: "suppress aiur work while preserving state"
   defp state_description("todo"), do: "ready to be worked"
   defp state_description("in-progress"), do: "agent is working it"
+  defp state_description("ci-wait"), do: "awaiting CI before human review"
   defp state_description("human-review"), do: "awaiting human review"
   defp state_description("rework"), do: "sent back for changes"
   defp state_description("merging"), do: "merging the PR"

@@ -20,7 +20,7 @@ defmodule Aiur.RepoBaseTest do
 
     on_exit(fn -> File.rm_rf!(tmp) end)
 
-    {:ok, origin: origin, base: base}
+    {:ok, tmp: tmp, origin: origin, base: base}
   end
 
   describe "refresh/3" do
@@ -53,6 +53,46 @@ defmodule Aiur.RepoBaseTest do
 
       assert File.exists?(Path.join(base, "built_ran")), "base_build did not re-run after advance"
       assert head(base) == head(origin)
+    end
+
+    test "tracks configured v2 and ignores a main-only advance", %{origin: origin, base: base, tmp: tmp} do
+      git!(["-C", origin, "checkout", "-b", "v2"])
+      File.write!(Path.join(origin, "README.md"), "v2 initial\n")
+      git!(["-C", origin, "commit", "--quiet", "-am", "v2 initial"])
+      v2_initial = head(origin)
+
+      config = Path.join(tmp, "v2.aiurconfig")
+      previous_config = Application.get_env(:aiur, :workflow_file_path)
+      File.write!(config, "tracker:\n  kind: memory\n  base_branch: v2\n")
+      Aiur.Workflow.set_workflow_file_path(config)
+
+      on_exit(fn ->
+        case previous_config do
+          nil -> Aiur.Workflow.clear_workflow_file_path()
+          path -> Aiur.Workflow.set_workflow_file_path(path)
+        end
+      end)
+
+      assert {:ok, ^base} = RepoBase.refresh(base, origin, "touch built_ran")
+      assert head(base) == v2_initial
+      File.rm!(Path.join(base, "built_ran"))
+
+      git!(["-C", origin, "checkout", "main"])
+      File.write!(Path.join(origin, "README.md"), "main only\n")
+      git!(["-C", origin, "commit", "--quiet", "-am", "main only"])
+
+      assert {:ok, ^base} = RepoBase.refresh(base, origin, "touch built_ran")
+      assert head(base) == v2_initial
+      refute File.exists?(Path.join(base, "built_ran"))
+
+      git!(["-C", origin, "checkout", "v2"])
+      File.write!(Path.join(origin, "README.md"), "v2 advanced\n")
+      git!(["-C", origin, "commit", "--quiet", "-am", "v2 advanced"])
+      v2_advanced = head(origin)
+
+      assert {:ok, ^base} = RepoBase.refresh(base, origin, "touch built_ran")
+      assert head(base) == v2_advanced
+      assert File.exists?(Path.join(base, "built_ran"))
     end
 
     test "returns an error and skips the marker when base_build fails", %{origin: origin, base: base} do
@@ -120,6 +160,49 @@ defmodule Aiur.RepoBaseTest do
 
       assert RepoBase.base_path("git@github.com:foo/bar.git") |> Path.split() |> Enum.take(-2) ==
                ["foo", "bar"]
+    end
+  end
+
+  describe "base_branch/0" do
+    # Pins the workflow config per test (same pattern as the "server state
+    # machine" setup below) so resolution never depends on ambient config.
+    setup do
+      tmp = Path.join(System.tmp_dir!(), "rb_bb_#{System.unique_integer([:positive])}")
+      File.mkdir_p!(tmp)
+      cfg = Path.join(tmp, "config")
+      prev_path = Application.get_env(:aiur, :workflow_file_path)
+
+      on_exit(fn ->
+        case prev_path do
+          nil -> Aiur.Workflow.clear_workflow_file_path()
+          p -> Aiur.Workflow.set_workflow_file_path(p)
+        end
+
+        File.rm_rf!(tmp)
+      end)
+
+      {:ok, cfg: cfg}
+    end
+
+    test "defaults to main when tracker.base_branch is unset", %{cfg: cfg} do
+      File.write!(cfg, "tracker:\n  kind: memory\n")
+      Aiur.Workflow.set_workflow_file_path(cfg)
+
+      assert RepoBase.base_branch() == "main"
+    end
+
+    test "returns the configured tracker.base_branch", %{cfg: cfg} do
+      File.write!(cfg, "tracker:\n  kind: memory\n  base_branch: v2\n")
+      Aiur.Workflow.set_workflow_file_path(cfg)
+
+      assert RepoBase.base_branch() == "v2"
+    end
+
+    test "falls back to main when tracker.base_branch is empty", %{cfg: cfg} do
+      File.write!(cfg, ~s(tracker:\n  kind: memory\n  base_branch: ""\n))
+      Aiur.Workflow.set_workflow_file_path(cfg)
+
+      assert RepoBase.base_branch() == "main"
     end
   end
 

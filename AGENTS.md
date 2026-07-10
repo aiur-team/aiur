@@ -4,6 +4,9 @@ Context for engineers and coding agents working in this repository. Setup
 lives in [`src/README.md`](src/README.md); this file captures the
 operational practices that aren't in the main README.
 
+Engineering norms (code structure, testing, error handling, and the CI gate)
+live in [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
 ## Layout
 
 - `.aiur/` — the Aiur config folder: `.aiur/config` (pure YAML), `.aiur/hooks`, and

@@ -3,6 +3,8 @@ defmodule Aiur.AgentEnvironment do
   Helpers for preparing child agent process environments.
   """
 
+  alias Aiur.{BuildGate, Config}
+
   # AIUR_RELEASE_NODE + AIUR_INSTANCE_KEY + AIUR_REPO_ROOT are the per-instance
   # identity inputs the engine exports (#431). They MUST be scrubbed too, or an agent
   # (codex inherits all env) leaks the outer instance's keyed identity into an inner
@@ -13,6 +15,7 @@ defmodule Aiur.AgentEnvironment do
   @erlang_distribution_env_names ~w(ERL_AFLAGS RELEASE_NODE RELEASE_COOKIE AIUR_RELEASE_NODE AIUR_INSTANCE_KEY AIUR_REPO_ROOT)
   @aiur_distribution_env_pattern ~r/\AAIUR(?:_.*)?_(?:NODE_NAME|COOKIE)\z/
   @parent_log_env_names ~w(AIUR_LOGS_ROOT AIUR_AGENT_IR_LOGS_PARENT)
+  @scheduler_option ~r/(^|\s)\+S\s+\d+(?::\d+)?/
 
   @spec erlang_distribution_env_name?(String.t()) :: boolean()
   def erlang_distribution_env_name?(name) when is_binary(name) do
@@ -76,7 +79,13 @@ defmodule Aiur.AgentEnvironment do
         # running `./scripts/aiurdev --test` reset the operator's sandbox
         # tickets and kill the parent BEAM mid-run.
         {~c"AIUR_AGENT_WORKSPACE", String.to_charlist(workspace)}
-      ]
+      ] ++
+        Enum.map(mix_scheduler_env(), fn {name, value} ->
+          {String.to_charlist(name), String.to_charlist(value)}
+        end) ++
+        Enum.map(BuildGate.shell_env(), fn {name, value} ->
+          {String.to_charlist(name), String.to_charlist(value)}
+        end)
 
     unset_parent_logs ++ workspace_env
   end
@@ -95,7 +104,11 @@ defmodule Aiur.AgentEnvironment do
 
     # Trust the workspace ROOT (see `workspace_env/1`): the SSH-launch path needs
     # the same root-level trust so mise-provided tools resolve in the workspace.
-    "export HEX_HOME=#{shell_escape(hex)} MIX_HOME=#{shell_escape(mix)} MISE_TRUSTED_CONFIG_PATHS=#{shell_escape(workspace)}"
+    scheduler_exports =
+      mix_scheduler_env()
+      |> Enum.map_join(" ", fn {name, value} -> "#{name}=#{Aiur.Shell.escape(value)}" end)
+
+    "export HEX_HOME=#{Aiur.Shell.escape(hex)} MIX_HOME=#{Aiur.Shell.escape(mix)} MISE_TRUSTED_CONFIG_PATHS=#{Aiur.Shell.escape(workspace)} #{scheduler_exports}"
   end
 
   def workspace_env_export_prefix(_), do: ""
@@ -117,7 +130,20 @@ defmodule Aiur.AgentEnvironment do
 
   def base_env(_), do: []
 
-  defp shell_escape(value) when is_binary(value) do
-    "'" <> String.replace(value, "'", "'\\''") <> "'"
+  defp mix_scheduler_env do
+    cap = Config.mix_scheduler_cap()
+
+    [
+      {"AIUR_AGENT_MIX_SCHEDULERS", Integer.to_string(cap)},
+      {"ELIXIR_ERL_OPTIONS", scheduler_options(cap)}
+    ]
+  end
+
+  defp scheduler_options(cap) do
+    System.get_env("ELIXIR_ERL_OPTIONS", "")
+    |> then(&Regex.replace(@scheduler_option, &1, ""))
+    |> String.split()
+    |> Kernel.++(["+S", "#{cap}:#{cap}"])
+    |> Enum.join(" ")
   end
 end

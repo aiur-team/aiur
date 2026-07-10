@@ -36,7 +36,19 @@ defmodule Aiur.CoreTest do
     case {stop_result, Process.alive?(pid)} do
       {:ok, _} -> :ok
       {{:exit, _reason}, false} -> :ok
-      {{:exit, reason}, true} -> exit(reason)
+      {{:exit, _reason}, true} -> kill_live_test_orchestrator(pid)
+    end
+  end
+
+  defp kill_live_test_orchestrator(pid) do
+    ref = Process.monitor(pid)
+    Process.unlink(pid)
+    Process.exit(pid, :kill)
+
+    receive do
+      {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
+    after
+      1_000 -> flunk("test orchestrator did not stop")
     end
   end
 
@@ -58,6 +70,8 @@ defmodule Aiur.CoreTest do
     assert config.max_vertical_panes == 3
     assert Config.max_vertical_panes() == 3
     assert config.agent.max_turns == 20
+    assert config.agent.max_concurrent_builds == 2
+    assert Config.max_concurrent_builds() == 2
 
     write_workflow_file!(Workflow.workflow_file_path(), poll_interval_seconds: "invalid")
 
@@ -82,6 +96,13 @@ defmodule Aiur.CoreTest do
     write_workflow_file!(Workflow.workflow_file_path(), max_turns: 0)
     assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
     assert message =~ "agent.max_turns"
+
+    write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_builds: -1)
+    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert message =~ "agent.max_concurrent_builds"
+
+    write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_builds: 0)
+    assert Config.max_concurrent_builds() == 0
 
     write_workflow_file!(Workflow.workflow_file_path(), max_turns: 5)
     assert Config.settings!().agent.max_turns == 5
@@ -707,7 +728,6 @@ defmodule Aiur.CoreTest do
 
     before_down_ms = System.monotonic_time(:millisecond)
     send(pid, {:DOWN, ref, :process, self(), :normal})
-    Process.sleep(50)
     state = :sys.get_state(pid)
 
     refute Map.has_key?(state.running, issue_id)
@@ -747,7 +767,6 @@ defmodule Aiur.CoreTest do
 
     before_down_ms = System.monotonic_time(:millisecond)
     send(pid, {:DOWN, ref, :process, self(), :boom})
-    Process.sleep(50)
     state = :sys.get_state(pid)
 
     assert %{attempt: 3, due_at_ms: due_at_ms, identifier: "MT-559", error: "agent exited: :boom"} =
@@ -855,7 +874,6 @@ defmodule Aiur.CoreTest do
 
     before_down_ms = System.monotonic_time(:millisecond)
     send(pid, {:DOWN, ref, :process, self(), :boom})
-    Process.sleep(50)
     state = :sys.get_state(pid)
 
     assert %{attempt: 1, due_at_ms: due_at_ms, identifier: "MT-560", error: "agent exited: :boom"} =
@@ -920,7 +938,6 @@ defmodule Aiur.CoreTest do
 
     before_retry_ms = System.monotonic_time(:millisecond)
     send(pid, {:retry_issue, issue_id, retry_token})
-    Process.sleep(50)
     state = :sys.get_state(pid)
     observed_at_ms = System.monotonic_time(:millisecond)
 
@@ -1380,9 +1397,7 @@ defmodule Aiur.CoreTest do
     on_exit(fn ->
       Workflow.set_workflow_file_path(original_workflow_path)
 
-      if is_pid(workflow_store_pid) and is_nil(Process.whereis(Aiur.WorkflowStore)) do
-        Supervisor.restart_child(Aiur.Supervisor, Aiur.WorkflowStore)
-      end
+      if is_pid(workflow_store_pid), do: ensure_workflow_store_running()
     end)
 
     assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.WorkflowStore)

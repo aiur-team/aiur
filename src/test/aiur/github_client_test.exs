@@ -543,7 +543,7 @@ defmodule Aiur.GitHub.ClientTest do
   end
 
   describe "fetch_open_pull_request_for_branch/2" do
-    test "returns the first open PR for the canonical aiur branch" do
+    test "returns the first open PR for a legacy ticket branch" do
       request_fun = fn %{method: :get, url: url} ->
         assert url =~ "/repos/owner/repo/pulls?"
         assert url =~ "state=open"
@@ -556,11 +556,98 @@ defmodule Aiur.GitHub.ClientTest do
                Client.fetch_open_pull_request_for_branch(35, request_fun: request_fun)
     end
 
+    test "finds an open PR for a readable ticket branch" do
+      request_fun = fn %{method: :get, url: url} ->
+        cond do
+          url =~ "head=owner%3Aaiur%2F35" ->
+            {:ok, %{status: 200, body: []}}
+
+          url =~ "/repos/owner/repo/pulls?" ->
+            {:ok,
+             %{
+               status: 200,
+               body: [
+                 %{"number" => 50, "head" => %{"ref" => "aiur/99-not-this-ticket"}},
+                 %{"number" => 51, "head" => %{"ref" => "aiur/35-add-new-test-cases"}}
+               ]
+             }}
+        end
+      end
+
+      assert {:ok, %{"number" => 51}} =
+               Client.fetch_open_pull_request_for_branch(35, request_fun: request_fun)
+    end
+
+    test "follows open-PR pages when looking up a readable ticket branch" do
+      next_page = "https://api.github.com/repos/owner/repo/pulls?per_page=100&state=open&page=2"
+
+      request_fun = fn %{method: :get, url: url} ->
+        cond do
+          url =~ "head=owner%3Aaiur%2F35" ->
+            {:ok, %{status: 200, body: []}}
+
+          url == next_page ->
+            {:ok,
+             %{
+               status: 200,
+               headers: [],
+               body: [%{"number" => 52, "head" => %{"ref" => "aiur/35-add-new-test-cases"}}]
+             }}
+
+          url =~ "/repos/owner/repo/pulls?" ->
+            {:ok,
+             %{
+               status: 200,
+               headers: [{"link", "<#{next_page}>; rel=\"next\""}],
+               body: [%{"number" => 50, "head" => %{"ref" => "feature/not-a-ticket"}}]
+             }}
+        end
+      end
+
+      assert {:ok, %{"number" => 52}} =
+               Client.fetch_open_pull_request_for_branch(35, request_fun: request_fun)
+    end
+
     test "returns nil when the branch has no open PR" do
       request_fun = fn %{method: :get} -> {:ok, %{status: 200, body: []}} end
 
       assert {:ok, nil} =
                Client.fetch_open_pull_request_for_branch("35", request_fun: request_fun)
+    end
+  end
+
+  describe "fetch_commit_ci_status/2" do
+    test "fetches both latest check runs and legacy commit statuses for the head SHA" do
+      request_fun = fn %{method: :get, url: url} ->
+        cond do
+          url =~ "/commits/head-sha/check-runs?filter=latest&per_page=100" ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "check_runs" => [
+                   %{"name" => "lint", "status" => "completed", "conclusion" => "success"}
+                 ]
+               }
+             }}
+
+          url =~ "/commits/head-sha/status" ->
+            {:ok, %{status: 200, body: %{"state" => "success", "statuses" => []}}}
+        end
+      end
+
+      assert {:ok,
+              %{
+                check_runs: [%{"name" => "lint"}],
+                commit_status: %{"state" => "success"}
+              }} = Client.fetch_commit_ci_status("head-sha", request_fun: request_fun)
+    end
+
+    test "surfaces a check-run API error without fetching stale success data" do
+      request_fun = fn %{method: :get} -> {:ok, %{status: 502, body: %{}}} end
+
+      assert {:error, {:github, :http, %{status: 502}}} =
+               Client.fetch_commit_ci_status("head-sha", request_fun: request_fun)
     end
   end
 

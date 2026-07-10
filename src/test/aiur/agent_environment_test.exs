@@ -118,6 +118,18 @@ defmodule Aiur.AgentEnvironmentTest do
 
       assert {~c"AIUR_AGENT_WORKSPACE", ~c"/work/aiur/440"} =
                List.keyfind(env, ~c"AIUR_AGENT_WORKSPACE", 0)
+
+      assert {~c"AIUR_AGENT_MIX_SCHEDULERS", ~c"4"} =
+               List.keyfind(env, ~c"AIUR_AGENT_MIX_SCHEDULERS", 0)
+
+      assert {~c"ELIXIR_ERL_OPTIONS", options} = List.keyfind(env, ~c"ELIXIR_ERL_OPTIONS", 0)
+      assert to_string(options) =~ "+S 4:4"
+
+      assert {~c"BASH_ENV", hook_path} = List.keyfind(env, ~c"BASH_ENV", 0)
+      assert File.regular?(to_string(hook_path))
+
+      assert {~c"AIUR_BUILD_GATE_SLOTS", ~c"2"} =
+               List.keyfind(env, ~c"AIUR_BUILD_GATE_SLOTS", 0)
     end
 
     test "unsets inherited parent log env while preserving agent workspace env" do
@@ -144,6 +156,8 @@ defmodule Aiur.AgentEnvironmentTest do
       prefix = AgentEnvironment.workspace_env_export_prefix("/work/aiur/440")
 
       assert prefix =~ "MISE_TRUSTED_CONFIG_PATHS='/work/aiur/440'"
+      assert prefix =~ "AIUR_AGENT_MIX_SCHEDULERS='4'"
+      assert prefix =~ "ELIXIR_ERL_OPTIONS='+S 4:4'"
       refute prefix =~ "elixir/mise.toml"
     end
 

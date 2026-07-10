@@ -505,7 +505,10 @@ run_session() {
   # session whose BEAM/control plane is gone should be reclaimed before retry.
   if [ "$mode" = "background" ] && "$tmux_bin" -L "$socket" -f "$conf" has-session -t "$session" 2>/dev/null; then
     if [ "$(probe_control_liveness)" = "up" ]; then
-      write_aiur_instance_record "$session" "$socket"
+      # Write a record only when none exists. A live session's own start already
+      # wrote one — and it owns the BEAM-written AIUR_RECORD_WORKSPACE_ROOT_FILE
+      # path, which must not be overwritten by this invocation's temp file.
+      [ -f "$(aiur_instance_record_path)" ] || (AIUR_WORKSPACE_ROOT_FILE="" write_aiur_instance_record "$session" "$socket")
       echo "aiur is already running in the background (tmux session ${session})." >&2
       echo "Use: aiur status   # inspect agents" >&2
       echo "Use: aiur stop     # stop it before starting a fresh session" >&2
@@ -981,6 +984,7 @@ write_aiur_instance_record() {
     printf 'AIUR_RECORD_INSTANCE_KEY=%q\n' "$AIUR_INSTANCE_KEY"
     printf 'AIUR_RECORD_SESSION=%q\n' "$session"
     printf 'AIUR_RECORD_SOCKET=%q\n' "$socket"
+    printf 'AIUR_RECORD_WORKSPACE_ROOT_FILE=%q\n' "${AIUR_WORKSPACE_ROOT_FILE:-}"
     printf 'AIUR_RECORD_PROJECT_ROOT=%q\n' "$root"
     printf 'AIUR_RECORD_PROJECT_ROOT_SOURCE=%q\n' "${AIUR_PROJECT_ROOT_SOURCE:-}"
     printf 'AIUR_RECORD_WRITTEN_AT=%q\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)"
@@ -1133,24 +1137,10 @@ reap_workspace_cwd_from_file() {
   reap_workspace_cwd_agents "$root"
 }
 
-current_workspace_root() {
-  resolve_release
-  prepare_distribution >/dev/null 2>&1 || return 1
-
-  local output status line
-  set +e
-  output="$("$release_bin" rpc "IO.puts(Aiur.Config.workspace_root())" 2>/dev/null)"
-  status=$?
-  set -e
-  [ "$status" -eq 0 ] || return 1
-
-  while IFS= read -r line; do
-    case "$line" in
-      "" | :ok) continue ;;
-      *) printf '%s\n' "$line"; return 0 ;;
-    esac
-  done <<<"$output"
-  return 1
+workspace_root_file_from_instance_record() {
+  load_aiur_instance_record "$(aiur_instance_record_path)" || return 1
+  [ -n "${AIUR_RECORD_WORKSPACE_ROOT_FILE:-}" ] || return 1
+  printf '%s\n' "$AIUR_RECORD_WORKSPACE_ROOT_FILE"
 }
 
 # Background watchdog that survives the BEAM. Polls for the release BEAM by
@@ -1376,6 +1366,7 @@ load_aiur_instance_record() {
   AIUR_RECORD_INSTANCE_KEY=""
   AIUR_RECORD_SESSION=""
   AIUR_RECORD_SOCKET=""
+  AIUR_RECORD_WORKSPACE_ROOT_FILE=""
   AIUR_RECORD_PROJECT_ROOT=""
   AIUR_RECORD_PROJECT_ROOT_SOURCE=""
   [ -r "$file" ] || return 1
@@ -1560,6 +1551,7 @@ run_control_rpc() {
   if [ "${AIUR_CONTROL_RPC_TIMED_OUT:-0}" -eq 1 ]; then
     [ -n "$output" ] && printf '%s\n' "$output" >&2
     echo "aiur: control rpc to ${RELEASE_NODE} timed out after $(control_rpc_timeout_seconds)s; helper process was terminated" >&2
+    echo "aiur: the daemon may be scheduler-saturated; rerun stop with the launcher that started this session (for example, 'aiurdev stop') to interrupt its workers, then start aiur again" >&2
     return 124
   fi
 
@@ -1956,8 +1948,8 @@ cmd_stop() {
   export RELEASE_NODE ERL_EPMD_ADDRESS
   resolve_control_identity_from_records
 
-  local workspace_root
-  workspace_root="$(current_workspace_root 2>/dev/null || true)"
+  local workspace_root_file
+  workspace_root_file="$(workspace_root_file_from_instance_record 2>/dev/null || true)"
 
   local tmux_bin
   tmux_bin="$(command -v tmux || true)"
@@ -1996,9 +1988,10 @@ cmd_stop() {
   # it. Do not sweep by release dir: sibling instances share dev releases.
   kill_beams_matching "-name ${AIUR_RELEASE_NODE}"
 
-  # Final cwd-sweep backstop after the BEAM is dead. `cmd_stop` is a fresh shell,
-  # so it captures the root from the live control node before the kill above.
-  reap_workspace_cwd_agents "$workspace_root"
+  # Final cwd-sweep backstop after the BEAM is dead. The launcher's instance
+  # record points to the BEAM-written root handoff, so degraded stop never has
+  # to wait for an overloaded daemon before it starts tearing workers down.
+  reap_workspace_cwd_from_file "$workspace_root_file"
 
   # The BEAM (alive until the TERM above) reaped its own headless agents through
   # ProcessReaper on Application.stop. kill-server is the guarantee the earlier

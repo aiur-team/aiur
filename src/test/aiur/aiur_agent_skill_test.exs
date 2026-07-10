@@ -134,19 +134,20 @@ defmodule Aiur.AiurAgentSkillTest do
     assert shared_prompt =~ "inspect the pushed diff/exports"
     assert shared_prompt =~ "remove any temporary stub"
     assert shared_prompt =~ "open your PR against that branch"
+    assert shared_prompt =~ "actual validated ref supplied by the event payload"
 
     assert stub_doc =~ "not a reason to park the whole ticket"
     assert stub_doc =~ "Do not reimplement ticket N's helper"
-    assert stub_doc =~ "git fetch origin aiur/N"
-    assert stub_doc =~ "git diff --stat HEAD..origin/aiur/N"
+    assert stub_doc =~ "validated `ref` carried"
+    assert stub_doc =~ "numeric topic key cannot recreate a readable title suffix"
     assert stub_doc =~ "stack on it"
     assert stub_doc =~ "If the branch push is irrelevant or unusable"
     assert stub_doc =~ "Stubs are local-only scaffolding"
     assert stub_doc =~ "Stop working on the dependent code only"
     assert emit_doc =~ "ticket.N.branch.push"
-    assert emit_doc =~ "fetch `origin/aiur/N`"
+    assert emit_doc =~ "fetch the actual validated ref"
     assert emit_doc =~ "inspect the pushed diff/exports"
-    assert repo_prompt =~ "fetch and diff `origin/aiur/N`"
+    assert repo_prompt =~ "fetch and diff the actual validated ref"
     assert repo_prompt =~ "remove temporary stubs before pushing"
     assert taxonomy =~ "keep unrelated prep moving"
   end
@@ -168,7 +169,7 @@ defmodule Aiur.AiurAgentSkillTest do
     end
   end
 
-  test "agent operating guidance requires the full pre-PR verification gate" do
+  test "agent operating guidance scopes local pre-PR verification to affected tests" do
     dev_loop = File.read!(Path.join([@repo_root, ".claude", "skills", "using-aiur", "dev-loop.md"]))
     repo_prompt = File.read!(Path.join(@repo_root, ".aiur/prompt.md"))
 
@@ -176,14 +177,19 @@ defmodule Aiur.AiurAgentSkillTest do
       assert source =~ "pre-PR"
       assert source =~ "mix compile --warnings-as-errors"
       assert source =~ "mix format --check-formatted"
-      assert source =~ "mix test"
+      assert source =~ "affected tests only"
+      assert source =~ "mix test --max-cases 4"
       assert source =~ "mix credo --strict"
-      assert source =~ "mix dialyzer"
+      assert source =~ "changed files"
+      assert source =~ "full `make ci`"
+      assert source =~ "authoritative full-suite gate"
+      assert source =~ "Do not gate PR-opening on a clean full-suite `mix test` run"
+      refute source =~ "mix dialyzer"
     end
 
-    assert one_line(dev_loop) =~ "Do not substitute a smaller local gate"
-    assert one_line(dev_loop) =~ "Re-run the pre-PR verification gate after review fixes"
-    assert one_line(repo_prompt) =~ "fix failures before opening/finalizing a PR"
+    assert one_line(dev_loop) =~ "loop on unrelated suite flakes"
+    assert one_line(dev_loop) =~ "Re-run the scoped local pre-PR verification gate"
+    assert one_line(repo_prompt) =~ "Fix failures in this scoped gate"
   end
 
   defp assert_codex_skill_symlink_resolves_to_claude(skill) do

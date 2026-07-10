@@ -36,7 +36,7 @@ defmodule Aiur.TestReset do
   require Logger
 
   alias Aiur.Config.Paths
-  alias Aiur.JsonStore
+  alias Aiur.{JsonStore, TicketBranch}
 
   @tickets_file ".aiur-test-tickets.json"
 
@@ -593,7 +593,7 @@ defmodule Aiur.TestReset do
   # (`<tmp_dir>/aiur_workspaces`).
   defp delete_workspace(id) do
     root = workspace_root_with_fallback()
-    safe_id = String.replace(to_string(id), ~r/[^a-zA-Z0-9._-]/, "_")
+    safe_id = Paths.sanitize(to_string(id))
     path = Path.join(root, safe_id)
 
     case File.rm_rf(path) do
@@ -624,10 +624,9 @@ defmodule Aiur.TestReset do
   end
 
   defp delete_remote_branch(id) do
-    # Agents sometimes create suffix-variant branches (e.g.,
-    # `aiur/99-event-flow-1`) instead of the canonical `aiur/<id>`. The
-    # reset has to delete ALL of them so a re-run starts clean. Walk
-    # remote refs matching `aiur/<id>` AND `aiur/<id>-*`.
+    # A ticket can have either a legacy branch or a readable suffix. The
+    # centralized ticket-branch parser filters the broad remote-ref probe so
+    # similarly numbered tickets are never touched.
     branches = list_remote_branches_for(id)
 
     if branches == [] do
@@ -638,7 +637,7 @@ defmodule Aiur.TestReset do
   end
 
   defp list_remote_branches_for(id) do
-    pattern = "refs/heads/aiur/#{id}*"
+    pattern = "refs/heads/#{TicketBranch.legacy_branch_name(id)}*"
 
     case System.cmd("git", ["ls-remote", "--heads", "origin", pattern], stderr_to_stdout: true) do
       {output, 0} -> parse_remote_branches(id, output)
@@ -659,17 +658,9 @@ defmodule Aiur.TestReset do
     end
   end
 
-  # `git ls-remote --heads origin refs/heads/aiur/99*` could match
-  # `aiur/999` (different ticket). Tighten to exact + dash-suffix.
-  defp filter_id_match(id, "aiur/" <> rest) do
-    cond do
-      rest == to_string(id) -> ["aiur/#{id}"]
-      String.starts_with?(rest, "#{id}-") -> ["aiur/#{rest}"]
-      true -> []
-    end
+  defp filter_id_match(id, branch) do
+    if TicketBranch.ticket_branch?(branch, id), do: [branch], else: []
   end
-
-  defp filter_id_match(_id, _branch), do: []
 
   defp delete_one_remote_branch(id, branch) do
     case System.cmd("git", ["push", "origin", "--delete", branch], stderr_to_stdout: true) do
@@ -686,11 +677,10 @@ defmodule Aiur.TestReset do
   end
 
   defp close_open_pr(id) do
-    # Close PRs targeting any branch in `aiur/<id>` and any `aiur/<id>-*`
-    # suffix variant. `gh pr close <branch>` resolves the branch name to
-    # the open PR head; safe to call when no PR exists (silent no-op).
+    # `gh pr close <branch>` resolves an actual readable or legacy branch to
+    # its open PR head; safe to call when no PR exists (silent no-op).
     case list_remote_branches_for(id) do
-      [] -> close_pr_for_branch(id, "aiur/#{id}")
+      [] -> close_pr_for_branch(id, TicketBranch.legacy_branch_name(id))
       branches -> Enum.each(branches, &close_pr_for_branch(id, &1))
     end
   end
@@ -778,7 +768,7 @@ defmodule Aiur.TestReset do
   @spec reset_labels_command_args(integer() | String.t()) :: [[String.t()]]
   def reset_labels_command_args(id) do
     agent_labels =
-      "agent:todo,agent:in-progress,agent:human-review,agent:rework,agent:merging,agent:done,agent:error,agent:cancelled,agent:canceled,agent:paused"
+      "agent:todo,agent:in-progress,agent:ci-wait,agent:human-review,agent:rework,agent:merging,agent:done,agent:error,agent:cancelled,agent:canceled,agent:paused"
 
     [
       ["issue", "edit", to_string(id), "--remove-label", agent_labels],

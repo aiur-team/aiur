@@ -374,7 +374,7 @@ defmodule Aiur.AlertsTest do
     end
   end
 
-  describe "alerts file loading" do
+  describe "alerts.yaml loading" do
     @tag :tmp_dir
     test "yields {} when the yaml file is unreadable or malformed", %{tmp_dir: tmp_dir} do
       # Point Alerts at a non-existent path; load_yaml falls back to %{}.
@@ -486,78 +486,6 @@ defmodule Aiur.AlertsTest do
       # happens lazily at pick time in `expand_sound_path/1`.
       assert ["~/sounds/one.wav"] == definitions["good"].sound
       assert ["/tmp/a.wav", "/tmp/b.wav"] == definitions["also_good"].sound
-    end
-  end
-
-  describe "legacy .aiur/alerts.yaml fallback removal" do
-    test "ignores a legacy .aiur/alerts.yaml — canonical file wins, yaml never loaded, warns when only yaml remains" do
-      # The default path (no :alerts_file_path override, no config alerts_file)
-      # resolves to `<config-dir>/alerts`; the sibling `.aiur/alerts.yaml` is the
-      # legacy file that must never be parsed. Both live next to the per-test
-      # config that TestSupport's setup already wrote.
-      config_dir = Path.dirname(Workflow.workflow_file_path())
-      canonical = Path.join(config_dir, "alerts")
-      legacy = Path.join(config_dir, "alerts.yaml")
-
-      # A marker entry that must NEVER surface if the yaml were loaded.
-      File.write!(legacy, """
-      alerts:
-        "legacy.only.topic":
-          message: "LEGACY YAML LOADED"
-      """)
-
-      # Canonical extensionless file present with distinct contents → it wins,
-      # the yaml is ignored, and no deprecation warning fires.
-      File.write!(canonical, """
-      alerts:
-        "canonical.topic":
-          message: "From canonical alerts"
-      """)
-
-      log =
-        capture_log(fn ->
-          defs = Alerts.definitions()
-          assert defs["canonical.topic"].message == "From canonical alerts"
-          refute Map.has_key?(defs, "legacy.only.topic")
-        end)
-
-      refute log =~ "fallback was removed"
-
-      # Remove the canonical file → only the legacy yaml remains. Mappings must
-      # resolve to an empty map (the yaml is still never parsed — no marker
-      # entry leaks) and the one-time deprecation warning must fire, naming the
-      # rename the operator needs to make.
-      File.rm!(canonical)
-
-      log =
-        capture_log(fn ->
-          assert Alerts.definitions() == %{}
-        end)
-
-      assert log =~ "fallback was removed"
-      assert log =~ "Rename #{legacy} to #{canonical}"
-    end
-
-    test "with no alerts file at all the default path resolves to an empty map and emission is a silent no-op" do
-      # No canonical `.aiur/alerts`, no legacy `.aiur/alerts.yaml`, no override:
-      # the default-path branch must resolve cleanly to `%{}` without crashing,
-      # emitting plays no mapped sound, and no deprecation warning fires.
-      config_dir = Path.dirname(Workflow.workflow_file_path())
-      File.rm_rf!(Path.join(config_dir, "alerts"))
-      File.rm_rf!(Path.join(config_dir, "alerts.yaml"))
-
-      topic = "task.no-alerts-file.#{System.unique_integer([:positive])}"
-      probe = fn sound -> send(self(), {:played, sound}) end
-
-      log =
-        capture_log(fn ->
-          assert Alerts.definitions() == %{}
-          assert is_nil(Alerts.definition_for_topic(topic))
-          assert :ok = Alerts.emit_custom(topic, "No mapping present", player: probe)
-        end)
-
-      refute_receive {:played, _sound}, 100
-      refute log =~ "fallback was removed"
     end
   end
 
@@ -964,7 +892,7 @@ defmodule Aiur.AlertsTest do
     } do
       # Exercises two new seams at once: (1) alerts_path precedence — with no
       # :alerts_file_path app-env override set, the config `alerts_file` is used
-      # instead of the bundled alerts file; (2) resolve_sound_path joins a bare
+      # instead of the bundled alerts.yaml; (2) resolve_sound_path joins a bare
       # filename from the mapping onto `sound_dir`.
       sound_dir = Path.join(root, "clips")
       File.mkdir_p!(sound_dir)
@@ -1020,7 +948,7 @@ defmodule Aiur.AlertsTest do
 
     test "a missing config alerts_file falls back to the bundled mapping", %{workspace_root: root} do
       # A typo'd / non-existent custom alerts_file must not silently kill all
-      # alert sounds — alerts_path falls back to the bundled alerts file, so a
+      # alert sounds — alerts_path falls back to the bundled alerts.yaml, so a
       # real bundled topic still resolves its sound.
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: root,

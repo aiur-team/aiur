@@ -1,7 +1,7 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
 
-  alias Aiur.{AgentChat, AlertFeed, Config, Orchestrator}
+  alias Aiur.{AgentChat, AlertFeed, BuildGate, Config, Orchestrator, PauseContainment}
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
 
@@ -21,6 +21,8 @@ defmodule Aiur.AgentControlCLI do
         statuses
         |> Enum.filter(&visible_status_row?/1)
         |> print_status_table()
+
+        print_build_gate_status()
 
         exit_marker(0)
 
@@ -180,6 +182,20 @@ defmodule Aiur.AgentControlCLI do
     |> control_selected(action, targets)
   end
 
+  # A targeted pause can still arm its locally-recorded containment group even
+  # when the orchestrator is too congested to answer status. Preserve the
+  # control-RPC result (and therefore the CLI's timeout/error contract); this
+  # only gives the targeted AgentChat path a chance to arm its independent
+  # fallback. `--all` remains status-driven because it has no safe target set.
+  defp control_status(:pause, targets, error) when is_list(targets) and error in [:timeout, :unavailable] do
+    Enum.each(targets, fn target ->
+      _ = PauseContainment.arm_target(to_string(target))
+    end)
+
+    print_orchestrator_status_error(error)
+    1
+  end
+
   defp control_status(_action, _targets, error) when error in [:timeout, :unavailable] do
     print_orchestrator_status_error(error)
     1
@@ -291,6 +307,16 @@ defmodule Aiur.AgentControlCLI do
         to_string(status.title || "")
       ])
     end)
+  end
+
+  defp print_build_gate_status do
+    case BuildGate.status() do
+      %{enabled?: true, capacity: capacity, active: active, queued: queued} when active > 0 or queued > 0 ->
+        IO.puts("BUILD GATE #{active}/#{capacity} active, #{queued} queued")
+
+      _ ->
+        :ok
+    end
   end
 
   defp visible_status_row?(%{work_state: :deactivated}), do: false
@@ -483,6 +509,8 @@ defmodule Aiur.AgentControlCLI do
 
   defp watch_activity(%{tracker_paused: true}), do: "(paused: label override)"
   defp watch_activity(%{tracker_paused: "true"}), do: "(paused: label override)"
+  defp watch_activity(%{tracker_state: "ci-wait"}), do: "(waiting for CI)"
+  defp watch_activity(%{state: "ci-wait"}), do: "(waiting for CI)"
   defp watch_activity(%{state: :idle}), do: "(idle)"
   defp watch_activity(status), do: agent_activity(status)
 

@@ -13,13 +13,13 @@ defmodule Aiur.Claude.CodingAgentTest do
     :ok
   end
 
-  test "implements CodingAgent behaviour" do
+  test "implements CodingAgent backend behaviour" do
     behaviours =
       ClaudeAgent.__info__(:attributes)
       |> Keyword.get_values(:behaviour)
       |> List.flatten()
 
-    assert Aiur.CodingAgent in behaviours
+    assert Aiur.CodingAgent.Backend in behaviours
   end
 
   test "start_session rejects workspace root directory" do

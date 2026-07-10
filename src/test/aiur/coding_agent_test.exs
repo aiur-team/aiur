@@ -2,12 +2,60 @@ defmodule Aiur.CodingAgentTest do
   use ExUnit.Case, async: true
 
   alias Aiur.Claude.CodingAgent, as: ClaudeAgent
+  alias Aiur.Codex.AppServerPort
   alias Aiur.Codex.CodingAgent, as: CodexAgent
   alias Aiur.Codex.Config, as: CodexConfig
+  alias Aiur.Codex.NotificationPolicy
   alias Aiur.CodingAgent
   alias Aiur.Issue
 
   defp issue(labels), do: %Issue{labels: labels}
+
+  describe "select_for_dispatch/2" do
+    test "uses the first configured, available fallback from an ordered list" do
+      assert {:ok, %Issue{selected_backend: "claude"}} =
+               CodingAgent.select_for_dispatch(issue([]),
+                 backends: ["unconfigured", "claude", "codex"],
+                 configured_backends: ["claude"]
+               )
+    end
+
+    test "keeps an explicit backend selection unchanged" do
+      explicit = %Issue{labels: ["model:codex"]}
+
+      assert {:ok, ^explicit} =
+               CodingAgent.select_for_dispatch(explicit,
+                 backends: ["claude"],
+                 configured_backends: ["claude"]
+               )
+    end
+
+    test "reports all configured candidates when none is available" do
+      state = %{
+        "backends" => %{"claude" => %{"limited" => true, "reset_at" => "2999-01-01T00:00:00Z"}}
+      }
+
+      assert {:all_limited, ["claude"]} =
+               CodingAgent.select_for_dispatch(issue([]),
+                 backends: ["claude", "codex"],
+                 configured_backends: ["claude"],
+                 state: state
+               )
+    end
+
+    test "selects codex after claude is marked limited" do
+      state = %{
+        "backends" => %{"claude" => %{"limited" => true, "reset_at" => "2999-01-01T00:00:00Z"}}
+      }
+
+      assert {:ok, %Issue{selected_backend: "codex"}} =
+               CodingAgent.select_for_dispatch(issue([]),
+                 backends: ["claude", "codex"],
+                 configured_backends: ["claude", "codex"],
+                 state: state
+               )
+    end
+  end
 
   describe "override_backend/1 (model: tag selects backend)" do
     test "bare model:<backend> selects that backend" do
@@ -333,17 +381,17 @@ defmodule Aiur.CodingAgentTest do
 
   describe "codex_command/2 model and effort splice" do
     test "nil model leaves the configured command unchanged" do
-      assert CodexAgent.codex_command_for_test(nil) == CodexConfig.command()
+      assert AppServerPort.codex_command_for_test(nil) == CodexConfig.command()
     end
 
     test "a model variant is appended as a single-quoted --config token" do
-      command = CodexAgent.codex_command_for_test("gpt-5.5")
+      command = AppServerPort.codex_command_for_test("gpt-5.5")
       assert command == CodexConfig.command() <> " --config 'model=\"gpt-5.5\"'"
       assert String.ends_with?(command, "--config 'model=\"gpt-5.5\"'")
     end
 
     test "an effort override is appended after model so it beats command defaults" do
-      command = CodexAgent.codex_command_for_test("gpt-5.5", "high")
+      command = AppServerPort.codex_command_for_test("gpt-5.5", "high")
 
       assert command ==
                CodexConfig.command() <>
@@ -351,7 +399,7 @@ defmodule Aiur.CodingAgentTest do
     end
 
     test "config values are shell escaped as single arguments" do
-      command = CodexAgent.codex_command_for_test("gpt'5.5", "high")
+      command = AppServerPort.codex_command_for_test("gpt'5.5", "high")
 
       assert command ==
                CodexConfig.command() <>
@@ -361,39 +409,54 @@ defmodule Aiur.CodingAgentTest do
 
   describe "unretryable codex error detection" do
     test "willRetry:false inside params trips the unretryable path" do
-      payload = %{"method" => "error", "params" => %{"willRetry" => false, "message" => "usageLimitExceeded"}}
-      assert CodexAgent.unretryable_codex_error_for_test(payload)
-      assert CodexAgent.codex_error_reason_for_test(payload, "error") == "error: usageLimitExceeded"
+      payload = %{
+        "method" => "error",
+        "params" => %{"willRetry" => false, "message" => "usageLimitExceeded"}
+      }
+
+      assert NotificationPolicy.unretryable_codex_error?(payload)
+
+      assert NotificationPolicy.codex_error_reason(payload, "error") ==
+               "error: usageLimitExceeded"
     end
 
     test "willRetry:false at the notification root also trips it" do
-      assert CodexAgent.unretryable_codex_error_for_test(%{"willRetry" => false})
+      assert NotificationPolicy.unretryable_codex_error?(%{"willRetry" => false})
     end
 
     test "snake_case will_retry:false is honored" do
-      assert CodexAgent.unretryable_codex_error_for_test(%{"params" => %{"will_retry" => false}})
+      assert NotificationPolicy.unretryable_codex_error?(%{"params" => %{"will_retry" => false}})
     end
 
     test "willRetry:true is retryable (continues, not a hard failure)" do
-      refute CodexAgent.unretryable_codex_error_for_test(%{"params" => %{"willRetry" => true}})
+      refute NotificationPolicy.unretryable_codex_error?(%{"params" => %{"willRetry" => true}})
     end
 
     test "absent willRetry is retryable" do
-      refute CodexAgent.unretryable_codex_error_for_test(%{"params" => %{"message" => "transient blip"}})
+      refute NotificationPolicy.unretryable_codex_error?(%{
+               "params" => %{"message" => "transient blip"}
+             })
     end
 
     test "reason falls back to the method when no detail field is present" do
-      assert CodexAgent.codex_error_reason_for_test(%{"params" => %{"willRetry" => false}}, "task/error") == "task/error"
+      assert NotificationPolicy.codex_error_reason(
+               %{"params" => %{"willRetry" => false}},
+               "task/error"
+             ) == "task/error"
     end
 
     test "reason reaches a codexErrorInfo detail instead of the bare method" do
       payload = %{"params" => %{"willRetry" => false, "codexErrorInfo" => "usageLimitExceeded"}}
-      assert CodexAgent.codex_error_reason_for_test(payload, "error") == "error: usageLimitExceeded"
+
+      assert NotificationPolicy.codex_error_reason(payload, "error") ==
+               "error: usageLimitExceeded"
     end
 
     test "reason reaches a nested error.message detail" do
       payload = %{"params" => %{"error" => %{"message" => "overloaded"}}}
-      assert CodexAgent.codex_error_reason_for_test(payload, "task/error") == "task/error: overloaded"
+
+      assert NotificationPolicy.codex_error_reason(payload, "task/error") ==
+               "task/error: overloaded"
     end
   end
 
@@ -408,24 +471,32 @@ defmodule Aiur.CodingAgentTest do
         }
       }
 
-      assert CodexAgent.usage_limit_exceeded_for_test(payload)
+      assert NotificationPolicy.usage_limit_exceeded?(payload)
     end
 
     test "an ordinary willRetry:false error is not a quota pause" do
-      payload = %{"method" => "error", "params" => %{"willRetry" => false, "message" => "bwrap: sandbox refused"}}
-      refute CodexAgent.usage_limit_exceeded_for_test(payload)
+      payload = %{
+        "method" => "error",
+        "params" => %{"willRetry" => false, "message" => "bwrap: sandbox refused"}
+      }
+
+      refute NotificationPolicy.usage_limit_exceeded?(payload)
     end
 
     test "the reset time is extracted from the human message" do
       payload = %{
-        "params" => %{"message" => "You've hit your usage limit. Purchase more credits or try again at 11:43 PM."}
+        "params" => %{
+          "message" => "You've hit your usage limit. Purchase more credits or try again at 11:43 PM."
+        }
       }
 
-      assert CodexAgent.usage_limit_reset_hint_for_test(payload) == "11:43 PM"
+      assert NotificationPolicy.usage_limit_reset_hint(payload) == "11:43 PM"
     end
 
     test "the reset hint is nil when no try-again phrase is present" do
-      refute CodexAgent.usage_limit_reset_hint_for_test(%{"params" => %{"message" => "usageLimitExceeded"}})
+      refute NotificationPolicy.usage_limit_reset_hint(%{
+               "params" => %{"message" => "usageLimitExceeded"}
+             })
     end
 
     test "a quota error routes to a pause carrying the reset hint, not an unretryable error" do
@@ -438,7 +509,8 @@ defmodule Aiur.CodingAgentTest do
         }
       }
 
-      assert {:paused, pause} = CodexAgent.notification_outcome_for_test("error", payload)
+      assert NotificationPolicy.codex_quota_exhausted?("error", payload)
+      pause = NotificationPolicy.usage_limit_pause(payload, "error")
       assert pause.kind == :usage_limit_exhausted
       assert pause.reset_hint == "11:43 PM"
       # The pause carries the real backend detail, never the opaque bare "error".
@@ -447,18 +519,29 @@ defmodule Aiur.CodingAgentTest do
     end
 
     test "an ordinary unretryable error still routes to a turn_unretryable error, not a pause" do
-      payload = %{"method" => "error", "params" => %{"willRetry" => false, "message" => "bwrap: sandbox refused"}}
+      payload = %{
+        "method" => "error",
+        "params" => %{"willRetry" => false, "message" => "bwrap: sandbox refused"}
+      }
 
-      assert {:error, {:turn_unretryable, "error: bwrap: sandbox refused"}} =
-               CodexAgent.notification_outcome_for_test("error", payload)
+      refute NotificationPolicy.codex_quota_exhausted?("error", payload)
+
+      assert NotificationPolicy.codex_error_method?("error") and
+               NotificationPolicy.unretryable_codex_error?(payload)
+
+      assert NotificationPolicy.codex_error_reason(payload, "error") ==
+               "error: bwrap: sandbox refused"
     end
 
     test "a retryable error mentioning a usage limit is NOT a quota pause" do
       # willRetry:true means codex will retry; pausing would strand the agent
-      # (no auto-resume), so a transient \"usage limit\" mention must not pause.
-      payload = %{"method" => "error", "params" => %{"willRetry" => true, "message" => "approaching usage limit, retrying"}}
+      # (no auto-resume), so a transient "usage limit" mention must not pause.
+      payload = %{
+        "method" => "error",
+        "params" => %{"willRetry" => true, "message" => "approaching usage limit, retrying"}
+      }
 
-      refute CodexAgent.codex_quota_exhausted_for_test("error", payload)
+      refute NotificationPolicy.codex_quota_exhausted?("error", payload)
     end
   end
 
@@ -487,5 +570,58 @@ defmodule Aiur.CodingAgentTest do
     Port.close(port)
   rescue
     ArgumentError -> :ok
+  end
+
+  describe "Aiur.CodingAgent.Backend wiring" do
+    test "every registry adapter implements the behaviour" do
+      for {backend, entry} <- CodingAgent.backends() do
+        behaviours =
+          entry.adapter.module_info(:attributes)
+          |> Keyword.get_values(:behaviour)
+          |> List.flatten()
+
+        assert Aiur.CodingAgent.Backend in behaviours,
+               "adapter #{inspect(entry.adapter)} for #{inspect(backend)} " <>
+                 "must declare @behaviour Aiur.CodingAgent.Backend"
+      end
+    end
+
+    test "remote_transport/1 returns the declared RC transport" do
+      assert CodingAgent.remote_transport("claude") == "claude-repl"
+      assert CodingAgent.remote_transport("claude-repl") == "claude-repl"
+      assert CodingAgent.remote_transport("codex") == "codex"
+      assert CodingAgent.remote_transport("nonexistent") == "nonexistent"
+    end
+
+    test "fallback_backend/1 returns the declared spawn-failure fallback" do
+      assert CodingAgent.fallback_backend("claude-repl") == "claude"
+      assert CodingAgent.fallback_backend("claude") == nil
+      assert CodingAgent.fallback_backend("codex") == nil
+      assert CodingAgent.fallback_backend("nonexistent") == nil
+    end
+  end
+
+  describe "rc_display_tail?/1" do
+    test "only claude-repl feeds the RC display tailer" do
+      assert CodingAgent.rc_display_tail?("claude-repl")
+      refute CodingAgent.rc_display_tail?("claude")
+      refute CodingAgent.rc_display_tail?("codex")
+      refute CodingAgent.rc_display_tail?("mystery")
+    end
+  end
+
+  describe "runtime_report/1" do
+    test "claude-repl reports its pane runtime" do
+      assert CodingAgent.runtime_report("claude-repl") == :repl_pane
+    end
+
+    test "headless claude reports its wrapper pid" do
+      assert CodingAgent.runtime_report("claude") == :headless_wrapper
+    end
+
+    test "codex and unknown backends report nothing" do
+      assert CodingAgent.runtime_report("codex") == nil
+      assert CodingAgent.runtime_report("mystery") == nil
+    end
   end
 end

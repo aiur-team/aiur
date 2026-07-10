@@ -10,7 +10,7 @@ defmodule Aiur.Events.Topic do
 
   Pure module — no GenServer, no ETS, no process state. Safe to call from any
   context including async tests. Used by `Aiur.Events.Exchange` for subscription
-  dispatch and by `Aiur.Alerts` for glob-keyed alerts-file lookup (one
+  dispatch and by `Aiur.Alerts` for glob-keyed `alerts.yaml` lookup (one
   matcher, two consumers, no drift).
 
   ## Specificity ordering

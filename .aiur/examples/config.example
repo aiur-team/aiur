@@ -12,10 +12,12 @@ tracker:
 agent:
   kind: {{AGENT_KIND}}                   # default backend: codex | claude
   max_concurrent_agents: {{MAX_AGENTS}}  # global cap on simultaneously-running agents
+  # max_concurrent_builds: 2             # fleet cap for agent mix compile/test; 0 = unrestricted verification
   max_turns: {{MAX_TURNS}}               # per-issue turn cap (cost guard); `none` = unlimited
   max_agent_duration_minutes: {{MAX_AGENT_DURATION}}  # safety net: hard-kill a stuck agent after N min (0 = never)
   # synthetic_load_process_cap: null     # per-agent cap for `yes`/`stress` load generators; null = cores/4, 0 = disabled
   routing: {{ROUTING}}                   # complexity:<N> label -> backend[:model[:effort]], e.g. codex:gpt-5.6-terra:high
+{{RATE_LIMIT_FALLBACK}}  # opt-in default-ticket fallback order; explicit labels/routing are never changed
   claude:
     command: aiur-claude
     permission_mode: {{PERMISSION_MODE}} # bypassPermissions (default/acceptEdits need an approval UI — coming soon)
@@ -30,11 +32,15 @@ agent:
     # thrash_max_per_window: 6
     # thrash_window_seconds: 60
   # --- advanced agent tuning (defaults shown) ---
+  # mix_scheduler_cap: 4                 # cap each agent Mix VM (and ExUnit's default max_cases)
   # max_retry_attempts: 3
   # max_retry_backoff_ms: 300000
   # turn_timeout_ms: 3600000             # backstop per turn (any backend)
   # stall_timeout_ms: 3600000            # watchdog for a silent agent (60 min; long test/coverage runs are silent)
   # max_load_average: 1.5                # per-scheduler load gate; set null to disable
+  # target_load_average: 1.0             # per-scheduler adaptive target; set null to disable envelope
+  # load_ramp_step: 1                    # slots added per below-target poll
+  # load_cooldown_seconds: 60            # minimum seconds between high-load decreases
   # remote_control: false                # always attach Claude remote control to RC-capable agents
 
 # === Workspace & per-repo agent prompt ===
@@ -55,7 +61,7 @@ max_vertical_panes: 3                    # max agent chat panes shown at once
 pre_warmed_sessions: {{PRE_WARMED}}      # opencode sessions pre-booted for fast open
 
 # === Warm base pre-warm (opt-in; `aiur init` sets this up) ===
-# aiur builds ONE warm, pre-compiled checkout of latest main and spins each agent
+# aiur builds ONE warm, pre-compiled checkout of the configured tracker base and spins each agent
 # workspace off it (copy-on-write) instead of every agent cloning + building from scratch.
 prewarm:
   enabled: {{PREWARM_ENABLED}}           # turn on to pre-warm a shared base before agents dispatch
@@ -66,7 +72,7 @@ alerts:
   enabled: {{ALERTS_ENABLED}}                  # master switch for alert sound playback (macOS + Linux)
   use_os_default_sounds: {{ALERTS_OS_SOUNDS}}  # true = built-in OS system sounds; false = topic→sound map below
   # sound_dir: ~/alerts                        # custom sound folder: resolves the map's filenames, and (in OS-default mode) a <category>.<ext> file here overrides that category
-  alerts_file: alerts                          # topic→sound map; a relative path resolves next to this config (edit `.aiur/alerts`). Use an absolute or ~/ path to point elsewhere; a missing file falls back to the default `.aiur/alerts` next to the config
+  alerts_file: alerts                          # topic→sound map; a relative path resolves next to this config (edit `.aiur/alerts`). Use an absolute or ~/ path to point elsewhere; a missing file falls back to the default `.aiur/alerts.yaml` next to the config
 
 # === Repo-wide PR comment watching (opt-in; OFF by default) ===
 # Let aiur act on comments across the whole repo, not just its own aiur/<id> PRs.
