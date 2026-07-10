@@ -253,7 +253,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
           SessionLifecycle.session_worker_host(app_session)
         )
 
-        MessageHandler.send_control_state(codex_update_recipient, issue, :paused)
+        MessageHandler.send_control_state(codex_update_recipient, issue, :paused, pause_payload)
         wait_for_operator_message(app_session, issue, message_handler, orchestrator, codex_update_recipient)
 
       {:error, {:turn_start_failed, reason}} when reason in [:response_timeout, :turn_timeout] ->

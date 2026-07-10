@@ -380,26 +380,14 @@ defmodule Aiur.Orchestrator do
     {:noreply, state}
   end
 
-  def handle_info({:worker_control_state, issue_id, status}, %{running: running} = state)
+  def handle_info({:worker_control_state, issue_id, status}, state)
       when is_binary(issue_id) and status in [:paused, :working] do
-    case Map.get(running, issue_id) do
-      nil ->
-        {:noreply, state}
+    handle_worker_control_state(state, issue_id, status, %{})
+  end
 
-      running_entry ->
-        previous_status = get_in(running_entry, [:control, :status]) || :working
-
-        updated_running_entry =
-          running_entry
-          |> put_in([:control, :status], status)
-          |> apply_pause_runtime_clock(previous_status, status, DateTime.utc_now())
-
-        maybe_emit_agent_control_alert(previous_status, status, updated_running_entry)
-
-        state = %{state | running: Map.put(running, issue_id, updated_running_entry)}
-        notify_dashboard(state)
-        {:noreply, state}
-    end
+  def handle_info({:worker_control_state, issue_id, :paused, pause_payload}, state)
+      when is_binary(issue_id) and is_map(pause_payload) do
+    handle_worker_control_state(state, issue_id, :paused, pause_payload)
   end
 
   def handle_info({:retry_issue, issue_id, retry_token}, state) do
@@ -455,6 +443,31 @@ defmodule Aiur.Orchestrator do
   def handle_info(msg, state) do
     Logger.debug("Orchestrator ignored message: #{inspect(msg)}")
     {:noreply, state}
+  end
+
+  defp handle_worker_control_state(%{running: running} = state, issue_id, status, pause_payload) do
+    case Map.get(running, issue_id) do
+      nil ->
+        {:noreply, state}
+
+      running_entry ->
+        previous_status = get_in(running_entry, [:control, :status]) || :working
+        pause_reason = worker_pause_reason(running_entry, pause_payload)
+
+        updated_running_entry =
+          running_entry
+          |> put_in([:control, :status], status)
+          |> apply_pause_runtime_clock(previous_status, status, DateTime.utc_now())
+          |> maybe_put_worker_pause_reason(status, pause_reason)
+
+        maybe_log_worker_pause(status, updated_running_entry, pause_reason)
+        maybe_emit_agent_control_alert(previous_status, status, updated_running_entry)
+
+        state = %{state | running: Map.put(running, issue_id, updated_running_entry)}
+        state = maybe_auto_resume_spurious_worker_pause(state, updated_running_entry, status)
+        notify_dashboard(state)
+        {:noreply, state}
+    end
   end
 
   defp handle_agent_down(%{running: running} = state, ref, reason) do
@@ -726,7 +739,13 @@ defmodule Aiur.Orchestrator do
             # already-equal status short-circuit drops the duplicate
             # transition cleanly.
             _ = send_pause_control_message(state, identifier)
-            transition_control_status(state, running_entry, :paused, "agent.pause.request")
+
+            transition_control_status(
+              state,
+              Map.put(running_entry, :paused_reason, :agent_pause_request),
+              :paused,
+              "agent.pause.request"
+            )
         end
 
       _ ->
@@ -3012,13 +3031,10 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  # Safety check-in, not a kill: pause any agent that has been actively
-  # running longer than `agent.max_agent_duration_minutes` (paused/blocked
-  # time excluded via `running_seconds/2`). The duration cap is almost
-  # always "I want to check in," not "this work is done" — pausing keeps
-  # the agent in the list, holding its slot and its session/turn context,
-  # so the operator can review and resume with one keystroke instead of
-  # restarting from scratch.
+  # Safety checkpoint: pause any agent that has been actively running longer
+  # than `agent.max_agent_duration_minutes` (paused/blocked time is excluded
+  # via `running_seconds/2`). A worker that cannot park remains eligible for
+  # the wedged-stream watchdog below.
   @doc false
   @spec reconcile_overrunning_agents(State.t()) :: State.t()
   def reconcile_overrunning_agents(%State{} = state) do
@@ -3065,7 +3081,7 @@ defmodule Aiur.Orchestrator do
       identifier = Map.get(running_entry, :identifier, issue_id)
       seconds = running_seconds(Map.get(running_entry, :started_at), now)
 
-      Logger.warning("Issue exceeded max_agent_duration: issue_id=#{issue_id} issue_identifier=#{identifier} running_seconds=#{seconds} cap_seconds=#{max_seconds}; pausing agent")
+      Logger.warning("orchestrator.pause issue_id=#{issue_id} issue_identifier=#{identifier} cause=max_agent_duration running_seconds=#{seconds} cap_seconds=#{max_seconds}")
 
       _ = send_pause_control_message(state, identifier)
 
@@ -3075,6 +3091,42 @@ defmodule Aiur.Orchestrator do
       state
     end
   end
+
+  # A worker pause with no external blocker is safe to resume after it reaches
+  # its pause boundary. Quota, containment, operator, label, and blocker pauses
+  # retain their distinct reasons and stay parked for their owning recovery path.
+  defp maybe_auto_resume_spurious_worker_pause(state, %{paused_reason: reason} = running_entry, :paused)
+       when reason in [:input_required, :worker_pause_unknown] do
+    case resume_paused_issue(state, running_entry) do
+      {{:ok, :resumed}, state} ->
+        state
+
+      {{:error, reason}, state} ->
+        Logger.warning("orchestrator.pause_resume_deferred issue_identifier=#{Map.get(running_entry, :identifier)} cause=#{Map.get(running_entry, :paused_reason)} reason=#{inspect(reason)}")
+
+        state
+    end
+  end
+
+  defp maybe_auto_resume_spurious_worker_pause(state, _running_entry, _status), do: state
+
+  defp worker_pause_reason(running_entry, pause_payload) do
+    Map.get(running_entry, :paused_reason) ||
+      Map.get(pause_payload, :kind) ||
+      Map.get(pause_payload, "kind") ||
+      if(Map.has_key?(pause_payload, :request_id), do: :pause_containment, else: :worker_pause_unknown)
+  end
+
+  defp maybe_put_worker_pause_reason(entry, :paused, pause_reason), do: Map.put(entry, :paused_reason, pause_reason)
+  defp maybe_put_worker_pause_reason(entry, _status, _pause_reason), do: entry
+
+  defp maybe_log_worker_pause(:paused, running_entry, pause_reason) do
+    Logger.warning(
+      "orchestrator.pause issue_id=#{get_in(running_entry, [:issue, Access.key(:id)])} issue_identifier=#{Map.get(running_entry, :identifier)} cause=#{pause_reason} source=worker_control_state"
+    )
+  end
+
+  defp maybe_log_worker_pause(_status, _running_entry, _pause_reason), do: :ok
 
   @doc false
   @spec reconcile_stalled_running_issues(State.t()) :: State.t()
@@ -3111,14 +3163,11 @@ defmodule Aiur.Orchestrator do
       wedged_overcap_entry?(running_entry, now, timeout_ms) ->
         terminate_wedged_overcap_entry(state, issue_id, running_entry, now)
 
-      # Paused agents are INTENTIONALLY idle — the agent emitted
-      # pause.request because it declared a blocker and has nothing to
-      # do until the blocker emits. The stall watchdog must not
-      # interpret deliberate idleness as a stuck codex stream. The
-      # auto-resume hook in handle_info({:event, ...}) will reawaken
-      # the entry when its blocker pushes; if no push ever arrives, an
-      # operator-driven resume (label flip or chat) is the path
-      # forward, not a restart that throws away the agent's workpad.
+      # Paused agents are intentionally idle — either an agent declared a
+      # blocker, or a duration-capped worker has not yet confirmed it can
+      # park. The stall watchdog must not restart deliberate idleness; the
+      # duration-specific wedge branch above handles a stream that keeps
+      # producing output after the pause request.
       paused_running_entry?(running_entry) ->
         state
 
@@ -5119,7 +5168,8 @@ defmodule Aiur.Orchestrator do
       {{:error, :already_inactive}, state}
     else
       reply = send_pause_control_message(state, issue_identifier)
-      {reply, transition_control_status(state, running_entry, :paused, "operator.pause")}
+      paused_entry = Map.put(running_entry, :paused_reason, :operator_pause)
+      {reply, transition_control_status(state, paused_entry, :paused, "operator.pause")}
     end
   end
 
@@ -5220,7 +5270,8 @@ defmodule Aiur.Orchestrator do
   # because the optimistic transition is the source of truth for the UI.
   defp perform_pane_interrupt(:pause, state, entry, issue_identifier, _pane_id) do
     _ = send_pause_control_message(state, issue_identifier)
-    {{:ok, :paused}, transition_control_status(state, entry, :paused, "pane.ctrl_c.pause")}
+    paused_entry = Map.put(entry, :paused_reason, :pane_ctrl_c)
+    {{:ok, :paused}, transition_control_status(state, paused_entry, :paused, "pane.ctrl_c.pause")}
   end
 
   @doc """
@@ -5415,10 +5466,10 @@ defmodule Aiur.Orchestrator do
   # that keeps getting auto-resumed on blocker pushes stays bounded instead
   # of running forever.
   #
-  # Label-override pauses have no special duration semantics; resuming just
-  # clears their attribution marker after the normal pause-clock thaw.
+  # Every other pause reason has no special duration semantics; resuming just
+  # clears its attribution marker after the normal pause-clock thaw.
   #
-  # A no-op for manually/blocker-paused entries (no marker).
+  # Entries without a pause attribution marker need no cleanup.
   defp reset_duration_clock_if_capped(running, issue_id, %DateTime{} = now, operator?)
        when is_map(running) do
     case Map.get(running, issue_id) do
@@ -5430,7 +5481,7 @@ defmodule Aiur.Orchestrator do
 
         Map.put(running, issue_id, updated)
 
-      %{paused_reason: :label_override} = entry ->
+      %{paused_reason: _reason} = entry ->
         Map.put(running, issue_id, Map.delete(entry, :paused_reason))
 
       _ ->

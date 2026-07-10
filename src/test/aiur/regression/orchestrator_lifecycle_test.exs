@@ -323,6 +323,46 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
       assert next.running["l13"].pid == self()
     end
 
+    test "an input-required worker pause is logged and resumed" do
+      name = Module.concat(__MODULE__, :InputRequiredPause)
+      pid = start_orchestrator(name)
+      entry = running_entry("l16", "L16", :working)
+      :sys.replace_state(pid, &%{&1 | running: %{"l16" => entry}, claimed: MapSet.new(["l16"])})
+
+      log =
+        capture_log(fn ->
+          send(pid, {:worker_control_state, "l16", :paused, %{kind: :input_required}})
+          assert_receive {:resume_agent, _}, 2_000
+        end)
+
+      resumed = :sys.get_state(pid).running["l16"]
+      assert resumed.control.status == :working
+      refute Map.has_key?(resumed, :paused_reason)
+      assert log =~ "orchestrator.pause"
+      assert log =~ "issue_identifier=L16"
+      assert log =~ "cause=input_required"
+    end
+
+    test "a usage-limit worker pause is logged but not resumed" do
+      name = Module.concat(__MODULE__, :UsageLimitPause)
+      pid = start_orchestrator(name)
+      entry = running_entry("l17", "L17", :working)
+      :sys.replace_state(pid, &%{&1 | running: %{"l17" => entry}, claimed: MapSet.new(["l17"])})
+
+      log =
+        capture_log(fn ->
+          send(pid, {:worker_control_state, "l17", :paused, %{kind: :usage_limit_exhausted}})
+          assert :paused = get_in(:sys.get_state(pid).running["l17"], [:control, :status])
+        end)
+
+      refute_receive {:resume_agent, _}, 100
+      paused = :sys.get_state(pid).running["l17"]
+      assert paused.paused_reason == :usage_limit_exhausted
+      assert log =~ "orchestrator.pause"
+      assert log =~ "issue_identifier=L17"
+      assert log =~ "cause=usage_limit_exhausted"
+    end
+
     test "paused and deactivated entries are excluded from the overrun check" do
       started_at = DateTime.add(DateTime.utc_now(), -120, :second)
 

@@ -116,7 +116,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
         )
 
         Aiur.AgentRunner.write_pause_log(workspace, worker_host)
-        MessageHandler.send_control_state(codex_update_recipient, issue, :paused)
+        MessageHandler.send_control_state(codex_update_recipient, issue, :paused, pause_payload)
         wait_for_resume(turn_context, app_session, message_handler)
 
       {:error, reason} ->
