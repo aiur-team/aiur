@@ -73,6 +73,9 @@ defmodule Aiur.Orchestrator.Reconciler do
       DispatchPolicy.active_issue_state?(issue.state, active_states) ->
         maybe_reactivate_or_refresh(state, issue)
 
+      Orchestrator.ci_wait_state?(issue.state) ->
+        Orchestrator.pause_issue_for_ci_wait(state, issue)
+
       Orchestrator.human_review_state?(issue.state) ->
         Orchestrator.maybe_deactivate_human_review_issue(state, issue)
 
@@ -102,7 +105,8 @@ defmodule Aiur.Orchestrator.Reconciler do
           {{:error, _reason}, next_state} -> next_state
         end
 
-      %{control: %{status: :paused}, paused_reason: :label_override} = running_entry ->
+      %{control: %{status: :paused}, paused_reason: pause_reason} = running_entry
+      when pause_reason in [:ci_wait, :label_override] ->
         new_entry = Map.put(running_entry, :issue, issue)
         state = %{state | running: Map.put(state.running, issue.id, new_entry)}
 
@@ -111,7 +115,7 @@ defmodule Aiur.Orchestrator.Reconciler do
             next_state
 
           {{:error, reason}, next_state} ->
-            Logger.info("Label override resume deferred: #{State.issue_context(issue)} reason=#{inspect(reason)}")
+            Logger.info("Paused issue resume deferred: #{State.issue_context(issue)} reason=#{inspect(reason)}")
             next_state
         end
 

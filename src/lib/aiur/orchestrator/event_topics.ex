@@ -27,6 +27,14 @@ defmodule Aiur.Orchestrator.EventTopics do
     end
   end
 
+  @spec parse_ci_failed_topic(String.t()) :: {:ok, String.t()} | :nomatch
+  def parse_ci_failed_topic(topic) do
+    case Regex.run(~r{\Aticket\.([^.]+)\.ci\.failed\z}, topic) do
+      [_, number] -> {:ok, number}
+      _ -> :nomatch
+    end
+  end
+
   @spec parse_pause_request_topic(String.t()) :: {:ok, String.t()} | :nomatch
   def parse_pause_request_topic(topic) do
     case Regex.run(~r{\Aticket\.([^.]+)\.agent\.pause\.request\z}, topic) do
@@ -60,6 +68,7 @@ defmodule Aiur.Orchestrator.EventTopics do
     with :nomatch <- tag_topic(:pr_review_comment, parse_pr_review_comment_topic(topic)),
          :nomatch <- tag_topic(:issue_commented, parse_issue_commented_topic(topic)),
          :nomatch <- tag_topic(:pr_merged, parse_pr_merged_topic(topic)),
+         :nomatch <- tag_topic(:ci_failed, parse_ci_failed_topic(topic)),
          :nomatch <- tag_topic(:pause_request, parse_pause_request_topic(topic)),
          :nomatch <- tag_topic(:branch_push, parse_branch_push_topic(topic)) do
       tag_topic(:system_branch_push, parse_system_branch_push_topic(topic))

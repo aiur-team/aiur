@@ -509,6 +509,8 @@ defmodule Aiur.AgentControlCLI do
 
   defp watch_activity(%{tracker_paused: true}), do: "(paused: label override)"
   defp watch_activity(%{tracker_paused: "true"}), do: "(paused: label override)"
+  defp watch_activity(%{tracker_state: "ci-wait"}), do: "(waiting for CI)"
+  defp watch_activity(%{state: "ci-wait"}), do: "(waiting for CI)"
   defp watch_activity(%{state: :idle}), do: "(idle)"
   defp watch_activity(status), do: agent_activity(status)
 
