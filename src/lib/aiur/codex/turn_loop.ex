@@ -89,7 +89,8 @@ defmodule Aiur.Codex.TurnLoop do
            on_message,
            metadata,
            state.tool_executor,
-           state.auto_approve_requests
+           state.auto_approve_requests,
+           pause_latched?(session, state)
          ) do
       :input_required ->
         Messages.emit_message(
@@ -118,6 +119,10 @@ defmodule Aiur.Codex.TurnLoop do
       :unhandled ->
         handle_unhandled_method(session, state, method, payload, payload_string, on_message, metadata)
     end
+  end
+
+  defp pause_latched?(session, state) do
+    is_integer(state.pause_request_id) or Aiur.PauseContainment.paused?(Map.get(session, :containment))
   end
 
   defp handle_unhandled_method(session, state, method, payload, payload_string, on_message, metadata) do

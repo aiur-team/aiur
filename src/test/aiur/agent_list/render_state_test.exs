@@ -53,4 +53,31 @@ defmodule Aiur.AgentList.RenderStateTest do
              |> RenderState.build()
              |> Map.fetch!(:max_agents)
   end
+
+  describe "safe_call/1" do
+    test "returns the value of a successful call" do
+      assert RenderState.safe_call(fn -> :computed end) == :computed
+    end
+
+    test "returns nil when the call raises" do
+      assert RenderState.safe_call(fn -> raise "boom" end) == nil
+    end
+
+    test "returns nil when the call exits" do
+      assert RenderState.safe_call(fn -> exit(:dead) end) == nil
+    end
+
+    test "returns nil when the call throws" do
+      assert RenderState.safe_call(fn -> throw(:nope) end) == nil
+    end
+  end
+
+  describe "terminal_geometry/0" do
+    test "returns a {columns, rows} pair of positive integers" do
+      {cols, rows} = RenderState.terminal_geometry()
+
+      assert is_integer(cols) and cols > 0
+      assert is_integer(rows) and rows > 0
+    end
+  end
 end

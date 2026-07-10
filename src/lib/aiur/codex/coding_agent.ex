@@ -17,7 +17,7 @@ defmodule Aiur.Codex.CodingAgent do
     TurnLoop
   }
 
-  alias Aiur.Config
+  alias Aiur.{Config, PauseContainment}
 
   @type session :: %{
           port: port(),
@@ -53,9 +53,12 @@ defmodule Aiur.Codex.CodingAgent do
     effort = Keyword.get(opts, :effort)
     resume_thread_id = Keyword.get(opts, :resume_thread_id)
 
+    identifier = Keyword.get(opts, :identifier)
+
     with {:ok, expanded_workspace} <- AppServerPort.validate_workspace_cwd(workspace, worker_host),
          {:ok, port} <- AppServerPort.start_port(expanded_workspace, worker_host, model, effort) do
       metadata = AppServerPort.port_metadata(port, worker_host)
+      containment = register_pause_containment(identifier, metadata, expanded_workspace)
 
       # Local spawns run bash -lc "codex … app-server"; a remote spawn's
       # local pid is the ssh client, so the cmdline guard expects that.
@@ -76,12 +79,14 @@ defmodule Aiur.Codex.CodingAgent do
            thread_id: thread_id,
            resumed: resumed?,
            workspace: expanded_workspace,
+           containment: containment,
            worker_host: worker_host,
            model: model
          }}
       else
         {:error, reason} ->
           AppServerPort.stop_port(port)
+          PauseContainment.unregister(containment)
           {:error, reason}
       end
     end
@@ -103,7 +108,11 @@ defmodule Aiur.Codex.CodingAgent do
   end
 
   @impl Aiur.CodingAgent.Backend
-  def stop_session(%{port: port}) when is_port(port), do: AppServerPort.stop_port(port)
+  def stop_session(%{port: port} = session) when is_port(port) do
+    AppServerPort.stop_port(port)
+    PauseContainment.unregister(Map.get(session, :containment))
+  end
+
   @impl Aiur.CodingAgent.Backend
   def send_operator_message(session, payload), do: OperatorDelivery.send_operator_message(session, payload)
   @impl Aiur.CodingAgent.Backend
@@ -143,4 +152,20 @@ defmodule Aiur.Codex.CodingAgent do
   rescue
     ArgumentError -> {:error, :port_closed}
   end
+
+  defp register_pause_containment(identifier, metadata, workspace) when is_binary(identifier) do
+    with pid when is_binary(pid) <- metadata[:codex_app_server_pid],
+         group when is_binary(group) <- metadata[:agent_process_group_id],
+         {root_pid, ""} <- Integer.parse(pid),
+         {process_group_id, ""} <- Integer.parse(group) do
+      case PauseContainment.register(identifier, root_pid, process_group_id, workspace: workspace) do
+        {:ok, handle} -> handle
+        _ -> nil
+      end
+    else
+      _ -> nil
+    end
+  end
+
+  defp register_pause_containment(_identifier, _metadata, _workspace), do: nil
 end

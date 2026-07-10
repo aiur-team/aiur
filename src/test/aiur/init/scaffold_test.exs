@@ -28,6 +28,14 @@ defmodule Aiur.Init.ScaffoldTest do
     assert File.read!(prewarm) == "custom prewarm"
   end
 
+  test "generated hooks use the exported configured base branch", %{target: target} do
+    assert {:created, hooks} = Scaffold.write_aiurhooks(target)
+
+    contents = File.read!(hooks)
+    assert contents =~ "THIS_BASE_BRANCH"
+    refute contents =~ "origin/main"
+  end
+
   test "ensure_env rewrites example but never clobbers env", %{dir: dir} do
     File.cd!(dir, fn ->
       assert {:created, env} = Scaffold.ensure_env("GITHUB_TOKEN=one\n")

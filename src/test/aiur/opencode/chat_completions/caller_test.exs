@@ -38,4 +38,16 @@ defmodule Aiur.Opencode.ChatCompletions.CallerTest do
       assert Map.has_key?(body, :message)
     end
   end
+
+  describe "writer/2" do
+    test "returns nil (segmentation disabled) when the caller's base_url can't be resolved" do
+      conn = conn(:post, "/")
+      assert Caller.writer(conn, "id-no-writer") == nil
+    end
+
+    test "returns nil for an invalid bearer token" do
+      conn = conn(:post, "/") |> put_req_header("authorization", "Bearer invalid-token")
+      assert Caller.writer(conn, "id-bad-token") == nil
+    end
+  end
 end

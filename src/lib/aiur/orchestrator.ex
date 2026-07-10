@@ -17,6 +17,7 @@ defmodule Aiur.Orchestrator do
     CodingAgent,
     Config,
     Issue,
+    PauseContainment,
     RepoBase,
     SessionHandle,
     Tracker,
@@ -322,6 +323,27 @@ defmodule Aiur.Orchestrator do
     end
   end
 
+  def handle_info({:pause_containment_runtime, issue_id, info}, %{running: running} = state)
+      when is_binary(issue_id) and is_map(info) do
+    case Map.get(running, issue_id) do
+      running_entry when is_map(running_entry) ->
+        updated =
+          running_entry
+          |> maybe_put_runtime_value(:pause_containment_generation, info[:generation])
+          |> maybe_put_runtime_value(:agent_process_group_id, info[:process_group_id])
+
+        {:noreply, %{state | running: Map.put(running, issue_id, updated)}}
+
+      _ ->
+        {:noreply, state}
+    end
+  end
+
+  def handle_info({:pause_containment_result, identifier, generation, result}, state)
+      when is_binary(identifier) and is_integer(generation) do
+    {:noreply, apply_pause_containment_result(state, identifier, generation, result)}
+  end
+
   def handle_info(
         {:codex_worker_update, issue_id, %{event: _, timestamp: _} = update},
         %{running: running} = state
@@ -440,43 +462,72 @@ defmodule Aiur.Orchestrator do
         {:noreply, state}
 
       issue_id ->
-        {running_entry, state} = pop_running_entry(state, issue_id)
-        state = record_session_completion_totals(state, running_entry)
-        session_id = running_entry_session_id(running_entry)
+        case Map.get(running, issue_id) do
+          %{pause_contained: true} = entry ->
+            contained = entry |> Map.put(:pid, nil) |> Map.put(:ref, nil)
+            state = %{state | running: Map.put(running, issue_id, contained), retry_attempts: Map.delete(state.retry_attempts, issue_id)}
+            notify_dashboard(state)
+            {:noreply, state}
 
-        state =
-          case reason do
-            :normal ->
-              Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
-
-              state
-              |> complete_issue(issue_id)
-              |> schedule_issue_retry(issue_id, 1, %{
-                identifier: running_entry.identifier,
-                delay_type: :continuation,
-                worker_host: Map.get(running_entry, :worker_host),
-                workspace_path: Map.get(running_entry, :workspace_path)
-              })
-
-            _ ->
-              Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
-
-              next_attempt = next_retry_attempt_from_running(running_entry)
-
-              schedule_issue_retry(state, issue_id, next_attempt, %{
-                identifier: running_entry.identifier,
-                error: "agent exited: #{inspect(reason)}",
-                worker_host: Map.get(running_entry, :worker_host),
-                workspace_path: Map.get(running_entry, :workspace_path)
-              })
-          end
-
-        Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
-
-        notify_dashboard(state)
-        {:noreply, state}
+          _ ->
+            handle_completed_agent(state, issue_id, reason)
+        end
     end
   end
+
+  defp handle_completed_agent(state, issue_id, reason) do
+    {running_entry, state} = pop_running_entry(state, issue_id)
+    state = record_session_completion_totals(state, running_entry)
+    session_id = running_entry_session_id(running_entry)
+
+    state =
+      case reason do
+        :normal ->
+          Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
+
+          state
+          |> complete_issue(issue_id)
+          |> schedule_issue_retry(issue_id, 1, %{
+            identifier: running_entry.identifier,
+            delay_type: :continuation,
+            worker_host: Map.get(running_entry, :worker_host),
+            workspace_path: Map.get(running_entry, :workspace_path)
+          })
+
+        _ ->
+          Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
+
+          next_attempt = next_retry_attempt_from_running(running_entry)
+
+          schedule_issue_retry(state, issue_id, next_attempt, %{
+            identifier: running_entry.identifier,
+            error: "agent exited: #{inspect(reason)}",
+            worker_host: Map.get(running_entry, :worker_host),
+            workspace_path: Map.get(running_entry, :workspace_path)
+          })
+      end
+
+    Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
+
+    notify_dashboard(state)
+    {:noreply, state}
+  end
+
+  defp apply_pause_containment_result(state, identifier, generation, :contained) do
+    case find_running_by_identifier(state.running, identifier) do
+      %{pause_containment_generation: ^generation, pid: pid} = entry ->
+        issue_id = get_in(entry, [:issue, Access.key(:id)])
+        updated = Map.put(entry, :pause_contained, true)
+        state = %{state | running: Map.put(state.running, issue_id, updated)}
+        if is_pid(pid), do: terminate_task(pid)
+        state
+
+      _ ->
+        state
+    end
+  end
+
+  defp apply_pause_containment_result(state, _identifier, _generation, _result), do: state
 
   defp parse_pr_review_comment_topic(topic), do: EventTopics.parse_pr_review_comment_topic(topic)
   defp parse_issue_commented_topic(topic), do: EventTopics.parse_issue_commented_topic(topic)
@@ -893,11 +944,25 @@ defmodule Aiur.Orchestrator do
         |> apply_pause_runtime_clock(old_status, new_status, now)
 
       next_state = %{state | running: Map.put(state.running, issue_id, next_entry)}
+      maybe_arm_pause_containment(old_status, new_status, reason, identifier)
       maybe_emit_agent_control_alert(old_status, new_status, next_entry)
       notify_dashboard(next_state)
       next_state
     end
   end
+
+  # An `agent.pause.request` is the agent's own cooperative decision to stop
+  # working (e.g. it declared a blocker), so it yields at the next turn boundary
+  # and needs no forceful containment. Only pauses imposed on a possibly
+  # uncooperative live turn arm the fallback.
+  defp maybe_arm_pause_containment(:working, :paused, "agent.pause.request", _identifier), do: :ok
+
+  defp maybe_arm_pause_containment(:working, :paused, _reason, identifier) when is_binary(identifier) do
+    _ = PauseContainment.arm(identifier)
+    :ok
+  end
+
+  defp maybe_arm_pause_containment(_old_status, _new_status, _reason, _identifier), do: :ok
 
   defp reactivate_if_deactivated(state, running_entry, issue_number, source, event) do
     if deactivated_running_entry?(running_entry) do
@@ -1184,8 +1249,30 @@ defmodule Aiur.Orchestrator do
 
     Logger.info("#{source} reactivating: issue_id=#{issue_id} issue_identifier=#{issue_number}")
 
-    {_reply, next_state} = reactivate_issue(state, refreshed_entry)
-    next_state
+    case reactivate_issue(state, refreshed_entry) do
+      {{:ok, :reactivated}, next_state} ->
+        next_state
+
+      {{:error, reason}, next_state} ->
+        emit_comment_reactivation_deferred_alert(refreshed_entry, source, reason)
+        next_state
+    end
+  end
+
+  defp emit_comment_reactivation_deferred_alert(running_entry, source, reason) do
+    identifier = Map.get(running_entry, :identifier)
+    issue_id = get_in(running_entry, [:issue, Access.key(:id)])
+
+    Logger.warning("#{source} reactivation deferred: issue_id=#{issue_id} issue_identifier=#{identifier} reason=#{inspect(reason)}")
+
+    Alerts.emit_system("ticket.#{identifier}.agent.review_feedback_delivery_deferred",
+      issue: identifier,
+      workspace: Map.get(running_entry, :workspace_path),
+      worker_host: Map.get(running_entry, :worker_host),
+      reason: "Trusted review feedback moved the ticket to rework, but the agent could not resume: #{inspect(reason)}.",
+      needs_attention: true,
+      severity: "warning"
+    )
   end
 
   defp comment_reactivation_context(running_entry, issue_number) do
@@ -5191,7 +5278,20 @@ defmodule Aiur.Orchestrator do
     # budget so the fresh task starts with a full window.
     state = reset_thrash_budget(state, issue_id)
 
-    {{:ok, :reactivated}, do_dispatch_issue(state, issue, nil, worker_host)}
+    dispatched_state = do_dispatch_issue(state, issue, nil, worker_host)
+
+    case Map.get(dispatched_state.running, issue_id) do
+      %{pid: pid} when is_pid(pid) ->
+        {{:ok, :reactivated}, dispatched_state}
+
+      _ ->
+        # `select_worker_host/2`, the thrash breaker, or Task.Supervisor can
+        # decline a dispatch after the entry is optimistically made `:working`.
+        # Restore the parked entry so the tracker still shows it as needing a
+        # wake and the comment path can emit its durable operator alert.
+        restored_state = %{dispatched_state | running: Map.put(dispatched_state.running, issue_id, running_entry)}
+        {{:error, :dispatch_not_started}, refresh_tracked_set(restored_state)}
+    end
   end
 
   # `operator?` distinguishes a deliberate operator resume (label flip,
@@ -5205,6 +5305,9 @@ defmodule Aiur.Orchestrator do
   @spec resume_paused_issue(State.t(), map(), boolean()) :: {{:ok, :resumed} | {:error, term()}, State.t()}
   def resume_paused_issue(%State{} = state, running_entry, operator? \\ true) do
     cond do
+      Map.get(running_entry, :pause_contained) == true ->
+        resume_contained_issue(state, running_entry)
+
       # The paused agent already holds a slot, so the limit only blocks
       # resume if the *active* count is already at the cap (which can
       # happen if `max` was lowered while the agent was paused).
@@ -5222,7 +5325,15 @@ defmodule Aiur.Orchestrator do
     end
   end
 
+  defp resume_contained_issue(state, running_entry) do
+    {{:ok, :reactivated}, next_state} = do_reactivate(state, running_entry)
+    {{:ok, :started}, next_state}
+  end
+
   defp send_resume_control_message(%State{} = state, running_entry, operator?) do
+    containment = pause_containment_handle(running_entry)
+    _ = PauseContainment.release(containment)
+
     case send_running_control_message(state, Map.get(running_entry, :identifier), fn request_id ->
            {:resume_agent, request_id}
          end) do
@@ -5267,9 +5378,17 @@ defmodule Aiur.Orchestrator do
         {{:ok, :resumed}, state}
 
       {:error, _reason} = error ->
+        _ = PauseContainment.arm(Map.get(running_entry, :identifier))
         {error, state}
     end
   end
+
+  defp pause_containment_handle(%{identifier: identifier, pause_containment_generation: generation})
+       when is_binary(identifier) and is_integer(generation) do
+    %{identifier: identifier, generation: generation}
+  end
+
+  defp pause_containment_handle(_running_entry), do: nil
 
   defp reset_last_codex_timestamp(running, issue_id, %DateTime{} = now) when is_map(running) do
     case Map.get(running, issue_id) do

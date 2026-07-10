@@ -26,6 +26,19 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
 
   defp report_repl_session(_recipient, _issue, _session), do: :ok
 
+  defp report_pause_containment(recipient, %Issue{id: issue_id}, %{containment: containment, metadata: metadata})
+       when is_pid(recipient) and is_binary(issue_id) and is_map(containment) do
+    send(recipient, {
+      :pause_containment_runtime,
+      issue_id,
+      %{generation: containment[:generation], process_group_id: metadata[:agent_process_group_id]}
+    })
+
+    :ok
+  end
+
+  defp report_pause_containment(_recipient, _issue, _session), do: :ok
+
   defp session_runtime_info(session) do
     case CodingAgent.runtime_report(session_backend(session)) do
       :repl_pane ->
@@ -102,6 +115,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
       SessionResume.log_resume_outcome(issue, session, resume_thread_id)
 
       report_repl_session(codex_update_recipient, issue, session)
+      report_pause_containment(codex_update_recipient, issue, session)
 
       display_tailer = maybe_start_display_tailer(session, issue, rc?)
 
