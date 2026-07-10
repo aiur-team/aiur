@@ -81,6 +81,10 @@ defmodule Aiur.ModelAvailabilityTest do
     refute ModelAvailability.available?("codex", path: path)
   end
 
+  test "uses the active workflow directory for the default ledger path" do
+    assert String.ends_with?(ModelAvailability.path(), "model-usage.json")
+  end
+
   test "a past usage-window reset restores availability", %{path: path} do
     reset = DateTime.add(DateTime.utc_now(), -1, :second) |> DateTime.to_iso8601()
 
