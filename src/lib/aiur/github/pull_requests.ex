@@ -103,6 +103,56 @@ defmodule Aiur.GitHub.PullRequests do
   defp ticket_pull_request?(_pull_request, _issue_number), do: false
 
   @doc """
+  Fetches the GitHub check runs and legacy combined commit status for `sha`.
+
+  GitHub Actions and GitHub Apps report check runs while older integrations
+  report commit statuses. CI lifecycle callers need both sources to determine
+  whether a pull request head is pending or terminal.
+  """
+  @spec fetch_commit_ci_status(String.t(), keyword()) ::
+          {:ok, %{check_runs: [map()], commit_status: map()}} | {:error, term()}
+  def fetch_commit_ci_status(sha, opts \\ [])
+
+  def fetch_commit_ci_status(sha, opts) when is_binary(sha) and sha != "" do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      encoded_sha = URI.encode(sha)
+      base_url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/commits/#{encoded_sha}"
+
+      with {:ok, check_runs} <-
+             fetch_check_runs(request_fun, token, base_url <> "/check-runs?filter=latest&per_page=100"),
+           {:ok, commit_status} when is_map(commit_status) <-
+             Transport.fetch_json_map(request_fun, token, base_url <> "/status") do
+        {:ok, %{check_runs: check_runs, commit_status: commit_status}}
+      else
+        {:error, _reason} = error -> error
+      end
+    end
+  end
+
+  def fetch_commit_ci_status(sha, _opts), do: {:error, {:invalid_commit_sha, sha}}
+
+  defp fetch_check_runs(request_fun, token, url, acc \\ []) do
+    case request_fun.(%{method: :get, url: url, token: token}) do
+      {:ok, %{status: 200, body: %{"check_runs" => check_runs}} = response} when is_list(check_runs) ->
+        case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
+          nil -> {:ok, acc ++ check_runs}
+          next -> fetch_check_runs(request_fun, token, next, acc ++ check_runs)
+        end
+
+      {:ok, %{status: 200}} ->
+        {:error, :invalid_ci_status_response}
+
+      {:ok, %{status: _status} = response} ->
+        {:error, Errors.github_status_error(response)}
+
+      {:error, reason} ->
+        {:error, Errors.classify_error({:error, reason})}
+    end
+  end
+
+  @doc """
   Fetches the OPEN pull requests carrying `label` (e.g. `"agent:watch"`),
   repo-wide, for opt-in PR comment watching.
 

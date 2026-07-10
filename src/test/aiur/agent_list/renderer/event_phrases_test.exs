@@ -23,6 +23,11 @@ defmodule Aiur.AgentList.Renderer.EventPhrasesTest do
              {"Estimated progress: 40% done", " \"tests\""}
   end
 
+  test "publish_event_phrase describes CI lifecycle events" do
+    assert EventPhrases.publish_event_phrase("ci.passed", %{}) == {"CI passed", ""}
+    assert EventPhrases.publish_event_phrase("ci.failed", %{message: "lint"}) == {"CI failed:", " \"lint\""}
+  end
+
   test "publish_event_phrase describes branch pushes, PRs, comments, and unknown topics" do
     assert EventPhrases.publish_event_phrase("branch.push", %{
              "commits" => [%{"message" => "first"}, %{"message" => "last"}]
