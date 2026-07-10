@@ -1,5 +1,5 @@
 defmodule Aiur.AppServer.AdapterTest do
-  use ExUnit.Case, async: true
+  use Aiur.TestSupport, async: false
 
   alias Aiur.AppServer.Adapter
 
@@ -74,6 +74,22 @@ defmodule Aiur.AppServer.AdapterTest do
   test "start_port/2 starts bash in the requested workspace" do
     assert {:ok, port} = Adapter.start_port(File.cwd!(), "printf '%s\\n' ready")
     assert_receive {^port, {:data, {:eol, "ready"}}}, 1_000
+  end
+
+  test "start_port/2 caps schedulers for an agent-launched Mix VM" do
+    write_workflow_file!(Workflow.workflow_file_path(), mix_scheduler_cap: 3)
+
+    mix = System.find_executable("mix") || flunk("mix executable unavailable")
+    elixir = System.find_executable("elixir") || flunk("elixir executable unavailable")
+    path = Path.dirname(elixir) <> ":" <> System.get_env("PATH")
+
+    assert {:ok, port} =
+             Adapter.start_port(
+               File.cwd!(),
+               "PATH=#{Aiur.Shell.escape(path)} #{Aiur.Shell.escape(mix)} run --no-start -e 'IO.puts(System.schedulers_online())'"
+             )
+
+    assert_receive {^port, {:data, {:eol, "3"}}}, 10_000
   end
 
   defp session(port, overrides \\ %{}) do
