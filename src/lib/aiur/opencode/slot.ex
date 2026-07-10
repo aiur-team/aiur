@@ -52,12 +52,10 @@ defmodule Aiur.Opencode.Slot do
   require Logger
 
   alias Aiur.Boot
-  alias Aiur.Opencode.{Protocol, SessionWriter, SessionWriterRegistry, SlotRegistry}
+  alias Aiur.Opencode.{Protocol, SlotRegistry}
   alias Aiur.Opencode.Slot.{AttachPane, Events, ServeLifecycle, Sessions, State}
-  alias Aiur.Tmux
 
   @default_poll_interval_ms 500
-  @replay_timeout_ms 10_000
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
@@ -170,7 +168,7 @@ defmodule Aiur.Opencode.Slot do
     agent_ids =
       case State.rebuild_seed_identifiers(state) do
         {:known, ids} -> ids
-        :poll_orchestrator -> safely_list_active_identifiers()
+        :poll_orchestrator -> ServeLifecycle.safely_list_active_identifiers()
       end
 
     display_opt = State.display_opt(state)
@@ -198,7 +196,7 @@ defmodule Aiur.Opencode.Slot do
 
   defp mark_ready_with_attach_pane(state) do
     with {:ok, keep_alive_pane} <- AttachPane.hidden_window_target(),
-         :ok <- reflow_hidden_window(keep_alive_pane),
+         :ok <- AttachPane.reflow_hidden_window(keep_alive_pane),
          {:ok, pane_id} <- AttachPane.spawn(state.slot_index, state.base_url, keep_alive_pane) do
       Logger.info("opencode_slot phase=ready elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} pane_id=#{pane_id}")
       Events.slot_ready(state.slot_index)
@@ -265,7 +263,7 @@ defmodule Aiur.Opencode.Slot do
   def handle_call(:clear_visible, _from, state) do
     new_state =
       if state.visible_identifier do
-        broadcast_visible_changed(state.slot_index, nil, state.pane_id)
+        Events.visible_changed(state.slot_index, nil, state.pane_id)
         _ = cancel_poll(state.poll_ref)
         State.clear_visible(state)
       else
@@ -282,7 +280,7 @@ defmodule Aiur.Opencode.Slot do
 
       {clears_visible?, new_state} ->
         if clears_visible? do
-          broadcast_visible_changed(new_state.slot_index, nil, new_state.pane_id)
+          Events.visible_changed(new_state.slot_index, nil, new_state.pane_id)
           _ = cancel_poll(state.poll_ref)
         end
 
@@ -297,7 +295,7 @@ defmodule Aiur.Opencode.Slot do
     _ = cancel_poll(state.poll_ref)
     new_state = State.deselect(state)
     Events.session_changed(state.slot_index, nil)
-    broadcast_visible_changed(state.slot_index, nil, state.pane_id)
+    Events.visible_changed(state.slot_index, nil, state.pane_id)
     Events.slot_ready(state.slot_index)
     Logger.info("opencode_slot phase=deselect elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index}")
     {:reply, :ok, new_state}
@@ -342,7 +340,7 @@ defmodule Aiur.Opencode.Slot do
         Aiur.ProcessReaper.unregister({:pane, pane_id})
         Events.session_changed(state.slot_index, nil)
         # Pane is dead — clear the registry's pane_id too.
-        broadcast_visible_changed(state.slot_index, nil, nil)
+        Events.visible_changed(state.slot_index, nil, nil)
         {:noreply, State.pane_died(state), {:continue, :spawn_attach}}
     end
   end
@@ -403,19 +401,10 @@ defmodule Aiur.Opencode.Slot do
 
   defp do_set_visible_call(identifier, from, state) do
     if State.identifier_known?(state, identifier) do
-      # `/tui/select-session` was removed: opencode 1.15.6 returns 200
-      # on the call but then exits the attach process 1.5-25 s later,
-      # killing whichever pane was rendering it. Every swap goes
-      # through kill+respawn instead. The user-facing "instant open"
-      # path never hits this — `Enter` opens a new pane via
-      # `AttachPool.consume`, which finds a slot already bound to the
-      # target identifier and returns the existing pane via the fast
-      # path in the `set_visible` handle_call clause above. Only
-      # cross-identifier rebinding on the same slot reaches here.
       case do_select(identifier, state) do
         {:ok, _session_id, new_state} ->
           Events.session_changed(new_state.slot_index, identifier)
-          broadcast_visible_changed(new_state.slot_index, identifier, new_state.pane_id)
+          Events.visible_changed(new_state.slot_index, identifier, new_state.pane_id)
           # Also broadcast :slot_attach_added so AttachPool's
           # attached_slots[identifier] includes this slot.
           Events.attach_added(new_state.slot_index, identifier)
@@ -434,55 +423,17 @@ defmodule Aiur.Opencode.Slot do
   defp do_select(identifier, state) do
     do_select_span = Aiur.Perf.span_begin(:slot_do_select, slot: state.slot_index, identifier: identifier)
 
-    case SessionWriterRegistry.ensure(identifier, state.base_url) do
-      {:ok, %{session_id: session_id, writer_pid: writer_pid}} ->
-        replay_span =
-          Aiur.Perf.span_begin(:session_writer_await_replay,
-            slot: state.slot_index,
-            identifier: identifier,
-            session_id: session_id
-          )
+    case Sessions.ensure_with_replay_span(identifier, state.base_url, state.slot_index) do
+      {:ok, session_id} ->
+        select_with_respawn(state, identifier, session_id, do_select_span)
 
-        case SessionWriter.await_replay(writer_pid, @replay_timeout_ms) do
-          :ok ->
-            Aiur.Perf.span_end(replay_span,
-              slot: state.slot_index,
-              identifier: identifier,
-              session_id: session_id
-            )
+      {:replay_failed, reason} ->
+        span_kw = [result: :replay_failed, slot: state.slot_index, identifier: identifier, reason: reason]
+        Aiur.Perf.span_end(do_select_span, span_kw)
+        {:error, reason}
 
-            select_with_respawn(state, identifier, session_id, do_select_span)
-
-          {:error, reason} ->
-            # Replay timed out or writer disappeared. Surface as a Slot.select
-            # error so the warm Task can broadcast :attach_failed instead of
-            # crashing with MatchError (which is what wedged 4/5 agents in ⏳
-            # on 2026-05-22).
-            Aiur.Perf.span_end(replay_span,
-              result: :failed,
-              slot: state.slot_index,
-              identifier: identifier,
-              session_id: session_id,
-              reason: reason
-            )
-
-            Aiur.Perf.span_end(do_select_span,
-              result: :replay_failed,
-              slot: state.slot_index,
-              identifier: identifier,
-              reason: reason
-            )
-
-            {:error, reason}
-        end
-
-      {:error, _} = err ->
-        Aiur.Perf.span_end(do_select_span,
-          result: :writer_failed,
-          slot: state.slot_index,
-          identifier: identifier
-        )
-
+      {:writer_failed, err} ->
+        Aiur.Perf.span_end(do_select_span, result: :writer_failed, slot: state.slot_index, identifier: identifier)
         err
     end
   end
@@ -513,7 +464,7 @@ defmodule Aiur.Opencode.Slot do
 
   defp respawn_attach_with_session(state, session_id, attach_cmd) do
     with {:ok, keep_alive_pane} <- AttachPane.hidden_window_target(),
-         :ok <- reflow_hidden_window(keep_alive_pane) do
+         :ok <- AttachPane.reflow_hidden_window(keep_alive_pane) do
       AttachPane.respawn_with_session(state, session_id, attach_cmd, keep_alive_pane)
     end
   end
@@ -528,7 +479,7 @@ defmodule Aiur.Opencode.Slot do
         # the renderer marker flips ⏳/🔘 → ⚪, and attach_added so the
         # warm consume path finds this slot for the new identifier
         # (otherwise the next Enter falls through to placeholder).
-        broadcast_visible_changed(new_state.slot_index, identifier, new_state.pane_id)
+        Events.visible_changed(new_state.slot_index, identifier, new_state.pane_id)
         Events.attach_added(new_state.slot_index, identifier)
         GenServer.reply(from, {:ok, new_state.pane_id})
         schedule_poll(%{new_state | pending_select: nil})
@@ -556,26 +507,6 @@ defmodule Aiur.Opencode.Slot do
         Aiur.Perf.event(:slot_attach_retry_failed, slot: acc.slot_index, identifier: id, reason: reason)
         acc
     end
-  end
-
-  defp broadcast_visible_changed(slot_index, identifier, pane_id) do
-    SlotRegistry.update_pane_state(slot_index, identifier, pane_id)
-    Events.visible_changed(slot_index, identifier, pane_id)
-  end
-
-  defp reflow_hidden_window(keep_alive_pane) do
-    case Tmux.command(Tmux, "select-layout -t #{keep_alive_pane} even-horizontal") do
-      {:ok, _} -> :ok
-      {:error, _} -> :ok
-    end
-  end
-
-  defp safely_list_active_identifiers do
-    ServeLifecycle.safely_list_active_identifiers()
-  rescue
-    _ -> []
-  catch
-    _, _ -> []
   end
 
   defp schedule_serve_rebuild(state, nil),
