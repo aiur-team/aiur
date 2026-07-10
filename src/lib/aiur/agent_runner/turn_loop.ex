@@ -137,6 +137,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
   def turn_done_reason(_), do: :done
 
   @doc false
+  @spec best_effort_queue_bookkeeping(:ok | {:error, term()}, atom(), Issue.t()) :: :ok
   def best_effort_queue_bookkeeping(:ok, _op, _issue), do: :ok
 
   @doc false
