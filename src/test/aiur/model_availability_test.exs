@@ -66,4 +66,31 @@ defmodule Aiur.ModelAvailabilityTest do
     unknown = Agent.changeset(%Agent{}, %{"switch_model_on_ratelimit" => ["unknown"]})
     refute unknown.valid?
   end
+
+  test "fails open for unreadable state and unsupported provider payloads", %{path: path} do
+    File.write!(path, "not json")
+    assert %{"backends" => %{}} = ModelAvailability.load(path)
+    assert ModelAvailability.available?("codex", path: path)
+
+    assert :ok = ModelAvailability.observe("codex", nil, path: path)
+    assert ModelAvailability.available?("codex", path: path)
+  end
+
+  test "an explicit limit without a reset remains unavailable", %{path: path} do
+    assert :ok = ModelAvailability.mark_limited("codex", nil, path: path)
+    refute ModelAvailability.available?("codex", path: path)
+  end
+
+  test "a past usage-window reset restores availability", %{path: path} do
+    reset = DateTime.add(DateTime.utc_now(), -1, :second) |> DateTime.to_iso8601()
+
+    assert :ok =
+             ModelAvailability.observe(
+               "codex",
+               %{monthly: %{used: 100, limit: 100, reset_at: reset}},
+               path: path
+             )
+
+    assert ModelAvailability.available?("codex", path: path)
+  end
 end
