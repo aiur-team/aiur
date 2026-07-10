@@ -13,8 +13,9 @@ defmodule Aiur.AlertFeed do
     |> Kernel.++(central_alert_log_paths(opts))
     |> Enum.uniq()
     |> Enum.flat_map(&read_alerts/1)
-    |> maybe_filter_attention(Keyword.get(opts, :needs_attention, false))
     |> Enum.sort_by(&Map.get(&1, "timestamp", ""))
+    |> resolve_attention_alerts()
+    |> maybe_filter_attention(Keyword.get(opts, :needs_attention, false))
   end
 
   defp workspace_alert_log_paths(opts) do
@@ -121,6 +122,39 @@ defmodule Aiur.AlertFeed do
 
   defp maybe_filter_attention(alerts, true), do: Enum.filter(alerts, &(Map.get(&1, "needs_attention") == true))
   defp maybe_filter_attention(alerts, _), do: alerts
+
+  defp resolve_attention_alerts(alerts) do
+    Enum.reduce(alerts, [], fn alert, active_alerts ->
+      case resolved_attention_key(Map.get(alert, "topic")) do
+        nil -> active_alerts ++ [alert]
+        key -> Enum.reject(active_alerts, &(attention_alert_key(&1) == key)) ++ [alert]
+      end
+    end)
+  end
+
+  defp resolved_attention_key("ticket." <> rest) do
+    case String.split(rest, ".agent.attention.", parts: 2) do
+      [ticket, slug_and_suffix] ->
+        case String.trim_trailing(slug_and_suffix, ".resolved") do
+          ^slug_and_suffix -> nil
+          slug -> {ticket, slug}
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp resolved_attention_key(_topic), do: nil
+
+  defp attention_alert_key(%{"topic" => "ticket." <> rest}) do
+    case String.split(rest, ".agent.attention.", parts: 2) do
+      [ticket, slug] -> {ticket, slug}
+      _ -> nil
+    end
+  end
+
+  defp attention_alert_key(_alert), do: nil
 
   defp string_field(map, key) do
     case Map.get(map, key) do

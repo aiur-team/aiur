@@ -6,7 +6,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   blocker declaration immediately subscribed for prompt resume behavior.
   """
 
-  alias Aiur.{Alerts, Issue}
+  alias Aiur.{Alerts, DecisionAttention, Issue}
   alias Aiur.Codex.DynamicTool
   alias Aiur.Events.{Publisher, SubscriptionStore}
   alias Aiur.GitHub.IssueDependencies
@@ -37,7 +37,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
           )
         end,
         event_publisher: fn name, message, payload ->
-          emit_agent_event(issue, name, message, payload)
+          emit_agent_event(issue, workspace, worker_host, name, message, payload)
         end,
         subscriber: fn pattern -> subscribe_for_issue(issue, pattern) end,
         unsubscriber: fn pattern -> unsubscribe_for_issue(issue, pattern) end,
@@ -137,7 +137,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     end
   end
 
-  defp emit_agent_event(issue, name, message, payload) do
+  defp emit_agent_event(issue, workspace, worker_host, name, message, payload) do
     identifier = issue_identifier(issue)
 
     topic =
@@ -153,9 +153,44 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       |> Map.put("issue", identifier)
 
     case Publisher.publish(topic, event_payload) do
-      {:ok, id, _subscribers} -> {:ok, %{"id" => id, "topic" => topic}}
-      :filtered -> {:error, :event_filtered}
-      :deduped -> {:error, :event_deduped}
+      {:ok, id, _subscribers} ->
+        sync_decision_attention(issue, workspace, worker_host, name, message, payload)
+        {:ok, %{"id" => id, "topic" => topic}}
+
+      :filtered ->
+        {:error, :event_filtered}
+
+      :deduped ->
+        {:error, :event_deduped}
+    end
+  end
+
+  defp sync_decision_attention(issue, _workspace, _worker_host, "attention.resolved", _message, payload) do
+    case Map.get(payload, "slug") do
+      slug when is_binary(slug) -> DecisionAttention.resolve(issue, slug)
+      _ -> :ok
+    end
+  end
+
+  defp sync_decision_attention(issue, workspace, worker_host, "attention." <> slug, message, _payload) do
+    DecisionAttention.open(issue, workspace, worker_host, slug, message)
+  end
+
+  defp sync_decision_attention(issue, workspace, worker_host, name, message, payload) when name in ["blocked", "pause.request"] do
+    case operator_decision_question(message, payload) do
+      nil -> :ok
+      question -> DecisionAttention.open(issue, workspace, worker_host, "operator-decision", question)
+    end
+  end
+
+  defp sync_decision_attention(_issue, _workspace, _worker_host, _name, _message, _payload), do: :ok
+
+  defp operator_decision_question(message, payload) do
+    if Map.get(payload, "reason") in ["operator_decision", "operator-decision"] do
+      case Map.get(payload, "question") do
+        question when is_binary(question) and question != "" -> question
+        _ -> message
+      end
     end
   end
 end

@@ -50,6 +50,12 @@ alerts:
     message: Agent paused
     sound:
       - "/System/Library/Sounds/Funk.aiff"
+  "ticket.*.agent.attention.*":
+    message: Operator decision required
+    sound:
+      - "/System/Library/Sounds/Basso.aiff"
+  "ticket.*.agent.attention.#":
+    message: Operator decision updated
   "ticket.*.agent.unpaused":
     message: Agent unpaused
     sound:

@@ -2,7 +2,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
   use ExUnit.Case, async: true
 
   alias Aiur.AgentRunner.ToolExecutor
-  alias Aiur.Events.Exchange
+  alias Aiur.Events.{Exchange, SubscriptionStore}
   alias Aiur.Issue
 
   describe "build/3" do
@@ -91,6 +91,36 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert_receive {:event, event}, 2_000
       assert event.topic =~ "ticket."
       assert event["name"] == "unblocked"
+    end
+
+    test "attention events create and resolve a durable decision attention" do
+      identifier = "TE-attention-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      executor = ToolExecutor.build(issue, nil, nil)
+
+      assert executor.("emit_event", %{"name" => "attention.scope-question", "message" => "Approve the target?"})["success"] == true
+      assert SubscriptionStore.snapshot(identifier).open_attentions == ["scope-question"]
+
+      assert executor.("emit_event", %{"name" => "attention.resolved", "message" => "Approved", "payload" => %{"slug" => "scope-question"}})["success"] == true
+      assert SubscriptionStore.snapshot(identifier).open_attentions == []
+    end
+
+    test "operator-decision pause requests raise a durable attention" do
+      identifier = "TE-decision-pause-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      executor = ToolExecutor.build(issue, nil, nil)
+
+      assert executor.(
+               "emit_event",
+               %{
+                 "name" => "pause.request",
+                 "message" => "Should this facade target change?",
+                 "payload" => %{"reason" => "operator_decision"}
+               }
+             )["success"] == true
+
+      assert SubscriptionStore.snapshot(identifier).open_attentions == ["operator-decision"]
+      assert executor.("emit_event", %{"name" => "attention.resolved", "message" => "Approved", "payload" => %{"slug" => "operator-decision"}})["success"] == true
     end
   end
 

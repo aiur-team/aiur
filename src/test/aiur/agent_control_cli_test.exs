@@ -870,6 +870,69 @@ defmodule Aiur.AgentControlCLITest do
       assert output =~ ~r/#45 human-review · needs review\/merge/
     end
 
+    test "actionable section surfaces an unanswered operator-decision question", %{watch_root: root} do
+      log_dir = Path.join([root, "934", "logs"])
+      File.mkdir_p!(log_dir)
+
+      File.write!(
+        Path.join(log_dir, "agent.ndjson"),
+        Jason.encode!(%{
+          "event" => "alert",
+          "name" => "ticket.934.agent.attention.scope-question",
+          "topic" => "ticket.934.agent.attention.scope-question",
+          "message" => "Operator decision required",
+          "reason" => "Operator decision required: Should this facade target change?",
+          "severity" => "warning",
+          "needs_attention" => true,
+          "source_ticket_id" => "934",
+          "timestamp" => DateTime.utc_now() |> DateTime.to_iso8601()
+        }) <> "\n"
+      )
+
+      output = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end)
+
+      assert output =~ "ACTIONABLE"
+      assert output =~ "#934"
+      assert output =~ "Operator decision required: Should this facade target change?"
+    end
+
+    test "resolved operator decisions leave the actionable section", %{watch_root: root} do
+      log_dir = Path.join([root, "934", "logs"])
+      File.mkdir_p!(log_dir)
+      initial_at = DateTime.utc_now() |> DateTime.to_iso8601()
+      resolved_at = DateTime.utc_now() |> DateTime.add(1, :second) |> DateTime.to_iso8601()
+
+      attention = %{
+        "event" => "alert",
+        "name" => "ticket.934.agent.attention.scope-question",
+        "topic" => "ticket.934.agent.attention.scope-question",
+        "message" => "Operator decision required",
+        "reason" => "Operator decision required: Should this facade target change?",
+        "severity" => "warning",
+        "needs_attention" => true,
+        "source_ticket_id" => "934",
+        "timestamp" => initial_at
+      }
+
+      resolved = %{
+        "event" => "alert",
+        "name" => "ticket.934.agent.attention.scope-question.resolved",
+        "topic" => "ticket.934.agent.attention.scope-question.resolved",
+        "message" => "Operator decision updated",
+        "reason" => "Operator decision resolved.",
+        "severity" => "info",
+        "needs_attention" => false,
+        "source_ticket_id" => "934",
+        "timestamp" => resolved_at
+      }
+
+      File.write!(Path.join(log_dir, "agent.ndjson"), Jason.encode!(attention) <> "\n" <> Jason.encode!(resolved) <> "\n")
+
+      output = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end)
+
+      refute output =~ "ACTIONABLE"
+    end
+
     test "CI-wait remains visible as an automatic gate, not a review-ready ticket", %{
       orchestrator: pid,
       watch_root: root

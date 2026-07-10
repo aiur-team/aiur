@@ -102,6 +102,12 @@ alerts:
     sound:
       - "~/alerts/advisor/advisor-yes-executor.wav"
       - "~/alerts/templar/templar-yes-executor.wav"
+  "ticket.*.agent.attention.*":
+    message: Operator decision required
+    sound:
+      - "~/alerts/advisor/advisor-additional-pylons.wav"
+  "ticket.*.agent.attention.#":
+    message: Operator decision updated
   "ticket.*.agent.unpaused":
     message: Agent unpaused
     sound:

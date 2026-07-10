@@ -41,6 +41,13 @@ work ordering, so they're worth stating up front:
   and open your PR against that branch while it is still unmerged. If it did
   not, stay blocked only on the integration point and record the concrete
   inspected reason.
+- **Escalate operator decisions before pausing.** When a scope, acceptance, or
+  other operator choice is the only remaining blocker, emit
+  `attention.operator-decision` with the concrete question before
+  `pause.request`. A decision-marked `pause.request` or `blocked` event may
+  instead carry `payload: {reason: "operator_decision", question: "..."}`.
+  Resolve the matching attention after the operator answers; do not leave a
+  decision pause as a workpad-only note.
 
 The bare `progress` / `progress.checkin` emits that drive the operator's
 agent-list bar are a separate, operator-facing protocol — see "Progress emits"
