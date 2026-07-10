@@ -92,6 +92,11 @@ alerts:
     sound:
       - "~/alerts/advisor/advisor-not-enough-minerals.wav"
       - "~/alerts/advisor/advisor-additional-pylons.wav"
+  "ticket.*.agent.review_feedback_delivery_deferred":
+    message: Review feedback is queued but the agent could not resume
+    sound:
+      - "~/alerts/advisor/advisor-not-enough-minerals.wav"
+      - "~/alerts/advisor/advisor-additional-pylons.wav"
   "ticket.*.agent.paused":
     message: Agent paused
     sound:
