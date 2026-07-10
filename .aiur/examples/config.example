@@ -15,7 +15,7 @@ agent:
   max_turns: {{MAX_TURNS}}               # per-issue turn cap (cost guard); `none` = unlimited
   max_agent_duration_minutes: {{MAX_AGENT_DURATION}}  # safety net: hard-kill a stuck agent after N min (0 = never)
   # synthetic_load_process_cap: null     # per-agent cap for `yes`/`stress` load generators; null = cores/4, 0 = disabled
-  routing: {{ROUTING}}                   # complexity:<N> label -> backend[:model[:effort]], e.g. codex:gpt-5.5:high
+  routing: {{ROUTING}}                   # complexity:<N> label -> backend[:model[:effort]], e.g. codex:gpt-5.6-terra:high
   claude:
     command: aiur-claude
     permission_mode: {{PERMISSION_MODE}} # bypassPermissions (default/acceptEdits need an approval UI — coming soon)
@@ -33,7 +33,7 @@ agent:
   # max_retry_attempts: 3
   # max_retry_backoff_ms: 300000
   # turn_timeout_ms: 3600000             # backstop per turn (any backend)
-  # stall_timeout_ms: 300000             # watchdog for a silent agent
+  # stall_timeout_ms: 3600000            # watchdog for a silent agent (60 min; long test/coverage runs are silent)
   # max_load_average: 1.5                # per-scheduler load gate; set null to disable
   # remote_control: false                # always attach Claude remote control to RC-capable agents
 

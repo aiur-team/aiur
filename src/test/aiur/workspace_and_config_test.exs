@@ -1859,7 +1859,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     assert config.agent.turn_timeout_ms == 3_600_000
     assert config.agent.codex.read_timeout_ms == 5_000
-    assert config.agent.stall_timeout_ms == 300_000
+    assert config.agent.stall_timeout_ms == 3_600_000
 
     write_workflow_file!(Workflow.workflow_file_path(),
       codex_command: "codex --config 'model=\"gpt-5.5\"' app-server"
@@ -2137,6 +2137,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert Schema.split_routing_value("claude:sonnet:high") == {"claude", "sonnet"}
     assert Schema.split_routing_value("claude::high") == {"claude", nil}
     assert Schema.split_routing_value("codex:gpt-5.5") == {"codex", "gpt-5.5"}
+    assert Schema.split_routing_value("codex:gpt-5.6-terra:xhigh") == {"codex", "gpt-5.6-terra"}
     assert Schema.routing_effort("claude:sonnet:high") == "high"
     assert Schema.routing_effort("claude:sonnet:high+remote") == "high"
     assert Schema.routing_effort("claude-repl::xhigh") == "xhigh"
@@ -2162,7 +2163,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     bad_effort =
       {%{}, %{routing: :map}}
-      |> Changeset.cast(%{routing: %{4 => "claude:sonnet:high", 5 => "codex:gpt-5.5:max"}}, [
+      |> Changeset.cast(%{routing: %{4 => "claude:sonnet:high", 5 => "codex:gpt-5.6-luna:minimal"}}, [
         :routing
       ])
       |> Schema.validate_agent_routing(:routing)
@@ -2175,7 +2176,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
            end)
 
     assert Enum.any?(bad_effort.errors, fn
-             {:routing, {msg, []}} -> msg =~ ~s(invalid effort "max" for backend "codex")
+             {:routing, {msg, []}} -> msg =~ ~s(invalid effort "minimal" for backend "codex")
              _ -> false
            end)
 
@@ -2238,9 +2239,9 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert CodingAgent.model_for(codex_issue) == nil
     assert CodingAgent.effort_for(codex_issue) == "high"
 
-    override_issue = %Issue{labels: ["complexity:4", "model:codex-gpt-5.5"]}
+    override_issue = %Issue{labels: ["complexity:4", "model:codex-gpt-5.6-sol"]}
     assert CodingAgent.backend_for(override_issue) == "codex"
-    assert CodingAgent.model_for(override_issue) == "gpt-5.5"
+    assert CodingAgent.model_for(override_issue) == "gpt-5.6-sol"
     assert CodingAgent.effort_for(override_issue) == nil
   end
 

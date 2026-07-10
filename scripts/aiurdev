@@ -414,6 +414,29 @@ if [ "$test3_mode" -eq 1 ]; then
 fi
 
 export AIUR_RELEASE_DIR="$release_dir"
+
+# ── Processor optimization: cap schedulers on agent-spawned Elixir BEAMs ──
+# Every agent pre-PR gate command (`mix compile`, `mix test`, `mix credo`)
+# launches its OWN BEAM, and a BEAM defaults to one scheduler thread per
+# logical core. Run many agents at once and the scheduler threads multiply
+# far past the core count, oversubscribing the CPU (high run-queue, ~0% idle,
+# thrash) — the daemon and every agent then fight for the same cores.
+#
+# ELIXIR_ERL_OPTIONS is read by the `elixir`/`mix`/`iex` launcher (NOT the
+# release boot script), and codex runs with shell_environment_policy.inherit=all,
+# so this caps ONLY the agents' mix BEAMs — the daemon release keeps its full
+# scheduler set and full coordination throughput.
+#
+# `+S N:N` sets N schedulers (+ N online). Rule of thumb: ~cores / 3.
+#   host cores -> cap:    6 -> +S 2:2     12 -> +S 4:4     24 -> +S 8:8
+#   Worked example (12-core host, 12 agents):
+#     default : 12 agents x 12 schedulers = 144 threads  (~12x oversub;
+#               run-queue ~120, idle 0%, 1-min load ~73)
+#     +S 4:4  : 12 agents x  4 schedulers =  48 threads  (~4x; load ~7)
+# Lower N packs more agents but slows each individual compile; higher N is
+# faster per compile but trends back toward saturation.
+[ -n "${AIUR_AGENT_MIX_SCHEDULERS:-}" ] && export ELIXIR_ERL_OPTIONS="${ELIXIR_ERL_OPTIONS:-} +S ${AIUR_AGENT_MIX_SCHEDULERS}:${AIUR_AGENT_MIX_SCHEDULERS}"
+
 apply_agent_ir_xdg_env
 if [ "${#passthrough[@]}" -gt 0 ]; then
   exec "$engine" "${passthrough[@]}"
