@@ -6,7 +6,7 @@ export default defineConfig({
   base: '/docs/',
   outDir: '../dist/docs',
   cleanUrls: true,
-  ignoreDeadLinks: true,
+  ignoreDeadLinks: [/\.claude\//, /\.codex\//, /src\/lib\//],
   themeConfig: {
     nav: [{ text: 'Home', link: '/' }],
     sidebar: [
