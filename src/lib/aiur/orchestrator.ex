@@ -53,8 +53,8 @@ defmodule Aiur.Orchestrator do
     RetryEngine,
     Slots,
     State,
-    TrackerHealth,
-    TrackedSet
+    TrackedSet,
+    TrackerHealth
   }
 
   alias AiurWeb.ObservabilityPubSub
