@@ -68,7 +68,7 @@ defmodule Aiur.Codex.CodingAgent do
       with {:ok, session_policies} <- session_policies(expanded_workspace, worker_host),
            {:ok, thread_id, resumed?, rate_limits_supported?} <-
              Handshake.establish_with_rate_limits(port, expanded_workspace, session_policies, resume_thread_id) do
-        if rate_limits_supported?, do: observe_rate_limits(port)
+        maybe_observe_rate_limits(port, rate_limits_supported?)
 
         {:ok,
          %{
@@ -132,6 +132,9 @@ defmodule Aiur.Codex.CodingAgent do
       {:error, reason} -> Logger.debug("Codex account/rateLimits/read unavailable: #{inspect(reason)}")
     end
   end
+
+  defp maybe_observe_rate_limits(port, true), do: observe_rate_limits(port)
+  defp maybe_observe_rate_limits(_port, false), do: :ok
 
   @impl Aiur.AppServer.Adapter
   @doc false
