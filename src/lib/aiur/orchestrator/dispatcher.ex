@@ -71,12 +71,28 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   @spec do_dispatch_issue(State.t(), term(), term(), term()) :: State.t()
   def do_dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host) do
-    case check_thrash_budget(state, issue.id, System.monotonic_time(:millisecond)) do
-      {:trip, tripped_state} ->
-        trip_thrash_breaker(tripped_state, issue)
+    case CodingAgent.select_for_dispatch(issue) do
+      {:all_limited, candidates} ->
+        if MapSet.member?(state.model_fallback_waiting, issue.id) do
+          state
+        else
+          Alerts.emit_system("ticket.#{issue.identifier}.agent.model_fallback_waiting",
+            issue: issue.identifier,
+            reason: "All configured fallback backends are usage-limited: #{Enum.join(candidates, ", ")}. Waiting for a reset before retrying.",
+            needs_attention: true,
+            severity: "warning"
+          )
 
-      {:ok, budgeted_state} ->
-        dispatch_to_worker(budgeted_state, issue, attempt, preferred_worker_host)
+          %{state | model_fallback_waiting: MapSet.put(state.model_fallback_waiting, issue.id)}
+        end
+
+      {:ok, selected_issue} ->
+        state = %{state | model_fallback_waiting: MapSet.delete(state.model_fallback_waiting, selected_issue.id)}
+
+        case check_thrash_budget(state, selected_issue.id, System.monotonic_time(:millisecond)) do
+          {:trip, tripped_state} -> trip_thrash_breaker(tripped_state, selected_issue)
+          {:ok, budgeted_state} -> dispatch_to_worker(budgeted_state, selected_issue, attempt, preferred_worker_host)
+        end
     end
   end
 

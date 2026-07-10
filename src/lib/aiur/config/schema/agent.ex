@@ -93,6 +93,7 @@ defmodule Aiur.Config.Schema.Agent do
     field(:max_retry_backoff_ms, :integer, default: 300_000)
     field(:max_concurrent_agents_by_state, :map, default: %{})
     field(:routing, :map, default: %{})
+    field(:switch_model_on_ratelimit, {:array, :string}, default: [])
     field(:complexity_prompts, :map, default: %{})
     # Backend-agnostic turn/stall timeouts (promoted from codex; claude-repl
     # already reads these via Config.agent_turn_timeout_ms/0).
@@ -138,6 +139,7 @@ defmodule Aiur.Config.Schema.Agent do
         :max_retry_backoff_ms,
         :max_concurrent_agents_by_state,
         :routing,
+        :switch_model_on_ratelimit,
         :complexity_prompts,
         :turn_timeout_ms,
         :stall_timeout_ms,
@@ -169,6 +171,15 @@ defmodule Aiur.Config.Schema.Agent do
     |> AgentValidation.validate_state_limits(:max_concurrent_agents_by_state)
     |> update_change(:routing, &AgentValidation.normalize_agent_routing/1)
     |> AgentValidation.validate_agent_routing(:routing)
+    |> validate_change(:switch_model_on_ratelimit, fn :switch_model_on_ratelimit, backends ->
+      known = Aiur.CodingAgent.known_backends()
+
+      cond do
+        backends != Enum.uniq(backends) -> [switch_model_on_ratelimit: "must not contain duplicate backends"]
+        Enum.all?(backends, &(&1 in known)) -> []
+        true -> [switch_model_on_ratelimit: "contains an unknown backend; known backends: #{inspect(known)}"]
+      end
+    end)
     |> update_change(:complexity_prompts, &AgentValidation.normalize_complexity_prompts/1)
     |> AgentValidation.validate_complexity_prompts(:complexity_prompts)
     |> cast_embed(:claude, with: &Claude.changeset/2)

@@ -65,4 +65,27 @@ defmodule Aiur.Init.TemplatesTest do
     assert rendered =~ "{1: claude, 2: claude, 3: codex, 4: codex:gpt-5, 5: codex:gpt-5:high}"
     assert rendered =~ "base_build_file: prewarm"
   end
+
+  test "build_fills writes the ordered rate-limit fallback when selected" do
+    fills =
+      Templates.build_fills(%{
+        tracker: %{kind: "github", repo: "owner/repo"},
+        agents: ["claude", "codex"],
+        routing: %{1 => "claude", 2 => "claude", 3 => "claude", 4 => "claude", 5 => "claude"},
+        rate_limit_fallback: ["codex", "claude"],
+        permission_mode: "bypassPermissions",
+        workspace_root: "~/.aiur/workspaces/owner/repo",
+        max_agents: 1,
+        max_turns: "none",
+        max_duration: 60,
+        pre_warmed: 0,
+        polling: 30,
+        prompt_file: "prompt.md",
+        prewarm: %{enabled: false},
+        alerts: %{enabled: false, use_os_default_sounds: false}
+      })
+
+    assert Templates.fill_template("{{RATE_LIMIT_FALLBACK}}", fills) ==
+             "  switch_model_on_ratelimit: [codex, claude]\n"
+  end
 end

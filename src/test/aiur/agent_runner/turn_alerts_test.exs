@@ -4,6 +4,13 @@ defmodule Aiur.AgentRunner.TurnAlertsTest do
   alias Aiur.AgentRunner.TurnAlerts
   alias Aiur.Events.Exchange
   alias Aiur.Issue
+  alias Aiur.ModelAvailability
+
+  setup do
+    path = ModelAvailability.path()
+    File.rm(path)
+    on_exit(fn -> File.rm(path) end)
+  end
 
   describe "maybe_emit_usage_limit_alert/4" do
     test "returns :ok for a usage_limit_exhausted payload" do
