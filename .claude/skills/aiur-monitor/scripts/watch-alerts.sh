@@ -26,20 +26,31 @@
 # a timestamp so the chat line can say when it fired):
 #   {"timestamp":"...","ticket":"43","source_ticket_id":"43","agent":"43",
 #    "reason":"Agent paused","severity":"warning","topic":"ticket.43.agent.paused",
-#    "name":"ticket.43.agent.paused","needs_attention":true}
+#    "name":"ticket.43.agent.paused","needs_attention":true,
+#    "operator_decision":false}
+#
+# `operator_decision:true` marks the canonical `attention.operator-decision`
+# topic so the operator relay can distinguish an unanswered scope or acceptance
+# question from a routine pause and fan it out to the active surfaces.
 #
 # New alerts are detected by tracking, per feed file, the count of alert lines
 # already emitted — held IN MEMORY for the life of the process (no persisted
 # cursor, so no cross-run state collisions and nothing to grow unbounded). At
-# startup each existing file is baselined to its current count (history is
-# skipped — it is covered by the `aiurdev watch` tick), so only
-# alerts that fire AFTER watching began are streamed.
+# startup each existing file is baselined to its current count (routine history
+# is skipped — it is covered by the `aiurdev watch` tick). The one exception is
+# the latest unresolved operator-decision attention, which is replayed so a
+# watcher restart cannot hide an unanswered question.
 #
 # Tune with env vars:
 #   AIUR_ALERT_POLL            (default 2)    — seconds between scans
 #   AIUR_ALERT_WATCH_ITERS     (default 0)    — stop after N scans (0 = forever; for tests)
 #   AIUR_ALERT_RELAY_BACKLOG   (default 0)    — 1 = also emit alerts already present at startup
 #   AIUR_ALERT_NEEDS_ATTENTION (default 0)    — 1 = Phase 2: relay only needs_attention:true alerts
+#   AIUR_ALERT_DISABLE_JQ       (default 0)    — 1 = force the portable jq-less path (tests)
+#   AIUR_OPERATOR_SURFACES      (default empty) — comma list: claude,codex,remote-control
+#   AIUR_ALERT_NOTIFY_CLAUDE_COMMAND / AIUR_ALERT_NOTIFY_CODEX_COMMAND /
+#   AIUR_ALERT_NOTIFY_RC_COMMAND — trusted commands that receive each decision
+#     escalation as JSON on stdin; Codex falls back to AIUR_ALERT_NOTIFY_FALLBACK_COMMAND.
 #
 # Usage: watch-alerts.sh [path/to/config]
 #   Defaults to ./.aiur/config (current layout), falling back to ./.aiurconfig (legacy).
@@ -55,9 +66,12 @@ poll="${AIUR_ALERT_POLL:-2}"
 max_iters="${AIUR_ALERT_WATCH_ITERS:-0}"
 relay_backlog="${AIUR_ALERT_RELAY_BACKLOG:-0}"
 need_only="${AIUR_ALERT_NEEDS_ATTENTION:-0}"
+operator_surfaces="${AIUR_OPERATOR_SURFACES:-}"
 
 have_jq=0
-command -v jq >/dev/null 2>&1 && have_jq=1
+if [ "${AIUR_ALERT_DISABLE_JQ:-0}" != "1" ] && command -v jq >/dev/null 2>&1; then
+  have_jq=1
+fi
 
 # --- Resolve candidate workspace roots (same as the alert feed) -------------
 config_root=""
@@ -107,12 +121,121 @@ index_of() {
   printf '%s' -1
 }
 
+alert_topic() {
+  local line="$1"
+
+  if [ "$have_jq" -eq 1 ]; then
+    local topic
+    topic="$(printf '%s' "$line" | jq -r '.topic // .name // ""' 2>/dev/null || true)"
+    printf '%s\n' "$topic"
+  else
+    local topic
+    topic="$(printf '%s' "$line" | sed -n 's/.*"topic":"\([^"]*\)".*/\1/p')"
+    [ -n "$topic" ] || topic="$(printf '%s' "$line" | sed -n 's/.*"name":"\([^"]*\)".*/\1/p')"
+    printf '%s\n' "$topic"
+  fi
+}
+
+decision_lifecycle() {
+  case "$1" in
+    ticket.*.agent.attention.operator-decision)
+      printf 'open|%s\n' "$1"
+      ;;
+
+    ticket.*.agent.attention.operator-decision.resolved)
+      printf 'resolved|%s\n' "${1%.resolved}"
+      ;;
+
+    *)
+      printf '|\n'
+      ;;
+  esac
+}
+
+decision_index() {
+  local target="$1" key i=0
+  for key in "${decision_keys[@]:-}"; do
+    [ "$key" = "$target" ] && { printf '%s' "$i"; return 0; }
+    i=$((i + 1))
+  done
+  printf '%s' -1
+}
+
+notify_surface() {
+  local surface="$1" command="$2" line="$3"
+
+  if [ -z "$command" ]; then
+    printf '%s:unconfigured' "$surface"
+  elif printf '%s\n' "$line" | sh -c "$command" >/dev/null 2>&1; then
+    printf '%s:sent' "$surface"
+  else
+    printf '%s:failed' "$surface"
+  fi
+}
+
+notify_operator_surfaces() {
+  local line="$1" surface command result=""
+  local old_ifs="$IFS"
+  IFS=','
+
+  for surface in $operator_surfaces; do
+    case "$surface" in
+      claude) command="${AIUR_ALERT_NOTIFY_CLAUDE_COMMAND:-}" ;;
+      codex) command="${AIUR_ALERT_NOTIFY_CODEX_COMMAND:-${AIUR_ALERT_NOTIFY_FALLBACK_COMMAND:-}}" ;;
+      remote-control) command="${AIUR_ALERT_NOTIFY_RC_COMMAND:-}" ;;
+      *) command="" ;;
+    esac
+
+    [ -z "$surface" ] && continue
+    [ -z "$result" ] || result="$result,"
+    result="$result$(notify_surface "$surface" "$command" "$line")"
+  done
+
+  IFS="$old_ifs"
+  [ -n "$result" ] || result="no-active-surface"
+  printf '%s' "$result"
+}
+
+replay_open_decisions() {
+  local snapshot="$1" agent="$2" line topic lifecycle state key idx
+  local decision_keys=() decision_lines=()
+
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    topic="$(alert_topic "$line")"
+    lifecycle="$(decision_lifecycle "$topic")"
+    state="${lifecycle%%|*}"
+    key="${lifecycle#*|}"
+
+    case "$state" in
+      open)
+        idx="$(decision_index "$key")"
+        if [ "$idx" -lt 0 ]; then
+          decision_keys+=("$key")
+          decision_lines+=("$line")
+        else
+          decision_lines[$idx]="$line"
+        fi
+        ;;
+
+      resolved)
+        idx="$(decision_index "$key")"
+        [ "$idx" -lt 0 ] || decision_lines[$idx]=""
+        ;;
+    esac
+  done <<< "$snapshot"
+
+  for line in "${decision_lines[@]:-}"; do
+    [ -z "$line" ] || emit_alert_line "$line" "$agent"
+  done
+}
+
 # Map one raw alert ndjson line to the structured output line; honour the
 # needs_attention-only Phase-2 filter. Mirrors the alert feed's field handling
 # (kept in sync deliberately) and adds the timestamp.
 emit_alert_line() {
   local line="$1" agent="$2"
-  local ts msg name reason severity need src_ticket tkt
+  local ts msg name reason severity need src_ticket tkt operator_decision decision_state decision_key notification_results
 
   if [ "$have_jq" -eq 1 ]; then
     local parsed
@@ -131,14 +254,24 @@ emit_alert_line() {
     if printf '%s' "$line" | grep -q '"needs_attention":true'; then need="true"; else need="false"; fi
   fi
 
-  [ "$need_only" != "1" ] || [ "$need" = "true" ] || return 0
-
   tkt="$src_ticket"
   [ -n "$tkt" ] || tkt="$(printf '%s' "$name" | sed -n 's/^ticket\.\([^.]*\)\..*/\1/p')"
   [ -n "$tkt" ] || tkt="$agent"
   [ -n "$reason" ] || reason="$msg"
   [ -n "$reason" ] || reason="${name##*.}"
   [ -n "$severity" ] || severity="info"
+
+  lifecycle="$(decision_lifecycle "$name")"
+  decision_state="${lifecycle%%|*}"
+  decision_key="${lifecycle#*|}"
+  if [ -n "$decision_state" ]; then operator_decision=true; else operator_decision=false; fi
+
+  [ "$need_only" != "1" ] || [ "$need" = "true" ] || [ "$decision_state" = "resolved" ] || return 0
+
+  notification_results="not-applicable"
+  if [ "$decision_state" = "open" ]; then
+    notification_results="$(notify_operator_surfaces "$line")"
+  fi
 
   if [ "$have_jq" -eq 1 ]; then
     jq -cn \
@@ -150,13 +283,18 @@ emit_alert_line() {
       --arg severity "$severity" \
       --arg topic "$name" \
       --arg name "$name" \
+      --arg decision_state "$decision_state" \
+      --arg decision_key "$decision_key" \
+      --arg notification_results "$notification_results" \
       --argjson needs_attention "$need" \
-      '{timestamp:$timestamp,ticket:$ticket,source_ticket_id:$source_ticket_id,agent:$agent,reason:$reason,severity:$severity,topic:$topic,name:$name,needs_attention:$needs_attention}'
+      --argjson operator_decision "$operator_decision" \
+      '{timestamp:$timestamp,ticket:$ticket,source_ticket_id:$source_ticket_id,agent:$agent,reason:$reason,severity:$severity,topic:$topic,name:$name,needs_attention:$needs_attention,operator_decision:$operator_decision,decision_state:$decision_state,decision_key:$decision_key,notification_results:$notification_results}'
   else
-    printf '{"timestamp":"%s","ticket":"%s","source_ticket_id":"%s","agent":"%s","reason":"%s","severity":"%s","topic":"%s","name":"%s","needs_attention":%s}\n' \
+    printf '{"timestamp":"%s","ticket":"%s","source_ticket_id":"%s","agent":"%s","reason":"%s","severity":"%s","topic":"%s","name":"%s","needs_attention":%s,"operator_decision":%s,"decision_state":"%s","decision_key":"%s","notification_results":"%s"}\n' \
       "$(json_escape "$ts")" "$(json_escape "$tkt")" "$(json_escape "$tkt")" \
       "$(json_escape "$agent")" "$(json_escape "$reason")" "$(json_escape "$severity")" \
-      "$(json_escape "$name")" "$(json_escape "$name")" "$need"
+      "$(json_escape "$name")" "$(json_escape "$name")" "$need" "$operator_decision" \
+      "$(json_escape "$decision_state")" "$(json_escape "$decision_key")" "$(json_escape "$notification_results")"
   fi
 }
 
@@ -199,11 +337,13 @@ scan_once() {
 
       idx="$(index_of "$abs")"
       if [ "$idx" -lt 0 ]; then
-        # First time we see this file. Baseline to current count so history is
-        # skipped — unless this is a brand-new file discovered AFTER startup (a
-        # newly dispatched agent), whose alerts all fired after watching began,
-        # or the operator opted into the backlog.
+        # First time we see this file. Baseline routine history, but replay the
+        # latest unresolved decision attention so a monitor restart immediately
+        # restores its durable Decisions entry and notification fan-out. A later
+        # `.resolved` record suppresses that replay. New files discovered after
+        # startup and explicit backlog mode still relay every alert as normal.
         if [ "$first_scan" -eq 1 ] && [ "$relay_backlog" != "1" ]; then
+          replay_open_decisions "$snapshot" "$id"
           prior="$total"
         else
           prior=0

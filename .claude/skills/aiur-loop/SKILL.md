@@ -51,7 +51,10 @@ tickets the developer didn't authorize.
    don't skip a tick when steady — see `aiur-monitor`'s required "Monitoring cadence"). Use the
    interval the operator chose in Step 0 (question 6); the cadence stays automatic and unprompted
    regardless of the value — never let an operator-set interval become "post only when asked."
-   Watch for bugs, stuck agents, CPU/FD. **Post each tick as two markdown tables, not prose** —
+   Watch for bugs, stuck agents, CPU/FD. At loop launch, record the operator backend and whether
+   Remote Control is active; `operator_decision:true` alerts must update the durable `### Decisions`
+   log and fan out through Claude native push, Codex native push/shared Aiur device fallback, and
+   the RC notification path when active. **Post each tick as two markdown tables, not prose** —
    **Table 1** the full refactor roadmap (`Ticket | Description | Phase | Status`, one row per
    ticket through the end: merged ✅ / active 🔵 / upcoming ⬜, contiguous done runs collapsible)
    and **Table 2** the optimization/bottleneck backlog (`# | Description | Status`, flagging the

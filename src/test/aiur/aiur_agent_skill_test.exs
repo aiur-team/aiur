@@ -169,6 +169,29 @@ defmodule Aiur.AiurAgentSkillTest do
     end
   end
 
+  test "operator decision relay covers backend push, RC, and the Decisions log" do
+    monitor_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md"))
+    run_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
+    loop_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-loop/SKILL.md"))
+
+    monitor_skill = one_line(monitor_skill)
+    run_skill = one_line(run_skill)
+    loop_skill = one_line(loop_skill)
+
+    assert monitor_skill =~ "operator_decision:true"
+    assert monitor_skill =~ "`### Decisions` section before sending notifications"
+    assert monitor_skill =~ "Claude's native **PushNotification**"
+    assert monitor_skill =~ "Codex's device notification"
+    assert monitor_skill =~ "RC notification path"
+    assert monitor_skill =~ "retried on the next re-ask"
+    assert monitor_skill =~ "matching `attention.resolved` event"
+    assert run_skill =~ "operator_decision:true"
+    assert run_skill =~ "not `agent.kind`"
+    assert run_skill =~ "Remote Control URL"
+    assert loop_skill =~ "operator_decision:true"
+    assert loop_skill =~ "Remote Control"
+  end
+
   test "agent operating guidance scopes local pre-PR verification to affected tests" do
     dev_loop = File.read!(Path.join([@repo_root, ".claude", "skills", "using-aiur", "dev-loop.md"]))
     repo_prompt = File.read!(Path.join(@repo_root, ".aiur/prompt.md"))

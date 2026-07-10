@@ -161,8 +161,8 @@ the chime:
 #<ticket> · <name> · <reason>
 ```
 
-For any **NEW** `needs_attention:true` alert, also relay it via **PushNotification**, formatted
-`#<ticket> · <agent> · <reason> — needs you`, so it reaches their phone. Rules:
+For any **NEW** `needs_attention:true` alert, also relay it via the active operator notification
+surface, formatted `#<ticket> · <agent> · <reason> — needs you`, so it reaches their phone. Rules:
 - **Arm it once.** It is a persistent, long-lived stream — do NOT re-arm it on every monitor tick
   (that would stack duplicate watchers). It tracks emitted alerts in memory, so it never replays
   one across its lifetime. `AIUR_ALERT_NEEDS_ATTENTION=1` makes it emit only `needs_attention:true`
@@ -171,6 +171,52 @@ For any **NEW** `needs_attention:true` alert, also relay it via **PushNotificati
   posted in chat if streamed but **not** pushed to the phone.
 - This is **additive immediacy, not the status cadence.** The board still fires on the armed
   `/loop` timer above; the watcher only adds real-time alert posts on top.
+
+### Operator-decision escalation: log, then fan out
+
+An alert line with `operator_decision:true` is an unanswered scope or acceptance question, not a
+routine pause. It is a mandatory escalation. For its first delivery and every bounded re-ask:
+
+1. Upsert the exact ticket, question/reason, topic, and timestamp in the current update log's
+   `### Decisions` section before sending notifications. Keep one open entry per `ticket + topic`;
+   append the re-ask timestamp rather than making the question disappear in chat history. Mark it
+   answered only after the matching `attention.resolved` event.
+2. Notify every active surface; a failed surface is recorded beside that Decisions entry and is
+   retried on the next re-ask. Never silently downgrade a decision escalation to a chat post.
+   - **Claude operator:** use Claude's native **PushNotification**.
+   - **Codex operator:** use Codex's device notification when available; otherwise use the shared
+     Aiur-emitted device-notification fallback configured for the run. The fallback must be
+     device-reaching, not merely `aiurdev watch` output.
+   - **Remote-control mode:** additionally invoke the existing RC notification path with the same
+     formatted alert whenever the operator's RC session is active. RC is additive to the backend
+     notification, because either surface may be the one the human is currently monitoring.
+3. Preserve the usual de-duplication for the same streamed event, but treat a new re-ask alert as
+   a fresh notification attempt. The durable alert/re-ask schedule remains the source of truth;
+   a monitor restart must not make an open decision invisible.
+
+`watch-alerts.sh` executes this through a small, explicit adapter interface rather than asking
+the relay to guess a host API. At launch, set `AIUR_OPERATOR_SURFACES` to the comma-separated
+active surfaces and provide the matching trusted stdin-command adapters:
+
+```text
+AIUR_OPERATOR_SURFACES=claude,remote-control
+AIUR_ALERT_NOTIFY_CLAUDE_COMMAND=<Claude native-push adapter>
+AIUR_ALERT_NOTIFY_RC_COMMAND=<existing RC notification adapter>
+```
+
+Use `AIUR_ALERT_NOTIFY_CODEX_COMMAND` for Codex native push, or
+`AIUR_ALERT_NOTIFY_FALLBACK_COMMAND` when Codex needs the shared Aiur device-notification
+fallback. Each adapter receives the structured alert JSON on stdin and exits zero only when it
+accepted the delivery. The relay emits `notification_results` (`surface:sent`, `:failed`, or
+`:unconfigured`) with the alert, so the update log can record a failed surface and retry it on the
+next re-ask. Resolution records carry the same `decision_key` with `decision_state:"resolved"`;
+they pass through attention-only filtering to close the matching Decisions entry. On startup the
+relay replays the latest unresolved decision per key, but never one that has a later resolution.
+
+At launch, `aiur-run` records the active backend from the operator session (not `agent.kind`,
+which selects worker backends) and whether that session has an RC URL. This makes fan-out a
+capability check rather than a guess. `aiur-loop` repeats the same contract for long-lived
+operator sessions.
 
 ## Notes
 
