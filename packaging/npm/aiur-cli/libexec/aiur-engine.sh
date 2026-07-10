@@ -441,6 +441,17 @@ run_session() {
     export AIUR_LOGS_ROOT
   fi
 
+  # Capture an erl_crash.dump on daemon BEAM death (#852) so a crash under load
+  # is diagnosable instead of vanishing. Written next to the run's aiur.log so it
+  # survives the launcher's tempfile cleanup; ERL_CRASH_DUMP_SECONDS bounds the
+  # write so a wedged BEAM can't hang the dump indefinitely. Nothing in the
+  # release boot disables dumps, and an operator override of either var is kept.
+  # Requires a durable logs root (background run or agent IR sandbox).
+  if [ -n "${AIUR_LOGS_ROOT:-}" ]; then
+    export ERL_CRASH_DUMP="${ERL_CRASH_DUMP:-$AIUR_LOGS_ROOT/erl_crash.dump}"
+    export ERL_CRASH_DUMP_SECONDS="${ERL_CRASH_DUMP_SECONDS:-30}"
+  fi
+
   # Capture sink for BEAM startup (and, in background mode, the whole run's
   # boot stdout/stderr). Foreground uses a throwaway tempfile; background points
   # at a durable file in the run log dir. The dir/file is created lazily just
@@ -466,7 +477,8 @@ run_session() {
       RELEASE_COOKIE ERL_AFLAGS ERL_EPMD_ADDRESS AIUR_NODE AIUR_ERLANG_COOKIE \
       AIUR_TMUX_SESSION AIUR_TMUX_SOCKET AIUR_TMUX_CONF AIUR_BIN \
       AIUR_SESSION_TMPFILE AIUR_AGENT_TMPFILE AIUR_WORKSPACE_ROOT_FILE \
-      ELIXIR_ERL_OPTIONS AIUR_LOGS_ROOT AIUR_OPENCODE_BRIDGE_PORT AIUR_DEBUG; do
+      ELIXIR_ERL_OPTIONS AIUR_LOGS_ROOT AIUR_OPENCODE_BRIDGE_PORT AIUR_DEBUG \
+      ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS; do
       if [ -n "${!v:-}" ]; then printf 'export %s=%q\n' "$v" "${!v}"; fi
     done
     printf 'capture=%q\n' "$startup_capture"

@@ -287,7 +287,7 @@ defmodule Aiur.Config.Schema do
       # Backend-agnostic turn/stall timeouts (promoted from codex; claude-repl
       # already reads these via Config.agent_turn_timeout_ms/0).
       field(:turn_timeout_ms, :integer, default: 3_600_000)
-      field(:stall_timeout_ms, :integer, default: 300_000)
+      field(:stall_timeout_ms, :integer, default: 3_600_000)
       # Safety net: hard-kill an agent that has been actively running this
       # many minutes (paused/blocked time excluded). 0 disables.
       field(:max_agent_duration_minutes, :integer, default: 60)
@@ -298,6 +298,10 @@ defmodule Aiur.Config.Schema do
       # nil = derive from schedulers_online/4; 0 disables the runtime synthetic
       # load-generator guard; positive integers cap known generators per agent.
       field(:synthetic_load_process_cap, :integer)
+      # Cap ERTS scheduler threads on agent-spawned mix BEAMs (the compile/test/
+      # credo gate runs) via ELIXIR_ERL_OPTIONS="+S N:N" (#840). nil = no cap
+      # (default; behavior unchanged). Positive integer = schedulers + online.
+      field(:mix_scheduler_cap, :integer)
 
       embeds_one(:claude, Claude, on_replace: :update, defaults_to_struct: true)
       embeds_one(:codex, Codex, on_replace: :update, defaults_to_struct: true)
@@ -322,7 +326,8 @@ defmodule Aiur.Config.Schema do
           :stall_timeout_ms,
           :max_agent_duration_minutes,
           :max_load_average,
-          :synthetic_load_process_cap
+          :synthetic_load_process_cap,
+          :mix_scheduler_cap
         ],
         empty_values: []
       )
@@ -335,6 +340,7 @@ defmodule Aiur.Config.Schema do
       |> validate_number(:max_agent_duration_minutes, greater_than_or_equal_to: 0)
       |> validate_number(:max_load_average, greater_than: 0)
       |> validate_number(:synthetic_load_process_cap, greater_than_or_equal_to: 0)
+      |> validate_number(:mix_scheduler_cap, greater_than: 0)
       |> update_change(:max_concurrent_agents_by_state, &Schema.normalize_state_limits/1)
       |> Schema.validate_state_limits(:max_concurrent_agents_by_state)
       |> update_change(:routing, &Schema.normalize_agent_routing/1)
@@ -728,7 +734,7 @@ defmodule Aiur.Config.Schema do
   @doc """
   Splits a routing value into its backend and optional model. A routing
   value is `"<backend>"`, `"<backend>:<model>"` (e.g. `"claude:sonnet"`), or
-  `"<backend>:<model>:<effort>"` (e.g. `"codex:gpt-5.5:high"`), optionally
+  `"<backend>:<model>:<effort>"` (e.g. `"codex:gpt-5.6-terra:high"`), optionally
   with a trailing `+remote` flag (`"claude:haiku+remote"`) that is stripped
   here and surfaced separately by `routing_remote_flag?/1`. The optional
   trailing effort segment is dropped here and surfaced by `routing_effort/1`;
