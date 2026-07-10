@@ -43,17 +43,16 @@ defmodule Aiur.AgentEventLogTest do
       assert markdown =~ "{\"foo\":\"bar\"}"
     end
 
-    test "falls back to inspect when neither last_message nor raw is present" do
+    test "projects the structured record when neither last_message nor raw is present" do
       workspace = tmp_workspace()
       message = %{event: "custom", payload: %{score: 1}}
 
       assert :ok = AgentEventLog.write(workspace, nil, message)
 
       markdown = File.read!(Path.join(workspace, "logs/agent.md"))
-      # `Map.drop` removes the `:timestamp` key but the rest of the
-      # event lands inside a fenced code block.
       assert markdown =~ "```text"
-      assert markdown =~ "event:"
+      assert markdown =~ ~s("event":"custom")
+      assert markdown =~ ~s("payload":{"score":1})
     end
 
     test "no-ops when worker_host is a remote string (writes go to that host instead)" do
@@ -140,8 +139,10 @@ defmodule Aiur.AgentEventLogTest do
                })
 
       ndjson = File.read!(Path.join(workspace, "logs/agent.ndjson"))
+      markdown = File.read!(Path.join(workspace, "logs/agent.md"))
       assert ndjson =~ ~s("event":"turn_ended_with_error")
       assert ndjson =~ ~s("reason":["port_exit",1])
+      assert markdown =~ ~s("reason":["port_exit",1])
     end
 
     test "accepts a binary timestamp string in the message and renders it unchanged" do
