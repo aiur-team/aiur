@@ -616,6 +616,41 @@ defmodule Aiur.GitHub.ClientTest do
     end
   end
 
+  describe "fetch_commit_ci_status/2" do
+    test "fetches both latest check runs and legacy commit statuses for the head SHA" do
+      request_fun = fn %{method: :get, url: url} ->
+        cond do
+          url =~ "/commits/head-sha/check-runs?filter=latest&per_page=100" ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "check_runs" => [
+                   %{"name" => "lint", "status" => "completed", "conclusion" => "success"}
+                 ]
+               }
+             }}
+
+          url =~ "/commits/head-sha/status" ->
+            {:ok, %{status: 200, body: %{"state" => "success", "statuses" => []}}}
+        end
+      end
+
+      assert {:ok,
+              %{
+                check_runs: [%{"name" => "lint"}],
+                commit_status: %{"state" => "success"}
+              }} = Client.fetch_commit_ci_status("head-sha", request_fun: request_fun)
+    end
+
+    test "surfaces a check-run API error without fetching stale success data" do
+      request_fun = fn %{method: :get} -> {:ok, %{status: 502, body: %{}}} end
+
+      assert {:error, {:github, :http, %{status: 502}}} =
+               Client.fetch_commit_ci_status("head-sha", request_fun: request_fun)
+    end
+  end
+
   describe "fetch_classified_pr_review_comments/2" do
     test "labels CODEOWNER review comments authoritative" do
       repo_root = codeowners_repo!("* @owner")

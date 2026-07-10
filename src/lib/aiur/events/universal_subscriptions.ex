@@ -25,6 +25,8 @@ defmodule Aiur.Events.UniversalSubscriptions do
       {"system." <> base_branch <> ".branch.push", "base_branch:auto"},
       {"ticket." <> identifier <> ".issue.commented", "own_comments:auto"},
       {"ticket." <> identifier <> ".pr.review_comment", "own_comments:auto"},
+      {"ticket." <> identifier <> ".ci.passed", "ci_status:auto"},
+      {"ticket." <> identifier <> ".ci.failed", "ci_status:auto"},
       {"ticket." <> identifier <> ".operator.progress_request", "progress_checkin:auto"}
     ]
   end

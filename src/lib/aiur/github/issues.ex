@@ -70,7 +70,7 @@ defmodule Aiur.GitHub.Issues do
           map()
         ) :: {:cont, {:ok, map()}} | {:halt, {:error, term()}}
   def reduce_label_issues(request_fun, url, token, owner, repo, prefix, acc) do
-    case do_list_issues(request_fun, url, token, owner, repo, prefix) do
+    case fetch_label_issue_pages(request_fun, url, token, owner, repo, prefix, []) do
       {:ok, issues} ->
         merged = Map.merge(acc, Map.new(issues, &{&1.id, &1}), fn _k, v, _new -> v end)
         {:cont, {:ok, merged}}
@@ -106,9 +106,24 @@ defmodule Aiur.GitHub.Issues do
   @spec do_list_issues(function(), String.t(), String.t(), String.t(), String.t(), String.t()) ::
           {:ok, [Issue.t()]} | {:error, term()}
   def do_list_issues(request_fun, url, token, owner, repo, prefix) do
+    with {:ok, issues, _next_url} <- fetch_label_issue_page(request_fun, url, token, owner, repo, prefix) do
+      {:ok, issues}
+    end
+  end
+
+  defp fetch_label_issue_pages(request_fun, url, token, owner, repo, prefix, acc) do
+    with {:ok, issues, next_url} <- fetch_label_issue_page(request_fun, url, token, owner, repo, prefix) do
+      case next_url do
+        nil -> {:ok, acc ++ issues}
+        next_url -> fetch_label_issue_pages(request_fun, next_url, token, owner, repo, prefix, acc ++ issues)
+      end
+    end
+  end
+
+  defp fetch_label_issue_page(request_fun, url, token, owner, repo, prefix) do
     case request_fun.(%{method: :get, url: url, token: token}) do
-      {:ok, %{status: 200, body: body}} when is_list(body) ->
-        {:ok, Enum.map(body, &normalize_issue(&1, owner, repo, prefix))}
+      {:ok, %{status: 200, body: body} = response} when is_list(body) ->
+        {:ok, Enum.map(body, &normalize_issue(&1, owner, repo, prefix)), Transport.parse_next_page_url(Map.get(response, :headers, []))}
 
       {:ok, %{status: status} = response} ->
         Logger.error("GitHub API request failed status=#{status}")

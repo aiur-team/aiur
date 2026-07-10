@@ -156,6 +156,24 @@ defmodule Aiur.Regression.AgentRunnerLifecycleTest do
       assert rendered =~ "<aiur:events>"
     end
 
+    test "orchestrator CI failure reaches an agent without a human author trust flag" do
+      rendered =
+        AgentRunner.render_events_digest_for_test(
+          [
+            %{
+              id: 12,
+              topic: "ticket.AR13-G2.ci.failed",
+              source: :github,
+              message: "CI failed: lint"
+            }
+          ],
+          "AR13-G2"
+        )
+
+      assert rendered =~ "ticket.AR13-G2.ci.failed"
+      assert rendered =~ "<external-content source=\"github\">CI failed: lint</external-content>"
+    end
+
     test "trusted github content is wrapped with an escaped author attribute" do
       rendered =
         AgentRunner.render_events_digest_for_test(

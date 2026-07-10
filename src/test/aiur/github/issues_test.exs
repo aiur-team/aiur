@@ -60,6 +60,33 @@ defmodule Aiur.GitHub.IssuesTest do
       assert issue.id == "7"
       assert issue.state == "todo"
     end
+
+    test "follows Link rel=next so CI lifecycle states are not silently omitted" do
+      issue = fn number ->
+        %{
+          "number" => number,
+          "title" => "CI issue #{number}",
+          "body" => nil,
+          "html_url" => "https://github.com/owner/repo/issues/#{number}",
+          "labels" => [%{"name" => "sym:ci-wait"}],
+          "assignee" => nil,
+          "created_at" => "2026-01-01T00:00:00Z",
+          "updated_at" => "2026-01-02T00:00:00Z"
+        }
+      end
+
+      request_fun = fn %{method: :get, url: url} ->
+        if String.contains?(url, "page=2") do
+          {:ok, %{status: 200, headers: [], body: [issue.(200)]}}
+        else
+          next = ~s(<https://api.github.com/repos/owner/repo/issues?labels=sym%3Aci-wait&state=open&per_page=100&page=2>; rel="next")
+          {:ok, %{status: 200, headers: [{"link", next}], body: [issue.(100)]}}
+        end
+      end
+
+      assert {:ok, issues} = Issues.fetch_issues_by_states(["ci-wait"], request_fun: request_fun)
+      assert Enum.map(issues, & &1.id) |> MapSet.new() == MapSet.new(["100", "200"])
+    end
   end
 
   describe "fetch_issue_states_by_ids/2" do
