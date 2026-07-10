@@ -305,8 +305,7 @@ function setupBackgroundLauncher() {
   );
   chmodSync(binAiur, 0o755);
 
-  const fakeBin = path.join(root, "fakebin");
-  mkdirSync(fakeBin, { recursive: true });
+  const fakeBin = mkdtempSync(path.join(root, "fakebin-"));
   const fakePgrep = path.join(fakeBin, "pgrep");
   writeFileSync(
     fakePgrep,
