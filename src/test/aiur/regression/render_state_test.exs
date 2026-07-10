@@ -15,6 +15,7 @@ defmodule Aiur.Regression.RenderStateTest do
 
   @app_source Path.expand("../../../lib/aiur/agent_list/app.ex", __DIR__)
   @renderer_source Path.expand("../../../lib/aiur/agent_list/renderer.ex", __DIR__)
+  @renderer_dir Path.expand("../../../lib/aiur/agent_list/renderer", __DIR__)
 
   # Renderer keys App.render/1 deliberately does NOT thread (:now_ms -> clock,
   # :repo_identity -> :project_label). Any OTHER unthreaded key is the #414 bug.
@@ -79,8 +80,11 @@ defmodule Aiur.Regression.RenderStateTest do
 
   # All four state-read shapes (Map.get(state, :k) / state.k / state |> Map.get(:k) / state[:k])
   # so a #414-class regression introduced via any form is caught, not silently missed.
+  # Scans renderer.ex and all leaf modules under renderer/ so extracted modules
+  # (links.ex, events_block.ex, etc.) don't silently drop from the census.
   defp renderer_consumed_keys do
-    src = File.read!(@renderer_source)
+    leaf_sources = Path.wildcard(Path.join(@renderer_dir, "*.ex")) |> Enum.map(&File.read!/1)
+    src = Enum.join([File.read!(@renderer_source) | leaf_sources], "\n")
 
     [
       ~r/Map\.get\(state,\s*:([a-z][a-z0-9_]*\??)/,

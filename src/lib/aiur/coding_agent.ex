@@ -14,7 +14,7 @@ defmodule Aiur.CodingAgent do
   """
 
   alias Aiur.Config
-  alias Aiur.Config.Schema
+  alias Aiur.Config.RoutingValue
   alias Aiur.Issue
 
   @type backend :: String.t()
@@ -25,14 +25,6 @@ defmodule Aiur.CodingAgent do
   @type checkpoint_callback_result ::
           :noop
           | {:deliver_text, String.t(), (map() -> any()), (term() -> any())}
-
-  @callback start_session(Path.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  @callback run_turn(map(), String.t(), map(), keyword()) ::
-              {:ok, map()} | {:paused, map()} | {:error, term()}
-  @callback stop_session(map()) :: :ok
-  @callback normalize_event(map()) :: map()
-  @callback send_operator_message(map(), operator_payload()) ::
-              {:ok, request_id :: integer()} | {:error, term()}
 
   @complexity_label ~r/^complexity:(\d+)$/
   # `model:<backend>` selects a backend with its configured default model.
@@ -65,7 +57,7 @@ defmodule Aiur.CodingAgent do
   `aiur-claude`, whose current app-server wrapper does not expose an effort
   option, so it intentionally has no effort vocabulary.
   """
-  @spec backends() :: %{backend() => map()}
+  @spec backends() :: %{backend() => Aiur.CodingAgent.Backend.capabilities()}
   def backends do
     %{
       "codex" => %{
@@ -95,6 +87,14 @@ defmodule Aiur.CodingAgent do
         can_interrupt: true,
         safe_checkpoints: [:notification],
         remote_control: true,
+        # Remote control physically runs on the persistent-REPL transport,
+        # so an RC-promoted claude issue dispatches claude-repl (carrying
+        # the resolved model). Declared here so dispatch code never
+        # hard-codes the swap.
+        remote_transport: "claude-repl",
+        # The headless `bash -lc` wrapper does not exec; report its os pid so
+        # brutal-kill teardown can tree-reap the reparented claude/node children.
+        runtime_report: :headless_wrapper,
         # Headless claude runs through the external `aiur-claude` app-server,
         # whose thread map is in-memory only (lost on restart) and whose
         # `thread/start` exposes no way to seed a prior session id. aiur can't
@@ -118,6 +118,16 @@ defmodule Aiur.CodingAgent do
         safe_checkpoints: [],
         immediate_delivery: true,
         remote_control: true,
+        # A tmux/RC start failure must never strand an issue: a failed
+        # claude-repl spawn falls back once to the headless claude
+        # backend. Declared here so the fallback never lives in a
+        # dispatch `case`.
+        fallback_backend: "claude",
+        # Only the hook-driven RC REPL needs the pane display tailer; every
+        # other backend streams its own rich transcript.
+        rc_display_tail: true,
+        # The persistent pane + REPL os pid are what an abort path must reap.
+        runtime_report: :repl_pane,
         # The REPL spawns the `claude` CLI directly, so a respawn after an aiur
         # restart can `--resume <session-id>` against the on-disk transcript
         # jsonl (the session id is the transcript filename). The runner injects
@@ -137,7 +147,7 @@ defmodule Aiur.CodingAgent do
   @doc """
   The valid reasoning-effort values for a backend, derived from the
   registry. Unknown backends have no efforts. Used by per-complexity
-  routing validation (`Aiur.Config.Schema.validate_agent_routing/2`) and
+  routing validation (`Aiur.Config.Schema.AgentValidation.validate_agent_routing/2`) and
   the `aiur init` wizard to offer backend-appropriate options.
   """
   @spec efforts(backend()) :: [String.t()]
@@ -210,7 +220,7 @@ defmodule Aiur.CodingAgent do
   def effort_for(%Issue{} = issue) do
     with nil <- override_backend(issue),
          value when is_binary(value) <- routing_value(issue) do
-      Schema.routing_effort(value)
+      RoutingValue.routing_effort(value)
     else
       _ -> nil
     end
@@ -288,7 +298,7 @@ defmodule Aiur.CodingAgent do
   def routing_backend(%Issue{} = issue) do
     case routing_value(issue) do
       nil -> nil
-      value -> value |> Schema.split_routing_value() |> elem(0)
+      value -> value |> RoutingValue.split_routing_value() |> elem(0)
     end
   end
 
@@ -298,7 +308,7 @@ defmodule Aiur.CodingAgent do
   def routing_model(%Issue{} = issue) do
     case routing_value(issue) do
       nil -> nil
-      value -> value |> Schema.split_routing_value() |> elem(1)
+      value -> value |> RoutingValue.split_routing_value() |> elem(1)
     end
   end
 
@@ -312,7 +322,7 @@ defmodule Aiur.CodingAgent do
   def routing_remote?(%Issue{} = issue) do
     case routing_value(issue) do
       nil -> false
-      value -> Schema.routing_remote_flag?(value)
+      value -> RoutingValue.routing_remote_flag?(value)
     end
   end
 
@@ -401,6 +411,62 @@ defmodule Aiur.CodingAgent do
     case Map.fetch(backends(), backend) do
       {:ok, entry} -> Map.get(entry, :resumable, false)
       :error -> false
+    end
+  end
+
+  @doc """
+  The transport backend an RC-promoted session actually runs on.
+  `"claude"` declares the REPL backend as its remote transport; a backend
+  with no declared transport — and any unknown backend — promotes
+  to itself (no swap).
+  """
+  @spec remote_transport(backend()) :: backend()
+  def remote_transport(backend) do
+    case Map.fetch(backends(), backend) do
+      {:ok, entry} -> Map.get(entry, :remote_transport, backend)
+      :error -> backend
+    end
+  end
+
+  @doc """
+  The backend a failed spawn falls back to, or `nil` when the
+  backend declares no fallback. `"claude-repl"` falls back to the
+  headless claude backend. Unknown backends have no fallback.
+  """
+  @spec fallback_backend(backend()) :: backend() | nil
+  def fallback_backend(backend) do
+    case Map.fetch(backends(), backend) do
+      {:ok, entry} -> Map.get(entry, :fallback_backend, nil)
+      :error -> nil
+    end
+  end
+
+  @doc """
+  Whether a remote-control session on this backend feeds the pane
+  display tailer. True only for the hook-driven RC REPL, whose hook
+  path alone paints a sparse skeleton; every other backend streams its
+  own rich transcript and must not get a second display source.
+  """
+  @spec rc_display_tail?(backend()) :: boolean()
+  def rc_display_tail?(backend) do
+    case Map.fetch(backends(), backend) do
+      {:ok, entry} -> Map.get(entry, :rc_display_tail, false)
+      :error -> false
+    end
+  end
+
+  @doc """
+  How a live session's OS-level runtime is reported to the orchestrator
+  for brutal-kill teardown: `:repl_pane` (pane_id / os_pid /
+  session_url), `:headless_wrapper` (the non-exec bash wrapper pid to
+  tree-reap), or nil (the backend's ProcessReaper registration already
+  covers it).
+  """
+  @spec runtime_report(backend()) :: :repl_pane | :headless_wrapper | nil
+  def runtime_report(backend) do
+    case Map.fetch(backends(), backend) do
+      {:ok, entry} -> Map.get(entry, :runtime_report)
+      :error -> nil
     end
   end
 

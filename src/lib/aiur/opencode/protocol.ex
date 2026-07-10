@@ -443,10 +443,6 @@ defmodule Aiur.Opencode.Protocol do
 
   @spec shell_escape(String.t()) :: String.t()
   def shell_escape(value) when is_binary(value) do
-    if String.match?(value, ~r/^[A-Za-z0-9_\/:.,=@%+-]+$/) do
-      value
-    else
-      "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
-    end
+    Aiur.Shell.escape(value, fast_path: true)
   end
 end
