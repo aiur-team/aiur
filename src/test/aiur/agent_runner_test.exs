@@ -2,6 +2,8 @@ defmodule Aiur.AgentRunnerTest do
   use ExUnit.Case, async: true
 
   alias Aiur.AgentRunner
+  alias Aiur.AgentRunner.{SessionLifecycle, SessionResume, QueueDrain, TurnLoop}
+  alias Aiur.AgentRunner.{EventsDigest, TurnPrompt, CommentContext}
   alias Aiur.Orchestrator
 
   # Regression: open_aiur_turn_streams posted the `__aiur_turn__:<id>`
@@ -90,7 +92,7 @@ defmodule Aiur.AgentRunnerTest do
       start_fun = fn _workspace, _opts -> {:ok, %{handle: :h}} end
 
       assert {:ok, session} =
-               AgentRunner.start_agent_session("/ws", [backend: "codex", model: nil], start_fun)
+               SessionLifecycle.start_agent_session("/ws", [backend: "codex", model: nil], start_fun)
 
       assert session.backend == "codex"
     end
@@ -108,7 +110,7 @@ defmodule Aiur.AgentRunnerTest do
       end
 
       assert {:ok, session} =
-               AgentRunner.start_agent_session(
+               SessionLifecycle.start_agent_session(
                  "/ws",
                  [backend: "claude-repl", model: "opus", remote_control: true],
                  start_fun
@@ -124,7 +126,7 @@ defmodule Aiur.AgentRunnerTest do
       start_fun = fn _workspace, _opts -> {:error, :boom} end
 
       assert {:error, :boom} =
-               AgentRunner.start_agent_session("/ws", [backend: "claude", model: nil], start_fun)
+               SessionLifecycle.start_agent_session("/ws", [backend: "claude", model: nil], start_fun)
     end
 
     test "a repl failure whose headless retry also fails surfaces the retry error" do
@@ -136,7 +138,7 @@ defmodule Aiur.AgentRunnerTest do
       end
 
       assert {:error, :headless_down} =
-               AgentRunner.start_agent_session("/ws", [backend: "claude-repl", model: nil], start_fun)
+               SessionLifecycle.start_agent_session("/ws", [backend: "claude-repl", model: nil], start_fun)
     end
   end
 
@@ -145,25 +147,25 @@ defmodule Aiur.AgentRunnerTest do
       parent = self()
       trust_fun = fn ws -> send(parent, {:trusted, ws}) && :ok end
 
-      assert :ok = AgentRunner.maybe_trust_remote_control_workspace("/ws/9", true, nil, trust_fun)
+      assert :ok = SessionLifecycle.maybe_trust_remote_control_workspace("/ws/9", true, nil, trust_fun)
       assert_received {:trusted, "/ws/9"}
     end
 
     test "does not trust when RC is off" do
       trust_fun = fn _ws -> flunk("trust must not run for non-RC dispatch") end
-      assert :ok = AgentRunner.maybe_trust_remote_control_workspace("/ws/9", false, nil, trust_fun)
+      assert :ok = SessionLifecycle.maybe_trust_remote_control_workspace("/ws/9", false, nil, trust_fun)
     end
 
     test "does not trust a remote-worker dispatch (RC is local-only)" do
       trust_fun = fn _ws -> flunk("trust must not run for a remote worker host") end
-      assert :ok = AgentRunner.maybe_trust_remote_control_workspace("/ws/9", true, "box-2", trust_fun)
+      assert :ok = SessionLifecycle.maybe_trust_remote_control_workspace("/ws/9", true, "box-2", trust_fun)
     end
 
     test "a trust failure is swallowed so the issue is not stranded" do
       trust_fun = fn _ws -> {:error, :enoent} end
 
       ExUnit.CaptureLog.capture_log(fn ->
-        assert :ok = AgentRunner.maybe_trust_remote_control_workspace("/ws/9", true, nil, trust_fun)
+        assert :ok = SessionLifecycle.maybe_trust_remote_control_workspace("/ws/9", true, nil, trust_fun)
       end)
     end
   end
@@ -172,33 +174,33 @@ defmodule Aiur.AgentRunnerTest do
     test "builds the operator-facing chat title with repo, id, and title" do
       issue = %{identifier: "7", id: "gid-7", title: "CLI: ENS namespace"}
 
-      assert AgentRunner.rc_session_name(issue, "its-applekid/actions") ==
+      assert SessionLifecycle.rc_session_name(issue, "its-applekid/actions") ==
                "Aiur: Actions #7 - CLI: ENS namespace"
     end
 
     test "falls back to id when identifier is nil" do
       issue = %{identifier: nil, id: "412", title: "Fix it"}
-      assert AgentRunner.rc_session_name(issue, "its-everdred/aiur") == "Aiur: Aiur #412 - Fix it"
+      assert SessionLifecycle.rc_session_name(issue, "its-everdred/aiur") == "Aiur: Aiur #412 - Fix it"
     end
 
     test "preserves existing casing in the repo short name" do
       issue = %{identifier: "1", id: "1", title: "x"}
-      assert AgentRunner.rc_session_name(issue, "owner/myRepo") == "Aiur: MyRepo #1 - x"
+      assert SessionLifecycle.rc_session_name(issue, "owner/myRepo") == "Aiur: MyRepo #1 - x"
     end
 
     test "omits the repo when the tracker exposes none" do
       issue = %{identifier: "9", id: "9", title: "No repo"}
-      assert AgentRunner.rc_session_name(issue, nil) == "Aiur: #9 - No repo"
+      assert SessionLifecycle.rc_session_name(issue, nil) == "Aiur: #9 - No repo"
     end
 
     test "strips control chars and quotes, collapses whitespace" do
       issue = %{identifier: "5", id: "5", title: "a\t'b'\n  `c`"}
-      assert AgentRunner.rc_session_name(issue, "owner/repo") == "Aiur: Repo #5 - a b c"
+      assert SessionLifecycle.rc_session_name(issue, "owner/repo") == "Aiur: Repo #5 - a b c"
     end
 
     test "truncates to 60 characters" do
       issue = %{identifier: "7", id: "7", title: String.duplicate("x", 100)}
-      assert String.length(AgentRunner.rc_session_name(issue, "owner/repo")) == 60
+      assert String.length(SessionLifecycle.rc_session_name(issue, "owner/repo")) == 60
     end
   end
 
@@ -237,61 +239,61 @@ defmodule Aiur.AgentRunnerTest do
     end
 
     test "a successful bookkeeping call is a no-op", %{issue: issue} do
-      assert AgentRunner.best_effort_queue_bookkeeping(:ok, :consume, issue) == :ok
+      assert TurnLoop.best_effort_queue_bookkeeping(:ok, :consume, issue) == :ok
     end
 
     test "an unavailable orchestrator does not raise a MatchError", %{issue: issue} do
-      assert AgentRunner.best_effort_queue_bookkeeping({:error, :unavailable}, :consume, issue) ==
+      assert TurnLoop.best_effort_queue_bookkeeping({:error, :unavailable}, :consume, issue) ==
                :ok
 
-      assert AgentRunner.best_effort_queue_bookkeeping({:error, :timeout}, :fail, issue) == :ok
+      assert TurnLoop.best_effort_queue_bookkeeping({:error, :timeout}, :fail, issue) == :ok
     end
   end
 
   describe "should_display_tail?/3" do
     test "only the hook-driven RC claude-repl session feeds the display tailer" do
-      assert AgentRunner.should_display_tail?("claude-repl", true, "101")
+      assert SessionLifecycle.should_display_tail?("claude-repl", true, "101")
     end
 
     test "a headless-claude fallback, codex, or RC-off REPL gets no second display source" do
       # RC requested but the REPL fell back to headless "claude"
-      refute AgentRunner.should_display_tail?("claude", true, "101")
+      refute SessionLifecycle.should_display_tail?("claude", true, "101")
       # codex streams its own transcript
-      refute AgentRunner.should_display_tail?("codex", true, "101")
+      refute SessionLifecycle.should_display_tail?("codex", true, "101")
       # claude-repl but RC is off
-      refute AgentRunner.should_display_tail?("claude-repl", false, "101")
+      refute SessionLifecycle.should_display_tail?("claude-repl", false, "101")
       # no identifier to scope the hook topic
-      refute AgentRunner.should_display_tail?("claude-repl", true, nil)
+      refute SessionLifecycle.should_display_tail?("claude-repl", true, nil)
     end
   end
 
   describe "resume_thread_id/3 (when to rejoin a prior thread)" do
     test "returns the persisted thread id for a resumable, local backend" do
-      assert AgentRunner.resume_thread_id("codex", nil, {:ok, %{thread_id: "thr_1"}}) == "thr_1"
+      assert SessionResume.resume_thread_id("codex", nil, {:ok, %{thread_id: "thr_1"}}) == "thr_1"
       # claude-repl is resumable too: the id is the prior claude session id.
-      assert AgentRunner.resume_thread_id("claude-repl", nil, {:ok, %{thread_id: "sess_1"}}) == "sess_1"
+      assert SessionResume.resume_thread_id("claude-repl", nil, {:ok, %{thread_id: "sess_1"}}) == "sess_1"
     end
 
     test "is nil when there is no persisted handle (clean start)" do
-      assert AgentRunner.resume_thread_id("codex", nil, :none) == nil
+      assert SessionResume.resume_thread_id("codex", nil, :none) == nil
     end
 
     test "is nil for a non-resumable backend even with a handle" do
       # Headless claude can't resume (its app-server thread map is in-memory only).
-      assert AgentRunner.resume_thread_id("claude", nil, {:ok, %{thread_id: "thr_1"}}) == nil
+      assert SessionResume.resume_thread_id("claude", nil, {:ok, %{thread_id: "thr_1"}}) == nil
     end
 
     test "is nil for a remote worker (codex rollouts are host-local)" do
-      assert AgentRunner.resume_thread_id("codex", "box-2", {:ok, %{thread_id: "thr_1"}}) == nil
+      assert SessionResume.resume_thread_id("codex", "box-2", {:ok, %{thread_id: "thr_1"}}) == nil
     end
   end
 
   describe "session_resumed?/1" do
     test "true only when the adapter reports a resumed thread" do
-      assert AgentRunner.session_resumed?(%{resumed: true})
-      refute AgentRunner.session_resumed?(%{resumed: false})
+      assert SessionResume.session_resumed?(%{resumed: true})
+      refute SessionResume.session_resumed?(%{resumed: false})
       # A fallback clean start (or a backend that never sets the flag) is not resumed.
-      refute AgentRunner.session_resumed?(%{})
+      refute SessionResume.session_resumed?(%{})
     end
   end
 
@@ -300,26 +302,26 @@ defmodule Aiur.AgentRunnerTest do
       session = %{backend: "codex", thread_id: "thr_9"}
 
       assert {:ok, %{backend: "codex", thread_id: "thr_9"}} =
-               AgentRunner.session_handle_to_save(session, nil)
+               SessionResume.session_handle_to_save(session, nil)
     end
 
     test "persists a resumable local claude-repl session" do
       session = %{backend: "claude-repl", thread_id: "sess_9"}
 
       assert {:ok, %{backend: "claude-repl", thread_id: "sess_9"}} =
-               AgentRunner.session_handle_to_save(session, nil)
+               SessionResume.session_handle_to_save(session, nil)
     end
 
     test "skips a non-resumable backend (claude headless fallback)" do
-      assert :skip = AgentRunner.session_handle_to_save(%{backend: "claude", thread_id: "x"}, nil)
+      assert :skip = SessionResume.session_handle_to_save(%{backend: "claude", thread_id: "x"}, nil)
     end
 
     test "skips a remote-worker session (rollout is not on this host)" do
-      assert :skip = AgentRunner.session_handle_to_save(%{backend: "codex", thread_id: "x"}, "box-2")
+      assert :skip = SessionResume.session_handle_to_save(%{backend: "codex", thread_id: "x"}, "box-2")
     end
 
     test "skips a session with no thread id" do
-      assert :skip = AgentRunner.session_handle_to_save(%{backend: "codex"}, nil)
+      assert :skip = SessionResume.session_handle_to_save(%{backend: "codex"}, nil)
     end
   end
 
@@ -332,28 +334,28 @@ defmodule Aiur.AgentRunnerTest do
       turn_session = %{thread_id: "sess_5", session_id: "sess_5-7"}
 
       assert {:ok, %{backend: "claude-repl", thread_id: "sess_5"}} =
-               AgentRunner.turn_handle_attrs(app_session, turn_session)
+               SessionResume.turn_handle_attrs(app_session, turn_session)
     end
 
     test "persists the live id when a resumed REPL's session id drifts from the start id" do
       # Defends against the CLI ever handing `--resume` a new session id: the
       # handle must follow the live conversation, not the id we resumed from.
       assert {:ok, %{backend: "claude-repl", thread_id: "new"}} =
-               AgentRunner.turn_handle_attrs(%{backend: "claude-repl", thread_id: "old"}, %{thread_id: "new"})
+               SessionResume.turn_handle_attrs(%{backend: "claude-repl", thread_id: "old"}, %{thread_id: "new"})
     end
 
     test "skips when the turn echoes the start session's id (codex/headless/stable REPL)" do
       # These fixed their id at start and the turn returns the same one, so the
       # start-time persistence is already current — re-persisting is redundant.
       assert :skip =
-               AgentRunner.turn_handle_attrs(%{backend: "codex", thread_id: "thr_1"}, %{thread_id: "thr_1"})
+               SessionResume.turn_handle_attrs(%{backend: "codex", thread_id: "thr_1"}, %{thread_id: "thr_1"})
 
       assert :skip =
-               AgentRunner.turn_handle_attrs(%{backend: "claude-repl", thread_id: "sess_1"}, %{thread_id: "sess_1"})
+               SessionResume.turn_handle_attrs(%{backend: "claude-repl", thread_id: "sess_1"}, %{thread_id: "sess_1"})
     end
 
     test "skips when the turn produced no thread id" do
-      assert :skip = AgentRunner.turn_handle_attrs(%{backend: "claude-repl"}, %{})
+      assert :skip = SessionResume.turn_handle_attrs(%{backend: "claude-repl"}, %{})
     end
   end
 
@@ -371,7 +373,7 @@ defmodule Aiur.AgentRunnerTest do
       log =
         ExUnit.CaptureLog.capture_log(fn ->
           assert :ok =
-                   AgentRunner.persist_handle_best_effort(
+                   SessionResume.persist_handle_best_effort(
                      "9",
                      %{backend: "codex", thread_id: "t"},
                      dir: bad_dir
@@ -401,15 +403,15 @@ defmodule Aiur.AgentRunnerTest do
       }
 
       assert :ok = GenServer.call(orchestrator_name, {:enqueue_event_digest, "MT-WAKE", event})
-      assert :ignored = AgentRunner.claim_after_queue_update_for_test(orchestrator_name, "MT-WAKE", false)
+      assert :ignored = QueueDrain.claim_after_queue_update(orchestrator_name, "MT-WAKE", false)
 
       assert {:ok, %{category: :coordination_event, event_type: :events_digest, body: %{events: [^event]}}} =
-               AgentRunner.claim_after_queue_update_for_test(orchestrator_name, "MT-WAKE", true)
+               QueueDrain.claim_after_queue_update(orchestrator_name, "MT-WAKE", true)
     end
 
     test "trusted GitHub comment text renders in the agent-visible event digest" do
       rendered =
-        AgentRunner.render_events_digest_for_test(
+        EventsDigest.render(
           [
             %{
               id: 456,
@@ -431,7 +433,7 @@ defmodule Aiur.AgentRunnerTest do
     test "a resumed session's first turn uses continuation guidance, not the cold-start prompt" do
       issue = %Aiur.Issue{id: "378", identifier: "378", title: "Resume sessions"}
 
-      prompt = AgentRunner.build_turn_prompt_for_test(issue, [resumed: true], 1, nil)
+      prompt = TurnPrompt.build_turn_prompt(issue, [resumed: true], 1, nil)
 
       # The thread already carries the original task + history; the prompt must
       # tell the agent to continue rather than restate/re-read everything.
@@ -443,20 +445,20 @@ defmodule Aiur.AgentRunnerTest do
 
     test "a non-resumed continuation turn keeps the normal continuation guidance" do
       issue = %Aiur.Issue{id: "1", identifier: "1", title: "x"}
-      prompt = AgentRunner.build_turn_prompt_for_test(issue, [], 2, 10)
+      prompt = TurnPrompt.build_turn_prompt(issue, [], 2, 10)
       assert prompt =~ "continuation turn #2"
     end
   end
 
   describe "remote_session_backend/2" do
     test "a remote-on claude issue dispatches the claude-repl transport" do
-      assert AgentRunner.remote_session_backend("claude", true) == "claude-repl"
+      assert SessionLifecycle.remote_session_backend("claude", true) == "claude-repl"
     end
 
     test "non-remote claude and other backends run as resolved" do
-      assert AgentRunner.remote_session_backend("claude", false) == "claude"
-      assert AgentRunner.remote_session_backend("codex", true) == "codex"
-      assert AgentRunner.remote_session_backend("claude-repl", true) == "claude-repl"
+      assert SessionLifecycle.remote_session_backend("claude", false) == "claude"
+      assert SessionLifecycle.remote_session_backend("codex", true) == "codex"
+      assert SessionLifecycle.remote_session_backend("claude-repl", true) == "claude-repl"
     end
   end
 
@@ -502,7 +504,7 @@ defmodule Aiur.AgentRunnerTest do
         end
       }
 
-      events = AgentRunner.current_comment_context_events_for_test(issue, fetchers)
+      events = CommentContext.events(issue, fetchers)
 
       assert Enum.map(events, & &1.topic) == [
                "ticket.35.issue.commented",
@@ -527,7 +529,7 @@ defmodule Aiur.AgentRunnerTest do
       }
 
       assert [%{topic: "ticket.35.issue.commented", summary: "issue only"}] =
-               AgentRunner.current_comment_context_events_for_test(issue, fetchers)
+               CommentContext.events(issue, fetchers)
     end
 
     test "only includes comments after the latest workpad handoff" do
@@ -602,7 +604,7 @@ defmodule Aiur.AgentRunnerTest do
         end
       }
 
-      events = AgentRunner.current_comment_context_events_for_test(issue, fetchers)
+      events = CommentContext.events(issue, fetchers)
 
       assert Enum.map(events, & &1.summary) == [
                "new issue directive",
@@ -658,7 +660,7 @@ defmodule Aiur.AgentRunnerTest do
         end
       }
 
-      events = AgentRunner.current_comment_context_events_for_test(issue, fetchers)
+      events = CommentContext.events(issue, fetchers)
       summaries = Enum.map(events, & &1.summary)
 
       assert "old unresolved review directive" in summaries
@@ -684,7 +686,7 @@ defmodule Aiur.AgentRunnerTest do
         pr_review_comments: fn _ -> {:ok, []} end
       }
 
-      [event] = AgentRunner.current_comment_context_events_for_test(issue, fetchers)
+      [event] = CommentContext.events(issue, fetchers)
 
       refute event.summary =~ "</external-content>"
       assert event.summary =~ "&lt;/external-content&gt;"

@@ -120,8 +120,7 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
 
       MessageHandler.send_worker_runtime_info(self(), issue, "host-1", "/workspace/path")
 
-      assert_receive {:worker_runtime_info, "gid-wri-01",
-                      %{worker_host: "host-1", workspace_path: "/workspace/path"}},
+      assert_receive {:worker_runtime_info, "gid-wri-01", %{worker_host: "host-1", workspace_path: "/workspace/path"}},
                      2_000
     end
 

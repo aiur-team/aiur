@@ -2,6 +2,7 @@ defmodule Aiur.Regression.AgentRunnerLifecycleTest do
   use ExUnit.Case, async: false
 
   alias Aiur.AgentRunner
+  alias Aiur.AgentRunner.{SessionResume, QueueDrain, EventsDigest}
   alias Aiur.CodingAgent
   alias Aiur.Events.DebugLog
   alias Aiur.Orchestrator
@@ -39,10 +40,10 @@ defmodule Aiur.Regression.AgentRunnerLifecycleTest do
 
       assert :ok = GenServer.call(orch, {:enqueue_event_digest, identifier, event})
 
-      assert :ignored = AgentRunner.claim_after_queue_update_for_test(orch, identifier, false)
+      assert :ignored = QueueDrain.claim_after_queue_update(orch, identifier, false)
 
       assert {:ok, %{category: :coordination_event, event_type: :events_digest}} =
-               AgentRunner.claim_after_queue_update_for_test(orch, identifier, true)
+               QueueDrain.claim_after_queue_update(orch, identifier, true)
     end
 
     test "a claimed digest is delivered: a second claim is empty" do
@@ -130,7 +131,7 @@ defmodule Aiur.Regression.AgentRunnerLifecycleTest do
         message: "bravo directive"
       }
 
-      rendered = AgentRunner.render_events_digest_for_test([trusted, untrusted], "AR13-G1")
+      rendered = EventsDigest.render([trusted, untrusted], "AR13-G1")
 
       assert rendered =~ "alpha directive"
       refute rendered =~ "bravo directive"
@@ -139,7 +140,7 @@ defmodule Aiur.Regression.AgentRunnerLifecycleTest do
 
     test "github event with author_trusted?: false is suppressed" do
       rendered =
-        AgentRunner.render_events_digest_for_test(
+        EventsDigest.render(
           [
             %{
               id: 12,
@@ -158,7 +159,7 @@ defmodule Aiur.Regression.AgentRunnerLifecycleTest do
 
     test "trusted github content is wrapped with an escaped author attribute" do
       rendered =
-        AgentRunner.render_events_digest_for_test(
+        EventsDigest.render(
           [
             %{
               id: 13,
@@ -178,7 +179,7 @@ defmodule Aiur.Regression.AgentRunnerLifecycleTest do
 
     test "non-github events pass through unfiltered and unwrapped" do
       rendered =
-        AgentRunner.render_events_digest_for_test(
+        EventsDigest.render(
           [
             %{
               id: 14,
@@ -197,7 +198,7 @@ defmodule Aiur.Regression.AgentRunnerLifecycleTest do
       t0 = DateTime.utc_now()
 
       rendered =
-        AgentRunner.render_events_digest_for_test(
+        EventsDigest.render(
           [
             %{
               id: 1,
@@ -221,7 +222,7 @@ defmodule Aiur.Regression.AgentRunnerLifecycleTest do
 
     test "block-state events without timestamps always collapse to the latest" do
       rendered =
-        AgentRunner.render_events_digest_for_test(
+        EventsDigest.render(
           [
             %{id: 1, topic: "ticket.77.agent.blocked", message: "blocked no time"},
             %{id: 2, topic: "ticket.77.agent.unblocked", message: "unblocked no time"}
@@ -237,7 +238,7 @@ defmodule Aiur.Regression.AgentRunnerLifecycleTest do
       t0 = DateTime.utc_now()
 
       rendered =
-        AgentRunner.render_events_digest_for_test(
+        EventsDigest.render(
           [
             %{
               id: 1,
@@ -265,7 +266,7 @@ defmodule Aiur.Regression.AgentRunnerLifecycleTest do
 
     test "block-state events for different tickets do not collapse together" do
       rendered =
-        AgentRunner.render_events_digest_for_test(
+        EventsDigest.render(
           [
             %{id: 1, topic: "ticket.77.agent.blocked", message: "seventy-seven"},
             %{id: 2, topic: "ticket.88.agent.blocked", message: "eighty-eight"}
@@ -319,10 +320,10 @@ defmodule Aiur.Regression.AgentRunnerLifecycleTest do
     end
 
     test "resume_thread_id gates on backend resumability and local worker" do
-      assert "t9" = AgentRunner.resume_thread_id("codex", nil, {:ok, %{thread_id: "t9"}})
-      assert nil == AgentRunner.resume_thread_id("claude", nil, {:ok, %{thread_id: "t9"}})
-      assert nil == AgentRunner.resume_thread_id("codex", "remote-host", {:ok, %{thread_id: "t9"}})
-      assert nil == AgentRunner.resume_thread_id("codex", nil, :none)
+      assert "t9" = SessionResume.resume_thread_id("codex", nil, {:ok, %{thread_id: "t9"}})
+      assert nil == SessionResume.resume_thread_id("claude", nil, {:ok, %{thread_id: "t9"}})
+      assert nil == SessionResume.resume_thread_id("codex", "remote-host", {:ok, %{thread_id: "t9"}})
+      assert nil == SessionResume.resume_thread_id("codex", nil, :none)
     end
 
     test "resumable?/1 per backend" do
@@ -334,19 +335,19 @@ defmodule Aiur.Regression.AgentRunnerLifecycleTest do
 
     test "turn handle persists only on thread-id drift" do
       assert {:ok, %{backend: "claude-repl", thread_id: "s2"}} =
-               AgentRunner.turn_handle_attrs(%{backend: "claude-repl", thread_id: "s1"}, %{thread_id: "s2"})
+               SessionResume.turn_handle_attrs(%{backend: "claude-repl", thread_id: "s1"}, %{thread_id: "s2"})
 
-      assert :skip = AgentRunner.turn_handle_attrs(%{backend: "codex", thread_id: "s1"}, %{thread_id: "s1"})
-      assert :skip = AgentRunner.turn_handle_attrs(%{backend: "claude-repl", thread_id: "s1"}, %{})
+      assert :skip = SessionResume.turn_handle_attrs(%{backend: "codex", thread_id: "s1"}, %{thread_id: "s1"})
+      assert :skip = SessionResume.turn_handle_attrs(%{backend: "claude-repl", thread_id: "s1"}, %{})
     end
 
     test "session_handle_to_save skips non-resumable, remote, and id-less sessions" do
       assert {:ok, %{backend: "codex", thread_id: "t1"}} =
-               AgentRunner.session_handle_to_save(%{backend: "codex", thread_id: "t1"}, nil)
+               SessionResume.session_handle_to_save(%{backend: "codex", thread_id: "t1"}, nil)
 
-      assert :skip = AgentRunner.session_handle_to_save(%{backend: "claude", thread_id: "t1"}, nil)
-      assert :skip = AgentRunner.session_handle_to_save(%{backend: "codex", thread_id: "t1"}, "remote-host")
-      assert :skip = AgentRunner.session_handle_to_save(%{backend: "codex"}, nil)
+      assert :skip = SessionResume.session_handle_to_save(%{backend: "claude", thread_id: "t1"}, nil)
+      assert :skip = SessionResume.session_handle_to_save(%{backend: "codex", thread_id: "t1"}, "remote-host")
+      assert :skip = SessionResume.session_handle_to_save(%{backend: "codex"}, nil)
     end
 
     test "persist_handle_best_effort swallows write failures", %{tmp_dir: tmp_dir} do
@@ -354,7 +355,7 @@ defmodule Aiur.Regression.AgentRunnerLifecycleTest do
       File.write!(blocked, "")
 
       assert :ok =
-               AgentRunner.persist_handle_best_effort(
+               SessionResume.persist_handle_best_effort(
                  "AR13-R8",
                  %{backend: "codex", thread_id: "t1"},
                  dir: Path.join(blocked, "nested")

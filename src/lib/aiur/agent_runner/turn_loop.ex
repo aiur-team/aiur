@@ -136,9 +136,11 @@ defmodule Aiur.AgentRunner.TurnLoop do
   def turn_done_reason({:error, reason}), do: {:failed, reason}
   def turn_done_reason(_), do: :done
 
-  defp best_effort_queue_bookkeeping(:ok, _op, _issue), do: :ok
+  @doc false
+  def best_effort_queue_bookkeeping(:ok, _op, _issue), do: :ok
 
-  defp best_effort_queue_bookkeeping({:error, reason}, op, issue) do
+  @doc false
+  def best_effort_queue_bookkeeping({:error, reason}, op, issue) do
     Logger.warning("Orchestrator #{op}_delivered_queue_items unavailable for #{Aiur.AgentRunner.issue_context(issue)}: #{inspect(reason)}; continuing without crashing the agent")
 
     :ok
