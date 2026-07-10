@@ -13,7 +13,7 @@ defmodule Aiur.Events.GithubCIPoller do
   alias Aiur.GitHub.Client
 
   @type target :: String.t() | integer()
-  @type decision :: :pending | :passed | :failed
+  @type decision :: :pending | :passed | :failed | :test_failed
 
   @successful_conclusions ~w(success neutral skipped)
   @failed_statuses ~w(error failure)
@@ -148,7 +148,7 @@ defmodule Aiur.Events.GithubCIPoller do
 
     decision =
       cond do
-        failed_checks != [] -> :failed
+        failed_checks != [] -> failure_decision(failed_checks)
         incomplete_check_runs?(check_runs) -> :pending
         incomplete_commit_statuses?(statuses) -> :pending
         incomplete_combined_status?(commit_status) -> :pending
@@ -158,6 +158,13 @@ defmodule Aiur.Events.GithubCIPoller do
 
     %{decision: decision, failures: failed_checks}
   end
+
+  defp failure_decision(failures) do
+    if Enum.all?(failures, &test_failure?/1), do: :test_failed, else: :failed
+  end
+
+  defp test_failure?(%{name: "test"}), do: true
+  defp test_failure?(_failure), do: false
 
   defp failed_check_runs(check_runs) do
     Enum.flat_map(check_runs, fn check_run ->
@@ -214,7 +221,7 @@ defmodule Aiur.Events.GithubCIPoller do
     Enum.any?(statuses, fn status -> Map.get(status, "state") not in ["success" | @failed_statuses] end)
   end
 
-  defp incomplete_combined_status?(%{"state" => state}) when is_binary(state) do
+  defp incomplete_combined_status?(%{"state" => state, "statuses" => [_ | _]}) when is_binary(state) do
     state not in ["success" | @failed_statuses]
   end
 

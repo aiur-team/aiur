@@ -220,7 +220,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       :ok
     end
 
-    test "pending CI moves a human-review ticket into ci-wait" do
+    test "transient pending CI does not revoke a human-review ticket" do
       issue = %Issue{id: "821", identifier: "821", state: "human-review", title: "Awaiting CI"}
 
       state =
@@ -229,11 +229,11 @@ defmodule Aiur.OrchestratorDeactivateTest do
           ci_poller: fn ["821"], _opts -> {:ok, %{results: [%{target: "821", decision: :pending}], errors: []}} end
         )
 
-      assert_receive {:ci_watcher_update, "821", "ci-wait"}
+      refute_receive {:ci_watcher_update, "821", "ci-wait"}
       assert state.running == %{}
     end
 
-    test "pending CI pauses the active runner instead of deactivating it" do
+    test "transient pending CI does not pause an active human-review runner" do
       identifier = "825"
       issue = %Issue{id: identifier, identifier: identifier, state: "human-review", title: "Awaiting CI"}
       agent_pid = control_test_agent(self())
@@ -250,13 +250,13 @@ defmodule Aiur.OrchestratorDeactivateTest do
           end
         )
 
-      assert_receive {:ci_wait_control, {:pause_agent, _request_id}}
-      assert_receive {:ci_watcher_update, ^identifier, "ci-wait"}
+      refute_receive {:ci_wait_control, {:pause_agent, _request_id}}
+      refute_receive {:ci_watcher_update, ^identifier, "ci-wait"}
 
       entry = Map.fetch!(state.running, identifier)
-      assert get_in(entry, [:control, :status]) == :paused
-      assert entry.paused_reason == :ci_wait
-      assert entry.issue.state == "ci-wait"
+      assert get_in(entry, [:control, :status]) == :working
+      refute Map.has_key?(entry, :paused_reason)
+      assert entry.issue.state == "human-review"
       assert Process.alive?(agent_pid)
     end
 
@@ -448,6 +448,94 @@ defmodule Aiur.OrchestratorDeactivateTest do
       entry = Map.fetch!(state.running, identifier)
       assert get_in(entry, [:control, :status]) == :working
       refute Map.has_key?(entry, :paused_reason)
+      assert entry.issue.state == "rework"
+    end
+
+    test "test-only CI failure returns a ci-wait agent to human review without resuming it" do
+      identifier = "ci-test-policy"
+      issue = %Issue{id: identifier, identifier: identifier, state: "ci-wait", title: "Review test flake"}
+      agent_pid = control_test_agent(self())
+
+      on_exit(fn ->
+        if Process.alive?(agent_pid), do: Process.exit(agent_pid, :kill)
+      end)
+
+      state =
+        human_review_running_state(identifier, agent_pid)
+        |> put_in([Access.key(:running), identifier, :issue], issue)
+        |> put_in([Access.key(:running), identifier, :control], %{status: :paused})
+        |> put_in([Access.key(:running), identifier, :paused_reason], :ci_wait)
+
+      state =
+        Orchestrator.poll_github_ci_for_test(state,
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
+          ci_poller: fn [^identifier], _opts ->
+            {:ok,
+             %{
+               results: [
+                 %{
+                   target: identifier,
+                   decision: :test_failed,
+                   head_sha: "test-only-failure",
+                   pr_number: 827,
+                   failures: [%{name: "test", result: "failure", excerpt: "flaky test"}]
+                 }
+               ],
+               errors: []
+             }}
+          end
+        )
+
+      assert_receive {:ci_watcher_update, ^identifier, "human-review"}
+      refute_receive {:ci_wait_control, {:resume_agent, _request_id}}
+
+      entry = Map.fetch!(state.running, identifier)
+      assert get_in(entry, [:control, :status]) == :paused
+      assert entry.paused_reason == :ci_wait
+      assert entry.issue.state == "human-review"
+    end
+
+    test "CI poll failure does not resume an operator-paused runner" do
+      identifier = "ci-poll-paused"
+      issue = %Issue{id: identifier, identifier: identifier, state: "ci-wait", title: "Hold CI"}
+      agent_pid = control_test_agent(self())
+
+      on_exit(fn ->
+        if Process.alive?(agent_pid), do: Process.exit(agent_pid, :kill)
+      end)
+
+      state =
+        human_review_running_state(identifier, agent_pid)
+        |> put_in([Access.key(:running), identifier, :issue], issue)
+        |> put_in([Access.key(:running), identifier, :control], %{status: :paused})
+        |> put_in([Access.key(:running), identifier, :paused_reason], :label_override)
+
+      state =
+        Orchestrator.poll_github_ci_for_test(state,
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
+          ci_poller: fn [^identifier], _opts ->
+            {:ok,
+             %{
+               results: [
+                 %{
+                   target: identifier,
+                   decision: :failed,
+                   head_sha: "failed-head",
+                   pr_number: 828,
+                   failures: [%{name: "lint", result: "failure", excerpt: "lint failed"}]
+                 }
+               ],
+               errors: []
+             }}
+          end
+        )
+
+      assert_receive {:ci_watcher_update, ^identifier, "rework"}
+      refute_receive {:ci_wait_control, {:resume_agent, _request_id}}
+
+      entry = Map.fetch!(state.running, identifier)
+      assert get_in(entry, [:control, :status]) == :paused
+      assert entry.paused_reason == :label_override
       assert entry.issue.state == "rework"
     end
 

@@ -18,7 +18,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
     :ok
   end
 
-  test "passes completed observed checks without requiring a missing guard" do
+  test "passes completed Actions checks when the status endpoint has no legacy statuses" do
     request_fun = fn %{url: url} ->
       cond do
         String.contains?(url, "/pulls?") ->
@@ -36,7 +36,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
            }}
 
         String.ends_with?(url, "/status") ->
-          {:ok, %{status: 200, body: %{"state" => "success", "statuses" => []}}}
+          {:ok, %{status: 200, body: %{"state" => "pending", "total_count" => 0, "statuses" => []}}}
       end
     end
 
@@ -80,9 +80,9 @@ defmodule Aiur.Events.GithubCIPollerTest do
             }} = GithubCIPoller.poll(["72"], request_fun: request_fun)
   end
 
-  test "returns failed check details without suppressing a test failure" do
+  test "returns test-only check details for merge-policy handling" do
     assert %{
-             decision: :failed,
+             decision: :test_failed,
              failures: [
                %{
                  name: "test",
@@ -102,6 +102,20 @@ defmodule Aiur.Events.GithubCIPollerTest do
                  }
                ],
                %{"statuses" => []}
+             )
+  end
+
+  test "classifies a test-only check failure for human merge policy" do
+    assert %{
+             decision: :test_failed,
+             failures: [%{name: "test", kind: "check_run", result: "failure"}]
+           } =
+             GithubCIPoller.evaluate_for_test(
+               [
+                 %{"name" => "test", "status" => "completed", "conclusion" => "failure"},
+                 %{"name" => "lint", "status" => "completed", "conclusion" => "success"}
+               ],
+               %{"state" => "pending", "total_count" => 0, "statuses" => []}
              )
   end
 
@@ -221,7 +235,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
       end
     end
 
-    assert {:ok, %{results: [%{decision: :failed, failures: [%{name: "test"}]}]}} =
+    assert {:ok, %{results: [%{decision: :test_failed, failures: [%{name: "test"}]}]}} =
              GithubCIPoller.poll(["88"], request_fun: request_fun)
   end
 end

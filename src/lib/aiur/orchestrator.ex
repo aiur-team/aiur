@@ -1450,7 +1450,11 @@ defmodule Aiur.Orchestrator do
   end
 
   defp apply_ci_poll_result(state, issue, %{decision: :pending}) do
-    if ci_wait_state?(issue.state), do: state, else: transition_ci_ticket(state, issue, @ci_wait_state)
+    cond do
+      human_review_state?(issue.state) -> refresh_running_issue_state(state, issue)
+      ci_wait_state?(issue.state) -> state
+      true -> transition_ci_ticket(state, issue, @ci_wait_state)
+    end
   end
 
   defp apply_ci_poll_result(state, issue, %{decision: :passed} = result) do
@@ -1463,6 +1467,14 @@ defmodule Aiur.Orchestrator do
 
   defp apply_ci_poll_result(state, issue, %{decision: :failed} = result) do
     transition_ci_failure(state, issue, result)
+  end
+
+  defp apply_ci_poll_result(state, issue, %{decision: :test_failed} = result) do
+    if human_review_state?(issue.state) do
+      refresh_running_issue_state(state, issue)
+    else
+      transition_ci_test_failure(state, issue, result)
+    end
   end
 
   defp apply_ci_poll_result(state, _issue, _result), do: state
@@ -1510,11 +1522,37 @@ defmodule Aiur.Orchestrator do
         state
         |> ensure_ci_failure_subscription(issue)
         |> publish_ci_terminal_event(issue, result, :failed)
-        |> maybe_reactivate_or_refresh(%{issue | state: "rework"})
+        |> maybe_reactivate_after_ci_failure(%{issue | state: "rework"})
 
       {:error, reason} ->
         Logger.warning("CI failure transition skipped: #{issue_context(issue)} reason=#{inspect(reason)}")
         state
+    end
+  end
+
+  defp transition_ci_test_failure(state, issue, result) do
+    case Tracker.update_issue_state(to_string(issue.id || issue.identifier), @human_review_state) do
+      :ok ->
+        Logger.warning(
+          "CI test-only failure deferred to human merge policy: " <>
+            "#{issue_context(issue)} checks=#{inspect(Map.get(result, :failures, []))}"
+        )
+
+        refresh_running_issue_state(state, %{issue | state: @human_review_state})
+
+      {:error, reason} ->
+        Logger.warning("CI test-only failure transition skipped: #{issue_context(issue)} reason=#{inspect(reason)}")
+        state
+    end
+  end
+
+  defp maybe_reactivate_after_ci_failure(state, issue) do
+    case Map.get(state.running, issue.id) do
+      %{control: %{status: :paused}, paused_reason: :label_override} ->
+        refresh_running_issue_state(state, issue)
+
+      _ ->
+        maybe_reactivate_or_refresh(state, issue)
     end
   end
 
