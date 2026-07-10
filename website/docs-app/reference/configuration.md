@@ -1,6 +1,6 @@
 # Configuration reference
 
-Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accepted. `prompt_file:` and `hooks_file:` point at sibling files, and path values support `~` and `$VAR`.
+Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accepted. `prompt_file:` and `hooks_file:` point at sibling files. Supported secret and workspace-root fields resolve `~` and `$VAR` values; other path fields do not generally expand environment references.
 
 ## Top-level
 
@@ -55,9 +55,10 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
-| `agent.kind` | string | codex | Default coding backend. |
+| `agent.kind` | string | codex | Default coding backend; an explicit value wins, otherwise a `claude:` section infers `claude`, a `codex:` section infers `codex`, and no backend section falls back to `claude`. |
 | `agent.remote_control` | boolean | false | Opts RC-capable backends into remote control. |
 | `agent.max_concurrent_agents` | integer | 10 | Global simultaneous-agent cap. |
+| `agent.max_concurrent_builds` | integer | 2 | Caps agent-launched Mix verification; 0 disables the gate. |
 | `agent.max_concurrent_agents_by_state` | map | `%{}` | Per-state caps overriding the global cap. |
 | `agent.routing` | map | `%{}` | Maps complexity levels to backend/model/effort routing. |
 | `agent.complexity_prompts` | map | `%{}` | Adds prompt guidance by complexity level. |
@@ -65,10 +66,14 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 | `agent.max_retry_attempts` | integer | 3 | Failed-turn retry count. |
 | `agent.max_retry_backoff_ms` | integer | 300000 | Retry backoff ceiling in milliseconds. |
 | `agent.turn_timeout_ms` | integer | 3600000 | Backstop timeout for one turn. |
-| `agent.stall_timeout_ms` | integer | 300000 | Silent-agent watchdog; 0 disables it. |
+| `agent.stall_timeout_ms` | integer | 3600000 | Silent-agent watchdog; 0 disables it. |
 | `agent.max_agent_duration_minutes` | integer | 60 | Active-runtime kill switch; 0 disables it. |
 | `agent.max_load_average` | float | 1.5 | Holds dispatch above the load threshold; null disables it. |
+| `agent.target_load_average` | float | 1.0 | Adaptive per-scheduler load target; null disables the adaptive envelope. |
+| `agent.load_ramp_step` | integer | 1 | Capacity increase while load is below the target. |
+| `agent.load_cooldown_seconds` | integer | 60 | Minimum interval between adaptive capacity reductions. |
 | `agent.synthetic_load_process_cap` | integer or nil | nil | Caps synthetic load processes; 0 disables the guard. |
+| `agent.mix_scheduler_cap` | integer or nil | nil | Caps schedulers in agent-launched Mix BEAMs; nil leaves them uncapped. |
 
 ## agent.claude
 
@@ -83,7 +88,7 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `agent.codex.command` | string | `codex app-server` | Command launching the Codex app server. |
-| `agent.codex.approval_policy` | string or map | `untrusted` | Runtime approval policy. |
+| `agent.codex.approval_policy` | string | `untrusted` | Runtime policy: `untrusted`, `on-failure`, `on-request`, `granular`, or `never`. |
 | `agent.codex.thread_sandbox` | string | `workspace-write` | Thread sandbox mode. |
 | `agent.codex.turn_sandbox_policy` | map or nil | nil | Explicit per-turn sandbox policy. |
 | `agent.codex.read_timeout_ms` | integer | 5000 | Codex app-server read timeout. |
@@ -163,7 +168,7 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 
 ## Resolution & validation notes
 
-- An unset, blank, or erroring `prompt_file` falls back to the built-in default prompt.
+- An unset or blank `prompt_file` falls back to the built-in default prompt; a configured unreadable path fails startup.
 - A legacy top-level `linear:` section is merged into `tracker.linear`.
 - Only `$VAR` environment references resolve; legacy `env:NAME` values remain literal.
 - `polling.interval_ms` is rejected by the loader; use `interval_seconds`.
