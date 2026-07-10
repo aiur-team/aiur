@@ -59,7 +59,7 @@ max_vertical_panes: 3                    # max agent chat panes shown at once
 pre_warmed_sessions: {{PRE_WARMED}}      # opencode sessions pre-booted for fast open
 
 # === Warm base pre-warm (opt-in; `aiur init` sets this up) ===
-# aiur builds ONE warm, pre-compiled checkout of latest main and spins each agent
+# aiur builds ONE warm, pre-compiled checkout of the configured tracker base and spins each agent
 # workspace off it (copy-on-write) instead of every agent cloning + building from scratch.
 prewarm:
   enabled: {{PREWARM_ENABLED}}           # turn on to pre-warm a shared base before agents dispatch

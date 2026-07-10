@@ -590,7 +590,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     end
   end
 
-  test "after_create hook receives THIS_REPOSITORY_URL for the configured repo" do
+  test "after_create hook receives repository URL and configured base branch" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -605,13 +605,63 @@ defmodule Aiur.WorkspaceAndConfigTest do
         workspace_root: workspace_root,
         tracker_kind: "github",
         tracker_repo: "test-org/test-repo",
-        hook_after_create: "printf '%s' \"$THIS_REPOSITORY_URL\" > #{out_file}"
+        tracker_base_branch: "v2",
+        hook_after_create: "printf '%s\\n%s' \"$THIS_REPOSITORY_URL\" \"$THIS_BASE_BRANCH\" > #{out_file}"
       )
 
       assert {:ok, _workspace} = Workspace.create_for_issue("S-URL")
-      assert File.read!(out_file) == "https://github.com/test-org/test-repo.git"
+      assert File.read!(out_file) == "https://github.com/test-org/test-repo.git\nv2"
     after
       File.rm_rf(test_root)
+    end
+  end
+
+  test "materialize branches from the live configured base rather than main" do
+    test_root = Path.join(System.tmp_dir!(), "aiur-workspace-configured-base-#{System.unique_integer([:positive])}")
+
+    try do
+      origin = Path.join(test_root, "origin.git")
+      seed = Path.join(test_root, "seed")
+      base = Path.join(test_root, "warm-base")
+      workspace = Path.join(test_root, "workspaces/909")
+
+      File.mkdir_p!(test_root)
+      assert {_, 0} = System.cmd("git", ["init", "--bare", "-b", "main", origin])
+      assert {_, 0} = System.cmd("git", ["clone", origin, seed])
+      assert {_, 0} = System.cmd("git", ["-C", seed, "config", "user.email", "test@example.com"])
+      assert {_, 0} = System.cmd("git", ["-C", seed, "config", "user.name", "Test User"])
+
+      File.write!(Path.join(seed, "README.md"), "main base\n")
+      assert {_, 0} = System.cmd("git", ["-C", seed, "add", "."])
+      assert {_, 0} = System.cmd("git", ["-C", seed, "commit", "-m", "main base"])
+      assert {_, 0} = System.cmd("git", ["-C", seed, "push", "origin", "main"])
+
+      assert {_, 0} = System.cmd("git", ["-C", seed, "checkout", "-b", "v2"])
+      File.write!(Path.join(seed, "README.md"), "v2 base\n")
+      assert {_, 0} = System.cmd("git", ["-C", seed, "commit", "-am", "v2 base"])
+      assert {_, 0} = System.cmd("git", ["-C", seed, "push", "origin", "v2"])
+      assert {_, 0} = System.cmd("git", ["clone", "--branch", "v2", origin, base])
+
+      assert {_, 0} = System.cmd("git", ["-C", seed, "checkout", "main"])
+      File.write!(Path.join(seed, "README.md"), "main advanced\n")
+      assert {_, 0} = System.cmd("git", ["-C", seed, "commit", "-am", "main advance"])
+      assert {_, 0} = System.cmd("git", ["-C", seed, "push", "origin", "main"])
+      main_tip = git_head!(seed)
+
+      assert {_, 0} = System.cmd("git", ["-C", seed, "checkout", "v2"])
+      File.write!(Path.join(seed, "README.md"), "v2 advanced\n")
+      assert {_, 0} = System.cmd("git", ["-C", seed, "commit", "-am", "v2 advance"])
+      assert {_, 0} = System.cmd("git", ["-C", seed, "push", "origin", "v2"])
+      v2_tip = git_head!(seed)
+
+      write_workflow_file!(Workflow.workflow_file_path(), tracker_base_branch: "v2")
+      assert :ok = Workspace.materialize_from_base(base, workspace)
+
+      assert git_head!(workspace) == v2_tip
+      refute git_head!(workspace) == main_tip
+      assert File.read!(Path.join(workspace, "README.md")) == "v2 advanced\n"
+    after
+      File.rm_rf!(test_root)
     end
   end
 
@@ -2942,6 +2992,11 @@ defmodule Aiur.WorkspaceAndConfigTest do
   defp git!(args) do
     {output, 0} = System.cmd("git", args, stderr_to_stdout: true)
     output
+  end
+
+  defp git_head!(repo) do
+    {output, 0} = System.cmd("git", ["-C", repo, "rev-parse", "HEAD"], stderr_to_stdout: true)
+    String.trim(output)
   end
 
   defp shell_quote(value) do
