@@ -250,7 +250,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       state =
         human_review_running_state(identifier, agent_pid)
-        |> Map.put(:ci_approved_heads, %{identifier => "approved-head"})
+        |> put_in([Access.key(:ci_lifecycle), :approved_heads], %{identifier => "approved-head"})
         |> Orchestrator.poll_github_ci_for_test(
           ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
           ci_poller: fn [^identifier], _opts ->
@@ -274,7 +274,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       state =
         empty_orchestrator_state()
-        |> Map.put(:ci_approved_heads, %{identifier => "approved-head"})
+        |> put_in([Access.key(:ci_lifecycle), :approved_heads], %{identifier => "approved-head"})
         |> Orchestrator.poll_github_ci_for_test(
           ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
           ci_poller: fn [^identifier], _opts ->
@@ -283,7 +283,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         )
 
       assert_receive {:ci_watcher_update, ^identifier, "ci-wait"}
-      assert state.ci_approved_heads == %{}
+      assert state.ci_lifecycle.approved_heads == %{}
     end
 
     test "passing CI promotes ci-wait only after the successful observation" do
@@ -298,7 +298,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         )
 
       assert_receive {:ci_watcher_update, "822", "human-review"}
-      assert state.ci_approved_heads == %{"822" => "new-head"}
+      assert state.ci_lifecycle.approved_heads == %{"822" => "new-head"}
     end
 
     test "an approved head stays in human review after an orchestrator restart" do
@@ -314,14 +314,13 @@ defmodule Aiur.OrchestratorDeactivateTest do
         )
 
       assert_receive {:ci_watcher_update, ^identifier, "human-review"}
-      assert state.ci_approved_heads == %{"ci-restart" => "approved-head"}
+      assert state.ci_lifecycle.approved_heads == %{"ci-restart" => "approved-head"}
 
       persisted = CIApprovalStore.load()
 
       restarted_state = %{
         empty_orchestrator_state()
-        | ci_approved_heads: persisted.approved_heads,
-          ci_test_failure_heads: persisted.test_failure_heads
+        | ci_lifecycle: persisted
       }
 
       review_issue = %{waiting_issue | state: "human-review"}
@@ -335,7 +334,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         )
 
       refute_receive {:ci_watcher_update, ^identifier, "ci-wait"}
-      assert state.ci_approved_heads == %{"ci-restart" => "approved-head"}
+      assert state.ci_lifecycle.approved_heads == %{"ci-restart" => "approved-head"}
     end
 
     test "approval store fails closed for valid JSON with malformed lifecycle fields" do
@@ -494,7 +493,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         |> put_in([Access.key(:running), identifier, :control], %{status: :paused})
         |> put_in([Access.key(:running), identifier, :paused_reason], :ci_wait)
         |> put_in([Access.key(:running), identifier, :paused_at], DateTime.utc_now())
-        |> Map.put(:ci_test_failure_heads, %{identifier => "failed-head"})
+        |> put_in([Access.key(:ci_lifecycle), :test_failure_heads], %{identifier => "failed-head"})
 
       state =
         Orchestrator.poll_github_ci_for_test(state,
@@ -566,7 +565,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       refute_receive {:ci_wait_control, {:resume_agent, _request_id}}
       refute_receive {:ci_watcher_update, ^identifier, "rework"}
-      assert state.ci_test_failure_heads == %{identifier => "test-retry-head"}
+      assert state.ci_lifecycle.test_failure_heads == %{identifier => "test-retry-head"}
 
       entry = Map.fetch!(state.running, identifier)
       assert get_in(entry, [:control, :status]) == :paused
@@ -574,13 +573,13 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert entry.issue.state == "ci-wait"
 
       persisted = CIApprovalStore.load()
-      state = %{state | ci_approved_heads: persisted.approved_heads, ci_test_failure_heads: persisted.test_failure_heads}
+      state = %{state | ci_lifecycle: persisted}
 
       state = poll.(state)
 
       refute_receive {:ci_wait_control, {:resume_agent, _request_id}}
       assert_receive {:ci_watcher_update, ^identifier, "rework"}
-      assert state.ci_test_failure_heads == %{}
+      assert state.ci_lifecycle.test_failure_heads == %{}
     end
 
     test "CI poll failure respects a newly applied operator pause" do
@@ -644,8 +643,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       state = %{
         empty_orchestrator_state()
-        | ci_approved_heads: %{"old-review" => "old-head"},
-          ci_test_failure_heads: %{"old-wait" => "failed-head"}
+        | ci_lifecycle: %{approved_heads: %{"old-review" => "old-head"}, test_failure_heads: %{"old-wait" => "failed-head"}}
       }
 
       state =
@@ -654,8 +652,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
           ci_poller: fn [], _opts -> {:ok, %{results: [], errors: []}} end
         )
 
-      assert state.ci_approved_heads == %{}
-      assert state.ci_test_failure_heads == %{}
+      assert state.ci_lifecycle.approved_heads == %{}
+      assert state.ci_lifecycle.test_failure_heads == %{}
       assert CIApprovalStore.load() == %{approved_heads: %{}, test_failure_heads: %{}}
     end
 

@@ -119,8 +119,7 @@ defmodule Aiur.Orchestrator do
       tick_timer_ref: nil,
       tick_token: nil,
       initial_dispatch_cycle: true,
-      ci_approved_heads: ci_persistence.approved_heads,
-      ci_test_failure_heads: ci_persistence.test_failure_heads,
+      ci_lifecycle: ci_persistence,
       agent_totals: @empty_agent_totals,
       agent_rate_limits: nil
     }
@@ -1574,7 +1573,7 @@ defmodule Aiur.Orchestrator do
   # the second failure is delivered to the agent like every other CI failure.
   defp retryable_test_failure?(%State{} = state, %Issue{} = issue, %{head_sha: head_sha, failures: failures})
        when is_binary(head_sha) and is_list(failures) do
-    test_only_failure?(failures) and Map.get(state.ci_test_failure_heads, ci_target_for_issue(issue)) != head_sha
+    test_only_failure?(failures) and Map.get(state.ci_lifecycle.test_failure_heads, ci_target_for_issue(issue)) != head_sha
   end
 
   defp retryable_test_failure?(_state, _issue, _result), do: false
@@ -1600,7 +1599,7 @@ defmodule Aiur.Orchestrator do
   # a pending observation for a different SHA is a re-push and must re-enter the
   # CI gate.
   defp ci_head_approved?(%State{} = state, %Issue{} = issue, result) do
-    case {Map.get(state.ci_approved_heads, ci_target_for_issue(issue)), Map.get(result, :head_sha)} do
+    case {Map.get(state.ci_lifecycle.approved_heads, ci_target_for_issue(issue)), Map.get(result, :head_sha)} do
       {approved_head, observed_head} when is_binary(approved_head) and approved_head == observed_head -> true
       {approved_head, nil} when is_binary(approved_head) -> true
       _ -> false
@@ -1611,8 +1610,8 @@ defmodule Aiur.Orchestrator do
        when is_binary(head_sha) and head_sha != "" do
     case ci_target_for_issue(issue) do
       target when is_binary(target) ->
-        approved_heads = Map.put(state.ci_approved_heads, target, head_sha)
-        persist_ci_lifecycle_state(%{state | ci_approved_heads: approved_heads})
+        approved_heads = Map.put(state.ci_lifecycle.approved_heads, target, head_sha)
+        persist_ci_lifecycle_state(%{state | ci_lifecycle: %{state.ci_lifecycle | approved_heads: approved_heads}})
 
       _ ->
         state
@@ -1624,8 +1623,8 @@ defmodule Aiur.Orchestrator do
   defp clear_ci_approved_head(%State{} = state, %Issue{} = issue) do
     case ci_target_for_issue(issue) do
       target when is_binary(target) ->
-        approved_heads = Map.delete(state.ci_approved_heads, target)
-        persist_ci_lifecycle_state(%{state | ci_approved_heads: approved_heads})
+        approved_heads = Map.delete(state.ci_lifecycle.approved_heads, target)
+        persist_ci_lifecycle_state(%{state | ci_lifecycle: %{state.ci_lifecycle | approved_heads: approved_heads}})
 
       _ ->
         state
@@ -1635,8 +1634,8 @@ defmodule Aiur.Orchestrator do
   defp remember_ci_test_failure_retry(%State{} = state, %Issue{} = issue, %{head_sha: head_sha}) do
     case ci_target_for_issue(issue) do
       target when is_binary(target) and is_binary(head_sha) ->
-        test_failure_heads = Map.put(state.ci_test_failure_heads, target, head_sha)
-        persist_ci_lifecycle_state(%{state | ci_test_failure_heads: test_failure_heads})
+        test_failure_heads = Map.put(state.ci_lifecycle.test_failure_heads, target, head_sha)
+        persist_ci_lifecycle_state(%{state | ci_lifecycle: %{state.ci_lifecycle | test_failure_heads: test_failure_heads}})
 
       _ ->
         state
@@ -1646,8 +1645,8 @@ defmodule Aiur.Orchestrator do
   defp clear_ci_test_failure_retry(%State{} = state, %Issue{} = issue) do
     case ci_target_for_issue(issue) do
       target when is_binary(target) ->
-        test_failure_heads = Map.delete(state.ci_test_failure_heads, target)
-        persist_ci_lifecycle_state(%{state | ci_test_failure_heads: test_failure_heads})
+        test_failure_heads = Map.delete(state.ci_lifecycle.test_failure_heads, target)
+        persist_ci_lifecycle_state(%{state | ci_lifecycle: %{state.ci_lifecycle | test_failure_heads: test_failure_heads}})
 
       _ ->
         state
@@ -1660,22 +1659,18 @@ defmodule Aiur.Orchestrator do
       |> Enum.map(&ci_target_for_issue/1)
       |> Enum.filter(&is_binary/1)
 
-    approved_heads = Map.take(state.ci_approved_heads, targets)
-    test_failure_heads = Map.take(state.ci_test_failure_heads, targets)
+    approved_heads = Map.take(state.ci_lifecycle.approved_heads, targets)
+    test_failure_heads = Map.take(state.ci_lifecycle.test_failure_heads, targets)
 
-    if approved_heads == state.ci_approved_heads and test_failure_heads == state.ci_test_failure_heads do
+    if approved_heads == state.ci_lifecycle.approved_heads and test_failure_heads == state.ci_lifecycle.test_failure_heads do
       state
     else
-      persist_ci_lifecycle_state(%{
-        state
-        | ci_approved_heads: approved_heads,
-          ci_test_failure_heads: test_failure_heads
-      })
+      persist_ci_lifecycle_state(%{state | ci_lifecycle: %{approved_heads: approved_heads, test_failure_heads: test_failure_heads}})
     end
   end
 
   defp persist_ci_lifecycle_state(%State{} = state) do
-    :ok = CIApprovalStore.save(state.ci_approved_heads, state.ci_test_failure_heads)
+    :ok = CIApprovalStore.save(state.ci_lifecycle.approved_heads, state.ci_lifecycle.test_failure_heads)
     state
   end
 
