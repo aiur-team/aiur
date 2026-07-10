@@ -32,19 +32,15 @@ agent:
   # (~12). 1.5 → holds once load passes ~18. Raise/lower while ramping.
   max_load_average: 1.5
   max_turns: 12
-  # A silent turn (e.g. a long `mix test --cover` run with no intermediate agent
-  # output) is killed after this. Raised from the 5-min default so flake-fix /
-  # full-suite validation runs can complete. turn_timeout_ms already defaults to 60 min.
-  stall_timeout_ms: 3600000
-  # complexity:N label routes to a backend (model:<backend> label overrides); unlisted/unlabeled fall back to kind; 4–5 use claude for stronger reasoning.
+  # Complexity labels select a Codex 5.6 model and reasoning effort.
   routing:
-    4: claude
-    5: claude
-  claude:
-    command: aiur-claude
-    # model omitted → claude CLI's own default; set e.g. `model: claude-sonnet-4-6` to pin (sent as `claude --model <value>`).
+    1: "codex:gpt-5.6-luna:low"
+    2: "codex:gpt-5.6-luna:medium"
+    3: "codex:gpt-5.6-terra:high"
+    4: "codex:gpt-5.6-terra:xhigh"
+    5: "codex:gpt-5.6-sol:max"
   codex:
-    command: codex --config shell_environment_policy.inherit=all --config 'model="gpt-5.5"' --config model_reasoning_effort=high app-server
+    command: codex app-server
     approval_policy: never
     thread_sandbox: workspace-write
     turn_sandbox_policy:

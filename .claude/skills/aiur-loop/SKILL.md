@@ -51,7 +51,30 @@ tickets the developer didn't authorize.
    don't skip a tick when steady — see `aiur-monitor`'s required "Monitoring cadence"). Use the
    interval the operator chose in Step 0 (question 6); the cadence stays automatic and unprompted
    regardless of the value — never let an operator-set interval become "post only when asked."
-   Watch for bugs, stuck agents, CPU/FD.
+   Watch for bugs, stuck agents, CPU/FD. **Post each tick as two markdown tables, not prose** —
+   **Table 1** the full refactor roadmap (`Ticket | Description | Phase | Status`, one row per
+   ticket through the end: merged ✅ / active 🔵 / upcoming ⬜, contiguous done runs collapsible)
+   and **Table 2** the optimization/bottleneck backlog (`# | Description | Status`, flagging the
+   top blocker). Full spec: `aiur-monitor`'s "Progress-update format (required — two tables)".
+   Short shape:
+
+   ```
+   ## Table 1 — Refactor tickets
+   | Ticket | Description | Phase | Status |
+   |---|---|---|---|
+   | T-001–T-021 | Phase 1 safety-net + Phase 2 core seams | 1–2 | ✅ all merged |
+   | T-024 | orchestrator: comment/PR paths | 3 | 🔵 #851 todo |
+   | T-025 | orchestrator: sync subscriptions | 3 | ⬜ upcoming |
+   | T-036 | runner: streams slim | 3 | 🔵 #879 in-progress |
+
+   ## Table 2 — Optimization / bottleneck tickets
+   | # | Description | Status |
+   |---|---|---|
+   | #856 | Daemon hardening (scheduler cap + crash-dump) | ✅ merged |
+   | #884 | Restore v2 coverage ≥85% | 🔴 in-progress — BLOCKS ALL MERGES |
+   | #877 | Close the CI feedback loop | 🔵 in-progress |
+   | #873 | Agents skip local credo (lint = #1 CPU) | 🟡 staged in prompt |
+   ```
 3. **Curate the backlog** — if opted in, file focused `agent:todo` tickets (repro + acceptance
    criteria) so aiur keeps picking up work; keep the queue fed toward the agreed scope.
 4. **Review each PR** at the agreed level — typically a code/CE review with findings left as a
