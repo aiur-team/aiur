@@ -35,4 +35,23 @@ defmodule Aiur.Opencode.Slot.ServeLifecycleTest do
     state = %{slot_index: 2, base_url: "http://x"}
     assert :ok = ServeLifecycle.maybe_run_session_gc(state)
   end
+
+  test "maybe_run_session_gc returns :ok for slot-1 (fires background task)" do
+    state = %{slot_index: 1, base_url: "http://127.0.0.1:1"}
+    assert :ok = ServeLifecycle.maybe_run_session_gc(state)
+  end
+
+  # --- teardown_generation/1 ---
+
+  test "teardown_generation with nil state fields returns :ok without external calls" do
+    state = %{base_url: nil, server_pid: nil, pane_id: nil, token: nil}
+    assert :ok = ServeLifecycle.teardown_generation(state)
+  end
+
+  # --- terminate_cleanup/1 ---
+
+  test "terminate_cleanup with nil state fields returns :ok without external calls" do
+    state = %{base_url: nil, server_pid: nil, pane_id: nil, token: nil}
+    assert :ok = ServeLifecycle.terminate_cleanup(state)
+  end
 end

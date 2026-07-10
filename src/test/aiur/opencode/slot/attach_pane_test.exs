@@ -55,4 +55,22 @@ defmodule Aiur.Opencode.Slot.AttachPaneTest do
     System.delete_env("AIUR_DEBUG")
     refute AttachPane.debug_mode?()
   end
+
+  # --- dump_pipe_tail/1 ---
+
+  test "dump_pipe_tail returns :ok for nonexistent path" do
+    # pipe_pane_path(9999) → "/tmp/aiur-debug/slot-9999-attach.log" (does not exist)
+    assert :ok = AttachPane.dump_pipe_tail(9999)
+  end
+
+  # --- maybe_start_pipe_pane/2 ---
+
+  test "maybe_start_pipe_pane returns :ok when debug mode is off (binary pane)" do
+    System.delete_env("AIUR_DEBUG")
+    assert :ok = AttachPane.maybe_start_pipe_pane(3, "%99")
+  end
+
+  test "maybe_start_pipe_pane returns :ok for non-binary pane_id" do
+    assert :ok = AttachPane.maybe_start_pipe_pane(3, nil)
+  end
 end
