@@ -1,0 +1,151 @@
+defmodule Aiur.PaneManager.CloseTest do
+  use ExUnit.Case, async: false
+
+  alias Aiur.{AgentPubSub, Tmux}
+  alias Aiur.PaneManager.{Close, State}
+
+  setup do
+    test_pid = self()
+    tmux_name = Module.concat(__MODULE__, :"Tmux#{System.unique_integer([:positive])}")
+
+    {:ok, _tmux} =
+      start_supervised(
+        {Tmux, [transport: {:mock, test_pid}, name: tmux_name, session: "test"]},
+        id: tmux_name
+      )
+
+    state = %State{
+      tmux: tmux_name,
+      agent_list_pane: "%1",
+      window_target: "test:0",
+      slot_panes: State.empty_slot_panes(5)
+    }
+
+    %{tmux: tmux_name, state: state}
+  end
+
+  describe "close_opencode_or_generic/3" do
+    test "kills a generic pane (no slot owner), forgets mapping, replies :ok", %{
+      tmux: tmux,
+      state: state
+    } do
+      state = State.record_slot_pane(state, 1, "%10", "issue-1")
+      :ok = AgentPubSub.subscribe_status()
+
+      task =
+        Task.async(fn ->
+          Close.close_opencode_or_generic(state, "issue-1", "%10")
+        end)
+
+      receive do
+        {:tmux_mock_out, "kill-pane -t %10"} ->
+          send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
+      after
+        500 -> flunk("expected kill-pane -t %10")
+      end
+
+      # layout apply
+      receive do
+        {:tmux_mock_out, "display-message" <> _} ->
+          send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n100 24\n%end 1 1 0\n"})
+      after
+        100 -> :ok
+      end
+
+      receive do
+        {:tmux_mock_out, "select-layout" <> _} ->
+          send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
+      after
+        100 -> :ok
+      end
+
+      {:reply, result, new_state} = Task.await(task)
+
+      assert result == :ok
+      refute Map.has_key?(new_state.identifier_to_pane, "issue-1")
+      assert_receive {:status_changed, %{identifier: "issue-1", status: :pane_closed}}
+    end
+  end
+
+  describe "hide_slot_pane/3" do
+    test "replies {:error, :not_slot_pane} when no slot owns the pane", %{
+      tmux: _tmux,
+      state: state
+    } do
+      state = State.record_slot_pane(state, 1, "%10", "issue-1")
+
+      {:reply, result, new_state} = Close.hide_slot_pane(state, "issue-1", "%10")
+
+      assert result == {:error, :not_slot_pane}
+      assert new_state == state
+    end
+
+    test "moves a slot-owned pane to hidden and replies :ok", %{tmux: tmux, state: state} do
+      parent = self()
+      registered = make_ref()
+      slot_index = System.unique_integer([:positive])
+
+      {:ok, _slot_pid} =
+        start_supervised({Aiur.PaneManager.CloseTest.FakeSlot, {slot_index, "%33", parent, registered}})
+
+      assert_receive {^registered, :ready}, 500
+      state = State.record_slot_pane(state, slot_index, "%33", "issue-33")
+      task = Task.async(fn -> Close.hide_slot_pane(state, "issue-33", "%33") end)
+
+      assert_receive {:tmux_mock_out, "move-pane -d -s %33 -t aiur-hidden -h"}, 500
+      send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
+      assert_receive {:tmux_mock_out, "display-message -p -t %1 " <> _}, 500
+      send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n80x24\n%end 1 1 0\n"})
+      assert_receive {:tmux_mock_out, "select-layout -t test:0 " <> _}, 500
+      send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
+
+      assert {:reply, :ok, new_state} = Task.await(task)
+      refute Map.has_key?(new_state.identifier_to_pane, "issue-33")
+    end
+  end
+
+  test "closes a slot-owned pane by moving it hidden and deselecting the slot", %{tmux: tmux, state: state} do
+    parent = self()
+    registered = make_ref()
+    slot_index = System.unique_integer([:positive])
+
+    {:ok, _slot_pid} =
+      start_supervised({Aiur.PaneManager.CloseTest.FakeSlot, {slot_index, "%22", parent, registered}})
+
+    assert_receive {^registered, :ready}, 500
+    state = State.record_slot_pane(state, slot_index, "%22", "issue-22")
+    task = Task.async(fn -> Close.close_opencode_or_generic(state, "issue-22", "%22") end)
+
+    assert_receive {:tmux_mock_out, "move-pane -d -s %22 -t aiur-hidden -h"}, 500
+    send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
+    assert_receive {^registered, :deselected}, 500
+    assert_receive {:tmux_mock_out, "display-message -p -t %1 " <> _}, 500
+    send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n80x24\n%end 1 1 0\n"})
+    assert_receive {:tmux_mock_out, "select-layout -t test:0 " <> _}, 500
+    send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
+
+    assert {:reply, :ok, new_state} = Task.await(task)
+    refute Map.has_key?(new_state.identifier_to_pane, "issue-22")
+  end
+end
+
+defmodule Aiur.PaneManager.CloseTest.FakeSlot do
+  use GenServer
+
+  alias Aiur.Opencode.SlotRegistry
+
+  def start_link({index, pane_id, parent, ready_ref}), do: GenServer.start_link(__MODULE__, {index, pane_id, parent, ready_ref})
+
+  def init({index, pane_id, parent, ready_ref}) do
+    :ok = SlotRegistry.register_self(index)
+    send(parent, {ready_ref, :ready})
+    {:ok, {pane_id, parent, ready_ref}}
+  end
+
+  def handle_call(:snapshot, _from, {pane_id, _parent, _ref} = state), do: {:reply, %{pane_id: pane_id}, state}
+
+  def handle_call(:deselect, _from, {_pane_id, parent, ref} = state) do
+    send(parent, {ref, :deselected})
+    {:reply, :ok, state}
+  end
+end

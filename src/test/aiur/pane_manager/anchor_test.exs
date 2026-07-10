@@ -36,6 +36,17 @@ defmodule Aiur.PaneManager.AnchorTest do
     assert Anchor.resolve_window_target([window_target: "session:1"], :unused, "%1") == {:ok, "session:1"}
   end
 
+  test "resolve_window_target falls back to tmux when no opts target" do
+    tmux = start_tmux()
+
+    task = Task.async(fn -> Anchor.resolve_window_target([], tmux, "%1") end)
+
+    assert_receive {:tmux_mock_out, "display-message -p -t %1 " <> _}, 500
+    send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\ntest:0\n%end 1 1 0\n"})
+
+    assert {:ok, "test:0"} = Task.await(task, 2000)
+  end
+
   test "publish_control_url returns ok when dashboard is unbound" do
     assert Anchor.publish_control_url(:unused) == :ok
   end
