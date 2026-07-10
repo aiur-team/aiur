@@ -133,7 +133,7 @@ defmodule Aiur.Workspace.GitMetadata do
   # as PR-anchored heads without coupling recovery to a branch-name convention.
   defp current_branch_ref_lock_paths(workspace, git_dir) do
     case Checkout.current_branch(workspace) do
-      branch when is_binary(branch) ->
+      branch when is_binary(branch) and branch != "" ->
         [Path.join([git_dir, "refs", "remotes", "origin"] ++ ref_lock_segments(String.split(branch, "/", trim: true)))]
 
       _ ->

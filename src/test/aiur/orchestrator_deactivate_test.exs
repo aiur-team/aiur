@@ -2470,11 +2470,15 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert_receive {:issue_comments_requested, "11"}, 500
       refute_receive {:issue_comments_requested, _}, 100
       assert_receive {:pulls_requested, pulls_13}, 500
+      assert_receive {:pulls_requested, readable_pulls_13}, 500
       assert_receive {:pulls_requested, pulls_11}, 500
+      assert_receive {:pulls_requested, readable_pulls_11}, 500
       refute_receive {:pulls_requested, _}, 100
 
       assert String.contains?(pulls_13, "aiur%2F13")
       assert String.contains?(pulls_11, "aiur%2F11")
+      refute String.contains?(readable_pulls_13, "head=")
+      refute String.contains?(readable_pulls_11, "head=")
 
       assert next.github_comments_since == %{
                "10" => "2026-06-24T12:00:00Z",
@@ -2651,11 +2655,13 @@ defmodule Aiur.OrchestratorDeactivateTest do
         )
 
       assert_receive {:pulls_requested, pulls_11}, 500
+      assert_receive {:pulls_requested, readable_pulls_11}, 500
       assert_receive {:issue_comments_requested, "11"}, 500
       refute_receive {:pulls_requested, _}, 100
       refute_receive {:issue_comments_requested, _}, 100
 
       assert String.contains?(pulls_11, "aiur%2F11")
+      refute String.contains?(readable_pulls_11, "head=")
 
       assert next.github_comment_issue_updated_at == %{
                "10" => updated_at,
