@@ -7,6 +7,7 @@ defmodule Aiur.Init.TemplatesTest do
     assert Templates.config_example() =~ "tracker:"
     assert Templates.aiurhooks_template() =~ "after_create:"
     assert Templates.aiurhooks_template() =~ "AIUR_TICKET_BRANCH"
+    assert Templates.aiurhooks_template() =~ "origin/$AIUR_TICKET_BRANCH"
     assert Templates.prompt_file_template() =~ "{{REPO}}"
     assert Templates.prompt_file_template() =~ "actual validated ref supplied by the event payload"
     assert Templates.env_example_content() =~ "GITHUB_TOKEN="

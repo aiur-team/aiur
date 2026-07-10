@@ -162,7 +162,28 @@ defmodule Aiur.AgentRunner.EventsDigest do
   defp render_event_line(other), do: inspect(other)
 
   defp event_summary(event) do
-    event_field(event, :message) || event_field(event, :summary) || ""
+    event_field(event, :message) || event_field(event, :summary) || branch_push_ref(event) || ""
+  end
+
+  # LsRemoteTicker branch-push events intentionally carry structured metadata
+  # rather than a duplicate message. The actual pushed ref is essential for a
+  # dependent ticket: it must fetch the precise readable branch, not rebuild a
+  # legacy `aiur/<id>` ref from the stable topic key.
+  defp branch_push_ref(event) do
+    case event_field(event, :topic) do
+      topic when is_binary(topic) ->
+        if String.ends_with?(topic, ".branch.push") do
+          case event_field(event, :ref) do
+            ref when is_binary(ref) and ref != "" -> ref
+            _ -> nil
+          end
+        else
+          nil
+        end
+
+      _ ->
+        nil
+    end
   end
 
   # Defense-in-depth wrapper around GitHub-sourced user content in the

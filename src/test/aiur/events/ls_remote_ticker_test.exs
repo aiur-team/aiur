@@ -7,6 +7,7 @@ defmodule Aiur.Events.LsRemoteTickerTest do
 
   use ExUnit.Case, async: false
 
+  alias Aiur.AgentRunner.EventsDigest
   alias Aiur.Events.LsRemoteTicker
 
   setup do
@@ -159,7 +160,15 @@ defmodule Aiur.Events.LsRemoteTickerTest do
     tick(pid)
     assert_receive :polled, 500
 
-    assert_receive {:published, "ticket.99.branch.push", %{ref: "refs/heads/aiur/99-add-new-test-cases"}, _}, 200
+    assert_receive {:published, "ticket.99.branch.push", payload, _}, 200
+    assert payload.ref == "refs/heads/aiur/99-add-new-test-cases"
+
+    # Use the unmodified structured payload emitted by LsRemoteTicker. It has
+    # no synthetic `message`, so this proves a blocked agent receives the
+    # exact readable ref it must fetch after ticket.99.branch.push.
+    assert EventsDigest.render([Map.merge(payload, %{id: 99, topic: "ticket.99.branch.push"})], "99") =~
+             "refs/heads/aiur/99-add-new-test-cases"
+
     refute_receive {:published, "ticket." <> _, _, _}, 100
   end
 

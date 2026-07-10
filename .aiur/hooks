@@ -4,7 +4,11 @@ after_create: |
   git clone https://github.com/its-everdred/aiur.git .
   git fetch origin v2
   base_ref="origin/v2"
-  git checkout -b "$AIUR_TICKET_BRANCH" "$base_ref"
+  if git show-ref --verify --quiet "refs/remotes/origin/$AIUR_TICKET_BRANCH"; then
+    git checkout -B "$AIUR_TICKET_BRANCH" "origin/$AIUR_TICKET_BRANCH"
+  else
+    git checkout -B "$AIUR_TICKET_BRANCH" "$base_ref"
+  fi
   mkdir -p ./.aiur-hex ./.aiur-mix
   if [ -f mise.toml ]; then
     mise trust mise.toml >/dev/null 2>&1 || true
@@ -35,7 +39,11 @@ before_run: |
     find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
     git clone https://github.com/its-everdred/aiur.git .
     git fetch origin v2
-    git checkout -b "$AIUR_TICKET_BRANCH" origin/v2
+    if git show-ref --verify --quiet "refs/remotes/origin/$AIUR_TICKET_BRANCH"; then
+      git checkout -B "$AIUR_TICKET_BRANCH" "origin/$AIUR_TICKET_BRANCH"
+    else
+      git checkout -B "$AIUR_TICKET_BRANCH" origin/v2
+    fi
   else
     git fetch origin v2
     if ! git diff --quiet -- . ':(exclude).aiur-hex' ':(exclude)logs' ||

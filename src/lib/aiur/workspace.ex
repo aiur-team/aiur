@@ -17,18 +17,8 @@ defmodule Aiur.Workspace do
       safe_id = Layout.safe_identifier(issue_context.issue_identifier)
 
       with {:ok, workspace} <- Layout.workspace_path_for_issue(safe_id, worker_host),
-           :ok <- Layout.validate_workspace_path(workspace, worker_host),
-           {:ok, workspace, created?} <-
-             Provisioner.ensure_workspace(
-               workspace,
-               worker_host,
-               issue_context.pr_head_ref,
-               issue_context.branch_name
-             ),
-           :ok <- Hooks.run_after_create(workspace, issue_context, created?, worker_host),
-           :ok <- Hooks.run_github_preflight(workspace, issue_context, worker_host) do
-        Provisioner.maybe_install_agent_skills(workspace, worker_host)
-        {:ok, workspace}
+           :ok <- Layout.validate_workspace_path(workspace, worker_host) do
+        provision_workspace(workspace, worker_host, issue_context)
       end
     rescue
       error in [ArgumentError, ErlangError, File.Error] ->
@@ -63,6 +53,26 @@ defmodule Aiur.Workspace do
 
   @spec remove_issue_workspaces(term(), worker_host()) :: :ok
   defdelegate remove_issue_workspaces(identifier, worker_host), to: Remove
+
+  defp provision_workspace(workspace, worker_host, issue_context) do
+    issue_context = %{
+      issue_context
+      | branch_name: Provisioner.resolve_branch_name(workspace, issue_context)
+    }
+
+    with {:ok, workspace, created?} <-
+           Provisioner.ensure_workspace(
+             workspace,
+             worker_host,
+             issue_context.pr_head_ref,
+             issue_context.branch_name
+           ),
+         :ok <- Hooks.run_after_create(workspace, issue_context, created?, worker_host),
+         :ok <- Hooks.run_github_preflight(workspace, issue_context, worker_host) do
+      Provisioner.maybe_install_agent_skills(workspace, worker_host)
+      {:ok, workspace}
+    end
+  end
 
   @spec run_before_run_hook(Path.t(), map() | String.t() | nil, worker_host()) ::
           :ok | {:error, term()}

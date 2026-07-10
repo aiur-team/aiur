@@ -7,7 +7,11 @@ defmodule Aiur.Workspace.Refresh do
 
   @spec run(Path.t(), map() | String.t() | nil, String.t() | nil) :: :ok | {:error, term()}
   def run(workspace, issue_or_identifier, worker_host \\ nil) when is_binary(workspace) do
-    issue_context = Context.build(issue_or_identifier)
+    issue_context =
+      issue_or_identifier
+      |> Context.build()
+      |> then(&%{&1 | branch_name: Provisioner.resolve_branch_name(workspace, &1)})
+
     hooks = Config.settings!().hooks
 
     hook_result = run_before_run_command(hooks.before_run, workspace, issue_context, worker_host)

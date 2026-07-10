@@ -2,8 +2,8 @@ defmodule Aiur.Workspace.Provisioner do
   @moduledoc "Workspace provisioning: ensure, create, materialize from prewarm base, recreate stale workspaces, and remote SSH shell provisioning."
 
   require Logger
-  alias Aiur.{Config, RepoBase, TicketBranch}
-  alias Aiur.Workspace.{Materialize, Remote}
+  alias Aiur.{Config, RepoBase, TicketBranch, Tracker}
+  alias Aiur.Workspace.{Checkout, Context, Materialize, Remote}
 
   @remote_workspace_marker "__AIUR_WORKSPACE__"
 
@@ -18,6 +18,37 @@ defmodule Aiur.Workspace.Provisioner do
   def maybe_install_agent_skills(_workspace, worker_host) when is_binary(worker_host), do: :ok
 
   @type worker_host :: String.t() | nil
+
+  @doc false
+  @spec resolve_branch_name(Path.t(), map()) :: String.t()
+  def resolve_branch_name(workspace, issue_context) do
+    resolve_branch_name(workspace, issue_context, &Tracker.fetch_open_pull_request_for_branch/1)
+  end
+
+  @doc false
+  @spec resolve_branch_name(Path.t(), map(), (String.t() -> {:ok, map() | nil} | {:error, term()})) ::
+          String.t()
+  def resolve_branch_name(workspace, issue_context, fetch_open_pull_request)
+      when is_binary(workspace) and is_function(fetch_open_pull_request, 1) do
+    branch_name = Map.fetch!(issue_context, :branch_name)
+
+    cond do
+      pr_head_ref = established_pr_head_ref(issue_context) ->
+        pr_head_ref
+
+      current_branch = established_workspace_branch(workspace, branch_name) ->
+        current_branch
+
+      Context.todo_dispatch?(issue_context) ->
+        branch_name
+
+      pr_branch = established_pull_request_branch(branch_name, fetch_open_pull_request) ->
+        pr_branch
+
+      true ->
+        branch_name
+    end
+  end
 
   @spec ensure_workspace(Path.t(), worker_host(), String.t() | nil) ::
           {:ok, Path.t(), boolean() | :materialized} | {:error, term()}
@@ -180,6 +211,34 @@ defmodule Aiur.Workspace.Provisioner do
       _ -> create_workspace(workspace)
     end
   end
+
+  defp established_pr_head_ref(%{pr_head_ref: ref}) when is_binary(ref) and ref != "", do: ref
+  defp established_pr_head_ref(_issue_context), do: nil
+
+  defp established_workspace_branch(workspace, branch_name) do
+    with ticket_id when is_binary(ticket_id) <- TicketBranch.ticket_id(branch_name),
+         current_branch when is_binary(current_branch) <- Checkout.current_branch(workspace),
+         true <- TicketBranch.ticket_branch?(current_branch, ticket_id) do
+      current_branch
+    else
+      _ -> nil
+    end
+  end
+
+  defp established_pull_request_branch(branch_name, fetch_open_pull_request) do
+    with ticket_id when is_binary(ticket_id) <- TicketBranch.ticket_id(branch_name),
+         {:ok, pull_request} when is_map(pull_request) <- fetch_open_pull_request.(ticket_id),
+         head_ref when is_binary(head_ref) <- pull_request_head_ref(pull_request),
+         true <- TicketBranch.ticket_branch?(head_ref, ticket_id) do
+      head_ref
+    else
+      _ -> nil
+    end
+  end
+
+  defp pull_request_head_ref(%{"head" => %{"ref" => ref}}) when is_binary(ref), do: ref
+  defp pull_request_head_ref(%{head: %{ref: ref}}) when is_binary(ref), do: ref
+  defp pull_request_head_ref(_pull_request), do: nil
 
   defp legacy_branch_name(workspace), do: TicketBranch.legacy_branch_name(Path.basename(workspace))
 end
