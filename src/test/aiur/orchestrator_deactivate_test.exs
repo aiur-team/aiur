@@ -1395,17 +1395,33 @@ defmodule Aiur.OrchestratorDeactivateTest do
           max_concurrent_agents: 6
         }
 
-        {:noreply, next} =
-          Orchestrator.handle_info(
-            {:event, %{topic: "ticket.#{issue_identifier}.issue.commented", author_trusted?: true}},
-            state
-          )
+        event = %{
+          id: 7001,
+          topic: "ticket.#{issue_identifier}.issue.commented",
+          author_trusted?: true,
+          comment: %{body: "Please fix the handoff."}
+        }
+
+        {:noreply, next} = Orchestrator.handle_info({:event, event}, state)
 
         assert_receive {:memory_tracker_state_update, ^issue_id, "rework"}
 
         entry = Map.fetch!(next.running, issue_id)
         assert entry.issue.state == "rework"
         refute get_in(entry, [:control, :status]) == :deactivated
+
+        # The durable subscription path calls this queue boundary independently
+        # of the orchestrator's rework transition. Once the deactivated entry
+        # is restarted, its first turn can claim the same feedback digest.
+        assert {:reply, :ok, delivered} =
+                 Orchestrator.handle_call({:enqueue_event_digest, issue_identifier, event}, self(), next)
+
+        assert [
+                 %{
+                   event_type: :events_digest,
+                   body: %{events: [^event]}
+                 }
+               ] = AgentQueueStore.list_pending(delivered.queue_store, issue_identifier)
       after
         if previous_memory_issues do
           Application.put_env(:aiur, :memory_tracker_issues, previous_memory_issues)
@@ -1485,6 +1501,128 @@ defmodule Aiur.OrchestratorDeactivateTest do
         entry = Map.fetch!(next.running, issue_id)
         assert entry.issue.state == "rework"
         refute get_in(entry, [:control, :status]) == :deactivated
+      after
+        if previous_memory_issues do
+          Application.put_env(:aiur, :memory_tracker_issues, previous_memory_issues)
+        else
+          Application.delete_env(:aiur, :memory_tracker_issues)
+        end
+
+        if previous_memory_recipient do
+          Application.put_env(:aiur, :memory_tracker_recipient, previous_memory_recipient)
+        else
+          Application.delete_env(:aiur, :memory_tracker_recipient)
+        end
+
+        File.rm_rf(test_root)
+      end
+    end
+
+    test "persists an actionable alert when trusted issue feedback cannot claim a rework slot" do
+      test_root =
+        Path.join(
+          System.tmp_dir!(),
+          "aiur-orch-issue-commented-capacity-#{System.unique_integer([:positive])}"
+        )
+
+      issue_id = "issue-issue-commented-capacity"
+      issue_identifier = "45"
+      workspace = Path.join(test_root, issue_identifier)
+      previous_memory_issues = Application.get_env(:aiur, :memory_tracker_issues)
+      previous_memory_recipient = Application.get_env(:aiur, :memory_tracker_recipient)
+
+      try do
+        write_workflow_file!(Workflow.workflow_file_path(),
+          tracker_kind: "memory",
+          workspace_root: test_root,
+          tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+          tracker_terminal_states: ["done", "cancelled", "canceled"],
+          worker_ssh_hosts: ["worker-1"],
+          worker_max_concurrent_agents_per_host: 1
+        )
+
+        File.mkdir_p!(workspace)
+        Application.put_env(:aiur, :memory_tracker_recipient, self())
+
+        Application.put_env(:aiur, :memory_tracker_issues, [
+          %Issue{
+            id: issue_id,
+            identifier: issue_identifier,
+            state: "rework",
+            title: "Review feedback pending",
+            description: "",
+            labels: []
+          }
+        ])
+
+        state = %Orchestrator.State{
+          running: %{
+            issue_id => %{
+              pid: nil,
+              ref: nil,
+              identifier: issue_identifier,
+              issue: %Issue{id: issue_id, state: "human-review", identifier: issue_identifier},
+              workspace_path: workspace,
+              worker_host: "worker-1",
+              started_at: DateTime.utc_now(),
+              control: %{status: :deactivated}
+            },
+            "busy-issue" => %{
+              pid: nil,
+              ref: nil,
+              identifier: "busy",
+              issue: %Issue{id: "busy-issue", state: "in-progress", identifier: "busy"},
+              worker_host: "worker-1",
+              started_at: DateTime.utc_now(),
+              control: %{status: :working}
+            }
+          },
+          claimed: MapSet.new([issue_id, "busy-issue"]),
+          codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+          retry_attempts: %{},
+          max_concurrent_agents: 2
+        }
+
+        parent = self()
+
+        log =
+          capture_log(fn ->
+            send(
+              parent,
+              Orchestrator.handle_info(
+                {:event,
+                 %{
+                   topic: "ticket.#{issue_identifier}.issue.commented",
+                   author_trusted?: true,
+                   comment: %{body: "Please fix the lost workspace handoff."}
+                 }},
+                state
+              )
+            )
+          end)
+
+        assert_receive {:noreply, next}
+
+        assert_receive {:memory_tracker_state_update, ^issue_id, "rework"}
+
+        entry = Map.fetch!(next.running, issue_id)
+        assert entry.issue.state == "rework"
+        assert get_in(entry, [:control, :status]) == :deactivated
+        assert log =~ "issue comment reactivation deferred"
+
+        # Remote workers cannot write their workspace logs from the
+        # orchestrator host, so the durable operator alert belongs in the
+        # central feed instead.
+        log =
+          :aiur
+          |> Application.fetch_env!(:log_file)
+          |> Path.dirname()
+          |> Path.join("alerts.ndjson")
+          |> File.read!()
+
+        assert log =~ "\"name\":\"ticket.#{issue_identifier}.agent.review_feedback_delivery_deferred\""
+        assert log =~ "\"needs_attention\":true"
+        assert log =~ "\"severity\":\"warning\""
       after
         if previous_memory_issues do
           Application.put_env(:aiur, :memory_tracker_issues, previous_memory_issues)
