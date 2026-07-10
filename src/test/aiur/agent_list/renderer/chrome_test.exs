@@ -5,5 +5,7 @@ defmodule Aiur.AgentList.Renderer.ChromeTest do
   test "renders title and bottom chrome" do
     assert Chrome.title_row(80) |> IO.iodata_to_binary() =~ "╭─ AIUR"
     assert Chrome.bottom_border(80) |> IO.iodata_to_binary() =~ "newest"
+    assert Chrome.bottom_border(10) |> IO.iodata_to_binary() =~ "╰"
+    assert Chrome.footer_split(120, nil).line_count == 1
   end
 end
