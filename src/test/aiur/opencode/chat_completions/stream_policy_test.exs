@@ -59,4 +59,26 @@ defmodule Aiur.Opencode.ChatCompletions.StreamPolicyTest do
       end
     end
   end
+
+  describe "timing constants" do
+    test "exposes the fixed timing constants as positive integers" do
+      assert StreamPolicy.watchdog_ms() == 600_000
+      assert StreamPolicy.heartbeat_ms() == 15_000
+      assert StreamPolicy.empty_continuation_idle_factor() == 2
+    end
+
+    test "segment_threshold_ms defaults when unset and honors the app-env override" do
+      prev = Application.get_env(:aiur, :turn_segment_threshold_ms)
+      on_exit(fn -> restore_env(prev) end)
+
+      Application.delete_env(:aiur, :turn_segment_threshold_ms)
+      assert StreamPolicy.segment_threshold_ms() == 20_000
+
+      Application.put_env(:aiur, :turn_segment_threshold_ms, 5_000)
+      assert StreamPolicy.segment_threshold_ms() == 5_000
+    end
+  end
+
+  defp restore_env(nil), do: Application.delete_env(:aiur, :turn_segment_threshold_ms)
+  defp restore_env(value), do: Application.put_env(:aiur, :turn_segment_threshold_ms, value)
 end
