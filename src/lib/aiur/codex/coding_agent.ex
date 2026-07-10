@@ -66,9 +66,9 @@ defmodule Aiur.Codex.CodingAgent do
       Aiur.ProcessReaper.register(:agent, {:os_pid, metadata[:codex_app_server_pid]}, comm: reaper_comm)
 
       with {:ok, session_policies} <- session_policies(expanded_workspace, worker_host),
-           {:ok, thread_id, resumed?} <-
-             Handshake.establish(port, expanded_workspace, session_policies, resume_thread_id) do
-        observe_rate_limits(port)
+           {:ok, thread_id, resumed?, rate_limits_supported?} <-
+             Handshake.establish_with_rate_limits(port, expanded_workspace, session_policies, resume_thread_id) do
+        if rate_limits_supported?, do: observe_rate_limits(port)
 
         {:ok,
          %{

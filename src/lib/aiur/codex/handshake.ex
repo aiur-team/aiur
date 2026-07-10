@@ -9,12 +9,23 @@ defmodule Aiur.Codex.Handshake do
   alias Aiur.Codex.{Frames, Rpc}
   alias Aiur.Perf
 
+  @rate_limits_read_timeout_ms 1_000
+
   @spec establish(port(), Path.t(), map(), String.t() | nil) ::
           {:ok, String.t(), boolean()} | {:error, term()}
   def establish(port, workspace, session_policies, resume_thread_id) do
     case send_initialize(port) do
       :ok -> start_or_resume_thread(port, workspace, session_policies, resume_thread_id)
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @spec establish_with_rate_limits(port(), Path.t(), map(), String.t() | nil) ::
+          {:ok, String.t(), boolean(), boolean()} | {:error, term()}
+  def establish_with_rate_limits(port, workspace, session_policies, resume_thread_id) do
+    with {:ok, initialize_response} <- initialize(port),
+         {:ok, thread_id, resumed?} <- start_or_resume_thread(port, workspace, session_policies, resume_thread_id) do
+      {:ok, thread_id, resumed?, supports_rate_limits?(initialize_response)}
     end
   end
 
@@ -83,11 +94,18 @@ defmodule Aiur.Codex.Handshake do
 
   @spec send_initialize(port()) :: :ok | {:error, term()}
   def send_initialize(port) do
+    case initialize(port) do
+      {:ok, _response} -> :ok
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp initialize(port) do
     Rpc.send_message(port, Messages.initialize_frame())
 
-    with {:ok, _} <- Rpc.await_startup_response(port, Messages.initialize_id()) do
+    with {:ok, response} <- Rpc.await_startup_response(port, Messages.initialize_id()) do
       Rpc.send_message(port, Messages.initialized_frame())
-      :ok
+      {:ok, response}
     end
   rescue
     # The agent process can exit at any point (e.g. it crashed on boot);
@@ -97,12 +115,18 @@ defmodule Aiur.Codex.Handshake do
     ArgumentError -> {:error, :port_closed}
   end
 
+  # `codexHome` is required by Codex's real initialize response. Small fake
+  # app-server fixtures and older wrappers omit it, so avoid sending them a
+  # request they cannot consume without changing their startup protocol.
+  defp supports_rate_limits?(%{"codexHome" => home}) when is_binary(home), do: true
+  defp supports_rate_limits?(_response), do: false
+
   @doc "Read the authenticated Codex account's current rate-limit windows."
   @spec read_rate_limits(port()) :: {:ok, map()} | {:error, term()}
   def read_rate_limits(port) do
     Rpc.send_message(port, Frames.rate_limits_read_frame())
 
-    case Rpc.await_startup_response(port, Frames.rate_limits_read_id()) do
+    case Rpc.await_response(port, Frames.rate_limits_read_id(), @rate_limits_read_timeout_ms) do
       {:ok, %{"rateLimits" => rate_limits}} when is_map(rate_limits) -> {:ok, rate_limits}
       {:ok, payload} -> {:error, {:invalid_rate_limits_payload, payload}}
       {:error, _reason} = error -> error
