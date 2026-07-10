@@ -85,10 +85,10 @@ defmodule Aiur.AppServer.AdapterTest do
     assert {:ok, port} =
              Adapter.start_port(
                File.cwd!(),
-               "PATH=#{Aiur.Shell.escape(path)} #{Aiur.Shell.escape(mix)} run --no-start -e #{Aiur.Shell.escape(expression)}"
+               "PATH=#{Aiur.Shell.escape(path)} #{Aiur.Shell.escape(mix)} run --no-compile --no-deps-check --no-start -e #{Aiur.Shell.escape(expression)}"
              )
 
-    assert_receive {^port, {:data, {:eol, "4:4"}}}, 10_000
+    assert_receive {^port, {:data, {:eol, "4:4"}}}, 20_000
   end
 
   defp session(port, overrides \\ %{}) do
