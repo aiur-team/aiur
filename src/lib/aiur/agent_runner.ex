@@ -5,8 +5,9 @@ defmodule Aiur.AgentRunner do
 
   require Logger
 
-  alias Aiur.{AgentEventLog, Config, Issue, IssueLog, Workspace}
-  alias Aiur.AgentRunner.{BootstrapDigest, MessageHandler, SessionLifecycle, TurnStreams}
+  alias Aiur.{AgentEventLog, CodingAgent, Config, Issue, IssueLog, Tracker, Workspace}
+  alias Aiur.AgentRunner.{BootstrapDigest, CommentContext, EventsDigest, MessageHandler, QueueDrain}
+  alias Aiur.AgentRunner.{SessionLifecycle, SessionResume, TurnLoop, TurnPrompt, TurnStreams}
   alias Aiur.Opencode.ApiClient
 
   @type worker_host :: String.t() | nil
@@ -145,6 +146,90 @@ defmodule Aiur.AgentRunner do
   def post_aiur_turn_markers(identifier, aiur_turn_id, writers, post_fn \\ &ApiClient.post_message/3) do
     TurnStreams.post_aiur_turn_markers(identifier, aiur_turn_id, writers, post_fn)
   end
+
+  @doc false
+  @spec current_comment_context_events_for_test(Issue.t(), map()) :: [map()]
+  def current_comment_context_events_for_test(issue, fetchers) when is_map(fetchers) do
+    CommentContext.events(issue, fetchers)
+  end
+
+  @doc false
+  @spec resume_thread_id(String.t(), worker_host(), {:ok, map()} | :none) :: String.t() | nil
+  def resume_thread_id(backend, worker_host, handle), do: SessionResume.resume_thread_id(backend, worker_host, handle)
+
+  @doc false
+  @spec session_resumed?(map()) :: boolean()
+  def session_resumed?(session), do: SessionResume.session_resumed?(session)
+
+  @doc false
+  @spec turn_handle_attrs(map(), map()) :: {:ok, map()} | :skip
+  def turn_handle_attrs(a, b), do: SessionResume.turn_handle_attrs(a, b)
+
+  @doc false
+  @spec session_handle_to_save(map(), worker_host()) :: {:ok, map()} | :skip
+  def session_handle_to_save(s, w), do: SessionResume.session_handle_to_save(s, w)
+
+  @doc false
+  @spec persist_handle_best_effort(String.t(), map(), keyword()) :: :ok
+  def persist_handle_best_effort(id, attrs, opts \\ []), do: SessionResume.persist_handle_best_effort(id, attrs, opts)
+
+  @doc false
+  @spec should_display_tail?(String.t() | nil, boolean(), String.t() | nil) :: boolean()
+  def should_display_tail?(b, rc?, id), do: SessionLifecycle.should_display_tail?(b, rc?, id)
+
+  @doc false
+  @spec remote_session_backend(String.t(), boolean()) :: String.t()
+  def remote_session_backend(b, rc?), do: SessionLifecycle.remote_session_backend(b, rc?)
+
+  @doc false
+  @spec maybe_trust_remote_control_workspace(
+          Path.t(),
+          boolean(),
+          worker_host(),
+          (Path.t() -> :ok | {:error, term()})
+        ) :: :ok
+  def maybe_trust_remote_control_workspace(ws, rc?, wh, fun),
+    do: SessionLifecycle.maybe_trust_remote_control_workspace(ws, rc?, wh, fun)
+
+  @doc false
+  @spec rc_session_name(Issue.t(), String.t() | nil) :: String.t()
+  def rc_session_name(issue, repo \\ Tracker.project_identity()), do: SessionLifecycle.rc_session_name(issue, repo)
+
+  @doc false
+  @spec start_agent_session(
+          Path.t(),
+          keyword(),
+          (Path.t(), keyword() -> {:ok, map()} | {:error, term()})
+        ) :: {:ok, map()} | {:error, term()}
+  def start_agent_session(ws, opts, start_fun \\ &CodingAgent.start_session/2),
+    do: SessionLifecycle.start_agent_session(ws, opts, start_fun)
+
+  @doc false
+  @spec best_effort_queue_bookkeeping(:ok | {:error, term()}, atom(), Issue.t()) :: :ok
+  def best_effort_queue_bookkeeping(result, op, issue), do: TurnLoop.best_effort_queue_bookkeeping(result, op, issue)
+
+  @doc false
+  @spec turn_done_reason(term()) :: :done | :input_required | {:failed, term()}
+  def turn_done_reason(result), do: TurnLoop.turn_done_reason(result)
+
+  @doc false
+  @spec claim_after_queue_update_for_test(GenServer.server(), String.t(), boolean()) ::
+          {:ok, map()} | :empty | :ignored
+  def claim_after_queue_update_for_test(orchestrator, issue_identifier, deliver_now?)
+      when is_binary(issue_identifier) and is_boolean(deliver_now?) do
+    QueueDrain.claim_after_queue_update(orchestrator, issue_identifier, deliver_now?)
+  end
+
+  @doc false
+  @spec render_events_digest_for_test([map()], String.t()) :: String.t()
+  def render_events_digest_for_test(events, identifier) when is_list(events) and is_binary(identifier) do
+    EventsDigest.render(events, identifier)
+  end
+
+  @doc false
+  @spec build_turn_prompt_for_test(Issue.t(), keyword(), pos_integer(), pos_integer() | nil) :: String.t()
+  def build_turn_prompt_for_test(issue, opts, turn_number, max_turns),
+    do: TurnPrompt.build_turn_prompt(issue, opts, turn_number, max_turns)
 
   defp selected_worker_host(nil, []), do: nil
 
