@@ -13,6 +13,7 @@ defmodule Aiur.Claude.CodingAgent do
   require Logger
   alias Aiur.AppServer.{Adapter, Messages, OperatorDelivery, Rpc, TurnState}
   alias Aiur.Codex.DynamicTool
+  alias Aiur.Claude.NotificationPolicy
   alias Aiur.Config
 
   @thread_start_id 2
@@ -254,7 +255,12 @@ defmodule Aiur.Claude.CodingAgent do
     )
 
     TurnState.fail_pending_operator_requests(state.pending_operator_requests, {:turn_failed, params})
-    {:error, {:turn_failed, params}}
+
+    if NotificationPolicy.usage_limit_exhausted?(params) do
+      {:paused, NotificationPolicy.usage_limit_pause(params)}
+    else
+      {:error, {:turn_failed, params}}
+    end
   end
 
   def handle_method(

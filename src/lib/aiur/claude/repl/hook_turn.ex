@@ -11,6 +11,7 @@ defmodule Aiur.Claude.Repl.HookTurn do
   require Logger
 
   alias Aiur.Claude.HookEvents
+  alias Aiur.Claude.NotificationPolicy
   alias Aiur.Claude.Repl.OperatorInject
   alias Aiur.Claude.Repl.PromptSubmit
   alias Aiur.Claude.Repl.Reaper
@@ -97,7 +98,11 @@ defmodule Aiur.Claude.Repl.HookTurn do
       true ->
         receive do
           {:claude_hook, _id, %{event: :stop} = event} ->
-            {:ok, %{acc | session_id: event.session_id || acc.session_id, message: event.message}}
+            if NotificationPolicy.usage_limit_exhausted?(event) do
+              {:paused, NotificationPolicy.usage_limit_pause(event)}
+            else
+              {:ok, %{acc | session_id: event.session_id || acc.session_id, message: event.message}}
+            end
 
           {:claude_hook, _id, %{event: :post_tool_use} = event} ->
             # PostToolUse is a liveness heartbeat for turn detection only — the

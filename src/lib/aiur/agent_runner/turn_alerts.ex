@@ -16,7 +16,7 @@ defmodule Aiur.AgentRunner.TurnAlerts do
         %{kind: :usage_limit_exhausted} = pause_payload
       ) do
     reset_hint = pause_payload[:reset_hint]
-    backend = pause_payload[:backend]
+    backend = Aiur.ModelAvailability.backend_key(pause_payload[:backend])
 
     Aiur.ModelAvailability.mark_limited(backend, reset_hint)
 

@@ -49,8 +49,12 @@ defmodule Aiur.ModelAvailability do
 
   @spec mark_limited(String.t(), String.t() | nil, keyword()) :: :ok | {:error, term()}
   def mark_limited(backend, reset_at \\ nil, opts \\ []) when is_binary(backend) do
-    observe(backend, %{"limited" => true, "reset_at" => reset_at}, opts)
+    observe(backend_key(backend), %{"limited" => true, "reset_at" => reset_at}, opts)
   end
+
+  @spec backend_key(String.t()) :: String.t()
+  def backend_key("claude-repl"), do: "claude"
+  def backend_key(backend), do: backend
 
   @spec available?(String.t(), keyword()) :: boolean()
   def available?(backend, opts \\ []) when is_binary(backend) do
