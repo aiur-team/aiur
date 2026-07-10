@@ -29,3 +29,11 @@ jobs:
         run: npm run assert
       - name: Build
         run: npm run build
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+      - name: Install docs deps
+        working-directory: website/docs-app
+        run: bun install --frozen-lockfile
+      - name: Build docs
+        working-directory: website/docs-app
+        run: bun run build
