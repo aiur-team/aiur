@@ -2026,7 +2026,7 @@ defmodule Aiur.Orchestrator do
   # its pause boundary. Quota, containment, operator, label, and blocker pauses
   # retain their distinct reasons and stay parked for their owning recovery path.
   defp maybe_auto_resume_spurious_worker_pause(state, %{paused_reason: reason} = running_entry, :paused)
-       when reason in [:input_required, :worker_pause_unknown] do
+       when reason in [:input_required, :worker_pause_unknown, :pause_containment] do
     case resume_paused_issue(state, running_entry) do
       {{:ok, :resumed}, state} ->
         state

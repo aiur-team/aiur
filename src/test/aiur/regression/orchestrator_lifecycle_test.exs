@@ -323,15 +323,15 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
       assert next.running["l13"].pid == self()
     end
 
-    test "an input-required worker pause is logged and resumed" do
-      name = Module.concat(__MODULE__, :InputRequiredPause)
+    test "a stale containment pause is logged and resumed" do
+      name = Module.concat(__MODULE__, :ContainmentPause)
       pid = start_orchestrator(name)
       entry = running_entry("l16", "L16", :working)
       :sys.replace_state(pid, &%{&1 | running: %{"l16" => entry}, claimed: MapSet.new(["l16"])})
 
       log =
         capture_log(fn ->
-          send(pid, {:worker_control_state, "l16", :paused, %{kind: :input_required}})
+          send(pid, {:worker_control_state, "l16", :paused, %{request_id: :containment}})
           assert_receive {:resume_agent, _}, 2_000
         end)
 
@@ -340,7 +340,7 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
       refute Map.has_key?(resumed, :paused_reason)
       assert log =~ "orchestrator.pause"
       assert log =~ "issue_identifier=L16"
-      assert log =~ "cause=input_required"
+      assert log =~ "cause=pause_containment"
     end
 
     test "a usage-limit worker pause is logged but not resumed" do
@@ -361,6 +361,25 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
       assert log =~ "orchestrator.pause"
       assert log =~ "issue_identifier=L17"
       assert log =~ "cause=usage_limit_exhausted"
+    end
+
+    test "an operator-attributed containment confirmation remains paused" do
+      name = Module.concat(__MODULE__, :OperatorContainmentPause)
+      pid = start_orchestrator(name)
+
+      entry =
+        "l18"
+        |> running_entry("L18", :paused)
+        |> Map.put(:paused_reason, :operator_pause)
+
+      :sys.replace_state(pid, &%{&1 | running: %{"l18" => entry}, claimed: MapSet.new(["l18"])})
+
+      send(pid, {:worker_control_state, "l18", :paused, %{request_id: :containment}})
+
+      refute_receive {:resume_agent, _}, 100
+      paused = :sys.get_state(pid).running["l18"]
+      assert paused.control.status == :paused
+      assert paused.paused_reason == :operator_pause
     end
 
     test "paused and deactivated entries are excluded from the overrun check" do
