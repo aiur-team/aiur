@@ -838,21 +838,29 @@ defmodule Aiur.Orchestrator do
   defp maybe_resume_for_ci_failure(%State{} = state, identifier) do
     case find_running_by_identifier(state.running, identifier) do
       %{control: %{status: :paused}, paused_reason: :ci_wait} = running_entry ->
-        if Issue.paused?(Map.get(running_entry, :issue)) do
-          state
-        else
-          case resume_paused_issue(state, running_entry, false) do
-            {{:ok, :resumed}, next_state} ->
-              next_state
-
-            {{:error, reason}, next_state} ->
-              Logger.warning("CI failure auto-resume deferred: issue_identifier=#{identifier} reason=#{inspect(reason)}")
-              next_state
-          end
-        end
+        maybe_resume_ci_wait_runner(state, running_entry, identifier)
 
       _ ->
         state
+    end
+  end
+
+  defp maybe_resume_ci_wait_runner(state, running_entry, identifier) do
+    if Issue.paused?(Map.get(running_entry, :issue)) do
+      state
+    else
+      resume_ci_wait_runner(state, running_entry, identifier)
+    end
+  end
+
+  defp resume_ci_wait_runner(state, running_entry, identifier) do
+    case resume_paused_issue(state, running_entry, false) do
+      {{:ok, :resumed}, next_state} ->
+        next_state
+
+      {{:error, reason}, next_state} ->
+        Logger.warning("CI failure auto-resume deferred: issue_identifier=#{identifier} reason=#{inspect(reason)}")
+        next_state
     end
   end
 
