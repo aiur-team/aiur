@@ -1,6 +1,7 @@
 defmodule Aiur.AgentList.Renderer.Layout do
   @moduledoc """
   Computes responsive column widths and owns the fixed table dimensions.
+  It returns the stable layout map consumed by table rendering.
   """
 
   alias Aiur.AgentList.Renderer.Model
@@ -50,33 +51,34 @@ defmodule Aiur.AgentList.Renderer.Layout do
   # the constraint doesn't trigger and the title renders in full.
   @title_constrained_cap 25
 
-  @spec state_cell_width() :: pos_integer()
+  @spec state_cell_width() :: term()
   def state_cell_width, do: @state_cell_width
-  @spec attention_cell_width() :: pos_integer()
+  @spec attention_cell_width() :: term()
   def attention_cell_width, do: @attention_cell_width
-  @spec rc_cell_width() :: pos_integer()
+  @spec rc_cell_width() :: term()
   def rc_cell_width, do: @rc_cell_width
-  @spec progress_cell_width() :: pos_integer()
+  @spec progress_cell_width() :: term()
   def progress_cell_width, do: @progress_cell_width
-  @spec progress_bar_width() :: pos_integer()
+  @spec progress_bar_width() :: term()
   def progress_bar_width, do: @progress_bar_width
-  @spec runtime_cell_width() :: pos_integer()
+  @spec runtime_cell_width() :: term()
   def runtime_cell_width, do: @runtime_cell_width
-  @spec min_id_width() :: pos_integer()
+  @spec min_id_width() :: term()
   def min_id_width, do: @min_id_width
-  @spec min_title_width() :: pos_integer()
+  @spec min_title_width() :: term()
   def min_title_width, do: @min_title_width
-  @spec max_latest_width() :: pos_integer()
+  @spec max_latest_width() :: term()
   def max_latest_width, do: @max_latest_width
-  @spec title_constrained_cap() :: pos_integer()
+  @spec title_constrained_cap() :: term()
   def title_constrained_cap, do: @title_constrained_cap
-  @spec model_base_width() :: pos_integer()
+  @spec model_base_width() :: term()
   def model_base_width, do: Model.base_width()
 
   # Compute per-frame column widths so identifiers only take as much
   # space as they actually need, leaving the rest for the title.
   # Recomputed on every render so a wider pane reflows immediately
   # when tmux resizes.
+  @spec compute(term(), term()) :: term()
   def compute(summaries, inner_width) do
     natural_id_width =
       summaries

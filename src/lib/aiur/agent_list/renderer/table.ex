@@ -1,12 +1,14 @@
 defmodule Aiur.AgentList.Renderer.Table do
   @moduledoc """
   Renders table headers, rows, selection highlighting, and empty states.
+  It composes cells while preserving the selected-row escape discipline.
   """
 
   alias Aiur.AgentList.Renderer.{Cells, Layout, Markers, Model, Style, Text}
 
   # ---------- table ----------------------------------------------------------
 
+  @spec table_header_row(term(), term()) :: term()
   def table_header_row(inner_width, layout) do
     progress_header =
       if layout.show_progress?, do: [" ", Text.cell("PROGRESS", Layout.progress_cell_width())], else: []
@@ -33,6 +35,7 @@ defmodule Aiur.AgentList.Renderer.Table do
     Text.pad_with_ansi(Style.gray(), IO.iodata_to_binary(body), inner_width)
   end
 
+  @spec table_separator_row(term(), term()) :: term()
   def table_separator_row(inner_width, _layout) do
     # Full-width horizontal rule from `├` to `┤`, matching the
     # other section dividers above and below so the box closes
@@ -49,6 +52,7 @@ defmodule Aiur.AgentList.Renderer.Table do
     ]
   end
 
+  @spec render_rows(term(), term(), term(), term(), term(), term()) :: term()
   def render_rows([], _idx, _selection_focus, inner_width, layout, _markers) do
     [
       Text.pad_with_ansi(Style.dim(), "│   " <> empty_body_text(layout), inner_width),
@@ -77,6 +81,7 @@ defmodule Aiur.AgentList.Renderer.Table do
   # the live phase) while the shared base builds; otherwise the usual empty hint.
   # Once summaries are non-empty this branch isn't reached, so a populated list
   # always wins over a stale active flag.
+  @spec empty_body_text(term()) :: term()
   def empty_body_text(layout) do
     if Map.get(layout, :prewarm_active?, false) do
       Cells.spinner_frame(layout) <> " Pre-warming base (" <> prewarm_label(Map.get(layout, :prewarm_phase)) <> ")…"
@@ -85,11 +90,13 @@ defmodule Aiur.AgentList.Renderer.Table do
     end
   end
 
+  @spec prewarm_label(term()) :: term()
   def prewarm_label(:cloning), do: "cloning"
   def prewarm_label(:fetching), do: "fetching main"
   def prewarm_label(:building), do: "compiling"
   def prewarm_label(_phase), do: "warming up"
 
+  @spec render_row(term(), term(), term(), term(), term()) :: term()
   def render_row(summary, selected?, inner_width, layout, markers) do
     marker = if selected?, do: "▶ ", else: "  "
     id_str = to_string(Map.get(summary, :identifier) || "")

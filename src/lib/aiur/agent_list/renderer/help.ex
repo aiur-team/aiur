@@ -1,10 +1,12 @@
 defmodule Aiur.AgentList.Renderer.Help do
   @moduledoc """
   Renders the keybind and state-circle help overlay.
+  It returns only drawn rows so the facade retains terminal clearing.
   """
 
   alias Aiur.AgentList.Renderer.{Chrome, Style, Text}
 
+  @spec render(term()) :: term()
   def render(inner_width) do
     body_rows = help_body_rows(inner_width)
     body_count = length(body_rows)
@@ -31,6 +33,7 @@ defmodule Aiur.AgentList.Renderer.Help do
     {drawn, drawn_count}
   end
 
+  @spec help_body_rows(term()) :: term()
   def help_body_rows(inner_width) do
     sections = [
       {"Keybinds",
@@ -73,6 +76,7 @@ defmodule Aiur.AgentList.Renderer.Help do
     |> Enum.drop(-1)
   end
 
+  @spec help_heading_row(term(), term()) :: term()
   def help_heading_row(text, inner_width) do
     prefix = "│ "
     bold = Style.bold() <> text <> Style.reset()
@@ -81,6 +85,7 @@ defmodule Aiur.AgentList.Renderer.Help do
     [prefix, bold, pad]
   end
 
+  @spec help_line_row(term(), term()) :: term()
   def help_line_row(text, inner_width) do
     prefix = "│   "
     plain = prefix <> text
@@ -89,11 +94,13 @@ defmodule Aiur.AgentList.Renderer.Help do
     [prefix, text, pad]
   end
 
+  @spec help_blank_row(term()) :: term()
   def help_blank_row(inner_width) do
     pad = String.duplicate(" ", max(inner_width - 1, 0))
     ["│", pad]
   end
 
+  @spec help_footer_row(term()) :: term()
   def help_footer_row(inner_width) do
     text = "  ? close help   q quit"
     Text.pad_with_ansi(Style.dim(), text, inner_width, " ")

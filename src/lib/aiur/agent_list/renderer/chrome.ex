@@ -1,12 +1,14 @@
 defmodule Aiur.AgentList.Renderer.Chrome do
   @moduledoc """
   Renders bordered chrome, metadata, and footer keybind rows.
+  It owns only the visual frame furniture around the agent table.
   """
 
   alias Aiur.AgentList.Renderer.{Style, Text}
 
   # ---------- header / metadata ---------------------------------------------
 
+  @spec title_row(term()) :: term()
   def title_row(inner_width) do
     title = "╭─ AIUR"
     title_visual = Text.visual_width(title)
@@ -19,6 +21,7 @@ defmodule Aiur.AgentList.Renderer.Chrome do
     [Style.bold(), title, Style.reset(), pad, Style.gray(), "╮", Style.reset()]
   end
 
+  @spec metadata_rows(term(), term()) :: term()
   def metadata_rows(state, inner_width) do
     [
       agents_row(
@@ -37,6 +40,7 @@ defmodule Aiur.AgentList.Renderer.Chrome do
     ]
   end
 
+  @spec agents_row(term(), term(), term(), term(), term(), term()) :: term()
   def agents_row(kind, count, max, focused?, alert?, inner_width)
       when is_integer(count) and is_integer(max) and max > 0 do
     kind_value = if is_binary(kind) and kind != "", do: kind, else: "agents"
@@ -51,6 +55,7 @@ defmodule Aiur.AgentList.Renderer.Chrome do
   def agents_row(_kind, _count, _max, _focused?, _alert?, inner_width),
     do: metadata_row_iolist("Agents:", "n/a", Style.gray(), inner_width)
 
+  @spec project_row(term(), term()) :: term()
   def project_row(nil, inner_width),
     do: metadata_row_iolist("Project:", "n/a", Style.gray(), inner_width)
 
@@ -60,6 +65,7 @@ defmodule Aiur.AgentList.Renderer.Chrome do
   def project_row(label, inner_width),
     do: metadata_row_iolist("Project:", label, Style.cyan(), inner_width)
 
+  @spec dashboard_row(term(), term()) :: term()
   def dashboard_row(nil, inner_width),
     do: metadata_row_iolist("Dashboard:", "n/a", Style.gray(), inner_width)
 
@@ -69,6 +75,7 @@ defmodule Aiur.AgentList.Renderer.Chrome do
   def dashboard_row(url, inner_width),
     do: metadata_row_iolist("Dashboard:", url, Style.cyan(), inner_width)
 
+  @spec metadata_row_iolist(term(), term(), term(), term()) :: term()
   def metadata_row_iolist(label, value, value_color, inner_width) do
     prefix = "│ "
     bold_label = Style.bold() <> label <> Style.reset()
@@ -78,6 +85,7 @@ defmodule Aiur.AgentList.Renderer.Chrome do
     [prefix, bold_label, " ", colored_value, pad]
   end
 
+  @spec agents_row_iolist(term(), term(), term(), term(), term(), term()) :: term()
   def agents_row_iolist(kind, count, max, focused?, alert?, inner_width) do
     label = "Agents:"
     prefix = "│ "
@@ -116,6 +124,7 @@ defmodule Aiur.AgentList.Renderer.Chrome do
     ]
   end
 
+  @spec separator_row(term()) :: term()
   def separator_row(inner_width) do
     [
       Text.pad_with_ansi(
@@ -127,6 +136,7 @@ defmodule Aiur.AgentList.Renderer.Chrome do
     ]
   end
 
+  @spec bottom_border(term()) :: term()
   def bottom_border(inner_width) do
     # Inject a "newest" label at the far-left of the bottom border so
     # the operator can read the timeline direction in the events log:
@@ -182,6 +192,7 @@ defmodule Aiur.AgentList.Renderer.Chrome do
   #
   # - 1 row: full keybinds fit
   # - 2 rows: primary keybinds, "v layout" below (narrow)
+  @spec footer_split(term(), term()) :: term()
   def footer_split(inner_width, rc_line) do
     base = footer_keybinds_split(inner_width)
 
@@ -202,6 +213,7 @@ defmodule Aiur.AgentList.Renderer.Chrome do
     end
   end
 
+  @spec footer_keybinds_split(term()) :: term()
   def footer_keybinds_split(inner_width) do
     if Text.visual_width(@footer_left_padding_str <> @keybinds_full) + 1 <= inner_width do
       %{iodata: [left_only_row(@keybinds_full, inner_width), Text.eol()], line_count: 1}
@@ -222,6 +234,7 @@ defmodule Aiur.AgentList.Renderer.Chrome do
   # `r`/Space toggle). The session URL itself now rides in the agent's
   # chat-pane top border (set via tmux in `Aiur.AgentList.App`) so it
   # travels with the pane it belongs to instead of floating in the footer.
+  @spec rc_footer_text(term()) :: term()
   def rc_footer_text(state) do
     case Map.get(state, :remote_control_hint) do
       hint when is_binary(hint) and hint != "" -> hint
@@ -229,6 +242,7 @@ defmodule Aiur.AgentList.Renderer.Chrome do
     end
   end
 
+  @spec left_only_row(term(), term()) :: term()
   def left_only_row(text, inner_width) do
     body = String.duplicate(" ", @footer_left_padding) <> text
     Text.pad_with_ansi(Style.dim(), body, inner_width, " ")

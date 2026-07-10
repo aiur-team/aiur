@@ -1,6 +1,7 @@
 defmodule Aiur.AgentList.Renderer.Model do
   @moduledoc """
   Renders model names, model widths, and model colors for agent rows.
+  It isolates website-family presentation rules from frame composition.
   """
 
   alias Aiur.AgentList.Renderer.{Style, Text}
@@ -25,6 +26,7 @@ defmodule Aiur.AgentList.Renderer.Model do
   # dark-theme values as the canonical mapping.
   @model_truecolor %{opus: "\e[38;2;198;155;255m", sonnet: "\e[38;2;89;176;255m", codex: "\e[38;2;63;185;80m"}
   @model_ansi %{opus: Style.magenta(), sonnet: Style.blue(), codex: Style.green()}
+  @spec engine_word(term()) :: term()
   def engine_word(summary) do
     case Map.get(summary, :backend) do
       backend when is_binary(backend) -> backend |> String.split("-") |> List.first()
@@ -39,6 +41,7 @@ defmodule Aiur.AgentList.Renderer.Model do
   # (model_width 0). The version suffix shows only when the column has been
   # expanded into spare width (model_width > the base floor); otherwise the
   # base name is the floor. Queued / backend-less rows render a dim `–`.
+  @spec model_cell_block(term(), term()) :: term()
   def model_cell_block(summary, layout) do
     width = layout.model_width
 
@@ -65,6 +68,7 @@ defmodule Aiur.AgentList.Renderer.Model do
   # (width past the base floor) the full version string is preferred, falling
   # back to the base name for unpinned models. A row with no resolvable model
   # (queued / no backend) shows a dim en-dash placeholder.
+  @spec model_text(term(), term(), term()) :: term()
   def model_text(summary, family, width) do
     case model_base(family) do
       "" ->
@@ -82,6 +86,7 @@ defmodule Aiur.AgentList.Renderer.Model do
   # Natural full width a row wants in the MODEL column: the full version
   # string when a model is pinned, else the base name's length (0 when the
   # row has no resolvable model). compute_layout/2 takes the max across rows.
+  @spec model_natural_width(term()) :: term()
   def model_natural_width(summary) do
     family = model_family(summary)
 
@@ -95,6 +100,7 @@ defmodule Aiur.AgentList.Renderer.Model do
   # most specific signal (opus/sonnet/haiku for claude, gpt for codex); when
   # absent we fall back to the backend family (`codex`, or a generic `claude`
   # with no opus/sonnet pin). `nil` for queued / backend-less rows.
+  @spec model_family(term()) :: term()
   def model_family(summary) do
     case Map.get(summary, :model) do
       "opus" <> _ -> :opus
@@ -105,6 +111,7 @@ defmodule Aiur.AgentList.Renderer.Model do
     end
   end
 
+  @spec family_from_backend(term()) :: term()
   def family_from_backend(summary) do
     case engine_word(summary) do
       "codex" -> :codex
@@ -113,6 +120,7 @@ defmodule Aiur.AgentList.Renderer.Model do
     end
   end
 
+  @spec model_base(term()) :: term()
   def model_base(:opus), do: "Opus"
   def model_base(:sonnet), do: "Sonnet"
   def model_base(:haiku), do: "Haiku"
@@ -124,6 +132,7 @@ defmodule Aiur.AgentList.Renderer.Model do
   #   {:opus, "opus-4-8"}    -> "Claude Opus 4.8"
   #   {:sonnet, "sonnet-4-6"}-> "Claude Sonnet 4.6"
   #   {:codex, "gpt-5.5"}    -> "Codex GPT-5.5"
+  @spec model_full_name(term(), term()) :: term()
   def model_full_name(:codex, model) when is_binary(model) do
     "Codex " <> String.replace_prefix(model, "gpt", "GPT")
   end
@@ -140,9 +149,10 @@ defmodule Aiur.AgentList.Renderer.Model do
   # 24-bit truecolor escape (preferred) or nearest ANSI fallback for a
   # model family. `nil` for families with no website color (haiku, generic
   # claude, queued) — those render uncolored.
+  @spec model_color(term(), term()) :: term()
   def model_color(family, true), do: Map.get(@model_truecolor, family)
   def model_color(family, _falsey), do: Map.get(@model_ansi, family)
 
-  @spec base_width() :: pos_integer()
+  @spec base_width() :: term()
   def base_width, do: @model_base_width
 end

@@ -1,6 +1,7 @@
 defmodule Aiur.AgentList.Renderer.Markers do
   @moduledoc """
   Computes pane-readiness markers and workflow-state emoji for agent rows.
+  It keeps the warm-marker precedence in one pure module.
   """
 
   alias Aiur.AgentEvents
@@ -48,6 +49,7 @@ defmodule Aiur.AgentList.Renderer.Markers do
   # `agents_with_content` is mirrored from per-agent transcript
   # broadcasts: once any transcript_event fires for an identifier, the
   # AgentList state adds it to this set and the marker promotes ⚪.
+  @spec compute_markers(term(), term()) :: term()
   def compute_markers(state, summaries) do
     attach_state = Map.get(state, :attach_state, %{})
     opened_panes = Map.get(state, :opened_panes, MapSet.new())
@@ -64,6 +66,7 @@ defmodule Aiur.AgentList.Renderer.Markers do
     end)
   end
 
+  @spec marker_for_identifier(term(), term(), term(), term()) :: term()
   def marker_for_identifier(id, opened_panes, attach_state, agents_with_content) do
     if MapSet.member?(opened_panes, id) do
       "🟢"
@@ -72,6 +75,7 @@ defmodule Aiur.AgentList.Renderer.Markers do
     end
   end
 
+  @spec marker_from_attach(term(), term()) :: term()
   def marker_from_attach(%{visible_in: slot}, true) when not is_nil(slot), do: "⚪"
   def marker_from_attach(%{visible_in: slot}, _has_content) when not is_nil(slot), do: "🔘"
   def marker_from_attach(_attach, _has_content), do: "⏳"
@@ -81,6 +85,7 @@ defmodule Aiur.AgentList.Renderer.Markers do
   # to the precomputed instant-open marker otherwise. Pre-warm ⏳ still
   # wins while the pane isn't warm. Paused/error/done/deactivated defer
   # to AgentEvents.
+  @spec summary_emoji(term(), term(), term()) :: term()
   def summary_emoji(%{status: :queued}, _markers, _phase), do: "⚫"
 
   def summary_emoji(%{status: :running, identifier: identifier} = summary, markers, phase) do
@@ -111,6 +116,7 @@ defmodule Aiur.AgentList.Renderer.Markers do
 
   def summary_emoji(_, _markers, _phase), do: "⚫"
 
+  @spec phase_emoji(term()) :: term()
   def phase_emoji(:brainstorm), do: "🧠"
   def phase_emoji(:plan), do: "📋"
   # U+1F528 hammer, not the U+1F6E0+FE0F hammer-and-wrench: the latter
@@ -122,6 +128,6 @@ defmodule Aiur.AgentList.Renderer.Markers do
   def phase_emoji(:review), do: "🔍"
   def phase_emoji(_), do: nil
 
-  @spec finished_work_state?(term()) :: boolean()
+  @spec finished_work_state?(term()) :: term()
   def finished_work_state?(state), do: state in @finished_work_states
 end

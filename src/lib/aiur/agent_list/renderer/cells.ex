@@ -1,6 +1,7 @@
 defmodule Aiur.AgentList.Renderer.Cells do
   @moduledoc """
   Renders individual table cells, progress, runtime, and latest placeholders.
+  It uses the facade-captured clock to keep a frame internally consistent.
   """
 
   alias Aiur.ProgressTracker
@@ -21,6 +22,7 @@ defmodule Aiur.AgentList.Renderer.Cells do
   # that don't ignore the escapes and display the digits as plain
   # text. Width calculations are unaffected because OSC sequences
   # have zero visual width.
+  @spec id_cell_with_link(term(), term()) :: term()
   def id_cell_with_link(id_str, layout) do
     padded = Text.cell(id_str, layout.id_width)
     project = Map.get(layout, :project_label)
@@ -35,6 +37,7 @@ defmodule Aiur.AgentList.Renderer.Cells do
   # alone (two terminal columns + space) when one; `❗N` when more.
   # Width stays Layout.attention_cell_width() either way so the Latest
   # column never shifts horizontally on flip.
+  @spec attention_cell(term(), term()) :: term()
   def attention_cell(id, layout) do
     count = layout |> Map.get(:open_attentions_by_id, %{}) |> Map.get(id, 0)
 
@@ -55,6 +58,7 @@ defmodule Aiur.AgentList.Renderer.Cells do
   # warming marker so the two never read as the same state); `:on`
   # shows 📱; `:failed` shows ❌; `:off`/absent shows nothing. Width is
   # fixed at Layout.rc_cell_width() regardless so column alignment never shifts.
+  @spec rc_cell(term()) :: term()
   def rc_cell(summary) do
     glyph =
       case Map.get(summary, :remote_control) do
@@ -80,6 +84,7 @@ defmodule Aiur.AgentList.Renderer.Cells do
   # otherwise wrapped in `Style.dim()` at the call site; we reset and
   # re-apply dim around the green wrap so terminals render the
   # color cleanly.
+  @spec progress_cell(term(), term()) :: term()
   def progress_cell(id, layout) do
     samples = layout |> Map.get(:progress_by_id, %{}) |> Map.get(id, [])
     now_ms = Map.get(layout, :now_ms, System.monotonic_time(:millisecond))
@@ -105,11 +110,13 @@ defmodule Aiur.AgentList.Renderer.Cells do
   #   * <60m   → `1:23` … `59:59`
   #   * <10h   → `1:02:03` (h:MM:SS — fits Layout.runtime_cell_width() 7)
   #   * ≥10h   → `Nh` short form (rare; stays inside the cell)
+  @spec runtime_cell(term()) :: term()
   def runtime_cell(summary) do
     seconds = Map.get(summary, :runtime_seconds) || 0
     Text.cell(format_runtime(seconds), Layout.runtime_cell_width())
   end
 
+  @spec format_runtime(term()) :: term()
   def format_runtime(seconds) when is_integer(seconds) and seconds < 0, do: "0:00"
 
   def format_runtime(seconds) when is_integer(seconds) and seconds < 3600 do
@@ -129,6 +136,7 @@ defmodule Aiur.AgentList.Renderer.Cells do
 
   def format_runtime(_), do: "0:00"
 
+  @spec pad2(term()) :: term()
   def pad2(n) when is_integer(n) and n < 10, do: "0#{n}"
   def pad2(n), do: "#{n}"
 
@@ -137,6 +145,7 @@ defmodule Aiur.AgentList.Renderer.Cells do
   # placeholder with an animated spinner so the row feels alive
   # while the agent is queued/warming/starting. Truncated with `…`
   # when wider than the column.
+  @spec latest_cell(term(), term(), term()) :: term()
   def latest_cell(id, layout, summary) do
     if layout.latest_width <= 0 do
       ""
@@ -158,6 +167,7 @@ defmodule Aiur.AgentList.Renderer.Cells do
   # because `:now_ms` is captured once at the top of render/1.
   @spinner_frames ~w(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
 
+  @spec spinner_frame(term()) :: term()
   def spinner_frame(layout) do
     now_ms = Map.get(layout, :now_ms, System.monotonic_time(:millisecond))
     idx = rem(div(now_ms, 100), length(@spinner_frames))
@@ -168,6 +178,7 @@ defmodule Aiur.AgentList.Renderer.Cells do
   # real event has landed for this agent yet. Mirrors the marker
   # state machine so the placeholder advances visibly as the
   # agent's slot/codex come online.
+  @spec phase_placeholder(term(), term(), term()) :: term()
   def phase_placeholder(id, layout, summary) do
     spinner = spinner_frame(layout)
     attach = Map.get(layout, :attach_state, %{}) |> Map.get(id)
@@ -193,6 +204,7 @@ defmodule Aiur.AgentList.Renderer.Cells do
   # The "Starting" placeholder should name the agent's own engine, not a
   # hardcoded backend. The summary carries the resolved backend string
   # (e.g. "claude-repl", "codex"); the engine family is its first segment.
+  @spec starting_phrase(term()) :: term()
   def starting_phrase(summary) do
     case Model.engine_word(summary) do
       nil -> "Starting…"
@@ -200,6 +212,7 @@ defmodule Aiur.AgentList.Renderer.Cells do
     end
   end
 
+  @spec latest_event_message(term()) :: term()
   def latest_event_message(nil), do: ""
   def latest_event_message(%{message: msg}) when is_binary(msg), do: msg
   def latest_event_message(%{"message" => msg}) when is_binary(msg), do: msg
