@@ -43,6 +43,7 @@ defmodule Aiur.Orchestrator do
     CommandScan,
     CommentPolling,
     CommentWake,
+    DigestCoalescer,
     Dispatcher,
     DispatchPolicy,
     EventTopics,
@@ -1027,12 +1028,14 @@ defmodule Aiur.Orchestrator do
   defp connectivity_classification({:github_api_status, 429}), do: :rate_limited
   defp connectivity_classification(_reason), do: :transport
 
-  defp connectivity_detail({:github, _classification, detail}) when is_map(detail), do: detail
+  @doc false
+  @spec connectivity_detail(term()) :: map()
+  def connectivity_detail({:github, _classification, detail}) when is_map(detail), do: detail
 
-  defp connectivity_detail({:github_api_status, status}) when is_integer(status),
+  def connectivity_detail({:github_api_status, status}) when is_integer(status),
     do: %{status: status}
 
-  defp connectivity_detail(_reason), do: %{}
+  def connectivity_detail(_reason), do: %{}
 
   defp connectivity_streak_count(streaks, source) do
     case Map.get(streaks, source) do
@@ -3983,7 +3986,9 @@ defmodule Aiur.Orchestrator do
 
   defp trusted_comment_event_digest?(_event), do: false
 
-  defp comment_event_topic?(event) when is_map(event) do
+  @doc false
+  @spec comment_event_topic?(map()) :: boolean()
+  def comment_event_topic?(event) when is_map(event) do
     topic = Map.get(event, :topic) || Map.get(event, "topic")
 
     if is_binary(topic) do
@@ -3996,6 +4001,8 @@ defmodule Aiur.Orchestrator do
       false
     end
   end
+
+  def comment_event_topic?(_event), do: false
 
   defp queue_wake_required?(running_entry) do
     sleeping_running_entry?(running_entry) or
@@ -5294,82 +5301,8 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  # Drain-time coalescing: pending `:events_digest` items for the same
-  # identifier fold into a single delivery, so an agent that had three
-  # events subscribed during a long turn sees ONE `<aiur:events>` block,
-  # not three separate ones. Granularity is preserved upstream (one
-  # queue item per publish so `[event:consumed]` markers and cursor
-  # advance still reflect individual events); coalescing happens only
-  # at the drain boundary.
-  defp coalesce_events_digests(queue_store, issue_identifier, first_item) do
-    do_coalesce_events_digests(queue_store, issue_identifier, first_item)
-  end
-
-  defp do_coalesce_events_digests(queue_store, issue_identifier, acc_item) do
-    {next_store, next_item} =
-      AgentQueueStore.claim_next_deliverable_matching(
-        queue_store,
-        issue_identifier,
-        fn item -> match?(%{category: :coordination_event, event_type: :events_digest}, item) end
-      )
-
-    case next_item do
-      nil ->
-        {next_store, acc_item}
-
-      %{} = item ->
-        merged = merge_events_digest_items(acc_item, item)
-        do_coalesce_events_digests(next_store, issue_identifier, merged)
-    end
-  end
-
-  defp merge_events_digest_items(first, next) do
-    first_events = first.body |> Map.get(:events, []) |> List.wrap()
-    next_events = next.body |> Map.get(:events, []) |> List.wrap()
-
-    sorted =
-      (first_events ++ next_events)
-      |> Enum.uniq_by(&event_dedupe_key/1)
-      |> Enum.sort_by(&event_sort_key/1)
-
-    new_body =
-      first.body
-      |> Map.put(:events, sorted)
-      |> Map.put(:summary, CommentWake.event_digest_summary(%{events: sorted}))
-
-    %{first | body: new_body}
-  end
-
-  defp event_sort_key(%{id: id}) when is_integer(id), do: id
-  defp event_sort_key(%{"id" => id}) when is_integer(id), do: id
-  defp event_sort_key(_), do: 0
-
-  defp event_dedupe_key(event) when is_map(event) do
-    topic = event_topic(event)
-
-    case {comment_event_topic?(event), event_comment_id(event), event_sort_key(event)} do
-      {true, id, _} when is_integer(id) -> {topic, :comment, id}
-      {_, _, id} when is_integer(id) and id > 0 -> {topic, :event, id}
-      _ -> event
-    end
-  end
-
-  defp event_dedupe_key(event), do: event
-
-  defp event_topic(event) when is_map(event),
-    do: Map.get(event, :topic) || Map.get(event, "topic")
-
-  defp event_comment_id(event) when is_map(event) do
-    comment = Map.get(event, :comment) || Map.get(event, "comment") || %{}
-    Map.get(comment, :id) || Map.get(comment, "id")
-  end
-
-  # Asymmetric auto-subscribe: when the orchestrator's poll observes a new blocker on
-  # `issue.blocked_by`, asymmetrically auto-subscribe both sides:
-  # - blockee subscribes to the actionable subset of the blocker's events
-  # - blocker subscribes to blockee's block-state events only
-  # See origin: docs/brainstorms/2026-05-24-aiur-event-publishing-
-  # subscriptions-requirements.md (Subscriptions section). Idempotent via
+  defp coalesce_events_digests(queue_store, issue_identifier, first_item),
+    do: DigestCoalescer.coalesce_events_digests(queue_store, issue_identifier, first_item)
   # SubscriptionStore.add_subscription's existing duplicate short-circuit.
   defp auto_subscribe_for_dependency(blockee, blocker) when is_map(blocker) do
     with blockee_identifier when is_binary(blockee_identifier) <- blockee_identifier_for(blockee),
