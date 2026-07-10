@@ -72,7 +72,12 @@ defmodule Aiur.OrchestratorMaxDurationTest do
       # against a non-empty map, not a vacuous pass on the empty default.
       state = %{state | retry_attempts: %{"other-issue" => %{identifier: "X", error: "stalled"}}}
 
-      next = Orchestrator.apply_overrun_check_for_test(state, 60)
+      log =
+        capture_log(fn ->
+          send(self(), {:duration_overrun_result, Orchestrator.apply_overrun_check_for_test(state, 60)})
+        end)
+
+      assert_receive {:duration_overrun_result, next}
 
       # The worker is told to park cooperatively — this is the load-bearing
       # behavior that replaced the old terminate+retry kill.
@@ -89,6 +94,10 @@ defmodule Aiur.OrchestratorMaxDurationTest do
 
       # paused_at is stamped so the runtime clock freezes while paused.
       assert %DateTime{} = entry.paused_at
+      assert log =~ "orchestrator.pause"
+      assert log =~ "issue_id=#{issue_id}"
+      assert log =~ "issue_identifier=#{identifier}"
+      assert log =~ "cause=max_agent_duration"
     end
 
     test "an entry still under the cap is left untouched" do

@@ -43,6 +43,23 @@ defmodule Aiur.Orchestrator.PushRoutingTest do
       result = PushRouting.maybe_pause_on_request(state, "unknown-999")
       assert result == state
     end
+
+    test "attributes a requested pause so a worker confirmation cannot self-heal it" do
+      running_entry = %{
+        identifier: "ISSUE-1",
+        pid: self(),
+        issue: %Aiur.Issue{id: "issue-1", identifier: "ISSUE-1", state: "active"},
+        control: %{status: :working}
+      }
+
+      state = %{base_state() | running: %{"issue-1" => running_entry}}
+
+      result = PushRouting.maybe_pause_on_request(state, "ISSUE-1")
+
+      assert_receive {:pause_agent, _request_id}
+      assert result.running["issue-1"].control.status == :paused
+      assert result.running["issue-1"].paused_reason == :agent_pause_request
+    end
   end
 
   describe "maybe_notify_agents_on_default_branch_push/3" do

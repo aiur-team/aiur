@@ -9,7 +9,6 @@ defmodule Aiur.Orchestrator do
   alias Aiur.{
     AgentEvents,
     AgentPubSub,
-    AgentQueue,
     AgentQueueItem,
     AgentQueueStore,
     Alerts,
@@ -30,29 +29,32 @@ defmodule Aiur.Orchestrator do
     GithubCIPoller,
     Publisher,
     Sanitizer,
-    SubscriptionStore,
     UniversalSubscriptions
   }
 
   alias Aiur.GitHub.Client, as: GitHubClient
-  alias Aiur.GitHub.Connectivity, as: GitHubConnectivity
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Opencode.ActiveTurns
 
   alias Aiur.Orchestrator.{
+    AutoSubscriptions,
     CommandScan,
     CommentPolling,
     CommentWake,
+    DigestCoalescer,
     Dispatcher,
     DispatchPolicy,
     EventTopics,
+    IssueSync,
+    OperatorMessages,
     PrAnchored,
     PushRouting,
     Reconciler,
     RetryEngine,
     Slots,
     State,
-    TrackedSet
+    TrackedSet,
+    TrackerHealth
   }
 
   alias AiurWeb.ObservabilityPubSub
@@ -78,7 +80,6 @@ defmodule Aiur.Orchestrator do
     total_tokens: 0,
     seconds_running: 0
   }
-  @max_operator_message_chars 8_000
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -359,26 +360,14 @@ defmodule Aiur.Orchestrator do
     {:noreply, state}
   end
 
-  def handle_info({:worker_control_state, issue_id, status}, %{running: running} = state)
+  def handle_info({:worker_control_state, issue_id, status}, state)
       when is_binary(issue_id) and status in [:paused, :working] do
-    case Map.get(running, issue_id) do
-      nil ->
-        {:noreply, state}
+    handle_worker_control_state(state, issue_id, status, %{})
+  end
 
-      running_entry ->
-        previous_status = get_in(running_entry, [:control, :status]) || :working
-
-        updated_running_entry =
-          running_entry
-          |> put_in([:control, :status], status)
-          |> apply_pause_runtime_clock(previous_status, status, DateTime.utc_now())
-
-        maybe_emit_agent_control_alert(previous_status, status, updated_running_entry)
-
-        state = %{state | running: Map.put(running, issue_id, updated_running_entry)}
-        notify_dashboard(state)
-        {:noreply, state}
-    end
+  def handle_info({:worker_control_state, issue_id, :paused, pause_payload}, state)
+      when is_binary(issue_id) and is_map(pause_payload) do
+    handle_worker_control_state(state, issue_id, :paused, pause_payload)
   end
 
   def handle_info({:retry_issue, issue_id, retry_token}, state) do
@@ -437,6 +426,31 @@ defmodule Aiur.Orchestrator do
   def handle_info(msg, state) do
     Logger.debug("Orchestrator ignored message: #{inspect(msg)}")
     {:noreply, state}
+  end
+
+  defp handle_worker_control_state(%{running: running} = state, issue_id, status, pause_payload) do
+    case Map.get(running, issue_id) do
+      nil ->
+        {:noreply, state}
+
+      running_entry ->
+        previous_status = get_in(running_entry, [:control, :status]) || :working
+        pause_reason = worker_pause_reason(running_entry, pause_payload)
+
+        updated_running_entry =
+          running_entry
+          |> put_in([:control, :status], status)
+          |> apply_pause_runtime_clock(previous_status, status, DateTime.utc_now())
+          |> maybe_put_worker_pause_reason(status, pause_reason)
+
+        maybe_log_worker_pause(status, updated_running_entry, pause_reason)
+        maybe_emit_agent_control_alert(previous_status, status, updated_running_entry)
+
+        state = %{state | running: Map.put(running, issue_id, updated_running_entry)}
+        state = maybe_auto_resume_spurious_worker_pause(state, updated_running_entry, status)
+        notify_dashboard(state)
+        {:noreply, state}
+    end
   end
 
   defp handle_agent_down(%{running: running} = state, ref, reason) do
@@ -992,93 +1006,33 @@ defmodule Aiur.Orchestrator do
 
   @doc false
   @spec note_github_connectivity_success(State.t(), atom()) :: State.t()
-  def note_github_connectivity_success(%State{} = state, source) do
-    %{
-      state
-      | github_connectivity: GitHubConnectivity.note_success(state.github_connectivity, source),
-        github_poll_delays: Map.delete(state.github_poll_delays, source)
-    }
-  end
+  def note_github_connectivity_success(state, source),
+    do: TrackerHealth.note_github_connectivity_success(state, source)
 
   @doc false
   @spec note_github_connectivity_failure(State.t(), atom(), term()) :: State.t()
-  def note_github_connectivity_failure(%State{} = state, source, reason) do
-    classification = connectivity_classification(reason)
-    detail = connectivity_detail(reason)
+  def note_github_connectivity_failure(state, source, reason),
+    do: TrackerHealth.note_github_connectivity_failure(state, source, reason)
 
-    {streaks, alerts} =
-      GitHubConnectivity.note_failure(state.github_connectivity, source, classification)
+  @doc false
+  @spec connectivity_detail(term()) :: map()
+  def connectivity_detail({:github, _classification, detail}) when is_map(detail), do: detail
 
-    Enum.each(alerts, &emit_github_connectivity_alert/1)
-
-    backoff_ms =
-      classification
-      |> GitHubConnectivity.backoff_ms(connectivity_streak_count(streaks, source), detail)
-      |> normalize_github_backoff_ms(state)
-
-    %{
-      state
-      | github_connectivity: streaks,
-        github_poll_delays: Map.put(state.github_poll_delays, source, backoff_ms)
-    }
-  end
-
-  defp connectivity_classification({:github, classification, _detail}), do: classification
-  defp connectivity_classification({:github_api_status, 429}), do: :rate_limited
-  defp connectivity_classification(_reason), do: :transport
-
-  defp connectivity_detail({:github, _classification, detail}) when is_map(detail), do: detail
-
-  defp connectivity_detail({:github_api_status, status}) when is_integer(status),
+  def connectivity_detail({:github_api_status, status}) when is_integer(status),
     do: %{status: status}
 
-  defp connectivity_detail(_reason), do: %{}
-
-  defp connectivity_streak_count(streaks, source) do
-    case Map.get(streaks, source) do
-      {_classification, count} when is_integer(count) and count > 0 -> count
-      _ -> 1
-    end
-  end
-
-  defp normalize_github_backoff_ms(:escalate, _state), do: GitHubConnectivity.max_backoff_ms()
-
-  defp normalize_github_backoff_ms(delay_ms, _state) when is_integer(delay_ms) and delay_ms >= 0,
-    do: delay_ms
-
-  defp normalize_github_backoff_ms(_delay_ms, %State{} = state), do: state.poll_interval_ms
+  def connectivity_detail(_reason), do: %{}
 
   @doc false
   @spec note_github_poll_interval(State.t(), atom(), pos_integer() | nil) :: State.t()
-  def note_github_poll_interval(%State{} = state, source, seconds)
-      when is_integer(seconds) and seconds > 0 do
-    %{state | github_poll_delays: Map.put(state.github_poll_delays, source, seconds * 1_000)}
-  end
+  def note_github_poll_interval(state, source, seconds),
+    do: TrackerHealth.note_github_poll_interval(state, source, seconds)
 
-  def note_github_poll_interval(%State{} = state, _source, _seconds), do: state
+  defp next_poll_delay_ms(state), do: TrackerHealth.next_poll_delay_ms(state)
 
-  defp next_poll_delay_ms(%State{} = state) do
-    github_next_poll_delay_ms(state) || state.poll_interval_ms
-  end
-
-  defp github_next_poll_delay_ms(%State{github_poll_delays: delays}) when is_map(delays) do
-    delays
-    |> Map.values()
-    |> Enum.filter(&(is_integer(&1) and &1 >= 0))
-    |> Enum.max(fn -> nil end)
-  end
-
-  defp github_next_poll_delay_ms(_state), do: nil
-
-  defp emit_github_connectivity_alert(alert) do
-    message = GitHubConnectivity.alert_message(alert, repo: Aiur.GitHub.Config.repo())
-
-    Alerts.emit_custom("system.github.connectivity_lost", message,
-      reason: message,
-      needs_attention: true,
-      severity: "warning"
-    )
-  end
+  @doc false
+  @spec github_next_poll_delay_ms(State.t()) :: non_neg_integer() | nil
+  def github_next_poll_delay_ms(state), do: TrackerHealth.github_next_poll_delay_ms(state)
 
   defp scan_pr_commands(%State{} = state, opts \\ []) do
     CommandScan.scan_pr_commands(state, opts)
@@ -1113,6 +1067,8 @@ defmodule Aiur.Orchestrator do
 
     case Tracker.fetch_candidate_issues() do
       {:ok, issues} ->
+        issues = recover_startup_pause_overrides(state, issues)
+
         state =
           state
           |> sync_polled_issue_state(issues)
@@ -1136,78 +1092,15 @@ defmodule Aiur.Orchestrator do
 
   @doc false
   @spec ensure_tracker_preflight(State.t()) :: {:ok, State.t()} | {:error, term(), State.t()}
-  def ensure_tracker_preflight(%State{} = state) do
-    case Config.validate!() do
-      :ok ->
-        case Config.tracker_kind() do
-          "github" -> ensure_github_auth_preflight(state)
-          _ -> {:ok, state}
-        end
+  def ensure_tracker_preflight(state), do: TrackerHealth.ensure_tracker_preflight(state)
 
-      {:error, reason} ->
-        {:error, reason, state}
-    end
-  end
+  @doc false
+  @spec log_tracker_preflight_error(term()) :: :ok
+  def log_tracker_preflight_error(reason), do: TrackerHealth.log_tracker_preflight_error(reason)
 
-  defp ensure_github_auth_preflight(%State{} = state) do
-    case GitHubTracker.auth_preflight() do
-      :ok -> {:ok, state}
-      {:error, reason} -> {:error, reason, state}
-    end
-  end
-
-  defp log_tracker_preflight_error({:github_auth_preflight_failed, _diagnostic} = reason) do
-    Logger.error(GitHubClient.format_auth_preflight_error(reason))
-  end
-
-  defp log_tracker_preflight_error(:missing_linear_api_token),
-    do: Logger.error("Linear API token missing in .aiurconfig")
-
-  defp log_tracker_preflight_error(:missing_linear_project_slug),
-    do: Logger.error("Linear project slug missing in .aiurconfig")
-
-  defp log_tracker_preflight_error(:missing_tracker_kind),
-    do: Logger.error("Tracker kind missing in .aiurconfig")
-
-  defp log_tracker_preflight_error({:unsupported_tracker_kind, kind}),
-    do: Logger.error("Unsupported tracker kind in .aiurconfig: #{inspect(kind)}")
-
-  defp log_tracker_preflight_error({:invalid_workflow_config, message}),
-    do: Logger.error("Invalid .aiurconfig config: #{message}")
-
-  defp log_tracker_preflight_error({:missing_workflow_file, path, reason}),
-    do: Logger.error("Missing .aiurconfig at #{path}: #{inspect(reason)}")
-
-  defp log_tracker_preflight_error({:missing_prompt_file, path, reason}),
-    do: Logger.error("Missing prompt_file at #{path}: #{inspect(reason)}")
-
-  defp log_tracker_preflight_error(:workflow_front_matter_not_a_map),
-    do: Logger.error("Failed to parse .aiurconfig: top-level YAML must be a map")
-
-  defp log_tracker_preflight_error({:workflow_parse_error, reason}),
-    do: Logger.error("Failed to parse .aiurconfig: #{inspect(reason)}")
-
-  defp log_tracker_preflight_error({:missing_hooks_file, path, reason}),
-    do: Logger.error("Missing hooks_file at #{path}: #{inspect(reason)}")
-
-  defp log_tracker_preflight_error({:invalid_hooks_file, path, reason}),
-    do: Logger.error("Invalid hooks_file at #{path}: #{inspect(reason)}")
-
-  defp log_tracker_preflight_error(reason),
-    do: Logger.error("Tracker preflight failed for #{tracker_log_label()}: #{inspect(reason)}")
-
-  defp log_tracker_fetch_error(reason) do
-    Logger.error("Failed to fetch from #{tracker_log_label()}: #{inspect(reason)}")
-  end
-
-  defp tracker_log_label do
-    case Config.settings() do
-      {:ok, settings} -> settings.tracker.kind || "tracker"
-      _ -> "tracker"
-    end
-  end
-
-  # Eager pre-warm gate. When pre-warm is enabled, hold dispatch until the shared
+  @doc false
+  @spec log_tracker_fetch_error(term()) :: :ok
+  def log_tracker_fetch_error(reason), do: TrackerHealth.log_tracker_fetch_error(reason)
   # base is ready so per-issue workspaces materialize from it instead of cold-
   # cloning. Async: it kicks RepoBase (which builds in its own process and emits
   # phase events for the loading bar) and reads status without blocking the
@@ -1520,6 +1413,12 @@ defmodule Aiur.Orchestrator do
   @spec dispatch_candidate_for_test(Issue.t(), term()) :: boolean()
   def dispatch_candidate_for_test(%Issue{} = issue, %State{} = state) do
     dispatch_candidate?(issue, state, active_state_set(), terminal_state_set())
+  end
+
+  @doc false
+  @spec recover_startup_pause_overrides_for_test(State.t(), [term()]) :: [term()]
+  def recover_startup_pause_overrides_for_test(%State{} = state, issues) when is_list(issues) do
+    recover_startup_pause_overrides(state, issues)
   end
 
   @doc false
@@ -1948,13 +1847,10 @@ defmodule Aiur.Orchestrator do
     PushRouting.reconcile_pending_auto_resumes(state)
   end
 
-  # Safety check-in, not a kill: pause any agent that has been actively
-  # running longer than `agent.max_agent_duration_minutes` (paused/blocked
-  # time excluded via `running_seconds/2`). The duration cap is almost
-  # always "I want to check in," not "this work is done" — pausing keeps
-  # the agent in the list, holding its slot and its session/turn context,
-  # so the operator can review and resume with one keystroke instead of
-  # restarting from scratch.
+  # Safety checkpoint: pause any agent that has been actively running longer
+  # than `agent.max_agent_duration_minutes` (paused/blocked time is excluded
+  # via `running_seconds/2`). A worker that cannot park remains eligible for
+  # the wedged-stream watchdog below.
   @doc false
   @spec reconcile_overrunning_agents(State.t()) :: State.t()
   def reconcile_overrunning_agents(%State{} = state) do
@@ -2001,7 +1897,7 @@ defmodule Aiur.Orchestrator do
       identifier = Map.get(running_entry, :identifier, issue_id)
       seconds = running_seconds(Map.get(running_entry, :started_at), now)
 
-      Logger.warning("Issue exceeded max_agent_duration: issue_id=#{issue_id} issue_identifier=#{identifier} running_seconds=#{seconds} cap_seconds=#{max_seconds}; pausing agent")
+      Logger.warning("orchestrator.pause issue_id=#{issue_id} issue_identifier=#{identifier} cause=max_agent_duration running_seconds=#{seconds} cap_seconds=#{max_seconds}")
 
       _ = send_pause_control_message(state, identifier)
 
@@ -2011,6 +1907,42 @@ defmodule Aiur.Orchestrator do
       state
     end
   end
+
+  # A worker pause with no external blocker is safe to resume after it reaches
+  # its pause boundary. Quota, containment, operator, label, and blocker pauses
+  # retain their distinct reasons and stay parked for their owning recovery path.
+  defp maybe_auto_resume_spurious_worker_pause(state, %{paused_reason: reason} = running_entry, :paused)
+       when reason in [:input_required, :worker_pause_unknown, :pause_containment] do
+    case resume_paused_issue(state, running_entry) do
+      {{:ok, :resumed}, state} ->
+        state
+
+      {{:error, reason}, state} ->
+        Logger.warning("orchestrator.pause_resume_deferred issue_identifier=#{Map.get(running_entry, :identifier)} cause=#{Map.get(running_entry, :paused_reason)} reason=#{inspect(reason)}")
+
+        state
+    end
+  end
+
+  defp maybe_auto_resume_spurious_worker_pause(state, _running_entry, _status), do: state
+
+  defp worker_pause_reason(running_entry, pause_payload) do
+    Map.get(running_entry, :paused_reason) ||
+      Map.get(pause_payload, :kind) ||
+      Map.get(pause_payload, "kind") ||
+      if(Map.has_key?(pause_payload, :request_id), do: :pause_containment, else: :worker_pause_unknown)
+  end
+
+  defp maybe_put_worker_pause_reason(entry, :paused, pause_reason), do: Map.put(entry, :paused_reason, pause_reason)
+  defp maybe_put_worker_pause_reason(entry, _status, _pause_reason), do: entry
+
+  defp maybe_log_worker_pause(:paused, running_entry, pause_reason) do
+    Logger.warning(
+      "orchestrator.pause issue_id=#{get_in(running_entry, [:issue, Access.key(:id)])} issue_identifier=#{Map.get(running_entry, :identifier)} cause=#{pause_reason} source=worker_control_state"
+    )
+  end
+
+  defp maybe_log_worker_pause(_status, _running_entry, _pause_reason), do: :ok
 
   @doc false
   @spec reconcile_stalled_running_issues(State.t()) :: State.t()
@@ -2047,14 +1979,11 @@ defmodule Aiur.Orchestrator do
       wedged_overcap_entry?(running_entry, now, timeout_ms) ->
         terminate_wedged_overcap_entry(state, issue_id, running_entry, now)
 
-      # Paused agents are INTENTIONALLY idle — the agent emitted
-      # pause.request because it declared a blocker and has nothing to
-      # do until the blocker emits. The stall watchdog must not
-      # interpret deliberate idleness as a stuck codex stream. The
-      # auto-resume hook in handle_info({:event, ...}) will reawaken
-      # the entry when its blocker pushes; if no push ever arrives, an
-      # operator-driven resume (label flip or chat) is the path
-      # forward, not a restart that throws away the agent's workpad.
+      # Paused agents are intentionally idle — either an agent declared a
+      # blocker, or a duration-capped worker has not yet confirmed it can
+      # park. The stall watchdog must not restart deliberate idleness; the
+      # duration-specific wedge branch above handles a stream that keeps
+      # producing output after the pause request.
       paused_running_entry?(running_entry) ->
         state
 
@@ -2155,231 +2084,14 @@ defmodule Aiur.Orchestrator do
 
   defp terminate_task(_pid), do: :ok
 
-  defp sync_polled_issue_state(%State{} = state, issues) when is_list(issues) do
-    previous_issues = state.last_polled_issues
-
-    state =
-      Enum.reduce(issues, state, fn issue, state_acc ->
-        previous_issue = Map.get(previous_issues, issue.id)
-
-        state_acc
-        |> emit_task_state_transition_alert(previous_issue, issue)
-        |> emit_dependency_transition_events(previous_issue, issue)
-      end)
-
-    %{state | last_polled_issues: issues_by_id(issues)}
-  end
-
-  defp sync_polled_issue_state(%State{} = state, _issues), do: state
-
-  defp issues_by_id(issues) do
-    Enum.reduce(issues, %{}, fn
-      %Issue{id: issue_id} = issue, acc when is_binary(issue_id) -> Map.put(acc, issue_id, issue)
-      _issue, acc -> acc
-    end)
-  end
-
-  defp emit_dependency_transition_events(%State{} = state, previous_issue, %Issue{} = issue) do
-    if is_nil(previous_issue) do
-      state
-    else
-      previous_blockers = blocker_map(previous_issue)
-      current_blockers = blocker_map(issue)
-
-      added_blocker_ids = Map.keys(current_blockers) -- Map.keys(previous_blockers)
-      removed_blocker_ids = Map.keys(previous_blockers) -- Map.keys(current_blockers)
-      shared_blocker_ids = Map.keys(current_blockers) -- added_blocker_ids
-
-      state =
-        Enum.reduce(added_blocker_ids, state, fn blocker_id, state_acc ->
-          auto_subscribe_for_dependency(issue, current_blockers[blocker_id])
-
-          enqueue_dependency_event(
-            state_acc,
-            issue,
-            current_blockers[blocker_id],
-            :dependency_added
-          )
-        end)
-
-      state =
-        Enum.reduce(removed_blocker_ids, state, fn blocker_id, state_acc ->
-          auto_unsubscribe_for_dependency(issue, previous_blockers[blocker_id])
-
-          enqueue_dependency_event(
-            state_acc,
-            issue,
-            previous_blockers[blocker_id],
-            :dependency_removed
-          )
-        end)
-
-      Enum.reduce(shared_blocker_ids, state, fn blocker_id, state_acc ->
-        maybe_enqueue_blocker_terminality_event(
-          state_acc,
-          issue,
-          previous_blockers[blocker_id],
-          current_blockers[blocker_id]
-        )
-      end)
-    end
-  end
-
-  defp emit_dependency_transition_events(%State{} = state, _previous_issue, _issue), do: state
-
-  defp emit_task_state_transition_alert(%State{} = state, nil, %Issue{}), do: state
-
-  defp emit_task_state_transition_alert(
-         %State{} = state,
-         %Issue{} = previous_issue,
-         %Issue{} = issue
-       ) do
-    previous_state = state_slug(previous_issue.state)
-    current_state = state_slug(issue.state)
-
-    if previous_state != current_state and current_state != nil do
-      # Ticket B: label-flip alerts route through the new topic shape so
-      # `alerts.yaml` can glob-match per state without one entry per state.
-      Alerts.emit_system(
-        "ticket.#{issue.identifier}.issue.label.added.agent.#{current_state}",
-        issue: issue,
-        worker_host: running_worker_host(state, issue.id),
-        reason: task_state_alert_reason(current_state),
-        needs_attention: task_state_needs_attention?(current_state),
-        severity: task_state_alert_severity(current_state)
-      )
-    end
-
-    state
-  end
-
-  defp emit_task_state_transition_alert(%State{} = state, _previous_issue, _issue), do: state
-
-  defp task_state_alert_reason("human-review"),
-    do: "Agent marked the ticket ready for human review"
-
-  defp task_state_alert_reason(_state), do: nil
-
-  defp task_state_needs_attention?("human-review"), do: true
-  defp task_state_needs_attention?(_state), do: false
-
-  defp task_state_alert_severity("human-review"), do: "warning"
-  defp task_state_alert_severity(_state), do: nil
-
-  defp blocker_map(%Issue{blocked_by: blockers}) when is_list(blockers) do
-    Enum.reduce(blockers, %{}, fn
-      %{id: blocker_id} = blocker, acc when is_binary(blocker_id) ->
-        Map.put(acc, blocker_id, blocker)
-
-      _blocker, acc ->
-        acc
-    end)
-  end
-
-  defp blocker_map(_issue), do: %{}
-
-  defp blocker_terminal?(%{state: state_name}) when is_binary(state_name) do
-    terminal_issue_state?(state_name, terminal_state_set())
-  end
-
-  defp blocker_terminal?(_blocker), do: false
-
-  defp maybe_enqueue_blocker_terminality_event(state, issue, previous_blocker, current_blocker) do
-    cond do
-      blocker_terminal?(previous_blocker) and !blocker_terminal?(current_blocker) ->
-        enqueue_dependency_event(state, issue, current_blocker, :blocker_became_non_terminal)
-
-      !blocker_terminal?(previous_blocker) and blocker_terminal?(current_blocker) ->
-        enqueue_dependency_event(state, issue, current_blocker, :blocker_became_terminal)
-
-      true ->
-        state
-    end
-  end
-
-  defp enqueue_dependency_event(%State{} = state, %Issue{} = issue, blocker, update_kind)
-       when is_map(blocker) do
-    body = blocker_event_body(issue, blocker, update_kind)
-
-    {queue_store, item} =
-      AgentQueue.coordination_event(issue.identifier, update_kind, body,
-        source: :tracker,
-        dedupe_key: dependency_event_dedupe_key(issue, blocker, update_kind),
-        causal_refs: dependency_causal_refs(issue, blocker),
-        subscription: dependency_subscription(issue, blocker)
-      )
-      |> then(&AgentQueueStore.enqueue(state.queue_store, &1))
-
-    next_state = %{state | queue_store: queue_store}
-
-    case find_running_by_identifier(state.running, issue.identifier) do
-      nil ->
-        next_state
-
-      running_entry ->
-        notify_running_queue_update(running_entry, item)
-        next_state
-    end
-  end
-
-  defp enqueue_dependency_event(%State{} = state, _issue, _blocker, _update_kind), do: state
-
-  defp blocker_event_body(issue, blocker, update_kind) do
-    %{
-      blocked_issue_id: issue.id,
-      blocked_issue_identifier: issue.identifier,
-      blocker_issue_id: blocker[:id],
-      blocker_issue_identifier: blocker[:identifier],
-      blocker_state: blocker[:state],
-      update_kind: update_kind,
-      summary: blocker_event_summary(issue, blocker, update_kind)
-    }
-  end
-
-  defp blocker_event_summary(_issue, blocker, :dependency_added),
-    do: "Issue is now blocked by #{blocker[:identifier] || blocker[:id]}"
-
-  defp blocker_event_summary(_issue, blocker, :dependency_removed),
-    do: "Dependency on #{blocker[:identifier] || blocker[:id]} was removed"
-
-  defp blocker_event_summary(_issue, blocker, :blocker_became_terminal),
-    do: "Blocker #{blocker[:identifier] || blocker[:id]} reached terminal state #{blocker[:state]}"
-
-  defp blocker_event_summary(_issue, blocker, :blocker_became_non_terminal),
-    do: "Blocker #{blocker[:identifier] || blocker[:id]} returned to non-terminal state #{blocker[:state]}"
-
-  defp dependency_event_dedupe_key(issue, blocker, update_kind) do
-    [
-      Atom.to_string(update_kind),
-      issue.id || issue.identifier,
-      blocker[:id] || blocker[:identifier],
-      blocker[:state]
-    ]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join(":")
-  end
-
-  defp dependency_causal_refs(issue, blocker) do
-    [issue.id, blocker[:id]]
-    |> Enum.reject(&is_nil/1)
-  end
-
-  defp dependency_subscription(issue, blocker) do
-    %{
-      subscription_type: :blocked_by,
-      source_issue_id: blocker[:id],
-      target_issue_id: issue.id
-    }
-  end
+  defp sync_polled_issue_state(state, issues), do: IssueSync.sync_polled_issue_state(state, issues)
 
   defp sort_issues_for_dispatch(issues), do: DispatchPolicy.sort_issues_for_dispatch(issues)
   defp should_dispatch_issue?(issue, state, active_states, terminal_states), do: DispatchPolicy.should_dispatch_issue?(issue, state, active_states, terminal_states)
   defp dispatch_candidate?(issue, state, active_states, terminal_states), do: DispatchPolicy.dispatch_candidate?(issue, state, active_states, terminal_states)
   defp state_slots_available?(issue, state), do: DispatchPolicy.state_slots_available?(issue, state)
   defp candidate_issue?(issue, active_states, terminal_states), do: DispatchPolicy.candidate_issue?(issue, active_states, terminal_states)
-  defp issue_routable_to_worker?(issue), do: DispatchPolicy.issue_routable_to_worker?(issue)
   defp todo_issue_blocked_by_non_terminal?(issue, terminal_states), do: DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, terminal_states)
-  defp terminal_issue_state?(state_name, terminal_states), do: DispatchPolicy.terminal_issue_state?(state_name, terminal_states)
   defp normalize_issue_state(state_name), do: DispatchPolicy.normalize_issue_state(state_name)
   defp state_slug(state_name), do: DispatchPolicy.state_slug(state_name)
   defp terminal_state_set, do: DispatchPolicy.terminal_state_set()
@@ -2770,7 +2482,6 @@ defmodule Aiur.Orchestrator do
   defp paused_running_count(running), do: State.paused_running_count(running)
   defp active_running_entry?(entry), do: State.active_running_entry?(entry)
   defp paused_running_entry?(entry), do: State.paused_running_entry?(entry)
-  defp sleeping_running_entry?(entry), do: State.sleeping_running_entry?(entry)
   defp deactivated_running_entry?(entry), do: State.deactivated_running_entry?(entry)
 
   defp launch_max_concurrent_agents_override, do: Slots.launch_max_concurrent_agents_override()
@@ -3615,398 +3326,17 @@ defmodule Aiur.Orchestrator do
 
   @doc false
   @spec enqueue_event_digest_item(State.t(), String.t(), list(), map()) :: State.t()
-  def enqueue_event_digest_item(%State{} = state, identifier, events, summary_source)
-      when is_binary(identifier) and is_list(events) do
-    body = %{
-      summary: CommentWake.event_digest_summary(summary_source),
-      events: events
-    }
+  def enqueue_event_digest_item(state, identifier, events, summary_source),
+    do: OperatorMessages.enqueue_event_digest_item(state, identifier, events, summary_source)
 
-    running_entry = find_running_by_identifier(state.running, identifier)
-    delivery_opts = event_digest_delivery_opts(running_entry, events)
+  defp enqueue_operator_message(state, issue_identifier, body, payload),
+    do: OperatorMessages.enqueue_operator_message(state, issue_identifier, body, payload)
 
-    {queue_store, item} =
-      AgentQueue.coordination_event(identifier, :events_digest, body, delivery_opts)
-      |> then(&AgentQueueStore.enqueue(state.queue_store, &1))
+  defp maybe_emit_agent_control_alert(previous_status, status, running_entry),
+    do: OperatorMessages.maybe_emit_agent_control_alert(previous_status, status, running_entry)
 
-    next_state = %{state | queue_store: queue_store}
-
-    case running_entry do
-      nil ->
-        :ok
-
-      running_entry ->
-        notify_running_queue_update(running_entry, item)
-    end
-
-    next_state
-  end
-
-  defp enqueue_operator_message(state, issue_identifier, body, payload) do
-    delivery_policy = Map.get(payload, :delivery_policy, :checkpoint)
-    fallback = Map.get(payload, :fallback)
-    turn_id = Map.get(payload, :turn_id)
-
-    case validate_operator_message(body) do
-      {:ok, text} ->
-        enqueue_validated_operator_message(
-          state,
-          issue_identifier,
-          text,
-          delivery_policy,
-          fallback,
-          turn_id
-        )
-
-      {:error, _reason} = error ->
-        {error, state}
-    end
-  end
-
-  defp enqueue_validated_operator_message(
-         state,
-         issue_identifier,
-         text,
-         delivery_policy,
-         fallback,
-         turn_id
-       ) do
-    case find_running_by_identifier(state.running, issue_identifier) do
-      nil ->
-        {{:error, :no_running_agent}, state}
-
-      running_entry ->
-        enqueue_for_running_entry(
-          state,
-          running_entry,
-          issue_identifier,
-          text,
-          delivery_policy,
-          fallback,
-          turn_id
-        )
-    end
-  end
-
-  # Chatting with a paused agent auto-resumes it — but only if a slot is
-  # free. Routing through `resume_paused_issue/2` reuses the same
-  # active-cap and per-state slot gates as the explicit space-key resume,
-  # so we can't push active over max no matter which entry point the
-  # operator uses. If no slot is free, the cap error propagates and the
-  # conversation pane surfaces it.
-  defp enqueue_for_running_entry(
-         state,
-         running_entry,
-         issue_identifier,
-         text,
-         delivery_policy,
-         fallback,
-         turn_id
-       ) do
-    cond do
-      deactivated_running_entry?(running_entry) ->
-        enqueue_after_reactivate(
-          state,
-          running_entry,
-          issue_identifier,
-          text,
-          delivery_policy,
-          fallback,
-          turn_id
-        )
-
-      paused_running_entry?(running_entry) ->
-        enqueue_after_resume(
-          state,
-          running_entry,
-          issue_identifier,
-          text,
-          delivery_policy,
-          fallback,
-          turn_id
-        )
-
-      true ->
-        do_enqueue_running_operator_message(
-          state,
-          running_entry,
-          issue_identifier,
-          text,
-          delivery_policy,
-          fallback,
-          turn_id
-        )
-    end
-  end
-
-  # Mirrors `enqueue_after_resume/7` for the `:deactivated → :working`
-  # transition. The fresh agent task spawned by `reactivate_issue/2`
-  # will pick up the queued operator message when it boots.
-  defp enqueue_after_reactivate(
-         state,
-         running_entry,
-         issue_identifier,
-         text,
-         delivery_policy,
-         fallback,
-         turn_id
-       ) do
-    case reactivate_issue(state, running_entry) do
-      {{:ok, :reactivated}, next_state} ->
-        reactivated_entry = find_running_by_identifier(next_state.running, issue_identifier)
-
-        do_enqueue_running_operator_message(
-          next_state,
-          reactivated_entry,
-          issue_identifier,
-          text,
-          delivery_policy,
-          fallback,
-          turn_id
-        )
-
-      {{:error, _reason} = error, next_state} ->
-        {error, next_state}
-    end
-  end
-
-  defp enqueue_after_resume(
-         state,
-         running_entry,
-         issue_identifier,
-         text,
-         delivery_policy,
-         fallback,
-         turn_id
-       ) do
-    case resume_paused_issue(state, running_entry) do
-      {{:ok, :resumed}, next_state} ->
-        resumed_entry = find_running_by_identifier(next_state.running, issue_identifier)
-
-        do_enqueue_running_operator_message(
-          next_state,
-          resumed_entry,
-          issue_identifier,
-          text,
-          delivery_policy,
-          fallback,
-          turn_id
-        )
-
-      {{:error, _reason} = error, next_state} ->
-        {error, next_state}
-    end
-  end
-
-  defp do_enqueue_running_operator_message(
-         state,
-         running_entry,
-         issue_identifier,
-         text,
-         delivery_policy,
-         fallback,
-         turn_id
-       ) do
-    capabilities = issue_control_capabilities(state, issue_identifier)
-
-    case normalize_delivery_request(delivery_policy, fallback, capabilities) do
-      {:ok, queue_opts} ->
-        {queue_store, item} =
-          AgentQueue.operator_message(
-            issue_identifier,
-            text,
-            Keyword.put(queue_opts, :turn_id, turn_id)
-          )
-          |> then(&AgentQueueStore.enqueue(state.queue_store, &1))
-
-        # NOTE: previously we emitted a `chat.send` alert here for every
-        # operator message. That alert was pure noise — it duplicated
-        # the `[user]` line the pane already renders and added a
-        # `[alert] chat.send: Message sent` row plus a log line for
-        # every keystroke-submitted message. Removed.
-
-        next_state = %{state | queue_store: queue_store}
-        notify_running_queue_update(running_entry, item)
-        {{:ok, item.id}, next_state}
-
-      {:error, _reason} = error ->
-        {error, state}
-    end
-  end
-
-  # `:auto` lets the caller defer to the backend: the persistent REPL takes
-  # operator messages immediately mid-turn; everything else holds at a safe
-  # checkpoint (native codex/headless-claude turn UX).
-  defp normalize_delivery_request(:auto, _fallback, %{immediate_delivery: true}) do
-    {:ok, [delivery_policy: :immediate]}
-  end
-
-  defp normalize_delivery_request(:auto, _fallback, _capabilities) do
-    {:ok, [delivery_policy: :checkpoint]}
-  end
-
-  defp normalize_delivery_request(:immediate, _fallback, %{immediate_delivery: true}) do
-    {:ok, [delivery_policy: :immediate]}
-  end
-
-  defp normalize_delivery_request(:immediate, _fallback, _capabilities) do
-    {:error, :immediate_not_supported}
-  end
-
-  defp normalize_delivery_request(:checkpoint, _fallback, _capabilities) do
-    {:ok, [delivery_policy: :checkpoint]}
-  end
-
-  defp normalize_delivery_request(:interrupt, fallback, %{can_interrupt: true}) do
-    {:ok, [delivery_policy: :interrupt, fallback: fallback]}
-  end
-
-  defp normalize_delivery_request(:interrupt, :queue_next, _capabilities) do
-    {:ok, [delivery_policy: :checkpoint, fallback: :queue_next]}
-  end
-
-  defp normalize_delivery_request(:interrupt, _fallback, _capabilities) do
-    {:error, :interrupt_not_supported}
-  end
-
-  defp normalize_delivery_request(_other, _fallback, _capabilities) do
-    {:error, :invalid_message}
-  end
-
-  defp maybe_emit_agent_control_alert(:working, :paused, %{paused_reason: :ci_wait} = running_entry)
-       when is_map(running_entry) do
-    Alerts.emit_system("ticket.#{Map.get(running_entry, :identifier)}.ci.wait",
-      issue: Map.get(running_entry, :identifier),
-      workspace: Map.get(running_entry, :workspace_path),
-      worker_host: Map.get(running_entry, :worker_host),
-      reason: "Waiting for CI before human review.",
-      needs_attention: false,
-      severity: "info"
-    )
-  end
-
-  defp maybe_emit_agent_control_alert(:working, :paused, running_entry)
-       when is_map(running_entry) do
-    Alerts.emit_system("ticket.#{Map.get(running_entry, :identifier)}.agent.paused",
-      issue: Map.get(running_entry, :identifier),
-      workspace: Map.get(running_entry, :workspace_path),
-      worker_host: Map.get(running_entry, :worker_host),
-      reason: "Agent paused and may need operator input before continuing.",
-      needs_attention: true,
-      severity: "warning"
-    )
-  end
-
-  defp maybe_emit_agent_control_alert(:paused, :working, running_entry)
-       when is_map(running_entry) do
-    Alerts.emit_system("ticket.#{Map.get(running_entry, :identifier)}.agent.unpaused",
-      issue: Map.get(running_entry, :identifier),
-      workspace: Map.get(running_entry, :workspace_path),
-      worker_host: Map.get(running_entry, :worker_host),
-      reason: "Agent resumed; no operator action is needed.",
-      needs_attention: false,
-      severity: "info"
-    )
-  end
-
-  defp maybe_emit_agent_control_alert(_previous_status, _status, _running_entry), do: :ok
-
-  defp validate_operator_message(body) do
-    text = String.trim(body)
-
-    cond do
-      text == "" -> {:error, :empty_message}
-      String.length(text) > @max_operator_message_chars -> {:error, :message_too_long}
-      true -> {:ok, text}
-    end
-  end
-
-  defp send_running_control_message(state, issue_identifier, build_message) do
-    case find_running_by_identifier(state.running, issue_identifier) do
-      nil ->
-        {:error, :no_running_agent}
-
-      %{pid: pid} when is_pid(pid) ->
-        if Process.alive?(pid) do
-          request_id = :erlang.unique_integer([:positive])
-          send(pid, build_message.(request_id))
-          {:ok, request_id}
-        else
-          {:error, :agent_finished}
-        end
-
-      _ ->
-        {:error, :agent_finished}
-    end
-  end
-
-  defp notify_running_queue_update(%{pid: pid} = running_entry, item) when is_pid(pid) do
-    if Process.alive?(pid) do
-      send(
-        pid,
-        {:agent_queue_updated, item.target_issue_identifier, item.id, deliver_now?(running_entry, item)}
-      )
-    end
-
-    :ok
-  end
-
-  defp notify_running_queue_update(_running_entry, _item), do: :ok
-
-  defp deliver_now?(running_entry, item) do
-    queue_wake_required?(running_entry) or
-      item.delivery[:interrupt_requested] == true or
-      item.delivery[:immediate] == true
-  end
-
-  defp event_digest_delivery_opts(running_entry, event_or_events) do
-    if queue_wake_required?(running_entry) or
-         trusted_comment_wake_required?(running_entry, event_or_events) do
-      [source: :system, priority: :now, interrupt_requested: true]
-    else
-      [source: :system]
-    end
-  end
-
-  defp trusted_comment_wake_required?(running_entry, event_or_events) do
-    active_running_entry?(running_entry) and trusted_comment_event_digest?(event_or_events)
-  end
-
-  defp trusted_comment_event_digest?(events) when is_list(events) do
-    Enum.any?(events, &trusted_comment_event_digest?/1)
-  end
-
-  defp trusted_comment_event_digest?(event) when is_map(event) do
-    comment_event_topic?(event) and CommentWake.trusted_comment_event?(event) and
-      not CommentWake.benign_review_pass_comment?(event)
-  end
-
-  defp trusted_comment_event_digest?(_event), do: false
-
-  defp comment_event_topic?(event) when is_map(event) do
-    topic = Map.get(event, :topic) || Map.get(event, "topic")
-
-    if is_binary(topic) do
-      case classify_event_topic(topic) do
-        {:pr_review_comment, _identifier} -> true
-        {:issue_commented, _identifier} -> true
-        _ -> false
-      end
-    else
-      false
-    end
-  end
-
-  defp queue_wake_required?(running_entry) do
-    sleeping_running_entry?(running_entry) or
-      (active_running_entry?(running_entry) and no_active_turn?(running_entry))
-  end
-
-  defp no_active_turn?(%{identifier: identifier}) when is_binary(identifier) do
-    ActiveTurns.active_turn_ids(identifier) == []
-  end
-
-  defp no_active_turn?(_running_entry), do: false
+  defp send_running_control_message(state, issue_identifier, build_message),
+    do: OperatorMessages.send_running_control_message(state, issue_identifier, build_message)
 
   defp resume_issue(%State{} = state, issue_identifier) do
     case find_running_by_identifier(state.running, issue_identifier) do
@@ -4016,7 +3346,7 @@ defmodule Aiur.Orchestrator do
             reactivate_issue(state, running_entry)
 
           paused_running_entry?(running_entry) ->
-            resume_paused_issue(state, running_entry)
+            resume_label_overridden_issue(state, running_entry)
 
           true ->
             {{:ok, :resumed}, state}
@@ -4026,6 +3356,68 @@ defmodule Aiur.Orchestrator do
         resume_queued_issue(state, issue_identifier)
     end
   end
+
+  # `agent:paused` is a durable override. A successful in-memory resume that
+  # leaves it behind is undone by the next tracker poll, stranding the worker.
+  # Clear the override before waking the worker and keep it parked if the
+  # tracker write fails.
+  defp resume_label_overridden_issue(%State{} = state, %{paused_reason: :label_override} = running_entry) do
+    case clear_pause_override(running_entry) do
+      {:ok, cleared_entry} ->
+        issue_id = get_in(cleared_entry, [:issue, Access.key(:id)])
+        state = %{state | running: Map.put(state.running, issue_id, cleared_entry)}
+        resume_paused_issue(state, cleared_entry)
+
+      {:error, reason} ->
+        Logger.warning("Pause override clear failed: #{rc_log_context(running_entry)} reason=#{inspect(reason)}")
+        {{:error, {:pause_override_clear_failed, reason}}, state}
+    end
+  end
+
+  defp resume_label_overridden_issue(%State{} = state, running_entry), do: resume_paused_issue(state, running_entry)
+
+  defp recover_startup_pause_overrides(%State{initial_dispatch_cycle: true} = state, issues) when is_list(issues) do
+    Enum.map(issues, fn
+      %Issue{} = issue -> recover_startup_pause_override(state, issue)
+      issue -> issue
+    end)
+  end
+
+  defp recover_startup_pause_overrides(_state, issues), do: issues
+
+  defp recover_startup_pause_override(%State{} = state, %Issue{} = issue) do
+    if Issue.paused?(issue) and DispatchPolicy.active_issue_state?(issue.state, active_state_set()) and not Map.has_key?(state.running, issue.id) do
+      case clear_pause_override(issue) do
+        {:ok, cleared_issue} ->
+          Logger.info("Recovered stale pause override on startup: #{issue_context(issue)}")
+          cleared_issue
+
+        {:error, reason} ->
+          Logger.warning("Startup pause override recovery deferred: #{issue_context(issue)} reason=#{inspect(reason)}")
+          issue
+      end
+    else
+      issue
+    end
+  end
+
+  defp clear_pause_override(%{issue: %Issue{} = issue} = running_entry) do
+    case clear_pause_override(issue) do
+      {:ok, cleared_issue} -> {:ok, Map.put(running_entry, :issue, cleared_issue)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp clear_pause_override(%Issue{} = issue) do
+    label = pause_override_label()
+
+    case Tracker.remove_label(issue.identifier, label) do
+      :ok -> {:ok, issue |> remove_issue_label(label) |> Map.put(:paused, false)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp pause_override_label, do: "#{Config.settings!().tracker.github.label_prefix}:paused"
 
   # Wake a `:deactivated` running entry: flip its control status to
   # `:working`, re-add the id to the publisher tracked set, and spawn
@@ -4071,7 +3463,8 @@ defmodule Aiur.Orchestrator do
       {{:error, :already_inactive}, state}
     else
       reply = send_pause_control_message(state, issue_identifier)
-      {reply, transition_control_status(state, running_entry, :paused, "operator.pause")}
+      paused_entry = Map.put(running_entry, :paused_reason, :operator_pause)
+      {reply, transition_control_status(state, paused_entry, :paused, "operator.pause")}
     end
   end
 
@@ -4174,7 +3567,8 @@ defmodule Aiur.Orchestrator do
   # because the optimistic transition is the source of truth for the UI.
   defp perform_pane_interrupt(:pause, state, entry, issue_identifier, _pane_id) do
     _ = send_pause_control_message(state, issue_identifier)
-    {{:ok, :paused}, transition_control_status(state, entry, :paused, "pane.ctrl_c.pause")}
+    paused_entry = Map.put(entry, :paused_reason, :pane_ctrl_c)
+    {{:ok, :paused}, transition_control_status(state, paused_entry, :paused, "pane.ctrl_c.pause")}
   end
 
   @doc """
@@ -4350,10 +3744,10 @@ defmodule Aiur.Orchestrator do
   # that keeps getting auto-resumed on blocker pushes stays bounded instead
   # of running forever.
   #
-  # Label-override pauses have no special duration semantics; resuming just
-  # clears their attribution marker after the normal pause-clock thaw.
+  # Every other pause reason has no special duration semantics; resuming just
+  # clears its attribution marker after the normal pause-clock thaw.
   #
-  # A no-op for manually/blocker-paused entries (no marker).
+  # Entries without a pause attribution marker need no cleanup.
   defp reset_duration_clock_if_capped(running, issue_id, %DateTime{} = now, operator?)
        when is_map(running) do
     case Map.get(running, issue_id) do
@@ -4365,10 +3759,7 @@ defmodule Aiur.Orchestrator do
 
         Map.put(running, issue_id, updated)
 
-      %{paused_reason: :label_override} = entry ->
-        Map.put(running, issue_id, Map.delete(entry, :paused_reason))
-
-      %{paused_reason: :ci_wait} = entry ->
+      %{paused_reason: _reason} = entry ->
         Map.put(running, issue_id, Map.delete(entry, :paused_reason))
 
       _ ->
@@ -4467,58 +3858,14 @@ defmodule Aiur.Orchestrator do
 
   defp resume_worker_slot_available?(state, worker_host), do: Slots.resume_worker_slot_available?(state, worker_host)
 
-  defp queue_depth_for_issue(%State{} = state, issue_identifier)
-       when is_binary(issue_identifier) do
-    state.queue_store
-    |> AgentQueueStore.list_pending(issue_identifier)
-    |> length()
-  end
+  defp queue_depth_for_issue(state, issue_identifier),
+    do: OperatorMessages.queue_depth_for_issue(state, issue_identifier)
 
-  defp pending_operator_messages_for_issue(%State{} = state, issue_identifier)
-       when is_binary(issue_identifier) do
-    state.queue_store
-    |> AgentQueueStore.list_visible_operator_messages(issue_identifier)
-    |> Enum.map(fn item ->
-      %{
-        id: item.id,
-        # item is an %AgentQueueItem{} struct (no Access), so reach into its body
-        # map directly rather than via get_in/2 — the latter crashed the whole
-        # Orchestrator whenever the dashboard rendered an issue with a visible
-        # operator message.
-        text: operator_item_text(item),
-        status: item.status
-      }
-    end)
-  end
+  defp pending_operator_messages_for_issue(state, issue_identifier),
+    do: OperatorMessages.pending_operator_messages_for_issue(state, issue_identifier)
 
-  defp operator_item_text(%{body: %{text: text}}) when is_binary(text), do: text
-  defp operator_item_text(_item), do: ""
-
-  defp issue_control_capabilities(%State{} = state, issue_identifier)
-       when is_binary(issue_identifier) do
-    running_entry = find_running_by_identifier(state.running, issue_identifier)
-    can_interrupt = get_in(running_entry || %{}, [:control, :can_interrupt]) == true
-    safe_checkpoints = get_in(running_entry || %{}, [:control, :safe_checkpoints]) || []
-    immediate_delivery = get_in(running_entry || %{}, [:control, :immediate_delivery]) == true
-    accepts_operator_messages = not is_nil(running_entry)
-
-    %{
-      accepts_operator_messages: accepts_operator_messages,
-      can_interrupt: can_interrupt,
-      immediate_delivery: immediate_delivery,
-      accepted_delivery_policies: accepted_delivery_policies(can_interrupt, immediate_delivery),
-      safe_checkpoints: safe_checkpoints,
-      status: get_in(running_entry || %{}, [:control, :status]) || :working,
-      queue_depth: queue_depth_for_issue(state, issue_identifier)
-    }
-  end
-
-  # The REPL backend forwards operator messages straight into the live
-  # process, so it offers :immediate instead of the hold-then-deliver
-  # :checkpoint / :interrupt policies.
-  defp accepted_delivery_policies(_can_interrupt, true), do: [:immediate]
-  defp accepted_delivery_policies(true, false), do: [:checkpoint, :interrupt]
-  defp accepted_delivery_policies(false, false), do: [:checkpoint]
+  defp issue_control_capabilities(state, issue_identifier),
+    do: OperatorMessages.issue_control_capabilities(state, issue_identifier)
 
   # ----------------------------------------------------------- remote control
 
@@ -4861,62 +4208,7 @@ defmodule Aiur.Orchestrator do
     }
   end
 
-  defp sync_todo_capacity_alert(%State{} = state, issues) when is_list(issues) do
-    todo_issues = routable_todo_issues(issues)
-
-    over_capacity? = length(todo_issues) > max_concurrent_agent_limit(state)
-
-    cond do
-      over_capacity? and not state.todo_over_capacity_alert_active ->
-        emit_todo_capacity_alert(state, todo_issues)
-        %{state | todo_over_capacity_alert_active: true}
-
-      not over_capacity? and state.todo_over_capacity_alert_active ->
-        %{state | todo_over_capacity_alert_active: false}
-
-      true ->
-        state
-    end
-  end
-
-  defp sync_todo_capacity_alert(%State{} = state, _issues), do: state
-
-  defp routable_todo_issues(issues) when is_list(issues) do
-    issues
-    |> Enum.filter(fn
-      %Issue{} = issue ->
-        normalize_issue_state(issue.state) == "todo" and
-          not Issue.paused?(issue) and
-          issue_routable_to_worker?(issue) and
-          !todo_issue_blocked_by_non_terminal?(issue, terminal_state_set())
-
-      _ ->
-        false
-    end)
-    |> sort_issues_for_dispatch()
-  end
-
-  defp emit_todo_capacity_alert(%State{} = state, todo_issues) when is_list(todo_issues) do
-    case List.first(todo_issues) do
-      %Issue{} = issue ->
-        Alerts.emit_system("system.dispatch.todo_capacity_exceeded",
-          issue: issue,
-          worker_host: running_worker_host(state, issue.id),
-          reason: "Todo issue count exceeds the current dispatch capacity.",
-          needs_attention: true,
-          severity: "warning"
-        )
-
-      _ ->
-        Alerts.emit_system("system.dispatch.todo_capacity_exceeded",
-          reason: "Todo issue count exceeds the current dispatch capacity.",
-          needs_attention: true,
-          severity: "warning"
-        )
-    end
-  end
-
-  @doc false
+  defp sync_todo_capacity_alert(state, issues), do: IssueSync.sync_todo_capacity_alert(state, issues)
   @spec running_worker_host(State.t(), binary() | term()) :: binary() | nil
   def running_worker_host(%State{} = state, issue_id) when is_binary(issue_id) do
     case Map.get(state.running, issue_id) do
@@ -5294,272 +4586,15 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  # Drain-time coalescing: pending `:events_digest` items for the same
-  # identifier fold into a single delivery, so an agent that had three
-  # events subscribed during a long turn sees ONE `<aiur:events>` block,
-  # not three separate ones. Granularity is preserved upstream (one
-  # queue item per publish so `[event:consumed]` markers and cursor
-  # advance still reflect individual events); coalescing happens only
-  # at the drain boundary.
-  defp coalesce_events_digests(queue_store, issue_identifier, first_item) do
-    do_coalesce_events_digests(queue_store, issue_identifier, first_item)
-  end
+  defp coalesce_events_digests(queue_store, issue_identifier, first_item),
+    do: DigestCoalescer.coalesce_events_digests(queue_store, issue_identifier, first_item)
 
-  defp do_coalesce_events_digests(queue_store, issue_identifier, acc_item) do
-    {next_store, next_item} =
-      AgentQueueStore.claim_next_deliverable_matching(
-        queue_store,
-        issue_identifier,
-        fn item -> match?(%{category: :coordination_event, event_type: :events_digest}, item) end
-      )
-
-    case next_item do
-      nil ->
-        {next_store, acc_item}
-
-      %{} = item ->
-        merged = merge_events_digest_items(acc_item, item)
-        do_coalesce_events_digests(next_store, issue_identifier, merged)
-    end
-  end
-
-  defp merge_events_digest_items(first, next) do
-    first_events = first.body |> Map.get(:events, []) |> List.wrap()
-    next_events = next.body |> Map.get(:events, []) |> List.wrap()
-
-    sorted =
-      (first_events ++ next_events)
-      |> Enum.uniq_by(&event_dedupe_key/1)
-      |> Enum.sort_by(&event_sort_key/1)
-
-    new_body =
-      first.body
-      |> Map.put(:events, sorted)
-      |> Map.put(:summary, CommentWake.event_digest_summary(%{events: sorted}))
-
-    %{first | body: new_body}
-  end
-
-  defp event_sort_key(%{id: id}) when is_integer(id), do: id
-  defp event_sort_key(%{"id" => id}) when is_integer(id), do: id
-  defp event_sort_key(_), do: 0
-
-  defp event_dedupe_key(event) when is_map(event) do
-    topic = event_topic(event)
-
-    case {comment_event_topic?(event), event_comment_id(event), event_sort_key(event)} do
-      {true, id, _} when is_integer(id) -> {topic, :comment, id}
-      {_, _, id} when is_integer(id) and id > 0 -> {topic, :event, id}
-      _ -> event
-    end
-  end
-
-  defp event_dedupe_key(event), do: event
-
-  defp event_topic(event) when is_map(event),
-    do: Map.get(event, :topic) || Map.get(event, "topic")
-
-  defp event_comment_id(event) when is_map(event) do
-    comment = Map.get(event, :comment) || Map.get(event, "comment") || %{}
-    Map.get(comment, :id) || Map.get(comment, "id")
-  end
-
-  # Asymmetric auto-subscribe: when the orchestrator's poll observes a new blocker on
-  # `issue.blocked_by`, asymmetrically auto-subscribe both sides:
-  # - blockee subscribes to the actionable subset of the blocker's events
-  # - blocker subscribes to blockee's block-state events only
-  # See origin: docs/brainstorms/2026-05-24-aiur-event-publishing-
-  # subscriptions-requirements.md (Subscriptions section). Idempotent via
-  # SubscriptionStore.add_subscription's existing duplicate short-circuit.
-  defp auto_subscribe_for_dependency(blockee, blocker) when is_map(blocker) do
-    with blockee_identifier when is_binary(blockee_identifier) <- blockee_identifier_for(blockee),
-         blocker_identifier when is_binary(blocker_identifier) <- blocker_identifier_for(blocker) do
-      attach_and_subscribe(
-        blockee_identifier,
-        default_blockee_subscriptions(blocker_identifier),
-        "blocker:auto"
-      )
-
-      attach_and_subscribe(
-        blocker_identifier,
-        default_blocker_subscriptions(blockee_identifier),
-        "blockee:auto"
-      )
-    end
-
-    :ok
-  end
-
-  defp auto_subscribe_for_dependency(_blockee, _blocker), do: :ok
-
-  @doc """
-  Attach the standard blocker→blockee subscription pair WITHOUT
-  going through GitHub poll detection. Called from
-  `Aiur.AgentRunner.declare_blocker_for_issue/2` so the subscription
-  goes in the SubscriptionStore at declare-time, not on the next
-  reconcile tick after GitHub eventually surfaces the dependency.
-
-  This matters because:
-    * `IssueDependencies.declare/2` posts to GitHub's `/issues/.../dependencies`
-      API and may return `:already_present` for a stale dependency
-      that GitHub later mutates away (PR close + open cycle has been
-      observed to drop the dependency).
-    * Without the direct subscribe, the blockee's SubscriptionStore
-      never receives `ticket.<blocker>.branch.push`, so when the
-      blocker pushes the orchestrator's `subscribed_to_topic?/2`
-      check returns false and the blockee never auto-resumes.
-
-  Idempotent: SubscriptionStore.add_subscription short-circuits on
-  duplicate `(identifier, topic)`.
-  """
   @spec subscribe_for_declared_blocker(String.t() | integer(), String.t() | integer()) :: :ok
-  def subscribe_for_declared_blocker(blockee_identifier, blocker_identifier) do
-    blockee_str = to_string(blockee_identifier)
-    blocker_str = to_string(blocker_identifier)
+  def subscribe_for_declared_blocker(blockee_identifier, blocker_identifier),
+    do: AutoSubscriptions.subscribe_for_declared_blocker(blockee_identifier, blocker_identifier)
 
-    attach_and_subscribe(
-      blockee_str,
-      default_blockee_subscriptions(blocker_str),
-      "blocker:auto"
-    )
+  defp direct_blockers_for(state, identifier), do: AutoSubscriptions.direct_blockers_for(state, identifier)
 
-    attach_and_subscribe(
-      blocker_str,
-      default_blocker_subscriptions(blockee_str),
-      "blockee:auto"
-    )
-
-    :ok
-  end
-
-  defp auto_unsubscribe_for_dependency(blockee, blocker) when is_map(blocker) do
-    with blockee_identifier when is_binary(blockee_identifier) <- blockee_identifier_for(blockee),
-         blocker_identifier when is_binary(blocker_identifier) <- blocker_identifier_for(blocker) do
-      remove_auto_subscriptions(
-        blockee_identifier,
-        default_blockee_subscriptions(blocker_identifier),
-        "blocker:auto"
-      )
-
-      remove_auto_subscriptions(
-        blocker_identifier,
-        default_blocker_subscriptions(blockee_identifier),
-        "blockee:auto"
-      )
-    end
-
-    :ok
-  end
-
-  defp auto_unsubscribe_for_dependency(_blockee, _blocker), do: :ok
-
-  defp attach_and_subscribe(identifier, topics, reason) do
-    :ok = SubscriptionStore.attach(identifier)
-
-    Enum.each(topics, fn topic ->
-      _ = SubscriptionStore.add_subscription(identifier, topic, reason)
-    end)
-  end
-
-  defp remove_auto_subscriptions(identifier, topics, expected_reason) do
-    Enum.each(topics, fn topic ->
-      _ = SubscriptionStore.remove_subscription(identifier, topic, expected_reason)
-    end)
-  end
-
-  defp default_blockee_subscriptions(blocker_identifier) when is_binary(blocker_identifier) do
-    base = "ticket." <> blocker_identifier
-
-    # Topic strings must match the publisher source modules literally
-    # (Exchange routes by literal segment match):
-    #   LsRemoteTicker        -> ticket.<N>.branch.push
-    #   GithubCommentsPoller  -> ticket.<N>.issue.commented / pr.review_comment
-    #   GithubFirehose        -> ticket.<N>.pr.{opened,merged,closed,…}
-    [
-      base <> ".branch.push",
-      base <> ".branch.force-push",
-      base <> ".pr.opened",
-      base <> ".pr.merged",
-      base <> ".agent.decision.*",
-      base <> ".agent.blocked",
-      base <> ".agent.unblocked",
-      base <> ".agent.attention.*",
-      base <> ".issue.commented"
-    ]
-  end
-
-  defp default_blocker_subscriptions(blockee_identifier) when is_binary(blockee_identifier) do
-    base = "ticket." <> blockee_identifier
-
-    [
-      base <> ".agent.blocked",
-      base <> ".agent.unblocked"
-    ]
-  end
-
-  defp blockee_identifier_for(%Issue{identifier: identifier}) when is_binary(identifier),
-    do: identifier
-
-  defp blockee_identifier_for(_), do: nil
-
-  defp blocker_identifier_for(%{identifier: identifier}) when is_binary(identifier),
-    do: identifier
-
-  defp blocker_identifier_for(%{"identifier" => identifier}) when is_binary(identifier),
-    do: identifier
-
-  defp blocker_identifier_for(_), do: nil
-
-  # Mid-turn-drain helpers. Returns the list of direct-blocker
-  # identifiers for the running ticket (small — typically 0-3).
-  # Kept as a list rather than a MapSet so the consumer doesn't have
-  # to navigate dialyzer's opaque-type complaints on MapSet.member?.
-  defp direct_blockers_for(%State{last_polled_issues: polled}, identifier)
-       when is_map(polled) do
-    case Enum.find(polled, fn {_id, %Issue{identifier: i}} -> i == identifier end) do
-      {_id, %Issue{} = issue} ->
-        issue
-        |> blocker_map()
-        |> Map.values()
-        |> Enum.map(&blocker_identifier_for/1)
-        |> Enum.reject(&is_nil/1)
-
-      _ ->
-        []
-    end
-  end
-
-  defp direct_blockers_for(_state, _identifier), do: []
-
-  defp blocker_critical_digest?(
-         %{category: :coordination_event, event_type: :events_digest, body: body},
-         direct_blockers
-       ) do
-    events = Map.get(body || %{}, :events, [])
-    Enum.any?(events, fn event -> blocker_critical_event?(event, direct_blockers) end)
-  end
-
-  defp blocker_critical_digest?(_item, _direct_blockers), do: false
-
-  defp blocker_critical_event?(event, direct_blockers) when is_map(event) do
-    topic = Map.get(event, :topic) || Map.get(event, "topic")
-
-    cond do
-      not is_binary(topic) -> false
-      Enum.empty?(direct_blockers) -> false
-      true -> blocker_critical_topic?(topic, direct_blockers)
-    end
-  end
-
-  defp blocker_critical_event?(_event, _direct_blockers), do: false
-
-  defp blocker_critical_topic?(topic, direct_blockers) do
-    case String.split(topic, ".") do
-      ["ticket", id, "branch", "push"] -> id in direct_blockers
-      ["ticket", id, "branch", "force-push"] -> id in direct_blockers
-      ["ticket", id, "agent", "unblocked"] -> id in direct_blockers
-      ["ticket", id, "agent", "decision", _slug] -> id in direct_blockers
-      _ -> false
-    end
-  end
+  defp blocker_critical_digest?(item, direct_blockers),
+    do: AutoSubscriptions.blocker_critical_digest?(item, direct_blockers)
 end

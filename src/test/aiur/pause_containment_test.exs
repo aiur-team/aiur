@@ -80,6 +80,18 @@ defmodule Aiur.PauseContainmentTest do
     assert PauseContainment.paused?(name, handle)
   end
 
+  test "releases an armed canonical identifier from its issue-number target" do
+    name = Module.concat(__MODULE__, "ReleaseTarget#{System.unique_integer([:positive])}")
+    {:ok, _pid} = PauseContainment.start_link(name: name, grace_ms: 60_000)
+
+    assert {:ok, handle} = PauseContainment.register(name, "repo#890", 325, 325)
+    assert {:ok, ^handle} = PauseContainment.arm(name, "repo#890")
+    assert PauseContainment.paused?(name, handle)
+
+    assert :ok = PauseContainment.release_target(name, "890")
+    refute PauseContainment.paused?(name, handle)
+  end
+
   test "a stuck reap does not block arming a sibling agent" do
     parent = self()
     name = Module.concat(__MODULE__, "Concurrent#{System.unique_integer([:positive])}")
