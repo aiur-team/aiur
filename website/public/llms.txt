@@ -1,0 +1,79 @@
+# Aiur
+
+Aiur (AI Unit Runtime) runs autonomous coding agents against work in a
+project tracker. It gives each selected issue an isolated workspace, launches
+Codex or Claude to implement the work, and keeps the run moving through review
+and terminal states. A CLI shows the active agents and provides live chat;
+Aiur also has a read-only web dashboard for observing a run.
+
+Aiur is prototype software for trusted environments. It bypasses agent
+permission prompts, so review its configuration and supervise its use before
+running it on real repositories.
+
+## What Aiur does
+
+- Polls GitHub Issues, Linear, or an in-memory tracker for work marked for Aiur.
+- Creates an isolated workspace for each selected issue.
+- Runs a coding agent with a repository-specific YAML config and prompt.
+- Coordinates multiple agents through dependency and lifecycle events.
+- Shows agent status, logs, progress, and operator chat in the CLI and dashboard.
+
+## Install
+
+Install the published CLI globally with npm:
+
+```bash
+npm install --global aiur-cli
+```
+
+The CLI requires Node.js 18 or newer.
+
+The installed command is `aiur`. Aiur also supports a local developer command
+(`aiurdev`) when running from a clone of the repository.
+
+## First-run setup
+
+Run the interactive setup wizard from the repository where Aiur should operate:
+
+```bash
+cd your-project
+aiur init
+```
+
+The wizard creates `.aiur/config`, `.aiur/hooks`, and `.aiur/prompt.md` (or can
+use a global `~/.aiur/` configuration). It asks for the essentials:
+
+1. The config location (repo-local or global).
+2. A tracker and repository (GitHub or Linear).
+3. The agent backend (Codex and/or Claude) and permission mode.
+4. Agent limits, turn/time limits, polling, and optional prewarming.
+5. A `GITHUB_TOKEN` when using GitHub, so Aiur can read issues and manage its
+   lifecycle labels.
+
+Review the generated `.aiur/config` and edit the tracker, repository,
+credentials, workspace, and agent settings as needed. Configuration is YAML;
+Aiur discovers it in this order:
+
+```text
+./.aiur/config → ./.aiurconfig → ~/.aiur/config → ~/.aiurconfig
+```
+
+When setup is complete, add `agent:todo` to the issues that should be worked
+and start Aiur:
+
+```bash
+aiur
+```
+
+For a headless run, use `aiur --bg`. Useful controls include `aiur status`,
+`aiur pause`, `aiur resume`, and `aiur stop`.
+
+## Next steps
+
+- Read the full [Aiur README](https://github.com/its-everdred/aiur/blob/main/src/README.md)
+  for configuration, commands, tracker adapters, and troubleshooting.
+- Browse starter configs in the [workflow examples](https://github.com/its-everdred/aiur/tree/main/src/examples/workflows).
+- Install [opencode](https://opencode.ai) separately if you want Aiur's live
+  operator chat panes.
+- Review the [project repository](https://github.com/its-everdred/aiur) and its
+  safety warning before using Aiur with production code or credentials.
