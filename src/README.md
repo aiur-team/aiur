@@ -94,7 +94,7 @@ walks:
    repo-local, an optional prompt to add `.aiur/` to `.gitignore`).
 2. **Tracker** — GitHub or Linear, plus the repo.
 3. **Agents & routing** — Claude and/or Codex, optional per-complexity model
-   routing, and the permission mode.
+   routing, the permission mode, and an optional ordered rate-limit fallback.
 4. **Limits** — max concurrent agents, max turns, max duration, pre-warmed
    sessions, and the tracker polling interval.
 5. **GitHub token** — used to create labels and act as the bot account. With no
@@ -236,6 +236,23 @@ When `server.port` (or CLI `--port`) is set, Aiur exposes:
   invocation when a turn completes but the issue is still active. Default: `20`.
 - `agent.max_concurrent_agents` caps active workers only. Paused agents remain visible
   and can keep their panes open without consuming an active slot.
+- `agent.switch_model_on_ratelimit` is an opt-in ordered list of configured
+  backends, for example `[claude, codex]`. It applies only when no explicit
+  `model:` label or complexity-routing rule selected a backend, and only to new
+  claims: a running agent stays on the backend it started with.
+- Aiur records rate-limit observations in `model-usage.json` next to the active
+  workflow config. Each backend entry contains any reported `hourly`, `weekly`,
+  and `monthly` `{used, limit, reset_at}` windows plus `observed_at`; operators
+  can inspect or remove this file while Aiur is stopped. Codex refreshes its
+  authenticated account windows with `account/rateLimits/read` when a Codex
+  session starts and also records streaming updates and runtime usage-limit
+  failures. The Claude transports currently expose no equivalent authenticated
+  account-usage endpoint, so they participate when a runtime limit is reported.
+  Unknown reset times expire after one hour rather than excluding a backend
+  forever; a later successful refresh restores normal priority.
+- When every eligible fallback backend is limited, Aiur leaves the ticket
+  unclaimed and emits one visible pause/retry alert until availability changes;
+  it does not busy-loop dispatch attempts.
 - `agent.target_load_average` enables the adaptive dispatch envelope (default `1.0`
   per scheduler): capacity grows by `agent.load_ramp_step` below the target and
   halves after high samples, no more often than `agent.load_cooldown_seconds`.

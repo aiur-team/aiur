@@ -97,6 +97,20 @@ defmodule Aiur.Codex.Handshake do
     ArgumentError -> {:error, :port_closed}
   end
 
+  @doc "Read the authenticated Codex account's current rate-limit windows."
+  @spec read_rate_limits(port()) :: {:ok, map()} | {:error, term()}
+  def read_rate_limits(port) do
+    Rpc.send_message(port, Frames.rate_limits_read_frame())
+
+    case Rpc.await_startup_response(port, Frames.rate_limits_read_id()) do
+      {:ok, %{"rateLimits" => rate_limits}} when is_map(rate_limits) -> {:ok, rate_limits}
+      {:ok, payload} -> {:error, {:invalid_rate_limits_payload, payload}}
+      {:error, _reason} = error -> error
+    end
+  rescue
+    ArgumentError -> {:error, :port_closed}
+  end
+
   @spec start_turn(map(), String.t(), map()) :: {:ok, String.t()} | {:error, term()}
   def start_turn(
         %{

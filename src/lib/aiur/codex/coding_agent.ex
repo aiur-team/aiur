@@ -17,7 +17,7 @@ defmodule Aiur.Codex.CodingAgent do
     TurnLoop
   }
 
-  alias Aiur.{Config, PauseContainment}
+  alias Aiur.{Config, ModelAvailability, PauseContainment}
 
   @type session :: %{
           port: port(),
@@ -68,6 +68,8 @@ defmodule Aiur.Codex.CodingAgent do
       with {:ok, session_policies} <- session_policies(expanded_workspace, worker_host),
            {:ok, thread_id, resumed?} <-
              Handshake.establish(port, expanded_workspace, session_policies, resume_thread_id) do
+        observe_rate_limits(port)
+
         {:ok,
          %{
            port: port,
@@ -120,6 +122,16 @@ defmodule Aiur.Codex.CodingAgent do
 
   defp session_policies(workspace, nil), do: Config.codex_runtime_settings(workspace)
   defp session_policies(workspace, worker_host) when is_binary(worker_host), do: Config.codex_runtime_settings(workspace, remote: true)
+
+  # This is deliberately fail-open: an unavailable account endpoint must not
+  # prevent a configured backend from starting. A successful read seeds the
+  # same durable ledger that rolling rate-limit notifications update later.
+  defp observe_rate_limits(port) do
+    case Handshake.read_rate_limits(port) do
+      {:ok, rate_limits} -> ModelAvailability.observe("codex", rate_limits)
+      {:error, reason} -> Logger.debug("Codex account/rateLimits/read unavailable: #{inspect(reason)}")
+    end
+  end
 
   @impl Aiur.AppServer.Adapter
   @doc false

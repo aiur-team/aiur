@@ -203,7 +203,9 @@ defmodule Aiur.CodingAgent do
     if (is_binary(issue.selected_backend) or override_backend(issue)) || routing_backend(issue) do
       {:ok, issue}
     else
-      candidates = Keyword.get(opts, :backends, Config.switch_model_on_ratelimit()) |> Enum.filter(&(&1 in known_backends()))
+      candidates =
+        Keyword.get(opts, :backends, Config.switch_model_on_ratelimit())
+        |> Enum.filter(&(&1 in configured_backends(opts)))
 
       cond do
         candidates == [] -> {:ok, issue}
@@ -211,6 +213,14 @@ defmodule Aiur.CodingAgent do
         true -> {:all_limited, candidates}
       end
     end
+  end
+
+  defp configured_backends(opts) do
+    Keyword.get_lazy(opts, :configured_backends, fn ->
+      [Config.agent_kind() | Enum.map(Config.agent_routing(), fn {_level, value} -> RoutingValue.routing_backend(value) end)]
+      |> Enum.filter(&(&1 in known_backends()))
+      |> Enum.uniq()
+    end)
   end
 
   @doc """
