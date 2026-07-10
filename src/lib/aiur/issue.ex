@@ -14,6 +14,7 @@ defmodule Aiur.Issue do
     :url,
     :assignee_id,
     :pr_head_ref,
+    :selected_backend,
     paused: false,
     blocked_by: [],
     labels: [],
@@ -36,6 +37,7 @@ defmodule Aiur.Issue do
           # human PR's existing head branch the agent works directly. nil for
           # every legacy tracker-issue unit.
           pr_head_ref: String.t() | nil,
+          selected_backend: String.t() | nil,
           paused: boolean(),
           labels: [String.t()],
           assigned_to_worker: boolean(),

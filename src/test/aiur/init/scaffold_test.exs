@@ -33,6 +33,7 @@ defmodule Aiur.Init.ScaffoldTest do
 
     contents = File.read!(hooks)
     assert contents =~ "THIS_BASE_BRANCH"
+    assert contents =~ "AIUR_TICKET_BRANCH"
     refute contents =~ "origin/main"
   end
 

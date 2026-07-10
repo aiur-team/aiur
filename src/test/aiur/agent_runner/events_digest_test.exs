@@ -61,6 +61,20 @@ defmodule Aiur.AgentRunner.EventsDigestTest do
       assert result =~ "trusted content"
     end
 
+    test "passes CI lifecycle events through without an author trust stamp" do
+      event = %{
+        id: 31,
+        topic: "ticket.T-001.ci.failed",
+        source: :github,
+        message: "CI failed: lint"
+      }
+
+      result = EventsDigest.render([event], "T-001")
+
+      assert result =~ "CI failed: lint"
+      assert result =~ ~s(<external-content source="github">)
+    end
+
     test "wraps trusted github content in external-content tag" do
       event = %{
         id: 4,

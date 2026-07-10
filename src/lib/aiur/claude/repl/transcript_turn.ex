@@ -14,6 +14,7 @@ defmodule Aiur.Claude.Repl.TranscriptTurn do
 
   require Logger
 
+  alias Aiur.Claude.NotificationPolicy
   alias Aiur.Claude.RemoteControl
   alias Aiur.Claude.Repl.OperatorInject
   alias Aiur.Claude.Repl.PromptSubmit
@@ -171,8 +172,12 @@ defmodule Aiur.Claude.Repl.TranscriptTurn do
         TranscriptTailer.poll(tailer)
 
         receive do
-          {:turn_end, ^turn_id, _reason} ->
-            :ok
+          {:turn_end, ^turn_id, reason} ->
+            if NotificationPolicy.usage_limit_exhausted?(reason) do
+              {:paused, NotificationPolicy.usage_limit_pause(reason)}
+            else
+              :ok
+            end
 
           {:agent_queue_updated, _identifier, _item_id, true} ->
             OperatorInject.deliver_immediate_operator_message(session, on_operator)

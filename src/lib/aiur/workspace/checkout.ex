@@ -1,7 +1,7 @@
 defmodule Aiur.Workspace.Checkout do
   @moduledoc "Git branch selection for a freshly materialized workspace: live-origin-tip aiur/<id> vs PR-anchored head ref, plus the shared branch query."
 
-  alias Aiur.RepoBase
+  alias Aiur.{RepoBase, TicketBranch}
 
   @spec checkout_fresh_branch(Path.t()) :: :ok | {:error, term()}
   # Branch the agent's `aiur/<id>` off the LIVE `origin/<base>` tip rather than the
@@ -10,13 +10,19 @@ defmodule Aiur.Workspace.Checkout do
   # configured base branch. Fetch that branch and branch off its origin tip; if
   # there's no usable remote (tests, offline, detached HEAD), fall back to the
   # copied HEAD — today's behavior — so materialize still succeeds.
-  def checkout_fresh_branch(workspace) do
-    args =
-      ["-C", workspace, "checkout", "-B", branch_for(workspace)] ++ fresh_base_start_point(workspace)
+  def checkout_fresh_branch(workspace),
+    do: checkout_fresh_branch(workspace, branch_for(workspace))
 
-    case System.cmd("git", args, stderr_to_stdout: true) do
-      {_out, 0} -> :ok
-      other -> {:error, other}
+  @spec checkout_fresh_branch(Path.t(), String.t()) :: :ok | {:error, term()}
+  def checkout_fresh_branch(workspace, branch_name) when is_binary(branch_name) do
+    # A re-created workspace may already have a remote ticket branch (for
+    # example, after its title changed while an open PR still points at the
+    # original suffix). Resume that branch's tip rather than recreating its
+    # name from the configured base. New tickets have no such ref and retain
+    # the normal live-base checkout below.
+    case fetch_remote_branch(workspace, branch_name) do
+      :ok -> checkout_fetched_branch(workspace, branch_name)
+      :no_remote -> checkout_branch(workspace, branch_name, fresh_base_start_point(workspace))
     end
   end
 
@@ -28,9 +34,9 @@ defmodule Aiur.Workspace.Checkout do
   # branch off the copied HEAD so materialize still succeeds — the before_run
   # hook / agent will reconcile against origin at push time.
   def checkout_existing_pr_branch(workspace, pr_head_ref) do
-    case fetch_pr_head_branch(workspace, pr_head_ref) do
+    case fetch_remote_branch(workspace, pr_head_ref) do
       :ok ->
-        checkout_tracking_pr_branch(workspace, pr_head_ref)
+        checkout_fetched_branch(workspace, pr_head_ref)
 
       :no_remote ->
         checkout_local_pr_branch(workspace, pr_head_ref)
@@ -45,10 +51,10 @@ defmodule Aiur.Workspace.Checkout do
     end
   end
 
-  defp fetch_pr_head_branch(workspace, pr_head_ref) do
+  defp fetch_remote_branch(workspace, branch_name) do
     case System.cmd(
            "git",
-           ["-C", workspace, "fetch", "origin", pr_head_ref, "--quiet"],
+           ["-C", workspace, "fetch", "origin", branch_name, "--quiet"],
            stderr_to_stdout: true
          ) do
       {_out, 0} -> :ok
@@ -56,7 +62,7 @@ defmodule Aiur.Workspace.Checkout do
     end
   end
 
-  defp checkout_tracking_pr_branch(workspace, pr_head_ref) do
+  defp checkout_fetched_branch(workspace, branch_name) do
     # `git checkout -B <ref> FETCH_HEAD` points the local branch at the freshly
     # fetched remote tip (a plain `checkout <ref>` could resolve to a stale local
     # ref). `--track origin/<ref>` is intentionally avoided: the remote-tracking
@@ -64,7 +70,7 @@ defmodule Aiur.Workspace.Checkout do
     # tip we just pulled.
     case System.cmd(
            "git",
-           ["-C", workspace, "checkout", "-B", pr_head_ref, "FETCH_HEAD"],
+           ["-C", workspace, "checkout", "-B", branch_name, "FETCH_HEAD"],
            stderr_to_stdout: true
          ) do
       {_out, 0} -> :ok
@@ -83,6 +89,15 @@ defmodule Aiur.Workspace.Checkout do
     end
   end
 
+  defp checkout_branch(workspace, branch_name, start_point) do
+    args = ["-C", workspace, "checkout", "-B", branch_name] ++ start_point
+
+    case System.cmd("git", args, stderr_to_stdout: true) do
+      {_out, 0} -> :ok
+      other -> {:error, other}
+    end
+  end
+
   # `["origin/<base>"]` when the configured base branch could be refetched, else `[]`.
   defp fresh_base_start_point(workspace) do
     with base when is_binary(base) <- RepoBase.base_branch(),
@@ -94,5 +109,5 @@ defmodule Aiur.Workspace.Checkout do
     end
   end
 
-  defp branch_for(workspace), do: "aiur/" <> Path.basename(workspace)
+  defp branch_for(workspace), do: TicketBranch.legacy_branch_name(Path.basename(workspace))
 end

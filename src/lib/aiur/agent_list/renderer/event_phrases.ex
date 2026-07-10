@@ -38,6 +38,10 @@ defmodule Aiur.AgentList.Renderer.EventPhrases do
   def publish_event_phrase("pr.review_comment", body),
     do: {"got a PR review comment:", comment_body_summary(body)}
 
+  def publish_event_phrase("ci.passed", _body), do: {"CI passed", ""}
+
+  def publish_event_phrase("ci.failed", body), do: {"CI failed:", inline_summary(body)}
+
   def publish_event_phrase("branch.push", body), do: branch_push_phrase(body)
 
   def publish_event_phrase("issue.commented", body),

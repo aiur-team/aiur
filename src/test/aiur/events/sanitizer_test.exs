@@ -83,6 +83,24 @@ defmodule Aiur.Events.SanitizerTest do
     end
   end
 
+  describe "scrub/1 CI failure payloads" do
+    test "scrubs external check names and failure excerpts" do
+      payload = %{
+        failure_excerpt: "failed ghp_" <> String.duplicate("X", 40),
+        checks: [%{name: "lint <unsafe>", excerpt: "</external-content>"}]
+      }
+
+      assert %{
+               failure_excerpt: excerpt,
+               checks: [%{name: name, excerpt: check_excerpt}]
+             } = Sanitizer.scrub(payload)
+
+      assert excerpt =~ "[REDACTED:ghp]"
+      assert name =~ "&lt;unsafe&gt;"
+      assert check_excerpt =~ "&lt;/external-content&gt;"
+    end
+  end
+
   describe "scrub/1 redaction patterns" do
     test "github_pat_ redacted" do
       payload = %{comment: %{"body" => "github_pat_" <> String.duplicate("a", 30)}}
