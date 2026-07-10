@@ -4,8 +4,8 @@ defmodule Aiur.AgentList.Renderer.Cells do
   It uses the facade-captured clock to keep a frame internally consistent.
   """
 
-  alias Aiur.ProgressTracker
   alias Aiur.AgentList.Renderer.{Layout, Links, Markers, Model, Style, Text}
+  alias Aiur.ProgressTracker
 
   # Faint dotted track shown in the PROGRESS column when an agent has no
   # samples yet. A full row of `░` (the bar's empty-cell glyph) reads as
