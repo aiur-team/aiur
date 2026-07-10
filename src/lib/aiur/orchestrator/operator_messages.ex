@@ -5,6 +5,8 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   alias Aiur.{AgentQueue, Alerts}
   alias Aiur.Orchestrator.{CommentWake, EventTopics, State}
   @max_operator_message_chars 8_000
+
+  @spec enqueue_event_digest_item(State.t(), String.t(), list(), map()) :: State.t()
   def enqueue_event_digest_item(%State{} = state, identifier, events, summary_source)
       when is_binary(identifier) and is_list(events) do
     body = %{
