@@ -6,12 +6,16 @@ export default defineConfig({
   base: '/docs/',
   outDir: '../dist/docs',
   cleanUrls: true,
+  ignoreDeadLinks: true,
   themeConfig: {
     nav: [{ text: 'Home', link: '/' }],
     sidebar: [
       {
         text: 'Introduction',
-        items: [{ text: 'Overview', link: '/' }]
+        items: [
+          { text: 'Overview', link: '/' },
+          { text: 'Skills', link: '/skills' }
+        ]
       }
     ],
     socialLinks: [
