@@ -65,7 +65,10 @@ defmodule Aiur.Orchestrator.TokenAccountingTest do
              seconds_running: 0
            }
 
-    assert TokenAccounting.apply_agent_rate_limits(state, %{rate_limits: %{primary: %{remaining: 1}}}).agent_rate_limits == nil
+    assert TokenAccounting.apply_agent_rate_limits(
+             state,
+             %{rate_limits: %{primary: %{remaining: 1}}}
+           ).agent_rate_limits == nil
 
     assert TokenAccounting.apply_agent_rate_limits(state, %{
              rate_limits: %{limit_id: "primary", primary: %{remaining: 1}}
