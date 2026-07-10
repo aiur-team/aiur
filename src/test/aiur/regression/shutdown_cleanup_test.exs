@@ -128,13 +128,13 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
              "workspace sweep must force-kill survivors after the grace period"
     end
 
-    test "cmd_stop captures the root before killing the node and sweeps after" do
+    test "cmd_stop reads the root handoff before killing the node and sweeps after" do
       stop = cmd_stop_block()
 
-      assert stop =~ ~r/workspace_root="\$\(current_workspace_root/,
-             "cmd_stop must capture the live node's configured workspace root before killing it"
+      assert stop =~ ~r/workspace_root_file="\$\(workspace_root_file_from_instance_record/,
+             "cmd_stop must use the launch-time workspace root handoff before killing the node"
 
-      assert stop =~ ~r/kill_beams_matching "-name \$\{AIUR_RELEASE_NODE\}".+reap_workspace_cwd_agents "\$workspace_root"/s,
+      assert stop =~ ~r/kill_beams_matching "-name \$\{AIUR_RELEASE_NODE\}".+reap_workspace_cwd_from_file "\$workspace_root_file"/s,
              "cmd_stop must run the cwd sweep after the BEAM node-name reap"
     end
 

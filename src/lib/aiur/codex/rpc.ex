@@ -13,8 +13,13 @@ defmodule Aiur.Codex.Rpc do
 
   @spec await_startup_response(port(), integer()) :: {:ok, map()} | {:error, term()}
   def await_startup_response(port, request_id) do
+    await_response(port, request_id, startup_response_timeout_ms())
+  end
+
+  @spec await_response(port(), integer(), non_neg_integer()) :: {:ok, map()} | {:error, term()}
+  def await_response(port, request_id, timeout_ms) do
     function = String.to_atom("with_timeout_" <> "response")
-    apply(AppServerRpc, function, [port, request_id, startup_response_timeout_ms(), "", "Codex"])
+    apply(AppServerRpc, function, [port, request_id, timeout_ms, "", "Codex"])
   end
 
   @spec startup_response_timeout_ms(non_neg_integer()) :: non_neg_integer()

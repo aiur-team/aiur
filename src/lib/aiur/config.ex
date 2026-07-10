@@ -85,6 +85,9 @@ defmodule Aiur.Config do
     settings!().agent.routing || %{}
   end
 
+  @spec switch_model_on_ratelimit() :: [String.t()]
+  def switch_model_on_ratelimit, do: settings!().agent.switch_model_on_ratelimit || []
+
   @doc """
   Setting #2: whether dispatched agents attach a `claude remote-control`
   session. Orthogonal to `agent_kind/0` and only meaningful for an
@@ -197,6 +200,12 @@ defmodule Aiur.Config do
   @spec max_concurrent_builds() :: non_neg_integer()
   def max_concurrent_builds do
     settings!().agent.max_concurrent_builds
+  end
+
+  @doc "Scheduler count enforced for every Mix VM launched by an agent."
+  @spec mix_scheduler_cap() :: pos_integer()
+  def mix_scheduler_cap do
+    settings!().agent.mix_scheduler_cap || 4
   end
 
   @doc """

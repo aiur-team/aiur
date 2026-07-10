@@ -75,7 +75,7 @@ defmodule Aiur.Workspace.Hooks do
         System.cmd("sh", ["-lc", scrubbed_command],
           cd: workspace,
           stderr_to_stdout: true,
-          env: hook_env()
+          env: hook_env(issue_context)
         )
       end)
 
@@ -101,7 +101,7 @@ defmodule Aiur.Workspace.Hooks do
 
     Logger.info("Running workspace hook hook=#{hook_name} #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=#{worker_host}")
 
-    case Remote.run_remote_command(worker_host, "cd #{Aiur.Shell.escape(workspace)} && #{command}", timeout_ms) do
+    case Remote.run_remote_command(worker_host, remote_hook_command(command, workspace, issue_context), timeout_ms) do
       {:ok, cmd_result} ->
         handle_hook_command_result(cmd_result, workspace, issue_context, hook_name)
 
@@ -111,6 +111,17 @@ defmodule Aiur.Workspace.Hooks do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  @doc false
+  @spec remote_hook_command(String.t(), Path.t(), map()) :: String.t()
+  def remote_hook_command(command, workspace, issue_context) do
+    exports =
+      hook_env(issue_context)
+      |> Enum.map_join(" ", fn {key, value} -> "#{key}=#{Aiur.Shell.escape(value)}" end)
+
+    prefix = if exports == "", do: "", else: "export #{exports}; "
+    "#{prefix}cd #{Aiur.Shell.escape(workspace)} && #{command}"
   end
 
   @doc false
@@ -170,15 +181,18 @@ defmodule Aiur.Workspace.Hooks do
   # `git clone "$THIS_REPOSITORY_URL" .` without hardcoding the URL.
   # `THIS_BASE_BRANCH` is resolved by RepoBase, keeping generated hooks on the
   # same configured branch as warm-base refresh and materialization.
-  defp hook_env do
-    with "github" <- Config.settings!().tracker.kind,
-         repo when is_binary(repo) and repo != "" <- Aiur.GitHub.Config.repo() do
-      [
-        {"THIS_REPOSITORY_URL", "https://github.com/#{repo}.git"},
-        {"THIS_BASE_BRANCH", RepoBase.base_branch()}
-      ]
-    else
-      _ -> []
+  defp hook_env(issue_context) do
+    repository_env =
+      with "github" <- Config.settings!().tracker.kind,
+           repo when is_binary(repo) and repo != "" <- Aiur.GitHub.Config.repo() do
+        [{"THIS_REPOSITORY_URL", "https://github.com/#{repo}.git"}, {"THIS_BASE_BRANCH", RepoBase.base_branch()}]
+      else
+        _ -> []
+      end
+
+    case Map.get(issue_context, :branch_name) do
+      branch_name when is_binary(branch_name) and branch_name != "" -> [{"AIUR_TICKET_BRANCH", branch_name} | repository_env]
+      _ -> repository_env
     end
   end
 
