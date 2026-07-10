@@ -413,6 +413,8 @@ defmodule Aiur.Tmux do
 
   # GenServer callbacks -------------------------------------------------------
 
+  alias Aiur.Tmux.{Exec, Input, Layout, Query, Style}
+
   @impl true
   def init(opts) do
     transport = Keyword.get(opts, :transport, :shell)
@@ -429,295 +431,99 @@ defmodule Aiur.Tmux do
 
   @impl true
   def handle_call({:command, cmd}, _from, state) do
-    {:reply, run_command(state, cmd), state}
+    {:reply, Exec.run_command(state, cmd), state}
   end
 
-  def handle_call({:set_pane_border, pane_id, nil}, _from, state) do
-    _ = run_args_silent(state, ["set-option", "-pu", "-t", pane_id, "pane-border-status"])
-    _ = run_args_silent(state, ["set-option", "-pu", "-t", pane_id, "pane-border-format"])
-    {:reply, :ok, state}
-  end
-
-  def handle_call({:set_pane_border, pane_id, text}, _from, state) when is_binary(text) do
-    _ = run_args_silent(state, ["set-option", "-p", "-t", pane_id, "pane-border-status", "top"])
-    _ = run_args_silent(state, ["set-option", "-p", "-t", pane_id, "pane-border-format", text])
-    {:reply, :ok, state}
+  def handle_call({:set_pane_border, pane_id, text}, _from, state) do
+    {:reply, Style.set_pane_border(state, pane_id, text), state}
   end
 
   def handle_call({:split_pane, target_pane, direction, percent, command_to_run, silent?}, _from, state) do
-    direction_flag = if direction == :horizontal, do: "-h", else: "-v"
-
-    # `-l N%` is the modern way to size the new pane; tmux 3.5+ tightened
-    # parsing of the deprecated `-p N` form and returns "size missing" on
-    # detached sessions when the percentage flag isn't paired with a `-l`.
-    # `-d` keeps the active pane selection where it is, so a split into
-    # a hidden window does not drag the attached client there.
-    base_args =
-      if silent? do
-        ["split-window", "-d", "-t", target_pane, direction_flag, "-l", "#{percent}%"]
-      else
-        ["split-window", "-t", target_pane, direction_flag, "-l", "#{percent}%"]
-      end
-
-    args = base_args ++ ["-P", "-F", "\#{pane_id}", command_to_run]
-
-    case run_args(state, args) do
-      {:ok, [pane_id | _]} ->
-        new_id = String.trim(pane_id)
-        unless silent?, do: run_args(state, ["select-pane", "-t", new_id])
-        {:reply, {:ok, new_id}, state}
-
-      {:ok, []} ->
-        {:reply, {:error, :no_pane_id}, state}
-
-      {:error, _} = err ->
-        Logger.warning("Tmux split-window failed for target=#{target_pane}: #{inspect(err)}")
-        {:reply, err, state}
-    end
+    {:reply, Layout.split_pane(state, target_pane, direction, percent, command_to_run, silent?), state}
   end
 
   def handle_call(:resolve_self_pane, _from, state) do
-    env_pane = System.get_env("TMUX_PANE")
-
-    reply =
-      if is_binary(env_pane) and env_pane != "" do
-        case run_args(state, ["display-message", "-p", "-t", env_pane, "\#{pane_id}"]) do
-          {:ok, [id | _]} ->
-            {:ok, String.trim(id)}
-
-          {:ok, []} ->
-            {:error, :no_pane_id}
-
-          {:error, _} = err ->
-            err
-        end
-      else
-        {:error, :no_tmux_pane_env}
-      end
-
-    {:reply, reply, state}
+    {:reply, Query.resolve_self_pane(state), state}
   end
 
   def handle_call({:select_layout, window_target, layout_string}, _from, state) do
-    args = ["select-layout", "-t", window_target, layout_string]
-
-    case run_args(state, args) do
-      {:ok, _} ->
-        {:reply, :ok, state}
-
-      {:error, _} = err ->
-        Logger.warning("Tmux select-layout failed for window=#{window_target}: #{inspect(err)}")
-        {:reply, err, state}
-    end
+    {:reply, Layout.select_layout(state, window_target, layout_string), state}
   end
 
   def handle_call({:window_size, pane_id}, _from, state) do
-    case run_args(state, [
-           "display-message",
-           "-p",
-           "-t",
-           pane_id,
-           "\#{window_width}x\#{window_height}"
-         ]) do
-      {:ok, [dims | _]} ->
-        case parse_dims(dims) do
-          {:ok, _} = ok -> {:reply, ok, state}
-          err -> {:reply, err, state}
-        end
-
-      {:ok, []} ->
-        {:reply, {:error, :no_dims}, state}
-
-      {:error, _} = err ->
-        {:reply, err, state}
-    end
+    {:reply, Query.window_size(state, pane_id), state}
   end
 
   def handle_call({:window_for, pane_id}, _from, state) do
-    case run_args(state, [
-           "display-message",
-           "-p",
-           "-t",
-           pane_id,
-           "\#{session_name}:\#{window_index}"
-         ]) do
-      {:ok, [target | _]} -> {:reply, {:ok, String.trim(target)}, state}
-      {:ok, []} -> {:reply, {:error, :no_window}, state}
-      {:error, _} = err -> {:reply, err, state}
-    end
+    {:reply, Query.window_for(state, pane_id), state}
   end
 
   def handle_call(:list_windows, _from, state) do
-    case run_args(state, ["list-windows", "-a", "-F", "\#{window_name}\t\#{pane_id}"]) do
-      {:ok, lines} ->
-        windows =
-          lines
-          |> Enum.map(&String.trim/1)
-          |> Enum.reject(&(&1 == ""))
-          |> Enum.flat_map(&parse_window_line/1)
-
-        {:reply, {:ok, windows}, state}
-
-      {:error, _} = err ->
-        {:reply, err, state}
-    end
+    {:reply, Query.list_windows(state), state}
   end
 
   def handle_call({:list_panes, window_target}, _from, state) do
-    case run_args(state, ["list-panes", "-t", window_target, "-F", "\#{pane_id}"]) do
-      {:ok, pane_ids} ->
-        {:reply, {:ok, Enum.map(pane_ids, &String.trim/1)}, state}
-
-      {:error, _} = err ->
-        {:reply, err, state}
-    end
+    {:reply, Query.list_panes(state, window_target), state}
   end
 
   def handle_call({:respawn_pane, pane_id, command_to_run}, _from, state) do
-    # `-k` kills the existing command in the pane; tmux then starts the
-    # new command in the same pane id, preserving the layout position.
-    args = ["respawn-pane", "-k", "-t", pane_id, command_to_run]
-
-    case run_args(state, args) do
-      {:ok, _} -> {:reply, :ok, state}
-      {:error, _} = err -> {:reply, err, state}
-    end
+    {:reply, Layout.respawn_pane(state, pane_id, command_to_run), state}
   end
 
   def handle_call({:send_keys_literal, pane_id, text}, _from, state) do
-    case run_args(state, ["send-keys", "-t", pane_id, "-l", text]) do
-      {:ok, _} -> {:reply, :ok, state}
-      {:error, _} = err -> {:reply, err, state}
-    end
+    {:reply, Input.send_keys_literal(state, pane_id, text), state}
   end
 
   def handle_call({:paste_text, pane_id, text}, _from, state) do
-    {:reply, paste_via_buffer(state, pane_id, text), state}
+    {:reply, Input.paste_text(state, pane_id, text), state}
   end
 
   def handle_call({:send_enter, pane_id}, _from, state) do
-    case run_args(state, ["send-keys", "-t", pane_id, "Enter"]) do
-      {:ok, _} -> {:reply, :ok, state}
-      {:error, _} = err -> {:reply, err, state}
-    end
+    {:reply, Input.send_enter(state, pane_id), state}
   end
 
   def handle_call({:clear_input, pane_id}, _from, state) do
-    case run_args(state, ["send-keys", "-t", pane_id, "C-u"]) do
-      {:ok, _} -> {:reply, :ok, state}
-      {:error, _} = err -> {:reply, err, state}
-    end
+    {:reply, Input.clear_input(state, pane_id), state}
   end
 
   def handle_call({:send_interrupt, pane_id}, _from, state) do
-    case run_args(state, ["send-keys", "-t", pane_id, "C-c"]) do
-      {:ok, _} -> {:reply, :ok, state}
-      {:error, _} = err -> {:reply, err, state}
-    end
+    {:reply, Input.send_interrupt(state, pane_id), state}
   end
 
   def handle_call({:send_escape, pane_id}, _from, state) do
-    case run_args(state, ["send-keys", "-t", pane_id, "Escape"]) do
-      {:ok, _} -> {:reply, :ok, state}
-      {:error, _} = err -> {:reply, err, state}
-    end
+    {:reply, Input.send_escape(state, pane_id), state}
   end
 
   def handle_call({:capture_pane, pane_id}, _from, state) do
-    case run_args(state, ["capture-pane", "-p", "-t", pane_id]) do
-      {:ok, lines} -> {:reply, {:ok, lines}, state}
-      {:error, _} = err -> {:reply, err, state}
-    end
+    {:reply, Query.capture_pane(state, pane_id), state}
   end
 
   def handle_call({:pane_pid, pane_id}, _from, state) do
-    case run_args(state, ["display-message", "-p", "-t", pane_id, "\#{pane_pid}"]) do
-      {:ok, [pid_str | _]} ->
-        case Integer.parse(String.trim(pid_str)) do
-          {pid, _} -> {:reply, {:ok, pid}, state}
-          :error -> {:reply, {:error, :no_pane_pid}, state}
-        end
-
-      {:ok, []} ->
-        {:reply, {:error, :no_pane_pid}, state}
-
-      {:error, _} = err ->
-        {:reply, err, state}
-    end
+    {:reply, Query.pane_pid(state, pane_id), state}
   end
 
   def handle_call({:kill_pane, pane_id}, _from, state) do
-    case run_args(state, ["kill-pane", "-t", pane_id]) do
-      {:ok, _} ->
-        {:reply, :ok, state}
-
-      # A pane that's already gone ("can't find pane") is success for
-      # idempotent teardown; other failures surface.
-      {:error, reason} = err ->
-        if reason |> List.wrap() |> Enum.any?(&(is_binary(&1) and String.contains?(&1, "can't find pane"))) do
-          {:reply, :ok, state}
-        else
-          {:reply, err, state}
-        end
-    end
+    {:reply, Layout.kill_pane(state, pane_id), state}
   end
 
   def handle_call({:new_hidden_window, window_name, command_to_run}, _from, state) do
-    # `-d` keeps the new window in the background; `-P -F #{pane_id}` makes
-    # tmux print the pane id so we can target it later for `join-pane`.
-    args = ["new-window", "-d", "-n", window_name, "-P", "-F", "\#{pane_id}", command_to_run]
-
-    case run_args(state, args) do
-      {:ok, [pane_id | _]} ->
-        {:reply, {:ok, String.trim(pane_id)}, state}
-
-      {:ok, []} ->
-        {:reply, {:error, :no_pane_id}, state}
-
-      # `new-window` needs a running server. When aiur runs standalone (TUI
-      # in the terminal or a `--bg` nohup BEAM, not inside an aiurdev tmux
-      # session), the socket has no server yet — so the first REPL spawn must
-      # create the session, which starts the server, rather than failing into
-      # the headless fallback. Later spawns reuse the server via `new-window`.
-      {:error, reason} = err ->
-        if no_server?(reason) do
-          {:reply, bootstrap_window(state, window_name, command_to_run), state}
-        else
-          {:reply, err, state}
-        end
-    end
+    {:reply, Layout.new_hidden_window(state, window_name, command_to_run), state}
   end
 
   def handle_call({:join_pane, source_pane, target_window}, _from, state) do
-    # `-h` makes the joined pane a horizontal split next to the existing
-    # panes in the target window; layout reflow happens on the caller side.
-    case run_args(state, ["join-pane", "-s", source_pane, "-t", target_window, "-h"]) do
-      {:ok, _} -> {:reply, :ok, state}
-      {:error, _} = err -> {:reply, err, state}
-    end
+    {:reply, Layout.join_pane(state, source_pane, target_window), state}
   end
 
   def handle_call({:move_pane_hidden, source_pane, target_window}, _from, state) do
-    # `-d` detaches the move from the active selection (no focus shift).
-    # `-h` keeps tmux happy when the destination window has existing panes.
-    case run_args(state, ["move-pane", "-d", "-s", source_pane, "-t", target_window, "-h"]) do
-      {:ok, _} -> {:reply, :ok, state}
-      {:error, _} = err -> {:reply, err, state}
-    end
+    {:reply, Layout.move_pane_hidden(state, source_pane, target_window), state}
   end
 
   def handle_call({:move_pane_visible, source_pane, target_window}, _from, state) do
-    case run_args(state, ["move-pane", "-s", source_pane, "-t", target_window, "-h"]) do
-      {:ok, _} -> {:reply, :ok, state}
-      {:error, _} = err -> {:reply, err, state}
-    end
+    {:reply, Layout.move_pane_visible(state, source_pane, target_window), state}
   end
 
   def handle_call({:set_pane_title, pane_id, title}, _from, state) do
-    case run_args(state, ["select-pane", "-t", pane_id, "-T", title]) do
-      {:ok, _} -> {:reply, :ok, state}
-      {:error, _} = err -> {:reply, err, state}
-    end
+    {:reply, Style.set_pane_title(state, pane_id, title), state}
   end
 
   def handle_call({:subscribe, pid}, _from, state) do
@@ -734,267 +540,6 @@ defmodule Aiur.Tmux do
 
   def handle_info({:tmux_mock_data, _chunk}, state), do: {:noreply, state}
   def handle_info(_other, state), do: {:noreply, state}
-
-  # Internals -----------------------------------------------------------------
-
-  defp no_server?(reason) do
-    reason
-    |> List.wrap()
-    |> Enum.any?(&(is_binary(&1) and String.contains?(&1, "no server running")))
-  end
-
-  # Create the holder session detached, running the REPL command as its first
-  # window — `new-session` starts the server when none exists, so the pane is
-  # spawned in one shot and `-P -F #{pane_id}` prints its id.
-  defp bootstrap_window(state, window_name, command_to_run) do
-    args = [
-      "new-session",
-      "-d",
-      "-s",
-      state.session,
-      "-n",
-      window_name,
-      "-P",
-      "-F",
-      "\#{pane_id}",
-      command_to_run
-    ]
-
-    case run_args(state, args) do
-      {:ok, [pane_id | _]} -> {:ok, String.trim(pane_id)}
-      {:ok, []} -> {:error, :no_pane_id}
-      {:error, _} = err -> err
-    end
-  end
-
-  defp parse_window_line(line) do
-    case String.split(line, "\t", parts: 2) do
-      [name, pane_id] -> [{name, pane_id}]
-      _ -> []
-    end
-  end
-
-  defp run_command(%{transport: {:mock, pid}}, cmd) do
-    send(pid, {:tmux_mock_out, cmd})
-    receive_mock_response()
-  end
-
-  defp run_command(%{transport: :shell} = state, cmd) do
-    run_args(state, split_command(cmd))
-  end
-
-  # Resolve the tmux binary once: a $PATH walk per command is pure overhead on
-  # the hottest fork path (the per-slot liveness poll). `:persistent_term` is
-  # built for read-mostly global constants — the one-time `put` cost is paid on
-  # the first exec, every later read is free.
-  defp tmux_executable do
-    case :persistent_term.get({__MODULE__, :tmux_bin}, nil) do
-      nil ->
-        bin = System.find_executable("tmux")
-        if bin, do: :persistent_term.put({__MODULE__, :tmux_bin}, bin)
-        bin
-
-      bin ->
-        bin
-    end
-  end
-
-  defp run_args(%{transport: {:mock, pid}}, args) do
-    send(pid, {:tmux_mock_out, Enum.join(args, " ")})
-    receive_mock_response()
-  end
-
-  defp run_args(%{transport: :shell}, args) do
-    full_args = prepend_socket(args)
-    Logger.debug("Tmux exec: tmux #{Enum.join(full_args, " ")}")
-
-    case tmux_executable() do
-      nil ->
-        Logger.warning("Tmux exec failed: tmux not in $PATH")
-        {:error, :no_tmux_executable}
-
-      tmux ->
-        case System.cmd(tmux, full_args, stderr_to_stdout: true) do
-          {output, 0} ->
-            result = output |> String.trim_trailing("\n") |> String.split("\n", trim: true)
-            Logger.debug("Tmux exec ok: #{inspect(result)}")
-            {:ok, result}
-
-          {output, status} ->
-            handle_tmux_exit(String.trim(output), status, full_args)
-        end
-    end
-  end
-
-  # Like `run_args/2` but never logs the args — they may carry the RC
-  # session URL (a capability token). The mock transport already routes to
-  # the test pid rather than Logger, so only the shell path needs a
-  # value-free variant; on error it logs the subcommand and status only.
-  defp run_args_silent(%{transport: {:mock, _}} = state, args), do: run_args(state, args)
-
-  defp run_args_silent(%{transport: :shell}, args) do
-    full_args = prepend_socket(args)
-
-    case tmux_executable() do
-      nil ->
-        Logger.warning("Tmux exec failed: tmux not in $PATH")
-        {:error, :no_tmux_executable}
-
-      tmux ->
-        case System.cmd(tmux, full_args, stderr_to_stdout: true) do
-          {output, 0} ->
-            {:ok, output |> String.trim_trailing("\n") |> String.split("\n", trim: true)}
-
-          {output, status} ->
-            Logger.warning("Tmux silent exec exit=#{status} subcommand=#{redact_subcommand(args)}")
-            {:error, String.trim(output)}
-        end
-    end
-  end
-
-  # First two tokens identify the operation (e.g. "set-option -p") without
-  # exposing any value argument that might contain a secret.
-  defp redact_subcommand(args) do
-    args |> Enum.take(2) |> Enum.join(" ")
-  end
-
-  # Inject text via a tmux paste buffer so delivery isn't capped by tmux's
-  # ~16KB `send-keys` command-length limit. `load-buffer` reads the text from
-  # a temp file (keeping it off the command line entirely); `paste-buffer -p -d`
-  # pastes it into the pane (with bracketed-paste markers) and drops the buffer.
-  # The buffer name is unique so concurrent panes never clobber each other's
-  # pending paste.
-  #
-  # `-p` is load-bearing: it wraps the paste in bracketed-paste control codes so
-  # a TUI that requested bracketed paste (the interactive `claude` REPL,
-  # opencode) collapses a multi-line paste into a single `[Pasted text]` chip.
-  # Without it the buffer arrives as raw newlines; claude renders the prompt
-  # expanded and a single `Enter` inserts a newline instead of submitting, so an
-  # RC turn's prompt is pasted but never sent (the turn never starts).
-  defp paste_via_buffer(state, pane_id, text) do
-    buffer = "aiur-paste-#{System.unique_integer([:positive])}"
-    tmp = Path.join(System.tmp_dir!(), buffer)
-
-    try do
-      with :ok <- File.write(tmp, text),
-           {:ok, _} <- run_args(state, ["load-buffer", "-b", buffer, tmp]),
-           {:ok, _} <- run_args(state, ["paste-buffer", "-p", "-d", "-b", buffer, "-t", pane_id]) do
-        :ok
-      else
-        {:error, _} = err -> err
-      end
-    after
-      File.rm(tmp)
-    end
-  end
-
-  defp handle_tmux_exit(trimmed, status, full_args) do
-    # "no server running on …" repeats every screen-grab tick
-    # (2s) once the user kills the tmux server but leaves the
-    # operator BEAM running. Demote those to debug so the log
-    # isn't flooded — pane_manager still treats `{:error, _}`
-    # the same way, so behavior doesn't change.
-    if String.contains?(trimmed, "no server running") do
-      Logger.debug("Tmux exec exit=#{status} args=#{inspect(full_args)} output=#{inspect(trimmed)}")
-    else
-      Logger.warning("Tmux exec exit=#{status} args=#{inspect(full_args)} output=#{inspect(trimmed)}")
-    end
-
-    {:error, trimmed}
-  end
-
-  # Read AIUR_TMUX_SOCKET each invocation so the Tmux GenServer (started
-  # before the wrapper exports the var, in some test paths) still picks it up.
-  defp prepend_socket(args) do
-    case System.get_env("AIUR_TMUX_SOCKET") do
-      socket when is_binary(socket) and socket != "" -> ["-L", socket | args]
-      _ -> args
-    end
-  end
-
-  defp parse_dims(text) do
-    case String.split(String.trim(text), "x", parts: 2) do
-      [w_str, h_str] ->
-        with {w, ""} <- Integer.parse(w_str),
-             {h, ""} <- Integer.parse(h_str),
-             true <- w > 0 and h > 0 do
-          {:ok, {w, h}}
-        else
-          _ -> {:error, {:bad_dims, text}}
-        end
-
-      _ ->
-        {:error, {:bad_dims, text}}
-    end
-  end
-
-  defp receive_mock_response do
-    receive do
-      {:tmux_mock_data, "%begin " <> _ = chunk} -> parse_mock_response(chunk)
-    after
-      1_000 -> {:error, :no_mock_response}
-    end
-  end
-
-  defp parse_mock_response(chunk) do
-    lines = String.split(chunk, "\n", trim: true)
-
-    body =
-      Enum.reduce(lines, [], fn line, acc ->
-        cond do
-          String.starts_with?(line, "%begin") -> acc
-          String.starts_with?(line, "%end") -> acc
-          String.starts_with?(line, "%error") -> acc
-          true -> [line | acc]
-        end
-      end)
-      |> Enum.reverse()
-
-    if Enum.any?(lines, &String.starts_with?(&1, "%error")) do
-      {:error, body}
-    else
-      {:ok, body}
-    end
-  end
-
-  defp split_command(cmd) do
-    {tokens, _} =
-      cmd
-      |> String.split(~r/\s+/, trim: true)
-      |> Enum.reduce({[], nil}, &split_command_step/2)
-
-    Enum.reverse(tokens)
-  end
-
-  defp split_command_step(token, {acc, nil}) do
-    if String.starts_with?(token, "\"") do
-      start_quoted(token, acc)
-    else
-      {[token | acc], nil}
-    end
-  end
-
-  defp split_command_step(token, {acc, quoted}), do: continue_quoted(token, quoted, acc)
-
-  defp start_quoted(token, acc) do
-    inner = String.trim_leading(token, "\"")
-
-    if String.ends_with?(inner, "\"") do
-      {[String.trim_trailing(inner, "\"") | acc], nil}
-    else
-      {acc, inner}
-    end
-  end
-
-  defp continue_quoted(token, quoted, acc) do
-    joined = quoted <> " " <> token
-
-    if String.ends_with?(joined, "\"") do
-      {[String.trim_trailing(joined, "\"") | acc], nil}
-    else
-      {acc, joined}
-    end
-  end
 
   defp default_session do
     case System.get_env(@default_session_env) do
