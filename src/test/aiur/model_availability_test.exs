@@ -97,4 +97,31 @@ defmodule Aiur.ModelAvailabilityTest do
 
     assert ModelAvailability.available?("codex", path: path)
   end
+
+  test "merges partial observations without losing a limited window", %{path: path} do
+    reset = DateTime.add(DateTime.utc_now(), 3_600, :second) |> DateTime.to_iso8601()
+    assert :ok = ModelAvailability.observe("codex", %{weekly: %{used: 10, limit: 10, reset_at: reset}}, path: path)
+    assert :ok = ModelAvailability.observe("codex", %{hourly: %{used: 1, limit: 10, reset_at: reset}}, path: path)
+
+    refute ModelAvailability.available?("codex", path: path)
+  end
+
+  test "expires an explicit limit with no reset after the fallback ttl", %{path: path} do
+    old = DateTime.add(DateTime.utc_now(), -3_601, :second)
+    assert :ok = ModelAvailability.mark_limited("codex", nil, path: path, now: old)
+    assert ModelAvailability.available?("codex", path: path)
+  end
+
+  test "uses percentage units when both percentage and count fields are present", %{path: path} do
+    reset = DateTime.add(DateTime.utc_now(), 3_600, :second) |> DateTime.to_iso8601()
+
+    assert :ok =
+             ModelAvailability.observe(
+               "codex",
+               %{hourly: %{usedPercent: 50, used: 500, limit: 1_000, reset_at: reset}},
+               path: path
+             )
+
+    assert ModelAvailability.available?("codex", path: path)
+  end
 end

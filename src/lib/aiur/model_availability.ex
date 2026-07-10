@@ -12,6 +12,7 @@ defmodule Aiur.ModelAvailability do
   alias Aiur.Workflow
 
   @windows ~w(hourly weekly monthly)
+  @unknown_reset_ttl_seconds 3_600
 
   @spec path() :: Path.t()
   def path, do: Path.join(Path.dirname(Workflow.workflow_file_path()), "model-usage.json")
@@ -38,6 +39,7 @@ defmodule Aiur.ModelAvailability do
       entry =
         limits
         |> normalize_limits()
+        |> merge_entry(Map.get(backends, backend, %{}))
         |> Map.put("observed_at", DateTime.to_iso8601(now))
 
       write(path, Map.put(state, "backends", Map.put(backends, backend, entry)))
@@ -52,21 +54,22 @@ defmodule Aiur.ModelAvailability do
   @spec available?(String.t(), keyword()) :: boolean()
   def available?(backend, opts \\ []) when is_binary(backend) do
     now = Keyword.get(opts, :now, DateTime.utc_now())
-    entry = load(Keyword.get(opts, :path, path())) |> get_in(["backends", backend]) || %{}
+    entry = Keyword.get(opts, :state, load(Keyword.get(opts, :path, path()))) |> get_in(["backends", backend]) || %{}
 
     not limited?(entry, now)
   end
 
   @spec first_available([String.t()], keyword()) :: String.t() | nil
   def first_available(backends, opts \\ []) when is_list(backends) do
-    Enum.find(backends, &available?(&1, opts))
+    state = Keyword.get(opts, :state, load(Keyword.get(opts, :path, path())))
+    Enum.find(backends, &available?(&1, Keyword.put(opts, :state, state)))
   end
 
   defp limited?(entry, now) do
     explicit_limit? = Map.get(entry, "limited") == true
     reset_at = parse_time(Map.get(entry, "reset_at"))
 
-    (explicit_limit? and (is_nil(reset_at) or DateTime.compare(reset_at, now) == :gt)) or
+    (explicit_limit? and reset_active?(reset_at, entry, now)) or
       Enum.any?(@windows, &window_limited?(Map.get(entry, &1), now))
   end
 
@@ -77,12 +80,22 @@ defmodule Aiur.ModelAvailability do
 
   defp window_limited?(_, _now), do: false
 
-  defp future_reset?(nil, _now), do: true
+  defp future_reset?(nil, _now), do: false
 
   defp future_reset?(value, now) do
     case parse_time(value) do
       %DateTime{} = reset_at -> DateTime.compare(reset_at, now) == :gt
-      nil -> true
+      nil -> false
+    end
+  end
+
+  defp reset_active?(%DateTime{} = reset_at, _entry, now), do: DateTime.compare(reset_at, now) == :gt
+  defp reset_active?(nil, entry, now), do: observed_recent?(entry, now)
+
+  defp observed_recent?(entry, now) do
+    case parse_time(Map.get(entry, "observed_at")) do
+      %DateTime{} = observed_at -> DateTime.diff(now, observed_at, :second) < @unknown_reset_ttl_seconds
+      nil -> false
     end
   end
 
@@ -108,6 +121,12 @@ defmodule Aiur.ModelAvailability do
 
   defp normalize_limits(_), do: %{}
 
+  defp merge_entry(new_entry, existing) do
+    existing
+    |> Map.merge(Map.drop(new_entry, @windows))
+    |> Map.merge(Map.take(new_entry, @windows))
+  end
+
   defp maybe_add_bucket(limits, bucket, acc) do
     with %{} = value <- Map.get(limits, bucket),
          window when is_binary(window) <- window_name(value) do
@@ -122,8 +141,9 @@ defmodule Aiur.ModelAvailability do
   end
 
   defp normalize_window(window) do
-    used = number(window["used"]) || number(window["used_percent"]) || number(window["usedPercent"])
-    limit = number(window["limit"]) || if(is_number(used), do: 100)
+    percent = number(window["used_percent"]) || number(window["usedPercent"])
+    used = percent || number(window["used"])
+    limit = if(is_number(percent), do: 100, else: number(window["limit"]))
 
     %{"used" => used, "limit" => limit, "reset_at" => window["reset_at"] || window["resetAt"] || window["resetsAt"]}
     |> Map.reject(fn {_key, value} -> is_nil(value) end)
@@ -158,7 +178,12 @@ defmodule Aiur.ModelAvailability do
     end
   end
 
+  defp parse_time(value) when is_integer(value), do: DateTime.from_unix(value) |> unwrap_datetime()
+
   defp parse_time(_), do: nil
+
+  defp unwrap_datetime({:ok, datetime}), do: datetime
+  defp unwrap_datetime(_), do: nil
 
   defp write(path, state) do
     File.mkdir_p(Path.dirname(path))
