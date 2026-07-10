@@ -7,12 +7,19 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   alias Aiur.Orchestrator.{Slots, State}
 
   @doc false
-  # Reads the host 1-min load only when the gate is enabled (threshold > 0), so
-  # explicit-disable configs never touch /proc. Exposed for unit-testing the
-  # short-circuit; the pure hold/dispatch decision is load_gate/3.
+  # Reads the host 1-min load only when the hard gate or adaptive target is
+  # enabled, so explicit-disable configs never touch /proc. Exposed for
+  # unit-testing the short-circuit; the pure hold/dispatch decision is
+  # load_gate/3.
   @spec read_load(number() | nil) :: float() | :unavailable
-  def read_load(threshold) when is_number(threshold) and threshold > 0, do: SystemLoad.avg1()
-  def read_load(_threshold), do: :unavailable
+  def read_load(threshold), do: read_load(threshold, nil)
+
+  @spec read_load(number() | nil, number() | nil) :: float() | :unavailable
+  def read_load(hard_threshold, target)
+      when (is_number(hard_threshold) and hard_threshold > 0) or (is_number(target) and target > 0),
+      do: SystemLoad.avg1()
+
+  def read_load(_hard_threshold, _target), do: :unavailable
 
   @doc false
   # Pure dispatch decision for the eager pre-warm gate, kept separate so it can be
@@ -34,6 +41,59 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def load_gate(:unavailable, _threshold, _schedulers), do: :dispatch
   def load_gate(load, threshold, schedulers) when load > threshold * schedulers, do: :hold
   def load_gate(_load, _threshold, _schedulers), do: :dispatch
+
+  @type envelope_options :: %{
+          target: number() | nil,
+          schedulers: pos_integer(),
+          static_limit: pos_integer(),
+          ramp_step: pos_integer(),
+          cooldown_ms: non_neg_integer(),
+          now_ms: integer()
+        }
+
+  @spec load_envelope(integer() | nil, integer() | nil, number() | :unavailable, envelope_options()) ::
+          {pos_integer(), integer() | nil}
+  def load_envelope(_effective, _last_decrease_ms, _load, %{target: nil, static_limit: static_limit}),
+    do: {static_limit, nil}
+
+  def load_envelope(effective, last_decrease_ms, :unavailable, %{static_limit: static_limit}) do
+    {normalize_load_envelope_limit(effective, static_limit), last_decrease_ms}
+  end
+
+  def load_envelope(effective, last_decrease_ms, load, %{static_limit: static_limit} = options) when is_number(load) do
+    effective = normalize_load_envelope_limit(effective, static_limit)
+    adjust_load_envelope(effective, last_decrease_ms, load, options)
+  end
+
+  defp adjust_load_envelope(effective, last_decrease_ms, load, %{target: target, schedulers: schedulers} = options)
+       when load <= target * schedulers do
+    {min(effective + options.ramp_step, options.static_limit), last_decrease_ms}
+  end
+
+  defp adjust_load_envelope(effective, last_decrease_ms, _load, options) do
+    decrease_load_envelope(effective, last_decrease_ms, options)
+  end
+
+  defp decrease_load_envelope(effective, last_decrease_ms, %{cooldown_ms: cooldown_ms, now_ms: now_ms}) do
+    if cooldown_elapsed?(last_decrease_ms, cooldown_ms, now_ms) do
+      reduced = max(div(effective + 1, 2), 1)
+      {reduced, next_decrease_time(effective, reduced, last_decrease_ms, now_ms)}
+    else
+      {effective, last_decrease_ms}
+    end
+  end
+
+  defp next_decrease_time(effective, reduced, _last_decrease_ms, now_ms) when reduced < effective, do: now_ms
+  defp next_decrease_time(_effective, _reduced, last_decrease_ms, _now_ms), do: last_decrease_ms
+
+  defp normalize_load_envelope_limit(effective, static_limit)
+       when is_integer(effective) and effective > 0 and is_integer(static_limit) and static_limit > 0,
+       do: min(effective, static_limit)
+
+  defp normalize_load_envelope_limit(_effective, static_limit), do: static_limit
+
+  defp cooldown_elapsed?(nil, _cooldown_ms, _now_ms), do: true
+  defp cooldown_elapsed?(last_decrease_ms, cooldown_ms, now_ms), do: now_ms - last_decrease_ms >= cooldown_ms
 
   @spec sort_issues_for_dispatch([term()]) :: [term()]
   def sort_issues_for_dispatch(issues) when is_list(issues) do
