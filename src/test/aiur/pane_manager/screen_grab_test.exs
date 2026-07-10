@@ -1,8 +1,8 @@
 defmodule Aiur.PaneManager.ScreenGrabTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.{Tmux}
   alias Aiur.PaneManager.{ScreenGrab, State}
+  alias Aiur.Tmux
 
   setup do
     previous = System.get_env("AIUR_SCREEN_GRAB")
