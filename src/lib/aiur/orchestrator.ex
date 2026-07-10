@@ -1643,7 +1643,8 @@ defmodule Aiur.Orchestrator do
     case ci_target_for_issue(issue) do
       target when is_binary(target) and is_binary(head_sha) ->
         test_failure_heads = Map.put(state.ci_lifecycle.test_failure_heads, target, head_sha)
-        persist_ci_lifecycle_state(%{state | ci_lifecycle: %{state.ci_lifecycle | test_failure_heads: test_failure_heads}})
+        ci_lifecycle = %{state.ci_lifecycle | test_failure_heads: test_failure_heads}
+        persist_ci_lifecycle_state(%{state | ci_lifecycle: ci_lifecycle})
 
       _ ->
         state
@@ -1654,7 +1655,8 @@ defmodule Aiur.Orchestrator do
     case ci_target_for_issue(issue) do
       target when is_binary(target) ->
         test_failure_heads = Map.delete(state.ci_lifecycle.test_failure_heads, target)
-        persist_ci_lifecycle_state(%{state | ci_lifecycle: %{state.ci_lifecycle | test_failure_heads: test_failure_heads}})
+        ci_lifecycle = %{state.ci_lifecycle | test_failure_heads: test_failure_heads}
+        persist_ci_lifecycle_state(%{state | ci_lifecycle: ci_lifecycle})
 
       _ ->
         state
@@ -1670,10 +1672,12 @@ defmodule Aiur.Orchestrator do
     approved_heads = Map.take(state.ci_lifecycle.approved_heads, targets)
     test_failure_heads = Map.take(state.ci_lifecycle.test_failure_heads, targets)
 
-    if approved_heads == state.ci_lifecycle.approved_heads and test_failure_heads == state.ci_lifecycle.test_failure_heads do
+    if approved_heads == state.ci_lifecycle.approved_heads and
+         test_failure_heads == state.ci_lifecycle.test_failure_heads do
       state
     else
-      persist_ci_lifecycle_state(%{state | ci_lifecycle: %{approved_heads: approved_heads, test_failure_heads: test_failure_heads}})
+      ci_lifecycle = %{approved_heads: approved_heads, test_failure_heads: test_failure_heads}
+      persist_ci_lifecycle_state(%{state | ci_lifecycle: ci_lifecycle})
     end
   end
 

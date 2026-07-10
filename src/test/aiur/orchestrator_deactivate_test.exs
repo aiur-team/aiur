@@ -232,7 +232,13 @@ defmodule Aiur.OrchestratorDeactivateTest do
       state =
         Orchestrator.poll_github_ci_for_test(empty_orchestrator_state(),
           ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
-          ci_poller: fn ["821"], _opts -> {:ok, %{results: [%{target: "821", decision: :pending, head_sha: "initial-head"}], errors: []}} end
+          ci_poller: fn ["821"], _opts ->
+            {:ok,
+             %{
+               results: [%{target: "821", decision: :pending, head_sha: "initial-head"}],
+               errors: []
+             }}
+          end
         )
 
       assert_receive {:ci_watcher_update, "821", "ci-wait"}
