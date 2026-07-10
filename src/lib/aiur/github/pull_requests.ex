@@ -83,12 +83,12 @@ defmodule Aiur.GitHub.PullRequests do
       encoded_sha = URI.encode(sha)
       base_url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/commits/#{encoded_sha}"
 
-      with {:ok, check_runs} <- fetch_check_runs(request_fun, token, base_url <> "/check-runs?filter=latest&per_page=100"),
+      with {:ok, check_runs} <-
+             fetch_check_runs(request_fun, token, base_url <> "/check-runs?filter=latest&per_page=100"),
            {:ok, commit_status} when is_map(commit_status) <-
              Transport.fetch_json_map(request_fun, token, base_url <> "/status") do
         {:ok, %{check_runs: check_runs, commit_status: commit_status}}
       else
-        {:ok, _unexpected} -> {:error, :invalid_ci_status_response}
         {:error, _reason} = error -> error
       end
     end

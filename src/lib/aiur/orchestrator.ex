@@ -1374,40 +1374,18 @@ defmodule Aiur.Orchestrator do
   end
 
   defp poll_github_ci_targets(%State{} = state, issues, poller, opts) do
-    issues_by_target =
-      issues
-      |> Enum.reduce(%{}, fn
-        %Issue{} = issue, acc ->
-          case ci_target_for_issue(issue) do
-            nil -> acc
-            target -> Map.put_new(acc, target, issue)
-          end
-
-        _other, acc ->
-          acc
-      end)
+    issues_by_target = ci_issues_by_target(issues)
 
     targets = Map.keys(issues_by_target)
 
     case poller.(targets, opts) do
       {:ok, %{results: results, errors: errors}} when is_list(results) and is_list(errors) ->
         state =
-          cond do
-            errors == [] -> note_github_connectivity_success(state, :ci)
-            all_ci_targets_failed?(targets, errors) -> note_github_connectivity_failure(state, :ci, List.first(errors))
-            true -> note_github_connectivity_success(state, :ci)
-          end
+          state
+          |> note_ci_poll_connectivity(targets, errors)
+          |> log_ci_poll_errors(errors)
 
-        if errors != [] do
-          Logger.warning("GithubCIPoller partial failures; reason=#{inspect(errors)}")
-        end
-
-        Enum.reduce(results, state, fn result, state_acc ->
-          case Map.get(issues_by_target, Map.get(result, :target)) do
-            %Issue{} = issue -> apply_ci_poll_result(state_acc, issue, result)
-            _ -> state_acc
-          end
-        end)
+        apply_ci_poll_results(state, results, issues_by_target)
 
       {:error, reason} ->
         Logger.warning("GithubCIPoller failed; reason=#{inspect(reason)}")
@@ -1416,6 +1394,47 @@ defmodule Aiur.Orchestrator do
       other ->
         Logger.warning("GithubCIPoller returned unexpected value=#{inspect(other)}")
         state
+    end
+  end
+
+  defp ci_issues_by_target(issues) do
+    Enum.reduce(issues, %{}, fn
+      %Issue{} = issue, acc ->
+        case ci_target_for_issue(issue) do
+          nil -> acc
+          target -> Map.put_new(acc, target, issue)
+        end
+
+      _other, acc ->
+        acc
+    end)
+  end
+
+  defp note_ci_poll_connectivity(state, targets, errors) do
+    if errors == [] or not all_ci_targets_failed?(targets, errors) do
+      note_github_connectivity_success(state, :ci)
+    else
+      note_github_connectivity_failure(state, :ci, List.first(errors))
+    end
+  end
+
+  defp log_ci_poll_errors(state, []), do: state
+
+  defp log_ci_poll_errors(state, errors) do
+    Logger.warning("GithubCIPoller partial failures; reason=#{inspect(errors)}")
+    state
+  end
+
+  defp apply_ci_poll_results(state, results, issues_by_target) do
+    Enum.reduce(results, state, fn result, state_acc ->
+      apply_ci_poll_result_for_target(state_acc, result, issues_by_target)
+    end)
+  end
+
+  defp apply_ci_poll_result_for_target(state, result, issues_by_target) do
+    case Map.get(issues_by_target, Map.get(result, :target)) do
+      %Issue{} = issue -> apply_ci_poll_result(state, issue, result)
+      _ -> state
     end
   end
 

@@ -91,20 +91,17 @@ defmodule Aiur.Events.GithubCIPoller do
 
       {:error, reason} ->
         poll_error(target, {:pr_lookup, reason})
-
-      other ->
-        poll_error(target, {:unexpected_pr_lookup, other})
     end
   end
 
   defp poll_open_pull_request(target, pr, opts) do
     with {:ok, pr_number} <- positive_integer(Map.get(pr, "number")),
          {:ok, head_sha} <- head_sha(pr),
-         {:ok, %{check_runs: check_runs, commit_status: commit_status}} <- Client.fetch_commit_ci_status(head_sha, opts) do
+         {:ok, %{check_runs: check_runs, commit_status: commit_status}} <-
+           Client.fetch_commit_ci_status(head_sha, opts) do
       poll_current_head_result(target, pr_number, head_sha, check_runs, commit_status, opts)
     else
       {:error, reason} -> poll_error(target, reason)
-      other -> poll_error(target, {:unexpected_ci_status, other})
     end
   end
 
@@ -134,9 +131,6 @@ defmodule Aiur.Events.GithubCIPoller do
 
       {:error, reason} ->
         poll_error(target, {:pr_recheck, reason})
-
-      other ->
-        poll_error(target, {:unexpected_pr_recheck, other})
     end
   end
 

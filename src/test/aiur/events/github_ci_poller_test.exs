@@ -122,8 +122,14 @@ defmodule Aiur.Events.GithubCIPollerTest do
       end
     end
 
-    assert {:ok, %{results: [%{decision: :passed, target: "42"}, %{decision: :pending, target: "43"}], errors: [{"43", {:pr_lookup, {:github, :timeout, %{}}}}]}} =
+    assert {:ok,
+            %{
+              results: [%{decision: :passed, target: "42"}, %{decision: :pending, target: "43"}],
+              errors: [error]
+            }} =
              GithubCIPoller.poll(["42", "43"], request_fun: request_fun)
+
+    assert {"43", {:pr_lookup, {:github, :timeout, %{reason: :timeout}}}} = error
   end
 
   test "uses the current PR head on every poll after a re-push" do
