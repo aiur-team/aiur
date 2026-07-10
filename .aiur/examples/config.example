@@ -16,7 +16,7 @@ agent:
   max_turns: {{MAX_TURNS}}               # per-issue turn cap (cost guard); `none` = unlimited
   max_agent_duration_minutes: {{MAX_AGENT_DURATION}}  # safety net: hard-kill a stuck agent after N min (0 = never)
   # synthetic_load_process_cap: null     # per-agent cap for `yes`/`stress` load generators; null = cores/4, 0 = disabled
-  routing: {{ROUTING}}                   # complexity:<N> label -> backend[:model[:effort]], e.g. codex:gpt-5.5:high
+  routing: {{ROUTING}}                   # complexity:<N> label -> backend[:model[:effort]], e.g. codex:gpt-5.6-terra:high
   claude:
     command: aiur-claude
     permission_mode: {{PERMISSION_MODE}} # bypassPermissions (default/acceptEdits need an approval UI — coming soon)
