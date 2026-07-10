@@ -1,8 +1,8 @@
 defmodule Aiur.ModelAvailabilityTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.ModelAvailability
   alias Aiur.Config.Schema.Agent
+  alias Aiur.ModelAvailability
 
   setup do
     path = Path.join(System.tmp_dir!(), "aiur-model-usage-#{System.unique_integer([:positive])}.json")
@@ -34,7 +34,10 @@ defmodule Aiur.ModelAvailabilityTest do
     assert :ok =
              ModelAvailability.observe(
                "codex",
-               %{primary: %{usedPercent: 100, windowDurationMins: 60, resetsAt: reset}, secondary: %{usedPercent: 20, windowDurationMins: 10_080, resetsAt: reset}},
+               %{
+                 primary: %{usedPercent: 100, windowDurationMins: 60, resetsAt: reset},
+                 secondary: %{usedPercent: 20, windowDurationMins: 10_080, resetsAt: reset}
+               },
                path: path
              )
 

@@ -101,23 +101,21 @@ defmodule Aiur.ModelAvailability do
     |> Enum.reduce(
       %{"limited" => limits["limited"], "reset_at" => limits["reset_at"] || limits["resetAt"] || limits["resetsAt"]}
       |> Map.reject(fn {_key, value} -> is_nil(value) end),
-      fn bucket, acc ->
-        case Map.get(limits, bucket) do
-          %{} = value ->
-            case window_name(value) do
-              nil -> acc
-              window -> Map.put_new(acc, window, normalize_window(value))
-            end
-
-          _ ->
-            acc
-        end
-      end
+      &maybe_add_bucket(limits, &1, &2)
     )
     |> Map.merge(direct)
   end
 
   defp normalize_limits(_), do: %{}
+
+  defp maybe_add_bucket(limits, bucket, acc) do
+    with %{} = value <- Map.get(limits, bucket),
+         window when is_binary(window) <- window_name(value) do
+      Map.put_new(acc, window, normalize_window(value))
+    else
+      _ -> acc
+    end
+  end
 
   defp stringify_keys(map) do
     Map.new(map, fn {key, value} -> {to_string(key), if(is_map(value), do: stringify_keys(value), else: value)} end)
@@ -166,9 +164,9 @@ defmodule Aiur.ModelAvailability do
     File.mkdir_p(Path.dirname(path))
     tmp = path <> ".#{System.unique_integer([:positive])}.tmp"
 
-    with :ok <- File.write(tmp, Jason.encode!(state, pretty: true) <> "\n"),
-         :ok <- File.rename(tmp, path) do
-      :ok
+    case File.write(tmp, Jason.encode!(state, pretty: true) <> "\n") do
+      :ok -> File.rename(tmp, path)
+      {:error, _reason} = error -> error
     end
   end
 end
