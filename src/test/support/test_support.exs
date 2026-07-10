@@ -301,7 +301,6 @@ defmodule Aiur.TestSupport do
           worker_max_concurrent_agents_per_host: nil,
           max_concurrent_agents: 10,
           max_concurrent_builds: 2,
-          mix_scheduler_cap: 4,
           max_turns: 20,
           max_retry_backoff_ms: 300_000,
           max_concurrent_agents_by_state: %{},
@@ -351,7 +350,6 @@ defmodule Aiur.TestSupport do
 
     max_concurrent_agents = Keyword.get(config, :max_concurrent_agents)
     max_concurrent_builds = Keyword.get(config, :max_concurrent_builds)
-    mix_scheduler_cap = Keyword.get(config, :mix_scheduler_cap)
     max_turns = Keyword.get(config, :max_turns)
     max_retry_backoff_ms = Keyword.get(config, :max_retry_backoff_ms)
     max_concurrent_agents_by_state = Keyword.get(config, :max_concurrent_agents_by_state)
@@ -409,7 +407,6 @@ defmodule Aiur.TestSupport do
         "  kind: #{yaml_value(agent_kind)}",
         "  max_concurrent_agents: #{yaml_value(max_concurrent_agents)}",
         "  max_concurrent_builds: #{yaml_value(max_concurrent_builds)}",
-        "  mix_scheduler_cap: #{yaml_value(mix_scheduler_cap)}",
         "  max_turns: #{yaml_value(max_turns)}",
         "  max_retry_backoff_ms: #{yaml_value(max_retry_backoff_ms)}",
         "  max_concurrent_agents_by_state: #{yaml_value(max_concurrent_agents_by_state)}",
