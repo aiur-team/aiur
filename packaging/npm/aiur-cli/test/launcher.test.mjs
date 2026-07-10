@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import {
   mkdtempSync,
   mkdirSync,
+  readdirSync,
   writeFileSync,
   readFileSync,
   existsSync,
@@ -306,6 +307,30 @@ function setupBackgroundLauncher() {
 
   const fakeBin = path.join(root, "fakebin");
   mkdirSync(fakeBin, { recursive: true });
+  const fakePgrep = path.join(fakeBin, "pgrep");
+  writeFileSync(
+    fakePgrep,
+    [
+      "#!/usr/bin/env bash",
+      'if [ -n "${AIUR_FAKE_BEAM_ALIVE:-}" ] && [ -f "$AIUR_FAKE_BEAM_ALIVE" ]; then exit 0; fi',
+      'exec /usr/bin/pgrep "$@"',
+      "",
+    ].join("\n"),
+  );
+  chmodSync(fakePgrep, 0o755);
+
+  const fakeSleep = path.join(fakeBin, "sleep");
+  writeFileSync(
+    fakeSleep,
+    [
+      "#!/usr/bin/env bash",
+      'while [ -n "${AIUR_FAKE_BEAM_ALIVE:-}" ] && [ -f "$AIUR_FAKE_BEAM_ALIVE" ]; do /usr/bin/sleep 0.01; done',
+      'exec /usr/bin/sleep "$@"',
+      "",
+    ].join("\n"),
+  );
+  chmodSync(fakeSleep, 0o755);
+
   const fakeTmux = path.join(fakeBin, "tmux");
   writeFileSync(
     fakeTmux,
@@ -333,6 +358,7 @@ function setupBackgroundLauncher() {
       "    ;;",
       "  kill-session|kill-server)",
       '    rm -f "$state"',
+      '    : >"${AIUR_FAKE_WATCHDOG_REAPED:?}"',
       "    exit 0",
       "    ;;",
       "  select-pane)",
@@ -348,10 +374,13 @@ function setupBackgroundLauncher() {
   return { launcher, releaseDir, fakeBin, tmuxState: path.join(root, "tmux-session") };
 }
 
-function runBackgroundLauncher({ existingSession = false, controlReady = true } = {}) {
+function runBackgroundLauncher({ existingSession = false, controlReady = true, keepWatchdogAlive = false } = {}) {
   const { launcher, releaseDir, fakeBin, tmuxState } = setupBackgroundLauncher();
   if (existingSession) writeFileSync(tmuxState, "present\n");
   const controlState = path.join(root, "control-state");
+  const fakeBeamAlive = path.join(root, "fake-beam-alive");
+  const watchdogReaped = path.join(root, "watchdog-reaped");
+  if (keepWatchdogAlive) writeFileSync(fakeBeamAlive, "alive\n");
   writeFileSync(controlState, controlReady ? "ready\n" : "down\n");
 
   const result = spawnSync(launcher, ["--bg"], {
@@ -362,6 +391,8 @@ function runBackgroundLauncher({ existingSession = false, controlReady = true } 
       AIUR_TEST_OUT: captureFile,
       AIUR_FAKE_TMUX_STATE: tmuxState,
       AIUR_FAKE_CONTROL_STATE: controlState,
+      AIUR_FAKE_BEAM_ALIVE: fakeBeamAlive,
+      AIUR_FAKE_WATCHDOG_REAPED: watchdogReaped,
       AIUR_BG_STATE_DIR: path.join(root, "state"),
       AIUR_COOKIE_FILE: path.join(root, "state", "cookie"),
       XDG_RUNTIME_DIR: root,
@@ -369,7 +400,7 @@ function runBackgroundLauncher({ existingSession = false, controlReady = true } 
     },
   });
 
-  return { result, tmuxState };
+  return { result, tmuxState, stateDir: path.join(root, "state"), fakeBeamAlive, watchdogReaped };
 }
 
 test("launcher routes init to a distribution-free foreground exec", () => {
@@ -405,6 +436,35 @@ test("background start is idempotent when the existing tmux session has a live c
   expect(capture).toContain("has-session");
   expect(capture).toContain("BIN_AIUR:rpc");
   expect(capture).not.toContain("new-session");
+});
+
+test("idempotent background start preserves the live workspace handoff for degraded stop", async () => {
+  const first = runBackgroundLauncher({ keepWatchdogAlive: true });
+  expect(first.result.status).toBe(0);
+
+  const instancesDir = path.join(first.stateDir, "instances");
+  const [recordName] = readdirSync(instancesDir);
+  const recordPath = path.join(instancesDir, recordName);
+  const originalRecord = readFileSync(recordPath, "utf8");
+  const [, handoffPath] = originalRecord.match(/^AIUR_RECORD_WORKSPACE_ROOT_FILE=(.+)$/m) ?? [];
+  expect(handoffPath).toBeTruthy();
+
+  const workspaceRoot = path.join(root, "live-workspace-root");
+  mkdirSync(workspaceRoot);
+  writeFileSync(handoffPath, `${workspaceRoot}\n`);
+
+  const second = runBackgroundLauncher({ existingSession: true, controlReady: true });
+  expect(second.result.status).toBe(0);
+  expect(second.result.stderr).toContain("already running in the background");
+  expect(readFileSync(recordPath, "utf8")).toBe(originalRecord);
+  expect(readFileSync(handoffPath, "utf8")).toBe(`${workspaceRoot}\n`);
+
+  rmSync(first.fakeBeamAlive);
+  const watchdogDeadline = Date.now() + 2000;
+  while (!existsSync(first.watchdogReaped) && Date.now() < watchdogDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  expect(existsSync(first.watchdogReaped)).toBe(true);
 });
 
 test("background start reclaims stale tmux session state before creating a new session", () => {

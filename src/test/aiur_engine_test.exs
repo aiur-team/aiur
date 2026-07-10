@@ -250,22 +250,6 @@ defmodule AiurEngineTest do
     assert String.trim(out) == root_file
   end
 
-  test "idempotent background starts preserve the live instance record" do
-    source = File.read!(@engine)
-
-    [idempotent_block] =
-      Regex.run(
-        ~r/if \[ "\$mode" = "background" \].*?if \[ "\$\(probe_control_liveness\)" = "up" \]; then(.*?)\n    fi\n\n    echo "aiur found stale/s,
-        source,
-        capture: :all_but_first
-      )
-
-    # A conditional write (only when no record exists) is allowed; an unconditional
-    # write at the start of a line would overwrite a live session's AIUR_RECORD_WORKSPACE_ROOT_FILE.
-    refute idempotent_block =~ ~r/\n\s+write_aiur_instance_record /,
-           "an idempotent start must not unconditionally replace the live workspace-root handoff"
-  end
-
   test "load_dotenv reads ./.env, strips quotes, and lets shell exports win" do
     dir = Path.join(System.tmp_dir!(), "aiur-env-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
@@ -1022,8 +1006,20 @@ defmodule AiurEngineTest do
     events = Path.join(System.tmp_dir!(), "aiur-events-#{System.unique_integer([:positive])}")
     workspace_root = Path.join(System.tmp_dir!(), "aiur-workspaces-#{System.unique_integer([:positive])}")
     workspace_root_file = Path.join(System.tmp_dir!(), "aiur-workspace-root-#{System.unique_integer([:positive])}")
+    record = Path.join(System.tmp_dir!(), "aiur-stop-record-#{System.unique_integer([:positive])}")
     File.mkdir_p!(workspace_root)
     File.write!(workspace_root_file, workspace_root <> "\n")
+
+    File.write!(
+      record,
+      """
+      AIUR_RECORD_NODE=aiur-enginetest@127.0.0.1
+      AIUR_RECORD_SESSION=aiur-tester-default
+      AIUR_RECORD_SOCKET=aiur-tester
+      AIUR_RECORD_PROJECT_ROOT=/tmp/aiur-project
+      AIUR_RECORD_WORKSPACE_ROOT_FILE=#{inspect(workspace_root_file)}
+      """
+    )
 
     tmux = fake_tmux_script("exit 0")
 
@@ -1031,6 +1027,7 @@ defmodule AiurEngineTest do
       File.rm_rf(state)
       File.rm_rf(workspace_root)
       File.rm(workspace_root_file)
+      File.rm(record)
       File.rm(events)
     end)
 
@@ -1040,7 +1037,7 @@ defmodule AiurEngineTest do
       : "${AIUR_SESSION_PREFIX:=aiur}"
       : "${AIUR_RELEASE_NODE:=aiur-enginetest@127.0.0.1}"
     }
-    workspace_root_file_from_instance_record() { printf '%s\\n' "$WORKSPACE_ROOT_FILE"; }
+    aiur_instance_record_path() { printf '%s' "$RECORD"; }
     sweep_dead_tmux_sockets() { :; }
     sweep_stale_tmp_artifacts() { :; }
     reap_aiur_agents() { :; }
@@ -1065,7 +1062,7 @@ defmodule AiurEngineTest do
         {"AIUR_BG_STATE_DIR", state},
         {"EVENTS", events},
         {"PATH", path},
-        {"WORKSPACE_ROOT_FILE", workspace_root_file},
+        {"RECORD", record},
         {"USER", "tester"}
       ])
 
