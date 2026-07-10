@@ -15,7 +15,7 @@ defmodule Aiur.AgentRunner.TurnAlertsTest do
   describe "maybe_emit_usage_limit_alert/4" do
     test "returns :ok for a usage_limit_exhausted payload" do
       issue = %Issue{id: "gid-ta-01", identifier: "TA-01"}
-      payload = %{kind: :usage_limit_exhausted}
+      payload = %{kind: :usage_limit_exhausted, backend: "codex"}
 
       assert :ok = TurnAlerts.maybe_emit_usage_limit_alert(issue, nil, nil, payload)
     end
@@ -30,7 +30,7 @@ defmodule Aiur.AgentRunner.TurnAlertsTest do
 
     test "calls Alerts.emit_system for usage_limit_exhausted payload" do
       issue = %Issue{id: "gid-ta-03", identifier: "TA-03"}
-      payload = %{kind: :usage_limit_exhausted}
+      payload = %{kind: :usage_limit_exhausted, backend: "codex"}
 
       # Verify the function does not crash and returns :ok; Alerts.emit_system
       # delivery to Exchange is filtered in tests (Orchestrator's tracked_fn
@@ -51,34 +51,55 @@ defmodule Aiur.AgentRunner.TurnAlertsTest do
 
     test "returns :ok when reset_hint is present in the payload" do
       issue = %Issue{id: "gid-ta-05", identifier: "TA-05"}
-      payload = %{kind: :usage_limit_exhausted, reset_hint: "12:00 UTC"}
+      payload = %{kind: :usage_limit_exhausted, backend: "codex", reset_hint: "12:00 UTC"}
 
       assert :ok = TurnAlerts.maybe_emit_usage_limit_alert(issue, nil, nil, payload)
+    end
+
+    test "marks the backend from the pause payload as limited" do
+      issue = %Issue{id: "gid-ta-06", identifier: "TA-06"}
+      payload = %{kind: :usage_limit_exhausted, backend: "claude"}
+
+      assert :ok = TurnAlerts.maybe_emit_usage_limit_alert(issue, nil, nil, payload)
+      refute ModelAvailability.available?("claude")
+      assert ModelAvailability.available?("codex")
     end
   end
 
   describe "maybe_emit_more_tokens_alert/4" do
     test "returns :ok for any reason" do
-      issue = %Issue{id: "gid-ta-06", identifier: "TA-06"}
+      issue = %Issue{id: "gid-ta-11", identifier: "TA-11"}
 
-      assert :ok = TurnAlerts.maybe_emit_more_tokens_alert(issue, nil, nil, "token budget exceeded")
+      assert :ok =
+               TurnAlerts.maybe_emit_more_tokens_alert(issue, nil, nil, "token budget exceeded")
+
       assert :ok = TurnAlerts.maybe_emit_more_tokens_alert(issue, nil, nil, :other_reason)
     end
 
     test "calls Alerts.emit_system when reason contains 'token budget'" do
-      issue = %Issue{id: "gid-ta-07", identifier: "TA-07"}
+      issue = %Issue{id: "gid-ta-12", identifier: "TA-12"}
 
       # Delivery to Exchange is filtered by Orchestrator's tracked_fn in tests;
       # we verify the function completes without error and returns :ok.
       assert :ok =
-               TurnAlerts.maybe_emit_more_tokens_alert(issue, nil, nil, "token budget limit reached")
+               TurnAlerts.maybe_emit_more_tokens_alert(
+                 issue,
+                 nil,
+                 nil,
+                 "token budget limit reached"
+               )
     end
 
     test "calls Alerts.emit_system when reason contains 'context length'" do
-      issue = %Issue{id: "gid-ta-08", identifier: "TA-08"}
+      issue = %Issue{id: "gid-ta-13", identifier: "TA-13"}
 
       assert :ok =
-               TurnAlerts.maybe_emit_more_tokens_alert(issue, nil, nil, "context length exceeded limit")
+               TurnAlerts.maybe_emit_more_tokens_alert(
+                 issue,
+                 nil,
+                 nil,
+                 "context length exceeded limit"
+               )
     end
 
     test "does not publish for unrecognized reasons" do
@@ -93,7 +114,7 @@ defmodule Aiur.AgentRunner.TurnAlertsTest do
     end
 
     test "treats inspect(reason) for substring matching — tuple with 'max tokens'" do
-      issue = %Issue{id: "gid-ta-10", identifier: "TA-10"}
+      issue = %Issue{id: "gid-ta-14", identifier: "TA-14"}
 
       # {:error, "max tokens reached..."} → inspect gives ~s(error: "max tokens ..."),
       # which contains "max tokens" → should trigger the alert path (returns :ok).
