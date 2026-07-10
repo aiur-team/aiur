@@ -113,6 +113,17 @@ alerts:
       - "~/alerts/templar/templar-i-am-ready.wav"
       - "~/alerts/archon/archon-power-overwhelming.wav"
 
+  "ticket.*.agent.pause.cooperative":
+    message: Cooperative pause requested
+  "ticket.*.agent.pause.fallback_started":
+    message: Reaping uncooperative agent descendants
+  "ticket.*.agent.pause.fallback_succeeded":
+    message: Agent descendants contained
+  "ticket.*.agent.pause.fallback_failed":
+    message: Agent descendant containment failed
+    sound:
+      - "~/alerts/advisor/advisor-under-attack.wav"
+
   # ---------- Chat lifecycle ----------------------------------------------
   "ticket.*.chat.opened":
     message: Chat opened

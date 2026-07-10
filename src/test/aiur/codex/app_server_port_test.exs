@@ -1,6 +1,7 @@
 defmodule Aiur.Codex.AppServerPortTest do
   use Aiur.TestSupport, async: false
 
+  alias Aiur.AppServer.Adapter
   alias Aiur.Codex.AppServerPort
   alias Aiur.Codex.Config, as: CodexConfig
 
@@ -84,6 +85,24 @@ defmodule Aiur.Codex.AppServerPortTest do
       refute Map.has_key?(metadata, :worker_host)
 
       Port.close(port)
+    end
+
+    test "records a local process group only when the port root is its leader" do
+      if System.find_executable("setsid") do
+        assert {:ok, port} = Adapter.start_port(File.cwd!(), "printf 'ready\\n'; sleep 600")
+
+        try do
+          assert_receive {^port, {:data, {:eol, "ready"}}}, 1_000
+
+          metadata = AppServerPort.port_metadata(port)
+
+          assert metadata.agent_process_group_id == metadata.codex_app_server_pid
+        after
+          AppServerPort.stop_port(port)
+        end
+      else
+        assert true
+      end
     end
   end
 
