@@ -5,6 +5,7 @@ defmodule Aiur.Config do
   """
 
   alias Aiur.Config.Schema
+  alias Aiur.Config.Schema.AgentValidation
   alias Aiur.Workflow
 
   @default_prompt_template """
@@ -62,7 +63,7 @@ defmodule Aiur.Config do
 
     Map.get(
       config.agent.max_concurrent_agents_by_state,
-      Schema.normalize_issue_state(state_name),
+      AgentValidation.normalize_issue_state(state_name),
       config.agent.max_concurrent_agents
     )
   end
@@ -190,6 +191,15 @@ defmodule Aiur.Config do
   end
 
   @doc """
+  Maximum number of agent-launched Mix compile/test commands allowed across the
+  local workspace fleet. `0` disables the build gate intentionally.
+  """
+  @spec max_concurrent_builds() :: non_neg_integer()
+  def max_concurrent_builds do
+    settings!().agent.max_concurrent_builds
+  end
+
+  @doc """
   Number of opencode-serve instances to pre-warm at boot. Each pre-
   warmed slot binds to a different active ticket as its leadoff so
   the user's first click on that ticket opens its chat pane in
@@ -313,6 +323,32 @@ defmodule Aiur.Config do
   @spec max_load_average() :: float() | nil
   def max_load_average do
     settings!().agent.max_load_average
+  end
+
+  @doc """
+  Per-scheduler 1-minute load target for adaptive dispatch capacity. Defaults
+  to 1.0; explicit YAML `null` disables the adaptive envelope while preserving
+  the independent `max_load_average` hard gate.
+  """
+  @spec target_load_average() :: float() | nil
+  def target_load_average do
+    settings!().agent.target_load_average
+  end
+
+  @doc """
+  Number of dispatch slots added by each below-target envelope sample.
+  """
+  @spec load_ramp_step() :: pos_integer()
+  def load_ramp_step do
+    settings!().agent.load_ramp_step
+  end
+
+  @doc """
+  Minimum number of seconds between high-load envelope decreases.
+  """
+  @spec load_cooldown_seconds() :: non_neg_integer()
+  def load_cooldown_seconds do
+    settings!().agent.load_cooldown_seconds
   end
 
   @spec codex_turn_sandbox_policy(Path.t() | nil) :: map()

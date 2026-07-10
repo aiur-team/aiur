@@ -12,6 +12,9 @@ defmodule Aiur.GitHub.LabelsTest do
       assert "model:claude" in labels
       assert "model:claude-opus" in labels
       assert "model:codex" in labels
+      assert "model:codex-gpt-5.6-sol" in labels
+      assert "model:codex-gpt-5.6-terra" in labels
+      assert "model:codex-gpt-5.6-luna" in labels
       assert "model:codex-gpt-5.5" in labels
       assert "complexity:1" in labels
       assert "complexity:5" in labels
@@ -70,6 +73,8 @@ defmodule Aiur.GitHub.LabelsTest do
     test "codex seeds the cheaper model variants" do
       labels = Labels.label_set("agent", ["codex"])
 
+      assert "model:codex-gpt-5.6-terra" in labels
+      assert "model:codex-gpt-5.6-luna" in labels
       assert "model:codex-gpt-5.4" in labels
       assert "model:codex-gpt-5.5-mini" in labels
       assert "model:codex-gpt-5.4-mini" in labels

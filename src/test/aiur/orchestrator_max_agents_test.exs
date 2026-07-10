@@ -121,6 +121,26 @@ defmodule Aiur.OrchestratorMaxAgentsTest do
       assert Orchestrator.should_dispatch_issue_for_test(candidate, below_cap)
     end
 
+    test "adaptive capacity blocks normal dispatch before the static cap" do
+      running = %{
+        "i1" => running_entry("i1", "repo#1", :working),
+        "i2" => running_entry("i2", "repo#2", :working)
+      }
+
+      candidate = %Issue{id: "i3", identifier: "repo#3", state: "todo", title: "queued work"}
+
+      state = %Orchestrator.State{
+        max_concurrent_agents: 10,
+        effective_concurrent_agents: 2,
+        running: running,
+        claimed: MapSet.new(Map.keys(running))
+      }
+
+      refute Orchestrator.should_dispatch_issue_for_test(candidate, state)
+
+      assert Orchestrator.should_dispatch_issue_for_test(candidate, %{state | running: Map.delete(running, "i2")})
+    end
+
     test "returns :unavailable when the orchestrator is not running" do
       assert {:error, :unavailable} =
                Orchestrator.set_max_concurrent_agents(:nonexistent_orchestrator_xyz, 4)

@@ -1,23 +1,23 @@
 defmodule Aiur.Codex.CodingAgent do
-  @moduledoc """
-  Minimal client for the Codex app-server JSON-RPC 2.0 stream over stdio.
-  """
+  @moduledoc "Minimal client for the Codex app-server JSON-RPC 2.0 stream over stdio."
 
   @behaviour Aiur.CodingAgent.Backend
   @behaviour Aiur.AppServer.Adapter
 
   require Logger
-  alias Aiur.{AgentEnvironment, Config, PathSafety, SSH}
-  alias Aiur.AppServer.{Adapter, Messages, OperatorDelivery, Rpc, TurnState}
-  alias Aiur.Claude.RemoteControl
-  alias Aiur.Codex.DynamicTool
-  alias Aiur.Protocol.MapAccess
-  alias Aiur.TokenUsage
+  alias Aiur.AppServer.{Adapter, Rpc}
 
-  @thread_start_id 2
-  @turn_start_id 3
-  @cold_start_response_timeout_ms 30_000
-  @non_interactive_tool_input_answer "This is a non-interactive session. Operator input is unavailable."
+  alias Aiur.Codex.{
+    AppServerPort,
+    EventNormalizer,
+    Handshake,
+    Interrupts,
+    OperatorDelivery,
+    TurnEvents,
+    TurnLoop
+  }
+
+  alias Aiur.{Config, PauseContainment}
 
   @type session :: %{
           port: port(),
@@ -30,7 +30,6 @@ defmodule Aiur.Codex.CodingAgent do
           resumed: boolean(),
           workspace: Path.t()
         }
-
   @dialyzer {:nowarn_function, run: 4}
   @spec run(Path.t(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def run(workspace, prompt, issue, opts \\ []) do
@@ -47,7 +46,6 @@ defmodule Aiur.Codex.CodingAgent do
     end
   end
 
-  @spec start_session(Path.t(), keyword()) :: {:ok, session()} | {:error, term()}
   @impl Aiur.CodingAgent.Backend
   def start_session(workspace, opts \\ []) do
     worker_host = Keyword.get(opts, :worker_host)
@@ -55,9 +53,12 @@ defmodule Aiur.Codex.CodingAgent do
     effort = Keyword.get(opts, :effort)
     resume_thread_id = Keyword.get(opts, :resume_thread_id)
 
-    with {:ok, expanded_workspace} <- validate_workspace_cwd(workspace, worker_host),
-         {:ok, port} <- start_port(expanded_workspace, worker_host, model, effort) do
-      metadata = port_metadata(port, worker_host)
+    identifier = Keyword.get(opts, :identifier)
+
+    with {:ok, expanded_workspace} <- AppServerPort.validate_workspace_cwd(workspace, worker_host),
+         {:ok, port} <- AppServerPort.start_port(expanded_workspace, worker_host, model, effort) do
+      metadata = AppServerPort.port_metadata(port, worker_host)
+      containment = register_pause_containment(identifier, metadata, expanded_workspace)
 
       # Local spawns run bash -lc "codex … app-server"; a remote spawn's
       # local pid is the ssh client, so the cmdline guard expects that.
@@ -66,7 +67,7 @@ defmodule Aiur.Codex.CodingAgent do
 
       with {:ok, session_policies} <- session_policies(expanded_workspace, worker_host),
            {:ok, thread_id, resumed?} <-
-             do_start_session(port, expanded_workspace, session_policies, resume_thread_id) do
+             Handshake.establish(port, expanded_workspace, session_policies, resume_thread_id) do
         {:ok,
          %{
            port: port,
@@ -78,18 +79,19 @@ defmodule Aiur.Codex.CodingAgent do
            thread_id: thread_id,
            resumed: resumed?,
            workspace: expanded_workspace,
+           containment: containment,
            worker_host: worker_host,
            model: model
          }}
       else
         {:error, reason} ->
-          stop_port(port)
+          AppServerPort.stop_port(port)
+          PauseContainment.unregister(containment)
           {:error, reason}
       end
     end
   end
 
-  @spec run_turn(session(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   @impl Aiur.CodingAgent.Backend
   def run_turn(
         %{
@@ -105,1072 +107,45 @@ defmodule Aiur.Codex.CodingAgent do
     Adapter.run_turn(__MODULE__, session, prompt, issue, opts)
   end
 
-  @spec stop_session(session()) :: :ok
   @impl Aiur.CodingAgent.Backend
-  def stop_session(%{port: port}) when is_port(port) do
-    stop_port(port)
+  def stop_session(%{port: port} = session) when is_port(port) do
+    AppServerPort.stop_port(port)
+    PauseContainment.unregister(Map.get(session, :containment))
   end
 
-  @spec send_operator_message(session(), Aiur.CodingAgent.operator_payload()) ::
-          {:ok, integer()} | {:error, term()}
   @impl Aiur.CodingAgent.Backend
-  def send_operator_message(
-        %{port: port, thread_id: thread_id, workspace: workspace} = session,
-        %{kind: :text, body: text}
-      )
-      when is_port(port) and is_binary(thread_id) and is_binary(text) do
-    request_id = :erlang.unique_integer([:positive])
+  def send_operator_message(session, payload), do: OperatorDelivery.send_operator_message(session, payload)
+  @impl Aiur.CodingAgent.Backend
+  def normalize_event(event), do: EventNormalizer.normalize_event(event)
 
-    frame = %{
-      "method" => "turn/start",
-      "id" => request_id,
-      "params" => %{
-        "threadId" => thread_id,
-        "input" => [%{"type" => "text", "text" => text}],
-        "cwd" => workspace,
-        "approvalPolicy" => Map.get(session, :approval_policy),
-        "sandboxPolicy" => Map.get(session, :turn_sandbox_policy)
-      }
-    }
-
-    send_message(port, frame)
-    {:ok, request_id}
-  rescue
-    ArgumentError -> {:error, :port_closed}
-  end
-
-  def send_operator_message(_session, _payload), do: {:error, :invalid_session}
-
-  defp validate_workspace_cwd(workspace, nil) when is_binary(workspace) do
-    workspace_path = Path.expand(workspace)
-    workspace_root = Path.expand(Config.workspace_root())
-
-    with {:ok, canonical_workspace} <- PathSafety.canonicalize(workspace_path),
-         {:ok, canonical_root} <- PathSafety.canonicalize(workspace_root) do
-      canonical_root_prefix = canonical_root <> "/"
-      expanded_root_prefix = workspace_root <> "/"
-
-      cond do
-        canonical_workspace == canonical_root ->
-          {:error, {:invalid_workspace_cwd, :workspace_root, canonical_workspace}}
-
-        String.starts_with?(canonical_workspace <> "/", canonical_root_prefix) ->
-          {:ok, canonical_workspace}
-
-        String.starts_with?(workspace_path <> "/", expanded_root_prefix) ->
-          {:error, {:invalid_workspace_cwd, :symlink_escape, workspace_path, canonical_root}}
-
-        true ->
-          {:error, {:invalid_workspace_cwd, :outside_workspace_root, canonical_workspace, canonical_root}}
-      end
-    else
-      {:error, {:path_canonicalize_failed, path, reason}} ->
-        {:error, {:invalid_workspace_cwd, :path_unreadable, path, reason}}
-    end
-  end
-
-  defp validate_workspace_cwd(workspace, worker_host)
-       when is_binary(workspace) and is_binary(worker_host) do
-    cond do
-      String.trim(workspace) == "" ->
-        {:error, {:invalid_workspace_cwd, :empty_remote_workspace, worker_host}}
-
-      String.contains?(workspace, ["\n", "\r", <<0>>]) ->
-        {:error, {:invalid_workspace_cwd, :invalid_remote_workspace, worker_host, workspace}}
-
-      true ->
-        {:ok, workspace}
-    end
-  end
-
-  defp start_port(workspace, nil, model, effort) do
-    Adapter.start_port(workspace, codex_command(model, effort))
-  end
-
-  defp start_port(workspace, worker_host, model, effort) when is_binary(worker_host) do
-    SSH.start_port(worker_host, remote_launch_command(workspace, model, effort), line: Adapter.port_line_bytes())
-  end
-
-  defp remote_launch_command(workspace, model, effort) do
-    [
-      AgentEnvironment.workspace_env_export_prefix(workspace),
-      "cd #{Aiur.Shell.escape(workspace)}",
-      AgentEnvironment.scrub_shell_command(codex_command(model, effort), exec: true)
-    ]
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.join(" && ")
-  end
-
-  # Codex pins its model and reasoning effort in the launch command. A
-  # per-issue model override appends a trailing `--config model="<variant>"`,
-  # and a per-complexity effort appends `--config model_reasoning_effort="<e>"`;
-  # codex applies the last `--config` for a key, so these beat any value baked
-  # into the configured command (e.g. an `--config model_reasoning_effort=high`
-  # default). The appended values are shell-escaped as complete `--config`
-  # arguments, and effort is validated against the backend's `efforts/1` set.
-  defp codex_command(model, effort) do
-    Aiur.Codex.Config.command()
-    |> append_config("model", model)
-    |> append_config("model_reasoning_effort", effort)
-  end
-
-  defp append_config(command, _key, nil), do: command
-
-  defp append_config(command, key, value) when is_binary(value) do
-    command <> " --config " <> Aiur.Shell.escape(~s(#{key}="#{value}"))
-  end
-
-  defp port_metadata(port, worker_host \\ nil) when is_port(port) do
-    metadata =
-      case :erlang.port_info(port, :os_pid) do
-        {:os_pid, os_pid} ->
-          %{codex_app_server_pid: to_string(os_pid)}
-
-        _ ->
-          %{}
-      end
-
-    case worker_host do
-      host when is_binary(host) -> Map.put(metadata, :worker_host, host)
-      _ -> metadata
-    end
-  end
-
-  defp send_initialize(port) do
-    send_message(port, Messages.initialize_frame())
-
-    with {:ok, _} <- await_startup_response(port, Messages.initialize_id()) do
-      send_message(port, Messages.initialized_frame())
-      :ok
-    end
-  rescue
-    # The agent process can exit at any point (e.g. it crashed on boot);
-    # Port.command/2 then raises ArgumentError on the closed port. Surface it as
-    # a handled {:error, :port_closed} — `do_start_session/1` already routes that
-    # — instead of crashing the run. Mirrors send_operator_message/interrupt_turn.
-    ArgumentError -> {:error, :port_closed}
-  end
-
-  defp session_policies(workspace, nil) do
-    Config.codex_runtime_settings(workspace)
-  end
-
-  defp session_policies(workspace, worker_host) when is_binary(worker_host) do
-    Config.codex_runtime_settings(workspace, remote: true)
-  end
-
-  defp do_start_session(port, workspace, session_policies, resume_thread_id) do
-    case send_initialize(port) do
-      :ok -> start_or_resume_thread(port, workspace, session_policies, resume_thread_id)
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  # No persisted handle to resume from: open a fresh thread.
-  defp start_or_resume_thread(port, workspace, session_policies, nil) do
-    with {:ok, thread_id} <- start_thread(port, workspace, session_policies) do
-      {:ok, thread_id, false}
-    end
-  end
-
-  # A prior thread was persisted: try `thread/resume` so the agent rejoins its
-  # existing conversation across the aiur restart. Resume must never strand an
-  # issue — if the rollout is gone/stale/unreadable (process died mid-write,
-  # ran on another host, codex evicted it), fall back to a clean `thread/start`
-  # rather than erroring (issue #378 acceptance: degrade gracefully).
-  defp start_or_resume_thread(port, workspace, session_policies, resume_thread_id)
-       when is_binary(resume_thread_id) do
-    case resume_outcome(resume_thread(port, workspace, session_policies, resume_thread_id), resume_thread_id) do
-      {:resumed, thread_id} ->
-        Logger.info("Codex resumed prior thread thread_id=#{thread_id} (no cold start)")
-        {:ok, thread_id, true}
-
-      {:fresh, thread_id} ->
-        # codex handed back a thread other than the one we asked to resume, so
-        # we did NOT actually rejoin the prior conversation. Report resumed?
-        # false so the first turn replays the full cold-start prompt instead of
-        # a context-free continuation prompt against an unfamiliar thread.
-        Logger.warning("Codex thread/resume returned a different thread_id (requested=#{resume_thread_id} got=#{thread_id}); treating as a clean start")
-        {:ok, thread_id, false}
-
-      {:fallback, reason} ->
-        Logger.warning("Codex thread/resume failed for thread_id=#{resume_thread_id} (#{inspect(reason)}); falling back to a clean thread/start")
-        Aiur.Perf.event(:codex_resume_fallback, thread_id: resume_thread_id, reason: inspect(reason))
-
-        with {:ok, thread_id} <- start_thread(port, workspace, session_policies) do
-          {:ok, thread_id, false}
-        end
-    end
-  end
-
-  # Classify a `thread/resume` result against the thread we asked to resume.
-  # A genuine resume returns the SAME thread id; any other id means codex did
-  # not rejoin our rollout (treat as fresh), and an error means fall back to a
-  # clean start. Pure so the resumed?-vs-clean-start decision is unit-testable
-  # without a live app-server.
-  @doc false
-  @spec resume_outcome({:ok, String.t()} | {:error, term()}, String.t()) ::
-          {:resumed, String.t()} | {:fresh, String.t()} | {:fallback, term()}
-  def resume_outcome({:ok, resume_thread_id}, resume_thread_id), do: {:resumed, resume_thread_id}
-  def resume_outcome({:ok, other_thread_id}, _resume_thread_id), do: {:fresh, other_thread_id}
-  def resume_outcome({:error, reason}, _resume_thread_id), do: {:fallback, reason}
-
-  defp start_thread(port, workspace, session_policies) do
-    send_thread_init(port, thread_init_frame(nil, workspace, session_policies))
-  end
-
-  defp resume_thread(port, workspace, session_policies, resume_thread_id) do
-    send_thread_init(port, thread_init_frame(resume_thread_id, workspace, session_policies))
-  end
-
-  # Write the thread/start|resume frame and read its response. A dead app-server
-  # makes `Port.command` raise `ArgumentError`; catch it as `{:error,
-  # :port_closed}` (mirroring `send_initialize`/`send_operator_message`) so a
-  # port that died before/at the send degrades to a handled error — and, on the
-  # resume path, to a clean start — rather than crashing the dispatch.
-  defp send_thread_init(port, frame) do
-    send_message(port, frame)
-    parse_thread_response(await_startup_response(port, @thread_start_id))
-  rescue
-    ArgumentError -> {:error, :port_closed}
-  end
-
-  # `thread/start` and `thread/resume` share a request id and response shape
-  # (`%{"thread" => %{"id" => ...}}`). A fresh thread also registers aiur's
-  # dynamic tools; resume has no `dynamicTools` param — the codex app-server
-  # restores the registration from the persisted rollout — so we must not send
-  # one on resume.
-  defp thread_init_frame(nil, workspace, %{approval_policy: approval_policy, thread_sandbox: thread_sandbox}) do
-    %{
-      "method" => "thread/start",
-      "id" => @thread_start_id,
-      "params" => %{
-        "approvalPolicy" => approval_policy,
-        "sandbox" => thread_sandbox,
-        "cwd" => workspace,
-        "dynamicTools" => DynamicTool.tool_specs()
-      }
-    }
-  end
-
-  defp thread_init_frame(resume_thread_id, workspace, %{approval_policy: approval_policy, thread_sandbox: thread_sandbox})
-       when is_binary(resume_thread_id) do
-    %{
-      "method" => "thread/resume",
-      "id" => @thread_start_id,
-      "params" => %{
-        "threadId" => resume_thread_id,
-        "approvalPolicy" => approval_policy,
-        "sandbox" => thread_sandbox,
-        "cwd" => workspace
-      }
-    }
-  end
-
-  defp parse_thread_response({:ok, %{"thread" => %{"id" => thread_id}}}), do: {:ok, thread_id}
-  defp parse_thread_response({:ok, %{"thread" => thread_payload}}), do: {:error, {:invalid_thread_payload, thread_payload}}
-  defp parse_thread_response(other), do: other
+  defp session_policies(workspace, nil), do: Config.codex_runtime_settings(workspace)
+  defp session_policies(workspace, worker_host) when is_binary(worker_host), do: Config.codex_runtime_settings(workspace, remote: true)
 
   @impl Aiur.AppServer.Adapter
   @doc false
-  @spec start_turn(session(), String.t(), map()) :: {:ok, String.t()} | {:error, term()}
-  def start_turn(
-        %{
-          port: port,
-          thread_id: thread_id,
-          workspace: workspace,
-          approval_policy: approval_policy,
-          turn_sandbox_policy: turn_sandbox_policy
-        },
-        prompt,
-        issue
-      ) do
-    send_message(port, %{
-      "method" => "turn/start",
-      "id" => @turn_start_id,
-      "params" => %{
-        "threadId" => thread_id,
-        "input" => [
-          %{
-            "type" => "text",
-            "text" => prompt
-          }
-        ],
-        "cwd" => workspace,
-        "title" => "#{issue.identifier}: #{issue.title}",
-        "approvalPolicy" => approval_policy,
-        "sandboxPolicy" => turn_sandbox_policy
-      }
-    })
-
-    case await_startup_response(port, @turn_start_id) do
-      {:ok, %{"turn" => %{"id" => turn_id}}} -> {:ok, turn_id}
-      other -> other
-    end
-  end
-
+  def start_turn(session, prompt, issue), do: Handshake.start_turn(session, prompt, issue)
   @impl Aiur.AppServer.Adapter
   @doc false
-  @spec backend_label() :: String.t()
   def backend_label, do: "Codex"
+  @impl Aiur.AppServer.Adapter
+  @doc false
+  def loop_state_extras(session), do: %{auto_approve_requests: session.auto_approve_requests, turn_started?: false}
+  @impl Aiur.AppServer.Adapter
+  @doc false
+  def handle_interrupt_error(state, error), do: Interrupts.handle_interrupt_error(state, error)
+  @impl Aiur.AppServer.Adapter
+  @doc false
+  def handle_method(session, state, payload, payload_string, method),
+    do: TurnLoop.handle_method(session, state, payload, payload_string, method)
 
   @impl Aiur.AppServer.Adapter
   @doc false
-  @spec loop_state_extras(session()) :: map()
-  def loop_state_extras(session) do
-    %{auto_approve_requests: session.auto_approve_requests, turn_started?: false}
-  end
-
+  def handle_malformed(state, payload_string, port), do: TurnLoop.handle_malformed(state, payload_string, port)
   @impl Aiur.AppServer.Adapter
   @doc false
-  @spec handle_interrupt_error(map(), term()) :: {:continue, map()} | {:error, term()}
-  def handle_interrupt_error(state, error) do
-    if no_active_turn_error?(error) do
-      # Codex says "no active turn to interrupt" (-32600). The turn
-      # ended on its own between us deciding to interrupt and codex
-      # processing the request. There's nothing left to interrupt —
-      # treat it the same as a successful interrupt so the operator
-      # message / pause request gets handled on the next cycle.
-      # Without this, the AgentRunner Task crashes with
-      # `{:turn_interrupt_failed, ...}` and the orchestrator dumps a
-      # `system:` line into the chat pane (recurrent issue
-      # triggered by U5's reactivation flow, where a fresh agent
-      # task receives an operator-queue update before its first
-      # codex turn has spawned).
-      {:continue, %{state | pending_interrupt_request_id: nil}}
-    else
-      {:error, {:turn_interrupt_failed, error}}
-    end
-  end
-
+  def metadata_from_message(port, payload), do: TurnEvents.metadata_from_message(port, payload)
   @impl Aiur.AppServer.Adapter
   @doc false
-  @spec handle_method(map(), map(), map(), String.t(), String.t()) :: term()
-  def handle_method(session, state, %{"method" => "turn/completed"} = payload, payload_string, _method) do
-    emit_turn_event(state.on_message, :turn_completed, payload, payload_string, session.port, payload)
-
-    case TurnState.turn_completion_status(payload) do
-      "interrupted" -> TurnState.continue_after_turn_interrupted(state, payload)
-      _ -> TurnState.continue_after_turn_completion(state)
-    end
-  end
-
-  def handle_method(session, state, %{"method" => "turn/failed", "params" => params} = payload, payload_string, _method) do
-    emit_turn_event(state.on_message, :turn_failed, payload, payload_string, session.port, params)
-    TurnState.fail_pending_operator_requests(state.pending_operator_requests, {:turn_failed, params})
-    {:error, {:turn_failed, params}}
-  end
-
-  def handle_method(session, state, %{"method" => "turn/cancelled", "params" => params} = payload, payload_string, _method) do
-    emit_turn_event(state.on_message, :turn_cancelled, payload, payload_string, session.port, params)
-    TurnState.fail_pending_operator_requests(state.pending_operator_requests, {:turn_cancelled, params})
-
-    if is_integer(state.pause_request_id) do
-      {:paused,
-       %{
-         request_id: state.pause_request_id,
-         turn_id: state.current_turn_id,
-         details: params
-       }}
-    else
-      {:error, {:turn_cancelled, params}}
-    end
-  end
-
-  def handle_method(session, state, %{"method" => method} = payload, payload_string, _method)
-      when is_binary(method) do
-    handle_turn_method(session, state, payload, payload_string, method)
-  end
-
-  @impl Aiur.AppServer.Adapter
-  @doc false
-  @spec handle_malformed(map(), String.t(), port()) :: {:continue, map()}
-  def handle_malformed(state, payload_string, port) do
-    Rpc.log_non_json_stream_line(payload_string, "turn stream", "Codex")
-
-    if protocol_message_candidate?(payload_string) do
-      Messages.emit_message(
-        state.on_message,
-        :malformed,
-        %{
-          payload: payload_string,
-          raw: payload_string
-        },
-        metadata_from_message(port, %{raw: payload_string})
-      )
-    end
-
-    {:continue, state}
-  end
-
-  defp protocol_message_candidate?(payload_string) do
-    payload_string
-    |> to_string()
-    |> String.trim_leading()
-    |> String.starts_with?(["{", "["])
-  end
-
-  defp emit_turn_event(on_message, event, payload, payload_string, port, payload_details) do
-    Messages.emit_message(
-      on_message,
-      event,
-      %{
-        payload: payload,
-        raw: payload_string,
-        details: payload_details
-      },
-      metadata_from_message(port, payload)
-    )
-  end
-
-  defp handle_turn_method(%{port: port} = session, state, payload, payload_string, method) do
-    on_message = state.on_message
-    metadata = metadata_from_message(port, payload)
-
-    case maybe_handle_approval_request(
-           port,
-           method,
-           payload,
-           payload_string,
-           on_message,
-           metadata,
-           state.tool_executor,
-           state.auto_approve_requests
-         ) do
-      :input_required ->
-        Messages.emit_message(
-          on_message,
-          :turn_input_required,
-          %{payload: payload, raw: payload_string},
-          metadata
-        )
-
-        {:error, {:turn_input_required, payload}}
-
-      :approved ->
-        {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, checkpoint_for_method(method))}
-
-      :approval_required ->
-        Messages.emit_message(
-          on_message,
-          :approval_required,
-          %{payload: payload, raw: payload_string},
-          metadata
-        )
-
-        {:error, {:approval_required, payload}}
-
-      :unhandled ->
-        handle_unhandled_method(session, state, method, payload, payload_string, on_message, metadata)
-    end
-  end
-
-  defp handle_unhandled_method(session, state, method, payload, payload_string, on_message, metadata) do
-    if needs_input?(method, payload) do
-      Messages.emit_message(on_message, :turn_input_required, %{payload: payload, raw: payload_string}, metadata)
-      {:error, {:turn_input_required, payload}}
-    else
-      Messages.emit_message(on_message, :notification, %{payload: payload, raw: payload_string}, metadata)
-      handle_notification_outcome(session, state, method, payload)
-    end
-  end
-
-  # Surface error-class notifications at info level with the full payload
-  # so the operator log shows the actual codex failure (API rate limit,
-  # auth error, bwrap sandbox refusal, etc.) instead of an opaque
-  # `Codex notification: "error"` line that requires combing through
-  # 1000s of lines of debug-tier `Ignoring message while waiting for
-  # response` detail to reconstruct.
-  #
-  # When codex reports it will not retry (e.g. usageLimitExceeded with
-  # willRetry:false) end the turn as a hard failure instead of :continue.
-  # :continue lets the turn finish "normally", after which the
-  # orchestrator respawns it every ~1s, uncapped; a hard failure routes
-  # through the orchestrator's max_retry_attempts cap and backoff.
-  defp handle_notification_outcome(session, state, method, payload) do
-    cond do
-      codex_quota_exhausted?(method, payload) ->
-        Logger.warning("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; codex account usage quota exhausted — pausing agent instead of burning retries")
-
-        {:paused, usage_limit_pause(payload, method)}
-
-      codex_error_method?(method) and unretryable_codex_error?(payload) ->
-        Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; willRetry=false, ending turn as unretryable")
-        {:error, {:turn_unretryable, codex_error_reason(payload, method)}}
-
-      turn_started_method?(method) ->
-        checkpoint = checkpoint_for_method(method)
-
-        next_state =
-          session
-          |> OperatorDelivery.maybe_process_safe_checkpoint(%{state | turn_started?: true}, checkpoint)
-
-        {:continue, next_state}
-
-      state.turn_started? and thread_idle_status?(method, payload) ->
-        Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; treating idle status as turn completion")
-        TurnState.continue_after_turn_completion(state)
-
-      codex_error_method?(method) ->
-        Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}")
-        {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, checkpoint_for_method(method))}
-
-      true ->
-        Logger.debug("Codex notification: #{inspect(method)}")
-        {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, checkpoint_for_method(method))}
-    end
-  end
-
-  defp checkpoint_for_method("item/tool/call"), do: %{kind: :tool_result, method: "item/tool/call"}
-  defp checkpoint_for_method(method), do: %{kind: :notification, method: method}
-
-  defp thread_idle_status?("thread/status/changed", %{"params" => %{"status" => %{"type" => "idle"}}}), do: true
-  defp thread_idle_status?("thread/status/changed", %{"status" => %{"type" => "idle"}}), do: true
-  defp thread_idle_status?(_method, _payload), do: false
-
-  defp turn_started_method?("turn/started"), do: true
-  defp turn_started_method?(_method), do: false
-
-  # Codex's "no active turn to interrupt" response. Treated as a
-  # successful interrupt by `handle_decoded_incoming/6` because the
-  # turn has already ended — there's nothing to wait for, the
-  # operator message / pause request can proceed on the next cycle.
-  defp no_active_turn_error?(%{"code" => -32_600}), do: true
-
-  defp no_active_turn_error?(%{"message" => message}) when is_binary(message) do
-    String.contains?(message, "no active turn")
-  end
-
-  defp no_active_turn_error?(_), do: false
-
-  defp maybe_handle_approval_request(
-         port,
-         "item/commandExecution/requestApproval",
-         %{"id" => id} = payload,
-         payload_string,
-         on_message,
-         metadata,
-         _tool_executor,
-         auto_approve_requests
-       ) do
-    approve_or_require(
-      port,
-      id,
-      "acceptForSession",
-      payload,
-      payload_string,
-      on_message,
-      metadata,
-      auto_approve_requests
-    )
-  end
-
-  defp maybe_handle_approval_request(
-         port,
-         "item/tool/call",
-         %{"id" => id, "params" => params} = payload,
-         payload_string,
-         on_message,
-         metadata,
-         tool_executor,
-         _auto_approve_requests
-       ) do
-    tool_name = Messages.tool_call_name(params)
-    arguments = Messages.tool_call_arguments(params)
-
-    result = Messages.normalize_tool_result(tool_executor.(tool_name, arguments))
-
-    send_message(port, %{
-      "id" => id,
-      "result" => result
-    })
-
-    event =
-      case result do
-        %{"success" => true} -> :tool_call_completed
-        _ when is_nil(tool_name) -> :unsupported_tool_call
-        _ -> :tool_call_failed
-      end
-
-    Messages.emit_message(on_message, event, %{payload: payload, raw: payload_string}, metadata)
-
-    :approved
-  end
-
-  defp maybe_handle_approval_request(
-         port,
-         "execCommandApproval",
-         %{"id" => id} = payload,
-         payload_string,
-         on_message,
-         metadata,
-         _tool_executor,
-         auto_approve_requests
-       ) do
-    approve_or_require(
-      port,
-      id,
-      "approved_for_session",
-      payload,
-      payload_string,
-      on_message,
-      metadata,
-      auto_approve_requests
-    )
-  end
-
-  defp maybe_handle_approval_request(
-         port,
-         "applyPatchApproval",
-         %{"id" => id} = payload,
-         payload_string,
-         on_message,
-         metadata,
-         _tool_executor,
-         auto_approve_requests
-       ) do
-    approve_or_require(
-      port,
-      id,
-      "approved_for_session",
-      payload,
-      payload_string,
-      on_message,
-      metadata,
-      auto_approve_requests
-    )
-  end
-
-  defp maybe_handle_approval_request(
-         port,
-         "item/fileChange/requestApproval",
-         %{"id" => id} = payload,
-         payload_string,
-         on_message,
-         metadata,
-         _tool_executor,
-         auto_approve_requests
-       ) do
-    approve_or_require(
-      port,
-      id,
-      "acceptForSession",
-      payload,
-      payload_string,
-      on_message,
-      metadata,
-      auto_approve_requests
-    )
-  end
-
-  defp maybe_handle_approval_request(
-         port,
-         "item/tool/requestUserInput",
-         %{"id" => id, "params" => params} = payload,
-         payload_string,
-         on_message,
-         metadata,
-         _tool_executor,
-         auto_approve_requests
-       ) do
-    maybe_auto_answer_tool_request_user_input(
-      port,
-      id,
-      params,
-      payload,
-      payload_string,
-      on_message,
-      metadata,
-      auto_approve_requests
-    )
-  end
-
-  defp maybe_handle_approval_request(
-         _port,
-         _method,
-         _payload,
-         _payload_string,
-         _on_message,
-         _metadata,
-         _tool_executor,
-         _auto_approve_requests
-       ) do
-    :unhandled
-  end
-
-  defp approve_or_require(
-         port,
-         id,
-         decision,
-         payload,
-         payload_string,
-         on_message,
-         metadata,
-         true
-       ) do
-    send_message(port, %{"id" => id, "result" => %{"decision" => decision}})
-
-    Messages.emit_message(
-      on_message,
-      :approval_auto_approved,
-      %{payload: payload, raw: payload_string, decision: decision},
-      metadata
-    )
-
-    :approved
-  end
-
-  defp approve_or_require(
-         _port,
-         _id,
-         _decision,
-         _payload,
-         _payload_string,
-         _on_message,
-         _metadata,
-         false
-       ) do
-    :approval_required
-  end
-
-  defp maybe_auto_answer_tool_request_user_input(
-         port,
-         id,
-         params,
-         payload,
-         payload_string,
-         on_message,
-         metadata,
-         true
-       ) do
-    case tool_request_user_input_approval_answers(params) do
-      {:ok, answers, decision} ->
-        send_message(port, %{"id" => id, "result" => %{"answers" => answers}})
-
-        Messages.emit_message(
-          on_message,
-          :approval_auto_approved,
-          %{payload: payload, raw: payload_string, decision: decision},
-          metadata
-        )
-
-        :approved
-
-      :error ->
-        reply_with_non_interactive_tool_input_answer(
-          port,
-          id,
-          params,
-          payload,
-          payload_string,
-          on_message,
-          metadata
-        )
-    end
-  end
-
-  defp maybe_auto_answer_tool_request_user_input(
-         port,
-         id,
-         params,
-         payload,
-         payload_string,
-         on_message,
-         metadata,
-         false
-       ) do
-    reply_with_non_interactive_tool_input_answer(
-      port,
-      id,
-      params,
-      payload,
-      payload_string,
-      on_message,
-      metadata
-    )
-  end
-
-  defp tool_request_user_input_approval_answers(%{"questions" => questions}) when is_list(questions) do
-    answers =
-      Enum.reduce_while(questions, %{}, fn question, acc ->
-        case tool_request_user_input_approval_answer(question) do
-          {:ok, question_id, answer_label} ->
-            {:cont, Map.put(acc, question_id, %{"answers" => [answer_label]})}
-
-          :error ->
-            {:halt, :error}
-        end
-      end)
-
-    case answers do
-      :error -> :error
-      answer_map when map_size(answer_map) > 0 -> {:ok, answer_map, "Approve this Session"}
-      _ -> :error
-    end
-  end
-
-  defp tool_request_user_input_approval_answers(_params), do: :error
-
-  defp reply_with_non_interactive_tool_input_answer(
-         port,
-         id,
-         params,
-         payload,
-         payload_string,
-         on_message,
-         metadata
-       ) do
-    case tool_request_user_input_unavailable_answers(params) do
-      {:ok, answers} ->
-        send_message(port, %{"id" => id, "result" => %{"answers" => answers}})
-
-        Messages.emit_message(
-          on_message,
-          :tool_input_auto_answered,
-          %{payload: payload, raw: payload_string, answer: @non_interactive_tool_input_answer},
-          metadata
-        )
-
-        :approved
-
-      :error ->
-        :input_required
-    end
-  end
-
-  defp tool_request_user_input_unavailable_answers(%{"questions" => questions}) when is_list(questions) do
-    answers =
-      Enum.reduce_while(questions, %{}, fn question, acc ->
-        case tool_request_user_input_question_id(question) do
-          {:ok, question_id} ->
-            {:cont, Map.put(acc, question_id, %{"answers" => [@non_interactive_tool_input_answer]})}
-
-          :error ->
-            {:halt, :error}
-        end
-      end)
-
-    case answers do
-      :error -> :error
-      answer_map when map_size(answer_map) > 0 -> {:ok, answer_map}
-      _ -> :error
-    end
-  end
-
-  defp tool_request_user_input_unavailable_answers(_params), do: :error
-
-  defp tool_request_user_input_question_id(%{"id" => question_id}) when is_binary(question_id),
-    do: {:ok, question_id}
-
-  defp tool_request_user_input_question_id(_question), do: :error
-
-  defp tool_request_user_input_approval_answer(%{"id" => question_id, "options" => options})
-       when is_binary(question_id) and is_list(options) do
-    case tool_request_user_input_approval_option_label(options) do
-      nil -> :error
-      answer_label -> {:ok, question_id, answer_label}
-    end
-  end
-
-  defp tool_request_user_input_approval_answer(_question), do: :error
-
-  defp tool_request_user_input_approval_option_label(options) do
-    options
-    |> Enum.map(&tool_request_user_input_option_label/1)
-    |> Enum.reject(&is_nil/1)
-    |> case do
-      labels ->
-        Enum.find(labels, &(&1 == "Approve this Session")) ||
-          Enum.find(labels, &(&1 == "Approve Once")) ||
-          Enum.find(labels, &approval_option_label?/1)
-    end
-  end
-
-  defp tool_request_user_input_option_label(%{"label" => label}) when is_binary(label), do: label
-  defp tool_request_user_input_option_label(_option), do: nil
-
-  defp approval_option_label?(label) when is_binary(label) do
-    normalized_label =
-      label
-      |> String.trim()
-      |> String.downcase()
-
-    String.starts_with?(normalized_label, "approve") or String.starts_with?(normalized_label, "allow")
-  end
-
-  defp await_startup_response(port, request_id) do
-    Rpc.with_timeout_response(port, request_id, startup_response_timeout_ms(), "", "Codex")
-  end
-
-  defp startup_response_timeout_ms(read_timeout_ms \\ Config.agent_read_timeout_ms()) do
-    max(read_timeout_ms, @cold_start_response_timeout_ms)
-  end
-
-  defp stop_port(port) when is_port(port) do
-    case :erlang.port_info(port) do
-      :undefined ->
-        :ok
-
-      _ ->
-        # Reap the descendant tree (node -> rust app-server) BEFORE closing the
-        # port. `Port.close` only kills the bash wrapper; its children would
-        # reparent to init and keep holding the global ~/.codex/state_5.sqlite
-        # lock, poisoning every subsequent codex agent. Collecting descendants
-        # must happen while the wrapper is still alive to anchor the pgrep walk.
-        case :erlang.port_info(port, :os_pid) do
-          {:os_pid, os_pid} ->
-            Aiur.ProcessReaper.unregister({:os_pid, os_pid})
-            RemoteControl.graceful_kill_tree(os_pid)
-
-          _ ->
-            :ok
-        end
-
-        try do
-          Port.close(port)
-          :ok
-        rescue
-          ArgumentError ->
-            :ok
-        end
-    end
-  end
-
-  @spec normalize_event(map()) :: map()
-  @impl Aiur.CodingAgent.Backend
-  def normalize_event(event) when is_map(event) do
-    event
-    |> normalize_usage()
-    |> normalize_rate_limits()
-  end
-
-  defp normalize_usage(event) do
-    payloads = [
-      event[:usage],
-      Map.get(event, "usage"),
-      event[:payload],
-      Map.get(event, "payload"),
-      event
-    ]
-
-    usage =
-      Enum.find_value(payloads, &absolute_token_usage/1) ||
-        Enum.find_value(payloads, &turn_completed_usage/1) ||
-        Enum.find_value(payloads, &direct_token_map/1)
-
-    Map.put(event, :usage, TokenUsage.canonicalize(usage))
-  end
-
-  defp normalize_rate_limits(event) do
-    raw =
-      find_rate_limits(event[:rate_limits]) ||
-        find_rate_limits(Map.get(event, "rate_limits")) ||
-        find_rate_limits(event[:payload]) ||
-        find_rate_limits(Map.get(event, "payload")) ||
-        find_rate_limits(event)
-
-    Map.put(event, :rate_limits, raw)
-  end
-
-  defp absolute_token_usage(payload) when is_map(payload) do
-    paths = [
-      ["params", "msg", "payload", "info", "total_token_usage"],
-      [:params, :msg, :payload, :info, :total_token_usage],
-      ["params", "msg", "info", "total_token_usage"],
-      [:params, :msg, :info, :total_token_usage],
-      ["params", "tokenUsage", "total"],
-      [:params, :tokenUsage, :total],
-      ["tokenUsage", "total"],
-      [:tokenUsage, :total]
-    ]
-
-    Enum.find_value(paths, fn path ->
-      value = MapAccess.dig(payload, path)
-      if is_map(value) and TokenUsage.token_field?(value), do: value
-    end)
-  end
-
-  defp absolute_token_usage(_), do: nil
-
-  defp turn_completed_usage(payload) when is_map(payload) do
-    method = Map.get(payload, "method") || Map.get(payload, :method)
-
-    if method in ["turn/completed", :turn_completed] do
-      direct =
-        Map.get(payload, "usage") || Map.get(payload, :usage) ||
-          MapAccess.dig(payload, ["params", "usage"]) || MapAccess.dig(payload, [:params, :usage])
-
-      if is_map(direct) and TokenUsage.token_field?(direct), do: direct
-    end
-  end
-
-  defp turn_completed_usage(_), do: nil
-
-  defp direct_token_map(payload) when is_map(payload) do
-    if TokenUsage.token_field?(payload), do: payload
-  end
-
-  defp direct_token_map(_), do: nil
-
-  defp find_rate_limits(payload) when is_map(payload) do
-    direct = Map.get(payload, "rate_limits") || Map.get(payload, :rate_limits)
-
-    cond do
-      rate_limits_map?(direct) -> direct
-      rate_limits_map?(payload) -> payload
-      true -> search_rate_limits(payload)
-    end
-  end
-
-  defp find_rate_limits(_), do: nil
-
-  defp search_rate_limits(payload) when is_map(payload) do
-    Enum.find_value(Map.values(payload), fn
-      value when is_map(value) -> find_rate_limits(value)
-      _ -> nil
-    end)
-  end
-
-  defp rate_limits_map?(payload) when is_map(payload) do
-    has_id =
-      !is_nil(
-        Map.get(payload, "limit_id") || Map.get(payload, :limit_id) ||
-          Map.get(payload, "limit_name") || Map.get(payload, :limit_name)
-      )
-
-    has_buckets =
-      Enum.any?(
-        ["primary", :primary, "secondary", :secondary, "credits", :credits],
-        &Map.has_key?(payload, &1)
-      )
-
-    has_id and has_buckets
-  end
-
-  defp rate_limits_map?(_), do: false
-
-  @impl Aiur.AppServer.Adapter
-  @doc false
-  @spec metadata_from_message(port(), term()) :: map()
-  def metadata_from_message(port, payload) do
-    port |> port_metadata() |> maybe_set_usage(payload)
-  end
-
-  defp maybe_set_usage(metadata, payload) when is_map(payload) do
-    usage = Map.get(payload, "usage") || Map.get(payload, :usage)
-
-    if is_map(usage) do
-      Map.put(metadata, :usage, usage)
-    else
-      metadata
-    end
-  end
-
-  defp maybe_set_usage(metadata, _payload), do: metadata
-
-  @impl Aiur.AppServer.Adapter
-  @doc false
-  @spec send_frame(port(), map()) :: :ok | {:error, :port_closed}
   def send_frame(port, frame) do
     Rpc.send_line(port, frame)
     :ok
@@ -1178,210 +153,19 @@ defmodule Aiur.Codex.CodingAgent do
     ArgumentError -> {:error, :port_closed}
   end
 
-  defp send_message(port, message) do
-    Rpc.send_line(port, message)
-  end
-
-  defp needs_input?(method, payload)
-       when is_binary(method) and is_map(payload) do
-    String.starts_with?(method, "turn/") && input_required_method?(method, payload)
-  end
-
-  defp needs_input?(_method, _payload), do: false
-
-  # Identify error-class notifications that should be surfaced at info
-  # level with their payload, not buried at debug. Codex sends "error"
-  # as a top-level method when the API itself fails (rate limit, auth,
-  # transport timeout). It also sends `*/error`-suffixed methods for
-  # subsystem failures. Without these surfacing rules an operator
-  # debugging a stuck agent has to enable debug logging globally and
-  # then grep through 1000s of lines of routine MCP notifications.
-  defp codex_error_method?(method) when is_binary(method) do
-    method == "error" or String.ends_with?(method, "/error")
-  end
-
-  defp input_required_method?(method, payload) when is_binary(method) do
-    method in [
-      "turn/input_required",
-      "turn/needs_input",
-      "turn/need_input",
-      "turn/request_input",
-      "turn/request_response",
-      "turn/provide_input",
-      "turn/approval_required"
-    ] || request_payload_requires_input?(payload)
-  end
-
-  defp request_payload_requires_input?(payload) do
-    params = Map.get(payload, "params")
-    needs_input_field?(payload) || needs_input_field?(params)
-  end
-
-  defp needs_input_field?(payload) when is_map(payload) do
-    Map.get(payload, "requiresInput") == true or
-      Map.get(payload, "needsInput") == true or
-      Map.get(payload, "input_required") == true or
-      Map.get(payload, "inputRequired") == true or
-      Map.get(payload, "type") == "input_required" or
-      Map.get(payload, "type") == "needs_input"
-  end
-
-  defp needs_input_field?(_payload), do: false
-
-  @doc false
-  @spec codex_command_for_test(String.t() | nil, String.t() | nil) :: String.t()
-  def codex_command_for_test(model, effort \\ nil), do: codex_command(model, effort)
-
-  @doc false
-  @spec thread_init_frame_for_test(String.t() | nil, Path.t(), map()) :: map()
-  def thread_init_frame_for_test(resume_thread_id, workspace, session_policies) do
-    thread_init_frame(resume_thread_id, workspace, session_policies)
-  end
-
-  @doc false
-  @spec send_thread_init_for_test(port(), map()) :: {:ok, String.t()} | {:error, term()}
-  def send_thread_init_for_test(port, frame), do: send_thread_init(port, frame)
-
-  @doc false
-  @spec await_startup_response_for_test(port(), integer(), pos_integer()) :: {:ok, map()} | {:error, term()}
-  def await_startup_response_for_test(port, request_id, read_timeout_ms) do
-    Rpc.with_timeout_response(port, request_id, startup_response_timeout_ms(read_timeout_ms), "", "Codex")
-  end
-
-  @doc false
-  @spec startup_response_timeout_ms_for_test(pos_integer()) :: pos_integer()
-  def startup_response_timeout_ms_for_test(read_timeout_ms), do: startup_response_timeout_ms(read_timeout_ms)
-
-  @doc false
-  @spec parse_thread_response_for_test({:ok, map()} | {:error, term()}) :: {:ok, String.t()} | {:error, term()}
-  def parse_thread_response_for_test(response), do: parse_thread_response(response)
-
-  @doc false
-  @spec unretryable_codex_error_for_test(map()) :: boolean()
-  def unretryable_codex_error_for_test(payload) when is_map(payload), do: unretryable_codex_error?(payload)
-
-  @doc false
-  @spec codex_error_reason_for_test(map(), String.t()) :: String.t()
-  def codex_error_reason_for_test(payload, method) when is_map(payload) and is_binary(method) do
-    codex_error_reason(payload, method)
-  end
-
-  @doc false
-  @spec usage_limit_exceeded_for_test(map()) :: boolean()
-  def usage_limit_exceeded_for_test(payload) when is_map(payload), do: usage_limit_exceeded?(payload)
-
-  @doc false
-  @spec usage_limit_reset_hint_for_test(map()) :: String.t() | nil
-  def usage_limit_reset_hint_for_test(payload) when is_map(payload), do: usage_limit_reset_hint(payload)
-
-  # Routing-only helper: the quota-pause and unretryable-error cond clauses both
-  # return without dereferencing `session`/`state`, so dummy maps are safe HERE.
-  # Do not reuse this for other branches — they read from session/state.
-  @doc false
-  @spec notification_outcome_for_test(String.t(), map()) :: tuple()
-  def notification_outcome_for_test(method, payload) when is_binary(method) and is_map(payload) do
-    handle_notification_outcome(%{}, %{}, method, payload)
-  end
-
-  @doc false
-  @spec codex_quota_exhausted_for_test(String.t(), map()) :: boolean()
-  def codex_quota_exhausted_for_test(method, payload) when is_binary(method) and is_map(payload) do
-    codex_quota_exhausted?(method, payload)
-  end
-
-  # The flag can ride on the notification root or inside `params`, and
-  # codex has used both camelCase and snake_case across versions, so
-  # check all four positions (mirrors `request_payload_requires_input?`).
-  defp unretryable_codex_error?(payload) do
-    will_retry_false?(payload) || will_retry_false?(Map.get(payload, "params"))
-  end
-
-  defp will_retry_false?(payload) when is_map(payload) do
-    Map.get(payload, "willRetry") == false or Map.get(payload, "will_retry") == false
-  end
-
-  defp will_retry_false?(_payload), do: false
-
-  # Quota exhaustion is the subset of *unretryable* error-method turn failures
-  # (codex sets willRetry:false when the account quota is gone) whose detail
-  # names a usage limit. Gating on `unretryable_codex_error?` as well keeps a
-  # merely transient error that happens to mention "usage limit" from stranding
-  # the agent in a pause — a pause has no auto-resume timer, so such errors must
-  # fall through to the normal retry path instead. Folding the checks into one
-  # predicate keeps `handle_notification_outcome/4` within its
-  # cyclomatic-complexity budget.
-  defp codex_quota_exhausted?(method, payload) do
-    codex_error_method?(method) and unretryable_codex_error?(payload) and
-      usage_limit_exceeded?(payload)
-  end
-
-  # A `usageLimitExceeded` turn error means the codex/ChatGPT account quota is
-  # exhausted (it resets at a stated time) — NOT a transient rate limit, so
-  # immediate retries cannot help and only burn the agent's retry budget into
-  # `agent:error`. Detect it robustly (codex stashes the marker under different
-  # keys across versions) and route the turn to a pause + operator alert. The
-  # inspected-payload scan mirrors the agent runner's `more_tokens_reason?` and
-  # survives field-name drift. Kept total (no `is_map` guard) so a malformed
-  # non-map payload degrades to `false` rather than crashing the receive loop.
-  defp usage_limit_exceeded?(payload) do
-    payload
-    |> inspect()
-    |> String.downcase()
-    |> String.contains?(["usagelimitexceeded", "usage limit"])
-  end
-
-  # Pause payload for a quota-exhaustion turn error. `kind` lets the agent
-  # runner emit the operator alert; `reset_hint` carries the human-readable
-  # "try again at …" time when codex provides one.
-  defp usage_limit_pause(payload, method) do
-    %{
-      kind: :usage_limit_exhausted,
-      reason: codex_error_reason(payload, method),
-      reset_hint: usage_limit_reset_hint(payload)
-    }
-  end
-
-  # Best-effort: pull the "try again at 11:43 PM" reset time out of whatever
-  # human message codex attached. Returns nil when no such phrase is present.
-  # Kept total (no `is_map` guard) to match `usage_limit_exceeded?/1`.
-  defp usage_limit_reset_hint(payload) do
-    case Regex.run(~r/try again at ([^."\n]+)/i, inspect(payload)) do
-      [_, when_str] -> String.trim(when_str)
+  defp register_pause_containment(identifier, metadata, workspace) when is_binary(identifier) do
+    with pid when is_binary(pid) <- metadata[:codex_app_server_pid],
+         group when is_binary(group) <- metadata[:agent_process_group_id],
+         {root_pid, ""} <- Integer.parse(pid),
+         {process_group_id, ""} <- Integer.parse(group) do
+      case PauseContainment.register(identifier, root_pid, process_group_id, workspace: workspace) do
+        {:ok, handle} -> handle
+        _ -> nil
+      end
+    else
       _ -> nil
     end
   end
 
-  # Best-effort human-readable reason for the failure tuple/log/alert. Control
-  # flow keys only on `willRetry`; the detail field name varies across codex
-  # versions, so check the known positions (root + params + nested error) and
-  # fall back to the method when no recognizable detail is present — never the
-  # bare opaque `"error"` when a detail is actually available.
-  defp codex_error_reason(payload, method) do
-    case codex_error_detail(payload) do
-      detail when is_binary(detail) and detail != "" -> "#{method}: #{detail}"
-      _ -> method
-    end
-  end
-
-  defp codex_error_detail(payload) do
-    params = Map.get(payload, "params") || %{}
-    params_error = ensure_map(Map.get(params, "error"))
-    root_error = ensure_map(Map.get(payload, "error"))
-    nested = Map.merge(params_error, root_error)
-
-    [
-      Map.get(params, "message"),
-      Map.get(params, "codexErrorInfo"),
-      Map.get(nested, "message"),
-      Map.get(params, "type"),
-      Map.get(params, "code"),
-      Map.get(nested, "type"),
-      Map.get(nested, "code"),
-      Map.get(payload, "message")
-    ]
-    |> Enum.find(fn value -> is_binary(value) and value != "" end)
-  end
-
-  defp ensure_map(value) when is_map(value), do: value
-  defp ensure_map(_value), do: %{}
+  defp register_pause_containment(_identifier, _metadata, _workspace), do: nil
 end

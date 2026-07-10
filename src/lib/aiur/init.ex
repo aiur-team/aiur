@@ -2,112 +2,34 @@ defmodule Aiur.Init do
   @moduledoc """
   Interactive `aiur init` wizard.
 
-  Runs as a foreground command (never the tmux-backed TUI): it asks the
-  decisions that branch behavior using interactive Owl components, fills the
-  committed config example template, writes the result to the chosen target
-  (`./.aiur/config` or the global `~/.aiur/config`, alongside `hooks`,
-  `prompt.md`, and `examples/`), and — for GitHub trackers — creates the labels
-  aiur depends on.
-
   The wizard takes an injected `io` (prompt/print) and `deps` (filesystem,
   network, auth) so it is fully unit-testable with no real side effects.
   """
 
-  alias Aiur.Codeowners
-  alias Aiur.GitHub.Labels
+  # credo:disable-for-this-file Credo.Check.Design.AliasUsage
+  alias Aiur.Init.Alerts
   alias Aiur.Init.Format
-  alias Aiur.Init.Prompt
+  alias Aiur.Init.Migration
+  alias Aiur.Init.Prewarm
   alias Aiur.Init.Questions
   alias Aiur.Init.Resume
   alias Aiur.Init.Runtime
+  alias Aiur.Init.Scaffold
   alias Aiur.Init.Templates
-  alias Aiur.Prewarm.Detect
 
-  # New layout: aiur files live in a `.aiur/` folder (`.aiur/config`, `.aiur/hooks`,
-  # `.aiur/prompt.md`, `.aiur/examples/`). `@config_file_name` is the repo-relative
-  # path used for both the target and user-facing messages; the legacy root
-  # `.aiurconfig` is still honored on read (see `Aiur.Workflow`) and is what the
-  # migration path (resume) moves into the folder.
-  @config_file_name ".aiur/config"
-  @legacy_config_file_name ".aiurconfig"
   @prompt_basename "prompt.md"
-  @examples_dir "examples"
-  @gitignore_entry ".aiur/"
-  # Legacy root example file -> new `.aiur/examples/` name, for the migration.
-  @legacy_examples [
-    {".aiurconfig.example", "config.example"},
-    {".aiurhooks.example", "hooks.example"},
-    {"AIUR.md.example", "prompt.md.example"}
-  ]
   @env_file_name ".env"
-  @env_example_file_name ".env.example"
-  @codeowners_file_name ".github/CODEOWNERS"
   @token_url "https://github.com/settings/tokens"
   @linear_key_url "https://linear.app/settings/api"
 
-  # The workflow-state label namespace is fixed (operators don't customize it):
-  # aiur picks up issues tagged `agent:todo` and walks them through `agent:*`.
-  @label_prefix "agent"
-  # Low complexity routes to the first kind, high to the last.
-  @routing_order ["claude", "codex"]
-
-  # The scaffolded config references hooks via `hooks_file: hooks`, so init also
-  # writes a `.aiur/hooks` (from `.aiur/examples/hooks.example`) next to the config
-  # — otherwise the first run would fail resolving a missing hooks file. Embedded at
-  # compile time so the wizard works from a release with no runtime file dependency.
-  @aiurhooks_file_name "hooks"
-  @prewarm_file_name "prewarm"
-
-  # The scaffolded config references the alert sound map via `alerts_file: alerts`,
-  # so init also writes an extensionless `.aiur/alerts` next to the config —
-  # matching the `.aiur/` convention where config-like files have no extension.
-  # macOS and Linux ship different system sounds, so there is one filled example
-  # per platform and init scaffolds the host's. Embedded at compile time so the
-  # wizard works from a release with no runtime file dependency.
-  @alerts_file_name "alerts"
-
-  @type io :: %{
-          puts: (IO.chardata() -> :ok),
-          input: (String.t(), String.t() | nil, String.t() | nil -> String.t() | nil),
-          select: (String.t(), [String.t()], String.t() -> String.t()),
-          multiselect: (String.t(), [String.t()], [String.t()] -> [String.t()]),
-          confirm: (String.t(), boolean() -> boolean())
-        }
-
-  @type deps :: %{
-          config_target: (atom() -> Path.t()),
-          legacy_config_target: (atom() -> Path.t()),
-          existing_config_path: (Path.t() -> String.t() | nil),
-          load_config: (Path.t() -> {:ok, map()} | {:error, term()}),
-          migrate_layout: (map() -> {:ok, map()} | {:error, term()}),
-          read_example: (-> String.t()),
-          detect_repo: (-> String.t() | nil),
-          detect_toolchain: (-> Detect.result()),
-          prewarm_build: (String.t(), String.t() -> {:ok, Path.t()} | {:error, term()}),
-          global_alerts_path: (-> Path.t()),
-          existing_alerts_path: (Path.t() -> String.t() | nil),
-          write_config: (Path.t(), String.t() -> {:ok, Path.t()} | {:error, term()}),
-          append_config: (Path.t(), iodata() -> {:ok, Path.t()} | {:error, term()}),
-          ensure_prompt_file: (Path.t(), String.t(), String.t() | nil -> {:created | :exists, Path.t()}),
-          ensure_aiurhooks: (Path.t() -> {:created | :exists, Path.t()}),
-          ensure_alerts: (Path.t(), Path.t() | nil -> {:created | :exists, Path.t()}),
-          ensure_prewarm_file: (Path.t(), String.t() -> {:created | :exists, Path.t()}),
-          add_gitignore_entry: (String.t() -> {:added | :exists, Path.t()}),
-          ensure_env: (String.t() -> {:created | :exists, Path.t()}),
-          check_agent_auth: (String.t() -> :ok | {:error, String.t()}),
-          install_claude_app_server: (-> :ok | {:error, String.t()}),
-          repo_root: (-> Path.t()),
-          github_login: (-> String.t() | nil),
-          github_token: (-> String.t() | nil),
-          list_labels: (map() -> {:ok, [String.t()]} | {:error, term()}),
-          create_labels: (map(), [String.t()] -> :ok | {:error, String.t()})
-        }
+  @type io :: Aiur.Init.Runtime.io()
+  @type deps :: Aiur.Init.Runtime.deps()
 
   @spec run(%{force: boolean()}) :: :ok | {:error, String.t()}
   def run(opts) do
-    load_dotenv()
+    Aiur.Init.Dotenv.load()
     Runtime.ensure_http_client()
-    run(opts, runtime_io(), runtime_deps())
+    run(opts, Runtime.runtime_io(), runtime_deps())
   end
 
   @spec run(%{force: boolean()}, io(), deps()) :: :ok | {:error, String.t()}
@@ -119,29 +41,16 @@ defmodule Aiur.Init do
         location = Questions.prompt_location(io)
         fresh_setup(io, deps, location, deps.config_target.(location))
 
-      # Resume re-provisions labels/auth AND backfills config sections added by
-      # newer features. `resume/3` walks `promptable_sections/0` and, for any
-      # registered section the saved config lacks (e.g. the `prewarm` block from
-      # #410), reuses that section's fresh-setup prompt to offer adding it —
-      # appending to the existing config instead of regenerating it. CONVENTION
-      # (#411): whenever you add a new init prompt for a new config section,
-      # register it in `promptable_sections/0` so a standard `aiur init`
-      # backfills it for existing users without needing `--force`.
       target ->
         resume(io, deps, target)
     end
   end
 
-  # Shown once at the top of every `aiur init`: aiur runs agents with all
-  # permission prompts bypassed, so the operator should know the risk up front.
   defp init_warning do
     "⚠️  Use at your own risk: aiur bypasses all agent permissions, is an unstable preview, and " <>
       "has minimal token-efficiency optimization. Best for simple tasks under supervision.\n"
   end
 
-  # On a re-run, an existing repo-local (preferred) or global config is detected
-  # before asking anything, so setup resumes from the saved answers instead of
-  # re-prompting for location. `--force` always starts fresh.
   defp existing_config_target(%{force: true}, _deps), do: nil
 
   defp existing_config_target(_opts, deps) do
@@ -150,9 +59,6 @@ defmodule Aiur.Init do
     end)
   end
 
-  # Probe order mirrors `Aiur.Workflow` discovery: repo `.aiur/`, repo legacy,
-  # global `.aiur/`, global legacy. A `:legacy` hit drives the migration on
-  # resume; a `:new` hit just resumes in place.
   defp config_probe_targets(deps) do
     [
       {:new, :repo_local, deps.config_target.(:repo_local)},
@@ -162,21 +68,16 @@ defmodule Aiur.Init do
     ]
   end
 
-  # A re-run over an existing config skips the intro questions, shows what was
-  # saved, and picks the token/label flow back up — so adding a token and
-  # re-running just continues setup instead of starting over. When the config
-  # sits at a legacy root location, the re-run also offers to migrate it into the
-  # `.aiur/` folder (settings unchanged) before continuing.
   defp resume(io, deps, {kind, location, target}) do
     case deps.load_config.(target) do
       {:ok, config} ->
         io.puts.("Found an existing config at #{target}; resuming setup.")
         Resume.print_saved_summary(io, config)
-        effective_target = maybe_migrate_layout(io, deps, kind, location, target)
+        effective_target = Resume.maybe_migrate_layout(io, deps, kind, location, target)
         tracker = Resume.tracker_from_config(deps, config)
-        backfill_missing_sections(io, deps, location, tracker, config, effective_target)
-        maybe_resume_prewarm(io, deps, tracker, config)
-        setup_codeowners(io, deps, tracker)
+        Resume.backfill_missing_sections(io, deps, location, tracker, config, effective_target)
+        Prewarm.maybe_resume_prewarm(io, deps, tracker, config)
+        Aiur.Init.Codeowners.setup_codeowners(io, deps, tracker)
         provision(io, deps, tracker, Resume.agents_from_config(config))
 
       {:error, reason} ->
@@ -185,40 +86,6 @@ defmodule Aiur.Init do
            "Pass --force to recreate it: aiur init --force"}
     end
   end
-
-  # Returns the path the config now lives at, so a later backfill appends to the
-  # right file even after a migration moved it.
-
-  # `:new` — already on the `.aiur/` layout, nothing to migrate.
-  defp maybe_migrate_layout(_io, _deps, :new, _location, target), do: target
-
-  # `:legacy` — root-level files. Offer to move them into `.aiur/` (settings
-  # preserved verbatim), and for a repo-local layout, optionally gitignore the
-  # folder. Declining leaves the legacy layout, which still loads.
-  defp maybe_migrate_layout(io, deps, :legacy, location, legacy_target) do
-    io.puts.("\naiur now keeps its files in a #{layout_label(location)} folder; yours use the legacy root layout.")
-
-    if io.confirm.("Migrate them into #{layout_label(location)} now?", true) do
-      ignore? = location == :repo_local and io.confirm.("Also add #{@gitignore_entry} to .gitignore?", false)
-      new_target = deps.config_target.(location)
-
-      case deps.migrate_layout.(%{legacy_config: legacy_target, new_config: new_target, ignore: ignore?}) do
-        {:ok, _summary} ->
-          io.puts.(["Migrated to: ", Format.dim(new_target)])
-          new_target
-
-        {:error, reason} ->
-          io.puts.("⚠️ Migration failed (#{inspect(reason)}); keeping the legacy layout.")
-          legacy_target
-      end
-    else
-      io.puts.("Skipped. aiur still reads your legacy layout.")
-      legacy_target
-    end
-  end
-
-  defp layout_label(:global), do: "~/.aiur/"
-  defp layout_label(:repo_local), do: ".aiur/"
 
   defp fresh_setup(io, deps, location, target) do
     tracker = Questions.prompt_tracker(io, deps, location)
@@ -229,13 +96,11 @@ defmodule Aiur.Init do
     max_agents = Questions.prompt_int(io, "Max concurrent agents", 10, 1)
     max_turns = Questions.prompt_max_turns(io)
     max_duration = Questions.prompt_max_duration(io)
-
     pre_warmed = Questions.prompt_int(io, "How many opencode sessions would you like to pre-warm?", 3, 0)
     polling = Questions.prompt_int(io, "How often should aiur check the tracker for new work? (seconds)", 30, 1)
-    # prompt_file is repo-specific, so the general global config omits it.
     prompt_file = if location == :global, do: "", else: io.input.("Per-repo agent prompt file", @prompt_basename, nil)
-    prewarm = prompt_prewarm(io, deps, location)
-    alerts = prompt_alerts(io, deps, target)
+    prewarm = Prewarm.prompt_prewarm(io, deps, location)
+    alerts = Alerts.prompt_alerts(io, deps, target)
 
     fills =
       Templates.build_fills(%{
@@ -259,14 +124,14 @@ defmodule Aiur.Init do
     case deps.write_config.(target, config_yaml) do
       {:ok, path} ->
         io.puts.(["Created: ", Format.dim(path)])
-        ensure_prompt_file(io, deps, path, prompt_file, tracker_repo(tracker))
-        ensure_aiurhooks(io, deps, path)
-        ensure_alerts(io, deps, path, alerts)
-        ensure_prewarm_file(io, deps, path, prewarm)
-        setup_env(io, deps, tracker)
-        maybe_offer_gitignore(io, deps, location)
-        setup_codeowners(io, deps, tracker)
-        maybe_first_prewarm(io, deps, tracker, prewarm)
+        Scaffold.ensure_prompt_file(io, deps, path, prompt_file, Map.get(tracker, :repo))
+        Scaffold.ensure_aiurhooks(io, deps, path)
+        Alerts.ensure_alerts(io, deps, path, alerts)
+        Prewarm.ensure_prewarm_file(io, deps, path, prewarm)
+        Scaffold.setup_env(io, deps, tracker)
+        Scaffold.maybe_offer_gitignore(io, deps, location)
+        Aiur.Init.Codeowners.setup_codeowners(io, deps, tracker)
+        Prewarm.maybe_first_prewarm(io, deps, tracker, prewarm)
         provision(io, deps, tracker, agents)
 
       {:error, reason} ->
@@ -274,17 +139,12 @@ defmodule Aiur.Init do
     end
   end
 
-  # After the config is written (or found on a re-run), wire up secrets and
-  # labels. GitHub gates label creation on a token being present: with no
-  # token yet, the wizard calmly explains the single next step instead of
-  # warning, so a first run never looks like a failure.
   defp provision(io, deps, %{kind: "github"} = tracker, agents) do
-    check_agent_clis(io, deps, agents)
+    Aiur.Init.AgentCli.check_agent_clis(io, deps, agents)
 
     if github_token_present?(deps) do
-      case setup_labels(io, deps, tracker, agents) do
+      case Aiur.Init.Labels.setup_labels(io, deps, tracker, agents) do
         :ok -> final_screen(io)
-        # The gh fallback was printed; don't claim setup is finished.
         :error -> :ok
       end
     else
@@ -295,888 +155,57 @@ defmodule Aiur.Init do
   end
 
   defp provision(io, deps, %{kind: "linear"} = tracker, agents) do
-    check_agent_clis(io, deps, agents)
+    Aiur.Init.AgentCli.check_agent_clis(io, deps, agents)
     linear_walkthrough(io, tracker)
     final_screen(io)
     :ok
   end
 
   defp provision(io, deps, _tracker, agents) do
-    check_agent_clis(io, deps, agents)
+    Aiur.Init.AgentCli.check_agent_clis(io, deps, agents)
     final_screen(io)
     :ok
   end
 
   defp github_token_present?(deps), do: deps.github_token.() not in [nil, ""]
 
-  # --- Resume backfill of init-promptable sections (#411) ---
+  @spec runtime_deps() :: deps()
+  def runtime_deps, do: Runtime.runtime_deps()
+
+  @doc """
+  Migrate a legacy root-level aiur layout into the `.aiur/` folder.
+  """
+  @spec migrate_layout(%{
+          :legacy_config => Path.t(),
+          :new_config => Path.t(),
+          optional(:ignore) => boolean()
+        }) :: {:ok, %{moved: [Path.t()]}} | {:error, term()}
+  defdelegate migrate_layout(opts), to: Migration
+
+  @doc "Raw .aiurhooks template that `aiur init` scaffolds."
+  @spec aiurhooks_template() :: String.t()
+  defdelegate aiurhooks_template(), to: Templates
+
+  @doc "Raw alert sound map template that `aiur init` scaffolds as `.aiur/alerts`."
+  @spec alerts_template() :: String.t()
+  defdelegate alerts_template(), to: Templates
+
+  @doc false
+  @spec alerts_template({atom(), atom()} | term()) :: String.t()
+  defdelegate alerts_template(os_type), to: Templates
+
+  @doc "Raw prompt_file template (with the `{{REPO}}` placeholder) that `aiur init` scaffolds."
+  @spec prompt_file_template() :: String.t()
+  defdelegate prompt_file_template(), to: Templates
+
+  @doc "Prompt_file scaffold with the repo placeholder filled for `repo` (or a neutral fallback)."
+  @spec prompt_file_scaffold(String.t() | nil) :: String.t()
+  defdelegate prompt_file_scaffold(repo), to: Templates
+
+  @doc false
+  @spec parse_dotenv(String.t()) :: [{String.t(), String.t()}]
+  defdelegate parse_dotenv(content), to: Aiur.Init.Dotenv, as: :parse
 
-  # The registry of config sections a standard `aiur init` resume can backfill.
-  # See the convention note on `run/3`: each entry pairs a top-level config key
-  # with the fresh-setup prompt that configures it, so an existing user is
-  # offered any section their config predates — no per-feature resume code.
-  #
-  # Each entry:
-  #   * `key`       — top-level config key; its absence marks the section missing
-  #   * `label`     — human name for the "Added …" confirmation line
-  #   * `prompt`    — `(io, deps, location) -> answer`; the fresh-setup prompt
-  #   * `opted_in?` — `(answer) -> boolean`; did the user choose to add it?
-  #   * `to_yaml`   — `(answer) -> iodata`; the YAML block to append on opt-in
-  #   * `first_run` — `(io, deps, target, tracker, answer) -> any`; one-time side
-  #                   effect after the block is appended (gets the config target
-  #                   so it can write sibling files, e.g. the `prewarm` script)
-  defp promptable_sections do
-    [
-      %{
-        key: "prewarm",
-        label: "warm-base pre-warm",
-        prompt: &prompt_prewarm/3,
-        opted_in?: fn answer -> answer.enabled end,
-        to_yaml: &prewarm_section_yaml/1,
-        first_run: &first_prewarm_backfill/5
-      }
-    ]
-  end
-
-  # For each registered section the saved config lacks, reuse its fresh-setup
-  # prompt to offer adding it. On opt-in, append the rendered block to the
-  # existing file (never regenerate — hand-tuned settings stay put) and run the
-  # section's one-time side effect. Declining leaves the config untouched.
-  defp backfill_missing_sections(io, deps, location, tracker, config, target) do
-    promptable_sections()
-    |> Enum.filter(&missing_section?(config, &1.key))
-    |> Enum.each(&offer_section(io, deps, location, tracker, target, &1))
-  end
-
-  defp missing_section?(config, key), do: not Map.has_key?(config, key)
-
-  defp offer_section(io, deps, location, tracker, target, section) do
-    answer = section.prompt.(io, deps, location)
-
-    # Only run the one-time side effect once the section actually persisted —
-    # mirrors fresh setup, which builds the warm base only on a successful write.
-    if section.opted_in?.(answer) and append_section(io, deps, target, section, answer) == :ok do
-      section.first_run.(io, deps, target, tracker, answer)
-    end
-  end
-
-  defp append_section(io, deps, target, section, answer) do
-    case deps.append_config.(target, section.to_yaml.(answer)) do
-      {:ok, path} ->
-        io.puts.(["Added ", section.label, " to ", Format.dim(path)])
-        :ok
-
-      {:error, reason} ->
-        io.puts.(["⚠️  Couldn't update #{Path.basename(target)} (", inspect(reason), ")."])
-        :error
-    end
-  end
-
-  # The `prewarm:` block, matching the committed config example. Only rendered on
-  # opt-in (`enabled: true`); the command lives in the sibling `.aiur/prewarm`
-  # script (written by `first_prewarm_backfill/5`), so the block points at it via
-  # `base_build_file` rather than inlining the command (mirrors fresh setup).
-  defp prewarm_section_yaml(_prewarm) do
-    [
-      "# === Warm base pre-warm (added by `aiur init`) ===\n",
-      "prewarm:\n",
-      "  enabled: true\n",
-      "  base_build_file: #{@prewarm_file_name}\n",
-      "  poll_seconds: 0\n"
-    ]
-  end
-
-  # Backfill side effect for the prewarm section: write the sibling `.aiur/prewarm`
-  # script the appended `base_build_file` points at, then run the one-time first
-  # build — mirroring fresh setup's `ensure_prewarm_file` + `maybe_first_prewarm`.
-  defp first_prewarm_backfill(io, deps, target, tracker, answer) do
-    ensure_prewarm_file(io, deps, target, answer)
-    maybe_first_prewarm(io, deps, tracker, answer)
-  end
-
-  defp maybe_resume_prewarm(io, deps, tracker, config) do
-    case prewarm_from_config(config) do
-      %{enabled: true, base_build: cmd} = prewarm when is_binary(cmd) and cmd != "" ->
-        maybe_first_prewarm(io, deps, tracker, prewarm)
-
-      _ ->
-        :ok
-    end
-  end
-
-  defp prewarm_from_config(%{"prewarm" => %{"enabled" => true, "base_build" => cmd}}),
-    do: %{enabled: true, base_build: cmd}
-
-  defp prewarm_from_config(_config), do: %{enabled: false, base_build: nil}
-
-  # --- Pre-warm opt-in (detect toolchain, confirm, write config) ---
-
-  # Skip pre-warm for a global config: the warm base lives at a per-repo path,
-  # so it is configured when init runs inside the repo, not globally.
-  defp prompt_prewarm(_io, _deps, :global), do: %{enabled: false, base_build: nil}
-
-  defp prompt_prewarm(io, deps, _location) do
-    if io.confirm.("Keep a pre-warmed copy of latest main so agents skip cloning + building?", true) do
-      resolve_prewarm(io, deps)
-    else
-      %{enabled: false, base_build: nil}
-    end
-  end
-
-  defp resolve_prewarm(io, deps) do
-    case deps.detect_toolchain.() do
-      {:ok, %{language: lang, build_root: root, command: command}} ->
-        io.puts.([
-          "\nDetected ",
-          to_string(lang),
-          " (build root ",
-          Format.dim(root),
-          "). Base build:\n  ",
-          Format.dim(command),
-          "\n"
-        ])
-
-        case io.select.("Use this base build command?", ["use", "edit", "skip"], "use") do
-          "use" -> %{enabled: true, base_build: command}
-          "edit" -> %{enabled: true, base_build: io.input.("Base build command", command, nil)}
-          _ -> %{enabled: false, base_build: nil}
-        end
-
-      {:ambiguous, candidates} ->
-        print_prewarm_ambiguous(io, candidates)
-        %{enabled: false, base_build: nil}
-
-      :none ->
-        print_prewarm_fallback(io)
-        %{enabled: false, base_build: nil}
-    end
-  end
-
-  defp print_prewarm_fallback(io) do
-    io.puts.([
-      "\nCouldn't auto-detect this repo's build — pre-warm left off. To enable it, paste this to your coding agent:\n\n",
-      Format.dim(prewarm_fallback_prompt())
-    ])
-  end
-
-  # Detection found several competing build roots (e.g. a polyglot monorepo).
-  # Pre-warm builds a single base, so rather than silently picking one — or
-  # misreporting "couldn't detect" — disclose what was found and hand the operator
-  # the same agent prompt to pick one (or describe a combined build).
-  defp print_prewarm_ambiguous(io, candidates) do
-    roots =
-      Enum.map_join(candidates, "\n", fn %{language: lang, build_root: root} ->
-        "  • #{lang} (#{root})"
-      end)
-
-    io.puts.([
-      "\nFound multiple build roots — pre-warm builds one base, so it needs a single command:\n",
-      Format.dim(roots),
-      "\n\nLeaving pre-warm off. To enable it, pick one (or describe the combined build) and paste this to your coding agent:\n\n",
-      Format.dim(prewarm_fallback_prompt())
-    ])
-  end
-
-  defp prewarm_fallback_prompt do
-    """
-    You are working in a repository managed by aiur, an agent-orchestration
-    runtime. aiur runs coding agents in isolated workspaces. To avoid every
-    agent cold-cloning, installing dependencies, and compiling at the same time,
-    aiur can keep one shared, pre-installed checkout of this repo's main branch
-    called the warm base. Agent workspaces are materialized from that base with
-    copy-on-write, so they inherit dependency caches and build artifacts.
-
-    Your task: detect this repo's real install + build command, write it into
-    .aiur/config as prewarm.base_build, and verify it locally. Do not just
-    describe the command.
-
-    base_build conventions:
-    - It runs in a checkout of this repo's main branch, and aiur reruns it when
-      main changes. Make it idempotent and incremental.
-    - Route every tool call through `mise exec --` so Linux and macOS use the
-      repo-pinned toolchain.
-    - cd into the directory that holds the build manifest before running the
-      install/build command.
-    - Use frozen/locked installs: `npm ci`, `pnpm install --frozen-lockfile`,
-      `yarn install --immutable`, `uv sync --frozen`, etc.
-    - Do not mutate tracked source. Do not use brew, apt, sudo, or machine-local
-      absolute paths.
-
-    Concrete examples:
-    - Node/pnpm workspaces:
-      `mise exec -- corepack enable && mise exec -- pnpm install --frozen-lockfile && mise exec -- pnpm -r --if-present build`
-    - Node/npm workspaces:
-      `mise exec -- npm ci && mise exec -- npm run build --workspaces --if-present`
-    - Elixir app in src/:
-      `cd src && mise exec -- mix local.hex --force --if-missing && mise exec -- mix local.rebar --force --if-missing && mise exec -- mix deps.get && mise exec -- mix compile`
-
-    Write this exact block shape in .aiur/config, replacing the command:
-
-      prewarm:
-        enabled: true
-        base_build: "<one-time install + compile command>"
-        poll_seconds: 0
-
-    Then run the base_build command once in a clean checkout and confirm it exits
-    0 and produces the expected artifacts (for example node_modules, dist, _build,
-    target). Run it a second time unchanged and confirm it is fast or a near
-    no-op. Fix the command until both runs succeed, then report the final command
-    and the artifacts it prepares.
-    """
-  end
-
-  # On opt-in, build the warm base once during init (one-time clone + compile) so
-  # the first `aiur` run dispatches immediately. Mockable via deps for tests.
-  defp maybe_first_prewarm(io, deps, tracker, %{enabled: true, base_build: cmd})
-       when is_binary(cmd) and cmd != "" do
-    case tracker_repo(tracker) do
-      repo when is_binary(repo) and repo != "" ->
-        io.puts.("\nBuilding the warm base now — one-time clone + compile; later runs reuse it.")
-
-        case deps.prewarm_build.("https://github.com/#{repo}.git", cmd) do
-          {:ok, _path} ->
-            io.puts.("✅ Warm base ready.")
-
-          {:error, reason} ->
-            report_prewarm_failure(io, repo, cmd, reason)
-        end
-
-      _ ->
-        :ok
-    end
-  end
-
-  defp maybe_first_prewarm(_io, _deps, _tracker, _prewarm), do: :ok
-
-  # A warm-base build that fails at runtime (private-repo clone auth, network, or
-  # a broken base_build command) used to print a single "retries next run" line
-  # with no path forward. Classify the failure, give the operator concrete
-  # self-resolution steps for that class, and hand them a ready-to-paste prompt —
-  # embedding the actual captured failure output — so a coding agent can fix it.
-  defp report_prewarm_failure(io, repo, cmd, reason) do
-    class = classify_prewarm_failure(reason)
-
-    io.puts.(["\n⚠️  Warm base build failed (", inspect(reason), ")."])
-    io.puts.(prewarm_failure_guidance(class, repo))
-
-    io.puts.([
-      "\nOr paste this to your coding agent to fix it for you:\n\n",
-      Format.dim(prewarm_failure_prompt(repo, cmd, reason))
-    ])
-
-    io.puts.("\nThe warm base also retries automatically on the next `aiur` run.")
-  end
-
-  # Clone/fetch/reset failures carry the git stderr; an auth signature in it means
-  # the token is missing/invalid/unauthorized. A base_build failure is a toolchain
-  # problem. Anything else degrades to generic guidance.
-  defp classify_prewarm_failure({tag, _status, out})
-       when tag in [:repo_base_clone_failed, :repo_base_fetch_failed, :repo_base_reset_failed] and
-              is_binary(out) do
-    if auth_error?(out), do: :auth, else: :clone
-  end
-
-  defp classify_prewarm_failure({:base_build_failed, _status, _out}), do: :build
-  defp classify_prewarm_failure(_reason), do: :other
-
-  defp auth_error?(out) do
-    out = String.downcase(out)
-
-    Enum.any?(
-      [
-        "authentication failed",
-        "could not read username",
-        "invalid username or token",
-        "password authentication",
-        "terminal prompts disabled",
-        "permission denied",
-        "403 forbidden"
-      ],
-      &String.contains?(out, &1)
-    )
-  end
-
-  defp prewarm_failure_guidance(:auth, repo) do
-    [
-      "\nThis looks like a GitHub authentication failure cloning ",
-      Format.dim(repo),
-      ".\nTo fix it yourself:\n",
-      "  • Make sure GITHUB_TOKEN is set in .env and still valid:\n",
-      "      ",
-      Format.dim(~s(curl -fsS -H "Authorization: Bearer $GITHUB_TOKEN" https://api.github.com/user)),
-      "\n",
-      "  • The token's account must have read access to this repo.\n",
-      "  • Classic tokens need the `repo` scope; fine-grained tokens need Contents: Read.\n",
-      "  • Then re-run `aiur init` (or `aiur`) to rebuild the warm base."
-    ]
-  end
-
-  defp prewarm_failure_guidance(:clone, repo) do
-    [
-      "\nThe warm-base clone of ",
-      Format.dim(repo),
-      " failed.\nTo fix it yourself:\n",
-      "  • Confirm the repo exists and is reachable from this machine.\n",
-      "  • Check your network/proxy, and that GITHUB_TOKEN (if the repo is private) has access.\n",
-      "  • Then re-run `aiur init` (or `aiur`) to rebuild the warm base."
-    ]
-  end
-
-  defp prewarm_failure_guidance(:build, _repo) do
-    [
-      "\nThe repo cloned, but the base_build command failed.\nTo fix it yourself:\n",
-      "  • Run the base_build command in a clean checkout and watch where it breaks.\n",
-      "  • Fix it in .aiur/config under prewarm.base_build (keep it idempotent).\n",
-      "  • Then re-run `aiur init` (or `aiur`) to rebuild the warm base."
-    ]
-  end
-
-  defp prewarm_failure_guidance(:other, _repo) do
-    [
-      "\nTo fix it yourself, inspect the error above, resolve the underlying cause,\n",
-      "then re-run `aiur init` (or `aiur`) to rebuild the warm base."
-    ]
-  end
-
-  # The AI handoff, mirroring `prewarm_fallback_prompt/0` but for a *runtime*
-  # failure: it embeds the repo, the configured base_build, and the captured
-  # failure output so the agent can diagnose auth vs. toolchain without guessing.
-  defp prewarm_failure_prompt(repo, cmd, reason) do
-    """
-    You are working in a repository managed by aiur, an agent-orchestration
-    runtime. To avoid every agent cold-cloning and recompiling, aiur keeps one
-    shared, pre-installed checkout of this repo's main branch — the "warm base" —
-    and materializes agent workspaces from it copy-on-write.
-
-    Building the warm base just FAILED. Diagnose and fix it, then verify locally.
-
-    Repo: #{repo}
-    Configured prewarm.base_build: #{cmd}
-
-    Captured failure output:
-    #{failure_output(reason)}
-
-    Likely causes and what to do:
-    - GitHub auth: cloning a private repo needs a valid GITHUB_TOKEN in .env whose
-      account has read access (classic token `repo` scope, or fine-grained
-      Contents: Read). If the token is missing or expired, tell the operator
-      exactly what to set — do not invent a secret.
-    - Toolchain/build: if the repo cloned but base_build failed, detect this repo's
-      real install + build command and write it into .aiur/config as
-      prewarm.base_build. Route tool calls through `mise exec --`, cd into the
-      directory holding the build manifest, use frozen/locked installs, and keep it
-      idempotent and incremental. Do not mutate tracked source; no brew/apt/sudo.
-
-    Then run the fix in a clean checkout, confirm it exits 0, run it a second time
-    unchanged to confirm it is a near no-op, and report the final command (or the
-    secret the operator must set).
-    """
-  end
-
-  defp failure_output({_tag, _status, out}) when is_binary(out),
-    do: out |> String.trim() |> String.slice(0, 1500)
-
-  defp failure_output(reason), do: inspect(reason)
-
-  # --- Alert sound opt-in ---
-
-  # A final opt-in for cross-platform alert sounds. The first question is the
-  # on/off master switch; on "yes" a second question lets the operator pick the
-  # built-in macOS/Linux OS-default set or the fully customizable topic→sound map
-  # — pointing them at the `.aiur/alerts` file init scaffolds so the customization
-  # surface is discoverable, not just the on/off setting. Either way init writes
-  # `.aiur/alerts`; the map is only consulted when OS-default sounds are off.
-  # Sounds are machine-level, so this is offered for global configs too (unlike
-  # prewarm, which is per-repo).
-  defp prompt_alerts(io, deps, target) do
-    if io.confirm.("Add sound effects for alerts (e.g. an agent is stuck or needs your input)?", false) do
-      io.puts.([
-        "aiur scaffolds an editable ",
-        Format.dim(".aiur/alerts"),
-        " map so you can set a custom sound per event."
-      ])
-
-      source_path = prompt_reuse_global_alerts(io, deps, target)
-      use_os = io.confirm.("Use the built-in OS default sounds? (No = play the custom .aiur/alerts mapping)", true)
-      %{enabled: true, use_os_default_sounds: use_os, source_path: source_path}
-    else
-      %{enabled: false, use_os_default_sounds: false, source_path: nil}
-    end
-  end
-
-  defp prompt_reuse_global_alerts(io, deps, _target) do
-    source = deps.global_alerts_path.()
-
-    case deps.existing_alerts_path.(source) do
-      nil ->
-        nil
-
-      path ->
-        if io.confirm.(
-             "Found an existing alerts file at ~/.aiur/alerts — copy it into this repo's .aiur/alerts?",
-             true
-           ) do
-          path
-        end
-    end
-  end
-
-  # --- Closing steps ---
-
-  # Create the per-repo prompt file the config points at so the very next
-  # config load (auth checks, then boot) doesn't fail on a missing file.
-  defp ensure_prompt_file(_io, _deps, _target, prompt_file, _repo) when prompt_file in [nil, ""], do: :ok
-
-  defp ensure_prompt_file(io, deps, target, prompt_file, repo) do
-    case deps.ensure_prompt_file.(target, prompt_file, repo) do
-      {:created, path} -> io.puts.(["Created: ", Format.dim(path)])
-      {:exists, _path} -> :ok
-    end
-  end
-
-  # The scaffolded config references the hooks file via `hooks_file: hooks`, so
-  # make sure `.aiur/hooks` exists (created from .aiurhooks.example). Never clobber
-  # an existing one — the dev may have tuned it for their toolchain.
-  defp ensure_aiurhooks(io, deps, target) do
-    case deps.ensure_aiurhooks.(target) do
-      {:created, path} -> io.puts.(["Created: ", Format.dim(path)])
-      {:exists, _path} -> :ok
-    end
-  end
-
-  # The scaffolded config references the alert sound map via `alerts_file: alerts`,
-  # so make sure `.aiur/alerts` exists (created from the host's alerts example).
-  # Never clobber an existing one — the operator may have tuned the topic→sound map.
-  defp ensure_alerts(io, deps, target, alerts) do
-    case deps.ensure_alerts.(target, alerts.source_path) do
-      {:created, path} -> io.puts.(["Created: ", Format.dim(path)])
-      {:exists, _path} -> :ok
-    end
-  end
-
-  # Write the detected base build command to a sibling `.aiur/prewarm` script so
-  # the multi-line shell stays out of the config (which points at it via
-  # `prewarm.base_build_file`). Only on opt-in; never clobbers an existing script.
-  defp ensure_prewarm_file(io, deps, target, %{enabled: true, base_build: cmd})
-       when is_binary(cmd) and cmd != "" do
-    case deps.ensure_prewarm_file.(target, cmd) do
-      {:created, path} -> io.puts.(["Created: ", Format.dim(path)])
-      {:exists, _path} -> :ok
-    end
-  end
-
-  defp ensure_prewarm_file(_io, _deps, _target, _prewarm), do: :ok
-
-  # Repo-local only: offer to gitignore the whole `.aiur/` folder. Declining leaves
-  # it tracked (team-shared config, as `.aiurconfig` was). Global setup has nothing
-  # in the repo to ignore, so the prompt is skipped.
-  defp maybe_offer_gitignore(_io, _deps, :global), do: :ok
-
-  defp maybe_offer_gitignore(io, deps, _repo_local) do
-    if io.confirm.("Add #{@gitignore_entry} to .gitignore?", false) do
-      case deps.add_gitignore_entry.(@gitignore_entry) do
-        {:added, path} -> io.puts.(["Updated: ", Format.dim(path)])
-        {:exists, _path} -> :ok
-      end
-    else
-      :ok
-    end
-  end
-
-  defp tracker_repo(%{repo: repo}), do: repo
-  defp tracker_repo(_tracker), do: nil
-
-  # CODEOWNERS is part of the GitHub trust boundary: aiur uses it to decide whose
-  # PR/issue comments can drive agents. This runs on fresh setup and on resume so
-  # existing installs pick up the newer safety step without `--force`.
-  defp setup_codeowners(io, deps, %{kind: "github"}) do
-    repo_root = deps.repo_root.()
-
-    repo_root
-    |> then(fn repo_root -> Codeowners.file_path(repo_root: repo_root) end)
-    |> maybe_create_codeowners(io, repo_root)
-    |> maybe_add_operator_codeowner(io, deps, repo_root)
-  end
-
-  defp setup_codeowners(_io, _deps, _tracker), do: :ok
-
-  defp maybe_create_codeowners(nil, io, repo_root) do
-    explain_codeowners_trust(io)
-
-    if io.confirm.("Create #{@codeowners_file_name} for aiur's GitHub trust checks?", true) do
-      case create_codeowners_file(repo_root) do
-        {:ok, path} ->
-          io.puts.(["Created: ", Format.dim(path)])
-          path
-
-        {:error, reason} ->
-          io.puts.(["⚠️  Couldn't create #{@codeowners_file_name} (", inspect(reason), ")."])
-          nil
-      end
-    else
-      io.puts.("Skipped CODEOWNERS. Without it, only explicitly configured GitHub accounts are trusted by aiur.")
-      nil
-    end
-  end
-
-  defp maybe_create_codeowners(path, _io, _repo_root), do: path
-
-  defp explain_codeowners_trust(io) do
-    io.puts.([
-      "\naiur uses CODEOWNERS to determine which GitHub accounts it will trust ",
-      "when responding to PR/issue comments. Without CODEOWNERS, only explicitly ",
-      "configured accounts are trusted."
-    ])
-  end
-
-  defp create_codeowners_file(repo_root) do
-    path = Path.join(repo_root, @codeowners_file_name)
-
-    if File.regular?(path) do
-      {:ok, path}
-    else
-      File.mkdir_p!(Path.dirname(path))
-
-      File.write(path, """
-      # aiur uses CODEOWNERS to decide which GitHub accounts are trusted for PR/issue comments.
-      # Add owners below, for example:
-      # * @your-github-login
-      """)
-      |> case do
-        :ok -> {:ok, path}
-        {:error, reason} -> {:error, reason}
-      end
-    end
-  end
-
-  defp maybe_add_operator_codeowner(nil, _io, _deps, _repo_root), do: :ok
-
-  defp maybe_add_operator_codeowner(path, io, deps, repo_root) do
-    detected_login = normalize_login(deps.github_login.())
-
-    if is_binary(detected_login) and codeowners_has_login?(repo_root, detected_login) do
-      :ok
-    else
-      path
-      |> prompt_and_add_operator_codeowner(io, repo_root, detected_login)
-    end
-  end
-
-  defp prompt_and_add_operator_codeowner(path, io, repo_root, default_login) do
-    case prompt_github_login(io, default_login) do
-      nil ->
-        io.puts.("Skipped CODEOWNERS account entry because no GitHub login was provided.")
-
-      login ->
-        if codeowners_has_login?(repo_root, login) do
-          :ok
-        else
-          offer_operator_codeowner(io, path, login)
-        end
-    end
-  end
-
-  defp prompt_github_login(io, default) do
-    io.input.(
-      "GitHub account to add to CODEOWNERS",
-      default,
-      "This account will be trusted to drive aiur from PR/issue comments."
-    )
-    |> normalize_login()
-  end
-
-  defp codeowners_has_login?(repo_root, login) do
-    login in Codeowners.repo_ownership(repo_root: repo_root).owners
-  end
-
-  defp offer_operator_codeowner(io, path, login) do
-    if io.confirm.("Add @#{login} to CODEOWNERS so aiur trusts your PR/issue comments?", true) do
-      case add_codeowners_login(path, login) do
-        {:updated, updated_path} -> io.puts.(["Updated: ", Format.dim(updated_path)])
-        {:exists, _path} -> :ok
-        {:error, reason} -> io.puts.(["⚠️  Couldn't update CODEOWNERS (", inspect(reason), ")."])
-      end
-    else
-      io.puts.("Skipped. Add your account to CODEOWNERS later if you want aiur to trust your comments.")
-    end
-  end
-
-  defp add_codeowners_login(path, login) do
-    login = normalize_login(login)
-
-    with true <- is_binary(login) and login != "",
-         {:ok, content} <- File.read(path) do
-      if codeowners_content_has_login?(content, login) do
-        {:exists, path}
-      else
-        write_codeowners_login(path, content, login)
-      end
-    else
-      false -> {:error, :missing_github_login}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp write_codeowners_login(path, content, login) do
-    case File.write(path, content_with_codeowner(content, login)) do
-      :ok -> {:updated, path}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp codeowners_content_has_login?(content, login) do
-    login = normalize_login(login)
-
-    content
-    |> String.split(~r/\R/, trim: true)
-    |> Enum.flat_map(&codeowner_tokens/1)
-    |> Enum.any?(&(normalize_login(&1) == login))
-  end
-
-  defp codeowner_tokens(line) do
-    line
-    |> String.trim()
-    |> case do
-      "" -> []
-      "#" <> _comment -> []
-      line -> line |> String.split(~r/\s+/, trim: true) |> Enum.take_while(&(not String.starts_with?(&1, "#"))) |> Enum.drop(1)
-    end
-  end
-
-  defp content_with_codeowner(content, login) do
-    case wildcard_rule_index(content) do
-      nil ->
-        append_codeowner_rule(content, login)
-
-      index ->
-        content
-        |> String.split("\n", trim: false)
-        |> List.update_at(index, &append_login_to_rule(&1, login))
-        |> Enum.join("\n")
-    end
-  end
-
-  defp wildcard_rule_index(content) do
-    lines = String.split(content, "\n", trim: false)
-
-    lines
-    |> Enum.with_index()
-    |> Enum.filter(fn {line, _index} -> wildcard_rule?(line) end)
-    |> List.last()
-    |> case do
-      {_line, index} -> index
-      nil -> nil
-    end
-  end
-
-  defp wildcard_rule?(line) do
-    case codeowner_rule_tokens(line) do
-      ["*" | owners] when owners != [] -> true
-      _ -> false
-    end
-  end
-
-  defp codeowner_rule_tokens(line) do
-    line
-    |> String.trim()
-    |> case do
-      "" -> []
-      "#" <> _comment -> []
-      line -> line |> String.split(~r/\s+/, trim: true) |> Enum.take_while(&(not String.starts_with?(&1, "#")))
-    end
-  end
-
-  defp append_login_to_rule(line, login) do
-    case String.split(line, "#", parts: 2) do
-      [rule, comment] -> String.trim_trailing(rule) <> " @#{login} #" <> comment
-      [rule] -> String.trim_trailing(rule) <> " @#{login}"
-    end
-  end
-
-  defp append_codeowner_rule(content, login) do
-    separator = if content == "" or String.ends_with?(content, "\n"), do: "", else: "\n"
-    content <> separator <> "* @#{login}\n"
-  end
-
-  defp normalize_login(nil), do: nil
-
-  defp normalize_login(login) when is_binary(login) do
-    login
-    |> String.trim()
-    |> String.trim_leading("@")
-    |> String.downcase()
-    |> case do
-      "" -> nil
-      normalized -> normalized
-    end
-  end
-
-  # GitHub is the only tracker that reads a secret from the environment, so the
-  # wizard scaffolds `.env` only on that path. Linear collects its key inline.
-  defp setup_env(io, deps, %{kind: "github"}) do
-    {status, path} = deps.ensure_env.(Templates.env_example_content())
-
-    case status do
-      :created -> io.puts.(["Created: ", Format.dim(path)])
-      :exists -> io.puts.(["Found: ", Format.dim(path)])
-    end
-  end
-
-  defp setup_env(_io, _deps, _tracker), do: :ok
-
-  # Label creation runs as gated stages: required lifecycle labels first (the
-  # operator presses Enter), then optional complexity, model, and remote labels
-  # (each create-or-skip). Existing repo labels are fetched once; a stage whose
-  # labels all already exist is reported as created instead of prompting again.
-  defp setup_labels(io, deps, %{kind: "github"} = tracker, agents) do
-    kinds = Questions.agent_kinds(agents)
-    existing = fetch_existing_labels(deps, tracker)
-
-    with :ok <- create_lifecycle_labels(io, deps, tracker, existing),
-         :ok <- maybe_create_complexity_labels(io, deps, tracker, existing),
-         :ok <- maybe_create_model_labels(io, deps, tracker, existing, kinds) do
-      maybe_create_remote_label(io, deps, tracker, existing, kinds)
-    end
-  end
-
-  defp setup_labels(_io, _deps, _tracker, _agents), do: :ok
-
-  # Existing repo labels, fetched once. If we can't read them, treat all as
-  # missing — create_labels is idempotent, so already-present labels are skipped.
-  defp fetch_existing_labels(deps, tracker) do
-    case deps.list_labels.(tracker) do
-      {:ok, existing} -> existing
-      {:error, _reason} -> []
-    end
-  end
-
-  # Stage 1 — the required lifecycle (`agent:*`) labels the orchestrator reads.
-  defp create_lifecycle_labels(io, deps, tracker, existing) do
-    labels = Labels.state_labels(@label_prefix)
-
-    case labels -- existing do
-      [] ->
-        io.puts.(label_status_line("Lifecycle agent tags"))
-        :ok
-
-      missing ->
-        io.puts.("\nAiur uses ticket labels to route agents. Next we'll use your GITHUB_TOKEN to create the following labels in the repo:")
-        print_label_list(io, labels)
-        Format.print_hint(io, "These lifecycle ticket labels are required.")
-        io.input.("Press Enter to create them", "", nil)
-        create_labels_request(io, deps, tracker, labels, missing)
-    end
-  end
-
-  # Stage 2 — optional complexity labels.
-  defp maybe_create_complexity_labels(io, deps, tracker, existing) do
-    labels = Labels.complexity_labels()
-
-    case labels -- existing do
-      [] ->
-        io.puts.(label_status_line("Complexity tags"))
-        :ok
-
-      missing ->
-        io.puts.("\nNext you can create story point complexity labels:")
-        print_label_list(io, labels)
-        Format.print_hint(io, "Optional: Used to optimize effort. You can add point-specific prompts in #{@config_file_name} to have the agent use different skills and models based on complexity.")
-        create_or_skip(io, deps, tracker, labels, missing, "Create the complexity labels?", true)
-    end
-  end
-
-  # Stage 3 — optional model-override labels for the chosen backends (the remote
-  # flag is its own stage). These override complexity-routed model choices.
-  defp maybe_create_model_labels(io, deps, tracker, existing, kinds) do
-    labels = Labels.model_labels(kinds)
-
-    case labels -- existing do
-      [] ->
-        io.puts.(label_status_line("Model tags"))
-        :ok
-
-      missing ->
-        io.puts.("\nNext you can create model labels to route specific issues to different models:")
-        print_label_list(io, labels)
-        Format.print_hint(io, "Optional: These will override complexity label model choices.")
-        create_or_skip(io, deps, tracker, labels, missing, "Create the model labels?", true)
-    end
-  end
-
-  # Stage 4 — optional remote-control flag label, only when claude is supported.
-  defp maybe_create_remote_label(io, deps, tracker, existing, kinds) do
-    case Labels.alias_labels(kinds) do
-      [] ->
-        :ok
-
-      labels ->
-        case labels -- existing do
-          [] ->
-            io.puts.(label_status_line("Remote-control tag"))
-            :ok
-
-          missing ->
-            io.puts.("\nFinally, if you'd like the agent to open a ticket in remote-control mode, add this label:")
-            print_label_list(io, labels)
-            Format.print_hint(io, "Optional: Supports claude remote-control")
-            create_or_skip(io, deps, tracker, labels, missing, "Create the model:remote label?", false)
-        end
-    end
-  end
-
-  defp create_or_skip(io, deps, tracker, labels, missing, prompt, default) do
-    if io.confirm.(prompt, default) do
-      create_labels_request(io, deps, tracker, labels, missing)
-    else
-      io.puts.("Skipped.")
-      :ok
-    end
-  end
-
-  # Reported in the saved-selections style when a stage's labels all already
-  # exist, so a re-run confirms them instead of prompting to create them again.
-  defp label_status_line(name), do: IO.ANSI.format([:faint, "  #{name}: created."])
-
-  defp create_labels_request(io, deps, tracker, labels, missing) do
-    case deps.create_labels.(tracker, missing) do
-      :ok ->
-        io.puts.("Created #{length(missing)} (#{length(labels) - length(missing)} already existed).")
-        :ok
-
-      {:error, message} ->
-        emit_gh_label_fallback(io, tracker, missing, message)
-        :error
-    end
-  end
-
-  # Pad each label to the widest in the list so the `—` descriptions align.
-  defp print_label_list(io, labels) do
-    width = Enum.reduce(labels, 0, fn label, acc -> max(acc, String.length(label)) end)
-
-    Enum.each(labels, fn label ->
-      io.puts.(["  ", String.pad_trailing(label, width), " — ", Labels.describe(label)])
-    end)
-  end
-
-  # When the token can't create labels (e.g. missing scope), hand the operator
-  # a copy-paste command to create them, then ask them to re-run to confirm.
-  defp emit_gh_label_fallback(io, tracker, labels, message) do
-    repo = tracker[:repo] || "<owner/name>"
-
-    io.puts.("\n⚠️ Couldn't create labels automatically (#{message}).")
-    io.puts.("Run these to create them yourself (existing ones are skipped):")
-
-    Enum.each(labels, fn label ->
-      io.puts.("  gh label create #{shell_arg(label)} --repo #{repo} --description #{shell_arg(Labels.describe(label))} --force")
-    end)
-
-    io.puts.("Then run `aiur init` again to confirm all labels exist.")
-  end
-
-  defp shell_arg(value), do: "'" <> String.replace(to_string(value), "'", "'\\''") <> "'"
-
-  # Shown when GitHub is the tracker but no token is set yet. Calm, single
-  # next step — never a warning — with the minimum scopes aiur needs.
   defp token_setup_instructions(io) do
     io.puts.("\nNext — give aiur a GitHub token so it can create labels and act as its bot account:")
     io.puts.("  1. Create a token at #{@token_url}")
@@ -1209,629 +238,6 @@ defmodule Aiur.Init do
   end
 
   defp linear_walkthrough(_io, _tracker), do: :ok
-
-  # Agent-CLI presence checks run after the config is written so a failure can
-  # never block setup. Success is silent; a missing CLI warns with a fix hint
-  # and offers retry/skip, then proceeds either way.
-  defp check_agent_clis(io, deps, agents) do
-    # Only CLI-backed agents have a command to verify; `claude-repl` (a routed
-    # or resumed remote transport) has none, so skip it rather than warn.
-    agents
-    |> Enum.filter(&(&1 in @routing_order))
-    |> Enum.each(&ensure_agent_cli(io, deps, &1))
-
-    :ok
-  end
-
-  # Claude's CLI is the `aiur-claude` app-server, published to npm. When it's
-  # missing, install it before warning so selecting claude during init yields a
-  # working backend with no manual PATH steps. An already-present command skips
-  # the install (idempotent); a failed install degrades to a manual-install hint
-  # rather than wedging setup.
-  defp ensure_agent_cli(io, deps, "claude") do
-    case deps.check_agent_auth.("claude") do
-      :ok -> :ok
-      {:error, _missing} -> install_claude_then_check(io, deps)
-    end
-  end
-
-  defp ensure_agent_cli(io, deps, kind) do
-    run_auth_check(io, "#{kind} agent", fn -> deps.check_agent_auth.(kind) end)
-  end
-
-  defp install_claude_then_check(io, deps) do
-    io.puts.("Installing claude app-server (aiur-claude)…")
-
-    case deps.install_claude_app_server.() do
-      :ok ->
-        run_auth_check(io, "claude agent", fn -> deps.check_agent_auth.("claude") end)
-
-      {:error, message} ->
-        io.puts.(
-          "⚠️ claude agent: couldn't install aiur-claude (#{message}). " <>
-            "Install it manually: npm install -g aiur-claude"
-        )
-
-        :ok
-    end
-  end
-
-  defp run_auth_check(io, label, check) do
-    case check.() do
-      :ok ->
-        :ok
-
-      {:error, message} ->
-        io.puts.("⚠️ #{label}: #{message}")
-
-        if io.confirm.("Retry #{label}?", false) do
-          run_auth_check(io, label, check)
-        else
-          :ok
-        end
-    end
-  end
-
-  # --- Runtime io / deps ---
-
-  @spec runtime_io() :: io()
-  defp runtime_io do
-    %{
-      puts: fn message -> IO.puts(message) end,
-      input: fn label, default, hint ->
-        case Prompt.input(label, default, hint: hint) do
-          "" -> default
-          value -> value
-        end
-      end,
-      select: fn label, options, default ->
-        Prompt.select(label, options, default, render: &Format.dim_help/1)
-      end,
-      multiselect: fn label, options, defaults -> Prompt.multiselect(label, options, defaults) end,
-      confirm: fn label, default ->
-        Prompt.select(label, ["Yes", "No"], if(default, do: "Yes", else: "No")) == "Yes"
-      end
-    }
-  end
-
-  @spec runtime_deps() :: deps()
-  defp runtime_deps do
-    %{
-      config_target: &config_target/1,
-      legacy_config_target: &legacy_config_target/1,
-      existing_config_path: &existing_config_path/1,
-      load_config: &Runtime.load_config/1,
-      migrate_layout: &migrate_layout/1,
-      read_example: fn -> Templates.config_example() end,
-      detect_repo: &detect_repo/0,
-      detect_toolchain: &Runtime.detect_toolchain/0,
-      prewarm_build: &Runtime.run_first_prewarm/2,
-      global_alerts_path: &global_alerts_path/0,
-      existing_alerts_path: &existing_alerts_path/1,
-      write_config: &write_config/2,
-      append_config: &append_config_section/2,
-      ensure_prompt_file: &write_prompt_file/3,
-      ensure_aiurhooks: &write_aiurhooks/1,
-      ensure_alerts: &write_alerts_file/2,
-      ensure_prewarm_file: &write_prewarm_file/2,
-      add_gitignore_entry: &add_gitignore_entry/1,
-      ensure_env: &ensure_env/1,
-      check_agent_auth: &check_agent_auth/1,
-      install_claude_app_server: &install_claude_app_server/0,
-      repo_root: fn -> Codeowners.repo_root(File.cwd!()) end,
-      github_login: &detect_github_login/0,
-      github_token: &Aiur.GitHub.Config.token/0,
-      list_labels: &list_repo_labels/1,
-      create_labels: &create_labels/2
-    }
-  end
-
-  defp config_target(:global), do: Path.expand("~/" <> @config_file_name)
-  defp config_target(_location), do: Path.join(File.cwd!(), @config_file_name)
-
-  defp legacy_config_target(:global), do: Path.expand("~/" <> @legacy_config_file_name)
-  defp legacy_config_target(_location), do: Path.join(File.cwd!(), @legacy_config_file_name)
-
-  defp global_alerts_path, do: Path.expand("~/.aiur/" <> @alerts_file_name)
-
-  defp existing_config_path(target) do
-    if File.regular?(target), do: target
-  end
-
-  defp existing_alerts_path(path) do
-    if File.regular?(path), do: path
-  end
-
-  defp write_config(target, yaml) do
-    File.mkdir_p!(Path.dirname(target))
-
-    case File.write(target, yaml) do
-      :ok -> {:ok, target}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  # Append a config section to an existing file, separated by a blank line, so a
-  # resume backfill adds the block without disturbing the user's other settings.
-  defp append_config_section(target, block) do
-    with {:ok, existing} <- File.read(target),
-         body = String.trim_trailing(existing, "\n") <> "\n\n" <> IO.iodata_to_binary(block),
-         :ok <- File.write(target, body) do
-      {:ok, target}
-    end
-  end
-
-  defp write_prompt_file(target, prompt_file, repo) do
-    path = Path.expand(prompt_file, Path.dirname(target))
-
-    if File.regular?(path) do
-      {:exists, path}
-    else
-      File.write!(path, Templates.prompt_file_scaffold(repo))
-      {:created, path}
-    end
-  end
-
-  defp write_aiurhooks(target) do
-    path = Path.join(Path.dirname(target), @aiurhooks_file_name)
-
-    if File.regular?(path) do
-      {:exists, path}
-    else
-      File.write!(path, Templates.aiurhooks_template())
-      {:created, path}
-    end
-  end
-
-  defp write_alerts_file(target, source_path) do
-    path = Path.join(Path.dirname(target), @alerts_file_name)
-
-    if File.regular?(path) do
-      {:exists, path}
-    else
-      write_new_alerts_file(path, source_path)
-    end
-  end
-
-  defp write_new_alerts_file(path, source_path) when is_binary(source_path) do
-    if same_path?(path, source_path) do
-      {:exists, path}
-    else
-      File.cp!(source_path, path)
-      {:created, path}
-    end
-  end
-
-  defp write_new_alerts_file(path, _source_path) do
-    File.write!(path, Templates.alerts_template(:os.type()))
-    {:created, path}
-  end
-
-  defp same_path?(left, right), do: Path.expand(left) == Path.expand(right)
-
-  defp write_prewarm_file(target, command) do
-    path = Path.join(Path.dirname(target), @prewarm_file_name)
-
-    if File.regular?(path) do
-      {:exists, path}
-    else
-      File.write!(path, command <> "\n")
-      {:created, path}
-    end
-  end
-
-  # Append an entry to the repo's `.gitignore` (creating it if absent), unless the
-  # entry is already present. Idempotent; returns `:exists` when nothing changed.
-  defp add_gitignore_entry(entry), do: add_gitignore_entry(File.cwd!(), entry)
-
-  defp add_gitignore_entry(dir, entry) do
-    path = Path.join(dir, ".gitignore")
-
-    existing =
-      case File.read(path) do
-        {:ok, content} -> content
-        {:error, _} -> ""
-      end
-
-    present? = existing |> String.split("\n") |> Enum.map(&String.trim/1) |> Enum.member?(entry)
-
-    if present? do
-      {:exists, path}
-    else
-      separator = if existing == "" or String.ends_with?(existing, "\n"), do: "", else: "\n"
-      File.write!(path, existing <> separator <> entry <> "\n")
-      {:added, path}
-    end
-  end
-
-  @doc """
-  Migrate a legacy root-level aiur layout into the `.aiur/` folder. Copies the
-  referenced hooks/prompt files and any `*.example` templates into `.aiur/`,
-  writes the config to `.aiur/config` (rewriting `hooks_file:`/`prompt_file:` to
-  the folder-relative names), and only then removes the legacy originals — so a
-  partial failure never leaves a state aiur can't load. Tracked files are moved
-  via git (and removed with `git rm`); with `ignore: true`, `.aiur/` is appended
-  to `.gitignore` and the new files are left untracked. Settings are preserved
-  verbatim apart from the two pointer values.
-  """
-  @spec migrate_layout(%{
-          :legacy_config => Path.t(),
-          :new_config => Path.t(),
-          optional(:ignore) => boolean()
-        }) :: {:ok, %{moved: [Path.t()]}} | {:error, term()}
-  def migrate_layout(%{legacy_config: legacy_config, new_config: new_config} = opts) do
-    ignore? = Map.get(opts, :ignore, false)
-    base_dir = Path.dirname(legacy_config)
-    new_dir = Path.dirname(new_config)
-    git? = git_work_tree?(base_dir)
-
-    raw = File.read!(legacy_config)
-    config = parse_yaml(raw)
-
-    File.mkdir_p!(new_dir)
-
-    # Resolve the referenced pointer files. `pointer_src/2` only returns a source
-    # that exists AND lives inside the repo — a `hooks_file:`/`prompt_file:` value
-    # pointing outside the repo (absolute or `../` traversal, or `~/shared`) is
-    # left in place, never copied or deleted.
-    pointers = [
-      {"hooks_file", pointer_src(base_dir, config["hooks_file"]), Path.join(new_dir, @aiurhooks_file_name)},
-      {"prompt_file", pointer_src(base_dir, config["prompt_file"]), Path.join(new_dir, @prompt_basename)}
-    ]
-
-    pointer_moves = for {_key, src, dest} <- pointers, not is_nil(src), do: {src, dest}
-
-    example_moves =
-      for {legacy_name, new_name} <- @legacy_examples,
-          src = Path.join(base_dir, legacy_name),
-          File.regular?(src),
-          do: {src, Path.join([new_dir, @examples_dir, new_name])}
-
-    # 1. Copy content-preserving files into `.aiur/` (legacy left intact so far).
-    copied =
-      Enum.map(pointer_moves ++ example_moves, fn {src, dest} ->
-        File.mkdir_p!(Path.dirname(dest))
-        File.cp!(src, dest)
-        {src, dest}
-      end)
-
-    # 2. Write the rewritten config — the new layout is now complete and loadable.
-    #    Only rewrite a pointer key whose file was actually migrated into `.aiur/`;
-    #    a key whose source stayed put keeps its original value (still resolves).
-    migrated_keys = for {key, src, _dest} <- pointers, not is_nil(src), do: key
-    File.write!(new_config, rewrite_pointers(raw, migrated_keys))
-
-    # 3. Remove the legacy originals (config last is implicit: it's only removed
-    #    once `new_config` exists above).
-    [legacy_config | Enum.map(copied, fn {src, _dest} -> src end)]
-    |> Enum.each(&remove_path(&1, base_dir, git?))
-
-    new_paths = [new_config | Enum.map(copied, fn {_src, dest} -> dest end)]
-
-    # 4. Track the new files, or leave them untracked and gitignored.
-    if ignore? do
-      add_gitignore_entry(base_dir, @gitignore_entry)
-    else
-      if git?, do: git(base_dir, ["add", "--" | new_paths])
-    end
-
-    {:ok, %{moved: new_paths}}
-  rescue
-    error -> {:error, Exception.message(error)}
-  end
-
-  defp pointer_src(_base, value) when value in [nil, ""], do: nil
-
-  defp pointer_src(base, value) do
-    src = Path.expand(value, base)
-    if File.regular?(src) and inside?(base, src), do: src
-  end
-
-  # True when `path` is `base` itself or nested under it — guards the migration
-  # against copying/deleting a pointer target that resolves outside the repo
-  # (absolute, `~/...`, or `../` traversal).
-  defp inside?(base, path) do
-    base = Path.expand(base)
-    path = Path.expand(path)
-    path == base or String.starts_with?(path, base <> "/")
-  end
-
-  defp rewrite_pointers(raw, keys) do
-    new_value = %{"hooks_file" => @aiurhooks_file_name, "prompt_file" => @prompt_basename}
-    Enum.reduce(keys, raw, fn key, acc -> replace_pointer_value(acc, key, new_value[key]) end)
-  end
-
-  # Rewrite the value of a top-level `key:` line, matching a double-quoted,
-  # single-quoted, or bare token so a quoted value containing spaces is replaced
-  # whole. Indented/nested keys and trailing inline comments are left untouched.
-  defp replace_pointer_value(raw, key, new_value) do
-    Regex.replace(~r/^(#{key}:[ \t]*)(?:"[^"]*"|'[^']*'|\S+)/m, raw, "\\1#{new_value}")
-  end
-
-  defp parse_yaml(raw) do
-    case YamlElixir.read_from_string(raw) do
-      {:ok, map} when is_map(map) -> map
-      _ -> %{}
-    end
-  end
-
-  defp git_work_tree?(dir) do
-    case System.cmd("git", ["rev-parse", "--is-inside-work-tree"], cd: dir, stderr_to_stdout: true) do
-      {out, 0} -> String.trim(out) == "true"
-      _ -> false
-    end
-  rescue
-    _ -> false
-  end
-
-  # Remove a legacy file: `git rm` when tracked (keeps git's rename detection
-  # against the freshly-added `.aiur/` copy), plain delete otherwise.
-  defp remove_path(path, base_dir, true) do
-    rel = Path.relative_to(path, base_dir)
-
-    case git(base_dir, ["rm", "-q", "-f", "--", rel]) do
-      :ok -> :ok
-      :error -> File.rm(path)
-    end
-  end
-
-  defp remove_path(path, _base_dir, false), do: File.rm(path)
-
-  defp git(dir, args) do
-    case System.cmd("git", args, cd: dir, stderr_to_stdout: true) do
-      {_out, 0} -> :ok
-      _ -> :error
-    end
-  rescue
-    _ -> :error
-  end
-
-  @doc "Raw .aiurhooks template that `aiur init` scaffolds."
-  @spec aiurhooks_template() :: String.t()
-  defdelegate aiurhooks_template(), to: Templates
-
-  @doc "Raw alert sound map template that `aiur init` scaffolds as `.aiur/alerts`."
-  @spec alerts_template() :: String.t()
-  defdelegate alerts_template(), to: Templates
-
-  @doc false
-  @spec alerts_template({atom(), atom()} | term()) :: String.t()
-  defdelegate alerts_template(os_type), to: Templates
-
-  @doc "Raw prompt_file template (with the `{{REPO}}` placeholder) that `aiur init` scaffolds."
-  @spec prompt_file_template() :: String.t()
-  defdelegate prompt_file_template(), to: Templates
-
-  @doc "Prompt_file scaffold with the repo placeholder filled for `repo` (or a neutral fallback)."
-  @spec prompt_file_scaffold(String.t() | nil) :: String.t()
-  defdelegate prompt_file_scaffold(repo), to: Templates
-
-  defp create_labels(%{kind: "github", repo: repo}, labels) do
-    with {:ok, {owner, name}} <- parse_owner_repo(repo),
-         {:ok, token} <- require_github_token() do
-      case Labels.ensure(owner, name, token, labels) do
-        :ok -> :ok
-        {:error, reason} -> {:error, label_error_message(reason)}
-      end
-    end
-  end
-
-  defp create_labels(_tracker, _labels), do: :ok
-
-  # Existing label names on the repo, so a re-run only creates what's missing.
-  defp list_repo_labels(%{kind: "github", repo: repo}) do
-    with {:ok, {owner, name}} <- parse_owner_repo(repo),
-         {:ok, token} <- require_github_token() do
-      fetch_label_names(owner, name, token, 1, [])
-    end
-  end
-
-  defp list_repo_labels(_tracker), do: {:ok, []}
-
-  defp fetch_label_names(owner, name, token, page, acc) do
-    url = "https://api.github.com/repos/#{owner}/#{name}/labels?per_page=100&page=#{page}"
-
-    headers = [
-      {"authorization", "Bearer #{token}"},
-      {"accept", "application/vnd.github+json"},
-      {"user-agent", "aiur-init"}
-    ]
-
-    case Req.get(url, headers: headers, connect_options: [timeout: 30_000]) do
-      {:ok, %{status: 200, body: body}} when is_list(body) ->
-        names = acc ++ Enum.map(body, & &1["name"])
-        if length(body) == 100, do: fetch_label_names(owner, name, token, page + 1, names), else: {:ok, names}
-
-      {:ok, %{status: status}} ->
-        {:error, {:github_api_status, status}}
-
-      {:error, reason} ->
-        {:error, {:github_api_request, reason}}
-    end
-  rescue
-    error -> {:error, {:github_api_request, Exception.message(error)}}
-  end
-
-  defp parse_owner_repo(repo) do
-    case repo && String.split(to_string(repo), "/", trim: true) do
-      [owner, name] -> {:ok, {owner, name}}
-      _ -> {:error, "github.repo is not set to owner/name — add it to #{@config_file_name}"}
-    end
-  end
-
-  defp require_github_token do
-    case Aiur.GitHub.Config.token() do
-      token when is_binary(token) and token != "" -> {:ok, token}
-      _ -> {:error, "GITHUB_TOKEN not set — add it to #{@env_file_name} (#{@token_url})"}
-    end
-  end
-
-  defp label_error_message({:github_api_status, 403, label}),
-    do: "GitHub rejected #{label} (403) — the token needs repo write scope"
-
-  defp label_error_message({:github_api_status, 404, label}),
-    do:
-      "GitHub returned 404 for #{label} — the repo wasn't found or the token can't access it. " <>
-        "Check github.repo in #{@config_file_name} and that the token's account has access to this repo (Issues: Read & write)."
-
-  defp label_error_message({:github_api_status, status, label}),
-    do: "GitHub rejected #{label} (HTTP #{status})"
-
-  defp label_error_message({:github_api_request, reason}),
-    do: "request failed: #{inspect(reason)}"
-
-  defp label_error_message(other), do: inspect(other)
-
-  defp check_agent_auth(kind) do
-    case agent_executable(kind) do
-      nil ->
-        {:error, "no command configured for #{kind}"}
-
-      exe ->
-        if System.find_executable(exe) do
-          :ok
-        else
-          {:error, "#{exe} not found on PATH — #{install_hint(kind, exe)}"}
-        end
-    end
-  end
-
-  # Names the exact command that provisions a missing backend so the warning is
-  # actionable instead of pointing at a generic "CLI".
-  defp install_hint("claude", _exe), do: "install it with: npm install -g aiur-claude"
-  defp install_hint(_kind, exe), do: "install #{exe} and add it to PATH"
-
-  # Installs the claude app-server (`aiur-claude`) globally via npm. Isolated
-  # behind its own function so `aiur init` can provision the claude backend and
-  # tests can mock it. Returns a message on failure so the wizard degrades
-  # gracefully instead of crashing when npm is absent or the install errors.
-  defp install_claude_app_server do
-    case System.find_executable("npm") do
-      nil ->
-        {:error, "npm not found on PATH"}
-
-      npm ->
-        case System.cmd(npm, ["install", "-g", "aiur-claude"], stderr_to_stdout: true) do
-          {_output, 0} -> :ok
-          {output, status} -> {:error, "npm exited #{status}: #{String.trim(output)}"}
-        end
-    end
-  rescue
-    error -> {:error, Exception.message(error)}
-  end
-
-  defp detect_github_login do
-    case System.cmd("gh", ["api", "user", "--jq", ".login"], stderr_to_stdout: true) do
-      {output, 0} ->
-        output
-        |> String.trim()
-        |> normalize_login()
-
-      _ ->
-        nil
-    end
-  rescue
-    _ -> nil
-  end
-
-  defp agent_executable(kind) do
-    command =
-      case kind do
-        "claude" -> Aiur.Claude.Config.command()
-        "codex" -> Aiur.Codex.Config.command()
-        _ -> nil
-      end
-
-    case command && String.split(String.trim(command), ~r/\s+/, trim: true) do
-      [exe | _] -> exe
-      _ -> nil
-    end
-  end
-
-  defp detect_repo do
-    case System.cmd("git", ["remote", "get-url", "origin"], stderr_to_stdout: true) do
-      {output, 0} -> parse_repo(String.trim(output))
-      _ -> nil
-    end
-  rescue
-    _ -> nil
-  end
-
-  defp parse_repo(url) do
-    url
-    |> String.replace_suffix(".git", "")
-    |> String.split(~r{[/:]}, trim: true)
-    |> Enum.take(-2)
-    |> case do
-      [owner, name] when owner != "" and name != "" -> "#{owner}/#{name}"
-      _ -> nil
-    end
-  end
-
-  defp ensure_env(example_content) do
-    cwd = File.cwd!()
-    File.write!(Path.join(cwd, @env_example_file_name), example_content)
-    env_path = Path.join(cwd, @env_file_name)
-
-    if File.regular?(env_path) do
-      {:exists, env_path}
-    else
-      File.write!(env_path, example_content)
-      {:created, env_path}
-    end
-  end
-
-  # `aiur init` runs as a bare foreground process (the launcher only sources
-  # .env for the running app, not init), so a GITHUB_TOKEN the operator placed
-  # in the repo's .env is not yet in the environment. Load any KEY=VALUE pairs
-  # from the cwd .env — an existing env var always wins — so the token check and
-  # label creation see it. Values are populated, never inspected or logged.
-  defp load_dotenv do
-    path = Path.join(File.cwd!(), @env_file_name)
-
-    case File.read(path) do
-      {:ok, content} -> Enum.each(parse_dotenv(content), &put_env_if_unset/1)
-      {:error, _} -> :ok
-    end
-  end
-
-  defp put_env_if_unset({key, value}) do
-    if System.get_env(key) in [nil, ""], do: System.put_env(key, value)
-    :ok
-  end
-
-  @doc false
-  @spec parse_dotenv(String.t()) :: [{String.t(), String.t()}]
-  def parse_dotenv(content) do
-    content
-    |> String.split("\n")
-    |> Enum.flat_map(&parse_dotenv_line/1)
-  end
-
-  defp parse_dotenv_line(line) do
-    trimmed = String.trim(line)
-
-    if trimmed == "" or String.starts_with?(trimmed, "#") do
-      []
-    else
-      parse_dotenv_pair(trimmed)
-    end
-  end
-
-  defp parse_dotenv_pair(trimmed) do
-    case String.split(trimmed, "=", parts: 2) do
-      [key, raw] ->
-        case dotenv_value(raw) do
-          "" -> []
-          value -> [{String.trim(key), value}]
-        end
-
-      _ ->
-        []
-    end
-  end
-
-  defp dotenv_value(raw), do: raw |> String.trim() |> String.trim("\"") |> String.trim("'")
 
   @doc false
   @spec known_agent_kinds() :: [String.t()]

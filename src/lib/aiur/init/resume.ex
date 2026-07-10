@@ -3,7 +3,9 @@ defmodule Aiur.Init.Resume do
   Saved-config readback for a resume run — the saved-selections summary and the tracker/agents/routing readback from an existing config.
   """
 
-  alias Aiur.Init.Questions
+  alias Aiur.Init.{Format, Prewarm, Questions}
+
+  @gitignore_entry ".aiur/"
 
   @spec print_saved_summary(Aiur.Init.io(), map()) :: :ok
   def print_saved_summary(io, config) do
@@ -93,4 +95,106 @@ defmodule Aiur.Init.Resume do
 
   @spec routing_backend(term()) :: String.t()
   def routing_backend(value), do: value |> to_string() |> String.split(":") |> hd()
+
+  # Returns the path the config now lives at, so a later backfill appends to the
+  # right file even after a migration moved it.
+
+  # `:new` — already on the `.aiur/` layout, nothing to migrate.
+  @spec maybe_migrate_layout(Aiur.Init.io(), Aiur.Init.deps(), :new | :legacy, atom(), Path.t()) :: Path.t()
+  def maybe_migrate_layout(_io, _deps, :new, _location, target), do: target
+
+  # `:legacy` — root-level files. Offer to move them into `.aiur/` (settings
+  # preserved verbatim), and for a repo-local layout, optionally gitignore the
+  # folder. Declining leaves the legacy layout, which still loads.
+  def maybe_migrate_layout(io, deps, :legacy, location, legacy_target) do
+    io.puts.("\naiur now keeps its files in a #{layout_label(location)} folder; yours use the legacy root layout.")
+
+    if io.confirm.("Migrate them into #{layout_label(location)} now?", true) do
+      ignore? = location == :repo_local and io.confirm.("Also add #{@gitignore_entry} to .gitignore?", false)
+      new_target = deps.config_target.(location)
+
+      case deps.migrate_layout.(%{legacy_config: legacy_target, new_config: new_target, ignore: ignore?}) do
+        {:ok, _summary} ->
+          io.puts.(["Migrated to: ", Format.dim(new_target)])
+          new_target
+
+        {:error, reason} ->
+          io.puts.("⚠️ Migration failed (#{inspect(reason)}); keeping the legacy layout.")
+          legacy_target
+      end
+    else
+      io.puts.("Skipped. aiur still reads your legacy layout.")
+      legacy_target
+    end
+  end
+
+  @spec layout_label(:global | :repo_local) :: String.t()
+  def layout_label(:global), do: "~/.aiur/"
+  def layout_label(:repo_local), do: ".aiur/"
+
+  # The registry of config sections a standard `aiur init` resume can backfill.
+  # See the convention note on `run/3`: each entry pairs a top-level config key
+  # with the fresh-setup prompt that configures it, so an existing user is
+  # offered any section their config predates — no per-feature resume code.
+  #
+  # Each entry:
+  #   * `key`       — top-level config key; its absence marks the section missing
+  #   * `label`     — human name for the "Added …" confirmation line
+  #   * `prompt`    — `(io, deps, location) -> answer`; the fresh-setup prompt
+  #   * `opted_in?` — `(answer) -> boolean`; did the user choose to add it?
+  #   * `to_yaml`   — `(answer) -> iodata`; the YAML block to append on opt-in
+  #   * `first_run` — `(io, deps, target, tracker, answer) -> any`; one-time side
+  #                   effect after the block is appended (gets the config target
+  #                   so it can write sibling files, e.g. the `prewarm` script)
+  @spec promptable_sections() :: [map()]
+  def promptable_sections do
+    [
+      %{
+        key: "prewarm",
+        label: "warm-base pre-warm",
+        prompt: &Prewarm.prompt_prewarm/3,
+        opted_in?: fn answer -> answer.enabled end,
+        to_yaml: &Prewarm.prewarm_section_yaml/1,
+        first_run: &Prewarm.first_prewarm_backfill/5
+      }
+    ]
+  end
+
+  # For each registered section the saved config lacks, reuse its fresh-setup
+  # prompt to offer adding it. On opt-in, append the rendered block to the
+  # existing file (never regenerate — hand-tuned settings stay put) and run the
+  # section's one-time side effect. Declining leaves the config untouched.
+  @spec backfill_missing_sections(Aiur.Init.io(), Aiur.Init.deps(), atom(), map(), map(), Path.t()) :: :ok
+  def backfill_missing_sections(io, deps, location, tracker, config, target) do
+    promptable_sections()
+    |> Enum.filter(&missing_section?(config, &1.key))
+    |> Enum.each(&offer_section(io, deps, location, tracker, target, &1))
+  end
+
+  @spec missing_section?(map(), String.t()) :: boolean()
+  def missing_section?(config, key), do: not Map.has_key?(config, key)
+
+  @spec offer_section(Aiur.Init.io(), Aiur.Init.deps(), atom(), map(), Path.t(), map()) :: :ok | nil
+  def offer_section(io, deps, location, tracker, target, section) do
+    answer = section.prompt.(io, deps, location)
+
+    # Only run the one-time side effect once the section actually persisted —
+    # mirrors fresh setup, which builds the warm base only on a successful write.
+    if section.opted_in?.(answer) and append_section(io, deps, target, section, answer) == :ok do
+      section.first_run.(io, deps, target, tracker, answer)
+    end
+  end
+
+  @spec append_section(Aiur.Init.io(), Aiur.Init.deps(), Path.t(), map(), map()) :: :ok | :error
+  def append_section(io, deps, target, section, answer) do
+    case deps.append_config.(target, section.to_yaml.(answer)) do
+      {:ok, path} ->
+        io.puts.(["Added ", section.label, " to ", Format.dim(path)])
+        :ok
+
+      {:error, reason} ->
+        io.puts.(["⚠️  Couldn't update #{Path.basename(target)} (", inspect(reason), ")."])
+        :error
+    end
+  end
 end

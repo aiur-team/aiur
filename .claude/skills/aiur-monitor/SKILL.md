@@ -46,6 +46,58 @@ top of the raw output:
   `🔴 daemon down` line instead of "no active agents", and tell the operator the
   node needs restarting.
 
+## Progress-update format (required — two tables)
+
+This is the required shape of **every periodic progress update** (each cadence tick — see
+"Monitoring cadence" below). The `aiurdev watch` board tells you the live per-agent state; the
+operator wants that state rolled up into **TWO markdown tables** so a glance shows the whole
+refactor and the whole optimization backlog, not just the agents that happen to be active right
+now. Post both tables, in this order, on every tick. This is a required format, not a suggestion —
+do not substitute a prose summary or the raw board alone.
+
+**Table 1 — Refactor tickets.** The full roadmap, **one row per ticket through the end of the
+refactor** — recently-merged, currently-active, AND upcoming (not-yet-created) tickets, so the
+operator sees the complete arc. Columns: `Ticket | Description | Phase | Status`. Status markers:
+
+- **✅ Merged** — done and merged.
+- **🔵 Active** — in-progress / rework / todo / human-review (anything an agent is or will soon be
+  holding). Include the PR/issue number when there is one (e.g. `🔵 #879 in-progress`).
+- **⬜ Upcoming** — not yet created / not yet started.
+
+Contiguous runs of done tickets MAY be collapsed to a single row to keep the table scannable
+(e.g. `T-001–T-021 … ✅ all merged`); keep active and upcoming tickets as individual rows so the
+near-term work is legible.
+
+**Table 2 — Optimization / bottleneck tickets.** The optimization/bottleneck backlog that runs
+alongside the refactor. Columns: `# | Description | Status`. Show what's merged, what's active,
+and what still needs work (held / blocked / staged). **Flag the current top blocker explicitly**
+(e.g. `🔴 in-progress — BLOCKS ALL MERGES`) so the operator can see at a glance what is gating the
+rest.
+
+Concrete example (abbreviated — real updates carry every remaining ticket, not `…`):
+
+```
+## Table 1 — Refactor tickets
+| Ticket | Description | Phase | Status |
+|---|---|---|---|
+| T-001–T-021 | Phase 1 safety-net + Phase 2 core seams | 1–2 | ✅ all merged |
+| T-024 | orchestrator: comment/PR paths | 3 | 🔵 #851 todo |
+| T-025 | orchestrator: sync subscriptions | 3 | ⬜ upcoming |
+| T-036 | runner: streams slim | 3 | 🔵 #879 in-progress |
+| … one row per remaining ticket through T-060 … | | | |
+
+## Table 2 — Optimization / bottleneck tickets
+| # | Description | Status |
+|---|---|---|
+| #856 | Daemon hardening (scheduler cap + crash-dump) | ✅ merged |
+| #884 | Restore v2 coverage ≥85% | 🔴 in-progress — BLOCKS ALL MERGES |
+| #877 | Close the CI feedback loop | 🔵 in-progress |
+| #873 | Agents skip local credo (lint = #1 CPU) | 🟡 staged in prompt |
+```
+
+The `⚠️ Needs you` line and the daemon-down line above still apply on top of the two tables —
+surface them alongside the tables, not instead of them.
+
 ## Monitoring cadence (REQUIRED DEFAULT)
 
 This is a required behavior, not soft guidance. **WHILE an aiur run is live** (you launched it
