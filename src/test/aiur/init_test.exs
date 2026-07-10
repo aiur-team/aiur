@@ -1329,7 +1329,7 @@ defmodule Aiur.InitTest do
       assert {"Max turns per issue", "none = unlimited"} in hints
 
       assert Enum.any?(hints, fn {label, hint} ->
-               label == "Max agent duration in minutes" and hint == "Fallback for stuck agents: none = never auto-kill"
+               label == "Max agent duration in minutes" and hint == "Safety checkpoint: none = never auto-pause"
              end)
 
       # pre-warm no longer carries a hint

@@ -1806,7 +1806,9 @@ defmodule Aiur.CoreTest do
           )
         end)
 
-      assert_receive {:worker_control_state, "issue-before-run-pause", :paused}, 5_000
+      assert_receive {:worker_control_state, "issue-before-run-pause", :paused, %{kind: :before_run_failure}},
+                     5_000
+
       refute_receive {:codex_worker_update, "issue-before-run-pause", %{event: :session_started}}, 200
       assert Task.yield(task, 50) == nil
 
@@ -2587,7 +2589,9 @@ defmodule Aiur.CoreTest do
       assert_receive {:codex_worker_update, "issue-pause-resume", %{event: :session_started}}, 5_000
 
       send(task.pid, {:pause_agent, 91})
-      assert_receive {:worker_control_state, "issue-pause-resume", :paused}, 5_000
+
+      assert_receive {:worker_control_state, "issue-pause-resume", :paused, %{request_id: 91, turn_id: "turn-main"}},
+                     5_000
 
       :sys.replace_state(orchestrator_pid, fn state ->
         {queue_store, item} =

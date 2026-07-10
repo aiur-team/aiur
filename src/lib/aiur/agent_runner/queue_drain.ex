@@ -15,7 +15,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
   require Logger
 
-  alias Aiur.{AgentPubSub, Issue, OperatorWaitLog}
+  alias Aiur.{AgentPubSub, Issue, OperatorWaitLog, PauseContainment}
   alias Aiur.AgentRunner.{CheckpointDelivery, EventsDigest, MessageHandler, SessionLifecycle}
   alias Aiur.AgentRunner.{ToolExecutor, TurnAlerts, TurnLoop, TurnStreams}
   alias Aiur.Codex.DynamicTool
@@ -113,6 +113,11 @@ defmodule Aiur.AgentRunner.QueueDrain do
       {:resume_agent, request_id} when is_integer(request_id) ->
         Logger.info("Resuming paused agent for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{request_id}")
 
+        # A stale containment latch makes the next app-server turn return an
+        # immediate `{:paused, %{request_id: :containment}}`. Clear it only
+        # after the orchestrator admitted this resume, so an operator pause
+        # remains protected until an actual resume reaches the worker.
+        _ = PauseContainment.release_target(issue.identifier)
         MessageHandler.send_control_state(codex_update_recipient, issue, :working)
         # An explicit resume drains the agent queue so restored items
         # land in the same turn instead of being deferred until the next
@@ -389,15 +394,8 @@ defmodule Aiur.AgentRunner.QueueDrain do
           SessionLifecycle.session_worker_host(app_session)
         )
 
-        MessageHandler.send_control_state(codex_update_recipient, issue, :paused)
-
-        wait_for_operator_message(
-          app_session,
-          issue,
-          message_handler,
-          orchestrator,
-          codex_update_recipient
-        )
+        MessageHandler.send_control_state(codex_update_recipient, issue, :paused, pause_payload)
+        wait_for_operator_message(app_session, issue, message_handler, orchestrator, codex_update_recipient)
 
       {:error, {:turn_start_failed, reason}} when reason in [:response_timeout, :turn_timeout] ->
         :ok = Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)

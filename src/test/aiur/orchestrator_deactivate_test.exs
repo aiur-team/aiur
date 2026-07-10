@@ -70,6 +70,16 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
   end
 
+  defmodule PauseOverrideGitHubClient do
+    def remove_label(issue_id, label) do
+      recipient = Application.get_env(:aiur, :pause_override_recipient)
+
+      if is_pid(recipient), do: send(recipient, {:pause_override_remove_label, issue_id, label})
+
+      Application.get_env(:aiur, :pause_override_remove_result, :ok)
+    end
+  end
+
   defmodule HumanReviewGuardGitHubClient do
     def verify_human_review_ready(issue_id) do
       if is_pid(recipient()), do: send(recipient(), {:human_review_verify, issue_id})
@@ -1611,6 +1621,136 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert get_in(next.running, [issue_id, :control, :status]) == :working
       refute Map.has_key?(next.running[issue_id], :paused_reason)
       assert get_in(next.running, [issue_id, :issue, Access.key(:paused)]) == false
+    end
+
+    test "resume clears the durable override before waking the agent" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"]
+      )
+
+      previous_recipient = Application.get_env(:aiur, :memory_tracker_recipient)
+      Application.put_env(:aiur, :memory_tracker_recipient, self())
+
+      on_exit(fn ->
+        if previous_recipient,
+          do: Application.put_env(:aiur, :memory_tracker_recipient, previous_recipient),
+          else: Application.delete_env(:aiur, :memory_tracker_recipient)
+      end)
+
+      issue_id = "issue-paused-resume-clears-label"
+      identifier = "PAUSE-RESUME"
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: self(),
+            ref: nil,
+            identifier: identifier,
+            issue: %Issue{id: issue_id, identifier: identifier, state: "in-progress", paused: true, labels: ["agent:in-progress", "agent:paused"]},
+            started_at: DateTime.add(DateTime.utc_now(), -30, :second),
+            paused_reason: :label_override,
+            control: %{status: :paused}
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{},
+        max_concurrent_agents: 2
+      }
+
+      assert {:reply, {:ok, :resumed}, next} = Orchestrator.handle_call({:resume_agent, identifier}, self(), state)
+      assert_receive {:memory_tracker_remove_label, ^identifier, "agent:paused"}
+      assert_receive {:resume_agent, _request_id}
+      resumed = next.running[issue_id]
+      assert resumed.control.status == :working
+      refute resumed.issue.paused
+      refute "agent:paused" in resumed.issue.labels
+    end
+
+    test "resume leaves the worker paused when clearing the override fails" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"]
+      )
+
+      previous_client = Application.get_env(:aiur, :github_client_module)
+      previous_recipient = Application.get_env(:aiur, :pause_override_recipient)
+      previous_result = Application.get_env(:aiur, :pause_override_remove_result)
+      Application.put_env(:aiur, :github_client_module, PauseOverrideGitHubClient)
+      Application.put_env(:aiur, :pause_override_recipient, self())
+      Application.put_env(:aiur, :pause_override_remove_result, {:error, :unavailable})
+
+      on_exit(fn ->
+        restore_application_env(:github_client_module, previous_client)
+        restore_application_env(:pause_override_recipient, previous_recipient)
+        restore_application_env(:pause_override_remove_result, previous_result)
+      end)
+
+      issue_id = "issue-paused-resume-failure"
+      identifier = "PAUSE-RESUME-FAILURE"
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: self(),
+            ref: nil,
+            identifier: identifier,
+            issue: %Issue{id: issue_id, identifier: identifier, state: "in-progress", paused: true, labels: ["agent:in-progress", "agent:paused"]},
+            started_at: DateTime.add(DateTime.utc_now(), -30, :second),
+            paused_reason: :label_override,
+            control: %{status: :paused}
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{},
+        max_concurrent_agents: 2
+      }
+
+      assert {:reply, {:error, {:pause_override_clear_failed, :unavailable}}, next} =
+               Orchestrator.handle_call({:resume_agent, identifier}, self(), state)
+
+      assert_receive {:pause_override_remove_label, ^identifier, "agent:paused"}
+      refute_receive {:resume_agent, _request_id}
+      assert next.running[issue_id].control.status == :paused
+      assert next.running[issue_id].issue.paused
+    end
+
+    test "startup clears an unowned pause override so the ticket can be redispatched" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"]
+      )
+
+      previous_recipient = Application.get_env(:aiur, :memory_tracker_recipient)
+      Application.put_env(:aiur, :memory_tracker_recipient, self())
+
+      on_exit(fn ->
+        if previous_recipient,
+          do: Application.put_env(:aiur, :memory_tracker_recipient, previous_recipient),
+          else: Application.delete_env(:aiur, :memory_tracker_recipient)
+      end)
+
+      issue = %Issue{
+        id: "issue-startup-paused",
+        identifier: "PAUSE-STARTUP",
+        state: "in-progress",
+        paused: true,
+        labels: ["agent:in-progress", "agent:paused"]
+      }
+
+      state = %Orchestrator.State{initial_dispatch_cycle: true, running: %{}}
+
+      assert [recovered] = Orchestrator.recover_startup_pause_overrides_for_test(state, [issue])
+      assert_receive {:memory_tracker_remove_label, "PAUSE-STARTUP", "agent:paused"}
+      refute recovered.paused
+      refute "agent:paused" in recovered.labels
     end
 
     test "removing the override does not resume a manually paused agent" do
