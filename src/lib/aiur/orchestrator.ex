@@ -34,6 +34,7 @@ defmodule Aiur.Orchestrator do
   alias Aiur.GitHub.Connectivity, as: GitHubConnectivity
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Opencode.ActiveTurns
+
   alias Aiur.Orchestrator.{
     CommandScan,
     CommentPolling,
@@ -49,6 +50,7 @@ defmodule Aiur.Orchestrator do
     State,
     TrackedSet
   }
+
   alias AiurWeb.ObservabilityPubSub
 
   # Slightly above the dashboard render interval so the `0s` in-progress
