@@ -13,7 +13,13 @@ defmodule Aiur.Orchestrator.PrAnchored do
 
   @pr_anchored_state "pr-watch"
 
-  @spec maybe_route_pr_anchored_or_legacy(State.t(), String.t() | integer(), String.t() | atom(), map(), pos_integer()) :: State.t()
+  @spec maybe_route_pr_anchored_or_legacy(
+          State.t(),
+          String.t() | integer(),
+          String.t() | atom(),
+          map(),
+          pos_integer()
+        ) :: State.t()
   def maybe_route_pr_anchored_or_legacy(%State{} = state, issue_number, source, event, attempt) do
     if pr_anchored_routing_enabled?() and CommentWake.trusted_comment_event?(event) and
          not CommentWake.benign_review_pass_comment?(event) do
