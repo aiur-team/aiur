@@ -1,6 +1,10 @@
 defmodule Aiur.AgentList.Controls do
   @moduledoc """
   Applies pause, remote-control, and concurrency controls in AgentList.
+
+  These functions use `Process.send_after(self(), ...)` and therefore must run
+  in the App GenServer process. Calling them from a Task would clear hints and
+  alerts in the wrong process.
   """
 
   require Logger
@@ -36,6 +40,7 @@ defmodule Aiur.AgentList.Controls do
   defp toggle_agent_pause(%{identifier: identifier, status: :running} = summary, state) do
     cond do
       Summaries.remote_control_on?(summary) ->
+        # RC-on has no local headless driver to pause, so hint and no-op.
         rc_hint(state, "Agent is in Remote Control — press `r` to return")
 
       Summaries.paused?(summary) ->
@@ -57,6 +62,7 @@ defmodule Aiur.AgentList.Controls do
   defp toggle_agent_pause(_summary, state), do: state
 
   defp toggle_agent_remote_control(%{identifier: identifier, status: :running} = summary, state) do
+    # The Orchestrator owns backend and workspace capability gating.
     desired = not Summaries.remote_control_on?(summary)
     Logger.info("[user-action] remote_control identifier=#{identifier} desired=#{if(desired, do: "on", else: "off")} source=agent_list")
     handle_remote_control_result(state, Orchestrator.set_remote_control(state.orchestrator, identifier, desired))
@@ -68,10 +74,17 @@ defmodule Aiur.AgentList.Controls do
 
   defp handle_resume_result(state, {:error, reason}) do
     Logger.info("[user-action] resume_failed reason=#{inspect(reason)}")
-    state.write_fun.("\a")
-    Process.send_after(self(), :clear_max_agents_alert, 750)
+    ring_bell(state)
+    schedule_max_agents_alert_clear()
     %{state | max_agents_alert?: true}
   end
+
+  defp ring_bell(state) do
+    state.write_fun.("\a")
+    :ok
+  end
+
+  defp schedule_max_agents_alert_clear, do: Process.send_after(self(), :clear_max_agents_alert, 750)
 
   defp handle_remote_control_result(state, {:ok, :on}), do: rc_hint(state, "Switching to remote — REPL + Claude app, same transcript")
   defp handle_remote_control_result(state, {:ok, :off}), do: rc_hint(state, "Remote off — re-dispatching on the default backend")
@@ -81,7 +94,10 @@ defmodule Aiur.AgentList.Controls do
   defp handle_remote_control_result(state, {:error, _reason}), do: rc_hint(state, "Remote Control unavailable")
 
   defp rc_hint(state, message) do
-    Process.send_after(self(), :clear_remote_control_hint, 4_000)
+    schedule_remote_control_hint_clear()
     %{state | remote_control_hint: message}
   end
+
+  defp schedule_remote_control_hint_clear,
+    do: Process.send_after(self(), :clear_remote_control_hint, 4_000)
 end

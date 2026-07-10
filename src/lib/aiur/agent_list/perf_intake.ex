@@ -1,6 +1,7 @@
 defmodule Aiur.AgentList.PerfIntake do
   @moduledoc """
-  Folds debug performance events into AgentList state.
+  Folds debug performance events into AgentList state and reports whether the
+  compact three-row footer changed, so debug-only warmth events do not render.
   """
 
   @warmth_event_cap 500
@@ -12,6 +13,9 @@ defmodule Aiur.AgentList.PerfIntake do
     {%{state | perf_summary: perf_summary, warmth_events: warmth_events}, perf_summary != state.perf_summary}
   end
 
+  # Pull the three milestones the debug footer cares about out of the
+  # aiur_perf stream. Everything else is ignored — the user asked for
+  # a compact 3-row footer, not a rolling event log.
   defp update_perf_summary(summary, %{phase: :agent_list_ready, meta: %{wall_ms: ms}}),
     do: %{summary | agent_list_ready_ms: ms}
 

@@ -1,6 +1,10 @@
 defmodule Aiur.AgentList.Activation do
   @moduledoc """
   Performs selected-agent pane activation without blocking AgentList.
+
+  Every PaneManager open or attach runs inside `Task.start`: attaching carries
+  a 65 s timeout and an open-fallback chain, so running it inline would park
+  the App process. Capture pane_manager, command, and title before spawning.
   """
 
   require Logger
@@ -14,7 +18,7 @@ defmodule Aiur.AgentList.Activation do
   @spec activate_selected(map(), :new_pane | :swap_in_last_used) :: :ok
   def activate_selected(state, mode) do
     case Enum.at(state.summaries, state.selection_index) do
-      %{identifier: identifier} = summary -> activate_if_available(state, identifier, summary, mode)
+      %{identifier: identifier} = summary -> activate_selected_agent_if_warm(state, identifier, summary, mode)
       _ -> :ok
     end
   end
@@ -24,19 +28,24 @@ defmodule Aiur.AgentList.Activation do
     case Enum.at(state.summaries, state.selection_index) do
       %{identifier: identifier} = summary ->
         Logger.info("[user-action] attach_selected identifier=#{identifier} source=agent_list")
-        start_attach(state, identifier, summary)
+        command = "#{state.command_template} #{identifier}"
+        title = Map.get(summary, :title)
+        pane_manager = state.pane_manager
+
+        # `attach_conversation` has a 65 s timeout but would still park App.
+        Task.start(fn -> attempt_attach_then_open(pane_manager, identifier, command, title) end)
 
       _ ->
         :ok
     end
   end
 
-  defp activate_if_available(state, identifier, summary, mode) do
+  defp activate_selected_agent_if_warm(state, identifier, summary, mode) do
     cond do
       Summaries.deactivated?(summary) ->
+        # A deactivated row has no warm pane; reactivate and open asynchronously.
         Logger.info("[user-action] reactivate_on_enter identifier=#{identifier} source=agent_list")
-        start_reactivate(state.orchestrator, identifier)
-        start_open(state, identifier, summary, mode)
+        reactivate_and_open(state, identifier, summary, mode)
 
       not warm_identifier?(state, identifier) ->
         Logger.info("[user-action] open_blocked identifier=#{identifier} source=agent_list reason=not_warm")
@@ -45,46 +54,40 @@ defmodule Aiur.AgentList.Activation do
         Logger.info("[user-action] open_blocked identifier=#{identifier} source=agent_list reason=no_headroom")
 
       true ->
-        start_open(state, identifier, summary, mode)
+        open_selected_agent(state, identifier, summary, mode)
     end
 
     :ok
   end
 
-  defp start_reactivate(orchestrator, identifier) do
-    Task.start(fn -> log_reactivate_result(orchestrator, identifier) end)
+  defp reactivate_and_open(state, identifier, summary, mode) do
+    Task.start(fn -> log_reactivate_result(state, identifier) end)
+    open_selected_agent(state, identifier, summary, mode)
   end
 
-  defp log_reactivate_result(orchestrator, identifier) do
-    case safe_call(fn -> Orchestrator.resume_agent(orchestrator, identifier) end) do
+  defp log_reactivate_result(state, identifier) do
+    case safe_call(fn -> Orchestrator.resume_agent(state.orchestrator, identifier) end) do
       {:ok, _} -> :ok
       other -> Logger.debug("reactivate_on_enter resume_agent reply=#{inspect(other)}")
     end
   end
 
-  defp start_open(state, identifier, summary, mode) do
+  defp open_selected_agent(state, identifier, summary, mode) do
     Logger.info("[user-action] open_conversation identifier=#{identifier} mode=#{mode} source=agent_list")
     Aiur.Perf.event(:user_pressed_enter, identifier: identifier, source: :agent_list, mode: mode)
     command = "#{state.command_template} #{identifier}"
     title = Map.get(summary, :title)
     pane_manager = state.pane_manager
-    Task.start(fn -> open(pane_manager, identifier, command, title, mode) end)
+    Task.start(fn -> do_open(pane_manager, identifier, command, title, mode) end)
   end
 
-  defp start_attach(state, identifier, summary) do
-    command = "#{state.command_template} #{identifier}"
-    title = Map.get(summary, :title)
-    pane_manager = state.pane_manager
-    Task.start(fn -> attach_then_open(pane_manager, identifier, command, title) end)
-  end
-
-  defp open(pane_manager, identifier, command, title, :new_pane),
+  defp do_open(pane_manager, identifier, command, title, :new_pane),
     do: PaneManager.open_conversation(pane_manager, identifier, command, title: title)
 
-  defp open(pane_manager, identifier, command, title, :swap_in_last_used),
-    do: attach_then_open(pane_manager, identifier, command, title)
+  defp do_open(pane_manager, identifier, command, title, :swap_in_last_used),
+    do: attempt_attach_then_open(pane_manager, identifier, command, title)
 
-  defp attach_then_open(pane_manager, identifier, command, title) do
+  defp attempt_attach_then_open(pane_manager, identifier, command, title) do
     case PaneManager.attach_conversation(pane_manager, identifier, command, title: title) do
       {:ok, _pane_id} ->
         :ok

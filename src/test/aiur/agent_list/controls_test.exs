@@ -38,7 +38,15 @@ defmodule Aiur.AgentList.ControlsTest do
   end
 
   defp state(orchestrator, summary) do
-    %{selection_focus: :agents, summaries: [summary], selection_index: 0, orchestrator: orchestrator, write_fun: fn _ -> :ok end, max_agents_alert?: false, remote_control_hint: nil}
+    %{
+      selection_focus: :agents,
+      summaries: [summary],
+      selection_index: 0,
+      orchestrator: orchestrator,
+      write_fun: fn _ -> :ok end,
+      max_agents_alert?: false,
+      remote_control_hint: nil
+    }
   end
 
   test "routes pause, remote control, and concurrent-cap controls" do

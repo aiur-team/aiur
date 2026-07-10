@@ -1,10 +1,13 @@
 defmodule Aiur.AgentList.WarmthIntake do
   @moduledoc """
-  Folds chat, pane, and pre-warm marker events into AgentList state.
+  Folds the ⏳/🔘/⚪/🟢 marker state machine. It owns
+  `visible_sessions`, `started_slots`, `fully_warmed_slots`, `attach_state`,
+  `opened_panes`, and `agents_with_content`.
   """
 
   @spec fold(map(), tuple()) :: {map(), boolean()}
   def fold(state, {:agent_chat_active, identifier}) when is_binary(identifier) do
+    # MapSet dedups repeated transcript broadcasts so they do not re-render.
     if MapSet.member?(state.agents_with_content, identifier) do
       {state, false}
     else
@@ -13,6 +16,8 @@ defmodule Aiur.AgentList.WarmthIntake do
   end
 
   def fold(state, {:status_changed, %{identifier: id, status: :pane_opened}}) do
+    # 🟢 means the pane is actually visible in window 0, not merely painted
+    # in an AttachPool slot. App reconciles RC borders after this fold.
     {%{state | opened_panes: MapSet.put(state.opened_panes, to_string(id))}, true}
   end
 

@@ -1,6 +1,11 @@
 defmodule Aiur.AgentList.RcPaneBorders do
   @moduledoc """
   Reconciles remote-control URLs into tmux pane borders.
+
+  The RC session URL is a capability token, so it lives only in memory, is
+  never logged, and is never rendered in the agent list. Reconciliation runs
+  when summaries or open panes change and diffs against applied text, keeping
+  the 1 Hz tick from re-issuing `set-option`.
   """
 
   alias Aiur.PaneManager
@@ -19,6 +24,10 @@ defmodule Aiur.AgentList.RcPaneBorders do
   end
 
   @spec changes(map(), [map()], map()) :: {[{String.t(), String.t() | nil}], map()}
+  @doc """
+  Returns border updates and the next applied-border map. A `nil` text clears
+  a pane whose remote-control session ended; closed panes self-prune.
+  """
   def changes(open_panes, summaries, applied) do
     urls = Map.new(summaries, fn summary -> {to_string(Map.get(summary, :identifier)), border_text(summary)} end)
     desired = Map.new(open_panes, fn {identifier, pane_id} -> {pane_id, Map.get(urls, to_string(identifier))} end)
@@ -36,6 +45,7 @@ defmodule Aiur.AgentList.RcPaneBorders do
     :exit, _ -> :unavailable
   end
 
+  # `#` is doubled because tmux expands it in pane-border-format strings.
   defp border_text(%{remote_control: %{status: :on, session_url: url}}) when is_binary(url),
     do: " 📱 " <> String.replace(url, "#", "##") <> " "
 

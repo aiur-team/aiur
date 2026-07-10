@@ -88,12 +88,6 @@ defmodule Aiur.AgentList.App do
   @spec snapshot(GenServer.server()) :: State.t()
   def snapshot(server \\ __MODULE__), do: GenServer.call(server, :snapshot)
 
-  @doc false
-  @spec rc_border_changes(%{optional(String.t()) => String.t()}, [map()], map()) ::
-          {[{String.t(), String.t() | nil}], map()}
-  def rc_border_changes(open_panes, summaries, applied),
-    do: RcPaneBorders.changes(open_panes, summaries, applied)
-
   @impl true
   def init(opts) do
     Logger.info("aiur_agent_list phase=init os_pid=#{System.pid()}")
@@ -171,9 +165,15 @@ defmodule Aiur.AgentList.App do
 
   def handle_info({:agent_chat_active, identifier} = event, state) when is_binary(identifier), do: apply_warmth(state, event)
 
-  def handle_info({:status_changed, %{status: status}} = event, state) when status in [:pane_opened, :pane_closed] do
+  def handle_info({:status_changed, %{identifier: _id, status: :pane_opened}} = event, state) do
     {state, _} = WarmthIntake.fold(state, event)
-    state = if status == :pane_opened, do: RcPaneBorders.reconcile(state), else: state
+    state = RcPaneBorders.reconcile(state)
+    render(state)
+    {:noreply, state}
+  end
+
+  def handle_info({:status_changed, %{identifier: _id, status: :pane_closed}} = event, state) do
+    {state, _} = WarmthIntake.fold(state, event)
     render(state)
     {:noreply, state}
   end
@@ -290,7 +290,18 @@ defmodule Aiur.AgentList.App do
   end
 
   defp render(state) do
-    state.write_fun.(state |> RenderState.build() |> Renderer.render())
+    render_state = RenderState.build(state)
+
+    # RenderState.build/1 owns the explicit threading for:
+    # :summaries :selection_index :selection_focus :help_visible?
+    # :max_agents_alert? :columns :rows :project_label :dashboard_url
+    # :agent_kind :agent_count :max_agents :visible_sessions :debug_mode?
+    # :perf_summary :warmth_events :debug_events :attach_state :started_slots
+    # :fully_warmed_slots :opened_panes :agents_with_content
+    # :latest_event_by_id :phase_by_identifier :open_attentions_by_id
+    # :progress_by_id :warm_status_dark_mode? :remote_control_hint
+    # :prewarm_active? :prewarm_phase :truecolor?
+    state.write_fun.(Renderer.render(render_state))
     :ok
   end
 end
