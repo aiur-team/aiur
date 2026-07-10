@@ -28,8 +28,7 @@ defmodule Aiur.Workspace.Context do
       issue_state: Map.get(issue, :state),
       issue_labels: Map.get(issue, :labels, []),
       pr_head_ref: pr_head_ref,
-      branch_name:
-        pr_head_ref || TicketBranch.branch_name(issue_identifier, Map.get(issue, :title))
+      branch_name: pr_head_ref || TicketBranch.branch_name(issue_identifier, Map.get(issue, :title))
     }
   end
 

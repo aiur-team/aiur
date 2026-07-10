@@ -2,7 +2,7 @@ defmodule Aiur.Workspace.Provisioner do
   @moduledoc "Workspace provisioning: ensure, create, materialize from prewarm base, recreate stale workspaces, and remote SSH shell provisioning."
 
   require Logger
-  alias Aiur.{Config, RepoBase}
+  alias Aiur.{Config, RepoBase, TicketBranch}
   alias Aiur.Workspace.{Materialize, Remote}
 
   @remote_workspace_marker "__AIUR_WORKSPACE__"
@@ -181,5 +181,5 @@ defmodule Aiur.Workspace.Provisioner do
     end
   end
 
-  defp legacy_branch_name(workspace), do: "aiur/" <> Path.basename(workspace)
+  defp legacy_branch_name(workspace), do: TicketBranch.legacy_branch_name(Path.basename(workspace))
 end

@@ -200,9 +200,7 @@ defmodule Aiur.WorkspaceMaterializeTest do
 
   defp branch(workspace) do
     {out, 0} =
-      System.cmd("git", ["-C", workspace, "rev-parse", "--abbrev-ref", "HEAD"],
-        stderr_to_stdout: true
-      )
+      System.cmd("git", ["-C", workspace, "rev-parse", "--abbrev-ref", "HEAD"], stderr_to_stdout: true)
 
     String.trim(out)
   end

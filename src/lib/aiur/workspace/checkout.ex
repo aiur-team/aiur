@@ -1,7 +1,7 @@
 defmodule Aiur.Workspace.Checkout do
   @moduledoc "Git branch selection for a freshly materialized workspace: live-origin-tip aiur/<id> vs PR-anchored head ref, plus the shared branch query."
 
-  alias Aiur.RepoBase
+  alias Aiur.{RepoBase, TicketBranch}
 
   @spec checkout_fresh_branch(Path.t()) :: :ok | {:error, term()}
   # Branch the agent's `aiur/<id>` off the LIVE `origin/<base>` tip rather than the
@@ -43,9 +43,7 @@ defmodule Aiur.Workspace.Checkout do
 
   @spec current_branch(Path.t()) :: String.t() | nil
   def current_branch(workspace) do
-    case System.cmd("git", ["-C", workspace, "symbolic-ref", "--quiet", "--short", "HEAD"],
-           stderr_to_stdout: true
-         ) do
+    case System.cmd("git", ["-C", workspace, "symbolic-ref", "--quiet", "--short", "HEAD"], stderr_to_stdout: true) do
       {out, 0} -> String.trim(out)
       _ -> nil
     end
@@ -93,14 +91,12 @@ defmodule Aiur.Workspace.Checkout do
   defp fresh_base_start_point(workspace) do
     with base when is_binary(base) <- RepoBase.base_branch(),
          {_out, 0} <-
-           System.cmd("git", ["-C", workspace, "fetch", "origin", base, "--quiet"],
-             stderr_to_stdout: true
-           ) do
+           System.cmd("git", ["-C", workspace, "fetch", "origin", base, "--quiet"], stderr_to_stdout: true) do
       ["origin/" <> base]
     else
       _ -> []
     end
   end
 
-  defp branch_for(workspace), do: "aiur/" <> Path.basename(workspace)
+  defp branch_for(workspace), do: TicketBranch.legacy_branch_name(Path.basename(workspace))
 end

@@ -101,7 +101,7 @@ defmodule Aiur.Workspace.Hooks do
 
     Logger.info("Running workspace hook hook=#{hook_name} #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=#{worker_host}")
 
-    case Remote.run_remote_command(worker_host, "cd #{Aiur.Shell.escape(workspace)} && #{command}", timeout_ms) do
+    case Remote.run_remote_command(worker_host, remote_hook_command(command, workspace, issue_context), timeout_ms) do
       {:ok, cmd_result} ->
         handle_hook_command_result(cmd_result, workspace, issue_context, hook_name)
 
@@ -111,6 +111,17 @@ defmodule Aiur.Workspace.Hooks do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  @doc false
+  @spec remote_hook_command(String.t(), Path.t(), map()) :: String.t()
+  def remote_hook_command(command, workspace, issue_context) do
+    exports =
+      hook_env(issue_context)
+      |> Enum.map_join(" ", fn {key, value} -> "#{key}=#{Aiur.Shell.escape(value)}" end)
+
+    prefix = if exports == "", do: "", else: "export #{exports}; "
+    "#{prefix}cd #{Aiur.Shell.escape(workspace)} && #{command}"
   end
 
   @doc false

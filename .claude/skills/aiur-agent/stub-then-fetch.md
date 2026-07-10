@@ -46,7 +46,7 @@ Some blockers can't be reasonably stubbed — schema migrations that need to lan
 
 ## What NOT to do
 
-- **Don't poll.** Don't burn turns checking `git log origin/aiur/N` repeatedly. Events fire automatically.
+- **Don't poll.** Don't burn turns repeatedly checking a blocker remote ref. Events fire automatically.
 - **Don't silently use a stub.** Always emit `unblocked` with `temporary_stub: true` so other agents reading your `progress.*` events know to read carefully.
 - **Don't skip the integration step.** Once the real implementation lands, replace the stub — leaving the stub in is a high-cost recurring bug.
-- **Don't publish temporary stubs.** Stubs are local-only scaffolding. If `origin/aiur/N` now has the real helper/API, stack on that branch and remove your placeholder before pushing.
+- **Don't publish temporary stubs.** Stubs are local-only scaffolding. If the actual fetched blocker ref has the real helper/API, stack on that branch and remove your placeholder before pushing.

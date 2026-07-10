@@ -2,6 +2,7 @@ defmodule Aiur.Workspace.Materialize do
   @moduledoc "Copy-on-write workspace materialization from the warm prewarm base: cold git clone fallback, PR-anchored head checkout."
 
   require Logger
+  alias Aiur.TicketBranch
   alias Aiur.Workspace.Checkout
 
   @doc false
@@ -10,7 +11,7 @@ defmodule Aiur.Workspace.Materialize do
   # callers go through `create_or_materialize/3`.
   @spec materialize_from_base(Path.t(), Path.t()) :: :ok | {:error, term()}
   def materialize_from_base(base, workspace) do
-    materialize_from_base(base, workspace, "aiur/" <> Path.basename(workspace), nil)
+    materialize_from_base(base, workspace, TicketBranch.legacy_branch_name(Path.basename(workspace)), nil)
   end
 
   @doc false
@@ -29,9 +30,7 @@ defmodule Aiur.Workspace.Materialize do
       :ok
     else
       other ->
-        Logger.warning(
-          "prewarm materialize failed (#{inspect(other)}); falling back to cold clone"
-        )
+        Logger.warning("prewarm materialize failed (#{inspect(other)}); falling back to cold clone")
 
         File.rm_rf!(workspace)
         {:error, other}
@@ -48,9 +47,7 @@ defmodule Aiur.Workspace.Materialize do
       :ok
     else
       other ->
-        Logger.warning(
-          "prewarm materialize (PR-anchored) failed (#{inspect(other)}); falling back to cold clone"
-        )
+        Logger.warning("prewarm materialize (PR-anchored) failed (#{inspect(other)}); falling back to cold clone")
 
         File.rm_rf!(workspace)
         {:error, other}
@@ -60,7 +57,7 @@ defmodule Aiur.Workspace.Materialize do
   @doc false
   @spec materialize_from_base(Path.t(), Path.t(), String.t()) :: :ok | {:error, term()}
   def materialize_from_base(base, workspace, pr_head_ref) when is_binary(pr_head_ref) do
-    materialize_from_base(base, workspace, "aiur/" <> Path.basename(workspace), pr_head_ref)
+    materialize_from_base(base, workspace, TicketBranch.legacy_branch_name(Path.basename(workspace)), pr_head_ref)
   end
 
   # macOS APFS clones via `cp -c`; Linux btrfs/xfs reflink via `cp --reflink=auto`

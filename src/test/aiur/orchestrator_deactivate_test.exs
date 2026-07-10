@@ -2354,11 +2354,11 @@ defmodule Aiur.OrchestratorDeactivateTest do
           String.contains?(url, "/issues/57/comments?") ->
             {:ok, %{status: 200, body: []}}
 
-          String.contains?(url, "/pulls?") and String.contains?(url, "aiur%2F42") ->
-            {:ok, %{status: 200, body: []}}
-
           String.contains?(url, "/pulls?") and String.contains?(url, "aiur%2F57") ->
             {:ok, %{status: 200, body: [%{"number" => 61}]}}
+
+          String.contains?(url, "/pulls?") ->
+            {:ok, %{status: 200, body: []}}
 
           String.contains?(url, "/issues/61/comments?") ->
             {:ok, %{status: 200, body: []}}

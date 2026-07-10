@@ -32,9 +32,7 @@ defmodule Aiur.Workspace do
       end
     rescue
       error in [ArgumentError, ErlangError, File.Error] ->
-        Logger.error(
-          "Workspace creation failed #{Context.log_context(issue_context)} worker_host=#{Context.worker_host_for_log(worker_host)} error=#{Exception.message(error)}"
-        )
+        Logger.error("Workspace creation failed #{Context.log_context(issue_context)} worker_host=#{Context.worker_host_for_log(worker_host)} error=#{Exception.message(error)}")
 
         {:error, error}
     end

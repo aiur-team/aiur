@@ -48,15 +48,23 @@ defmodule Aiur.GitHub.PullRequests do
          {:ok, token} <- Transport.require_token(opts) do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
 
-      legacy_query = URI.encode_query(%{"state" => "open", "head" => "#{owner}:aiur/#{issue_number}", "per_page" => "10"})
+      legacy_branch = TicketBranch.legacy_branch_name(issue_number)
+
+      legacy_query =
+        URI.encode_query(%{"state" => "open", "head" => "#{owner}:#{legacy_branch}", "per_page" => "10"})
+
       legacy_url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls?#{legacy_query}"
 
       case Transport.fetch_json_list(request_fun, token, legacy_url) do
-        {:ok, [pull_request | _]} -> {:ok, pull_request}
+        {:ok, [pull_request | _]} ->
+          {:ok, pull_request}
+
         {:ok, []} ->
           query = URI.encode_query(%{"state" => "open", "per_page" => "100"})
           fetch_open_ticket_pull_request(request_fun, token, "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls?#{query}", issue_number)
-        {:error, _reason} = error -> error
+
+        {:error, _reason} = error ->
+          error
       end
     end
   end

@@ -10,6 +10,7 @@
 # Env available to these hooks:
 #   $THIS_REPOSITORY_URL   the repo aiur is working on (for a cold git clone)
 #   $THIS_BASE_BRANCH      configured tracker base branch (defaults to main)
+#   $AIUR_TICKET_BRANCH    generated canonical branch for this ticket
 #
 # Tune these for your repo's toolchain (mix, pnpm, cargo, go, …).
 
