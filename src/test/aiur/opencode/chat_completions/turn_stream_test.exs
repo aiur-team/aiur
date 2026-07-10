@@ -31,5 +31,19 @@ defmodule Aiur.Opencode.ChatCompletions.TurnStreamTest do
       assert result.resp_body =~ "boom"
       assert result.resp_body =~ ~s("finish_reason":"stop")
     end
+
+    test "an :input_required late close renders the approval notice" do
+      identifier = "await-#{System.unique_integer()}"
+      turn_id = "await-turn-#{System.unique_integer()}"
+
+      :ok = ActiveTurns.put(identifier, turn_id)
+      :ok = ActiveTurns.mark_closed(identifier, turn_id, :input_required)
+
+      result = TurnStream.stream(conn(:post, "/"), identifier, turn_id)
+
+      assert result.status == 200
+      # finalize_stream(:input_required) chunks the awaiting-approval notice.
+      assert result.resp_body =~ "awaiting approval"
+    end
   end
 end
