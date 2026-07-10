@@ -10,7 +10,7 @@ npm install -g aiur-cli
 
 ## Initialize
 
-Run `aiur init` in the repository you want Aiur to work on. It scaffolds `.aiur/config`, `.aiur/hooks`, and `.aiur/prompt.md`. For GitHub setups it also writes `./.env` for `GITHUB_TOKEN` and dashboard credentials; the wizard explains how to provide the token rather than prompting for the secret directly. Use `aiur init --force` to recreate the config while preserving sibling scaffold files.
+Run `aiur init` in the repository you want Aiur to work on. It scaffolds `.aiur/config`, `.aiur/hooks`, and `.aiur/prompt.md`. For GitHub setups it also writes `./.env` for `GITHUB_TOKEN`; the wizard explains how to provide the token rather than prompting for the secret directly. Use `aiur init --force` to recreate the config while preserving sibling scaffold files.
 
 The wizard asks for:
 

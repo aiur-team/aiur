@@ -55,7 +55,7 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
-| `agent.kind` | string | codex | Default coding backend; an explicit value wins, otherwise a `claude:` section infers `claude`, a `codex:` section infers `codex`, and no backend section falls back to `claude`. |
+| `agent.kind` | string | claude | Default coding backend; an explicit value wins, otherwise a `claude:` section infers `claude`, a `codex:` section infers `codex`, and no backend section falls back to `claude`. |
 | `agent.remote_control` | boolean | false | Opts RC-capable backends into remote control. |
 | `agent.max_concurrent_agents` | integer | 10 | Global simultaneous-agent cap. |
 | `agent.max_concurrent_builds` | integer | 2 | Caps agent-launched Mix verification; 0 disables the gate. |
