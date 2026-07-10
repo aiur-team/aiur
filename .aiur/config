@@ -28,6 +28,8 @@ hooks_file: hooks
 agent:
   kind: codex
   max_concurrent_agents: 5
+  # Bound every agent-launched Mix VM (and ExUnit's default max_cases) to four schedulers.
+  mix_scheduler_cap: 4
   # Fleet cap for agent-launched mix compile/test verification. 0 disables it.
   max_concurrent_builds: 2
   # CPU load gate (#465): hold new dispatch while 1-min load > value * schedulers

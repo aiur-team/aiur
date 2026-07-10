@@ -91,6 +91,7 @@ defmodule Aiur.Init do
     tracker = Questions.prompt_tracker(io, deps, location)
     agents = Questions.prompt_agents(io)
     routing = Questions.prompt_routing(io, agents)
+    rate_limit_fallback = Questions.prompt_rate_limit_fallback(io, agents)
     permission_mode = Questions.prompt_permission_mode(io)
     workspace_root = io.input.("Where should agents work?", Questions.workspace_default(tracker), nil)
     max_agents = Questions.prompt_int(io, "Max concurrent agents", 10, 1)
@@ -107,6 +108,7 @@ defmodule Aiur.Init do
         tracker: tracker,
         agents: agents,
         routing: routing,
+        rate_limit_fallback: rate_limit_fallback,
         permission_mode: permission_mode,
         workspace_root: workspace_root,
         max_agents: max_agents,

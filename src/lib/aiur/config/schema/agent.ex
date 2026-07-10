@@ -93,6 +93,7 @@ defmodule Aiur.Config.Schema.Agent do
     field(:max_retry_backoff_ms, :integer, default: 300_000)
     field(:max_concurrent_agents_by_state, :map, default: %{})
     field(:routing, :map, default: %{})
+    field(:switch_model_on_ratelimit, {:array, :string}, default: [])
     field(:complexity_prompts, :map, default: %{})
     # Backend-agnostic turn/stall timeouts (promoted from codex; claude-repl
     # already reads these via Config.agent_turn_timeout_ms/0).
@@ -114,10 +115,10 @@ defmodule Aiur.Config.Schema.Agent do
     # nil = derive from schedulers_online/4; 0 disables the runtime synthetic
     # load-generator guard; positive integers cap known generators per agent.
     field(:synthetic_load_process_cap, :integer)
-    # Cap ERTS scheduler threads on agent-spawned mix BEAMs (the compile/test/
-    # credo gate runs) via ELIXIR_ERL_OPTIONS="+S N:N" (#840). nil = no cap
-    # (default; behavior unchanged). Positive integer = schedulers + online.
-    field(:mix_scheduler_cap, :integer)
+    # Cap ERTS scheduler threads on agent-spawned Mix BEAMs via
+    # ELIXIR_ERL_OPTIONS="+S N:N". ExUnit defaults max_cases to this value, so
+    # four bounds every agent test shape without relying on prompt compliance.
+    field(:mix_scheduler_cap, :integer, default: 4)
 
     embeds_one(:claude, Claude, on_replace: :update, defaults_to_struct: true)
     embeds_one(:codex, Codex, on_replace: :update, defaults_to_struct: true)
@@ -127,7 +128,7 @@ defmodule Aiur.Config.Schema.Agent do
   def changeset(schema, attrs) do
     schema
     |> cast(
-      drop_uncapped_max_turns(attrs),
+      attrs |> drop_uncapped_max_turns() |> default_mix_scheduler_cap(),
       [
         :kind,
         :remote_control,
@@ -138,6 +139,7 @@ defmodule Aiur.Config.Schema.Agent do
         :max_retry_backoff_ms,
         :max_concurrent_agents_by_state,
         :routing,
+        :switch_model_on_ratelimit,
         :complexity_prompts,
         :turn_timeout_ms,
         :stall_timeout_ms,
@@ -169,6 +171,15 @@ defmodule Aiur.Config.Schema.Agent do
     |> AgentValidation.validate_state_limits(:max_concurrent_agents_by_state)
     |> update_change(:routing, &AgentValidation.normalize_agent_routing/1)
     |> AgentValidation.validate_agent_routing(:routing)
+    |> validate_change(:switch_model_on_ratelimit, fn :switch_model_on_ratelimit, backends ->
+      known = Aiur.CodingAgent.known_backends()
+
+      cond do
+        backends != Enum.uniq(backends) -> [switch_model_on_ratelimit: "must not contain duplicate backends"]
+        Enum.all?(backends, &(&1 in known)) -> []
+        true -> [switch_model_on_ratelimit: "contains an unknown backend; known backends: #{inspect(known)}"]
+      end
+    end)
     |> update_change(:complexity_prompts, &AgentValidation.normalize_complexity_prompts/1)
     |> AgentValidation.validate_complexity_prompts(:complexity_prompts)
     |> cast_embed(:claude, with: &Claude.changeset/2)
@@ -179,6 +190,15 @@ defmodule Aiur.Config.Schema.Agent do
   # the field stays nil instead of failing integer casting.
   defp drop_uncapped_max_turns(attrs) do
     Enum.reduce([:max_turns, "max_turns"], attrs, &drop_key_if_uncapped/2)
+  end
+
+  defp default_mix_scheduler_cap(attrs) do
+    if Map.has_key?(attrs, :mix_scheduler_cap) or Map.has_key?(attrs, "mix_scheduler_cap") do
+      attrs
+    else
+      key = if Enum.any?(Map.keys(attrs), &is_atom/1), do: :mix_scheduler_cap, else: "mix_scheduler_cap"
+      Map.put(attrs, key, 4)
+    end
   end
 
   defp drop_key_if_uncapped(key, attrs) do

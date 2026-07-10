@@ -26,6 +26,35 @@ defmodule Aiur.Workspace.CheckoutTest do
     assert Checkout.current_branch(repo) == "aiur/123"
   end
 
+  test "checkout_fresh_branch uses the supplied generated ticket branch", %{tmp: tmp} do
+    repo = init_repo!(Path.join(tmp, "123"))
+
+    assert :ok = Checkout.checkout_fresh_branch(repo, "aiur/123-add-new-test-cases")
+    assert Checkout.current_branch(repo) == "aiur/123-add-new-test-cases"
+  end
+
+  test "checkout_fresh_branch resumes an existing remote ticket branch", %{tmp: tmp} do
+    remote = Path.join(tmp, "remote.git")
+    source = Path.join(tmp, "source")
+    workspace = Path.join(tmp, "workspace")
+    branch = "aiur/123-fix-login"
+
+    git!(["init", "--bare", "--quiet", "--initial-branch=main", remote])
+    init_repo!(source)
+    git!(["-C", source, "remote", "add", "origin", remote])
+    git!(["-C", source, "push", "--quiet", "origin", "main"])
+    git!(["-C", source, "checkout", "--quiet", "-b", branch])
+    File.write!(Path.join(source, "resume.txt"), "remote ticket work\n")
+    git!(["-C", source, "add", "."])
+    git!(["-C", source, "commit", "--quiet", "-m", "ticket work"])
+    git!(["-C", source, "push", "--quiet", "origin", branch])
+    git!(["clone", "--quiet", remote, workspace])
+
+    assert :ok = Checkout.checkout_fresh_branch(workspace, branch)
+    assert Checkout.current_branch(workspace) == branch
+    assert File.read!(Path.join(workspace, "resume.txt")) == "remote ticket work\n"
+  end
+
   test "checkout_existing_pr_branch falls back to a local branch named the ref", %{tmp: tmp} do
     repo = init_repo!(Path.join(tmp, "pr-77"))
 

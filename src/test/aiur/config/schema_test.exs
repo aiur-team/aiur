@@ -4,6 +4,16 @@ defmodule Aiur.Config.SchemaTest do
   alias Aiur.Config.Schema
   alias Aiur.Config.Schema.{Polling, StringOrMap}
 
+  describe "agent Mix scheduler cap" do
+    test "defaults to four and accepts an explicit override" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.agent.mix_scheduler_cap == 4
+
+      assert {:ok, configured} = Schema.parse(%{"agent" => %{"mix_scheduler_cap" => 3}})
+      assert configured.agent.mix_scheduler_cap == 3
+    end
+  end
+
   # FI-CFG-005: StringOrMap cast rejects non-string, non-map values
   describe "StringOrMap" do
     test "casts strings and maps, rejects everything else" do

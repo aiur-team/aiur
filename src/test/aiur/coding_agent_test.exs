@@ -11,6 +11,32 @@ defmodule Aiur.CodingAgentTest do
 
   defp issue(labels), do: %Issue{labels: labels}
 
+  describe "select_for_dispatch/2" do
+    test "uses the first configured, available fallback from an ordered list" do
+      assert {:ok, %Issue{selected_backend: "claude"}} =
+               CodingAgent.select_for_dispatch(issue([]),
+                 backends: ["unconfigured", "claude", "codex"],
+                 configured_backends: ["claude"]
+               )
+    end
+
+    test "keeps an explicit backend selection unchanged" do
+      explicit = %Issue{labels: ["model:codex"]}
+      assert {:ok, ^explicit} = CodingAgent.select_for_dispatch(explicit, backends: ["claude"], configured_backends: ["claude"])
+    end
+
+    test "reports all configured candidates when none is available" do
+      state = %{"backends" => %{"claude" => %{"limited" => true, "reset_at" => "2999-01-01T00:00:00Z"}}}
+
+      assert {:all_limited, ["claude"]} =
+               CodingAgent.select_for_dispatch(issue([]),
+                 backends: ["claude", "codex"],
+                 configured_backends: ["claude"],
+                 state: state
+               )
+    end
+  end
+
   describe "override_backend/1 (model: tag selects backend)" do
     test "bare model:<backend> selects that backend" do
       assert CodingAgent.override_backend(issue(["model:claude"])) == "claude"

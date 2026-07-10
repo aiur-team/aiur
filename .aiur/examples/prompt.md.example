@@ -28,7 +28,7 @@ Continuation context:
 ## Workspace setup
 
 - Use the local tracker and repository auth already configured for this environment.
-- Work in the current workspace checkout on branch `aiur/{{ issue.identifier }}`. Use `git` directly.
+- Work in the current workspace checkout on its generated canonical branch. Read it with `git branch --show-current`; never reconstruct a bare `aiur/{{ issue.identifier }}` ref. Use `git` directly.
 - Follow the repository's own setup, build, test, and lint instructions (see its `README`, `AGENTS.md`, or `CONTRIBUTING`).
 - If a repository-specific guard blocks manual test mode from an agent workspace, stop that verification path and report it; do not retry from `/tmp`, a copied harness, or a fresh clone.
 - For real implementation tickets, branch from the configured tracker base, keep changes small, add tests, run the project's build and lint, push to `origin`, and open a PR.
@@ -37,3 +37,5 @@ Continuation context:
 ## How to operate
 
 Follow the **`using-aiur`** skill for how to run this ticket: the `agent:*` label lifecycle, the brainstorm→plan→work→review turn workflow and which CE skill to use when, milestone alerts (`emit_alert`), the Agent Workpad template, complexity routing, and the dev loop / commit / PR conventions. Load it before you start. Cross-ticket coordination and the operator-bar progress protocol are covered in the shared instructions above this template.
+
+If a declared blocker pushes `ticket.N.branch.push`, treat it as an inspect-and-stack cue: load `/aiur-agent`, fetch and diff the actual validated ref supplied by the event payload (do not guess `origin/aiur/N`), adopt the real API when present, remove temporary stubs before pushing, and keep your PR stacked on the blocker branch while it remains unmerged. If the push is irrelevant or unusable, keep only that integration point blocked and record the concrete reason.

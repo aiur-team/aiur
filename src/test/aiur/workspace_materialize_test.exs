@@ -25,14 +25,29 @@ defmodule Aiur.WorkspaceMaterializeTest do
     {:ok, tmp: tmp, base: base}
   end
 
-  test "copies the warm base (incl. gitignored _build) and branches aiur/<id>", %{tmp: tmp, base: base} do
+  test "copies the warm base (incl. gitignored _build) and branches aiur/<id>", %{
+    tmp: tmp,
+    base: base
+  } do
     workspace = Path.join(tmp, "123")
 
     assert :ok = Workspace.materialize_from_base(base, workspace)
 
     assert File.read!(Path.join(workspace, "README.md")) == "v1\n"
-    assert File.exists?(Path.join(workspace, "_build/sentinel")), "warm _build artifacts were not carried"
+
+    assert File.exists?(Path.join(workspace, "_build/sentinel")),
+           "warm _build artifacts were not carried"
+
     assert branch(workspace) == "aiur/123"
+  end
+
+  test "copies the warm base onto the generated ticket branch", %{tmp: tmp, base: base} do
+    workspace = Path.join(tmp, "123")
+
+    assert :ok =
+             Workspace.materialize_from_base(base, workspace, "aiur/123-add-new-test-cases", nil)
+
+    assert branch(workspace) == "aiur/123-add-new-test-cases"
   end
 
   # Characterization: pins the legacy 2-arity contract so the PR-anchored
@@ -110,7 +125,10 @@ defmodule Aiur.WorkspaceMaterializeTest do
     refute branch(workspace) =~ ~r{\Aaiur/}
   end
 
-  test "materialized workspaces expose writable git metadata and repair stale locks", %{tmp: tmp, base: base} do
+  test "materialized workspaces expose writable git metadata and repair stale locks", %{
+    tmp: tmp,
+    base: base
+  } do
     workspace = Path.join(tmp, "561")
 
     assert :ok = Workspace.materialize_from_base(base, workspace)
@@ -181,7 +199,9 @@ defmodule Aiur.WorkspaceMaterializeTest do
   end
 
   defp branch(workspace) do
-    {out, 0} = System.cmd("git", ["-C", workspace, "rev-parse", "--abbrev-ref", "HEAD"], stderr_to_stdout: true)
+    {out, 0} =
+      System.cmd("git", ["-C", workspace, "rev-parse", "--abbrev-ref", "HEAD"], stderr_to_stdout: true)
+
     String.trim(out)
   end
 end

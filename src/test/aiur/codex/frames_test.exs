@@ -8,6 +8,15 @@ defmodule Aiur.Codex.FramesTest do
   test "thread ids are fixed" do
     assert Frames.thread_start_id() == 2
     assert Frames.turn_start_id() == 3
+    assert Frames.rate_limits_read_id() == 4
+  end
+
+  test "rate-limit read uses the authenticated account endpoint" do
+    assert Frames.rate_limits_read_frame() == %{
+             "method" => "account/rateLimits/read",
+             "id" => 4,
+             "params" => nil
+           }
   end
 
   test "thread/start includes dynamicTools and request id 2" do

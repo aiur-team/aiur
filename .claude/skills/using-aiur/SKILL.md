@@ -28,7 +28,7 @@ what you're doing — you don't need all four every turn.
 - Right-size the CE loop to the work: large asks usually run
   `ce-brainstorm → ce-plan → ce-work → ce-code-review`; smaller asks may skip
   brainstorm, plan, or review, but err on the side of using them when in doubt.
-- The branch is exactly `aiur/<issue-number>` — never invent another name.
+- The workspace's checked-out branch is authoritative. New tickets use the generated readable Aiur branch; existing legacy and PR-anchored heads remain unchanged. Never reconstruct a branch from the issue number.
 - Every PR description starts with `Closes #<issue>`. Commit messages are short
   (3–7 words), plain, and human — never mention AI, Claude, Codex, or models.
 - You may be notified that main has updated; use your discretion on whether and
