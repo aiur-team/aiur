@@ -51,6 +51,11 @@ defmodule Aiur.OrchestratorLoadGateTest do
       assert Orchestrator.read_load(1.5) == 7.5
     end
 
+    test "reads the live load for an enabled envelope even when the hard gate is disabled" do
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "7.5 1 1 1/1 1"} end)
+      assert Orchestrator.read_load(nil, 1.0) == 7.5
+    end
+
     test "does NOT read the load source when the threshold is nil (explicitly disabled)" do
       Application.put_env(:aiur, :loadavg_source_override, fn ->
         flunk("avg1 must not be read when the load gate is disabled")
@@ -66,6 +71,56 @@ defmodule Aiur.OrchestratorLoadGateTest do
 
       assert Orchestrator.read_load(0.0) == :unavailable
     end
+  end
+
+  describe "load_envelope/4" do
+    test "increases effective capacity below the per-scheduler target" do
+      assert {3, nil} = Orchestrator.load_envelope(1, nil, 6.0, envelope_options(ramp_step: 2, now_ms: 1_000))
+      assert {5, nil} = Orchestrator.load_envelope(3, nil, 12.0, envelope_options(ramp_step: 2, now_ms: 2_000))
+    end
+
+    test "never increases beyond the static/session concurrency cap" do
+      assert {10, nil} = Orchestrator.load_envelope(9, nil, 1.0, envelope_options(ramp_step: 3, now_ms: 1_000))
+    end
+
+    test "decreases multiplicatively above target and honors the cooldown" do
+      assert {3, 1_000} = Orchestrator.load_envelope(5, nil, 13.0, envelope_options(now_ms: 1_000))
+
+      assert {3, 1_000} =
+               Orchestrator.load_envelope(3, 1_000, 13.0, envelope_options(now_ms: 2_000))
+
+      assert {2, 61_000} =
+               Orchestrator.load_envelope(3, 1_000, 13.0, envelope_options(now_ms: 61_000))
+
+      assert {1, 121_000} =
+               Orchestrator.load_envelope(2, 61_000, 13.0, envelope_options(now_ms: 121_000))
+    end
+
+    test "preserves capacity when load is unavailable and disables cleanly with a nil target" do
+      assert {3, 1_000} =
+               Orchestrator.load_envelope(3, 1_000, :unavailable, envelope_options(now_ms: 2_000))
+
+      assert {10, nil} = Orchestrator.load_envelope(3, 1_000, 99.0, envelope_options(target: nil, now_ms: 2_000))
+    end
+
+    test "holds at minimum of 1 when already floored under high load, keeping prior decrease timestamp" do
+      # When effective is already 1 and load is still high, reduced == effective
+      # so the decrease timestamp is not advanced (nothing actually changed).
+      assert {1, nil} = Orchestrator.load_envelope(1, nil, 13.0, envelope_options(now_ms: 5_000))
+    end
+
+    test "starts from static limit when effective is nil on the first dispatch cycle" do
+      # nil effective (no prior envelope reading) normalises to the static cap
+      # before evaluating whether to ramp or decrease.
+      assert {10, nil} = Orchestrator.load_envelope(nil, nil, 1.0, envelope_options(now_ms: 1_000))
+    end
+  end
+
+  defp envelope_options(overrides) do
+    Map.merge(
+      %{target: 1.0, schedulers: 12, static_limit: 10, ramp_step: 1, cooldown_ms: 60_000, now_ms: 0},
+      Map.new(overrides)
+    )
   end
 
   defp restore_app_env(key, nil), do: Application.delete_env(:aiur, key)

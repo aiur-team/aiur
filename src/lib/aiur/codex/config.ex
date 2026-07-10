@@ -5,6 +5,8 @@ defmodule Aiur.Codex.Config do
 
   @behaviour Aiur.AgentConfig
 
+  alias Aiur.Config.CodexSandboxPolicy
+
   @default_command "codex app-server"
   # codex app-server's `approvalPolicy` is an enum string, not a map. Sending
   # the old map default crashed the turn with `unknown variant`. `untrusted`
@@ -80,6 +82,10 @@ defmodule Aiur.Codex.Config do
 
   def validate_approval_policy(value), do: {:error, invalid_approval_policy(value)}
 
+  @doc false
+  @spec valid_policies() :: [String.t()]
+  def valid_policies, do: @valid_approval_policies
+
   defp invalid_approval_policy(value) do
     "Invalid codex.approval_policy #{inspect(value)} — must be one of: " <>
       Enum.join(@valid_approval_policies, ", ")
@@ -109,14 +115,7 @@ defmodule Aiur.Codex.Config do
         Path.expand(Aiur.Config.workspace_root())
       end
 
-    %{
-      "type" => "workspaceWrite",
-      "writableRoots" => [writable_root],
-      "readOnlyAccess" => %{"type" => "fullAccess"},
-      "networkAccess" => true,
-      "excludeTmpdirEnvVar" => false,
-      "excludeSlashTmp" => false
-    }
+    CodexSandboxPolicy.default_policy(writable_root)
   end
 
   defp section_value(key) do
