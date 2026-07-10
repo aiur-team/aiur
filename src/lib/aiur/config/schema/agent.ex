@@ -81,6 +81,10 @@ defmodule Aiur.Config.Schema.Agent do
     # for always-remote: change `false` here and every dispatch attaches RC.
     field(:remote_control, :boolean, default: false)
     field(:max_concurrent_agents, :integer, default: 10)
+    # Fleet-wide cap for agent-launched `mix compile` / `mix test` commands.
+    # 0 deliberately disables the gate for operators who need unrestricted
+    # local verification.
+    field(:max_concurrent_builds, :integer, default: 2)
     # nil = uncapped (no per-issue turn limit). A YAML value of `none` /
     # `unlimited` (or an absent key) resolves to nil; any present number must
     # be > 0.
@@ -122,6 +126,7 @@ defmodule Aiur.Config.Schema.Agent do
         :kind,
         :remote_control,
         :max_concurrent_agents,
+        :max_concurrent_builds,
         :max_turns,
         :max_retry_attempts,
         :max_retry_backoff_ms,
@@ -138,6 +143,7 @@ defmodule Aiur.Config.Schema.Agent do
       empty_values: []
     )
     |> validate_number(:max_concurrent_agents, greater_than: 0)
+    |> validate_number(:max_concurrent_builds, greater_than_or_equal_to: 0)
     |> validate_number(:max_turns, greater_than: 0)
     |> validate_number(:max_retry_attempts, greater_than: 0)
     |> validate_number(:max_retry_backoff_ms, greater_than: 0)
