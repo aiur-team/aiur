@@ -147,6 +147,40 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
     assert result.session_id == "real-session-id"
   end
 
+  test "structured API usage-limit failure pauses the turn", %{tmux: tmux} do
+    identifier = "HT-LIMIT-#{System.unique_integer([:positive])}"
+    session = hook_session(tmux, identifier)
+
+    task = Task.async(fn -> HookTurn.run(session, "work", poll_interval_ms: 10) end)
+
+    expect_prompt_submit(tmux)
+
+    HookEvents.dispatch(identifier, %{
+      "hook_event_name" => "Stop",
+      "last_assistant_message" => "I checked the quota wording in the documentation.",
+      "error" => %{"status" => 429, "type" => "rate_limit_error", "message" => "Rate limit exceeded"}
+    })
+
+    assert {:paused, %{kind: :usage_limit_exhausted, reason: reason}} = drain_pane_pid(tmux, task)
+    assert reason =~ "rate_limit_error"
+  end
+
+  test "assistant text mentioning a quota does not pause a healthy turn", %{tmux: tmux} do
+    identifier = "HT-QUOTA-TEXT-#{System.unique_integer([:positive])}"
+    session = hook_session(tmux, identifier)
+
+    task = Task.async(fn -> HookTurn.run(session, "work", poll_interval_ms: 10) end)
+
+    expect_prompt_submit(tmux)
+
+    HookEvents.dispatch(identifier, %{
+      "hook_event_name" => "Stop",
+      "last_assistant_message" => "The quota and rate limit terminology is documented here."
+    })
+
+    assert {:ok, %{result: :completed}} = drain_pane_pid(tmux, task)
+  end
+
   test "Stop with no session id returns thread_id == nil and a fallback session_id", %{tmux: tmux} do
     identifier = "HT-NOSESSID-#{System.unique_integer([:positive])}"
     session = hook_session(tmux, identifier)

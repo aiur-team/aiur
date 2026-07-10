@@ -98,8 +98,8 @@ defmodule Aiur.Claude.Repl.HookTurn do
       true ->
         receive do
           {:claude_hook, _id, %{event: :stop} = event} ->
-            if NotificationPolicy.usage_limit_exhausted?(event) do
-              {:paused, NotificationPolicy.usage_limit_pause(event)}
+            if NotificationPolicy.usage_limit_exhausted?(event.raw) do
+              {:paused, NotificationPolicy.usage_limit_pause(event.raw)}
             else
               {:ok, %{acc | session_id: event.session_id || acc.session_id, message: event.message}}
             end

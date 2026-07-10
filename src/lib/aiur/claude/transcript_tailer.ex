@@ -35,7 +35,7 @@ defmodule Aiur.Claude.TranscriptTailer do
   @type option ::
           {:path, Path.t()}
           | {:on_message, (Aiur.AgentEvents.transcript_event() -> any())}
-          | {:on_turn_end, (String.t() -> any())}
+          | {:on_turn_end, (String.t() | map() -> any())}
           | {:turn_id, String.t() | nil}
           | {:from, :start | :end}
           | {:interval_ms, pos_integer() | nil}
@@ -182,14 +182,23 @@ defmodule Aiur.Claude.TranscriptTailer do
     end)
   end
 
-  # An assistant record whose `stop_reason` is terminal is the on-disk
-  # equivalent of the JSON-RPC `turn/completed` notification.
+  # An API error is a terminal turn failure even though it has no assistant
+  # record. Otherwise an assistant record whose `stop_reason` is terminal is
+  # the on-disk equivalent of the JSON-RPC `turn/completed` notification.
   defp maybe_fire_turn_end(state, record) do
-    case terminal_stop_reason(record) do
+    case api_error_record(record) || terminal_stop_reason(record) do
       nil -> :ok
-      reason -> state.on_turn_end.(reason)
+      signal -> state.on_turn_end.(if(is_map(signal), do: {:error, signal}, else: signal))
     end
   end
+
+  defp api_error_record(%{"type" => "system", "subtype" => "api_error"} = record), do: record
+
+  defp api_error_record(%{"type" => "result", "is_error" => true, "api_error_status" => status} = record)
+       when not is_nil(status),
+       do: record
+
+  defp api_error_record(_record), do: nil
 
   defp terminal_stop_reason(record) do
     with "assistant" <- Map.get(record, "type"),

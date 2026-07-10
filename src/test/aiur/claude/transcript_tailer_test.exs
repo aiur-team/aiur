@@ -150,6 +150,46 @@ defmodule Aiur.Claude.TranscriptTailerTest do
     assert_receive {:turn_end, "end_turn"}
   end
 
+  test "fires on_turn_end for structured API-error records", %{path: path, test_pid: tp} do
+    on_turn_end = fn signal -> send(tp, {:turn_end, signal}) end
+
+    record =
+      Jason.encode!(%{
+        "type" => "system",
+        "subtype" => "api_error",
+        "error" => %{"status" => 429, "type" => "rate_limit_error"}
+      }) <> "\n"
+
+    File.write!(path, record)
+
+    {:ok, tailer} =
+      start_supervised(
+        {TranscriptTailer, path: path, on_message: fn _ -> :ok end, on_turn_end: on_turn_end, turn_id: "turn-1", interval_ms: nil, from: :start},
+        id: {:tailer, System.unique_integer([:positive])}
+      )
+
+    assert {:ok, 0} = TranscriptTailer.poll(tailer)
+    assert_receive {:turn_end, {:error, %{"error" => %{"status" => 429}}}}
+  end
+
+  test "fires on_turn_end for failing API result records", %{path: path, test_pid: tp} do
+    on_turn_end = fn signal -> send(tp, {:turn_end, signal}) end
+
+    File.write!(
+      path,
+      Jason.encode!(%{"type" => "result", "is_error" => true, "api_error_status" => 429}) <> "\n"
+    )
+
+    {:ok, tailer} =
+      start_supervised(
+        {TranscriptTailer, path: path, on_message: fn _ -> :ok end, on_turn_end: on_turn_end, turn_id: "turn-1", interval_ms: nil, from: :start},
+        id: {:tailer, System.unique_integer([:positive])}
+      )
+
+    assert {:ok, 0} = TranscriptTailer.poll(tailer)
+    assert_receive {:turn_end, {:error, %{"api_error_status" => 429}}}
+  end
+
   test "does not fire on_turn_end for an intra-turn (tool_use) assistant record", %{path: path, test_pid: tp} do
     on_turn_end = fn reason -> send(tp, {:turn_end, reason}) end
 

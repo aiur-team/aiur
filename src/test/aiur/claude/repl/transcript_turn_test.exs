@@ -39,15 +39,23 @@ defmodule Aiur.Claude.Repl.TranscriptTurnTest do
     path
   end
 
-  defp completion_record do
+  defp completion_record(text \\ "done") do
     Jason.encode!(%{
       "type" => "assistant",
       "timestamp" => "2026-06-08T12:00:00.000Z",
       "message" => %{
         "role" => "assistant",
         "stop_reason" => "end_turn",
-        "content" => [%{"type" => "text", "text" => "done"}]
+        "content" => [%{"type" => "text", "text" => text}]
       }
+    }) <> "\n"
+  end
+
+  defp api_error_record(status \\ 429, type \\ "rate_limit_error") do
+    Jason.encode!(%{
+      "type" => "system",
+      "subtype" => "api_error",
+      "error" => %{"status" => status, "type" => type, "message" => "API request failed"}
     }) <> "\n"
   end
 
@@ -139,6 +147,43 @@ defmodule Aiur.Claude.Repl.TranscriptTurnTest do
     assert is_binary(result.session_id)
     assert is_binary(result.thread_id)
     assert is_binary(result.turn_id)
+  end
+
+  test "API-error transcript record pauses the turn", %{tmux: tmux} do
+    path = temp_transcript()
+    on_exit(fn -> File.rm(path) end)
+
+    task = Task.async(fn -> TranscriptTurn.run(turn_session(tmux, path), "do work", poll_interval_ms: 10) end)
+
+    expect_prompt_submit(tmux)
+    File.write!(path, api_error_record(), [:append])
+
+    assert {:paused, %{kind: :usage_limit_exhausted, reason: reason}} = drain_pane_pid(tmux, task)
+    assert reason =~ "rate_limit_error"
+  end
+
+  test "assistant quota text still completes the turn", %{tmux: tmux} do
+    path = temp_transcript()
+    on_exit(fn -> File.rm(path) end)
+
+    task = Task.async(fn -> TranscriptTurn.run(turn_session(tmux, path), "do work", poll_interval_ms: 10) end)
+
+    expect_prompt_submit(tmux)
+    File.write!(path, completion_record("The rate limit and quota words are in this sentence."), [:append])
+
+    assert {:ok, %{result: :completed}} = drain_pane_pid(tmux, task)
+  end
+
+  test "non-limit API-error transcript record fails the turn", %{tmux: tmux} do
+    path = temp_transcript()
+    on_exit(fn -> File.rm(path) end)
+
+    task = Task.async(fn -> TranscriptTurn.run(turn_session(tmux, path), "do work", poll_interval_ms: 10) end)
+
+    expect_prompt_submit(tmux)
+    File.write!(path, api_error_record(400, "invalid_request_error"), [:append])
+
+    assert {:error, {:turn_failed, %{"error" => %{"status" => 400}}}} = drain_pane_pid(tmux, task)
   end
 
   test "pause_agent parks as {:paused, payload} with session_id/thread_id/turn_id even when pause-confirm expires", %{tmux: tmux} do
