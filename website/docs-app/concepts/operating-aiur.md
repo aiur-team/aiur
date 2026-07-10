@@ -10,7 +10,7 @@ The Phoenix web dashboard supports Basic Auth and can bind to a configured host 
 
 ## Alerts
 
-Alerts are defined in the checked-in `.aiur/alerts` file. Each alert has a `name`, `message`, and optional `sound`. Agents raise milestone alerts with `emit_alert`.
+Alerts are defined in the checked-in `.aiur/alerts` file. Each entry is keyed by an event-topic glob pattern and carries a `message` plus an optional `sound` list. Agents raise milestone alerts with `emit_alert`.
 
 ## Pause / resume
 
