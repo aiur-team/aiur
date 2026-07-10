@@ -1,5 +1,5 @@
 # aiur warm-base build — referenced from .aiur/config via `prewarm.base_build_file: prewarm`.
-# Runs once in a checkout of latest main at ~/.aiur/repo/<owner>/<name>; aiur then
+# Runs once in a checkout of the target branch at ~/.aiur/repo/<owner>/<name>; aiur then
 # materializes each agent workspace from the result via copy-on-write.
 # HEX_HOME/MIX_HOME are scoped under the base so the warm caches copy into workspaces.
 mkdir -p ./.aiur-hex ./.aiur-mix
