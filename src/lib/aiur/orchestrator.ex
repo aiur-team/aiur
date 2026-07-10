@@ -468,43 +468,47 @@ defmodule Aiur.Orchestrator do
             {:noreply, state}
 
           _ ->
-            {running_entry, state} = pop_running_entry(state, issue_id)
-            state = record_session_completion_totals(state, running_entry)
-            session_id = running_entry_session_id(running_entry)
-
-            state =
-              case reason do
-                :normal ->
-                  Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
-
-                  state
-                  |> complete_issue(issue_id)
-                  |> schedule_issue_retry(issue_id, 1, %{
-                    identifier: running_entry.identifier,
-                    delay_type: :continuation,
-                    worker_host: Map.get(running_entry, :worker_host),
-                    workspace_path: Map.get(running_entry, :workspace_path)
-                  })
-
-                _ ->
-                  Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
-
-                  next_attempt = next_retry_attempt_from_running(running_entry)
-
-                  schedule_issue_retry(state, issue_id, next_attempt, %{
-                    identifier: running_entry.identifier,
-                    error: "agent exited: #{inspect(reason)}",
-                    worker_host: Map.get(running_entry, :worker_host),
-                    workspace_path: Map.get(running_entry, :workspace_path)
-                  })
-              end
-
-            Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
-
-            notify_dashboard(state)
-            {:noreply, state}
+            handle_completed_agent(state, issue_id, reason)
         end
     end
+  end
+
+  defp handle_completed_agent(state, issue_id, reason) do
+    {running_entry, state} = pop_running_entry(state, issue_id)
+    state = record_session_completion_totals(state, running_entry)
+    session_id = running_entry_session_id(running_entry)
+
+    state =
+      case reason do
+        :normal ->
+          Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
+
+          state
+          |> complete_issue(issue_id)
+          |> schedule_issue_retry(issue_id, 1, %{
+            identifier: running_entry.identifier,
+            delay_type: :continuation,
+            worker_host: Map.get(running_entry, :worker_host),
+            workspace_path: Map.get(running_entry, :workspace_path)
+          })
+
+        _ ->
+          Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
+
+          next_attempt = next_retry_attempt_from_running(running_entry)
+
+          schedule_issue_retry(state, issue_id, next_attempt, %{
+            identifier: running_entry.identifier,
+            error: "agent exited: #{inspect(reason)}",
+            worker_host: Map.get(running_entry, :worker_host),
+            workspace_path: Map.get(running_entry, :workspace_path)
+          })
+      end
+
+    Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
+
+    notify_dashboard(state)
+    {:noreply, state}
   end
 
   defp apply_pause_containment_result(state, identifier, generation, :contained) do

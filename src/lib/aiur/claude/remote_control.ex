@@ -282,26 +282,32 @@ defmodule Aiur.Claude.RemoteControl do
   @doc false
   @spec graceful_kill_process_group(nil | integer()) :: {:ok, :gone | :reaped} | {:error, :group_alive}
   def graceful_kill_process_group(process_group_id) when is_integer(process_group_id) and process_group_id > 0 do
-    cond do
-      not process_group_alive?(process_group_id) ->
-        {:ok, :gone}
+    if process_group_alive?(process_group_id) do
+      signal_process_group(process_group_id, "-TERM")
 
-      true ->
-        signal_process_group(process_group_id, "-TERM")
-
-        if await_process_group_exit(process_group_id, @kill_grace_ms) do
-          {:ok, :reaped}
-        else
-          signal_process_group(process_group_id, "-KILL")
-
-          if await_process_group_exit(process_group_id, @kill_grace_ms), do: {:ok, :reaped}, else: {:error, :group_alive}
-        end
+      if await_process_group_exit(process_group_id, @kill_grace_ms) do
+        {:ok, :reaped}
+      else
+        force_kill_process_group(process_group_id)
+      end
+    else
+      {:ok, :gone}
     end
   rescue
     _ -> {:error, :group_alive}
   end
 
   def graceful_kill_process_group(_process_group_id), do: {:ok, :gone}
+
+  defp force_kill_process_group(process_group_id) do
+    signal_process_group(process_group_id, "-KILL")
+
+    if await_process_group_exit(process_group_id, @kill_grace_ms) do
+      {:ok, :reaped}
+    else
+      {:error, :group_alive}
+    end
+  end
 
   defp signal_process_group(process_group_id, signal) do
     System.cmd("kill", [signal, "--", "-#{process_group_id}"], stderr_to_stdout: true)

@@ -1,9 +1,9 @@
 defmodule Aiur.Codex.AppServerPortTest do
   use Aiur.TestSupport, async: false
 
+  alias Aiur.AppServer.Adapter
   alias Aiur.Codex.AppServerPort
   alias Aiur.Codex.Config, as: CodexConfig
-  alias Aiur.AppServer.Adapter
 
   describe "validate_workspace_cwd/2 local" do
     test "accepts a genuine sub-path and rejects the workspace root" do

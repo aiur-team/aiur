@@ -25,12 +25,14 @@ defmodule Aiur.PauseContainment do
 
   @spec register(String.t(), pos_integer(), pos_integer(), keyword()) :: {:ok, handle()} | :ignored
   def register(identifier, root_pid, process_group_id, opts)
-      when is_binary(identifier) and is_integer(root_pid) and root_pid > 0 and is_integer(process_group_id) and process_group_id > 0 and is_list(opts) do
+      when is_binary(identifier) and is_integer(root_pid) and root_pid > 0 and
+             is_integer(process_group_id) and process_group_id > 0 and is_list(opts) do
     register(__MODULE__, identifier, root_pid, process_group_id, opts)
   end
 
   def register(server, identifier, root_pid, process_group_id)
-      when is_binary(identifier) and is_integer(root_pid) and root_pid > 0 and is_integer(process_group_id) and process_group_id > 0 do
+      when is_binary(identifier) and is_integer(root_pid) and root_pid > 0 and
+             is_integer(process_group_id) and process_group_id > 0 do
     register(server, identifier, root_pid, process_group_id, [])
   end
 
@@ -38,7 +40,8 @@ defmodule Aiur.PauseContainment do
 
   @spec register(GenServer.server(), String.t(), pos_integer(), pos_integer(), keyword()) :: {:ok, handle()} | :ignored
   def register(server, identifier, root_pid, process_group_id, opts)
-      when is_binary(identifier) and is_integer(root_pid) and root_pid > 0 and is_integer(process_group_id) and process_group_id > 0 do
+      when is_binary(identifier) and is_integer(root_pid) and root_pid > 0 and
+             is_integer(process_group_id) and process_group_id > 0 do
     call(server, {:register, identifier, root_pid, process_group_id, Map.new(opts)})
   end
 
@@ -298,7 +301,13 @@ defmodule Aiur.PauseContainment do
   end
 
   defp emit(state, stage, identifier, entry, reason) do
-    state.event_fun.(stage, %{identifier: identifier, workspace: entry.workspace, generation: entry.generation, process_group_id: entry.process_group_id, reason: reason})
+    state.event_fun.(stage, %{
+      identifier: identifier,
+      workspace: entry.workspace,
+      generation: entry.generation,
+      process_group_id: entry.process_group_id,
+      reason: reason
+    })
   rescue
     error -> Logger.warning("pause_containment event_failed stage=#{stage} error=#{inspect(error)}")
   end
@@ -342,13 +351,17 @@ defmodule Aiur.PauseContainment do
         {target, entry}
 
       _ ->
-        # Fail closed when a bare issue-number target matches more than one
-        # registered identifier (the same number across two repos): arming the
-        # wrong entry would let the fallback reap a sibling agent's group.
-        case Enum.filter(entries, fn {identifier, _entry} -> String.ends_with?(identifier, "##{target}") end) do
-          [{identifier, entry}] -> {identifier, entry}
-          _ -> {nil, nil}
-        end
+        match_suffix_entry(entries, target)
+    end
+  end
+
+  defp match_suffix_entry(entries, target) do
+    # Fail closed when a bare issue-number target matches more than one
+    # registered identifier (the same number across two repos): arming the
+    # wrong entry would let the fallback reap a sibling agent's group.
+    case Enum.filter(entries, fn {identifier, _entry} -> String.ends_with?(identifier, "##{target}") end) do
+      [{identifier, entry}] -> {identifier, entry}
+      _ -> {nil, nil}
     end
   end
 
