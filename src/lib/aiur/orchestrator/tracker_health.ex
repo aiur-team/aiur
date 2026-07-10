@@ -77,14 +77,16 @@ defmodule Aiur.Orchestrator.TrackerHealth do
     github_next_poll_delay_ms(state) || state.poll_interval_ms
   end
 
-  defp github_next_poll_delay_ms(%State{github_poll_delays: delays}) when is_map(delays) do
+  @doc false
+  @spec github_next_poll_delay_ms(State.t()) :: non_neg_integer() | nil
+  def github_next_poll_delay_ms(%State{github_poll_delays: delays}) when is_map(delays) do
     delays
     |> Map.values()
     |> Enum.filter(&(is_integer(&1) and &1 >= 0))
     |> Enum.max(fn -> nil end)
   end
 
-  defp github_next_poll_delay_ms(_state), do: nil
+  def github_next_poll_delay_ms(_state), do: nil
 
   defp emit_github_connectivity_alert(alert) do
     message = GitHubConnectivity.alert_message(alert, repo: Aiur.GitHub.Config.repo())

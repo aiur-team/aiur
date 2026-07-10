@@ -5,8 +5,7 @@ defmodule Aiur.Orchestrator.DigestCoalescer do
   """
 
   alias Aiur.{AgentQueueItem, AgentQueueStore}
-  alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.CommentWake
+  alias Aiur.Orchestrator.{CommentWake, OperatorMessages}
 
   @spec coalesce_events_digests(AgentQueueStore.t(), String.t(), AgentQueueItem.t()) ::
           {AgentQueueStore.t(), AgentQueueItem.t()}
@@ -63,7 +62,7 @@ defmodule Aiur.Orchestrator.DigestCoalescer do
   defp event_dedupe_key(event) when is_map(event) do
     topic = event_topic(event)
 
-    case {Orchestrator.comment_event_topic?(event), event_comment_id(event), event_sort_key(event)} do
+    case {OperatorMessages.comment_event_topic?(event), event_comment_id(event), event_sort_key(event)} do
       {true, id, _} when is_integer(id) -> {topic, :comment, id}
       {_, _, id} when is_integer(id) and id > 0 -> {topic, :event, id}
       _ -> event
@@ -79,5 +78,4 @@ defmodule Aiur.Orchestrator.DigestCoalescer do
     comment = Map.get(event, :comment) || Map.get(event, "comment") || %{}
     Map.get(comment, :id) || Map.get(comment, "id")
   end
-
 end
