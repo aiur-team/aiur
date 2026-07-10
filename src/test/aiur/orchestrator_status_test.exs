@@ -680,7 +680,7 @@ defmodule Aiur.OrchestratorStatusTest do
       }
     end)
 
-    send(pid, {:worker_control_state, "issue-clock", :paused})
+    send(pid, {:worker_control_state, "issue-clock", :paused, %{kind: :agent_pause_request}})
     Process.sleep(20)
 
     paused_entry = :sys.get_state(pid).running["issue-clock"]
