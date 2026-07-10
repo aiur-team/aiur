@@ -81,13 +81,34 @@ defmodule Aiur.Workspace.HooksTest do
   end
 
   test "run_hook/5 passes the generated ticket branch to local hooks", %{workspace: workspace} do
-    issue_context = %{issue_id: 1, issue_identifier: "123", issue_state: nil, issue_labels: [], pr_head_ref: nil, branch_name: "aiur/123-add-new-test-cases"}
+    issue_context = %{
+      issue_id: 1,
+      issue_identifier: "123",
+      issue_state: nil,
+      issue_labels: [],
+      pr_head_ref: nil,
+      branch_name: "aiur/123-add-new-test-cases"
+    }
 
-    assert :ok = Hooks.run_hook("test \"$AIUR_TICKET_BRANCH\" = \"aiur/123-add-new-test-cases\"", workspace, issue_context, "after_create", nil)
+    assert :ok =
+             Hooks.run_hook(
+               ~s(test "$AIUR_TICKET_BRANCH" = "aiur/123-add-new-test-cases"),
+               workspace,
+               issue_context,
+               "after_create",
+               nil
+             )
   end
 
   test "remote hook command exports the generated ticket branch", %{workspace: workspace} do
-    issue_context = %{issue_id: 1, issue_identifier: "123", issue_state: nil, issue_labels: [], pr_head_ref: nil, branch_name: "aiur/123-add-new-test-cases"}
+    issue_context = %{
+      issue_id: 1,
+      issue_identifier: "123",
+      issue_state: nil,
+      issue_labels: [],
+      pr_head_ref: nil,
+      branch_name: "aiur/123-add-new-test-cases"
+    }
 
     command = Hooks.remote_hook_command("git checkout \"$AIUR_TICKET_BRANCH\"", workspace, issue_context)
 

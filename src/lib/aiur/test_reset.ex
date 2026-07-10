@@ -35,8 +35,8 @@ defmodule Aiur.TestReset do
 
   require Logger
 
-  alias Aiur.{JsonStore, TicketBranch}
   alias Aiur.Config.Paths
+  alias Aiur.{JsonStore, TicketBranch}
 
   @tickets_file ".aiur-test-tickets.json"
 
