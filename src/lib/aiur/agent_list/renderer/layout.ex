@@ -181,10 +181,4 @@ defmodule Aiur.AgentList.Renderer.Layout do
       show_progress?: show_progress?
     }
   end
-
-  # Approximate count of rows the frame will draw (used for "blank the
-  # rest" below the last rendered row so old content doesn't linger
-  # when the agent list shrinks). Fixed rows: title, agents, project,
-  # dashboard, separator, table header, table separator, bottom border
-  # = 8. Footer is 1 or 2 rows depending on width. Body rows come
 end

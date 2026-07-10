@@ -28,7 +28,6 @@ defmodule Aiur.AgentList.Renderer.Markers do
                              "sleeping"
                            ] ++ @finished_work_states
 
-  # Faint dotted track shown in the PROGRESS column when an agent has no
   # Per-identifier marker, ordered most-ready-first:
   #
   #   🟢  agent's pane is open in window 0 right now
