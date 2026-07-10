@@ -14,6 +14,8 @@ defmodule Aiur.Regression.OpencodeSlotsTest do
   alias Aiur.Opencode.{AttachPool, Slot, SlotPolicy, SlotRegistry}
 
   @slot_source Path.expand("../../../lib/aiur/opencode/slot.ex", __DIR__)
+  @serve_lifecycle_source Path.expand("../../../lib/aiur/opencode/slot/serve_lifecycle.ex", __DIR__)
+  @state_source Path.expand("../../../lib/aiur/opencode/slot/state.ex", __DIR__)
 
   defmodule RecordingSlot do
     use GenServer
@@ -275,7 +277,7 @@ defmodule Aiur.Regression.OpencodeSlotsTest do
              drops queued operator messages from the #332 incident class.
              """
 
-      assert block =~ "broadcast_attach_removed",
+      assert block =~ "Events.attach_removed",
              """
              Detach still must broadcast attach removal so AttachPool and the UI
              leave the warm state correctly without killing the SessionWriter.
@@ -324,8 +326,11 @@ defmodule Aiur.Regression.OpencodeSlotsTest do
 
   describe "rebuild/watchdog invariants (source-pinned)" do
     test "serve rebuild teardown order: reap writers -> stop serve -> kill pane -> delete token -> rebuild_now" do
-      source = File.read!(@slot_source)
-      block = extract!(source, ~r/defp do_schedule_serve_rebuild\(state, pending, next_known\) do.*?\n  end\n/s)
+      slot_source = File.read!(@slot_source)
+      lifecycle_source = File.read!(@serve_lifecycle_source)
+
+      # Teardown ordering lives in ServeLifecycle.teardown_generation (T-046 decomposition).
+      block = extract!(lifecycle_source, ~r/def teardown_generation\(state\) do.*?\n  end\n/s)
 
       assert pos!(block, "reap_writers_for_base_url") <
                pos!(block, "GenServer.stop(state.server_pid"),
@@ -334,20 +339,25 @@ defmodule Aiur.Regression.OpencodeSlotsTest do
              still-live serve (#372).
              """
 
-      assert pos!(block, "GenServer.stop(state.server_pid") < pos!(block, "kill-pane -t "),
+      assert pos!(block, "GenServer.stop(state.server_pid") < pos!(block, "AttachPane.kill(state.pane_id"),
              """
              The old serve stops before its pane is killed; this preserves the
              documented rebuild lifecycle and keeps teardown deterministic.
              """
 
-      assert pos!(block, "kill-pane -t ") < pos!(block, "TokenRegistry.delete"),
+      assert pos!(block, "AttachPane.kill(state.pane_id") < pos!(block, "TokenRegistry.delete"),
              """
              The pane must be killed before clearing pane_id or identifier-miss
              rebuilds leak panes until the hidden window hits no space for new
              pane.
              """
 
-      assert pos!(block, "TokenRegistry.delete") < pos!(block, "send(self(), :rebuild_now)"),
+      # :rebuild_now is sent from do_schedule_serve_rebuild in slot.ex AFTER teardown_generation.
+      rebuild_block =
+        extract!(slot_source, ~r/defp do_schedule_serve_rebuild\(state, pending, next_known\) do.*?\n  end\n/s)
+
+      assert pos!(rebuild_block, "ServeLifecycle.teardown_generation") <
+               pos!(rebuild_block, "send(self(), :rebuild_now)"),
              """
              Token delete before the rebuild self-message keeps the
              {slot_index, generation} overlap window intact.
@@ -355,21 +365,24 @@ defmodule Aiur.Regression.OpencodeSlotsTest do
     end
 
     test "pane-death watchdog: threshold 3, reset on success, cancel-before-reschedule" do
-      source = File.read!(@slot_source)
+      slot_source = File.read!(@slot_source)
+      state_source = File.read!(@state_source)
 
-      assert source =~ ~r/@poll_death_threshold 3/
+      # @poll_death_threshold moved to State module (T-046 decomposition).
+      assert state_source =~ ~r/@poll_death_threshold 3/
 
-      assert source =~
-               ~r/\{:ok, \[\^pane_id \| _\]\} ->\s+\{:noreply, schedule_poll\(%\{state \| poll_death_count: 0\}\)\}/,
+      # Successful poll resets poll_death_count to 0 via State.record_poll/2.
+      assert state_source =~
+               ~r/def record_poll\(state, :alive\), do: \{:alive, %\{state \| poll_death_count: 0\}\}/,
              """
              tmux display-message can return empty under transient load; a
              successful poll must reset the consecutive-failure debounce so one
              bad reading cannot tear down a live pane.
              """
 
-      block = extract!(source, ~r/defp schedule_poll\(%\{status: :active\} = state\) do.*?\n  end\n/s)
+      block = extract!(slot_source, ~r/defp schedule_poll\(%\{status: :active\} = state\) do.*?\n  end\n/s)
 
-      assert pos!(block, "cancel_poll(state.poll_ref)") < pos!(block, "ref = Process.send_after"),
+      assert pos!(block, "cancel_poll(state.poll_ref)") < pos!(block, "poll_ref: Process.send_after"),
              """
              schedule_poll must cancel before rescheduling. Stacked timers fire
              together, defeating the consecutive-failures debounce and
