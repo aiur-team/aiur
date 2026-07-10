@@ -32,6 +32,7 @@ agent:
     # thrash_max_per_window: 6
     # thrash_window_seconds: 60
   # --- advanced agent tuning (defaults shown) ---
+  # mix_scheduler_cap: 4                 # cap each agent Mix VM (and ExUnit's default max_cases)
   # max_retry_attempts: 3
   # max_retry_backoff_ms: 300000
   # turn_timeout_ms: 3600000             # backstop per turn (any backend)

@@ -202,6 +202,12 @@ defmodule Aiur.Config do
     settings!().agent.max_concurrent_builds
   end
 
+  @doc "Scheduler count enforced for every Mix VM launched by an agent."
+  @spec mix_scheduler_cap() :: pos_integer()
+  def mix_scheduler_cap do
+    settings!().agent.mix_scheduler_cap || 4
+  end
+
   @doc """
   Number of opencode-serve instances to pre-warm at boot. Each pre-
   warmed slot binds to a different active ticket as its leadoff so
