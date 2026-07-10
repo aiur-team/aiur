@@ -26,7 +26,7 @@ defmodule Aiur.Regression.CompileTimePathsTest do
   # file (relative to src/lib) => trimmed matching lines: the currently
   # legitimate sites, captured 2026-07-07 at these locations:
   # aiur/agent_skills.ex:13,16,45,58;
-  # aiur/init.ex:49,50,72,73,82,83,93,94,95,96;
+  # aiur/init/templates.ex:13,14,28,29,38,39,49,50,51,52;
   # aiur/prompt_builder.ex:9; aiur_web/static_assets.ex:4,9,10,11,12.
   @allowlist %{
     "aiur/agent_skills.ex" => [
@@ -35,15 +35,15 @@ defmodule Aiur.Regression.CompileTimePathsTest do
       "@skills_root Path.expand(\"../../../\#{@claude_skills_dir}\", __DIR__)",
       "for path <- bundled_paths, do: @external_resource(path)"
     ],
-    "aiur/init.ex" => [
-      "@prompt_example_path Path.expand(\"../../../.aiur/examples/prompt.md.example\", __DIR__)",
+    "aiur/init/templates.ex" => [
+      "@prompt_example_path Path.expand(\"../../../../.aiur/examples/prompt.md.example\", __DIR__)",
       "@external_resource @prompt_example_path",
-      "@example_path Path.expand(\"../../../.aiur/examples/config.example\", __DIR__)",
+      "@example_path Path.expand(\"../../../../.aiur/examples/config.example\", __DIR__)",
       "@external_resource @example_path",
-      "@aiurhooks_example_path Path.expand(\"../../../.aiur/examples/hooks.example\", __DIR__)",
+      "@aiurhooks_example_path Path.expand(\"../../../../.aiur/examples/hooks.example\", __DIR__)",
       "@external_resource @aiurhooks_example_path",
-      "@alerts_macos_example_path Path.expand(\"../../../.aiur/examples/alerts.macos.example\", __DIR__)",
-      "@alerts_linux_example_path Path.expand(\"../../../.aiur/examples/alerts.linux.example\", __DIR__)",
+      "@alerts_macos_example_path Path.expand(\"../../../../.aiur/examples/alerts.macos.example\", __DIR__)",
+      "@alerts_linux_example_path Path.expand(\"../../../../.aiur/examples/alerts.linux.example\", __DIR__)",
       "@external_resource @alerts_macos_example_path",
       "@external_resource @alerts_linux_example_path"
     ],

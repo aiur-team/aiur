@@ -593,7 +593,7 @@ defmodule Aiur.TestReset do
   # (`<tmp_dir>/aiur_workspaces`).
   defp delete_workspace(id) do
     root = workspace_root_with_fallback()
-    safe_id = String.replace(to_string(id), ~r/[^a-zA-Z0-9._-]/, "_")
+    safe_id = Paths.sanitize(to_string(id))
     path = Path.join(root, safe_id)
 
     case File.rm_rf(path) do

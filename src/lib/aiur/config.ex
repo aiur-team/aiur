@@ -5,6 +5,7 @@ defmodule Aiur.Config do
   """
 
   alias Aiur.Config.Schema
+  alias Aiur.Config.Schema.AgentValidation
   alias Aiur.Workflow
 
   @default_prompt_template """
@@ -20,8 +21,6 @@ defmodule Aiur.Config do
   No description provided.
   {% endif %}
   """
-
-  @valid_codex_approval_policies ~w(untrusted on-failure on-request granular never)
 
   @type codex_runtime_settings :: %{
           approval_policy: String.t(),
@@ -64,7 +63,7 @@ defmodule Aiur.Config do
 
     Map.get(
       config.agent.max_concurrent_agents_by_state,
-      Schema.normalize_issue_state(state_name),
+      AgentValidation.normalize_issue_state(state_name),
       config.agent.max_concurrent_agents
     )
   end
@@ -189,6 +188,15 @@ defmodule Aiur.Config do
   @spec max_concurrent_agents() :: pos_integer()
   def max_concurrent_agents do
     settings!().agent.max_concurrent_agents
+  end
+
+  @doc """
+  Maximum number of agent-launched Mix compile/test commands allowed across the
+  local workspace fleet. `0` disables the build gate intentionally.
+  """
+  @spec max_concurrent_builds() :: non_neg_integer()
+  def max_concurrent_builds do
+    settings!().agent.max_concurrent_builds
   end
 
   @doc """
@@ -402,15 +410,12 @@ defmodule Aiur.Config do
     end
   end
 
-  defp validate_codex_approval_policy(value) when is_binary(value) do
-    case String.trim(value) do
-      trimmed when trimmed in @valid_codex_approval_policies -> {:ok, trimmed}
-      _ -> {:error, {:invalid_codex_approval_policy, value}}
+  defp validate_codex_approval_policy(value) do
+    case Aiur.Codex.Config.validate_approval_policy(value) do
+      {:ok, trimmed} -> {:ok, trimmed}
+      {:error, _message} -> {:error, {:invalid_codex_approval_policy, value}}
     end
   end
-
-  defp validate_codex_approval_policy(value),
-    do: {:error, {:invalid_codex_approval_policy, value}}
 
   defp validate_semantics(settings) do
     with :ok <- validate_kinds_and_secrets(settings) do

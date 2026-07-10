@@ -241,6 +241,13 @@ When `server.port` (or CLI `--port`) is set, Aiur exposes:
   invocation when a turn completes but the issue is still active. Default: `20`.
 - `agent.max_concurrent_agents` caps active workers only. Paused agents remain visible
   and can keep their panes open without consuming an active slot.
+- `agent.max_concurrent_builds` caps agent-launched `mix compile` and `mix test`
+  commands across all local workspaces for the current OS user. It defaults to `2`,
+  a conservative setting for a 12-core host; agents queue only their Mix verification
+  while ordinary editing, Git, and model work continue. Set it to `0` to opt out of
+  the gate for unrestricted local verification. Agent transcripts emit
+  `aiur_build_gate` queue/acquire/release/timeout signals, and `aiur status` reports
+  active or queued contention.
 - Use `hooks.after_create` to bootstrap a fresh workspace (typically a `git clone`).
 - Optional alert sounds play when an agent gets stuck or needs input. Enable via the
   `alerts:` block in `.aiur/config` (offered during `aiur init`): `enabled` is the master

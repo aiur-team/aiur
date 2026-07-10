@@ -1,8 +1,8 @@
 defmodule Aiur.WorkspaceAndConfigTest do
   use Aiur.TestSupport
   alias Aiur.CodingAgent
-  alias Aiur.Config.Schema
-  alias Aiur.Config.Schema.{Codex, StringOrMap}
+  alias Aiur.Config.{RoutingValue, Schema}
+  alias Aiur.Config.Schema.{AgentValidation, Codex, StringOrMap}
   alias Aiur.Events.Exchange
   alias Aiur.Issue
   alias Aiur.Linear.Client
@@ -2085,9 +2085,9 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert {:ok, %{"a" => 1}} = StringOrMap.dump(%{"a" => 1})
     assert :error = StringOrMap.dump(123)
 
-    assert Schema.normalize_state_limits(nil) == %{}
+    assert AgentValidation.normalize_state_limits(nil) == %{}
 
-    assert Schema.normalize_state_limits(%{"In Progress" => 2, todo: 1}) == %{
+    assert AgentValidation.normalize_state_limits(%{"In Progress" => 2, todo: 1}) == %{
              "todo" => 1,
              "in progress" => 2
            }
@@ -2095,7 +2095,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     changeset =
       {%{}, %{limits: :map}}
       |> Changeset.cast(%{limits: %{"" => 1, "todo" => 0}}, [:limits])
-      |> Schema.validate_state_limits(:limits)
+      |> AgentValidation.validate_state_limits(:limits)
 
     assert changeset.errors == [
              limits: {"state names must not be blank", []},
@@ -2104,9 +2104,9 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "agent routing normalizes string levels and rejects bad levels/backends" do
-    assert Schema.normalize_agent_routing(nil) == %{}
+    assert AgentValidation.normalize_agent_routing(nil) == %{}
 
-    assert Schema.normalize_agent_routing(%{"4" => "claude", 5 => :codex}) == %{
+    assert AgentValidation.normalize_agent_routing(%{"4" => "claude", 5 => :codex}) == %{
              4 => "claude",
              5 => "codex"
            }
@@ -2114,14 +2114,14 @@ defmodule Aiur.WorkspaceAndConfigTest do
     good =
       {%{}, %{routing: :map}}
       |> Changeset.cast(%{routing: %{4 => "claude", 5 => "codex"}}, [:routing])
-      |> Schema.validate_agent_routing(:routing)
+      |> AgentValidation.validate_agent_routing(:routing)
 
     assert good.errors == []
 
     bad =
       {%{}, %{routing: :map}}
       |> Changeset.cast(%{routing: %{0 => "claude", 4 => "bogus"}}, [:routing])
-      |> Schema.validate_agent_routing(:routing)
+      |> AgentValidation.validate_agent_routing(:routing)
 
     assert {:routing, {"complexity levels must be positive integers", []}} in bad.errors
 
@@ -2132,16 +2132,16 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     # backend:model:effort routing values: the backend part must be known,
     # the model suffix is free-form (e.g. complexity:5 -> claude:sonnet).
-    assert Schema.split_routing_value("claude") == {"claude", nil}
-    assert Schema.split_routing_value("claude:sonnet") == {"claude", "sonnet"}
-    assert Schema.split_routing_value("claude:sonnet:high") == {"claude", "sonnet"}
-    assert Schema.split_routing_value("claude::high") == {"claude", nil}
-    assert Schema.split_routing_value("codex:gpt-5.5") == {"codex", "gpt-5.5"}
-    assert Schema.split_routing_value("codex:gpt-5.6-terra:xhigh") == {"codex", "gpt-5.6-terra"}
-    assert Schema.routing_effort("claude:sonnet:high") == "high"
-    assert Schema.routing_effort("claude:sonnet:high+remote") == "high"
-    assert Schema.routing_effort("claude-repl::xhigh") == "xhigh"
-    assert Schema.routing_effort("claude:sonnet") == nil
+    assert RoutingValue.split_routing_value("claude") == {"claude", nil}
+    assert RoutingValue.split_routing_value("claude:sonnet") == {"claude", "sonnet"}
+    assert RoutingValue.split_routing_value("claude:sonnet:high") == {"claude", "sonnet"}
+    assert RoutingValue.split_routing_value("claude::high") == {"claude", nil}
+    assert RoutingValue.split_routing_value("codex:gpt-5.5") == {"codex", "gpt-5.5"}
+    assert RoutingValue.split_routing_value("codex:gpt-5.6-terra:xhigh") == {"codex", "gpt-5.6-terra"}
+    assert RoutingValue.routing_effort("claude:sonnet:high") == "high"
+    assert RoutingValue.routing_effort("claude:sonnet:high+remote") == "high"
+    assert RoutingValue.routing_effort("claude-repl::xhigh") == "xhigh"
+    assert RoutingValue.routing_effort("claude:sonnet") == nil
 
     with_model =
       {%{}, %{routing: :map}}
@@ -2157,7 +2157,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
           :routing
         ]
       )
-      |> Schema.validate_agent_routing(:routing)
+      |> AgentValidation.validate_agent_routing(:routing)
 
     assert with_model.errors == []
 
@@ -2166,7 +2166,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       |> Changeset.cast(%{routing: %{4 => "claude:sonnet:high", 5 => "codex:gpt-5.6-luna:minimal"}}, [
         :routing
       ])
-      |> Schema.validate_agent_routing(:routing)
+      |> AgentValidation.validate_agent_routing(:routing)
 
     assert Enum.count(bad_effort.errors) == 2
 
@@ -2183,7 +2183,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     bad_model_backend =
       {%{}, %{routing: :map}}
       |> Changeset.cast(%{routing: %{4 => "bogus:sonnet"}}, [:routing])
-      |> Schema.validate_agent_routing(:routing)
+      |> AgentValidation.validate_agent_routing(:routing)
 
     assert Enum.any?(bad_model_backend.errors, fn
              {:routing, {msg, []}} -> msg =~ "unknown backend"
@@ -2193,28 +2193,28 @@ defmodule Aiur.WorkspaceAndConfigTest do
     repl =
       {%{}, %{routing: :map}}
       |> Changeset.cast(%{routing: %{4 => "claude-repl"}}, [:routing])
-      |> Schema.validate_agent_routing(:routing)
+      |> AgentValidation.validate_agent_routing(:routing)
 
     assert repl.errors == []
 
     # `+remote` flag: stripped from backend/model, surfaced by
     # routing_remote_flag?, and only valid on a remote-capable backend.
-    assert Schema.split_routing_value("claude:haiku+remote") == {"claude", "haiku"}
-    assert Schema.split_routing_value("claude+remote") == {"claude", nil}
-    assert Schema.routing_remote_flag?("claude:haiku+remote")
-    refute Schema.routing_remote_flag?("claude:haiku")
+    assert RoutingValue.split_routing_value("claude:haiku+remote") == {"claude", "haiku"}
+    assert RoutingValue.split_routing_value("claude+remote") == {"claude", nil}
+    assert RoutingValue.routing_remote_flag?("claude:haiku+remote")
+    refute RoutingValue.routing_remote_flag?("claude:haiku")
 
     remote_ok =
       {%{}, %{routing: :map}}
       |> Changeset.cast(%{routing: %{1 => "claude:haiku+remote"}}, [:routing])
-      |> Schema.validate_agent_routing(:routing)
+      |> AgentValidation.validate_agent_routing(:routing)
 
     assert remote_ok.errors == []
 
     remote_bad =
       {%{}, %{routing: :map}}
       |> Changeset.cast(%{routing: %{1 => "codex:gpt-5.4+remote"}}, [:routing])
-      |> Schema.validate_agent_routing(:routing)
+      |> AgentValidation.validate_agent_routing(:routing)
 
     assert Enum.any?(remote_bad.errors, fn
              {:routing, {msg, []}} -> msg =~ "remote-capable backend"
@@ -2409,9 +2409,9 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "complexity prompts normalize string levels and reject bad levels/values" do
-    assert Schema.normalize_complexity_prompts(nil) == %{}
+    assert AgentValidation.normalize_complexity_prompts(nil) == %{}
 
-    assert Schema.normalize_complexity_prompts(%{"3" => "medium guidance", 5 => "be careful"}) ==
+    assert AgentValidation.normalize_complexity_prompts(%{"3" => "medium guidance", 5 => "be careful"}) ==
              %{
                3 => "medium guidance",
                5 => "be careful"
@@ -2420,14 +2420,14 @@ defmodule Aiur.WorkspaceAndConfigTest do
     good =
       {%{}, %{complexity_prompts: :map}}
       |> Changeset.cast(%{complexity_prompts: %{3 => "guidance"}}, [:complexity_prompts])
-      |> Schema.validate_complexity_prompts(:complexity_prompts)
+      |> AgentValidation.validate_complexity_prompts(:complexity_prompts)
 
     assert good.errors == []
 
     bad =
       {%{}, %{complexity_prompts: :map}}
       |> Changeset.cast(%{complexity_prompts: %{0 => "x", 4 => 99}}, [:complexity_prompts])
-      |> Schema.validate_complexity_prompts(:complexity_prompts)
+      |> AgentValidation.validate_complexity_prompts(:complexity_prompts)
 
     assert {:complexity_prompts, {"complexity levels must be positive integers", []}} in bad.errors
     assert {:complexity_prompts, {"complexity prompt values must be strings", []}} in bad.errors
