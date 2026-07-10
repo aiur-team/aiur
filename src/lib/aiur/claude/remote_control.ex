@@ -258,7 +258,11 @@ defmodule Aiur.Claude.RemoteControl do
   def process_group_alive?(process_group_id) when is_integer(process_group_id) and process_group_id > 0 do
     match?({_, 0}, System.cmd("kill", ["-0", "--", "-#{process_group_id}"], stderr_to_stdout: true))
   rescue
-    _ -> false
+    # A genuine "group is gone" returns a non-zero exit, not an exception. An
+    # exception means the probe itself could not run (e.g. port exhaustion under
+    # load), so assume alive — reporting "gone" here would let containment claim
+    # a false success without ever signalling the surviving group.
+    _ -> true
   end
 
   def process_group_alive?(_process_group_id), do: false
@@ -268,7 +272,9 @@ defmodule Aiur.Claude.RemoteControl do
   def process_alive?(os_pid) when is_integer(os_pid) and os_pid > 0 do
     match?({_, 0}, System.cmd("kill", ["-0", Integer.to_string(os_pid)], stderr_to_stdout: true))
   rescue
-    _ -> false
+    # Assume alive if the probe cannot run, so a transient failure never spuriously
+    # reports the paused root as dead and triggers a reap.
+    _ -> true
   end
 
   def process_alive?(_os_pid), do: false

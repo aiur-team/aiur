@@ -130,7 +130,6 @@ defmodule Aiur.PauseContainment do
        grace_ms: positive_integer(Keyword.get(opts, :grace_ms), @default_grace_ms),
        liveness_poll_ms: positive_integer(Keyword.get(opts, :liveness_poll_ms), @liveness_poll_ms),
        reap_fun: Keyword.get(opts, :reap_fun, &RemoteControl.graceful_kill_process_group/1),
-       group_alive_fun: Keyword.get(opts, :group_alive_fun, &RemoteControl.process_group_alive?/1),
        pid_alive_fun: Keyword.get(opts, :pid_alive_fun, &RemoteControl.process_alive?/1),
        event_fun: Keyword.get(opts, :event_fun, &emit_event/2),
        notify_fun: Keyword.get(opts, :notify_fun, &notify_orchestrator/3)
@@ -184,7 +183,7 @@ defmodule Aiur.PauseContainment do
 
   def handle_call({:release, identifier, generation}, _from, state) do
     case Map.get(state.entries, identifier) do
-      %{generation: ^generation, mode: mode} = entry when mode in [:armed, :paused, :failed] ->
+      %{generation: ^generation, mode: mode} = entry when mode in [:armed, :paused, :failed, :reaping] ->
         cancel_timers(entry)
         released = %{entry | mode: :active, deadline_ref: nil, liveness_ref: nil}
         {:reply, :ok, put_in(state.entries[identifier], released)}
@@ -195,15 +194,18 @@ defmodule Aiur.PauseContainment do
   end
 
   def handle_call({:paused?, identifier, generation}, _from, state) do
-    paused? = match?(%{generation: ^generation, mode: mode} when mode in [:armed, :paused, :failed], Map.get(state.entries, identifier))
+    paused? = match?(%{generation: ^generation, mode: mode} when mode in [:armed, :paused, :failed, :reaping], Map.get(state.entries, identifier))
     {:reply, paused?, state}
   end
 
   def handle_call({:unregister, identifier, generation}, _from, state) do
+    # Unregister only drops tracking. Normal session teardown already reaps the
+    # descendant tree via `AppServerPort.stop_port/1`; forceful group reaping
+    # stays exclusive to the fallback path so a clean shutdown never hard-kills a
+    # still-draining app-server.
     case Map.get(state.entries, identifier) do
       %{generation: ^generation} = entry ->
         cancel_timers(entry)
-        _ = state.reap_fun.(entry.process_group_id)
         {:reply, :ok, %{state | entries: Map.delete(state.entries, identifier)}}
 
       _ ->
@@ -215,7 +217,7 @@ defmodule Aiur.PauseContainment do
   def handle_info({:fallback, identifier, generation}, state) do
     case Map.get(state.entries, identifier) do
       %{generation: ^generation, mode: :armed} = entry ->
-        {:noreply, reap_entry(state, identifier, entry)}
+        {:noreply, start_reap(state, identifier, entry)}
 
       _ ->
         {:noreply, state}
@@ -229,8 +231,18 @@ defmodule Aiur.PauseContainment do
           ref = Process.send_after(self(), {:check_liveness, identifier, generation}, state.liveness_poll_ms)
           {:noreply, put_in(state.entries[identifier].liveness_ref, ref)}
         else
-          {:noreply, reap_entry(state, identifier, entry)}
+          {:noreply, start_reap(state, identifier, entry)}
         end
+
+      _ ->
+        {:noreply, state}
+    end
+  end
+
+  def handle_info({:reaped, identifier, generation, result}, state) do
+    case Map.get(state.entries, identifier) do
+      %{generation: ^generation, mode: :reaping} = entry ->
+        {:noreply, finish_reap(state, identifier, entry, result)}
 
       _ ->
         {:noreply, state}
@@ -239,26 +251,50 @@ defmodule Aiur.PauseContainment do
 
   def handle_info(_message, state), do: {:noreply, state}
 
-  defp reap_entry(state, identifier, entry) do
+  # Reaping can block for seconds on the TERM->KILL grace waits, so it runs off
+  # the GenServer loop: one agent's slow reap must never delay arming or
+  # confirming a sibling agent's pause (the concurrent-incident case this
+  # feature exists for). The entry parks in `:reaping` — still latched — until
+  # the worker reports its result back.
+  defp start_reap(state, identifier, entry) do
     cancel_timers(entry)
     emit(state, :fallback_started, identifier, entry, "Cooperative pause did not contain the agent; reaping its recorded process group.")
 
-    case state.reap_fun.(entry.process_group_id) do
-      {:ok, outcome} when outcome in [:reaped, :gone] ->
-        emit(state, :fallback_succeeded, identifier, entry, "Recorded agent process group contained.")
-        state.notify_fun.(identifier, entry.generation, :contained)
-        %{state | entries: Map.delete(state.entries, identifier)}
+    owner = self()
+    reap_fun = state.reap_fun
+    process_group_id = entry.process_group_id
+    generation = entry.generation
 
-      {:error, reason} ->
-        emit(state, :fallback_failed, identifier, entry, "Recorded agent process group could not be contained: #{inspect(reason)}")
-        state.notify_fun.(identifier, entry.generation, {:failed, reason})
-        put_in(state.entries[identifier], %{entry | mode: :failed, deadline_ref: nil, liveness_ref: nil})
+    spawn(fn ->
+      result =
+        try do
+          reap_fun.(process_group_id)
+        rescue
+          error -> {:error, {:reap_crashed, error}}
+        end
 
-      other ->
-        emit(state, :fallback_failed, identifier, entry, "Recorded agent process group returned an invalid containment result: #{inspect(other)}")
-        state.notify_fun.(identifier, entry.generation, {:failed, :invalid_result})
-        put_in(state.entries[identifier], %{entry | mode: :failed, deadline_ref: nil, liveness_ref: nil})
-    end
+      send(owner, {:reaped, identifier, generation, result})
+    end)
+
+    put_in(state.entries[identifier], %{entry | mode: :reaping, deadline_ref: nil, liveness_ref: nil})
+  end
+
+  defp finish_reap(state, identifier, entry, {:ok, outcome}) when outcome in [:reaped, :gone] do
+    emit(state, :fallback_succeeded, identifier, entry, "Recorded agent process group contained.")
+    state.notify_fun.(identifier, entry.generation, :contained)
+    %{state | entries: Map.delete(state.entries, identifier)}
+  end
+
+  defp finish_reap(state, identifier, entry, {:error, reason}) do
+    emit(state, :fallback_failed, identifier, entry, "Recorded agent process group could not be contained: #{inspect(reason)}")
+    state.notify_fun.(identifier, entry.generation, {:failed, reason})
+    put_in(state.entries[identifier], %{entry | mode: :failed, deadline_ref: nil, liveness_ref: nil})
+  end
+
+  defp finish_reap(state, identifier, entry, other) do
+    emit(state, :fallback_failed, identifier, entry, "Recorded agent process group returned an invalid containment result: #{inspect(other)}")
+    state.notify_fun.(identifier, entry.generation, {:failed, :invalid_result})
+    put_in(state.entries[identifier], %{entry | mode: :failed, deadline_ref: nil, liveness_ref: nil})
   end
 
   defp emit(state, stage, identifier, entry, reason) do
@@ -287,7 +323,7 @@ defmodule Aiur.PauseContainment do
 
   defp handle(identifier, entry), do: %{identifier: identifier, generation: entry.generation}
 
-  defp arm_entry(state, identifier, %{mode: mode} = entry) when mode in [:armed, :paused, :failed] do
+  defp arm_entry(state, identifier, %{mode: mode} = entry) when mode in [:armed, :paused, :failed, :reaping] do
     {:reply, {:ok, handle(identifier, entry)}, state}
   end
 
@@ -306,9 +342,13 @@ defmodule Aiur.PauseContainment do
         {target, entry}
 
       _ ->
-        Enum.find_value(entries, {nil, nil}, fn {identifier, entry} ->
-          if String.ends_with?(identifier, "##{target}"), do: {identifier, entry}
-        end)
+        # Fail closed when a bare issue-number target matches more than one
+        # registered identifier (the same number across two repos): arming the
+        # wrong entry would let the fallback reap a sibling agent's group.
+        case Enum.filter(entries, fn {identifier, _entry} -> String.ends_with?(identifier, "##{target}") end) do
+          [{identifier, entry}] -> {identifier, entry}
+          _ -> {nil, nil}
+        end
     end
   end
 

@@ -80,6 +80,46 @@ defmodule Aiur.PauseContainmentTest do
     assert PauseContainment.paused?(name, handle)
   end
 
+  test "a stuck reap does not block arming a sibling agent" do
+    parent = self()
+    name = Module.concat(__MODULE__, "Concurrent#{System.unique_integer([:positive])}")
+
+    {:ok, _pid} =
+      PauseContainment.start_link(
+        name: name,
+        grace_ms: 60_000,
+        reap_fun: fn group ->
+          # Simulate a slow TERM->KILL grace wait that blocks until released.
+          send(parent, {:reaping, group, self()})
+
+          receive do
+            :finish -> :ok
+          after
+            5_000 -> :ok
+          end
+
+          {:ok, :reaped}
+        end
+      )
+
+    assert {:ok, handle_a} = PauseContainment.register(name, "repo#100", 500, 500)
+    assert {:ok, ^handle_a} = PauseContainment.arm(name, "repo#100")
+    assert {:ok, handle_b} = PauseContainment.register(name, "repo#200", 600, 600)
+
+    send(name, {:fallback, "repo#100", handle_a.generation})
+    assert_receive {:reaping, 500, worker}, 1_000
+
+    # A's reap is stuck in its worker; the GenServer must still service B.
+    assert {:ok, ^handle_b} = PauseContainment.arm(name, "repo#200")
+    assert PauseContainment.paused?(name, handle_b)
+    # A stays latched while it is reaping.
+    assert PauseContainment.paused?(name, handle_a)
+
+    send(worker, :finish)
+    assert_eventually(fn -> not PauseContainment.paused?(name, handle_a) end)
+    assert PauseContainment.paused?(name, handle_b)
+  end
+
   defp assert_eventually(assertion, attempts \\ 20)
 
   defp assert_eventually(assertion, attempts) when attempts > 0 do

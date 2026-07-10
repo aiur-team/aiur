@@ -945,6 +945,10 @@ defmodule Aiur.Orchestrator do
     end
   end
 
+  # An `agent.pause.request` is the agent's own cooperative decision to stop
+  # working (e.g. it declared a blocker), so it yields at the next turn boundary
+  # and needs no forceful containment. Only pauses imposed on a possibly
+  # uncooperative live turn arm the fallback.
   defp maybe_arm_pause_containment(:working, :paused, "agent.pause.request", _identifier), do: :ok
 
   defp maybe_arm_pause_containment(:working, :paused, _reason, identifier) when is_binary(identifier) do
