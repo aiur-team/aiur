@@ -14,6 +14,7 @@ defmodule Aiur.Orchestrator do
     AgentQueueItem,
     AgentQueueStore,
     Alerts,
+    CIApprovalStore,
     CodingAgent,
     Config,
     Issue,
@@ -101,6 +102,8 @@ defmodule Aiur.Orchestrator do
     now_ms = System.monotonic_time(:millisecond)
     config = Config.settings!()
 
+    ci_persistence = CIApprovalStore.load()
+
     state = %State{
       poll_interval_ms: config.polling.interval_seconds * 1_000,
       max_concurrent_agents: config.agent.max_concurrent_agents,
@@ -115,6 +118,8 @@ defmodule Aiur.Orchestrator do
       tick_timer_ref: nil,
       tick_token: nil,
       initial_dispatch_cycle: true,
+      ci_approved_heads: ci_persistence.approved_heads,
+      ci_test_failure_heads: ci_persistence.test_failure_heads,
       agent_totals: @empty_agent_totals,
       agent_rate_limits: nil
     }
@@ -833,13 +838,17 @@ defmodule Aiur.Orchestrator do
   defp maybe_resume_for_ci_failure(%State{} = state, identifier) do
     case find_running_by_identifier(state.running, identifier) do
       %{control: %{status: :paused}, paused_reason: :ci_wait} = running_entry ->
-        case resume_paused_issue(state, running_entry, false) do
-          {{:ok, :resumed}, next_state} ->
-            next_state
+        if Issue.paused?(Map.get(running_entry, :issue)) do
+          state
+        else
+          case resume_paused_issue(state, running_entry, false) do
+            {{:ok, :resumed}, next_state} ->
+              next_state
 
-          {{:error, reason}, next_state} ->
-            Logger.warning("CI failure auto-resume deferred: issue_identifier=#{identifier} reason=#{inspect(reason)}")
-            next_state
+            {{:error, reason}, next_state} ->
+              Logger.warning("CI failure auto-resume deferred: issue_identifier=#{identifier} reason=#{inspect(reason)}")
+              next_state
+          end
         end
 
       _ ->
@@ -1361,7 +1370,9 @@ defmodule Aiur.Orchestrator do
 
     case issue_fetcher.(@ci_poll_states) do
       {:ok, issues} when is_list(issues) ->
-        poll_github_ci_targets(state, issues, poller, opts)
+        state
+        |> prune_ci_lifecycle_state(issues)
+        |> poll_github_ci_targets(issues, poller, opts)
 
       {:error, reason} ->
         Logger.warning("GithubCIPoller target refresh skipped; reason=#{inspect(reason)}")
@@ -1449,31 +1460,39 @@ defmodule Aiur.Orchestrator do
     MapSet.subset?(MapSet.new(targets), failed_targets)
   end
 
-  defp apply_ci_poll_result(state, issue, %{decision: :pending}) do
+  defp apply_ci_poll_result(state, issue, %{decision: :pending} = result) do
     cond do
-      human_review_state?(issue.state) -> refresh_running_issue_state(state, issue)
-      ci_wait_state?(issue.state) -> state
-      true -> transition_ci_ticket(state, issue, @ci_wait_state)
+      ci_wait_state?(issue.state) ->
+        state
+
+      human_review_state?(issue.state) and ci_head_approved?(state, issue, result) ->
+        refresh_running_issue_state(state, issue)
+
+      true ->
+        transition_ci_ticket(state, issue, @ci_wait_state)
     end
   end
 
   defp apply_ci_poll_result(state, issue, %{decision: :passed} = result) do
     if human_review_state?(issue.state) do
       state
+      |> clear_ci_test_failure_retry(issue)
+      |> remember_ci_approved_head(issue, result)
+      |> refresh_running_issue_state(issue)
     else
       transition_ci_pass(state, issue, result)
     end
   end
 
   defp apply_ci_poll_result(state, issue, %{decision: :failed} = result) do
-    transition_ci_failure(state, issue, result)
-  end
-
-  defp apply_ci_poll_result(state, issue, %{decision: :test_failed} = result) do
-    if human_review_state?(issue.state) do
-      refresh_running_issue_state(state, issue)
+    if retryable_test_failure?(state, issue, result) do
+      state
+      |> remember_ci_test_failure_retry(issue, result)
+      |> defer_ci_test_failure(issue)
     else
-      transition_ci_test_failure(state, issue, result)
+      state
+      |> clear_ci_test_failure_retry(issue)
+      |> transition_ci_failure(issue, result)
     end
   end
 
@@ -1485,6 +1504,7 @@ defmodule Aiur.Orchestrator do
     case Tracker.update_issue_state(to_string(issue_key), next_state) do
       :ok ->
         updated_issue = %{issue | state: next_state}
+        state = if ci_wait_state?(next_state), do: clear_ci_approved_head(state, issue), else: state
 
         cond do
           DispatchPolicy.active_issue_state?(next_state, DispatchPolicy.active_state_set()) ->
@@ -1507,6 +1527,8 @@ defmodule Aiur.Orchestrator do
     case Tracker.update_issue_state(to_string(issue.id || issue.identifier), @human_review_state) do
       :ok ->
         state
+        |> clear_ci_test_failure_retry(issue)
+        |> remember_ci_approved_head(issue, result)
         |> refresh_running_issue_state(%{issue | state: @human_review_state})
         |> publish_ci_terminal_event(issue, result, :passed)
 
@@ -1520,6 +1542,8 @@ defmodule Aiur.Orchestrator do
     case Tracker.update_issue_state(to_string(issue.id || issue.identifier), "rework") do
       :ok ->
         state
+        |> clear_ci_test_failure_retry(issue)
+        |> clear_ci_approved_head(issue)
         |> ensure_ci_failure_subscription(issue)
         |> publish_ci_terminal_event(issue, result, :failed)
         |> maybe_reactivate_after_ci_failure(%{issue | state: "rework"})
@@ -1530,30 +1554,128 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  defp transition_ci_test_failure(state, issue, result) do
-    case Tracker.update_issue_state(to_string(issue.id || issue.identifier), @human_review_state) do
-      :ok ->
-        Logger.warning(
-          "CI test-only failure deferred to human merge policy: " <>
-            "#{issue_context(issue)} checks=#{inspect(Map.get(result, :failures, []))}"
-        )
+  defp maybe_reactivate_after_ci_failure(state, issue) do
+    if Issue.paused?(issue) do
+      refresh_running_issue_state(state, issue)
+    else
+      case Map.get(state.running, issue.id) do
+        %{control: %{status: :paused}, paused_reason: :label_override} ->
+          refresh_running_issue_state(state, issue)
 
-        refresh_running_issue_state(state, %{issue | state: @human_review_state})
+        _ ->
+          maybe_reactivate_or_refresh(state, issue)
+      end
+    end
+  end
 
-      {:error, reason} ->
-        Logger.warning("CI test-only failure transition skipped: #{issue_context(issue)} reason=#{inspect(reason)}")
+  # A failed `test` check may be the known seed-dependent flake. Defer only the
+  # first terminal observation of that exact head for one regular poll cycle;
+  # the second failure is delivered to the agent like every other CI failure.
+  defp retryable_test_failure?(%State{} = state, %Issue{} = issue, %{head_sha: head_sha, failures: failures})
+       when is_binary(head_sha) and is_list(failures) do
+    test_only_failure?(failures) and Map.get(state.ci_test_failure_heads, ci_target_for_issue(issue)) != head_sha
+  end
+
+  defp retryable_test_failure?(_state, _issue, _result), do: false
+
+  defp test_only_failure?(failures) do
+    failures != [] and
+      Enum.all?(failures, fn
+        %{name: "test"} -> true
+        _ -> false
+      end)
+  end
+
+  defp defer_ci_test_failure(state, issue) do
+    if human_review_state?(issue.state) do
+      transition_ci_ticket(state, issue, @ci_wait_state)
+    else
+      state
+    end
+  end
+
+  # A direct agent label flip is the initial CI handoff. Once a head has passed,
+  # retain that exact SHA so a transient re-run does not pull it out of review;
+  # a pending observation for a different SHA is a re-push and must re-enter the
+  # CI gate.
+  defp ci_head_approved?(%State{} = state, %Issue{} = issue, result) do
+    case {Map.get(state.ci_approved_heads, ci_target_for_issue(issue)), Map.get(result, :head_sha)} do
+      {approved_head, observed_head} when is_binary(approved_head) and approved_head == observed_head -> true
+      {approved_head, nil} when is_binary(approved_head) -> true
+      _ -> false
+    end
+  end
+
+  defp remember_ci_approved_head(%State{} = state, %Issue{} = issue, %{head_sha: head_sha})
+       when is_binary(head_sha) and head_sha != "" do
+    case ci_target_for_issue(issue) do
+      target when is_binary(target) ->
+        approved_heads = Map.put(state.ci_approved_heads, target, head_sha)
+        persist_ci_lifecycle_state(%{state | ci_approved_heads: approved_heads})
+
+      _ ->
         state
     end
   end
 
-  defp maybe_reactivate_after_ci_failure(state, issue) do
-    case Map.get(state.running, issue.id) do
-      %{control: %{status: :paused}, paused_reason: :label_override} ->
-        refresh_running_issue_state(state, issue)
+  defp remember_ci_approved_head(state, _issue, _result), do: state
+
+  defp clear_ci_approved_head(%State{} = state, %Issue{} = issue) do
+    case ci_target_for_issue(issue) do
+      target when is_binary(target) ->
+        approved_heads = Map.delete(state.ci_approved_heads, target)
+        persist_ci_lifecycle_state(%{state | ci_approved_heads: approved_heads})
 
       _ ->
-        maybe_reactivate_or_refresh(state, issue)
+        state
     end
+  end
+
+  defp remember_ci_test_failure_retry(%State{} = state, %Issue{} = issue, %{head_sha: head_sha}) do
+    case ci_target_for_issue(issue) do
+      target when is_binary(target) and is_binary(head_sha) ->
+        test_failure_heads = Map.put(state.ci_test_failure_heads, target, head_sha)
+        persist_ci_lifecycle_state(%{state | ci_test_failure_heads: test_failure_heads})
+
+      _ ->
+        state
+    end
+  end
+
+  defp clear_ci_test_failure_retry(%State{} = state, %Issue{} = issue) do
+    case ci_target_for_issue(issue) do
+      target when is_binary(target) ->
+        test_failure_heads = Map.delete(state.ci_test_failure_heads, target)
+        persist_ci_lifecycle_state(%{state | ci_test_failure_heads: test_failure_heads})
+
+      _ ->
+        state
+    end
+  end
+
+  defp prune_ci_lifecycle_state(%State{} = state, issues) do
+    targets =
+      issues
+      |> Enum.map(&ci_target_for_issue/1)
+      |> Enum.filter(&is_binary/1)
+
+    approved_heads = Map.take(state.ci_approved_heads, targets)
+    test_failure_heads = Map.take(state.ci_test_failure_heads, targets)
+
+    if approved_heads == state.ci_approved_heads and test_failure_heads == state.ci_test_failure_heads do
+      state
+    else
+      persist_ci_lifecycle_state(%{
+        state
+        | ci_approved_heads: approved_heads,
+          ci_test_failure_heads: test_failure_heads
+      })
+    end
+  end
+
+  defp persist_ci_lifecycle_state(%State{} = state) do
+    :ok = CIApprovalStore.save(state.ci_approved_heads, state.ci_test_failure_heads)
+    state
   end
 
   defp publish_ci_terminal_event(state, issue, result, outcome) do

@@ -80,9 +80,9 @@ defmodule Aiur.Events.GithubCIPollerTest do
             }} = GithubCIPoller.poll(["72"], request_fun: request_fun)
   end
 
-  test "returns test-only check details for merge-policy handling" do
+  test "reports a test-only check failure for agent judgment" do
     assert %{
-             decision: :test_failed,
+             decision: :failed,
              failures: [
                %{
                  name: "test",
@@ -105,9 +105,9 @@ defmodule Aiur.Events.GithubCIPollerTest do
              )
   end
 
-  test "classifies a test-only check failure for human merge policy" do
+  test "does not suppress a test-only check failure" do
     assert %{
-             decision: :test_failed,
+             decision: :failed,
              failures: [%{name: "test", kind: "check_run", result: "failure"}]
            } =
              GithubCIPoller.evaluate_for_test(
@@ -235,7 +235,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
       end
     end
 
-    assert {:ok, %{results: [%{decision: :test_failed, failures: [%{name: "test"}]}]}} =
+    assert {:ok, %{results: [%{decision: :failed, failures: [%{name: "test"}]}]}} =
              GithubCIPoller.poll(["88"], request_fun: request_fun)
   end
 end

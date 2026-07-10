@@ -13,7 +13,7 @@ defmodule Aiur.Events.GithubCIPoller do
   alias Aiur.GitHub.Client
 
   @type target :: String.t() | integer()
-  @type decision :: :pending | :passed | :failed | :test_failed
+  @type decision :: :pending | :passed | :failed
 
   @successful_conclusions ~w(success neutral skipped)
   @failed_statuses ~w(error failure)
@@ -148,7 +148,7 @@ defmodule Aiur.Events.GithubCIPoller do
 
     decision =
       cond do
-        failed_checks != [] -> failure_decision(failed_checks)
+        failed_checks != [] -> :failed
         incomplete_check_runs?(check_runs) -> :pending
         incomplete_commit_statuses?(statuses) -> :pending
         incomplete_combined_status?(commit_status) -> :pending
@@ -158,13 +158,6 @@ defmodule Aiur.Events.GithubCIPoller do
 
     %{decision: decision, failures: failed_checks}
   end
-
-  defp failure_decision(failures) do
-    if Enum.all?(failures, &test_failure?/1), do: :test_failed, else: :failed
-  end
-
-  defp test_failure?(%{name: "test"}), do: true
-  defp test_failure?(_failure), do: false
 
   defp failed_check_runs(check_runs) do
     Enum.flat_map(check_runs, fn check_run ->
