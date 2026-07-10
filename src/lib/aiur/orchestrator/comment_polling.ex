@@ -414,7 +414,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
     human_review_targets
     |> Enum.reject(&(MapSet.member?(failed_targets, &1.target) or is_nil(&1.updated_at)))
     |> Map.new(&{&1.target, &1.updated_at})
-    |> then(&Map.merge(updated_at_by_target || %{}, &1))
+    |> then(&Map.merge(updated_at_by_target, &1))
   end
 
   defp normalize_comment_targets(targets) when is_list(targets) do
