@@ -73,4 +73,47 @@ defmodule Aiur.Opencode.Slot.AttachPaneTest do
   test "maybe_start_pipe_pane returns :ok for non-binary pane_id" do
     assert :ok = AttachPane.maybe_start_pipe_pane(3, nil)
   end
+
+  test "maybe_start_pipe_pane returns :ok when debug mode is on (binary pane, no tmux)" do
+    System.put_env("AIUR_DEBUG", "1")
+    # Tmux not running; command returns {:error, :no_tmux} but result is discarded
+    assert :ok = AttachPane.maybe_start_pipe_pane(5, "%77")
+  end
+
+  # --- probe/1 ---
+
+  test "probe returns {:missing, _} when Tmux is not running" do
+    # Tmux.command catches :noproc and returns {:error, :no_tmux}
+    assert {:missing, _} = AttachPane.probe("%nonexistent")
+  end
+
+  # --- kill/2 ---
+
+  test "kill with default opts returns :ok without tmux or reaper" do
+    # ProcessReaper.unregister and Tmux.command both handle missing processes gracefully
+    assert :ok = AttachPane.kill("%fake-pane")
+  end
+
+  test "kill with unregister: false skips reaper call and returns :ok" do
+    assert :ok = AttachPane.kill("%fake-pane", unregister: false)
+  end
+
+  # --- capture_pane_dump/1 ---
+
+  test "capture_pane_dump returns 'capture_failed' when Tmux is not running" do
+    assert "capture_failed" = AttachPane.capture_pane_dump("%nonexistent")
+  end
+
+  # --- reflow_hidden_window/1 ---
+
+  test "reflow_hidden_window returns :ok when Tmux is not running" do
+    assert :ok = AttachPane.reflow_hidden_window("%1")
+  end
+
+  # --- hidden_window_target/0 ---
+
+  test "hidden_window_target returns :hidden_window_disabled when HiddenWindow is not running" do
+    # HiddenWindow.status() returns :disabled when the process is not registered
+    assert {:error, :hidden_window_disabled} = AttachPane.hidden_window_target()
+  end
 end

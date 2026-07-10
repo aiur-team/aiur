@@ -48,10 +48,22 @@ defmodule Aiur.Opencode.Slot.ServeLifecycleTest do
     assert :ok = ServeLifecycle.teardown_generation(state)
   end
 
+  test "teardown_generation with binary base_url and nil server/pane/token returns :ok" do
+    # SessionWriterRegistry.all() returns [] when registry not running; reap is a no-op
+    state = %{base_url: "http://127.0.0.1:1", server_pid: nil, pane_id: nil, token: nil}
+    assert :ok = ServeLifecycle.teardown_generation(state)
+  end
+
   # --- terminate_cleanup/1 ---
 
   test "terminate_cleanup with nil state fields returns :ok without external calls" do
     state = %{base_url: nil, server_pid: nil, pane_id: nil, token: nil}
+    assert :ok = ServeLifecycle.terminate_cleanup(state)
+  end
+
+  test "terminate_cleanup with binary base_url and nil server/pane/token returns :ok" do
+    # Same as above: reap_writers_for_base_url on empty registry is a safe no-op
+    state = %{base_url: "http://127.0.0.1:1", server_pid: nil, pane_id: nil, token: nil}
     assert :ok = ServeLifecycle.terminate_cleanup(state)
   end
 end
