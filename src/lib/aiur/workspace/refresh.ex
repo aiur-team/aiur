@@ -47,7 +47,7 @@ defmodule Aiur.Workspace.Refresh do
 
       # A fresh todo dispatch that lands on a dirty *leftover* workspace
       # (#577): the dirty content is not this agent's WIP, so recreate the
-      # workspace clean off origin/main and re-run before_run.
+      # workspace clean off the configured base and re-run before_run.
       Context.todo_dispatch?(issue_context) ->
         Logger.warning(
           "Recreating stale leftover workspace after before_run dirty-refresh refusal #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=#{Context.worker_host_for_log(worker_host)}"
@@ -61,16 +61,16 @@ defmodule Aiur.Workspace.Refresh do
       # An in-flight / resumed agent (NOT a todo dispatch) whose "dirty"
       # workspace is its legitimate uncommitted WIP (#653). A base-branch
       # push (PR merge) or a resume-after-idle fires before_run, which
-      # refuses to refresh from origin/main while tracked changes are
+      # refuses to refresh from the configured base while tracked changes are
       # present (#569's guard). For a live agent that refusal must NOT be
-      # fatal: skip the origin/main refresh and let the agent keep working
+      # fatal: skip the configured-base refresh and let the agent keep working
       # on its branch (it rebases/merges at PR time anyway). Returning :ok
       # here is what prevents the `Agent run failed -> 3 retries ->
       # retry_exhausted` chain that used to kill every other in-flight
       # agent on each PR merge.
       true ->
         Logger.info(
-          "Skipping before_run origin/main refresh: agent has uncommitted WIP, continuing on its branch #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=#{Context.worker_host_for_log(worker_host)}"
+          "Skipping before_run configured-base refresh: agent has uncommitted WIP, continuing on its branch #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=#{Context.worker_host_for_log(worker_host)}"
         )
 
         finalize_before_run_workspace(workspace, issue_context, worker_host)

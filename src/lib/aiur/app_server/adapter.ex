@@ -31,7 +31,7 @@ defmodule Aiur.AppServer.Adapter do
 
   @spec run_turn(module(), map(), String.t(), map(), keyword()) ::
           {:ok, map()} | {:paused, map()} | {:error, term()}
-  def run_turn(backend, %{port: _port, metadata: metadata, thread_id: thread_id} = session, prompt, issue, opts) do
+  def run_turn(backend, %{port: _port} = session, prompt, issue, opts) do
     on_message = Keyword.get(opts, :on_message, &Messages.default_on_message/1)
     on_safe_checkpoint = Keyword.get(opts, :on_safe_checkpoint, fn _checkpoint -> :noop end)
 
@@ -39,6 +39,19 @@ defmodule Aiur.AppServer.Adapter do
       Keyword.get(opts, :tool_executor, fn tool, arguments ->
         DynamicTool.execute(tool, arguments)
       end)
+
+    case pause_latched?(session) do
+      true ->
+        {:paused, %{request_id: :containment, turn_id: nil, details: :pause_latched_before_turn}}
+
+      false ->
+        run_started_turn(backend, session, prompt, issue, on_message, on_safe_checkpoint, tool_executor)
+    end
+  end
+
+  defp run_started_turn(backend, session, prompt, issue, on_message, on_safe_checkpoint, tool_executor) do
+    metadata = session.metadata
+    thread_id = session.thread_id
 
     case backend.start_turn(session, prompt, issue) do
       {:ok, turn_id} ->
@@ -86,6 +99,8 @@ defmodule Aiur.AppServer.Adapter do
     end
   end
 
+  defp pause_latched?(session), do: Aiur.PauseContainment.paused?(Map.get(session, :containment))
+
   @spec start_port(Path.t(), String.t()) :: {:ok, port()} | {:error, :bash_not_found}
   def start_port(workspace, command) do
     executable = System.find_executable("bash")
@@ -93,6 +108,12 @@ defmodule Aiur.AppServer.Adapter do
     if is_nil(executable) do
       {:error, :bash_not_found}
     else
+      # The BEAM's port spawn already places each program in its own session and
+      # process group (os_pid == pgid). That makes the app-server and its tool
+      # descendants targetable as one recorded group after their immediate parent
+      # exits, without ever selecting by workspace cwd. An explicit `setsid`
+      # wrapper here would fork and leave os_pid a dead stub, orphaning the real
+      # leader from both containment and the pgrep-anchored teardown walk.
       port =
         Port.open(
           {:spawn_executable, String.to_charlist(executable)},

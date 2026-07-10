@@ -6,6 +6,8 @@ defmodule Aiur.Codex.Approvals do
   alias Aiur.AppServer.Messages
   alias Aiur.Codex.{Rpc, UserInputAnswers}
 
+  # credo:disable-for-this-file Credo.Check.Refactor.FunctionArity
+
   @spec maybe_handle_approval_request(
           port(),
           String.t(),
@@ -14,8 +16,21 @@ defmodule Aiur.Codex.Approvals do
           (map() -> term()),
           map(),
           (term(), term() -> term()),
+          boolean(),
           boolean()
         ) :: :approved | :approval_required | :input_required | :unhandled
+  def maybe_handle_approval_request(port, method, %{"id" => id} = payload, payload_string, on_message, metadata, _tool_executor, _auto_approve_requests, true) do
+    deny_for_pause(port, method, id, payload, payload_string, on_message, metadata)
+  end
+
+  def maybe_handle_approval_request(port, method, payload, payload_string, on_message, metadata, tool_executor, auto_approve_requests, true) do
+    # A latched pause only gates approval/tool requests, which carry a JSON-RPC
+    # id. Id-less notifications (message/reasoning deltas, status) keep their
+    # normal handling so a mid-turn pause does not crash the streaming loop.
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    maybe_handle_approval_request(port, method, payload, payload_string, on_message, metadata, tool_executor, auto_approve_requests, false)
+  end
+
   def maybe_handle_approval_request(
         port,
         "item/commandExecution/requestApproval",
@@ -24,7 +39,8 @@ defmodule Aiur.Codex.Approvals do
         on_message,
         metadata,
         _tool_executor,
-        auto_approve_requests
+        auto_approve_requests,
+        false
       ) do
     approve_or_require(port, id, "acceptForSession", payload, payload_string, on_message, metadata, auto_approve_requests)
   end
@@ -37,7 +53,8 @@ defmodule Aiur.Codex.Approvals do
         on_message,
         metadata,
         tool_executor,
-        _auto_approve_requests
+        _auto_approve_requests,
+        false
       ) do
     tool_name = Messages.tool_call_name(params)
     arguments = Messages.tool_call_arguments(params)
@@ -66,7 +83,8 @@ defmodule Aiur.Codex.Approvals do
         on_message,
         metadata,
         _tool_executor,
-        auto_approve_requests
+        auto_approve_requests,
+        false
       ) do
     approve_or_require(port, id, "approved_for_session", payload, payload_string, on_message, metadata, auto_approve_requests)
   end
@@ -79,7 +97,8 @@ defmodule Aiur.Codex.Approvals do
         on_message,
         metadata,
         _tool_executor,
-        auto_approve_requests
+        auto_approve_requests,
+        false
       ) do
     approve_or_require(port, id, "approved_for_session", payload, payload_string, on_message, metadata, auto_approve_requests)
   end
@@ -92,7 +111,8 @@ defmodule Aiur.Codex.Approvals do
         on_message,
         metadata,
         _tool_executor,
-        auto_approve_requests
+        auto_approve_requests,
+        false
       ) do
     approve_or_require(port, id, "acceptForSession", payload, payload_string, on_message, metadata, auto_approve_requests)
   end
@@ -105,7 +125,8 @@ defmodule Aiur.Codex.Approvals do
         on_message,
         metadata,
         _tool_executor,
-        auto_approve_requests
+        auto_approve_requests,
+        false
       ) do
     maybe_auto_answer_tool_request_user_input(
       port,
@@ -127,9 +148,25 @@ defmodule Aiur.Codex.Approvals do
         _on_message,
         _metadata,
         _tool_executor,
-        _auto_approve_requests
+        _auto_approve_requests,
+        false
       ) do
     :unhandled
+  end
+
+  @spec maybe_handle_approval_request(
+          port(),
+          String.t(),
+          map(),
+          String.t(),
+          (map() -> term()),
+          map(),
+          (term(), term() -> term()),
+          boolean()
+        ) :: :approved | :approval_required | :input_required | :unhandled
+  def maybe_handle_approval_request(port, method, payload, payload_string, on_message, metadata, tool_executor, auto_approve_requests) do
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    maybe_handle_approval_request(port, method, payload, payload_string, on_message, metadata, tool_executor, auto_approve_requests, false)
   end
 
   defp approve_or_require(port, id, decision, payload, payload_string, on_message, metadata, true) do
@@ -189,5 +226,17 @@ defmodule Aiur.Codex.Approvals do
       :error ->
         :input_required
     end
+  end
+
+  defp deny_for_pause(port, "item/tool/call", id, payload, payload_string, on_message, metadata) do
+    Rpc.send_message(port, %{"id" => id, "result" => %{"success" => false, "output" => "Agent pause is in progress; tool execution is unavailable."}})
+    Messages.emit_message(on_message, :tool_call_failed, %{payload: payload, raw: payload_string}, metadata)
+    :approved
+  end
+
+  defp deny_for_pause(port, _method, id, payload, payload_string, on_message, metadata) do
+    Rpc.send_message(port, %{"id" => id, "result" => %{"decision" => "declined"}})
+    Messages.emit_message(on_message, :approval_required, %{payload: payload, raw: payload_string}, metadata)
+    :approved
   end
 end

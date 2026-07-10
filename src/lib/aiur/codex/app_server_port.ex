@@ -72,10 +72,9 @@ defmodule Aiur.Codex.AppServerPort do
           %{}
       end
 
-    case worker_host do
-      host when is_binary(host) -> Map.put(metadata, :worker_host, host)
-      _ -> metadata
-    end
+    metadata
+    |> maybe_put_local_process_group(worker_host)
+    |> maybe_put_worker_host(worker_host)
   end
 
   @spec stop_port(port()) :: :ok
@@ -86,7 +85,7 @@ defmodule Aiur.Codex.AppServerPort do
 
       _ ->
         # Reap the descendant tree (node -> rust app-server) BEFORE closing the
-        # port. `Port.close` only kills the bash wrapper; its children would
+        # port. `Port.close` only kills the shell wrapper; its children would
         # reparent to init and keep holding the global ~/.codex/state_5.sqlite
         # lock, poisoning every subsequent codex agent. Collecting descendants
         # must happen while the wrapper is still alive to anchor the pgrep walk.
@@ -140,5 +139,65 @@ defmodule Aiur.Codex.AppServerPort do
 
   defp append_config(command, key, value) when is_binary(value) do
     command <> " --config " <> Aiur.Shell.escape(~s(#{key}="#{value}"))
+  end
+
+  # The BEAM spawns the local port as its own session/process-group leader, so
+  # the port PID is safe to record only when `ps` confirms it is still that
+  # leader (os_pid == pgid). A failed or mismatched inspection deliberately
+  # produces no containment metadata; callers must never fall back to a cwd- or
+  # host-wide kill.
+  defp maybe_put_local_process_group(metadata, nil) do
+    case metadata[:codex_app_server_pid] do
+      pid when is_binary(pid) ->
+        case process_group_id(pid) do
+          ^pid -> Map.put(metadata, :agent_process_group_id, pid)
+          _ -> metadata
+        end
+
+      _ ->
+        metadata
+    end
+  end
+
+  defp maybe_put_local_process_group(metadata, _worker_host), do: metadata
+
+  defp maybe_put_worker_host(metadata, host) when is_binary(host), do: Map.put(metadata, :worker_host, host)
+  defp maybe_put_worker_host(metadata, _worker_host), do: metadata
+
+  defp process_group_id(pid) do
+    case System.find_executable("ps") do
+      nil -> nil
+      ps -> await_process_group_leader(ps, pid, 20)
+    end
+  end
+
+  # The port is its own group leader from spawn, so `ps` normally returns the
+  # matching pgid on the first read. Retry briefly only to ride out a transient
+  # `ps` read rather than disabling containment for the whole session.
+  defp await_process_group_leader(ps, pid, attempts) do
+    process_group_id =
+      case System.cmd(ps, ["-o", "pgid=", "-p", pid], stderr_to_stdout: true) do
+        {out, 0} -> out |> String.trim() |> positive_pid_string()
+        _ -> nil
+      end
+
+    cond do
+      process_group_id == pid ->
+        pid
+
+      attempts <= 1 ->
+        process_group_id
+
+      true ->
+        Process.sleep(10)
+        await_process_group_leader(ps, pid, attempts - 1)
+    end
+  end
+
+  defp positive_pid_string(value) do
+    case Integer.parse(value) do
+      {pid, ""} when pid > 0 -> Integer.to_string(pid)
+      _ -> nil
+    end
   end
 end
