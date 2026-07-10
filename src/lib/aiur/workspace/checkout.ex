@@ -1,11 +1,13 @@
 defmodule Aiur.Workspace.Checkout do
   @moduledoc "Git branch selection for a freshly materialized workspace: live-origin-tip aiur/<id> vs PR-anchored head ref, plus the shared branch query."
 
+  alias Aiur.RepoBase
+
   @spec checkout_fresh_branch(Path.t()) :: :ok | {:error, term()}
   # Branch the agent's `aiur/<id>` off the LIVE `origin/<base>` tip rather than the
   # warm base's copied HEAD. The warm base only refetches on a timer/dispatch gate
   # (#567), so without this a materialized workspace can silently start from stale
-  # main. Fetch the base's own tracking branch and branch off its origin tip; if
+  # configured base branch. Fetch that branch and branch off its origin tip; if
   # there's no usable remote (tests, offline, detached HEAD), fall back to the
   # copied HEAD — today's behavior — so materialize still succeeds.
   def checkout_fresh_branch(workspace),
@@ -87,9 +89,9 @@ defmodule Aiur.Workspace.Checkout do
     end
   end
 
-  # `["origin/<base>"]` when the base's tracking branch could be refetched, else `[]`.
+  # `["origin/<base>"]` when the configured base branch could be refetched, else `[]`.
   defp fresh_base_start_point(workspace) do
-    with base when is_binary(base) <- current_branch(workspace),
+    with base when is_binary(base) <- RepoBase.base_branch(),
          {_out, 0} <-
            System.cmd("git", ["-C", workspace, "fetch", "origin", base, "--quiet"],
              stderr_to_stdout: true

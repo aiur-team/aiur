@@ -1250,8 +1250,30 @@ defmodule Aiur.Orchestrator do
 
     Logger.info("#{source} reactivating: issue_id=#{issue_id} issue_identifier=#{issue_number}")
 
-    {_reply, next_state} = reactivate_issue(state, refreshed_entry)
-    next_state
+    case reactivate_issue(state, refreshed_entry) do
+      {{:ok, :reactivated}, next_state} ->
+        next_state
+
+      {{:error, reason}, next_state} ->
+        emit_comment_reactivation_deferred_alert(refreshed_entry, source, reason)
+        next_state
+    end
+  end
+
+  defp emit_comment_reactivation_deferred_alert(running_entry, source, reason) do
+    identifier = Map.get(running_entry, :identifier)
+    issue_id = get_in(running_entry, [:issue, Access.key(:id)])
+
+    Logger.warning("#{source} reactivation deferred: issue_id=#{issue_id} issue_identifier=#{identifier} reason=#{inspect(reason)}")
+
+    Alerts.emit_system("ticket.#{identifier}.agent.review_feedback_delivery_deferred",
+      issue: identifier,
+      workspace: Map.get(running_entry, :workspace_path),
+      worker_host: Map.get(running_entry, :worker_host),
+      reason: "Trusted review feedback moved the ticket to rework, but the agent could not resume: #{inspect(reason)}.",
+      needs_attention: true,
+      severity: "warning"
+    )
   end
 
   defp comment_reactivation_context(running_entry, issue_number) do
@@ -5257,7 +5279,20 @@ defmodule Aiur.Orchestrator do
     # budget so the fresh task starts with a full window.
     state = reset_thrash_budget(state, issue_id)
 
-    {{:ok, :reactivated}, do_dispatch_issue(state, issue, nil, worker_host)}
+    dispatched_state = do_dispatch_issue(state, issue, nil, worker_host)
+
+    case Map.get(dispatched_state.running, issue_id) do
+      %{pid: pid} when is_pid(pid) ->
+        {{:ok, :reactivated}, dispatched_state}
+
+      _ ->
+        # `select_worker_host/2`, the thrash breaker, or Task.Supervisor can
+        # decline a dispatch after the entry is optimistically made `:working`.
+        # Restore the parked entry so the tracker still shows it as needing a
+        # wake and the comment path can emit its durable operator alert.
+        restored_state = %{dispatched_state | running: Map.put(dispatched_state.running, issue_id, running_entry)}
+        {{:error, :dispatch_not_started}, refresh_tracked_set(restored_state)}
+    end
   end
 
   # `operator?` distinguishes a deliberate operator resume (label flip,

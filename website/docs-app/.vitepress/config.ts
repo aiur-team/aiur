@@ -12,6 +12,14 @@ export default defineConfig({
       {
         text: 'Introduction',
         items: [{ text: 'Overview', link: '/' }]
+      },
+      {
+        text: 'Concepts',
+        items: [
+          { text: 'What Aiur is', link: '/concepts/what-is-aiur' },
+          { text: 'How a ticket flows', link: '/concepts/ticket-lifecycle' },
+          { text: 'Operating Aiur', link: '/concepts/operating-aiur' }
+        ]
       }
     ],
     socialLinks: [
