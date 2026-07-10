@@ -50,6 +50,7 @@ defmodule Aiur.ApplicationTest do
       Aiur.Orchestrator.TrackedSet,
       Aiur.Orchestrator,
       Aiur.ProcessReaper,
+      Aiur.PauseContainment,
       Aiur.AgentResourceGuard,
       Aiur.GitHub.CodeOwners,
       Aiur.Opencode.SessionSupervisor,
@@ -93,7 +94,7 @@ defmodule Aiur.ApplicationTest do
       refute Aiur.PaneManager in mods
     end
 
-    test "ProcessReaper starts before Task.Supervisor in both shapes" do
+    test "ProcessReaper and PauseContainment start before Task.Supervisor in both shapes" do
       # Load-bearing ordering: children stop in reverse, so the reaper must
       # outlive the runner tasks/ports it sweeps in its terminate/2 backstop.
       # The headless gating must not disturb this.
@@ -103,8 +104,10 @@ defmodule Aiur.ApplicationTest do
           ] do
         mods = modules(AiurApp.child_specs(opts))
         reaper = Enum.find_index(mods, &(&1 == Aiur.ProcessReaper))
+        containment = Enum.find_index(mods, &(&1 == Aiur.PauseContainment))
         task_sup = Enum.find_index(mods, &(&1 == Task.Supervisor))
         assert reaper < task_sup, "ProcessReaper must precede Task.Supervisor for #{inspect(opts)}"
+        assert containment < task_sup, "PauseContainment must precede Task.Supervisor for #{inspect(opts)}"
       end
     end
 

@@ -32,7 +32,6 @@ defmodule Aiur.MixProject do
           Aiur.PromptBuilder,
           Aiur.SpecsCheck,
           Aiur.Orchestrator,
-          Aiur.Orchestrator.State,
           Aiur.AgentRunner,
           Aiur.CLI,
           Aiur.CodingAgent,

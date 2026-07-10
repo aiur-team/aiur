@@ -118,6 +118,12 @@ defmodule Aiur.AgentEnvironmentTest do
 
       assert {~c"AIUR_AGENT_WORKSPACE", ~c"/work/aiur/440"} =
                List.keyfind(env, ~c"AIUR_AGENT_WORKSPACE", 0)
+
+      assert {~c"BASH_ENV", hook_path} = List.keyfind(env, ~c"BASH_ENV", 0)
+      assert File.regular?(to_string(hook_path))
+
+      assert {~c"AIUR_BUILD_GATE_SLOTS", ~c"2"} =
+               List.keyfind(env, ~c"AIUR_BUILD_GATE_SLOTS", 0)
     end
 
     test "unsets inherited parent log env while preserving agent workspace env" do

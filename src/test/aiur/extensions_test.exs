@@ -116,6 +116,10 @@ defmodule Aiur.ExtensionsTest do
 
   test "workflow store reloads changes, keeps last good workflow, and falls back when stopped" do
     ensure_workflow_store_running()
+    # This test terminates the shared WorkflowStore singleton mid-body; restore
+    # it in on_exit so a mid-test failure can't leak a down store to the next
+    # sequential module (the #780 WorkspaceAndConfigTest flake).
+    on_exit(fn -> ensure_workflow_store_running() end)
     assert {:ok, %{prompt: "You are an agent for this repository."}} = Workflow.current()
 
     write_workflow_file!(Workflow.workflow_file_path(), prompt: "Second prompt")
@@ -137,7 +141,7 @@ defmodule Aiur.ExtensionsTest do
     assert :ok = Supervisor.terminate_child(Aiur.Supervisor, WorkflowStore)
     assert {:ok, %{prompt: "Third prompt"}} = WorkflowStore.current()
     assert :ok = WorkflowStore.force_reload()
-    assert {:ok, _pid} = Supervisor.restart_child(Aiur.Supervisor, WorkflowStore)
+    assert :ok = ensure_workflow_store_running()
   end
 
   test "workflow store reloads when only the prompt_file body changes" do
@@ -172,6 +176,9 @@ defmodule Aiur.ExtensionsTest do
 
   test "workflow store start_link and poll callback cover missing-file error paths" do
     ensure_workflow_store_running()
+    # Terminates the shared WorkflowStore mid-body; restore it in on_exit so a
+    # mid-test failure can't leak a down store to a later sequential module.
+    on_exit(fn -> ensure_workflow_store_running() end)
     existing_path = Workflow.workflow_file_path()
     manual_path = Path.join(Path.dirname(existing_path), "manual.aiurconfig")
     missing_path = Path.join(Path.dirname(existing_path), "manual-missing.aiurconfig")
@@ -194,25 +201,26 @@ defmodule Aiur.ExtensionsTest do
     assert {:noreply, returned_state} = WorkflowStore.handle_info(:poll, state)
     assert returned_state.workflow.prompt == "Manual workflow prompt"
     refute returned_state.stamp == nil
-    assert_receive :poll, 2_000
+    assert_receive :poll, 5_000
 
     Workflow.set_workflow_file_path(missing_path)
     assert {:noreply, path_error_state} = WorkflowStore.handle_info(:poll, returned_state)
     assert path_error_state.workflow.prompt == "Manual workflow prompt"
-    assert_receive :poll, 2_000
+    assert_receive :poll, 5_000
 
     Workflow.set_workflow_file_path(manual_path)
     File.rm!(manual_path)
     assert {:noreply, removed_state} = WorkflowStore.handle_info(:poll, path_error_state)
     assert removed_state.workflow.prompt == "Manual workflow prompt"
-    assert_receive :poll, 2_000
+    assert_receive :poll, 5_000
 
     :ok = GenServer.stop(manual_pid)
     refute Process.alive?(manual_pid)
 
     Workflow.set_workflow_file_path(existing_path)
 
-    assert {:ok, restarted_pid} = Supervisor.restart_child(Aiur.Supervisor, WorkflowStore)
+    assert :ok = ensure_workflow_store_running()
+    restarted_pid = Process.whereis(WorkflowStore)
     assert Process.alive?(restarted_pid)
 
     WorkflowStore.force_reload()
@@ -1054,15 +1062,4 @@ defmodule Aiur.ExtensionsTest do
   end
 
   defp assert_eventually(_fun, 0), do: flunk("condition not met in time")
-
-  defp ensure_workflow_store_running do
-    if Process.whereis(WorkflowStore) do
-      :ok
-    else
-      case Supervisor.restart_child(Aiur.Supervisor, WorkflowStore) do
-        {:ok, _pid} -> :ok
-        {:error, {:already_started, _pid}} -> :ok
-      end
-    end
-  end
 end

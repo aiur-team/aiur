@@ -10,12 +10,21 @@ defmodule Aiur.IssueLogEventHistoryTest do
   use ExUnit.Case, async: false
 
   setup do
+    original_log_file = Application.get_env(:aiur, :log_file)
     identifier = "test-event-history-#{System.unique_integer([:positive])}"
     tmp = Path.join(System.tmp_dir!(), "aiur-event-history-#{System.unique_integer([:positive])}")
     File.mkdir_p!(Path.join(tmp, "log"))
 
     Application.put_env(:aiur, :log_file, Path.join(tmp, "log/aiur.log"))
-    on_exit(fn -> File.rm_rf!(tmp) end)
+
+    on_exit(fn ->
+      case original_log_file do
+        nil -> Application.delete_env(:aiur, :log_file)
+        value -> Application.put_env(:aiur, :log_file, value)
+      end
+
+      File.rm_rf!(tmp)
+    end)
 
     %{identifier: identifier, tmp: tmp}
   end
