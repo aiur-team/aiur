@@ -7,6 +7,7 @@ defmodule Aiur.Events.LsRemoteTickerTest do
 
   use ExUnit.Case, async: false
 
+  alias Aiur.AgentRunner.EventsDigest
   alias Aiur.Events.LsRemoteTicker
 
   setup do
@@ -124,7 +125,7 @@ defmodule Aiur.Events.LsRemoteTickerTest do
     assert_receive {:published, "ticket.101.branch.push", _, _}, 2_000
   end
 
-  test "non-canonical aiur/<id>-<slug> branches do NOT route to ticket.<id>.branch.push",
+  test "readable aiur/<id>-<slug> branches route to ticket.<id>.branch.push",
        %{publisher: publisher} do
     parent = self()
 
@@ -147,17 +148,10 @@ defmodule Aiur.Events.LsRemoteTickerTest do
     tick(pid)
     assert_receive :polled, 500
 
-    # The branch-name lock in the using-aiur skill's dev-loop.md keeps
-    # agents on canonical aiur/<id>. If they invent a workaround
-    # branch (aiur/99-pr, aiur/99-test-fixture, aiur/99/sub) the
-    # regex must NOT route those to ticket.99 — a dev push to a
-    # fixture branch would otherwise falsely wake blockees waiting
-    # on the real ticket's work.
     Agent.update(agent, fn _ ->
       {:ok,
        %{
-         "refs/heads/aiur/99-pr" => "sha-pr",
-         "refs/heads/aiur/99-test-fixture" => "sha-fixture",
+         "refs/heads/aiur/99-add-new-test-cases" => "sha-pr",
          "refs/heads/aiur/99/sub" => "sha-sub",
          "refs/heads/aiur/99_v2" => "sha-v2"
        }}
@@ -166,7 +160,15 @@ defmodule Aiur.Events.LsRemoteTickerTest do
     tick(pid)
     assert_receive :polled, 500
 
-    refute_receive {:published, "ticket.99.branch.push", _, _}, 200
+    assert_receive {:published, "ticket.99.branch.push", payload, _}, 200
+    assert payload.ref == "refs/heads/aiur/99-add-new-test-cases"
+
+    # Use the unmodified structured payload emitted by LsRemoteTicker. It has
+    # no synthetic `message`, so this proves a blocked agent receives the
+    # exact readable ref it must fetch after ticket.99.branch.push.
+    assert EventsDigest.render([Map.merge(payload, %{id: 99, topic: "ticket.99.branch.push"})], "99") =~
+             "refs/heads/aiur/99-add-new-test-cases"
+
     refute_receive {:published, "ticket." <> _, _, _}, 100
   end
 

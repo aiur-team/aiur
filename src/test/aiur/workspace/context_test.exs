@@ -4,18 +4,30 @@ defmodule Aiur.Workspace.ContextTest do
   alias Aiur.Workspace.Context
 
   test "build prefixes PR anchored issue identifiers and preserves head ref" do
-    context = Context.build(%{id: "issue-pr-77", identifier: "77", pr_head_ref: "feature/login"})
+    context =
+      Context.build(%{
+        id: "issue-pr-77",
+        identifier: "77",
+        title: "Ignored title",
+        pr_head_ref: "feature/login"
+      })
 
     assert context.issue_id == "issue-pr-77"
     assert context.issue_identifier == "pr-77"
     assert context.pr_head_ref == "feature/login"
+    assert context.branch_name == "feature/login"
   end
 
-  test "build leaves non PR anchored issue identifiers unprefixed" do
-    assert %{issue_identifier: "77", pr_head_ref: nil} =
-             Context.build(%{id: "issue-77", identifier: "77", pr_head_ref: ""})
+  test "build gives new tracker issues a readable branch" do
+    assert %{issue_identifier: "77", pr_head_ref: nil, branch_name: "aiur/77-add-new-test-cases"} =
+             Context.build(%{
+               id: "issue-77",
+               identifier: "77",
+               title: "Add New Test Cases for Hooks",
+               pr_head_ref: ""
+             })
 
-    assert %{issue_identifier: "78", pr_head_ref: nil} =
+    assert %{issue_identifier: "78", pr_head_ref: nil, branch_name: "aiur/78"} =
              Context.build(%{id: "issue-78", identifier: "78"})
   end
 
@@ -25,7 +37,8 @@ defmodule Aiur.Workspace.ContextTest do
              issue_identifier: "ABC-1",
              issue_state: nil,
              issue_labels: [],
-             pr_head_ref: nil
+             pr_head_ref: nil,
+             branch_name: "aiur/ABC-1"
            }
   end
 

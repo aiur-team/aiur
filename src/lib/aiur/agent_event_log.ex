@@ -1,14 +1,14 @@
 defmodule Aiur.AgentEventLog do
   @moduledoc """
-  Writes every agent event to both per-workspace sinks: `agent.md` and
-  `agent.ndjson`.
+  Writes every agent event to the per-workspace structured event stream and
+  materializes the compatibility markdown projection from the same record.
 
-  - `agent.md` — human-readable, chat-style markdown transcript rendered by the
-    web dashboard log modal (`Aiur.AgentLog`).
   - `agent.ndjson` — the structured, one-event-per-line JSON stream.
     `Aiur.AlertFeed` reads its `alert` lines to build the cross-workspace
     attentions feed, and crash reasons such as `{:port_exit, N}` must persist
     here for post-mortem (#708).
+  - `agent.md` — human-readable markdown projection kept for direct workspace
+    inspection and the Codex resume/debug contract.
 
   Do not filter what reaches `agent.ndjson` by event type. It is the only
   structured per-event record, so dropping "transcript" events to save a write
@@ -25,10 +25,12 @@ defmodule Aiur.AgentEventLog do
     log_dir = Path.join(workspace, "logs")
     ndjson_path = Path.join(log_dir, "agent.ndjson")
     markdown_path = Path.join(log_dir, "agent.md")
+    record = json_safe(message)
+    encoded_record = Jason.encode!(record)
 
     with :ok <- File.mkdir_p(log_dir),
-         :ok <- File.write(ndjson_path, Jason.encode!(json_safe(message)) <> "\n", [:append]),
-         :ok <- File.write(markdown_path, markdown_entry(message), [:append]) do
+         :ok <- File.write(ndjson_path, encoded_record <> "\n", [:append]),
+         :ok <- File.write(markdown_path, markdown_entry(record, encoded_record), [:append]) do
       :ok
     else
       {:error, reason} ->
@@ -43,14 +45,14 @@ defmodule Aiur.AgentEventLog do
 
   def write(_workspace, _worker_host, _message), do: :ok
 
-  defp markdown_entry(message) do
+  defp markdown_entry(record, encoded_record) do
     timestamp =
-      message
-      |> Map.get(:timestamp, DateTime.utc_now())
+      record
+      |> Map.get("timestamp", DateTime.utc_now())
       |> format_timestamp()
 
-    event = Map.get(message, :event) || Map.get(message, "event") || "event"
-    summary = event_summary(message)
+    event = Map.get(record, "event") || "event"
+    summary = event_summary(record, encoded_record)
 
     """
     ## #{timestamp} #{event}
@@ -60,13 +62,11 @@ defmodule Aiur.AgentEventLog do
     """
   end
 
-  defp event_summary(message) do
+  defp event_summary(record, encoded_record) do
     cond do
-      is_binary(message[:last_message]) -> message[:last_message]
-      is_binary(message["last_message"]) -> message["last_message"]
-      is_binary(message[:raw]) -> code_block(message[:raw])
-      is_binary(message["raw"]) -> code_block(message["raw"])
-      true -> code_block(inspect(Map.drop(message, [:timestamp])))
+      is_binary(record["last_message"]) -> record["last_message"]
+      is_binary(record["raw"]) -> code_block(record["raw"])
+      true -> code_block(encoded_record)
     end
   end
 

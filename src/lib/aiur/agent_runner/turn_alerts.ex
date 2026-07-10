@@ -9,15 +9,22 @@ defmodule Aiur.AgentRunner.TurnAlerts do
   alias Aiur.{Alerts, Issue}
 
   @spec maybe_emit_usage_limit_alert(Issue.t(), Path.t() | nil, String.t() | nil, map()) :: :ok
-  def maybe_emit_usage_limit_alert(issue, workspace, worker_host, %{kind: :usage_limit_exhausted} = pause_payload) do
+  def maybe_emit_usage_limit_alert(
+        issue,
+        workspace,
+        worker_host,
+        %{kind: :usage_limit_exhausted} = pause_payload
+      ) do
     reset_hint = pause_payload[:reset_hint]
-    backend = pause_payload[:reason]
+    backend = Aiur.ModelAvailability.backend_key(pause_payload[:backend])
+
+    Aiur.ModelAvailability.mark_limited(backend, reset_hint)
 
     reset_suffix = if is_binary(reset_hint), do: " (try again at #{reset_hint})", else: ""
-    backend_suffix = if is_binary(backend), do: " Backend detail: #{backend}.", else: ""
+    backend_suffix = " Backend detail: #{backend}."
 
     reason =
-      "Agent paused: the codex account usage quota is exhausted; retrying cannot help " <>
+      "Agent paused: the #{backend} account usage quota is exhausted; retrying cannot help " <>
         "until it resets#{reset_suffix}. Resume the agent after the quota resets.#{backend_suffix}"
 
     Alerts.emit_system(

@@ -5,7 +5,6 @@ defmodule Aiur.Orchestrator do
 
   use GenServer
   require Logger
-  import Bitwise, only: [<<<: 2]
 
   alias Aiur.{
     AgentEvents,
@@ -14,10 +13,10 @@ defmodule Aiur.Orchestrator do
     AgentQueueItem,
     AgentQueueStore,
     Alerts,
+    CIApprovalStore,
     CodingAgent,
     Config,
     Issue,
-    PauseContainment,
     RepoBase,
     SessionHandle,
     Tracker,
@@ -28,10 +27,7 @@ defmodule Aiur.Orchestrator do
 
   alias Aiur.Events.{
     Exchange,
-    GithubCommentsPoller,
-    GithubFirehose,
-    GithubKeys,
-    PrCommandScanner,
+    GithubCIPoller,
     Publisher,
     Sanitizer,
     SubscriptionStore,
@@ -42,30 +38,32 @@ defmodule Aiur.Orchestrator do
   alias Aiur.GitHub.Connectivity, as: GitHubConnectivity
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Opencode.ActiveTurns
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, EventTopics, Reconciler, RetryEngine, Slots, State, TrackedSet}
+
+  alias Aiur.Orchestrator.{
+    CommandScan,
+    CommentPolling,
+    CommentWake,
+    Dispatcher,
+    DispatchPolicy,
+    EventTopics,
+    PrAnchored,
+    PushRouting,
+    Reconciler,
+    RetryEngine,
+    Slots,
+    State,
+    TrackedSet
+  }
+
   alias AiurWeb.ObservabilityPubSub
 
-  @comment_rework_retry_delay_ms 2_000
-  @comment_rework_max_attempts 5
   # Slightly above the dashboard render interval so the `0s` in-progress
   # label can render before the poll finishes.
   @poll_transition_render_delay_ms 20
+  @ci_failure_excerpt_message_max 1_200
+  @ci_wait_state "ci-wait"
   @human_review_state "human-review"
-  @merging_state "merging"
-  # Non-active review states whose idle tickets the comment listener still polls
-  # so a trusted reviewer comment promotes them to `rework`, independent of the
-  # configured `active_states`. `human-review` is the primary review stage;
-  # `merging` covers a last-minute "actually, change this" before the merge lands
-  # (and keeps coverage in configs where `merging` is not an active state).
-  @comment_poll_review_states [@human_review_state, @merging_state]
-  # Sentinel state for synthetic PR-anchored work units (watched/commanded human
-  # PRs). Deliberately NOT a tracker active/terminal state: a PR-anchored unit is
-  # dispatched directly (slot-capped) and never flows through reconcile/label
-  # transitions that key on configured states.
-  @pr_anchored_state "pr-watch"
-  @human_review_comment_targets_per_poll 25
-  @watch_comment_targets_per_poll 25
-  @command_scan_pull_requests_per_poll 25
+  @ci_poll_states [@ci_wait_state, @human_review_state]
   @transient_github_graphql_error_types ~w(
     INTERNAL
     INTERNAL_SERVER_ERROR
@@ -96,6 +94,7 @@ defmodule Aiur.Orchestrator do
 
     now_ms = System.monotonic_time(:millisecond)
     config = Config.settings!()
+    ci_persistence = CIApprovalStore.load()
 
     state = %State{
       poll_interval_ms: config.polling.interval_seconds * 1_000,
@@ -111,6 +110,7 @@ defmodule Aiur.Orchestrator do
       tick_timer_ref: nil,
       tick_token: nil,
       initial_dispatch_cycle: true,
+      ci_lifecycle: ci_persistence,
       agent_totals: @empty_agent_totals,
       agent_rate_limits: nil
     }
@@ -178,6 +178,7 @@ defmodule Aiur.Orchestrator do
       Exchange.subscribe("ticket.*.pr.review_comment")
       Exchange.subscribe("ticket.*.issue.commented")
       Exchange.subscribe("ticket.*.pr.merged")
+      Exchange.subscribe("ticket.*.ci.failed")
       Exchange.subscribe("ticket.*.agent.pause.request")
       Exchange.subscribe("ticket.*.branch.push")
       Exchange.subscribe("system.*.branch.push")
@@ -323,27 +324,6 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  def handle_info({:pause_containment_runtime, issue_id, info}, %{running: running} = state)
-      when is_binary(issue_id) and is_map(info) do
-    case Map.get(running, issue_id) do
-      running_entry when is_map(running_entry) ->
-        updated =
-          running_entry
-          |> maybe_put_runtime_value(:pause_containment_generation, info[:generation])
-          |> maybe_put_runtime_value(:agent_process_group_id, info[:process_group_id])
-
-        {:noreply, %{state | running: Map.put(running, issue_id, updated)}}
-
-      _ ->
-        {:noreply, state}
-    end
-  end
-
-  def handle_info({:pause_containment_result, identifier, generation, result}, state)
-      when is_binary(identifier) and is_integer(generation) do
-    {:noreply, apply_pause_containment_result(state, identifier, generation, result)}
-  end
-
   def handle_info(
         {:codex_worker_update, issue_id, %{event: _, timestamp: _} = update},
         %{running: running} = state
@@ -437,6 +417,9 @@ defmodule Aiur.Orchestrator do
       {:pr_merged, identifier} ->
         {:noreply, mark_pr_merged_issue_done(state, identifier)}
 
+      {:ci_failed, identifier} ->
+        {:noreply, maybe_resume_for_ci_failure(state, identifier)}
+
       {:pause_request, identifier} ->
         {:noreply, maybe_pause_on_request(state, identifier)}
 
@@ -462,470 +445,108 @@ defmodule Aiur.Orchestrator do
         {:noreply, state}
 
       issue_id ->
-        case Map.get(running, issue_id) do
-          %{pause_contained: true} = entry ->
-            contained = entry |> Map.put(:pid, nil) |> Map.put(:ref, nil)
-            state = %{state | running: Map.put(running, issue_id, contained), retry_attempts: Map.delete(state.retry_attempts, issue_id)}
-            notify_dashboard(state)
-            {:noreply, state}
+        {running_entry, state} = pop_running_entry(state, issue_id)
+        state = record_session_completion_totals(state, running_entry)
+        session_id = running_entry_session_id(running_entry)
 
-          _ ->
-            handle_completed_agent(state, issue_id, reason)
-        end
+        state =
+          case reason do
+            :normal ->
+              Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
+
+              state
+              |> complete_issue(issue_id)
+              |> schedule_issue_retry(issue_id, 1, %{
+                identifier: running_entry.identifier,
+                delay_type: :continuation,
+                worker_host: Map.get(running_entry, :worker_host),
+                workspace_path: Map.get(running_entry, :workspace_path)
+              })
+
+            _ ->
+              Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
+
+              next_attempt = next_retry_attempt_from_running(running_entry)
+
+              schedule_issue_retry(state, issue_id, next_attempt, %{
+                identifier: running_entry.identifier,
+                error: "agent exited: #{inspect(reason)}",
+                worker_host: Map.get(running_entry, :worker_host),
+                workspace_path: Map.get(running_entry, :workspace_path)
+              })
+          end
+
+        Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
+
+        notify_dashboard(state)
+        {:noreply, state}
     end
   end
-
-  defp handle_completed_agent(state, issue_id, reason) do
-    {running_entry, state} = pop_running_entry(state, issue_id)
-    state = record_session_completion_totals(state, running_entry)
-    session_id = running_entry_session_id(running_entry)
-
-    state =
-      case reason do
-        :normal ->
-          Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
-
-          state
-          |> complete_issue(issue_id)
-          |> schedule_issue_retry(issue_id, 1, %{
-            identifier: running_entry.identifier,
-            delay_type: :continuation,
-            worker_host: Map.get(running_entry, :worker_host),
-            workspace_path: Map.get(running_entry, :workspace_path)
-          })
-
-        _ ->
-          Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
-
-          next_attempt = next_retry_attempt_from_running(running_entry)
-
-          schedule_issue_retry(state, issue_id, next_attempt, %{
-            identifier: running_entry.identifier,
-            error: "agent exited: #{inspect(reason)}",
-            worker_host: Map.get(running_entry, :worker_host),
-            workspace_path: Map.get(running_entry, :workspace_path)
-          })
-      end
-
-    Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
-
-    notify_dashboard(state)
-    {:noreply, state}
-  end
-
-  defp apply_pause_containment_result(state, identifier, generation, :contained) do
-    case find_running_by_identifier(state.running, identifier) do
-      %{pause_containment_generation: ^generation, pid: pid} = entry ->
-        issue_id = get_in(entry, [:issue, Access.key(:id)])
-        updated = Map.put(entry, :pause_contained, true)
-        state = %{state | running: Map.put(state.running, issue_id, updated)}
-        if is_pid(pid), do: terminate_task(pid)
-        state
-
-      _ ->
-        state
-    end
-  end
-
-  defp apply_pause_containment_result(state, _identifier, _generation, _result), do: state
 
   defp parse_pr_review_comment_topic(topic), do: EventTopics.parse_pr_review_comment_topic(topic)
   defp parse_issue_commented_topic(topic), do: EventTopics.parse_issue_commented_topic(topic)
+  defp parse_ci_failed_topic(topic), do: EventTopics.parse_ci_failed_topic(topic)
   defp parse_pause_request_topic(topic), do: EventTopics.parse_pause_request_topic(topic)
   defp parse_branch_push_topic(topic), do: EventTopics.parse_branch_push_topic(topic)
   defp parse_system_branch_push_topic(topic), do: EventTopics.parse_system_branch_push_topic(topic)
   defp classify_event_topic(topic), do: EventTopics.classify_event_topic(topic)
 
   defp maybe_reactivate_on_comment(%State{} = state, issue_number, source, event, attempt \\ 1) do
-    case find_running_by_identifier(state.running, issue_number) do
-      # An already-running entry (PR-anchored or legacy) resumes its SAME
-      # session — a follow-up comment on a PR-anchored agent's PR resolves here
-      # (identifier == to_string(pr#)) and never re-dispatches.
-      running_entry when is_map(running_entry) ->
-        reactivate_if_deactivated(state, running_entry, issue_number, source, event)
-
-      _ ->
-        maybe_route_pr_anchored_or_legacy(state, issue_number, source, event, attempt)
-    end
+    CommentWake.maybe_reactivate_on_comment(state, issue_number, source, event, attempt)
   end
 
-  # Routing fork for a comment with no running entry. Before the legacy
-  # `agent:rework` transition, intercept a watched/commanded HUMAN PR and route
-  # it PR-anchored instead — but ONLY when `pr_watch` is enabled. When disabled,
-  # behave exactly as before: no `/pulls/N` fetch, legacy path byte-for-byte.
-  #
-  # Safety by construction: `issue_number` is the comment topic key. A legacy
-  # ticket's key is a tracker issue number → `GET /pulls/N` 404s → `{:ok, nil}`
-  # → legacy. A watched human PR → `{:ok, pr}` with a non-`aiur/<N>` head →
-  # PR-anchored. An `aiur/<N>`-headed PR (a legacy aiur PR) → legacy. The
-  # PR-anchored path NEVER touches an `agent:` label or opens a new `aiur/<N>` PR.
-  defp maybe_route_pr_anchored_or_legacy(%State{} = state, issue_number, source, event, attempt) do
-    if pr_anchored_routing_enabled?() and trusted_comment_event?(event) and
-         not benign_review_pass_comment?(event) do
-      case resolve_pr_anchored_unit(issue_number, event) do
-        {:ok, %Issue{} = pr_issue} ->
-          dispatch_pr_anchored_unit(state, pr_issue, source, event)
-
-        :legacy ->
-          maybe_transition_idle_issue_to_rework(state, issue_number, source, event, attempt)
-      end
-    else
-      maybe_transition_idle_issue_to_rework(state, issue_number, source, event, attempt)
-    end
-  end
-
-  defp pr_anchored_routing_enabled? do
-    Config.tracker_kind() == "github" and Aiur.GitHub.Config.pr_watch_enabled?()
-  end
-
-  # Resolve the comment's PR number `N` to a PR-anchored work unit, or `:legacy`.
-  # `:legacy` is the safe fall-through for: a plain issue (`/pulls/N` 404 → nil),
-  # a closed/merged PR (nil), a legacy `aiur/<N>`-headed aiur PR, a fetch error,
-  # or a non-integer key. The fetcher is injectable for tests via the event.
-  defp resolve_pr_anchored_unit(issue_number, event) do
-    with {:ok, pr_number} <- pr_number_from_identifier(issue_number),
-         {:ok, %{} = pr} <- fetch_open_pull_request_for_routing(pr_number, event),
-         head_ref when is_binary(head_ref) and head_ref != "" <- pr_head_ref(pr),
-         false <- aiur_owned_head_ref?(head_ref, pr_number) do
-      {:ok, build_pr_anchored_issue(pr_number, pr, head_ref)}
-    else
-      _ -> :legacy
-    end
-  end
-
-  defp pr_number_from_identifier(issue_number) do
-    case Integer.parse(to_string(issue_number)) do
-      {pr_number, ""} when pr_number > 0 -> {:ok, pr_number}
-      _ -> :error
-    end
-  end
-
-  defp fetch_open_pull_request_for_routing(pr_number, event) do
-    fetcher =
-      case Map.get(event, :open_pull_request_fetcher) do
-        fun when is_function(fun, 1) -> fun
-        _ -> fn number -> GitHubClient.fetch_open_pull_request(number) end
-      end
-
-    case fetcher.(pr_number) do
-      {:ok, pr} when is_map(pr) -> {:ok, pr}
-      {:ok, nil} -> :legacy
-      {:error, reason} -> {:error, reason}
-      other -> {:error, {:unexpected_open_pull_request, other}}
-    end
-  end
-
-  defp pr_head_ref(%{"head" => %{"ref" => ref}}) when is_binary(ref), do: ref
-  defp pr_head_ref(_pr), do: nil
-
-  # A PR whose head is `aiur/<N>` is a LEGACY aiur-created PR — its comments
-  # must keep flowing through the unchanged `aiur/<id>` reactivation, never the
-  # PR-anchored path. Only an external/human branch is PR-anchored.
-  defp aiur_owned_head_ref?(head_ref, pr_number) do
-    head_ref == "aiur/#{pr_number}"
-  end
-
-  # A synthetic, slot-respecting work unit for a watched/commanded human PR.
-  # `id: nil` keeps it OUT of `revalidate_issue_for_dispatch/3`'s tracker lookup
-  # (there is no tracker issue); `identifier: to_string(pr#)` is the comment
-  # topic / resume key (`find_running_by_identifier`); `pr_head_ref` tells the
-  # workspace to check out the human branch instead of creating `aiur/<id>`.
-  defp build_pr_anchored_issue(pr_number, pr, head_ref) do
-    %Issue{
-      id: pr_anchored_running_key(pr_number),
-      identifier: to_string(pr_number),
-      title: pr_field(pr, "title") || "PR ##{pr_number}",
-      description: pr_field(pr, "body") || "",
-      state: @pr_anchored_state,
-      branch_name: head_ref,
-      pr_head_ref: head_ref,
-      labels: []
-    }
-  end
-
-  # The running-map key for a PR-anchored unit. Distinct from any tracker issue
-  # id (prefixed `pr-`) so two PR-anchored agents never collide on a `nil` key
-  # and a PR-anchored unit never shadows a same-numbered tracker ticket.
-  defp pr_anchored_running_key(pr_number), do: "pr-#{pr_number}"
-
-  defp pr_field(pr, key) do
-    case Map.get(pr, key) do
-      value when is_binary(value) and value != "" -> value
-      _ -> nil
-    end
-  end
-
-  # Dispatch a PR-anchored unit through the slot-respecting worker path. We gate
-  # on the global agent cap (`available_slots`) explicitly — `should_dispatch_issue?`
-  # cannot be reused because its `candidate_issue?` requires a configured active
-  # state, which a synthetic PR unit deliberately is not. Then route straight to
-  # `do_dispatch_issue/4` (thrash budget + worker-slot dispatch), SKIPPING
-  # `revalidate_issue_for_dispatch/3`: there is no tracker issue to revalidate, and
-  # routing already proved the PR is open. When the cap is full or the unit is
-  # already running/claimed, log and skip — the next comment re-triggers (no
-  # `agent:` label is touched and no persistent state is written).
-  defp dispatch_pr_anchored_unit(%State{} = state, %Issue{} = issue, source, event) do
-    cond do
-      Map.has_key?(state.running, issue.id) or MapSet.member?(state.claimed, issue.id) ->
-        Logger.info("#{source} PR-anchored dispatch skipped; already running/claimed: pr=#{issue.identifier}")
-
-        state
-
-      available_slots(state) <= 0 ->
-        Logger.info("#{source} PR-anchored dispatch deferred; agent cap full: pr=#{issue.identifier}")
-
-        state
-
-      true ->
-        Logger.info("#{source} routed PR-anchored (no agent:* label, no aiur/<pr#> PR): pr=#{issue.identifier} head_ref=#{issue.pr_head_ref}")
-
-        pr_anchored_dispatch_fun(event).(state, issue)
-    end
-  end
-
-  # The terminal spawn for a PR-anchored unit. Defaults to the real
-  # `do_dispatch_issue/4` (slot-respecting worker dispatch). Tests inject a
-  # capture fun via the event so routing can be asserted without spawning a
-  # real agent.
-  defp pr_anchored_dispatch_fun(event) do
-    case Map.get(event, :pr_anchored_dispatch_fun) do
-      fun when is_function(fun, 2) -> fun
-      _ -> fn state, issue -> do_dispatch_issue(state, issue, nil, nil) end
-    end
-  end
-
-  # When an agent emits `agent.pause.request` it has decided to stop
-  # working — usually because it declared a blocker and has nothing
-  # left to do until the blocker emits. Flip the control status to
-  # `:paused` AND queue a `{:pause_agent, _}` control message on the
-  # task pid so the worker actually enters `wait_for_operator_message`.
-  # Without the queued control message a pause.request fired
-  # mid-tool-call would only flip the orchestrator's bookkeeping; the
-  # later auto-resume `:resume_agent` would have no receiver because
-  # the worker loop never paused. Symmetry with the operator-pause
-  # path makes the resume side trivially correct.
   defp maybe_pause_on_request(%State{} = state, identifier) do
-    case find_running_by_identifier(state.running, identifier) do
-      running_entry when is_map(running_entry) ->
-        existing_status =
-          (Map.get(running_entry, :control) || %{}) |> Map.get(:status, :working)
-
-        cond do
-          existing_status == :paused ->
-            state
-
-          deactivated_running_entry?(running_entry) ->
-            state
-
-          true ->
-            # Queue the pause control message; ignore the reply because
-            # we're about to transition the entry's status optimistically
-            # in `transition_control_status`. The worker confirmation
-            # arrives later via `:worker_control_state :paused` and the
-            # already-equal status short-circuit drops the duplicate
-            # transition cleanly.
-            _ = send_pause_control_message(state, identifier)
-            transition_control_status(state, running_entry, :paused, "agent.pause.request")
-        end
-
-      _ ->
-        state
-    end
+    PushRouting.maybe_pause_on_request(state, identifier)
   end
 
-  # The default branch advanced (a PR merged to the base branch). We do NOT
-  # touch active agents: terminating every agent on each merge thrashed the
-  # whole fleet and discarded each in-flight turn. Notification needs no work
-  # here — every agent universally subscribes to `system.<base>.branch.push`
-  # (`UniversalSubscriptions.topics/1`), so the same push that reaches the
-  # orchestrator is independently delivered into each agent's event digest by
-  # its own `SubscriptionStore`, through the exact `enqueue_event_digest_item/4`
-  # -> `event_digest_delivery_opts/2` -> `queue_wake_required?/1` path the
-  # comment fan-out uses. That path already encodes the desired per-state
-  # behavior:
-  #
-  #   * `:working` mid-turn  -> queued, NON-interrupting; seen at the next turn
-  #     boundary, the current turn continues uninterrupted.
-  #   * `:sleeping` (standby) -> woken so it can pull main and resume. A sleeping
-  #     entry already holds its slot, so the wake consumes no new capacity and
-  #     dispatches no new agent.
-  #   * `:paused` (manual operator/agent pause) -> queued but NOT woken; a manual
-  #     pause is never woken by a main update.
-  #
-  # So there is nothing for the orchestrator to do but record the advance for
-  # operators. Re-emitting a notice here would double-deliver, since the
-  # orchestrator and every agent's SubscriptionStore both receive this push. The
-  # agent-facing `using-aiur` skill tells the agent it may see this signal and to
-  # pull/rebase at its own discretion.
-  defp maybe_notify_agents_on_default_branch_push(%State{} = state, branch, event)
-       when is_binary(branch) do
-    if branch == default_branch_name() do
-      sha = Map.get(event, :sha) || Map.get(event, "sha")
-
-      Logger.info(
-        "Default branch advanced; not terminating agents — each handles the push via its system.#{branch}.branch.push subscription (active turns continue uninterrupted, standby wakes): sha=#{sha || "-"}"
-      )
-    end
-
-    state
+  defp maybe_notify_agents_on_default_branch_push(%State{} = state, branch, event) when is_binary(branch) do
+    PushRouting.maybe_notify_agents_on_default_branch_push(state, branch, event)
   end
 
-  defp maybe_notify_agents_on_default_branch_push(%State{} = state, _branch, _event),
-    do: state
-
-  defp default_branch_name do
-    case Config.settings!() do
-      %{tracker: %{base_branch: name}} when is_binary(name) and name != "" -> name
-      _ -> "main"
-    end
+  defp maybe_notify_agents_on_default_branch_push(%State{} = state, branch, event) do
+    PushRouting.maybe_notify_agents_on_default_branch_push(state, branch, event)
   end
 
-  # A bridge chat-completion stream idle-closed (the inactivity watchdog
-  # saw no transcript/event activity for its window). Flip a `:working`
-  # entry to `:sleeping` so every surface paints 💤
-  # (`AgentEvents.state_emoji/1`). A `:paused`/`:deactivated` entry keeps
-  # its more-specific state — sleeping never overrides those. The agent's
-  # slot is still held (`:sleeping` counts as active), and the next turn's
-  # `:worker_control_state :working` transitions it back to 🟢.
   defp maybe_mark_sleeping(%State{} = state, identifier) do
-    case find_running_by_identifier(state.running, identifier) do
-      running_entry when is_map(running_entry) ->
-        existing_status =
-          (Map.get(running_entry, :control) || %{}) |> Map.get(:status, :working)
+    PushRouting.maybe_mark_sleeping(state, identifier)
+  end
 
-        if existing_status == :working do
-          transition_control_status(state, running_entry, :sleeping, "stream.idle_close")
-        else
-          state
-        end
+  defp maybe_resume_blockees_on_push(%State{} = state, blocker_identifier, topic) do
+    PushRouting.maybe_resume_blockees_on_push(state, blocker_identifier, topic)
+  end
+
+  defp maybe_resume_for_ci_failure(%State{} = state, identifier) do
+    case State.find_running_by_identifier(state.running, identifier) do
+      %{control: %{status: :paused}, paused_reason: :ci_wait} = running_entry ->
+        maybe_resume_ci_wait_runner(state, running_entry, identifier)
 
       _ ->
         state
     end
   end
 
-  # `ticket.<blocker>.branch.push` arrived. For every paused running
-  # entry that has this exact topic in its SubscriptionStore.snapshot
-  # (i.e. it declared this ticket as a blocker via
-  # `aiur_declare_blocker`), flip control back to `:working` and
-  # re-dispatch so the bootstrap digest delivers the push and the
-  # agent picks up the unblock signal on its next turn.
-  defp maybe_resume_blockees_on_push(%State{} = state, blocker_identifier, topic) do
-    Enum.reduce(state.running, state, fn {_issue_id, entry}, acc ->
-      cond do
-        not is_map(entry) -> acc
-        not paused_running_entry?(entry) -> acc
-        deactivated_running_entry?(entry) -> acc
-        true -> maybe_resume_for_topic(acc, entry, blocker_identifier, topic)
-      end
-    end)
-  end
-
-  defp maybe_resume_for_topic(state, entry, blocker_identifier, topic) do
-    identifier = Map.get(entry, :identifier)
-
-    cond do
-      not is_binary(identifier) ->
-        state
-
-      identifier == blocker_identifier ->
-        state
-
-      subscribed_to_topic?(identifier, topic) ->
-        attempt_auto_resume(state, entry, identifier, blocker_identifier, topic)
-
-      true ->
-        state
+  defp maybe_resume_ci_wait_runner(state, running_entry, identifier) do
+    if Issue.paused?(Map.get(running_entry, :issue)) do
+      state
+    else
+      resume_ci_wait_runner(state, running_entry, identifier)
     end
   end
 
-  # Resume can fail when the concurrent-agent cap is already full —
-  # the blockee would otherwise sit silently paused forever because
-  # the push event is consumed exactly once and the firehose / ls-remote
-  # dedup table prevents a re-emit. Log a warning so operators can see
-  # the cap is blocking the resume, and stamp a hint on the entry so a
-  # future reconcile tick (when a slot opens up) can drain the queue.
-  defp attempt_auto_resume(state, entry, identifier, blocker_identifier, topic) do
-    Logger.info("Auto-resume on blocker push: blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}")
-
-    # operator?: false — an automated blocker resume must preserve a
-    # duration-capped agent's cumulative overrun (no fresh budget).
-    case resume_paused_issue(state, entry, false) do
+  defp resume_ci_wait_runner(state, running_entry, identifier) do
+    case resume_paused_issue(state, running_entry, false) do
       {{:ok, :resumed}, next_state} ->
         next_state
 
-      {{:error, :max_concurrent_agents_reached}, next_state} ->
-        Logger.warning("Auto-resume deferred (cap full): blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}; entry remains paused with pending_auto_resume hint")
-
-        stamp_pending_auto_resume(next_state, identifier, blocker_identifier, topic)
-
       {{:error, reason}, next_state} ->
-        Logger.warning("Auto-resume failed: blockee=#{identifier} blocker=#{blocker_identifier} reason=#{inspect(reason)}")
-
+        Logger.warning("CI failure auto-resume deferred: issue_identifier=#{identifier} reason=#{inspect(reason)}")
         next_state
     end
   end
 
-  # Record a `pending_auto_resume` marker on the running entry so a
-  # future tick (`reconcile_pending_auto_resumes/1`) can retry once a
-  # slot opens up. Without this the cap-full case loses the push
-  # signal and the blockee stays paused forever.
-  defp stamp_pending_auto_resume(state, identifier, blocker_identifier, topic) do
-    case find_running_by_identifier(state.running, identifier) do
-      running_entry when is_map(running_entry) ->
-        issue_id = get_in(running_entry, [:issue, Access.key(:id)])
-
-        hint = %{
-          blocker_identifier: blocker_identifier,
-          topic: topic,
-          stamped_at: DateTime.utc_now()
-        }
-
-        updated_entry = Map.put(running_entry, :pending_auto_resume, hint)
-        %{state | running: Map.put(state.running, issue_id, updated_entry)}
-
-      _ ->
-        state
-    end
-  end
-
-  # `snapshot/1` is a synchronous GenServer.call to the per-identifier
-  # store. The case clauses handle the documented contract; the rescue
-  # only narrows to `:exit` (call timeout) so genuine bugs surface as
-  # exceptions in tests instead of being silently swallowed.
-  defp subscribed_to_topic?(identifier, topic) do
-    case SubscriptionStore.snapshot(identifier) do
-      %{subscribed_to: subs} when is_list(subs) ->
-        Enum.any?(subs, fn
-          %{"topic" => t} -> t == topic
-          %{topic: t} -> t == topic
-          _ -> false
-        end)
-
-      _ ->
-        false
-    end
-  catch
-    :exit, reason ->
-      Logger.warning("subscribed_to_topic? store call failed: identifier=#{identifier} topic=#{topic} reason=#{inspect(reason)}")
-
-      false
-  end
-
-  # Flip an entry's control.status. Used by `maybe_pause_on_request/2`
-  # to record the agent-initiated pause without going through the
-  # `pause_agent_reply -> send_running_control_message` path, which
-  # is for operator-initiated pauses against a running agent loop.
-  # The agent is already idle when we get here.
-  #
-  # Also stamps the pause-clock side-effect (`apply_pause_runtime_clock`)
-  # so the runtime ticker freezes while paused — without it the
-  # subsequent auto-resume in `maybe_resume_blockees_on_push` would
-  # find no `paused_at` to thaw against, and the agent's running
-  # clock would include the paused interval. Then notifies the
-  # dashboard so the agent list reflects the new state without
-  # waiting for the next poll tick.
-  defp transition_control_status(state, running_entry, new_status, reason) do
+  @doc false
+  @spec transition_control_status(State.t(), map(), atom(), String.t()) :: State.t()
+  def transition_control_status(state, running_entry, new_status, reason) do
     issue_id = get_in(running_entry, [:issue, Access.key(:id)])
     identifier = Map.get(running_entry, :identifier)
     existing = Map.get(running_entry, :control, %{})
@@ -944,460 +565,434 @@ defmodule Aiur.Orchestrator do
         |> apply_pause_runtime_clock(old_status, new_status, now)
 
       next_state = %{state | running: Map.put(state.running, issue_id, next_entry)}
-      maybe_arm_pause_containment(old_status, new_status, reason, identifier)
       maybe_emit_agent_control_alert(old_status, new_status, next_entry)
       notify_dashboard(next_state)
       next_state
     end
   end
 
-  # An `agent.pause.request` is the agent's own cooperative decision to stop
-  # working (e.g. it declared a blocker), so it yields at the next turn boundary
-  # and needs no forceful containment. Only pauses imposed on a possibly
-  # uncooperative live turn arm the fallback.
-  defp maybe_arm_pause_containment(:working, :paused, "agent.pause.request", _identifier), do: :ok
-
-  defp maybe_arm_pause_containment(:working, :paused, _reason, identifier) when is_binary(identifier) do
-    _ = PauseContainment.arm(identifier)
-    :ok
-  end
-
-  defp maybe_arm_pause_containment(_old_status, _new_status, _reason, _identifier), do: :ok
-
-  defp reactivate_if_deactivated(state, running_entry, issue_number, source, event) do
-    if deactivated_running_entry?(running_entry) do
-      transition_and_revalidate_comment_reactivation(
-        state,
-        running_entry,
-        issue_number,
-        source,
-        event
-      )
-    else
-      state
-    end
-  end
-
-  defp maybe_transition_idle_issue_to_rework(state, issue_number, source, event, attempt) do
-    case transition_comment_issue_to_rework(issue_number, source, event) do
-      :ok ->
-        seed_idle_comment_wake_event(state, issue_number, event)
-
-      {:skip, reason} ->
-        Logger.info("#{source} ignored for idle issue: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
-
-        state
-
-      {:error, reason} ->
-        Logger.warning("#{source} rework transition skipped; state update failed: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
-
-        schedule_comment_rework_retry(state, issue_number, source, event, attempt, reason)
-    end
-  end
-
-  defp schedule_comment_rework_retry(
-         %State{} = state,
-         issue_number,
-         source,
-         event,
-         attempt,
-         reason
-       ) do
-    max_attempts = comment_rework_max_attempts()
-
-    if attempt >= max_attempts do
-      Logger.warning("#{source} rework transition retry exhausted: issue_identifier=#{issue_number} attempts=#{attempt} reason=#{inspect(reason)}")
-    else
-      next_attempt = attempt + 1
-      delay_ms = comment_rework_retry_delay_ms(attempt)
-
-      Process.send_after(
-        self(),
-        {:retry_comment_rework, issue_number, source, event, next_attempt},
-        delay_ms
-      )
-
-      Logger.info("#{source} rework transition retry scheduled: issue_identifier=#{issue_number} attempt=#{next_attempt}/#{max_attempts} delay_ms=#{delay_ms}")
-    end
-
-    state
-  end
-
-  defp seed_idle_comment_wake_event(%State{} = state, issue_number, event) do
-    identifier = to_string(issue_number)
-
-    UniversalSubscriptions.attach(identifier)
-
-    state
-    |> enqueue_event_digest_item(identifier, [event], event)
-    |> dispatch_reworked_comment_issue(identifier)
-  end
-
-  defp dispatch_reworked_comment_issue(%State{} = state, identifier) when is_binary(identifier) do
-    case fetch_comment_dispatch_issue(identifier) do
-      {:ok, %Issue{} = issue} ->
-        dispatch_reworked_comment_issue(state, issue)
-
-      {:skip, reason} ->
-        Logger.info("Trusted comment dispatch deferred: issue_identifier=#{identifier} reason=#{inspect(reason)}")
-
-        schedule_poll_cycle_start()
-        state
-
-      {:error, reason} ->
-        Logger.warning("Trusted comment dispatch deferred: issue_identifier=#{identifier} reason=#{inspect(reason)}")
-
-        schedule_poll_cycle_start()
-        state
-    end
-  end
-
-  defp dispatch_reworked_comment_issue(%State{} = state, %Issue{} = issue) do
-    if should_dispatch_issue?(issue, state, active_state_set(), terminal_state_set()) do
-      dispatch_issue(state, issue)
-    else
-      schedule_poll_cycle_start()
-      state
-    end
-  end
-
-  defp fetch_comment_dispatch_issue(identifier) do
-    case Tracker.fetch_issue_states_by_ids([identifier]) do
-      {:ok, [%Issue{} = issue | _]} ->
-        {:ok, issue}
-
-      {:ok, []} ->
-        fetch_comment_dispatch_issue_from_candidates(identifier)
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp fetch_comment_dispatch_issue_from_candidates(identifier) do
-    case Tracker.fetch_candidate_issues() do
-      {:ok, issues} ->
-        case find_issue_by_identifier_or_id(issues, identifier) do
-          %Issue{} = issue -> {:ok, issue}
-          nil -> {:skip, :missing}
-        end
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp find_issue_by_identifier_or_id(issues, identifier) when is_list(issues) do
-    Enum.find(issues, fn
-      %Issue{id: id, identifier: issue_identifier} ->
-        id == identifier or issue_identifier == identifier
-
-      _ ->
-        false
-    end)
-  end
-
-  defp transition_and_revalidate_comment_reactivation(
-         state,
-         running_entry,
-         issue_number,
-         source,
-         event
-       ) do
-    issue_key = rework_issue_key(running_entry, issue_number)
-
-    case transition_comment_issue_to_rework(issue_key, source, event) do
-      :ok ->
-        revalidate_comment_reactivation(state, running_entry, issue_number, source)
-
-      {:skip, reason} ->
-        context = comment_reactivation_context(running_entry, issue_number)
-        Logger.info("#{source} ignored for inactive issue: #{context} reason=#{inspect(reason)}")
-        state
-
-      {:error, reason} ->
-        context = comment_reactivation_context(running_entry, issue_number)
-
-        Logger.warning("#{source} reactivation skipped; state update failed: #{context} reason=#{inspect(reason)}")
-
-        state
-    end
-  end
-
-  defp transition_comment_issue_to_rework(issue_number, _source, event) do
-    cond do
-      not trusted_comment_event?(event) ->
-        {:skip, :untrusted_author}
-
-      benign_review_pass_comment?(event) ->
-        {:skip, :benign_review_pass_comment}
-
-      true ->
-        Tracker.update_issue_state(to_string(issue_number), "rework")
-    end
-  end
-
-  defp trusted_comment_event?(event) when is_map(event) do
-    Map.get(event, :author_trusted?) == true or Map.get(event, "author_trusted?") == true
-  end
-
-  defp benign_review_pass_comment?(event) when is_map(event) do
-    event
-    |> comment_body()
-    |> review_pass_comment?()
-  end
-
-  defp comment_body(event) do
-    comment = Map.get(event, :comment) || Map.get(event, "comment") || %{}
-
-    if is_map(comment) do
-      Map.get(comment, :body) || Map.get(comment, "body")
-    end
-  end
-
-  defp review_pass_comment?(body) when is_binary(body) do
-    body
-    |> String.trim()
-    |> String.downcase()
-    |> String.match?(~r/^\[codex\]\s+review\s+passed\b/)
-  end
-
-  defp review_pass_comment?(_body), do: false
-
-  defp comment_rework_retry_delay_ms(attempt) when is_integer(attempt) do
-    power = (attempt - 1) |> max(0) |> min(4)
-    comment_rework_retry_base_delay_ms() * (1 <<< power)
-  end
-
-  defp comment_rework_retry_base_delay_ms do
-    case Application.get_env(:aiur, :comment_rework_retry_delay_ms) do
-      delay when is_integer(delay) and delay >= 0 -> delay
-      _ -> @comment_rework_retry_delay_ms
-    end
-  end
-
-  defp comment_rework_max_attempts do
-    case Application.get_env(:aiur, :comment_rework_max_attempts) do
-      attempts when is_integer(attempts) and attempts > 0 -> attempts
-      _ -> @comment_rework_max_attempts
-    end
-  end
-
   defp mark_pr_merged_issue_done(%State{} = state, identifier) do
-    case Tracker.update_issue_state(to_string(identifier), "done") do
-      :ok ->
-        clear_session_handle(identifier)
-
-        case find_running_by_identifier(state.running, identifier) do
-          %{issue: %Issue{id: issue_id}} ->
-            terminate_running_issue(state, issue_id, true)
-
-          _ ->
-            state
-        end
-
-      {:error, reason} ->
-        Logger.warning("PR merge terminal transition skipped: issue_identifier=#{identifier} reason=#{inspect(reason)}")
-
-        state
-    end
-  end
-
-  defp rework_issue_key(%{issue: %Issue{id: issue_id}}, _issue_number) when is_binary(issue_id),
-    do: issue_id
-
-  defp rework_issue_key(_running_entry, issue_number), do: issue_number
-
-  defp revalidate_comment_reactivation(state, running_entry, issue_number, source) do
-    context = comment_reactivation_context(running_entry, issue_number)
-
-    case fetch_current_reactivation_issue(running_entry) do
-      {:ok, %Issue{} = refreshed_issue} ->
-        reactivate_current_issue(state, running_entry, refreshed_issue, issue_number, source)
-
-      {:skip, reason} ->
-        Logger.info("#{source} ignored for inactive issue: #{context} reason=#{inspect(reason)}")
-        state
-
-      {:error, reason} ->
-        Logger.warning("#{source} reactivation skipped; issue refresh failed: #{context} reason=#{inspect(reason)}")
-
-        state
-    end
-  end
-
-  defp fetch_current_reactivation_issue(%{issue: %Issue{id: issue_id} = issue})
-       when is_binary(issue_id) do
-    case revalidate_issue_for_dispatch(
-           issue,
-           &Tracker.fetch_issue_states_by_ids/1,
-           terminal_state_set()
-         ) do
-      {:ok, %Issue{} = refreshed_issue} -> {:ok, refreshed_issue}
-      {:skip, %Issue{} = refreshed_issue} -> {:skip, refreshed_issue.state}
-      {:skip, :missing} -> {:skip, :missing}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp fetch_current_reactivation_issue(_running_entry), do: {:skip, :missing_issue_id}
-
-  defp reactivate_current_issue(state, running_entry, refreshed_issue, issue_number, source) do
-    issue_id = refreshed_issue.id
-    refreshed_entry = Map.put(running_entry, :issue, refreshed_issue)
-    state = %{state | running: Map.put(state.running, issue_id, refreshed_entry)}
-
-    Logger.info("#{source} reactivating: issue_id=#{issue_id} issue_identifier=#{issue_number}")
-
-    case reactivate_issue(state, refreshed_entry) do
-      {{:ok, :reactivated}, next_state} ->
-        next_state
-
-      {{:error, reason}, next_state} ->
-        emit_comment_reactivation_deferred_alert(refreshed_entry, source, reason)
-        next_state
-    end
-  end
-
-  defp emit_comment_reactivation_deferred_alert(running_entry, source, reason) do
-    identifier = Map.get(running_entry, :identifier)
-    issue_id = get_in(running_entry, [:issue, Access.key(:id)])
-
-    Logger.warning("#{source} reactivation deferred: issue_id=#{issue_id} issue_identifier=#{identifier} reason=#{inspect(reason)}")
-
-    Alerts.emit_system("ticket.#{identifier}.agent.review_feedback_delivery_deferred",
-      issue: identifier,
-      workspace: Map.get(running_entry, :workspace_path),
-      worker_host: Map.get(running_entry, :worker_host),
-      reason: "Trusted review feedback moved the ticket to rework, but the agent could not resume: #{inspect(reason)}.",
-      needs_attention: true,
-      severity: "warning"
-    )
-  end
-
-  defp comment_reactivation_context(running_entry, issue_number) do
-    issue_id = get_in(running_entry, [:issue, Access.key(:id)])
-    "issue_id=#{issue_id} issue_identifier=#{issue_number}"
-  end
-
-  defp event_digest_summary(event) when is_map(event) do
-    topic = Map.get(event, :topic) || Map.get(event, "topic") || "(unknown)"
-    message = Map.get(event, "message") || Map.get(event, :message) || Map.get(event, "summary")
-
-    case message do
-      m when is_binary(m) and m != "" -> "#{topic}: #{m}"
-      _ -> topic
-    end
+    CommentWake.mark_pr_merged_issue_done(state, identifier)
   end
 
   defp poll_github_firehose(%State{} = state, opts \\ []) do
-    poll_opts =
-      opts
-      |> Keyword.put_new(:etag, state.events_etag)
-      |> Keyword.put_new(:last_event_id, state.events_last_id)
-
-    case GithubFirehose.poll(poll_opts) do
-      {:ok, %{etag: etag, last_event_id: last_event_id, count: count} = result} ->
-        if count > 0, do: Logger.debug("aiur_perf github_firehose published count=#{count}")
-
-        state =
-          state
-          |> note_github_connectivity_success(:firehose)
-          |> note_github_poll_interval(:firehose, Map.get(result, :poll_interval))
-
-        %{state | events_etag: etag, events_last_id: last_event_id}
-
-      {:error, reason} ->
-        # Preserve cached etag so we retry as If-None-Match next tick; the
-        # classified failure feeds the escalation policy so a sustained
-        # DNS/auth break surfaces a loud operator blocker (#617).
-        note_github_connectivity_failure(state, :firehose, reason)
-    end
+    CommentPolling.poll_github_firehose(state, opts)
   end
 
   defp poll_github_comments(%State{} = state, opts \\ []) do
+    CommentPolling.poll_github_comments(state, opts)
+  end
+
+  defp poll_github_ci(%State{} = state, opts \\ []) do
     case Config.tracker_kind() do
-      "github" -> do_poll_github_comments(state, opts)
+      "github" -> do_poll_github_ci(state, opts)
       _ -> state
     end
   end
 
-  defp do_poll_github_comments(%State{} = state, opts) do
-    case github_comment_poll_targets(state, opts) do
-      {:ok, targets, human_review_targets, watch_targets} ->
-        poll_github_comment_targets(state, targets, human_review_targets, watch_targets, opts)
+  defp do_poll_github_ci(%State{} = state, opts) do
+    issue_fetcher = Keyword.get(opts, :ci_issue_fetcher, &Tracker.fetch_issues_by_states/1)
+    poller = Keyword.get(opts, :ci_poller, &GithubCIPoller.poll/2)
+
+    case issue_fetcher.(@ci_poll_states) do
+      {:ok, issues} when is_list(issues) ->
+        state
+        |> prune_ci_lifecycle_state(issues)
+        |> poll_github_ci_targets(issues, poller, opts)
 
       {:error, reason} ->
-        Logger.warning("GithubCommentsPoller target refresh skipped; reason=#{inspect(reason)}")
+        Logger.warning("GithubCIPoller target refresh skipped; reason=#{inspect(reason)}")
+        note_github_connectivity_failure(state, :ci, reason)
+
+      other ->
+        Logger.warning("GithubCIPoller target refresh returned unexpected value=#{inspect(other)}")
         state
     end
   end
 
-  defp poll_github_comment_targets(%State{} = state, [], _human_review_targets, _watch_targets, _opts),
-    do: state
+  defp poll_github_ci_targets(%State{} = state, issues, poller, opts) do
+    issues_by_target = ci_issues_by_target(issues)
+    targets = Map.keys(issues_by_target)
 
-  defp poll_github_comment_targets(%State{} = state, targets, human_review_targets, watch_targets, opts)
-       when is_list(targets) do
-    poll_opts =
-      opts
-      |> Keyword.put_new(:since, state.github_comments_since)
-      |> put_open_pull_requests_by_target(human_review_targets)
-      |> put_open_pull_requests_by_target(watch_targets)
-
-    case GithubCommentsPoller.poll(targets, poll_opts) do
-      {:ok, %{since: since, count: count, errors: errors}} ->
-        if count > 0,
-          do: Logger.debug("aiur_perf github_comments_poller published count=#{count}")
-
-        if errors != [] do
-          Logger.warning("GithubCommentsPoller partial failures; reason=#{inspect(errors)}")
-        end
-
+    case poller.(targets, opts) do
+      {:ok, %{results: results, errors: errors}} when is_list(results) and is_list(errors) ->
         state =
-          if all_comment_targets_failed?(targets, errors) do
-            note_github_connectivity_failure(state, :comments, comments_poll_classification(errors))
-          else
-            note_github_connectivity_success(state, :comments)
-          end
-
-        %{
           state
-          | github_comments_since: merge_comment_cursors(state.github_comments_since, since),
-            github_comment_issue_updated_at:
-              remember_polled_human_review_targets(
-                state.github_comment_issue_updated_at,
-                human_review_targets,
-                errors
-              )
-        }
+          |> note_ci_poll_connectivity(targets, errors)
+          |> log_ci_poll_errors(errors)
+
+        apply_ci_poll_results(state, results, issues_by_target)
+
+      {:error, reason} ->
+        Logger.warning("GithubCIPoller failed; reason=#{inspect(reason)}")
+        note_github_connectivity_failure(state, :ci, reason)
+
+      other ->
+        Logger.warning("GithubCIPoller returned unexpected value=#{inspect(other)}")
+        state
     end
   end
 
-  # The comments poller aggregates per-target failures as
-  # `[{target, {scope, taxonomy}}]`; pull the first classified GitHub error
-  # out so the escalation policy sees the underlying connectivity class.
-  defp comments_poll_classification([{_target, {_scope, taxonomy}} | _]), do: taxonomy
-  defp comments_poll_classification(reason), do: reason
+  defp ci_issues_by_target(issues) do
+    Enum.reduce(issues, %{}, fn
+      %Issue{} = issue, acc ->
+        case ci_target_for_issue(issue) do
+          nil -> acc
+          target -> Map.put_new(acc, target, issue)
+        end
 
-  defp merge_comment_cursors(%{} = previous, %{} = next), do: Map.merge(previous, next)
-  defp merge_comment_cursors(_previous, next), do: next
-
-  defp all_comment_targets_failed?(_targets, []), do: false
-
-  defp all_comment_targets_failed?(targets, errors) do
-    failed_targets =
-      errors
-      |> Enum.map(fn {target, _reason} -> target end)
-      |> MapSet.new()
-
-    targets
-    |> MapSet.new()
-    |> MapSet.subset?(failed_targets)
+      _other, acc ->
+        acc
+    end)
   end
 
-  # Records a successful poll for `source`, clearing any failure streak so a
-  # later break re-arms a fresh operator escalation.
-  defp note_github_connectivity_success(%State{} = state, source) do
+  defp note_ci_poll_connectivity(state, targets, errors) do
+    if errors == [] or not all_ci_targets_failed?(targets, errors) do
+      note_github_connectivity_success(state, :ci)
+    else
+      note_github_connectivity_failure(state, :ci, List.first(errors))
+    end
+  end
+
+  defp log_ci_poll_errors(state, []), do: state
+
+  defp log_ci_poll_errors(state, errors) do
+    Logger.warning("GithubCIPoller partial failures; reason=#{inspect(errors)}")
+    state
+  end
+
+  defp apply_ci_poll_results(state, results, issues_by_target) do
+    Enum.reduce(results, state, fn result, state_acc ->
+      apply_ci_poll_result_for_target(state_acc, result, issues_by_target)
+    end)
+  end
+
+  defp apply_ci_poll_result_for_target(state, result, issues_by_target) do
+    case Map.get(issues_by_target, Map.get(result, :target)) do
+      %Issue{} = issue -> apply_ci_poll_result(state, issue, result)
+      _ -> state
+    end
+  end
+
+  defp ci_target_for_issue(%Issue{identifier: identifier}) when is_binary(identifier) and identifier != "", do: identifier
+  defp ci_target_for_issue(%Issue{id: id}) when is_binary(id) and id != "", do: id
+  defp ci_target_for_issue(_issue), do: nil
+
+  defp all_ci_targets_failed?([], _errors), do: false
+
+  defp all_ci_targets_failed?(targets, errors) do
+    failed_targets = errors |> Enum.map(&elem(&1, 0)) |> MapSet.new()
+    MapSet.subset?(MapSet.new(targets), failed_targets)
+  end
+
+  defp apply_ci_poll_result(state, issue, %{decision: :pending} = result) do
+    cond do
+      ci_wait_state?(issue.state) ->
+        state
+
+      human_review_state?(issue.state) and ci_head_approved?(state, issue, result) ->
+        refresh_running_issue_state(state, issue)
+
+      true ->
+        transition_ci_ticket(state, issue, @ci_wait_state)
+    end
+  end
+
+  defp apply_ci_poll_result(state, issue, %{decision: :passed} = result) do
+    if human_review_state?(issue.state) do
+      state
+      |> clear_ci_test_failure_retry(issue)
+      |> remember_ci_approved_head(issue, result)
+      |> refresh_running_issue_state(issue)
+    else
+      transition_ci_pass(state, issue, result)
+    end
+  end
+
+  defp apply_ci_poll_result(state, issue, %{decision: :failed} = result) do
+    if retryable_test_failure?(state, issue, result) do
+      state
+      |> remember_ci_test_failure_retry(issue, result)
+      |> defer_ci_test_failure(issue)
+    else
+      state
+      |> clear_ci_test_failure_retry(issue)
+      |> transition_ci_failure(issue, result)
+    end
+  end
+
+  defp apply_ci_poll_result(state, _issue, _result), do: state
+
+  defp transition_ci_ticket(state, %Issue{} = issue, next_state) do
+    issue_key = issue.id || issue.identifier
+
+    case Tracker.update_issue_state(to_string(issue_key), next_state) do
+      :ok ->
+        updated_issue = %{issue | state: next_state}
+        state = if ci_wait_state?(next_state), do: clear_ci_approved_head(state, issue), else: state
+
+        cond do
+          DispatchPolicy.active_issue_state?(next_state, DispatchPolicy.active_state_set()) ->
+            maybe_reactivate_or_refresh(state, updated_issue)
+
+          ci_wait_state?(next_state) ->
+            pause_issue_for_ci_wait(state, updated_issue)
+
+          true ->
+            refresh_running_issue_state(state, updated_issue)
+        end
+
+      {:error, reason} ->
+        Logger.warning("CI lifecycle transition skipped: #{issue_context(issue)} state=#{next_state} reason=#{inspect(reason)}")
+        state
+    end
+  end
+
+  defp transition_ci_pass(state, issue, result) do
+    case Tracker.update_issue_state(to_string(issue.id || issue.identifier), @human_review_state) do
+      :ok ->
+        state
+        |> clear_ci_test_failure_retry(issue)
+        |> remember_ci_approved_head(issue, result)
+        |> refresh_running_issue_state(%{issue | state: @human_review_state})
+        |> publish_ci_terminal_event(issue, result, :passed)
+
+      {:error, reason} ->
+        Logger.warning("CI pass transition skipped: #{issue_context(issue)} reason=#{inspect(reason)}")
+        state
+    end
+  end
+
+  defp transition_ci_failure(state, issue, result) do
+    case Tracker.update_issue_state(to_string(issue.id || issue.identifier), "rework") do
+      :ok ->
+        state
+        |> clear_ci_test_failure_retry(issue)
+        |> clear_ci_approved_head(issue)
+        |> ensure_ci_failure_subscription(issue)
+        |> publish_ci_terminal_event(issue, result, :failed)
+        |> maybe_reactivate_after_ci_failure(%{issue | state: "rework"})
+
+      {:error, reason} ->
+        Logger.warning("CI failure transition skipped: #{issue_context(issue)} reason=#{inspect(reason)}")
+        state
+    end
+  end
+
+  defp maybe_reactivate_after_ci_failure(state, issue) do
+    if Issue.paused?(issue) do
+      refresh_running_issue_state(state, issue)
+    else
+      case Map.get(state.running, issue.id) do
+        %{control: %{status: :paused}, paused_reason: :label_override} ->
+          refresh_running_issue_state(state, issue)
+
+        _ ->
+          maybe_reactivate_or_refresh(state, issue)
+      end
+    end
+  end
+
+  # A failed `test` check may be the known seed-dependent flake. Defer only the
+  # first terminal observation of that exact head for one regular poll cycle;
+  # the second failure is delivered to the agent like every other CI failure.
+  defp retryable_test_failure?(%State{} = state, %Issue{} = issue, %{head_sha: head_sha, failures: failures})
+       when is_binary(head_sha) and is_list(failures) do
+    test_only_failure?(failures) and Map.get(state.ci_lifecycle.test_failure_heads, ci_target_for_issue(issue)) != head_sha
+  end
+
+  defp retryable_test_failure?(_state, _issue, _result), do: false
+
+  defp test_only_failure?(failures) do
+    failures != [] and
+      Enum.all?(failures, fn
+        %{name: "test"} -> true
+        _ -> false
+      end)
+  end
+
+  defp defer_ci_test_failure(state, issue) do
+    if human_review_state?(issue.state) do
+      transition_ci_ticket(state, issue, @ci_wait_state)
+    else
+      state
+    end
+  end
+
+  # A direct agent label flip is the initial CI handoff. Once a head has passed,
+  # retain that exact SHA so a transient re-run does not pull it out of review;
+  # a pending observation for a different SHA is a re-push and must re-enter the
+  # CI gate.
+  defp ci_head_approved?(%State{} = state, %Issue{} = issue, result) do
+    case {Map.get(state.ci_lifecycle.approved_heads, ci_target_for_issue(issue)), Map.get(result, :head_sha)} do
+      {approved_head, observed_head} when is_binary(approved_head) and approved_head == observed_head -> true
+      {approved_head, nil} when is_binary(approved_head) -> true
+      _ -> false
+    end
+  end
+
+  defp remember_ci_approved_head(%State{} = state, %Issue{} = issue, %{head_sha: head_sha})
+       when is_binary(head_sha) and head_sha != "" do
+    case ci_target_for_issue(issue) do
+      target when is_binary(target) ->
+        approved_heads = Map.put(state.ci_lifecycle.approved_heads, target, head_sha)
+        persist_ci_lifecycle_state(%{state | ci_lifecycle: %{state.ci_lifecycle | approved_heads: approved_heads}})
+
+      _ ->
+        state
+    end
+  end
+
+  defp remember_ci_approved_head(state, _issue, _result), do: state
+
+  defp clear_ci_approved_head(%State{} = state, %Issue{} = issue) do
+    case ci_target_for_issue(issue) do
+      target when is_binary(target) ->
+        approved_heads = Map.delete(state.ci_lifecycle.approved_heads, target)
+        persist_ci_lifecycle_state(%{state | ci_lifecycle: %{state.ci_lifecycle | approved_heads: approved_heads}})
+
+      _ ->
+        state
+    end
+  end
+
+  defp remember_ci_test_failure_retry(%State{} = state, %Issue{} = issue, %{head_sha: head_sha}) do
+    case ci_target_for_issue(issue) do
+      target when is_binary(target) and is_binary(head_sha) ->
+        test_failure_heads = Map.put(state.ci_lifecycle.test_failure_heads, target, head_sha)
+        ci_lifecycle = %{state.ci_lifecycle | test_failure_heads: test_failure_heads}
+        persist_ci_lifecycle_state(%{state | ci_lifecycle: ci_lifecycle})
+
+      _ ->
+        state
+    end
+  end
+
+  defp clear_ci_test_failure_retry(%State{} = state, %Issue{} = issue) do
+    case ci_target_for_issue(issue) do
+      target when is_binary(target) ->
+        test_failure_heads = Map.delete(state.ci_lifecycle.test_failure_heads, target)
+        ci_lifecycle = %{state.ci_lifecycle | test_failure_heads: test_failure_heads}
+        persist_ci_lifecycle_state(%{state | ci_lifecycle: ci_lifecycle})
+
+      _ ->
+        state
+    end
+  end
+
+  defp prune_ci_lifecycle_state(%State{} = state, issues) do
+    targets =
+      issues
+      |> Enum.map(&ci_target_for_issue/1)
+      |> Enum.filter(&is_binary/1)
+
+    approved_heads = Map.take(state.ci_lifecycle.approved_heads, targets)
+    test_failure_heads = Map.take(state.ci_lifecycle.test_failure_heads, targets)
+
+    if approved_heads == state.ci_lifecycle.approved_heads and
+         test_failure_heads == state.ci_lifecycle.test_failure_heads do
+      state
+    else
+      ci_lifecycle = %{approved_heads: approved_heads, test_failure_heads: test_failure_heads}
+      persist_ci_lifecycle_state(%{state | ci_lifecycle: ci_lifecycle})
+    end
+  end
+
+  defp persist_ci_lifecycle_state(%State{} = state) do
+    :ok = CIApprovalStore.save(state.ci_lifecycle.approved_heads, state.ci_lifecycle.test_failure_heads)
+    state
+  end
+
+  defp publish_ci_terminal_event(state, issue, result, outcome) do
+    target = ci_target_for_issue(issue)
+    topic = "ticket.#{target}.ci.#{outcome}"
+
+    payload =
+      %{
+        source: :github,
+        head_sha: Map.get(result, :head_sha),
+        pr_number: Map.get(result, :pr_number),
+        checks: Map.get(result, :failures, []),
+        failure_excerpt: ci_failure_excerpt(Map.get(result, :failures, []))
+      }
+      |> Sanitizer.scrub()
+      |> then(fn payload ->
+        Map.put(
+          payload,
+          :message,
+          ci_terminal_message(
+            outcome,
+            Map.get(payload, :checks, []),
+            Map.get(payload, :failure_excerpt)
+          )
+        )
+      end)
+
+    case Publisher.publish(topic, payload,
+           issue_number: target,
+           bypass_contamination: true,
+           dedup_key: ci_event_dedup_key(target, outcome, Map.get(result, :head_sha))
+         ) do
+      {:ok, _id, _subscribers} ->
+        state
+
+      :deduped ->
+        state
+
+      :filtered ->
+        Logger.warning("CI terminal event unexpectedly filtered: issue=#{target} topic=#{topic}")
+        state
+    end
+  end
+
+  defp ensure_ci_failure_subscription(state, issue) do
+    case ci_target_for_issue(issue) do
+      target when is_binary(target) ->
+        :ok = UniversalSubscriptions.attach(target)
+        state
+
+      _ ->
+        state
+    end
+  end
+
+  defp ci_event_dedup_key(target, outcome, head_sha)
+       when is_binary(target) and is_atom(outcome) and is_binary(head_sha) do
+    {"ci", Atom.to_string(outcome), target <> ":" <> head_sha}
+  end
+
+  defp ci_event_dedup_key(_target, _outcome, _head_sha), do: nil
+
+  defp ci_failure_excerpt(failures) when is_list(failures) do
+    Enum.find_value(failures, fn
+      %{excerpt: excerpt} when is_binary(excerpt) and excerpt != "" -> excerpt
+      _ -> nil
+    end)
+  end
+
+  defp ci_failure_excerpt(_failures), do: nil
+
+  defp ci_terminal_message(:passed, _failures, _failure_excerpt), do: "CI passed for the current PR head"
+
+  defp ci_terminal_message(:failed, failures, failure_excerpt) do
+    names =
+      failures
+      |> Enum.map(&Map.get(&1, :name))
+      |> Enum.filter(&is_binary/1)
+      |> Enum.join(", ")
+
+    message = if names == "", do: "CI failed for the current PR head", else: "CI failed: " <> names
+
+    if is_binary(failure_excerpt) and failure_excerpt != "" do
+      message <> ". Failure excerpt: " <> String.slice(failure_excerpt, 0, @ci_failure_excerpt_message_max)
+    else
+      message
+    end
+  end
+
+  @doc false
+  @spec note_github_connectivity_success(State.t(), atom()) :: State.t()
+  def note_github_connectivity_success(%State{} = state, source) do
     %{
       state
       | github_connectivity: GitHubConnectivity.note_success(state.github_connectivity, source),
@@ -1405,9 +1000,9 @@ defmodule Aiur.Orchestrator do
     }
   end
 
-  # Classifies a poll failure and, when a sustained DNS/auth streak crosses the
-  # escalation threshold, emits a single operator-visible blocker alert (#617).
-  defp note_github_connectivity_failure(%State{} = state, source, reason) do
+  @doc false
+  @spec note_github_connectivity_failure(State.t(), atom(), term()) :: State.t()
+  def note_github_connectivity_failure(%State{} = state, source, reason) do
     classification = connectivity_classification(reason)
     detail = connectivity_detail(reason)
 
@@ -1453,12 +1048,14 @@ defmodule Aiur.Orchestrator do
 
   defp normalize_github_backoff_ms(_delay_ms, %State{} = state), do: state.poll_interval_ms
 
-  defp note_github_poll_interval(%State{} = state, source, seconds)
-       when is_integer(seconds) and seconds > 0 do
+  @doc false
+  @spec note_github_poll_interval(State.t(), atom(), pos_integer() | nil) :: State.t()
+  def note_github_poll_interval(%State{} = state, source, seconds)
+      when is_integer(seconds) and seconds > 0 do
     %{state | github_poll_delays: Map.put(state.github_poll_delays, source, seconds * 1_000)}
   end
 
-  defp note_github_poll_interval(%State{} = state, _source, _seconds), do: state
+  def note_github_poll_interval(%State{} = state, _source, _seconds), do: state
 
   defp next_poll_delay_ms(%State{} = state) do
     github_next_poll_delay_ms(state) || state.poll_interval_ms
@@ -1483,668 +1080,12 @@ defmodule Aiur.Orchestrator do
     )
   end
 
-  # One-off per-comment command scan (the U3 trigger). Each cycle, scan the
-  # repo-wide PR-comment STREAMS directly — `pulls/comments` (review/line
-  # comments) and `issues/comments` (conversation comments), both with a
-  # `since` cursor — for a trusted `/aiur …` or `@<bot_account>` comment and
-  # publish the PR-number reactivation event so an agent handles that single
-  # comment. Scanning the comment streams (NOT a per-PR `updated_at` fetch) is
-  # load-bearing: a `/aiur` left as a review comment does not reliably bump the
-  # PR's `updated_at`, and a busy PR can fall outside a recently-updated
-  # window — both would silently drop the command. No label is required and no
-  # persistent watch state is stored: a commanded PR is NOT in the poller's
-  # tracked target set, so it is naturally one-and-done — the comment-stream
-  # `since` cursor + the Publisher dedup window keep an already-handled comment
-  # from re-firing. Gated on `pr_watch_enabled?`.
   defp scan_pr_commands(%State{} = state, opts \\ []) do
-    if Config.tracker_kind() == "github" and Aiur.GitHub.Config.pr_watch_enabled?() do
-      do_scan_pr_commands(state, opts)
-    else
-      state
-    end
+    CommandScan.scan_pr_commands(state, opts)
   end
 
-  defp do_scan_pr_commands(%State{} = state, opts) do
-    since = command_scan_since(state, opts)
-    fetch_opts = Keyword.put(opts, :since, since)
-
-    review_comments = command_scan_review_comments(fetch_opts)
-    issue_comments = command_scan_issue_comments(fetch_opts)
-
-    pr_comments =
-      (review_comments ++ issue_comments)
-      |> Enum.map(&command_scan_annotate(&1))
-      |> Enum.reject(&is_nil(command_scan_comment_pr_number(&1)))
-
-    # Advance the cursor over EVERY PR comment seen this cycle, not just the
-    # command hits, so a non-command comment newer than a command doesn't make
-    # the cursor stall and re-scan the command next cycle.
-    newest = command_scan_newest_datetime(pr_comments)
-
-    publish_command_hits(pr_comments, command_scan_repo(opts), command_scan_limit(opts))
-
-    %{state | github_command_scan_since: advance_command_scan_since(since, newest)}
-  end
-
-  # Fetch the repo-wide review-comment stream (`pulls/comments`). A failure is
-  # logged and yields `[]` so the scan never raises; the cursor is unaffected
-  # because `command_scan_newest_datetime/1` only advances on comments seen.
-  defp command_scan_review_comments(fetch_opts) do
-    fetcher =
-      Keyword.get_lazy(fetch_opts, :command_scan_review_comment_fetcher, fn ->
-        fn scan_opts -> GitHubClient.fetch_recent_repo_review_comments(scan_opts) end
-      end)
-
-    case fetcher.(fetch_opts) do
-      {:ok, comments} when is_list(comments) ->
-        comments
-
-      {:error, reason} ->
-        Logger.warning("scan_pr_commands review-comment stream failed; reason=#{inspect(reason)}")
-        []
-
-      other ->
-        Logger.warning("scan_pr_commands review-comment stream returned unexpected value: #{inspect(other)}")
-        []
-    end
-  end
-
-  # Fetch the repo-wide conversation-comment stream (`issues/comments`). The
-  # endpoint returns comments on plain issues AND PR conversations; PR-number
-  # derivation (`command_scan_comment_pr_number/1`) only resolves the PR ones,
-  # so non-PR issue comments are dropped downstream (out of scope).
-  defp command_scan_issue_comments(fetch_opts) do
-    fetcher =
-      Keyword.get_lazy(fetch_opts, :command_scan_issue_comment_fetcher, fn ->
-        fn scan_opts -> GitHubClient.fetch_recent_repo_issue_comments(scan_opts) end
-      end)
-
-    case fetcher.(fetch_opts) do
-      {:ok, comments} when is_list(comments) ->
-        comments
-
-      {:error, reason} ->
-        Logger.warning("scan_pr_commands issue-comment stream failed; reason=#{inspect(reason)}")
-        []
-
-      other ->
-        Logger.warning("scan_pr_commands issue-comment stream returned unexpected value: #{inspect(other)}")
-        []
-    end
-  end
-
-  # Stamp event-time trust (`author_trusted?` from the canonical CODEOWNERS ∪
-  # bot ∪ trusted-accounts set) and pin the derived PR number so later steps
-  # don't re-derive it. The body/author the scanner reads stay untouched.
-  defp command_scan_annotate(comment) when is_map(comment) do
-    comment
-    |> Sanitizer.stamp_author_trust(actor: command_scan_comment_author(comment))
-    |> Map.put(:pr_number, derive_command_scan_pr_number(comment))
-  end
-
-  # Group the trusted command comments by PR number, bound the scan to a capped
-  # number of distinct commanded PRs per cycle (logging the drop), and publish
-  # a reactivation event for each comment under a kept PR.
-  defp publish_command_hits(comments, repo, limit) do
-    comments
-    |> PrCommandScanner.commands(
-      Aiur.GitHub.Config.command_prefix(),
-      Aiur.GitHub.Config.bot_account()
-    )
-    |> group_command_hits_by_pr()
-    |> cap_command_pr_hits(limit)
-    |> Enum.each(fn {pr_number, hits} ->
-      Enum.each(hits, &publish_command_reactivation(pr_number, &1, repo))
-    end)
-  end
-
-  defp group_command_hits_by_pr(hits) do
-    Enum.group_by(hits, &command_scan_comment_pr_number/1)
-  end
-
-  # Cap distinct commanded PRs per cycle. The streams are small per cursor
-  # window, but a burst could surface commands on many PRs at once; keep a
-  # bounded number and log the drop rather than silently truncating. Sorted by
-  # PR number so the cap is deterministic across cycles.
-  defp cap_command_pr_hits(hits_by_pr, limit) do
-    sorted = Enum.sort_by(hits_by_pr, fn {pr_number, _hits} -> pr_number end)
-    kept = Enum.take(sorted, limit)
-    dropped = map_size(hits_by_pr) - length(kept)
-
-    if dropped > 0 do
-      Logger.warning("scan_pr_commands capped: kept=#{length(kept)} dropped=#{dropped} limit=#{limit}")
-    end
-
-    kept
-  end
-
-  # Mid-run teardown for PR-anchored agents (U6). Each poll cycle, terminate any
-  # RUNNING PR-anchored agent (a watched/commanded human PR dispatched by U4)
-  # whose PR is no longer open — it would otherwise keep burning compute and
-  # pushing to a dead branch. Most teardown is IMPLICIT: a merged/closed/untagged
-  # PR simply stops producing watch poll targets (U2) and the command path stores
-  # no state, so nothing new is dispatched. This function covers the one gap the
-  # implicit drop cannot: an agent already in-flight when its PR reaches a
-  # terminal state.
-  #
-  # DESIGN DECISION — an untag mid-run does NOT abort a running agent. The agent
-  # was dispatched for a real comment; let it finish the work it started.
-  # Untagging only stops NEW dispatches (U2's implicit target drop). ONLY a
-  # closed/merged PR — observed as `{:ok, nil}` from `fetch_open_pull_request/1`,
-  # the same signal that treats closed/merged as "not open" — triggers mid-run
-  # termination here.
-  #
-  # Fetch isolation: `{:ok, pr}` (still open) and `{:error, _}` (transient — a
-  # rate-limit or network blip) both LEAVE the agent running. We never terminate
-  # on a fetch error; a real terminal state will be re-observed next cycle.
-  #
-  # Gated on `pr_watch_enabled?` and short-circuited when there are zero
-  # PR-anchored running entries, so a repo not using the feature issues no
-  # fetches.
   defp maybe_stop_closed_pr_anchored_agents(%State{} = state, opts \\ []) do
-    if Config.tracker_kind() == "github" and Aiur.GitHub.Config.pr_watch_enabled?() do
-      case pr_anchored_running_entries(state) do
-        [] -> state
-        entries -> stop_closed_pr_anchored_entries(state, entries, opts)
-      end
-    else
-      state
-    end
-  end
-
-  # Select the running entries dispatched as PR-anchored units. We key off the
-  # stored `%Issue{}` `state == @pr_anchored_state` (the canonical sentinel
-  # `build_pr_anchored_issue/1` stamps) rather than the `"pr-"` running-key
-  # prefix: the state is a dedicated marker nothing else uses, while a key prefix
-  # is a derived convention a tracker id could collide with.
-  defp pr_anchored_running_entries(%State{running: running}) do
-    Enum.filter(running, fn {_issue_id, running_entry} ->
-      pr_anchored_running_entry?(running_entry)
-    end)
-  end
-
-  defp pr_anchored_running_entry?(%{issue: %Issue{state: @pr_anchored_state}}), do: true
-  defp pr_anchored_running_entry?(_running_entry), do: false
-
-  defp stop_closed_pr_anchored_entries(%State{} = state, entries, opts) do
-    fetcher = pr_open_state_fetcher(opts)
-
-    Enum.reduce(entries, state, fn {issue_id, running_entry}, state_acc ->
-      pr_number = Map.get(running_entry, :identifier)
-
-      case fetcher.(pr_number) do
-        {:ok, nil} ->
-          Logger.warning("PR-anchored agent's PR is no longer open; stopping agent and cleaning workspace: issue_id=#{issue_id} pr=#{pr_number}")
-
-          state_acc = terminate_running_issue(state_acc, issue_id, false)
-          cleanup_pr_anchored_workspace(issue_id, running_entry)
-          state_acc
-
-        {:ok, _pr} ->
-          # PR still open — let the agent keep working.
-          state_acc
-
-        {:error, reason} ->
-          # Transient fetch failure — do NOT terminate. A real terminal state is
-          # re-observed next cycle.
-          Logger.warning("PR-anchored teardown PR fetch failed; leaving agent running: issue_id=#{issue_id} pr=#{pr_number} reason=#{inspect(reason)}")
-
-          state_acc
-
-        other ->
-          Logger.warning("PR-anchored teardown PR fetch returned unexpected value; leaving agent running: issue_id=#{issue_id} pr=#{pr_number} value=#{inspect(other)}")
-
-          state_acc
-      end
-    end)
-  end
-
-  defp pr_open_state_fetcher(opts) do
-    case Keyword.get(opts, :open_pull_request_fetcher) do
-      fun when is_function(fun, 1) -> fun
-      _ -> fn pr_number -> GitHubClient.fetch_open_pull_request(pr_number) end
-    end
-  end
-
-  # `terminate_running_issue/3`'s workspace cleanup keys off the running entry's
-  # `identifier` (the bare PR number), but a PR-anchored workspace lives at the
-  # `pr-<pr#>` leaf (`Workspace.workspace_identifier/2`), which equals the
-  # running-map KEY (`issue.id`). Clean the `pr-<pr#>` leaf explicitly so no
-  # orphan workspace is left behind, mirroring the legacy terminal cleanup.
-  defp cleanup_pr_anchored_workspace(issue_id, running_entry) when is_binary(issue_id) do
-    # A closed PR is terminal for a PR-anchored unit, but this path bypasses
-    # `cleanup_terminal_issue_artifacts`, so the resume handle is never cleared
-    # for it. The handle is keyed by the PR-number `identifier` (what
-    # `start_agent_session` persisted under), not the `pr-<pr#>` running key;
-    # without this, a reopened PR would `--resume` the finished thread now that
-    # `claude-repl` is resumable (#613).
-    clear_session_handle(Map.get(running_entry, :identifier))
-    Workspace.remove_issue_workspaces(issue_id, Map.get(running_entry, :worker_host))
-  end
-
-  # Emit the SAME PR-number reactivation signal U2 uses
-  # (`ticket.<pr#>.pr.review_comment`) with `bypass_contamination: true` so it
-  # reaches the orchestrator even though the commanded PR is absent from the
-  # tracked set (mirrors the firehose `bypass_contamination` path). The
-  # Publisher's `bot_self_loop?` and dedup gates still apply.
-  defp publish_command_reactivation(pr_number, comment, repo) do
-    target = to_string(pr_number)
-    actor = command_scan_comment_author(comment)
-
-    payload =
-      %{issue_number: target, comment: comment, source: :github}
-      |> Sanitizer.scrub()
-      |> Sanitizer.put_comment_message()
-
-    Publisher.publish(
-      "ticket.#{target}.pr.review_comment",
-      payload,
-      issue_number: target,
-      actor: actor,
-      bypass_contamination: true,
-      dedup_key:
-        GithubKeys.comment_dedup_key(
-          repo,
-          "pr_command",
-          pr_number,
-          Map.get(comment, "id")
-        )
-    )
-  end
-
-  defp command_scan_comment_author(comment) when is_map(comment) do
-    get_in(comment, ["user", "login"]) || get_in(comment, ["author", "login"])
-  end
-
-  # The derived PR number, read from the annotation pinned by
-  # `command_scan_annotate/1`.
-  defp command_scan_comment_pr_number(comment) when is_map(comment) do
-    Map.get(comment, :pr_number)
-  end
-
-  # Derive the PR number from a stream comment. Review comments carry
-  # `pull_request_url` (`.../pulls/<n>`); conversation comments carry
-  # `issue_url` (`.../issues/<n>`) and are PRs only when `html_url` contains
-  # `/pull/` (a plain issue's `html_url` contains `/issues/`). Returns nil for
-  # non-PR issue comments and any malformed URL, dropping them from the scan.
-  defp derive_command_scan_pr_number(%{"pull_request_url" => url}) when is_binary(url) do
-    parse_trailing_number(url)
-  end
-
-  defp derive_command_scan_pr_number(%{"issue_url" => url} = comment) when is_binary(url) do
-    if command_scan_pr_html_url?(comment), do: parse_trailing_number(url)
-  end
-
-  defp derive_command_scan_pr_number(_comment), do: nil
-
-  defp command_scan_pr_html_url?(%{"html_url" => html_url}) when is_binary(html_url) do
-    String.contains?(html_url, "/pull/")
-  end
-
-  defp command_scan_pr_html_url?(_comment), do: false
-
-  defp parse_trailing_number(url) when is_binary(url) do
-    case url |> String.split("/") |> List.last() |> Integer.parse() do
-      {number, ""} when number > 0 -> number
-      _ -> nil
-    end
-  end
-
-  defp command_scan_repo(opts) do
-    Keyword.get(opts, :repo) || Aiur.Tracker.project_identity()
-  end
-
-  defp command_scan_since(%State{github_command_scan_since: since}, _opts)
-       when is_binary(since),
-       do: since
-
-  defp command_scan_since(%State{}, opts), do: GithubKeys.boot_cutoff_iso8601(opts)
-
-  defp command_scan_limit(opts) do
-    case Keyword.get(opts, :command_scan_pull_request_limit, @command_scan_pull_requests_per_poll) do
-      limit when is_integer(limit) and limit > 0 -> limit
-      _ -> @command_scan_pull_requests_per_poll
-    end
-  end
-
-  defp command_scan_newest_datetime(comments) do
-    Enum.reduce(comments, nil, fn comment, newest ->
-      max_command_scan_datetime(newest, command_scan_comment_datetime(comment))
-    end)
-  end
-
-  defp command_scan_comment_datetime(comment) when is_map(comment) do
-    comment
-    |> Map.get("updated_at", Map.get(comment, "created_at"))
-    |> parse_command_scan_datetime()
-  end
-
-  defp parse_command_scan_datetime(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, datetime, _offset} -> datetime
-      _ -> nil
-    end
-  end
-
-  defp parse_command_scan_datetime(_value), do: nil
-
-  defp max_command_scan_datetime(nil, datetime), do: datetime
-  defp max_command_scan_datetime(datetime, nil), do: datetime
-
-  defp max_command_scan_datetime(%DateTime{} = left, %DateTime{} = right) do
-    case DateTime.compare(left, right) do
-      :lt -> right
-      _ -> left
-    end
-  end
-
-  defp advance_command_scan_since(since, nil), do: since
-
-  defp advance_command_scan_since(_since, %DateTime{} = newest) do
-    newest
-    |> DateTime.add(-1, :second)
-    |> DateTime.to_iso8601()
-  end
-
-  defp github_comment_poll_targets(%State{} = state, opts) do
-    with {:ok, human_review_targets} <- human_review_comment_poll_targets(state, opts),
-         {:ok, watch_targets} <- watch_comment_poll_targets(state, opts) do
-      running_targets = running_comment_poll_targets(state)
-
-      targets =
-        running_targets
-        |> Kernel.++(Enum.map(human_review_targets, & &1.target))
-        |> Kernel.++(Enum.map(watch_targets, & &1.target))
-        |> Enum.uniq()
-
-      {:ok, targets, human_review_targets, watch_targets}
-    end
-  end
-
-  # Discovers open PRs labeled `agent:watch` repo-wide and turns each into a
-  # PR-number-keyed comment poll target carrying its PR object, so the poller
-  # never branch-derives for watched PRs (it consumes the passed PR via
-  # `open_pull_requests_by_target`). Mirrors `human_review_comment_poll_targets/2`:
-  # closed/merged PRs are excluded at the query, the set is deduped and capped per
-  # poll, and the drop is logged (never silent). Returns `{:ok, []}` when the
-  # feature is disabled so the rest of the poll cycle is untouched.
-  defp watch_comment_poll_targets(%State{} = _state, opts) do
-    if Aiur.GitHub.Config.pr_watch_enabled?() do
-      fetcher = watch_pull_request_fetcher(opts)
-
-      case fetcher.(Aiur.GitHub.Config.watch_label()) do
-        {:ok, pull_requests} when is_list(pull_requests) ->
-          {:ok, build_watch_targets(pull_requests, opts)}
-
-        {:error, _reason} = error ->
-          error
-
-        other ->
-          {:error, {:unexpected_watch_targets, other}}
-      end
-    else
-      {:ok, []}
-    end
-  end
-
-  defp watch_pull_request_fetcher(opts) do
-    Keyword.get_lazy(opts, :watch_pull_request_fetcher, fn ->
-      fn label -> GitHubClient.fetch_open_pull_requests_by_label(label, opts) end
-    end)
-  end
-
-  defp build_watch_targets(pull_requests, opts) do
-    targets =
-      pull_requests
-      |> Enum.map(&watch_comment_target_for_pull_request/1)
-      |> Enum.reject(&is_nil/1)
-      |> dedupe_watch_targets()
-
-    limit = watch_comment_target_limit(opts)
-    kept = Enum.take(targets, limit)
-
-    dropped = length(targets) - length(kept)
-
-    if dropped > 0 do
-      Logger.warning("watch_comment_poll_targets capped: kept=#{length(kept)} dropped=#{dropped} limit=#{limit}")
-    end
-
-    kept
-  end
-
-  # A watched PR's identifier/topic is its PR number (string). Open/closed is
-  # already filtered at the query, so any PR reaching here is an active watch
-  # target. `open` defends against a fetcher that returns non-open PRs.
-  defp watch_comment_target_for_pull_request(%{"number" => number} = pr)
-       when is_integer(number) do
-    if pull_request_open?(pr) do
-      %{target: to_string(number), open_pull_request: pr}
-    end
-  end
-
-  defp watch_comment_target_for_pull_request(_pr), do: nil
-
-  defp pull_request_open?(%{"state" => state}) when is_binary(state), do: state == "open"
-  defp pull_request_open?(%{"merged_at" => merged_at}) when is_binary(merged_at), do: false
-  defp pull_request_open?(_pr), do: true
-
-  defp dedupe_watch_targets(targets) do
-    targets
-    |> Enum.reduce(%{}, fn %{target: target} = entry, acc ->
-      Map.put_new(acc, target, entry)
-    end)
-    |> Map.values()
-  end
-
-  defp watch_comment_target_limit(opts) do
-    case Keyword.get(opts, :watch_comment_target_limit, @watch_comment_targets_per_poll) do
-      limit when is_integer(limit) and limit > 0 -> limit
-      _ -> @watch_comment_targets_per_poll
-    end
-  end
-
-  defp running_comment_poll_targets(%State{} = state) do
-    state.running
-    |> Map.values()
-    |> Enum.map(&Map.get(&1, :identifier))
-    |> normalize_comment_targets()
-  end
-
-  # Discovers idle (non-running) tickets in the comment-actionable review states
-  # (`human-review` + `merging`) and turns each into a comment poll target, so a
-  # trusted reviewer comment on them is seen and promotes the ticket to `rework`
-  # even though those states are not in `active_states`.
-  defp human_review_comment_poll_targets(%State{} = state, opts) do
-    fetcher = Keyword.get(opts, :review_issue_fetcher, &Tracker.fetch_issues_by_states/1)
-
-    case fetcher.(@comment_poll_review_states) do
-      {:ok, issues} when is_list(issues) ->
-        targets =
-          issues
-          |> Enum.reject(&Issue.paused?/1)
-          |> Enum.map(&human_review_comment_target_for_issue/1)
-          |> Enum.reject(&is_nil/1)
-          |> dedupe_human_review_targets()
-          |> Enum.sort_by(&human_review_comment_target_sort_key(state, &1))
-          |> Enum.take(human_review_comment_target_limit(opts))
-          |> Enum.map(&with_human_review_pr_updated_at(&1, opts))
-          |> Enum.reject(&unchanged_human_review_comment_target?(state, &1))
-
-        {:ok, targets}
-
-      {:error, _reason} = error ->
-        error
-
-      other ->
-        {:error, {:unexpected_human_review_targets, other}}
-    end
-  end
-
-  defp comment_target_for_issue(%Issue{identifier: identifier}) when not is_nil(identifier),
-    do: identifier
-
-  defp comment_target_for_issue(%Issue{id: id}) when not is_nil(id), do: id
-  defp comment_target_for_issue(_issue), do: nil
-
-  defp human_review_comment_target_for_issue(%Issue{} = issue) do
-    case normalize_comment_targets([comment_target_for_issue(issue)]) do
-      [target] ->
-        issue_updated_at = issue_updated_at_key(issue.updated_at)
-        %{target: target, issue_updated_at: issue_updated_at, updated_at: issue_updated_at}
-
-      [] ->
-        nil
-    end
-  end
-
-  defp with_human_review_pr_updated_at(%{target: target} = entry, opts) do
-    fetcher = human_review_pr_fetcher(opts)
-
-    case fetcher.(target) do
-      {:ok, pr} when is_map(pr) ->
-        pr_updated_at =
-          pr
-          |> Map.get("updated_at", Map.get(pr, :updated_at))
-          |> issue_updated_at_key()
-
-        entry
-        |> Map.put(:open_pull_request, pr)
-        |> Map.put(:updated_at, human_review_target_updated_at_key(entry.issue_updated_at, pr_updated_at))
-
-      {:ok, nil} ->
-        entry
-        |> Map.put(:open_pull_request, nil)
-        |> Map.put(:updated_at, human_review_target_updated_at_key(entry.issue_updated_at, nil))
-
-      {:error, reason} ->
-        Logger.warning("GithubCommentsPoller PR freshness lookup failed: issue=#{target} reason=#{inspect(reason)}")
-        %{entry | updated_at: nil}
-
-      other ->
-        Logger.warning("GithubCommentsPoller PR freshness lookup returned unexpected value: issue=#{target} result=#{inspect(other)}")
-        %{entry | updated_at: nil}
-    end
-  end
-
-  defp human_review_pr_fetcher(opts) do
-    Keyword.get_lazy(opts, :review_pull_request_fetcher, fn ->
-      fn target -> GitHubClient.fetch_open_pull_request_for_branch(target, opts) end
-    end)
-  end
-
-  defp dedupe_human_review_targets(targets) do
-    targets
-    |> Enum.reduce(%{}, fn %{target: target} = entry, acc ->
-      Map.put_new(acc, target, entry)
-    end)
-    |> Map.values()
-  end
-
-  defp unchanged_human_review_comment_target?(
-         %State{github_comment_issue_updated_at: updated_at_by_target},
-         %{target: target, updated_at: updated_at}
-       )
-       when is_binary(updated_at) do
-    Map.get(updated_at_by_target, target) == updated_at
-  end
-
-  defp unchanged_human_review_comment_target?(_state, _target), do: false
-
-  defp human_review_comment_target_sort_key(
-         %State{
-           github_comments_since: cursors,
-           github_comment_issue_updated_at: updated_at_by_target
-         },
-         %{target: target, issue_updated_at: issue_updated_at}
-       ) do
-    {
-      human_review_pr_probe_priority(updated_at_by_target, target, issue_updated_at),
-      comment_cursor_sort_key(cursors, target),
-      target
-    }
-  end
-
-  defp comment_cursor_sort_key(%{} = cursors, target), do: Map.get(cursors, target) || ""
-  defp comment_cursor_sort_key(cursor, _target) when is_binary(cursor), do: cursor
-  defp comment_cursor_sort_key(_cursor, _target), do: ""
-
-  defp human_review_pr_probe_priority(%{} = updated_at_by_target, target, issue_updated_at)
-       when is_binary(issue_updated_at) do
-    case Map.get(updated_at_by_target, target) do
-      updated_at when is_binary(updated_at) ->
-        if human_review_target_known_at_issue_updated_at?(updated_at, issue_updated_at), do: 1, else: 0
-
-      _other ->
-        0
-    end
-  end
-
-  defp human_review_pr_probe_priority(_updated_at_by_target, _target, _issue_updated_at), do: 0
-
-  defp human_review_target_known_at_issue_updated_at?(updated_at, issue_updated_at) do
-    updated_at == issue_updated_at or String.starts_with?(updated_at, "issue=#{issue_updated_at};pr=")
-  end
-
-  defp human_review_comment_target_limit(opts) do
-    case Keyword.get(opts, :human_review_comment_target_limit, @human_review_comment_targets_per_poll) do
-      limit when is_integer(limit) and limit > 0 -> limit
-      _ -> @human_review_comment_targets_per_poll
-    end
-  end
-
-  defp put_open_pull_requests_by_target(opts, targets) do
-    open_pull_requests =
-      targets
-      |> Enum.reduce(%{}, fn
-        %{target: target} = entry, acc when is_binary(target) ->
-          if Map.has_key?(entry, :open_pull_request) do
-            Map.put(acc, target, Map.get(entry, :open_pull_request))
-          else
-            acc
-          end
-
-        _entry, acc ->
-          acc
-      end)
-
-    if map_size(open_pull_requests) == 0 do
-      opts
-    else
-      existing = Keyword.get(opts, :open_pull_requests_by_target, %{})
-      Keyword.put(opts, :open_pull_requests_by_target, Map.merge(existing, open_pull_requests))
-    end
-  end
-
-  defp issue_updated_at_key(%DateTime{} = updated_at), do: DateTime.to_iso8601(updated_at)
-  defp issue_updated_at_key(updated_at) when is_binary(updated_at), do: updated_at
-  defp issue_updated_at_key(_updated_at), do: nil
-
-  defp human_review_target_updated_at_key(issue_updated_at, pr_updated_at)
-       when is_binary(pr_updated_at) do
-    IO.iodata_to_binary(["issue=", issue_updated_at || "", ";pr=", pr_updated_at])
-  end
-
-  defp human_review_target_updated_at_key(issue_updated_at, _pr_updated_at), do: issue_updated_at
-
-  defp remember_polled_human_review_targets(updated_at_by_target, human_review_targets, errors) do
-    failed_targets =
-      errors
-      |> Enum.map(fn {target, _reason} -> target end)
-      |> MapSet.new()
-
-    human_review_targets
-    |> Enum.reject(&(MapSet.member?(failed_targets, &1.target) or is_nil(&1.updated_at)))
-    |> Map.new(&{&1.target, &1.updated_at})
-    |> then(&Map.merge(updated_at_by_target || %{}, &1))
-  end
-
-  defp normalize_comment_targets(targets) when is_list(targets) do
-    targets
-    |> Enum.reject(&is_nil/1)
-    |> Enum.map(&to_string/1)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.uniq()
+    PrAnchored.maybe_stop_closed_pr_anchored_agents(state, opts)
   end
 
   defp maybe_dispatch(%State{} = state) do
@@ -2162,10 +1103,11 @@ defmodule Aiur.Orchestrator do
   end
 
   defp do_maybe_dispatch(%State{} = state) do
-    state = refresh_running_issue_states(state)
     state = refresh_tracked_set(state)
     state = poll_github_firehose(state)
     state = poll_github_comments(state)
+    state = poll_github_ci(state)
+    state = refresh_running_issue_states(state)
     state = scan_pr_commands(state)
     state = maybe_stop_closed_pr_anchored_agents(state)
 
@@ -2436,6 +1378,12 @@ defmodule Aiur.Orchestrator do
   end
 
   @doc false
+  @spec parse_ci_failed_topic_for_test(String.t()) :: {:ok, String.t()} | :nomatch
+  def parse_ci_failed_topic_for_test(topic) when is_binary(topic) do
+    parse_ci_failed_topic(topic)
+  end
+
+  @doc false
   @spec poll_github_firehose_for_test(State.t(), keyword()) :: State.t()
   def poll_github_firehose_for_test(%State{} = state, opts) when is_list(opts) do
     poll_github_firehose(state, opts)
@@ -2445,6 +1393,12 @@ defmodule Aiur.Orchestrator do
   @spec poll_github_comments_for_test(State.t(), keyword()) :: State.t()
   def poll_github_comments_for_test(%State{} = state, opts) when is_list(opts) do
     poll_github_comments(state, opts)
+  end
+
+  @doc false
+  @spec poll_github_ci_for_test(State.t(), keyword()) :: State.t()
+  def poll_github_ci_for_test(%State{} = state, opts) when is_list(opts) do
+    poll_github_ci(state, opts)
   end
 
   @doc false
@@ -2633,6 +1587,14 @@ defmodule Aiur.Orchestrator do
   end
 
   def human_review_state?(_), do: false
+
+  @doc false
+  @spec ci_wait_state?(binary() | term()) :: boolean()
+  def ci_wait_state?(state_name) when is_binary(state_name) do
+    normalize_issue_state(state_name) == @ci_wait_state
+  end
+
+  def ci_wait_state?(_), do: false
 
   @doc false
   @spec error_issue_state?(binary() | term()) :: boolean()
@@ -2836,6 +1798,38 @@ defmodule Aiur.Orchestrator do
   end
 
   @doc false
+  @spec pause_issue_for_ci_wait(State.t(), Issue.t()) :: State.t()
+  def pause_issue_for_ci_wait(%State{} = state, %Issue{} = issue) do
+    case Map.get(state.running, issue.id) do
+      nil ->
+        release_issue_claim(state, issue.id)
+
+      %{control: %{status: :deactivated}} = running_entry ->
+        refresh_running_entry_issue(state, issue, running_entry)
+
+      %{control: %{status: :paused}} = running_entry ->
+        refresh_running_entry_issue(state, issue, running_entry)
+
+      running_entry when is_map(running_entry) ->
+        identifier = Map.get(running_entry, :identifier, issue.identifier || issue.id)
+
+        Logger.info("CI wait detected: #{issue_context(issue)}; pausing active agent")
+
+        _ = send_pause_control_message(state, identifier)
+
+        running_entry =
+          running_entry
+          |> Map.put(:issue, issue)
+          |> Map.put(:paused_reason, :ci_wait)
+
+        transition_control_status(state, running_entry, :paused, "ci_wait")
+
+      _ ->
+        state
+    end
+  end
+
+  @doc false
   @spec terminate_running_issue(State.t(), String.t(), boolean()) :: State.t()
   def terminate_running_issue(%State{} = state, issue_id, cleanup_workspace) do
     case Map.get(state.running, issue_id) do
@@ -2948,67 +1942,10 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  # Retry blockee resumes that were deferred when the concurrent-agent
-  # cap was full at branch.push time. Without this hook the push event
-  # is consumed exactly once (Publisher dedupes `(repo, ref, sha)`),
-  # so a blockee that couldn't fit in a slot would stay paused
-  # forever even after another agent finished and freed capacity.
   @doc false
   @spec reconcile_pending_auto_resumes(State.t()) :: State.t()
   def reconcile_pending_auto_resumes(%State{} = state) do
-    Enum.reduce(state.running, state, fn {_issue_id, entry}, acc ->
-      case Map.get(entry, :pending_auto_resume) do
-        %{} = hint when is_map(hint) ->
-          maybe_drain_pending_auto_resume(acc, entry, hint)
-
-        _ ->
-          acc
-      end
-    end)
-  end
-
-  defp maybe_drain_pending_auto_resume(state, entry, hint) do
-    cond do
-      not paused_running_entry?(entry) ->
-        # Already resumed by another path (operator chat, label flip);
-        # clear the stale hint.
-        clear_pending_auto_resume(state, entry)
-
-      deactivated_running_entry?(entry) ->
-        clear_pending_auto_resume(state, entry)
-
-      true ->
-        identifier = Map.get(entry, :identifier)
-        blocker_identifier = Map.get(hint, :blocker_identifier)
-        topic = Map.get(hint, :topic)
-
-        # operator?: false — same automated path as `attempt_auto_resume`,
-        # just deferred until a slot opened; preserve the duration overrun.
-        case resume_paused_issue(state, entry, false) do
-          {{:ok, :resumed}, next_state} ->
-            Logger.info("Auto-resume drained: blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}")
-
-            clear_pending_auto_resume(next_state, entry)
-
-          {{:error, _reason}, next_state} ->
-            # Cap still full or another error — keep the hint for the
-            # next reconcile tick.
-            next_state
-        end
-    end
-  end
-
-  defp clear_pending_auto_resume(state, entry) do
-    issue_id = get_in(entry, [:issue, Access.key(:id)])
-
-    case Map.get(state.running, issue_id) do
-      running_entry when is_map(running_entry) ->
-        updated = Map.delete(running_entry, :pending_auto_resume)
-        %{state | running: Map.put(state.running, issue_id, updated)}
-
-      _ ->
-        state
-    end
+    PushRouting.reconcile_pending_auto_resumes(state)
   end
 
   # Safety check-in, not a kill: pause any agent that has been actively
@@ -3487,8 +2424,10 @@ defmodule Aiur.Orchestrator do
     clear_session_handle(identifier)
   end
 
-  defp clear_session_handle(identifier) when is_binary(identifier), do: SessionHandle.clear(identifier)
-  defp clear_session_handle(_identifier), do: :ok
+  @doc false
+  @spec clear_session_handle(binary() | term()) :: :ok
+  def clear_session_handle(identifier) when is_binary(identifier), do: SessionHandle.clear(identifier)
+  def clear_session_handle(_identifier), do: :ok
 
   defp run_startup_todo_workspace_cleanup(%State{} = state) do
     case ensure_terminal_workspace_cleanup_preflight(state) do
@@ -4674,10 +3613,12 @@ defmodule Aiur.Orchestrator do
     {:reply, :ok, %{state | queue_store: queue_store}}
   end
 
-  defp enqueue_event_digest_item(%State{} = state, identifier, events, summary_source)
-       when is_binary(identifier) and is_list(events) do
+  @doc false
+  @spec enqueue_event_digest_item(State.t(), String.t(), list(), map()) :: State.t()
+  def enqueue_event_digest_item(%State{} = state, identifier, events, summary_source)
+      when is_binary(identifier) and is_list(events) do
     body = %{
-      summary: event_digest_summary(summary_source),
+      summary: CommentWake.event_digest_summary(summary_source),
       events: events
     }
 
@@ -4932,6 +3873,18 @@ defmodule Aiur.Orchestrator do
     {:error, :invalid_message}
   end
 
+  defp maybe_emit_agent_control_alert(:working, :paused, %{paused_reason: :ci_wait} = running_entry)
+       when is_map(running_entry) do
+    Alerts.emit_system("ticket.#{Map.get(running_entry, :identifier)}.ci.wait",
+      issue: Map.get(running_entry, :identifier),
+      workspace: Map.get(running_entry, :workspace_path),
+      worker_host: Map.get(running_entry, :worker_host),
+      reason: "Waiting for CI before human review.",
+      needs_attention: false,
+      severity: "info"
+    )
+  end
+
   defp maybe_emit_agent_control_alert(:working, :paused, running_entry)
        when is_map(running_entry) do
     Alerts.emit_system("ticket.#{Map.get(running_entry, :identifier)}.agent.paused",
@@ -5024,8 +3977,8 @@ defmodule Aiur.Orchestrator do
   end
 
   defp trusted_comment_event_digest?(event) when is_map(event) do
-    comment_event_topic?(event) and trusted_comment_event?(event) and
-      not benign_review_pass_comment?(event)
+    comment_event_topic?(event) and CommentWake.trusted_comment_event?(event) and
+      not CommentWake.benign_review_pass_comment?(event)
   end
 
   defp trusted_comment_event_digest?(_event), do: false
@@ -5122,7 +4075,9 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  defp send_pause_control_message(state, issue_identifier) do
+  @doc false
+  @spec send_pause_control_message(State.t(), String.t()) :: term()
+  def send_pause_control_message(state, issue_identifier) do
     send_running_control_message(state, issue_identifier, fn request_id ->
       {:pause_agent, request_id}
     end)
@@ -5305,9 +4260,6 @@ defmodule Aiur.Orchestrator do
   @spec resume_paused_issue(State.t(), map(), boolean()) :: {{:ok, :resumed} | {:error, term()}, State.t()}
   def resume_paused_issue(%State{} = state, running_entry, operator? \\ true) do
     cond do
-      Map.get(running_entry, :pause_contained) == true ->
-        resume_contained_issue(state, running_entry)
-
       # The paused agent already holds a slot, so the limit only blocks
       # resume if the *active* count is already at the cap (which can
       # happen if `max` was lowered while the agent was paused).
@@ -5325,15 +4277,7 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  defp resume_contained_issue(state, running_entry) do
-    {{:ok, :reactivated}, next_state} = do_reactivate(state, running_entry)
-    {{:ok, :started}, next_state}
-  end
-
   defp send_resume_control_message(%State{} = state, running_entry, operator?) do
-    containment = pause_containment_handle(running_entry)
-    _ = PauseContainment.release(containment)
-
     case send_running_control_message(state, Map.get(running_entry, :identifier), fn request_id ->
            {:resume_agent, request_id}
          end) do
@@ -5378,17 +4322,9 @@ defmodule Aiur.Orchestrator do
         {{:ok, :resumed}, state}
 
       {:error, _reason} = error ->
-        _ = PauseContainment.arm(Map.get(running_entry, :identifier))
         {error, state}
     end
   end
-
-  defp pause_containment_handle(%{identifier: identifier, pause_containment_generation: generation})
-       when is_binary(identifier) and is_integer(generation) do
-    %{identifier: identifier, generation: generation}
-  end
-
-  defp pause_containment_handle(_running_entry), do: nil
 
   defp reset_last_codex_timestamp(running, issue_id, %DateTime{} = now) when is_map(running) do
     case Map.get(running, issue_id) do
@@ -5430,6 +4366,9 @@ defmodule Aiur.Orchestrator do
         Map.put(running, issue_id, updated)
 
       %{paused_reason: :label_override} = entry ->
+        Map.put(running, issue_id, Map.delete(entry, :paused_reason))
+
+      %{paused_reason: :ci_wait} = entry ->
         Map.put(running, issue_id, Map.delete(entry, :paused_reason))
 
       _ ->
@@ -5878,7 +4817,9 @@ defmodule Aiur.Orchestrator do
     }
   end
 
-  defp schedule_poll_cycle_start do
+  @doc false
+  @spec schedule_poll_cycle_start() :: :ok
+  def schedule_poll_cycle_start do
     :timer.send_after(@poll_transition_render_delay_ms, self(), :run_poll_cycle)
     :ok
   end
@@ -6394,7 +5335,7 @@ defmodule Aiur.Orchestrator do
     new_body =
       first.body
       |> Map.put(:events, sorted)
-      |> Map.put(:summary, event_digest_summary(%{events: sorted}))
+      |> Map.put(:summary, CommentWake.event_digest_summary(%{events: sorted}))
 
     %{first | body: new_body}
   end

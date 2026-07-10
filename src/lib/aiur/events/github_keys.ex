@@ -9,17 +9,20 @@ defmodule Aiur.Events.GithubKeys do
 
   @pre_boot_buffer_seconds 60
 
+  alias Aiur.TicketBranch
+
   @doc """
   Converts a full Git ref into the event topic classification.
 
-  Only canonical `refs/heads/aiur/<digits>` branches route to ticket push topics.
-  Other single-segment branch refs route to system branch topics.
+  Legacy `refs/heads/aiur/<digits>` branches and new readable ticket branches
+  route to the same numeric ticket push topic. Other single-segment branch refs
+  route to system branch topics.
   """
   @spec ref_to_topic(term()) ::
           {:ticket, String.t(), String.t()} | {:system, String.t()} | nil
   def ref_to_topic(ref) when is_binary(ref) do
-    case Regex.run(~r{\Arefs/heads/aiur/(\d+)\z}, ref) do
-      [_, id] ->
+    case TicketBranch.ticket_id_from_ref(ref) do
+      id when is_binary(id) ->
         {:ticket, id, "ticket.#{id}.branch.push"}
 
       _ ->

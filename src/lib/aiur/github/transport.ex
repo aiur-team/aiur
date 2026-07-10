@@ -133,6 +133,20 @@ defmodule Aiur.GitHub.Transport do
     end
   end
 
+  @spec fetch_json_map(function(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def fetch_json_map(request_fun, token, url) do
+    case request_fun.(%{method: :get, url: url, token: token}) do
+      {:ok, %{status: 200, body: body}} when is_map(body) ->
+        {:ok, body}
+
+      {:ok, %{status: _status} = response} ->
+        {:error, Errors.github_status_error(response)}
+
+      {:error, reason} ->
+        {:error, Errors.classify_error({:error, reason})}
+    end
+  end
+
   @spec parse_next_page_url(list() | map()) :: String.t() | nil
   def parse_next_page_url(headers) do
     case header(headers, "link") do

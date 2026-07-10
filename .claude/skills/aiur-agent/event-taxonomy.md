@@ -41,7 +41,7 @@ These you can subscribe to, but they're emitted by Aiur, not by you.
 
 | Topic | What it means |
 |-------|---------------|
-| `ticket.<id>.branch.push` | Someone pushed to `aiur/<id>` (via firehose or ls-remote) |
+| `ticket.<id>.branch.push` | Someone pushed to an Aiur ticket branch (legacy or readable); the payload carries the actual ref. |
 | `system.<branch>.branch.push` | Push to the repo's default branch (universal subscription — you don't need to subscribe explicitly) |
 | `ticket.<id>.pr.opened` | A PR was opened for this ticket |
 | `ticket.<id>.pr.merged` | A PR for this ticket was merged |

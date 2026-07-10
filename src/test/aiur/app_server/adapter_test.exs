@@ -76,6 +76,21 @@ defmodule Aiur.AppServer.AdapterTest do
     assert_receive {^port, {:data, {:eol, "ready"}}}, 1_000
   end
 
+  test "start_port/2 caps schedulers for an agent-launched Mix VM" do
+    mix = System.find_executable("mix") || flunk("mix executable unavailable")
+    elixir = System.find_executable("elixir") || flunk("elixir executable unavailable")
+    path = Path.dirname(elixir) <> ":" <> System.get_env("PATH")
+    expression = ~S|IO.puts("#{System.get_env("AIUR_AGENT_MIX_SCHEDULERS")}:#{System.schedulers_online()}")|
+
+    assert {:ok, port} =
+             Adapter.start_port(
+               File.cwd!(),
+               "PATH=#{Aiur.Shell.escape(path)} #{Aiur.Shell.escape(mix)} run --no-compile --no-deps-check --no-start -e #{Aiur.Shell.escape(expression)}"
+             )
+
+    assert_receive {^port, {:data, {:eol, "4:4"}}}, 20_000
+  end
+
   defp session(port, overrides \\ %{}) do
     Map.merge(
       %{

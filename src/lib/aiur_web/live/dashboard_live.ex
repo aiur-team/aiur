@@ -507,13 +507,12 @@ defmodule AiurWeb.DashboardLive do
   end
 
   defp agent_log_modal(entry) do
-    path = agent_log_path(entry)
-    content = Aiur.AgentLog.read(path)
+    %{path: path, messages: messages} = read_agent_log(entry)
 
     %{
       issue_identifier: entry.issue_identifier,
       path: path,
-      messages: Aiur.AgentLog.parse(content)
+      messages: messages
     }
   end
 
@@ -539,6 +538,15 @@ defmodule AiurWeb.DashboardLive do
   end
 
   defp agent_log_path(_entry), do: nil
+
+  defp read_agent_log(%{workspace_path: workspace_path}) when is_binary(workspace_path) do
+    Aiur.AgentLog.read_workspace(workspace_path)
+  end
+
+  defp read_agent_log(entry) do
+    path = agent_log_path(entry)
+    %{path: path, messages: path |> Aiur.AgentLog.read() |> Aiur.AgentLog.parse()}
+  end
 
   defp log_message_class(%{role: role}), do: "log-message log-message-#{role}"
 
