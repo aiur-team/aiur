@@ -8,6 +8,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   require Logger
   import Bitwise, only: [<<<: 2]
 
+  alias Aiur.Alerts
   alias Aiur.Events.UniversalSubscriptions
   alias Aiur.{Issue, Tracker}
   alias Aiur.Orchestrator
@@ -353,8 +354,30 @@ defmodule Aiur.Orchestrator.CommentWake do
 
     Logger.info("#{source} reactivating: issue_id=#{issue_id} issue_identifier=#{issue_number}")
 
-    {_reply, next_state} = Orchestrator.reactivate_issue(state, refreshed_entry)
-    next_state
+    case Orchestrator.reactivate_issue(state, refreshed_entry) do
+      {{:ok, :reactivated}, next_state} ->
+        next_state
+
+      {{:error, reason}, next_state} ->
+        emit_comment_reactivation_deferred_alert(refreshed_entry, source, reason)
+        next_state
+    end
+  end
+
+  defp emit_comment_reactivation_deferred_alert(running_entry, source, reason) do
+    identifier = Map.get(running_entry, :identifier)
+    issue_id = get_in(running_entry, [:issue, Access.key(:id)])
+
+    Logger.warning("#{source} reactivation deferred: issue_id=#{issue_id} issue_identifier=#{identifier} reason=#{inspect(reason)}")
+
+    Alerts.emit_system("ticket.#{identifier}.agent.review_feedback_delivery_deferred",
+      issue: identifier,
+      workspace: Map.get(running_entry, :workspace_path),
+      worker_host: Map.get(running_entry, :worker_host),
+      reason: "Trusted review feedback moved the ticket to rework, but the agent could not resume: #{inspect(reason)}.",
+      needs_attention: true,
+      severity: "warning"
+    )
   end
 
   defp comment_reactivation_context(running_entry, issue_number) do

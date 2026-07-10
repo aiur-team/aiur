@@ -3717,7 +3717,20 @@ defmodule Aiur.Orchestrator do
     # budget so the fresh task starts with a full window.
     state = reset_thrash_budget(state, issue_id)
 
-    {{:ok, :reactivated}, do_dispatch_issue(state, issue, nil, worker_host)}
+    dispatched_state = do_dispatch_issue(state, issue, nil, worker_host)
+
+    case Map.get(dispatched_state.running, issue_id) do
+      %{pid: pid} when is_pid(pid) ->
+        {{:ok, :reactivated}, dispatched_state}
+
+      _ ->
+        # `select_worker_host/2`, the thrash breaker, or Task.Supervisor can
+        # decline a dispatch after the entry is optimistically made `:working`.
+        # Restore the parked entry so the tracker still shows it as needing a
+        # wake and the comment path can emit its durable operator alert.
+        restored_state = %{dispatched_state | running: Map.put(dispatched_state.running, issue_id, running_entry)}
+        {{:error, :dispatch_not_started}, refresh_tracked_set(restored_state)}
+    end
   end
 
   # `operator?` distinguishes a deliberate operator resume (label flip,
