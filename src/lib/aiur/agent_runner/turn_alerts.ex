@@ -21,7 +21,7 @@ defmodule Aiur.AgentRunner.TurnAlerts do
     Aiur.ModelAvailability.mark_limited(backend, reset_hint)
 
     reset_suffix = if is_binary(reset_hint), do: " (try again at #{reset_hint})", else: ""
-    backend_suffix = if is_binary(backend), do: " Backend detail: #{backend}.", else: ""
+    backend_suffix = " Backend detail: #{backend}."
 
     reason =
       "Agent paused: the #{backend} account usage quota is exhausted; retrying cannot help " <>
