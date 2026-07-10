@@ -37,7 +37,14 @@ defmodule Aiur.Workspace.Refresh do
           map(),
           String.t() | nil
         ) :: :ok | {:error, term()}
-  def maybe_recreate_stale_workspace(error, reason, before_run, workspace, issue_context, worker_host) do
+  def maybe_recreate_stale_workspace(
+        error,
+        reason,
+        before_run,
+        workspace,
+        issue_context,
+        worker_host
+      ) do
     cond do
       is_nil(before_run) ->
         error
@@ -53,7 +60,13 @@ defmodule Aiur.Workspace.Refresh do
           "Recreating stale leftover workspace after before_run dirty-refresh refusal #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=#{Context.worker_host_for_log(worker_host)}"
         )
 
-        with :ok <- Provisioner.recreate(workspace, worker_host),
+        with :ok <-
+               Provisioner.recreate(
+                 workspace,
+                 worker_host,
+                 issue_context.pr_head_ref,
+                 issue_context.branch_name
+               ),
              :ok <- run_before_run_command(before_run, workspace, issue_context, worker_host) do
           finalize_before_run_workspace(workspace, issue_context, worker_host)
         end
@@ -89,6 +102,8 @@ defmodule Aiur.Workspace.Refresh do
     Hooks.run_hook(command, workspace, issue_context, "before_run", worker_host)
   end
 
-  defp stale_leftover_refresh_refusal?({:workspace_hook_failed, "before_run", 65, _output}), do: true
+  defp stale_leftover_refresh_refusal?({:workspace_hook_failed, "before_run", 65, _output}),
+    do: true
+
   defp stale_leftover_refresh_refusal?(_reason), do: false
 end

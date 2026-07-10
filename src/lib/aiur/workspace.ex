@@ -19,7 +19,12 @@ defmodule Aiur.Workspace do
       with {:ok, workspace} <- Layout.workspace_path_for_issue(safe_id, worker_host),
            :ok <- Layout.validate_workspace_path(workspace, worker_host),
            {:ok, workspace, created?} <-
-             Provisioner.ensure_workspace(workspace, worker_host, issue_context.pr_head_ref),
+             Provisioner.ensure_workspace(
+               workspace,
+               worker_host,
+               issue_context.pr_head_ref,
+               issue_context.branch_name
+             ),
            :ok <- Hooks.run_after_create(workspace, issue_context, created?, worker_host),
            :ok <- Hooks.run_github_preflight(workspace, issue_context, worker_host) do
         Provisioner.maybe_install_agent_skills(workspace, worker_host)
@@ -27,7 +32,10 @@ defmodule Aiur.Workspace do
       end
     rescue
       error in [ArgumentError, ErlangError, File.Error] ->
-        Logger.error("Workspace creation failed #{Context.log_context(issue_context)} worker_host=#{Context.worker_host_for_log(worker_host)} error=#{Exception.message(error)}")
+        Logger.error(
+          "Workspace creation failed #{Context.log_context(issue_context)} worker_host=#{Context.worker_host_for_log(worker_host)} error=#{Exception.message(error)}"
+        )
+
         {:error, error}
     end
   end
@@ -39,6 +47,12 @@ defmodule Aiur.Workspace do
   @doc false
   @spec materialize_from_base(Path.t(), Path.t(), String.t()) :: :ok | {:error, term()}
   defdelegate materialize_from_base(base, workspace, pr_head_ref), to: Aiur.Workspace.Materialize
+
+  @doc false
+  @spec materialize_from_base(Path.t(), Path.t(), String.t(), String.t() | nil) ::
+          :ok | {:error, term()}
+  defdelegate materialize_from_base(base, workspace, branch_name, pr_head_ref),
+    to: Aiur.Workspace.Materialize
 
   @spec remove(Path.t()) :: {:ok, [String.t()]} | {:error, term(), String.t()}
   defdelegate remove(workspace), to: Remove

@@ -22,9 +22,9 @@ entire ticket impossible.
 
 You'll get a `ticket.N.branch.push` event (or the mid-turn checkpoint drain will deliver it if it's blocking-critical for you). Treat that event as an inspect-and-stack cue, not a passive notification. Then:
 
-1. **Fetch the branch.** `git fetch origin aiur/N`.
-2. **Inspect the pushed code before deciding.** Read the blocker diff and exports: `git log --oneline HEAD..origin/aiur/N`, `git diff --stat HEAD..origin/aiur/N`, `git diff --name-only HEAD..origin/aiur/N`, and the relevant files or package indexes. Decide whether the needed helper/API actually landed.
-3. **If the branch contains usable code, stack on it.** Commit your WIP if needed, then rebase or merge onto `origin/aiur/N` instead of waiting for main. If the blocker PR is still open, open your PR against the blocker branch.
+1. **Fetch the actual branch.** Use the validated `ref` carried by the branch-push event; its numeric topic key cannot recreate a readable title suffix.
+2. **Inspect the pushed code before deciding.** Read the blocker diff and exports against that fetched ref, plus the relevant files or package indexes. Decide whether the needed helper/API actually landed.
+3. **If the branch contains usable code, stack on it.** Commit your WIP if needed, then rebase or merge onto the fetched blocker ref instead of waiting for main. If the blocker PR is still open, open your PR against the blocker branch.
 4. **Replace the stub.** Delete your temporary stub and import/use the real function. Do not push a branch that replaces blocker-owned files with local placeholders.
 5. **Summarize what you adopted.** In your workpad or PR notes, say which blocker diff/export you found and which helper/API you integrated.
 6. **Run your tests.** They were green against the stub; verify they're still green against the real implementation.

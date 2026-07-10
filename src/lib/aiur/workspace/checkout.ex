@@ -8,9 +8,13 @@ defmodule Aiur.Workspace.Checkout do
   # main. Fetch the base's own tracking branch and branch off its origin tip; if
   # there's no usable remote (tests, offline, detached HEAD), fall back to the
   # copied HEAD — today's behavior — so materialize still succeeds.
-  def checkout_fresh_branch(workspace) do
+  def checkout_fresh_branch(workspace),
+    do: checkout_fresh_branch(workspace, branch_for(workspace))
+
+  @spec checkout_fresh_branch(Path.t(), String.t()) :: :ok | {:error, term()}
+  def checkout_fresh_branch(workspace, branch_name) when is_binary(branch_name) do
     args =
-      ["-C", workspace, "checkout", "-B", branch_for(workspace)] ++ fresh_base_start_point(workspace)
+      ["-C", workspace, "checkout", "-B", branch_name] ++ fresh_base_start_point(workspace)
 
     case System.cmd("git", args, stderr_to_stdout: true) do
       {_out, 0} -> :ok
@@ -37,7 +41,9 @@ defmodule Aiur.Workspace.Checkout do
 
   @spec current_branch(Path.t()) :: String.t() | nil
   def current_branch(workspace) do
-    case System.cmd("git", ["-C", workspace, "symbolic-ref", "--quiet", "--short", "HEAD"], stderr_to_stdout: true) do
+    case System.cmd("git", ["-C", workspace, "symbolic-ref", "--quiet", "--short", "HEAD"],
+           stderr_to_stdout: true
+         ) do
       {out, 0} -> String.trim(out)
       _ -> nil
     end
@@ -85,7 +91,9 @@ defmodule Aiur.Workspace.Checkout do
   defp fresh_base_start_point(workspace) do
     with base when is_binary(base) <- current_branch(workspace),
          {_out, 0} <-
-           System.cmd("git", ["-C", workspace, "fetch", "origin", base, "--quiet"], stderr_to_stdout: true) do
+           System.cmd("git", ["-C", workspace, "fetch", "origin", base, "--quiet"],
+             stderr_to_stdout: true
+           ) do
       ["origin/" <> base]
     else
       _ -> []

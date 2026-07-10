@@ -24,26 +24,29 @@ defmodule Aiur.Workspace.Provisioner do
   # PR-anchored creation (`pr_head_ref` set) is only wired for the local
   # worker today; a remote worker_host ignores it and keeps the legacy
   # `aiur/<id>` remote path byte-for-byte (SSH PR-anchored is out of scope
-  # for this unit). The 3-arity head delegates to the unchanged 2-arity
-  # clauses for the legacy (`pr_head_ref == nil`) path.
-  def ensure_workspace(workspace, worker_host, nil), do: ensure_workspace(workspace, worker_host)
+  # for this unit). The 3-arity entrypoint retains the legacy branch for
+  # compatibility; tracker issue contexts use the 4-arity generated branch.
+  def ensure_workspace(workspace, worker_host, pr_head_ref),
+    do: ensure_workspace(workspace, worker_host, pr_head_ref, legacy_branch_name(workspace))
 
-  def ensure_workspace(workspace, nil, pr_head_ref) when is_binary(pr_head_ref) do
+  @spec ensure_workspace(Path.t(), worker_host(), String.t() | nil, String.t()) ::
+          {:ok, Path.t(), boolean() | :materialized} | {:error, term()}
+  def ensure_workspace(workspace, nil, pr_head_ref, branch_name) when is_binary(branch_name) do
     cond do
       File.dir?(workspace) ->
         {:ok, workspace, false}
 
       File.exists?(workspace) ->
         File.rm_rf!(workspace)
-        create_or_materialize(workspace, pr_head_ref)
+        create_or_materialize(workspace, branch_name, pr_head_ref)
 
       true ->
-        create_or_materialize(workspace, pr_head_ref)
+        create_or_materialize(workspace, branch_name, pr_head_ref)
     end
   end
 
-  def ensure_workspace(workspace, worker_host, pr_head_ref)
-      when is_binary(worker_host) and is_binary(pr_head_ref) do
+  def ensure_workspace(workspace, worker_host, _pr_head_ref, _branch_name)
+      when is_binary(worker_host) do
     ensure_workspace(workspace, worker_host)
   end
 
@@ -56,10 +59,10 @@ defmodule Aiur.Workspace.Provisioner do
 
       File.exists?(workspace) ->
         File.rm_rf!(workspace)
-        create_or_materialize(workspace)
+        create_or_materialize(workspace, legacy_branch_name(workspace), nil)
 
       true ->
-        create_or_materialize(workspace)
+        create_or_materialize(workspace, legacy_branch_name(workspace), nil)
     end
   end
 
@@ -124,7 +127,9 @@ defmodule Aiur.Workspace.Provisioner do
 
   @spec recreate(Path.t(), worker_host()) :: :ok | {:error, term()}
   def recreate(workspace, nil) do
-    {:ok, _workspace, _created?} = create_or_materialize(workspace)
+    {:ok, _workspace, _created?} =
+      create_or_materialize(workspace, legacy_branch_name(workspace), nil)
+
     :ok
   end
 
@@ -145,6 +150,15 @@ defmodule Aiur.Workspace.Provisioner do
     end
   end
 
+  @spec recreate(Path.t(), worker_host(), String.t() | nil, String.t()) :: :ok | {:error, term()}
+  def recreate(workspace, nil, pr_head_ref, branch_name) when is_binary(branch_name) do
+    {:ok, _workspace, _created?} = create_or_materialize(workspace, branch_name, pr_head_ref)
+    :ok
+  end
+
+  def recreate(workspace, worker_host, _pr_head_ref, _branch_name) when is_binary(worker_host),
+    do: recreate(workspace, worker_host)
+
   defp create_workspace(workspace) do
     File.rm_rf!(workspace)
     File.mkdir_p!(workspace)
@@ -156,30 +170,16 @@ defmodule Aiur.Workspace.Provisioner do
   # the warm `_build`/deps) instead of cold-cloning + recompiling. Anything that
   # rules pre-warm out — disabled, base not ready, missing, or a copy failure —
   # falls through to the unchanged cold `create_workspace/1` path.
-  defp create_or_materialize(workspace) do
+  defp create_or_materialize(workspace, branch_name, pr_head_ref) do
     with true <- Config.prewarm_enabled?(),
          {:ready, base} when is_binary(base) <- RepoBase.status(),
          true <- File.dir?(base),
-         :ok <- Materialize.materialize_from_base(base, workspace) do
+         :ok <- Materialize.materialize_from_base(base, workspace, branch_name, pr_head_ref) do
       {:ok, workspace, :materialized}
     else
       _ -> create_workspace(workspace)
     end
   end
 
-  # PR-anchored variant: materialize from the warm base (CoW) but check out
-  # the PR's existing head branch (`pr_head_ref`) instead of creating a fresh
-  # `aiur/<id>`. When pre-warm is unavailable, fall back to the unchanged cold
-  # `create_workspace/1` path (the operator's after_create hook owns the clone;
-  # PR-anchored cold-clone branch selection is out of scope for this unit).
-  defp create_or_materialize(workspace, pr_head_ref) when is_binary(pr_head_ref) do
-    with true <- Config.prewarm_enabled?(),
-         {:ready, base} when is_binary(base) <- RepoBase.status(),
-         true <- File.dir?(base),
-         :ok <- Materialize.materialize_from_base(base, workspace, pr_head_ref) do
-      {:ok, workspace, :materialized}
-    else
-      _ -> create_workspace(workspace)
-    end
-  end
+  defp legacy_branch_name(workspace), do: "aiur/" <> Path.basename(workspace)
 end

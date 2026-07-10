@@ -543,7 +543,7 @@ defmodule Aiur.GitHub.ClientTest do
   end
 
   describe "fetch_open_pull_request_for_branch/2" do
-    test "returns the first open PR for the canonical aiur branch" do
+    test "returns the first open PR for a readable ticket branch" do
       request_fun = fn %{method: :get, url: url} ->
         assert url =~ "/repos/owner/repo/pulls?"
         assert url =~ "state=open"

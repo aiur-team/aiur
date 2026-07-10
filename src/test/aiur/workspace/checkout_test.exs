@@ -26,6 +26,13 @@ defmodule Aiur.Workspace.CheckoutTest do
     assert Checkout.current_branch(repo) == "aiur/123"
   end
 
+  test "checkout_fresh_branch uses the supplied generated ticket branch", %{tmp: tmp} do
+    repo = init_repo!(Path.join(tmp, "123"))
+
+    assert :ok = Checkout.checkout_fresh_branch(repo, "aiur/123-add-new-test-cases")
+    assert Checkout.current_branch(repo) == "aiur/123-add-new-test-cases"
+  end
+
   test "checkout_existing_pr_branch falls back to a local branch named the ref", %{tmp: tmp} do
     repo = init_repo!(Path.join(tmp, "pr-77"))
 

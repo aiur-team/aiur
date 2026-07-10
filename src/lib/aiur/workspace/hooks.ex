@@ -75,7 +75,7 @@ defmodule Aiur.Workspace.Hooks do
         System.cmd("sh", ["-lc", scrubbed_command],
           cd: workspace,
           stderr_to_stdout: true,
-          env: hook_env()
+          env: hook_env(issue_context)
         )
       end)
 
@@ -170,12 +170,18 @@ defmodule Aiur.Workspace.Hooks do
   # `git clone "$THIS_REPOSITORY_URL" .` without hardcoding the URL. Resolved
   # from the same source aiur polls issues with, so it tracks repo-local and
   # global/auto-detected configs alike.
-  defp hook_env do
-    with "github" <- Config.settings!().tracker.kind,
-         repo when is_binary(repo) and repo != "" <- Aiur.GitHub.Config.repo() do
-      [{"THIS_REPOSITORY_URL", "https://github.com/#{repo}.git"}]
-    else
-      _ -> []
+  defp hook_env(issue_context) do
+    repository_env =
+      with "github" <- Config.settings!().tracker.kind,
+           repo when is_binary(repo) and repo != "" <- Aiur.GitHub.Config.repo() do
+        [{"THIS_REPOSITORY_URL", "https://github.com/#{repo}.git"}]
+      else
+        _ -> []
+      end
+
+    case Map.get(issue_context, :branch_name) do
+      branch_name when is_binary(branch_name) and branch_name != "" -> [{"AIUR_TICKET_BRANCH", branch_name} | repository_env]
+      _ -> repository_env
     end
   end
 

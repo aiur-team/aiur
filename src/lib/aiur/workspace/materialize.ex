@@ -6,10 +6,17 @@ defmodule Aiur.Workspace.Materialize do
 
   @doc false
   # Copy the warm base into `workspace` (CoW when the FS supports it) and branch
-  # off the base's HEAD as `aiur/<id>`. Public for tests; callers go through
-  # `create_or_materialize/1`.
+  # off the base's HEAD as its generated ticket branch. Public for tests;
+  # callers go through `create_or_materialize/3`.
   @spec materialize_from_base(Path.t(), Path.t()) :: :ok | {:error, term()}
   def materialize_from_base(base, workspace) do
+    materialize_from_base(base, workspace, "aiur/" <> Path.basename(workspace), nil)
+  end
+
+  @doc false
+  @spec materialize_from_base(Path.t(), Path.t(), String.t(), String.t() | nil) ::
+          :ok | {:error, term()}
+  def materialize_from_base(base, workspace, branch_name, nil) when is_binary(branch_name) do
     File.rm_rf!(workspace)
     # The repo-namespaced layout (`<root>/<repo>/<issue>`) means the `<repo>`
     # parent dir may not exist yet for the first agent of a repo; `cp` needs it
@@ -18,24 +25,21 @@ defmodule Aiur.Workspace.Materialize do
     File.mkdir_p!(Path.dirname(workspace))
 
     with {_out, 0} <- copy_tree(base, workspace),
-         :ok <- Checkout.checkout_fresh_branch(workspace) do
+         :ok <- Checkout.checkout_fresh_branch(workspace, branch_name) do
       :ok
     else
       other ->
-        Logger.warning("prewarm materialize failed (#{inspect(other)}); falling back to cold clone")
+        Logger.warning(
+          "prewarm materialize failed (#{inspect(other)}); falling back to cold clone"
+        )
+
         File.rm_rf!(workspace)
         {:error, other}
     end
   end
 
-  @doc false
-  # PR-anchored materialize: copy the warm base (CoW) then check out the PR's
-  # existing head branch (`pr_head_ref`) instead of creating `aiur/<id>`. The PR
-  # branch is a human's existing branch — the agent works it directly and pushes
-  # back there, never opening a new `aiur/<id>` PR. Public for tests; callers go
-  # through `create_or_materialize/2`.
-  @spec materialize_from_base(Path.t(), Path.t(), String.t()) :: :ok | {:error, term()}
-  def materialize_from_base(base, workspace, pr_head_ref) when is_binary(pr_head_ref) do
+  def materialize_from_base(base, workspace, _branch_name, pr_head_ref)
+      when is_binary(pr_head_ref) do
     File.rm_rf!(workspace)
     File.mkdir_p!(Path.dirname(workspace))
 
@@ -44,10 +48,19 @@ defmodule Aiur.Workspace.Materialize do
       :ok
     else
       other ->
-        Logger.warning("prewarm materialize (PR-anchored) failed (#{inspect(other)}); falling back to cold clone")
+        Logger.warning(
+          "prewarm materialize (PR-anchored) failed (#{inspect(other)}); falling back to cold clone"
+        )
+
         File.rm_rf!(workspace)
         {:error, other}
     end
+  end
+
+  @doc false
+  @spec materialize_from_base(Path.t(), Path.t(), String.t()) :: :ok | {:error, term()}
+  def materialize_from_base(base, workspace, pr_head_ref) when is_binary(pr_head_ref) do
+    materialize_from_base(base, workspace, "aiur/" <> Path.basename(workspace), pr_head_ref)
   end
 
   # macOS APFS clones via `cp -c`; Linux btrfs/xfs reflink via `cp --reflink=auto`

@@ -3,7 +3,7 @@ defmodule Aiur.GitHub.PullRequests do
   GitHub pull request domain.
   """
 
-  alias Aiur.Codeowners
+  alias Aiur.{Codeowners, TicketBranch}
   alias Aiur.GitHub.{Comments, Errors, Transport}
 
   @spec fetch_pull_request_changed_paths(String.t() | integer(), keyword()) ::
@@ -38,8 +38,8 @@ defmodule Aiur.GitHub.PullRequests do
   end
 
   @doc """
-  Fetches the open pull request whose head branch is the canonical Aiur
-  branch for `issue_number` (`<owner>:aiur/<issue_number>`).
+  Fetches the open pull request whose legacy or readable Aiur head branch
+  belongs to `issue_number`.
   """
   @spec fetch_open_pull_request_for_branch(String.t() | integer(), keyword()) ::
           {:ok, map() | nil} | {:error, term()}
@@ -48,22 +48,51 @@ defmodule Aiur.GitHub.PullRequests do
          {:ok, token} <- Transport.require_token(opts) do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
 
-      query =
-        URI.encode_query(%{
-          "state" => "open",
-          "head" => "#{owner}:aiur/#{issue_number}",
-          "per_page" => "10"
-        })
+      legacy_query = URI.encode_query(%{"state" => "open", "head" => "#{owner}:aiur/#{issue_number}", "per_page" => "10"})
+      legacy_url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls?#{legacy_query}"
 
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls?#{query}"
-
-      case Transport.fetch_json_list(request_fun, token, url) do
-        {:ok, [first | _]} -> {:ok, first}
-        {:ok, []} -> {:ok, nil}
+      case Transport.fetch_json_list(request_fun, token, legacy_url) do
+        {:ok, [pull_request | _]} -> {:ok, pull_request}
+        {:ok, []} ->
+          query = URI.encode_query(%{"state" => "open", "per_page" => "100"})
+          fetch_open_ticket_pull_request(request_fun, token, "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls?#{query}", issue_number)
         {:error, _reason} = error -> error
       end
     end
   end
+
+  defp fetch_open_ticket_pull_request(_request_fun, _token, nil, _issue_number), do: {:ok, nil}
+
+  defp fetch_open_ticket_pull_request(request_fun, token, url, issue_number) do
+    case request_fun.(%{method: :get, url: url, token: token}) do
+      {:ok, %{status: 200, body: body} = response} when is_list(body) ->
+        headers = Map.get(response, :headers, [])
+
+        case Enum.find(body, &ticket_pull_request?(&1, issue_number)) do
+          nil ->
+            fetch_open_ticket_pull_request(
+              request_fun,
+              token,
+              Transport.parse_next_page_url(headers),
+              issue_number
+            )
+
+          pull_request ->
+            {:ok, pull_request}
+        end
+
+      {:ok, %{status: _status} = response} ->
+        {:error, Errors.github_status_error(response)}
+
+      {:error, reason} ->
+        {:error, Errors.classify_error({:error, reason})}
+    end
+  end
+
+  defp ticket_pull_request?(%{"head" => %{"ref" => branch}}, issue_number) when is_binary(branch),
+    do: TicketBranch.ticket_branch?(branch, issue_number)
+
+  defp ticket_pull_request?(_pull_request, _issue_number), do: false
 
   @doc """
   Fetches the OPEN pull requests carrying `label` (e.g. `"agent:watch"`),
@@ -160,7 +189,9 @@ defmodule Aiur.GitHub.PullRequests do
   # `fetch_member_logins/4`) so a repo with more than 100 open PRs cannot
   # silently hide a watched PR past the first page — silent truncation here
   # would drop a watched PR's comments, the exact failure this feature prevents.
-  @spec fetch_labeled_open_pull_requests(function(), String.t(), String.t() | nil, String.t(), [map()]) ::
+  @spec fetch_labeled_open_pull_requests(function(), String.t(), String.t() | nil, String.t(), [
+          map()
+        ]) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_labeled_open_pull_requests(_request_fun, _token, nil, _label, acc), do: {:ok, acc}
 
