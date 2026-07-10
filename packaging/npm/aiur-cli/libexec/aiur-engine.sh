@@ -505,7 +505,10 @@ run_session() {
   # session whose BEAM/control plane is gone should be reclaimed before retry.
   if [ "$mode" = "background" ] && "$tmux_bin" -L "$socket" -f "$conf" has-session -t "$session" 2>/dev/null; then
     if [ "$(probe_control_liveness)" = "up" ]; then
-      write_aiur_instance_record "$session" "$socket"
+      # Write a record only when none exists. A live session's own start already
+      # wrote one — and it owns the BEAM-written AIUR_RECORD_WORKSPACE_ROOT_FILE
+      # path, which must not be overwritten by this invocation's temp file.
+      [ -f "$(aiur_instance_record_path)" ] || (AIUR_WORKSPACE_ROOT_FILE="" write_aiur_instance_record "$session" "$socket")
       echo "aiur is already running in the background (tmux session ${session})." >&2
       echo "Use: aiur status   # inspect agents" >&2
       echo "Use: aiur stop     # stop it before starting a fresh session" >&2

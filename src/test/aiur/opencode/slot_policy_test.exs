@@ -225,6 +225,10 @@ defmodule Aiur.Opencode.SlotPolicyTest do
       end
     end
 
-    :ok
+    # The Registry processes :DOWN messages async — wait until entries are gone
+    # so the next test's FakeSlot.init doesn't see stale registrations.
+    Enum.reduce_while(1..40, :ok, fn _, _ ->
+      if SlotRegistry.all() == [], do: {:halt, :ok}, else: (Process.sleep(5); {:cont, :ok})
+    end)
   end
 end

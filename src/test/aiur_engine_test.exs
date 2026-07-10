@@ -260,8 +260,10 @@ defmodule AiurEngineTest do
         capture: :all_but_first
       )
 
-    refute idempotent_block =~ "write_aiur_instance_record",
-           "an idempotent start must not replace the live workspace-root handoff"
+    # A conditional write (only when no record exists) is allowed; an unconditional
+    # write at the start of a line would overwrite a live session's AIUR_RECORD_WORKSPACE_ROOT_FILE.
+    refute idempotent_block =~ ~r/\n\s+write_aiur_instance_record /,
+           "an idempotent start must not unconditionally replace the live workspace-root handoff"
   end
 
   test "load_dotenv reads ./.env, strips quotes, and lets shell exports win" do
