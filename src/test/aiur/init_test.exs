@@ -21,6 +21,7 @@ defmodule Aiur.InitTest do
     "ticket.*.agent.retry_exhausted",
     "ticket.*.agent.review_feedback_delivery_deferred",
     "ticket.*.agent.paused",
+    "ticket.*.agent.attention.*",
     "ticket.*.agent.unpaused",
     "ticket.*.chat.opened",
     "ticket.*.chat.closed",

@@ -129,7 +129,7 @@ defmodule Aiur.DecisionAttention do
   end
 
   defp emit_resolution_alert(attention) do
-    Alerts.emit_system(resolution_topic(attention),
+    Alerts.emit_custom(resolution_topic(attention), "Operator decision updated",
       issue: attention.issue,
       workspace: attention.workspace,
       reason: "Operator decision resolved.",
