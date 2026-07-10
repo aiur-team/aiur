@@ -325,6 +325,32 @@ defmodule Aiur.Config do
     settings!().agent.max_load_average
   end
 
+  @doc """
+  Per-scheduler 1-minute load target for adaptive dispatch capacity. Defaults
+  to 1.0; explicit YAML `null` disables the adaptive envelope while preserving
+  the independent `max_load_average` hard gate.
+  """
+  @spec target_load_average() :: float() | nil
+  def target_load_average do
+    settings!().agent.target_load_average
+  end
+
+  @doc """
+  Number of dispatch slots added by each below-target envelope sample.
+  """
+  @spec load_ramp_step() :: pos_integer()
+  def load_ramp_step do
+    settings!().agent.load_ramp_step
+  end
+
+  @doc """
+  Minimum number of seconds between high-load envelope decreases.
+  """
+  @spec load_cooldown_seconds() :: non_neg_integer()
+  def load_cooldown_seconds do
+    settings!().agent.load_cooldown_seconds
+  end
+
   @spec codex_turn_sandbox_policy(Path.t() | nil) :: map()
   def codex_turn_sandbox_policy(workspace \\ nil) do
     case Schema.resolve_runtime_turn_sandbox_policy(settings!(), workspace) do

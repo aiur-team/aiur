@@ -100,6 +100,16 @@ defmodule Aiur.Orchestrator.Slots do
     end
   end
 
+  @spec effective_concurrent_agent_limit(State.t()) :: pos_integer()
+  def effective_concurrent_agent_limit(%State{} = state) do
+    static_limit = max_concurrent_agent_limit(state)
+
+    case state.effective_concurrent_agents do
+      effective when is_integer(effective) and effective > 0 -> min(effective, static_limit)
+      _ -> static_limit
+    end
+  end
+
   @spec max_concurrent_agent_status(State.t()) :: map()
   def max_concurrent_agent_status(%State{} = state) do
     active = State.active_running_count(state.running)
@@ -122,7 +132,7 @@ defmodule Aiur.Orchestrator.Slots do
   @spec available_slots(State.t()) :: non_neg_integer()
   def available_slots(%State{} = state) do
     used = State.active_running_count(state.running) + State.paused_running_count(state.running)
-    max(max_concurrent_agent_limit(state) - used, 0)
+    max(effective_concurrent_agent_limit(state) - used, 0)
   end
 
   @spec resume_worker_slot_available?(State.t(), term()) :: boolean()

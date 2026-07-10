@@ -1,5 +1,5 @@
 defmodule Aiur.Config.Schema.Attrs do
-  @moduledoc "Pre-cast raw-config preprocessing: deep key stringification and nil-dropping with the preserved-null path for agent.max_load_average."
+  @moduledoc "Pre-cast raw-config preprocessing: deep key stringification and nil-dropping with preserved agent load-control nulls."
 
   @spec normalize_keys(map() | list() | term()) :: map() | list() | term()
   def normalize_keys(value) when is_map(value) do
@@ -53,5 +53,6 @@ defmodule Aiur.Config.Schema.Attrs do
   # Keep this path aligned with the Agent schema field's location.
   @spec preserve_nil_path?(list()) :: boolean()
   def preserve_nil_path?(["agent", "max_load_average"]), do: true
+  def preserve_nil_path?(["agent", "target_load_average"]), do: true
   def preserve_nil_path?(_path), do: false
 end

@@ -3,7 +3,8 @@ defmodule Aiur.AgentRunner.TurnLoop do
 
   require Logger
 
-  alias Aiur.AgentRunner.{CheckpointDelivery, QueueDrain, SessionLifecycle, SessionResume, TurnPrompt}
+  alias Aiur.AgentRunner.{CheckpointDelivery, MessageHandler, QueueDrain, SessionLifecycle}
+  alias Aiur.AgentRunner.{SessionResume, ToolExecutor, TurnAlerts, TurnPrompt, TurnStreams}
   alias Aiur.Codex.DynamicTool
   alias Aiur.CodingAgent
   alias Aiur.Config
@@ -52,7 +53,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
     prompt = TurnPrompt.build_turn_prompt(issue, opts, turn_number, max_turns)
 
     message_handler =
-      Aiur.AgentRunner.codex_message_handler(
+      MessageHandler.build(
         codex_update_recipient,
         issue,
         workspace,
@@ -62,8 +63,8 @@ defmodule Aiur.AgentRunner.TurnLoop do
 
     safe_checkpoint_handler = CheckpointDelivery.safe_checkpoint_handler(issue, orchestrator)
 
-    Aiur.AgentRunner.send_control_state(codex_update_recipient, issue, :working)
-    aiur_turn_id = Aiur.AgentRunner.open_aiur_turn_streams(issue)
+    MessageHandler.send_control_state(codex_update_recipient, issue, :working)
+    aiur_turn_id = TurnStreams.open(issue)
 
     :ok = DynamicTool.reset_turn_quotas()
 
@@ -75,16 +76,16 @@ defmodule Aiur.AgentRunner.TurnLoop do
         on_message: message_handler,
         on_safe_checkpoint: safe_checkpoint_handler,
         on_operator_message: CheckpointDelivery.operator_immediate_handler(issue, orchestrator),
-        tool_executor: Aiur.AgentRunner.tool_executor(issue, workspace, worker_host)
+        tool_executor: ToolExecutor.build(issue, workspace, worker_host)
       )
 
-    Aiur.AgentRunner.close_aiur_turn_streams(issue, aiur_turn_id, turn_done_reason(result))
+    TurnStreams.close(issue, aiur_turn_id, turn_done_reason(result))
 
     case result do
       {:ok, turn_session} ->
         SessionResume.maybe_persist_turn_handle(app_session, turn_session, issue.identifier, worker_host)
 
-        Aiur.AgentRunner.best_effort_queue_bookkeeping(
+        best_effort_queue_bookkeeping(
           Aiur.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier),
           :consume,
           issue
@@ -106,22 +107,22 @@ defmodule Aiur.AgentRunner.TurnLoop do
 
         Logger.info("Paused agent run for #{Aiur.AgentRunner.issue_context(issue)} session_id=#{pause_payload[:session_id]} workspace=#{workspace} turn=#{turn_number}/#{max_turns_display(max_turns)}")
 
-        Aiur.AgentRunner.maybe_emit_usage_limit_alert(issue, workspace, worker_host, pause_payload)
+        TurnAlerts.maybe_emit_usage_limit_alert(issue, workspace, worker_host, pause_payload)
 
-        Aiur.AgentRunner.best_effort_queue_bookkeeping(
+        best_effort_queue_bookkeeping(
           Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier),
           :restore,
           issue
         )
 
         Aiur.AgentRunner.write_pause_log(workspace, worker_host)
-        Aiur.AgentRunner.send_control_state(codex_update_recipient, issue, :paused)
+        MessageHandler.send_control_state(codex_update_recipient, issue, :paused)
         wait_for_resume(turn_context, app_session, message_handler)
 
       {:error, reason} ->
-        Aiur.AgentRunner.maybe_emit_more_tokens_alert(issue, workspace, worker_host, reason)
+        TurnAlerts.maybe_emit_more_tokens_alert(issue, workspace, worker_host, reason)
 
-        Aiur.AgentRunner.best_effort_queue_bookkeeping(
+        best_effort_queue_bookkeeping(
           Aiur.Orchestrator.fail_delivered_queue_items(orchestrator, issue.identifier, reason),
           :fail,
           issue
@@ -137,6 +138,17 @@ defmodule Aiur.AgentRunner.TurnLoop do
   def turn_done_reason({:paused, _payload}), do: :input_required
   def turn_done_reason({:error, reason}), do: {:failed, reason}
   def turn_done_reason(_), do: :done
+
+  @doc false
+  @spec best_effort_queue_bookkeeping(:ok | {:error, term()}, atom(), Issue.t()) :: :ok
+  def best_effort_queue_bookkeeping(:ok, _op, _issue), do: :ok
+
+  @doc false
+  def best_effort_queue_bookkeeping({:error, reason}, op, issue) do
+    Logger.warning("Orchestrator #{op}_delivered_queue_items unavailable for #{Aiur.AgentRunner.issue_context(issue)}: #{inspect(reason)}; continuing without crashing the agent")
+
+    :ok
+  end
 
   defp finalize_turn_completion(turn_context, app_session, turn_session) do
     %{
