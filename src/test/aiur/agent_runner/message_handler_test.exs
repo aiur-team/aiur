@@ -1,8 +1,8 @@
 defmodule Aiur.AgentRunner.MessageHandlerTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.AgentRunner.MessageHandler
   alias Aiur.{AgentPubSub, Issue}
+  alias Aiur.AgentRunner.MessageHandler
 
   describe "build/6" do
     test "returns a closure that forwards codex_worker_update to recipient" do

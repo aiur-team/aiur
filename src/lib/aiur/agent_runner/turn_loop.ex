@@ -3,7 +3,8 @@ defmodule Aiur.AgentRunner.TurnLoop do
 
   require Logger
 
-  alias Aiur.AgentRunner.{CheckpointDelivery, MessageHandler, QueueDrain, SessionLifecycle, SessionResume, ToolExecutor, TurnAlerts, TurnPrompt, TurnStreams}
+  alias Aiur.AgentRunner.{CheckpointDelivery, MessageHandler, QueueDrain, SessionLifecycle}
+  alias Aiur.AgentRunner.{SessionResume, ToolExecutor, TurnAlerts, TurnPrompt, TurnStreams}
   alias Aiur.Codex.DynamicTool
   alias Aiur.CodingAgent
   alias Aiur.Config

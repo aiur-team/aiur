@@ -2,8 +2,8 @@ defmodule Aiur.AgentRunnerTest do
   use ExUnit.Case, async: true
 
   alias Aiur.AgentRunner
-  alias Aiur.AgentRunner.{SessionLifecycle, SessionResume, QueueDrain, TurnLoop}
-  alias Aiur.AgentRunner.{EventsDigest, TurnPrompt, CommentContext}
+  alias Aiur.AgentRunner.{CommentContext, EventsDigest, QueueDrain, SessionLifecycle}
+  alias Aiur.AgentRunner.{SessionResume, TurnLoop, TurnPrompt}
   alias Aiur.Orchestrator
 
   # Regression: open_aiur_turn_streams posted the `__aiur_turn__:<id>`

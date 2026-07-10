@@ -1,8 +1,8 @@
 defmodule Aiur.AgentRunner.TurnStreamsTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.AgentRunner.TurnStreams
   alias Aiur.{AgentPubSub, Issue}
+  alias Aiur.AgentRunner.TurnStreams
   alias Aiur.Opencode.ActiveTurns
 
   describe "open/1" do

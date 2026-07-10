@@ -2,7 +2,7 @@ defmodule Aiur.Regression.AgentRunnerLifecycleTest do
   use ExUnit.Case, async: false
 
   alias Aiur.AgentRunner
-  alias Aiur.AgentRunner.{SessionResume, QueueDrain, EventsDigest}
+  alias Aiur.AgentRunner.{EventsDigest, QueueDrain, SessionResume}
   alias Aiur.CodingAgent
   alias Aiur.Events.DebugLog
   alias Aiur.Orchestrator
