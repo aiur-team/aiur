@@ -13,6 +13,8 @@ defmodule Aiur.AgentRunner.TurnAlerts do
     reset_hint = pause_payload[:reset_hint]
     backend = pause_payload[:reason]
 
+    Aiur.ModelAvailability.mark_limited("codex", reset_hint)
+
     reset_suffix = if is_binary(reset_hint), do: " (try again at #{reset_hint})", else: ""
     backend_suffix = if is_binary(backend), do: " Backend detail: #{backend}.", else: ""
 

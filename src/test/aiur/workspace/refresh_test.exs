@@ -46,6 +46,32 @@ defmodule Aiur.Workspace.RefreshTest do
     refute File.exists?(sentinel)
   end
 
+  test "run/3 preserves an established ticket branch when recreation follows a title edit", %{
+    workspace: workspace,
+    test_root: test_root
+  } do
+    init_repo!(workspace)
+    git!(["-C", workspace, "checkout", "--quiet", "-b", "aiur/123-fix-login"])
+    trace = Path.join(test_root, "branch-trace")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      workspace_root: test_root,
+      hook_before_run: "printf '%s\\n' \"$AIUR_TICKET_BRANCH\" >> #{trace}; exit 65"
+    )
+
+    issue = %{
+      id: 123,
+      identifier: "123",
+      title: "Fix login and signup",
+      state: "todo",
+      labels: [],
+      pr_head_ref: nil
+    }
+
+    assert {:error, _} = Refresh.run(workspace, issue, nil)
+    assert File.read!(trace) == "aiur/123-fix-login\naiur/123-fix-login\n"
+  end
+
   test "run/3 exit-65 on non-todo dispatch returns :ok (WIP skip)", %{workspace: workspace, test_root: test_root} do
     write_workflow_file!(Workflow.workflow_file_path(),
       workspace_root: test_root,
@@ -61,5 +87,19 @@ defmodule Aiur.Workspace.RefreshTest do
     }
 
     assert :ok = Refresh.run(workspace, issue_context, nil)
+  end
+
+  defp init_repo!(repo) do
+    git!(["init", "--quiet", "-b", "main", repo])
+    git!(["-C", repo, "config", "user.email", "t@example.com"])
+    git!(["-C", repo, "config", "user.name", "T"])
+    File.write!(Path.join(repo, "README.md"), "initial\n")
+    git!(["-C", repo, "add", "."])
+    git!(["-C", repo, "commit", "--quiet", "-m", "initial"])
+  end
+
+  defp git!(args) do
+    {out, 0} = System.cmd("git", args, stderr_to_stdout: true)
+    out
   end
 end

@@ -56,7 +56,7 @@ When you start working on a ticket, Aiur automatically subscribes you to:
 - (After `aiur_declare_blocker(N)`:) a useful subset of `ticket.N.*` events — the blocker's progress, decisions, branch pushes, and unblock signals
 
 For a declared blocker, `ticket.N.branch.push` is an action cue. Load
-`stub-then-fetch.md`, fetch `origin/aiur/N`, inspect the pushed diff/exports, and
+`stub-then-fetch.md`, fetch the actual validated ref from the event payload (never a guessed `origin/aiur/N`), inspect the pushed diff/exports, and
 stack on the branch when it contains the needed API. Treat an irrelevant push and
 a usable push differently: record the concrete inspected reason if it is still
 unusable; remove any temporary stub and rebase/merge when it is usable.

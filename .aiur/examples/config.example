@@ -17,6 +17,7 @@ agent:
   max_agent_duration_minutes: {{MAX_AGENT_DURATION}}  # safety net: hard-kill a stuck agent after N min (0 = never)
   # synthetic_load_process_cap: null     # per-agent cap for `yes`/`stress` load generators; null = cores/4, 0 = disabled
   routing: {{ROUTING}}                   # complexity:<N> label -> backend[:model[:effort]], e.g. codex:gpt-5.6-terra:high
+{{RATE_LIMIT_FALLBACK}}  # opt-in default-ticket fallback order; explicit labels/routing are never changed
   claude:
     command: aiur-claude
     permission_mode: {{PERMISSION_MODE}} # bypassPermissions (default/acceptEdits need an approval UI — coming soon)
@@ -31,6 +32,7 @@ agent:
     # thrash_max_per_window: 6
     # thrash_window_seconds: 60
   # --- advanced agent tuning (defaults shown) ---
+  # mix_scheduler_cap: 4                 # cap each agent Mix VM (and ExUnit's default max_cases)
   # max_retry_attempts: 3
   # max_retry_backoff_ms: 300000
   # turn_timeout_ms: 3600000             # backstop per turn (any backend)

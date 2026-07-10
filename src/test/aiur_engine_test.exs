@@ -223,6 +223,33 @@ defmodule AiurEngineTest do
     end
   end
 
+  test "workspace root handoff comes from the instance record" do
+    script = """
+    aiur_instance_record_path() { printf '%s' "$RECORD"; }
+    workspace_root_file_from_instance_record
+    """
+
+    record = Path.join(System.tmp_dir!(), "aiur-workspace-record-#{System.unique_integer([:positive])}")
+    root_file = Path.join(System.tmp_dir!(), "aiur-workspace-root-#{System.unique_integer([:positive])}")
+
+    File.write!(
+      record,
+      """
+      AIUR_RECORD_NODE=aiur-test@127.0.0.1
+      AIUR_RECORD_SESSION=aiur-test-default
+      AIUR_RECORD_SOCKET=aiur-test
+      AIUR_RECORD_PROJECT_ROOT=/tmp/aiur-project
+      AIUR_RECORD_WORKSPACE_ROOT_FILE=#{inspect(root_file)}
+      """
+    )
+
+    on_exit(fn -> File.rm(record) end)
+
+    {out, 0} = run_sourced_engine(script, [{"RECORD", record}])
+
+    assert String.trim(out) == root_file
+  end
+
   test "load_dotenv reads ./.env, strips quotes, and lets shell exports win" do
     dir = Path.join(System.tmp_dir!(), "aiur-env-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
@@ -978,13 +1005,29 @@ defmodule AiurEngineTest do
     state = tmp_state()
     events = Path.join(System.tmp_dir!(), "aiur-events-#{System.unique_integer([:positive])}")
     workspace_root = Path.join(System.tmp_dir!(), "aiur-workspaces-#{System.unique_integer([:positive])}")
+    workspace_root_file = Path.join(System.tmp_dir!(), "aiur-workspace-root-#{System.unique_integer([:positive])}")
+    record = Path.join(System.tmp_dir!(), "aiur-stop-record-#{System.unique_integer([:positive])}")
     File.mkdir_p!(workspace_root)
+    File.write!(workspace_root_file, workspace_root <> "\n")
+
+    File.write!(
+      record,
+      """
+      AIUR_RECORD_NODE=aiur-enginetest@127.0.0.1
+      AIUR_RECORD_SESSION=aiur-tester-default
+      AIUR_RECORD_SOCKET=aiur-tester
+      AIUR_RECORD_PROJECT_ROOT=/tmp/aiur-project
+      AIUR_RECORD_WORKSPACE_ROOT_FILE=#{inspect(workspace_root_file)}
+      """
+    )
 
     tmux = fake_tmux_script("exit 0")
 
     on_exit(fn ->
       File.rm_rf(state)
       File.rm_rf(workspace_root)
+      File.rm(workspace_root_file)
+      File.rm(record)
       File.rm(events)
     end)
 
@@ -994,7 +1037,7 @@ defmodule AiurEngineTest do
       : "${AIUR_SESSION_PREFIX:=aiur}"
       : "${AIUR_RELEASE_NODE:=aiur-enginetest@127.0.0.1}"
     }
-    current_workspace_root() { printf '%s\\n' "$WORKSPACE_ROOT"; }
+    aiur_instance_record_path() { printf '%s' "$RECORD"; }
     sweep_dead_tmux_sockets() { :; }
     sweep_stale_tmp_artifacts() { :; }
     reap_aiur_agents() { :; }
@@ -1019,7 +1062,7 @@ defmodule AiurEngineTest do
         {"AIUR_BG_STATE_DIR", state},
         {"EVENTS", events},
         {"PATH", path},
-        {"WORKSPACE_ROOT", workspace_root},
+        {"RECORD", record},
         {"USER", "tester"}
       ])
 
@@ -1029,6 +1072,38 @@ defmodule AiurEngineTest do
     assert out =~ "SENTINEL_LEFT_FOR_WATCHDOG"
     assert out =~ "CRASH_MARKER_REMOVED"
     refute out =~ "CRASH_MARKER_STILL_PRESENT"
+  end
+
+  test "cmd_stop still tears down the session without a workspace root handoff" do
+    state = tmp_state()
+    events = Path.join(System.tmp_dir!(), "aiur-stop-timeout-#{System.unique_integer([:positive])}")
+    File.write!(events, "")
+
+    on_exit(fn ->
+      File.rm_rf(state)
+      File.rm(events)
+    end)
+
+    script = """
+    resolve_release() { :; }
+    aiur_resolve_identity() {
+      : "${AIUR_SESSION_PREFIX:=aiur}"
+      : "${AIUR_RELEASE_NODE:=aiur-enginetest@127.0.0.1}"
+    }
+    resolve_control_identity_from_records() { AIUR_CONTROL_ADOPTED_RECORD=0; AIUR_CONTROL_CURRENT_NODE_STATE=up; }
+    workspace_root_file_from_instance_record() { return 1; }
+    kill_beams_matching() { echo "KILL_BEAM:$*" >> "$EVENTS"; }
+    sweep_dead_tmux_sockets() { :; }
+    sweep_stale_tmp_artifacts() { :; }
+    reap_aiur_agents() { :; }
+    reap_workspace_cwd_agents() { echo "CWD_REAP:$1" >> "$EVENTS"; }
+    cmd_stop
+    cat "$EVENTS"
+    """
+
+    {out, 0} = run_sourced_engine(script, [{"AIUR_BG_STATE_DIR", state}, {"EVENTS", events}])
+
+    assert out =~ "KILL_BEAM:-name aiur-enginetest-"
   end
 
   test "cmd_stop fails loud instead of no-oping for an unmatched global-config cwd" do

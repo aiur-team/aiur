@@ -501,12 +501,12 @@ defmodule Aiur.Regression.GithubIngestionTest do
     end
   end
 
-  describe "strict refs/heads/aiur/<digits> routing" do
+  describe "legacy and readable refs/heads/aiur routing" do
     test "ref_to_topic classification table" do
       assert GithubKeys.ref_to_topic("refs/heads/aiur/123") ==
                {:ticket, "123", "ticket.123.branch.push"}
 
-      assert GithubKeys.ref_to_topic("refs/heads/aiur/99-pr") == nil
+      assert GithubKeys.ref_to_topic("refs/heads/aiur/99-pr") == {:ticket, "99", "ticket.99.branch.push"}
       assert GithubKeys.ref_to_topic("refs/heads/aiur/99/sub") == nil
       assert GithubKeys.ref_to_topic("refs/heads/aiur/abc") == nil
       assert GithubKeys.ref_to_topic("refs/heads/main") == {:system, "system.main.branch.push"}
@@ -520,13 +520,13 @@ defmodule Aiur.Regression.GithubIngestionTest do
           {:ok,
            %{
              "refs/heads/aiur/77" => "sha1",
-             "refs/heads/aiur/77-pr" => "shaX",
+             "refs/heads/aiur/77--pr" => "shaX",
              "refs/heads/main" => "m1"
            }},
           {:ok,
            %{
              "refs/heads/aiur/77" => "sha2",
-             "refs/heads/aiur/77-pr" => "shaY",
+             "refs/heads/aiur/77--pr" => "shaY",
              "refs/heads/aiur/88" => "new1",
              "refs/heads/main" => "m1"
            }}
@@ -537,8 +537,7 @@ defmodule Aiur.Regression.GithubIngestionTest do
       :sys.get_state(pid)
       refute_received {:published, _, _, _}
 
-      # Second tick: only the changed canonical ref and the brand-new canonical
-      # ref publish; the non-canonical aiur/77-pr and the unchanged main do not.
+      # Second tick: only valid ticket refs publish; malformed and unchanged refs do not.
       send(pid, :tick)
       :sys.get_state(pid)
 

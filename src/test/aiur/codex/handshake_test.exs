@@ -24,6 +24,34 @@ defmodule Aiur.Codex.HandshakeTest do
     end
   end
 
+  describe "read_rate_limits/1" do
+    test "requests and returns account rate-limit windows" do
+      port =
+        script_port("""
+        while IFS= read -r line; do
+          case "$line" in
+            *'\"id\":4'*) printf '%s\\n' '{"id":4,"result":{"rateLimits":{"primary":{"usedPercent":100,"resetsAt":123}}}}'; exit 0 ;;
+          esac
+        done
+        """)
+
+      assert {:ok, %{"primary" => %{"usedPercent" => 100, "resetsAt" => 123}}} = Handshake.read_rate_limits(port)
+    end
+
+    test "returns an error for a malformed account response" do
+      port =
+        script_port("""
+        while IFS= read -r line; do
+          case "$line" in
+            *'\"id\":4'*) printf '%s\\n' '{"id":4,"result":{"unexpected":true}}'; exit 0 ;;
+          esac
+        done
+        """)
+
+      assert {:error, {:invalid_rate_limits_payload, %{"unexpected" => true}}} = Handshake.read_rate_limits(port)
+    end
+  end
+
   describe "closed-port degradation" do
     test "send_thread_init/2 returns port_closed" do
       port = open_cat_port()
@@ -53,6 +81,20 @@ defmodule Aiur.Codex.HandshakeTest do
       """)
 
     assert {:ok, "fresh-thread", false} = Handshake.establish(port, "/ws", @policies, "stale-thread")
+  end
+
+  test "establish_with_rate_limits/4 enables the probe for a Codex initialize response" do
+    port =
+      script_port("""
+      while IFS= read -r line; do
+        case "$line" in
+          *'\"id\":1'*) printf '%s\\n' '{"id":1,"result":{"codexHome":"/home/codex","platformFamily":"unix","platformOs":"linux","userAgent":"codex"}}' ;;
+          *'"method":"thread/start"'*) printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'; exit 0 ;;
+        esac
+      done
+      """)
+
+    assert {:ok, "thread-1", false, true} = Handshake.establish_with_rate_limits(port, "/ws", @policies, nil)
   end
 
   defp open_cat_port do

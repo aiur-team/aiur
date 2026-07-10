@@ -19,6 +19,19 @@ defmodule Aiur.Workspace.GitMetadataTest do
     refute File.exists?(lock)
   end
 
+  test "ensure_git_metadata_writable removes a readable ticket remote-ref lock", %{tmp: tmp} do
+    repo = init_repo!(Path.join(tmp, "repo"))
+    branch = "aiur/123-add-new-test-cases"
+    assert :ok = Checkout.checkout_fresh_branch(repo, branch)
+
+    lock = Path.join([repo, ".git", "refs", "remotes", "origin", "aiur", "123-add-new-test-cases.lock"])
+    File.mkdir_p!(Path.dirname(lock))
+    File.write!(lock, "stale\n")
+
+    assert :ok = GitMetadata.ensure_git_metadata_writable(repo)
+    refute File.exists?(lock)
+  end
+
   test "ensure_git_metadata_writable returns ok for a non git directory", %{tmp: tmp} do
     non_git = Path.join(tmp, "non-git")
     File.mkdir_p!(non_git)

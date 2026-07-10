@@ -6,19 +6,23 @@ defmodule Aiur.AgentRunner.MessageHandler do
   subscribers, and reports worker state to the orchestrator recipient.
   """
 
-  alias Aiur.{AgentEventLog, AgentEvents, AgentPubSub, CodingAgent, Issue}
+  alias Aiur.{AgentEventLog, AgentEvents, AgentPubSub, CodingAgent, Issue, ModelAvailability}
   alias Aiur.Protocol.MapAccess
 
   @spec build(pid() | nil, Issue.t(), Path.t() | nil, String.t() | nil, String.t(), String.t() | nil) :: (map() -> :ok)
   def build(recipient, issue, workspace, worker_host, backend, turn_id \\ nil) do
     fn message ->
       message = CodingAgent.normalize_event(message, backend)
+      observe_rate_limits(backend, message)
       AgentEventLog.write(workspace, worker_host, message)
       maybe_broadcast_transcript(issue, message, backend, turn_id)
       maybe_broadcast_turn_event(issue, message, turn_id)
       send_codex_update(recipient, issue, message)
     end
   end
+
+  defp observe_rate_limits(backend, %{rate_limits: limits}) when is_map(limits), do: ModelAvailability.observe(backend, limits)
+  defp observe_rate_limits(_backend, _message), do: :ok
 
   defp maybe_broadcast_transcript(%Issue{identifier: identifier}, message, backend, turn_id)
        when is_binary(identifier) do

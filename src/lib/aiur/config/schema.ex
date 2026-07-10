@@ -156,7 +156,7 @@ defmodule Aiur.Config.Schema do
         turn_sandbox_policy: Attrs.normalize_optional_map(settings.agent.codex.turn_sandbox_policy)
     }
 
-    agent = %{settings.agent | codex: codex}
+    agent = %{settings.agent | codex: codex, mix_scheduler_cap: settings.agent.mix_scheduler_cap || 4}
 
     %{settings | tracker: tracker, workspace: workspace, agent: agent}
   end

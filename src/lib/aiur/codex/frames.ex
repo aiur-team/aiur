@@ -7,12 +7,25 @@ defmodule Aiur.Codex.Frames do
 
   @thread_start_id 2
   @turn_start_id 3
+  @rate_limits_read_id 4
 
   @spec thread_start_id() :: 2
   def thread_start_id, do: @thread_start_id
 
   @spec turn_start_id() :: 3
   def turn_start_id, do: @turn_start_id
+
+  @spec rate_limits_read_id() :: 4
+  def rate_limits_read_id, do: @rate_limits_read_id
+
+  @spec rate_limits_read_frame() :: map()
+  def rate_limits_read_frame do
+    %{
+      "method" => "account/rateLimits/read",
+      "id" => rate_limits_read_id(),
+      "params" => nil
+    }
+  end
 
   @spec thread_init_frame(String.t() | nil, Path.t(), map()) :: map()
   def thread_init_frame(nil, workspace, %{approval_policy: approval_policy, thread_sandbox: thread_sandbox}) do
