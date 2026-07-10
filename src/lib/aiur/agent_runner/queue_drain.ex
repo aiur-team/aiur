@@ -22,15 +22,37 @@ defmodule Aiur.AgentRunner.QueueDrain do
   alias Aiur.CodingAgent
 
   @doc false
-  @spec drain_operator_messages(map(), Issue.t(), fun(), GenServer.server(), pid() | nil) :: :ok | {:error, term()}
-  def drain_operator_messages(app_session, issue, message_handler, orchestrator, codex_update_recipient) do
+  @spec drain_operator_messages(map(), Issue.t(), fun(), GenServer.server(), pid() | nil) ::
+          :ok | {:error, term()}
+  def drain_operator_messages(
+        app_session,
+        issue,
+        message_handler,
+        orchestrator,
+        codex_update_recipient
+      ) do
     receive do
       {:pause_agent, request_id} when is_integer(request_id) ->
         Logger.info("Agent already paused for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{request_id}")
+
         MessageHandler.send_control_state(codex_update_recipient, issue, :paused)
-        wait_for_operator_message(app_session, issue, message_handler, orchestrator, codex_update_recipient)
+
+        wait_for_operator_message(
+          app_session,
+          issue,
+          message_handler,
+          orchestrator,
+          codex_update_recipient
+        )
     after
-      0 -> drain_queued_operator_messages(app_session, issue, message_handler, orchestrator, codex_update_recipient)
+      0 ->
+        drain_queued_operator_messages(
+          app_session,
+          issue,
+          message_handler,
+          orchestrator,
+          codex_update_recipient
+        )
     end
   end
 
@@ -43,10 +65,18 @@ defmodule Aiur.AgentRunner.QueueDrain do
   # would re-claim and re-resume in a tight loop that no amount of
   # repeat pause-key presses could escape.
   @doc false
-  @spec wait_for_operator_message(map(), Issue.t(), fun(), GenServer.server(), pid() | nil) :: :ok | {:error, term()}
-  def wait_for_operator_message(app_session, issue, message_handler, orchestrator, codex_update_recipient) do
+  @spec wait_for_operator_message(map(), Issue.t(), fun(), GenServer.server(), pid() | nil) ::
+          :ok | {:error, term()}
+  def wait_for_operator_message(
+        app_session,
+        issue,
+        message_handler,
+        orchestrator,
+        codex_update_recipient
+      ) do
     receive do
-      {:agent_queue_updated, issue_identifier, _item_id} when issue_identifier == issue.identifier ->
+      {:agent_queue_updated, issue_identifier, _item_id}
+      when issue_identifier == issue.identifier ->
         try_claim_after_queue_update(
           app_session,
           issue,
@@ -69,16 +99,31 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
       {:pause_agent, request_id} when is_integer(request_id) ->
         Logger.info("Agent already paused for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{request_id}")
+
         MessageHandler.send_control_state(codex_update_recipient, issue, :paused)
-        wait_for_operator_message(app_session, issue, message_handler, orchestrator, codex_update_recipient)
+
+        wait_for_operator_message(
+          app_session,
+          issue,
+          message_handler,
+          orchestrator,
+          codex_update_recipient
+        )
 
       {:resume_agent, request_id} when is_integer(request_id) ->
         Logger.info("Resuming paused agent for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{request_id}")
+
         MessageHandler.send_control_state(codex_update_recipient, issue, :working)
         # An explicit resume drains the agent queue so restored items
         # land in the same turn instead of being deferred until the next
         # checkpoint of an initial-prompt turn.
-        claim_and_run_or_continue(app_session, issue, message_handler, orchestrator, codex_update_recipient)
+        claim_and_run_or_continue(
+          app_session,
+          issue,
+          message_handler,
+          orchestrator,
+          codex_update_recipient
+        )
     end
   end
 
@@ -93,7 +138,9 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
   @doc false
   @spec record_operator_delivery(map(), map()) :: :ok
-  def record_operator_delivery(%{category: :operator_message, id: request_id}, %{identifier: identifier})
+  def record_operator_delivery(%{category: :operator_message, id: request_id}, %{
+        identifier: identifier
+      })
       when is_integer(request_id) and is_binary(identifier) do
     OperatorWaitLog.record_delivered(request_id, identifier)
   end
@@ -138,36 +185,91 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
   def queue_item_text(item), do: inspect(item)
 
-  defp try_claim_after_queue_update(app_session, issue, message_handler, orchestrator, codex_update_recipient, deliver_now?) do
+  defp try_claim_after_queue_update(
+         app_session,
+         issue,
+         message_handler,
+         orchestrator,
+         codex_update_recipient,
+         deliver_now?
+       ) do
     case claim_after_queue_update(orchestrator, issue.identifier, deliver_now?) do
       {:ok, item} ->
         Logger.info("Resuming paused agent for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{item.id}")
+
         MessageHandler.send_control_state(codex_update_recipient, issue, :working)
-        run_operator_turn(app_session, issue, item, message_handler, orchestrator, codex_update_recipient)
+
+        run_operator_turn(
+          app_session,
+          issue,
+          item,
+          message_handler,
+          orchestrator,
+          codex_update_recipient
+        )
 
       :empty ->
-        wait_for_operator_message(app_session, issue, message_handler, orchestrator, codex_update_recipient)
+        wait_for_operator_message(
+          app_session,
+          issue,
+          message_handler,
+          orchestrator,
+          codex_update_recipient
+        )
 
       :ignored ->
-        wait_for_operator_message(app_session, issue, message_handler, orchestrator, codex_update_recipient)
+        wait_for_operator_message(
+          app_session,
+          issue,
+          message_handler,
+          orchestrator,
+          codex_update_recipient
+        )
     end
   end
 
-  defp claim_and_run_or_continue(app_session, issue, message_handler, orchestrator, codex_update_recipient) do
+  defp claim_and_run_or_continue(
+         app_session,
+         issue,
+         message_handler,
+         orchestrator,
+         codex_update_recipient
+       ) do
     case claim_next_wake_queue_item(orchestrator, issue.identifier) do
       {:ok, item} ->
-        run_operator_turn(app_session, issue, item, message_handler, orchestrator, codex_update_recipient)
+        run_operator_turn(
+          app_session,
+          issue,
+          item,
+          message_handler,
+          orchestrator,
+          codex_update_recipient
+        )
 
       :empty ->
         :ok
     end
   end
 
-  defp drain_queued_operator_messages(app_session, issue, message_handler, orchestrator, codex_update_recipient) do
+  defp drain_queued_operator_messages(
+         app_session,
+         issue,
+         message_handler,
+         orchestrator,
+         codex_update_recipient
+       ) do
     case claim_next_queue_item(orchestrator, issue.identifier) do
       {:ok, item} ->
         Logger.info("Delivering queued item to #{Aiur.AgentRunner.issue_context(issue)} request_id=#{item.id} category=#{item.category}")
-        run_queue_item_turn(app_session, issue, item, message_handler, orchestrator, codex_update_recipient)
+
+        run_queue_item_turn(
+          app_session,
+          issue,
+          item,
+          message_handler,
+          orchestrator,
+          codex_update_recipient
+        )
 
       :empty ->
         :ok
@@ -186,12 +288,33 @@ defmodule Aiur.AgentRunner.QueueDrain do
     claim_next_queue_item(orchestrator, issue_identifier)
   end
 
-  defp run_operator_turn(app_session, issue, item, message_handler, orchestrator, codex_update_recipient) do
-    run_queue_item_turn(app_session, issue, item, message_handler, orchestrator, codex_update_recipient)
+  defp run_operator_turn(
+         app_session,
+         issue,
+         item,
+         message_handler,
+         orchestrator,
+         codex_update_recipient
+       ) do
+    run_queue_item_turn(
+      app_session,
+      issue,
+      item,
+      message_handler,
+      orchestrator,
+      codex_update_recipient
+    )
   end
 
   # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
-  defp run_queue_item_turn(app_session, issue, item, _message_handler, orchestrator, codex_update_recipient) do
+  defp run_queue_item_turn(
+         app_session,
+         issue,
+         item,
+         _message_handler,
+         orchestrator,
+         codex_update_recipient
+       ) do
     record_operator_delivery(item, issue)
     text = queue_item_text(item)
     turn_id = queue_item_turn_id(item)
@@ -201,7 +324,14 @@ defmodule Aiur.AgentRunner.QueueDrain do
     backend = SessionLifecycle.session_backend(app_session)
 
     message_handler =
-      MessageHandler.build(codex_update_recipient, issue, workspace, worker_host, backend, turn_id)
+      MessageHandler.build(
+        codex_update_recipient,
+        issue,
+        workspace,
+        worker_host,
+        backend,
+        turn_id
+      )
 
     safe_checkpoint_handler = CheckpointDelivery.safe_checkpoint_handler(issue, orchestrator)
 
@@ -236,14 +366,20 @@ defmodule Aiur.AgentRunner.QueueDrain do
           AgentPubSub.broadcast_turn_event(issue.identifier, :turn_completed, %{turn_id: turn_id})
         end
 
-        drain_operator_messages(app_session, issue, message_handler, orchestrator, codex_update_recipient)
+        drain_operator_messages(
+          app_session,
+          issue,
+          message_handler,
+          orchestrator,
+          codex_update_recipient
+        )
 
       {:paused, pause_payload} ->
         TurnAlerts.maybe_emit_usage_limit_alert(
           issue,
           SessionLifecycle.session_workspace(app_session),
           SessionLifecycle.session_worker_host(app_session),
-          pause_payload
+          Map.put(pause_payload, :backend, SessionLifecycle.session_backend(app_session))
         )
 
         :ok = Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)
@@ -270,7 +406,10 @@ defmodule Aiur.AgentRunner.QueueDrain do
         :ok = Aiur.Orchestrator.fail_delivered_queue_items(orchestrator, issue.identifier, reason)
 
         if is_binary(turn_id) do
-          AgentPubSub.broadcast_turn_event(issue.identifier, :turn_failed, %{turn_id: turn_id, reason: reason})
+          AgentPubSub.broadcast_turn_event(issue.identifier, :turn_failed, %{
+            turn_id: turn_id,
+            reason: reason
+          })
         end
 
         error

@@ -83,7 +83,12 @@ defmodule Aiur.AgentRunner.TurnLoop do
 
     case result do
       {:ok, turn_session} ->
-        SessionResume.maybe_persist_turn_handle(app_session, turn_session, issue.identifier, worker_host)
+        SessionResume.maybe_persist_turn_handle(
+          app_session,
+          turn_session,
+          issue.identifier,
+          worker_host
+        )
 
         best_effort_queue_bookkeeping(
           Aiur.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier),
@@ -107,7 +112,12 @@ defmodule Aiur.AgentRunner.TurnLoop do
 
         Logger.info("Paused agent run for #{Aiur.AgentRunner.issue_context(issue)} session_id=#{pause_payload[:session_id]} workspace=#{workspace} turn=#{turn_number}/#{max_turns_display(max_turns)}")
 
-        TurnAlerts.maybe_emit_usage_limit_alert(issue, workspace, worker_host, pause_payload)
+        TurnAlerts.maybe_emit_usage_limit_alert(
+          issue,
+          workspace,
+          worker_host,
+          Map.put(pause_payload, :backend, SessionLifecycle.session_backend(app_session))
+        )
 
         best_effort_queue_bookkeeping(
           Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier),
@@ -169,7 +179,10 @@ defmodule Aiur.AgentRunner.TurnLoop do
 
         Logger.info("Continuing agent run for #{Aiur.AgentRunner.issue_context(refreshed_issue)} after normal turn completion turn=#{turn_number}/#{max_turns_display(max_turns)}")
 
-        continue_issue_turn(%{turn_context | issue: refreshed_issue, turn_number: turn_number + 1}, app_session)
+        continue_issue_turn(
+          %{turn_context | issue: refreshed_issue, turn_number: turn_number + 1},
+          app_session
+        )
 
       {:continue, refreshed_issue} ->
         Logger.info("aiur_autonomous_loop phase=max_turns_reached elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_number}/#{max_turns}")
@@ -253,7 +266,8 @@ defmodule Aiur.AgentRunner.TurnLoop do
   def max_turns_display(nil), do: "∞"
   def max_turns_display(max_turns), do: Integer.to_string(max_turns)
 
-  defp continue_with_issue?(%Issue{id: issue_id} = issue, issue_state_fetcher) when is_binary(issue_id) do
+  defp continue_with_issue?(%Issue{id: issue_id} = issue, issue_state_fetcher)
+       when is_binary(issue_id) do
     case issue_state_fetcher.([issue_id]) do
       {:ok, [%Issue{} = refreshed_issue | _]} ->
         if active_issue_state?(refreshed_issue.state) do

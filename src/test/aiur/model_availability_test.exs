@@ -56,6 +56,15 @@ defmodule Aiur.ModelAvailabilityTest do
     assert ModelAvailability.first_available(["claude", "codex", "claude-repl"], path: path) == "codex"
   end
 
+  test "normalizes the claude remote-control transport backend", %{path: path} do
+    assert ModelAvailability.backend_key("claude-repl") == "claude"
+    assert ModelAvailability.backend_key("claude") == "claude"
+
+    future = DateTime.add(DateTime.utc_now(), 3_600, :second) |> DateTime.to_iso8601()
+    assert :ok = ModelAvailability.mark_limited("claude-repl", future, path: path)
+    refute ModelAvailability.available?("claude", path: path)
+  end
+
   test "validates fallback backend configuration" do
     valid = Agent.changeset(%Agent{}, %{"switch_model_on_ratelimit" => ["claude", "codex"]})
     assert valid.valid?
