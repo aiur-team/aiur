@@ -103,6 +103,8 @@ defmodule Aiur.Orchestrator do
       # precedence; `refresh_runtime_config/1` never clobbers it) so the cap
       # holds without editing `.aiur/config`.
       session_max_concurrent_agents: launch_max_concurrent_agents_override(),
+      effective_concurrent_agents: initial_load_envelope_limit(config.agent),
+      load_envelope_last_decrease_ms: nil,
       next_poll_due_at_ms: now_ms,
       poll_check_in_progress: false,
       tick_timer_ref: nil,
@@ -2206,13 +2208,23 @@ defmodule Aiur.Orchestrator do
   # held tick re-arms at the configured poll interval and resumes once load
   # drops; already-running agents are never touched.
   defp maybe_choose_under_load(state, issues) do
-    threshold = Config.max_load_average()
+    hard_threshold = Config.max_load_average()
+    target = Config.target_load_average()
     schedulers = System.schedulers_online()
-    load = read_load(threshold)
+    load = read_load(hard_threshold, target)
 
-    case load_gate(load, threshold, schedulers) do
+    state =
+      update_load_envelope(
+        state,
+        load,
+        target,
+        schedulers,
+        System.monotonic_time(:millisecond)
+      )
+
+    case load_gate(load, hard_threshold, schedulers) do
       :hold ->
-        log_load_hold(load, threshold, schedulers)
+        log_load_hold(load, hard_threshold, schedulers)
         state
 
       :dispatch ->
@@ -2226,6 +2238,10 @@ defmodule Aiur.Orchestrator do
   # short-circuit; the pure hold/dispatch decision is load_gate/3.
   @spec read_load(number() | nil) :: float() | :unavailable
   defdelegate read_load(threshold), to: DispatchPolicy
+
+  @doc false
+  @spec read_load(number() | nil, number() | nil) :: float() | :unavailable
+  defdelegate read_load(hard_threshold, target), to: DispatchPolicy
 
   defp log_load_hold(load, threshold, schedulers) do
     Logger.info(
@@ -2261,6 +2277,33 @@ defmodule Aiur.Orchestrator do
   # gate is disabled (nil/<=0 threshold) or the load is unavailable (non-Linux).
   @spec load_gate(number() | :unavailable, number() | nil, pos_integer()) :: :dispatch | :hold
   defdelegate load_gate(load, threshold, schedulers), to: DispatchPolicy
+
+  @doc false
+  @spec load_envelope(integer() | nil, integer() | nil, number() | :unavailable, map()) ::
+          {pos_integer(), integer() | nil}
+  defdelegate load_envelope(effective, last_decrease_ms, load, options), to: DispatchPolicy
+
+  defp update_load_envelope(state, load, target, schedulers, now_ms) do
+    {effective, last_decrease_ms} =
+      load_envelope(
+        state.effective_concurrent_agents,
+        state.load_envelope_last_decrease_ms,
+        load,
+        %{
+          target: target,
+          schedulers: schedulers,
+          static_limit: max_concurrent_agent_limit(state),
+          ramp_step: Config.load_ramp_step(),
+          cooldown_ms: Config.load_cooldown_seconds() * 1_000,
+          now_ms: now_ms
+        }
+      )
+
+    %{state | effective_concurrent_agents: effective, load_envelope_last_decrease_ms: last_decrease_ms}
+  end
+
+  defp initial_load_envelope_limit(%{target_load_average: nil}), do: nil
+  defp initial_load_envelope_limit(_agent), do: 1
 
   @doc false
   @spec reconcile_issue_states_for_test([Issue.t()], term()) :: term()

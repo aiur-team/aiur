@@ -2137,6 +2137,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert RoutingValue.split_routing_value("claude:sonnet:high") == {"claude", "sonnet"}
     assert RoutingValue.split_routing_value("claude::high") == {"claude", nil}
     assert RoutingValue.split_routing_value("codex:gpt-5.5") == {"codex", "gpt-5.5"}
+    assert RoutingValue.split_routing_value("codex:gpt-5.6-terra:xhigh") == {"codex", "gpt-5.6-terra"}
     assert RoutingValue.routing_effort("claude:sonnet:high") == "high"
     assert RoutingValue.routing_effort("claude:sonnet:high+remote") == "high"
     assert RoutingValue.routing_effort("claude-repl::xhigh") == "xhigh"
@@ -2308,6 +2309,39 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     assert {:error, {:invalid_workflow_config, _}} =
              Schema.parse(%{tracker: %{kind: "memory"}, agent: %{max_load_average: 0}})
+  end
+
+  test "agent load envelope defaults safely, validates tuning, and preserves explicit disable" do
+    assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})
+    assert settings.agent.target_load_average == 1.0
+    assert settings.agent.load_ramp_step == 1
+    assert settings.agent.load_cooldown_seconds == 60
+
+    assert {:ok, settings} =
+             Schema.parse(%{
+               "tracker" => %{"kind" => "memory"},
+               "agent" => %{
+                 "target_load_average" => nil,
+                 "load_ramp_step" => 3,
+                 "load_cooldown_seconds" => 0
+               }
+             })
+
+    assert settings.agent.target_load_average == nil
+    assert settings.agent.max_load_average == 1.5
+    assert settings.agent.load_ramp_step == 3
+    assert settings.agent.load_cooldown_seconds == 0
+
+    for invalid_agent <- [
+          %{target_load_average: 0},
+          %{target_load_average: -1},
+          %{load_ramp_step: 0},
+          %{load_ramp_step: -1},
+          %{load_cooldown_seconds: -1}
+        ] do
+      assert {:error, {:invalid_workflow_config, _}} =
+               Schema.parse(%{tracker: %{kind: "memory"}, agent: invalid_agent})
+    end
   end
 
   test "agent.synthetic_load_process_cap defaults to derived nil and validates non-negative" do
