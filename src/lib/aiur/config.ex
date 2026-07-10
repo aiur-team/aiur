@@ -85,6 +85,9 @@ defmodule Aiur.Config do
     settings!().agent.routing || %{}
   end
 
+  @spec switch_model_on_ratelimit() :: [String.t()]
+  def switch_model_on_ratelimit, do: settings!().agent.switch_model_on_ratelimit || []
+
   @doc """
   Setting #2: whether dispatched agents attach a `claude remote-control`
   session. Orthogonal to `agent_kind/0` and only meaningful for an

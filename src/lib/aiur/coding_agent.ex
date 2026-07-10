@@ -16,6 +16,7 @@ defmodule Aiur.CodingAgent do
   alias Aiur.Config
   alias Aiur.Config.RoutingValue
   alias Aiur.Issue
+  alias Aiur.ModelAvailability
 
   @type backend :: String.t()
 
@@ -194,7 +195,22 @@ defmodule Aiur.CodingAgent do
   """
   @spec backend_for(Issue.t()) :: backend()
   def backend_for(%Issue{} = issue) do
-    override_backend(issue) || routing_backend(issue) || Config.agent_kind()
+    issue.selected_backend || override_backend(issue) || routing_backend(issue) || Config.agent_kind()
+  end
+
+  @spec select_for_dispatch(Issue.t(), keyword()) :: {:ok, Issue.t()} | {:all_limited, [backend()]}
+  def select_for_dispatch(%Issue{} = issue, opts \\ []) do
+    if (is_binary(issue.selected_backend) or override_backend(issue)) || routing_backend(issue) do
+      {:ok, issue}
+    else
+      candidates = Keyword.get(opts, :backends, Config.switch_model_on_ratelimit()) |> Enum.filter(&(&1 in known_backends()))
+
+      cond do
+        candidates == [] -> {:ok, issue}
+        backend = ModelAvailability.first_available(candidates, opts) -> {:ok, %{issue | selected_backend: backend}}
+        true -> {:all_limited, candidates}
+      end
+    end
   end
 
   @doc """
