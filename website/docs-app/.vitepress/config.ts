@@ -14,7 +14,9 @@ export default defineConfig({
         text: 'Introduction',
         items: [
           { text: 'Overview', link: '/' },
-          { text: 'Skills', link: '/skills' }
+          { text: 'Skills', link: '/skills' },
+          { text: 'Quick start', link: '/guide/quick-start' },
+          { text: 'Configuration', link: '/reference/configuration' }
         ]
       },
       {
