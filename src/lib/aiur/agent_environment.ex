@@ -3,6 +3,8 @@ defmodule Aiur.AgentEnvironment do
   Helpers for preparing child agent process environments.
   """
 
+  alias Aiur.BuildGate
+
   # AIUR_RELEASE_NODE + AIUR_INSTANCE_KEY + AIUR_REPO_ROOT are the per-instance
   # identity inputs the engine exports (#431). They MUST be scrubbed too, or an agent
   # (codex inherits all env) leaks the outer instance's keyed identity into an inner
@@ -76,7 +78,10 @@ defmodule Aiur.AgentEnvironment do
         # running `./scripts/aiurdev --test` reset the operator's sandbox
         # tickets and kill the parent BEAM mid-run.
         {~c"AIUR_AGENT_WORKSPACE", String.to_charlist(workspace)}
-      ]
+      ] ++
+        Enum.map(BuildGate.shell_env(), fn {name, value} ->
+          {String.to_charlist(name), String.to_charlist(value)}
+        end)
 
     unset_parent_logs ++ workspace_env
   end
@@ -95,7 +100,7 @@ defmodule Aiur.AgentEnvironment do
 
     # Trust the workspace ROOT (see `workspace_env/1`): the SSH-launch path needs
     # the same root-level trust so mise-provided tools resolve in the workspace.
-    "export HEX_HOME=#{shell_escape(hex)} MIX_HOME=#{shell_escape(mix)} MISE_TRUSTED_CONFIG_PATHS=#{shell_escape(workspace)}"
+    "export HEX_HOME=#{Aiur.Shell.escape(hex)} MIX_HOME=#{Aiur.Shell.escape(mix)} MISE_TRUSTED_CONFIG_PATHS=#{Aiur.Shell.escape(workspace)}"
   end
 
   def workspace_env_export_prefix(_), do: ""
@@ -116,8 +121,4 @@ defmodule Aiur.AgentEnvironment do
   end
 
   def base_env(_), do: []
-
-  defp shell_escape(value) when is_binary(value) do
-    "'" <> String.replace(value, "'", "'\\''") <> "'"
-  end
 end

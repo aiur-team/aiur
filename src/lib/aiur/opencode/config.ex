@@ -5,6 +5,8 @@ defmodule Aiur.Opencode.Config do
 
   @behaviour Aiur.AgentConfig
 
+  alias Aiur.Config.Paths
+
   @default_command "opencode"
   @default_bridge_host "127.0.0.1"
   @default_bridge_port 4097
@@ -138,7 +140,7 @@ defmodule Aiur.Opencode.Config do
 
   @spec safe_identifier(String.t() | nil) :: String.t()
   def safe_identifier(identifier) do
-    String.replace(identifier || "issue", ~r/[^a-zA-Z0-9._-]/, "_")
+    Paths.sanitize(identifier, "issue")
   end
 
   @spec db_path() :: String.t() | nil

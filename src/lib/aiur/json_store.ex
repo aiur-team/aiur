@@ -20,6 +20,8 @@ defmodule Aiur.JsonStore do
 
   require Logger
 
+  alias Aiur.Fs
+
   @doc """
   Writes `term` as JSON to `path`. Raises on any failure.
 
@@ -30,22 +32,7 @@ defmodule Aiur.JsonStore do
   @spec write!(Path.t(), term()) :: :ok
   def write!(path, term) when is_binary(path) do
     File.mkdir_p!(Path.dirname(path))
-    # Unique tmp suffix so concurrent writers don't clobber each other's
-    # staging file; on POSIX, rename is atomic and last-writer-wins for
-    # the target path, which is the durability contract we want.
-    tmp_path = path <> ".tmp." <> Integer.to_string(System.unique_integer([:positive]))
-    encoded = Jason.encode!(term)
-
-    {:ok, fd} = :file.open(tmp_path, [:write, :binary, :raw])
-
-    try do
-      :ok = :file.write(fd, encoded)
-      :ok = :file.sync(fd)
-    after
-      :ok = :file.close(fd)
-    end
-
-    :ok = File.rename(tmp_path, path)
+    :ok = Fs.atomic_write(path, Jason.encode!(term), fsync: true)
     :ok
   end
 

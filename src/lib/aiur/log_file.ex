@@ -41,8 +41,9 @@ defmodule Aiur.LogFile do
     3. Otherwise mint a fresh `~/.aiur/logs/<session-id>` root so every
        direct `aiur` run persists under one unified, timestamped folder.
 
-  Skipped in the test environment so unit tests keep the `<cwd>/log`
-  fallback and never write into `~/.aiur/logs`.
+  Skipped in the test environment so unit tests never write into
+  `~/.aiur/logs` (the test suite pins `:log_file` to a per-run tmp dir in
+  `config/config.exs` instead).
   """
   @spec ensure_session_log_file() :: :ok
   def ensure_session_log_file do

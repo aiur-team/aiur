@@ -5,7 +5,7 @@ defmodule Aiur.AgentChat do
 
   require Logger
 
-  alias Aiur.{AgentEvents, AgentPubSub, OperatorWaitLog, Orchestrator}
+  alias Aiur.{AgentEvents, AgentPubSub, OperatorWaitLog, Orchestrator, PauseContainment}
   alias Aiur.Opencode.SlotRegistry
 
   @spec send(String.t(), String.t()) :: {:ok, integer()} | {:error, term()}
@@ -69,6 +69,7 @@ defmodule Aiur.AgentChat do
 
   @spec pause(String.t()) :: {:ok, integer()} | {:error, term()}
   def pause(issue_identifier) when is_binary(issue_identifier) do
+    _ = PauseContainment.arm(issue_identifier)
     Orchestrator.pause_agent(issue_identifier)
   end
 

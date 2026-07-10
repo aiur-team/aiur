@@ -28,6 +28,9 @@ defmodule Aiur.Claude.RemoteControl do
 
   require Logger
 
+  alias Aiur.Fs
+  alias Aiur.Jsonl
+
   @session_url_regex ~r{https://claude\.ai/code/session_[A-Za-z0-9]+}
   # On teardown, wait for the RC process to exit after SIGTERM before
   # escalating to SIGKILL.
@@ -79,7 +82,7 @@ defmodule Aiur.Claude.RemoteControl do
       else
         updated_project = Map.put(project, "hasTrustDialogAccepted", true)
         updated = Map.put(config, "projects", Map.put(projects, workspace, updated_project))
-        write_atomic(path, Jason.encode!(updated))
+        Fs.atomic_write(path, Jason.encode!(updated))
       end
     end
   end
@@ -97,19 +100,6 @@ defmodule Aiur.Claude.RemoteControl do
       {:ok, map} when is_map(map) -> {:ok, map}
       {:ok, _other} -> {:error, :unexpected_config_shape}
       {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp write_atomic(path, contents) do
-    tmp = path <> ".aiur-tmp-#{System.unique_integer([:positive])}"
-
-    with :ok <- File.write(tmp, contents),
-         :ok <- File.rename(tmp, path) do
-      :ok
-    else
-      {:error, reason} ->
-        File.rm(tmp)
-        {:error, reason}
     end
   end
 
@@ -218,9 +208,9 @@ defmodule Aiur.Claude.RemoteControl do
   end
 
   defp decode_transcript_record(line) do
-    case Jason.decode(line) do
-      {:ok, record} when is_map(record) -> [record]
-      _ -> []
+    case Jsonl.decode_line(line) do
+      {:ok, record} -> [record]
+      :skip -> []
     end
   end
 
@@ -261,6 +251,86 @@ defmodule Aiur.Claude.RemoteControl do
     graceful_kill(os_pid)
     Enum.each(descendants, &graceful_kill/1)
     :ok
+  end
+
+  @doc false
+  @spec process_group_alive?(nil | integer()) :: boolean()
+  def process_group_alive?(process_group_id) when is_integer(process_group_id) and process_group_id > 0 do
+    match?({_, 0}, System.cmd("kill", ["-0", "--", "-#{process_group_id}"], stderr_to_stdout: true))
+  rescue
+    # A genuine "group is gone" returns a non-zero exit, not an exception. An
+    # exception means the probe itself could not run (e.g. port exhaustion under
+    # load), so assume alive — reporting "gone" here would let containment claim
+    # a false success without ever signalling the surviving group.
+    _ -> true
+  end
+
+  def process_group_alive?(_process_group_id), do: false
+
+  @doc false
+  @spec process_alive?(nil | integer()) :: boolean()
+  def process_alive?(os_pid) when is_integer(os_pid) and os_pid > 0 do
+    match?({_, 0}, System.cmd("kill", ["-0", Integer.to_string(os_pid)], stderr_to_stdout: true))
+  rescue
+    # Assume alive if the probe cannot run, so a transient failure never spuriously
+    # reports the paused root as dead and triggers a reap.
+    _ -> true
+  end
+
+  def process_alive?(_os_pid), do: false
+
+  @doc false
+  @spec graceful_kill_process_group(nil | integer()) :: {:ok, :gone | :reaped} | {:error, :group_alive}
+  def graceful_kill_process_group(process_group_id) when is_integer(process_group_id) and process_group_id > 0 do
+    if process_group_alive?(process_group_id) do
+      signal_process_group(process_group_id, "-TERM")
+
+      if await_process_group_exit(process_group_id, @kill_grace_ms) do
+        {:ok, :reaped}
+      else
+        force_kill_process_group(process_group_id)
+      end
+    else
+      {:ok, :gone}
+    end
+  rescue
+    _ -> {:error, :group_alive}
+  end
+
+  def graceful_kill_process_group(_process_group_id), do: {:ok, :gone}
+
+  defp force_kill_process_group(process_group_id) do
+    signal_process_group(process_group_id, "-KILL")
+
+    if await_process_group_exit(process_group_id, @kill_grace_ms) do
+      {:ok, :reaped}
+    else
+      {:error, :group_alive}
+    end
+  end
+
+  defp signal_process_group(process_group_id, signal) do
+    System.cmd("kill", [signal, "--", "-#{process_group_id}"], stderr_to_stdout: true)
+    :ok
+  end
+
+  defp await_process_group_exit(process_group_id, budget_ms) do
+    deadline = System.monotonic_time(:millisecond) + budget_ms
+    do_await_process_group_exit(process_group_id, deadline)
+  end
+
+  defp do_await_process_group_exit(process_group_id, deadline) do
+    cond do
+      not process_group_alive?(process_group_id) ->
+        true
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        false
+
+      true ->
+        Process.sleep(@kill_poll_ms)
+        do_await_process_group_exit(process_group_id, deadline)
+    end
   end
 
   defp collect_descendants(pid) when is_integer(pid) do
