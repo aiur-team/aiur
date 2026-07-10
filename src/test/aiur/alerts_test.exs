@@ -489,6 +489,78 @@ defmodule Aiur.AlertsTest do
     end
   end
 
+  describe "legacy .aiur/alerts.yaml fallback removal" do
+    test "ignores a legacy .aiur/alerts.yaml — canonical file wins, yaml never loaded, warns when only yaml remains" do
+      # The default path (no :alerts_file_path override, no config alerts_file)
+      # resolves to `<config-dir>/alerts`; the sibling `.aiur/alerts.yaml` is the
+      # legacy file that must never be parsed. Both live next to the per-test
+      # config that TestSupport's setup already wrote.
+      config_dir = Path.dirname(Workflow.workflow_file_path())
+      canonical = Path.join(config_dir, "alerts")
+      legacy = Path.join(config_dir, "alerts.yaml")
+
+      # A marker entry that must NEVER surface if the yaml were loaded.
+      File.write!(legacy, """
+      alerts:
+        "legacy.only.topic":
+          message: "LEGACY YAML LOADED"
+      """)
+
+      # Canonical extensionless file present with distinct contents → it wins,
+      # the yaml is ignored, and no deprecation warning fires.
+      File.write!(canonical, """
+      alerts:
+        "canonical.topic":
+          message: "From canonical alerts"
+      """)
+
+      log =
+        capture_log(fn ->
+          defs = Alerts.definitions()
+          assert defs["canonical.topic"].message == "From canonical alerts"
+          refute Map.has_key?(defs, "legacy.only.topic")
+        end)
+
+      refute log =~ "fallback was removed"
+
+      # Remove the canonical file → only the legacy yaml remains. Mappings must
+      # resolve to an empty map (the yaml is still never parsed — no marker
+      # entry leaks) and the one-time deprecation warning must fire, naming the
+      # rename the operator needs to make.
+      File.rm!(canonical)
+
+      log =
+        capture_log(fn ->
+          assert Alerts.definitions() == %{}
+        end)
+
+      assert log =~ "fallback was removed"
+      assert log =~ "Rename #{legacy} to #{canonical}"
+    end
+
+    test "with no alerts file at all the default path resolves to an empty map and emission is a silent no-op" do
+      # No canonical `.aiur/alerts`, no legacy `.aiur/alerts.yaml`, no override:
+      # the default-path branch must resolve cleanly to `%{}` without crashing,
+      # emitting plays no mapped sound, and no deprecation warning fires.
+      config_dir = Path.dirname(Workflow.workflow_file_path())
+      File.rm_rf!(Path.join(config_dir, "alerts"))
+      File.rm_rf!(Path.join(config_dir, "alerts.yaml"))
+
+      topic = "task.no-alerts-file.#{System.unique_integer([:positive])}"
+      probe = fn sound -> send(self(), {:played, sound}) end
+
+      log =
+        capture_log(fn ->
+          assert Alerts.definitions() == %{}
+          assert is_nil(Alerts.definition_for_topic(topic))
+          assert :ok = Alerts.emit_custom(topic, "No mapping present", player: probe)
+        end)
+
+      refute_receive {:played, _sound}, 100
+      refute log =~ "fallback was removed"
+    end
+  end
+
   describe "emit_custom/2 and identifier helpers" do
     test "emit_custom/2 forwards to /3 and emits with no extra opts" do
       assert :ok = Alerts.emit_custom("my.test." <> Integer.to_string(System.unique_integer([:positive])), "Custom message")

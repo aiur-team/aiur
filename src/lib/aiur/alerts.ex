@@ -317,8 +317,46 @@ defmodule Aiur.Alerts do
         path
 
       true ->
-        default_alerts_path()
+        default = default_alerts_path()
+        warn_if_legacy_yaml_only(default)
+        default
     end
+  end
+
+  # The `.aiur/alerts.yaml` fallback was removed: only the extensionless
+  # `.aiur/alerts` file (or an explicit `alerts_file`) is loaded now. When the
+  # canonical file is absent but a legacy `.aiur/alerts.yaml` still sits next to
+  # the config, the mappings silently resolve to `%{}` and every alert goes
+  # quiet with no signal. Warn once — keyed on the legacy path via
+  # `:persistent_term`, so a single VM logs it a single time — so the operator
+  # knows to rename the file. The yaml is never read; only its presence is
+  # detected.
+  defp warn_if_legacy_yaml_only(nil), do: :ok
+
+  defp warn_if_legacy_yaml_only(path) do
+    legacy = path <> ".yaml"
+
+    if not File.exists?(path) and File.exists?(legacy) do
+      warn_legacy_yaml_once(path, legacy)
+    end
+
+    :ok
+  end
+
+  defp warn_legacy_yaml_once(path, legacy) do
+    key = {__MODULE__, :legacy_yaml_warned, legacy}
+
+    unless :persistent_term.get(key, false) do
+      :persistent_term.put(key, true)
+
+      Logger.warning(
+        "Alert sounds are disabled: the `.aiur/alerts.yaml` fallback was removed. " <>
+          "Found #{legacy} but no #{path}. Rename #{legacy} to #{path} " <>
+          "(drop the `.yaml` extension) to restore alert sounds."
+      )
+    end
+
+    :ok
   end
 
   # The default alert definitions live alongside the aiur config, at
