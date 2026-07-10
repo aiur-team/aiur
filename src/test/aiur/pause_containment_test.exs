@@ -120,6 +120,34 @@ defmodule Aiur.PauseContainmentTest do
     assert PauseContainment.paused?(name, handle_b)
   end
 
+  describe "public API degrades to a safe no-op on non-handle input" do
+    # arm/register hand back :ignored or :not_registered (never a handle) when a
+    # session has no real process group or was never registered, and callers thread
+    # that value straight into the lifecycle calls. Every entry point must treat a
+    # non-handle as "nothing to contain" rather than crashing the pause path.
+    test "register ignores a session without a real root pid / process group" do
+      assert PauseContainment.register("repo#1", 0, 0, []) == :ignored
+      assert PauseContainment.register(:server, "repo#1", 0, 0, []) == :ignored
+    end
+
+    test "confirm / release / unregister no-op and paused? is false for a non-handle" do
+      for bad <- [:not_registered, :ignored, nil] do
+        assert PauseContainment.confirm(bad) == :ok
+        assert PauseContainment.confirm(:server, bad) == :ok
+        assert PauseContainment.release(:server, bad) == :ok
+        assert PauseContainment.unregister(:server, bad) == :ok
+        refute PauseContainment.paused?(:server, bad)
+      end
+    end
+
+    test "a lifecycle call against an absent containment server degrades to :ignored" do
+      # A valid handle whose server is down still runs through call/2; the exit must
+      # be swallowed so a teardown never crashes probing a containment that is gone.
+      absent = :"absent_containment_#{System.unique_integer([:positive])}"
+      assert PauseContainment.confirm(absent, %{identifier: "repo#gone", generation: 1}) == :ignored
+    end
+  end
+
   defp assert_eventually(assertion, attempts \\ 20)
 
   defp assert_eventually(assertion, attempts) when attempts > 0 do

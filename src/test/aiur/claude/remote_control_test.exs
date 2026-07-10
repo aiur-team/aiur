@@ -17,6 +17,34 @@ defmodule Aiur.Claude.RemoteControlTest do
       assert RemoteControl.parse_session_url("[bridge:init] Registered, server environmentId=env_x") == nil
       assert RemoteControl.parse_session_url("") == nil
     end
+
+    test "returns nil for a non-binary line" do
+      assert RemoteControl.parse_session_url(nil) == nil
+    end
+  end
+
+  describe "process liveness probes" do
+    test "reports the running BEAM as alive" do
+      # The containment loop polls process_alive? before reaping the paused root;
+      # a live root must read as alive so a cooperative pause is never force-reaped.
+      assert RemoteControl.process_alive?(String.to_integer(System.pid()))
+    end
+
+    test "treats a nil or non-positive pid / group as not alive" do
+      # A session that never reported a real os pid (nil / 0) has nothing to probe,
+      # so both liveness checks read false instead of shelling out to `kill`.
+      refute RemoteControl.process_alive?(nil)
+      refute RemoteControl.process_alive?(0)
+      refute RemoteControl.process_group_alive?(nil)
+      refute RemoteControl.process_group_alive?(0)
+    end
+
+    test "killing an absent process group short-circuits to :gone" do
+      # With no group id to signal, teardown reports the group already gone instead
+      # of blocking on a TERM/KILL grace wait for a group that never existed.
+      assert RemoteControl.graceful_kill_process_group(nil) == {:ok, :gone}
+      assert RemoteControl.graceful_kill_process_group(0) == {:ok, :gone}
+    end
   end
 
   describe "workspace_slug/1" do
