@@ -18,10 +18,15 @@ index-write failure. Never `mktemp -d /tmp/...` for recovery and never push from
 
 **Integrating an upstream blocker's branch**: when
 `ticket.<blocker-id>.branch.push` arrives, fetch the actual validated ref carried
-by the event payload (or discover it with the centralized ticket-branch parser)
+by the event payload (or discover it with `scripts/resolve-ticket-branch <blocker-id>`)
 → commit your local WIP if any → merge that fetched ref → resolve any conflicts →
 continue. Do NOT `git stash` before the merge — committing WIP is just as safe
 and avoids the index-write failure path entirely.
+
+Ticket branches are named `aiur/<id>-<slug>` for new tickets, with legacy
+`aiur/<id>` branches still supported. `scripts/resolve-ticket-branch <id>` is the
+operator helper for the reverse lookup: it queries the remote, prints the one
+matching branch, and exits non-zero when no branch or more than one branch exists.
 
 ## The loop
 

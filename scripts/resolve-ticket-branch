@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  echo "usage: $0 <ticket-id> [remote]" >&2
+  exit 2
+}
+
+ticket_id="${1:-}"
+remote="${2:-origin}"
+[ -n "$ticket_id" ] || usage
+
+if [[ ! "$ticket_id" =~ ^[1-9][0-9]*$ ]]; then
+  echo "resolve-ticket-branch: invalid numeric ticket id: $ticket_id" >&2
+  exit 2
+fi
+
+refs="$(git ls-remote --heads "$remote" \
+  "refs/heads/aiur/$ticket_id" \
+  "refs/heads/aiur/$ticket_id-*" 2>&1)" || {
+  echo "resolve-ticket-branch: unable to query remote '$remote': $refs" >&2
+  exit 1
+}
+
+mapfile -t branches < <(awk 'NF >= 2 {sub("^refs/heads/", "", $2); print $2}' <<<"$refs" | sort -u)
+
+case "${#branches[@]}" in
+  0)
+    echo "resolve-ticket-branch: no branch found for ticket $ticket_id on '$remote' (expected aiur/$ticket_id or aiur/$ticket_id-<slug>)" >&2
+    exit 1
+    ;;
+  1)
+    printf '%s\n' "${branches[0]}"
+    ;;
+  *)
+    printf "resolve-ticket-branch: multiple branches found for ticket %s on '%s':\n" "$ticket_id" "$remote" >&2
+    printf '  %s\n' "${branches[@]}" >&2
+    echo "resolve-ticket-branch: use the PR head ref or remove the stale branch before continuing" >&2
+    exit 1
+    ;;
+esac
