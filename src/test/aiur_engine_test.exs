@@ -56,6 +56,16 @@ defmodule AiurEngineTest do
     assert File.read!(@engine) =~ "AIUR_OPENCODE_BRIDGE_PORT"
   end
 
+  test "engine exports the effective soft nofile limit after raising it" do
+    {out, 0} =
+      run_sourced_engine(
+        ~S|test "$AIUR_NOFILE_SOFT_LIMIT" = "$(ulimit -Sn)" && echo NOFILE_MATCH|,
+        [{"AIUR_NOFILE_SOFT_LIMIT", "1"}]
+      )
+
+    assert out =~ "NOFILE_MATCH"
+  end
+
   test "sourced-engine runs isolate the node identity so reaps can't hit a live host node" do
     # The engine's launch/stop paths reap any BEAM holding their node name
     # (`kill_beams_matching "-name $AIUR_RELEASE_NODE"`). When `mix test` sources

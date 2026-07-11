@@ -179,6 +179,12 @@ defmodule Aiur.Orchestrator do
   @spec memory_gate(non_neg_integer() | :unavailable, integer() | nil) :: :dispatch | :hold
   defdelegate memory_gate(available_mb, threshold), to: DispatchPolicy
 
+  @spec fd_gate(Aiur.SystemFileDescriptors.sample_result()) :: :dispatch | :hold
+  defdelegate fd_gate(sample), to: DispatchPolicy
+
+  @spec fd_headroom_threshold(map()) :: pos_integer() | :unavailable
+  defdelegate fd_headroom_threshold(sample), to: DispatchPolicy
+
   @doc false
   @spec load_envelope(integer() | nil, integer() | nil, number() | :unavailable, map()) ::
           {pos_integer(), integer() | nil}

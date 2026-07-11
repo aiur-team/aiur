@@ -273,6 +273,16 @@ When `server.port` (or CLI `--port`) is set, Aiur exposes:
   while a local Mix command waits before claiming a build slot and emits the
   same phase with `surface=build`. Dispatch or builds resume once available
   memory is at or above the configured floor.
+- Aiur also keeps a default-on file-descriptor reserve for normal new-work
+  dispatch. It compares the daemon's open descriptors with its finite soft
+  `ulimit -n` and holds dispatch below 10% remaining headroom (rounded up to a
+  whole descriptor). Linux samples come from `/proc/<pid>/fd` and
+  `/proc/<pid>/limits`; the shared launcher exports its effective post-raise
+  limit so the daemon can use `/dev/fd` on supported non-procfs hosts. Missing
+  platform data fails open, while a sampling `:emfile` fails closed until the
+  next poll. Holds emit `aiur_perf fd_hold surface=dispatch` with the used,
+  limit, available, and threshold values. `Aiur.SystemFileDescriptors.sample/1`
+  exposes the same raw per-process sample for controller and telemetry consumers.
 - `agent.max_concurrent_builds` caps agent-launched `mix compile` and `mix test`
   commands across all local workspaces for the current OS user. It defaults to `2`,
   a conservative setting for a 12-core host; agents queue only their Mix verification
