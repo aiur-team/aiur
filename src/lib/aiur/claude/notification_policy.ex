@@ -1,13 +1,38 @@
 defmodule Aiur.Claude.NotificationPolicy do
   @moduledoc false
 
+  @limit_markers [
+    "rate limit",
+    "rate_limit",
+    "ratelimit",
+    "usage limit",
+    "usage_limit",
+    "quota",
+    "too many requests",
+    "credit balance",
+    "insufficient credits"
+  ]
   @limit_statuses [429, "429"]
   @limit_types ["rate_limit_error", "rate_limit"]
 
   @spec usage_limit_exhausted?(term()) :: boolean()
   def usage_limit_exhausted?(payload) when is_map(payload) do
-    Enum.any?(find_values(payload, ["status", :status, "status_code", :status_code, "api_error_status", :api_error_status]), &(&1 in @limit_statuses)) or
-      Enum.any?(find_values(payload, ["type", :type, "code", :code]), &(&1 in @limit_types))
+    Enum.any?(
+      find_values(payload, [
+        "status",
+        :status,
+        "status_code",
+        :status_code,
+        "api_error_status",
+        :api_error_status
+      ]),
+      &(&1 in @limit_statuses)
+    ) or
+      Enum.any?(
+        find_values(payload, ["type", :type, "code", :code, "error", :error]),
+        &(&1 in @limit_types)
+      ) or
+      payload_text(payload) |> String.downcase() |> String.contains?(@limit_markers)
   end
 
   def usage_limit_exhausted?(_payload), do: false
@@ -36,7 +61,9 @@ defmodule Aiur.Claude.NotificationPolicy do
     |> Enum.join(" ")
   end
 
-  defp flatten_values(value) when is_map(value), do: Enum.flat_map(value, fn {key, item} -> [key | flatten_values(item)] end)
+  defp flatten_values(value) when is_map(value),
+    do: Enum.flat_map(value, fn {key, item} -> [key | flatten_values(item)] end)
+
   defp flatten_values(value) when is_list(value), do: Enum.flat_map(value, &flatten_values/1)
   defp flatten_values(value), do: [value]
 
@@ -48,6 +75,8 @@ defmodule Aiur.Claude.NotificationPolicy do
     values ++ nested
   end
 
-  defp find_values(payload, keys) when is_list(payload), do: Enum.flat_map(payload, &find_values(&1, keys))
+  defp find_values(payload, keys) when is_list(payload),
+    do: Enum.flat_map(payload, &find_values(&1, keys))
+
   defp find_values(_payload, _keys), do: []
 end

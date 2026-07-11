@@ -7,7 +7,10 @@ defmodule Aiur.Claude.Repl.TranscriptTurnTest do
   setup do
     test_pid = self()
     name = Module.concat(__MODULE__, :"Inst#{System.unique_integer([:positive])}")
-    {:ok, _pid} = start_supervised({Tmux, [transport: {:mock, test_pid}, name: name, session: "test"]})
+
+    {:ok, _pid} =
+      start_supervised({Tmux, [transport: {:mock, test_pid}, name: name, session: "test"]})
+
     %{tmux: name}
   end
 
@@ -51,11 +54,16 @@ defmodule Aiur.Claude.Repl.TranscriptTurnTest do
     }) <> "\n"
   end
 
-  defp api_error_record(status \\ 429, type \\ "rate_limit_error") do
+  defp api_error_record(error \\ "rate_limit") do
     Jason.encode!(%{
-      "type" => "system",
-      "subtype" => "api_error",
-      "error" => %{"status" => status, "type" => type, "message" => "API request failed"}
+      "type" => "assistant",
+      "error" => error,
+      "message" => %{
+        "model" => "<synthetic>",
+        "role" => "assistant",
+        "stop_reason" => "stop_sequence",
+        "content" => [%{"type" => "text", "text" => "API request failed"}]
+      }
     }) <> "\n"
   end
 
@@ -106,7 +114,9 @@ defmodule Aiur.Claude.Repl.TranscriptTurnTest do
     respond(tmux, "")
   end
 
-  test "cold start where the jsonl never materializes returns {:error, :no_transcript}", %{tmux: tmux} do
+  test "cold start where the jsonl never materializes returns {:error, :no_transcript}", %{
+    tmux: tmux
+  } do
     # Fresh workspace — no transcript file will ever appear.
     ws = Path.join(System.tmp_dir!(), "tt-cold-#{System.unique_integer([:positive])}")
     File.mkdir_p!(ws)
@@ -153,23 +163,32 @@ defmodule Aiur.Claude.Repl.TranscriptTurnTest do
     path = temp_transcript()
     on_exit(fn -> File.rm(path) end)
 
-    task = Task.async(fn -> TranscriptTurn.run(turn_session(tmux, path), "do work", poll_interval_ms: 10) end)
+    task =
+      Task.async(fn ->
+        TranscriptTurn.run(turn_session(tmux, path), "do work", poll_interval_ms: 10)
+      end)
 
     expect_prompt_submit(tmux)
     File.write!(path, api_error_record(), [:append])
 
     assert {:paused, %{kind: :usage_limit_exhausted, reason: reason}} = drain_pane_pid(tmux, task)
-    assert reason =~ "rate_limit_error"
+    assert reason =~ "rate_limit"
   end
 
   test "assistant quota text still completes the turn", %{tmux: tmux} do
     path = temp_transcript()
     on_exit(fn -> File.rm(path) end)
 
-    task = Task.async(fn -> TranscriptTurn.run(turn_session(tmux, path), "do work", poll_interval_ms: 10) end)
+    task =
+      Task.async(fn ->
+        TranscriptTurn.run(turn_session(tmux, path), "do work", poll_interval_ms: 10)
+      end)
 
     expect_prompt_submit(tmux)
-    File.write!(path, completion_record("The rate limit and quota words are in this sentence."), [:append])
+
+    File.write!(path, completion_record("The rate limit and quota words are in this sentence."), [
+      :append
+    ])
 
     assert {:ok, %{result: :completed}} = drain_pane_pid(tmux, task)
   end
@@ -178,15 +197,20 @@ defmodule Aiur.Claude.Repl.TranscriptTurnTest do
     path = temp_transcript()
     on_exit(fn -> File.rm(path) end)
 
-    task = Task.async(fn -> TranscriptTurn.run(turn_session(tmux, path), "do work", poll_interval_ms: 10) end)
+    task =
+      Task.async(fn ->
+        TranscriptTurn.run(turn_session(tmux, path), "do work", poll_interval_ms: 10)
+      end)
 
     expect_prompt_submit(tmux)
-    File.write!(path, api_error_record(400, "invalid_request_error"), [:append])
+    File.write!(path, api_error_record("authentication_failed"), [:append])
 
-    assert {:error, {:turn_failed, %{"error" => %{"status" => 400}}}} = drain_pane_pid(tmux, task)
+    assert {:error, {:turn_failed, %{"error" => "authentication_failed"}}} =
+             drain_pane_pid(tmux, task)
   end
 
-  test "pause_agent parks as {:paused, payload} with session_id/thread_id/turn_id even when pause-confirm expires", %{tmux: tmux} do
+  test "pause_agent parks as {:paused, payload} with session_id/thread_id/turn_id even when pause-confirm expires",
+       %{tmux: tmux} do
     path = temp_transcript()
     on_exit(fn -> File.rm(path) end)
 

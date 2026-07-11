@@ -32,17 +32,18 @@ defmodule Aiur.Claude.Repl.HookTurn do
 
   Sends `prompt` via the hook/RC protocol, then waits on claude lifecycle hook
   events: PostToolUse streams progress and heartbeats the backstop, Stop
-  completes the turn. The loop runs in the caller's process.
+  completes the turn, and StopFailure reports terminal API failures. The loop
+  runs in the caller's process.
   """
   @spec run(map(), String.t(), keyword()) :: {:ok, map()} | {:paused, map()} | {:error, term()}
   def run(session, prompt, opts) do
     # Hook-driven turn: claude v2.1.177 flushes its transcript lazily, so we drive
     # turn detection off lifecycle hooks (Aiur.Claude.HookEvents) instead. Send the
     # prompt, then wait on the agent's hook topic: PostToolUse streams progress and
-    # heartbeats the backstop, Stop completes the turn with `last_assistant_message`.
-    # There is no completion clock — only the Stop event, pane death, or a generous
-    # no-event backstop ends the wait — so a turn that works silently for minutes is
-    # never failed.
+    # heartbeats the backstop, Stop completes the turn with `last_assistant_message`,
+    # and StopFailure ends it with an API error. There is no completion clock — only
+    # a terminal hook, pane death, or a generous no-event backstop ends the wait —
+    # so a turn that works silently for minutes is never failed.
     on_message = Keyword.get(opts, :on_message, fn _ -> :ok end)
     on_operator = Keyword.get(opts, :on_operator_message, fn -> :noop end)
     poll_ms = Keyword.get(opts, :poll_interval_ms, @turn_poll_ms)
@@ -98,10 +99,13 @@ defmodule Aiur.Claude.Repl.HookTurn do
       true ->
         receive do
           {:claude_hook, _id, %{event: :stop} = event} ->
+            {:ok, %{acc | session_id: event.session_id || acc.session_id, message: event.message}}
+
+          {:claude_hook, _id, %{event: :stop_failure} = event} ->
             if NotificationPolicy.usage_limit_exhausted?(event.raw) do
               {:paused, NotificationPolicy.usage_limit_pause(event.raw)}
             else
-              {:ok, %{acc | session_id: event.session_id || acc.session_id, message: event.message}}
+              {:error, {:turn_failed, event.raw}}
             end
 
           {:claude_hook, _id, %{event: :post_tool_use} = event} ->
@@ -130,12 +134,14 @@ defmodule Aiur.Claude.Repl.HookTurn do
             await_hook_turn(loop, deadline, acc)
 
           # Pause request: interrupt the live REPL turn (Ctrl+C to the pane) and
-          # park as paused. The interrupted turn still fires a Stop hook, which the
-          # next turn's loop drains harmlessly.
+          # park as paused. Claude does not fire a terminal hook for user interrupts.
           {:pause_agent, request_id} when is_integer(request_id) ->
             case OperatorInject.interrupt(loop.session) do
-              :ok -> :ok
-              {:error, reason} -> Logger.warning("repl_pause interrupt_failed reason=#{inspect(reason)}")
+              :ok ->
+                :ok
+
+              {:error, reason} ->
+                Logger.warning("repl_pause interrupt_failed reason=#{inspect(reason)}")
             end
 
             {:paused, %{request_id: request_id}}
