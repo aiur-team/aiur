@@ -53,6 +53,24 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
       "${AIUR_MEMINFO_PATH:-/proc/meminfo}" >&2
   }
 
+  aiur_build_gate_now_seconds() {
+    local now
+
+    now=$(date +%s 2>/dev/null) || return 1
+    [[ $now =~ ^[0-9]+$ ]] || return 1
+    printf '%s\n' "$now"
+  }
+
+  aiur_build_gate_phase_hold_log() {
+    local phase=$1 wait_seconds=$2
+    printf 'aiur_perf phase_stagger_hold surface=build phase=%s wait_seconds=%s\n' \
+      "$phase" "$wait_seconds" >&2
+  }
+
+  aiur_build_gate_phase_clock_unavailable_log() {
+    printf 'aiur_perf phase_clock_unavailable surface=build action=fail_open\n' >&2
+  }
+
   aiur_build_gate_reclaim_stale_slot() {
     local slot_path=$1 slot=$2 owner_file="$slot_path/owner" owner_pid
 
@@ -81,18 +99,154 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     return 1
   }
 
+  aiur_build_gate_release_phase_lock() {
+    local lock_path=$1
+
+    if ! rm -rf "$lock_path" 2>/dev/null; then
+      aiur_build_gate_log "gate_error reason=phase_lock_release_failed path=$lock_path"
+      return 1
+    fi
+  }
+
+  aiur_build_gate_reclaim_stale_phase_lock() {
+    local lock_path=$1 owner_file="$lock_path/owner" owner_pid
+
+    owner_pid=$(aiur_build_gate_owner_pid "$owner_file")
+
+    if [[ -n $owner_pid ]]; then
+      kill -0 "$owner_pid" 2>/dev/null && return 1
+
+      rm -f "$owner_file"
+      if rmdir "$lock_path" 2>/dev/null; then
+        aiur_build_gate_log "stale_phase_lock_recovered owner_pid=$owner_pid"
+        return 0
+      fi
+
+      return 1
+    fi
+
+    if rmdir "$lock_path" 2>/dev/null; then
+      aiur_build_gate_log "stale_phase_lock_recovered owner_pid=unknown"
+      return 0
+    fi
+
+    return 1
+  }
+
+  aiur_build_gate_wait_for_phase_start() {
+    local gate_dir=$1 phase=$2 stagger_seconds=$3 deadline=$4
+    local lock_path="$gate_dir/phase-start.lock"
+    local owner_file="$lock_path/owner"
+    local next_start_file="$gate_dir/phase-next-start"
+    local now next_start wait_seconds max_wait_seconds
+
+    while :; do
+      while ! mkdir "$lock_path" 2>/dev/null; do
+        aiur_build_gate_reclaim_stale_phase_lock "$lock_path" || true
+
+        if ((SECONDS >= deadline)); then
+          return 124
+        fi
+
+        sleep 1
+      done
+
+      if printf 'pid=%s\nphase=%s\n' "$$" "$phase" >"$owner_file"; then
+        break
+      fi
+
+      rmdir "$lock_path" 2>/dev/null || true
+
+      if ((SECONDS >= deadline)); then
+        return 124
+      fi
+
+      sleep 1
+    done
+
+    if ! now=$(aiur_build_gate_now_seconds); then
+      aiur_build_gate_release_phase_lock "$lock_path" || true
+      aiur_build_gate_phase_clock_unavailable_log
+      return 2
+    fi
+
+    wait_seconds=0
+    next_start=""
+
+    if [[ -f $next_start_file ]]; then
+      IFS= read -r next_start <"$next_start_file" || next_start=""
+
+      if [[ $next_start =~ ^(0|[1-9][0-9]*)$ ]]; then
+        if ((next_start > now)); then
+          wait_seconds=$((next_start - now))
+          max_wait_seconds=$((stagger_seconds + 1))
+
+          if ((wait_seconds > max_wait_seconds)); then
+            aiur_build_gate_log "gate_error reason=phase_state_invalid path=$next_start_file"
+            wait_seconds=0
+          fi
+        fi
+      else
+        aiur_build_gate_log "gate_error reason=phase_state_invalid path=$next_start_file"
+      fi
+    fi
+
+    if ((wait_seconds > 0)); then
+      aiur_build_gate_phase_hold_log "$phase" "$wait_seconds"
+    fi
+
+    while ((wait_seconds > 0)); do
+      if ((SECONDS >= deadline)); then
+        aiur_build_gate_release_phase_lock "$lock_path" || true
+        return 124
+      fi
+
+      sleep 1
+
+      if ! now=$(aiur_build_gate_now_seconds); then
+        aiur_build_gate_release_phase_lock "$lock_path" || true
+        aiur_build_gate_phase_clock_unavailable_log
+        return 2
+      fi
+
+      wait_seconds=$((next_start > now ? next_start - now : 0))
+    done
+
+    if ! printf '%s\n' "$((now + stagger_seconds + 1))" >"$next_start_file"; then
+      aiur_build_gate_release_phase_lock "$lock_path" || true
+      aiur_build_gate_log "gate_error reason=phase_state_write_failed path=$next_start_file"
+      return 2
+    fi
+
+    aiur_build_gate_release_phase_lock "$lock_path" || true
+    return 0
+  }
+
+  aiur_build_gate_maybe_wait_for_phase_start() {
+    local gate_dir=$1 phase=$2 slots=$3 stagger_seconds=$4 deadline=$5
+
+    if ((stagger_seconds == 0 || slots == 1)); then
+      return 0
+    fi
+
+    aiur_build_gate_wait_for_phase_start \
+      "$gate_dir" "$phase" "$stagger_seconds" "$deadline"
+  }
+
   aiur_build_gate_run() {
-    local executable=$1
-    shift
+    local phase=$1 executable=$2
+    shift 2
 
     local gate_dir=${AIUR_BUILD_GATE_DIR:-}
     local slots=${AIUR_BUILD_GATE_SLOTS:-0}
+    local stagger_seconds=${AIUR_BUILD_START_STAGGER_SECONDS:-0}
     local timeout_seconds=${AIUR_BUILD_GATE_TIMEOUT_SECONDS:-900}
     local min_free_memory_mb=${AIUR_MIN_FREE_MEMORY_MB:-0}
-    local queue_dir queue_file deadline slot slot_path owner_file result
+    local queue_dir queue_file deadline slot slot_path owner_file result pacing_result
     local available_memory_mb memory_deferred=0 memory_unavailable_logged=0
 
     if [[ ! $slots =~ ^[0-9]+$ ]] ||
+      [[ ! $stagger_seconds =~ ^[0-9]+$ ]] ||
       [[ ! $timeout_seconds =~ ^[0-9]+$ ]] ||
       [[ ! $min_free_memory_mb =~ ^[0-9]+$ ]] ||
       [[ -z $gate_dir ]]; then
@@ -148,6 +302,16 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
       memory_deferred=0
 
       if ((slots == 0)); then
+        aiur_build_gate_maybe_wait_for_phase_start \
+          "$gate_dir" "$phase" "$slots" "$stagger_seconds" "$deadline"
+        pacing_result=$?
+
+        if ((pacing_result == 124)); then
+          rm -f "$queue_file"
+          aiur_build_gate_log "timeout slots=$slots command=$*"
+          return 124
+        fi
+
         rm -f "$queue_file"
         "$executable" "$@"
         result=$?
@@ -168,6 +332,18 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
 
           rm -f "$queue_file"
           aiur_build_gate_log "acquired slot=$slot command=$*"
+
+          aiur_build_gate_maybe_wait_for_phase_start \
+            "$gate_dir" "$phase" "$slots" "$stagger_seconds" "$deadline"
+          pacing_result=$?
+
+          if ((pacing_result == 124)); then
+            rm -rf "$slot_path" 2>/dev/null || true
+            aiur_build_gate_log "released slot=$slot status=124"
+            aiur_build_gate_log "timeout slots=$slots command=$*"
+            return 124
+          fi
+
           "$executable" "$@"
           result=$?
 
@@ -192,7 +368,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     done
   }
 
-  aiur_build_gate_mise_needs_slot() {
+  aiur_build_gate_mise_phase() {
     local command=${1:-}
     shift || true
 
@@ -212,7 +388,8 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
 
     [[ ${1:-} == mix ]] || return 1
     shift
-    aiur_build_gate_needs_slot "${1:-}"
+    aiur_build_gate_needs_slot "${1:-}" || return 1
+    printf '%s\n' "$1"
   }
 
   mix() {
@@ -220,7 +397,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     mix_binary=$(type -P mix)
 
     if [[ -n $mix_binary ]] && aiur_build_gate_needs_slot "${1:-}"; then
-      aiur_build_gate_run "$mix_binary" "$@"
+      aiur_build_gate_run "${1:-}" "$mix_binary" "$@"
     elif [[ -n $mix_binary ]]; then
       "$mix_binary" "$@"
     else
@@ -229,11 +406,11 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
   }
 
   mise() {
-    local mise_binary
+    local mise_binary phase
     mise_binary=$(type -P mise)
 
-    if [[ -n $mise_binary ]] && aiur_build_gate_mise_needs_slot "$@"; then
-      aiur_build_gate_run "$mise_binary" "$@"
+    if [[ -n $mise_binary ]] && phase=$(aiur_build_gate_mise_phase "$@"); then
+      aiur_build_gate_run "$phase" "$mise_binary" "$@"
     elif [[ -n $mise_binary ]]; then
       "$mise_binary" "$@"
     else

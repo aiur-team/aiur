@@ -55,19 +55,21 @@ defmodule Aiur.BuildGate do
 
   @spec status(keyword()) :: status()
   def status(opts \\ []) do
-    capacity = Keyword.get(opts, :capacity, Config.max_concurrent_builds())
+    capacity = Keyword.get_lazy(opts, :capacity, &Config.max_concurrent_builds/0)
+    stagger_seconds = Keyword.get_lazy(opts, :stagger_seconds, &Config.build_start_stagger_seconds/0)
+    min_free_memory_mb = Keyword.get_lazy(opts, :min_free_memory_mb, &Config.min_free_memory_mb/0)
 
-    if capacity <= 0 do
-      %{enabled?: false, capacity: 0, active: 0, queued: 0}
-    else
+    if gate_enabled?(capacity, stagger_seconds, min_free_memory_mb) do
       gate_dir = Keyword.get(opts, :gate_dir, gate_dir())
 
       %{
         enabled?: true,
         capacity: capacity,
-        active: active_count(gate_dir, capacity),
+        active: if(capacity > 0, do: active_count(gate_dir, capacity), else: 0),
         queued: queue_count(gate_dir)
       }
+    else
+      %{enabled?: false, capacity: 0, active: 0, queued: 0}
     end
   end
 
