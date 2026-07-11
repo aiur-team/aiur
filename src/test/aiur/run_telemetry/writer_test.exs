@@ -1,6 +1,7 @@
 defmodule Aiur.RunTelemetry.WriterTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
+  alias Aiur.RunTelemetry
   alias Aiur.RunTelemetry.Writer
 
   setup do
@@ -14,9 +15,7 @@ defmodule Aiur.RunTelemetry.WriterTest do
     {:ok, first} = Writer.start_link(name: nil, path: path, boot_id: "boot-1")
 
     assert :ok =
-             Writer.record(first, :lifecycle, %{ticket: "930", event: :dispatch},
-               timestamp: ~U[2026-07-11 12:00:00Z]
-             )
+             Writer.record(first, :lifecycle, %{ticket: "930", event: :dispatch}, timestamp: ~U[2026-07-11 12:00:00Z])
 
     assert :ok = Writer.flush(first)
     :ok = GenServer.stop(first)
@@ -68,6 +67,25 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert :ok = Writer.flush(writer)
     assert Process.alive?(writer)
     refute File.exists?(path)
+  end
+
+  test "writer restarts keep the daemon boot identity and sequence", %{path: path} do
+    RunTelemetry.start_boot()
+
+    {:ok, first} = Writer.start_link(name: nil, path: path)
+    assert :ok = Writer.record(first, :lifecycle, %{event: :dispatch})
+    assert :ok = Writer.flush(first)
+    :ok = GenServer.stop(first)
+
+    {:ok, second} = Writer.start_link(name: nil, path: path)
+    assert :ok = Writer.flush(second)
+
+    records = read_records(path)
+
+    assert records |> Enum.map(& &1["boot_id"]) |> Enum.uniq() |> length() == 1
+    assert Enum.map(records, & &1["sequence"]) == [1, 2, 3]
+    assert Enum.at(records, 0)["attributes"]["event"] == "daemon_restart"
+    assert Enum.at(records, 2)["attributes"]["event"] == "telemetry_writer_restart"
   end
 
   defp read_records(path) do

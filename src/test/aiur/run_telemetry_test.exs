@@ -44,4 +44,25 @@ defmodule Aiur.RunTelemetryTest do
 
     assert :ok = RunTelemetry.record(:lifecycle, %{event: :dispatch})
   end
+
+  test "debug-enabled facade writes through the supervised writer", %{root: root} do
+    System.put_env("AIUR_DEBUG", "1")
+    RunTelemetry.start_boot()
+
+    start_supervised!({Aiur.RunTelemetry.Supervisor, name: __MODULE__.Supervisor, writer_opts: [name: __MODULE__.Writer, path: Path.join(root, "log/telemetry.ndjson")]})
+
+    assert :ok =
+             RunTelemetry.record(:lifecycle, %{ticket: "930", event: :dispatch}, writer: __MODULE__.Writer)
+
+    assert :ok = Aiur.RunTelemetry.Writer.flush(__MODULE__.Writer)
+
+    records =
+      root
+      |> Path.join("log/telemetry.ndjson")
+      |> File.stream!([], :line)
+      |> Enum.map(&Jason.decode!/1)
+
+    assert Enum.map(records, & &1["kind"]) == ["restart", "lifecycle"]
+    assert Enum.at(records, 1)["attributes"]["ticket"] == "930"
+  end
 end
