@@ -1,7 +1,8 @@
 defmodule Aiur.DecisionAttentionTest do
   use Aiur.TestSupport
 
-  alias Aiur.{DecisionAttention, Issue}
+  alias Aiur.{AlertFeed, DecisionAttention, Issue}
+  alias Aiur.Config.Paths
   alias Aiur.Events.SubscriptionStore
 
   test "opens, re-asks, and resolves an operator-decision attention" do
@@ -62,5 +63,39 @@ defmodule Aiur.DecisionAttentionTest do
     assert log =~ "ticket.#{identifier}.agent.attention.scope-question"
     assert log =~ "Operator decision required: Should this facade target change?"
     assert log =~ "\"needs_attention\":true"
+  end
+
+  test "remote decision resolution clears the central attention feed" do
+    identifier = "DECISION-REMOTE-#{System.unique_integer([:positive])}"
+    workspace = Path.join(System.tmp_dir!(), "aiur-decision-remote-#{System.unique_integer([:positive])}")
+    issue = %Issue{identifier: identifier, title: "Remote decision"}
+    name = Module.concat(__MODULE__, "RemoteRegistry#{System.unique_integer([:positive])}")
+
+    File.mkdir_p!(workspace)
+    on_exit(fn -> File.rm_rf!(workspace) end)
+
+    {:ok, pid} = DecisionAttention.start_link(name: name, reask_interval_ms: 60_000)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: GenServer.stop(pid)
+    end)
+
+    assert :ok =
+             DecisionAttention.open(
+               name,
+               issue,
+               workspace,
+               "remote-worker",
+               "scope-question",
+               "Should this facade target change?"
+             )
+
+    expected_topic = "ticket.#{identifier}.agent.attention.scope-question"
+
+    assert [%{"topic" => ^expected_topic}] =
+             AlertFeed.list(roots: [], log_roots: [Paths.log_root_dir()], needs_attention: true)
+
+    assert :ok = DecisionAttention.resolve(name, issue, "scope-question")
+    assert AlertFeed.list(roots: [], log_roots: [Paths.log_root_dir()], needs_attention: true) == []
   end
 end

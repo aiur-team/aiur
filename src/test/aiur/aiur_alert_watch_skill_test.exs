@@ -360,8 +360,10 @@ defmodule Aiur.AiurAlertWatchSkillTest do
       }) <> "\n"
     )
 
-    [alert] = run(config, home, backlog: true) |> alert_lines()
-    assert alert["reason"] == "line\twith control \"chars\""
-    assert alert["needs_attention"] == true
+    for no_jq <- [false, true] do
+      [alert] = run(config, home, backlog: true, no_jq: no_jq) |> alert_lines()
+      assert alert["reason"] == "line\twith control \"chars\""
+      assert alert["needs_attention"] == true
+    end
   end
 end

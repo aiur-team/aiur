@@ -98,12 +98,29 @@ add_root() {
 add_root "$config_root"
 add_root "$home_root"
 
-# --- JSON helpers (jq-less fallback escapes \ and ") ------------------------
+# --- JSON helpers -----------------------------------------------------------
 json_escape() {
   local s="$1"
   s="${s//\\/\\\\}"
   s="${s//\"/\\\"}"
+  s="${s//$'\b'/\\b}"
+  s="${s//$'\f'/\\f}"
+  s="${s//$'\n'/\\n}"
+  s="${s//$'\r'/\\r}"
+  s="${s//$'\t'/\\t}"
   printf '%s' "$s"
+}
+
+# Extract one JSON-encoded string field without jq. Alert logs are compact Jason
+# output; the regex keeps escaped characters inside the capture. Keeping the
+# encoded contents intact lets the relay embed them directly in its own JSON,
+# including quotes and control characters, without needing a second JSON parser
+# on stock macOS hosts where jq is not installed.
+json_string_field() {
+  local line="$1" key="$2" encoded
+  encoded="$(printf '%s' "$line" | sed -nE 's/.*"'"$key"'":"(([^"\\]|\\.)*)".*/\1/p')"
+  [ -n "$encoded" ] || return 0
+  printf '%s' "$encoded"
 }
 
 # Per-file alert-line-count cursors, kept as parallel indexed arrays so this
@@ -130,8 +147,8 @@ alert_topic() {
     printf '%s\n' "$topic"
   else
     local topic
-    topic="$(printf '%s' "$line" | sed -n 's/.*"topic":"\([^"]*\)".*/\1/p')"
-    [ -n "$topic" ] || topic="$(printf '%s' "$line" | sed -n 's/.*"name":"\([^"]*\)".*/\1/p')"
+    topic="$(json_string_field "$line" "topic")"
+    [ -n "$topic" ] || topic="$(json_string_field "$line" "name")"
     printf '%s\n' "$topic"
   fi
 }
@@ -243,14 +260,14 @@ emit_alert_line() {
     [ -n "$parsed" ] || return 0
     IFS=$'\x1f' read -r ts msg name reason severity need src_ticket <<<"$parsed"
   else
-    name="$(printf '%s' "$line" | sed -n 's/.*"topic":"\([^"]*\)".*/\1/p')"
-    [ -n "$name" ] || name="$(printf '%s' "$line" | sed -n 's/.*"name":"\([^"]*\)".*/\1/p')"
+    name="$(json_string_field "$line" "topic")"
+    [ -n "$name" ] || name="$(json_string_field "$line" "name")"
     [ -n "$name" ] || return 0
-    ts="$(printf '%s' "$line" | sed -n 's/.*"timestamp":"\([^"]*\)".*/\1/p')"
-    msg="$(printf '%s' "$line" | sed -n 's/.*"message":"\([^"]*\)".*/\1/p')"
-    reason="$(printf '%s' "$line" | sed -n 's/.*"reason":"\([^"]*\)".*/\1/p')"
-    severity="$(printf '%s' "$line" | sed -n 's/.*"severity":"\([^"]*\)".*/\1/p')"
-    src_ticket="$(printf '%s' "$line" | sed -n 's/.*"source_ticket_id":"\([^"]*\)".*/\1/p')"
+    ts="$(json_string_field "$line" "timestamp")"
+    msg="$(json_string_field "$line" "message")"
+    reason="$(json_string_field "$line" "reason")"
+    severity="$(json_string_field "$line" "severity")"
+    src_ticket="$(json_string_field "$line" "source_ticket_id")"
     if printf '%s' "$line" | grep -q '"needs_attention":true'; then need="true"; else need="false"; fi
   fi
 
@@ -291,9 +308,8 @@ emit_alert_line() {
       '{timestamp:$timestamp,ticket:$ticket,source_ticket_id:$source_ticket_id,agent:$agent,reason:$reason,severity:$severity,topic:$topic,name:$name,needs_attention:$needs_attention,operator_decision:$operator_decision,decision_state:$decision_state,decision_key:$decision_key,notification_results:$notification_results}'
   else
     printf '{"timestamp":"%s","ticket":"%s","source_ticket_id":"%s","agent":"%s","reason":"%s","severity":"%s","topic":"%s","name":"%s","needs_attention":%s,"operator_decision":%s,"decision_state":"%s","decision_key":"%s","notification_results":"%s"}\n' \
-      "$(json_escape "$ts")" "$(json_escape "$tkt")" "$(json_escape "$tkt")" \
-      "$(json_escape "$agent")" "$(json_escape "$reason")" "$(json_escape "$severity")" \
-      "$(json_escape "$name")" "$(json_escape "$name")" "$need" "$operator_decision" \
+      "$ts" "$tkt" "$tkt" "$(json_escape "$agent")" "$reason" "$severity" \
+      "$name" "$name" "$need" "$operator_decision" \
       "$(json_escape "$decision_state")" "$(json_escape "$decision_key")" "$(json_escape "$notification_results")"
   fi
 }

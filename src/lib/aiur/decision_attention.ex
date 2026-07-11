@@ -84,11 +84,18 @@ defmodule Aiur.DecisionAttention do
   def handle_call({:resolve, issue, slug}, _from, state) do
     identifier = issue_identifier!(issue)
     key = {identifier, slug}
-    cancel_timer(Map.get(state.attentions, key))
+    attention = Map.get(state.attentions, key) || %{}
+    cancel_timer(attention)
 
     :ok = SubscriptionStore.attach(identifier)
     :ok = SubscriptionStore.resolve_attention(identifier, slug)
-    state.resolution_emitter.(%{issue: issue, workspace: Map.get(state.attentions[key] || %{}, :workspace), slug: slug})
+
+    state.resolution_emitter.(%{
+      issue: issue,
+      workspace: Map.get(attention, :workspace),
+      worker_host: Map.get(attention, :worker_host),
+      slug: slug
+    })
 
     {:reply, :ok, %{state | attentions: Map.delete(state.attentions, key)}}
   end
@@ -132,6 +139,7 @@ defmodule Aiur.DecisionAttention do
     Alerts.emit_custom(resolution_topic(attention), "Operator decision updated",
       issue: attention.issue,
       workspace: attention.workspace,
+      worker_host: attention.worker_host,
       reason: "Operator decision resolved.",
       needs_attention: false,
       severity: "info"

@@ -125,14 +125,15 @@ defmodule Aiur.AlertFeed do
 
   defp resolve_attention_alerts(alerts) do
     Enum.reduce(alerts, [], fn alert, active_alerts ->
-      case resolved_attention_key(Map.get(alert, "topic")) do
-        nil -> active_alerts ++ [alert]
-        key -> Enum.reject(active_alerts, &(attention_alert_key(&1) == key)) ++ [alert]
+      case resolved_attention_key(alert) do
+        nil -> [alert | active_alerts]
+        key -> [alert | Enum.reject(active_alerts, &(attention_alert_key(&1) == key))]
       end
     end)
+    |> Enum.reverse()
   end
 
-  defp resolved_attention_key("ticket." <> rest) do
+  defp resolved_attention_key(%{"topic" => "ticket." <> rest, "needs_attention" => false}) do
     case String.split(rest, ".agent.attention.", parts: 2) do
       [ticket, slug_and_suffix] ->
         case String.trim_trailing(slug_and_suffix, ".resolved") do
@@ -145,7 +146,7 @@ defmodule Aiur.AlertFeed do
     end
   end
 
-  defp resolved_attention_key(_topic), do: nil
+  defp resolved_attention_key(_alert), do: nil
 
   defp attention_alert_key(%{"topic" => "ticket." <> rest}) do
     case String.split(rest, ".agent.attention.", parts: 2) do
