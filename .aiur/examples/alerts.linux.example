@@ -42,10 +42,18 @@ alerts:
     message: Agent retry budget exhausted
     sound:
       - "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga"
+  "ticket.*.agent.review_feedback_delivery_deferred":
+    message: Review feedback is queued but the agent could not resume
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga"
   "ticket.*.agent.paused":
     message: Agent paused
     sound:
       - "/usr/share/sounds/freedesktop/stereo/power-unplug.oga"
+  "ticket.*.agent.attention.*":
+    message: Operator decision required
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga"
   "ticket.*.agent.unpaused":
     message: Agent unpaused
     sound:

@@ -9,6 +9,8 @@ defmodule Aiur.Orchestrator.TrackedSet do
 
   use GenServer
 
+  alias Aiur.Orchestrator.State
+
   @table __MODULE__
   @table_opts [
     :named_table,
@@ -43,6 +45,23 @@ defmodule Aiur.Orchestrator.TrackedSet do
     end
   rescue
     ArgumentError -> true
+  end
+
+  @spec refresh(State.t()) :: State.t()
+  def refresh(%State{} = state) do
+    # Deactivated rows remain visible in state but must reject late publisher events.
+    issue_ids =
+      state.running
+      |> Enum.reject(fn {_id, entry} ->
+        get_in(entry, [:control, :status]) == :deactivated
+      end)
+      |> Enum.map(fn {_id, entry} ->
+        entry[:identifier] || Map.get(entry, :identifier)
+      end)
+      |> Enum.reject(&is_nil/1)
+
+    reset(issue_ids)
+    state
   end
 
   @impl true

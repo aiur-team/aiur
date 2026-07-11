@@ -42,10 +42,18 @@ alerts:
     message: Agent retry budget exhausted
     sound:
       - "/System/Library/Sounds/Basso.aiff"
+  "ticket.*.agent.review_feedback_delivery_deferred":
+    message: Review feedback is queued but the agent could not resume
+    sound:
+      - "/System/Library/Sounds/Basso.aiff"
   "ticket.*.agent.paused":
     message: Agent paused
     sound:
       - "/System/Library/Sounds/Funk.aiff"
+  "ticket.*.agent.attention.*":
+    message: Operator decision required
+    sound:
+      - "/System/Library/Sounds/Basso.aiff"
   "ticket.*.agent.unpaused":
     message: Agent unpaused
     sound:

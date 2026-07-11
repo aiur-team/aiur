@@ -32,7 +32,7 @@ defmodule Aiur.Regression.EnterOpensNewPaneTest do
                      "../../../lib/aiur/opencode/session_writer_registry.ex",
                      __DIR__
                    )
-  @pane_manager_source Path.expand("../../../lib/aiur/pane_manager.ex", __DIR__)
+  @opencode_open_source Path.expand("../../../lib/aiur/pane_manager/opencode_open.ex", __DIR__)
 
   describe "AgentList Enter behavior" do
     test "plain Enter dispatches :new_pane (not :swap_in_last_used)" do
@@ -91,13 +91,13 @@ defmodule Aiur.Regression.EnterOpensNewPaneTest do
 
   describe "PaneManager warm-open hot path is lock-free" do
     test "open_opencode_pane checks SlotRegistry.find_visible BEFORE AttachPool.consume" do
-      source = File.read!(@pane_manager_source)
+      source = File.read!(@opencode_open_source)
 
       open_block =
         source
-        |> String.split(~r/defp open_opencode_pane\(state, identifier, _opts, from\) do/, parts: 2)
+        |> String.split(~r/def open_opencode_pane\(state, identifier, _opts, from\) do/, parts: 2)
         |> List.last()
-        |> String.split(~r/defp move_warm_pane_visible/, parts: 2)
+        |> String.split(~r/def move_warm_pane_visible/, parts: 2)
         |> List.first()
 
       assert open_block =~ "SlotRegistry.find_visible",
@@ -125,17 +125,17 @@ defmodule Aiur.Regression.EnterOpensNewPaneTest do
 
   describe "Slot mirrors visible state into SlotRegistry" do
     test "broadcast_visible_changed publishes pane_id into SlotRegistry" do
-      source = File.read!(@slot_source)
+      source = File.read!(Path.expand("../../../lib/aiur/opencode/slot/events.ex", __DIR__))
 
       helper_block =
         source
-        |> String.split(~r/defp broadcast_visible_changed\(/, parts: 2)
+        |> String.split(~r/def visible_changed\(/, parts: 2)
         |> List.last()
         |> String.split(~r/defp [a-z_]+/, parts: 2)
         |> List.first()
 
       assert helper_block =~ "SlotRegistry.update_pane_state",
-             "broadcast_visible_changed MUST call SlotRegistry.update_pane_state so the lock-free warm-open lookup in PaneManager sees the current {visible_identifier, pane_id} for this slot. Without this, find_visible always returns :not_found and the hot path falls through to the slow consume."
+             "Slot.Events.visible_changed MUST call SlotRegistry.update_pane_state so the lock-free warm-open lookup in PaneManager sees the current {visible_identifier, pane_id} for this slot. Without this, find_visible always returns :not_found and the hot path falls through to the slow consume."
     end
   end
 end

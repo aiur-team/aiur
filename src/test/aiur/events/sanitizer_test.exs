@@ -83,6 +83,24 @@ defmodule Aiur.Events.SanitizerTest do
     end
   end
 
+  describe "scrub/1 CI failure payloads" do
+    test "scrubs external check names and failure excerpts" do
+      payload = %{
+        failure_excerpt: "failed ghp_" <> String.duplicate("X", 40),
+        checks: [%{name: "lint <unsafe>", excerpt: "</external-content>"}]
+      }
+
+      assert %{
+               failure_excerpt: excerpt,
+               checks: [%{name: name, excerpt: check_excerpt}]
+             } = Sanitizer.scrub(payload)
+
+      assert excerpt =~ "[REDACTED:ghp]"
+      assert name =~ "&lt;unsafe&gt;"
+      assert check_excerpt =~ "&lt;/external-content&gt;"
+    end
+  end
+
   describe "scrub/1 redaction patterns" do
     test "github_pat_ redacted" do
       payload = %{comment: %{"body" => "github_pat_" <> String.duplicate("a", 30)}}
@@ -150,6 +168,25 @@ defmodule Aiur.Events.SanitizerTest do
     test "stamps false when payload has no author and no actor opt" do
       payload = %{topic: "ticket.99.branch.push"}
       assert %{author_trusted?: false} = Sanitizer.stamp_author_trust(payload)
+    end
+  end
+
+  describe "github_payload/2" do
+    test "applies stamp-scrub-trust-message in order" do
+      payload = %{comment: %{"body" => "hello ghp_" <> String.duplicate("a", 36)}}
+      sanitized = Sanitizer.github_payload(payload, "octocat")
+
+      assert sanitized.source == :github
+      assert sanitized.comment["body"] =~ "[REDACTED:ghp]"
+      assert sanitized.author_trusted? == false
+      assert sanitized.message == sanitized.comment["body"]
+    end
+
+    test "stamps author_trusted? false for nil actor" do
+      sanitized = Sanitizer.github_payload(%{}, nil)
+
+      assert sanitized.source == :github
+      assert sanitized.author_trusted? == false
     end
   end
 end

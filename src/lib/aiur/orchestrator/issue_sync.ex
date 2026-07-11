@@ -1,0 +1,285 @@
+defmodule Aiur.Orchestrator.IssueSync do
+  @moduledoc """
+  Synchronizes polled issues into orchestrator state and derived events.
+  All functions execute inside the orchestrator GenServer process.
+  """
+
+  alias Aiur.{AgentQueue, AgentQueueStore, Alerts, Issue}
+  alias Aiur.Orchestrator
+  alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, OperatorMessages, Slots, State}
+
+  @spec sync_polled_issue_state(State.t(), list()) :: State.t()
+  def sync_polled_issue_state(%State{} = state, issues) when is_list(issues) do
+    previous_issues = state.last_polled_issues
+
+    state =
+      Enum.reduce(issues, state, fn issue, state_acc ->
+        previous_issue = Map.get(previous_issues, issue.id)
+
+        state_acc
+        |> emit_task_state_transition_alert(previous_issue, issue)
+        |> emit_dependency_transition_events(previous_issue, issue)
+      end)
+
+    %{state | last_polled_issues: issues_by_id(issues)}
+  end
+
+  def sync_polled_issue_state(%State{} = state, _issues), do: state
+
+  defp issues_by_id(issues) do
+    Enum.reduce(issues, %{}, fn
+      %Issue{id: issue_id} = issue, acc when is_binary(issue_id) -> Map.put(acc, issue_id, issue)
+      _issue, acc -> acc
+    end)
+  end
+
+  defp emit_dependency_transition_events(%State{} = state, previous_issue, %Issue{} = issue) do
+    if is_nil(previous_issue) do
+      state
+    else
+      previous_blockers = blocker_map(previous_issue)
+      current_blockers = blocker_map(issue)
+
+      added_blocker_ids = Map.keys(current_blockers) -- Map.keys(previous_blockers)
+      removed_blocker_ids = Map.keys(previous_blockers) -- Map.keys(current_blockers)
+      shared_blocker_ids = Map.keys(current_blockers) -- added_blocker_ids
+
+      state =
+        Enum.reduce(added_blocker_ids, state, fn blocker_id, state_acc ->
+          AutoSubscriptions.auto_subscribe_for_dependency(issue, current_blockers[blocker_id])
+
+          enqueue_dependency_event(
+            state_acc,
+            issue,
+            current_blockers[blocker_id],
+            :dependency_added
+          )
+        end)
+
+      state =
+        Enum.reduce(removed_blocker_ids, state, fn blocker_id, state_acc ->
+          AutoSubscriptions.auto_unsubscribe_for_dependency(issue, previous_blockers[blocker_id])
+
+          enqueue_dependency_event(
+            state_acc,
+            issue,
+            previous_blockers[blocker_id],
+            :dependency_removed
+          )
+        end)
+
+      Enum.reduce(shared_blocker_ids, state, fn blocker_id, state_acc ->
+        maybe_enqueue_blocker_terminality_event(
+          state_acc,
+          issue,
+          previous_blockers[blocker_id],
+          current_blockers[blocker_id]
+        )
+      end)
+    end
+  end
+
+  defp emit_dependency_transition_events(%State{} = state, _previous_issue, _issue), do: state
+
+  defp emit_task_state_transition_alert(%State{} = state, nil, %Issue{}), do: state
+
+  defp emit_task_state_transition_alert(
+         %State{} = state,
+         %Issue{} = previous_issue,
+         %Issue{} = issue
+       ) do
+    previous_state = DispatchPolicy.state_slug(previous_issue.state)
+    current_state = DispatchPolicy.state_slug(issue.state)
+
+    if previous_state != current_state and current_state != nil do
+      # Ticket B: label-flip alerts route through the new topic shape so
+      # the alerts file can glob-match per state without one entry per state.
+      Alerts.emit_system(
+        "ticket.#{issue.identifier}.issue.label.added.agent.#{current_state}",
+        issue: issue,
+        worker_host: Orchestrator.running_worker_host(state, issue.id),
+        reason: task_state_alert_reason(current_state),
+        needs_attention: task_state_needs_attention?(current_state),
+        severity: task_state_alert_severity(current_state)
+      )
+    end
+
+    state
+  end
+
+  defp emit_task_state_transition_alert(%State{} = state, _previous_issue, _issue), do: state
+
+  defp task_state_alert_reason("human-review"),
+    do: "Agent marked the ticket ready for human review"
+
+  defp task_state_alert_reason(_state), do: nil
+
+  defp task_state_needs_attention?("human-review"), do: true
+  defp task_state_needs_attention?(_state), do: false
+
+  defp task_state_alert_severity("human-review"), do: "warning"
+  defp task_state_alert_severity(_state), do: nil
+
+  @spec blocker_map(term()) :: map()
+  def blocker_map(%Issue{blocked_by: blockers}) when is_list(blockers) do
+    Enum.reduce(blockers, %{}, fn
+      %{id: blocker_id} = blocker, acc when is_binary(blocker_id) ->
+        Map.put(acc, blocker_id, blocker)
+
+      _blocker, acc ->
+        acc
+    end)
+  end
+
+  def blocker_map(_issue), do: %{}
+
+  defp blocker_terminal?(%{state: state_name}) when is_binary(state_name) do
+    DispatchPolicy.terminal_issue_state?(state_name, DispatchPolicy.terminal_state_set())
+  end
+
+  defp blocker_terminal?(_blocker), do: false
+
+  defp maybe_enqueue_blocker_terminality_event(state, issue, previous_blocker, current_blocker) do
+    cond do
+      blocker_terminal?(previous_blocker) and !blocker_terminal?(current_blocker) ->
+        enqueue_dependency_event(state, issue, current_blocker, :blocker_became_non_terminal)
+
+      !blocker_terminal?(previous_blocker) and blocker_terminal?(current_blocker) ->
+        enqueue_dependency_event(state, issue, current_blocker, :blocker_became_terminal)
+
+      true ->
+        state
+    end
+  end
+
+  defp enqueue_dependency_event(%State{} = state, %Issue{} = issue, blocker, update_kind)
+       when is_map(blocker) do
+    body = blocker_event_body(issue, blocker, update_kind)
+
+    {queue_store, item} =
+      AgentQueue.coordination_event(issue.identifier, update_kind, body,
+        source: :tracker,
+        dedupe_key: dependency_event_dedupe_key(issue, blocker, update_kind),
+        causal_refs: dependency_causal_refs(issue, blocker),
+        subscription: dependency_subscription(issue, blocker)
+      )
+      |> then(&AgentQueueStore.enqueue(state.queue_store, &1))
+
+    next_state = %{state | queue_store: queue_store}
+
+    case State.find_running_by_identifier(state.running, issue.identifier) do
+      nil ->
+        next_state
+
+      running_entry ->
+        OperatorMessages.notify_running_queue_update(running_entry, item)
+        next_state
+    end
+  end
+
+  defp enqueue_dependency_event(%State{} = state, _issue, _blocker, _update_kind), do: state
+
+  defp blocker_event_body(issue, blocker, update_kind) do
+    %{
+      blocked_issue_id: issue.id,
+      blocked_issue_identifier: issue.identifier,
+      blocker_issue_id: blocker[:id],
+      blocker_issue_identifier: blocker[:identifier],
+      blocker_state: blocker[:state],
+      update_kind: update_kind,
+      summary: blocker_event_summary(issue, blocker, update_kind)
+    }
+  end
+
+  defp blocker_event_summary(_issue, blocker, :dependency_added),
+    do: "Issue is now blocked by #{blocker[:identifier] || blocker[:id]}"
+
+  defp blocker_event_summary(_issue, blocker, :dependency_removed),
+    do: "Dependency on #{blocker[:identifier] || blocker[:id]} was removed"
+
+  defp blocker_event_summary(_issue, blocker, :blocker_became_terminal),
+    do: "Blocker #{blocker[:identifier] || blocker[:id]} reached terminal state #{blocker[:state]}"
+
+  defp blocker_event_summary(_issue, blocker, :blocker_became_non_terminal),
+    do: "Blocker #{blocker[:identifier] || blocker[:id]} returned to non-terminal state #{blocker[:state]}"
+
+  defp dependency_event_dedupe_key(issue, blocker, update_kind) do
+    [
+      Atom.to_string(update_kind),
+      issue.id || issue.identifier,
+      blocker[:id] || blocker[:identifier],
+      blocker[:state]
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(":")
+  end
+
+  defp dependency_causal_refs(issue, blocker) do
+    [issue.id, blocker[:id]]
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp dependency_subscription(issue, blocker) do
+    %{
+      subscription_type: :blocked_by,
+      source_issue_id: blocker[:id],
+      target_issue_id: issue.id
+    }
+  end
+
+  @spec sync_todo_capacity_alert(State.t(), list()) :: State.t()
+  def sync_todo_capacity_alert(%State{} = state, issues) when is_list(issues) do
+    todo_issues = routable_todo_issues(issues)
+
+    over_capacity? = length(todo_issues) > Slots.max_concurrent_agent_limit(state)
+
+    cond do
+      over_capacity? and not state.todo_over_capacity_alert_active ->
+        emit_todo_capacity_alert(state, todo_issues)
+        %{state | todo_over_capacity_alert_active: true}
+
+      not over_capacity? and state.todo_over_capacity_alert_active ->
+        %{state | todo_over_capacity_alert_active: false}
+
+      true ->
+        state
+    end
+  end
+
+  def sync_todo_capacity_alert(%State{} = state, _issues), do: state
+
+  defp routable_todo_issues(issues) when is_list(issues) do
+    issues
+    |> Enum.filter(fn
+      %Issue{} = issue ->
+        DispatchPolicy.normalize_issue_state(issue.state) == "todo" and
+          not Issue.paused?(issue) and
+          DispatchPolicy.issue_routable_to_worker?(issue) and
+          !DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, DispatchPolicy.terminal_state_set())
+
+      _ ->
+        false
+    end)
+    |> DispatchPolicy.sort_issues_for_dispatch()
+  end
+
+  defp emit_todo_capacity_alert(%State{} = state, todo_issues) when is_list(todo_issues) do
+    case List.first(todo_issues) do
+      %Issue{} = issue ->
+        Alerts.emit_system("system.dispatch.todo_capacity_exceeded",
+          issue: issue,
+          worker_host: Orchestrator.running_worker_host(state, issue.id),
+          reason: "Todo issue count exceeds the current dispatch capacity.",
+          needs_attention: true,
+          severity: "warning"
+        )
+
+      _ ->
+        Alerts.emit_system("system.dispatch.todo_capacity_exceeded",
+          reason: "Todo issue count exceeds the current dispatch capacity.",
+          needs_attention: true,
+          severity: "warning"
+        )
+    end
+  end
+end

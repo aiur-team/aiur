@@ -16,7 +16,13 @@ defmodule Aiur.Claude.TranscriptTailerTest do
       start_supervised(
         {TranscriptTailer,
          Keyword.merge(
-           [path: path, on_message: on_message, turn_id: "turn-1", interval_ms: nil, from: :start],
+           [
+             path: path,
+             on_message: on_message,
+             turn_id: "turn-1",
+             interval_ms: nil,
+             from: :start
+           ],
            opts
          )},
         id: {:tailer, System.unique_integer([:positive])}
@@ -60,7 +66,10 @@ defmodule Aiur.Claude.TranscriptTailerTest do
     assert event.body == "Complete"
   end
 
-  test "skips bridge-session / system / file-history-snapshot records", %{path: path, test_pid: tp} do
+  test "skips bridge-session / system / file-history-snapshot records", %{
+    path: path,
+    test_pid: tp
+  } do
     lines =
       Enum.map_join(
         ["bridge-session", "system", "file-history-snapshot"],
@@ -89,7 +98,10 @@ defmodule Aiur.Claude.TranscriptTailerTest do
     refute_receive {:event, %{body: "first"}}, 100
   end
 
-  test "detects truncation/replacement and reads the new file from the start", %{path: path, test_pid: tp} do
+  test "detects truncation/replacement and reads the new file from the start", %{
+    path: path,
+    test_pid: tp
+  } do
     File.write!(path, assistant_line("old long content that makes the file big"))
     tailer = start_tailer(path, tp)
     assert {:ok, 1} = TranscriptTailer.poll(tailer)
@@ -101,7 +113,10 @@ defmodule Aiur.Claude.TranscriptTailerTest do
     assert_receive {:event, %{body: "new"}}
   end
 
-  test "a cloud-authored record is emitted identically to a local one", %{path: path, test_pid: tp} do
+  test "a cloud-authored record is emitted identically to a local one", %{
+    path: path,
+    test_pid: tp
+  } do
     # The Claude app (Remote Control) appends the same on-disk shape; the
     # tailer cannot and need not tell the surfaces apart.
     File.write!(path, assistant_line("from the phone"))
@@ -113,7 +128,10 @@ defmodule Aiur.Claude.TranscriptTailerTest do
     assert event.body == "from the phone"
   end
 
-  test "fires on_turn_end with the terminal stop_reason of an assistant record", %{path: path, test_pid: tp} do
+  test "fires on_turn_end with the terminal stop_reason of an assistant record", %{
+    path: path,
+    test_pid: tp
+  } do
     on_message = fn event -> send(tp, {:event, event}) end
     on_turn_end = fn reason -> send(tp, {:turn_end, reason}) end
 
@@ -150,7 +168,120 @@ defmodule Aiur.Claude.TranscriptTailerTest do
     assert_receive {:turn_end, "end_turn"}
   end
 
-  test "does not fire on_turn_end for an intra-turn (tool_use) assistant record", %{path: path, test_pid: tp} do
+  test "fires on_turn_end for persisted assistant API-error records", %{path: path, test_pid: tp} do
+    on_turn_end = fn signal -> send(tp, {:turn_end, signal}) end
+
+    record =
+      Jason.encode!(%{
+        "type" => "assistant",
+        "error" => "rate_limit",
+        "message" => %{
+          "model" => "<synthetic>",
+          "role" => "assistant",
+          "stop_reason" => "stop_sequence",
+          "content" => [%{"type" => "text", "text" => "API Error: Rate limit reached"}]
+        }
+      }) <> "\n"
+
+    File.write!(path, record)
+
+    tailer_opts = [
+      path: path,
+      on_message: fn _ -> :ok end,
+      on_turn_end: on_turn_end,
+      turn_id: "turn-1",
+      interval_ms: nil,
+      from: :start
+    ]
+
+    {:ok, tailer} =
+      start_supervised(
+        {TranscriptTailer, tailer_opts},
+        id: {:tailer, System.unique_integer([:positive])}
+      )
+
+    assert {:ok, 1} = TranscriptTailer.poll(tailer)
+    assert_receive {:turn_end, {:error, %{"error" => "rate_limit"}}}
+  end
+
+  test "fires on_turn_end for legacy system API-error records", %{path: path, test_pid: tp} do
+    on_turn_end = fn signal -> send(tp, {:turn_end, signal}) end
+
+    File.write!(
+      path,
+      Jason.encode!(%{
+        "type" => "system",
+        "subtype" => "api_error",
+        "error" => %{"status" => 429, "type" => "rate_limit_error"}
+      }) <> "\n"
+    )
+
+    tailer =
+      start_tailer(path, tp,
+        on_turn_end: on_turn_end,
+        on_message: fn _ -> :ok end
+      )
+
+    assert {:ok, 0} = TranscriptTailer.poll(tailer)
+    assert_receive {:turn_end, {:error, %{"error" => %{"status" => 429}}}}
+  end
+
+  test "does not end the turn for retryable API-error records", %{path: path, test_pid: tp} do
+    on_turn_end = fn signal -> send(tp, {:turn_end, signal}) end
+
+    File.write!(
+      path,
+      Jason.encode!(%{
+        "type" => "system",
+        "subtype" => "api_retry",
+        "error" => "rate_limit",
+        "error_status" => 429,
+        "attempt" => 1,
+        "max_retries" => 10
+      }) <> "\n"
+    )
+
+    tailer =
+      start_tailer(path, tp,
+        on_turn_end: on_turn_end,
+        on_message: fn _ -> :ok end
+      )
+
+    assert {:ok, 0} = TranscriptTailer.poll(tailer)
+    refute_receive {:turn_end, _}, 100
+  end
+
+  test "fires on_turn_end for failing API result records", %{path: path, test_pid: tp} do
+    on_turn_end = fn signal -> send(tp, {:turn_end, signal}) end
+
+    File.write!(
+      path,
+      Jason.encode!(%{"type" => "result", "is_error" => true, "api_error_status" => 429}) <> "\n"
+    )
+
+    tailer_opts = [
+      path: path,
+      on_message: fn _ -> :ok end,
+      on_turn_end: on_turn_end,
+      turn_id: "turn-1",
+      interval_ms: nil,
+      from: :start
+    ]
+
+    {:ok, tailer} =
+      start_supervised(
+        {TranscriptTailer, tailer_opts},
+        id: {:tailer, System.unique_integer([:positive])}
+      )
+
+    assert {:ok, 0} = TranscriptTailer.poll(tailer)
+    assert_receive {:turn_end, {:error, %{"api_error_status" => 429}}}
+  end
+
+  test "does not fire on_turn_end for an intra-turn (tool_use) assistant record", %{
+    path: path,
+    test_pid: tp
+  } do
     on_turn_end = fn reason -> send(tp, {:turn_end, reason}) end
 
     record =

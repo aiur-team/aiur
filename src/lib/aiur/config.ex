@@ -5,6 +5,7 @@ defmodule Aiur.Config do
   """
 
   alias Aiur.Config.Schema
+  alias Aiur.Config.Schema.AgentValidation
   alias Aiur.Workflow
 
   @default_prompt_template """
@@ -20,8 +21,6 @@ defmodule Aiur.Config do
   No description provided.
   {% endif %}
   """
-
-  @valid_codex_approval_policies ~w(untrusted on-failure on-request granular never)
 
   @type codex_runtime_settings :: %{
           approval_policy: String.t(),
@@ -64,7 +63,7 @@ defmodule Aiur.Config do
 
     Map.get(
       config.agent.max_concurrent_agents_by_state,
-      Schema.normalize_issue_state(state_name),
+      AgentValidation.normalize_issue_state(state_name),
       config.agent.max_concurrent_agents
     )
   end
@@ -85,6 +84,9 @@ defmodule Aiur.Config do
   def agent_routing do
     settings!().agent.routing || %{}
   end
+
+  @spec switch_model_on_ratelimit() :: [String.t()]
+  def switch_model_on_ratelimit, do: settings!().agent.switch_model_on_ratelimit || []
 
   @doc """
   Setting #2: whether dispatched agents attach a `claude remote-control`
@@ -189,6 +191,21 @@ defmodule Aiur.Config do
   @spec max_concurrent_agents() :: pos_integer()
   def max_concurrent_agents do
     settings!().agent.max_concurrent_agents
+  end
+
+  @doc """
+  Maximum number of agent-launched Mix compile/test commands allowed across the
+  local workspace fleet. `0` disables the build gate intentionally.
+  """
+  @spec max_concurrent_builds() :: non_neg_integer()
+  def max_concurrent_builds do
+    settings!().agent.max_concurrent_builds
+  end
+
+  @doc "Scheduler count enforced for every Mix VM launched by an agent."
+  @spec mix_scheduler_cap() :: pos_integer()
+  def mix_scheduler_cap do
+    settings!().agent.mix_scheduler_cap || 4
   end
 
   @doc """
@@ -317,6 +334,32 @@ defmodule Aiur.Config do
     settings!().agent.max_load_average
   end
 
+  @doc """
+  Per-scheduler 1-minute load target for adaptive dispatch capacity. Defaults
+  to 1.0; explicit YAML `null` disables the adaptive envelope while preserving
+  the independent `max_load_average` hard gate.
+  """
+  @spec target_load_average() :: float() | nil
+  def target_load_average do
+    settings!().agent.target_load_average
+  end
+
+  @doc """
+  Number of dispatch slots added by each below-target envelope sample.
+  """
+  @spec load_ramp_step() :: pos_integer()
+  def load_ramp_step do
+    settings!().agent.load_ramp_step
+  end
+
+  @doc """
+  Minimum number of seconds between high-load envelope decreases.
+  """
+  @spec load_cooldown_seconds() :: non_neg_integer()
+  def load_cooldown_seconds do
+    settings!().agent.load_cooldown_seconds
+  end
+
   @spec codex_turn_sandbox_policy(Path.t() | nil) :: map()
   def codex_turn_sandbox_policy(workspace \\ nil) do
     case Schema.resolve_runtime_turn_sandbox_policy(settings!(), workspace) do
@@ -402,15 +445,12 @@ defmodule Aiur.Config do
     end
   end
 
-  defp validate_codex_approval_policy(value) when is_binary(value) do
-    case String.trim(value) do
-      trimmed when trimmed in @valid_codex_approval_policies -> {:ok, trimmed}
-      _ -> {:error, {:invalid_codex_approval_policy, value}}
+  defp validate_codex_approval_policy(value) do
+    case Aiur.Codex.Config.validate_approval_policy(value) do
+      {:ok, trimmed} -> {:ok, trimmed}
+      {:error, _message} -> {:error, {:invalid_codex_approval_policy, value}}
     end
   end
-
-  defp validate_codex_approval_policy(value),
-    do: {:error, {:invalid_codex_approval_policy, value}}
 
   defp validate_semantics(settings) do
     with :ok <- validate_kinds_and_secrets(settings) do

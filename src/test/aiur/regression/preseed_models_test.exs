@@ -14,6 +14,7 @@ defmodule Aiur.Regression.PreseedModelsTest do
   use ExUnit.Case, async: true
 
   @slot_source Path.expand("../../../lib/aiur/opencode/slot.ex", __DIR__)
+  @serve_lifecycle_source Path.expand("../../../lib/aiur/opencode/slot/serve_lifecycle.ex", __DIR__)
 
   test "handle_continue(:start_serve) calls Orchestrator.list_active_identifiers when known_identifiers is empty" do
     source = File.read!(@slot_source)
@@ -30,9 +31,9 @@ defmodule Aiur.Regression.PreseedModelsTest do
   end
 
   test "safely_list_active_identifiers is a guarded call (orchestrator may not be up yet)" do
-    source = File.read!(@slot_source)
+    source = File.read!(@serve_lifecycle_source)
 
-    assert source =~ ~r/defp safely_list_active_identifiers/,
+    assert source =~ ~r/def safely_list_active_identifiers/,
            "safely_list_active_identifiers/0 must exist as a guarded wrapper"
 
     assert source =~ ~r/rescue\s*\n\s*_\s*->\s*\[\]|catch\s*\n\s*_\s*,\s*_\s*->\s*\[\]/,

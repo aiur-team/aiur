@@ -77,9 +77,28 @@ defmodule Aiur.Events.Sanitizer do
     |> scrub_pr()
     |> scrub_comment()
     |> scrub_review()
+    |> scrub_ci_failure()
   end
 
   def scrub(other), do: other
+
+  @doc """
+  Prepare a GitHub-sourced payload for `Aiur.Events.Publisher.publish/3`.
+
+  Applies the full external-content pipeline in this exact order
+  (FI-GH-039): stamp `source: :github`, `scrub/1`,
+  `stamp_author_trust(actor: actor)`, `put_comment_message/1`. Every
+  GitHub event producer must publish through this single entry point so
+  no call site can skip or reorder the injection-safety steps.
+  """
+  @spec github_payload(map(), String.t() | nil) :: map()
+  def github_payload(payload, actor) when is_map(payload) do
+    payload
+    |> Map.put(:source, :github)
+    |> scrub()
+    |> stamp_author_trust(actor: actor)
+    |> put_comment_message()
+  end
 
   @doc """
   Promote a sanitized GitHub comment body to the top-level `message`
@@ -164,7 +183,36 @@ defmodule Aiur.Events.Sanitizer do
 
   defp scrub_review(payload), do: payload
 
+  defp scrub_ci_failure(%{failure_excerpt: excerpt} = payload) when is_binary(excerpt) do
+    payload
+    |> Map.put(:failure_excerpt, clean(excerpt, :comment_body))
+    |> scrub_ci_checks()
+  end
+
+  defp scrub_ci_failure(payload), do: scrub_ci_checks(payload)
+
+  defp scrub_ci_checks(%{checks: checks} = payload) when is_list(checks) do
+    Map.put(payload, :checks, Enum.map(checks, &scrub_ci_check/1))
+  end
+
+  defp scrub_ci_checks(payload), do: payload
+
+  defp scrub_ci_check(check) when is_map(check) do
+    check
+    |> update_atom_string(:name, &clean(&1, :commit_subject))
+    |> update_atom_string(:excerpt, &clean(&1, :comment_body))
+  end
+
+  defp scrub_ci_check(check), do: check
+
   defp update_string(map, key, fun) do
+    case Map.get(map, key) do
+      value when is_binary(value) -> Map.put(map, key, fun.(value))
+      _ -> map
+    end
+  end
+
+  defp update_atom_string(map, key, fun) do
     case Map.get(map, key) do
       value when is_binary(value) -> Map.put(map, key, fun.(value))
       _ -> map

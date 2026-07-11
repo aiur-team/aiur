@@ -22,15 +22,16 @@ defmodule Aiur.Regression.MultiPaneOpenTest do
   use ExUnit.Case, async: true
 
   @slot_source Path.expand("../../../lib/aiur/opencode/slot.ex", __DIR__)
+  @attach_pane_source Path.expand("../../../lib/aiur/opencode/slot/attach_pane.ex", __DIR__)
 
   describe "slot keeps the hidden window splittable across many rebuilds" do
     test "respawn_attach_with_session calls reflow_hidden_window before split" do
-      source = File.read!(@slot_source)
-      block = extract_function(source, "respawn_attach_with_session")
+      source = File.read!(@attach_pane_source)
+      block = extract_function(source, "respawn_with_session")
 
       assert block =~ ~r/reflow_hidden_window\(keep_alive_pane\)/,
              """
-             respawn_attach_with_session MUST call reflow_hidden_window
+             AttachPane.respawn_with_session MUST call reflow_hidden_window
              before split_pane. Without the reflow, repeated kill+split
              cycles shrink the sentinel pane until tmux returns
              `no space for new pane`. Symptom: second chat pane fails
@@ -53,9 +54,9 @@ defmodule Aiur.Regression.MultiPaneOpenTest do
     end
 
     test "reflow_hidden_window runs `select-layout even-horizontal`" do
-      source = File.read!(@slot_source)
+      source = File.read!(@attach_pane_source)
 
-      assert source =~ ~r/defp reflow_hidden_window\(keep_alive_pane\)/,
+      assert source =~ ~r/def reflow_hidden_window\(keep_alive_pane\)/,
              "reflow_hidden_window/1 must exist"
 
       assert source =~ ~r/select-layout -t #\{keep_alive_pane\} even-horizontal/,

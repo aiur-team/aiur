@@ -2,14 +2,7 @@
 
 ## Branch
 
-The branch already exists when your workspace boots: it is exactly
-`aiur/<issue-number>`. Do not invent a new branch name, do not append a slug, do
-not rename. If a previously-closed PR exists for `aiur/<N>`, push to the same
-branch anyway and open a **new** PR (`gh pr create --head aiur/<N>`). GitHub
-allows multiple PRs against the same head ref over time; closed PRs do not block
-new ones. Inventing a workaround branch like `aiur/<N>-pr` breaks Aiur's
-blocker→blockee push detection because the canonical `branch.push` event is keyed
-on `aiur/<N>` — downstream blockees waiting on you will never wake.
+The branch already exists when your workspace boots. Read it with `git branch --show-current` and push or open the PR against that exact ref. New tickets use the generated readable Aiur branch; existing legacy and PR-anchored heads remain unchanged. Do not rename it or reconstruct one from the issue number. The numeric `ticket.<N>.branch.push` event key remains stable even when the actual branch has a suffix.
 
 **The workspace `.git` directory is writable from this sandbox. If a `git`
 command claims the index is read-only ("Could not write index", "Unable to
@@ -24,21 +17,30 @@ index-write failure. Never `mktemp -d /tmp/...` for recovery and never push from
 `/tmp`.**
 
 **Integrating an upstream blocker's branch**: when
-`ticket.<blocker-id>.branch.push` arrives, the fastest safe sequence is
-`git fetch origin aiur/<blocker-id>` → commit your local WIP if any →
-`git merge --no-edit origin/aiur/<blocker-id>` → resolve any conflicts →
+`ticket.<blocker-id>.branch.push` arrives, fetch the actual validated ref carried
+by the event payload (or discover it with `scripts/resolve-ticket-branch <blocker-id>`)
+→ commit your local WIP if any → merge that fetched ref → resolve any conflicts →
 continue. Do NOT `git stash` before the merge — committing WIP is just as safe
 and avoids the index-write failure path entirely.
+
+Ticket branches are named `aiur/<id>-<slug>` for new tickets, with legacy
+`aiur/<id>` branches still supported. `scripts/resolve-ticket-branch <id>` is the
+operator helper for the reverse lookup: it queries the remote, prints the one
+matching branch, and exits non-zero when no branch or more than one branch exists.
 
 ## The loop
 
 1. Implement
 2. Add / update / run tests
-3. Run the pre-PR verification gate before opening or finalizing the PR:
-   `mix compile --warnings-as-errors`, `mix format --check-formatted`,
-   `mix test`, `mix credo --strict`, and `mix dialyzer`
-4. Fix every verification failure before continuing. Do not substitute a
-   smaller local gate such as "tests + format" for the PR-ready check.
+3. Run the scoped local pre-PR verification gate before opening or finalizing
+   the PR: `mix compile --warnings-as-errors`, `mix format`, and affected tests
+   only (the test files for modules you touched plus directly related tests),
+   each run with `mix test --max-cases 4`. Do not run Credo locally; CI's
+   `make ci` is the authoritative full lint and full-suite gate.
+4. Fix every verification failure from the scoped local gate before continuing.
+   Do not gate PR-opening on a clean full-suite `mix test` run or loop on
+   unrelated suite flakes; CI runs the full `make ci` on every PR and is the
+   authoritative full-suite gate.
 5. Commit using short, 3–7 word messages, keeping your machine's git identity as
    the author. **When that author is `its-applekid` (email
    `its.applekid@gmail.com`)**, add GitHub's co-author trailer crediting the
@@ -47,15 +49,14 @@ and avoids the index-write failure path entirely.
    `its-everdred` already carry that credit and need no trailer. **Never** mention
    Claude, Codex, AI, models, or "generated with" in commit messages or PR
    descriptions — keep them plain and human.
-6. Push to `origin aiur/<issue-number>` — the same branch your workspace was set
-   up on.
-7. **Open the PR as a draft** with `--head aiur/<issue-number>` (not ready for
+6. Push to the exact branch returned by `git branch --show-current`.
+7. **Open the PR as a draft** with that branch as `--head` (not ready for
    review yet).
 8. **Self-review the draft PR with `ce-code-review`** against the diff you just
    pushed.
 9. Implement any issues `ce-code-review` surfaces (commit + push the fixes).
-10. Re-run the pre-PR verification gate after review fixes if any code, tests,
-    prompt, skill, or config files changed.
+10. Re-run the scoped local pre-PR verification gate after review fixes if any
+    code, tests, prompt, skill, or config files changed.
 11. If you still believe the work is complete and correct, **mark the PR ready
     for review** and add the `agent:human-review` label.
 
@@ -76,9 +77,12 @@ functionality end-to-end. If the CLI fails to run, debug and fix the issues — 
 not skip verification or give up. Only open the draft PR once the requested
 functionality is confirmed working in the CLI.
 
-Manual CLI verification is in addition to the pre-PR verification gate above,
-not a replacement for it. A PR is not ready for human review until compile,
-format, tests, credo strict, and dialyzer have all passed locally.
+Manual CLI verification is in addition to the scoped local pre-PR verification
+gate above, not a replacement for it. A PR is not ready for human review until
+compile, format, affected tests with the four-case cap, and scoped credo strict
+have passed locally.
+The full suite is CI's job through `make ci`; do not loop locally on full-suite
+flakes before opening or finalizing the PR.
 
 ## Closing keyword in the PR description
 

@@ -1,5 +1,6 @@
 tracker:
   kind: github
+  base_branch: v2
   active_states:
     - todo
     - in-progress
@@ -27,10 +28,18 @@ hooks_file: hooks
 agent:
   kind: codex
   max_concurrent_agents: 5
+  # Bound every agent-launched Mix VM (and ExUnit's default max_cases) to four schedulers.
+  mix_scheduler_cap: 4
+  # Fleet cap for agent-launched mix compile/test verification. 0 disables it.
+  max_concurrent_builds: 2
   # CPU load gate (#465): hold new dispatch while 1-min load > value * schedulers
   # (~12). 1.5 → holds once load passes ~18. Raise/lower while ramping.
   max_load_average: 1.5
   max_turns: 12
+  # A silent turn (e.g. a long `mix test --cover` run with no intermediate agent
+  # output) is killed after this. Raised from the 5-min default so flake-fix /
+  # full-suite validation runs can complete. turn_timeout_ms already defaults to 60 min.
+  stall_timeout_ms: 3600000
   # Complexity labels select a Codex 5.6 model and reasoning effort.
   routing:
     1: "codex:gpt-5.6-luna:low"
@@ -55,7 +64,7 @@ opencode:
   serve_args: []
   model_prefix: aiur
 prompt_file: prompt.md
-# Warm base pre-warm (dogfood): build one shared base of latest main once, then
+# Warm base pre-warm (dogfood): build one shared base of the target branch once, then
 # materialize each agent workspace from it (copy-on-write) instead of cold-cloning.
 # The build command lives in a sibling `.aiur/prewarm` script (path relative to
 # this config), keeping the multi-line shell out of the main config.

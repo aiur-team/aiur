@@ -283,6 +283,26 @@ defmodule ScriptsAiurdevTest do
     refute File.exists?(log), "stale control commands should not invoke mix release"
   end
 
+  test "ready control commands bypass a held rebuild lock" do
+    root = fake_repo()
+    mise = fake_mise()
+    lock = Path.join([root, "src", "_build", ".aiurdev-build.lock"])
+
+    seed_ready_release(root)
+    File.mkdir_p!(lock)
+    on_exit(fn -> File.rm_rf(lock) end)
+
+    {out, 0} =
+      run_shim(["status"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_MISE_BIN", mise},
+        {"TMUX", nil}
+      ])
+
+    assert out =~ "ENGINE_ARGS: status"
+    refute out =~ "waiting for aiurdev rebuild lock"
+  end
+
   test "control commands rebuild when any ready-release artifact is missing" do
     for {missing, remove_artifact} <- [
           {"start_clean.boot",

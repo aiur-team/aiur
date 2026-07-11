@@ -8,12 +8,16 @@ defmodule Aiur.Claude.HookSettings do
   alongside whatever the operator already configured.
   """
 
-  # UserPromptSubmit = input received; PostToolUse = progress/heartbeat; Stop = turn done.
-  @events ["UserPromptSubmit", "PostToolUse", "Stop"]
+  alias Aiur.Config.Paths
+
+  # UserPromptSubmit = input received; PostToolUse = progress/heartbeat;
+  # Stop = turn done; StopFailure = terminal API failure.
+  @events ["UserPromptSubmit", "PostToolUse", "Stop", "StopFailure"]
 
   @doc "Settings map for an agent identifier + dashboard base URL."
   @spec settings(String.t(), String.t()) :: map()
-  def settings(identifier, dashboard_url) when is_binary(identifier) and is_binary(dashboard_url) do
+  def settings(identifier, dashboard_url)
+      when is_binary(identifier) and is_binary(dashboard_url) do
     command = hook_command(identifier, dashboard_url)
     entry = [%{"hooks" => [%{"type" => "command", "command" => command}]}]
     %{"hooks" => Map.new(@events, fn name -> {name, entry} end)}
@@ -30,8 +34,10 @@ defmodule Aiur.Claude.HookSettings do
     * **always exit 0** — a non-zero hook can surface errors / alter behaviour.
   """
   @spec hook_command(String.t(), String.t()) :: String.t()
-  def hook_command(identifier, dashboard_url) when is_binary(identifier) and is_binary(dashboard_url) do
-    url = String.trim_trailing(dashboard_url, "/") <> "/api/v1/#{URI.encode(identifier)}/claude-hook"
+  def hook_command(identifier, dashboard_url)
+      when is_binary(identifier) and is_binary(dashboard_url) do
+    url =
+      String.trim_trailing(dashboard_url, "/") <> "/api/v1/#{URI.encode(identifier)}/claude-hook"
 
     "curl -sS -m 2 -o /dev/null " <>
       "-H 'Content-Type: application/json' -H 'Origin: http://127.0.0.1' -H 'X-Aiur-Request: 1' " <>
@@ -74,7 +80,7 @@ defmodule Aiur.Claude.HookSettings do
     end
   end
 
-  defp slug(identifier), do: String.replace(identifier, ~r/[^A-Za-z0-9_.-]/, "_")
+  defp slug(identifier), do: Paths.sanitize(identifier)
 
   defp single_quote(value), do: "'" <> String.replace(value, "'", "'\\''") <> "'"
 end

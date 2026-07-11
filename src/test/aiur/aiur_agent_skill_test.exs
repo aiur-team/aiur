@@ -134,19 +134,20 @@ defmodule Aiur.AiurAgentSkillTest do
     assert shared_prompt =~ "inspect the pushed diff/exports"
     assert shared_prompt =~ "remove any temporary stub"
     assert shared_prompt =~ "open your PR against that branch"
+    assert shared_prompt =~ "actual validated ref supplied by the event payload"
 
     assert stub_doc =~ "not a reason to park the whole ticket"
     assert stub_doc =~ "Do not reimplement ticket N's helper"
-    assert stub_doc =~ "git fetch origin aiur/N"
-    assert stub_doc =~ "git diff --stat HEAD..origin/aiur/N"
+    assert stub_doc =~ "validated `ref` carried"
+    assert stub_doc =~ "numeric topic key cannot recreate a readable title suffix"
     assert stub_doc =~ "stack on it"
     assert stub_doc =~ "If the branch push is irrelevant or unusable"
     assert stub_doc =~ "Stubs are local-only scaffolding"
     assert stub_doc =~ "Stop working on the dependent code only"
     assert emit_doc =~ "ticket.N.branch.push"
-    assert emit_doc =~ "fetch `origin/aiur/N`"
+    assert emit_doc =~ "fetch the actual validated ref"
     assert emit_doc =~ "inspect the pushed diff/exports"
-    assert repo_prompt =~ "fetch and diff `origin/aiur/N`"
+    assert repo_prompt =~ "fetch and diff the actual validated ref"
     assert repo_prompt =~ "remove temporary stubs before pushing"
     assert taxonomy =~ "keep unrelated prep moving"
   end
@@ -168,22 +169,113 @@ defmodule Aiur.AiurAgentSkillTest do
     end
   end
 
-  test "agent operating guidance requires the full pre-PR verification gate" do
-    dev_loop = File.read!(Path.join([@repo_root, ".claude", "skills", "using-aiur", "dev-loop.md"]))
-    repo_prompt = File.read!(Path.join(@repo_root, ".aiur/prompt.md"))
+  test "operator decision relay covers backend push, RC, and the Decisions log" do
+    monitor_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md"))
+    run_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
+    loop_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-loop/SKILL.md"))
 
-    for source <- [one_line(dev_loop), one_line(repo_prompt)] do
-      assert source =~ "pre-PR"
-      assert source =~ "mix compile --warnings-as-errors"
-      assert source =~ "mix format --check-formatted"
-      assert source =~ "mix test"
-      assert source =~ "mix credo --strict"
-      assert source =~ "mix dialyzer"
+    monitor_skill = one_line(monitor_skill)
+    run_skill = one_line(run_skill)
+    loop_skill = one_line(loop_skill)
+
+    assert monitor_skill =~ "operator_decision:true"
+    assert monitor_skill =~ "`### Decisions` section before sending notifications"
+    assert monitor_skill =~ "Claude's native **PushNotification**"
+    assert monitor_skill =~ "Codex's device notification"
+    assert monitor_skill =~ "RC notification path"
+    assert monitor_skill =~ "retried on the next re-ask"
+    assert monitor_skill =~ "matching `attention.resolved` event"
+    assert run_skill =~ "operator_decision:true"
+    assert run_skill =~ "not `agent.kind`"
+    assert run_skill =~ "Remote Control URL"
+    assert loop_skill =~ "operator_decision:true"
+    assert loop_skill =~ "Remote Control"
+  end
+
+  test "operator loop uses medium autonomy and traces every decision" do
+    monitor_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md"))
+    run_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
+    loop_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-loop/SKILL.md"))
+
+    monitor_skill = one_line(monitor_skill)
+    run_skill = one_line(run_skill)
+    loop_skill = one_line(loop_skill)
+
+    assert loop_skill =~ "**MEDIUM autonomy**"
+    refute loop_skill =~ "default to the LESS autonomous option"
+
+    for example <- ["merge ordering", "rework routing", "error recovery", "mechanical scope reads"] do
+      assert loop_skill =~ example
     end
 
-    assert one_line(dev_loop) =~ "Do not substitute a smaller local gate"
-    assert one_line(dev_loop) =~ "Re-run the pre-PR verification gate after review fixes"
-    assert one_line(repo_prompt) =~ "fix failures before opening/finalizing a PR"
+    for boundary <- ["product behavior", "architecture", "scope cuts", "destructive or irreversible"] do
+      assert loop_skill =~ boundary
+    end
+
+    for skill <- [monitor_skill, run_skill, loop_skill] do
+      assert skill =~ "## Decisions"
+      assert skill =~ "Ticket | Decision | Rationale | Mode"
+      assert skill =~ "auto"
+      assert skill =~ "escalated"
+    end
+
+    assert monitor_skill =~ "every autonomous or escalated decision"
+    assert monitor_skill =~ "every periodic update"
+  end
+
+  test "needs-attention relay is an independent wake path for the operator cadence" do
+    monitor_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md"))
+    run_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
+    loop_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-loop/SKILL.md"))
+
+    monitor_skill = one_line(monitor_skill)
+    run_skill = one_line(run_skill)
+    loop_skill = one_line(loop_skill)
+
+    assert monitor_skill =~ "wake-on-attention"
+    assert monitor_skill =~ "re-invokes the operator"
+    assert monitor_skill =~ "does not wait for the cadence timer"
+    assert run_skill =~ "wake-on-attention"
+    assert loop_skill =~ "wake-on-attention"
+  end
+
+  test "agent operating guidance scopes local pre-PR verification to affected tests" do
+    source =
+      @repo_root
+      |> Path.join(".claude/skills/using-aiur/dev-loop.md")
+      |> File.read!()
+      |> one_line()
+
+    assert source =~ "pre-PR"
+    assert source =~ "mix compile --warnings-as-errors"
+    assert source =~ "mix format"
+    refute source =~ "mix format --check-formatted"
+    assert source =~ "affected tests only"
+    assert source =~ "mix test --max-cases 4"
+    refute source =~ "mix credo --strict"
+    assert source =~ "Do not run Credo locally"
+    assert source =~ "`make ci` is the authoritative full lint and full-suite gate"
+    refute source =~ "mix dialyzer"
+
+    assert source =~ "loop on unrelated suite flakes"
+    assert source =~ "Re-run the scoped local pre-PR verification gate"
+  end
+
+  test "agent prompt delegates Credo to CI after inspecting lint settings" do
+    repo_prompt = one_line(File.read!(Path.join(@repo_root, ".aiur/prompt.md")))
+
+    assert repo_prompt =~ "before writing code read `src/.formatter.exs`"
+    assert repo_prompt =~ "Credo's project settings in `src/mix.exs`"
+    assert repo_prompt =~ "mix compile --warnings-as-errors"
+    assert repo_prompt =~ "mix format"
+    refute repo_prompt =~ "mix format --check-formatted"
+    assert repo_prompt =~ "affected tests only"
+    assert repo_prompt =~ "mix test --max-cases 4"
+    refute repo_prompt =~ "mix credo --strict"
+    assert repo_prompt =~ "Do not run Credo locally"
+    assert repo_prompt =~ "authoritative full lint and full test suite through `make ci`"
+    assert repo_prompt =~ "Do not gate PR-opening on a clean full-suite `mix test` run"
+    assert repo_prompt =~ "Fix failures in this scoped gate"
   end
 
   defp assert_codex_skill_symlink_resolves_to_claude(skill) do

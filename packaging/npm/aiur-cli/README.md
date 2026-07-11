@@ -62,6 +62,11 @@ to the issues you want worked and run `aiur`.
 | `aiur pause <id…>` / `resume <id…>` | Pause or resume agents by issue ID |
 | `aiur stop` | Stop the running session |
 
+If a control command times out while the daemon is still live, the host may be
+scheduler-saturated. Run `aiur stop` to interrupt that session and its workers,
+then start it again; this is a session-level recovery action, not a cooperative
+single-agent pause.
+
 ## Features
 
 - **Issue Monitoring** — Dispatch agents automatically via GitHub or Linear tickets.

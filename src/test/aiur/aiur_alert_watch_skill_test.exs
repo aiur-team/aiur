@@ -71,8 +71,9 @@ defmodule Aiur.AiurAlertWatchSkillTest do
         {"AIUR_ALERT_WATCH_ITERS", to_string(Keyword.get(opts, :iters, 1))},
         {"AIUR_ALERT_POLL", to_string(Keyword.get(opts, :poll, 1))},
         {"AIUR_ALERT_RELAY_BACKLOG", if(opts[:backlog], do: "1", else: "0")},
-        {"AIUR_ALERT_NEEDS_ATTENTION", if(opts[:needs_attention], do: "1", else: "0")}
-      ]
+        {"AIUR_ALERT_NEEDS_ATTENTION", if(opts[:needs_attention], do: "1", else: "0")},
+        {"AIUR_ALERT_DISABLE_JQ", if(opts[:no_jq], do: "1", else: "0")}
+      ] ++ Keyword.get(opts, :extra_env, [])
 
     {out, status} = System.cmd("bash", [@script, config], env: env, stderr_to_stdout: true)
     assert status == 0, "script exited #{status}:\n#{out}"
@@ -120,6 +121,127 @@ defmodule Aiur.AiurAlertWatchSkillTest do
     assert paused["severity"] == "warning"
     assert paused["source_ticket_id"] == "38"
     assert paused["needs_attention"] == true
+    assert paused["operator_decision"] == false
+  end
+
+  test "marks canonical operator-decision attention alerts for backend fan-out", %{home: home, ndjson: ndjson} do
+    config = build_fixture(home)
+
+    File.write!(
+      ndjson,
+      ~s({"event":"alert","timestamp":"2026-07-10T10:00:00Z","reason":"Should wave five own the facade target?","severity":"warning","needs_attention":true,"source_ticket_id":"934","topic":"ticket.934.agent.attention.operator-decision"}) <>
+        "\n"
+    )
+
+    [alert] = run(config, home, backlog: true) |> alert_lines()
+
+    assert alert["ticket"] == "934"
+    assert alert["needs_attention"] == true
+    assert alert["operator_decision"] == true
+    assert alert["decision_state"] == "open"
+    assert alert["decision_key"] == "ticket.934.agent.attention.operator-decision"
+    assert alert["reason"] == "Should wave five own the facade target?"
+  end
+
+  test "streams a keyed decision resolution even in needs-attention-only mode", %{home: home, ndjson: ndjson} do
+    config = build_fixture(home)
+
+    File.write!(
+      ndjson,
+      [
+        ~s({"event":"alert","timestamp":"2026-07-10T10:00:00Z","reason":"Should wave five own the facade target?","severity":"warning","needs_attention":true,"source_ticket_id":"934","topic":"ticket.934.agent.attention.operator-decision"}),
+        ~s({"event":"alert","timestamp":"2026-07-10T10:01:00Z","reason":"Operator decision resolved.","severity":"info","needs_attention":false,"source_ticket_id":"934","topic":"ticket.934.agent.attention.operator-decision.resolved"})
+      ]
+      |> Enum.join("\n")
+      |> Kernel.<>("\n")
+    )
+
+    alerts = run(config, home, backlog: true, needs_attention: true) |> alert_lines()
+    resolution = Enum.find(alerts, &(&1["decision_state"] == "resolved"))
+
+    assert resolution["operator_decision"] == true
+    assert resolution["decision_key"] == "ticket.934.agent.attention.operator-decision"
+    assert resolution["notification_results"] == "not-applicable"
+  end
+
+  test "replays an unresolved decision after a watcher restart but not a resolved one", %{home: home, ndjson: ndjson} do
+    config = build_fixture(home)
+
+    open =
+      ~s({"event":"alert","timestamp":"2026-07-10T10:00:00Z","reason":"Should wave five own the facade target?","severity":"warning","needs_attention":true,"source_ticket_id":"934","topic":"ticket.934.agent.attention.operator-decision"})
+
+    resolved =
+      ~s({"event":"alert","timestamp":"2026-07-10T10:01:00Z","reason":"Operator decision resolved.","severity":"info","needs_attention":false,"source_ticket_id":"934","topic":"ticket.934.agent.attention.operator-decision.resolved"})
+
+    File.write!(ndjson, open <> "\n", [:append])
+    [replayed] = run(config, home) |> alert_lines()
+    assert replayed["decision_state"] == "open"
+
+    File.write!(ndjson, resolved <> "\n", [:append])
+    assert run(config, home) |> alert_lines() == []
+  end
+
+  test "ignores malformed historical alert records during decision recovery", %{home: home, ndjson: ndjson} do
+    config = build_fixture(home)
+
+    File.write!(
+      ndjson,
+      [
+        ~s({"event":"alert","timestamp":"2026-07-10T10:00:00Z","reason":"Should wave five own the facade target?","severity":"warning","needs_attention":true,"source_ticket_id":"934","topic":"ticket.934.agent.attention.operator-decision"}),
+        ~s({"event":"alert","topic":)
+      ]
+      |> Enum.join("\n")
+      |> Kernel.<>("\n")
+    )
+
+    [replayed] = run(config, home) |> alert_lines()
+    assert replayed["decision_state"] == "open"
+  end
+
+  test "dispatches every configured active notification surface and reports failures", %{home: home, ndjson: ndjson} do
+    config = build_fixture(home)
+    bin = Path.join(home, "bin")
+    notification_log = Path.join(home, "notifications.ndjson")
+    recorder = Path.join(bin, "record-notification")
+    File.mkdir_p!(bin)
+    File.write!(recorder, "#!/bin/sh\ncat >> \"$AIUR_NOTIFY_LOG\"\n")
+    File.chmod!(recorder, 0o755)
+
+    File.write!(
+      ndjson,
+      ~s({"event":"alert","timestamp":"2026-07-10T10:00:00Z","reason":"Should wave five own the facade target?","severity":"warning","needs_attention":true,"source_ticket_id":"934","topic":"ticket.934.agent.attention.operator-decision"}) <>
+        "\n"
+    )
+
+    [alert] =
+      run(config, home,
+        backlog: true,
+        extra_env: [
+          {"AIUR_NOTIFY_LOG", notification_log},
+          {"AIUR_OPERATOR_SURFACES", "codex,remote-control"},
+          {"AIUR_ALERT_NOTIFY_CODEX_COMMAND", "record-notification"},
+          {"AIUR_ALERT_NOTIFY_RC_COMMAND", "false"}
+        ]
+      )
+      |> alert_lines()
+
+    assert alert["notification_results"] == "codex:sent,remote-control:failed"
+    assert Jason.decode!(File.read!(notification_log))["topic"] == "ticket.934.agent.attention.operator-decision"
+  end
+
+  test "the portable jq-less path emits a valid decision record", %{home: home, ndjson: ndjson} do
+    config = build_fixture(home)
+
+    File.write!(
+      ndjson,
+      ~s({"event":"alert","timestamp":"2026-07-10T10:00:00Z","reason":"Should wave five own the facade target?","severity":"warning","needs_attention":true,"source_ticket_id":"934","name":"ticket.934.agent.attention.operator-decision"}) <>
+        "\n"
+    )
+
+    [alert] = run(config, home, backlog: true, no_jq: true) |> alert_lines()
+    assert alert["operator_decision"] == true
+    assert alert["decision_state"] == "open"
+    assert alert["reason"] == "Should wave five own the facade target?"
   end
 
   test "AIUR_ALERT_NEEDS_ATTENTION=1 (Phase 2 switch) relays only attention-worthy alerts", %{home: home} do
@@ -131,11 +253,21 @@ defmodule Aiur.AiurAlertWatchSkillTest do
     refute "ticket.38.agent.phase.plan.start" in names
   end
 
-  test "streams a NEW alert appended during the watch exactly once, never history", %{home: home, ndjson: ndjson} do
+  test "wakes on a NEW decision in seconds and notifies the active surface once", %{
+    home: home,
+    ndjson: ndjson
+  } do
     config = build_fixture(home)
+    bin = Path.join(home, "bin")
+    notification_log = Path.join(home, "wake-notifications.ndjson")
+    recorder = Path.join(bin, "record-wake-notification")
+    File.mkdir_p!(bin)
+    File.write!(recorder, "#!/bin/sh\ncat >> \"$AIUR_NOTIFY_LOG\"\n")
+    File.chmod!(recorder, 0o755)
+    started_at = System.monotonic_time(:millisecond)
 
     fresh =
-      ~s({"event":"alert","timestamp":"2026-06-29T10:05:00Z","reason":"fresh blocker","severity":"warning","needs_attention":true,"source_ticket_id":"38","name":"ticket.38.agent.blocked"})
+      ~s({"event":"alert","timestamp":"2026-06-29T10:05:00Z","reason":"Should wave five own the facade target?","severity":"warning","needs_attention":true,"source_ticket_id":"934","name":"ticket.934.agent.attention.operator-decision"})
 
     # Append the fresh alert mid-watch: the first scan baselines the file (history
     # skipped), the append lands during the poll, a later scan streams it once.
@@ -145,17 +277,35 @@ defmodule Aiur.AiurAlertWatchSkillTest do
         File.write!(ndjson, fresh <> "\n", [:append])
       end)
 
-    out = run(config, home, iters: 3, poll: 1)
+    out =
+      run(config, home,
+        iters: 3,
+        poll: 1,
+        extra_env: [
+          {"AIUR_NOTIFY_LOG", notification_log},
+          {"AIUR_OPERATOR_SURFACES", "codex"},
+          {"AIUR_ALERT_NOTIFY_CODEX_COMMAND", "record-wake-notification"}
+        ]
+      )
+
     Task.await(appender)
+    elapsed_ms = System.monotonic_time(:millisecond) - started_at
 
     alerts = alert_lines(out)
     names = Enum.map(alerts, & &1["name"])
+    [wake] = Enum.filter(alerts, &(&1["name"] == "ticket.934.agent.attention.operator-decision"))
 
     # History is never relayed.
     refute "ticket.38.agent.paused" in names
     refute "ticket.38.agent.phase.plan.start" in names
-    # The fresh alert is streamed exactly once (no re-emit on the next scan).
-    assert Enum.count(names, &(&1 == "ticket.38.agent.blocked")) == 1
+    # The fresh decision is streamed and pushed exactly once (no re-emit on
+    # the next scan), carrying the machine-readable wake classification.
+    assert wake["operator_decision"] == true
+    assert wake["notification_results"] == "codex:sent"
+    assert Jason.decode!(File.read!(notification_log))["name"] == wake["name"]
+    # The real-time path surfaces the alert in seconds, independently of the
+    # multi-minute status cadence. Keep enough headroom for a loaded CI host.
+    assert elapsed_ms < 10_000
   end
 
   test "defers a half-written alert until the line completes, then streams it once", %{
@@ -210,8 +360,10 @@ defmodule Aiur.AiurAlertWatchSkillTest do
       }) <> "\n"
     )
 
-    [alert] = run(config, home, backlog: true) |> alert_lines()
-    assert alert["reason"] == "line\twith control \"chars\""
-    assert alert["needs_attention"] == true
+    for no_jq <- [false, true] do
+      [alert] = run(config, home, backlog: true, no_jq: no_jq) |> alert_lines()
+      assert alert["reason"] == "line\twith control \"chars\""
+      assert alert["needs_attention"] == true
+    end
   end
 end

@@ -54,11 +54,14 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
              )
 
     assert_receive {:requested, issue_comments_url}
-    assert_receive {:requested, pulls_url}
+    assert_receive {:requested, legacy_pulls_url}
+    assert_receive {:requested, readable_pulls_url}
     refute_receive {:requested, _url}, 100
 
     assert String.contains?(issue_comments_url, "/issues/42/comments?")
-    assert String.contains?(pulls_url, "/pulls?")
+    assert String.contains?(legacy_pulls_url, "head=owner%3Aaiur%2F42")
+    assert String.contains?(readable_pulls_url, "/pulls?")
+    refute String.contains?(readable_pulls_url, "head=")
   end
 
   test "polls issue comments directly and publishes issue.commented" do
@@ -570,7 +573,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
              ]
            }}
 
-        String.contains?(url, "/pulls?") and String.contains?(url, "aiur%2F42") ->
+        String.contains?(url, "/pulls?") and not String.contains?(url, "aiur%2F43") and not String.contains?(url, "aiur/43") ->
           {:ok, %{status: 200, body: []}}
 
         String.contains?(url, "/issues/43/comments?") ->
@@ -621,7 +624,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
              ]
            }}
 
-        String.contains?(url, "/pulls?") and String.contains?(url, "aiur%2F42") ->
+        String.contains?(url, "/pulls?") ->
           {:ok, %{status: 200, body: []}}
 
         String.contains?(url, "/issues/43/comments?") ->
@@ -658,7 +661,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
         String.contains?(url, "/issues/42/comments?") ->
           {:ok, %{status: 200, body: []}}
 
-        String.contains?(url, "/pulls?") and String.contains?(url, "aiur%2F42") ->
+        String.contains?(url, "/pulls?") ->
           {:ok, %{status: 200, body: []}}
 
         String.contains?(url, "/issues/43/comments?") ->
@@ -680,7 +683,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
                repo: "owner/repo",
                request_fun: request_fun,
                max_concurrency: 2,
-               timeout: 200
+               timeout: 1_000
              )
   end
 

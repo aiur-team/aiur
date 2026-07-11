@@ -2,6 +2,7 @@ defmodule Aiur.AlertsTest do
   use Aiur.TestSupport
 
   alias Aiur.{AgentLog, Alerts, Orchestrator}
+  alias Aiur.Orchestrator.IssueSync
 
   test "emit_system writes a structured alert entry and selects a configured sound" do
     workspace_root =
@@ -70,7 +71,7 @@ defmodule Aiur.AlertsTest do
 
     state = %Orchestrator.State{last_polled_issues: %{"issue-1" => previous_issue}}
 
-    _updated_state = Orchestrator.sync_polled_issue_state_for_test(state, [next_issue])
+    _updated_state = IssueSync.sync_polled_issue_state(state, [next_issue])
 
     assert Path.join(workspace, "logs/agent.ndjson") |> File.read!() =~
              "\"name\":\"ticket.MT-ALERT-2.issue.label.added.agent.in-progress\""
@@ -92,7 +93,7 @@ defmodule Aiur.AlertsTest do
 
     state = %Orchestrator.State{last_polled_issues: %{"issue-1" => previous_issue}}
 
-    _updated_state = Orchestrator.sync_polled_issue_state_for_test(state, [next_issue])
+    _updated_state = IssueSync.sync_polled_issue_state(state, [next_issue])
 
     log = Path.join(workspace, "logs/agent.ndjson") |> File.read!()
 
@@ -155,8 +156,8 @@ defmodule Aiur.AlertsTest do
     ]
 
     state = %Orchestrator.State{}
-    state = Orchestrator.sync_todo_capacity_alert_for_test(state, issues)
-    _state = Orchestrator.sync_todo_capacity_alert_for_test(state, issues)
+    state = IssueSync.sync_todo_capacity_alert(state, issues)
+    _state = IssueSync.sync_todo_capacity_alert(state, issues)
 
     log = Path.join(workspace, "logs/agent.ndjson") |> File.read!()
 

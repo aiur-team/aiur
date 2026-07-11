@@ -2,12 +2,13 @@ defmodule Aiur.OrchestratorThrashTest do
   use Aiur.TestSupport
 
   alias Aiur.Orchestrator
+  alias Aiur.Orchestrator.Dispatcher
 
   # Defaults come from the Agent schema: 6 restarts per 60s window.
   @issue_id "issue-thrash"
   @window_ms 60 * 1_000
 
-  defp run(state, now_ms), do: Orchestrator.apply_thrash_check_for_test(state, @issue_id, now_ms)
+  defp run(state, now_ms), do: Dispatcher.check_thrash_budget(state, @issue_id, now_ms)
 
   describe "codex thrash budget" do
     test "allows up to the per-window max, then trips" do

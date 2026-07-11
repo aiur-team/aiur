@@ -3,6 +3,7 @@ defmodule Aiur.OrchestratorMaxDurationTest do
 
   alias Aiur.Issue
   alias Aiur.Orchestrator
+  alias Aiur.Orchestrator.{PauseResume, RuntimeWatchdog, Slots}
 
   defp working_entry(issue_id, identifier, started_at, pid) do
     %{
@@ -72,7 +73,12 @@ defmodule Aiur.OrchestratorMaxDurationTest do
       # against a non-empty map, not a vacuous pass on the empty default.
       state = %{state | retry_attempts: %{"other-issue" => %{identifier: "X", error: "stalled"}}}
 
-      next = Orchestrator.apply_overrun_check_for_test(state, 60)
+      log =
+        capture_log(fn ->
+          send(self(), {:duration_overrun_result, RuntimeWatchdog.apply_overrun_check(state, 60)})
+        end)
+
+      assert_receive {:duration_overrun_result, next}
 
       # The worker is told to park cooperatively — this is the load-bearing
       # behavior that replaced the old terminate+retry kill.
@@ -89,6 +95,10 @@ defmodule Aiur.OrchestratorMaxDurationTest do
 
       # paused_at is stamped so the runtime clock freezes while paused.
       assert %DateTime{} = entry.paused_at
+      assert log =~ "orchestrator.pause"
+      assert log =~ "issue_id=#{issue_id}"
+      assert log =~ "issue_identifier=#{identifier}"
+      assert log =~ "cause=max_agent_duration"
     end
 
     test "an entry still under the cap is left untouched" do
@@ -98,7 +108,7 @@ defmodule Aiur.OrchestratorMaxDurationTest do
 
       state = state_with(%{issue_id => working_entry(issue_id, identifier, recent, nil)})
 
-      next = Orchestrator.apply_overrun_check_for_test(state, 60)
+      next = RuntimeWatchdog.apply_overrun_check(state, 60)
 
       assert get_in(next.running, [issue_id, :control, :status]) == :working
       refute Map.has_key?(next.running[issue_id], :paused_reason)
@@ -110,9 +120,9 @@ defmodule Aiur.OrchestratorMaxDurationTest do
       old = DateTime.add(DateTime.utc_now(), -3_600, :second)
 
       state = state_with(%{issue_id => working_entry(issue_id, identifier, old, nil)})
-      paused = Orchestrator.apply_overrun_check_for_test(state, 60)
+      paused = RuntimeWatchdog.apply_overrun_check(state, 60)
 
-      status = Orchestrator.slot_status_for_test(paused)
+      status = Slots.slot_status(paused)
       assert status.active == 0
       assert status.paused == 1
     end
@@ -137,7 +147,7 @@ defmodule Aiur.OrchestratorMaxDurationTest do
       state = state_with(%{issue_id => entry})
 
       assert {{:ok, :resumed}, next} =
-               Orchestrator.resume_paused_issue_for_test(state, state.running[issue_id])
+               PauseResume.resume_paused_issue(state, state.running[issue_id])
 
       assert_receive {:resume_agent, request_id} when is_integer(request_id)
 
@@ -150,7 +160,7 @@ defmodule Aiur.OrchestratorMaxDurationTest do
       assert DateTime.diff(DateTime.utc_now(), resumed.started_at, :second) < 5
 
       # The very next overrun check at the same cap must NOT re-pause it.
-      rechecked = Orchestrator.apply_overrun_check_for_test(next, 60)
+      rechecked = RuntimeWatchdog.apply_overrun_check(next, 60)
       assert get_in(rechecked.running, [issue_id, :control, :status]) == :working
     end
 
@@ -168,7 +178,7 @@ defmodule Aiur.OrchestratorMaxDurationTest do
       state = state_with(%{issue_id => entry})
 
       assert {{:ok, :resumed}, next} =
-               Orchestrator.resume_paused_issue_for_test(state, state.running[issue_id])
+               PauseResume.resume_paused_issue(state, state.running[issue_id])
 
       resumed = next.running[issue_id]
       assert get_in(resumed, [:control, :status]) == :working
@@ -204,7 +214,7 @@ defmodule Aiur.OrchestratorMaxDurationTest do
 
       # operator?: false == the blocker / pending-auto-resume path.
       assert {{:ok, :resumed}, next} =
-               Orchestrator.resume_paused_issue_for_test(state, state.running[issue_id], false)
+               PauseResume.resume_paused_issue(state, state.running[issue_id], false)
 
       assert_receive {:resume_agent, request_id} when is_integer(request_id)
 
@@ -218,7 +228,7 @@ defmodule Aiur.OrchestratorMaxDurationTest do
 
       # Safety net proof: the very next overrun check at the same cap must
       # RE-PAUSE this still-over-budget agent instead of letting it run free.
-      rechecked = Orchestrator.apply_overrun_check_for_test(next, 60)
+      rechecked = RuntimeWatchdog.apply_overrun_check(next, 60)
       assert get_in(rechecked.running, [issue_id, :control, :status]) == :paused
       assert rechecked.running[issue_id].paused_reason == :max_agent_duration
     end
@@ -244,7 +254,7 @@ defmodule Aiur.OrchestratorMaxDurationTest do
 
       # Default operator?: true == label-flip / chat resume.
       assert {{:ok, :resumed}, next} =
-               Orchestrator.resume_paused_issue_for_test(state, state.running[issue_id])
+               PauseResume.resume_paused_issue(state, state.running[issue_id])
 
       resumed = next.running[issue_id]
       assert get_in(resumed, [:control, :status]) == :working
@@ -252,7 +262,7 @@ defmodule Aiur.OrchestratorMaxDurationTest do
       assert DateTime.diff(DateTime.utc_now(), resumed.started_at, :second) < 5
 
       # Fresh budget: the next overrun check at the same cap leaves it working.
-      rechecked = Orchestrator.apply_overrun_check_for_test(next, 60)
+      rechecked = RuntimeWatchdog.apply_overrun_check(next, 60)
       assert get_in(rechecked.running, [issue_id, :control, :status]) == :working
     end
 
@@ -279,7 +289,7 @@ defmodule Aiur.OrchestratorMaxDurationTest do
       }
 
       assert {{:error, :max_concurrent_agents_reached}, next} =
-               Orchestrator.resume_paused_issue_for_test(state, state.running[paused_id])
+               PauseResume.resume_paused_issue(state, state.running[paused_id])
 
       # The refused resume must not wake the worker, clear the reason, or
       # reset the duration clock — the agent stays duration-paused.
@@ -327,7 +337,7 @@ defmodule Aiur.OrchestratorMaxDurationTest do
 
       state = state_with(%{issue_id => duration_paused_entry(issue_id, identifier, paused_at, last_codex)})
 
-      next = Orchestrator.apply_stall_check_for_test(state, grace_ms)
+      next = RuntimeWatchdog.apply_stall_check(state, grace_ms)
 
       # The wedged runaway is gone — terminated, not skipped indefinitely.
       refute Map.has_key?(next.running, issue_id)
@@ -345,7 +355,7 @@ defmodule Aiur.OrchestratorMaxDurationTest do
 
       state = state_with(%{issue_id => duration_paused_entry(issue_id, identifier, paused_at, last_codex)})
 
-      next = Orchestrator.apply_stall_check_for_test(state, grace_ms)
+      next = RuntimeWatchdog.apply_stall_check(state, grace_ms)
 
       # A correctly-parked agent keeps its slot/workpad for the operator or
       # blocker resume — escalation must not throw it away.
@@ -365,7 +375,7 @@ defmodule Aiur.OrchestratorMaxDurationTest do
 
       state = state_with(%{issue_id => duration_paused_entry(issue_id, identifier, paused_at, last_codex)})
 
-      next = Orchestrator.apply_stall_check_for_test(state, grace_ms)
+      next = RuntimeWatchdog.apply_stall_check(state, grace_ms)
 
       assert Map.has_key?(next.running, issue_id)
       assert get_in(next.running, [issue_id, :control, :status]) == :paused
@@ -393,7 +403,7 @@ defmodule Aiur.OrchestratorMaxDurationTest do
 
       state = state_with(%{issue_id => entry})
 
-      next = Orchestrator.apply_stall_check_for_test(state, grace_ms)
+      next = RuntimeWatchdog.apply_stall_check(state, grace_ms)
 
       assert Map.has_key?(next.running, issue_id)
       assert get_in(next.running, [issue_id, :control, :status]) == :paused

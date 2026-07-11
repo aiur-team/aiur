@@ -4,13 +4,18 @@ defmodule Aiur.Events.GithubKeysTest do
   alias Aiur.Events.GithubKeys
 
   describe "ref_to_topic/1" do
-    test "routes canonical ticket branches" do
+    test "routes legacy and readable ticket branches" do
       assert GithubKeys.ref_to_topic("refs/heads/aiur/647") ==
+               {:ticket, "647", "ticket.647.branch.push"}
+
+      assert GithubKeys.ref_to_topic("refs/heads/aiur/647-add-new-test-cases") ==
                {:ticket, "647", "ticket.647.branch.push"}
     end
 
-    test "rejects non-canonical aiur branch variants" do
-      assert GithubKeys.ref_to_topic("refs/heads/aiur/647-pr") == nil
+    test "rejects malformed or unrelated aiur branch variants" do
+      assert GithubKeys.ref_to_topic("refs/heads/aiur/647x") == nil
+      assert GithubKeys.ref_to_topic("refs/heads/aiur/647-") == nil
+      assert GithubKeys.ref_to_topic("refs/heads/aiur/647--pr") == nil
       assert GithubKeys.ref_to_topic("refs/heads/aiur/647/sub") == nil
       assert GithubKeys.ref_to_topic("refs/heads/aiur/abc") == nil
     end
