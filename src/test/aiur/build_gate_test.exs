@@ -8,6 +8,7 @@ defmodule Aiur.BuildGateTest do
     bin_dir = Path.join(gate_dir, "bin")
     log_path = Path.join(gate_dir, "mix.log")
     started_path = Path.join(gate_dir, "mix.started")
+    timing_log_path = Path.join(gate_dir, "mix.timing.log")
 
     File.mkdir_p!(bin_dir)
     write_fake_mix!(Path.join(bin_dir, "mix"))
@@ -15,7 +16,13 @@ defmodule Aiur.BuildGateTest do
 
     on_exit(fn -> File.rm_rf!(gate_dir) end)
 
-    %{bin_dir: bin_dir, gate_dir: gate_dir, log_path: log_path, started_path: started_path}
+    %{
+      bin_dir: bin_dir,
+      gate_dir: gate_dir,
+      log_path: log_path,
+      started_path: started_path,
+      timing_log_path: timing_log_path
+    }
   end
 
   test "reports only live owners and queue entries", %{gate_dir: gate_dir} do
@@ -33,26 +40,56 @@ defmodule Aiur.BuildGateTest do
   end
 
   test "reports disabled status without inspecting a gate directory" do
-    assert %{enabled?: false, capacity: 0, active: 0, queued: 0} = BuildGate.status(gate_dir: "/missing", capacity: 0)
+    assert %{enabled?: false, capacity: 0, active: 0, queued: 0} =
+             BuildGate.status(
+               gate_dir: "/missing",
+               capacity: 0,
+               stagger_seconds: 0,
+               min_free_memory_mb: nil
+             )
+  end
+
+  test "reports queued phase-only work when build capacity is unlimited", %{gate_dir: gate_dir} do
+    File.mkdir_p!(Path.join(gate_dir, "queue"))
+    File.write!(Path.join(gate_dir, "queue/#{System.pid()}"), "pid=#{System.pid()}\n")
+
+    assert %{enabled?: true, capacity: 0, active: 0, queued: 1} =
+             BuildGate.status(
+               gate_dir: gate_dir,
+               capacity: 0,
+               stagger_seconds: 5,
+               min_free_memory_mb: nil
+             )
   end
 
   test "does not inject a shell hook when operators opt out" do
-    assert BuildGate.shell_env(slots: 0, min_free_memory_mb: nil) == []
+    assert BuildGate.shell_env(slots: 0, stagger_seconds: 0, min_free_memory_mb: nil) == []
 
     env =
       BuildGate.shell_env(
         slots: 3,
+        stagger_seconds: 7,
         min_free_memory_mb: 4_096,
         gate_dir: "/tmp/build-gate",
         hook_path: "/tmp/hook"
       )
 
     assert {"AIUR_BUILD_GATE_SLOTS", "3"} in env
+    assert {"AIUR_BUILD_START_STAGGER_SECONDS", "7"} in env
     assert {"AIUR_MIN_FREE_MEMORY_MB", "4096"} in env
 
     assert {"BASH_ENV", "/tmp/hook"} in BuildGate.shell_env(
              slots: 0,
+             stagger_seconds: 0,
              min_free_memory_mb: 4_096,
+             gate_dir: "/tmp/build-gate",
+             hook_path: "/tmp/hook"
+           )
+
+    assert {"BASH_ENV", "/tmp/hook"} in BuildGate.shell_env(
+             slots: 0,
+             stagger_seconds: 5,
+             min_free_memory_mb: nil,
              gate_dir: "/tmp/build-gate",
              hook_path: "/tmp/hook"
            )
@@ -176,16 +213,193 @@ defmodule Aiur.BuildGateTest do
     assert File.read!(context.log_path) == "compile\n"
   end
 
+  test "staggers concurrent phase starts while preserving overlap", context do
+    paced_context =
+      Map.merge(context, %{
+        slots: 2,
+        stagger_seconds: 1,
+        sleep_seconds: 3
+      })
+
+    first = Task.async(fn -> run_bash("mix test", paced_context) end)
+    wait_for_file!(context.started_path)
+
+    second =
+      Task.async(fn ->
+        run_bash(
+          "mise exec -- mix compile",
+          %{paced_context | started_path: ""}
+        )
+      end)
+
+    assert {_first_output, 0} = Task.await(first, 7_000)
+    assert {second_output, 0} = Task.await(second, 7_000)
+
+    events = timing_events!(context.timing_log_path)
+    test_start = Map.fetch!(events, {:start, "test"})
+    test_end = Map.fetch!(events, {:end, "test"})
+    compile_start = Map.fetch!(events, {:start, "compile"})
+
+    assert compile_start - test_start >= 1
+    assert compile_start < test_end
+    assert second_output =~ "aiur_perf phase_stagger_hold surface=build phase=compile"
+  end
+
+  test "single-slot capacity skips redundant start pacing", context do
+    pacing_disabled_by_capacity =
+      Map.merge(context, %{
+        slots: 1,
+        stagger_seconds: 5,
+        timeout_seconds: 0
+      })
+
+    assert {first_output, 0} = run_bash("mix test", pacing_disabled_by_capacity)
+    assert {second_output, 0} = run_bash("mix compile", pacing_disabled_by_capacity)
+
+    refute first_output =~ "phase_stagger_hold"
+    refute second_output =~ "phase_stagger_hold"
+    assert File.read!(context.log_path) == "test\ncompile\n"
+  end
+
+  test "phase-only pacing remains active with unlimited build slots", context do
+    phase_only_context =
+      Map.merge(context, %{
+        slots: 0,
+        stagger_seconds: 5,
+        timeout_seconds: 5
+      })
+
+    assert {_first_output, 0} = run_bash("mix test", phase_only_context)
+
+    assert {second_output, 124} =
+             run_bash(
+               "mix compile",
+               %{phase_only_context | timeout_seconds: 0}
+             )
+
+    assert second_output =~ "aiur_perf phase_stagger_hold surface=build phase=compile"
+    assert second_output =~ "aiur_build_gate timeout"
+    assert File.read!(context.log_path) == "test\n"
+    refute File.exists?(Path.join(context.gate_dir, "phase-start.lock"))
+  end
+
+  test "pacing timeout releases an acquired build slot", context do
+    pacing_context = Map.merge(context, %{slots: 2, stagger_seconds: 5})
+
+    assert {_first_output, 0} = run_bash("mix test", pacing_context)
+
+    assert {second_output, 124} =
+             run_bash(
+               "mix compile",
+               Map.put(pacing_context, :timeout_seconds, 0)
+             )
+
+    assert second_output =~ "aiur_build_gate acquired slot="
+    assert second_output =~ "aiur_build_gate timeout"
+    assert File.read!(context.log_path) == "test\n"
+    refute File.exists?(Path.join(context.gate_dir, "slot-1"))
+    refute File.exists?(Path.join(context.gate_dir, "slot-2"))
+    refute File.exists?(Path.join(context.gate_dir, "phase-start.lock"))
+  end
+
+  test "reclaims a stale phase lock before admitting a build", context do
+    lock_path = Path.join(context.gate_dir, "phase-start.lock")
+    File.mkdir_p!(lock_path)
+    File.write!(Path.join(lock_path, "owner"), "pid=999999999\n")
+
+    assert {output, 0} =
+             run_bash(
+               "mix compile",
+               Map.merge(context, %{slots: 2, stagger_seconds: 1})
+             )
+
+    assert output =~ "aiur_build_gate stale_phase_lock_recovered owner_pid=999999999"
+    assert File.read!(context.log_path) == "compile\n"
+    refute File.exists?(lock_path)
+  end
+
+  test "reclaims a phase lock whose owner publication was interrupted", context do
+    lock_path = Path.join(context.gate_dir, "phase-start.lock")
+    File.mkdir_p!(lock_path)
+    File.write!(Path.join(lock_path, "owner"), "")
+
+    assert {output, 0} =
+             run_bash(
+               "mix compile",
+               Map.merge(context, %{slots: 2, stagger_seconds: 1})
+             )
+
+    assert output =~ "aiur_build_gate stale_phase_lock_recovered owner_pid=unknown"
+    assert File.read!(context.log_path) == "compile\n"
+    refute File.exists?(lock_path)
+  end
+
+  test "replaces malformed phase state without blocking the build", context do
+    phase_state_path = Path.join(context.gate_dir, "phase-next-start")
+    File.write!(phase_state_path, "not-a-timestamp\n")
+
+    assert {output, 0} =
+             run_bash(
+               "mix compile",
+               Map.merge(context, %{slots: 2, stagger_seconds: 1})
+             )
+
+    assert output =~ "aiur_build_gate gate_error reason=phase_state_invalid"
+    assert File.read!(context.log_path) == "compile\n"
+    assert phase_state_path |> File.read!() |> String.trim() |> Integer.parse() |> elem(1) == ""
+  end
+
+  test "paced multi-slot wait remains visible as live capacity", context do
+    pacing_context = Map.merge(context, %{slots: 2, stagger_seconds: 3})
+    assert {_first_output, 0} = run_bash("mix test", pacing_context)
+
+    waiting = Task.async(fn -> run_bash("mix compile", pacing_context) end)
+    wait_for_file!(Path.join(context.gate_dir, "phase-start.lock"))
+
+    assert %{enabled?: true, capacity: 2, active: 1, queued: 0} =
+             BuildGate.status(gate_dir: context.gate_dir, capacity: 2)
+
+    assert {output, 0} = Task.await(waiting, 7_000)
+    assert output =~ "aiur_perf phase_stagger_hold surface=build phase=compile"
+  end
+
+  test "fails open when the phase clock is unavailable", context do
+    assert {output, 0} =
+             run_bash(
+               "aiur_build_gate_now_seconds() { return 1; }; mix compile",
+               Map.merge(context, %{slots: 2, stagger_seconds: 5})
+             )
+
+    assert output =~ "aiur_perf phase_clock_unavailable surface=build action=fail_open"
+    assert File.read!(context.log_path) == "compile\n"
+    refute File.exists?(Path.join(context.gate_dir, "phase-start.lock"))
+  end
+
+  test "fails open when phase lock publication is unavailable", context do
+    assert {output, 0} =
+             run_bash(
+               "ln() { return 1; }; mix compile",
+               Map.merge(context, %{slots: 2, stagger_seconds: 5})
+             )
+
+    assert output =~ "aiur_build_gate gate_error reason=phase_lock_unavailable"
+    assert File.read!(context.log_path) == "compile\n"
+    refute File.exists?(Path.join(context.gate_dir, "phase-start.lock"))
+    assert Path.wildcard(Path.join(context.gate_dir, ".phase-start-owner.*")) == []
+  end
+
   defp run_bash(command, %{bin_dir: bin_dir, gate_dir: gate_dir, log_path: log_path} = context) do
     env = [
       {"BASH_ENV", BuildGate.hook_path()},
       {"AIUR_BUILD_GATE_DIR", gate_dir},
       {"AIUR_BUILD_GATE_SLOTS", Integer.to_string(Map.get(context, :slots, 1))},
+      {"AIUR_BUILD_START_STAGGER_SECONDS", Integer.to_string(Map.get(context, :stagger_seconds, 0))},
       {"AIUR_BUILD_GATE_TIMEOUT_SECONDS", Integer.to_string(Map.get(context, :timeout_seconds, 5))},
       {"AIUR_MIN_FREE_MEMORY_MB", Integer.to_string(Map.get(context, :min_free_memory_mb, 0))},
       {"AIUR_MEMINFO_PATH", Map.get(context, :meminfo_path, Path.join(gate_dir, "meminfo"))},
       {"FAKE_MIX_LOG", log_path},
       {"FAKE_MIX_STARTED", Map.get(context, :started_path, "")},
+      {"FAKE_MIX_TIMING_LOG", Map.get(context, :timing_log_path, "")},
       {"FAKE_MIX_SLEEP", Integer.to_string(Map.get(context, :sleep_seconds, 0))},
       {"PATH", bin_dir <> ":" <> System.get_env("PATH", "")}
     ]
@@ -211,14 +425,30 @@ defmodule Aiur.BuildGateTest do
     File.write!(path, "MemAvailable: #{available_mb * 1_024} kB\n")
   end
 
+  defp timing_events!(path) do
+    path
+    |> File.read!()
+    |> String.split("\n", trim: true)
+    |> Map.new(fn line ->
+      [event, phase, timestamp] = String.split(line, " ", parts: 3)
+      {{String.to_existing_atom(event), phase}, String.to_integer(timestamp)}
+    end)
+  end
+
   defp write_fake_mix!(path) do
     File.write!(path, """
     #!/usr/bin/env bash
     printf '%s\\n' "$*" >> "$FAKE_MIX_LOG"
+    if [[ -n ${FAKE_MIX_TIMING_LOG:-} ]]; then
+      printf 'start %s %s\\n' "$1" "$(date +%s)" >> "$FAKE_MIX_TIMING_LOG"
+    fi
     if [[ -n ${FAKE_MIX_STARTED:-} ]]; then
       : > "$FAKE_MIX_STARTED"
     fi
     sleep "${FAKE_MIX_SLEEP:-0}"
+    if [[ -n ${FAKE_MIX_TIMING_LOG:-} ]]; then
+      printf 'end %s %s\\n' "$1" "$(date +%s)" >> "$FAKE_MIX_TIMING_LOG"
+    fi
     """)
 
     File.chmod!(path, 0o755)

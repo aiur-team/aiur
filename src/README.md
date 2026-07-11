@@ -287,10 +287,29 @@ When `server.port` (or CLI `--port`) is set, Aiur exposes:
   commands across all local workspaces for the current OS user. It defaults to `2`,
   a conservative setting for a 12-core host; agents queue only their Mix verification
   while ordinary editing, Git, and model work continue. Set it to `0` to remove
-  the concurrency cap; a configured memory floor remains active independently.
+  the concurrency cap; a configured memory floor or start stagger remains active
+  independently.
   Agent transcripts emit
   `aiur_build_gate` queue/acquire/release/timeout signals, and `aiur status` reports
   active or queued contention.
+- `agent.build_start_stagger_seconds` optionally separates admitted local `mix compile`
+  and `mix test` starts at their actual heavy-command boundary. It defaults to `0`
+  (disabled); this repository's dogfood workflow uses `5`. The memory floor runs
+  before build-slot acquisition, then a multi-slot or unlimited gate waits until the
+  configured start interval has elapsed. A one-slot build cap already serializes
+  starts and therefore skips the extra delay. Whole-second portable timing may round
+  the interval up by less than one second. Delays emit
+  `aiur_perf phase_stagger_hold surface=build phase=<compile|test> wait_seconds=<n>`;
+  paced multi-slot work remains visible as active capacity, and phase-only work stays
+  queued until it starts. Set the interval to `0` to disable pacing independently of
+  the memory and build-cap gates.
+- Build-gate settings are captured when each agent process starts. Restart or
+  re-dispatch the fleet after changing them. To tune staggering, compare at least
+  three enabled and three disabled runs with the same tickets, revision, agent cap,
+  build cap, and scheduler cap; compare median peak load and wall time. The dogfood
+  acceptance target is at least 10% lower median peak load with no more than 10%
+  median completion-time regression. If no fixed interval meets both, leave pacing
+  disabled and prefer load-aware admission rather than hiding the throughput loss.
 - Use `hooks.after_create` to bootstrap a fresh workspace (typically a `git clone`).
 - Optional alert sounds play when an agent gets stuck or needs input. Enable via the
   `alerts:` block in `.aiur/config` (offered during `aiur init`): `enabled` is the master

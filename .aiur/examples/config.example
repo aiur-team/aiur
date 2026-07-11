@@ -12,7 +12,8 @@ tracker:
 agent:
   kind: {{AGENT_KIND}}                   # default backend: codex | claude
   max_concurrent_agents: {{MAX_AGENTS}}  # global cap on simultaneously-running agents
-  # max_concurrent_builds: 2             # fleet cap for agent mix compile/test; 0 = unrestricted verification
+  # max_concurrent_builds: 2             # fleet cap for agent mix compile/test; 0 = no concurrency cap
+  # build_start_stagger_seconds: 5       # minimum spacing between concurrent mix compile/test starts; 0 = disabled
   # min_free_memory_mb: 4096             # hold new dispatch + local mix compile/test below this MemAvailable floor
   max_turns: {{MAX_TURNS}}               # per-issue turn cap (cost guard); `none` = unlimited
   max_agent_duration_minutes: {{MAX_AGENT_DURATION}}  # safety checkpoint; 0 = never auto-pause
