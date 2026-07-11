@@ -3,6 +3,42 @@ defmodule Aiur.Orchestrator.EventTopics do
   Parses and classifies orchestrator event bus topics.
   """
 
+  alias Aiur.Orchestrator.{CiLifecycle, CommentWake, PushRouting, State}
+
+  @spec route(State.t(), map()) :: State.t()
+  def route(%State{} = state, %{topic: topic} = event) when is_binary(topic) do
+    case classify_event_topic(topic) do
+      {:pr_review_comment, identifier} ->
+        CommentWake.maybe_reactivate_on_comment(
+          state,
+          identifier,
+          "PR review comment",
+          event
+        )
+
+      {:issue_commented, identifier} ->
+        CommentWake.maybe_reactivate_on_comment(state, identifier, "issue comment", event)
+
+      {:pr_merged, identifier} ->
+        CommentWake.mark_pr_merged_issue_done(state, identifier)
+
+      {:ci_failed, identifier} ->
+        CiLifecycle.maybe_resume_for_ci_failure(state, identifier)
+
+      {:pause_request, identifier} ->
+        PushRouting.maybe_pause_on_request(state, identifier)
+
+      {:branch_push, blocker_identifier} ->
+        PushRouting.maybe_resume_blockees_on_push(state, blocker_identifier, topic)
+
+      {:system_branch_push, branch} ->
+        PushRouting.maybe_notify_agents_on_default_branch_push(state, branch, event)
+
+      :nomatch ->
+        state
+    end
+  end
+
   @spec parse_pr_review_comment_topic(String.t()) :: {:ok, String.t()} | :nomatch
   def parse_pr_review_comment_topic(topic) do
     case Regex.run(~r{\Aticket\.([^.]+)\.pr\.review_comment\z}, topic) do

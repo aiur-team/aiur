@@ -12,6 +12,21 @@ defmodule Aiur.Orchestrator.PushRouting do
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.State
 
+  @spec mark_sleeping(String.t()) :: :ok
+  def mark_sleeping(issue_identifier), do: mark_sleeping(Aiur.Orchestrator, issue_identifier)
+
+  @spec mark_sleeping(GenServer.server(), String.t()) :: :ok
+  def mark_sleeping(server, issue_identifier) when is_binary(issue_identifier) do
+    GenServer.cast(server, {:mark_sleeping, issue_identifier})
+  end
+
+  @spec apply_branch_push(State.t(), String.t()) :: State.t()
+  def apply_branch_push(%State{} = state, blocker_identifier)
+      when is_binary(blocker_identifier) do
+    topic = "ticket." <> blocker_identifier <> ".branch.push"
+    maybe_resume_blockees_on_push(state, blocker_identifier, topic)
+  end
+
   @spec maybe_pause_on_request(State.t(), String.t() | integer()) :: State.t()
   def maybe_pause_on_request(%State{} = state, identifier) do
     case State.find_running_by_identifier(state.running, identifier) do

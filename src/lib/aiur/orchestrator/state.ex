@@ -4,6 +4,7 @@ defmodule Aiur.Orchestrator.State do
   """
 
   alias Aiur.{AgentQueueStore, Issue}
+  alias Aiur.Orchestrator.{PauseResume, StatusReport}
 
   @type t :: %__MODULE__{
           poll_interval_ms: integer() | nil,
@@ -72,6 +73,65 @@ defmodule Aiur.Orchestrator.State do
     github_connectivity: %{},
     github_poll_delays: %{}
   ]
+
+  @spec handle_worker_runtime_info(t(), String.t(), map()) :: {:noreply, t()}
+  def handle_worker_runtime_info(%__MODULE__{running: running} = state, issue_id, runtime_info)
+      when is_binary(issue_id) and is_map(runtime_info) do
+    case Map.get(running, issue_id) do
+      nil ->
+        {:noreply, state}
+
+      running_entry ->
+        updated_running_entry =
+          running_entry
+          |> maybe_put_runtime_value(:worker_host, runtime_info[:worker_host])
+          |> maybe_put_runtime_value(:workspace_path, runtime_info[:workspace_path])
+
+        StatusReport.notify_dashboard(state)
+        {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}
+    end
+  end
+
+  @spec handle_repl_session_runtime(t(), String.t(), map()) :: {:noreply, t()}
+  def handle_repl_session_runtime(%__MODULE__{running: running} = state, issue_id, info)
+      when is_binary(issue_id) and is_map(info) do
+    case Map.get(running, issue_id) do
+      nil ->
+        {:noreply, state}
+
+      running_entry ->
+        updated_running_entry =
+          running_entry
+          |> maybe_put_runtime_value(:repl_pane_id, info[:pane_id])
+          |> maybe_put_runtime_value(:repl_os_pid, info[:os_pid])
+          |> maybe_put_runtime_value(:headless_os_pid, info[:headless_os_pid])
+          |> maybe_put_runtime_value(:repl_rc_session_url, info[:session_url])
+
+        {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}
+    end
+  end
+
+  @spec note_agent_activity(t(), String.t()) :: t()
+  # Claude hook activity is the liveness signal for backends without codex updates.
+  def note_agent_activity(%__MODULE__{} = state, identifier) when is_binary(identifier) do
+    case find_running_key_by_identifier(state.running, identifier) do
+      nil ->
+        state
+
+      issue_id ->
+        update_in(
+          state.running,
+          &PauseResume.reset_last_codex_timestamp(&1, issue_id, DateTime.utc_now())
+        )
+    end
+  end
+
+  @spec alive?(term()) :: boolean()
+  def alive?(pid) when is_pid(pid), do: Process.alive?(pid)
+  def alive?(name) when is_atom(name), do: Process.whereis(name) != nil
+  def alive?({:via, _, _}), do: true
+  def alive?({:global, _}), do: true
+  def alive?(_), do: false
 
   @spec maybe_put_runtime_value(term(), term(), term()) :: term()
   def maybe_put_runtime_value(running_entry, _key, nil), do: running_entry

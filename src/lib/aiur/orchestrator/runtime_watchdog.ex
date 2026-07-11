@@ -10,6 +10,25 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{AgentTeardown, PauseResume, RetryEngine, State}
 
+  @spec apply_overrun_check(State.t(), non_neg_integer()) :: State.t()
+  def apply_overrun_check(%State{} = state, max_seconds)
+      when is_integer(max_seconds) and max_seconds >= 0 do
+    now = DateTime.utc_now()
+
+    Enum.reduce(state.running, state, fn {issue_id, running_entry}, state_acc ->
+      maybe_pause_overrunning_entry(state_acc, issue_id, running_entry, now, max_seconds)
+    end)
+  end
+
+  @spec apply_stall_check(State.t(), pos_integer()) :: State.t()
+  def apply_stall_check(%State{} = state, timeout_ms) when is_integer(timeout_ms) do
+    now = DateTime.utc_now()
+
+    Enum.reduce(state.running, state, fn {issue_id, running_entry}, state_acc ->
+      restart_stalled_issue(state_acc, issue_id, running_entry, now, timeout_ms)
+    end)
+  end
+
   # Safety check-in, not a kill: pause any agent that has been actively
   # running longer than `agent.max_agent_duration_minutes` (paused/blocked
   # time excluded via `running_seconds/2`). The duration cap is almost

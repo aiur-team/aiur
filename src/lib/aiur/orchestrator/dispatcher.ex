@@ -6,10 +6,129 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   require Logger
 
-  alias Aiur.{AgentRunner, Alerts, CodingAgent, Config, Issue, Tracker}
+  alias Aiur.{AgentRunner, Alerts, CodingAgent, Config, Issue, RepoBase, Tracker}
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{DispatchPolicy, Slots, State}
+
+  alias Aiur.Orchestrator.{
+    CiLifecycle,
+    CommandScan,
+    CommentPolling,
+    DispatchPolicy,
+    IssueSync,
+    Lifecycle,
+    PauseResume,
+    PrAnchored,
+    Reconciler,
+    Slots,
+    State,
+    StatusReport,
+    TrackedSet,
+    TrackerHealth
+  }
+
   alias Aiur.Orchestrator.RetryEngine
+
+  @spec run_poll_cycle(State.t()) :: {:noreply, State.t()}
+  def run_poll_cycle(%State{} = state) do
+    state = Lifecycle.refresh_runtime_config(state)
+    state = maybe_dispatch(state)
+    state = Lifecycle.schedule_tick(state, TrackerHealth.next_poll_delay_ms(state))
+    state = %{state | poll_check_in_progress: false}
+
+    StatusReport.notify_dashboard(state)
+    {:noreply, state}
+  end
+
+  @spec maybe_dispatch(State.t()) :: State.t()
+  def maybe_dispatch(%State{} = state) do
+    state = Reconciler.reconcile_running_lifecycle(state)
+
+    case TrackerHealth.ensure_tracker_preflight(state) do
+      {:ok, state} ->
+        do_maybe_dispatch(state)
+
+      {:error, reason, state} ->
+        TrackerHealth.log_tracker_preflight_error(reason)
+        state
+    end
+  end
+
+  defp do_maybe_dispatch(%State{} = state) do
+    state = TrackedSet.refresh(state)
+    state = CommentPolling.poll_github_firehose(state)
+    state = CommentPolling.poll_github_comments(state)
+    state = CiLifecycle.poll_github_ci(state)
+    state = Reconciler.refresh_running_issue_states(state)
+    state = CommandScan.scan_pr_commands(state)
+    state = PrAnchored.maybe_stop_closed_pr_anchored_agents(state)
+
+    case Tracker.fetch_candidate_issues() do
+      {:ok, issues} ->
+        issues = PauseResume.recover_startup_pause_overrides(state, issues)
+
+        state =
+          state
+          |> IssueSync.sync_polled_issue_state(issues)
+          |> IssueSync.sync_todo_capacity_alert(issues)
+
+        # The poll just refreshed `last_polled_issues`, so push a fresh
+        # summary out to any open agent-list pane immediately.
+        StatusReport.notify_dashboard(state)
+
+        state = dispatch_or_hold(state, issues)
+        %{state | initial_dispatch_cycle: false}
+
+      {:error, reason} ->
+        TrackerHealth.log_tracker_fetch_error(reason)
+        state
+    end
+  end
+
+  # The base is readied before CPU admission so per-issue workspaces can use it
+  # instead of cold-cloning. A failed build deliberately falls back to dispatch,
+  # while an in-progress build holds this tick.
+  @spec dispatch_or_hold(State.t(), [Issue.t()]) :: State.t()
+  def dispatch_or_hold(%State{} = state, issues) when is_list(issues) do
+    enabled? = Config.prewarm_enabled?()
+    phase = if enabled?, do: trigger_and_status(), else: :ready
+
+    case DispatchPolicy.prewarm_gate(enabled?, phase) do
+      :dispatch ->
+        maybe_log_base_error(phase)
+        maybe_choose_under_load(state, issues)
+
+      :hold ->
+        state
+    end
+  end
+
+  # CPU load admission applies to NEW work only. Retries and reactivations bypass
+  # this function so a capacity wait never burns their retry budget.
+  @spec maybe_choose_under_load(State.t(), [Issue.t()]) :: State.t()
+  def maybe_choose_under_load(%State{} = state, issues) when is_list(issues) do
+    hard_threshold = Config.max_load_average()
+    target = Config.target_load_average()
+    schedulers = System.schedulers_online()
+    load = DispatchPolicy.read_load(hard_threshold, target)
+
+    state =
+      DispatchPolicy.update_load_envelope(
+        state,
+        load,
+        target,
+        schedulers,
+        System.monotonic_time(:millisecond)
+      )
+
+    case DispatchPolicy.load_gate(load, hard_threshold, schedulers) do
+      :hold ->
+        log_load_hold(load, hard_threshold, schedulers)
+        state
+
+      :dispatch ->
+        maybe_choose(state, issues)
+    end
+  end
 
   @spec choose_issues(State.t(), [Issue.t()]) :: State.t()
   def choose_issues(state, issues) do
@@ -155,6 +274,36 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   def revalidate_issue_for_dispatch(issue, _issue_fetcher, _terminal_states), do: {:ok, issue}
+
+  @spec retry_dispatch_ready?(Issue.t(), State.t(), String.t() | nil) :: boolean()
+  def retry_dispatch_ready?(%Issue{} = issue, %State{} = state, worker_host) do
+    terminal_states = DispatchPolicy.terminal_state_set()
+
+    DispatchPolicy.retry_candidate_issue?(issue, terminal_states) and
+      Slots.dispatch_slots_available?(issue, state) and
+      Slots.worker_slots_available?(state, worker_host)
+  end
+
+  defp log_load_hold(load, threshold, schedulers) do
+    Logger.info(
+      "aiur_perf load_hold load=#{load} threshold=#{threshold} " <>
+        "schedulers=#{schedulers} limit=#{threshold * schedulers}"
+    )
+  end
+
+  defp trigger_and_status do
+    RepoBase.refresh_async()
+    RepoBase.status() |> elem(0)
+  end
+
+  defp maybe_choose(state, issues) do
+    if Slots.available_slots(state) > 0, do: choose_issues(state, issues), else: state
+  end
+
+  defp maybe_log_base_error({:error, reason}),
+    do: Logger.warning("prewarm base unavailable (#{inspect(reason)}); dispatching via cold clone")
+
+  defp maybe_log_base_error(_phase), do: :ok
 
   defp maybe_schedule_startup_todo_alert(
          previous_state,

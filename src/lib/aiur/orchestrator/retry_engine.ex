@@ -25,6 +25,21 @@ defmodule Aiur.Orchestrator.RetryEngine do
   @failure_retry_base_ms 10_000
   @max_retry_poll_failures 3
 
+  @spec handle_retry_message(State.t(), String.t(), reference()) :: {:noreply, State.t()}
+  def handle_retry_message(%State{} = state, issue_id, retry_token) do
+    result =
+      case pop_retry_attempt_state(state, issue_id, retry_token) do
+        {:ok, attempt, metadata, next_state} ->
+          handle_retry_issue(next_state, issue_id, attempt, metadata)
+
+        :missing ->
+          {:noreply, state}
+      end
+
+    StatusReport.notify_dashboard(state)
+    result
+  end
+
   @spec handle_agent_down(State.t(), reference(), term()) :: {:noreply, State.t()}
   def handle_agent_down(%State{running: running} = state, ref, reason) do
     case State.find_issue_id_for_ref(running, ref) do

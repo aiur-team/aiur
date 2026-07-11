@@ -2,10 +2,88 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   @moduledoc """
   Queues and routes operator messages and event digests to running agents. All functions execute inside the orchestrator GenServer process.
   """
-  alias Aiur.{AgentQueue, Alerts}
-  alias Aiur.Orchestrator.{CommentWake, State}
+  alias Aiur.{AgentQueue, AgentQueueStore, Alerts}
+
+  alias Aiur.Orchestrator.{
+    AutoSubscriptions,
+    CommentWake,
+    DigestCoalescer,
+    State
+  }
+
   alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy}
   @max_operator_message_chars 8_000
+
+  @spec send_operator_message(String.t(), map()) ::
+          {:ok, integer()} | {:error, term()}
+  def send_operator_message(issue_identifier, payload),
+    do: send_operator_message(Aiur.Orchestrator, issue_identifier, payload)
+
+  @spec send_operator_message(GenServer.server(), String.t(), map()) ::
+          {:ok, integer()} | {:error, term()}
+  def send_operator_message(server, issue_identifier, payload),
+    do: control_api_call(server, {:send_operator_message, issue_identifier, payload}, 5_000)
+
+  @spec control_capabilities(String.t()) :: {:ok, map()} | {:error, term()}
+  def control_capabilities(issue_identifier),
+    do: control_capabilities(Aiur.Orchestrator, issue_identifier)
+
+  @spec control_capabilities(GenServer.server(), String.t()) ::
+          {:ok, map()} | {:error, term()}
+  def control_capabilities(server, issue_identifier) when is_binary(issue_identifier),
+    do: control_api_call(server, {:control_capabilities, issue_identifier}, 5_000)
+
+  @spec claim_next_queue_item(GenServer.server(), String.t()) ::
+          {:ok, map()} | :empty | {:error, term()}
+  def claim_next_queue_item(server, issue_identifier) when is_binary(issue_identifier),
+    do: queue_api_call(server, {:claim_next_queue_item, issue_identifier})
+
+  @spec claim_next_checkpoint_queue_item(GenServer.server(), String.t()) ::
+          {:ok, map()} | :empty | {:error, term()}
+  def claim_next_checkpoint_queue_item(server, issue_identifier)
+      when is_binary(issue_identifier),
+      do: queue_api_call(server, {:claim_next_checkpoint_queue_item, issue_identifier})
+
+  @spec claim_blocker_critical_events_digest(GenServer.server(), String.t()) ::
+          {:ok, map()} | :empty | {:error, term()}
+  def claim_blocker_critical_events_digest(server, issue_identifier)
+      when is_binary(issue_identifier),
+      do: queue_api_call(server, {:claim_blocker_critical_events_digest, issue_identifier})
+
+  @spec claim_next_operator_queue_item(GenServer.server(), String.t()) ::
+          {:ok, map()} | :empty | {:error, term()}
+  def claim_next_operator_queue_item(server, issue_identifier)
+      when is_binary(issue_identifier),
+      do: queue_api_call(server, {:claim_next_operator_queue_item, issue_identifier})
+
+  @spec mark_queue_item_consumed(GenServer.server(), integer()) :: :ok | {:error, term()}
+  def mark_queue_item_consumed(server, item_id) when is_integer(item_id),
+    do: queue_api_call(server, {:mark_queue_item_consumed, item_id})
+
+  @spec restore_queue_item_pending(GenServer.server(), integer()) :: :ok | {:error, term()}
+  def restore_queue_item_pending(server, item_id) when is_integer(item_id),
+    do: queue_api_call(server, {:restore_queue_item_pending, item_id})
+
+  @spec mark_queue_item_failed(GenServer.server(), integer(), term()) ::
+          :ok | {:error, term()}
+  def mark_queue_item_failed(server, item_id, reason) when is_integer(item_id),
+    do: queue_api_call(server, {:mark_queue_item_failed, item_id, reason})
+
+  @spec consume_delivered_queue_items(GenServer.server(), String.t()) ::
+          :ok | {:error, term()}
+  def consume_delivered_queue_items(server, issue_identifier) when is_binary(issue_identifier),
+    do: queue_api_call(server, {:consume_delivered_queue_items, issue_identifier})
+
+  @spec restore_delivered_queue_items(GenServer.server(), String.t()) ::
+          :ok | {:error, term()}
+  def restore_delivered_queue_items(server, issue_identifier) when is_binary(issue_identifier),
+    do: queue_api_call(server, {:restore_delivered_queue_items, issue_identifier})
+
+  @spec fail_delivered_queue_items(GenServer.server(), String.t(), term()) ::
+          :ok | {:error, term()}
+  def fail_delivered_queue_items(server, issue_identifier, reason)
+      when is_binary(issue_identifier),
+      do: queue_api_call(server, {:fail_delivered_queue_items, issue_identifier, reason})
 
   @spec enqueue_event_digest_item(State.t(), String.t(), list(), map()) :: State.t()
   def enqueue_event_digest_item(%State{} = state, identifier, events, summary_source)
@@ -33,6 +111,138 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     end
 
     next_state
+  end
+
+  @spec enqueue_event_digest_call(State.t(), String.t(), map()) ::
+          {:reply, :ok, State.t()}
+  def enqueue_event_digest_call(%State{} = state, identifier, event) do
+    {:reply, :ok, enqueue_event_digest_item(state, identifier, [event], event)}
+  end
+
+  @spec enqueue_event_digest_batch_call(State.t(), String.t(), [map()]) ::
+          {:reply, :ok, State.t()}
+  def enqueue_event_digest_batch_call(%State{} = state, identifier, events)
+      when is_binary(identifier) and is_list(events) do
+    {:reply, :ok, enqueue_event_digest_item(state, identifier, events, %{events: events})}
+  end
+
+  @spec send_operator_message_call(State.t(), String.t(), map()) ::
+          {:reply, {:ok, integer()} | {:error, term()}, State.t()}
+  def send_operator_message_call(
+        %State{} = state,
+        issue_identifier,
+        %{kind: :text, body: body} = payload
+      )
+      when is_binary(issue_identifier) and is_binary(body) do
+    {reply, next_state} = enqueue_operator_message(state, issue_identifier, body, payload)
+    {:reply, reply, next_state}
+  end
+
+  def send_operator_message_call(%State{} = state, _issue_identifier, _payload) do
+    {:reply, {:error, :invalid_message}, state}
+  end
+
+  @spec control_capabilities_call(State.t(), String.t()) :: {:reply, {:ok, map()}, State.t()}
+  def control_capabilities_call(%State{} = state, issue_identifier)
+      when is_binary(issue_identifier) do
+    {:reply, {:ok, issue_control_capabilities(state, issue_identifier)}, state}
+  end
+
+  @spec claim_next_queue_item_call(State.t(), String.t()) ::
+          {:reply, :empty | {:ok, map()}, State.t()}
+  def claim_next_queue_item_call(%State{} = state, issue_identifier)
+      when is_binary(issue_identifier) do
+    {queue_store, item} =
+      AgentQueueStore.claim_next_deliverable(state.queue_store, issue_identifier)
+
+    {queue_store, item} = maybe_coalesce_events(queue_store, issue_identifier, item)
+    queue_claim_reply(state, queue_store, item)
+  end
+
+  @spec claim_next_checkpoint_queue_item_call(State.t(), String.t()) ::
+          {:reply, :empty | {:ok, map()}, State.t()}
+  def claim_next_checkpoint_queue_item_call(%State{} = state, issue_identifier)
+      when is_binary(issue_identifier) do
+    {queue_store, item} =
+      AgentQueueStore.claim_next_deliverable_matching(
+        state.queue_store,
+        issue_identifier,
+        fn item -> item.delivery[:interrupt_requested] != true end
+      )
+
+    queue_claim_reply(state, queue_store, item)
+  end
+
+  @spec claim_blocker_critical_events_digest_call(State.t(), String.t()) ::
+          {:reply, :empty | {:ok, map()}, State.t()}
+  def claim_blocker_critical_events_digest_call(%State{} = state, issue_identifier)
+      when is_binary(issue_identifier) do
+    direct_blockers = AutoSubscriptions.direct_blockers_for(state, issue_identifier)
+
+    {queue_store, item} =
+      AgentQueueStore.claim_next_deliverable_matching(
+        state.queue_store,
+        issue_identifier,
+        &AutoSubscriptions.blocker_critical_digest?(&1, direct_blockers)
+      )
+
+    queue_claim_reply(state, queue_store, item)
+  end
+
+  @spec claim_next_operator_queue_item_call(State.t(), String.t()) ::
+          {:reply, :empty | {:ok, map()}, State.t()}
+  def claim_next_operator_queue_item_call(%State{} = state, issue_identifier)
+      when is_binary(issue_identifier) do
+    {queue_store, item} =
+      AgentQueueStore.claim_next_deliverable_matching(
+        state.queue_store,
+        issue_identifier,
+        &match?(%{category: :operator_message}, &1)
+      )
+
+    queue_claim_reply(state, queue_store, item)
+  end
+
+  @spec mark_queue_item_consumed_call(State.t(), integer()) :: {:reply, :ok, State.t()}
+  def mark_queue_item_consumed_call(%State{} = state, item_id) when is_integer(item_id) do
+    update_queue_store(state, &AgentQueueStore.mark_consumed(&1, item_id))
+  end
+
+  @spec restore_queue_item_pending_call(State.t(), integer()) :: {:reply, :ok, State.t()}
+  def restore_queue_item_pending_call(%State{} = state, item_id) when is_integer(item_id) do
+    update_queue_store(state, &AgentQueueStore.restore_pending(&1, item_id))
+  end
+
+  @spec mark_queue_item_failed_call(State.t(), integer(), term()) :: {:reply, :ok, State.t()}
+  def mark_queue_item_failed_call(%State{} = state, item_id, reason) when is_integer(item_id) do
+    update_queue_store(state, &AgentQueueStore.mark_failed(&1, item_id, reason))
+  end
+
+  @spec consume_delivered_queue_items_call(State.t(), String.t()) :: {:reply, :ok, State.t()}
+  def consume_delivered_queue_items_call(%State{} = state, issue_identifier)
+      when is_binary(issue_identifier) do
+    update_queue_store(state, &AgentQueueStore.consume_delivered(&1, issue_identifier))
+  end
+
+  @spec restore_delivered_queue_items_call(State.t(), String.t()) :: {:reply, :ok, State.t()}
+  def restore_delivered_queue_items_call(%State{} = state, issue_identifier)
+      when is_binary(issue_identifier) do
+    update_queue_store(state, &AgentQueueStore.restore_delivered(&1, issue_identifier))
+  end
+
+  @spec fail_delivered_queue_items_call(State.t(), String.t(), term()) ::
+          {:reply, :ok, State.t()}
+  def fail_delivered_queue_items_call(%State{} = state, issue_identifier, reason)
+      when is_binary(issue_identifier) do
+    update_queue_store(state, &AgentQueueStore.fail_delivered(&1, issue_identifier, reason))
+  end
+
+  @doc false
+  @spec coalesce_for_test(AgentQueueStore.t(), String.t()) ::
+          {AgentQueueStore.t(), map() | nil}
+  def coalesce_for_test(queue_store, issue_identifier) when is_binary(issue_identifier) do
+    {queue_store, item} = AgentQueueStore.claim_next_deliverable(queue_store, issue_identifier)
+    maybe_coalesce_events(queue_store, issue_identifier, item)
   end
 
   @spec enqueue_operator_message(State.t(), String.t(), String.t(), map()) ::
@@ -271,6 +481,44 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   end
 
   def maybe_emit_agent_control_alert(_previous_status, _status, _running_entry), do: :ok
+
+  defp maybe_coalesce_events(
+         queue_store,
+         issue_identifier,
+         %{category: :coordination_event, event_type: :events_digest} = item
+       ) do
+    DigestCoalescer.coalesce_events_digests(queue_store, issue_identifier, item)
+  end
+
+  defp maybe_coalesce_events(queue_store, _issue_identifier, item),
+    do: {queue_store, item}
+
+  defp queue_claim_reply(state, queue_store, item) do
+    reply = if is_nil(item), do: :empty, else: {:ok, item}
+    {:reply, reply, %{state | queue_store: queue_store}}
+  end
+
+  defp update_queue_store(%State{} = state, update) when is_function(update, 1) do
+    {queue_store, _items} = update.(state.queue_store)
+    {:reply, :ok, %{state | queue_store: queue_store}}
+  end
+
+  defp control_api_call(server, request, timeout) do
+    if GenServer.whereis(server) do
+      GenServer.call(server, request, timeout)
+    else
+      {:error, :unavailable}
+    end
+  catch
+    :exit, {:timeout, _} -> {:error, :timeout}
+    :exit, _ -> {:error, :unavailable}
+  end
+
+  defp queue_api_call(server, request) do
+    GenServer.call(server, request, 5_000)
+  catch
+    :exit, _ -> {:error, :unavailable}
+  end
 
   defp validate_operator_message(body) do
     text = String.trim(body)

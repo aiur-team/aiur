@@ -21,6 +21,10 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   def read_load(_hard_threshold, _target), do: :unavailable
 
+  @spec initial_load_envelope_limit(map()) :: pos_integer() | nil
+  def initial_load_envelope_limit(%{target_load_average: nil}), do: nil
+  def initial_load_envelope_limit(_agent), do: 1
+
   @doc false
   # Pure dispatch decision for the eager pre-warm gate, kept separate so it can be
   # unit-tested without the orchestrator GenServer.
@@ -63,6 +67,30 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def load_envelope(effective, last_decrease_ms, load, %{static_limit: static_limit} = options) when is_number(load) do
     effective = normalize_load_envelope_limit(effective, static_limit)
     adjust_load_envelope(effective, last_decrease_ms, load, options)
+  end
+
+  @spec update_load_envelope(State.t(), number() | :unavailable, number() | nil, pos_integer(), integer()) :: State.t()
+  def update_load_envelope(%State{} = state, load, target, schedulers, now_ms) do
+    {effective, last_decrease_ms} =
+      load_envelope(
+        state.effective_concurrent_agents,
+        state.load_envelope_last_decrease_ms,
+        load,
+        %{
+          target: target,
+          schedulers: schedulers,
+          static_limit: Slots.max_concurrent_agent_limit(state),
+          ramp_step: Config.load_ramp_step(),
+          cooldown_ms: Config.load_cooldown_seconds() * 1_000,
+          now_ms: now_ms
+        }
+      )
+
+    %{
+      state
+      | effective_concurrent_agents: effective,
+        load_envelope_last_decrease_ms: last_decrease_ms
+    }
   end
 
   defp adjust_load_envelope(effective, last_decrease_ms, load, %{target: target, schedulers: schedulers} = options)
@@ -118,6 +146,11 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def issue_created_at_sort_key(%Issue{}), do: 9_223_372_036_854_775_807
   def issue_created_at_sort_key(_issue), do: 9_223_372_036_854_775_807
 
+  @spec should_dispatch_issue?(Issue.t(), State.t()) :: boolean()
+  def should_dispatch_issue?(%Issue{} = issue, %State{} = state) do
+    should_dispatch_issue?(issue, state, active_state_set(), terminal_state_set())
+  end
+
   @spec should_dispatch_issue?(Issue.t(), State.t(), MapSet.t(), MapSet.t()) :: boolean()
   def should_dispatch_issue?(%Issue{} = issue, %State{} = state, active_states, terminal_states) do
     dispatch_candidate?(issue, state, active_states, terminal_states) and
@@ -131,6 +164,11 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   # slot holds; manual start paths (e.g., space on a queued ticket) instead
   # gate on `active < max` so the operator can claim a free slot even when a
   # parallel paused agent is parked in the running map.
+  @spec dispatch_candidate?(Issue.t(), State.t()) :: boolean()
+  def dispatch_candidate?(%Issue{} = issue, %State{} = state) do
+    dispatch_candidate?(issue, state, active_state_set(), terminal_state_set())
+  end
+
   @spec dispatch_candidate?(Issue.t(), State.t(), MapSet.t(), MapSet.t()) :: boolean()
   def dispatch_candidate?(
         %Issue{} = issue,
@@ -204,6 +242,12 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   end
 
   def candidate_issue?(_issue, _active_states, _terminal_states), do: false
+
+  @spec retry_candidate_issue?(Issue.t(), MapSet.t()) :: boolean()
+  def retry_candidate_issue?(%Issue{} = issue, terminal_states) do
+    candidate_issue?(issue, active_state_set(), terminal_states) and
+      not todo_issue_blocked_by_non_terminal?(issue, terminal_states)
+  end
 
   @spec issue_not_paused?(Issue.t()) :: boolean()
   def issue_not_paused?(%Issue{} = issue), do: not Issue.paused?(issue)
