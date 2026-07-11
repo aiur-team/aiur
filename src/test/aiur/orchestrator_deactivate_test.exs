@@ -2700,6 +2700,16 @@ defmodule Aiur.OrchestratorDeactivateTest do
       previous_direct_recipient = Application.get_env(:aiur, :direct_dispatch_recipient)
       previous_direct_issues = Application.get_env(:aiur, :direct_dispatch_issues)
 
+      previous_lifecycle_recorder =
+        Application.get_env(:aiur, :run_telemetry_lifecycle_recorder)
+
+      test_pid = self()
+
+      Application.put_env(:aiur, :run_telemetry_lifecycle_recorder, fn kind, attributes, opts ->
+        send(test_pid, {:lifecycle, kind, attributes, opts})
+        :ok
+      end)
+
       try do
         File.mkdir_p!(test_root)
         File.write!(fake_codex, "#!/bin/sh\nsleep 30\n")
@@ -2766,6 +2776,16 @@ defmodule Aiur.OrchestratorDeactivateTest do
         assert entry.issue.state == "rework"
         assert MapSet.member?(next_state.claimed, issue_identifier)
 
+        assert_receive {:lifecycle, :lifecycle,
+                        %{
+                          event: "agent_resume",
+                          cause: "rework_dispatch",
+                          attempt_id: attempt_id
+                        }, []},
+                       2_000
+
+        assert is_binary(attempt_id)
+
         if is_pid(entry.pid) and Process.alive?(entry.pid) do
           Process.exit(entry.pid, :kill)
 
@@ -2779,6 +2799,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         restore_application_env(:github_client_module, previous_github_client)
         restore_application_env(:direct_dispatch_recipient, previous_direct_recipient)
         restore_application_env(:direct_dispatch_issues, previous_direct_issues)
+        restore_application_env(:run_telemetry_lifecycle_recorder, previous_lifecycle_recorder)
         File.rm_rf(test_root)
       end
     end
