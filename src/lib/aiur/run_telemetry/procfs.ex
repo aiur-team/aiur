@@ -111,18 +111,7 @@ defmodule Aiur.RunTelemetry.Procfs do
     values =
       contents
       |> String.split("\n", trim: true)
-      |> Enum.reduce(%{}, fn line, acc ->
-        case String.split(line, ":", parts: 2) do
-          [key, value] when key in ["read_bytes", "write_bytes"] ->
-            case parse_non_negative(String.trim(value)) do
-              {:ok, parsed} -> Map.put(acc, String.to_existing_atom(key), parsed)
-              _error -> acc
-            end
-
-          _other ->
-            acc
-        end
-      end)
+      |> Enum.reduce(%{}, &parse_io_line/2)
 
     case values do
       %{read_bytes: read_bytes, write_bytes: write_bytes} ->
@@ -134,6 +123,23 @@ defmodule Aiur.RunTelemetry.Procfs do
   end
 
   def parse_io(_contents), do: {:error, :unavailable}
+
+  defp parse_io_line(line, values) do
+    case String.split(line, ":", parts: 2) do
+      [key, value] when key in ["read_bytes", "write_bytes"] ->
+        maybe_put_io_value(values, key, value)
+
+      _other ->
+        values
+    end
+  end
+
+  defp maybe_put_io_value(values, key, value) do
+    case parse_non_negative(String.trim(value)) do
+      {:ok, parsed} -> Map.put(values, String.to_existing_atom(key), parsed)
+      _error -> values
+    end
+  end
 
   @doc false
   @spec clock_ticks_per_second(keyword()) :: pos_integer() | :unavailable
@@ -157,20 +163,23 @@ defmodule Aiur.RunTelemetry.Procfs do
   defp read_processes(root, entries) do
     entries
     |> numeric_pids()
-    |> Enum.reduce({%{}, []}, fn pid, {table, warnings} ->
-      case File.read(proc_path(root, pid, "stat")) do
-        {:ok, contents} ->
-          case parse_stat(contents) do
-            {:ok, %{pid: ^pid} = process} -> {Map.put(table, pid, process), warnings}
-            {:ok, _other_pid} -> {table, [warning(pid, :stat, :pid_mismatch) | warnings]}
-            {:error, reason} -> {table, [warning(pid, :stat, reason) | warnings]}
-          end
-
-        {:error, reason} ->
-          {table, [warning(pid, :stat, reason) | warnings]}
-      end
-    end)
+    |> Enum.reduce({%{}, []}, &read_process(root, &1, &2))
     |> then(fn {table, warnings} -> {table, Enum.reverse(warnings)} end)
+  end
+
+  defp read_process(root, pid, {table, warnings}) do
+    case File.read(proc_path(root, pid, "stat")) do
+      {:ok, contents} -> parse_process_stat(contents, pid, table, warnings)
+      {:error, reason} -> {table, [warning(pid, :stat, reason) | warnings]}
+    end
+  end
+
+  defp parse_process_stat(contents, pid, table, warnings) do
+    case parse_stat(contents) do
+      {:ok, %{pid: ^pid} = process} -> {Map.put(table, pid, process), warnings}
+      {:ok, _other_pid} -> {table, [warning(pid, :stat, :pid_mismatch) | warnings]}
+      {:error, reason} -> {table, [warning(pid, :stat, reason) | warnings]}
+    end
   end
 
   defp measure_process(root, base) do
@@ -188,7 +197,6 @@ defmodule Aiur.RunTelemetry.Procfs do
     else
       false -> {:error, :pid_reused}
       {:error, reason} -> {:error, reason}
-      _other -> {:error, :unavailable}
     end
   end
 

@@ -88,7 +88,14 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   @spec reason_class(term()) :: String.t()
   def reason_class(reason)
   def reason_class(reason) when is_atom(reason), do: Atom.to_string(reason)
-  def reason_class(%{__struct__: module}) when is_atom(module), do: module |> Module.split() |> List.last() |> Macro.underscore()
+
+  def reason_class(%{__struct__: module}) when is_atom(module) do
+    module
+    |> Module.split()
+    |> List.last()
+    |> Macro.underscore()
+  end
+
   def reason_class({tag, _detail}) when is_atom(tag), do: Atom.to_string(tag)
   def reason_class({tag, _detail, _more}) when is_atom(tag), do: Atom.to_string(tag)
   def reason_class(status) when is_integer(status), do: "status_#{status}"
@@ -127,7 +134,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   def observe_backend_message(_ticket, _attempt_id, _backend, _message, _opts), do: :ok
 
   @doc "Converts a trusted GitHub exchange event into a body-free lifecycle anchor."
-  @spec external_anchor(map()) :: {:ok, map(), DateTime.t() | String.t()} | :skip
+  @spec external_anchor(map()) :: {:ok, map(), term()} | :skip
   def external_anchor(event) when is_map(event) do
     topic = value(event, :topic)
     source = value(event, :source)
@@ -285,29 +292,37 @@ defmodule Aiur.RunTelemetry.Lifecycle do
          item when is_map(item) <- MapAccess.notification_item(message) do
       case value(item, :type) do
         "tool_call" ->
-          with "Bash" <- value(item, :name),
-               operation_id when not is_nil(operation_id) <- operation_id(item) do
-            input = value(item, :input) || %{}
-            {:start, operation_id, value(input, :command)}
-          else
-            _other -> :skip
-          end
+          claude_tool_call(item)
 
         "tool_result" ->
-          operation_id =
-            value(item, :tool_use_id) || value(item, :tool_call_id) || value(item, :call_id)
-
-          if operation_id do
-            {:complete, to_string(operation_id), nil, claude_outcome(item)}
-          else
-            :skip
-          end
+          claude_tool_result(item)
 
         _other ->
           :skip
       end
     else
       _other -> :skip
+    end
+  end
+
+  defp claude_tool_call(item) do
+    with "Bash" <- value(item, :name),
+         operation_id when not is_nil(operation_id) <- operation_id(item) do
+      input = value(item, :input) || %{}
+      {:start, operation_id, value(input, :command)}
+    else
+      _other -> :skip
+    end
+  end
+
+  defp claude_tool_result(item) do
+    operation_id =
+      value(item, :tool_use_id) || value(item, :tool_call_id) || value(item, :call_id)
+
+    if operation_id do
+      {:complete, to_string(operation_id), nil, claude_outcome(item)}
+    else
+      :skip
     end
   end
 
@@ -440,17 +455,24 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   end
 
   defp external_timestamp(kind, event) do
-    pr = value(event, :pr) || %{}
-    comment = value(event, :comment) || %{}
+    case kind |> external_timestamp_candidates(event) |> Enum.find(& &1) do
+      nil -> DateTime.utc_now()
+      timestamp -> timestamp
+    end
+  end
 
-    timestamp =
-      case kind do
-        "pr.opened" -> value(pr, :created_at)
-        "pr.merged" -> value(pr, :merged_at) || value(pr, :closed_at)
-        _comment -> value(comment, :updated_at) || value(comment, :created_at)
-      end
+  defp external_timestamp_candidates("pr.opened", event) do
+    [value(value(event, :pr), :created_at), value(event, :timestamp)]
+  end
 
-    timestamp || value(event, :timestamp) || DateTime.utc_now()
+  defp external_timestamp_candidates("pr.merged", event) do
+    pr = value(event, :pr)
+    [value(pr, :merged_at), value(pr, :closed_at), value(event, :timestamp)]
+  end
+
+  defp external_timestamp_candidates(_comment, event) do
+    comment = value(event, :comment)
+    [value(comment, :updated_at), value(comment, :created_at), value(event, :timestamp)]
   end
 
   defp value(nil, _key), do: nil

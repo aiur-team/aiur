@@ -96,7 +96,7 @@ defmodule Aiur.RunTelemetry.Dataset do
 
   defp read_file(file) do
     file
-    |> File.stream!([], :line)
+    |> File.stream!(:line, [])
     |> Stream.with_index(1)
     |> Enum.reduce({[], []}, fn {line, line_number}, {records, warnings} ->
       case parse_line(line, file, line_number) do
@@ -196,41 +196,42 @@ defmodule Aiur.RunTelemetry.Dataset do
     events
     |> Enum.with_index(1)
     |> Enum.reduce({[], []}, fn {event, sequence}, {records, warnings} ->
-      case Lifecycle.external_anchor(event) do
-        {:ok, attributes, timestamp} ->
-          case parse_timestamp(timestamp) do
-            {:ok, parsed} ->
-              source_id = Map.get(attributes, :source_id) || "event:#{sequence}"
-
-              record = %{
-                schema_version: RunTelemetry.schema_version(),
-                kind: "lifecycle",
-                timestamp: parsed,
-                timestamp_iso: DateTime.to_iso8601(parsed),
-                timestamp_ms: DateTime.to_unix(parsed, :millisecond),
-                recorded_at: nil,
-                boot_id: "github",
-                sequence: sequence,
-                record_id: "github:#{source_id}",
-                attributes: stringify_keys(attributes),
-                source_path: "(github)",
-                source_line: sequence
-              }
-
-              {[record | records], warnings}
-
-            :error ->
-              {records, [%{type: :invalid_github_timestamp, source_index: sequence} | warnings]}
-          end
-
-        :skip ->
-          {records, warnings}
+      case github_record(event, sequence) do
+        {:ok, record} -> {[record | records], warnings}
+        {:warning, warning} -> {records, [warning | warnings]}
+        :skip -> {records, warnings}
       end
     end)
     |> then(fn {records, warnings} -> {Enum.reverse(records), Enum.reverse(warnings)} end)
   end
 
   defp github_records(_events), do: {[], [%{type: :invalid_github_events}]}
+
+  defp github_record(event, sequence) do
+    with {:ok, attributes, timestamp} <- Lifecycle.external_anchor(event),
+         {:ok, parsed} <- parse_timestamp(timestamp) do
+      source_id = Map.get(attributes, :source_id) || "event:#{sequence}"
+
+      {:ok,
+       %{
+         schema_version: RunTelemetry.schema_version(),
+         kind: "lifecycle",
+         timestamp: parsed,
+         timestamp_iso: DateTime.to_iso8601(parsed),
+         timestamp_ms: DateTime.to_unix(parsed, :millisecond),
+         recorded_at: nil,
+         boot_id: "github",
+         sequence: sequence,
+         record_id: "github:#{source_id}",
+         attributes: stringify_keys(attributes),
+         source_path: "(github)",
+         source_line: sequence
+       }}
+    else
+      :skip -> :skip
+      :error -> {:warning, %{type: :invalid_github_timestamp, source_index: sequence}}
+    end
+  end
 
   defp dedupe_records(records) do
     records
@@ -247,12 +248,10 @@ defmodule Aiur.RunTelemetry.Dataset do
           {kept, MapSet.put(record_ids, record.record_id), event_keys, [warning | warnings]}
 
         true ->
-          next_event_keys = if event_key, do: MapSet.put(event_keys, event_key), else: event_keys
-
           {
             [record | kept],
             MapSet.put(record_ids, record.record_id),
-            next_event_keys,
+            maybe_put_event_key(event_keys, event_key),
             warnings
           }
       end
@@ -261,6 +260,9 @@ defmodule Aiur.RunTelemetry.Dataset do
       {Enum.reverse(kept), Enum.reverse(warnings)}
     end)
   end
+
+  defp maybe_put_event_key(event_keys, nil), do: event_keys
+  defp maybe_put_event_key(event_keys, event_key), do: MapSet.put(event_keys, event_key)
 
   defp lifecycle_event_key(%{kind: "lifecycle", attributes: attributes}) do
     if Map.get(attributes, "source_id") || Map.get(attributes, "operation_id") do
@@ -278,23 +280,25 @@ defmodule Aiur.RunTelemetry.Dataset do
       boot_records
       |> Enum.sort_by(& &1.sequence)
       |> Enum.chunk_every(2, 1, :discard)
-      |> Enum.flat_map(fn [previous, current] ->
-        if current.sequence > previous.sequence + 1 do
-          [
-            %{
-              type: :sequence_gap,
-              boot_id: boot_id,
-              after_sequence: previous.sequence,
-              before_sequence: current.sequence,
-              missing_count: current.sequence - previous.sequence - 1
-            }
-          ]
-        else
-          []
-        end
-      end)
+      |> Enum.flat_map(&sequence_gap(&1, boot_id))
     end)
     |> Enum.sort_by(&{&1.boot_id, &1.after_sequence})
+  end
+
+  defp sequence_gap([previous, current], boot_id) do
+    if current.sequence > previous.sequence + 1 do
+      [
+        %{
+          type: :sequence_gap,
+          boot_id: boot_id,
+          after_sequence: previous.sequence,
+          before_sequence: current.sequence,
+          missing_count: current.sequence - previous.sequence - 1
+        }
+      ]
+    else
+      []
+    end
   end
 
   defp runtime_warnings(records) do
@@ -426,25 +430,27 @@ defmodule Aiur.RunTelemetry.Dataset do
       boot_samples
       |> Enum.sort_by(& &1.timestamp_ms)
       |> Enum.chunk_every(2, 1, :discard)
-      |> Enum.flat_map(fn [previous, current] ->
-        duration_ms = current.timestamp_ms - previous.timestamp_ms
-
-        if duration_ms > threshold_ms do
-          [
-            %{
-              boot_id: boot_id,
-              start_at: previous.timestamp,
-              end_at: current.timestamp,
-              duration_ms: duration_ms,
-              expected_interval_ms: interval_ms
-            }
-          ]
-        else
-          []
-        end
-      end)
+      |> Enum.flat_map(&resource_gap(&1, boot_id, interval_ms, threshold_ms))
     end)
     |> Enum.sort_by(&{&1.start_at, &1.boot_id})
+  end
+
+  defp resource_gap([previous, current], boot_id, interval_ms, threshold_ms) do
+    duration_ms = current.timestamp_ms - previous.timestamp_ms
+
+    if duration_ms > threshold_ms do
+      [
+        %{
+          boot_id: boot_id,
+          start_at: previous.timestamp,
+          end_at: current.timestamp,
+          duration_ms: duration_ms,
+          expected_interval_ms: interval_ms
+        }
+      ]
+    else
+      []
+    end
   end
 
   defp availability_counts(samples) do
@@ -520,10 +526,7 @@ defmodule Aiur.RunTelemetry.Dataset do
             {intervals, Map.put(open, key, event)}
 
           "end" ->
-            case Map.pop(open, key) do
-              {nil, open} -> {[point_interval(event, "orphan_end") | intervals], open}
-              {started, open} -> {[closed_interval(started, event) | intervals], open}
-            end
+            close_lifecycle_interval(event, intervals, open, key)
 
           "point" ->
             {[point_interval(event, "point") | intervals], open}
@@ -534,6 +537,13 @@ defmodule Aiur.RunTelemetry.Dataset do
 
     (intervals ++ open_intervals)
     |> Enum.sort_by(&{&1.start_ms, &1.phase, &1.operation_id || ""})
+  end
+
+  defp close_lifecycle_interval(event, intervals, open, key) do
+    case Map.pop(open, key) do
+      {nil, next_open} -> {[point_interval(event, "orphan_end") | intervals], next_open}
+      {started, next_open} -> {[closed_interval(started, event) | intervals], next_open}
+    end
   end
 
   defp lifecycle_pair_key(event),

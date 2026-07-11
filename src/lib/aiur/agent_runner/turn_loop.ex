@@ -169,7 +169,6 @@ defmodule Aiur.AgentRunner.TurnLoop do
         {:ok, _session} -> {:success, nil}
         {:paused, _payload} -> {:paused, nil}
         {:error, reason} -> {:failed, Lifecycle.reason_class(reason)}
-        _other -> {:unknown, nil}
       end
 
     Lifecycle.record(issue.identifier, attempt_id, :implement, :end, %{

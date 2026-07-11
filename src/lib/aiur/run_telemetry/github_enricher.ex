@@ -32,7 +32,18 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
         {:ok, pulls} ->
           matched = matching_pulls(pulls, ticket_set)
           boundary_events = Enum.flat_map(matched, &pull_events/1)
-          {comment_events, warnings} = comment_events(owner, name, ticket_set, matched, request_fun, token, trusted_author_fun, opts)
+
+          {comment_events, warnings} =
+            comment_events(
+              owner,
+              name,
+              ticket_set,
+              matched,
+              request_fun,
+              token,
+              trusted_author_fun,
+              opts
+            )
 
           %{
             events: normalize_events(boundary_events ++ comment_events),
@@ -62,7 +73,11 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
     case String.split(String.trim(repo), "/", parts: 2) do
       [owner, name]
       when owner != "" and name != "" ->
-        if safe_repo_segment?(owner) and safe_repo_segment?(name), do: {:ok, {owner, name}}, else: {:error, :invalid_repo}
+        if safe_repo_segment?(owner) and safe_repo_segment?(name) do
+          {:ok, {owner, name}}
+        else
+          {:error, :invalid_repo}
+        end
 
       _other ->
         {:error, :invalid_repo}
@@ -86,7 +101,7 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
 
   defp fetch_all(url, request_fun, token, opts) do
     max_pages = Keyword.get(opts, :max_pages, @max_pages)
-    fetch_pages(url, request_fun, token, max_pages, MapSet.new(), [])
+    fetch_pages(url, request_fun, token, max_pages, [], [])
   end
 
   defp fetch_pages(_url, _request_fun, _token, pages_left, _seen, _items) when pages_left <= 0,
@@ -94,38 +109,42 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
 
   defp fetch_pages(url, request_fun, token, pages_left, seen, items) do
     cond do
-      MapSet.member?(seen, url) ->
+      url in seen ->
         {:error, :pagination_cycle}
 
       not safe_api_url?(url) ->
         {:error, :unsafe_pagination_url}
 
       true ->
-        case request_fun.(%{method: :get, url: url, token: token}) do
-          {:ok, %{status: 200, body: body} = response} when is_list(body) ->
-            next_url = Transport.parse_next_page_url(Map.get(response, :headers, %{}))
-            seen = MapSet.put(seen, url)
-
-            if is_binary(next_url) do
-              fetch_pages(next_url, request_fun, token, pages_left - 1, seen, items ++ body)
-            else
-              {:ok, items ++ body}
-            end
-
-          {:ok, %{status: status}} when is_integer(status) ->
-            {:error, status}
-
-          {:ok, _response} ->
-            {:error, :invalid_response}
-
-          {:error, reason} ->
-            {:error, reason}
-        end
+        fetch_page(url, request_fun, token, pages_left, seen, items)
     end
   rescue
     _error -> {:error, :request_exception}
   catch
     :exit, _reason -> {:error, :request_exit}
+  end
+
+  defp fetch_page(url, request_fun, token, pages_left, seen, items) do
+    case request_fun.(%{method: :get, url: url, token: token}) do
+      {:ok, %{status: 200, body: body} = response} when is_list(body) ->
+        next_url = Transport.parse_next_page_url(Map.get(response, :headers, %{}))
+        continue_pages(next_url, request_fun, token, pages_left, [url | seen], items ++ body)
+
+      {:ok, %{status: status}} when is_integer(status) ->
+        {:error, status}
+
+      {:ok, _response} ->
+        {:error, :invalid_response}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp continue_pages(nil, _request_fun, _token, _pages_left, _seen, items), do: {:ok, items}
+
+  defp continue_pages(next_url, request_fun, token, pages_left, seen, items) do
+    fetch_pages(next_url, request_fun, token, pages_left - 1, seen, items)
   end
 
   defp safe_api_url?(url) when is_binary(url) do

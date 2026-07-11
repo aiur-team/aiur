@@ -63,9 +63,11 @@ defmodule Aiur.ProcessReaperTest do
 
     :ok = ProcessReaper.register(reaper, :serve, {:os_pid, 77}, comm: "opencode")
 
-    assert {{:os_pid, 4242}, :agent, %{comm: "codex", ticket: "930", backend: "codex", remote: false}} in ProcessReaper.entries(reaper)
+    entries = ProcessReaper.entries(reaper)
 
-    assert {{:os_pid, 77}, :serve, %{comm: "opencode"}} in ProcessReaper.entries(reaper)
+    assert {{:os_pid, 4242}, :agent, %{comm: "codex", ticket: "930", backend: "codex", remote: false}} in entries
+
+    assert {{:os_pid, 77}, :serve, %{comm: "opencode"}} in entries
   end
 
   test "nil and garbage refs are ignored", %{reaper: reaper} do

@@ -73,7 +73,9 @@ defmodule Aiur.AgentRunner do
 
     opts = Keyword.put(opts, :telemetry_setup_operation_id, setup_operation_id)
 
-    case Workspace.create_for_issue(issue, worker_host, lifecycle: %{ticket: issue.identifier, attempt_id: attempt_id}) do
+    lifecycle = %{ticket: issue.identifier, attempt_id: attempt_id}
+
+    case Workspace.create_for_issue(issue, worker_host, lifecycle: lifecycle) do
       {:ok, workspace} ->
         MessageHandler.send_worker_runtime_info(codex_update_recipient, issue, worker_host, workspace)
 

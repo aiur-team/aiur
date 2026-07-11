@@ -11,6 +11,7 @@ defmodule Aiur.RunTelemetry.Writer do
 
   require Logger
 
+  alias Aiur.Events.Exchange
   alias Aiur.RunTelemetry
   alias Aiur.RunTelemetry.Lifecycle
 
@@ -174,7 +175,7 @@ defmodule Aiur.RunTelemetry.Writer do
   end
 
   defp subscribe_external_events do
-    Enum.each(@external_event_patterns, &Aiur.Events.Exchange.subscribe/1)
+    Enum.each(@external_event_patterns, &Exchange.subscribe/1)
     :ok
   rescue
     _error -> :ok

@@ -36,8 +36,6 @@ defmodule Aiur.AgentRunner.MessageHandler do
     end
   end
 
-  defp observe_lifecycle(_issue, _backend, _message, false), do: :ok
-
   defp observe_lifecycle(%Issue{identifier: identifier}, backend, message, lifecycle_opts)
        when is_binary(identifier) and is_list(lifecycle_opts) do
     Lifecycle.observe_backend_message(

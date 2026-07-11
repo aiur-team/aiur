@@ -1,5 +1,8 @@
 defmodule Aiur.Workspace.Provisioner do
-  @moduledoc "Workspace provisioning: ensure, create, materialize from prewarm base, recreate stale workspaces, and remote SSH shell provisioning."
+  @moduledoc """
+  Provisions local and remote workspaces, including prewarm materialization and
+  stale workspace recreation.
+  """
 
   require Logger
   alias Aiur.{Config, RepoBase, TicketBranch, Tracker}
@@ -243,18 +246,20 @@ defmodule Aiur.Workspace.Provisioner do
   end
 
   defp prewarm_base do
-    cond do
-      not Config.prewarm_enabled?() ->
-        {:skip, :disabled}
+    if Config.prewarm_enabled?() do
+      ready_prewarm_base()
+    else
+      {:skip, :disabled}
+    end
+  end
 
-      true ->
-        case RepoBase.status() do
-          {:ready, base} when is_binary(base) ->
-            if File.dir?(base), do: {:ready, base}, else: {:skip, :cold_base_missing}
+  defp ready_prewarm_base do
+    case RepoBase.status() do
+      {:ready, base} when is_binary(base) ->
+        if File.dir?(base), do: {:ready, base}, else: {:skip, :cold_base_missing}
 
-          _other ->
-            {:skip, :cold_base_not_ready}
-        end
+      _other ->
+        {:skip, :cold_base_not_ready}
     end
   end
 

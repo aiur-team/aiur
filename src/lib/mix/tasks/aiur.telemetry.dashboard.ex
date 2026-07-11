@@ -72,33 +72,37 @@ defmodule Mix.Tasks.Aiur.Telemetry.Dashboard do
   def parse_args(argv, opts \\ []) when is_list(argv) and is_list(opts) do
     {parsed, positional, invalid} = OptionParser.parse(argv, strict: @switches, aliases: @aliases)
 
-    cond do
-      parsed[:help] ->
-        {:help, @moduledoc}
-
-      invalid != [] ->
-        {:error, "Invalid option(s): #{format_invalid(invalid)}"}
-
-      not valid_grace?(parsed[:review_resume_grace_seconds]) ->
-        {:error, "--review-resume-grace-seconds must be a positive integer"}
-
-      true ->
-        caller_cwd = Keyword.get(opts, :caller_cwd, caller_cwd())
-
-        inputs =
-          case Keyword.get_values(parsed, :input) ++ positional do
-            [] -> [Path.expand("~/.aiur/logs")]
-            values -> Enum.map(values, &expand_path(&1, caller_cwd))
-          end
-
-        {:ok,
-         %{
-           inputs: inputs,
-           output: expand_path(parsed[:output] || @default_output, caller_cwd),
-           repo: normalize_repo(parsed[:repo]),
-           review_resume_grace_seconds: parsed[:review_resume_grace_seconds] || @default_grace_seconds
-         }}
+    case validate_options(parsed, invalid) do
+      :help -> {:help, @moduledoc}
+      {:error, message} -> {:error, message}
+      :ok -> {:ok, parsed_options(parsed, positional, opts)}
     end
+  end
+
+  defp validate_options(parsed, invalid) do
+    cond do
+      parsed[:help] -> :help
+      invalid != [] -> {:error, "Invalid option(s): #{format_invalid(invalid)}"}
+      valid_grace?(parsed[:review_resume_grace_seconds]) -> :ok
+      true -> {:error, "--review-resume-grace-seconds must be a positive integer"}
+    end
+  end
+
+  defp parsed_options(parsed, positional, opts) do
+    caller_cwd = Keyword.get(opts, :caller_cwd, caller_cwd())
+
+    inputs =
+      case Keyword.get_values(parsed, :input) ++ positional do
+        [] -> [Path.expand("~/.aiur/logs")]
+        values -> Enum.map(values, &expand_path(&1, caller_cwd))
+      end
+
+    %{
+      inputs: inputs,
+      output: expand_path(parsed[:output] || @default_output, caller_cwd),
+      repo: normalize_repo(parsed[:repo]),
+      review_resume_grace_seconds: parsed[:review_resume_grace_seconds] || @default_grace_seconds
+    }
   end
 
   defp caller_cwd do
@@ -123,13 +127,24 @@ defmodule Mix.Tasks.Aiur.Telemetry.Dashboard do
   defp maybe_put(options, key, value), do: Keyword.put(options, key, value)
 
   defp format_invalid(invalid) do
-    invalid
-    |> Enum.map(fn {option, value} -> Enum.join(Enum.reject([option, value], &is_nil/1), "=") end)
-    |> Enum.join(", ")
+    Enum.map_join(invalid, ", ", fn {option, value} ->
+      Enum.join(Enum.reject([option, value], &is_nil/1), "=")
+    end)
   end
 
-  defp format_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp format_reason({reason, detail}) when is_atom(reason), do: "#{reason} (#{format_reason(detail)})"
-  defp format_reason(reason) when is_binary(reason), do: reason
-  defp format_reason(_reason), do: "unknown error"
+  defp format_reason(reason) do
+    cond do
+      is_atom(reason) ->
+        Atom.to_string(reason)
+
+      is_binary(reason) ->
+        reason
+
+      is_tuple(reason) and tuple_size(reason) == 2 and is_atom(elem(reason, 0)) ->
+        "#{elem(reason, 0)} (#{format_reason(elem(reason, 1))})"
+
+      true ->
+        "unknown error"
+    end
+  end
 end
