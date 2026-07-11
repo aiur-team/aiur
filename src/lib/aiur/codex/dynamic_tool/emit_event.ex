@@ -34,7 +34,8 @@ defmodule Aiur.Codex.DynamicTool.EmitEvent do
       "message" => %{"type" => "string", "description" => "Short human-readable summary."},
       "payload" => %{
         "type" => ["object", "null"],
-        "description" => "Optional structured data (e.g. {blocking_issue: 80, function: \"foo\"}).",
+        "description" =>
+          "Optional structured data (e.g. {blocking_issue: 80, function: \"foo\"}). For a decision-blocked `blocked` or `pause.request`, use {reason: \"operator_decision\", question: \"...\"} to raise a durable operator attention.",
         "additionalProperties" => true
       }
     }

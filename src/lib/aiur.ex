@@ -111,6 +111,7 @@ defmodule Aiur.Application do
       Aiur.GitHub.CodeOwners,
       {Registry, keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry},
       Aiur.Events.SubscriptionStoreSupervisor,
+      Aiur.DecisionAttention,
       Aiur.OperatorWaitLog,
       Aiur.Orchestrator.TrackedSet,
       Aiur.Orchestrator,

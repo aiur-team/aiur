@@ -169,6 +169,76 @@ defmodule Aiur.AiurAgentSkillTest do
     end
   end
 
+  test "operator decision relay covers backend push, RC, and the Decisions log" do
+    monitor_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md"))
+    run_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
+    loop_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-loop/SKILL.md"))
+
+    monitor_skill = one_line(monitor_skill)
+    run_skill = one_line(run_skill)
+    loop_skill = one_line(loop_skill)
+
+    assert monitor_skill =~ "operator_decision:true"
+    assert monitor_skill =~ "`### Decisions` section before sending notifications"
+    assert monitor_skill =~ "Claude's native **PushNotification**"
+    assert monitor_skill =~ "Codex's device notification"
+    assert monitor_skill =~ "RC notification path"
+    assert monitor_skill =~ "retried on the next re-ask"
+    assert monitor_skill =~ "matching `attention.resolved` event"
+    assert run_skill =~ "operator_decision:true"
+    assert run_skill =~ "not `agent.kind`"
+    assert run_skill =~ "Remote Control URL"
+    assert loop_skill =~ "operator_decision:true"
+    assert loop_skill =~ "Remote Control"
+  end
+
+  test "operator loop uses medium autonomy and traces every decision" do
+    monitor_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md"))
+    run_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
+    loop_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-loop/SKILL.md"))
+
+    monitor_skill = one_line(monitor_skill)
+    run_skill = one_line(run_skill)
+    loop_skill = one_line(loop_skill)
+
+    assert loop_skill =~ "**MEDIUM autonomy**"
+    refute loop_skill =~ "default to the LESS autonomous option"
+
+    for example <- ["merge ordering", "rework routing", "error recovery", "mechanical scope reads"] do
+      assert loop_skill =~ example
+    end
+
+    for boundary <- ["product behavior", "architecture", "scope cuts", "destructive or irreversible"] do
+      assert loop_skill =~ boundary
+    end
+
+    for skill <- [monitor_skill, run_skill, loop_skill] do
+      assert skill =~ "## Decisions"
+      assert skill =~ "Ticket | Decision | Rationale | Mode"
+      assert skill =~ "auto"
+      assert skill =~ "escalated"
+    end
+
+    assert monitor_skill =~ "every autonomous or escalated decision"
+    assert monitor_skill =~ "every periodic update"
+  end
+
+  test "needs-attention relay is an independent wake path for the operator cadence" do
+    monitor_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md"))
+    run_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
+    loop_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-loop/SKILL.md"))
+
+    monitor_skill = one_line(monitor_skill)
+    run_skill = one_line(run_skill)
+    loop_skill = one_line(loop_skill)
+
+    assert monitor_skill =~ "wake-on-attention"
+    assert monitor_skill =~ "re-invokes the operator"
+    assert monitor_skill =~ "does not wait for the cadence timer"
+    assert run_skill =~ "wake-on-attention"
+    assert loop_skill =~ "wake-on-attention"
+  end
+
   test "agent operating guidance scopes local pre-PR verification to affected tests" do
     source =
       @repo_root

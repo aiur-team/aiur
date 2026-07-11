@@ -93,12 +93,13 @@ should **NEVER** have to ask for the next update — see `aiur-monitor`'s "Monit
 the required rule, the board format, and the alert relay. (5 min is the recommended default; the
 operator picks the value once via the ask above.)
 
-**Update format (required — two tables).** Every cadence tick is posted as **two markdown tables**,
-not prose: **Table 1** the full refactor roadmap (`Ticket | Description | Phase | Status`, one row
-per ticket through the end — merged ✅ / active 🔵 / upcoming ⬜, contiguous done runs collapsible),
-and **Table 2** the optimization/bottleneck backlog (`# | Description | Status`, flagging the
-current top blocker). `aiur-monitor`'s "Progress-update format (required — two tables)" is the full
-spec. Short shape:
+**Update format (required — two status tables + Decisions).** Every cadence tick is posted as
+**two markdown status tables plus `## Decisions`**, not prose: **Table 1** the full refactor
+roadmap (`Ticket | Description | Phase | Status`, one row per ticket through the end — merged ✅ /
+active 🔵 / upcoming ⬜, contiguous done runs collapsible), **Table 2** the
+optimization/bottleneck backlog (`# | Description | Status`, flagging the current top blocker),
+and the decision ledger (`Ticket | Decision | Rationale | Mode`). `aiur-monitor`'s progress-update
+format is the full spec. Short shape:
 
 ```
 ## Table 1 — Refactor tickets
@@ -116,14 +117,36 @@ spec. Short shape:
 | #884 | Restore v2 coverage ≥85% | 🔴 in-progress — BLOCKS ALL MERGES |
 | #877 | Close the CI feedback loop | 🔵 in-progress |
 | #873 | Agents skip local credo (lint = #1 CPU) | 🟡 staged in prompt |
+
+## Decisions
+| Ticket | Decision | Rationale | Mode |
+|---|---|---|---|
+| #921 | Route the green PR before the later wave | Reversible critical-path ordering | auto |
+| #934 | Ask whether to cut the attention command | Changes accepted product scope | escalated |
 ```
+
+Use **MEDIUM autonomy** while babysitting: decide reversible / operational unblocks such as merge
+ordering within granted authority, rework routing, error recovery, and mechanical scope reads.
+Escalate product behavior, architecture, scope cuts, destructive or irreversible actions, and
+anything outside granted authority. Record every decision in the ledger before acting or pushing;
+an escalation always notifies every active operator surface as well as being logged.
 
 - **Agents** — start the cadence now by arming the loop at the chosen interval:
   `/loop <chosen>m /aiur-monitor` (e.g. `/loop 5m /aiur-monitor` for the default). There is no
   self-ticking fallback — if you do not arm `/loop`, no further updates will fire, which is the
   failure this step exists to prevent. Don't skip a tick when nothing changed — post the board
   anyway, noting steady-state (`aiurdev watch --changes` prints `(no changes)` — relay that).
-- **Alerts** — arm `aiur-monitor`'s real-time alert relay now: start `watch-alerts.sh` once via the **Monitor tool** (`persistent: true`) and post every new alert in chat (`#<ticket> · <name> · <reason>`), so the operator gets the "why" the instant the chime plays. `aiurdev watch`'s `ACTIONABLE` section is the periodic floor (+ PushNotification for new needs-attention alerts). See `aiur-monitor`'s "Real-time alert relay".
+- **Alerts / wake-on-attention** — arm `aiur-monitor`'s real-time alert relay now: start
+  `watch-alerts.sh` once via the **Monitor tool** (`persistent: true`) while the cadence timer stays
+  armed. Every `needs_attention:true` Monitor event re-invokes the operator in seconds instead of
+  waiting for the next tick; post each alert in chat (`#<ticket> · <name> · <reason>`). Before
+  arming it, record the active operator backend from the operator session (not `agent.kind`, which
+  routes workers) and whether that session has a Remote Control URL. For every
+  `operator_decision:true` line, `aiur-monitor` must first update the durable `### Decisions` log
+  and then notify every active surface: Claude native push, Codex native push or the configured
+  shared Aiur device-notification fallback, plus the RC notification path when RC is active.
+  `aiurdev watch`'s `ACTIONABLE` section remains the periodic floor. See `aiur-monitor`'s
+  "Operator-decision escalation: log, then fan out".
 - **CPU/FD** — watch `top`/`ps` for CPU; `grep -i emfile <log>` (#409 — FD exhaustion at high
   concurrency). If CPU pegs or `:emfile` appears → lower `pre_warmed_sessions` /
   `max_concurrent_agents` and relaunch.
