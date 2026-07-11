@@ -1074,7 +1074,7 @@ defmodule Aiur.Orchestrator do
 
     case Tracker.fetch_candidate_issues() do
       {:ok, issues} ->
-        issues = PauseResume.recover_startup_pause_overrides(state, issues)
+        issues = recover_startup_pause_overrides(state, issues)
 
         state =
           state
@@ -1425,7 +1425,7 @@ defmodule Aiur.Orchestrator do
   @doc false
   @spec recover_startup_pause_overrides_for_test(State.t(), [term()]) :: [term()]
   def recover_startup_pause_overrides_for_test(%State{} = state, issues) when is_list(issues) do
-    PauseResume.recover_startup_pause_overrides(state, issues)
+    recover_startup_pause_overrides(state, issues)
   end
 
   @doc false
@@ -3345,6 +3345,76 @@ defmodule Aiur.Orchestrator do
     do: OM.maybe_emit_agent_control_alert(previous_status, status, running_entry)
 
   defp resume_issue(%State{} = state, issue_identifier), do: PauseResume.resume_issue(state, issue_identifier)
+
+  # `agent:paused` is a durable override. A successful in-memory resume that
+  # leaves it behind is undone by the next tracker poll, stranding the worker.
+  # Clear the override before waking the worker and keep it parked if the
+  # tracker write fails.
+  @doc false
+  @spec resume_label_overridden_issue(State.t(), map()) :: {{:ok, :resumed} | {:error, term()}, State.t()}
+  def resume_label_overridden_issue(%State{} = state, %{paused_reason: :label_override} = running_entry) do
+    case clear_pause_override(running_entry) do
+      {:ok, cleared_entry} ->
+        issue_id = get_in(cleared_entry, [:issue, Access.key(:id)])
+        state = %{state | running: Map.put(state.running, issue_id, cleared_entry)}
+        resume_paused_issue(state, cleared_entry)
+
+      {:error, reason} ->
+        Logger.warning("Pause override clear failed: #{rc_log_context(running_entry)} reason=#{inspect(reason)}")
+        {{:error, {:pause_override_clear_failed, reason}}, state}
+    end
+  end
+
+  def resume_label_overridden_issue(%State{} = state, running_entry), do: resume_paused_issue(state, running_entry)
+
+  defp recover_startup_pause_overrides(%State{initial_dispatch_cycle: true} = state, issues) when is_list(issues) do
+    Enum.map(issues, fn
+      %Issue{} = issue -> recover_startup_pause_override(state, issue)
+      issue -> issue
+    end)
+  end
+
+  defp recover_startup_pause_overrides(_state, issues), do: issues
+
+  defp recover_startup_pause_override(%State{} = state, %Issue{} = issue) do
+    if Issue.paused?(issue) and DispatchPolicy.active_issue_state?(issue.state, active_state_set()) and not Map.has_key?(state.running, issue.id) do
+      case clear_pause_override(issue) do
+        {:ok, cleared_issue} ->
+          Logger.info("Recovered stale pause override on startup: #{issue_context(issue)}")
+          cleared_issue
+
+        {:error, reason} ->
+          Logger.warning("Startup pause override recovery deferred: #{issue_context(issue)} reason=#{inspect(reason)}")
+          issue
+      end
+    else
+      issue
+    end
+  end
+
+  defp clear_pause_override(%{issue: %Issue{} = issue} = running_entry) do
+    case clear_pause_override(issue) do
+      {:ok, cleared_issue} -> {:ok, Map.put(running_entry, :issue, cleared_issue)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp clear_pause_override(%Issue{} = issue) do
+    label = pause_override_label()
+
+    case Tracker.remove_label(issue.identifier, label) do
+      :ok -> {:ok, issue |> RC.remove_issue_label(label) |> Map.put(:paused, false)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp pause_override_label, do: "#{Config.settings!().tracker.github.label_prefix}:paused"
+
+  defp rc_log_context(entry) do
+    issue_id = get_in(entry, [:issue, Access.key(:id)])
+    "issue_id=#{issue_id} issue_identifier=#{Map.get(entry, :identifier)}"
+  end
+
   @doc false
   @spec reactivate_issue(State.t(), map()) :: {{:ok, :reactivated} | {:error, term()}, State.t()}
   def reactivate_issue(%State{} = state, running_entry), do: PauseResume.reactivate_issue(state, running_entry)
