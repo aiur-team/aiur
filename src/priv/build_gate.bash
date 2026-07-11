@@ -109,15 +109,22 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
   }
 
   aiur_build_gate_reclaim_stale_phase_lock() {
-    local lock_path=$1 owner_file="$lock_path/owner" owner_pid
+    local lock_path=$1 owner_file=$lock_path owner_pid
+
+    [[ -e $lock_path ]] || return 1
+
+    # Older releases used a directory plus owner file. Accept that shape while
+    # new locks publish one immutable owner record atomically via a hard link.
+    if [[ -d $lock_path ]]; then
+      owner_file="$lock_path/owner"
+    fi
 
     owner_pid=$(aiur_build_gate_owner_pid "$owner_file")
 
     if [[ -n $owner_pid ]]; then
       kill -0 "$owner_pid" 2>/dev/null && return 1
 
-      rm -f "$owner_file"
-      if rmdir "$lock_path" 2>/dev/null; then
+      if rm -rf "$lock_path" 2>/dev/null; then
         aiur_build_gate_log "stale_phase_lock_recovered owner_pid=$owner_pid"
         return 0
       fi
@@ -125,7 +132,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
       return 1
     fi
 
-    if rmdir "$lock_path" 2>/dev/null; then
+    if rm -rf "$lock_path" 2>/dev/null; then
       aiur_build_gate_log "stale_phase_lock_recovered owner_pid=unknown"
       return 0
     fi
@@ -136,26 +143,44 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
   aiur_build_gate_wait_for_phase_start() {
     local gate_dir=$1 phase=$2 stagger_seconds=$3 deadline=$4
     local lock_path="$gate_dir/phase-start.lock"
-    local owner_file="$lock_path/owner"
+    local owner_pid=${BASHPID:-$$}
+    local owner_candidate="$gate_dir/.phase-start-owner.$owner_pid.$RANDOM"
     local next_start_file="$gate_dir/phase-next-start"
     local now next_start wait_seconds max_wait_seconds
 
     while :; do
-      while ! mkdir "$lock_path" 2>/dev/null; do
-        aiur_build_gate_reclaim_stale_phase_lock "$lock_path" || true
+      if ! printf 'pid=%s\nphase=%s\n' "$owner_pid" "$phase" >"$owner_candidate"; then
+        aiur_build_gate_log "gate_error reason=phase_owner_write_failed path=$owner_candidate"
+        return 2
+      fi
 
-        if ((SECONDS >= deadline)); then
-          return 124
-        fi
-
-        sleep 1
-      done
-
-      if printf 'pid=%s\nphase=%s\n' "$$" "$phase" >"$owner_file"; then
+      # The hard link makes lock ownership and its complete PID record visible
+      # in one filesystem operation. A crash before the link leaves no lock; a
+      # crash afterward leaves a reclaimable immutable owner record.
+      if [[ ! -d $lock_path ]] && ln "$owner_candidate" "$lock_path" 2>/dev/null; then
+        rm -f "$owner_candidate"
         break
       fi
 
-      rmdir "$lock_path" 2>/dev/null || true
+      if aiur_build_gate_reclaim_stale_phase_lock "$lock_path"; then
+        rm -f "$owner_candidate"
+        continue
+      fi
+
+      # If no contender owns the path, retry once to distinguish a release
+      # race from a filesystem that cannot publish the lock record.
+      if [[ ! -e $lock_path ]] && ln "$owner_candidate" "$lock_path" 2>/dev/null; then
+        rm -f "$owner_candidate"
+        break
+      fi
+
+      if [[ ! -e $lock_path ]]; then
+        rm -f "$owner_candidate"
+        aiur_build_gate_log "gate_error reason=phase_lock_unavailable path=$lock_path"
+        return 2
+      fi
+
+      rm -f "$owner_candidate"
 
       if ((SECONDS >= deadline)); then
         return 124

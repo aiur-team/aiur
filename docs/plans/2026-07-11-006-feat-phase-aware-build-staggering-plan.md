@@ -1,7 +1,7 @@
 ---
 title: "feat: Stagger fleet Mix phase starts"
 type: feat
-status: active
+status: completed
 date: 2026-07-11
 deepened: 2026-07-11
 ---

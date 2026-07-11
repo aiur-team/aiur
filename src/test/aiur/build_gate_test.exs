@@ -318,6 +318,22 @@ defmodule Aiur.BuildGateTest do
     refute File.exists?(lock_path)
   end
 
+  test "reclaims a phase lock whose owner publication was interrupted", context do
+    lock_path = Path.join(context.gate_dir, "phase-start.lock")
+    File.mkdir_p!(lock_path)
+    File.write!(Path.join(lock_path, "owner"), "")
+
+    assert {output, 0} =
+             run_bash(
+               "mix compile",
+               Map.merge(context, %{slots: 2, stagger_seconds: 1})
+             )
+
+    assert output =~ "aiur_build_gate stale_phase_lock_recovered owner_pid=unknown"
+    assert File.read!(context.log_path) == "compile\n"
+    refute File.exists?(lock_path)
+  end
+
   test "replaces malformed phase state without blocking the build", context do
     phase_state_path = Path.join(context.gate_dir, "phase-next-start")
     File.write!(phase_state_path, "not-a-timestamp\n")
@@ -357,6 +373,19 @@ defmodule Aiur.BuildGateTest do
     assert output =~ "aiur_perf phase_clock_unavailable surface=build action=fail_open"
     assert File.read!(context.log_path) == "compile\n"
     refute File.exists?(Path.join(context.gate_dir, "phase-start.lock"))
+  end
+
+  test "fails open when phase lock publication is unavailable", context do
+    assert {output, 0} =
+             run_bash(
+               "ln() { return 1; }; mix compile",
+               Map.merge(context, %{slots: 2, stagger_seconds: 5})
+             )
+
+    assert output =~ "aiur_build_gate gate_error reason=phase_lock_unavailable"
+    assert File.read!(context.log_path) == "compile\n"
+    refute File.exists?(Path.join(context.gate_dir, "phase-start.lock"))
+    assert Path.wildcard(Path.join(context.gate_dir, ".phase-start-owner.*")) == []
   end
 
   defp run_bash(command, %{bin_dir: bin_dir, gate_dir: gate_dir, log_path: log_path} = context) do
