@@ -202,6 +202,12 @@ defmodule Aiur.Config do
     settings!().agent.max_concurrent_builds
   end
 
+  @doc "Minimum whole-second spacing between concurrent local Mix compile/test starts."
+  @spec build_start_stagger_seconds() :: non_neg_integer()
+  def build_start_stagger_seconds do
+    settings!().agent.build_start_stagger_seconds || 0
+  end
+
   @doc """
   Minimum Linux `MemAvailable` headroom required for normal dispatch and local
   agent Mix verification. `nil` disables memory admission.
