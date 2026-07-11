@@ -7,19 +7,14 @@ defmodule Aiur.Orchestrator do
   require Logger
 
   alias Aiur.{
-    AgentEvents,
-    AgentPubSub,
     AgentQueueItem,
     AgentQueueStore,
     Alerts,
     CIApprovalStore,
-    CodingAgent,
     Config,
     Issue,
     RepoBase,
-    SessionHandle,
-    Tracker,
-    Workspace
+    Tracker
   }
 
   alias Aiur.Claude.RemoteControl
@@ -31,10 +26,6 @@ defmodule Aiur.Orchestrator do
     Sanitizer,
     UniversalSubscriptions
   }
-
-  alias Aiur.GitHub.Client, as: GitHubClient
-  alias Aiur.GitHub.Tracker, as: GitHubTracker
-  alias Aiur.Opencode.ActiveTurns
 
   alias Aiur.Orchestrator.{
     AutoSubscriptions,
@@ -56,13 +47,16 @@ defmodule Aiur.Orchestrator do
     State,
     TokenAccounting,
     TrackedSet,
-    TrackerHealth
+    TrackerHealth,
+    StatusReport,
+    WorkspaceCleanup,
+    HumanReview,
+    AgentTeardown,
+    RuntimeWatchdog
   }
 
   alias Aiur.Orchestrator.OperatorMessages, as: OM
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
-
-  alias AiurWeb.ObservabilityPubSub
 
   # Slightly above the dashboard render interval so the `0s` in-progress
   # label can render before the poll finishes.
@@ -71,14 +65,6 @@ defmodule Aiur.Orchestrator do
   @ci_wait_state "ci-wait"
   @human_review_state "human-review"
   @ci_poll_states [@ci_wait_state, @human_review_state]
-  @transient_github_graphql_error_types ~w(
-    INTERNAL
-    INTERNAL_SERVER_ERROR
-    RATE_LIMITED
-    SERVER_ERROR
-    SERVICE_UNAVAILABLE
-    TIMEOUT
-  )
   @empty_agent_totals %{
     input_tokens: 0,
     output_tokens: 0,
@@ -1487,14 +1473,6 @@ defmodule Aiur.Orchestrator do
   # pane, instead of dropping it the way the catch-all `true →` branch
   # would.
   @doc false
-  @spec human_review_state?(binary() | term()) :: boolean()
-  def human_review_state?(state_name) when is_binary(state_name) do
-    normalize_issue_state(state_name) == "human-review"
-  end
-
-  def human_review_state?(_), do: false
-
-  @doc false
   @spec ci_wait_state?(binary() | term()) :: boolean()
   def ci_wait_state?(state_name) when is_binary(state_name) do
     normalize_issue_state(state_name) == @ci_wait_state
@@ -1528,138 +1506,6 @@ defmodule Aiur.Orchestrator do
 
     refresh_running_issue_state(state, issue)
   end
-
-  @doc false
-  @spec maybe_deactivate_human_review_issue(State.t(), Issue.t()) :: State.t()
-  def maybe_deactivate_human_review_issue(%State{} = state, %Issue{} = issue) do
-    case verify_human_review_ready(issue) do
-      :ok ->
-        deactivate_running_issue(state, issue.id)
-
-      {:error, reason} ->
-        if transient_human_review_verification_error?(reason) do
-          defer_human_review_transition(state, issue, reason)
-        else
-          reject_human_review_transition(state, issue, reason)
-        end
-    end
-  end
-
-  defp verify_human_review_ready(%Issue{id: issue_id}) when is_binary(issue_id) do
-    case Application.get_env(:aiur, :human_review_ready_verifier) do
-      verifier when is_function(verifier, 1) ->
-        verifier.(issue_id)
-
-      _ ->
-        verify_human_review_ready_with_tracker(issue_id)
-    end
-  end
-
-  defp verify_human_review_ready(_issue), do: :ok
-
-  defp transient_human_review_verification_error?({:github, kind, _detail})
-       when kind in [:dns, :timeout, :tls, :transport, :rate_limited],
-       do: true
-
-  defp transient_human_review_verification_error?({:github_api_status, status})
-       when status in [408, 429] or status in 500..599,
-       do: true
-
-  defp transient_human_review_verification_error?({:github_graphql_errors, errors})
-       when is_list(errors),
-       do: Enum.any?(errors, &transient_github_graphql_error?/1)
-
-  defp transient_human_review_verification_error?(_reason), do: false
-
-  defp transient_github_graphql_error?(error) when is_map(error) do
-    error
-    |> github_graphql_error_values()
-    |> Enum.any?(&transient_github_graphql_error_value?/1)
-  end
-
-  defp transient_github_graphql_error?(_error), do: false
-
-  defp github_graphql_error_values(error) do
-    [
-      Map.get(error, "type"),
-      Map.get(error, :type),
-      Map.get(error, "code"),
-      Map.get(error, :code),
-      get_in(error, ["extensions", "code"]),
-      get_in(error, [:extensions, :code])
-    ]
-  end
-
-  defp transient_github_graphql_error_value?(value) when is_atom(value),
-    do: value |> Atom.to_string() |> transient_github_graphql_error_value?()
-
-  defp transient_github_graphql_error_value?(value) when is_binary(value),
-    do: String.upcase(value) in @transient_github_graphql_error_types
-
-  defp transient_github_graphql_error_value?(_value), do: false
-
-  defp defer_human_review_transition(%State{} = state, %Issue{} = issue, reason) do
-    Logger.warning("human-review transition verification deferred: #{issue_context(issue)} reason=#{inspect(reason)}")
-
-    state
-  end
-
-  defp verify_human_review_ready_with_tracker(issue_id) do
-    if Tracker.adapter() == GitHubTracker do
-      client = github_client_module()
-
-      if function_exported?(client, :verify_human_review_ready, 1) do
-        client.verify_human_review_ready(issue_id)
-      else
-        :ok
-      end
-    else
-      :ok
-    end
-  end
-
-  defp reject_human_review_transition(%State{} = state, %Issue{} = issue, reason) do
-    issue_key = issue.id || issue.identifier
-
-    Logger.warning("human-review transition rejected; reverting to rework: #{issue_context(issue)} reason=#{inspect(reason)}")
-
-    case Tracker.update_issue_state(to_string(issue_key), "rework") do
-      :ok ->
-        maybe_reactivate_or_refresh(state, %{issue | state: "rework"})
-
-      {:error, update_reason} ->
-        Logger.warning("human-review rework revert failed: #{issue_context(issue)} reason=#{inspect(update_reason)}")
-
-        state
-    end
-  end
-
-  defp github_client_module do
-    Application.get_env(:aiur, :github_client_module, GitHubClient)
-  end
-
-  # Broadcast `aiur_turn_done` for every currently-active aiur turn on
-  # `identifier`. The opencode bridge's chat-completion SSE handlers
-  # subscribe to `agent:<identifier>` and rely on this broadcast to
-  # close cleanly. Without it, killing the AgentRunner mid-turn (via
-  # `terminate_task/1`) leaves the SSE streams subscribed until their
-  # 10-minute watchdog fires, then they dump duplicate system messages
-  # into the chat pane (one per pre-warmed opencode slot).
-  @doc false
-  @spec close_active_chat_streams(String.t(), term()) :: :ok
-  def close_active_chat_streams(identifier, reason) when is_binary(identifier) do
-    for aiur_turn_id <- ActiveTurns.active_turn_ids(identifier) do
-      AgentPubSub.broadcast_aiur_turn_done(identifier, aiur_turn_id, reason)
-      ActiveTurns.mark_closed(identifier, aiur_turn_id, reason)
-    end
-
-    :ok
-  end
-
-  def close_active_chat_streams(_identifier, _reason), do: :ok
-
-  defp terminate_reason(true), do: :terminal
-  defp terminate_reason(false), do: :replaced
 
   # Label flipped back to an active state. If the running entry is
   # currently `:deactivated`, route through `reactivate_issue/2` so a
@@ -1738,187 +1584,65 @@ defmodule Aiur.Orchestrator do
   end
 
   @doc false
-  @spec terminate_running_issue(State.t(), String.t(), boolean()) :: State.t()
-  def terminate_running_issue(%State{} = state, issue_id, cleanup_workspace) do
-    case Map.get(state.running, issue_id) do
-      nil ->
-        release_issue_claim(state, issue_id)
-
-      %{pid: pid, ref: ref, identifier: identifier} = running_entry ->
-        state = record_session_completion_totals(state, running_entry)
-        worker_host = Map.get(running_entry, :worker_host)
-
-        # `terminate_task/1` brutally kills the runner task, skipping the
-        # `after stop_session` cleanup — kill the tracked REPL pane + pid
-        # here so neither orphans on abort/terminal-state teardown.
-        kill_repl_session(running_entry)
-
-        if cleanup_workspace do
-          cleanup_terminal_issue_artifacts(identifier, worker_host)
-        end
-
-        # Close any open chat-completion SSE streams BEFORE killing the
-        # task. `terminate_task/1` brutally kills the AgentRunner,
-        # bypassing the normal `close_aiur_turn_streams` path; without
-        # the explicit close the bridge streams stay subscribed at the
-        # old `aiur_turn_id` and miss every event the next-dispatched
-        # agent emits. The operator sees an empty chat pane until the
-        # 10-minute watchdog fires.
-        close_active_chat_streams(identifier, terminate_reason(cleanup_workspace))
-
-        if is_pid(pid) do
-          terminate_task(pid)
-        end
-
-        if is_reference(ref) do
-          Process.demonitor(ref, [:flush])
-        end
-
-        %{
-          state
-          | running: Map.delete(state.running, issue_id),
-            claimed: MapSet.delete(state.claimed, issue_id),
-            retry_attempts: Map.delete(state.retry_attempts, issue_id)
-        }
-
-      _ ->
-        release_issue_claim(state, issue_id)
-    end
-  end
-
-  # Mirrors `terminate_running_issue/3`'s task-teardown half (kill the
-  # codex pid, demonitor the ref) but KEEPS the entry in `state.running`
-  # with `control.status: :deactivated` and `pid: nil`. The row stays
-  # visible in the AgentList at 🏁 / 100% green while the slot is freed.
-  # Idempotent — re-running on an already-deactivated entry is a no-op.
-  #
-  # Mutates the entry directly via `put_in/2` rather than calling
-  # `put_running_control_status/3`, whose guard whitelist only accepts
-  # `[:paused, :working]` (it gates pause/resume control messages, which
-  # `:deactivated` is not).
-  defp deactivate_running_issue(%State{} = state, issue_id) do
-    case Map.get(state.running, issue_id) do
-      nil ->
-        state
-
-      %{control: %{status: :deactivated}} ->
-        # Already deactivated — observed the same label again.
-        state
-
-      %{pid: pid, ref: ref, identifier: identifier} = running_entry ->
-        Logger.info("Issue deactivated (human-review): issue_id=#{issue_id} identifier=#{identifier}; keeping running entry, freeing slot")
-
-        # Close any open chat-completion SSE streams for this identifier
-        # BEFORE killing the task. `terminate_task/1` brutally kills the
-        # AgentRunner, bypassing the normal `close_aiur_turn_streams`
-        # path — without an explicit close, the bridge streams stay
-        # subscribed for 10 minutes, hit their watchdog, and dump
-        # duplicate "No turn activity in 10 minutes" system messages
-        # into the chat pane (one per pre-warm slot).
-        close_active_chat_streams(identifier, :deactivated)
-
-        # Same brutal-kill gap as terminate_running_issue: reach the
-        # tracked REPL pane + pid before the runner task dies.
-        kill_repl_session(running_entry)
-
-        if is_pid(pid) do
-          terminate_task(pid)
-        end
-
-        if is_reference(ref) do
-          Process.demonitor(ref, [:flush])
-        end
-
-        existing_control = Map.get(running_entry, :control, %{})
-
-        new_entry =
-          running_entry
-          |> Map.put(:pid, nil)
-          |> Map.put(:ref, nil)
-          |> Map.put(:control, Map.put(existing_control, :status, :deactivated))
-
-        new_state = %{
-          state
-          | running: Map.put(state.running, issue_id, new_entry),
-            retry_attempts: Map.delete(state.retry_attempts, issue_id)
-        }
-
-        # Drop the id from the publisher's tracked set so in-flight events
-        # from the just-killed codex task don't pass the gate and overwrite
-        # the synthetic 100 bar sample U4 seeds.
-        refresh_tracked_set(new_state)
-    end
-  end
-
-  @doc false
   @spec reconcile_pending_auto_resumes(State.t()) :: State.t()
   def reconcile_pending_auto_resumes(%State{} = state) do
     PushRouting.reconcile_pending_auto_resumes(state)
   end
 
-  # Safety check-in, not a kill: pause any agent that has been actively
-  # running longer than `agent.max_agent_duration_minutes` (paused/blocked
-  # time excluded via `running_seconds/2`). The duration cap is almost
-  # always "I want to check in," not "this work is done" — pausing keeps
-  # the agent in the list, holding its slot and its session/turn context,
-  # so the operator can review and resume with one keystroke instead of
-  # restarting from scratch.
+  # Final-wave extraction wrappers.
+  defp notify_dashboard(state), do: StatusReport.notify_dashboard(state)
+  defp agent_statuses(state), do: StatusReport.agent_statuses(state)
+  defp next_poll_in_ms(due_at, now_ms), do: StatusReport.next_poll_in_ms(due_at, now_ms)
+
+  defp run_terminal_workspace_cleanup(state), do: WorkspaceCleanup.run_terminal_workspace_cleanup(state)
+  defp run_startup_todo_workspace_cleanup(state), do: WorkspaceCleanup.run_startup_todo_workspace_cleanup(state)
+
+  @doc false
+  @spec cleanup_terminal_issue_artifacts(binary() | term(), binary() | nil) :: :ok
+  def cleanup_terminal_issue_artifacts(identifier, worker_host \\ nil), do: WorkspaceCleanup.cleanup_terminal_issue_artifacts(identifier, worker_host)
+
+  @doc false
+  @spec clear_session_handle(binary() | term()) :: :ok
+  def clear_session_handle(identifier), do: WorkspaceCleanup.clear_session_handle(identifier)
+
+  @doc false
+  @spec human_review_state?(term()) :: boolean()
+  def human_review_state?(state_name), do: HumanReview.human_review_state?(state_name)
+
+  @doc false
+  @spec maybe_deactivate_human_review_issue(State.t(), Issue.t()) :: State.t()
+  def maybe_deactivate_human_review_issue(state, issue), do: HumanReview.maybe_deactivate_human_review_issue(state, issue)
+
+  @doc false
+  @spec terminate_running_issue(State.t(), String.t(), boolean()) :: State.t()
+  def terminate_running_issue(state, issue_id, cleanup_workspace), do: AgentTeardown.terminate_running_issue(state, issue_id, cleanup_workspace)
+
+  @doc false
+  @spec kill_repl_session(map()) :: :ok
+  def kill_repl_session(entry), do: AgentTeardown.kill_repl_session(entry)
+
+  @doc false
+  @spec close_active_chat_streams(String.t() | term(), term()) :: :ok
+  def close_active_chat_streams(identifier, reason), do: AgentTeardown.close_active_chat_streams(identifier, reason)
+
+  @doc false
+  @spec terminate_task(term()) :: :ok
+  def terminate_task(pid), do: AgentTeardown.terminate_task(pid)
+
   @doc false
   @spec reconcile_overrunning_agents(State.t()) :: State.t()
-  def reconcile_overrunning_agents(%State{} = state) do
-    max_seconds = Config.max_agent_duration_minutes() * 60
+  def reconcile_overrunning_agents(state), do: RuntimeWatchdog.reconcile_overrunning_agents(state)
 
-    cond do
-      max_seconds <= 0 ->
-        state
+  @doc false
+  @spec reconcile_stalled_running_issues(State.t()) :: State.t()
+  def reconcile_stalled_running_issues(state), do: RuntimeWatchdog.reconcile_stalled_running_issues(state)
 
-      map_size(state.running) == 0 ->
-        state
-
-      true ->
-        now = DateTime.utc_now()
-
-        Enum.reduce(state.running, state, fn {issue_id, running_entry}, state_acc ->
-          maybe_pause_overrunning_entry(state_acc, issue_id, running_entry, now, max_seconds)
-        end)
-    end
-  end
-
-  # True when an entry has exceeded the duration cap: actively running
-  # (not paused/deactivated) past `max_seconds`. Paused entries are
-  # excluded so a duration-paused agent is never re-paused on the next
-  # tick (its `running_seconds` is frozen while paused, but the guard
-  # makes the intent explicit).
   @doc false
   @spec overrunning_entry?(map(), DateTime.t(), non_neg_integer()) :: boolean()
-  def overrunning_entry?(running_entry, now, max_seconds) when is_map(running_entry) do
-    not paused_running_entry?(running_entry) and
-      not deactivated_running_entry?(running_entry) and
-      running_seconds(Map.get(running_entry, :started_at), now) > max_seconds
-  end
+  def overrunning_entry?(entry, now, max_seconds), do: RuntimeWatchdog.overrunning_entry?(entry, now, max_seconds)
 
-  # Mirror the operator-pause path: queue the cooperative `{:pause_agent}`
-  # control message so the worker parks at its next turn boundary, then
-  # flip control status to `:paused`. Stamping `paused_reason` makes the
-  # pause attributable to the duration cap (distinct from a manual or
-  # blocker pause), and reusing the `:paused` state means slot accounting
-  # (`paused_running_count`/`available_slots`) and the resume paths treat
-  # it identically to a manual pause for free.
-  defp maybe_pause_overrunning_entry(state, issue_id, running_entry, now, max_seconds) do
-    if overrunning_entry?(running_entry, now, max_seconds) do
-      identifier = Map.get(running_entry, :identifier, issue_id)
-      seconds = running_seconds(Map.get(running_entry, :started_at), now)
-
-      Logger.warning("orchestrator.pause issue_id=#{issue_id} issue_identifier=#{identifier} cause=max_agent_duration running_seconds=#{seconds} cap_seconds=#{max_seconds}")
-
-      _ = send_pause_control_message(state, identifier)
-
-      paused_entry = Map.put(running_entry, :paused_reason, :max_agent_duration)
-      transition_control_status(state, paused_entry, :paused, "max_agent_duration")
-    else
-      state
-    end
-  end
+  defp restart_stalled_issue(state, issue_id, entry, now, timeout_ms), do: RuntimeWatchdog.restart_stalled_issue(state, issue_id, entry, now, timeout_ms)
+  defp maybe_pause_overrunning_entry(state, issue_id, entry, now, max_seconds), do: RuntimeWatchdog.maybe_pause_overrunning_entry(state, issue_id, entry, now, max_seconds)
 
   defp maybe_auto_resume_spurious_worker_pause(state, %{paused_reason: reason} = running_entry, :paused)
        when reason in [:input_required, :worker_pause_unknown, :pause_containment] do
@@ -1952,151 +1676,6 @@ defmodule Aiur.Orchestrator do
 
   defp maybe_log_worker_pause(_status, _running_entry, _pause_reason), do: :ok
 
-  @doc false
-  @spec reconcile_stalled_running_issues(State.t()) :: State.t()
-  def reconcile_stalled_running_issues(%State{} = state) do
-    timeout_ms = Config.agent_stall_timeout_ms()
-
-    cond do
-      timeout_ms <= 0 ->
-        state
-
-      map_size(state.running) == 0 ->
-        state
-
-      true ->
-        now = DateTime.utc_now()
-
-        Enum.reduce(state.running, state, fn {issue_id, running_entry}, state_acc ->
-          restart_stalled_issue(state_acc, issue_id, running_entry, now, timeout_ms)
-        end)
-    end
-  end
-
-  defp restart_stalled_issue(state, issue_id, running_entry, now, timeout_ms) do
-    cond do
-      # Runaway safety net: a duration-capped pause asked the worker to
-      # park cooperatively at its next turn boundary, but a truly wedged
-      # agent (single never-ending codex turn) never reaches one, so it
-      # keeps streaming past the pause. Such an entry would otherwise sit
-      # `:paused` forever — the duration cap can never re-fire (paused
-      # entries are excluded) and the operator's resume never comes. Once
-      # it has been wedged past the grace window, force-terminate it. This
-      # is the only place a duration cap escalates to a kill; a cooperative
-      # park stops the codex stream and is left alone.
-      wedged_overcap_entry?(running_entry, now, timeout_ms) ->
-        terminate_wedged_overcap_entry(state, issue_id, running_entry, now)
-
-      # Paused agents are INTENTIONALLY idle — the agent emitted
-      # pause.request because it declared a blocker and has nothing to
-      # do until the blocker emits. The stall watchdog must not
-      # interpret deliberate idleness as a stuck codex stream. The
-      # auto-resume hook in handle_info({:event, ...}) will reawaken
-      # the entry when its blocker pushes; if no push ever arrives, an
-      # operator-driven resume (label flip or chat) is the path
-      # forward, not a restart that throws away the agent's workpad.
-      paused_running_entry?(running_entry) ->
-        state
-
-      # Deactivated entries don't have a live codex stream to stall on
-      # in the first place — the worker task was killed when the entry
-      # was deactivated. Skip them; the reactivate path is the only
-      # transition back to :working.
-      deactivated_running_entry?(running_entry) ->
-        state
-
-      true ->
-        maybe_restart_stalled_entry(state, issue_id, running_entry, now, timeout_ms)
-    end
-  end
-
-  # True when a duration-capped paused entry is WEDGED rather than parked:
-  # it kept streaming codex after the cooperative `{:pause_agent}` was sent
-  # (so `last_codex_timestamp` is newer than `paused_at`) and has stayed
-  # that way longer than the grace window (`timeout_ms`, the stall budget).
-  # A cooperatively-parked agent stops streaming at its turn boundary, so
-  # its `last_codex_timestamp` does not advance past `paused_at` — those
-  # are left to the operator/blocker resume, never killed here.
-  @doc false
-  @spec wedged_overcap_entry?(map(), DateTime.t(), non_neg_integer()) :: boolean()
-  def wedged_overcap_entry?(running_entry, now, timeout_ms) when is_map(running_entry) do
-    with true <- paused_running_entry?(running_entry),
-         :max_agent_duration <- Map.get(running_entry, :paused_reason),
-         %DateTime{} = paused_at <- Map.get(running_entry, :paused_at),
-         %DateTime{} = last_codex <- Map.get(running_entry, :last_codex_timestamp) do
-      # Streamed after we asked it to park -> never honored the park.
-      still_streaming? = DateTime.compare(last_codex, paused_at) == :gt
-      grace_elapsed? = DateTime.diff(now, paused_at, :millisecond) > timeout_ms
-
-      still_streaming? and grace_elapsed?
-    else
-      _ -> false
-    end
-  end
-
-  def wedged_overcap_entry?(_running_entry, _now, _timeout_ms), do: false
-
-  defp terminate_wedged_overcap_entry(state, issue_id, running_entry, now) do
-    identifier = Map.get(running_entry, :identifier, issue_id)
-    wedged_for_ms = DateTime.diff(now, Map.get(running_entry, :paused_at), :millisecond)
-
-    Logger.warning("Wedged over-cap agent escalated to terminate: issue_id=#{issue_id} issue_identifier=#{identifier} wedged_ms=#{wedged_for_ms}; never parked after max_agent_duration pause")
-
-    terminate_running_issue(state, issue_id, false)
-  end
-
-  defp maybe_restart_stalled_entry(state, issue_id, running_entry, now, timeout_ms) do
-    elapsed_ms = stall_elapsed_ms(running_entry, now)
-
-    if is_integer(elapsed_ms) and elapsed_ms > timeout_ms do
-      identifier = Map.get(running_entry, :identifier, issue_id)
-      session_id = running_entry_session_id(running_entry)
-
-      Logger.warning("Issue stalled: issue_id=#{issue_id} issue_identifier=#{identifier} session_id=#{session_id} elapsed_ms=#{elapsed_ms}; restarting with backoff")
-
-      next_attempt = next_retry_attempt_from_running(running_entry)
-
-      state
-      |> terminate_running_issue(issue_id, false)
-      |> schedule_issue_retry(issue_id, next_attempt, %{
-        identifier: identifier,
-        error: "stalled for #{elapsed_ms}ms without codex activity"
-      })
-    else
-      state
-    end
-  end
-
-  defp stall_elapsed_ms(running_entry, now) do
-    running_entry
-    |> last_activity_timestamp()
-    |> case do
-      %DateTime{} = timestamp ->
-        max(0, DateTime.diff(now, timestamp, :millisecond))
-
-      _ ->
-        nil
-    end
-  end
-
-  defp last_activity_timestamp(running_entry) when is_map(running_entry) do
-    Map.get(running_entry, :last_codex_timestamp) || Map.get(running_entry, :started_at)
-  end
-
-  @doc false
-  @spec terminate_task(term()) :: :ok
-  def terminate_task(pid) when is_pid(pid) do
-    case Task.Supervisor.terminate_child(Aiur.TaskSupervisor, pid) do
-      :ok ->
-        :ok
-
-      {:error, :not_found} ->
-        Process.exit(pid, :kill)
-    end
-  end
-
-  def terminate_task(_pid), do: :ok
-
   defp sync_polled_issue_state(state, issues), do: IssueSync.sync_polled_issue_state(state, issues)
 
   defp sort_issues_for_dispatch(issues), do: DispatchPolicy.sort_issues_for_dispatch(issues)
@@ -2105,7 +1684,6 @@ defmodule Aiur.Orchestrator do
   defp candidate_issue?(issue, active_states, terminal_states), do: DispatchPolicy.candidate_issue?(issue, active_states, terminal_states)
   defp todo_issue_blocked_by_non_terminal?(issue, terminal_states), do: DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, terminal_states)
   defp normalize_issue_state(state_name), do: DispatchPolicy.normalize_issue_state(state_name)
-  defp state_slug(state_name), do: DispatchPolicy.state_slug(state_name)
   defp terminal_state_set, do: DispatchPolicy.terminal_state_set()
   defp active_state_set, do: DispatchPolicy.active_state_set()
 
@@ -2128,356 +1706,6 @@ defmodule Aiur.Orchestrator do
   defp pop_retry_attempt_state(state, issue_id, retry_token), do: RetryEngine.pop_retry_attempt_state(state, issue_id, retry_token)
   defp handle_retry_issue(state, issue_id, attempt, metadata), do: RetryEngine.handle_retry_issue(state, issue_id, attempt, metadata)
   defp release_issue_claim(state, issue_id), do: RetryEngine.release_issue_claim(state, issue_id)
-  defp format_retry_preflight_error(reason), do: RetryEngine.format_retry_preflight_error(reason)
-
-  defp cleanup_issue_workspace(identifier, worker_host \\ nil)
-
-  defp cleanup_issue_workspace(identifier, worker_host) when is_binary(identifier) do
-    Workspace.remove_issue_workspaces(identifier, worker_host)
-  end
-
-  @doc false
-  @spec cleanup_terminal_issue_artifacts(binary() | term(), binary() | nil) :: :ok
-  def cleanup_terminal_issue_artifacts(identifier, worker_host \\ nil)
-
-  def cleanup_terminal_issue_artifacts(identifier, worker_host) when is_binary(identifier) do
-    cleanup_issue_workspace(identifier, worker_host)
-    clear_session_handle(identifier)
-  end
-
-  @doc false
-  @spec clear_session_handle(binary() | term()) :: :ok
-  def clear_session_handle(identifier) when is_binary(identifier), do: SessionHandle.clear(identifier)
-  def clear_session_handle(_identifier), do: :ok
-
-  defp run_startup_todo_workspace_cleanup(%State{} = state) do
-    case ensure_terminal_workspace_cleanup_preflight(state) do
-      {:ok, state} ->
-        cleanup_todo_workspaces_after_preflight(state)
-
-      {:skip, reason, state} ->
-        Logger.debug("Skipping startup todo workspace cleanup: #{format_retry_preflight_error(reason)}")
-
-        state
-
-      {:error, reason, state} ->
-        Logger.warning("Skipping startup todo workspace cleanup: #{format_retry_preflight_error(reason)}")
-
-        state
-    end
-  end
-
-  defp cleanup_todo_workspaces_after_preflight(%State{} = state) do
-    case Tracker.fetch_issues_by_states(configured_todo_states(), quiet_auth_errors?: true) do
-      {:ok, issues} ->
-        issues
-        |> Enum.filter(&todo_issue_for_startup_cleanup?/1)
-        |> Enum.each(&cleanup_issue_workspace_for_issue/1)
-
-        state
-
-      {:error, reason} ->
-        Logger.debug("Skipping startup todo workspace cleanup; failed to fetch todo issues: #{inspect(reason)}")
-
-        state
-    end
-  end
-
-  defp configured_todo_states do
-    Config.settings!().tracker.active_states
-    |> Enum.filter(&(state_slug(&1) == "todo"))
-    |> case do
-      [] -> ["todo"]
-      states -> states
-    end
-  end
-
-  defp todo_issue_for_startup_cleanup?(%Issue{state: state}) do
-    state_slug(state) == "todo"
-  end
-
-  defp todo_issue_for_startup_cleanup?(_issue), do: false
-
-  defp run_terminal_workspace_cleanup(%State{} = state) do
-    case ensure_terminal_workspace_cleanup_preflight(state) do
-      {:ok, state} ->
-        cleanup_terminal_workspaces_after_preflight(state)
-
-      {:skip, reason, state} ->
-        Logger.debug("Skipping startup terminal workspace cleanup: #{format_retry_preflight_error(reason)}")
-
-        state
-
-      {:error, reason, state} ->
-        Logger.warning("Skipping startup terminal workspace cleanup: #{format_retry_preflight_error(reason)}")
-
-        state
-    end
-  end
-
-  defp ensure_terminal_workspace_cleanup_preflight(%State{} = state) do
-    case ensure_tracker_preflight(state) do
-      {:error, reason, state}
-      when reason in [:missing_linear_api_token, :missing_linear_project_slug] ->
-        {:skip, reason, state}
-
-      result ->
-        result
-    end
-  end
-
-  defp cleanup_terminal_workspaces_after_preflight(%State{} = state) do
-    case Tracker.fetch_issues_by_states(Config.settings!().tracker.terminal_states,
-           quiet_auth_errors?: true
-         ) do
-      {:ok, issues} ->
-        Enum.each(issues, &cleanup_terminal_issue_workspace/1)
-        state
-
-      {:error, reason} ->
-        log_terminal_workspace_cleanup_fetch_skip(reason)
-
-        state
-    end
-  end
-
-  defp log_terminal_workspace_cleanup_fetch_skip(reason)
-       when reason in [:missing_linear_api_token, :missing_linear_project_slug] do
-    Logger.debug("Skipping startup terminal workspace cleanup; failed to fetch terminal issues: #{inspect(reason)}")
-  end
-
-  defp log_terminal_workspace_cleanup_fetch_skip({:linear_api_status, 401} = reason) do
-    Logger.debug("Skipping startup terminal workspace cleanup; failed to fetch terminal issues: #{inspect(reason)}")
-  end
-
-  defp log_terminal_workspace_cleanup_fetch_skip({:linear_api_request, :missing_linear_api_token} = reason) do
-    Logger.debug("Skipping startup terminal workspace cleanup; failed to fetch terminal issues: #{inspect(reason)}")
-  end
-
-  defp log_terminal_workspace_cleanup_fetch_skip(reason) do
-    Logger.warning("Skipping startup terminal workspace cleanup; failed to fetch terminal issues: #{inspect(reason)}")
-  end
-
-  defp cleanup_terminal_issue_workspace(%Issue{identifier: identifier})
-       when is_binary(identifier),
-       do: cleanup_terminal_issue_artifacts(identifier)
-
-  defp cleanup_terminal_issue_workspace(_issue), do: :ok
-
-  defp cleanup_issue_workspace_for_issue(%Issue{identifier: identifier})
-       when is_binary(identifier),
-       do: cleanup_issue_workspace(identifier)
-
-  defp cleanup_issue_workspace_for_issue(_issue), do: :ok
-
-  defp notify_dashboard(state) do
-    state
-    |> running_summaries()
-    |> AgentPubSub.broadcast_running_change()
-
-    AgentPubSub.broadcast_poll_state(%{
-      checking?: state.poll_check_in_progress == true,
-      next_poll_due_at_ms: state.next_poll_due_at_ms,
-      max_concurrent_agents: max_concurrent_agent_limit(state)
-    })
-
-    ObservabilityPubSub.broadcast_update()
-  end
-
-  defp running_summaries(state) do
-    now = DateTime.utc_now()
-
-    running_by_identifier =
-      Map.new(state.running, fn {_id, entry} -> {Map.get(entry, :identifier), entry} end)
-
-    polled_summaries =
-      state.last_polled_issues
-      |> Map.values()
-      |> Enum.map(fn issue ->
-        identifier = Map.get(issue, :identifier) || ""
-        tag = issue_tag(issue)
-        title = Map.get(issue, :title)
-
-        case Map.get(running_by_identifier, identifier) do
-          nil ->
-            # Has an `agent:*` label but no Aiur slot is running it.
-            AgentEvents.agent_summary(identifier, :queued, 0, %{
-              tag: tag,
-              title: title,
-              work_state: idle_issue_work_state(issue),
-              pause_reason: idle_issue_pause_reason(issue)
-            })
-
-          entry ->
-            AgentEvents.agent_summary(identifier, :running, 0, %{
-              tag: tag,
-              title: title,
-              runtime_seconds: effective_runtime_seconds(entry, now),
-              turn_count: Map.get(entry, :turn_count, 0),
-              work_state: get_in(entry, [:control, :status]) || :working,
-              pause_reason: Map.get(entry, :paused_reason),
-              backend: entry_backend(entry),
-              model: entry_model(entry),
-              remote_control: remote_control_summary(entry)
-            })
-        end
-      end)
-
-    polled_identifiers = MapSet.new(polled_summaries, fn s -> s.identifier end)
-
-    # Cover the narrow race where an agent is mid-dispatch and the
-    # tracker poll hasn't refreshed yet — those issues live in
-    # `state.running` but not in `last_polled_issues`.
-    extra_running =
-      state.running
-      |> Enum.flat_map(fn {_id, entry} ->
-        identifier = Map.get(entry, :identifier) || ""
-
-        if identifier == "" or MapSet.member?(polled_identifiers, identifier) do
-          []
-        else
-          [
-            AgentEvents.agent_summary(identifier, :running, 0, %{
-              tag: issue_tag(Map.get(entry, :issue)),
-              title: get_in(entry, [:issue, Access.key(:title)]),
-              runtime_seconds: effective_runtime_seconds(entry, now),
-              turn_count: Map.get(entry, :turn_count, 0),
-              work_state: get_in(entry, [:control, :status]) || :working,
-              pause_reason: Map.get(entry, :paused_reason),
-              backend: entry_backend(entry),
-              model: entry_model(entry),
-              remote_control: remote_control_summary(entry)
-            })
-          ]
-        end
-      end)
-
-    (polled_summaries ++ extra_running)
-    |> Enum.reject(fn %{identifier: id} -> id == "" end)
-  end
-
-  # Resolved backend string for a running entry, so the agent list can name
-  # the agent's own engine in its placeholder rather than guessing. nil when
-  # the entry carries no issue; agent_summary drops the nil.
-  defp entry_backend(entry) do
-    case Map.get(entry, :issue) do
-      %Issue{} = issue -> CodingAgent.backend_for(issue)
-      _ -> nil
-    end
-  end
-
-  # Pinned model variant for a running entry (e.g. "opus-4-8", "gpt-5.5"),
-  # so the agent list can render the model column's version suffix. nil when
-  # the entry carries no issue or the model is unpinned (backend default);
-  # agent_summary drops the nil and the renderer falls back to the base name.
-  defp entry_model(entry) do
-    case Map.get(entry, :issue) do
-      %Issue{} = issue -> CodingAgent.model_for(issue)
-      _ -> nil
-    end
-  end
-
-  # Highest `complexity:N` label on the issue (nil when unlabelled). Reused by
-  # the status rows so `aiur watch` can render the cx column without a tracker
-  # round-trip — the issue is already in memory.
-  defp issue_complexity(%Issue{} = issue), do: CodingAgent.complexity_level(issue)
-
-  defp agent_statuses(%State{} = state) do
-    now = DateTime.utc_now()
-
-    running_by_identifier =
-      Map.new(state.running, fn {_id, entry} -> {Map.get(entry, :identifier), entry} end)
-
-    (running_statuses(state, now) ++ idle_statuses(state, running_by_identifier))
-    |> Enum.sort_by(fn status -> to_string(status.identifier || status.issue_id || "") end)
-  end
-
-  defp running_statuses(%State{} = state, %DateTime{} = now) do
-    Enum.map(state.running, fn {issue_id, entry} ->
-      running_status(state, issue_id, entry, now)
-    end)
-  end
-
-  defp running_status(%State{} = state, issue_id, entry, now) do
-    identifier = Map.get(entry, :identifier) || issue_id
-    issue = Map.get(entry, :issue)
-    work_state = get_in(entry, [:control, :status]) || :working
-
-    %{
-      issue_id: issue_id,
-      identifier: identifier,
-      state: if(work_state == :paused, do: :paused, else: :running),
-      work_state: work_state,
-      tracker_state: Map.get(issue, :state),
-      tracker_paused: Issue.paused?(issue),
-      tag: issue_tag(issue),
-      title: Map.get(issue, :title),
-      url: Map.get(issue, :url),
-      worker_host: Map.get(entry, :worker_host),
-      workspace_path: Map.get(entry, :workspace_path),
-      session_id: Map.get(entry, :session_id),
-      runtime_seconds: running_seconds(Map.get(entry, :started_at), now),
-      queue_depth: queue_depth_for_issue(state, identifier),
-      complexity: issue_complexity(issue),
-      last_codex_timestamp: Map.get(entry, :last_codex_timestamp),
-      last_codex_message: Map.get(entry, :last_codex_message),
-      last_codex_event: Map.get(entry, :last_codex_event)
-    }
-  end
-
-  defp idle_statuses(%State{} = state, running_by_identifier) do
-    state.last_polled_issues
-    |> Map.values()
-    |> Enum.reject(&running_issue?(&1, running_by_identifier))
-    |> Enum.map(&idle_status(state, &1))
-  end
-
-  defp running_issue?(issue, running_by_identifier) do
-    identifier = Map.get(issue, :identifier)
-    is_binary(identifier) and Map.has_key?(running_by_identifier, identifier)
-  end
-
-  defp idle_status(%State{} = state, issue) do
-    identifier = Map.get(issue, :identifier) || Map.get(issue, :id)
-
-    %{
-      issue_id: Map.get(issue, :id),
-      identifier: identifier,
-      state: :idle,
-      tracker_state: Map.get(issue, :state),
-      tracker_paused: Issue.paused?(issue),
-      tag: issue_tag(issue),
-      title: Map.get(issue, :title),
-      url: Map.get(issue, :url),
-      worker_host: nil,
-      workspace_path: nil,
-      session_id: nil,
-      runtime_seconds: 0,
-      queue_depth: idle_queue_depth(state, identifier),
-      complexity: issue_complexity(issue),
-      last_codex_timestamp: nil,
-      last_codex_message: nil,
-      last_codex_event: nil
-    }
-  end
-
-  defp idle_queue_depth(%State{} = state, identifier) when is_binary(identifier) do
-    queue_depth_for_issue(state, identifier)
-  end
-
-  defp idle_queue_depth(_state, _identifier), do: 0
-
-  defp idle_issue_work_state(%Issue{} = issue) do
-    if Issue.paused?(issue), do: :paused, else: :idle
-  end
-
-  defp idle_issue_work_state(_issue), do: :idle
-
-  defp idle_issue_pause_reason(%Issue{} = issue) do
-    if Issue.paused?(issue), do: :label_override, else: nil
-  end
-
-  defp idle_issue_pause_reason(_issue), do: nil
 
   defp maybe_put_runtime_value(running_entry, key, value), do: State.maybe_put_runtime_value(running_entry, key, value)
 
@@ -2490,8 +1718,6 @@ defmodule Aiur.Orchestrator do
   defp active_running_count(running), do: State.active_running_count(running)
   defp paused_running_count(running), do: State.paused_running_count(running)
   defp active_running_entry?(entry), do: State.active_running_entry?(entry)
-  defp paused_running_entry?(entry), do: State.paused_running_entry?(entry)
-  defp deactivated_running_entry?(entry), do: State.deactivated_running_entry?(entry)
 
   defp launch_max_concurrent_agents_override, do: Slots.launch_max_concurrent_agents_override()
 
@@ -3477,8 +2703,6 @@ defmodule Aiur.Orchestrator do
   defp find_running_key_by_identifier(running, identifier), do: State.find_running_key_by_identifier(running, identifier)
   defp apply_pause_runtime_clock(entry, previous, next, now), do: State.apply_pause_runtime_clock(entry, previous, next, now)
 
-  defp queue_depth_for_issue(state, id), do: OM.queue_depth_for_issue(state, id)
-
   defp pending_operator_messages_for_issue(state, id), do: OM.pending_operator_messages_for_issue(state, id)
 
   defp issue_control_capabilities(state, id), do: OM.issue_control_capabilities(state, id)
@@ -3486,29 +2710,6 @@ defmodule Aiur.Orchestrator do
   defp set_remote_control_reply(state, id, on?), do: RC.set_remote_control_reply(state, id, on?)
 
   defp remote_control_trust_opts, do: RC.remote_control_trust_opts()
-  # Kill the persistent-REPL pane + claude OS pid tracked on the running
-  # entry. Idempotent and tolerant of a half-dead session (pane gone but
-  # pid alive, or vice versa) — each kill is independent and a missing
-  # pane/pid is a no-op.
-  @doc false
-  @spec kill_repl_session(map()) :: :ok
-  def kill_repl_session(running_entry) do
-    pane_id = Map.get(running_entry, :repl_pane_id)
-    os_pid = Map.get(running_entry, :repl_os_pid)
-
-    if is_binary(pane_id), do: Aiur.Tmux.kill_pane(pane_id)
-
-    # The REPL pane's `exec claude` can spawn tool/MCP children that would
-    # orphan and keep working on a single-pid kill, so reap the subtree.
-    RemoteControl.graceful_kill_tree(os_pid)
-
-    # The headless fallback has no pane; its `bash -lc` wrapper leaves
-    # claude/node grandchildren that reparent to init, so reap the subtree.
-    RemoteControl.graceful_kill_tree(Map.get(running_entry, :headless_os_pid))
-
-    :ok
-  end
-
   defp remote_control_summary(entry), do: RC.remote_control_summary(entry)
   defp cleanup_stray_remote_control_servers, do: RC.cleanup_stray_remote_control_servers()
   defp issue_tag(issue), do: State.issue_tag(issue)
@@ -3538,12 +2739,6 @@ defmodule Aiur.Orchestrator do
   def schedule_poll_cycle_start do
     :timer.send_after(@poll_transition_render_delay_ms, self(), :run_poll_cycle)
     :ok
-  end
-
-  defp next_poll_in_ms(nil, _now_ms), do: nil
-
-  defp next_poll_in_ms(next_poll_due_at_ms, now_ms) when is_integer(next_poll_due_at_ms) do
-    max(0, next_poll_due_at_ms - now_ms)
   end
 
   defp pop_running_entry(state, issue_id), do: State.pop_running_entry(state, issue_id)
@@ -3597,7 +2792,6 @@ defmodule Aiur.Orchestrator do
 
   defp apply_agent_rate_limits(state, _update), do: state
   defp running_seconds(started_at, now), do: State.running_seconds(started_at, now)
-  defp effective_runtime_seconds(entry, now), do: State.effective_runtime_seconds(entry, now)
 
   # Test seam — exposed so unit tests can exercise the coalescing pipeline
   # without spinning up the full orchestrator GenServer + supervision tree.
