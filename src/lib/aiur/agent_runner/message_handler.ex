@@ -8,11 +8,26 @@ defmodule Aiur.AgentRunner.MessageHandler do
 
   alias Aiur.{AgentEventLog, AgentEvents, AgentPubSub, CodingAgent, Issue, ModelAvailability}
   alias Aiur.Protocol.MapAccess
+  alias Aiur.RunTelemetry.Lifecycle
 
   @spec build(pid() | nil, Issue.t(), Path.t() | nil, String.t() | nil, String.t(), String.t() | nil) :: (map() -> :ok)
   def build(recipient, issue, workspace, worker_host, backend, turn_id \\ nil) do
+    build(recipient, issue, workspace, worker_host, backend, turn_id, [])
+  end
+
+  @doc false
+  @spec build(pid() | nil, Issue.t(), Path.t() | nil, String.t() | nil, String.t(), String.t() | nil, keyword()) ::
+          (map() -> :ok)
+  def build(recipient, issue, workspace, worker_host, backend, turn_id, lifecycle_opts)
+      when is_list(lifecycle_opts) do
+    lifecycle_opts =
+      if Lifecycle.enabled?(lifecycle_opts) do
+        Keyword.put_new(lifecycle_opts, :tracker, make_ref())
+      end
+
     fn message ->
       message = CodingAgent.normalize_event(message, backend)
+      observe_lifecycle(issue, backend, message, lifecycle_opts)
       observe_rate_limits(backend, message)
       AgentEventLog.write(workspace, worker_host, message)
       maybe_broadcast_transcript(issue, message, backend, turn_id)
@@ -20,6 +35,21 @@ defmodule Aiur.AgentRunner.MessageHandler do
       send_codex_update(recipient, issue, message)
     end
   end
+
+  defp observe_lifecycle(_issue, _backend, _message, false), do: :ok
+
+  defp observe_lifecycle(%Issue{identifier: identifier}, backend, message, lifecycle_opts)
+       when is_binary(identifier) and is_list(lifecycle_opts) do
+    Lifecycle.observe_backend_message(
+      identifier,
+      Keyword.get(lifecycle_opts, :attempt_id),
+      backend,
+      message,
+      lifecycle_opts
+    )
+  end
+
+  defp observe_lifecycle(_issue, _backend, _message, _lifecycle_opts), do: :ok
 
   defp observe_rate_limits(backend, %{rate_limits: limits}) when is_map(limits), do: ModelAvailability.observe(backend, limits)
   defp observe_rate_limits(_backend, _message), do: :ok

@@ -12,6 +12,14 @@ defmodule Aiur.RunTelemetry.Writer do
   require Logger
 
   alias Aiur.RunTelemetry
+  alias Aiur.RunTelemetry.Lifecycle
+
+  @external_event_patterns [
+    "ticket.*.pr.opened",
+    "ticket.*.pr.merged",
+    "ticket.*.issue.commented",
+    "ticket.*.pr.review_comment"
+  ]
 
   @type server :: GenServer.server()
 
@@ -58,6 +66,8 @@ defmodule Aiur.RunTelemetry.Writer do
 
   @impl true
   def init(opts) do
+    subscribe_external_events()
+
     path = Keyword.get(opts, :path, RunTelemetry.telemetry_file())
     clock = Keyword.get(opts, :clock, &DateTime.utc_now/0)
 
@@ -97,6 +107,16 @@ defmodule Aiur.RunTelemetry.Writer do
 
   @impl true
   def handle_call(:flush, _from, state), do: {:reply, :ok, state}
+
+  @impl true
+  def handle_info({:event, event}, state) when is_map(event) do
+    case Lifecycle.external_anchor(event) do
+      {:ok, attributes, timestamp} -> {:noreply, append(state, :lifecycle, attributes, timestamp)}
+      :skip -> {:noreply, state}
+    end
+  end
+
+  def handle_info(_message, state), do: {:noreply, state}
 
   defp append(state, kind, attributes, timestamp) do
     append_many(state, [{kind, attributes, timestamp}])
@@ -151,6 +171,15 @@ defmodule Aiur.RunTelemetry.Writer do
       {:ok, %{size: size}} when size > 0 -> true
       _other -> false
     end
+  end
+
+  defp subscribe_external_events do
+    Enum.each(@external_event_patterns, &Aiur.Events.Exchange.subscribe/1)
+    :ok
+  rescue
+    _error -> :ok
+  catch
+    :exit, _reason -> :ok
   end
 
   defp next_sequence(%{shared_sequence?: true}), do: RunTelemetry.next_sequence()

@@ -110,6 +110,30 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert Enum.at(records, 2)["attributes"]["event"] == "telemetry_writer_restart"
   end
 
+  test "sanitizes subscribed GitHub anchors before appending", %{path: path} do
+    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "anchors")
+
+    send(writer, {
+      :event,
+      %{
+        id: 99,
+        topic: "ticket.930.pr.opened",
+        source: :github,
+        pr: %{"number" => 77, "created_at" => "2026-07-11T13:00:00Z", "body" => "do not persist"}
+      }
+    })
+
+    assert :ok = Writer.flush(writer)
+    records = read_records(path)
+    anchor = List.last(records)
+
+    assert anchor["kind"] == "lifecycle"
+    assert anchor["timestamp"] == "2026-07-11T13:00:00Z"
+    assert anchor["attributes"]["event"] == "pr_opened"
+    assert anchor["attributes"]["pr_number"] == 77
+    refute inspect(anchor) =~ "do not persist"
+  end
+
   defp read_records(path) do
     path
     |> File.stream!([], :line)
