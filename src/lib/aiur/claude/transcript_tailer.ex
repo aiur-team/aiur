@@ -32,10 +32,12 @@ defmodule Aiur.Claude.TranscriptTailer do
   # equivalent of the JSON-RPC `turn/completed` notification.
   @turn_end_reasons ~w(end_turn stop_sequence max_tokens)
 
+  @type turn_end_signal :: String.t() | {:error, map()}
+
   @type option ::
           {:path, Path.t()}
           | {:on_message, (Aiur.AgentEvents.transcript_event() -> any())}
-          | {:on_turn_end, (String.t() -> any())}
+          | {:on_turn_end, (turn_end_signal() -> any())}
           | {:turn_id, String.t() | nil}
           | {:from, :start | :end}
           | {:interval_ms, pos_integer() | nil}
@@ -182,14 +184,28 @@ defmodule Aiur.Claude.TranscriptTailer do
     end)
   end
 
-  # An assistant record whose `stop_reason` is terminal is the on-disk
+  # An assistant record with a top-level `error` is Claude's persisted terminal
+  # API-failure signal. Older/system and SDK-result shapes are accepted too.
+  # Otherwise an assistant record whose `stop_reason` is terminal is the on-disk
   # equivalent of the JSON-RPC `turn/completed` notification.
   defp maybe_fire_turn_end(state, record) do
-    case terminal_stop_reason(record) do
+    case terminal_error_record(record) || terminal_stop_reason(record) do
       nil -> :ok
-      reason -> state.on_turn_end.(reason)
+      signal -> state.on_turn_end.(if(is_map(signal), do: {:error, signal}, else: signal))
     end
   end
+
+  defp terminal_error_record(%{"type" => "assistant", "error" => error} = record)
+       when is_binary(error) and error != "",
+       do: record
+
+  defp terminal_error_record(%{"type" => "system", "subtype" => "api_error"} = record), do: record
+
+  defp terminal_error_record(%{"type" => "result", "is_error" => true, "api_error_status" => status} = record)
+       when not is_nil(status),
+       do: record
+
+  defp terminal_error_record(_record), do: nil
 
   defp terminal_stop_reason(record) do
     with "assistant" <- Map.get(record, "type"),
