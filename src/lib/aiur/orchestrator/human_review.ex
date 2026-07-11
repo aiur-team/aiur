@@ -6,9 +6,9 @@ defmodule Aiur.Orchestrator.HumanReview do
 
   require Logger
 
-  alias Aiur.{Issue, Tracker}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Tracker, as: GitHubTracker
+  alias Aiur.{Issue, Tracker}
   alias Aiur.Orchestrator.{AgentTeardown, DispatchPolicy, Reconciler, State}
   @transient_github_graphql_error_types ~w(
     INTERNAL

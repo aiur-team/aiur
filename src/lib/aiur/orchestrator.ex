@@ -28,6 +28,7 @@ defmodule Aiur.Orchestrator do
   }
 
   alias Aiur.Orchestrator.{
+    AgentTeardown,
     AutoSubscriptions,
     CommandScan,
     CommentPolling,
@@ -36,6 +37,7 @@ defmodule Aiur.Orchestrator do
     Dispatcher,
     DispatchPolicy,
     EventTopics,
+    HumanReview,
     Interrupts,
     IssueSync,
     PauseResume,
@@ -43,16 +45,14 @@ defmodule Aiur.Orchestrator do
     PushRouting,
     Reconciler,
     RetryEngine,
+    RuntimeWatchdog,
     Slots,
     State,
+    StatusReport,
     TokenAccounting,
     TrackedSet,
     TrackerHealth,
-    StatusReport,
-    WorkspaceCleanup,
-    HumanReview,
-    AgentTeardown,
-    RuntimeWatchdog
+    WorkspaceCleanup
   }
 
   alias Aiur.Orchestrator.OperatorMessages, as: OM

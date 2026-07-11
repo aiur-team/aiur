@@ -5,9 +5,9 @@ defmodule Aiur.Orchestrator.StatusReport do
   """
 
   alias Aiur.{AgentEvents, AgentPubSub, CodingAgent, Issue}
-  alias Aiur.Orchestrator.{Slots, State}
   alias Aiur.Orchestrator.OperatorMessages, as: OM
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
+  alias Aiur.Orchestrator.{Slots, State}
   alias AiurWeb.ObservabilityPubSub
 
   @spec notify_dashboard(State.t()) :: :ok
