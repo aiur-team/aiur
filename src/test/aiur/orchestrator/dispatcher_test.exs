@@ -1,8 +1,39 @@
 defmodule Aiur.Orchestrator.DispatcherTest do
   use Aiur.TestSupport
 
+  import ExUnit.CaptureLog
+
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.State
+
+  setup do
+    previous_meminfo = Application.get_env(:aiur, :meminfo_source_override)
+    previous_loadavg = Application.get_env(:aiur, :loadavg_source_override)
+
+    on_exit(fn ->
+      restore_app_env(:meminfo_source_override, previous_meminfo)
+      restore_app_env(:loadavg_source_override, previous_loadavg)
+    end)
+
+    :ok
+  end
+
+  describe "memory admission" do
+    test "holds a normal dispatch cycle below the configured floor" do
+      write_workflow_file!(Workflow.workflow_file_path(), min_free_memory_mb: 2_048)
+      Application.put_env(:aiur, :meminfo_source_override, fn -> {:ok, "MemAvailable: 1048576 kB\n"} end)
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
+
+      state = %State{max_concurrent_agents: 1, effective_concurrent_agents: 1}
+
+      log =
+        capture_log(fn ->
+          assert %State{running: %{}} = Dispatcher.maybe_choose_under_load(state, [])
+        end)
+
+      assert log =~ "aiur_perf memory_hold surface=dispatch available_mb=1024 threshold_mb=2048"
+    end
+  end
 
   describe "check_thrash_budget/3" do
     test "counts dispatches within window and trips over the threshold" do
@@ -64,6 +95,9 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       assert Map.has_key?(result.codex_thrash_budget, "issue-2")
     end
   end
+
+  defp restore_app_env(key, nil), do: Application.delete_env(:aiur, key)
+  defp restore_app_env(key, value), do: Application.put_env(:aiur, key, value)
 
   describe "revalidate_issue_for_dispatch/3" do
     test "returns :ok when issue is found and passes the retry candidate check" do
