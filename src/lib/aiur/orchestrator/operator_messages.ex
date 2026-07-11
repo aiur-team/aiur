@@ -3,8 +3,8 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   Queues and routes operator messages and event digests to running agents. All functions execute inside the orchestrator GenServer process.
   """
   alias Aiur.{AgentQueue, Alerts}
-  alias Aiur.Opencode.ActiveTurns
-  alias Aiur.Orchestrator.{CommentWake, EventTopics, State}
+  alias Aiur.Orchestrator.{CommentWake, State}
+  alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy}
   @max_operator_message_chars 8_000
 
   @spec enqueue_event_digest_item(State.t(), String.t(), list(), map()) :: State.t()
@@ -16,7 +16,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     }
 
     running_entry = State.find_running_by_identifier(state.running, identifier)
-    delivery_opts = event_digest_delivery_opts(running_entry, events)
+    delivery_opts = DeliveryPolicy.event_digest_delivery_opts(running_entry, events)
 
     {queue_store, item} =
       AgentQueue.coordination_event(identifier, :events_digest, body, delivery_opts)
@@ -29,7 +29,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
         :ok
 
       running_entry ->
-        notify_running_queue_update(running_entry, item)
+        DeliveryPolicy.notify_running_queue_update(running_entry, item)
     end
 
     next_state
@@ -202,9 +202,9 @@ defmodule Aiur.Orchestrator.OperatorMessages do
          fallback,
          turn_id
        ) do
-    capabilities = issue_control_capabilities(state, issue_identifier)
+    capabilities = Capabilities.issue_control_capabilities(state, issue_identifier)
 
-    case normalize_delivery_request(delivery_policy, fallback, capabilities) do
+    case DeliveryPolicy.normalize_delivery_request(delivery_policy, fallback, capabilities) do
       {:ok, queue_opts} ->
         {queue_store, item} =
           AgentQueue.operator_message(
@@ -221,7 +221,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
         # every keystroke-submitted message. Removed.
 
         next_state = %{state | queue_store: queue_store}
-        notify_running_queue_update(running_entry, item)
+        DeliveryPolicy.notify_running_queue_update(running_entry, item)
         {{:ok, item.id}, next_state}
 
       {:error, _reason} = error ->
@@ -229,47 +229,12 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     end
   end
 
-  # `:auto` lets the caller defer to the backend: the persistent REPL takes
-  # operator messages immediately mid-turn; everything else holds at a safe
-  # checkpoint (native codex/headless-claude turn UX).
-  defp normalize_delivery_request(:auto, _fallback, %{immediate_delivery: true}) do
-    {:ok, [delivery_policy: :immediate]}
-  end
-
-  defp normalize_delivery_request(:auto, _fallback, _capabilities) do
-    {:ok, [delivery_policy: :checkpoint]}
-  end
-
-  defp normalize_delivery_request(:immediate, _fallback, %{immediate_delivery: true}) do
-    {:ok, [delivery_policy: :immediate]}
-  end
-
-  defp normalize_delivery_request(:immediate, _fallback, _capabilities) do
-    {:error, :immediate_not_supported}
-  end
-
-  defp normalize_delivery_request(:checkpoint, _fallback, _capabilities) do
-    {:ok, [delivery_policy: :checkpoint]}
-  end
-
-  defp normalize_delivery_request(:interrupt, fallback, %{can_interrupt: true}) do
-    {:ok, [delivery_policy: :interrupt, fallback: fallback]}
-  end
-
-  defp normalize_delivery_request(:interrupt, :queue_next, _capabilities) do
-    {:ok, [delivery_policy: :checkpoint, fallback: :queue_next]}
-  end
-
-  defp normalize_delivery_request(:interrupt, _fallback, _capabilities) do
-    {:error, :interrupt_not_supported}
-  end
-
-  defp normalize_delivery_request(_other, _fallback, _capabilities) do
-    {:error, :invalid_message}
-  end
-
   @spec maybe_emit_agent_control_alert(atom(), atom(), map()) :: :ok
-  def maybe_emit_agent_control_alert(:working, :paused, %{paused_reason: :ci_wait} = running_entry)
+  def maybe_emit_agent_control_alert(
+        :working,
+        :paused,
+        %{paused_reason: :ci_wait} = running_entry
+      )
       when is_map(running_entry) do
     Alerts.emit_system("ticket.#{Map.get(running_entry, :identifier)}.ci.wait",
       issue: Map.get(running_entry, :identifier),
@@ -339,121 +304,18 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   end
 
   @spec notify_running_queue_update(map(), term()) :: :ok
-  def notify_running_queue_update(%{pid: pid} = running_entry, item) when is_pid(pid) do
-    if Process.alive?(pid) do
-      send(
-        pid,
-        {:agent_queue_updated, item.target_issue_identifier, item.id, deliver_now?(running_entry, item)}
-      )
-    end
-
-    :ok
-  end
-
-  def notify_running_queue_update(_running_entry, _item), do: :ok
-
-  defp deliver_now?(running_entry, item) do
-    queue_wake_required?(running_entry) or
-      item.delivery[:interrupt_requested] == true or
-      item.delivery[:immediate] == true
-  end
-
-  defp event_digest_delivery_opts(running_entry, event_or_events) do
-    if queue_wake_required?(running_entry) or
-         trusted_comment_wake_required?(running_entry, event_or_events) do
-      [source: :system, priority: :now, interrupt_requested: true]
-    else
-      [source: :system]
-    end
-  end
-
-  defp trusted_comment_wake_required?(running_entry, event_or_events),
-    do: State.active_running_entry?(running_entry) and trusted_comment_event_digest?(event_or_events)
-
-  defp trusted_comment_event_digest?(events) when is_list(events), do: Enum.any?(events, &trusted_comment_event_digest?/1)
-
-  defp trusted_comment_event_digest?(event) when is_map(event) do
-    comment_event_topic?(event) and CommentWake.trusted_comment_event?(event) and
-      not CommentWake.benign_review_pass_comment?(event)
-  end
-
-  defp trusted_comment_event_digest?(_event), do: false
+  defdelegate notify_running_queue_update(running_entry, item), to: DeliveryPolicy
 
   @doc false
   @spec comment_event_topic?(map()) :: boolean()
-  def comment_event_topic?(event) when is_map(event) do
-    topic = Map.get(event, :topic) || Map.get(event, "topic")
-
-    if is_binary(topic) do
-      case EventTopics.classify_event_topic(topic) do
-        {:pr_review_comment, _identifier} -> true
-        {:issue_commented, _identifier} -> true
-        _ -> false
-      end
-    else
-      false
-    end
-  end
-
-  def comment_event_topic?(_event), do: false
-
-  defp queue_wake_required?(running_entry) do
-    State.sleeping_running_entry?(running_entry) or
-      (State.active_running_entry?(running_entry) and no_active_turn?(running_entry))
-  end
-
-  defp no_active_turn?(%{identifier: identifier}) when is_binary(identifier), do: ActiveTurns.active_turn_ids(identifier) == []
-
-  defp no_active_turn?(_running_entry), do: false
+  defdelegate comment_event_topic?(event), to: DeliveryPolicy
 
   @spec queue_depth_for_issue(State.t(), String.t()) :: non_neg_integer()
-  def queue_depth_for_issue(%State{} = state, issue_identifier) when is_binary(issue_identifier) do
-    state.queue_store |> Aiur.AgentQueueStore.list_pending(issue_identifier) |> length()
-  end
+  defdelegate queue_depth_for_issue(state, issue_identifier), to: Capabilities
 
   @spec pending_operator_messages_for_issue(State.t(), String.t()) :: [map()]
-  def pending_operator_messages_for_issue(%State{} = state, issue_identifier) when is_binary(issue_identifier) do
-    state.queue_store
-    |> Aiur.AgentQueueStore.list_visible_operator_messages(issue_identifier)
-    |> Enum.map(fn item ->
-      %{
-        id: item.id,
-        # item is an %AgentQueueItem{} struct (no Access), so reach into its body
-        # map directly rather than via get_in/2 — the latter crashed the whole
-        # Orchestrator whenever the dashboard rendered an issue with a visible
-        # operator message.
-        text: operator_item_text(item),
-        status: item.status
-      }
-    end)
-  end
-
-  defp operator_item_text(%{body: %{text: text}}) when is_binary(text), do: text
-  defp operator_item_text(_item), do: ""
+  defdelegate pending_operator_messages_for_issue(state, issue_identifier), to: Capabilities
 
   @spec issue_control_capabilities(State.t(), String.t()) :: map()
-  def issue_control_capabilities(%State{} = state, issue_identifier) when is_binary(issue_identifier) do
-    running_entry = State.find_running_by_identifier(state.running, issue_identifier)
-    can_interrupt = get_in(running_entry || %{}, [:control, :can_interrupt]) == true
-    safe_checkpoints = get_in(running_entry || %{}, [:control, :safe_checkpoints]) || []
-    immediate_delivery = get_in(running_entry || %{}, [:control, :immediate_delivery]) == true
-    accepts_operator_messages = not is_nil(running_entry)
-
-    %{
-      accepts_operator_messages: accepts_operator_messages,
-      can_interrupt: can_interrupt,
-      immediate_delivery: immediate_delivery,
-      accepted_delivery_policies: accepted_delivery_policies(can_interrupt, immediate_delivery),
-      safe_checkpoints: safe_checkpoints,
-      status: get_in(running_entry || %{}, [:control, :status]) || :working,
-      queue_depth: queue_depth_for_issue(state, issue_identifier)
-    }
-  end
-
-  # The REPL backend forwards operator messages straight into the live
-  # process, so it offers :immediate instead of the hold-then-deliver
-  # :checkpoint / :interrupt policies.
-  defp accepted_delivery_policies(_can_interrupt, true), do: [:immediate]
-  defp accepted_delivery_policies(true, false), do: [:checkpoint, :interrupt]
-  defp accepted_delivery_policies(false, false), do: [:checkpoint]
+  defdelegate issue_control_capabilities(state, issue_identifier), to: Capabilities
 end
