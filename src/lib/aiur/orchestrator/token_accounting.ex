@@ -90,7 +90,7 @@ defmodule Aiur.Orchestrator.TokenAccounting do
 
   @spec record_session_completion_totals(State.t(), map()) :: State.t()
   def record_session_completion_totals(state, running_entry) when is_map(running_entry) do
-    runtime_seconds = State.effective_runtime_seconds(running_entry, DateTime.utc_now())
+    runtime_seconds = State.running_seconds(running_entry.started_at, DateTime.utc_now())
 
     agent_totals =
       apply_token_delta(

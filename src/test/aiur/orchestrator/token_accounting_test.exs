@@ -75,7 +75,7 @@ defmodule Aiur.Orchestrator.TokenAccountingTest do
            }).agent_rate_limits == %{limit_id: "primary", primary: %{remaining: 1}}
   end
 
-  test "completion totals exclude a paused interval" do
+  test "completion totals include a paused interval" do
     now = DateTime.utc_now()
     state = %State{agent_totals: nil}
 
@@ -84,6 +84,6 @@ defmodule Aiur.Orchestrator.TokenAccountingTest do
       paused_at: DateTime.add(now, -60, :second)
     }
 
-    assert TokenAccounting.record_session_completion_totals(state, entry).agent_totals.seconds_running in 59..61
+    assert TokenAccounting.record_session_completion_totals(state, entry).agent_totals.seconds_running in 119..121
   end
 end
