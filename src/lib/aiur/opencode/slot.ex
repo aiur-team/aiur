@@ -463,10 +463,7 @@ defmodule Aiur.Opencode.Slot do
   end
 
   defp respawn_attach_with_session(state, session_id, attach_cmd) do
-    with {:ok, keep_alive_pane} <- AttachPane.hidden_window_target(),
-         :ok <- AttachPane.reflow_hidden_window(keep_alive_pane) do
-      AttachPane.respawn_with_session(state, session_id, attach_cmd, keep_alive_pane)
-    end
+    AttachPane.respawn_with_session(state, session_id, attach_cmd)
   end
 
   defp drain_pending_select(%{pending_select: nil} = state), do: state

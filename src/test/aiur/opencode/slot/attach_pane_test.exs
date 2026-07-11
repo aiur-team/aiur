@@ -116,4 +116,9 @@ defmodule Aiur.Opencode.Slot.AttachPaneTest do
     # HiddenWindow.status() returns :disabled when the process is not registered
     assert {:error, :hidden_window_disabled} = AttachPane.hidden_window_target()
   end
+
+  test "respawn maps unavailable hidden window to respawn failure" do
+    assert {:error, :respawn_failed} =
+             AttachPane.respawn_with_session(%{slot_index: 3, pane_id: nil}, "session-1", "attach")
+  end
 end
