@@ -192,6 +192,53 @@ defmodule Aiur.AiurAgentSkillTest do
     assert loop_skill =~ "Remote Control"
   end
 
+  test "operator loop uses medium autonomy and traces every decision" do
+    monitor_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md"))
+    run_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
+    loop_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-loop/SKILL.md"))
+
+    monitor_skill = one_line(monitor_skill)
+    run_skill = one_line(run_skill)
+    loop_skill = one_line(loop_skill)
+
+    assert loop_skill =~ "**MEDIUM autonomy**"
+    refute loop_skill =~ "default to the LESS autonomous option"
+
+    for example <- ["merge ordering", "rework routing", "error recovery", "mechanical scope reads"] do
+      assert loop_skill =~ example
+    end
+
+    for boundary <- ["product behavior", "architecture", "scope cuts", "destructive or irreversible"] do
+      assert loop_skill =~ boundary
+    end
+
+    for skill <- [monitor_skill, run_skill, loop_skill] do
+      assert skill =~ "## Decisions"
+      assert skill =~ "Ticket | Decision | Rationale | Mode"
+      assert skill =~ "auto"
+      assert skill =~ "escalated"
+    end
+
+    assert monitor_skill =~ "every autonomous or escalated decision"
+    assert monitor_skill =~ "every periodic update"
+  end
+
+  test "needs-attention relay is an independent wake path for the operator cadence" do
+    monitor_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md"))
+    run_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
+    loop_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-loop/SKILL.md"))
+
+    monitor_skill = one_line(monitor_skill)
+    run_skill = one_line(run_skill)
+    loop_skill = one_line(loop_skill)
+
+    assert monitor_skill =~ "wake-on-attention"
+    assert monitor_skill =~ "re-invokes the operator"
+    assert monitor_skill =~ "does not wait for the cadence timer"
+    assert run_skill =~ "wake-on-attention"
+    assert loop_skill =~ "wake-on-attention"
+  end
+
   test "agent operating guidance scopes local pre-PR verification to affected tests" do
     source =
       @repo_root

@@ -46,14 +46,14 @@ top of the raw output:
   `🔴 daemon down` line instead of "no active agents", and tell the operator the
   node needs restarting.
 
-## Progress-update format (required — two tables)
+## Progress-update format (required — two status tables + Decisions)
 
 This is the required shape of **every periodic progress update** (each cadence tick — see
 "Monitoring cadence" below). The `aiurdev watch` board tells you the live per-agent state; the
-operator wants that state rolled up into **TWO markdown tables** so a glance shows the whole
-refactor and the whole optimization backlog, not just the agents that happen to be active right
-now. Post both tables, in this order, on every tick. This is a required format, not a suggestion —
-do not substitute a prose summary or the raw board alone.
+operator wants that state rolled up into **two markdown status tables plus Decisions** so a glance
+shows the whole refactor and the whole optimization backlog, not just the agents that happen to be
+active right now. Post both tables, in this order, followed by `## Decisions`, on every tick. This
+is a required format, not a suggestion — do not substitute a prose summary or the raw board alone.
 
 **Table 1 — Refactor tickets.** The full roadmap, **one row per ticket through the end of the
 refactor** — recently-merged, currently-active, AND upcoming (not-yet-created) tickets, so the
@@ -74,6 +74,14 @@ and what still needs work (held / blocked / staged). **Flag the current top bloc
 (e.g. `🔴 in-progress — BLOCKS ALL MERGES`) so the operator can see at a glance what is gating the
 rest.
 
+**Decisions — required on every periodic update.** Maintain a durable session decision ledger and
+record every autonomous or escalated decision when it is made, not only alerts carrying
+`operator_decision:true`. Columns are `Ticket | Decision | Rationale | Mode`, where Mode is exactly
+`auto` or `escalated`. Each tick includes decisions made since the previous tick and repeats every
+unresolved escalation until it is answered; the durable ledger retains older rows so an operator
+returning hours later can reconstruct the full sequence. If no decision was made, still render the
+section with one `No decisions this interval` row. Never hide an autonomous unblock in prose.
+
 Concrete example (abbreviated — real updates carry every remaining ticket, not `…`):
 
 ```
@@ -93,10 +101,16 @@ Concrete example (abbreviated — real updates carry every remaining ticket, not
 | #884 | Restore v2 coverage ≥85% | 🔴 in-progress — BLOCKS ALL MERGES |
 | #877 | Close the CI feedback loop | 🔵 in-progress |
 | #873 | Agents skip local credo (lint = #1 CPU) | 🟡 staged in prompt |
+
+## Decisions
+| Ticket | Decision | Rationale | Mode |
+|---|---|---|---|
+| #921 | Route the green PR before the later wave | Reversible critical-path ordering | auto |
+| #934 | Ask whether to cut the attention command | Changes accepted product scope | escalated |
 ```
 
-The `⚠️ Needs you` line and the daemon-down line above still apply on top of the two tables —
-surface them alongside the tables, not instead of them.
+The `⚠️ Needs you` line and the daemon-down line above still apply on top of the two status tables
+and Decisions section — surface them alongside the update, not instead of it.
 
 ## Monitoring cadence (REQUIRED DEFAULT)
 
@@ -142,7 +156,7 @@ Rules — close every "wait to be asked" loophole (these apply to the chosen int
 - A single one-shot snapshot (no cadence) is allowed only when the operator explicitly asks for
   one; otherwise the live-run default is the chosen-interval auto-cadence above (default 5 min).
 
-## Real-time alert relay (additive immediacy)
+## Real-time alert relay (additive immediacy + wake-on-attention)
 
 `aiurdev watch`'s `ACTIONABLE` section is the **pull** path — actionable alerts reach the operator
 on every cadence tick. For **push** immediacy (the instant an alert fires, between ticks), arm the
@@ -160,6 +174,14 @@ the chime:
 ```
 #<ticket> · <name> · <reason>
 ```
+
+This persistent Monitor stream is the **wake-on-attention** primitive. Run it concurrently with
+the recurring cadence timer; never put the operator behind a foreground `sleep`. A
+`needs_attention:true` Monitor event re-invokes the operator immediately, interrupts whatever
+cadence wait is pending, and does not wait for the cadence timer. Handle that decision first, then
+resume ordinary work without resetting the next periodic tick. Non-urgent activity emits no wake
+and therefore falls back to the normal cadence. With the default two-second poll, the deterministic
+watcher test demonstrates decision alert → relay output in seconds rather than minutes or hours.
 
 For any **NEW** `needs_attention:true` alert, also relay it via the active operator notification
 surface, formatted `#<ticket> · <agent> · <reason> — needs you`, so it reaches their phone. Rules:
@@ -193,6 +215,21 @@ routine pause. It is a mandatory escalation. For its first delivery and every bo
 3. Preserve the usual de-duplication for the same streamed event, but treat a new re-ask alert as
    a fresh notification attempt. The durable alert/re-ask schedule remains the source of truth;
    a monitor restart must not make an open decision invisible.
+
+### Operator decision policy: medium autonomy
+
+The operator applies the same boundary whether a question arrives from the wake watcher or is
+discovered during a cadence review:
+
+- Decide reversible / operational unblocks itself — merge ordering within granted authority,
+  rework routing, error recovery, and mechanical scope reads — and append an `auto` Decisions row
+  before acting.
+- Escalate product behavior, architecture, scope cuts, destructive or irreversible actions, and
+  anything outside granted authority. Append an `escalated` row first, then always push through
+  every active notification surface and keep it open until resolved.
+
+This ledger rule covers every autonomous or escalated decision; `operator_decision:true` is the
+machine signal for one escalation source, not the boundary of what gets logged.
 
 `watch-alerts.sh` executes this through a small, explicit adapter interface rather than asking
 the relay to guess a host API. At launch, set `AIUR_OPERATOR_SURFACES` to the comma-separated

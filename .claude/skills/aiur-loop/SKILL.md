@@ -36,8 +36,21 @@ launching anything, ask (AskUserQuestion) and record the answers for the whole s
    operator never re-asks. Also ask starting agent count and willingness to ramp concurrency up
    as load allows.
 
-When unspecified, default to the LESS autonomous option and confirm before merging or filing
-tickets the developer didn't authorize.
+The default operating policy is **MEDIUM autonomy** inside the scope and merge authority recorded
+above:
+
+- **Decide and continue** for reversible / operational unblocks: merge ordering among already
+  authorized PRs, rework routing, error recovery, and mechanical scope reads (for example,
+  deciding which existing ticket owns a named acceptance target). Record the decision as `auto`
+  before acting.
+- **Escalate** anything that changes product behavior, architecture, scope cuts, or requires a
+  destructive or irreversible action. Also escalate actions outside the scope or merge authority
+  the developer granted in Step 0. Record the question as `escalated`, immediately notify every
+  active operator surface, and leave it open until answered.
+
+The practical test is reversibility and product impact: if the action is easy to undo and only
+restores the agreed workflow, decide it; if it changes what gets built or creates lasting risk,
+escalate it. Medium autonomy never grants merge or ticket-creation authority that Step 0 withheld.
 
 ## The loop (run per the Step-0 answers)
 
@@ -51,14 +64,20 @@ tickets the developer didn't authorize.
    don't skip a tick when steady — see `aiur-monitor`'s required "Monitoring cadence"). Use the
    interval the operator chose in Step 0 (question 6); the cadence stays automatic and unprompted
    regardless of the value — never let an operator-set interval become "post only when asked."
-   Watch for bugs, stuck agents, CPU/FD. At loop launch, record the operator backend and whether
-   Remote Control is active; `operator_decision:true` alerts must update the durable `### Decisions`
+   In parallel, arm `aiur-monitor`'s **wake-on-attention** watcher. A `needs_attention:true`
+   Monitor event re-invokes the operator in seconds and preempts the cadence wait; ordinary
+   activity still falls back to the chosen timer. Watch for bugs, stuck agents, CPU/FD. At loop
+   launch, record the operator backend and whether Remote Control is active;
+   `operator_decision:true` alerts must update the durable `### Decisions`
    log and fan out through Claude native push, Codex native push/shared Aiur device fallback, and
-   the RC notification path when active. **Post each tick as two markdown tables, not prose** —
+   the RC notification path when active. **Post each tick as two status tables plus Decisions,
+   not prose** —
    **Table 1** the full refactor roadmap (`Ticket | Description | Phase | Status`, one row per
    ticket through the end: merged ✅ / active 🔵 / upcoming ⬜, contiguous done runs collapsible)
    and **Table 2** the optimization/bottleneck backlog (`# | Description | Status`, flagging the
-   top blocker). Full spec: `aiur-monitor`'s "Progress-update format (required — two tables)".
+   top blocker), followed by the required **`## Decisions`** ledger. Every autonomous or escalated
+   decision is recorded as `Ticket | Decision | Rationale | Mode`; do not limit this section to
+   `operator_decision:true` alerts. Full spec: `aiur-monitor`'s progress-update format.
    Short shape:
 
    ```
@@ -77,6 +96,12 @@ tickets the developer didn't authorize.
    | #884 | Restore v2 coverage ≥85% | 🔴 in-progress — BLOCKS ALL MERGES |
    | #877 | Close the CI feedback loop | 🔵 in-progress |
    | #873 | Agents skip local credo (lint = #1 CPU) | 🟡 staged in prompt |
+
+   ## Decisions
+   | Ticket | Decision | Rationale | Mode |
+   |---|---|---|---|
+   | #921 | Route the green PR before the later wave | Reversible critical-path ordering | auto |
+   | #934 | Ask whether to cut the attention command | Changes accepted product scope | escalated |
    ```
 3. **Curate the backlog** — if opted in, file focused `agent:todo` tickets (repro + acceptance
    criteria) so aiur keeps picking up work; keep the queue fed toward the agreed scope.

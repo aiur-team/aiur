@@ -253,11 +253,21 @@ defmodule Aiur.AiurAlertWatchSkillTest do
     refute "ticket.38.agent.phase.plan.start" in names
   end
 
-  test "streams a NEW alert appended during the watch exactly once, never history", %{home: home, ndjson: ndjson} do
+  test "wakes on a NEW decision in seconds and notifies the active surface once", %{
+    home: home,
+    ndjson: ndjson
+  } do
     config = build_fixture(home)
+    bin = Path.join(home, "bin")
+    notification_log = Path.join(home, "wake-notifications.ndjson")
+    recorder = Path.join(bin, "record-wake-notification")
+    File.mkdir_p!(bin)
+    File.write!(recorder, "#!/bin/sh\ncat >> \"$AIUR_NOTIFY_LOG\"\n")
+    File.chmod!(recorder, 0o755)
+    started_at = System.monotonic_time(:millisecond)
 
     fresh =
-      ~s({"event":"alert","timestamp":"2026-06-29T10:05:00Z","reason":"fresh blocker","severity":"warning","needs_attention":true,"source_ticket_id":"38","name":"ticket.38.agent.blocked"})
+      ~s({"event":"alert","timestamp":"2026-06-29T10:05:00Z","reason":"Should wave five own the facade target?","severity":"warning","needs_attention":true,"source_ticket_id":"934","name":"ticket.934.agent.attention.operator-decision"})
 
     # Append the fresh alert mid-watch: the first scan baselines the file (history
     # skipped), the append lands during the poll, a later scan streams it once.
@@ -267,17 +277,35 @@ defmodule Aiur.AiurAlertWatchSkillTest do
         File.write!(ndjson, fresh <> "\n", [:append])
       end)
 
-    out = run(config, home, iters: 3, poll: 1)
+    out =
+      run(config, home,
+        iters: 3,
+        poll: 1,
+        extra_env: [
+          {"AIUR_NOTIFY_LOG", notification_log},
+          {"AIUR_OPERATOR_SURFACES", "codex"},
+          {"AIUR_ALERT_NOTIFY_CODEX_COMMAND", "record-wake-notification"}
+        ]
+      )
+
     Task.await(appender)
+    elapsed_ms = System.monotonic_time(:millisecond) - started_at
 
     alerts = alert_lines(out)
     names = Enum.map(alerts, & &1["name"])
+    [wake] = Enum.filter(alerts, &(&1["name"] == "ticket.934.agent.attention.operator-decision"))
 
     # History is never relayed.
     refute "ticket.38.agent.paused" in names
     refute "ticket.38.agent.phase.plan.start" in names
-    # The fresh alert is streamed exactly once (no re-emit on the next scan).
-    assert Enum.count(names, &(&1 == "ticket.38.agent.blocked")) == 1
+    # The fresh decision is streamed and pushed exactly once (no re-emit on
+    # the next scan), carrying the machine-readable wake classification.
+    assert wake["operator_decision"] == true
+    assert wake["notification_results"] == "codex:sent"
+    assert Jason.decode!(File.read!(notification_log))["name"] == wake["name"]
+    # The real-time path surfaces the alert in seconds, independently of the
+    # multi-minute status cadence. Keep enough headroom for a loaded CI host.
+    assert elapsed_ms < 10_000
   end
 
   test "defers a half-written alert until the line completes, then streams it once", %{
