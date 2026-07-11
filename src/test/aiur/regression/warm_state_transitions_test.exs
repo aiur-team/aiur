@@ -68,6 +68,7 @@ defmodule Aiur.Regression.WarmStateTransitionsTest do
 
   describe "do_select must not crash on await_replay timeout" do
     @slot_source Path.expand("../../../lib/aiur/opencode/slot.ex", __DIR__)
+    @sessions_source Path.expand("../../../lib/aiur/opencode/slot/sessions.ex", __DIR__)
     @session_writer_source Path.expand(
                              "../../../lib/aiur/opencode/session_writer.ex",
                              __DIR__
@@ -75,6 +76,7 @@ defmodule Aiur.Regression.WarmStateTransitionsTest do
 
     test "Slot.do_select handles {:error, :timeout} from await_replay without MatchError" do
       source = File.read!(@slot_source)
+      sessions_source = File.read!(@sessions_source)
 
       # The bug was `:ok = SessionWriter.await_replay(...)`. The fix
       # must surface the timeout as a Slot.select return value (any
@@ -92,9 +94,9 @@ defmodule Aiur.Regression.WarmStateTransitionsTest do
              propagates as a Slot.select return value.
              """
 
-      assert source =~ ~r/case\s+SessionWriter\.await_replay/,
+      assert sessions_source =~ ~r/case\s+SessionWriter\.await_replay/,
              """
-             slot.ex must call `SessionWriter.await_replay/2` inside a
+             Slot.Sessions must call `SessionWriter.await_replay/2` inside a
              `case` (or `with`) so the timeout branch returns
              `{:error, :timeout}` from `do_select/2` instead of
              crashing.
