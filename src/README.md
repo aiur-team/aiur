@@ -265,11 +265,20 @@ When `server.port` (or CLI `--port`) is set, Aiur exposes:
 - `agent.max_load_average` remains the separate per-scheduler hard ceiling for
   new dispatch (default `1.5`); it holds work above the ceiling even when the
   adaptive envelope is enabled.
+- `agent.min_free_memory_mb` optionally sets a Linux `MemAvailable` floor for
+  normal new-work dispatch and local agent `mix compile` / `mix test` commands.
+  Omit it to disable memory admission. Values are whole MB derived from
+  `/proc/meminfo`; an unreadable sample fails open for non-Linux development
+  hosts. A low-memory dispatch emits `aiur_perf memory_hold surface=dispatch`,
+  while a local Mix command waits before claiming a build slot and emits the
+  same phase with `surface=build`. Dispatch or builds resume once available
+  memory is at or above the configured floor.
 - `agent.max_concurrent_builds` caps agent-launched `mix compile` and `mix test`
   commands across all local workspaces for the current OS user. It defaults to `2`,
   a conservative setting for a 12-core host; agents queue only their Mix verification
-  while ordinary editing, Git, and model work continue. Set it to `0` to opt out of
-  the gate for unrestricted local verification. Agent transcripts emit
+  while ordinary editing, Git, and model work continue. Set it to `0` to remove
+  the concurrency cap; a configured memory floor remains active independently.
+  Agent transcripts emit
   `aiur_build_gate` queue/acquire/release/timeout signals, and `aiur status` reports
   active or queued contention.
 - Use `hooks.after_create` to bootstrap a fresh workspace (typically a `git clone`).

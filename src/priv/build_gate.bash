@@ -26,6 +26,33 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     printf '%s\n' "${BASH_REMATCH[1]}"
   }
 
+  aiur_build_gate_available_memory_mb() {
+    local meminfo_path=${AIUR_MEMINFO_PATH:-/proc/meminfo}
+    local key value unit remainder
+
+    [[ -r $meminfo_path ]] || return 1
+
+    while read -r key value unit remainder; do
+      [[ $key == MemAvailable: ]] || continue
+      [[ $value =~ ^[0-9]+$ && $unit == kB ]] || return 1
+      printf '%s\n' "$((value / 1024))"
+      return 0
+    done <"$meminfo_path"
+
+    return 1
+  }
+
+  aiur_build_gate_memory_hold_log() {
+    local available_mb=$1 threshold_mb=$2
+    printf 'aiur_perf memory_hold surface=build available_mb=%s threshold_mb=%s\n' \
+      "$available_mb" "$threshold_mb" >&2
+  }
+
+  aiur_build_gate_memory_unavailable_log() {
+    printf 'aiur_perf memory_unavailable surface=build action=fail_open path=%s\n' \
+      "${AIUR_MEMINFO_PATH:-/proc/meminfo}" >&2
+  }
+
   aiur_build_gate_reclaim_stale_slot() {
     local slot_path=$1 slot=$2 owner_file="$slot_path/owner" owner_pid
 
@@ -61,9 +88,14 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     local gate_dir=${AIUR_BUILD_GATE_DIR:-}
     local slots=${AIUR_BUILD_GATE_SLOTS:-0}
     local timeout_seconds=${AIUR_BUILD_GATE_TIMEOUT_SECONDS:-900}
+    local min_free_memory_mb=${AIUR_MIN_FREE_MEMORY_MB:-0}
     local queue_dir queue_file deadline slot slot_path owner_file result
+    local available_memory_mb memory_deferred=0 memory_unavailable_logged=0
 
-    if [[ ! $slots =~ ^[1-9][0-9]*$ ]] || [[ ! $timeout_seconds =~ ^[0-9]+$ ]] || [[ -z $gate_dir ]]; then
+    if [[ ! $slots =~ ^[0-9]+$ ]] ||
+      [[ ! $timeout_seconds =~ ^[0-9]+$ ]] ||
+      [[ ! $min_free_memory_mb =~ ^[0-9]+$ ]] ||
+      [[ -z $gate_dir ]]; then
       aiur_build_gate_log "gate_error reason=invalid_configuration"
       "$executable" "$@"
       return
@@ -87,6 +119,42 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     aiur_build_gate_log "queued slots=$slots command=$*"
 
     while :; do
+      if ((min_free_memory_mb > 0)); then
+        if available_memory_mb=$(aiur_build_gate_available_memory_mb); then
+          memory_unavailable_logged=0
+
+          if ((available_memory_mb < min_free_memory_mb)); then
+            if ((memory_deferred == 0)); then
+              aiur_build_gate_memory_hold_log "$available_memory_mb" "$min_free_memory_mb"
+            fi
+
+            memory_deferred=1
+
+            if ((SECONDS >= deadline)); then
+              rm -f "$queue_file"
+              aiur_build_gate_log "timeout slots=$slots command=$*"
+              return 124
+            fi
+
+            sleep 1
+            continue
+          fi
+        elif ((memory_unavailable_logged == 0)); then
+          aiur_build_gate_memory_unavailable_log
+          memory_unavailable_logged=1
+        fi
+      fi
+
+      memory_deferred=0
+
+      if ((slots == 0)); then
+        rm -f "$queue_file"
+        "$executable" "$@"
+        result=$?
+        aiur_build_gate_log "completed status=$result"
+        return "$result"
+      fi
+
       for ((slot = 1; slot <= slots; slot++)); do
         slot_path="$gate_dir/slot-$slot"
 

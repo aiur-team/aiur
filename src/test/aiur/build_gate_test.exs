@@ -37,9 +37,25 @@ defmodule Aiur.BuildGateTest do
   end
 
   test "does not inject a shell hook when operators opt out" do
-    assert BuildGate.shell_env(slots: 0) == []
+    assert BuildGate.shell_env(slots: 0, min_free_memory_mb: nil) == []
 
-    assert {"AIUR_BUILD_GATE_SLOTS", "3"} in BuildGate.shell_env(slots: 3, gate_dir: "/tmp/build-gate", hook_path: "/tmp/hook")
+    env =
+      BuildGate.shell_env(
+        slots: 3,
+        min_free_memory_mb: 4_096,
+        gate_dir: "/tmp/build-gate",
+        hook_path: "/tmp/hook"
+      )
+
+    assert {"AIUR_BUILD_GATE_SLOTS", "3"} in env
+    assert {"AIUR_MIN_FREE_MEMORY_MB", "4096"} in env
+
+    assert {"BASH_ENV", "/tmp/hook"} in BuildGate.shell_env(
+             slots: 0,
+             min_free_memory_mb: 4_096,
+             gate_dir: "/tmp/build-gate",
+             hook_path: "/tmp/hook"
+           )
   end
 
   test "gates direct compile commands and releases their lease", context do
@@ -96,12 +112,78 @@ defmodule Aiur.BuildGateTest do
     assert File.read!(context.log_path) == "compile\n"
   end
 
+  test "defers below the memory floor and resumes after MemAvailable recovers", context do
+    write_meminfo!(context, 1_024)
+
+    command =
+      Task.async(fn ->
+        run_bash(
+          "mix compile",
+          Map.merge(context, %{min_free_memory_mb: 2_048, timeout_seconds: 5})
+        )
+      end)
+
+    assert Task.yield(command, 250) == nil
+    refute File.exists?(context.started_path)
+
+    write_meminfo!(context, 3_072)
+
+    assert {output, 0} = Task.await(command, 5_000)
+    assert output =~ "aiur_perf memory_hold surface=build available_mb=1024 threshold_mb=2048"
+    assert File.read!(context.log_path) == "compile\n"
+  end
+
+  test "admits a build at the exact memory floor", context do
+    write_meminfo!(context, 2_048)
+
+    assert {output, 0} =
+             run_bash("mix compile", Map.put(context, :min_free_memory_mb, 2_048))
+
+    refute output =~ "aiur_perf memory_hold"
+    assert File.read!(context.log_path) == "compile\n"
+  end
+
+  test "memory-only mode remains active when build-slot capacity is zero", context do
+    write_meminfo!(context, 512)
+
+    assert {output, 124} =
+             run_bash(
+               "mix compile",
+               Map.merge(context, %{
+                 slots: 0,
+                 min_free_memory_mb: 1_024,
+                 timeout_seconds: 0
+               })
+             )
+
+    assert output =~ "aiur_perf memory_hold surface=build available_mb=512 threshold_mb=1024"
+    refute File.exists?(context.log_path)
+  end
+
+  test "fails open when MemAvailable cannot be read", context do
+    missing = Path.join(context.gate_dir, "missing-meminfo")
+
+    assert {output, 0} =
+             run_bash(
+               "mix compile",
+               Map.merge(context, %{
+                 meminfo_path: missing,
+                 min_free_memory_mb: 2_048
+               })
+             )
+
+    assert output =~ "aiur_perf memory_unavailable surface=build action=fail_open"
+    assert File.read!(context.log_path) == "compile\n"
+  end
+
   defp run_bash(command, %{bin_dir: bin_dir, gate_dir: gate_dir, log_path: log_path} = context) do
     env = [
       {"BASH_ENV", BuildGate.hook_path()},
       {"AIUR_BUILD_GATE_DIR", gate_dir},
-      {"AIUR_BUILD_GATE_SLOTS", "1"},
+      {"AIUR_BUILD_GATE_SLOTS", Integer.to_string(Map.get(context, :slots, 1))},
       {"AIUR_BUILD_GATE_TIMEOUT_SECONDS", Integer.to_string(Map.get(context, :timeout_seconds, 5))},
+      {"AIUR_MIN_FREE_MEMORY_MB", Integer.to_string(Map.get(context, :min_free_memory_mb, 0))},
+      {"AIUR_MEMINFO_PATH", Map.get(context, :meminfo_path, Path.join(gate_dir, "meminfo"))},
       {"FAKE_MIX_LOG", log_path},
       {"FAKE_MIX_STARTED", Map.get(context, :started_path, "")},
       {"FAKE_MIX_SLEEP", Integer.to_string(Map.get(context, :sleep_seconds, 0))},
@@ -123,6 +205,11 @@ defmodule Aiur.BuildGateTest do
   end
 
   defp wait_for_file!(path, 0), do: flunk("timed out waiting for #{path}")
+
+  defp write_meminfo!(context, available_mb) do
+    path = Map.get(context, :meminfo_path, Path.join(context.gate_dir, "meminfo"))
+    File.write!(path, "MemAvailable: #{available_mb * 1_024} kB\n")
+  end
 
   defp write_fake_mix!(path) do
     File.write!(path, """

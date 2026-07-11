@@ -202,6 +202,15 @@ defmodule Aiur.Config do
     settings!().agent.max_concurrent_builds
   end
 
+  @doc """
+  Minimum Linux `MemAvailable` headroom required for normal dispatch and local
+  agent Mix verification. `nil` disables memory admission.
+  """
+  @spec min_free_memory_mb() :: pos_integer() | nil
+  def min_free_memory_mb do
+    settings!().agent.min_free_memory_mb
+  end
+
   @doc "Scheduler count enforced for every Mix VM launched by an agent."
   @spec mix_scheduler_cap() :: pos_integer()
   def mix_scheduler_cap do

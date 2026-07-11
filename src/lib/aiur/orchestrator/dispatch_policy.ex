@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   Pure dispatch, load-gate, and issue-candidate policy for the orchestrator.
   """
 
-  alias Aiur.{Config, Issue, SystemLoad}
+  alias Aiur.{Config, Issue, SystemLoad, SystemMemory}
   alias Aiur.Orchestrator.{Slots, State}
 
   @doc false
@@ -20,6 +20,16 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       do: SystemLoad.avg1()
 
   def read_load(_hard_threshold, _target), do: :unavailable
+
+  @doc false
+  # Reads MemAvailable only while memory admission is enabled. Keeping this
+  # short-circuit beside read_load/2 prevents disabled configs from touching
+  # Linux-specific /proc files.
+  @spec read_memory(integer() | nil) :: non_neg_integer() | :unavailable
+  def read_memory(threshold) when is_integer(threshold) and threshold > 0,
+    do: SystemMemory.available_mb()
+
+  def read_memory(_threshold), do: :unavailable
 
   @spec initial_load_envelope_limit(map()) :: pos_integer() | nil
   def initial_load_envelope_limit(%{target_load_average: nil}), do: nil
@@ -45,6 +55,16 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def load_gate(:unavailable, _threshold, _schedulers), do: :dispatch
   def load_gate(load, threshold, schedulers) when load > threshold * schedulers, do: :hold
   def load_gate(_load, _threshold, _schedulers), do: :dispatch
+
+  @doc false
+  # A configured floor holds normal new-work dispatch only when the host sample
+  # is strictly below it. Missing samples fail open for non-Linux hosts.
+  @spec memory_gate(non_neg_integer() | :unavailable, integer() | nil) :: :dispatch | :hold
+  def memory_gate(_available_mb, nil), do: :dispatch
+  def memory_gate(_available_mb, threshold) when threshold <= 0, do: :dispatch
+  def memory_gate(:unavailable, _threshold), do: :dispatch
+  def memory_gate(available_mb, threshold) when available_mb < threshold, do: :hold
+  def memory_gate(_available_mb, _threshold), do: :dispatch
 
   @type envelope_options :: %{
           target: number() | nil,
