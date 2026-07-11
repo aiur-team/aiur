@@ -90,3 +90,31 @@ Recommended capture, mirroring the 2026-06-22 spike methodology:
 - `SessionWriterRegistry` / opencode session-row count at steady state
   (expect ≈ M).
 - tmux subprocess fork rate (expect the poll's ~2·M/sec, no M×N term).
+
+## 2026-07-11 follow-up — dispatch headroom gate (#929)
+
+Aiur now samples the daemon's open descriptors against its finite soft
+`ulimit -n` before normal new-work dispatch. Dispatch holds below 10% remaining
+headroom (rounded up), logs `aiur_perf fd_hold surface=dispatch`, and retries on
+the next poll without changing running agents, claims, or retry budgets. The
+policy-neutral sample (`used`, `limit`, `available`, and `headroom_ratio`) is
+also available through `Aiur.SystemFileDescriptors.sample/1` for #927 and #930.
+
+Deterministic coverage uses injected FD samples rather than consuming real
+descriptors on the shared host:
+
+- `Aiur.SystemFileDescriptorsTest` pins proc-limit parsing, actor PID sampling,
+  headroom arithmetic, platform-unavailable behavior, and `:emfile` fail-closed
+  behavior.
+- `Aiur.OrchestratorLoadGateTest` pins the 10% boundary and integer rounding.
+- `Aiur.Orchestrator.DispatcherTest` pins the always-on deferral line and a
+  low-sample → recovered-sample dispatch cycle.
+
+The live acceptance run remains an operator-root measurement because issue
+workspaces are prohibited from launching the dogfood `--test` harness. Re-run
+the original 12–16 agent saturation shape and capture:
+
+- daemon `used / soft-limit` through the boot burst and steady state;
+- at least one `fd_hold` while headroom is below the reserve, followed by a
+  successful new dispatch after headroom recovers;
+- no `:emfile`, Aiur node restart, or control-RPC loss for the full run.

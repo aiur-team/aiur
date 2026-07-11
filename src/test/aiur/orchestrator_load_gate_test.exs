@@ -122,6 +122,25 @@ defmodule Aiur.OrchestratorLoadGateTest do
     end
   end
 
+  describe "fd_gate/1" do
+    test "holds below the ten-percent reserve and resumes at the boundary" do
+      assert Orchestrator.fd_gate(%{used: 91, limit: 100, available: 9, headroom_ratio: 0.09}) == :hold
+      assert Orchestrator.fd_gate(%{used: 90, limit: 100, available: 10, headroom_ratio: 0.10}) == :dispatch
+      assert Orchestrator.fd_gate(%{used: 50, limit: 100, available: 50, headroom_ratio: 0.50}) == :dispatch
+    end
+
+    test "rounds the integer reserve up without floating-point ambiguity" do
+      assert Orchestrator.fd_headroom_threshold(%{limit: 256}) == 26
+      assert Orchestrator.fd_gate(%{used: 231, limit: 256, available: 25, headroom_ratio: 25 / 256}) == :hold
+      assert Orchestrator.fd_gate(%{used: 230, limit: 256, available: 26, headroom_ratio: 26 / 256}) == :dispatch
+    end
+
+    test "fails open when unavailable and closed when sampling is exhausted" do
+      assert Orchestrator.fd_gate(:unavailable) == :dispatch
+      assert Orchestrator.fd_gate(:exhausted) == :hold
+    end
+  end
+
   describe "load_envelope/4" do
     test "increases effective capacity below the per-scheduler target" do
       assert {3, nil} = Orchestrator.load_envelope(1, nil, 6.0, envelope_options(ramp_step: 2, now_ms: 1_000))
