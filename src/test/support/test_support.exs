@@ -301,6 +301,7 @@ defmodule Aiur.TestSupport do
           worker_max_concurrent_agents_per_host: nil,
           max_concurrent_agents: 10,
           max_concurrent_builds: 2,
+          build_start_stagger_seconds: 0,
           min_free_memory_mb: nil,
           max_turns: 20,
           max_retry_backoff_ms: 300_000,
@@ -351,6 +352,7 @@ defmodule Aiur.TestSupport do
 
     max_concurrent_agents = Keyword.get(config, :max_concurrent_agents)
     max_concurrent_builds = Keyword.get(config, :max_concurrent_builds)
+    build_start_stagger_seconds = Keyword.get(config, :build_start_stagger_seconds)
     min_free_memory_mb = Keyword.get(config, :min_free_memory_mb)
     max_turns = Keyword.get(config, :max_turns)
     max_retry_backoff_ms = Keyword.get(config, :max_retry_backoff_ms)
@@ -409,6 +411,7 @@ defmodule Aiur.TestSupport do
         "  kind: #{yaml_value(agent_kind)}",
         "  max_concurrent_agents: #{yaml_value(max_concurrent_agents)}",
         "  max_concurrent_builds: #{yaml_value(max_concurrent_builds)}",
+        "  build_start_stagger_seconds: #{yaml_value(build_start_stagger_seconds)}",
         "  min_free_memory_mb: #{yaml_value(min_free_memory_mb)}",
         "  max_turns: #{yaml_value(max_turns)}",
         "  max_retry_backoff_ms: #{yaml_value(max_retry_backoff_ms)}",

@@ -21,13 +21,15 @@ defmodule Aiur.BuildGate do
   @spec shell_env(keyword()) :: [{String.t(), String.t()}]
   def shell_env(opts \\ []) do
     slots = Keyword.get_lazy(opts, :slots, &Config.max_concurrent_builds/0)
+    stagger_seconds = Keyword.get_lazy(opts, :stagger_seconds, &Config.build_start_stagger_seconds/0)
     min_free_memory_mb = Keyword.get_lazy(opts, :min_free_memory_mb, &Config.min_free_memory_mb/0)
 
-    if gate_enabled?(slots, min_free_memory_mb) do
+    if gate_enabled?(slots, stagger_seconds, min_free_memory_mb) do
       [
         {"BASH_ENV", Keyword.get(opts, :hook_path, hook_path())},
         {"AIUR_BUILD_GATE_DIR", Keyword.get(opts, :gate_dir, gate_dir())},
         {"AIUR_BUILD_GATE_SLOTS", Integer.to_string(slots)},
+        {"AIUR_BUILD_START_STAGGER_SECONDS", Integer.to_string(stagger_seconds)},
         {"AIUR_BUILD_GATE_TIMEOUT_SECONDS", Integer.to_string(Keyword.get(opts, :timeout_seconds, @default_timeout_seconds))}
       ] ++ memory_env(min_free_memory_mb)
     else
@@ -114,8 +116,9 @@ defmodule Aiur.BuildGate do
 
   defp owner_alive?(_pid), do: false
 
-  defp gate_enabled?(slots, min_free_memory_mb) do
+  defp gate_enabled?(slots, stagger_seconds, min_free_memory_mb) do
     (is_integer(slots) and slots > 0) or
+      (is_integer(stagger_seconds) and stagger_seconds > 0) or
       (is_integer(min_free_memory_mb) and min_free_memory_mb > 0)
   end
 

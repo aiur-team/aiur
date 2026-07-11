@@ -37,22 +37,33 @@ defmodule Aiur.BuildGateTest do
   end
 
   test "does not inject a shell hook when operators opt out" do
-    assert BuildGate.shell_env(slots: 0, min_free_memory_mb: nil) == []
+    assert BuildGate.shell_env(slots: 0, stagger_seconds: 0, min_free_memory_mb: nil) == []
 
     env =
       BuildGate.shell_env(
         slots: 3,
+        stagger_seconds: 7,
         min_free_memory_mb: 4_096,
         gate_dir: "/tmp/build-gate",
         hook_path: "/tmp/hook"
       )
 
     assert {"AIUR_BUILD_GATE_SLOTS", "3"} in env
+    assert {"AIUR_BUILD_START_STAGGER_SECONDS", "7"} in env
     assert {"AIUR_MIN_FREE_MEMORY_MB", "4096"} in env
 
     assert {"BASH_ENV", "/tmp/hook"} in BuildGate.shell_env(
              slots: 0,
+             stagger_seconds: 0,
              min_free_memory_mb: 4_096,
+             gate_dir: "/tmp/build-gate",
+             hook_path: "/tmp/hook"
+           )
+
+    assert {"BASH_ENV", "/tmp/hook"} in BuildGate.shell_env(
+             slots: 0,
+             stagger_seconds: 5,
+             min_free_memory_mb: nil,
              gate_dir: "/tmp/build-gate",
              hook_path: "/tmp/hook"
            )
