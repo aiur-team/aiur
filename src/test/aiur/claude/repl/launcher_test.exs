@@ -52,11 +52,20 @@ defmodule Aiur.Claude.Repl.LauncherTest do
 
   test "ready non-RC spawn returns session with backend=claude-repl and registers both ProcessReaper keys", %{tmux: tmux} do
     ws = Path.expand(System.tmp_dir!())
+    previous_registrations = Application.get_env(:aiur, :process_reaper_registrations)
+    Application.put_env(:aiur, :process_reaper_registrations, true)
+
+    on_exit(fn ->
+      Aiur.ProcessReaper.unregister({:pane, "%20"})
+      Aiur.ProcessReaper.unregister({:os_pid, 5050})
+      Application.put_env(:aiur, :process_reaper_registrations, previous_registrations)
+    end)
 
     task =
       Task.async(fn ->
         Launcher.start_session(ws,
           tmux: tmux,
+          identifier: "930",
           model: "claude-sonnet-5",
           window_name: "aiur-repl-test",
           projects_dir: "/nonexistent"
@@ -82,6 +91,12 @@ defmodule Aiur.Claude.Repl.LauncherTest do
     assert session.workspace == ws
     assert session.remote_control == false
     assert session.session_url == nil
+
+    actor_meta = %{ticket: "930", backend: "claude-repl", worker_host: nil, remote: false}
+
+    assert {{:pane, "%20"}, :agent, actor_meta} in Aiur.ProcessReaper.entries()
+
+    assert {{:os_pid, 5050}, :agent, Map.put(actor_meta, :comm, "claude")} in Aiur.ProcessReaper.entries()
   end
 
   test "RC spawn with no attach evidence kills the pane and returns {:error, :remote_control_unavailable}", %{tmux: tmux} do

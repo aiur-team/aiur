@@ -90,8 +90,9 @@ defmodule Aiur.Claude.Repl.Launcher do
 
         # The pane runs `exec claude`, so the pane pid IS the REPL; register
         # both so shutdown reaps survive either teardown path going stale.
-        Aiur.ProcessReaper.register(:agent, {:pane, pane_id})
-        Aiur.ProcessReaper.register(:agent, {:os_pid, os_pid}, comm: "claude")
+        actor_meta = [ticket: ctx.identifier, backend: "claude-repl", worker_host: nil, remote: false]
+        Aiur.ProcessReaper.register(:agent, {:pane, pane_id}, actor_meta)
+        Aiur.ProcessReaper.register(:agent, {:os_pid, os_pid}, [comm: "claude"] ++ actor_meta)
 
         build_ready_session(ctx, pane_id, os_pid)
 

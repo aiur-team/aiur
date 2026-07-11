@@ -46,6 +46,18 @@ else
 fi
 unset __aiur_soft_nofile
 
+# Preserve the shell that initiated the run as a best-effort operator root.
+# An explicit positive override wins (service managers may know a better root);
+# otherwise the engine's parent is the nearest identity available before tmux
+# hands daemon ownership to its pane launcher.
+if ! [[ "${AIUR_OPERATOR_PID:-}" =~ ^[1-9][0-9]*$ ]]; then
+  if [[ "${PPID:-}" =~ ^[1-9][0-9]*$ ]]; then
+    export AIUR_OPERATOR_PID="$PPID"
+  else
+    unset AIUR_OPERATOR_PID
+  fi
+fi
+
 die() {
   echo "❌ $*" >&2
   exit 1
@@ -489,7 +501,7 @@ run_session() {
       AIUR_TMUX_SESSION AIUR_TMUX_SOCKET AIUR_TMUX_CONF AIUR_BIN \
       AIUR_SESSION_TMPFILE AIUR_AGENT_TMPFILE AIUR_WORKSPACE_ROOT_FILE \
       ELIXIR_ERL_OPTIONS AIUR_LOGS_ROOT AIUR_OPENCODE_BRIDGE_PORT AIUR_DEBUG \
-      ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS; do
+      AIUR_OPERATOR_PID AIUR_NOFILE_SOFT_LIMIT ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS; do
       if [ -n "${!v:-}" ]; then printf 'export %s=%q\n' "$v" "${!v}"; fi
     done
     printf 'capture=%q\n' "$startup_capture"
