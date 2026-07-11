@@ -144,6 +144,11 @@ spec. Short shape:
 As agents open PRs, review green/red (or `/code-review`), merge the good ones, and route any
 issues found as `agent:todo` (preferred) or self-fix via the CE loop when not agent-safe.
 
+When a ticket id must be turned back into a branch ref, use
+`scripts/resolve-ticket-branch <id>`. It resolves both `aiur/<id>-<slug>` and
+legacy `aiur/<id>` branches and fails loudly if the remote has no unique match;
+do not build `origin/aiur/<id>` directly.
+
 ## Known issues to watch
 
 - **#409** — OS-process/FD footprint / `:emfile` at high concurrency. Keep concurrency in check.

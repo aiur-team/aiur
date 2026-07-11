@@ -125,17 +125,17 @@ defmodule Aiur.Regression.EnterOpensNewPaneTest do
 
   describe "Slot mirrors visible state into SlotRegistry" do
     test "broadcast_visible_changed publishes pane_id into SlotRegistry" do
-      source = File.read!(@slot_source)
+      source = File.read!(Path.expand("../../../lib/aiur/opencode/slot/events.ex", __DIR__))
 
       helper_block =
         source
-        |> String.split(~r/defp broadcast_visible_changed\(/, parts: 2)
+        |> String.split(~r/def visible_changed\(/, parts: 2)
         |> List.last()
         |> String.split(~r/defp [a-z_]+/, parts: 2)
         |> List.first()
 
       assert helper_block =~ "SlotRegistry.update_pane_state",
-             "broadcast_visible_changed MUST call SlotRegistry.update_pane_state so the lock-free warm-open lookup in PaneManager sees the current {visible_identifier, pane_id} for this slot. Without this, find_visible always returns :not_found and the hot path falls through to the slow consume."
+             "Slot.Events.visible_changed MUST call SlotRegistry.update_pane_state so the lock-free warm-open lookup in PaneManager sees the current {visible_identifier, pane_id} for this slot. Without this, find_visible always returns :not_found and the hot path falls through to the slow consume."
     end
   end
 end
