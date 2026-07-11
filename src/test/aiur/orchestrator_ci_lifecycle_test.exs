@@ -135,6 +135,8 @@ defmodule Aiur.OrchestratorCILifecycleTest do
                        }}},
                      500
 
+      refute_receive {:recorded, 3, _message}, 100
+
       assert next.running[identifier].issue.state == "human-review"
       assert next.running[identifier].control.status == :paused
       assert next.ci_lifecycle.approved_heads == %{identifier => "approved-head"}
@@ -152,8 +154,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       next = poll_ci(state, issue, %{decision: :pending, head_sha: "same-head"})
 
       refute_receive {:recorded, _position, _message}, 100
-      assert next.running == state.running
-      assert next.ci_lifecycle == state.ci_lifecycle
+      assert next == state
     end
   end
 

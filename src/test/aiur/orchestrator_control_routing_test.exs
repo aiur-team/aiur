@@ -62,6 +62,12 @@ defmodule Aiur.OrchestratorControlRoutingTest do
 
       assert {:noreply, ^state} =
                Orchestrator.handle_info(
+                 {:worker_control_state, issue_id, :paused, %{kind: :usage_limit_exhausted}},
+                 state
+               )
+
+      assert {:noreply, ^state} =
+               Orchestrator.handle_info(
                  {:worker_control_state, "missing-#{issue_id}", :paused, %{kind: :usage_limit_exhausted}},
                  state
                )
@@ -83,6 +89,7 @@ defmodule Aiur.OrchestratorControlRoutingTest do
         )
 
       state = base_state(running: %{issue_id => entry})
+      before_resume = DateTime.utc_now()
 
       assert {:noreply, next} =
                Orchestrator.handle_info(
@@ -90,14 +97,17 @@ defmodule Aiur.OrchestratorControlRoutingTest do
                  state
                )
 
+      after_resume = DateTime.utc_now()
       working = Map.fetch!(next.running, issue_id)
       shift_seconds = DateTime.diff(working.started_at, started_at, :second)
+      earliest_shift = DateTime.diff(before_resume, paused_at, :second)
+      latest_shift = DateTime.diff(after_resume, paused_at, :second)
 
       assert working.control.status == :working
       assert working.control.can_interrupt
       assert working.routing_marker == :preserved
       assert is_nil(working.paused_at)
-      assert shift_seconds in 4..6
+      assert shift_seconds in earliest_shift..latest_shift
     end
   end
 
@@ -142,16 +152,22 @@ defmodule Aiur.OrchestratorControlRoutingTest do
           }
         )
 
+      before_down = DateTime.utc_now()
+
       assert {:noreply, next} =
                Orchestrator.handle_info(
                  {:DOWN, monitor_ref, :process, worker, :normal},
                  state
                )
 
+      after_down = DateTime.utc_now()
       refute Map.has_key?(next.running, issue_id)
       assert MapSet.member?(next.completed, issue_id)
       assert MapSet.member?(next.claimed, issue_id)
-      assert next.agent_totals.seconds_running in 7..9
+
+      earliest_total = 3 + DateTime.diff(before_down, started_at, :second)
+      latest_total = 3 + DateTime.diff(after_down, started_at, :second)
+      assert next.agent_totals.seconds_running in earliest_total..latest_total
 
       assert %{
                attempt: 1,
@@ -201,17 +217,23 @@ defmodule Aiur.OrchestratorControlRoutingTest do
           }
         )
 
+      before_down = DateTime.utc_now()
+
       assert {:noreply, next} =
                Orchestrator.handle_info(
                  {:DOWN, monitor_ref, :process, worker, :boom},
                  state
                )
 
+      after_down = DateTime.utc_now()
       refute Map.has_key?(next.running, issue_id)
       refute MapSet.member?(next.completed, issue_id)
       assert next.completed == MapSet.new(["already-complete"])
       assert MapSet.member?(next.claimed, issue_id)
-      assert next.agent_totals.seconds_running in 6..8
+
+      earliest_total = 2 + DateTime.diff(before_down, started_at, :second)
+      latest_total = 2 + DateTime.diff(after_down, started_at, :second)
+      assert next.agent_totals.seconds_running in earliest_total..latest_total
 
       assert %{
                attempt: 3,
