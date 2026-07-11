@@ -74,7 +74,10 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       log =
         capture_log(fn ->
           assert %State{running: %{}} =
-                   Dispatcher.maybe_choose_under_load(%State{max_concurrent_agents: 1, effective_concurrent_agents: 1}, [])
+                   Dispatcher.maybe_choose_under_load(
+                     %State{max_concurrent_agents: 1, effective_concurrent_agents: 1},
+                     []
+                   )
         end)
 
       assert log =~

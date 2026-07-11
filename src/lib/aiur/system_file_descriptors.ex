@@ -45,12 +45,14 @@ defmodule Aiur.SystemFileDescriptors do
   @doc false
   @spec sample(pos_integer() | String.t(), keyword()) :: sample_result()
   def sample(pid, opts) when is_list(opts) do
-    with {:ok, normalized_pid} <- normalize_pid(pid) do
-      descriptor_source = Keyword.get(opts, :descriptor_source, &descriptor_entries/1)
-      limit_source = Keyword.get(opts, :limit_source, &soft_limit/1)
-      build_sample(normalized_pid, descriptor_source, limit_source)
-    else
-      _error -> :unavailable
+    case normalize_pid(pid) do
+      {:ok, normalized_pid} ->
+        descriptor_source = Keyword.get(opts, :descriptor_source, &descriptor_entries/1)
+        limit_source = Keyword.get(opts, :limit_source, &soft_limit/1)
+        build_sample(normalized_pid, descriptor_source, limit_source)
+
+      _error ->
+        :unavailable
     end
   rescue
     _error -> :unavailable
