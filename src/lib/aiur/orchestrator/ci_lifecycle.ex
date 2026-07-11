@@ -166,11 +166,9 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     end
   end
 
-  defp ci_wait_state?(state_name) when is_binary(state_name) do
+  defp ci_wait_state?(state_name) do
     DispatchPolicy.normalize_issue_state(state_name) == @ci_wait_state
   end
-
-  defp ci_wait_state?(_state_name), do: false
 
   defp ci_event_dedup_key(target, outcome, head_sha)
        when is_binary(target) and is_atom(outcome) and is_binary(head_sha) do
