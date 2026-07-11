@@ -34,6 +34,21 @@ defmodule Aiur.RunTelemetryTaskTest do
     assert parsed.review_resume_grace_seconds == 45
   end
 
+  test "parses default paths and normalizes a blank repository" do
+    caller = Path.join(System.tmp_dir!(), "aiur-dashboard-default-caller")
+
+    assert {:ok, defaults} = DashboardTask.parse_args([], caller_cwd: caller)
+    assert defaults.inputs == [Path.expand("~/.aiur/logs")]
+    assert defaults.output == Path.join(caller, "aiur-telemetry-dashboard.html")
+
+    assert {:ok, blank_repo} =
+             DashboardTask.parse_args(["--input", @fixtures, "--repo", "  "],
+               caller_cwd: caller
+             )
+
+    assert blank_repo.repo == nil
+  end
+
   test "rejects invalid options and non-positive grace values" do
     assert {:error, message} = DashboardTask.parse_args(["--unknown"])
     assert message =~ "Invalid option"
@@ -42,6 +57,10 @@ defmodule Aiur.RunTelemetryTaskTest do
              DashboardTask.parse_args(["--review-resume-grace-seconds", "0"])
 
     assert message =~ "positive integer"
+
+    assert_raise Mix.Error, ~r/Invalid option/, fn ->
+      DashboardTask.run(["--unknown"])
+    end
   end
 
   test "help is available without telemetry or app supervision" do
@@ -72,6 +91,13 @@ defmodule Aiur.RunTelemetryTaskTest do
 
     assert_raise Mix.Error, ~r/No telemetry files found/, fn ->
       DashboardTask.run(["--input", missing, "--output", output])
+    end
+
+    File.rm!(output)
+    File.mkdir_p!(output)
+
+    assert_raise Mix.Error, ~r/Could not generate telemetry dashboard: eisdir/, fn ->
+      DashboardTask.run(["--input", @fixtures, "--output", output])
     end
   end
 end

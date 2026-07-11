@@ -14,7 +14,7 @@ defmodule Aiur.RunTelemetry.GitHubEnricherTest do
                 "created_at" => "2026-07-11T12:00:00Z",
                 "merged_at" => "2026-07-11T14:00:00Z",
                 "head" => %{"ref" => "aiur/930-daemon-side-lifecycle-resource"},
-                "user" => %{"login" => "owner"}
+                "user" => nil
               },
               %{
                 "number" => 78,
@@ -25,7 +25,11 @@ defmodule Aiur.RunTelemetry.GitHubEnricherTest do
             ]
 
           String.contains?(url, "/issues/930/comments") ->
-            [comment(100, "owner", "please revise this"), comment(101, "stranger", "ignore me")]
+            [
+              comment(100, "owner", "please revise this"),
+              comment(101, "stranger", "ignore me"),
+              :malformed_comment
+            ]
 
           String.contains?(url, "/issues/77/comments") ->
             [comment(102, "owner", "[codex] review passed")]
@@ -79,6 +83,48 @@ defmodule Aiur.RunTelemetry.GitHubEnricherTest do
     assert result.events == []
     assert [%{type: :github_enrichment_failed, endpoint: :pull_requests, reason: "transport_failed"}] = result.warnings
     refute inspect(result) =~ "secret-token"
+  end
+
+  test "pagination and malformed response failures remain sanitized" do
+    assert %{events: [], warnings: [%{type: :github_enrichment_invalid_repo}]} =
+             GitHubEnricher.enrich("owner/repo", :invalid_tickets)
+
+    pagination_limit =
+      GitHubEnricher.enrich("owner/repo", ["930"],
+        max_pages: 0,
+        request_fun: fn _request -> flunk("pagination limit should fail before a request") end
+      )
+
+    assert [%{reason: "pagination_limit"}] = pagination_limit.warnings
+
+    cycle =
+      GitHubEnricher.enrich("owner/repo", ["930"],
+        request_fun: fn %{url: url} ->
+          {:ok,
+           %{
+             status: 200,
+             body: [],
+             headers: %{"link" => ~s(<#{url}>; rel="next")}
+           }}
+        end
+      )
+
+    assert [%{reason: "pagination_cycle"}] = cycle.warnings
+
+    status_failure =
+      GitHubEnricher.enrich("owner/repo", ["930"], request_fun: fn _request -> {:ok, %{status: 503}} end)
+
+    assert [%{reason: "status_503"}] = status_failure.warnings
+
+    invalid_response =
+      GitHubEnricher.enrich("owner/repo", ["930"], request_fun: fn _request -> {:ok, %{body: []}} end)
+
+    assert [%{reason: "invalid_response"}] = invalid_response.warnings
+
+    exception =
+      GitHubEnricher.enrich("owner/repo", ["930"], request_fun: fn _request -> raise "request exploded" end)
+
+    assert [%{reason: "request_exception"}] = exception.warnings
   end
 
   defp comment(id, login, body) do

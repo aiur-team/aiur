@@ -2,13 +2,15 @@ defmodule Aiur.Claude.Repl.LauncherTest do
   use ExUnit.Case, async: false
 
   alias Aiur.Claude.Repl.Launcher
-  alias Aiur.Tmux
+  alias Aiur.{ProcessReaper, Tmux}
 
   setup do
     test_pid = self()
     name = Module.concat(__MODULE__, :"Inst#{System.unique_integer([:positive])}")
+    reaper = Module.concat(__MODULE__, :"Reaper#{System.unique_integer([:positive])}")
     {:ok, _pid} = start_supervised({Tmux, [transport: {:mock, test_pid}, name: name, session: "test"]})
-    %{tmux: name}
+    {:ok, _pid} = start_supervised({ProcessReaper, name: reaper})
+    %{tmux: name, reaper: reaper}
   end
 
   defp respond(tmux, body) do
@@ -50,14 +52,17 @@ defmodule Aiur.Claude.Repl.LauncherTest do
     drain_until_kill(tmux, "%10", task)
   end
 
-  test "ready non-RC spawn returns session with backend=claude-repl and registers both ProcessReaper keys", %{tmux: tmux} do
+  test "ready non-RC spawn returns session with backend=claude-repl and registers both ProcessReaper keys", %{
+    tmux: tmux,
+    reaper: reaper
+  } do
     ws = Path.expand(System.tmp_dir!())
     previous_registrations = Application.get_env(:aiur, :process_reaper_registrations)
     Application.put_env(:aiur, :process_reaper_registrations, true)
 
     on_exit(fn ->
-      Aiur.ProcessReaper.unregister({:pane, "%20"})
-      Aiur.ProcessReaper.unregister({:os_pid, 5050})
+      ProcessReaper.unregister(reaper, {:pane, "%20"})
+      ProcessReaper.unregister(reaper, {:os_pid, 5050})
       Application.put_env(:aiur, :process_reaper_registrations, previous_registrations)
     end)
 
@@ -65,6 +70,7 @@ defmodule Aiur.Claude.Repl.LauncherTest do
       Task.async(fn ->
         Launcher.start_session(ws,
           tmux: tmux,
+          process_reaper: reaper,
           identifier: "930",
           model: "claude-sonnet-5",
           window_name: "aiur-repl-test",
@@ -94,9 +100,9 @@ defmodule Aiur.Claude.Repl.LauncherTest do
 
     actor_meta = %{ticket: "930", backend: "claude-repl", worker_host: nil, remote: false}
 
-    assert {{:pane, "%20"}, :agent, actor_meta} in Aiur.ProcessReaper.entries()
+    assert {{:pane, "%20"}, :agent, actor_meta} in ProcessReaper.entries(reaper)
 
-    assert {{:os_pid, 5050}, :agent, Map.put(actor_meta, :comm, "claude")} in Aiur.ProcessReaper.entries()
+    assert {{:os_pid, 5050}, :agent, Map.put(actor_meta, :comm, "claude")} in ProcessReaper.entries(reaper)
   end
 
   test "RC spawn with no attach evidence kills the pane and returns {:error, :remote_control_unavailable}", %{tmux: tmux} do

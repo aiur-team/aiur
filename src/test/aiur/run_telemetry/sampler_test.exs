@@ -100,6 +100,76 @@ defmodule Aiur.RunTelemetry.SamplerTest do
     assert unavailable.warnings != []
   end
 
+  test "invalid providers and measurements degrade to explicit unavailable evidence" do
+    invalid_table =
+      Sampler.sample_once(%{},
+        process_table_fun: fn -> :invalid end,
+        entries_fun: fn -> :invalid end,
+        daemon_pid: 1,
+        operator_pid: nil,
+        fd_headroom_fun: fn -> raise "fd reader failed" end
+      )
+
+    assert by_actor(invalid_table.records)["_daemon"].availability == "unavailable"
+    assert Enum.any?(invalid_table.warnings, &(&1.reason == :invalid_process_table))
+
+    invalid_measurement =
+      Sampler.sample_once(%{},
+        process_table_fun: fn -> {:ok, process_table(), []} end,
+        measure_fun: fn _table, _pids -> :invalid end,
+        entries_fun: fn -> [:invalid_entry | reaper_entries()] end,
+        daemon_pid: 1,
+        operator_pid: 30,
+        monotonic_ms: 1_000,
+        clock_ticks_per_second: 100,
+        fd_headroom_fun: fn -> :unavailable end
+      )
+
+    assert Enum.all?(invalid_measurement.records, &(&1.availability == "unavailable"))
+    assert Enum.any?(invalid_measurement.warnings, &(&1.reason == :invalid_measurement))
+
+    unavailable_clock =
+      Sampler.sample_once(%{},
+        process_table_fun: fn -> {:ok, process_table(), []} end,
+        measure_fun: measure_from(metrics(0)),
+        entries_fun: &reaper_entries/0,
+        daemon_pid: 1,
+        operator_pid: 30,
+        monotonic_ms: 1_000,
+        clock_ticks_per_second: :unavailable,
+        fd_headroom_fun: fn -> :unavailable end
+      )
+
+    assert by_actor(unavailable_clock.records)["ticket:930"].cpu_percent == nil
+  end
+
+  test "invalid scan results are recorded as fail-open warnings" do
+    test_pid = self()
+
+    {:ok, sampler} =
+      Sampler.start_link(
+        name: nil,
+        sample_fun: fn _previous -> :invalid end,
+        recorder: fn records -> send(test_pid, {:recorded, records}) end,
+        start_immediately?: false
+      )
+
+    send(sampler, :ignored)
+    send(sampler, :tick)
+
+    assert_receive {:recorded,
+                    [
+                      {:warning,
+                       %{
+                         event: :resource_sample_failed,
+                         reason: :invalid_result
+                       }}
+                    ]},
+                   500
+
+    GenServer.stop(sampler)
+  end
+
   test "a slow scan causes overlapping ticks to be skipped" do
     test_pid = self()
 

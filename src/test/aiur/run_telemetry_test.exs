@@ -33,10 +33,30 @@ defmodule Aiur.RunTelemetryTest do
     assert RunTelemetry.telemetry_file() == Path.join(root, "log/telemetry.ndjson")
   end
 
+  test "telemetry_file/0 falls back to the default daemon log" do
+    Application.delete_env(:aiur, :log_file)
+
+    assert RunTelemetry.telemetry_file() ==
+             Path.join(Path.dirname(Aiur.LogFile.default_log_file()), "telemetry.ndjson")
+  end
+
+  test "boot state initializes lazily and invalid facade inputs remain no-ops" do
+    boot_state_key = {RunTelemetry, :boot_state}
+    :persistent_term.erase(boot_state_key)
+    on_exit(&RunTelemetry.start_boot/0)
+
+    assert is_binary(RunTelemetry.boot_id())
+    assert %DateTime{} = RunTelemetry.boot_started_at()
+    assert RunTelemetry.next_sequence() == 1
+    assert :ok = RunTelemetry.record(123, :invalid, :invalid)
+    assert :ok = RunTelemetry.record_batch(:invalid, :invalid)
+  end
+
   test "record/2 is a no-op with no file when debug is disabled", %{root: root} do
     System.delete_env("AIUR_DEBUG")
 
     assert :ok = RunTelemetry.record(:lifecycle, %{event: :dispatch})
+    assert :ok = RunTelemetry.record_batch([{:resource, %{actor: "_daemon"}}])
     refute File.exists?(Path.join(root, "log/telemetry.ndjson"))
   end
 
@@ -63,7 +83,7 @@ defmodule Aiur.RunTelemetryTest do
     records =
       root
       |> Path.join("log/telemetry.ndjson")
-      |> File.stream!([], :line)
+      |> File.stream!(:line, [])
       |> Enum.map(&Jason.decode!/1)
 
     assert Enum.map(records, & &1["kind"]) == ["restart", "lifecycle"]
