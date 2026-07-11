@@ -8,7 +8,7 @@ defmodule Aiur.Orchestrator.Reconciler do
 
   alias Aiur.{Issue, Tracker}
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{DispatchPolicy, State}
+  alias Aiur.Orchestrator.{DispatchPolicy, PauseResume, State}
 
   @spec reconcile_running_lifecycle(State.t()) :: State.t()
   def reconcile_running_lifecycle(%State{} = state) do
@@ -42,6 +42,16 @@ defmodule Aiur.Orchestrator.Reconciler do
     end
   end
 
+  @spec reconcile_running_issue_states([Issue.t()], State.t()) :: State.t()
+  def reconcile_running_issue_states(issues, %State{} = state) when is_list(issues) do
+    reconcile_running_issue_states(
+      issues,
+      state,
+      DispatchPolicy.active_state_set(),
+      DispatchPolicy.terminal_state_set()
+    )
+  end
+
   @spec reconcile_running_issue_states([Issue.t()], State.t(), MapSet.t(), MapSet.t()) :: State.t()
   def reconcile_running_issue_states([], state, _active_states, _terminal_states), do: state
 
@@ -68,7 +78,7 @@ defmodule Aiur.Orchestrator.Reconciler do
         Orchestrator.terminate_running_issue(state, issue.id, false)
 
       Issue.paused?(issue) ->
-        Orchestrator.pause_issue_for_label_override(state, issue)
+        PauseResume.pause_issue_for_label_override(state, issue)
 
       DispatchPolicy.active_issue_state?(issue.state, active_states) ->
         maybe_reactivate_or_refresh(state, issue)

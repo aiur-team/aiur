@@ -5,10 +5,57 @@ defmodule Aiur.Orchestrator.StatusReport do
   """
 
   alias Aiur.{AgentEvents, AgentPubSub, CodingAgent, Issue}
+  alias Aiur.Orchestrator.Lifecycle
   alias Aiur.Orchestrator.OperatorMessages, as: OM
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
-  alias Aiur.Orchestrator.{Slots, State}
+  alias Aiur.Orchestrator.Slots
+  alias Aiur.Orchestrator.State
   alias AiurWeb.ObservabilityPubSub
+
+  @spec snapshot_api() :: map() | :timeout | :unavailable
+  def snapshot_api, do: snapshot_api(Aiur.Orchestrator, 15_000)
+
+  @spec snapshot_api(GenServer.server(), timeout()) :: map() | :timeout | :unavailable
+  def snapshot_api(server, timeout), do: status_api_call(server, :snapshot, timeout, true)
+
+  @spec status_api() :: [map()] | :timeout | :unavailable
+  def status_api, do: status_api(Aiur.Orchestrator, 5_000)
+
+  @spec status_api(GenServer.server(), timeout()) :: [map()] | :timeout | :unavailable
+  def status_api(server, timeout), do: status_api_call(server, :status, timeout, true)
+
+  @spec poll_status_api() :: map() | :unavailable
+  def poll_status_api, do: poll_status_api(Aiur.Orchestrator, 1_000)
+
+  @spec poll_status_api(GenServer.server(), timeout()) :: map() | :unavailable
+  def poll_status_api(server, timeout),
+    do: status_api_call(server, :poll_status, timeout, false)
+
+  @spec list_active_identifiers_api(GenServer.server(), timeout()) :: [String.t()]
+  def list_active_identifiers_api(server, timeout) do
+    if Process.whereis(server) do
+      try do
+        GenServer.call(server, :list_active_identifiers, timeout)
+      catch
+        :exit, _ -> []
+      end
+    else
+      []
+    end
+  end
+
+  @spec list_running_active_identifiers_api(GenServer.server(), timeout()) :: [String.t()]
+  def list_running_active_identifiers_api(server, timeout) do
+    if State.alive?(server) do
+      try do
+        GenServer.call(server, :list_running_active_identifiers, timeout)
+      catch
+        :exit, _ -> []
+      end
+    else
+      []
+    end
+  end
 
   @spec notify_dashboard(State.t()) :: :ok
   def notify_dashboard(state) do
@@ -23,6 +70,123 @@ defmodule Aiur.Orchestrator.StatusReport do
     })
 
     ObservabilityPubSub.broadcast_update()
+  end
+
+  @spec poll_status(State.t()) :: {:reply, map(), State.t()}
+  def poll_status(%State{} = state) do
+    now_ms = System.monotonic_time(:millisecond)
+
+    {:reply,
+     %{
+       checking?: state.poll_check_in_progress == true,
+       next_poll_in_ms: next_poll_in_ms(state.next_poll_due_at_ms, now_ms)
+     }, state}
+  end
+
+  @spec list_active_identifiers(State.t()) :: {:reply, [String.t()], State.t()}
+  def list_active_identifiers(%State{} = state) do
+    identifiers =
+      state.running
+      |> Map.values()
+      |> Enum.map(fn entry -> entry[:identifier] || Map.get(entry, :identifier) end)
+      |> Enum.reject(&is_nil/1)
+
+    {:reply, identifiers, state}
+  end
+
+  @spec list_running_active_identifiers(State.t()) :: {:reply, [String.t()], State.t()}
+  def list_running_active_identifiers(%State{} = state) do
+    identifiers =
+      state.running
+      |> Map.values()
+      |> Enum.filter(&State.active_running_entry?/1)
+      |> Enum.map(fn entry -> entry[:identifier] || Map.get(entry, :identifier) end)
+      |> Enum.reject(&is_nil/1)
+
+    {:reply, identifiers, state}
+  end
+
+  @spec status(State.t()) :: {:reply, [map()], State.t()}
+  def status(%State{} = state), do: {:reply, agent_statuses(state), state}
+
+  @spec snapshot(State.t()) :: {:reply, map(), State.t()}
+  def snapshot(%State{} = state) do
+    state = Lifecycle.refresh_runtime_config(state)
+    now = DateTime.utc_now()
+    now_ms = System.monotonic_time(:millisecond)
+
+    running = Enum.map(state.running, &running_snapshot(state, &1, now))
+    retrying = Enum.map(state.retry_attempts, &retry_snapshot(&1, now_ms))
+
+    {:reply,
+     %{
+       running: running,
+       retrying: retrying,
+       agent_totals: state.agent_totals,
+       rate_limits: Map.get(state, :agent_rate_limits),
+       polling: %{
+         checking?: state.poll_check_in_progress == true,
+         next_poll_in_ms: next_poll_in_ms(state.next_poll_due_at_ms, now_ms),
+         poll_interval_ms: state.poll_interval_ms
+       }
+     }, state}
+  end
+
+  defp running_snapshot(%State{} = state, {issue_id, metadata}, now) do
+    capabilities = OM.issue_control_capabilities(state, metadata.identifier)
+
+    %{
+      issue_id: issue_id,
+      identifier: metadata.identifier,
+      state: metadata.issue.state,
+      tag: State.issue_tag(metadata.issue),
+      title: Map.get(metadata.issue, :title),
+      url: Map.get(metadata.issue, :url),
+      worker_host: Map.get(metadata, :worker_host),
+      workspace_path: Map.get(metadata, :workspace_path),
+      session_id: metadata.session_id,
+      codex_app_server_pid: metadata.codex_app_server_pid,
+      agent_input_tokens: metadata.agent_input_tokens,
+      agent_output_tokens: metadata.agent_output_tokens,
+      agent_total_tokens: metadata.agent_total_tokens,
+      turn_count: Map.get(metadata, :turn_count, 0),
+      started_at: metadata.started_at,
+      last_codex_timestamp: metadata.last_codex_timestamp,
+      last_codex_message: metadata.last_codex_message,
+      last_codex_event: metadata.last_codex_event,
+      work_state: get_in(metadata, [:control, :status]) || :working,
+      pause_reason: Map.get(metadata, :paused_reason),
+      tracker_paused: Issue.paused?(metadata.issue),
+      queue_depth: capabilities.queue_depth,
+      pending_operator_messages: OM.pending_operator_messages_for_issue(state, metadata.identifier),
+      control: capabilities,
+      runtime_seconds: State.running_seconds(metadata.started_at, now)
+    }
+  end
+
+  defp retry_snapshot({issue_id, %{attempt: attempt, due_at_ms: due_at_ms} = retry}, now_ms) do
+    %{
+      issue_id: issue_id,
+      attempt: attempt,
+      due_in_ms: max(0, due_at_ms - now_ms),
+      identifier: Map.get(retry, :identifier),
+      error: Map.get(retry, :error),
+      worker_host: Map.get(retry, :worker_host),
+      workspace_path: Map.get(retry, :workspace_path)
+    }
+  end
+
+  defp status_api_call(server, request, timeout, distinguish_timeout?) do
+    if Process.whereis(server) do
+      try do
+        GenServer.call(server, request, timeout)
+      catch
+        :exit, {:timeout, _} when distinguish_timeout? -> :timeout
+        :exit, _ -> :unavailable
+      end
+    else
+      :unavailable
+    end
   end
 
   @spec running_summaries(State.t()) :: [map()]

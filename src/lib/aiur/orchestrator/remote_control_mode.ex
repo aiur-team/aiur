@@ -8,9 +8,43 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
   alias Aiur.CodingAgent
   alias Aiur.Issue
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{Dispatcher, State}
+  alias Aiur.Orchestrator.{Dispatcher, State, StatusReport}
   alias Aiur.Tracker
   require Logger
+
+  @spec set_remote_control(String.t(), boolean()) :: {:ok, :on | :off} | {:error, term()}
+  def set_remote_control(issue_identifier, on?),
+    do: set_remote_control(Aiur.Orchestrator, issue_identifier, on?)
+
+  @spec set_remote_control(GenServer.server(), String.t(), boolean()) ::
+          {:ok, :on | :off} | {:error, term()}
+  def set_remote_control(server, issue_identifier, on?)
+      when is_binary(issue_identifier) and is_boolean(on?),
+      do: control_api_call(server, {:set_remote_control, issue_identifier, on?}, 10_000)
+
+  @spec ensure_remote_control_trust(Path.t()) :: :ok | {:error, term()}
+  def ensure_remote_control_trust(workspace),
+    do: ensure_remote_control_trust(Aiur.Orchestrator, workspace)
+
+  @spec ensure_remote_control_trust(GenServer.server(), Path.t()) ::
+          :ok | {:error, term()}
+  def ensure_remote_control_trust(server, workspace) when is_binary(workspace),
+    do: control_api_call(server, {:ensure_remote_control_trust, workspace}, 10_000)
+
+  @spec set_remote_control_call(State.t(), String.t(), boolean()) ::
+          {:reply, term(), State.t()}
+  def set_remote_control_call(%State{} = state, issue_identifier, on?) do
+    {reply, state} = set_remote_control_reply(state, issue_identifier, on?)
+    StatusReport.notify_dashboard(state)
+    {:reply, reply, state}
+  end
+
+  @spec ensure_remote_control_trust_call(State.t(), String.t()) ::
+          {:reply, term(), State.t()}
+  def ensure_remote_control_trust_call(%State{} = state, workspace)
+      when is_binary(workspace) do
+    {:reply, RemoteControl.ensure_workspace_trusted(workspace, remote_control_trust_opts()), state}
+  end
 
   @doc false
   @spec set_remote_control_reply(State.t(), String.t(), boolean()) :: {term(), State.t()}
@@ -163,6 +197,17 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
   defp rc_log_context(entry) do
     issue_id = get_in(entry, [:issue, Access.key(:id)])
     "issue_id=#{issue_id} issue_identifier=#{Map.get(entry, :identifier)}"
+  end
+
+  defp control_api_call(server, request, timeout) do
+    if GenServer.whereis(server) do
+      GenServer.call(server, request, timeout)
+    else
+      {:error, :unavailable}
+    end
+  catch
+    :exit, {:timeout, _} -> {:error, :timeout}
+    :exit, _ -> {:error, :unavailable}
   end
 
   # Tests redirect the trust-config write off the real `~/.claude.json`.

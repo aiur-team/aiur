@@ -5,6 +5,7 @@ defmodule Aiur.Orchestrator.TokenAccounting do
   """
 
   alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.StatusReport
   alias Aiur.Orchestrator.TokenAccounting.Payloads
 
   @empty_agent_totals %{
@@ -13,6 +14,30 @@ defmodule Aiur.Orchestrator.TokenAccounting do
     total_tokens: 0,
     seconds_running: 0
   }
+
+  @spec handle_codex_worker_update(State.t(), String.t(), map()) ::
+          {:noreply, State.t()}
+  def handle_codex_worker_update(
+        %State{running: running} = state,
+        issue_id,
+        %{event: _, timestamp: _} = update
+      ) do
+    case Map.get(running, issue_id) do
+      nil ->
+        {:noreply, state}
+
+      running_entry ->
+        {updated_running_entry, token_delta} = integrate_codex_update(running_entry, update)
+
+        state =
+          state
+          |> apply_agent_token_delta(token_delta)
+          |> apply_agent_rate_limits(update)
+
+        StatusReport.notify_dashboard(state)
+        {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}
+    end
+  end
 
   @spec integrate_codex_update(map(), %{event: term(), timestamp: DateTime.t()}) :: {map(), map()}
   def integrate_codex_update(running_entry, %{event: event, timestamp: timestamp} = update) do

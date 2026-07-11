@@ -9,6 +9,57 @@ defmodule Aiur.Orchestrator.Interrupts do
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{OperatorMessages, PauseResume, State}
 
+  @spec interrupt_agent(String.t()) :: :ok | {:error, term()}
+  def interrupt_agent(issue_identifier),
+    do: interrupt_agent(Aiur.Orchestrator, issue_identifier)
+
+  @spec interrupt_agent(GenServer.server(), String.t()) :: :ok | {:error, term()}
+  def interrupt_agent(server, issue_identifier),
+    do: control_api_call(server, {:interrupt_agent, issue_identifier})
+
+  @spec pane_interrupt(String.t()) ::
+          {:ok, :interrupted | :paused | :close_pane | :send_interrupt} | {:error, term()}
+  def pane_interrupt(issue_identifier),
+    do: pane_interrupt(Aiur.Orchestrator, issue_identifier)
+
+  @spec pane_interrupt(GenServer.server(), String.t()) ::
+          {:ok, :interrupted | :paused | :close_pane | :send_interrupt} | {:error, term()}
+  def pane_interrupt(server, issue_identifier),
+    do: control_api_call(server, {:pane_interrupt, issue_identifier})
+
+  @spec pane_interrupt_by_pane_id(String.t()) ::
+          {:ok, :interrupted | :paused | :close_pane | :send_interrupt} | {:error, term()}
+  def pane_interrupt_by_pane_id(pane_id),
+    do: pane_interrupt_by_pane_id(Aiur.Orchestrator, pane_id)
+
+  @spec pane_interrupt_by_pane_id(GenServer.server(), String.t()) ::
+          {:ok, :interrupted | :paused | :close_pane | :send_interrupt} | {:error, term()}
+  def pane_interrupt_by_pane_id(server, pane_id) when is_binary(pane_id),
+    do: control_api_call(server, {:pane_interrupt_by_pane_id, pane_id})
+
+  @spec interrupt_agent_call(State.t(), String.t()) :: {:reply, term(), State.t()}
+  def interrupt_agent_call(%State{} = state, issue_identifier) do
+    {:reply, interrupt_agent_reply(state, issue_identifier), state}
+  end
+
+  @spec pane_interrupt_call(State.t(), String.t()) :: {:reply, term(), State.t()}
+  def pane_interrupt_call(%State{} = state, issue_identifier) do
+    {reply, state} = pane_interrupt_reply(state, issue_identifier)
+    {:reply, reply, state}
+  end
+
+  @spec pane_interrupt_by_pane_id_call(State.t(), String.t()) ::
+          {:reply, term(), State.t()}
+  def pane_interrupt_by_pane_id_call(%State{} = state, pane_id) when is_binary(pane_id) do
+    case State.find_running_by_repl_pane_id(state.running, pane_id) do
+      %{identifier: identifier} ->
+        pane_interrupt_call(state, to_string(identifier))
+
+      nil ->
+        {:reply, {:error, :no_pane_agent}, state}
+    end
+  end
+
   # Out-of-band interrupt: send Ctrl+C straight to the REPL pane so Claude
   # cuts its active turn and its native queue drains the waiting message.
   # Only the persistent-REPL backend exposes a pane to interrupt; every
@@ -106,6 +157,17 @@ defmodule Aiur.Orchestrator.Interrupts do
     _ = PauseResume.send_pause_control_message(state, issue_identifier)
     paused_entry = Map.put(entry, :paused_reason, :pane_ctrl_c)
     {{:ok, :paused}, Orchestrator.transition_control_status(state, paused_entry, :paused, "pane.ctrl_c.pause")}
+  end
+
+  defp control_api_call(server, request) do
+    if GenServer.whereis(server) do
+      GenServer.call(server, request, 5_000)
+    else
+      {:error, :unavailable}
+    end
+  catch
+    :exit, {:timeout, _} -> {:error, :timeout}
+    :exit, _ -> {:error, :unavailable}
   end
 
   @doc """
