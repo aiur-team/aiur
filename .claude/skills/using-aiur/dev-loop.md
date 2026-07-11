@@ -33,10 +33,10 @@ matching branch, and exits non-zero when no branch or more than one branch exist
 1. Implement
 2. Add / update / run tests
 3. Run the scoped local pre-PR verification gate before opening or finalizing
-   the PR: `mix compile --warnings-as-errors`, `mix format --check-formatted`,
-   affected tests only (the test files for modules you touched plus directly
-   related tests), each run with `mix test --max-cases 4`, and `mix credo
-   --strict` scoped to changed files when possible.
+   the PR: `mix compile --warnings-as-errors`, `mix format`, and affected tests
+   only (the test files for modules you touched plus directly related tests),
+   each run with `mix test --max-cases 4`. Do not run Credo locally; CI's
+   `make ci` is the authoritative full lint and full-suite gate.
 4. Fix every verification failure from the scoped local gate before continuing.
    Do not gate PR-opening on a clean full-suite `mix test` run or loop on
    unrelated suite flakes; CI runs the full `make ci` on every PR and is the

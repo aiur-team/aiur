@@ -193,26 +193,42 @@ defmodule Aiur.AiurAgentSkillTest do
   end
 
   test "agent operating guidance scopes local pre-PR verification to affected tests" do
-    dev_loop = File.read!(Path.join([@repo_root, ".claude", "skills", "using-aiur", "dev-loop.md"]))
-    repo_prompt = File.read!(Path.join(@repo_root, ".aiur/prompt.md"))
+    source =
+      @repo_root
+      |> Path.join(".claude/skills/using-aiur/dev-loop.md")
+      |> File.read!()
+      |> one_line()
 
-    for source <- [one_line(dev_loop), one_line(repo_prompt)] do
-      assert source =~ "pre-PR"
-      assert source =~ "mix compile --warnings-as-errors"
-      assert source =~ "mix format --check-formatted"
-      assert source =~ "affected tests only"
-      assert source =~ "mix test --max-cases 4"
-      assert source =~ "mix credo --strict"
-      assert source =~ "changed files"
-      assert source =~ "full `make ci`"
-      assert source =~ "authoritative full-suite gate"
-      assert source =~ "Do not gate PR-opening on a clean full-suite `mix test` run"
-      refute source =~ "mix dialyzer"
-    end
+    assert source =~ "pre-PR"
+    assert source =~ "mix compile --warnings-as-errors"
+    assert source =~ "mix format"
+    refute source =~ "mix format --check-formatted"
+    assert source =~ "affected tests only"
+    assert source =~ "mix test --max-cases 4"
+    refute source =~ "mix credo --strict"
+    assert source =~ "Do not run Credo locally"
+    assert source =~ "`make ci` is the authoritative full lint and full-suite gate"
+    refute source =~ "mix dialyzer"
 
-    assert one_line(dev_loop) =~ "loop on unrelated suite flakes"
-    assert one_line(dev_loop) =~ "Re-run the scoped local pre-PR verification gate"
-    assert one_line(repo_prompt) =~ "Fix failures in this scoped gate"
+    assert source =~ "loop on unrelated suite flakes"
+    assert source =~ "Re-run the scoped local pre-PR verification gate"
+  end
+
+  test "agent prompt delegates Credo to CI after inspecting lint settings" do
+    repo_prompt = one_line(File.read!(Path.join(@repo_root, ".aiur/prompt.md")))
+
+    assert repo_prompt =~ "before writing code read `src/.formatter.exs`"
+    assert repo_prompt =~ "Credo's project settings in `src/mix.exs`"
+    assert repo_prompt =~ "mix compile --warnings-as-errors"
+    assert repo_prompt =~ "mix format"
+    refute repo_prompt =~ "mix format --check-formatted"
+    assert repo_prompt =~ "affected tests only"
+    assert repo_prompt =~ "mix test --max-cases 4"
+    refute repo_prompt =~ "mix credo --strict"
+    assert repo_prompt =~ "Do not run Credo locally"
+    assert repo_prompt =~ "authoritative full lint and full test suite through `make ci`"
+    assert repo_prompt =~ "Do not gate PR-opening on a clean full-suite `mix test` run"
+    assert repo_prompt =~ "Fix failures in this scoped gate"
   end
 
   defp assert_codex_skill_symlink_resolves_to_claude(skill) do
