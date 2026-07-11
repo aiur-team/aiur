@@ -4,6 +4,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   alias Aiur.{AgentPubSub, CodingAgent, Config, Issue, Tracker}
   alias Aiur.AgentRunner.{SessionResume, TurnLoop}
   alias Aiur.Claude.DisplayTailer
+  alias Aiur.RunTelemetry.Lifecycle
   @type worker_host :: String.t() | nil
   # The live session's OS-level runtime (REPL pane + agent os pid, or the
   # headless wrapper's bash pid) is owned by this runner task. An
@@ -108,7 +109,22 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
       |> maybe_put_rc_name(rc?, issue)
       |> SessionResume.maybe_put_resume_thread_id(resume_thread_id)
 
+    lifecycle_attempt_id = Keyword.get(opts, :telemetry_attempt_id)
+
+    Lifecycle.record(issue.identifier, lifecycle_attempt_id, :agent_spinup, :start, %{
+      operation_id: "session",
+      backend: session_backend,
+      worker_host: worker_host,
+      remote: is_binary(worker_host)
+    })
+
     with {:ok, session} <- start_agent_session(workspace, session_opts) do
+      Lifecycle.record(issue.identifier, lifecycle_attempt_id, :agent_spinup, :end, %{
+        operation_id: "session",
+        backend: session_backend,
+        outcome: :success
+      })
+
       # Persist the live session handle so the next aiur restart can resume it.
       SessionResume.persist_session_handle(session, issue.identifier, worker_host)
 
@@ -141,6 +157,16 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
         stop_display_tailer(display_tailer)
         CodingAgent.stop_session(session)
       end
+    else
+      {:error, reason} = error ->
+        Lifecycle.record(issue.identifier, lifecycle_attempt_id, :agent_spinup, :end, %{
+          operation_id: "session",
+          backend: session_backend,
+          outcome: :failed,
+          reason_class: Lifecycle.reason_class(reason)
+        })
+
+        error
     end
   end
 

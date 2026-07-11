@@ -9,6 +9,7 @@ defmodule Aiur.AgentRunner do
   alias Aiur.AgentRunner.{BootstrapDigest, CommentContext, EventsDigest, MessageHandler, QueueDrain}
   alias Aiur.AgentRunner.{SessionLifecycle, SessionResume, TurnLoop, TurnPrompt, TurnStreams}
   alias Aiur.Opencode.ApiClient
+  alias Aiur.RunTelemetry.Lifecycle
 
   @type worker_host :: String.t() | nil
 
@@ -61,13 +62,25 @@ defmodule Aiur.AgentRunner do
   defp run_on_worker_host(issue, codex_update_recipient, opts, worker_host) do
     Logger.info("Starting worker attempt for #{issue_context(issue)} worker_host=#{worker_host_for_log(worker_host)}")
 
-    case Workspace.create_for_issue(issue, worker_host) do
+    attempt_id = Keyword.get(opts, :telemetry_attempt_id)
+    setup_operation_id = "workspace:#{System.unique_integer([:positive, :monotonic])}"
+
+    Lifecycle.record(issue.identifier, attempt_id, :workspace_setup, :start, %{
+      operation_id: setup_operation_id,
+      worker_host: worker_host,
+      remote: is_binary(worker_host)
+    })
+
+    opts = Keyword.put(opts, :telemetry_setup_operation_id, setup_operation_id)
+
+    case Workspace.create_for_issue(issue, worker_host, lifecycle: %{ticket: issue.identifier, attempt_id: attempt_id}) do
       {:ok, workspace} ->
         MessageHandler.send_worker_runtime_info(codex_update_recipient, issue, worker_host, workspace)
 
         run_worker_attempt(workspace, issue, codex_update_recipient, opts, worker_host)
 
       {:error, reason} ->
+        record_workspace_setup_end(issue, opts, :failed, reason)
         {:error, reason}
     end
   end
@@ -75,6 +88,7 @@ defmodule Aiur.AgentRunner do
   defp run_worker_attempt(workspace, issue, codex_update_recipient, opts, worker_host) do
     case run_worker_attempt_once(workspace, issue, codex_update_recipient, opts, worker_host) do
       :resume_after_before_run_pause ->
+        opts = begin_workspace_setup_retry(issue, opts)
         run_worker_attempt(workspace, issue, codex_update_recipient, opts, worker_host)
 
       result ->
@@ -87,14 +101,17 @@ defmodule Aiur.AgentRunner do
       try do
         case Workspace.run_before_run_hook(workspace, issue, worker_host) do
           :ok ->
+            record_workspace_setup_end(issue, opts, :success, nil)
             :ok = BootstrapDigest.maybe_attach_universal_subscriptions(issue)
             :ok = BootstrapDigest.maybe_enqueue_bootstrap_digest(issue)
             SessionLifecycle.run_session(workspace, issue, codex_update_recipient, opts, worker_host)
 
           {:error, {:workspace_hook_failed, "before_run", status, output} = reason} ->
+            record_workspace_setup_end(issue, opts, :failed, status)
             {:before_run_failed, status, output, reason}
 
           {:error, reason} ->
+            record_workspace_setup_end(issue, opts, :failed, reason)
             {:error, reason}
         end
       after
@@ -108,6 +125,36 @@ defmodule Aiur.AgentRunner do
       other ->
         other
     end
+  end
+
+  defp record_workspace_setup_end(issue, opts, outcome, reason) do
+    metadata = %{
+      operation_id: Keyword.get(opts, :telemetry_setup_operation_id),
+      outcome: outcome,
+      reason_class: if(is_nil(reason), do: nil, else: Lifecycle.reason_class(reason))
+    }
+
+    Lifecycle.record(
+      issue.identifier,
+      Keyword.get(opts, :telemetry_attempt_id),
+      :workspace_setup,
+      :end,
+      metadata
+    )
+  end
+
+  defp begin_workspace_setup_retry(issue, opts) do
+    operation_id = "workspace:#{System.unique_integer([:positive, :monotonic])}"
+
+    Lifecycle.record(
+      issue.identifier,
+      Keyword.get(opts, :telemetry_attempt_id),
+      :workspace_setup,
+      :start,
+      %{operation_id: operation_id}
+    )
+
+    Keyword.put(opts, :telemetry_setup_operation_id, operation_id)
   end
 
   defp pause_for_before_run_failure(workspace, issue, codex_update_recipient, worker_host, status, output, reason) do

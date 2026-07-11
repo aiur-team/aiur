@@ -3,6 +3,7 @@ defmodule Aiur.Workspace.Provisioner do
 
   require Logger
   alias Aiur.{Config, RepoBase, TicketBranch, Tracker}
+  alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Workspace.{Checkout, Context, Materialize, Remote}
 
   @remote_workspace_marker "__AIUR_WORKSPACE__"
@@ -62,22 +63,31 @@ defmodule Aiur.Workspace.Provisioner do
 
   @spec ensure_workspace(Path.t(), worker_host(), String.t() | nil, String.t()) ::
           {:ok, Path.t(), boolean() | :materialized} | {:error, term()}
-  def ensure_workspace(workspace, nil, pr_head_ref, branch_name) when is_binary(branch_name) do
+  def ensure_workspace(workspace, worker_host, pr_head_ref, branch_name),
+    do: ensure_workspace(workspace, worker_host, pr_head_ref, branch_name, nil)
+
+  @doc false
+  @spec ensure_workspace(Path.t(), worker_host(), String.t() | nil, String.t(), map() | nil) ::
+          {:ok, Path.t(), boolean() | :materialized} | {:error, term()}
+  def ensure_workspace(workspace, nil, pr_head_ref, branch_name, lifecycle)
+      when is_binary(branch_name) do
     cond do
       File.dir?(workspace) ->
+        record_prewarm_point(lifecycle, :existing, :skipped)
         {:ok, workspace, false}
 
       File.exists?(workspace) ->
         File.rm_rf!(workspace)
-        create_or_materialize(workspace, branch_name, pr_head_ref)
+        create_or_materialize(workspace, branch_name, pr_head_ref, lifecycle)
 
       true ->
-        create_or_materialize(workspace, branch_name, pr_head_ref)
+        create_or_materialize(workspace, branch_name, pr_head_ref, lifecycle)
     end
   end
 
-  def ensure_workspace(workspace, worker_host, _pr_head_ref, _branch_name)
+  def ensure_workspace(workspace, worker_host, _pr_head_ref, _branch_name, lifecycle)
       when is_binary(worker_host) do
+    record_prewarm_point(lifecycle, :remote, :unavailable)
     ensure_workspace(workspace, worker_host)
   end
 
@@ -201,16 +211,75 @@ defmodule Aiur.Workspace.Provisioner do
   # the warm `_build`/deps) instead of cold-cloning + recompiling. Anything that
   # rules pre-warm out — disabled, base not ready, missing, or a copy failure —
   # falls through to the unchanged cold `create_workspace/1` path.
-  defp create_or_materialize(workspace, branch_name, pr_head_ref) do
-    with true <- Config.prewarm_enabled?(),
-         {:ready, base} when is_binary(base) <- RepoBase.status(),
-         true <- File.dir?(base),
-         :ok <- Materialize.materialize_from_base(base, workspace, branch_name, pr_head_ref) do
-      {:ok, workspace, :materialized}
-    else
-      _ -> create_workspace(workspace)
+  defp create_or_materialize(workspace, branch_name, pr_head_ref, lifecycle \\ nil) do
+    case prewarm_base() do
+      {:ready, base} ->
+        record_prewarm(lifecycle, :start, %{prewarm_outcome: :materialized})
+
+        case Materialize.materialize_from_base(base, workspace, branch_name, pr_head_ref) do
+          :ok ->
+            record_prewarm(lifecycle, :end, %{
+              prewarm_outcome: :materialized,
+              outcome: :success
+            })
+
+            {:ok, workspace, :materialized}
+
+          {:error, reason} ->
+            record_prewarm(lifecycle, :end, %{
+              prewarm_outcome: :materialize_failed,
+              outcome: :failed,
+              reason_class: Lifecycle.reason_class(reason)
+            })
+
+            record_prewarm_point(lifecycle, :cold_fallback, :success)
+            create_workspace(workspace)
+        end
+
+      {:skip, outcome} ->
+        record_prewarm_point(lifecycle, outcome, :skipped)
+        create_workspace(workspace)
     end
   end
+
+  defp prewarm_base do
+    cond do
+      not Config.prewarm_enabled?() ->
+        {:skip, :disabled}
+
+      true ->
+        case RepoBase.status() do
+          {:ready, base} when is_binary(base) ->
+            if File.dir?(base), do: {:ready, base}, else: {:skip, :cold_base_missing}
+
+          _other ->
+            {:skip, :cold_base_not_ready}
+        end
+    end
+  end
+
+  defp record_prewarm_point(lifecycle, prewarm_outcome, outcome) do
+    record_prewarm(lifecycle, :point, %{
+      prewarm_outcome: prewarm_outcome,
+      outcome: outcome
+    })
+  end
+
+  defp record_prewarm(
+         %{ticket: ticket, attempt_id: attempt_id, recorder: recorder},
+         boundary,
+         metadata
+       )
+       when is_binary(ticket) and is_function(recorder, 3) do
+    Lifecycle.record(ticket, attempt_id, :prewarm, boundary, metadata, recorder: recorder)
+  end
+
+  defp record_prewarm(%{ticket: ticket, attempt_id: attempt_id}, boundary, metadata)
+       when is_binary(ticket) do
+    Lifecycle.record(ticket, attempt_id, :prewarm, boundary, metadata)
+  end
+
+  defp record_prewarm(_lifecycle, _boundary, _metadata), do: :ok
 
   defp established_pr_head_ref(%{pr_head_ref: ref}) when is_binary(ref) and ref != "", do: ref
   defp established_pr_head_ref(_issue_context), do: nil

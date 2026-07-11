@@ -33,6 +33,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     :author_trusted,
     :source_timestamp,
     :worker_host,
+    :backend,
     :prewarm_outcome,
     :reason_class,
     :turn_number,
@@ -50,7 +51,8 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   @doc false
   @spec enabled?(keyword()) :: boolean()
   def enabled?(opts \\ []) when is_list(opts) do
-    Keyword.has_key?(opts, :recorder) or LogFile.debug_enabled?()
+    Keyword.has_key?(opts, :recorder) or lifecycle_recorder_override?() or
+      LogFile.debug_enabled?()
   end
 
   @doc "Records one lifecycle start, end, or point without propagating failures."
@@ -62,9 +64,13 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     event = normalize_name(event)
     boundary = normalize_name(boundary)
 
-    if event in @events and boundary in @boundaries do
+    if enabled?(opts) and event in @events and boundary in @boundaries do
       attributes = attributes(ticket, attempt_id, event, boundary, metadata)
-      recorder = Keyword.get(opts, :recorder, &RunTelemetry.record/3)
+
+      recorder =
+        Keyword.get(opts, :recorder) ||
+          Application.get_env(:aiur, :run_telemetry_lifecycle_recorder, &RunTelemetry.record/3)
+
       recorder.(:lifecycle, attributes, Keyword.take(opts, [:timestamp]))
     end
 
@@ -198,6 +204,10 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   defp normalize_name(value) when is_atom(value), do: Atom.to_string(value)
   defp normalize_name(value) when is_binary(value), do: value
   defp normalize_name(_value), do: ""
+
+  defp lifecycle_recorder_override? do
+    is_function(Application.get_env(:aiur, :run_telemetry_lifecycle_recorder), 3)
+  end
 
   defp event_key(identity) do
     identity

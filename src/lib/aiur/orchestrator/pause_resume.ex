@@ -15,6 +15,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReport
   alias Aiur.Orchestrator.TrackedSet
+  alias Aiur.RunTelemetry.Lifecycle
   require Logger
 
   @spec pause_agent(String.t()) :: {:ok, integer()} | {:error, term()}
@@ -206,6 +207,7 @@ defmodule Aiur.Orchestrator.PauseResume do
           |> maybe_put_worker_pause_reason(status, pause_reason)
 
         maybe_log_worker_pause(status, updated_running_entry, pause_reason)
+        record_control_transition(updated_running_entry, previous_status, status, pause_reason)
         OperatorMessages.maybe_emit_agent_control_alert(previous_status, status, updated_running_entry)
 
         state = %{state | running: Map.put(running, issue_id, updated_running_entry)}
@@ -235,6 +237,7 @@ defmodule Aiur.Orchestrator.PauseResume do
         |> State.apply_pause_runtime_clock(old_status, new_status, now)
 
       next_state = %{state | running: Map.put(state.running, issue_id, next_entry)}
+      record_control_transition(next_entry, old_status, new_status, reason)
       OperatorMessages.maybe_emit_agent_control_alert(old_status, new_status, next_entry)
       StatusReport.notify_dashboard(next_state)
       next_state
@@ -264,6 +267,7 @@ defmodule Aiur.Orchestrator.PauseResume do
 
     case Map.get(dispatched_state.running, issue_id) do
       %{pid: pid} when is_pid(pid) ->
+        record_control_transition(running_entry, Map.get(existing_control, :status), :working, :reactivation)
         {{:ok, :reactivated}, dispatched_state}
 
       _ ->
@@ -345,6 +349,8 @@ defmodule Aiur.Orchestrator.PauseResume do
         # confirmation finds previous_status already :working and emits
         # no transition alert — so emit the unpause alert ourselves now.
         updated_entry = Map.get(state.running, issue_id, running_entry)
+        resume_cause = if operator?, do: :operator_resume, else: :automatic_resume
+        record_control_transition(updated_entry, previous_status, :working, resume_cause)
         OperatorMessages.maybe_emit_agent_control_alert(previous_status, :working, updated_entry)
         {{:ok, :resumed}, state}
 
@@ -352,6 +358,31 @@ defmodule Aiur.Orchestrator.PauseResume do
         {error, state}
     end
   end
+
+  defp record_control_transition(_running_entry, status, status, _cause), do: :ok
+
+  defp record_control_transition(running_entry, _old_status, :paused, cause) do
+    Lifecycle.record(
+      Map.get(running_entry, :identifier),
+      Map.get(running_entry, :telemetry_attempt_id),
+      :agent_pause,
+      :point,
+      %{cause: cause}
+    )
+  end
+
+  defp record_control_transition(running_entry, old_status, :working, cause)
+       when old_status in [:paused, :deactivated] do
+    Lifecycle.record(
+      Map.get(running_entry, :identifier),
+      Map.get(running_entry, :telemetry_attempt_id),
+      :agent_resume,
+      :point,
+      %{cause: cause}
+    )
+  end
+
+  defp record_control_transition(_running_entry, _old_status, _new_status, _cause), do: :ok
 
   @doc false
   @spec reset_last_codex_timestamp(map(), term(), DateTime.t()) :: map()
