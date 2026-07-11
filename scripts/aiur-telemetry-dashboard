@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+caller_cwd="$PWD"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$script_dir/.." && pwd)"
+
+export AIUR_TELEMETRY_CALLER_CWD="$caller_cwd"
+cd "$repo_root/src"
+exec mise exec -- mix aiur.telemetry.dashboard "$@"
