@@ -5,9 +5,11 @@ defmodule Aiur.Orchestrator.StatusReport do
   """
 
   alias Aiur.{AgentEvents, AgentPubSub, CodingAgent, Issue}
+  alias Aiur.Orchestrator.Lifecycle
   alias Aiur.Orchestrator.OperatorMessages, as: OM
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
-  alias Aiur.Orchestrator.{Lifecycle, Slots, State}
+  alias Aiur.Orchestrator.Slots
+  alias Aiur.Orchestrator.State
   alias AiurWeb.ObservabilityPubSub
 
   @spec snapshot_api() :: map() | :timeout | :unavailable

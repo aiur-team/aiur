@@ -8,7 +8,8 @@ defmodule Aiur.Orchestrator do
   alias Aiur.Orchestrator.{AgentTeardown, AutoSubscriptions, CiLifecycle, CommandScan, CommentPolling, CommentWake}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts, IssueSync}
   alias Aiur.Orchestrator.{Lifecycle, PauseResume, PrAnchored, PushRouting, Reconciler, RetryEngine}
-  alias Aiur.Orchestrator.{RuntimeWatchdog, Slots, State, StatusReport, TokenAccounting, TrackedSet, TrackerHealth, WorkspaceCleanup}
+  alias Aiur.Orchestrator.{RuntimeWatchdog, Slots, State, StatusReport}
+  alias Aiur.Orchestrator.{TokenAccounting, TrackedSet, TrackerHealth, WorkspaceCleanup}
 
   alias Aiur.Orchestrator.OperatorMessages, as: OM
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
