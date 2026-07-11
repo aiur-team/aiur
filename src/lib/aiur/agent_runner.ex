@@ -114,7 +114,7 @@ defmodule Aiur.AgentRunner do
     Logger.warning("Pausing agent for #{issue_context(issue)} after before_run hook failed status=#{inspect(status)} output=#{inspect(trim_hook_output(output))}")
 
     write_pause_log(workspace, worker_host, "before_run hook failed; agent paused pending operator resume.")
-    MessageHandler.send_control_state(codex_update_recipient, issue, :paused)
+    MessageHandler.send_control_state(codex_update_recipient, issue, :paused, %{kind: :before_run_failure})
     wait_for_before_run_resume(issue, codex_update_recipient, reason)
   end
 
@@ -122,7 +122,7 @@ defmodule Aiur.AgentRunner do
     receive do
       {:pause_agent, request_id} when is_integer(request_id) ->
         Logger.info("Agent already paused before run for #{issue_context(issue)} request_id=#{request_id}")
-        MessageHandler.send_control_state(codex_update_recipient, issue, :paused)
+        MessageHandler.send_control_state(codex_update_recipient, issue, :paused, %{kind: :before_run_failure})
         wait_for_before_run_resume(issue, codex_update_recipient, reason)
 
       {:resume_agent, request_id} when is_integer(request_id) ->
