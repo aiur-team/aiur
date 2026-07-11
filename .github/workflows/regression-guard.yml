@@ -160,8 +160,80 @@ jobs:
         run: |
           set -euo pipefail
 
+          readonly PR_FILE_API_LIMIT=3000
+
           protected_changed_files() {
-            grep -q '^src/test/aiur/regression/' "$1"
+            local changed_files="$1"
+            local jq_status
+
+            if jq -e -s \
+                'any(.[]; any(.[]; startswith("src/test/aiur/regression/")))' \
+                "$changed_files" >/dev/null 2>&1; then
+              return 0
+            else
+              jq_status=$?
+            fi
+
+            # `jq -e` returns 1 for a valid list with no match. Parse/type
+            # errors are unverifiable and use a distinct status.
+            [ "$jq_status" -eq 1 ] && return 1
+            return 2
+          }
+
+          valid_file_count() {
+            case "$1" in
+              '' | *[!0-9]*)
+                return 1
+                ;;
+              *)
+                return 0
+                ;;
+            esac
+          }
+
+          file_list_requires_approval() {
+            local listed_file_count="$1"
+            local total_changed_files="$2"
+
+            if ! valid_file_count "$listed_file_count" ||
+                ! valid_file_count "$total_changed_files"; then
+              return 0
+            fi
+
+            [ "$listed_file_count" -ge "$PR_FILE_API_LIMIT" ] ||
+              [ "$listed_file_count" -ne "$total_changed_files" ]
+          }
+
+          changes_require_approval() {
+            local changed_files="$1"
+            local listed_file_count="$2"
+            local total_changed_files="$3"
+            local protected_status
+
+            if file_list_requires_approval "$listed_file_count" "$total_changed_files"; then
+              return 0
+            fi
+
+            if protected_changed_files "$changed_files"; then
+              return 0
+            else
+              protected_status=$?
+            fi
+
+            # A malformed JSON record is unverifiable and therefore follows
+            # the same approval path as an incomplete API response.
+            [ "$protected_status" -ne 1 ]
+          }
+
+          require_current_head() {
+            local event_head_sha="$1"
+            local current_head_sha="$2"
+
+            if [ -z "$event_head_sha" ] || [ -z "$current_head_sha" ] ||
+                [ "$event_head_sha" != "$current_head_sha" ]; then
+              echo "::error::The guard event applies to ${event_head_sha:-an unknown head}, but the PR head is now ${current_head_sha:-unknown}. Wait for the latest head's guard run, then re-apply the operator label if approval is required."
+              return 1
+            fi
           }
 
           require_fresh_approval() {
@@ -190,29 +262,29 @@ jobs:
           }
 
           require_active_override_label() {
-            has_override_label="$1"
+            local has_override_label="$1"
+            local approval_error="${2:-This PR modifies files under src/test/aiur/regression/ without the operator-applied regression-suite-change label. Characterization tests are read-only: a failing characterization test means your change is wrong. Revert the test edits, or have the operator apply the regression-suite-change label.}"
 
             if [ "$has_override_label" != "true" ]; then
-              echo "::error::This PR modifies files under src/test/aiur/regression/ without the operator-applied regression-suite-change label. Characterization tests are read-only: a failing characterization test means your change is wrong. Revert the test edits, or have the operator apply the regression-suite-change label."
+              echo "::error::${approval_error}"
               return 1
             fi
           }
 
           require_current_operator_approval() {
-            event_action="$1"
-            event_label="$2"
-            event_labeler="$3"
-            event_head_sha="$4"
-            current_head_sha="$5"
-            dismiss_reapproval="$6"
+            local event_action="$1"
+            local event_label="$2"
+            local event_labeler="$3"
+            local event_head_sha="$4"
+            local current_head_sha="$5"
+            local dismiss_reapproval="$6"
 
-            if [ "$event_head_sha" != "$current_head_sha" ]; then
-              echo "::error::The approval event applies to ${event_head_sha}, but the PR head is now ${current_head_sha}. Re-apply the operator label after the latest push."
+            if ! require_current_head "$event_head_sha" "$current_head_sha"; then
               return 1
             fi
 
             if [ "$event_action" = "synchronize" ] && [ "$dismiss_reapproval" = "true" ]; then
-              echo "PR touches src/test/aiur/regression/ and has a newer operator approval for the current head. Allowed."
+              echo "This PR requires regression-suite approval and has a newer operator approval for the current head. Allowed."
               return 0
             fi
 
@@ -223,7 +295,7 @@ jobs:
 
             case " ${OPERATOR_LABELERS} " in
               *" ${event_labeler} "*)
-                echo "PR touches src/test/aiur/regression/ and was approved with regression-suite-change by ${event_labeler}. Allowed."
+                echo "This PR requires regression-suite approval and was approved with regression-suite-change by ${event_labeler}. Allowed."
                 ;;
               *)
                 echo "::error::The regression-suite-change label was applied by '${event_labeler}', not an operator allowed to approve characterization test edits."
@@ -232,9 +304,19 @@ jobs:
             esac
           }
 
+          write_changed_file_record() {
+            jq -cn --arg current_filename "$1" --arg previous_filename "$2" \
+              '[$current_filename, $previous_filename]'
+          }
+
           run_guard_regression_tests() {
+            local hostile_filename_fixture hostile_record_count malformed_record_fixture
+            local rename_fixture unprotected_fixture
+
             rename_fixture="$(mktemp)"
-            printf '%s\n' 'docs/renamed_test.exs' 'src/test/aiur/regression/renamed_test.exs' > "$rename_fixture"
+            write_changed_file_record \
+              'docs/renamed_test.exs' \
+              'src/test/aiur/regression/renamed_test.exs' > "$rename_fixture"
 
             if ! protected_changed_files "$rename_fixture"; then
               echo "::error::Regression guard self-test failed: rename-out fixture was not treated as protected."
@@ -242,10 +324,49 @@ jobs:
             fi
 
             unprotected_fixture="$(mktemp)"
-            printf '%s\n' 'src/test/aiur/ordinary_test.exs' > "$unprotected_fixture"
+            write_changed_file_record 'src/test/aiur/ordinary_test.exs' '' > "$unprotected_fixture"
 
             if protected_changed_files "$unprotected_fixture"; then
               echo "::error::Regression guard self-test failed: ordinary fixture was treated as protected."
+              return 1
+            fi
+
+            hostile_filename_fixture="$(mktemp)"
+            write_changed_file_record \
+              $'docs/marker-like\tname\nwith\\slashes.exs' \
+              $'src/test/aiur/regression/renamed\nfile.exs' > "$hostile_filename_fixture"
+
+            hostile_record_count="$(wc -l < "$hostile_filename_fixture" | tr -d '[:space:]')"
+
+            if [ "$hostile_record_count" != "1" ] ||
+                ! protected_changed_files "$hostile_filename_fixture"; then
+              echo "::error::Regression guard self-test failed: hostile filename fixture corrupted record framing or hid a protected rename."
+              return 1
+            fi
+
+            if changes_require_approval "$unprotected_fixture" "1" "1" ||
+                changes_require_approval "$unprotected_fixture" "2999" "2999"; then
+              echo "::error::Regression guard self-test failed: complete ordinary file list required approval."
+              return 1
+            fi
+
+            malformed_record_fixture="$(mktemp)"
+            printf '%s\n' 'not-json!' > "$malformed_record_fixture"
+
+            if ! changes_require_approval "$unprotected_fixture" "3000" "3000" ||
+                ! changes_require_approval "$unprotected_fixture" "3001" "3001" ||
+                ! changes_require_approval "$unprotected_fixture" "3000" "3001" ||
+                ! changes_require_approval "$unprotected_fixture" "not-a-count" "1" ||
+                ! changes_require_approval "$unprotected_fixture" "1" "not-a-count" ||
+                ! changes_require_approval "$malformed_record_fixture" "1" "1" ||
+                ! changes_require_approval "$rename_fixture" "1" "1"; then
+              echo "::error::Regression guard self-test failed: capped, mismatched, malformed, or protected fixture bypassed approval."
+              return 1
+            fi
+
+            if require_current_head "head-before-push" "head-after-push" >/dev/null 2>&1 ||
+                ! require_current_head "head-after-push" "head-after-push" >/dev/null 2>&1; then
+              echo "::error::Regression guard self-test failed: current-head fixture did not fail closed."
               return 1
             fi
 
@@ -308,17 +429,35 @@ jobs:
           run_guard_regression_tests
 
           changed_files="$(mktemp)"
-          gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files" \
-            --jq '.[] | .filename, (.previous_filename // empty)' > "$changed_files"
+          gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" \
+            --jq '.[] | [.filename, (.previous_filename // "")] | @json' > "$changed_files"
 
-          if ! protected_changed_files "$changed_files"; then
+          listed_file_count="$(wc -l < "$changed_files" | tr -d '[:space:]')"
+
+          pr_metadata="$(
+            gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" \
+              --jq '[.head.sha, (.changed_files | tostring)] | @tsv'
+          )"
+          IFS=$'\t' read -r current_head_sha total_changed_files <<< "$pr_metadata"
+
+          # The list and total are live API reads, so bind them to the event head
+          # before either the protected-path or ordinary fast path can succeed.
+          require_current_head "$EVENT_HEAD_SHA" "$current_head_sha"
+
+          if ! changes_require_approval "$changed_files" "$listed_file_count" "$total_changed_files"; then
             echo "No files under src/test/aiur/regression/ changed. Guard passes."
             exit 0
           fi
 
-          current_head_sha="$(
-            gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.sha'
-          )"
+          if file_list_requires_approval "$listed_file_count" "$total_changed_files"; then
+            approval_error="GitHub returned ${listed_file_count:-an invalid number} file records for ${total_changed_files:-an unknown number} changed files (API limit: ${PR_FILE_API_LIMIT}), so the guard cannot prove that src/test/aiur/regression/ is untouched. Review the complete git diff outside the capped API/UI listing, then have the operator apply regression-suite-change if the change is intentional."
+            echo "::warning::${approval_error}"
+          elif protected_changed_files "$changed_files"; then
+            approval_error="This PR modifies files under src/test/aiur/regression/ without the operator-applied regression-suite-change label. Characterization tests are read-only: a failing characterization test means your change is wrong. Revert the test edits, or have the operator apply the regression-suite-change label."
+          else
+            approval_error="GitHub's changed-file response contained an invalid JSON record, so the guard cannot prove that src/test/aiur/regression/ is untouched. Review the complete git diff, then have the operator apply regression-suite-change if the change is intentional."
+            echo "::warning::${approval_error}"
+          fi
 
           has_override_label="$(
             gh api "repos/${REPOSITORY}/issues/${PR_NUMBER}" \
@@ -330,7 +469,7 @@ jobs:
           # label fails closed rather than relying on timeline ordering.
           require_fresh_approval "$EVENT_ACTION" "$DISMISS_RESULT" "$has_override_label" "$DISMISS_REAPPROVAL"
 
-          require_active_override_label "$has_override_label"
+          require_active_override_label "$has_override_label" "$approval_error"
 
           require_current_operator_approval \
             "$EVENT_ACTION" "$EVENT_LABEL" "$EVENT_LABELER" "$EVENT_HEAD_SHA" "$current_head_sha" "$DISMISS_REAPPROVAL"
