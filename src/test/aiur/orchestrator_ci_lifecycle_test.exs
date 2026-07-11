@@ -3,7 +3,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
   alias Aiur.CIApprovalStore
   alias Aiur.Events.Exchange
-  alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.{CiLifecycle, State}
 
   defmodule RecordingGitHubClient do
     def update_issue_state(issue_id, state_name) do
@@ -159,7 +159,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
   end
 
   defp poll_ci(state, issue, result) do
-    Orchestrator.poll_github_ci_for_test(state,
+    CiLifecycle.poll_github_ci(state,
       ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
       ci_poller: fn [target], _opts ->
         assert target == issue.identifier

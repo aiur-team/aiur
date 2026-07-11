@@ -9,6 +9,9 @@ defmodule Aiur.OrchestratorDeactivateTest do
   alias Aiur.Issue
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator
+  alias Aiur.Orchestrator.{CiLifecycle, CommandScan, CommentPolling, DispatchPolicy}
+  alias Aiur.Orchestrator.{EventTopics, PauseResume, PrAnchored, PushRouting, Reconciler}
+  alias Aiur.Orchestrator.{RuntimeWatchdog, Slots}
   alias Aiur.SessionHandle
 
   @pgrep_skip_reason Aiur.TestSupport.pgrep_skip_reason()
@@ -173,7 +176,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       # Must NOT raise FunctionClauseError. State unchanged is fine —
       # the orchestrator just leaves the issue alone until a recognized
       # label appears.
-      result = Orchestrator.reconcile_issue_states_for_test([issue], state)
+      result = Reconciler.reconcile_running_issue_states([issue], state)
 
       assert result == state
     end
@@ -202,7 +205,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         labels: []
       }
 
-      result = Orchestrator.reconcile_issue_states_for_test([issue], state)
+      result = Reconciler.reconcile_running_issue_states([issue], state)
       assert result == state
     end
   end
@@ -240,7 +243,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       issue = %Issue{id: "821", identifier: "821", state: "human-review", title: "Awaiting CI"}
 
       state =
-        Orchestrator.poll_github_ci_for_test(empty_orchestrator_state(),
+        CiLifecycle.poll_github_ci(empty_orchestrator_state(),
           ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
           ci_poller: fn ["821"], _opts ->
             {:ok,
@@ -267,7 +270,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       state =
         human_review_running_state(identifier, agent_pid)
         |> put_in([Access.key(:ci_lifecycle), :approved_heads], %{identifier => "approved-head"})
-        |> Orchestrator.poll_github_ci_for_test(
+        |> CiLifecycle.poll_github_ci(
           ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
           ci_poller: fn [^identifier], _opts ->
             {:ok, %{results: [%{target: identifier, decision: :pending, head_sha: "approved-head"}], errors: []}}
@@ -291,7 +294,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       state =
         empty_orchestrator_state()
         |> put_in([Access.key(:ci_lifecycle), :approved_heads], %{identifier => "approved-head"})
-        |> Orchestrator.poll_github_ci_for_test(
+        |> CiLifecycle.poll_github_ci(
           ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
           ci_poller: fn [^identifier], _opts ->
             {:ok, %{results: [%{target: identifier, decision: :pending, head_sha: "replacement-head"}], errors: []}}
@@ -306,7 +309,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       issue = %Issue{id: "822", identifier: "822", state: "ci-wait", title: "CI gate"}
 
       state =
-        Orchestrator.poll_github_ci_for_test(empty_orchestrator_state(),
+        CiLifecycle.poll_github_ci(empty_orchestrator_state(),
           ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
           ci_poller: fn ["822"], _opts ->
             {:ok, %{results: [%{target: "822", decision: :passed, head_sha: "new-head", pr_number: 822}], errors: []}}
@@ -322,7 +325,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       waiting_issue = %Issue{id: identifier, identifier: identifier, state: "ci-wait", title: "Restart-safe CI"}
 
       state =
-        Orchestrator.poll_github_ci_for_test(empty_orchestrator_state(),
+        CiLifecycle.poll_github_ci(empty_orchestrator_state(),
           ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [waiting_issue]} end,
           ci_poller: fn [^identifier], _opts ->
             {:ok, %{results: [%{target: identifier, decision: :passed, head_sha: "approved-head"}], errors: []}}
@@ -342,7 +345,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       review_issue = %{waiting_issue | state: "human-review"}
 
       state =
-        Orchestrator.poll_github_ci_for_test(restarted_state,
+        CiLifecycle.poll_github_ci(restarted_state,
           ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [review_issue]} end,
           ci_poller: fn [^identifier], _opts ->
             {:ok, %{results: [%{target: identifier, decision: :pending, head_sha: "approved-head"}], errors: []}}
@@ -366,7 +369,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       :ok = Exchange.subscribe(topic)
 
       try do
-        Orchestrator.poll_github_ci_for_test(empty_orchestrator_state(),
+        CiLifecycle.poll_github_ci(empty_orchestrator_state(),
           ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
           ci_poller: fn [^identifier], _opts ->
             {:ok,
@@ -427,7 +430,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         SubscriptionStore.stop(identifier)
       end)
 
-      Orchestrator.poll_github_ci_for_test(empty_orchestrator_state(),
+      CiLifecycle.poll_github_ci(empty_orchestrator_state(),
         ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
         ci_poller: fn [^identifier], _opts ->
           {:ok,
@@ -460,7 +463,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       :ok = Exchange.subscribe(topic)
 
       poll = fn ->
-        Orchestrator.poll_github_ci_for_test(empty_orchestrator_state(),
+        CiLifecycle.poll_github_ci(empty_orchestrator_state(),
           ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
           ci_poller: fn [^identifier], _opts ->
             {:ok,
@@ -512,7 +515,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         |> put_in([Access.key(:ci_lifecycle), :test_failure_heads], %{identifier => "failed-head"})
 
       state =
-        Orchestrator.poll_github_ci_for_test(state,
+        CiLifecycle.poll_github_ci(state,
           ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
           ci_poller: fn [^identifier], _opts ->
             {:ok,
@@ -557,7 +560,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         |> put_in([Access.key(:running), identifier, :paused_at], DateTime.utc_now())
 
       poll = fn state ->
-        Orchestrator.poll_github_ci_for_test(state,
+        CiLifecycle.poll_github_ci(state,
           ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
           ci_poller: fn [^identifier], _opts ->
             {:ok,
@@ -625,7 +628,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         |> put_in([Access.key(:running), identifier, :paused_reason], :ci_wait)
 
       state =
-        Orchestrator.poll_github_ci_for_test(state,
+        CiLifecycle.poll_github_ci(state,
           ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
           ci_poller: fn [^identifier], _opts ->
             {:ok,
@@ -663,7 +666,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       }
 
       state =
-        Orchestrator.poll_github_ci_for_test(state,
+        CiLifecycle.poll_github_ci(state,
           ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, []} end,
           ci_poller: fn [], _opts -> {:ok, %{results: [], errors: []}} end
         )
@@ -674,10 +677,10 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
 
     test "CI failure topic parser accepts only ticket-local failure events" do
-      assert {:ok, "824"} = Orchestrator.parse_ci_failed_topic_for_test("ticket.824.ci.failed")
+      assert {:ok, "824"} = EventTopics.parse_ci_failed_topic("ticket.824.ci.failed")
 
       for topic <- ["ticket.824.ci.passed", "ticket.824.ci.failed.extra", "ticket.824.pr.review_comment"] do
-        assert :nomatch = Orchestrator.parse_ci_failed_topic_for_test(topic)
+        assert :nomatch = EventTopics.parse_ci_failed_topic(topic)
       end
     end
 
@@ -791,7 +794,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
           labels: []
         }
 
-        updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
+        updated_state = Reconciler.reconcile_running_issue_states([issue], state)
 
         # Entry survives — this is the whole point of the deactivate path.
         assert Map.has_key?(updated_state.running, issue_id)
@@ -858,7 +861,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
           labels: []
         }
 
-        updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
+        updated_state = Reconciler.reconcile_running_issue_states([issue], state)
 
         # Same shape after the second observation — no spurious task kill,
         # no double-deactivate side effect.
@@ -935,7 +938,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
           labels: []
         }
 
-        updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
+        updated_state = Reconciler.reconcile_running_issue_states([issue], state)
 
         assert_receive {:human_review_verify, ^issue_id}
         assert_receive {:human_review_update, ^issue_id, "rework"}
@@ -1019,7 +1022,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
           labels: []
         }
 
-        updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
+        updated_state = Reconciler.reconcile_running_issue_states([issue], state)
 
         assert_receive {:human_review_verify, ^issue_id}
         refute_received {:human_review_update, ^issue_id, "rework"}
@@ -1088,7 +1091,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
             state = human_review_running_state(issue_id, agent_pid)
             issue = human_review_issue(issue_id)
 
-            updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
+            updated_state = Reconciler.reconcile_running_issue_states([issue], state)
 
             assert_receive {:human_review_verify, ^issue_id}
             refute_received {:human_review_update, ^issue_id, "rework"}
@@ -1152,7 +1155,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         state = human_review_running_state(issue_id, agent_pid)
         issue = human_review_issue(issue_id)
 
-        updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
+        updated_state = Reconciler.reconcile_running_issue_states([issue], state)
 
         assert_receive {:human_review_verify, ^issue_id}
         assert_receive {:human_review_update, ^issue_id, "rework"}
@@ -1231,7 +1234,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
           labels: []
         }
 
-        _ = Orchestrator.reconcile_issue_states_for_test([issue], state)
+        _ = Reconciler.reconcile_running_issue_states([issue], state)
 
         assert_receive {:aiur_turn_done, ^issue_identifier, ^turn_a, :terminal}, 500
         assert_receive {:aiur_turn_done, ^issue_identifier, ^turn_b, :terminal}, 500
@@ -1304,7 +1307,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
           labels: []
         }
 
-        _ = Orchestrator.reconcile_issue_states_for_test([issue], state)
+        _ = Reconciler.reconcile_running_issue_states([issue], state)
 
         # Both streams receive the close broadcast.
         assert_receive {:aiur_turn_done, ^issue_identifier, ^turn_a, :deactivated}, 500
@@ -1379,7 +1382,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
           labels: []
         }
 
-        updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
+        updated_state = Reconciler.reconcile_running_issue_states([issue], state)
 
         refute Map.has_key?(updated_state.running, issue_id)
         refute MapSet.member?(updated_state.claimed, issue_id)
@@ -1417,7 +1420,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       state = sleeping_state(issue_id, identifier, :working)
 
-      next = Orchestrator.apply_mark_sleeping_for_test(state, identifier)
+      next = PushRouting.maybe_mark_sleeping(state, identifier)
       assert get_in(next.running, [issue_id, :control, :status]) == :sleeping
     end
 
@@ -1426,11 +1429,11 @@ defmodule Aiur.OrchestratorDeactivateTest do
       identifier = "SLEEP-SLOT"
 
       state = sleeping_state(issue_id, identifier, :working)
-      next = Orchestrator.apply_mark_sleeping_for_test(state, identifier)
+      next = PushRouting.maybe_mark_sleeping(state, identifier)
 
       # :sleeping is neither :paused nor :deactivated, so it still counts
       # as an active slot-holder — the agent is mid-turn, just idle-streamed.
-      assert Orchestrator.slot_status_for_test(next).active == 1
+      assert Slots.slot_status(next).active == 1
     end
 
     test "no-op when the entry is :paused (don't override a more-specific state)" do
@@ -1439,7 +1442,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       state = sleeping_state(issue_id, identifier, :paused)
 
-      next = Orchestrator.apply_mark_sleeping_for_test(state, identifier)
+      next = PushRouting.maybe_mark_sleeping(state, identifier)
       assert get_in(next.running, [issue_id, :control, :status]) == :paused
     end
 
@@ -1449,13 +1452,13 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       state = sleeping_state(issue_id, identifier, :deactivated)
 
-      next = Orchestrator.apply_mark_sleeping_for_test(state, identifier)
+      next = PushRouting.maybe_mark_sleeping(state, identifier)
       assert get_in(next.running, [issue_id, :control, :status]) == :deactivated
     end
 
     test "no-op when the identifier isn't running" do
       state = sleeping_state("issue-sleep-x", "SLEEP-X", :working)
-      assert ^state = Orchestrator.apply_mark_sleeping_for_test(state, "UNKNOWN")
+      assert ^state = PushRouting.maybe_mark_sleeping(state, "UNKNOWN")
     end
 
     test "the next turn's :worker_control_state :working flips 💤 back to 🟢" do
@@ -1464,7 +1467,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       slept =
         sleeping_state(issue_id, identifier, :working)
-        |> Orchestrator.apply_mark_sleeping_for_test(identifier)
+        |> PushRouting.maybe_mark_sleeping(identifier)
 
       assert get_in(slept.running, [issue_id, :control, :status]) == :sleeping
 
@@ -1529,8 +1532,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
         labels: ["agent:todo", "agent:paused"]
       }
 
-      refute Orchestrator.dispatch_candidate_for_test(issue, state)
-      refute Orchestrator.should_dispatch_issue_for_test(issue, state)
+      refute DispatchPolicy.dispatch_candidate?(issue, state)
+      refute DispatchPolicy.should_dispatch_issue?(issue, state)
     end
 
     test "running issue pauses when the override appears" do
@@ -1568,7 +1571,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         labels: ["agent:in-progress", "agent:paused"]
       }
 
-      next = Orchestrator.reconcile_issue_states_for_test([paused_issue], state)
+      next = Reconciler.reconcile_running_issue_states([paused_issue], state)
 
       assert_receive {:pause_agent, _request_id}
       assert get_in(next.running, [issue_id, :control, :status]) == :paused
@@ -1615,7 +1618,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         labels: ["agent:in-progress"]
       }
 
-      next = Orchestrator.reconcile_issue_states_for_test([unpaused_issue], state)
+      next = Reconciler.reconcile_running_issue_states([unpaused_issue], state)
 
       assert_receive {:resume_agent, _request_id}
       assert get_in(next.running, [issue_id, :control, :status]) == :working
@@ -1747,7 +1750,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       state = %Orchestrator.State{initial_dispatch_cycle: true, running: %{}}
 
-      assert [recovered] = Orchestrator.recover_startup_pause_overrides_for_test(state, [issue])
+      assert [recovered] = PauseResume.recover_startup_pause_overrides(state, [issue])
       assert_receive {:memory_tracker_remove_label, "PAUSE-STARTUP", "agent:paused"}
       refute recovered.paused
       refute "agent:paused" in recovered.labels
@@ -1789,7 +1792,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         labels: ["agent:in-progress"]
       }
 
-      next = Orchestrator.reconcile_issue_states_for_test([unpaused_issue], state)
+      next = Reconciler.reconcile_running_issue_states([unpaused_issue], state)
 
       refute_receive {:resume_agent, _request_id}, 100
       assert get_in(next.running, [issue_id, :control, :status]) == :paused
@@ -1856,7 +1859,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         # `active` counts entries holding a slot. After U3, that's
         # :working only — :paused holds a slot too today (existing
         # behaviour, exposed as `paused`), and :deactivated holds NONE.
-        status = Orchestrator.slot_status_for_test(state)
+        status = Slots.slot_status(state)
 
         assert status.active == 1
         assert status.paused == 1
@@ -1904,7 +1907,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
           max_concurrent_agents: 6
         }
 
-        status = Orchestrator.slot_status_for_test(state)
+        status = Slots.slot_status(state)
 
         assert status.active == 0
         assert status.paused == 0
@@ -1962,7 +1965,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
           labels: []
         }
 
-        updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
+        updated_state = Reconciler.reconcile_running_issue_states([issue], state)
 
         # The entry's stored issue is refreshed to the new state.
         entry = Map.fetch!(updated_state.running, issue_id)
@@ -1985,7 +1988,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       # handle_info({:event, ...}) clause. Anchors guard against
       # accidental match drift if other ticket subtopics are added.
       assert {:ok, "140"} =
-               Orchestrator.parse_pr_review_comment_topic_for_test("ticket.140.pr.review_comment")
+               EventTopics.parse_pr_review_comment_topic("ticket.140.pr.review_comment")
     end
 
     test "topic parser rejects unrelated topics" do
@@ -1995,7 +1998,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
             "ticket.140.agent.progress",
             "system.repo.branch.push"
           ] do
-        assert :nomatch = Orchestrator.parse_pr_review_comment_topic_for_test(unrelated)
+        assert :nomatch = EventTopics.parse_pr_review_comment_topic(unrelated)
       end
     end
   end
@@ -2003,7 +2006,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
   describe "issue.commented firehose reactivation (subscriber wiring)" do
     test "topic parser extracts the ticket number from a valid topic" do
       assert {:ok, "7"} =
-               Orchestrator.parse_issue_commented_topic_for_test("ticket.7.issue.commented")
+               EventTopics.parse_issue_commented_topic("ticket.7.issue.commented")
     end
 
     test "topic parser rejects unrelated topics" do
@@ -2014,7 +2017,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
             "ticket.7.pr.opened",
             "system.repo.branch.push"
           ] do
-        assert :nomatch = Orchestrator.parse_issue_commented_topic_for_test(unrelated)
+        assert :nomatch = EventTopics.parse_issue_commented_topic(unrelated)
       end
     end
 
@@ -2914,7 +2917,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       }
 
       next =
-        Orchestrator.poll_github_comments_for_test(state,
+        CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
           review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, [issue]} end
@@ -2977,7 +2980,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       }
 
       next =
-        Orchestrator.poll_github_comments_for_test(state,
+        CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
           review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, [issue]} end
@@ -3068,7 +3071,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       }
 
       next =
-        Orchestrator.poll_github_comments_for_test(state,
+        CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
           review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, [human_review_issue]} end
@@ -3134,7 +3137,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       }
 
       next =
-        Orchestrator.poll_github_comments_for_test(state,
+        CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
           review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, issues} end,
@@ -3204,7 +3207,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       }
 
       next =
-        Orchestrator.poll_github_comments_for_test(state,
+        CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
           review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, [issue]} end
@@ -3263,7 +3266,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       }
 
       next =
-        Orchestrator.poll_github_comments_for_test(state,
+        CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
           review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, [issue]} end,
@@ -3322,7 +3325,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       }
 
       next =
-        Orchestrator.poll_github_comments_for_test(state,
+        CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
           review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, issues} end,
@@ -3402,7 +3405,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       }
 
       next =
-        Orchestrator.poll_github_comments_for_test(state,
+        CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
           review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, [human_review_issue]} end,
@@ -3465,7 +3468,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       }
 
       next =
-        Orchestrator.poll_github_comments_for_test(state,
+        CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
           review_issue_fetcher: fn ["human-review", "merging"] -> {:error, :tracker_down} end
@@ -3723,7 +3726,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       }
 
       next =
-        Orchestrator.poll_github_comments_for_test(state,
+        CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
           review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, []} end,
@@ -3795,7 +3798,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       }
 
       next =
-        Orchestrator.poll_github_comments_for_test(state,
+        CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
           max_concurrency: 1,
@@ -3856,7 +3859,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       log =
         ExUnit.CaptureLog.capture_log(fn ->
-          Orchestrator.poll_github_comments_for_test(state,
+          CommentPolling.poll_github_comments(state,
             repo: "owner/repo",
             request_fun: request_fun,
             max_concurrency: 1,
@@ -3905,7 +3908,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       state = %Orchestrator.State{running: %{}, github_comments_since: %{}}
 
       next =
-        Orchestrator.poll_github_comments_for_test(state,
+        CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
           review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, []} end,
@@ -3957,7 +3960,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       state = %Orchestrator.State{running: %{}, github_command_scan_since: "2026-06-25T00:00:00Z"}
 
       next =
-        Orchestrator.scan_pr_commands_for_test(state,
+        CommandScan.scan_pr_commands(state,
           repo: "owner/repo",
           command_scan_review_comment_fetcher: fn _opts -> {:ok, [review_command]} end,
           command_scan_issue_comment_fetcher: fn _opts -> {:ok, []} end
@@ -4009,7 +4012,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         "html_url" => "https://github.com/owner/repo/pull/734#issuecomment-90002"
       }
 
-      Orchestrator.scan_pr_commands_for_test(
+      CommandScan.scan_pr_commands(
         %Orchestrator.State{running: %{}, github_command_scan_since: "2026-06-25T00:00:00Z"},
         repo: "owner/repo",
         command_scan_review_comment_fetcher: fn _opts -> {:ok, []} end,
@@ -4053,7 +4056,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         "html_url" => "https://github.com/owner/repo/issues/736#issuecomment-90020"
       }
 
-      Orchestrator.scan_pr_commands_for_test(
+      CommandScan.scan_pr_commands(
         %Orchestrator.State{running: %{}, github_command_scan_since: "2026-06-25T00:00:00Z"},
         repo: "owner/repo",
         command_scan_review_comment_fetcher: fn _opts -> {:ok, []} end,
@@ -4107,7 +4110,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         }
       ]
 
-      Orchestrator.scan_pr_commands_for_test(
+      CommandScan.scan_pr_commands(
         %Orchestrator.State{running: %{}, github_command_scan_since: "2026-06-25T00:00:00Z"},
         repo: "owner/repo",
         command_scan_review_comment_fetcher: fn _opts -> {:ok, review_comments} end,
@@ -4141,7 +4144,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       state = %Orchestrator.State{running: %{}, github_command_scan_since: "2026-06-25T00:00:00Z"}
 
       next =
-        Orchestrator.scan_pr_commands_for_test(state,
+        CommandScan.scan_pr_commands(state,
           repo: "owner/repo",
           command_scan_review_comment_fetcher: fn _opts ->
             send(parent, :unexpected_command_scan_fetch)
@@ -4188,7 +4191,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       log =
         ExUnit.CaptureLog.capture_log(fn ->
-          Orchestrator.scan_pr_commands_for_test(
+          CommandScan.scan_pr_commands(
             %Orchestrator.State{running: %{}, github_command_scan_since: "2026-06-25T00:00:00Z"},
             repo: "owner/repo",
             command_scan_pull_request_limit: 2,
@@ -4217,10 +4220,10 @@ defmodule Aiur.OrchestratorDeactivateTest do
   describe "pause-request topic parser (subscriber wiring)" do
     test "extracts the identifier from a valid agent.pause.request topic" do
       assert {:ok, "100"} =
-               Orchestrator.parse_pause_request_topic_for_test("ticket.100.agent.pause.request")
+               EventTopics.parse_pause_request_topic("ticket.100.agent.pause.request")
 
       assert {:ok, "ABC-42"} =
-               Orchestrator.parse_pause_request_topic_for_test("ticket.ABC-42.agent.pause.request")
+               EventTopics.parse_pause_request_topic("ticket.ABC-42.agent.pause.request")
     end
 
     test "rejects unrelated topics" do
@@ -4230,7 +4233,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
             "ticket.100.pr.review_comment",
             "system.main.branch.push"
           ] do
-        assert :nomatch = Orchestrator.parse_pause_request_topic_for_test(unrelated)
+        assert :nomatch = EventTopics.parse_pause_request_topic(unrelated)
       end
     end
   end
@@ -4257,7 +4260,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         max_concurrent_agents: 6
       }
 
-      next = Orchestrator.apply_pause_request_for_test(state, identifier)
+      next = PushRouting.maybe_pause_on_request(state, identifier)
       assert get_in(next.running, [issue_id, :control, :status]) == :paused
     end
 
@@ -4282,7 +4285,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         max_concurrent_agents: 6
       }
 
-      assert ^state = Orchestrator.apply_pause_request_for_test(state, identifier)
+      assert ^state = PushRouting.maybe_pause_on_request(state, identifier)
     end
 
     test "no-op when entry is :deactivated (don't bring back from the dead)" do
@@ -4306,7 +4309,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         max_concurrent_agents: 6
       }
 
-      next = Orchestrator.apply_pause_request_for_test(state, identifier)
+      next = PushRouting.maybe_pause_on_request(state, identifier)
       assert get_in(next.running, [issue_id, :control, :status]) == :deactivated
     end
 
@@ -4319,7 +4322,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         max_concurrent_agents: 6
       }
 
-      assert ^state = Orchestrator.apply_pause_request_for_test(state, "UNKNOWN")
+      assert ^state = PushRouting.maybe_pause_on_request(state, "UNKNOWN")
     end
 
     test "stamps paused_at on the entry so the runtime clock freezes" do
@@ -4343,7 +4346,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         max_concurrent_agents: 6
       }
 
-      next = Orchestrator.apply_pause_request_for_test(state, identifier)
+      next = PushRouting.maybe_pause_on_request(state, identifier)
       entry = next.running[issue_id]
 
       assert entry.control.status == :paused
@@ -4440,7 +4443,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       # 1ms timeout would trip on any entry whose elapsed > 1ms — but
       # the paused short-circuit must skip it BEFORE elapsed is computed.
-      next = Orchestrator.apply_stall_check_for_test(state, 1)
+      next = RuntimeWatchdog.apply_stall_check(state, 1)
       assert Map.has_key?(next.running, issue_id), "paused entry must not be restarted"
       assert get_in(next.running, [issue_id, :control, :status]) == :paused
       assert next.retry_attempts == %{}, "no retry should be scheduled"
@@ -4470,7 +4473,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         max_concurrent_agents: 6
       }
 
-      next = Orchestrator.apply_stall_check_for_test(state, 1)
+      next = RuntimeWatchdog.apply_stall_check(state, 1)
       assert Map.has_key?(next.running, issue_id)
       assert get_in(next.running, [issue_id, :control, :status]) == :deactivated
       assert next.retry_attempts == %{}
@@ -4502,7 +4505,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         max_concurrent_agents: 6
       }
 
-      next = Orchestrator.apply_stall_check_for_test(state, 1)
+      next = RuntimeWatchdog.apply_stall_check(state, 1)
       refute Map.has_key?(next.running, issue_id), "working+stale entry must be restarted"
 
       assert %{identifier: ^identifier, error: "stalled" <> _} =
@@ -4541,7 +4544,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       # A claude hook fires for this agent -> liveness refreshed to now.
       refreshed = Orchestrator.note_agent_activity_state(state, identifier)
 
-      next = Orchestrator.apply_stall_check_for_test(refreshed, 60_000)
+      next = RuntimeWatchdog.apply_stall_check(refreshed, 60_000)
 
       assert Map.has_key?(next.running, issue_id), "hook-active entry must NOT be stall-restarted"
       assert next.retry_attempts == %{}
@@ -4631,7 +4634,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         max_concurrent_agents: 6
       }
 
-      next = Orchestrator.apply_branch_push_for_test(state, "99")
+      next = PushRouting.apply_branch_push(state, "99")
       assert get_in(next.running, [issue_id, :control, :status]) == :working
     end
 
@@ -4665,7 +4668,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         max_concurrent_agents: 6
       }
 
-      next = Orchestrator.apply_branch_push_for_test(state, "99")
+      next = PushRouting.apply_branch_push(state, "99")
       assert get_in(next.running, [issue_id, :control, :status]) == :working
     end
 
@@ -4701,7 +4704,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         max_concurrent_agents: 6
       }
 
-      next = Orchestrator.apply_branch_push_for_test(state, "99")
+      next = PushRouting.apply_branch_push(state, "99")
       assert get_in(next.running, [issue_id, :control, :status]) == :paused
     end
 
@@ -4744,7 +4747,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       }
 
       before_ms = System.monotonic_time(:millisecond)
-      next = Orchestrator.apply_branch_push_for_test(state, "99")
+      next = PushRouting.apply_branch_push(state, "99")
       after_ms = System.monotonic_time(:millisecond)
 
       entry = next.running[issue_id]
@@ -4796,7 +4799,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         max_concurrent_agents: 6
       }
 
-      next = Orchestrator.apply_branch_push_for_test(state, blocker_identifier)
+      next = PushRouting.apply_branch_push(state, blocker_identifier)
       assert get_in(next.running, [issue_id, :control, :status]) == :paused
     end
   end
@@ -4908,7 +4911,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
           labels: []
         }
 
-        updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
+        updated_state = Reconciler.reconcile_running_issue_states([issue], state)
 
         entry = Map.fetch!(updated_state.running, issue_id)
         assert get_in(entry, [:control, :status]) == :deactivated
@@ -5012,12 +5015,12 @@ defmodule Aiur.OrchestratorDeactivateTest do
   describe "branch-push topic parser (subscriber wiring)" do
     test "extracts the identifier from a valid ticket.<id>.branch.push topic" do
       assert {:ok, "99"} =
-               Orchestrator.parse_branch_push_topic_for_test("ticket.99.branch.push")
+               EventTopics.parse_branch_push_topic("ticket.99.branch.push")
     end
 
     test "rejects system-branch pushes (not ticket-scoped)" do
       assert :nomatch =
-               Orchestrator.parse_branch_push_topic_for_test("system.main.branch.push")
+               EventTopics.parse_branch_push_topic("system.main.branch.push")
     end
 
     test "rejects nearby topics" do
@@ -5026,7 +5029,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
             "ticket.99.pr.opened",
             "ticket.99.agent.pause.request"
           ] do
-        assert :nomatch = Orchestrator.parse_branch_push_topic_for_test(unrelated)
+        assert :nomatch = EventTopics.parse_branch_push_topic(unrelated)
       end
     end
   end
@@ -5034,10 +5037,10 @@ defmodule Aiur.OrchestratorDeactivateTest do
   describe "system default-branch push notifies without terminating" do
     test "topic parser extracts the branch from a system branch push" do
       assert {:ok, "main"} =
-               Orchestrator.parse_system_branch_push_topic_for_test("system.main.branch.push")
+               EventTopics.parse_system_branch_push_topic("system.main.branch.push")
 
       assert :nomatch =
-               Orchestrator.parse_system_branch_push_topic_for_test("ticket.99.branch.push")
+               EventTopics.parse_system_branch_push_topic("ticket.99.branch.push")
     end
 
     test "default branch push leaves active and paused agents running and preserves claims" do
@@ -5083,7 +5086,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       try do
         next =
-          Orchestrator.apply_system_branch_push_for_test(state, "main", %{
+          PushRouting.maybe_notify_agents_on_default_branch_push(state, "main", %{
             sha: "abc123"
           })
 
@@ -5133,7 +5136,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         retry_attempts: %{}
       }
 
-      next = Orchestrator.apply_system_branch_push_for_test(state, "release", %{sha: "def456"})
+      next = PushRouting.maybe_notify_agents_on_default_branch_push(state, "release", %{sha: "def456"})
 
       assert Map.has_key?(next.running, issue.id)
       assert MapSet.member?(next.claimed, issue.id)
@@ -5168,7 +5171,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         # The configured base branch (trunk) is the branch this reaction keys
         # on, but the notify-only behavior never terminates the agent.
         after_trunk =
-          Orchestrator.apply_system_branch_push_for_test(state, "trunk", %{sha: "trunk123"})
+          PushRouting.maybe_notify_agents_on_default_branch_push(state, "trunk", %{sha: "trunk123"})
 
         assert Map.has_key?(after_trunk.running, issue.id)
         assert MapSet.member?(after_trunk.claimed, issue.id)
@@ -5412,7 +5415,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       state = pr_anchored_running_state(77, agent_pid)
 
       next =
-        Orchestrator.maybe_stop_closed_pr_anchored_agents_for_test(state,
+        PrAnchored.maybe_stop_closed_pr_anchored_agents(state,
           # {:ok, nil} == closed/merged/missing PR.
           open_pull_request_fetcher: fn "77" -> {:ok, nil} end
         )
@@ -5443,7 +5446,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       agent_pid = spawn(fn -> Process.sleep(:infinity) end)
       state = pr_anchored_running_state(77, agent_pid)
 
-      Orchestrator.maybe_stop_closed_pr_anchored_agents_for_test(state,
+      PrAnchored.maybe_stop_closed_pr_anchored_agents(state,
         # {:ok, nil} == closed/merged/missing PR.
         open_pull_request_fetcher: fn "77" -> {:ok, nil} end
       )
@@ -5459,7 +5462,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       state = pr_anchored_running_state(77, agent_pid)
 
       next =
-        Orchestrator.maybe_stop_closed_pr_anchored_agents_for_test(state,
+        PrAnchored.maybe_stop_closed_pr_anchored_agents(state,
           open_pull_request_fetcher: fn "77" ->
             {:ok, %{"number" => 77, "state" => "open", "head" => %{"ref" => "feature/login"}}}
           end
@@ -5479,7 +5482,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       state = pr_anchored_running_state(77, agent_pid)
 
       next =
-        Orchestrator.maybe_stop_closed_pr_anchored_agents_for_test(state,
+        PrAnchored.maybe_stop_closed_pr_anchored_agents(state,
           open_pull_request_fetcher: fn "77" -> {:error, :rate_limited} end
         )
 
@@ -5502,7 +5505,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       state = pr_anchored_running_state(77, agent_pid)
 
       next =
-        Orchestrator.maybe_stop_closed_pr_anchored_agents_for_test(state,
+        PrAnchored.maybe_stop_closed_pr_anchored_agents(state,
           open_pull_request_fetcher: fn _pr ->
             send(test_pid, :fetcher_called)
             {:ok, nil}
@@ -5543,7 +5546,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       }
 
       next =
-        Orchestrator.maybe_stop_closed_pr_anchored_agents_for_test(state,
+        PrAnchored.maybe_stop_closed_pr_anchored_agents(state,
           open_pull_request_fetcher: fn _pr ->
             send(test_pid, :fetcher_called)
             {:ok, nil}
