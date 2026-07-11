@@ -4,10 +4,10 @@ defmodule Aiur.Orchestrator do
   use GenServer
   require Logger
 
-  alias Aiur.{AgentQueueItem, AgentQueueStore, Alerts, Issue}
-  alias Aiur.Orchestrator.{AgentTeardown, AutoSubscriptions, CiLifecycle, CommandScan, CommentPolling, CommentWake}
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts, IssueSync}
-  alias Aiur.Orchestrator.{Lifecycle, PauseResume, PrAnchored, PushRouting, Reconciler, RetryEngine}
+  alias Aiur.{Alerts, Issue}
+  alias Aiur.Orchestrator.{AgentTeardown, AutoSubscriptions, CiLifecycle, CommentWake}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
+  alias Aiur.Orchestrator.{Lifecycle, PauseResume, PushRouting, RetryEngine}
   alias Aiur.Orchestrator.{RuntimeWatchdog, Slots, State, StatusReport}
   alias Aiur.Orchestrator.{TokenAccounting, TrackedSet, TrackerHealth, WorkspaceCleanup}
 
@@ -177,99 +177,8 @@ defmodule Aiur.Orchestrator do
   defdelegate load_envelope(effective, last_decrease_ms, load, options), to: DispatchPolicy
 
   @doc false
-  @spec reconcile_issue_states_for_test([Issue.t()], term()) :: term()
-  def reconcile_issue_states_for_test(issues, %State{} = state) when is_list(issues),
-    do: Reconciler.reconcile_running_issue_states(issues, state)
-
-  def reconcile_issue_states_for_test(issues, state) when is_list(issues),
-    do:
-      Reconciler.reconcile_running_issue_states(
-        issues,
-        state,
-        DispatchPolicy.active_state_set(),
-        DispatchPolicy.terminal_state_set()
-      )
-
-  @spec run_terminal_workspace_cleanup_for_test(State.t()) :: State.t()
-  def run_terminal_workspace_cleanup_for_test(%State{} = state),
-    do: WorkspaceCleanup.run_terminal_workspace_cleanup(state)
-
-  @spec run_startup_todo_workspace_cleanup_for_test(State.t()) :: State.t()
-  def run_startup_todo_workspace_cleanup_for_test(%State{} = state),
-    do: WorkspaceCleanup.run_startup_todo_workspace_cleanup(state)
-
   @spec slot_status_for_test(State.t()) :: %{active: non_neg_integer(), paused: non_neg_integer()}
   def slot_status_for_test(%State{} = state), do: Slots.slot_status(state)
-  @spec parse_pr_review_comment_topic_for_test(String.t()) :: {:ok, String.t()} | :nomatch
-  def parse_pr_review_comment_topic_for_test(topic) when is_binary(topic),
-    do: EventTopics.parse_pr_review_comment_topic(topic)
-
-  @spec parse_issue_commented_topic_for_test(String.t()) :: {:ok, String.t()} | :nomatch
-  def parse_issue_commented_topic_for_test(topic) when is_binary(topic),
-    do: EventTopics.parse_issue_commented_topic(topic)
-
-  @spec parse_ci_failed_topic_for_test(String.t()) :: {:ok, String.t()} | :nomatch
-  def parse_ci_failed_topic_for_test(topic) when is_binary(topic),
-    do: EventTopics.parse_ci_failed_topic(topic)
-
-  @spec poll_github_firehose_for_test(State.t(), keyword()) :: State.t()
-  def poll_github_firehose_for_test(%State{} = state, opts) when is_list(opts),
-    do: CommentPolling.poll_github_firehose(state, opts)
-
-  @spec poll_github_comments_for_test(State.t(), keyword()) :: State.t()
-  def poll_github_comments_for_test(%State{} = state, opts) when is_list(opts),
-    do: CommentPolling.poll_github_comments(state, opts)
-
-  @spec poll_github_ci_for_test(State.t(), keyword()) :: State.t()
-  def poll_github_ci_for_test(%State{} = state, opts) when is_list(opts),
-    do: CiLifecycle.poll_github_ci(state, opts)
-
-  @spec scan_pr_commands_for_test(State.t(), keyword()) :: State.t()
-  def scan_pr_commands_for_test(%State{} = state, opts) when is_list(opts),
-    do: CommandScan.scan_pr_commands(state, opts)
-
-  @spec maybe_stop_closed_pr_anchored_agents_for_test(State.t(), keyword()) :: State.t()
-  def maybe_stop_closed_pr_anchored_agents_for_test(%State{} = state, opts)
-      when is_list(opts),
-      do: PrAnchored.maybe_stop_closed_pr_anchored_agents(state, opts)
-
-  @spec github_next_poll_delay_for_test(State.t()) :: non_neg_integer() | nil
-  def github_next_poll_delay_for_test(%State{} = state),
-    do: TrackerHealth.github_next_poll_delay_ms(state)
-
-  @spec parse_pause_request_topic_for_test(String.t()) :: {:ok, String.t()} | :nomatch
-  def parse_pause_request_topic_for_test(topic) when is_binary(topic),
-    do: EventTopics.parse_pause_request_topic(topic)
-
-  @spec parse_branch_push_topic_for_test(String.t()) :: {:ok, String.t()} | :nomatch
-  def parse_branch_push_topic_for_test(topic) when is_binary(topic),
-    do: EventTopics.parse_branch_push_topic(topic)
-
-  @spec parse_system_branch_push_topic_for_test(String.t()) :: {:ok, String.t()} | :nomatch
-  def parse_system_branch_push_topic_for_test(topic) when is_binary(topic),
-    do: EventTopics.parse_system_branch_push_topic(topic)
-
-  @spec apply_pause_request_for_test(State.t(), String.t()) :: State.t()
-  def apply_pause_request_for_test(%State{} = state, identifier) when is_binary(identifier),
-    do: PushRouting.maybe_pause_on_request(state, identifier)
-
-  @spec apply_mark_sleeping_for_test(State.t(), String.t()) :: State.t()
-  def apply_mark_sleeping_for_test(%State{} = state, identifier) when is_binary(identifier),
-    do: PushRouting.maybe_mark_sleeping(state, identifier)
-
-  @spec apply_branch_push_for_test(State.t(), String.t()) :: State.t()
-  def apply_branch_push_for_test(%State{} = state, blocker_identifier)
-      when is_binary(blocker_identifier),
-      do: PushRouting.apply_branch_push(state, blocker_identifier)
-
-  @spec apply_system_branch_push_for_test(State.t(), String.t(), map()) :: State.t()
-  def apply_system_branch_push_for_test(%State{} = state, branch, event \\ %{})
-      when is_binary(branch) and is_map(event),
-      do: PushRouting.maybe_notify_agents_on_default_branch_push(state, branch, event)
-
-  @spec apply_stall_check_for_test(State.t(), pos_integer()) :: State.t()
-  def apply_stall_check_for_test(%State{} = state, timeout_ms) when is_integer(timeout_ms),
-    do: RuntimeWatchdog.apply_stall_check(state, timeout_ms)
 
   @spec apply_overrun_check_for_test(State.t(), non_neg_integer()) :: State.t()
   def apply_overrun_check_for_test(%State{} = state, max_seconds)
@@ -281,20 +190,6 @@ defmodule Aiur.Orchestrator do
       when is_map(running_entry) and is_boolean(operator?),
       do: PauseResume.resume_paused_issue(state, running_entry, operator?)
 
-  @spec apply_thrash_check_for_test(State.t(), String.t(), integer()) ::
-          {:ok, State.t()} | {:trip, State.t()}
-  def apply_thrash_check_for_test(%State{} = state, issue_id, now_ms)
-      when is_binary(issue_id) and is_integer(now_ms),
-      do: Dispatcher.check_thrash_budget(state, issue_id, now_ms)
-
-  @spec sync_polled_issue_state_for_test(State.t(), [Issue.t()]) :: State.t()
-  def sync_polled_issue_state_for_test(%State{} = state, issues) when is_list(issues),
-    do: IssueSync.sync_polled_issue_state(state, issues)
-
-  @spec sync_todo_capacity_alert_for_test(State.t(), [Issue.t()]) :: State.t()
-  def sync_todo_capacity_alert_for_test(%State{} = state, issues) when is_list(issues),
-    do: IssueSync.sync_todo_capacity_alert(state, issues)
-
   @spec should_dispatch_issue_for_test(Issue.t(), term()) :: boolean()
   def should_dispatch_issue_for_test(%Issue{} = issue, %State{} = state),
     do: DispatchPolicy.should_dispatch_issue?(issue, state)
@@ -303,50 +198,9 @@ defmodule Aiur.Orchestrator do
   def dispatch_candidate_for_test(%Issue{} = issue, %State{} = state),
     do: DispatchPolicy.dispatch_candidate?(issue, state)
 
-  @spec recover_startup_pause_overrides_for_test(State.t(), [term()]) :: [term()]
-  def recover_startup_pause_overrides_for_test(%State{} = state, issues)
-      when is_list(issues),
-      do: PauseResume.recover_startup_pause_overrides(state, issues)
-
   @spec retry_dispatch_ready_for_test(Issue.t(), State.t(), String.t() | nil) :: boolean()
   def retry_dispatch_ready_for_test(%Issue{} = issue, %State{} = state, worker_host \\ nil),
     do: Dispatcher.retry_dispatch_ready?(issue, state, worker_host)
-
-  @spec revalidate_issue_for_dispatch_for_test(Issue.t(), ([String.t()] -> term())) ::
-          {:ok, Issue.t()} | {:skip, Issue.t() | :missing} | {:error, term()}
-  def revalidate_issue_for_dispatch_for_test(%Issue{} = issue, issue_fetcher)
-      when is_function(issue_fetcher, 1),
-      do:
-        Dispatcher.revalidate_issue_for_dispatch(
-          issue,
-          issue_fetcher,
-          DispatchPolicy.terminal_state_set()
-        )
-
-  @spec sort_issues_for_dispatch_for_test([Issue.t()]) :: [Issue.t()]
-  def sort_issues_for_dispatch_for_test(issues) when is_list(issues),
-    do: DispatchPolicy.sort_issues_for_dispatch(issues)
-
-  @spec select_worker_host_for_test(term(), String.t() | nil) ::
-          String.t() | nil | :no_worker_capacity
-  def select_worker_host_for_test(%State{} = state, preferred_worker_host),
-    do: Slots.select_worker_host(state, preferred_worker_host)
-
-  @spec set_remote_control_for_test(State.t(), String.t(), boolean()) :: {term(), State.t()}
-  def set_remote_control_for_test(%State{} = state, identifier, on?)
-      when is_binary(identifier) and is_boolean(on?),
-      do: RC.set_remote_control_reply(state, identifier, on?)
-
-  @spec reactivate_issue_for_test(State.t(), map()) :: {term(), State.t()}
-  def reactivate_issue_for_test(%State{} = state, running_entry) when is_map(running_entry),
-    do: PauseResume.reactivate_issue(state, running_entry)
-
-  @spec remote_control_summary_for_test(map()) :: map() | nil
-  def remote_control_summary_for_test(entry), do: RC.remote_control_summary(entry)
-  @spec terminate_running_issue_for_test(State.t(), String.t(), boolean()) :: State.t()
-  def terminate_running_issue_for_test(%State{} = state, issue_id, cleanup_workspace)
-      when is_binary(issue_id) and is_boolean(cleanup_workspace),
-      do: AgentTeardown.terminate_running_issue(state, issue_id, cleanup_workspace)
 
   @spec ci_wait_state?(binary() | term()) :: boolean()
   def ci_wait_state?(state_name), do: CiLifecycle.ci_wait_state?(state_name)
@@ -515,11 +369,6 @@ defmodule Aiur.Orchestrator do
   def claim_next_operator_queue_item(server, identifier),
     do: OM.claim_next_operator_queue_item(server, identifier)
 
-  @spec claim_next_queue_item_for_test(GenServer.server(), String.t()) ::
-          {:ok, map()} | :empty | {:error, term()}
-  def claim_next_queue_item_for_test(server, identifier),
-    do: OM.claim_next_queue_item(server, identifier)
-
   @spec mark_queue_item_consumed(GenServer.server(), integer()) :: :ok | {:error, term()}
   def mark_queue_item_consumed(server, item_id),
     do: OM.mark_queue_item_consumed(server, item_id)
@@ -527,10 +376,6 @@ defmodule Aiur.Orchestrator do
   @spec restore_queue_item_pending(GenServer.server(), integer()) :: :ok | {:error, term()}
   def restore_queue_item_pending(server, item_id),
     do: OM.restore_queue_item_pending(server, item_id)
-
-  @spec mark_queue_item_consumed_for_test(GenServer.server(), integer()) :: :ok | {:error, term()}
-  def mark_queue_item_consumed_for_test(server, item_id),
-    do: OM.mark_queue_item_consumed(server, item_id)
 
   @spec mark_queue_item_failed(GenServer.server(), integer(), term()) :: :ok | {:error, term()}
   def mark_queue_item_failed(server, item_id, reason),
@@ -547,11 +392,6 @@ defmodule Aiur.Orchestrator do
   @spec fail_delivered_queue_items(GenServer.server(), String.t(), term()) :: :ok | {:error, term()}
   def fail_delivered_queue_items(server, identifier, reason),
     do: OM.fail_delivered_queue_items(server, identifier, reason)
-
-  @spec mark_queue_item_failed_for_test(GenServer.server(), integer(), term()) ::
-          :ok | {:error, term()}
-  def mark_queue_item_failed_for_test(server, item_id, reason),
-    do: OM.mark_queue_item_failed(server, item_id, reason)
 
   @spec snapshot() :: map() | :timeout | :unavailable
   def snapshot, do: StatusReport.snapshot_api()
@@ -772,13 +612,6 @@ defmodule Aiur.Orchestrator do
   @doc false
   @spec retry_candidate_issue?(Issue.t(), MapSet.t()) :: boolean()
   defdelegate retry_candidate_issue?(issue, terminal_states), to: DispatchPolicy
-
-  @doc false
-  @spec coalesce_for_test(AgentQueueStore.t(), String.t()) ::
-          {AgentQueueStore.t(), AgentQueueItem.t() | nil}
-  def coalesce_for_test(queue_store, issue_identifier) when is_binary(issue_identifier) do
-    OM.coalesce_for_test(queue_store, issue_identifier)
-  end
 
   @spec subscribe_for_declared_blocker(String.t() | integer(), String.t() | integer()) :: :ok
   def subscribe_for_declared_blocker(blockee_identifier, blocker_identifier),

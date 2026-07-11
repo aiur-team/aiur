@@ -3,6 +3,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
   alias Aiur.Codex.CodingAgent, as: CodexCodingAgent
   alias Aiur.Opencode.ActiveTurns
+  alias Aiur.Orchestrator.{OperatorMessages, WorkspaceCleanup}
   alias Aiur.SessionHandle
 
   defmodule StartupCleanupLinearClient do
@@ -143,7 +144,7 @@ defmodule Aiur.OrchestratorStatusTest do
       log =
         capture_log([level: :debug], fn ->
           assert %Orchestrator.State{} =
-                   Orchestrator.run_terminal_workspace_cleanup_for_test(%Orchestrator.State{})
+                   WorkspaceCleanup.run_terminal_workspace_cleanup(%Orchestrator.State{})
         end)
 
       refute_received {:startup_cleanup_fetch_issues_by_states, _opts}
@@ -175,7 +176,7 @@ defmodule Aiur.OrchestratorStatusTest do
       log =
         capture_log([level: :debug], fn ->
           assert %Orchestrator.State{} =
-                   Orchestrator.run_terminal_workspace_cleanup_for_test(%Orchestrator.State{})
+                   WorkspaceCleanup.run_terminal_workspace_cleanup(%Orchestrator.State{})
         end)
 
       refute_received {:startup_cleanup_fetch_issues_by_states, _opts}
@@ -205,7 +206,7 @@ defmodule Aiur.OrchestratorStatusTest do
       log =
         capture_log([level: :debug], fn ->
           assert %Orchestrator.State{} =
-                   Orchestrator.run_terminal_workspace_cleanup_for_test(%Orchestrator.State{})
+                   WorkspaceCleanup.run_terminal_workspace_cleanup(%Orchestrator.State{})
         end)
 
       assert_received {:startup_cleanup_fetch_issues_by_states, opts}
@@ -244,7 +245,7 @@ defmodule Aiur.OrchestratorStatusTest do
       Application.put_env(:aiur, :startup_cleanup_test_pid, self())
 
       assert %Orchestrator.State{} =
-               Orchestrator.run_terminal_workspace_cleanup_for_test(%Orchestrator.State{})
+               WorkspaceCleanup.run_terminal_workspace_cleanup(%Orchestrator.State{})
 
       assert_received {:github_startup_cleanup_fetch_issues_by_states, ["done"], opts}
       assert Keyword.fetch!(opts, :quiet_auth_errors?) == true
@@ -293,7 +294,7 @@ defmodule Aiur.OrchestratorStatusTest do
       :ok = SessionHandle.save("610", %{backend: "codex", thread_id: "thread-clear"})
 
       assert %Orchestrator.State{} =
-               Orchestrator.run_terminal_workspace_cleanup_for_test(%Orchestrator.State{})
+               WorkspaceCleanup.run_terminal_workspace_cleanup(%Orchestrator.State{})
 
       assert_received {:github_startup_cleanup_fetch_issues_by_states, ["done"], opts}
       assert Keyword.fetch!(opts, :quiet_auth_errors?) == true
@@ -354,7 +355,7 @@ defmodule Aiur.OrchestratorStatusTest do
       :ok = SessionHandle.save("586", %{backend: "claude-repl", thread_id: "thread-keep"})
 
       assert %Orchestrator.State{} =
-               Orchestrator.run_startup_todo_workspace_cleanup_for_test(%Orchestrator.State{})
+               WorkspaceCleanup.run_startup_todo_workspace_cleanup(%Orchestrator.State{})
 
       assert_received {:github_startup_cleanup_fetch_issues_by_states, ["todo"], opts}
       assert Keyword.fetch!(opts, :quiet_auth_errors?) == true
@@ -1714,7 +1715,7 @@ defmodule Aiur.OrchestratorStatusTest do
     assert_receive {:agent_queue_updated, "MT-CHAT", ^request_id, false}
 
     assert {:ok, %{id: ^request_id, category: :operator_message, body: %{text: "hello"}}} =
-             Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-CHAT")
+             OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-CHAT")
 
     assert {:ok,
             %{
@@ -1744,7 +1745,7 @@ defmodule Aiur.OrchestratorStatusTest do
               category: :operator_message,
               delivery: %{interrupt_requested: true, priority: :now}
             }} =
-             Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-CHAT")
+             OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-CHAT")
 
     assert {:error, :empty_message} =
              Orchestrator.send_operator_message(orchestrator_name, "MT-CHAT", %{kind: :text, body: "   "})
@@ -1789,7 +1790,7 @@ defmodule Aiur.OrchestratorStatusTest do
               category: :coordination_event,
               body: %{events: [%{message: "please fix", comment: %{"body" => "please fix"}}]},
               delivery: %{interrupt_requested: true, priority: :now}
-            }} = Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-SLEEP")
+            }} = OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-SLEEP")
   end
 
   test "event digest does not auto-wake a manually paused agent task" do
@@ -1827,7 +1828,7 @@ defmodule Aiur.OrchestratorStatusTest do
               id: ^item_id,
               category: :coordination_event,
               delivery: %{interrupt_requested: false, priority: :later}
-            }} = Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-PAUSED")
+            }} = OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-PAUSED")
   end
 
   test "system default-branch push wakes a sleeping (standby) agent task" do
@@ -1867,7 +1868,7 @@ defmodule Aiur.OrchestratorStatusTest do
               id: ^item_id,
               category: :coordination_event,
               delivery: %{interrupt_requested: true, priority: :now}
-            }} = Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-MAIN-SLEEP")
+            }} = OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-MAIN-SLEEP")
   end
 
   test "system default-branch push does not wake a manually paused agent task" do
@@ -1906,7 +1907,7 @@ defmodule Aiur.OrchestratorStatusTest do
               id: ^item_id,
               category: :coordination_event,
               delivery: %{interrupt_requested: false, priority: :later}
-            }} = Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-MAIN-PAUSED")
+            }} = OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-MAIN-PAUSED")
   end
 
   test "system default-branch push does not interrupt a working agent mid-turn" do
@@ -1948,7 +1949,7 @@ defmodule Aiur.OrchestratorStatusTest do
               id: ^item_id,
               category: :coordination_event,
               delivery: %{interrupt_requested: false, priority: :later}
-            }} = Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-MAIN-WORK")
+            }} = OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-MAIN-WORK")
   end
 
   test "event digest wakes a running agent with no active turn" do
@@ -1980,7 +1981,7 @@ defmodule Aiur.OrchestratorStatusTest do
               id: ^item_id,
               category: :coordination_event,
               delivery: %{interrupt_requested: true, priority: :now}
-            }} = Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-IDLE-TURN")
+            }} = OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-IDLE-TURN")
   end
 
   test "untrusted event digest keeps checkpoint delivery while a turn is active" do
@@ -2014,7 +2015,7 @@ defmodule Aiur.OrchestratorStatusTest do
               id: ^item_id,
               category: :coordination_event,
               delivery: %{interrupt_requested: false, priority: :later}
-            }} = Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-WORK")
+            }} = OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-WORK")
   end
 
   test "trusted PR review comment wakes a running agent with an active turn" do
@@ -2053,7 +2054,7 @@ defmodule Aiur.OrchestratorStatusTest do
               id: ^item_id,
               category: :coordination_event,
               delivery: %{interrupt_requested: true, priority: :now}
-            }} = Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-WORK-REVIEW")
+            }} = OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-WORK-REVIEW")
   end
 
   test "operator message wakes a running agent with no active turn" do
@@ -2084,7 +2085,7 @@ defmodule Aiur.OrchestratorStatusTest do
               id: ^request_id,
               category: :operator_message,
               delivery: %{interrupt_requested: false, priority: :next}
-            }} = Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-SLEEP-CHAT")
+            }} = OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-SLEEP-CHAT")
   end
 
   test "chat-send to a paused agent auto-resumes it when a slot is free" do
@@ -2186,7 +2187,7 @@ defmodule Aiur.OrchestratorStatusTest do
              Orchestrator.claim_next_operator_queue_item(orchestrator_name, "MT-QUEUE")
 
     assert {:ok, %{category: :coordination_event, body: %{summary: "still blocked"}}} =
-             Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-QUEUE")
+             OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-QUEUE")
   end
 
   test "orchestrator restarts stalled workers with retry backoff" do

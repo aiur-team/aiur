@@ -9,7 +9,8 @@ defmodule Aiur.OrchestratorEventsDigestCoalesceTest do
 
   use ExUnit.Case, async: true
 
-  alias Aiur.{AgentQueue, AgentQueueStore, Orchestrator}
+  alias Aiur.{AgentQueue, AgentQueueStore}
+  alias Aiur.Orchestrator.OperatorMessages
 
   defp enqueue_events_digest(store, identifier, event) do
     item = AgentQueue.coordination_event(identifier, :events_digest, %{events: [event]}, source: :system)
@@ -35,7 +36,7 @@ defmodule Aiur.OrchestratorEventsDigestCoalesceTest do
       AgentQueueStore.new()
       |> enqueue_events_digest("99", event(1))
 
-    {_store, item} = Orchestrator.coalesce_for_test(store, "99")
+    {_store, item} = OperatorMessages.coalesce_for_test(store, "99")
 
     assert item.event_type == :events_digest
     assert [%{id: 1}] = item.body.events
@@ -48,7 +49,7 @@ defmodule Aiur.OrchestratorEventsDigestCoalesceTest do
       |> enqueue_events_digest("99", event(2))
       |> enqueue_events_digest("99", event(3))
 
-    {store, item} = Orchestrator.coalesce_for_test(store, "99")
+    {store, item} = OperatorMessages.coalesce_for_test(store, "99")
 
     assert [%{id: 1}, %{id: 2}, %{id: 3}] = item.body.events
 
@@ -64,7 +65,7 @@ defmodule Aiur.OrchestratorEventsDigestCoalesceTest do
       |> enqueue_events_digest("99", event(1))
       |> enqueue_events_digest("99", event(3))
 
-    {_store, item} = Orchestrator.coalesce_for_test(store, "99")
+    {_store, item} = OperatorMessages.coalesce_for_test(store, "99")
 
     assert Enum.map(item.body.events, & &1.id) == [1, 3, 7]
   end
@@ -76,7 +77,7 @@ defmodule Aiur.OrchestratorEventsDigestCoalesceTest do
       |> enqueue_events_digest("99", event(1))
       |> enqueue_events_digest("99", event(2))
 
-    {_store, item} = Orchestrator.coalesce_for_test(store, "99")
+    {_store, item} = OperatorMessages.coalesce_for_test(store, "99")
 
     assert Enum.map(item.body.events, & &1.id) == [1, 2]
   end
@@ -87,13 +88,13 @@ defmodule Aiur.OrchestratorEventsDigestCoalesceTest do
       |> enqueue_events_digest("99", comment_event(42, 555))
       |> enqueue_events_digest("99", comment_event(555, 555))
 
-    {_store, item} = Orchestrator.coalesce_for_test(store, "99")
+    {_store, item} = OperatorMessages.coalesce_for_test(store, "99")
 
     assert [%{id: 42, comment: %{"id" => 555}}] = item.body.events
   end
 
   test "empty queue returns nil" do
-    {_store, item} = Orchestrator.coalesce_for_test(AgentQueueStore.new(), "99")
+    {_store, item} = OperatorMessages.coalesce_for_test(AgentQueueStore.new(), "99")
 
     assert item == nil
   end
@@ -105,11 +106,11 @@ defmodule Aiur.OrchestratorEventsDigestCoalesceTest do
     store = enqueue_events_digest(store, "99", event(1))
 
     # First claim returns the operator message (FIFO), unchanged.
-    {store, item} = Orchestrator.coalesce_for_test(store, "99")
+    {store, item} = OperatorMessages.coalesce_for_test(store, "99")
     assert item.category == :operator_message
 
     # Second claim returns the digest, still standalone.
-    {_store, next} = Orchestrator.coalesce_for_test(store, "99")
+    {_store, next} = OperatorMessages.coalesce_for_test(store, "99")
     assert next.event_type == :events_digest
     assert [%{id: 1}] = next.body.events
   end
@@ -121,12 +122,12 @@ defmodule Aiur.OrchestratorEventsDigestCoalesceTest do
       |> enqueue_events_digest("100", event(2))
       |> enqueue_events_digest("99", event(3))
 
-    {store, item_99} = Orchestrator.coalesce_for_test(store, "99")
+    {store, item_99} = OperatorMessages.coalesce_for_test(store, "99")
 
     # #99 gets two events folded; #100's event stays for its own drain.
     assert Enum.map(item_99.body.events, & &1.id) == [1, 3]
 
-    {_store, item_100} = Orchestrator.coalesce_for_test(store, "100")
+    {_store, item_100} = OperatorMessages.coalesce_for_test(store, "100")
     assert Enum.map(item_100.body.events, & &1.id) == [2]
   end
 end

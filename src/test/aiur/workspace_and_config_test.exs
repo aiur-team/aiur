@@ -6,6 +6,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   alias Aiur.Events.Exchange
   alias Aiur.Issue
   alias Aiur.Linear.Client
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy}
   alias Ecto.Changeset
 
   test "workspace bootstrap can be implemented in after_create hook" do
@@ -1511,7 +1512,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     }
 
     sorted =
-      Orchestrator.sort_issues_for_dispatch_for_test([
+      DispatchPolicy.sort_issues_for_dispatch([
         issue_lower_priority_older,
         issue_same_priority_newer,
         issue_same_priority_older
@@ -1537,7 +1538,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       blocked_by: [%{id: "blocker-1", identifier: "MT-1002", state: "In Progress"}]
     }
 
-    refute Orchestrator.should_dispatch_issue_for_test(issue, state)
+    refute DispatchPolicy.should_dispatch_issue?(issue, state)
   end
 
   test "issue assigned to another worker is not dispatch-eligible" do
@@ -1559,7 +1560,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       assigned_to_worker: false
     }
 
-    refute Orchestrator.should_dispatch_issue_for_test(issue, state)
+    refute DispatchPolicy.should_dispatch_issue?(issue, state)
   end
 
   test "todo issue with terminal blockers remains dispatch-eligible" do
@@ -1579,7 +1580,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       blocked_by: [%{id: "blocker-2", identifier: "MT-1004", state: "Closed"}]
     }
 
-    assert Orchestrator.should_dispatch_issue_for_test(issue, state)
+    assert DispatchPolicy.should_dispatch_issue?(issue, state)
   end
 
   test "polling does not auto-dispatch when a paused agent reserves the only slot" do
@@ -1604,7 +1605,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     queued = %Issue{id: "queued-1", identifier: "MT-Q1", title: "Q1", state: "Todo"}
 
-    refute Orchestrator.should_dispatch_issue_for_test(queued, state)
+    refute DispatchPolicy.should_dispatch_issue?(queued, state)
   end
 
   test "per-state slot cap honors the session-aware max, not just the workflow value" do
@@ -1644,10 +1645,10 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     todo = %Issue{id: "queued-1", identifier: "MT-Q1", title: "Q1", state: "Todo"}
 
-    assert Orchestrator.dispatch_candidate_for_test(todo, state),
+    assert DispatchPolicy.dispatch_candidate?(todo, state),
            "manual start of a queued ticket must be eligible after a session-max bump"
 
-    assert Orchestrator.should_dispatch_issue_for_test(todo, state),
+    assert DispatchPolicy.should_dispatch_issue?(todo, state),
            "polling must also see the bumped cap as the effective per-state limit"
   end
 
@@ -1677,7 +1678,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     queued = %Issue{id: "queued-1", identifier: "MT-Q1", title: "Q1", state: "Todo"}
 
-    assert Orchestrator.dispatch_candidate_for_test(queued, state)
+    assert DispatchPolicy.dispatch_candidate?(queued, state)
   end
 
   test "dispatch revalidation skips stale todo issue once a non-terminal blocker appears" do
@@ -1700,7 +1701,11 @@ defmodule Aiur.WorkspaceAndConfigTest do
     fetcher = fn ["blocked-2"] -> {:ok, [refreshed_issue]} end
 
     assert {:skip, %Issue{} = skipped_issue} =
-             Orchestrator.revalidate_issue_for_dispatch_for_test(stale_issue, fetcher)
+             Dispatcher.revalidate_issue_for_dispatch(
+               stale_issue,
+               fetcher,
+               DispatchPolicy.terminal_state_set()
+             )
 
     assert skipped_issue.identifier == "MT-1005"
 

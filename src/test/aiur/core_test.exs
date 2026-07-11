@@ -2,6 +2,7 @@ defmodule Aiur.CoreTest do
   use Aiur.TestSupport
 
   alias Aiur.Config.Schema
+  alias Aiur.Orchestrator.{Dispatcher, OperatorMessages, Reconciler, Slots}
 
   defmodule RetryPollFailingGitHubClient do
     def preflight_auth, do: :ok
@@ -389,7 +390,7 @@ defmodule Aiur.CoreTest do
         labels: []
       }
 
-      updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
+      updated_state = Reconciler.reconcile_running_issue_states([issue], state)
 
       refute Map.has_key?(updated_state.running, issue_id)
       refute MapSet.member?(updated_state.claimed, issue_id)
@@ -454,7 +455,7 @@ defmodule Aiur.CoreTest do
 
       log =
         capture_log(fn ->
-          send(self(), {:updated_state, Orchestrator.reconcile_issue_states_for_test([issue], state)})
+          send(self(), {:updated_state, Reconciler.reconcile_running_issue_states([issue], state)})
         end)
 
       assert_receive {:updated_state, updated_state}
@@ -526,7 +527,7 @@ defmodule Aiur.CoreTest do
         labels: []
       }
 
-      updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
+      updated_state = Reconciler.reconcile_running_issue_states([issue], state)
 
       refute Map.has_key?(updated_state.running, issue_id)
       refute MapSet.member?(updated_state.claimed, issue_id)
@@ -644,7 +645,7 @@ defmodule Aiur.CoreTest do
       labels: []
     }
 
-    updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
+    updated_state = Reconciler.reconcile_running_issue_states([issue], state)
     updated_entry = updated_state.running[issue_id]
 
     assert Map.has_key?(updated_state.running, issue_id)
@@ -692,7 +693,7 @@ defmodule Aiur.CoreTest do
       assigned_to_worker: false
     }
 
-    updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
+    updated_state = Reconciler.reconcile_running_issue_states([issue], state)
 
     refute Map.has_key?(updated_state.running, issue_id)
     refute MapSet.member?(updated_state.claimed, issue_id)
@@ -953,8 +954,8 @@ defmodule Aiur.CoreTest do
 
     busy_state = %{state | running: %{"issue-busy" => other_running_entry}}
     freed_state = %{state | running: %{}}
-    refute Orchestrator.retry_dispatch_ready_for_test(issue, busy_state)
-    assert Orchestrator.retry_dispatch_ready_for_test(issue, freed_state)
+    refute Dispatcher.retry_dispatch_ready?(issue, busy_state, nil)
+    assert Dispatcher.retry_dispatch_ready?(issue, freed_state, nil)
   end
 
   test "retry poll failures do not consume agent retry budget" do
@@ -1126,7 +1127,7 @@ defmodule Aiur.CoreTest do
     assert {:noreply, ^coalesced_state} = Orchestrator.handle_info({:tick, stale_tick_token}, coalesced_state)
   end
 
-  test "select_worker_host_for_test skips full ssh hosts under the shared per-host cap" do
+  test "select_worker_host/2 skips full ssh hosts under the shared per-host cap" do
     write_workflow_file!(Workflow.workflow_file_path(),
       worker_ssh_hosts: ["worker-a", "worker-b"],
       worker_max_concurrent_agents_per_host: 1
@@ -1138,10 +1139,10 @@ defmodule Aiur.CoreTest do
       }
     }
 
-    assert Orchestrator.select_worker_host_for_test(state, nil) == "worker-b"
+    assert Slots.select_worker_host(state, nil) == "worker-b"
   end
 
-  test "select_worker_host_for_test returns no_worker_capacity when every ssh host is full" do
+  test "select_worker_host/2 returns no_worker_capacity when every ssh host is full" do
     write_workflow_file!(Workflow.workflow_file_path(),
       worker_ssh_hosts: ["worker-a", "worker-b"],
       worker_max_concurrent_agents_per_host: 1
@@ -1154,10 +1155,10 @@ defmodule Aiur.CoreTest do
       }
     }
 
-    assert Orchestrator.select_worker_host_for_test(state, nil) == :no_worker_capacity
+    assert Slots.select_worker_host(state, nil) == :no_worker_capacity
   end
 
-  test "select_worker_host_for_test keeps the preferred ssh host when it still has capacity" do
+  test "select_worker_host/2 keeps the preferred ssh host when it still has capacity" do
     write_workflow_file!(Workflow.workflow_file_path(),
       worker_ssh_hosts: ["worker-a", "worker-b"],
       worker_max_concurrent_agents_per_host: 2
@@ -1170,7 +1171,7 @@ defmodule Aiur.CoreTest do
       }
     }
 
-    assert Orchestrator.select_worker_host_for_test(state, "worker-a") == "worker-a"
+    assert Slots.select_worker_host(state, "worker-a") == "worker-a"
   end
 
   defp assert_due_in_range(due_at_ms, scheduled_after_ms, min_remaining_ms, max_remaining_ms) do
@@ -2072,7 +2073,7 @@ defmodule Aiur.CoreTest do
       assert length(turn_texts) == 2
       assert Enum.at(turn_texts, 0) =~ "You are an agent for this repository."
       assert Enum.at(turn_texts, 1) == "focus on auth first"
-      assert :empty == Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-249")
+      assert :empty == OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-249")
     after
       System.delete_env("SYMP_TEST_CODEX_TRACE")
       File.rm_rf(test_root)
@@ -2216,7 +2217,7 @@ defmodule Aiur.CoreTest do
       assert length(turn_texts) == 2
       assert Enum.at(turn_texts, 0) =~ "You are an agent for this repository."
       assert Enum.at(turn_texts, 1) == "stop and answer this"
-      assert :empty == Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-253")
+      assert :empty == OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-253")
     after
       System.delete_env("SYMP_TEST_CODEX_TRACE")
       File.rm_rf(test_root)
@@ -2341,7 +2342,7 @@ defmodule Aiur.CoreTest do
       assert length(turn_texts) == 2
       assert Enum.at(turn_texts, 0) =~ "You are an agent for this repository."
       assert Enum.at(turn_texts, 1) == "focus on auth first"
-      assert :empty == Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-250")
+      assert :empty == OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-250")
     after
       System.delete_env("SYMP_TEST_CODEX_TRACE")
       File.rm_rf(test_root)
@@ -2472,7 +2473,7 @@ defmodule Aiur.CoreTest do
       assert Enum.at(turn_texts, 1) == "finish with this guardrail"
 
       assert {:ok, %{category: :operator_message, body: %{text: "finish with this guardrail"}}} =
-               Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-254")
+               OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-254")
 
       assert :sys.get_state(orchestrator_pid).retry_attempts == %{}
       assert log =~ "Queued item delivery lost completion race"
