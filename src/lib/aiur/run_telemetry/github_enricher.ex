@@ -224,7 +224,7 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
       comment: comment
     }
 
-    if trusted? and not CommentWake.benign_review_pass_comment?(candidate) do
+    if trusted? and actionable_comment?(comment) and not CommentWake.benign_review_pass_comment?(candidate) do
       [%{candidate | comment: comment_payload(comment)}]
     else
       []
@@ -234,12 +234,22 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
   defp comment_event(_comment, _ticket, _topic_suffix, _trusted_author_fun), do: []
 
   defp comment_payload(comment) do
+    submitted_at = Map.get(comment, "submitted_at")
+
     %{
       "id" => Map.get(comment, "id"),
-      "created_at" => Map.get(comment, "created_at"),
-      "updated_at" => Map.get(comment, "updated_at"),
+      "created_at" => Map.get(comment, "created_at") || submitted_at,
+      "updated_at" => Map.get(comment, "updated_at") || submitted_at || Map.get(comment, "created_at"),
       "review_thread_id" => Map.get(comment, "review_thread_id")
     }
+  end
+
+  defp actionable_comment?(comment) do
+    body = Map.get(comment, "body")
+    timestamp = Map.get(comment, "updated_at") || Map.get(comment, "created_at") || Map.get(comment, "submitted_at")
+
+    not is_nil(Map.get(comment, "id")) and is_binary(timestamp) and timestamp != "" and
+      is_binary(body) and String.trim(body) != ""
   end
 
   defp user_payload(user) when is_map(user), do: %{"login" => Map.get(user, "login")}

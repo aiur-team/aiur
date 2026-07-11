@@ -20,7 +20,7 @@ defmodule Mix.Tasks.Aiur.Telemetry.Dashboard do
     * `--input`, `-i` — telemetry file or directory; repeatable
     * `--output`, `-o` — output HTML path (default: `aiur-telemetry-dashboard.html`)
     * `--repo` — optional `owner/repo` used for best-effort GitHub enrichment
-    * `--review-resume-grace-seconds` — wakeup grace window (default: 120)
+    * `--review-resume-grace-seconds` — wakeup grace window (default: 300)
     * `--help`, `-h` — print this help
 
   With no input, the task searches `~/.aiur/logs`. GitHub auth or network
@@ -37,7 +37,7 @@ defmodule Mix.Tasks.Aiur.Telemetry.Dashboard do
   ]
   @aliases [i: :input, o: :output, h: :help]
   @default_output "aiur-telemetry-dashboard.html"
-  @default_grace_seconds 120
+  @default_grace_seconds 300
 
   @impl Mix.Task
   def run(argv) do

@@ -20,7 +20,7 @@ defmodule Aiur.RunTelemetry.Dataset do
   )
   @default_sample_interval_ms 5_000
   @default_gap_threshold_multiplier 1.5
-  @default_review_resume_grace_seconds 120
+  @default_review_resume_grace_seconds 300
 
   @type dataset :: map()
 
@@ -42,7 +42,7 @@ defmodule Aiur.RunTelemetry.Dataset do
         |> Enum.sort_by(&record_sort_key/1)
         |> dedupe_records()
 
-      sequence_warnings = sequence_warnings(records)
+      sequence_warnings = sequence_warnings(file_records)
       runtime_warnings = runtime_warnings(records)
       {actors, actor_warnings} = reduce_actors(records, opts)
       {tickets, findings} = reduce_tickets(records, opts)
@@ -262,8 +262,11 @@ defmodule Aiur.RunTelemetry.Dataset do
     end)
   end
 
-  defp lifecycle_event_key(%{kind: "lifecycle", attributes: attributes}),
-    do: Map.get(attributes, "event_key")
+  defp lifecycle_event_key(%{kind: "lifecycle", attributes: attributes}) do
+    if Map.get(attributes, "source_id") || Map.get(attributes, "operation_id") do
+      Map.get(attributes, "event_key")
+    end
+  end
 
   defp lifecycle_event_key(_record), do: nil
 
@@ -649,7 +652,7 @@ defmodule Aiur.RunTelemetry.Dataset do
     events
     |> Enum.take_while(&(&1.timestamp_ms < comment.timestamp_ms))
     |> Enum.reverse()
-    |> Enum.take_while(&(&1.event != "pr_merged"))
+    |> Enum.take_while(&(&1.event not in ["pr_merged", "agent_resume"]))
     |> Enum.find(&(&1.event == "review_pause"))
   end
 

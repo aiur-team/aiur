@@ -47,6 +47,10 @@ defmodule Aiur.RunTelemetryTaskTest do
   test "help is available without telemetry or app supervision" do
     assert {:help, usage} = DashboardTask.parse_args(["--help"])
     assert usage =~ "mix aiur.telemetry.dashboard"
+    assert usage =~ "default: 300"
+
+    assert {:ok, parsed} = DashboardTask.parse_args(["--input", @fixtures])
+    assert parsed.review_resume_grace_seconds == 300
 
     output = capture_io(fn -> DashboardTask.run(["--help"]) end)
     assert output =~ "Self-contained Aiur telemetry dashboard"

@@ -146,11 +146,24 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
       identifier = "7412"
       isolated_subscription_store(identifier)
       memory_tracker!([review_issue(identifier)])
+      previous_recorder = Application.get_env(:aiur, :run_telemetry_lifecycle_recorder)
+      test_pid = self()
+
+      Application.put_env(:aiur, :run_telemetry_lifecycle_recorder, fn kind, attributes, opts ->
+        send(test_pid, {:lifecycle, kind, attributes, opts})
+        :ok
+      end)
+
+      on_exit(fn ->
+        restore_app_env(:run_telemetry_lifecycle_recorder, previous_recorder)
+      end)
 
       assert {:noreply, next} =
                Orchestrator.handle_info({:event, comment_event(identifier, "issue.commented")}, base_state())
 
       assert_receive {:memory_tracker_state_update, ^identifier, "rework"}, 2000
+      assert_receive {:lifecycle, :lifecycle, %{event: "agent_resume", cause: "rework_dispatch", attempt_id: attempt_id}, []}, 2000
+      assert is_binary(attempt_id)
       assert MapSet.member?(next.claimed, identifier)
     end
 

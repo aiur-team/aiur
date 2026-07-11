@@ -198,15 +198,41 @@ defmodule Aiur.Orchestrator.CommentWake do
   end
 
   defp dispatch_reworked_comment_issue(%State{} = state, %Issue{} = issue) do
+    # The tracker transition immediately above is authoritative even when a
+    # subsequent read is briefly stale (or the in-memory adapter is immutable).
+    # Carry that accepted state into dispatch so resume telemetry is not lost.
+    issue = %{issue | state: "rework"}
     active = DispatchPolicy.active_state_set()
     terminal = DispatchPolicy.terminal_state_set()
 
     if DispatchPolicy.should_dispatch_issue?(issue, state, active, terminal) do
-      Dispatcher.dispatch_issue(state, issue)
+      state
+      |> Dispatcher.dispatch_issue(issue)
+      |> maybe_record_stale_rework_resume(issue)
     else
       Orchestrator.schedule_poll_cycle_start()
       state
     end
+  end
+
+  defp maybe_record_stale_rework_resume(%State{} = state, %Issue{} = issue) do
+    case Map.get(state.running, issue.id) do
+      %{pid: pid, issue: %Issue{} = dispatched_issue} = entry when is_pid(pid) ->
+        if DispatchPolicy.normalize_issue_state(dispatched_issue.state) != "rework" do
+          Lifecycle.record(
+            issue.identifier,
+            Map.get(entry, :telemetry_attempt_id),
+            :agent_resume,
+            :point,
+            %{cause: :rework_dispatch}
+          )
+        end
+
+      _other ->
+        :ok
+    end
+
+    state
   end
 
   defp fetch_comment_dispatch_issue(identifier) do

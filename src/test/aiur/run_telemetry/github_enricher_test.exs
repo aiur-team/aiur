@@ -34,7 +34,11 @@ defmodule Aiur.RunTelemetry.GitHubEnricherTest do
             [comment(103, "owner", "this line needs rework")]
 
           String.contains?(url, "/pulls/77/reviews") ->
-            [comment(104, "owner", "please address the review")]
+            [
+              review(104, "owner", "please address the review", "CHANGES_REQUESTED"),
+              review(105, "owner", nil, "APPROVED"),
+              Map.drop(review(106, "owner", "missing timestamp", "CHANGES_REQUESTED"), ["submitted_at"])
+            ]
 
           true ->
             []
@@ -57,6 +61,7 @@ defmodule Aiur.RunTelemetry.GitHubEnricherTest do
     assert MapSet.new(comments, & &1.comment["id"]) == MapSet.new([100, 103, 104])
     assert Enum.all?(comments, &(&1.author_trusted? == true))
     assert Enum.all?(comments, &(not Map.has_key?(&1.comment, "body")))
+    assert Enum.find(comments, &(&1.comment["id"] == 104)).comment["updated_at"] == "2026-07-11T13:30:00Z"
     refute inspect(result) =~ "please revise"
     refute inspect(result) =~ "review passed"
   end
@@ -82,6 +87,16 @@ defmodule Aiur.RunTelemetry.GitHubEnricherTest do
       "created_at" => "2026-07-11T13:00:00Z",
       "updated_at" => "2026-07-11T13:00:01Z",
       "body" => body,
+      "user" => %{"login" => login}
+    }
+  end
+
+  defp review(id, login, body, state) do
+    %{
+      "id" => id,
+      "submitted_at" => "2026-07-11T13:30:00Z",
+      "body" => body,
+      "state" => state,
       "user" => %{"login" => login}
     }
   end

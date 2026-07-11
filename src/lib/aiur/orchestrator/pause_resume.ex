@@ -267,7 +267,10 @@ defmodule Aiur.Orchestrator.PauseResume do
 
     case Map.get(dispatched_state.running, issue_id) do
       %{pid: pid} when is_pid(pid) ->
-        record_control_transition(running_entry, Map.get(existing_control, :status), :working, :reactivation)
+        unless DispatchPolicy.normalize_issue_state(issue.state) == "rework" do
+          record_control_transition(running_entry, Map.get(existing_control, :status), :working, :reactivation)
+        end
+
         {{:ok, :reactivated}, dispatched_state}
 
       _ ->

@@ -437,6 +437,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         ref = Process.monitor(pid)
 
         Logger.info("Dispatching issue to agent: #{State.issue_context(issue)} pid=#{inspect(pid)} attempt=#{inspect(attempt)} worker_host=#{worker_host || "local"}")
+        record_rework_resume(issue, lifecycle_attempt_id)
 
         running =
           Map.put(state.running, issue.id, %{
@@ -483,6 +484,18 @@ defmodule Aiur.Orchestrator.Dispatcher do
           error: "failed to spawn agent: #{inspect(reason)}",
           worker_host: worker_host
         })
+    end
+  end
+
+  defp record_rework_resume(%Issue{} = issue, attempt_id) do
+    if DispatchPolicy.normalize_issue_state(issue.state) == "rework" do
+      TelemetryLifecycle.record(
+        issue.identifier,
+        attempt_id,
+        :agent_resume,
+        :point,
+        %{cause: :rework_dispatch}
+      )
     end
   end
 

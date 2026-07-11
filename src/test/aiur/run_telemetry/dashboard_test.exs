@@ -32,6 +32,7 @@ defmodule Aiur.RunTelemetry.DashboardTest do
            ]
 
     assert Floki.find(document, "#resource-metric") != []
+    assert Floki.find(document, "#actor-table-more[aria-controls='actor-table-body']") != []
     assert Floki.find(document, "#ticket-filter") != []
     assert Floki.find(document, "#reset-zoom") != []
     assert Floki.find(document, "#phase-legend") != []
@@ -40,6 +41,8 @@ defmodule Aiur.RunTelemetry.DashboardTest do
     assert html =~ "prefers-reduced-motion: reduce"
     assert html =~ "focus-visible"
     assert html =~ "Broken pause → resume"
+    assert html =~ ~S(value === null || value === undefined || value === "")
+    assert html =~ "decimateSamples"
 
     json = Floki.find(document, "#aiur-data") |> Floki.text(js: true)
     payload = Jason.decode!(json)
@@ -77,6 +80,30 @@ defmodule Aiur.RunTelemetry.DashboardTest do
     assert html =~ "No ticket lifecycle events were recorded."
     assert html =~ "No review pause/resume findings."
     assert html =~ "Unavailable samples"
+  end
+
+  test "returns an explicit write error for an unusable output path" do
+    output = temporary_output!()
+    File.mkdir_p!(output)
+
+    assert {:error, :eisdir} = Dashboard.generate(@fixtures, output)
+  end
+
+  test "keeps GitHub enrichment failures visible without blocking local output" do
+    output = temporary_output!()
+
+    enricher = fn _repo, _tickets, _opts ->
+      %{events: [], warnings: [%{type: :github_enrichment_failed, endpoint: :pull_requests, reason: "timeout"}]}
+    end
+
+    assert {:ok, result} =
+             Dashboard.generate(@fixtures, output,
+               repo: "owner/repo",
+               github_enricher: enricher
+             )
+
+    assert Enum.any?(result.dataset.warnings, &(&1.type == :github_enrichment_failed))
+    assert File.read!(output) =~ "github_enrichment_failed"
   end
 
   defp temporary_output! do

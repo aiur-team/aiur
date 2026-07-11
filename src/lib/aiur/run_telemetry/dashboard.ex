@@ -187,6 +187,10 @@ defmodule Aiur.RunTelemetry.Dashboard do
         </div>
         <output id="actor-detail" class="focus-detail" aria-live="polite">Focus or hover a sample for exact values.</output>
         <details class="data-table"><summary>Accessible actor sample table</summary>
+          <div class="table-actions">
+            <span id="actor-table-count" class="result-count" role="status" aria-live="polite"></span>
+            <button id="actor-table-more" type="button" aria-controls="actor-table-body" hidden>Show more samples</button>
+          </div>
           <div class="table-scroll"><table id="actor-table"><caption>Actor resource samples for the selected metric</caption><thead><tr><th>Time</th><th>Actor</th><th>Availability</th><th>Value</th><th>Boot</th></tr></thead><tbody id="actor-table-body"></tbody></table></div>
         </details>
       </section>
@@ -312,6 +316,9 @@ defmodule Aiur.RunTelemetry.Dashboard do
     .phase-key { display: inline-flex; align-items: center; gap: .3rem; }
     .phase-key i { display: inline-block; width: .65rem; height: .65rem; border-radius: .2rem; }
     .data-table { margin-top: .7rem; } .data-table summary { cursor: pointer; color: var(--accent-dark); font-weight: 700; }
+    .table-actions { display: flex; justify-content: flex-end; align-items: center; gap: .8rem; margin-top: .7rem; }
+    .table-actions .result-count { margin-left: 0; }
+    .table-actions button[hidden] { display: none; }
     .table-scroll { overflow-x: auto; margin-top: .7rem; }
     table { width: 100%; border-collapse: collapse; font-size: .82rem; }
     caption { text-align: left; color: var(--muted); margin-bottom: .55rem; }
@@ -348,7 +355,10 @@ defmodule Aiur.RunTelemetry.Dashboard do
         ["read_bytes_per_second", "Read I/O", "bytes/s"], ["write_bytes_per_second", "Write I/O", "bytes/s"],
         ["system_fd_used", "System FD used", "count"], ["system_fd_headroom_ratio", "System FD headroom", "ratio"]
       ];
+      const actorTablePageSize = 500;
+      let actorTableRows = [], actorTableOffset = 0, actorTableMetric = "cpu_percent";
       const $ = id => document.getElementById(id);
+      const dateFormatter = new Intl.DateTimeFormat(undefined, {dateStyle:"medium", timeStyle:"medium"});
       const node = (tag, className, text) => { const item = document.createElement(tag); if (className) item.className = className; if (text !== undefined) item.textContent = text; return item; };
       const svgNode = (tag, attrs = {}) => { const item = document.createElementNS(NS, tag); Object.entries(attrs).forEach(([key, value]) => item.setAttribute(key, String(value))); return item; };
       const clear = element => element.replaceChildren();
@@ -359,9 +369,10 @@ defmodule Aiur.RunTelemetry.Dashboard do
         svg.append(title,description);
       };
       const sortedEntries = object => Object.entries(object || {}).sort(([a], [b]) => a.localeCompare(b, undefined, {numeric:true}));
-      const date = value => { if (!value) return "Unavailable"; const parsed=new Date(value); return Number.isNaN(parsed.getTime()) ? "Unavailable" : new Intl.DateTimeFormat(undefined, {dateStyle:"medium", timeStyle:"medium"}).format(parsed); };
-      const number = value => Number.isFinite(Number(value)) ? new Intl.NumberFormat(undefined, {maximumFractionDigits:2}).format(Number(value)) : "—";
-      const bytes = value => { const n = Number(value); if (!Number.isFinite(n)) return "—"; const units = ["B","KiB","MiB","GiB","TiB"]; let i=0, v=n; while (Math.abs(v)>=1024 && i<units.length-1) {v/=1024;i++;} return `${new Intl.NumberFormat(undefined,{maximumFractionDigits:1}).format(v)} ${units[i]}`; };
+      const date = value => { if (!value) return "Unavailable"; const parsed=new Date(value); return Number.isNaN(parsed.getTime()) ? "Unavailable" : dateFormatter.format(parsed); };
+      const numeric = value => { if (value === null || value === undefined || value === "") return null; const parsed=Number(value); return Number.isFinite(parsed) ? parsed : null; };
+      const number = value => { const parsed=numeric(value); return parsed === null ? "—" : new Intl.NumberFormat(undefined, {maximumFractionDigits:2}).format(parsed); };
+      const bytes = value => { const n=numeric(value); if (n === null) return "—"; const units = ["B","KiB","MiB","GiB","TiB"]; let i=0, v=n; while (Math.abs(v)>=1024 && i<units.length-1) {v/=1024;i++;} return `${new Intl.NumberFormat(undefined,{maximumFractionDigits:1}).format(v)} ${units[i]}`; };
       const metricMeta = key => metrics.find(metric => metric[0] === key) || [key, key.replaceAll("_", " "), "count"];
       const metricValue = (key, value) => { const unit=metricMeta(key)[2]; if (unit === "bytes" || unit === "bytes/s") return `${bytes(value)}${unit === "bytes/s" && value != null ? "/s" : ""}`; if (unit === "%") return value == null ? "—" : `${number(value)}%`; if (unit === "ratio") return value == null ? "—" : `${number(Number(value)*100)}%`; return number(value); };
       const duration = ms => ms == null ? "open" : ms < 1000 ? `${ms} ms` : ms < 60000 ? `${number(ms/1000)} s` : `${number(ms/60000)} min`;
@@ -403,6 +414,7 @@ defmodule Aiur.RunTelemetry.Dashboard do
         const select=$("resource-metric"); metrics.forEach(([key,label]) => { const option=node("option",null,label); option.value=key; select.append(option); });
         const filters=$("actor-filters"); sortedEntries(data.actors).forEach(([actor],index) => { const label=node("label","actor-check"); const input=node("input"); input.type="checkbox"; input.checked=true; input.value=actor; input.dataset.color=palette[index%palette.length]; const dot=node("i"); dot.style.background=input.dataset.color; label.append(input,dot,document.createTextNode(actor)); filters.append(label); input.addEventListener("change",renderActorChart); });
         select.addEventListener("change",renderActorChart);
+        $("actor-table-more").addEventListener("click",appendActorTablePage);
         renderActorChart();
       }
 
@@ -413,32 +425,66 @@ defmodule Aiur.RunTelemetry.Dashboard do
         for (let i=0;i<=4;i++) { const y=top+(bottom-top)*i/4; svg.append(svgNode("line",{x1:left,x2:right,y1:y,y2:y,class:"grid-line"})); const label=svgNode("text",{x:left-8,y:y+4,"text-anchor":"end",class:"axis-label"}); label.textContent=metricValue(metric,yMax*(1-i/4)); svg.append(label); }
       }
 
+      function decimateSamples(samples, metric, limit) {
+        if (samples.length <= limit) return samples;
+        const bucketCount=Math.max(1,Math.floor((limit-2)/3)), interior=Math.max(samples.length-2,1), selected=[{index:0,sample:samples[0]}];
+        for (let bucket=0;bucket<bucketCount;bucket++) {
+          const start=1+Math.floor(bucket*interior/bucketCount), end=Math.min(samples.length-1,1+Math.floor((bucket+1)*interior/bucketCount));
+          let minimum=null, maximum=null, unavailable=null;
+          for (let index=start;index<end;index++) {
+            const sample=samples[index], value=numeric(sample[metric]), candidate={index,sample,value};
+            if (sample.availability !== "measured" || value === null) unavailable ||= candidate;
+            else { if (!minimum || value<minimum.value) minimum=candidate; if (!maximum || value>maximum.value) maximum=candidate; }
+          }
+          [minimum,maximum,unavailable].filter(Boolean).sort((a,b)=>a.index-b.index).forEach(candidate => {
+            if (selected[selected.length-1].index !== candidate.index) selected.push(candidate);
+          });
+        }
+        selected.push({index:samples.length-1,sample:samples[samples.length-1]});
+        return selected.filter((item,index,list)=>index===0 || item.index!==list[index-1].index).map(item=>item.sample);
+      }
+
+      function resetActorTable(rows, metric, emptyMessage) {
+        actorTableRows=rows; actorTableMetric=metric; actorTableOffset=0; clear($("actor-table-body"));
+        if (emptyMessage) {
+          tableEmpty($("actor-table-body"),5,emptyMessage); $("actor-table-count").textContent=""; $("actor-table-more").hidden=true;
+        } else appendActorTablePage();
+      }
+
+      function appendActorTablePage() {
+        const body=$("actor-table-body"), next=Math.min(actorTableOffset+actorTablePageSize,actorTableRows.length);
+        actorTableRows.slice(actorTableOffset,next).forEach(sample => { const row=node("tr"); [date(sample.timestamp),sample.actor,sample.availability,metricValue(actorTableMetric,sample[actorTableMetric]),sample.boot_id].forEach(value=>row.append(node("td",null,value))); body.append(row); });
+        actorTableOffset=next; $("actor-table-count").textContent=`Showing ${actorTableOffset} of ${actorTableRows.length} samples`; $("actor-table-more").hidden=actorTableOffset>=actorTableRows.length;
+      }
+
       function renderActorChart() {
-        const svg=$("actor-chart"), state=$("actor-state"), table=$("actor-table-body"), detail=$("actor-detail"); resetChart(svg,"actor-chart-title","Per-actor resource timeline","actor-chart-description","Focus a point to read its exact actor, time, and value."); clear(table);
+        const svg=$("actor-chart"), state=$("actor-state"), detail=$("actor-detail"); resetChart(svg,"actor-chart-title","Per-actor resource timeline","actor-chart-description","Focus a point to read its exact actor, time, and value.");
         const actorNames=actorSelection(), metric=$("resource-metric").value || "cpu_percent";
         const actors=actorNames.map(name=>data.actors[name]).filter(Boolean);
         const allSamples=actors.flatMap(actor=>actor.samples || []);
-        if (!Object.keys(data.actors).length) { state.hidden=false; state.textContent="No actor resource samples were recorded."; tableEmpty(table,5,"No actor resource samples were recorded."); svg.setAttribute("height","320"); return; }
-        if (!actors.length) { state.hidden=false; state.textContent="Select at least one actor."; tableEmpty(table,5,"No actors selected."); return; }
+        if (!Object.keys(data.actors).length) { state.hidden=false; state.textContent="No actor resource samples were recorded."; resetActorTable([],metric,"No actor resource samples were recorded."); svg.setAttribute("height","320"); return; }
+        if (!actors.length) { state.hidden=false; state.textContent="Select at least one actor."; resetActorTable([],metric,"No actors selected."); return; }
+        if (!allSamples.length) { state.hidden=false; state.textContent="No samples exist for the selected actors."; resetActorTable([],metric,"No samples exist for the selected actors."); return; }
         state.hidden=true;
         const width=1000,height=320,left=92,right=975,top=25,bottom=280;
         svg.setAttribute("viewBox",`0 0 ${width} ${height}`); svg.setAttribute("height",String(height));
-        const times=allSamples.map(sample=>Number(sample.timestamp_ms)).filter(Number.isFinite); const minTime=Math.min(...times),maxTime=Math.max(...times);
-        const values=allSamples.map(sample=>Number(sample[metric])).filter(Number.isFinite); const yMax=Math.max(...values,1);
+        const [minTime,maxTime]=allSamples.reduce(([minimum,maximum],sample)=>{ const value=Number(sample.timestamp_ms); return Number.isFinite(value)?[Math.min(minimum,value),Math.max(maximum,value)]:[minimum,maximum]; },[Infinity,-Infinity]);
+        const yMax=allSamples.reduce((maximum,sample)=>{ const value=numeric(sample[metric]); return value === null ? maximum : Math.max(maximum,value); },1);
         grid(svg,left,right,top,bottom,yMax,metric);
         data.restarts.forEach(restart => { const time=Date.parse(restart.timestamp); if (time>=minTime && time<=maxTime) { const x=scale(time,minTime,maxTime,left,right); const line=svgNode("line",{x1:x,x2:x,y1:top,y2:bottom,class:"restart-line"}); const title=svgNode("title"); title.textContent=`Daemon restart ${restart.boot_id} at ${date(restart.timestamp)}`; line.append(title); svg.append(line); } });
         actors.forEach(actor => {
           (actor.gaps || []).forEach(gap => { const x=scale(Date.parse(gap.start_at),minTime,maxTime,left,right), x2=scale(Date.parse(gap.end_at),minTime,maxTime,left,right); svg.append(svgNode("rect",{x,y:top,width:Math.max(x2-x,2),height:bottom-top,class:"gap-band"})); });
           let segment=[]; const flush=()=>{ if (segment.length>1) { const path=svgNode("path",{d:segment.map((point,index)=>`${index?"L":"M"}${point.x},${point.y}`).join(" "),fill:"none",stroke:actorColor(actor.actor),"stroke-width":2.5}); svg.append(path); } segment=[]; };
-          (actor.samples || []).forEach(sample => {
-            const x=scale(Number(sample.timestamp_ms),minTime,maxTime,left,right), value=Number(sample[metric]);
-            if (sample.availability === "measured" && Number.isFinite(value)) {
+          const chartLimit=Math.max(60,Math.floor(1800/actors.length));
+          decimateSamples(actor.samples || [],metric,chartLimit).forEach(sample => {
+            const x=scale(Number(sample.timestamp_ms),minTime,maxTime,left,right), value=numeric(sample[metric]);
+            if (sample.availability === "measured" && value !== null) {
               const y=scale(value,0,yMax,bottom,top); segment.push({x,y}); const circle=svgNode("circle",{cx:x,cy:y,r:5,fill:actorColor(actor.actor),class:"sample-point",tabindex:0,role:"img"});
               const label=`${actor.actor} · ${metricMeta(metric)[1]} ${metricValue(metric,value)} · ${date(sample.timestamp)}`; circle.setAttribute("aria-label",label); const title=svgNode("title"); title.textContent=label; circle.append(title); bindDetail(circle,label,detail); svg.append(circle);
             } else { flush(); const group=svgNode("g",{tabindex:0,role:"img","aria-label":`${actor.actor} unavailable at ${date(sample.timestamp)}: ${sample.unavailable_reason || "unknown reason"}`}); group.append(svgNode("line",{x1:x-4,x2:x+4,y1:bottom-4,y2:bottom+4,class:"unavailable-mark"}),svgNode("line",{x1:x-4,x2:x+4,y1:bottom+4,y2:bottom-4,class:"unavailable-mark"})); bindDetail(group,group.getAttribute("aria-label"),detail); svg.append(group); }
-            const row=node("tr"); [date(sample.timestamp),actor.actor,sample.availability,metricValue(metric,sample[metric]),sample.boot_id].forEach(value=>row.append(node("td",null,value))); table.append(row);
           }); flush();
         });
+        resetActorTable(allSamples,metric);
         const startLabel=svgNode("text",{x:left,y:307,class:"axis-label"}); startLabel.textContent=date(new Date(minTime).toISOString()); const endLabel=svgNode("text",{x:right,y:307,"text-anchor":"end",class:"axis-label"}); endLabel.textContent=date(new Date(maxTime).toISOString()); svg.append(startLabel,endLabel);
       }
 

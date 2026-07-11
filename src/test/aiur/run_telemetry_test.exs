@@ -2,6 +2,7 @@ defmodule Aiur.RunTelemetryTest do
   use ExUnit.Case, async: false
 
   alias Aiur.RunTelemetry
+  alias Aiur.RunTelemetry.{Dashboard, Lifecycle, Writer}
 
   setup do
     original_debug = System.get_env("AIUR_DEBUG")
@@ -67,5 +68,78 @@ defmodule Aiur.RunTelemetryTest do
 
     assert Enum.map(records, & &1["kind"]) == ["restart", "lifecycle"]
     assert Enum.at(records, 1)["attributes"]["ticket"] == "930"
+  end
+
+  test "supervised sampling and lifecycle evidence generate an offline dashboard", %{root: root} do
+    System.put_env("AIUR_DEBUG", "1")
+    RunTelemetry.start_boot()
+    test_pid = self()
+    telemetry_path = Path.join(root, "log/telemetry.ndjson")
+    output = Path.join(root, "analytics.html")
+
+    sample_fun = fn _previous ->
+      %{
+        records: [
+          %{
+            actor: "_daemon",
+            actor_type: "daemon",
+            ticket: nil,
+            availability: "measured",
+            unavailable_reason: nil,
+            process_count: 1,
+            rss_bytes: 1_024,
+            fd_count: 12,
+            read_bytes: 100,
+            write_bytes: 200,
+            cpu_percent: 3.5,
+            read_bytes_per_second: nil,
+            write_bytes_per_second: nil,
+            partial_fields: []
+          }
+        ],
+        warnings: [],
+        previous: %{}
+      }
+    end
+
+    recorder = fn records ->
+      RunTelemetry.record_batch(records, writer: __MODULE__.PipelineWriter)
+      Writer.flush(__MODULE__.PipelineWriter)
+      send(test_pid, :resource_sample_recorded)
+    end
+
+    start_supervised!(
+      {Aiur.RunTelemetry.Supervisor,
+       name: __MODULE__.PipelineSupervisor,
+       writer_opts: [name: __MODULE__.PipelineWriter, path: telemetry_path],
+       sampler_opts: [
+         name: __MODULE__.PipelineSampler,
+         sample_fun: sample_fun,
+         recorder: recorder,
+         interval_ms: 60_000,
+         start_immediately?: true
+       ]}
+    )
+
+    assert_receive :resource_sample_recorded
+
+    lifecycle_recorder = fn kind, attributes, opts ->
+      RunTelemetry.record(kind, attributes, Keyword.put(opts, :writer, __MODULE__.PipelineWriter))
+    end
+
+    assert :ok =
+             Lifecycle.record("930", "attempt-1", :dispatch, :point, %{},
+               recorder: lifecycle_recorder,
+               timestamp: ~U[2026-07-11 12:00:00Z]
+             )
+
+    assert :ok = Writer.flush(__MODULE__.PipelineWriter)
+
+    assert {:ok, result} =
+             Dashboard.generate(telemetry_path, output, generated_at: ~U[2026-07-11 12:01:00Z])
+
+    assert result.dataset.actors["_daemon"].profile["rss_bytes"].max == 1_024
+    assert Enum.any?(result.dataset.tickets["930"].events, &(&1.event == "dispatch"))
+    assert File.read!(output) =~ "<!doctype html>"
   end
 end

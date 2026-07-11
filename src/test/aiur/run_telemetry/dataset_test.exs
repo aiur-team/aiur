@@ -161,6 +161,55 @@ defmodule Aiur.RunTelemetry.DatasetTest do
     assert [%{status: "broken", missing: ["agent_resume"]}] = out_of_order.findings
   end
 
+  test "preserves repeated runtime transitions while deduplicating replayable boundaries" do
+    path = temporary_stream!()
+
+    repeated = [
+      lifecycle_record(1, "agent_pause", "point", ~U[2026-07-11 01:00:00Z], "same-runtime-key"),
+      lifecycle_record(2, "agent_pause", "point", ~U[2026-07-11 01:01:00Z], "same-runtime-key")
+    ]
+
+    File.write!(path, Enum.map_join(repeated, "\n", &Jason.encode!/1) <> "\n")
+
+    assert {:ok, dataset} = Dataset.build(path)
+    assert Enum.count(dataset.tickets["940"].events, &(&1.event == "agent_pause")) == 2
+    refute Enum.any?(dataset.warnings, &(&1.type == :duplicate_lifecycle_boundary))
+
+    replayable = [
+      lifecycle_record(3, "comment_received", "point", ~U[2026-07-11 01:02:00Z], "same-source-key", %{
+        source_id: "comment:1"
+      }),
+      lifecycle_record(4, "comment_received", "point", ~U[2026-07-11 01:02:01Z], "same-source-key", %{
+        source_id: "comment:1"
+      }),
+      lifecycle_record(5, "agent_pause", "point", ~U[2026-07-11 01:03:00Z])
+    ]
+
+    File.write!(path, Enum.map_join(replayable, "\n", &Jason.encode!/1) <> "\n")
+
+    assert {:ok, deduplicated} = Dataset.build(path)
+    assert Enum.count(deduplicated.tickets["940"].events, &(&1.event == "comment_received")) == 1
+    assert Enum.any?(deduplicated.warnings, &(&1.type == :duplicate_lifecycle_boundary))
+    refute Enum.any?(deduplicated.warnings, &(&1.type == :sequence_gap))
+  end
+
+  test "does not reuse a completed review pause for later comments" do
+    path = temporary_stream!()
+
+    records = [
+      lifecycle_record(1, "review_pause", "point", ~U[2026-07-11 01:00:00Z]),
+      lifecycle_record(2, "comment_received", "point", ~U[2026-07-11 01:00:01Z], "comment-1", %{source_id: "comment:1"}),
+      lifecycle_record(3, "rework_start", "point", ~U[2026-07-11 01:00:02Z]),
+      lifecycle_record(4, "agent_resume", "point", ~U[2026-07-11 01:00:03Z]),
+      lifecycle_record(5, "comment_received", "point", ~U[2026-07-11 01:00:04Z], "comment-2", %{source_id: "comment:2"})
+    ]
+
+    File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")
+
+    assert {:ok, dataset} = Dataset.build(path, now: ~U[2026-07-11 01:10:00Z])
+    assert [%{status: "resolved", comment_source_id: "comment:1"}] = dataset.findings
+  end
+
   test "returns an explicit error when no telemetry file exists" do
     empty = Path.join(System.tmp_dir!(), "aiur-empty-dataset-#{System.unique_integer([:positive])}")
     File.mkdir_p!(empty)
@@ -176,7 +225,9 @@ defmodule Aiur.RunTelemetry.DatasetTest do
     Path.join(root, "telemetry.ndjson")
   end
 
-  defp lifecycle_record(sequence, event, boundary, timestamp) do
+  defp lifecycle_record(sequence, event, boundary, timestamp, event_key \\ nil, extra_attributes \\ %{}) do
+    event_key = event_key || "event-#{sequence}"
+
     %{
       schema_version: 1,
       kind: "lifecycle",
@@ -185,13 +236,17 @@ defmodule Aiur.RunTelemetry.DatasetTest do
       boot_id: "test-boot",
       sequence: sequence,
       record_id: "test-boot:#{sequence}",
-      attributes: %{
-        ticket: "940",
-        attempt_id: "attempt-1",
-        event: event,
-        boundary: boundary,
-        event_key: "event-#{sequence}"
-      }
+      attributes:
+        Map.merge(
+          %{
+            ticket: "940",
+            attempt_id: "attempt-1",
+            event: event,
+            boundary: boundary,
+            event_key: event_key
+          },
+          extra_attributes
+        )
     }
   end
 end
