@@ -1,7 +1,7 @@
 ---
 title: "refactor: Relocate orchestrator lifecycle glue"
 type: refactor
-status: active
+status: completed
 date: 2026-07-11
 origin: docs/brainstorms/2026-07-06-production-readiness-refactor-planning-requirements.md
 ---
