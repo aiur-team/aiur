@@ -54,6 +54,20 @@ defmodule Aiur.Opencode.Slot.ServeLifecycleTest do
     assert :ok = ServeLifecycle.teardown_generation(state)
   end
 
+  test "teardown_generation stops a live server before returning" do
+    {:ok, server_pid} = Agent.start_link(fn -> :running end)
+
+    assert :ok =
+             ServeLifecycle.teardown_generation(%{
+               base_url: nil,
+               server_pid: server_pid,
+               pane_id: nil,
+               token: nil
+             })
+
+    refute Process.alive?(server_pid)
+  end
+
   # --- terminate_cleanup/1 ---
 
   test "terminate_cleanup with nil state fields returns :ok without external calls" do
@@ -65,5 +79,19 @@ defmodule Aiur.Opencode.Slot.ServeLifecycleTest do
     # Same as above: reap_writers_for_base_url on empty registry is a safe no-op
     state = %{base_url: "http://127.0.0.1:1", server_pid: nil, pane_id: nil, token: nil}
     assert :ok = ServeLifecycle.terminate_cleanup(state)
+  end
+
+  test "terminate_cleanup tolerates stopping a live server" do
+    {:ok, server_pid} = Agent.start_link(fn -> :running end)
+
+    assert :ok =
+             ServeLifecycle.terminate_cleanup(%{
+               base_url: nil,
+               server_pid: server_pid,
+               pane_id: nil,
+               token: nil
+             })
+
+    refute Process.alive?(server_pid)
   end
 end

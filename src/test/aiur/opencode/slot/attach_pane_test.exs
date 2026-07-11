@@ -23,6 +23,10 @@ defmodule Aiur.Opencode.Slot.AttachPaneTest do
     assert nil == AttachPane.terminate_pane_command(%{})
   end
 
+  test "spawn propagates a split failure when tmux is unavailable" do
+    assert {:error, :no_tmux} = AttachPane.spawn(3, "http://127.0.0.1:1", "%missing")
+  end
+
   # --- pipe_pane_path/1 ---
 
   test "pipe_pane_path returns expected path" do
@@ -61,6 +65,16 @@ defmodule Aiur.Opencode.Slot.AttachPaneTest do
   test "dump_pipe_tail returns :ok for nonexistent path" do
     # pipe_pane_path(9999) → "/tmp/aiur-debug/slot-9999-attach.log" (does not exist)
     assert :ok = AttachPane.dump_pipe_tail(9999)
+  end
+
+  test "dump_pipe_tail reads an existing debug pipe" do
+    slot_index = 9998
+    path = AttachPane.pipe_pane_path(slot_index)
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, "first line\nsecond line\n")
+    on_exit(fn -> File.rm(path) end)
+
+    assert :ok = AttachPane.dump_pipe_tail(slot_index)
   end
 
   # --- maybe_start_pipe_pane/2 ---
@@ -120,5 +134,10 @@ defmodule Aiur.Opencode.Slot.AttachPaneTest do
   test "respawn maps unavailable hidden window to respawn failure" do
     assert {:error, :respawn_failed} =
              AttachPane.respawn_with_session(%{slot_index: 3, pane_id: nil}, "session-1", "attach")
+  end
+
+  test "respawn retires an existing pane before mapping hidden-window failure" do
+    assert {:error, :respawn_failed} =
+             AttachPane.respawn_with_session(%{slot_index: 3, pane_id: "%missing"}, "session-1", "attach")
   end
 end

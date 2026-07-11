@@ -19,6 +19,13 @@ defmodule Aiur.Opencode.Slot.StateTest do
 
   # --- record_poll/2 debounce ---
 
+  test "new builds a booting state for the slot workspace" do
+    state = State.new(8, "/tmp/slot-8")
+    assert state.slot_index == 8
+    assert state.workspace_path == "/tmp/slot-8"
+    assert state.status == :booting
+  end
+
   test "record_poll alive resets death count" do
     state = base_state(%{poll_death_count: 2})
     assert {:alive, new_state} = State.record_poll(state, :alive)
@@ -41,6 +48,27 @@ defmodule Aiur.Opencode.Slot.StateTest do
   test "record_poll alive after 2 misses resets count" do
     state = base_state(%{poll_death_count: 2})
     assert {:alive, new_state} = State.record_poll(state, :alive)
+    assert new_state.poll_death_count == 0
+  end
+
+  test "pane_died clears pane, active, and poll fields before respawn" do
+    state =
+      base_state(%{
+        pane_id: "%8",
+        active_identifier: "issue-8",
+        active_session_id: "session-8",
+        visible_identifier: "issue-8",
+        visible_session_id: "session-8",
+        poll_ref: make_ref(),
+        poll_death_count: 3
+      })
+
+    new_state = State.pane_died(state)
+    assert new_state.status == :attach_spawning
+    assert is_nil(new_state.pane_id)
+    assert is_nil(new_state.active_identifier)
+    assert is_nil(new_state.visible_identifier)
+    assert is_nil(new_state.poll_ref)
     assert new_state.poll_death_count == 0
   end
 
