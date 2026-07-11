@@ -35,6 +35,17 @@ elif [ -n "${__aiur_hard_nofile}" ]; then
 fi
 unset __aiur_hard_nofile
 
+# Export the effective soft limit after the best-effort raise. The BEAM uses
+# this inherited value for FD-headroom admission on hosts without procfs,
+# avoiding a runtime `ulimit` subprocess precisely when descriptors are scarce.
+__aiur_soft_nofile="$(ulimit -Sn 2>/dev/null || echo)"
+if [[ "$__aiur_soft_nofile" =~ ^[0-9]+$ ]]; then
+  export AIUR_NOFILE_SOFT_LIMIT="$__aiur_soft_nofile"
+else
+  unset AIUR_NOFILE_SOFT_LIMIT
+fi
+unset __aiur_soft_nofile
+
 die() {
   echo "❌ $*" >&2
   exit 1

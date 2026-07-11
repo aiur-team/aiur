@@ -9,10 +9,12 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   setup do
     previous_meminfo = Application.get_env(:aiur, :meminfo_source_override)
     previous_loadavg = Application.get_env(:aiur, :loadavg_source_override)
+    previous_fd_sample = Application.get_env(:aiur, :file_descriptor_sample_override)
 
     on_exit(fn ->
       restore_app_env(:meminfo_source_override, previous_meminfo)
       restore_app_env(:loadavg_source_override, previous_loadavg)
+      restore_app_env(:file_descriptor_sample_override, previous_fd_sample)
     end)
 
     :ok
@@ -32,6 +34,51 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         end)
 
       assert log =~ "aiur_perf memory_hold surface=dispatch available_mb=1024 threshold_mb=2048"
+    end
+  end
+
+  describe "file-descriptor admission" do
+    test "holds below the reserve, logs the sample, and recovers on a later cycle" do
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
+
+      Application.put_env(:aiur, :file_descriptor_sample_override, fn ->
+        %{pid: "123", used: 91, limit: 100, available: 9, headroom_ratio: 0.09}
+      end)
+
+      state = %State{max_concurrent_agents: 1, effective_concurrent_agents: 1}
+
+      hold_log =
+        capture_log(fn ->
+          assert %State{running: %{}} = Dispatcher.maybe_choose_under_load(state, [])
+        end)
+
+      assert hold_log =~
+               "aiur_perf fd_hold surface=dispatch used=91 limit=100 available=9 threshold=10 threshold_pct=10"
+
+      Application.put_env(:aiur, :file_descriptor_sample_override, fn ->
+        %{pid: "123", used: 90, limit: 100, available: 10, headroom_ratio: 0.10}
+      end)
+
+      recovery_log =
+        capture_log(fn ->
+          assert %State{running: %{}} = Dispatcher.maybe_choose_under_load(state, [])
+        end)
+
+      refute recovery_log =~ "aiur_perf fd_hold"
+    end
+
+    test "holds when the sample itself reports descriptor exhaustion" do
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
+      Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :exhausted end)
+
+      log =
+        capture_log(fn ->
+          assert %State{running: %{}} =
+                   Dispatcher.maybe_choose_under_load(%State{max_concurrent_agents: 1, effective_concurrent_agents: 1}, [])
+        end)
+
+      assert log =~
+               "aiur_perf fd_hold surface=dispatch status=exhausted used=unknown limit=unknown available=0 threshold=unknown threshold_pct=10"
     end
   end
 
