@@ -54,6 +54,28 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert records |> Enum.map(& &1["record_id"]) |> Enum.uniq() |> length() == 21
   end
 
+  test "record_batch/3 appends one contiguous sequence", %{path: path} do
+    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "batch")
+
+    assert :ok =
+             Writer.record_batch(
+               writer,
+               [resource: %{actor: "_daemon"}, warning: %{event: :resource_sample_skipped}],
+               timestamp: ~U[2026-07-11 12:00:00Z]
+             )
+
+    assert :ok = Writer.flush(writer)
+    records = read_records(path)
+
+    assert Enum.map(records, & &1["kind"]) == ["restart", "resource", "warning"]
+    assert Enum.map(records, & &1["sequence"]) == [1, 2, 3]
+
+    assert Enum.map(Enum.drop(records, 1), & &1["timestamp"]) == [
+             "2026-07-11T12:00:00Z",
+             "2026-07-11T12:00:00Z"
+           ]
+  end
+
   test "an unwritable target never terminates the writer or caller", %{root: root} do
     parent_file = Path.join(root, "not-a-directory")
     File.mkdir_p!(root)

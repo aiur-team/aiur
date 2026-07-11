@@ -49,7 +49,10 @@ defmodule Aiur.RunTelemetryTest do
     System.put_env("AIUR_DEBUG", "1")
     RunTelemetry.start_boot()
 
-    start_supervised!({Aiur.RunTelemetry.Supervisor, name: __MODULE__.Supervisor, writer_opts: [name: __MODULE__.Writer, path: Path.join(root, "log/telemetry.ndjson")]})
+    start_supervised!(
+      {Aiur.RunTelemetry.Supervisor,
+       name: __MODULE__.Supervisor, writer_opts: [name: __MODULE__.Writer, path: Path.join(root, "log/telemetry.ndjson")], sampler_opts: [name: __MODULE__.Sampler, start_immediately?: false]}
+    )
 
     assert :ok =
              RunTelemetry.record(:lifecycle, %{ticket: "930", event: :dispatch}, writer: __MODULE__.Writer)

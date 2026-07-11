@@ -39,6 +39,16 @@ defmodule Aiur.RunTelemetry.Writer do
   def record(_server, _kind, _attributes, _opts), do: :ok
 
   @doc false
+  @spec record_batch(server(), [{atom() | String.t(), map()}], keyword()) :: :ok
+  def record_batch(server, records, opts \\ []) when is_list(records) and is_list(opts) do
+    timestamp = Keyword.get(opts, :timestamp, DateTime.utc_now())
+    GenServer.cast(server, {:record_batch, records, timestamp})
+    :ok
+  catch
+    :exit, _reason -> :ok
+  end
+
+  @doc false
   @spec flush(server()) :: :ok
   def flush(server \\ __MODULE__) do
     GenServer.call(server, :flush)
@@ -75,29 +85,50 @@ defmodule Aiur.RunTelemetry.Writer do
     {:noreply, append(state, kind, attributes, timestamp)}
   end
 
+  def handle_cast({:record_batch, records, timestamp}, state) do
+    batch =
+      Enum.flat_map(records, fn
+        {kind, attributes} when is_map(attributes) -> [{kind, attributes, timestamp}]
+        _other -> []
+      end)
+
+    {:noreply, append_many(state, batch)}
+  end
+
   @impl true
   def handle_call(:flush, _from, state), do: {:reply, :ok, state}
 
   defp append(state, kind, attributes, timestamp) do
-    sequence = next_sequence(state)
-    attributes = maybe_mark_writer_restart(state, kind, attributes, sequence)
+    append_many(state, [{kind, attributes, timestamp}])
+  end
 
-    envelope = %{
-      schema_version: RunTelemetry.schema_version(),
-      kind: normalize_kind(kind),
-      timestamp: normalize_timestamp(timestamp),
-      recorded_at: normalize_timestamp(state.clock.()),
-      boot_id: state.boot_id,
-      sequence: sequence,
-      record_id: "#{state.boot_id}:#{sequence}",
-      attributes: attributes
-    }
+  defp append_many(state, []), do: state
 
-    state = %{state | sequence: sequence}
+  defp append_many(state, records) do
+    {state, lines} =
+      Enum.reduce(records, {state, []}, fn {kind, attributes, timestamp}, {state, lines} ->
+        sequence = next_sequence(state)
+        attributes = maybe_mark_writer_restart(state, kind, attributes, sequence)
 
-    with {:ok, encoded} <- Jason.encode(json_safe(envelope)),
-         :ok <- File.mkdir_p(Path.dirname(state.path)),
-         :ok <- File.write(state.path, encoded <> "\n", [:append]) do
+        envelope = %{
+          schema_version: RunTelemetry.schema_version(),
+          kind: normalize_kind(kind),
+          timestamp: normalize_timestamp(timestamp),
+          recorded_at: normalize_timestamp(state.clock.()),
+          boot_id: state.boot_id,
+          sequence: sequence,
+          record_id: "#{state.boot_id}:#{sequence}",
+          attributes: attributes
+        }
+
+        {:ok, encoded} = Jason.encode(json_safe(envelope))
+        {%{state | sequence: sequence}, [[encoded, "\n"] | lines]}
+      end)
+
+    contents = lines |> Enum.reverse() |> IO.iodata_to_binary()
+
+    with :ok <- File.mkdir_p(Path.dirname(state.path)),
+         :ok <- File.write(state.path, contents, [:append]) do
       %{state | write_warning_emitted: false}
     else
       {:error, reason} -> warn_write_failure(state, reason)

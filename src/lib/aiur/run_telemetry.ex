@@ -73,6 +73,25 @@ defmodule Aiur.RunTelemetry do
 
   def record(_kind, _attributes, _opts), do: :ok
 
+  @doc false
+  @spec record_batch([{atom() | String.t(), map()}], keyword()) :: :ok
+  def record_batch(records, opts \\ [])
+
+  def record_batch(records, opts) when is_list(records) and is_list(opts) do
+    if LogFile.debug_enabled?() do
+      writer = Keyword.get(opts, :writer, Writer)
+      Writer.record_batch(writer, records, Keyword.delete(opts, :writer))
+    end
+
+    :ok
+  rescue
+    _error -> :ok
+  catch
+    :exit, _reason -> :ok
+  end
+
+  def record_batch(_records, _opts), do: :ok
+
   defp boot_state do
     case :persistent_term.get(@boot_state_key, :unset) do
       :unset -> initialize_boot_state()

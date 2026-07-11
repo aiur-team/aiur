@@ -3,6 +3,7 @@ defmodule Aiur.RunTelemetry.Supervisor do
 
   use Supervisor
 
+  alias Aiur.RunTelemetry.Sampler
   alias Aiur.RunTelemetry.Writer
 
   @spec start_link(keyword()) :: Supervisor.on_start()
@@ -13,6 +14,7 @@ defmodule Aiur.RunTelemetry.Supervisor do
   @impl true
   def init(opts) do
     writer_opts = Keyword.get(opts, :writer_opts, [])
-    Supervisor.init([{Writer, writer_opts}], strategy: :one_for_one)
+    sampler_opts = Keyword.get(opts, :sampler_opts, [])
+    Supervisor.init([{Writer, writer_opts}, {Sampler, sampler_opts}], strategy: :one_for_one)
   end
 end
