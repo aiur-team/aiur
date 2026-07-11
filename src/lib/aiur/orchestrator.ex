@@ -279,7 +279,7 @@ defmodule Aiur.Orchestrator do
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
-    handle_agent_down(state, ref, reason)
+    RetryEngine.handle_agent_down(state, ref, reason)
   end
 
   def handle_info({:worker_runtime_info, issue_id, runtime_info}, %{running: running} = state)
@@ -418,50 +418,6 @@ defmodule Aiur.Orchestrator do
   def handle_info(msg, state) do
     Logger.debug("Orchestrator ignored message: #{inspect(msg)}")
     {:noreply, state}
-  end
-
-  defp handle_agent_down(%{running: running} = state, ref, reason) do
-    case find_issue_id_for_ref(running, ref) do
-      nil ->
-        {:noreply, state}
-
-      issue_id ->
-        {running_entry, state} = pop_running_entry(state, issue_id)
-        state = record_session_completion_totals(state, running_entry)
-        session_id = running_entry_session_id(running_entry)
-
-        state =
-          case reason do
-            :normal ->
-              Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
-
-              state
-              |> complete_issue(issue_id)
-              |> schedule_issue_retry(issue_id, 1, %{
-                identifier: running_entry.identifier,
-                delay_type: :continuation,
-                worker_host: Map.get(running_entry, :worker_host),
-                workspace_path: Map.get(running_entry, :workspace_path)
-              })
-
-            _ ->
-              Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
-
-              next_attempt = next_retry_attempt_from_running(running_entry)
-
-              schedule_issue_retry(state, issue_id, next_attempt, %{
-                identifier: running_entry.identifier,
-                error: "agent exited: #{inspect(reason)}",
-                worker_host: Map.get(running_entry, :worker_host),
-                workspace_path: Map.get(running_entry, :workspace_path)
-              })
-          end
-
-        Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
-
-        notify_dashboard(state)
-        {:noreply, state}
-    end
   end
 
   defp parse_pr_review_comment_topic(topic), do: EventTopics.parse_pr_review_comment_topic(topic)
@@ -1335,22 +1291,8 @@ defmodule Aiur.Orchestrator do
 
   @doc false
   @spec preserve_running_issue_on_external_error(State.t(), Issue.t()) :: State.t()
-  def preserve_running_issue_on_external_error(%State{} = state, %Issue{} = issue) do
-    previous_state =
-      case Map.get(state.running, issue.id) do
-        %{issue: %Issue{state: state_name}} -> normalize_issue_state(state_name)
-        %{issue: %{state: state_name}} -> normalize_issue_state(state_name)
-        _ -> ""
-      end
-
-    if previous_state == "error" do
-      Logger.debug("Issue remains in error state while agent is still active: #{issue_context(issue)}")
-    else
-      Logger.warning("Issue reported error state while agent is still active; preserving runner pending local completion: #{issue_context(issue)} state=#{issue.state}")
-    end
-
-    refresh_running_issue_state(state, issue)
-  end
+  def preserve_running_issue_on_external_error(state, issue),
+    do: RetryEngine.preserve_running_issue_on_external_error(state, issue)
 
   # Label flipped back to an active state. If the running entry is
   # currently `:deactivated`, route through `reactivate_issue/2` so a
@@ -1486,9 +1428,6 @@ defmodule Aiur.Orchestrator do
   defp revalidate_issue_for_dispatch(issue, issue_fetcher, terminal_states), do: Dispatcher.revalidate_issue_for_dispatch(issue, issue_fetcher, terminal_states)
 
   # RetryEngine wrappers
-  defp complete_issue(state, issue_id), do: RetryEngine.complete_issue(state, issue_id)
-  defp schedule_issue_retry(state, issue_id, attempt, metadata), do: RetryEngine.schedule_issue_retry(state, issue_id, attempt, metadata)
-  defp next_retry_attempt_from_running(running_entry), do: RetryEngine.next_retry_attempt_from_running(running_entry)
   defp pop_retry_attempt_state(state, issue_id, retry_token), do: RetryEngine.pop_retry_attempt_state(state, issue_id, retry_token)
   defp handle_retry_issue(state, issue_id, attempt, metadata), do: RetryEngine.handle_retry_issue(state, issue_id, attempt, metadata)
   defp release_issue_claim(state, issue_id), do: RetryEngine.release_issue_claim(state, issue_id)
@@ -1498,8 +1437,6 @@ defmodule Aiur.Orchestrator do
   defp select_worker_host(state, preferred_worker_host), do: Slots.select_worker_host(state, preferred_worker_host)
   defp worker_slots_available?(state, preferred_worker_host), do: Slots.worker_slots_available?(state, preferred_worker_host)
 
-  defp find_issue_id_for_ref(running, ref), do: State.find_issue_id_for_ref(running, ref)
-  defp running_entry_session_id(running_entry), do: State.running_entry_session_id(running_entry)
   defp issue_context(issue), do: State.issue_context(issue)
   defp active_running_count(running), do: State.active_running_count(running)
   defp paused_running_count(running), do: State.paused_running_count(running)
@@ -2521,13 +2458,6 @@ defmodule Aiur.Orchestrator do
     :timer.send_after(@poll_transition_render_delay_ms, self(), :run_poll_cycle)
     :ok
   end
-
-  defp pop_running_entry(state, issue_id), do: State.pop_running_entry(state, issue_id)
-
-  defp record_session_completion_totals(state, running_entry) when is_map(running_entry),
-    do: TokenAccounting.record_session_completion_totals(state, running_entry)
-
-  defp record_session_completion_totals(state, _running_entry), do: state
 
   defp refresh_runtime_config(%State{} = state) do
     config = Config.settings!()

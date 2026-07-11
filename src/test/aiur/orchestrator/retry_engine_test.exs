@@ -1,6 +1,7 @@
 defmodule Aiur.Orchestrator.RetryEngineTest do
   use Aiur.TestSupport
 
+  alias Aiur.Issue
   alias Aiur.Orchestrator.RetryEngine
   alias Aiur.Orchestrator.State
 
@@ -135,6 +136,40 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
 
       refute MapSet.member?(result.claimed, "issue-1")
       assert MapSet.member?(result.claimed, "issue-2")
+    end
+  end
+
+  describe "preserve_running_issue_on_external_error/2" do
+    test "refreshes the issue while preserving the live runner and claim" do
+      issue_id = "issue-error"
+
+      running_issue = %Issue{
+        id: issue_id,
+        identifier: "ERR-1",
+        state: "in-progress",
+        title: "Preserve the runner"
+      }
+
+      reported_issue = %{running_issue | state: "error"}
+
+      running_entry = %{
+        issue: running_issue,
+        identifier: running_issue.identifier,
+        control: %{status: :working},
+        marker: :preserved
+      }
+
+      state = %State{
+        running: %{issue_id => running_entry},
+        claimed: MapSet.new([issue_id])
+      }
+
+      result = RetryEngine.preserve_running_issue_on_external_error(state, reported_issue)
+
+      assert result.running[issue_id].issue == reported_issue
+      assert result.running[issue_id].marker == :preserved
+      assert result.running[issue_id].control.status == :working
+      assert result.claimed == state.claimed
     end
   end
 end

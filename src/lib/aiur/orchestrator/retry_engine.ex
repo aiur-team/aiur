@@ -11,11 +11,83 @@ defmodule Aiur.Orchestrator.RetryEngine do
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.Dispatcher
-  alias Aiur.Orchestrator.{DispatchPolicy, Slots, State}
+
+  alias Aiur.Orchestrator.{
+    DispatchPolicy,
+    Reconciler,
+    Slots,
+    State,
+    StatusReport,
+    TokenAccounting
+  }
 
   @continuation_retry_delay_ms 1_000
   @failure_retry_base_ms 10_000
   @max_retry_poll_failures 3
+
+  @spec handle_agent_down(State.t(), reference(), term()) :: {:noreply, State.t()}
+  def handle_agent_down(%State{running: running} = state, ref, reason) do
+    case State.find_issue_id_for_ref(running, ref) do
+      nil ->
+        {:noreply, state}
+
+      issue_id ->
+        {running_entry, state} = State.pop_running_entry(state, issue_id)
+        state = TokenAccounting.record_session_completion_totals(state, running_entry)
+        session_id = State.running_entry_session_id(running_entry)
+
+        state =
+          case reason do
+            :normal ->
+              Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
+
+              state
+              |> complete_issue(issue_id)
+              |> schedule_issue_retry(issue_id, 1, %{
+                identifier: running_entry.identifier,
+                delay_type: :continuation,
+                worker_host: Map.get(running_entry, :worker_host),
+                workspace_path: Map.get(running_entry, :workspace_path)
+              })
+
+            _ ->
+              Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
+
+              next_attempt = next_retry_attempt_from_running(running_entry)
+
+              schedule_issue_retry(state, issue_id, next_attempt, %{
+                identifier: running_entry.identifier,
+                error: "agent exited: #{inspect(reason)}",
+                worker_host: Map.get(running_entry, :worker_host),
+                workspace_path: Map.get(running_entry, :workspace_path)
+              })
+          end
+
+        Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
+
+        StatusReport.notify_dashboard(state)
+        {:noreply, state}
+    end
+  end
+
+  @doc false
+  @spec preserve_running_issue_on_external_error(State.t(), Issue.t()) :: State.t()
+  def preserve_running_issue_on_external_error(%State{} = state, %Issue{} = issue) do
+    previous_state =
+      case Map.get(state.running, issue.id) do
+        %{issue: %Issue{state: state_name}} -> DispatchPolicy.normalize_issue_state(state_name)
+        %{issue: %{state: state_name}} -> DispatchPolicy.normalize_issue_state(state_name)
+        _ -> ""
+      end
+
+    if previous_state == "error" do
+      Logger.debug("Issue remains in error state while agent is still active: #{State.issue_context(issue)}")
+    else
+      Logger.warning("Issue reported error state while agent is still active; preserving runner pending local completion: #{State.issue_context(issue)} state=#{issue.state}")
+    end
+
+    Reconciler.refresh_running_issue_state(state, issue)
+  end
 
   @spec complete_issue(State.t(), String.t()) :: State.t()
   def complete_issue(%State{} = state, issue_id) do
