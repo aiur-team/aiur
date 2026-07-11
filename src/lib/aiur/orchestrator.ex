@@ -23,13 +23,13 @@ defmodule Aiur.Orchestrator do
     Exchange,
     GithubCIPoller,
     Publisher,
-    Sanitizer,
     UniversalSubscriptions
   }
 
   alias Aiur.Orchestrator.{
     AgentTeardown,
     AutoSubscriptions,
+    CiLifecycle,
     CommandScan,
     CommentPolling,
     CommentWake,
@@ -61,7 +61,6 @@ defmodule Aiur.Orchestrator do
   # Slightly above the dashboard render interval so the `0s` in-progress
   # label can render before the poll finishes.
   @poll_transition_render_delay_ms 20
-  @ci_failure_excerpt_message_max 1_200
   @ci_wait_state "ci-wait"
   @human_review_state "human-review"
   @ci_poll_states [@ci_wait_state, @human_review_state]
@@ -280,7 +279,7 @@ defmodule Aiur.Orchestrator do
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
-    handle_agent_down(state, ref, reason)
+    RetryEngine.handle_agent_down(state, ref, reason)
   end
 
   def handle_info({:worker_runtime_info, issue_id, runtime_info}, %{running: running} = state)
@@ -355,12 +354,12 @@ defmodule Aiur.Orchestrator do
 
   def handle_info({:worker_control_state, issue_id, status}, state)
       when is_binary(issue_id) and status in [:paused, :working] do
-    handle_worker_control_state(state, issue_id, status, %{})
+    PauseResume.handle_worker_control_state(state, issue_id, status, %{})
   end
 
   def handle_info({:worker_control_state, issue_id, :paused, pause_payload}, state)
       when is_binary(issue_id) and is_map(pause_payload) do
-    handle_worker_control_state(state, issue_id, :paused, pause_payload)
+    PauseResume.handle_worker_control_state(state, issue_id, :paused, pause_payload)
   end
 
   def handle_info({:retry_issue, issue_id, retry_token}, state) do
@@ -419,75 +418,6 @@ defmodule Aiur.Orchestrator do
   def handle_info(msg, state) do
     Logger.debug("Orchestrator ignored message: #{inspect(msg)}")
     {:noreply, state}
-  end
-
-  defp handle_worker_control_state(%{running: running} = state, issue_id, status, pause_payload) do
-    case Map.get(running, issue_id) do
-      nil ->
-        {:noreply, state}
-
-      running_entry ->
-        previous_status = get_in(running_entry, [:control, :status]) || :working
-        pause_reason = worker_pause_reason(running_entry, pause_payload)
-
-        updated_running_entry =
-          running_entry
-          |> put_in([:control, :status], status)
-          |> apply_pause_runtime_clock(previous_status, status, DateTime.utc_now())
-          |> maybe_put_worker_pause_reason(status, pause_reason)
-
-        maybe_log_worker_pause(status, updated_running_entry, pause_reason)
-        maybe_emit_agent_control_alert(previous_status, status, updated_running_entry)
-
-        state = %{state | running: Map.put(running, issue_id, updated_running_entry)}
-        state = maybe_auto_resume_spurious_worker_pause(state, updated_running_entry, status)
-        notify_dashboard(state)
-        {:noreply, state}
-    end
-  end
-
-  defp handle_agent_down(%{running: running} = state, ref, reason) do
-    case find_issue_id_for_ref(running, ref) do
-      nil ->
-        {:noreply, state}
-
-      issue_id ->
-        {running_entry, state} = pop_running_entry(state, issue_id)
-        state = record_session_completion_totals(state, running_entry)
-        session_id = running_entry_session_id(running_entry)
-
-        state =
-          case reason do
-            :normal ->
-              Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
-
-              state
-              |> complete_issue(issue_id)
-              |> schedule_issue_retry(issue_id, 1, %{
-                identifier: running_entry.identifier,
-                delay_type: :continuation,
-                worker_host: Map.get(running_entry, :worker_host),
-                workspace_path: Map.get(running_entry, :workspace_path)
-              })
-
-            _ ->
-              Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
-
-              next_attempt = next_retry_attempt_from_running(running_entry)
-
-              schedule_issue_retry(state, issue_id, next_attempt, %{
-                identifier: running_entry.identifier,
-                error: "agent exited: #{inspect(reason)}",
-                worker_host: Map.get(running_entry, :worker_host),
-                workspace_path: Map.get(running_entry, :workspace_path)
-              })
-          end
-
-        Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
-
-        notify_dashboard(state)
-        {:noreply, state}
-    end
   end
 
   defp parse_pr_review_comment_topic(topic), do: EventTopics.parse_pr_review_comment_topic(topic)
@@ -553,30 +483,8 @@ defmodule Aiur.Orchestrator do
 
   @doc false
   @spec transition_control_status(State.t(), map(), atom(), String.t()) :: State.t()
-  def transition_control_status(state, running_entry, new_status, reason) do
-    issue_id = get_in(running_entry, [:issue, Access.key(:id)])
-    identifier = Map.get(running_entry, :identifier)
-    existing = Map.get(running_entry, :control, %{})
-    old_status = Map.get(existing, :status, :working)
-
-    if old_status == new_status do
-      state
-    else
-      Logger.info("Control status: identifier=#{identifier} #{old_status} -> #{new_status} reason=#{reason}")
-
-      now = DateTime.utc_now()
-
-      next_entry =
-        running_entry
-        |> Map.put(:control, Map.put(existing, :status, new_status))
-        |> apply_pause_runtime_clock(old_status, new_status, now)
-
-      next_state = %{state | running: Map.put(state.running, issue_id, next_entry)}
-      maybe_emit_agent_control_alert(old_status, new_status, next_entry)
-      notify_dashboard(next_state)
-      next_state
-    end
-  end
+  def transition_control_status(state, running_entry, new_status, reason),
+    do: PauseResume.transition_control_status(state, running_entry, new_status, reason)
 
   defp mark_pr_merged_issue_done(%State{} = state, identifier) do
     CommentWake.mark_pr_merged_issue_done(state, identifier)
@@ -681,9 +589,7 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  defp ci_target_for_issue(%Issue{identifier: identifier}) when is_binary(identifier) and identifier != "", do: identifier
-  defp ci_target_for_issue(%Issue{id: id}) when is_binary(id) and id != "", do: id
-  defp ci_target_for_issue(_issue), do: nil
+  defp ci_target_for_issue(issue), do: CiLifecycle.ci_target_for_issue(issue)
 
   defp all_ci_targets_failed?([], _errors), do: false
 
@@ -730,30 +636,8 @@ defmodule Aiur.Orchestrator do
 
   defp apply_ci_poll_result(state, _issue, _result), do: state
 
-  defp transition_ci_ticket(state, %Issue{} = issue, next_state) do
-    issue_key = issue.id || issue.identifier
-
-    case Tracker.update_issue_state(to_string(issue_key), next_state) do
-      :ok ->
-        updated_issue = %{issue | state: next_state}
-        state = if ci_wait_state?(next_state), do: clear_ci_approved_head(state, issue), else: state
-
-        cond do
-          DispatchPolicy.active_issue_state?(next_state, DispatchPolicy.active_state_set()) ->
-            maybe_reactivate_or_refresh(state, updated_issue)
-
-          ci_wait_state?(next_state) ->
-            pause_issue_for_ci_wait(state, updated_issue)
-
-          true ->
-            refresh_running_issue_state(state, updated_issue)
-        end
-
-      {:error, reason} ->
-        Logger.warning("CI lifecycle transition skipped: #{issue_context(issue)} state=#{next_state} reason=#{inspect(reason)}")
-        state
-    end
-  end
+  defp transition_ci_ticket(state, issue, next_state),
+    do: CiLifecycle.transition_ci_ticket(state, issue, next_state)
 
   defp transition_ci_pass(state, issue, result) do
     case Tracker.update_issue_state(to_string(issue.id || issue.identifier), @human_review_state) do
@@ -852,16 +736,8 @@ defmodule Aiur.Orchestrator do
 
   defp remember_ci_approved_head(state, _issue, _result), do: state
 
-  defp clear_ci_approved_head(%State{} = state, %Issue{} = issue) do
-    case ci_target_for_issue(issue) do
-      target when is_binary(target) ->
-        approved_heads = Map.delete(state.ci_lifecycle.approved_heads, target)
-        persist_ci_lifecycle_state(%{state | ci_lifecycle: %{state.ci_lifecycle | approved_heads: approved_heads}})
-
-      _ ->
-        state
-    end
-  end
+  defp clear_ci_approved_head(state, issue),
+    do: CiLifecycle.clear_ci_approved_head(state, issue)
 
   defp remember_ci_test_failure_retry(%State{} = state, %Issue{} = issue, %{head_sha: head_sha}) do
     case ci_target_for_issue(issue) do
@@ -905,52 +781,11 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  defp persist_ci_lifecycle_state(%State{} = state) do
-    :ok = CIApprovalStore.save(state.ci_lifecycle.approved_heads, state.ci_lifecycle.test_failure_heads)
-    state
-  end
+  defp persist_ci_lifecycle_state(state),
+    do: CiLifecycle.persist_ci_lifecycle_state(state)
 
-  defp publish_ci_terminal_event(state, issue, result, outcome) do
-    target = ci_target_for_issue(issue)
-    topic = "ticket.#{target}.ci.#{outcome}"
-
-    payload =
-      %{
-        source: :github,
-        head_sha: Map.get(result, :head_sha),
-        pr_number: Map.get(result, :pr_number),
-        checks: Map.get(result, :failures, []),
-        failure_excerpt: ci_failure_excerpt(Map.get(result, :failures, []))
-      }
-      |> Sanitizer.scrub()
-      |> then(fn payload ->
-        Map.put(
-          payload,
-          :message,
-          ci_terminal_message(
-            outcome,
-            Map.get(payload, :checks, []),
-            Map.get(payload, :failure_excerpt)
-          )
-        )
-      end)
-
-    case Publisher.publish(topic, payload,
-           issue_number: target,
-           bypass_contamination: true,
-           dedup_key: ci_event_dedup_key(target, outcome, Map.get(result, :head_sha))
-         ) do
-      {:ok, _id, _subscribers} ->
-        state
-
-      :deduped ->
-        state
-
-      :filtered ->
-        Logger.warning("CI terminal event unexpectedly filtered: issue=#{target} topic=#{topic}")
-        state
-    end
-  end
+  defp publish_ci_terminal_event(state, issue, result, outcome),
+    do: CiLifecycle.publish_ci_terminal_event(state, issue, result, outcome)
 
   defp ensure_ci_failure_subscription(state, issue) do
     case ci_target_for_issue(issue) do
@@ -960,40 +795,6 @@ defmodule Aiur.Orchestrator do
 
       _ ->
         state
-    end
-  end
-
-  defp ci_event_dedup_key(target, outcome, head_sha)
-       when is_binary(target) and is_atom(outcome) and is_binary(head_sha) do
-    {"ci", Atom.to_string(outcome), target <> ":" <> head_sha}
-  end
-
-  defp ci_event_dedup_key(_target, _outcome, _head_sha), do: nil
-
-  defp ci_failure_excerpt(failures) when is_list(failures) do
-    Enum.find_value(failures, fn
-      %{excerpt: excerpt} when is_binary(excerpt) and excerpt != "" -> excerpt
-      _ -> nil
-    end)
-  end
-
-  defp ci_failure_excerpt(_failures), do: nil
-
-  defp ci_terminal_message(:passed, _failures, _failure_excerpt), do: "CI passed for the current PR head"
-
-  defp ci_terminal_message(:failed, failures, failure_excerpt) do
-    names =
-      failures
-      |> Enum.map(&Map.get(&1, :name))
-      |> Enum.filter(&is_binary/1)
-      |> Enum.join(", ")
-
-    message = if names == "", do: "CI failed for the current PR head", else: "CI failed: " <> names
-
-    if is_binary(failure_excerpt) and failure_excerpt != "" do
-      message <> ". Failure excerpt: " <> String.slice(failure_excerpt, 0, @ci_failure_excerpt_message_max)
-    else
-      message
     end
   end
 
@@ -1490,22 +1291,8 @@ defmodule Aiur.Orchestrator do
 
   @doc false
   @spec preserve_running_issue_on_external_error(State.t(), Issue.t()) :: State.t()
-  def preserve_running_issue_on_external_error(%State{} = state, %Issue{} = issue) do
-    previous_state =
-      case Map.get(state.running, issue.id) do
-        %{issue: %Issue{state: state_name}} -> normalize_issue_state(state_name)
-        %{issue: %{state: state_name}} -> normalize_issue_state(state_name)
-        _ -> ""
-      end
-
-    if previous_state == "error" do
-      Logger.debug("Issue remains in error state while agent is still active: #{issue_context(issue)}")
-    else
-      Logger.warning("Issue reported error state while agent is still active; preserving runner pending local completion: #{issue_context(issue)} state=#{issue.state}")
-    end
-
-    refresh_running_issue_state(state, issue)
-  end
+  def preserve_running_issue_on_external_error(state, issue),
+    do: RetryEngine.preserve_running_issue_on_external_error(state, issue)
 
   # Label flipped back to an active state. If the running entry is
   # currently `:deactivated`, route through `reactivate_issue/2` so a
@@ -1548,40 +1335,13 @@ defmodule Aiur.Orchestrator do
 
   defp refresh_running_entry_issue(%State{} = state, %Issue{} = issue, running_entry)
        when is_map(running_entry) do
-    %{state | running: Map.put(state.running, issue.id, Map.put(running_entry, :issue, issue))}
+    Reconciler.refresh_running_entry_issue(state, issue, running_entry)
   end
 
   @doc false
   @spec pause_issue_for_ci_wait(State.t(), Issue.t()) :: State.t()
-  def pause_issue_for_ci_wait(%State{} = state, %Issue{} = issue) do
-    case Map.get(state.running, issue.id) do
-      nil ->
-        release_issue_claim(state, issue.id)
-
-      %{control: %{status: :deactivated}} = running_entry ->
-        refresh_running_entry_issue(state, issue, running_entry)
-
-      %{control: %{status: :paused}} = running_entry ->
-        refresh_running_entry_issue(state, issue, running_entry)
-
-      running_entry when is_map(running_entry) ->
-        identifier = Map.get(running_entry, :identifier, issue.identifier || issue.id)
-
-        Logger.info("CI wait detected: #{issue_context(issue)}; pausing active agent")
-
-        _ = send_pause_control_message(state, identifier)
-
-        running_entry =
-          running_entry
-          |> Map.put(:issue, issue)
-          |> Map.put(:paused_reason, :ci_wait)
-
-        transition_control_status(state, running_entry, :paused, "ci_wait")
-
-      _ ->
-        state
-    end
-  end
+  def pause_issue_for_ci_wait(state, issue),
+    do: CiLifecycle.pause_issue_for_ci_wait(state, issue)
 
   @doc false
   @spec reconcile_pending_auto_resumes(State.t()) :: State.t()
@@ -1644,38 +1404,6 @@ defmodule Aiur.Orchestrator do
   defp restart_stalled_issue(state, issue_id, entry, now, timeout_ms), do: RuntimeWatchdog.restart_stalled_issue(state, issue_id, entry, now, timeout_ms)
   defp maybe_pause_overrunning_entry(state, issue_id, entry, now, max_seconds), do: RuntimeWatchdog.maybe_pause_overrunning_entry(state, issue_id, entry, now, max_seconds)
 
-  defp maybe_auto_resume_spurious_worker_pause(state, %{paused_reason: reason} = running_entry, :paused)
-       when reason in [:input_required, :worker_pause_unknown, :pause_containment] do
-    case resume_paused_issue(state, running_entry) do
-      {{:ok, :resumed}, state} ->
-        state
-
-      {{:error, reason}, state} ->
-        Logger.warning("orchestrator.pause_resume_deferred issue_identifier=#{Map.get(running_entry, :identifier)} cause=#{Map.get(running_entry, :paused_reason)} reason=#{inspect(reason)}")
-        state
-    end
-  end
-
-  defp maybe_auto_resume_spurious_worker_pause(state, _running_entry, _status), do: state
-
-  defp worker_pause_reason(running_entry, pause_payload) do
-    Map.get(running_entry, :paused_reason) ||
-      Map.get(pause_payload, :kind) ||
-      Map.get(pause_payload, "kind") ||
-      if(Map.has_key?(pause_payload, :request_id), do: :pause_containment, else: :worker_pause_unknown)
-  end
-
-  defp maybe_put_worker_pause_reason(entry, :paused, pause_reason), do: Map.put(entry, :paused_reason, pause_reason)
-  defp maybe_put_worker_pause_reason(entry, _status, _pause_reason), do: entry
-
-  defp maybe_log_worker_pause(:paused, running_entry, pause_reason) do
-    Logger.warning(
-      "orchestrator.pause issue_id=#{get_in(running_entry, [:issue, Access.key(:id)])} issue_identifier=#{Map.get(running_entry, :identifier)} cause=#{pause_reason} source=worker_control_state"
-    )
-  end
-
-  defp maybe_log_worker_pause(_status, _running_entry, _pause_reason), do: :ok
-
   defp sync_polled_issue_state(state, issues), do: IssueSync.sync_polled_issue_state(state, issues)
 
   defp sort_issues_for_dispatch(issues), do: DispatchPolicy.sort_issues_for_dispatch(issues)
@@ -1700,9 +1428,6 @@ defmodule Aiur.Orchestrator do
   defp revalidate_issue_for_dispatch(issue, issue_fetcher, terminal_states), do: Dispatcher.revalidate_issue_for_dispatch(issue, issue_fetcher, terminal_states)
 
   # RetryEngine wrappers
-  defp complete_issue(state, issue_id), do: RetryEngine.complete_issue(state, issue_id)
-  defp schedule_issue_retry(state, issue_id, attempt, metadata), do: RetryEngine.schedule_issue_retry(state, issue_id, attempt, metadata)
-  defp next_retry_attempt_from_running(running_entry), do: RetryEngine.next_retry_attempt_from_running(running_entry)
   defp pop_retry_attempt_state(state, issue_id, retry_token), do: RetryEngine.pop_retry_attempt_state(state, issue_id, retry_token)
   defp handle_retry_issue(state, issue_id, attempt, metadata), do: RetryEngine.handle_retry_issue(state, issue_id, attempt, metadata)
   defp release_issue_claim(state, issue_id), do: RetryEngine.release_issue_claim(state, issue_id)
@@ -1712,8 +1437,6 @@ defmodule Aiur.Orchestrator do
   defp select_worker_host(state, preferred_worker_host), do: Slots.select_worker_host(state, preferred_worker_host)
   defp worker_slots_available?(state, preferred_worker_host), do: Slots.worker_slots_available?(state, preferred_worker_host)
 
-  defp find_issue_id_for_ref(running, ref), do: State.find_issue_id_for_ref(running, ref)
-  defp running_entry_session_id(running_entry), do: State.running_entry_session_id(running_entry)
   defp issue_context(issue), do: State.issue_context(issue)
   defp active_running_count(running), do: State.active_running_count(running)
   defp paused_running_count(running), do: State.paused_running_count(running)
@@ -2567,9 +2290,6 @@ defmodule Aiur.Orchestrator do
   defp enqueue_operator_message(state, issue_identifier, body, payload),
     do: OM.enqueue_operator_message(state, issue_identifier, body, payload)
 
-  defp maybe_emit_agent_control_alert(previous_status, status, running_entry),
-    do: OM.maybe_emit_agent_control_alert(previous_status, status, running_entry)
-
   defp resume_issue(%State{} = state, issue_identifier), do: PauseResume.resume_issue(state, issue_identifier)
 
   # `agent:paused` is a durable override. A successful in-memory resume that
@@ -2701,8 +2421,6 @@ defmodule Aiur.Orchestrator do
   end
 
   defp find_running_key_by_identifier(running, identifier), do: State.find_running_key_by_identifier(running, identifier)
-  defp apply_pause_runtime_clock(entry, previous, next, now), do: State.apply_pause_runtime_clock(entry, previous, next, now)
-
   defp pending_operator_messages_for_issue(state, id), do: OM.pending_operator_messages_for_issue(state, id)
 
   defp issue_control_capabilities(state, id), do: OM.issue_control_capabilities(state, id)
@@ -2740,13 +2458,6 @@ defmodule Aiur.Orchestrator do
     :timer.send_after(@poll_transition_render_delay_ms, self(), :run_poll_cycle)
     :ok
   end
-
-  defp pop_running_entry(state, issue_id), do: State.pop_running_entry(state, issue_id)
-
-  defp record_session_completion_totals(state, running_entry) when is_map(running_entry),
-    do: TokenAccounting.record_session_completion_totals(state, running_entry)
-
-  defp record_session_completion_totals(state, _running_entry), do: state
 
   defp refresh_runtime_config(%State{} = state) do
     config = Config.settings!()

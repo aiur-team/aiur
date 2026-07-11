@@ -11,6 +11,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   alias Aiur.Orchestrator.OperatorMessages
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.StatusReport
   require Logger
 
   @spec resume_issue(State.t(), String.t()) :: {{:ok, :resumed} | {:error, term()}, State.t()}
@@ -79,7 +80,7 @@ defmodule Aiur.Orchestrator.PauseResume do
     else
       reply = send_pause_control_message(state, issue_identifier)
       paused_entry = Map.put(running_entry, :paused_reason, :operator_pause)
-      {reply, Orchestrator.transition_control_status(state, paused_entry, :paused, "operator.pause")}
+      {reply, transition_control_status(state, paused_entry, :paused, "operator.pause")}
     end
   end
 
@@ -89,6 +90,59 @@ defmodule Aiur.Orchestrator.PauseResume do
     OperatorMessages.send_running_control_message(state, issue_identifier, fn request_id ->
       {:pause_agent, request_id}
     end)
+  end
+
+  @spec handle_worker_control_state(State.t(), String.t(), :paused | :working, map()) ::
+          {:noreply, State.t()}
+  def handle_worker_control_state(%State{running: running} = state, issue_id, status, pause_payload) do
+    case Map.get(running, issue_id) do
+      nil ->
+        {:noreply, state}
+
+      running_entry ->
+        previous_status = get_in(running_entry, [:control, :status]) || :working
+        pause_reason = worker_pause_reason(running_entry, pause_payload)
+
+        updated_running_entry =
+          running_entry
+          |> put_in([:control, :status], status)
+          |> State.apply_pause_runtime_clock(previous_status, status, DateTime.utc_now())
+          |> maybe_put_worker_pause_reason(status, pause_reason)
+
+        maybe_log_worker_pause(status, updated_running_entry, pause_reason)
+        OperatorMessages.maybe_emit_agent_control_alert(previous_status, status, updated_running_entry)
+
+        state = %{state | running: Map.put(running, issue_id, updated_running_entry)}
+        state = maybe_auto_resume_spurious_worker_pause(state, updated_running_entry, status)
+        StatusReport.notify_dashboard(state)
+        {:noreply, state}
+    end
+  end
+
+  @spec transition_control_status(State.t(), map(), atom(), String.t()) :: State.t()
+  def transition_control_status(%State{} = state, running_entry, new_status, reason) do
+    issue_id = get_in(running_entry, [:issue, Access.key(:id)])
+    identifier = Map.get(running_entry, :identifier)
+    existing = Map.get(running_entry, :control, %{})
+    old_status = Map.get(existing, :status, :working)
+
+    if old_status == new_status do
+      state
+    else
+      Logger.info("Control status: identifier=#{identifier} #{old_status} -> #{new_status} reason=#{reason}")
+
+      now = DateTime.utc_now()
+
+      next_entry =
+        running_entry
+        |> Map.put(:control, Map.put(existing, :status, new_status))
+        |> State.apply_pause_runtime_clock(old_status, new_status, now)
+
+      next_state = %{state | running: Map.put(state.running, issue_id, next_entry)}
+      OperatorMessages.maybe_emit_agent_control_alert(old_status, new_status, next_entry)
+      StatusReport.notify_dashboard(next_state)
+      next_state
+    end
   end
 
   defp do_reactivate(%State{} = state, running_entry) do
@@ -256,6 +310,48 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   defp maybe_reset_started_at(entry, now, true), do: Map.put(entry, :started_at, now)
   defp maybe_reset_started_at(entry, _now, false), do: entry
+
+  defp maybe_auto_resume_spurious_worker_pause(
+         state,
+         %{paused_reason: reason} = running_entry,
+         :paused
+       )
+       when reason in [:input_required, :worker_pause_unknown, :pause_containment] do
+    case resume_paused_issue(state, running_entry) do
+      {{:ok, :resumed}, state} ->
+        state
+
+      {{:error, reason}, state} ->
+        Logger.warning("orchestrator.pause_resume_deferred issue_identifier=#{Map.get(running_entry, :identifier)} cause=#{Map.get(running_entry, :paused_reason)} reason=#{inspect(reason)}")
+
+        state
+    end
+  end
+
+  defp maybe_auto_resume_spurious_worker_pause(state, _running_entry, _status), do: state
+
+  defp worker_pause_reason(running_entry, pause_payload) do
+    Map.get(running_entry, :paused_reason) ||
+      Map.get(pause_payload, :kind) ||
+      Map.get(pause_payload, "kind") ||
+      if(Map.has_key?(pause_payload, :request_id),
+        do: :pause_containment,
+        else: :worker_pause_unknown
+      )
+  end
+
+  defp maybe_put_worker_pause_reason(entry, :paused, pause_reason),
+    do: Map.put(entry, :paused_reason, pause_reason)
+
+  defp maybe_put_worker_pause_reason(entry, _status, _pause_reason), do: entry
+
+  defp maybe_log_worker_pause(:paused, running_entry, pause_reason) do
+    Logger.warning(
+      "orchestrator.pause issue_id=#{get_in(running_entry, [:issue, Access.key(:id)])} issue_identifier=#{Map.get(running_entry, :identifier)} cause=#{pause_reason} source=worker_control_state"
+    )
+  end
+
+  defp maybe_log_worker_pause(_status, _running_entry, _pause_reason), do: :ok
 
   defp resume_queued_issue(%State{} = state, issue_identifier) do
     issue =

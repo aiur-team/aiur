@@ -158,6 +158,12 @@ defmodule Aiur.Orchestrator.Reconciler do
     end
   end
 
+  @spec refresh_running_entry_issue(State.t(), Issue.t(), map()) :: State.t()
+  def refresh_running_entry_issue(%State{} = state, %Issue{} = issue, running_entry)
+      when is_map(running_entry) do
+    %{state | running: Map.put(state.running, issue.id, Map.put(running_entry, :issue, issue))}
+  end
+
   defp log_missing_running_issue(%State{} = state, issue_id) when is_binary(issue_id) do
     case Map.get(state.running, issue_id) do
       %{identifier: identifier} ->
