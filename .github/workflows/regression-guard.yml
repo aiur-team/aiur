@@ -200,6 +200,12 @@ jobs:
               return 0
             fi
 
+            # GitHub may transiently report 0/0 while computing a new PR's diff.
+            # An empty snapshot is therefore unverifiable, not proof of no change.
+            if [ "$listed_file_count" -eq 0 ] && [ "$total_changed_files" -eq 0 ]; then
+              return 0
+            fi
+
             [ "$listed_file_count" -ge "$PR_FILE_API_LIMIT" ] ||
               [ "$listed_file_count" -ne "$total_changed_files" ]
           }
@@ -310,7 +316,7 @@ jobs:
           }
 
           run_guard_regression_tests() {
-            local hostile_filename_fixture hostile_record_count malformed_record_fixture
+            local empty_fixture hostile_filename_fixture hostile_record_count malformed_record_fixture
             local rename_fixture unprotected_fixture
 
             rename_fixture="$(mktemp)"
@@ -353,14 +359,17 @@ jobs:
             malformed_record_fixture="$(mktemp)"
             printf '%s\n' 'not-json!' > "$malformed_record_fixture"
 
-            if ! changes_require_approval "$unprotected_fixture" "3000" "3000" ||
+            empty_fixture="$(mktemp)"
+
+            if ! changes_require_approval "$empty_fixture" "0" "0" ||
+                ! changes_require_approval "$unprotected_fixture" "3000" "3000" ||
                 ! changes_require_approval "$unprotected_fixture" "3001" "3001" ||
                 ! changes_require_approval "$unprotected_fixture" "3000" "3001" ||
                 ! changes_require_approval "$unprotected_fixture" "not-a-count" "1" ||
                 ! changes_require_approval "$unprotected_fixture" "1" "not-a-count" ||
                 ! changes_require_approval "$malformed_record_fixture" "1" "1" ||
                 ! changes_require_approval "$rename_fixture" "1" "1"; then
-              echo "::error::Regression guard self-test failed: capped, mismatched, malformed, or protected fixture bypassed approval."
+              echo "::error::Regression guard self-test failed: empty, capped, mismatched, malformed, or protected fixture bypassed approval."
               return 1
             fi
 
