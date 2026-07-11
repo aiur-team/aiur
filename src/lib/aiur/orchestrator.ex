@@ -355,12 +355,12 @@ defmodule Aiur.Orchestrator do
 
   def handle_info({:worker_control_state, issue_id, status}, state)
       when is_binary(issue_id) and status in [:paused, :working] do
-    handle_worker_control_state(state, issue_id, status, %{})
+    PauseResume.handle_worker_control_state(state, issue_id, status, %{})
   end
 
   def handle_info({:worker_control_state, issue_id, :paused, pause_payload}, state)
       when is_binary(issue_id) and is_map(pause_payload) do
-    handle_worker_control_state(state, issue_id, :paused, pause_payload)
+    PauseResume.handle_worker_control_state(state, issue_id, :paused, pause_payload)
   end
 
   def handle_info({:retry_issue, issue_id, retry_token}, state) do
@@ -419,31 +419,6 @@ defmodule Aiur.Orchestrator do
   def handle_info(msg, state) do
     Logger.debug("Orchestrator ignored message: #{inspect(msg)}")
     {:noreply, state}
-  end
-
-  defp handle_worker_control_state(%{running: running} = state, issue_id, status, pause_payload) do
-    case Map.get(running, issue_id) do
-      nil ->
-        {:noreply, state}
-
-      running_entry ->
-        previous_status = get_in(running_entry, [:control, :status]) || :working
-        pause_reason = worker_pause_reason(running_entry, pause_payload)
-
-        updated_running_entry =
-          running_entry
-          |> put_in([:control, :status], status)
-          |> apply_pause_runtime_clock(previous_status, status, DateTime.utc_now())
-          |> maybe_put_worker_pause_reason(status, pause_reason)
-
-        maybe_log_worker_pause(status, updated_running_entry, pause_reason)
-        maybe_emit_agent_control_alert(previous_status, status, updated_running_entry)
-
-        state = %{state | running: Map.put(running, issue_id, updated_running_entry)}
-        state = maybe_auto_resume_spurious_worker_pause(state, updated_running_entry, status)
-        notify_dashboard(state)
-        {:noreply, state}
-    end
   end
 
   defp handle_agent_down(%{running: running} = state, ref, reason) do
@@ -553,30 +528,8 @@ defmodule Aiur.Orchestrator do
 
   @doc false
   @spec transition_control_status(State.t(), map(), atom(), String.t()) :: State.t()
-  def transition_control_status(state, running_entry, new_status, reason) do
-    issue_id = get_in(running_entry, [:issue, Access.key(:id)])
-    identifier = Map.get(running_entry, :identifier)
-    existing = Map.get(running_entry, :control, %{})
-    old_status = Map.get(existing, :status, :working)
-
-    if old_status == new_status do
-      state
-    else
-      Logger.info("Control status: identifier=#{identifier} #{old_status} -> #{new_status} reason=#{reason}")
-
-      now = DateTime.utc_now()
-
-      next_entry =
-        running_entry
-        |> Map.put(:control, Map.put(existing, :status, new_status))
-        |> apply_pause_runtime_clock(old_status, new_status, now)
-
-      next_state = %{state | running: Map.put(state.running, issue_id, next_entry)}
-      maybe_emit_agent_control_alert(old_status, new_status, next_entry)
-      notify_dashboard(next_state)
-      next_state
-    end
-  end
+  def transition_control_status(state, running_entry, new_status, reason),
+    do: PauseResume.transition_control_status(state, running_entry, new_status, reason)
 
   defp mark_pr_merged_issue_done(%State{} = state, identifier) do
     CommentWake.mark_pr_merged_issue_done(state, identifier)
@@ -1644,38 +1597,6 @@ defmodule Aiur.Orchestrator do
   defp restart_stalled_issue(state, issue_id, entry, now, timeout_ms), do: RuntimeWatchdog.restart_stalled_issue(state, issue_id, entry, now, timeout_ms)
   defp maybe_pause_overrunning_entry(state, issue_id, entry, now, max_seconds), do: RuntimeWatchdog.maybe_pause_overrunning_entry(state, issue_id, entry, now, max_seconds)
 
-  defp maybe_auto_resume_spurious_worker_pause(state, %{paused_reason: reason} = running_entry, :paused)
-       when reason in [:input_required, :worker_pause_unknown, :pause_containment] do
-    case resume_paused_issue(state, running_entry) do
-      {{:ok, :resumed}, state} ->
-        state
-
-      {{:error, reason}, state} ->
-        Logger.warning("orchestrator.pause_resume_deferred issue_identifier=#{Map.get(running_entry, :identifier)} cause=#{Map.get(running_entry, :paused_reason)} reason=#{inspect(reason)}")
-        state
-    end
-  end
-
-  defp maybe_auto_resume_spurious_worker_pause(state, _running_entry, _status), do: state
-
-  defp worker_pause_reason(running_entry, pause_payload) do
-    Map.get(running_entry, :paused_reason) ||
-      Map.get(pause_payload, :kind) ||
-      Map.get(pause_payload, "kind") ||
-      if(Map.has_key?(pause_payload, :request_id), do: :pause_containment, else: :worker_pause_unknown)
-  end
-
-  defp maybe_put_worker_pause_reason(entry, :paused, pause_reason), do: Map.put(entry, :paused_reason, pause_reason)
-  defp maybe_put_worker_pause_reason(entry, _status, _pause_reason), do: entry
-
-  defp maybe_log_worker_pause(:paused, running_entry, pause_reason) do
-    Logger.warning(
-      "orchestrator.pause issue_id=#{get_in(running_entry, [:issue, Access.key(:id)])} issue_identifier=#{Map.get(running_entry, :identifier)} cause=#{pause_reason} source=worker_control_state"
-    )
-  end
-
-  defp maybe_log_worker_pause(_status, _running_entry, _pause_reason), do: :ok
-
   defp sync_polled_issue_state(state, issues), do: IssueSync.sync_polled_issue_state(state, issues)
 
   defp sort_issues_for_dispatch(issues), do: DispatchPolicy.sort_issues_for_dispatch(issues)
@@ -2567,9 +2488,6 @@ defmodule Aiur.Orchestrator do
   defp enqueue_operator_message(state, issue_identifier, body, payload),
     do: OM.enqueue_operator_message(state, issue_identifier, body, payload)
 
-  defp maybe_emit_agent_control_alert(previous_status, status, running_entry),
-    do: OM.maybe_emit_agent_control_alert(previous_status, status, running_entry)
-
   defp resume_issue(%State{} = state, issue_identifier), do: PauseResume.resume_issue(state, issue_identifier)
 
   # `agent:paused` is a durable override. A successful in-memory resume that
@@ -2701,8 +2619,6 @@ defmodule Aiur.Orchestrator do
   end
 
   defp find_running_key_by_identifier(running, identifier), do: State.find_running_key_by_identifier(running, identifier)
-  defp apply_pause_runtime_clock(entry, previous, next, now), do: State.apply_pause_runtime_clock(entry, previous, next, now)
-
   defp pending_operator_messages_for_issue(state, id), do: OM.pending_operator_messages_for_issue(state, id)
 
   defp issue_control_capabilities(state, id), do: OM.issue_control_capabilities(state, id)
