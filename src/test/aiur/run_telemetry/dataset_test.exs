@@ -1,0 +1,197 @@
+defmodule Aiur.RunTelemetry.DatasetTest do
+  use ExUnit.Case, async: true
+
+  alias Aiur.RunTelemetry.Dataset
+
+  @fixtures Path.expand("../../fixtures/run_telemetry", __DIR__)
+
+  test "discovers and merges multi-boot telemetry while retaining tolerant warnings" do
+    assert {:ok, dataset} =
+             Dataset.build([@fixtures],
+               now: ~U[2026-07-11 00:02:00Z],
+               review_resume_grace_seconds: 20
+             )
+
+    assert dataset.provenance.files == [
+             Path.join(@fixtures, "session-a/telemetry.ndjson"),
+             Path.join(@fixtures, "session-b/telemetry.ndjson")
+           ]
+
+    assert dataset.provenance.schema_versions == [1]
+
+    assert dataset.provenance.time_range == %{
+             start: "2026-07-11T00:00:00Z",
+             end: "2026-07-11T00:01:06Z"
+           }
+
+    assert Enum.map(dataset.restarts, & &1.boot_id) == ["boot-a", "boot-b"]
+    warning_types = MapSet.new(dataset.warnings, & &1.type)
+
+    assert MapSet.subset?(
+             MapSet.new([
+               :malformed_line,
+               :unsupported_schema,
+               :unknown_kind,
+               :missing_fields
+             ]),
+             warning_types
+           )
+  end
+
+  test "resource profiles exclude unavailable values and flag within-boot gaps" do
+    {:ok, dataset} = Dataset.build(@fixtures)
+    daemon = dataset.actors["_daemon"]
+    operator = dataset.actors["_operator"]
+
+    assert daemon.profile["rss_bytes"] == %{
+             count: 3,
+             min: 100,
+             mean: 300.0,
+             median: 300,
+             p95: 500,
+             max: 500
+           }
+
+    assert daemon.profile["cpu_percent"].count == 3
+    assert Enum.any?(daemon.gaps, &(&1.boot_id == "boot-a" and &1.duration_ms == 10_000))
+    assert operator.profile == %{}
+    assert operator.availability.unavailable == 1
+    assert operator.availability.measured == 0
+  end
+
+  test "derives closed, point, and open intervals by attempt and operation" do
+    {:ok, dataset} = Dataset.build(@fixtures)
+    intervals = dataset.tickets["930"].intervals
+
+    assert Enum.any?(intervals, fn interval ->
+             interval.phase == "implement" and interval.attempt_id == "attempt-a" and
+               interval.status == "closed" and interval.duration_ms == 2_000
+           end)
+
+    assert Enum.any?(intervals, fn interval ->
+             interval.phase == "build_test" and interval.attempt_id == "attempt-b" and
+               interval.status == "closed" and interval.duration_ms == 3_000 and
+               interval.outcome == "failed"
+           end)
+
+    assert Enum.any?(intervals, fn interval ->
+             interval.phase == "implement" and interval.attempt_id == "attempt-b" and
+               interval.status == "open" and interval.end_at == nil
+           end)
+
+    assert Enum.any?(intervals, &(&1.phase == "review_pause" and &1.status == "point"))
+  end
+
+  test "classifies review wakeups as broken, resolved, or pending from real transitions" do
+    {:ok, complete} =
+      Dataset.build(@fixtures,
+        now: ~U[2026-07-11 00:02:00Z],
+        review_resume_grace_seconds: 20
+      )
+
+    assert %{status: "broken", missing: ["rework_start", "agent_resume"]} =
+             Enum.find(complete.findings, &(&1.ticket == "930"))
+
+    assert %{status: "resolved", missing: []} =
+             Enum.find(complete.findings, &(&1.ticket == "931"))
+
+    {:ok, pending} =
+      Dataset.build(@fixtures,
+        now: ~U[2026-07-11 00:00:10Z],
+        review_resume_grace_seconds: 20
+      )
+
+    assert Enum.find(pending.findings, &(&1.ticket == "930")).status == "pending"
+  end
+
+  test "normalizes optional GitHub anchors and rejects ineligible comments" do
+    github_events = [
+      %{
+        id: 700,
+        topic: "ticket.932.pr.opened",
+        source: :github,
+        pr: %{"number" => 80, "created_at" => "2026-07-11T00:01:30Z"}
+      },
+      %{
+        id: 701,
+        topic: "ticket.932.issue.commented",
+        source: :github,
+        author_trusted?: false,
+        comment: %{"id" => 90, "updated_at" => "2026-07-11T00:01:31Z", "body" => "ignore"}
+      }
+    ]
+
+    {:ok, dataset} = Dataset.build(@fixtures, github_events: github_events)
+
+    assert Enum.any?(dataset.tickets["932"].events, &(&1.event == "pr_opened"))
+    refute Enum.any?(dataset.tickets["932"].events, &(&1.event == "comment_received"))
+  end
+
+  test "merge closes the review window and an early resume cannot resolve later rework" do
+    path = temporary_stream!()
+
+    records = [
+      lifecycle_record(1, "review_pause", "point", ~U[2026-07-11 01:00:00Z]),
+      lifecycle_record(2, "comment_received", "point", ~U[2026-07-11 01:00:01Z]),
+      lifecycle_record(3, "pr_merged", "point", ~U[2026-07-11 01:00:02Z]),
+      lifecycle_record(4, "rework_start", "point", ~U[2026-07-11 01:00:03Z]),
+      lifecycle_record(5, "agent_resume", "point", ~U[2026-07-11 01:00:04Z])
+    ]
+
+    File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")
+
+    {:ok, merged} = Dataset.build(path, now: ~U[2026-07-11 01:10:00Z])
+    assert [%{status: "closed", missing: ["rework_start", "agent_resume"]}] = merged.findings
+
+    reordered = [
+      lifecycle_record(1, "review_pause", "point", ~U[2026-07-11 01:00:00Z]),
+      lifecycle_record(2, "comment_received", "point", ~U[2026-07-11 01:00:01Z]),
+      lifecycle_record(3, "agent_resume", "point", ~U[2026-07-11 01:00:02Z]),
+      lifecycle_record(4, "rework_start", "point", ~U[2026-07-11 01:00:03Z])
+    ]
+
+    File.write!(path, Enum.map_join(reordered, "\n", &Jason.encode!/1) <> "\n")
+
+    {:ok, out_of_order} =
+      Dataset.build(path,
+        now: ~U[2026-07-11 01:10:00Z],
+        review_resume_grace_seconds: 1
+      )
+
+    assert [%{status: "broken", missing: ["agent_resume"]}] = out_of_order.findings
+  end
+
+  test "returns an explicit error when no telemetry file exists" do
+    empty = Path.join(System.tmp_dir!(), "aiur-empty-dataset-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(empty)
+    on_exit(fn -> File.rm_rf!(empty) end)
+
+    assert {:error, {:no_telemetry_files, [^empty]}} = Dataset.build(empty)
+  end
+
+  defp temporary_stream! do
+    root = Path.join(System.tmp_dir!(), "aiur-dataset-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
+    on_exit(fn -> File.rm_rf!(root) end)
+    Path.join(root, "telemetry.ndjson")
+  end
+
+  defp lifecycle_record(sequence, event, boundary, timestamp) do
+    %{
+      schema_version: 1,
+      kind: "lifecycle",
+      timestamp: DateTime.to_iso8601(timestamp),
+      recorded_at: DateTime.to_iso8601(timestamp),
+      boot_id: "test-boot",
+      sequence: sequence,
+      record_id: "test-boot:#{sequence}",
+      attributes: %{
+        ticket: "940",
+        attempt_id: "attempt-1",
+        event: event,
+        boundary: boundary,
+        event_key: "event-#{sequence}"
+      }
+    }
+  end
+end
