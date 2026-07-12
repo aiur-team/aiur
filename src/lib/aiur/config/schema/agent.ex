@@ -101,8 +101,9 @@ defmodule Aiur.Config.Schema.Agent do
     field(:routing, :map, default: %{})
     field(:switch_model_on_ratelimit, {:array, :string}, default: [])
     # Automatic codex -> claude reroute for an ALREADY-RUNNING codex agent that
-    # hits usage_limit_exhausted, reverted once ModelAvailability reports codex
-    # available again (Aiur.Orchestrator.RateLimitFallback). Default on, unlike
+    # hits usage_limit_exhausted, reverted at a safe boundary once
+    # ModelAvailability confirms codex recovery
+    # (Aiur.Orchestrator.RateLimitFallback). Default on, unlike
     # switch_model_on_ratelimit above (opt-in, applies only to a new claim).
     # "" disables it.
     field(:rate_limit_fallback, :string, default: "claude")

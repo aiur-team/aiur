@@ -95,8 +95,8 @@ defmodule Aiur.Config do
   (`agent.rate_limit_fallback: ""`). The only enabled value is `"claude"`.
   Unlike
   `switch_model_on_ratelimit/0` (opt-in, only ever applies to a new claim),
-  this is default-on and reroutes a running agent, reverting once
-  `Aiur.ModelAvailability` reports codex available again.
+  this is default-on and reroutes a running local agent, reverting at a safe
+  turn boundary once `Aiur.ModelAvailability` confirms codex recovery.
   """
   @spec rate_limit_fallback_backend() :: String.t() | nil
   def rate_limit_fallback_backend do
