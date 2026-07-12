@@ -60,7 +60,12 @@ to the issues you want worked and run `aiur`.
 | `aiur status` | Show active agents and their state |
 | `aiur alerts [--needs-attention]` | Show structured alert feed JSON lines |
 | `aiur pause <id…>` / `resume <id…>` | Pause or resume agents by issue ID |
+| `aiur --todo <id…> [--only]` | Queue GitHub tickets; optionally dequeue all other pending tickets |
 | `aiur stop` | Stop the running session |
+
+`aiur --todo` works without a running daemon and derives its repository and
+labels from the current config. `--only` leaves tickets already in progress
+untouched.
 
 If a control command times out while the daemon is still live, the host may be
 scheduler-saturated. Run `aiur stop` to interrupt that session and its workers,

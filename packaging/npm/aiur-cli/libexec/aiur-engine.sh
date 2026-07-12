@@ -289,6 +289,7 @@ Usage: aiur [--interactive] [--max-agents <n>] [--logs-root <path>] [--port <por
        aiur set max-agents <n>   change the concurrent-agent cap at runtime
        aiur pause <ids|--all> | resume <ids|--all>
        aiur message <id> <text>  send operator text to a running agent
+       aiur --todo <ids...> [--only]  queue tickets; optionally dequeue all other pending tickets
        aiur cleanup-stale [--dry-run]  list/reap stale manual-smoke leftovers
        aiur --version
 EOF
@@ -317,6 +318,18 @@ run_init() {
   write_argv "$@"
   export AIUR_ARGV_FILE="$argv_file"
   exec "${release_cmd[@]}"
+}
+
+# --- one-shot: --todo (distribution-free, no daemon/tmux) --------------------
+
+run_todo() {
+  if ! validate_todo_args "$@"; then
+    echo "aiur: --todo expects one or more numeric issue IDs, optionally followed by --only" >&2
+    exit 64
+  fi
+
+  load_dotenv
+  run_init "$@"
 }
 
 # --- interactive / background run -------------------------------------------
@@ -1657,6 +1670,31 @@ parse_issue_targets() {
   [ "${#parsed_targets[@]}" -gt 0 ]
 }
 
+validate_todo_args() {
+  local saw_todo=0 raw part parts target_count=0
+
+  for raw in "$@"; do
+    case "$raw" in
+      --todo)
+        [ "$saw_todo" -eq 0 ] || return 1
+        saw_todo=1
+        ;;
+      --only) ;;
+      -*) return 1 ;;
+      *)
+        IFS=',' read -ra parts <<<"$raw"
+        for part in "${parts[@]}"; do
+          part="$(trim "$part")"
+          if [ -z "$part" ] || [[ ! "$part" =~ ^[0-9]+$ ]]; then return 1; fi
+          target_count=$((target_count + 1))
+        done
+        ;;
+    esac
+  done
+
+  [ "$saw_todo" -eq 1 ] && [ "$target_count" -gt 0 ]
+}
+
 cmd_status() {
   [ "$#" -eq 0 ] || die "status does not accept arguments"
   run_control_rpc "Aiur.AgentControlCLI.status()"
@@ -2042,6 +2080,13 @@ aiur_engine_main() {
       ;;
     --version)
       run_version "$@"
+      ;;
+    --todo)
+      run_todo "$@"
+      ;;
+    --only)
+      echo "aiur: --only is valid only with --todo" >&2
+      exit 64
       ;;
     init)
       run_init "$@"

@@ -23,7 +23,9 @@ defmodule Aiur.CLI do
     interactive: :boolean,
     headless: :boolean,
     max_agents: :integer,
-    force: :boolean
+    force: :boolean,
+    todo: :boolean,
+    only: :boolean
   ]
 
   @type ensure_started_result :: {:ok, [atom()]} | {:error, term()}
@@ -53,6 +55,18 @@ defmodule Aiur.CLI do
           {:error, message} ->
             IO.puts(:stderr, message)
             Aiur.Shutdown.shutdown(1)
+        end
+
+      {:todo, issue_ids, opts} ->
+        case Aiur.AgentControlCLI.todo(issue_ids, only: opts.only) do
+          0 ->
+            :ok
+
+          exit_code ->
+            # `--todo` runs under the distribution-free start_clean boot and
+            # never starts Aiur's supervision tree. Full application cleanup
+            # would touch run-only resources and can print unrelated warnings.
+            System.halt(exit_code)
         end
 
       {:error, message} ->
@@ -90,43 +104,76 @@ defmodule Aiur.CLI do
   end
 
   @spec evaluate([String.t()], deps()) ::
-          :ok | {:version, String.t()} | {:init, %{force: boolean()}} | {:error, String.t()}
+          :ok
+          | {:version, String.t()}
+          | {:init, %{force: boolean()}}
+          | {:todo, [String.t()], %{only: boolean()}}
+          | {:error, String.t()}
   def evaluate(args, deps \\ runtime_deps()) do
     case OptionParser.parse(args, strict: @switches) do
-      {[version: true], _, _} ->
-        {:version, @version}
-
-      {opts, ["init" | rest], []} ->
-        if rest == [] do
-          {:init, %{force: Keyword.get(opts, :force, false)}}
+      {opts, positional, []} ->
+        if todo_switch?(opts) do
+          evaluate_todo(opts, positional)
         else
-          {:error, usage_message()}
-        end
-
-      {opts, [], []} ->
-        with :ok <- require_guardrails_acknowledgement(opts),
-             :ok <- maybe_set_logs_root(opts, deps),
-             :ok <- maybe_set_server_port(opts, deps),
-             :ok <- maybe_set_server_host(opts, deps),
-             :ok <- maybe_set_max_agents(opts),
-             :ok <- maybe_set_interactive(opts),
-             :ok <- maybe_set_headless(opts) do
-          run(Aiur.Workflow.detect_run_folder_config(), deps)
-        end
-
-      {opts, [workflow_path], []} ->
-        with :ok <- require_guardrails_acknowledgement(opts),
-             :ok <- maybe_set_logs_root(opts, deps),
-             :ok <- maybe_set_server_port(opts, deps),
-             :ok <- maybe_set_server_host(opts, deps),
-             :ok <- maybe_set_max_agents(opts),
-             :ok <- maybe_set_interactive(opts),
-             :ok <- maybe_set_headless(opts) do
-          run(workflow_path, deps)
+          evaluate_standard(opts, positional, deps)
         end
 
       _ ->
         {:error, usage_message()}
+    end
+  end
+
+  defp evaluate_standard([version: true], _positional, _deps), do: {:version, @version}
+
+  defp evaluate_standard(opts, ["init" | rest], _deps) do
+    if rest == [] do
+      {:init, %{force: Keyword.get(opts, :force, false)}}
+    else
+      {:error, usage_message()}
+    end
+  end
+
+  defp evaluate_standard(opts, [], deps) do
+    evaluate_run(opts, Aiur.Workflow.detect_run_folder_config(), deps)
+  end
+
+  defp evaluate_standard(opts, [workflow_path], deps), do: evaluate_run(opts, workflow_path, deps)
+  defp evaluate_standard(_opts, _positional, _deps), do: {:error, usage_message()}
+
+  defp evaluate_run(opts, workflow_path, deps) do
+    with :ok <- require_guardrails_acknowledgement(opts),
+         :ok <- maybe_set_logs_root(opts, deps),
+         :ok <- maybe_set_server_port(opts, deps),
+         :ok <- maybe_set_server_host(opts, deps),
+         :ok <- maybe_set_max_agents(opts),
+         :ok <- maybe_set_interactive(opts),
+         :ok <- maybe_set_headless(opts) do
+      run(workflow_path, deps)
+    end
+  end
+
+  defp todo_switch?(opts), do: Keyword.has_key?(opts, :todo) or Keyword.has_key?(opts, :only)
+
+  defp evaluate_todo(opts, positional) do
+    with true <- Keyword.get(opts, :todo, false),
+         true <- Enum.all?(Keyword.keys(opts), &(&1 in [:todo, :only])),
+         {:ok, issue_ids} <- parse_todo_ids(positional) do
+      {:todo, issue_ids, %{only: Keyword.get(opts, :only, false)}}
+    else
+      _ -> {:error, usage_message()}
+    end
+  end
+
+  defp parse_todo_ids(positional) do
+    issue_ids =
+      positional
+      |> Enum.flat_map(&String.split(&1, ",", trim: false))
+      |> Enum.map(&String.trim/1)
+
+    if issue_ids != [] and Enum.all?(issue_ids, &Regex.match?(~r/^\d+$/, &1)) do
+      {:ok, Enum.uniq(issue_ids)}
+    else
+      :error
     end
   end
 
@@ -151,7 +198,7 @@ defmodule Aiur.CLI do
 
   @spec usage_message() :: String.t()
   defp usage_message do
-    "Usage: aiur [--interactive] [--headless] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [config-path]\n       aiur init [--force]"
+    "Usage: aiur [--interactive] [--headless] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [config-path]\n       aiur init [--force]\n       aiur --todo <id> [<id> ...] [--only]"
   end
 
   @spec runtime_deps() :: deps()
