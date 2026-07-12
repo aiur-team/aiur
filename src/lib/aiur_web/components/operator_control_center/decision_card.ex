@@ -10,6 +10,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
   attr(:selected, :boolean, default: false)
   attr(:now, :any, required: true)
   attr(:history, :list, default: [])
+  attr(:action_state, :map, default: %{})
   attr(:writable, :boolean, required: true)
 
   @spec decision_card(map()) :: Phoenix.LiveView.Rendered.t()
@@ -59,6 +60,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
           :if={@selected}
           decision={@decision}
           history={@history}
+          action_state={@action_state}
           writable={@writable}
         />
       </div>

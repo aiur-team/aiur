@@ -6,8 +6,7 @@ defmodule AiurWeb.ControlCenterPresenter do
 
   alias Aiur.{Decision, DecisionStore}
   alias AiurWeb.Presenter
-
-  @urgency_rank %{low: 0, normal: 1, high: 2, critical: 3}
+  alias AiurWeb.OperatorControlCenter.DecisionPresenter
 
   @spec state_payload(GenServer.name(), timeout(), keyword()) :: map()
   def state_payload(orchestrator, snapshot_timeout_ms, opts \\ []) do
@@ -48,7 +47,7 @@ defmodule AiurWeb.ControlCenterPresenter do
   @spec compose(map(), [Decision.t()], [map()], map()) :: map()
   def compose(fleet, decisions, history, recent_merges)
       when is_map(fleet) and is_list(decisions) and is_list(history) and is_map(recent_merges) do
-    decision_rows = decisions |> Enum.map(&decision_row/1) |> sort_decisions()
+    decision_rows = DecisionPresenter.rows(decisions)
     recent_outcomes = normalize_recent_outcomes(recent_merges)
 
     %{
@@ -74,56 +73,6 @@ defmodule AiurWeb.ControlCenterPresenter do
   end
 
   def find_decision(_payload, _decision_id), do: :error
-
-  defp decision_row(%Decision{} = decision) do
-    %{
-      decision_id: decision.decision_id,
-      version: decision.version,
-      ticket: decision.ticket,
-      source: decision.source,
-      kind: decision.kind,
-      authority: decision.authority,
-      urgency: decision.urgency,
-      blocking: decision.blocking,
-      reversibility: decision.reversibility,
-      question: decision.question,
-      context: %{
-        short: Map.get(decision.context, :short_summary),
-        long_markdown: Map.get(decision.context, :long_context_markdown)
-      },
-      options: Enum.map(decision.options, &option_row/1),
-      recommendation: decision.recommendation,
-      consequence_of_delay: decision.consequence_of_delay,
-      artifacts: decision.artifacts,
-      created_at: decision.created_at,
-      source_created_at: decision.source_created_at,
-      lifecycle: lifecycle(decision)
-    }
-  end
-
-  defp option_row(option) do
-    %{
-      id: Map.get(option, :id),
-      label: Map.get(option, :label),
-      description: Map.get(option, :description),
-      benefits: Map.get(option, :benefits),
-      drawbacks: Map.get(option, :drawbacks),
-      risk: Map.get(option, :risk)
-    }
-  end
-
-  # OCC-1 records an accepted request. OCC-3 owns every later lifecycle state;
-  # never infer delivery from the existence of the Decision itself.
-  defp lifecycle(decision), do: Map.get(decision, :lifecycle, :recorded)
-
-  defp sort_decisions(decisions) do
-    Enum.sort_by(decisions, fn decision ->
-      {not decision.blocking, -Map.get(@urgency_rank, decision.urgency, 0), datetime_sort_key(decision.created_at), decision.decision_id}
-    end)
-  end
-
-  defp datetime_sort_key(%DateTime{} = datetime), do: DateTime.to_unix(datetime, :microsecond)
-  defp datetime_sort_key(_datetime), do: 0
 
   defp overview(fleet, decisions, recent_outcomes) do
     counts = Map.get(fleet, :counts, %{})

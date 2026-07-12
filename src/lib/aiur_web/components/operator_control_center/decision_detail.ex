@@ -3,10 +3,11 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
 
   use Phoenix.Component
 
-  alias AiurWeb.OperatorControlCenter.LifecycleComponents
+  alias AiurWeb.OperatorControlCenter.{DecisionAction, LifecycleComponents}
 
   attr(:decision, :map, required: true)
   attr(:history, :list, default: [])
+  attr(:action_state, :map, default: %{})
   attr(:writable, :boolean, required: true)
 
   @spec decision_detail(map()) :: Phoenix.LiveView.Rendered.t()
@@ -19,6 +20,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
     ~H"""
     <div id={"decision-detail-#{@decision.decision_id}"} class="decision-detail" tabindex="-1">
       <LifecycleComponents.lifecycle_stepper lifecycle={@decision.lifecycle} />
+      <DecisionAction.decision_action decision={@decision} state={@action_state} writable={@writable} />
 
       <div class="decision-detail-grid">
         <div>
@@ -66,6 +68,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
               <div><dt>Authority</dt><dd>{humanize(@decision.authority)}</dd></div>
               <div><dt>Urgency</dt><dd>{humanize(@decision.urgency)}</dd></div>
               <div><dt>Reversibility</dt><dd>{humanize(@decision.reversibility)}</dd></div>
+              <div><dt>Decision state</dt><dd>{humanize(@decision.decision_status)}</dd></div>
+              <div><dt>Delivery state</dt><dd>{humanize(@decision.delivery_status)}</dd></div>
               <div><dt>Version</dt><dd class="mono num">{@decision.version}</dd></div>
               <div><dt>Source agent</dt><dd class="mono">{@decision.source[:agent_id] || "unknown"}</dd></div>
               <div><dt>Recorded</dt><dd class="mono">{format_datetime(@decision.created_at)}</dd></div>

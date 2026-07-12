@@ -5,11 +5,22 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
 
   alias AiurWeb.OperatorControlCenter.DecisionCard
 
+  @filter_specs [
+    {:all, "All"},
+    {:open, "Open"},
+    {:blocking, "Blocking"},
+    {:undelivered, "Undelivered"},
+    {:supervisor, "Supervisor"},
+    {:resolved, "Resolved"},
+    {:superseded, "Superseded"}
+  ]
+
   attr(:decisions, :list, required: true)
   attr(:selected_decision_id, :string, default: nil)
   attr(:filter, :atom, default: :all)
   attr(:now, :any, required: true)
   attr(:history, :list, default: [])
+  attr(:action_states, :map, default: %{})
   attr(:writable, :boolean, required: true)
   attr(:provider_health, :any, default: :ok)
 
@@ -21,6 +32,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
       assigns
       |> assign(:visible_decisions, decisions)
       |> assign(:counts, filter_counts(assigns.decisions))
+      |> assign(:filter_specs, @filter_specs)
 
     ~H"""
     <section class="section-card decision-inbox" aria-labelledby="decision-inbox-title">
@@ -33,10 +45,14 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
       </header>
 
       <div class="filter-row" aria-label="Decision filters">
-        <.filter_button filter="all" label="All" count={@counts.all} active={@filter == :all} />
-        <.filter_button filter="open" label="Open" count={@counts.open} active={@filter == :open} />
-        <.filter_button filter="blocking" label="Blocking" count={@counts.blocking} active={@filter == :blocking} blocking />
-        <.filter_button filter="answered" label="Answered" count={@counts.answered} active={@filter == :answered} />
+        <.filter_button
+          :for={{filter, label} <- @filter_specs}
+          filter={Atom.to_string(filter)}
+          label={label}
+          count={Map.fetch!(@counts, filter)}
+          active={@filter == filter}
+          blocking={filter == :blocking}
+        />
       </div>
 
       <div class="decision-list">
@@ -48,6 +64,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
           selected={decision.decision_id == @selected_decision_id}
           now={@now}
           history={@history}
+          action_state={Map.get(@action_states, decision.decision_id, %{})}
           writable={@writable}
         />
       </div>
@@ -78,14 +95,31 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
   defp filter_counts(decisions) do
     %{
       all: length(decisions),
-      open: Enum.count(decisions, &(&1.lifecycle == :recorded)),
-      blocking: Enum.count(decisions, &(&1.blocking and &1.lifecycle == :recorded)),
-      answered: Enum.count(decisions, &(&1.lifecycle != :recorded))
+      open: Enum.count(decisions, &open?/1),
+      blocking: Enum.count(decisions, &blocking?/1),
+      undelivered: Enum.count(decisions, &undelivered?/1),
+      supervisor: Enum.count(decisions, &supervisor_decision?/1),
+      resolved: Enum.count(decisions, &(&1.decision_status == :resolved)),
+      superseded: Enum.count(decisions, &(&1.lifecycle == :superseded))
     }
   end
 
-  defp filtered(decisions, :open), do: Enum.filter(decisions, &(&1.lifecycle == :recorded))
-  defp filtered(decisions, :blocking), do: Enum.filter(decisions, &(&1.blocking and &1.lifecycle == :recorded))
-  defp filtered(decisions, :answered), do: Enum.reject(decisions, &(&1.lifecycle == :recorded))
+  defp filtered(decisions, :open), do: Enum.filter(decisions, &open?/1)
+  defp filtered(decisions, :blocking), do: Enum.filter(decisions, &blocking?/1)
+  defp filtered(decisions, :undelivered), do: Enum.filter(decisions, &undelivered?/1)
+  defp filtered(decisions, :supervisor), do: Enum.filter(decisions, &supervisor_decision?/1)
+  defp filtered(decisions, :resolved), do: Enum.filter(decisions, &(&1.decision_status == :resolved))
+  defp filtered(decisions, :superseded), do: Enum.filter(decisions, &(&1.lifecycle == :superseded))
   defp filtered(decisions, _filter), do: decisions
+
+  defp open?(decision), do: decision.decision_status == :open
+  defp blocking?(decision), do: decision.blocking and open?(decision)
+
+  defp undelivered?(decision) do
+    not is_nil(decision.answer) and decision.delivery_status not in [:delivered, :consumed]
+  end
+
+  defp supervisor_decision?(decision) do
+    get_in(decision, [:answer, :actor, :kind]) == :supervisor
+  end
 end

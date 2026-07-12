@@ -1,7 +1,7 @@
 defmodule AiurWeb.ControlCenterPresenterTest do
   use Aiur.TestSupport
 
-  alias Aiur.Decision
+  alias Aiur.{Decision, DecisionAnswer}
   alias AiurWeb.ControlCenterPresenter
 
   test "composes real decision and fleet projections without inventing lifecycle data" do
@@ -120,6 +120,89 @@ defmodule AiurWeb.ControlCenterPresenterTest do
     assert payload.recent_outcomes_reconciliation == %{status: :complete, partial?: false}
   end
 
+  test "maps OCC-3 semantic and delivery axes into an honest display lifecycle" do
+    decision = decision("dec-delivery", blocking: true, urgency: :critical)
+
+    assert {:ok, answer} =
+             DecisionAnswer.normalize(
+               %{
+                 "idempotency_key" => "dashboard-submit",
+                 "expected_version" => 1,
+                 "option_id" => "ship",
+                 "rationale" => "Checks are green"
+               },
+               decision_id: decision.decision_id,
+               decision_version: decision.version,
+               options: decision.options,
+               actor: %{kind: :operator, id: "dashboard"},
+               now: ~U[2026-07-12 12:05:00Z]
+             )
+
+    failed = %{
+      decision
+      | answer: answer,
+        decision_status: :decided,
+        delivery_status: :failed,
+        dispatch_attempts: [
+          %{
+            action_id: answer.action_id,
+            attempt_id: "attempt-1",
+            queue_item_id: nil,
+            run_id: "run-1",
+            status: :failed,
+            attempted_at: ~U[2026-07-12 12:05:00Z],
+            queued_at: nil,
+            delivered_at: nil,
+            restored_at: nil,
+            consumed_at: nil,
+            failed_at: ~U[2026-07-12 12:05:01Z],
+            failure_reason_class: "target_agent_unavailable"
+          }
+        ]
+    }
+
+    payload =
+      ControlCenterPresenter.compose(
+        fleet_payload(),
+        [failed],
+        [],
+        %{merges: [], health: :ready, reconciliation: %{status: :complete, partial?: false}}
+      )
+
+    assert [row] = payload.decisions
+    assert row.lifecycle == :delivery_failed
+    assert row.decision_status == :decided
+    assert row.delivery_status == :failed
+    assert row.answer.action_id == answer.action_id
+    assert row.answer.selected_option_id == "ship"
+    assert row.retryable
+    assert row.failure_reason == "target_agent_unavailable"
+
+    assert :delivered == display_lifecycle(%{failed | delivery_status: :consumed})
+    assert :acknowledged == display_lifecycle(%{failed | delivery_status: :delivered, decision_status: :acknowledged})
+    assert :resolved == display_lifecycle(%{failed | delivery_status: :delivered, decision_status: :resolved})
+  end
+
+  test "keeps blocking-first ordering when a non-blocking delivery has failed" do
+    blocking = decision("dec-blocking-low", blocking: true, urgency: :low)
+
+    failed = %{
+      decision("dec-failed-critical", blocking: false, urgency: :critical)
+      | decision_status: :decided,
+        delivery_status: :failed
+    }
+
+    payload =
+      ControlCenterPresenter.compose(
+        fleet_payload(),
+        [failed, blocking],
+        [],
+        %{merges: [], health: :ready, reconciliation: %{status: :complete, partial?: false}}
+      )
+
+    assert Enum.map(payload.decisions, & &1.decision_id) == ["dec-blocking-low", "dec-failed-critical"]
+  end
+
   defp fleet_payload do
     %{
       generated_at: "2026-07-12T12:00:00Z",
@@ -167,5 +250,13 @@ defmodule AiurWeb.ControlCenterPresenterTest do
     }
 
     struct!(Decision, Map.merge(defaults, Map.new(attrs)))
+  end
+
+  defp display_lifecycle(decision) do
+    decision
+    |> then(&ControlCenterPresenter.compose(fleet_payload(), [&1], [], %{merges: [], health: :ready, reconciliation: %{}}))
+    |> Map.fetch!(:decisions)
+    |> hd()
+    |> Map.fetch!(:lifecycle)
   end
 end

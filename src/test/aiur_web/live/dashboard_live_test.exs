@@ -4,7 +4,7 @@ defmodule AiurWeb.DashboardLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
-  alias Aiur.{DecisionPubSub, Issue}
+  alias Aiur.{Decision, DecisionEvent, DecisionPubSub, DecisionStore, Issue}
   alias Aiur.Orchestrator
   alias Aiur.RecentMerge
   alias AiurWeb.{ControlCenterPresenter, DashboardLive, ObservabilityPubSub, Presenter}
@@ -35,6 +35,28 @@ defmodule AiurWeb.DashboardLiveTest do
     end
   end
 
+  defmodule RejectingDecisionStore do
+    use GenServer
+
+    def start_link(opts) do
+      GenServer.start_link(__MODULE__, opts, name: Keyword.fetch!(opts, :name))
+    end
+
+    @impl true
+    def init(opts) do
+      {:ok, %{decision: Keyword.fetch!(opts, :decision), report: Keyword.fetch!(opts, :report)}}
+    end
+
+    @impl true
+    def handle_call(:list, _from, state), do: {:reply, [state.decision], state}
+    def handle_call(:all_history, _from, state), do: {:reply, %{state.decision.decision_id => [state.decision]}, state}
+
+    def handle_call({:answer, decision_id, payload, opts}, _from, state) do
+      send(state.report, {:dashboard_answer_attempt, decision_id, payload, opts})
+      {:reply, {:error, {:conflict, {:stale_version, 1, 2}}}, state}
+    end
+  end
+
   defp render_payload(fleet_payload, opts \\ []) do
     payload =
       Keyword.get_lazy(opts, :payload, fn ->
@@ -55,6 +77,7 @@ defmodule AiurWeb.DashboardLiveTest do
       agent_log_modal: nil,
       drafts: %{},
       chat_errors: %{},
+      decision_actions: %{},
       writable: false,
       live_action: Keyword.get(opts, :live_action, :index),
       decision_filter: :all,
@@ -163,6 +186,14 @@ defmodule AiurWeb.DashboardLiveTest do
       artifacts: [],
       created_at: ~U[2026-07-12 12:00:00Z],
       source_created_at: nil,
+      decision_status: :open,
+      delivery_status: :not_dispatched,
+      answer: nil,
+      dispatch_attempts: [],
+      acknowledgement: nil,
+      resolution: nil,
+      retryable: false,
+      failure_reason: nil,
       lifecycle: :recorded
     }
 
@@ -277,6 +308,191 @@ defmodule AiurWeb.DashboardLiveTest do
     assert eventually(fn -> CountingOrchestrator.snapshot_count(orchestrator_name) == initial_count + 2 end)
   end
 
+  test "writable decision form records once and retries a canonical delivery failure" do
+    orchestrator_name = Module.concat(__MODULE__, :ActionOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :ActionDecisionStore)
+    counter = :counters.new(1, [])
+
+    dispatcher = fn _decision, _opts ->
+      :ok = :counters.add(counter, 1, 1)
+      attempt = :counters.get(counter, 1)
+
+      if attempt == 1,
+        do: {:error, :no_running_agent},
+        else: {:ok, %{status: :accepted, item: %{id: 501}}}
+    end
+
+    store = start_decision_store(decision_store_name, dispatcher)
+    decision = request_dashboard_decision(store, "dashboard-action")
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      dashboard_writable: true
+    )
+
+    {:ok, view, html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+    assert html =~ "Answer this decision"
+    assert html =~ ~s(phx-submit="answer-decision")
+
+    params = %{
+      "decision_id" => decision.decision_id,
+      "answer" => %{"choice" => "option:ship", "rationale" => "Checks are green"}
+    }
+
+    _html = render_submit(view, "answer-decision", params)
+    html = render(view)
+    assert html =~ "Answer recorded"
+
+    assert eventually(fn ->
+             {:ok, current} = DecisionStore.get(decision.decision_id, store)
+             current.delivery_status == :failed
+           end)
+
+    assert eventually(fn -> render(view) =~ "Delivery · Failed" end)
+    html = render(view)
+    assert html =~ "Recorded answer"
+    assert html =~ "Delivery · Failed"
+    assert html =~ ~s(phx-click="retry-decision")
+
+    html = view |> element(~s(button[phx-click="retry-decision"])) |> render_click()
+    assert html =~ "delivery retry was scheduled"
+
+    assert eventually(fn ->
+             {:ok, current} = DecisionStore.get(decision.decision_id, store)
+             current.delivery_status == :queued
+           end)
+
+    assert eventually(fn -> render(view) =~ "Delivery · Queued" end)
+    html = render(view)
+    assert html =~ "Delivery · Queued"
+    refute html =~ ~s(phx-click="retry-decision")
+
+    assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, store)
+    assert Enum.count(audit, &match?(%DecisionEvent{type: :answer_recorded}, &1)) == 1
+    assert Enum.count(audit, &match?(%DecisionEvent{type: :failed}, &1)) == 1
+    assert Enum.count(audit, &match?(%DecisionEvent{type: :dispatch_queued}, &1)) == 1
+  end
+
+  test "irreversible answers require confirmation in the server event handler" do
+    orchestrator_name = Module.concat(__MODULE__, :ConfirmationOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :ConfirmationDecisionStore)
+
+    dispatcher = fn _decision, _opts ->
+      {:ok, %{status: :accepted, item: %{id: 502}}}
+    end
+
+    store = start_decision_store(decision_store_name, dispatcher)
+    decision = request_dashboard_decision(store, "dashboard-confirmation", "irreversible")
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      dashboard_writable: true
+    )
+
+    {:ok, view, html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+    assert html =~ "I understand this decision is irreversible or destructive."
+
+    params = %{
+      "decision_id" => decision.decision_id,
+      "answer" => %{"choice" => "option:ship"}
+    }
+
+    html = render_submit(view, "answer-decision", params)
+    assert html =~ "Confirm that you understand this irreversible or destructive action."
+
+    assert {:ok, current} = DecisionStore.get(decision.decision_id, store)
+    assert is_nil(current.answer)
+
+    assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, store)
+    refute Enum.any?(audit, &match?(%DecisionEvent{type: :answer_recorded}, &1))
+  end
+
+  test "a socket mounted writable fails closed when the endpoint gate changes" do
+    orchestrator_name = Module.concat(__MODULE__, :GateChangeOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :GateChangeDecisionStore)
+    test_pid = self()
+
+    dispatcher = fn _decision, _opts ->
+      send(test_pid, :unexpected_gate_change_dispatch)
+      {:ok, %{status: :accepted, item: %{id: 503}}}
+    end
+
+    store = start_decision_store(decision_store_name, dispatcher)
+    decision = request_dashboard_decision(store, "dashboard-gate-change")
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      dashboard_writable: true
+    )
+
+    {:ok, view, html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+    assert html =~ ~s(phx-submit="answer-decision")
+
+    endpoint_config = Application.fetch_env!(:aiur, AiurWeb.Endpoint)
+    disabled_config = Keyword.put(endpoint_config, :dashboard_writable, false)
+    Application.put_env(:aiur, AiurWeb.Endpoint, disabled_config)
+    :ok = AiurWeb.Endpoint.config_change([{AiurWeb.Endpoint, disabled_config}], [])
+
+    params = %{
+      "decision_id" => decision.decision_id,
+      "answer" => %{"choice" => "option:ship"}
+    }
+
+    html = render_submit(view, "answer-decision", params)
+    assert html =~ "Read-only mode · mutation controls are hidden."
+    refute html =~ ~s(phx-submit="answer-decision")
+
+    assert {:ok, current} = DecisionStore.get(decision.decision_id, store)
+    assert is_nil(current.answer)
+    refute_received :unexpected_gate_change_dispatch
+  end
+
+  test "stale answer rejection keeps the draft and explains the canonical refresh" do
+    orchestrator_name = Module.concat(__MODULE__, :StaleActionOrchestrator)
+    store_name = Module.concat(__MODULE__, :RejectingDecisionStoreInstance)
+    decision = dashboard_decision("dec-stale-dashboard")
+
+    start_supervised!({RejectingDecisionStore, name: store_name, decision: decision, report: self()})
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: store_name,
+      dashboard_writable: true
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+
+    params = %{
+      "decision_id" => decision.decision_id,
+      "answer" => %{"choice" => "custom", "custom_response" => "Use the safer path", "rationale" => "Lower risk"}
+    }
+
+    _html = render_submit(view, "answer-decision", params)
+    html = render(view)
+
+    assert html =~ "changed to version 2"
+    assert html =~ "Use the safer path"
+    assert html =~ ~s(phx-submit="answer-decision")
+
+    assert_receive {:dashboard_answer_attempt, decision_id, payload, opts}
+    assert decision_id == decision.decision_id
+    assert payload["expected_version"] == 1
+    assert payload["custom_response"] == "Use the safer path"
+    assert String.starts_with?(payload["idempotency_key"], "ui_")
+    assert opts[:actor].kind == :operator
+  end
+
   defp start_test_endpoint(overrides) do
     previous = Application.get_env(:aiur, AiurWeb.Endpoint)
 
@@ -301,6 +517,82 @@ defmodule AiurWeb.DashboardLiveTest do
 
     start_supervised!({AiurWeb.Endpoint, []})
   end
+
+  defp start_counting_orchestrator(name) do
+    start_supervised!(
+      {CountingOrchestrator,
+       name: name,
+       snapshot: %{
+         running: [],
+         retrying: [],
+         idle: [],
+         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+         rate_limits: nil
+       }}
+    )
+  end
+
+  defp start_decision_store(name, dispatcher) do
+    dir = Path.join(System.tmp_dir!(), "aiur-dashboard-decisions-#{System.unique_integer([:positive])}")
+    previous = Application.get_env(:aiur, :decision_state_dir)
+    Application.put_env(:aiur, :decision_state_dir, dir)
+
+    on_exit(fn ->
+      restore_application_env(:decision_state_dir, previous)
+      File.rm_rf!(dir)
+    end)
+
+    start_supervised!({DecisionStore, name: name, dispatcher: dispatcher, dispatch_delay_ms: 0, retry_delays_ms: [], reconcile_delay_ms: 5_000, filesystem_sync_fun: fn -> :ok end})
+  end
+
+  defp request_dashboard_decision(store, source_id, reversibility \\ "reversible") do
+    assert {:ok, %{decision: decision}} =
+             DecisionStore.request(
+               %{
+                 "source_id" => source_id,
+                 "question" => "Should the dashboard ship this change?",
+                 "blocking" => true,
+                 "urgency" => "critical",
+                 "reversibility" => reversibility,
+                 "options" => [%{"id" => "ship", "label" => "Ship it", "description" => "Proceed with the reviewed change"}],
+                 "recommendation" => %{"option_id" => "ship", "reason" => "Checks are green"}
+               },
+               [
+                 ticket: %{identifier: "AIUR-987", title: "Operator Control Center", url: "https://example.test/issues/987"},
+                 source: %{agent_id: "agent-987", session_id: "session-987", event_id: "event-#{source_id}"}
+               ],
+               store
+             )
+
+    decision
+  end
+
+  defp dashboard_decision(decision_id) do
+    %Decision{
+      decision_id: decision_id,
+      source_id: decision_id,
+      version: 1,
+      ticket: %{identifier: "AIUR-987", title: "Operator Control Center", url: "https://example.test/issues/987"},
+      source: %{agent_id: "agent-987", session_id: "session-987", event_id: "event-stale"},
+      kind: "architecture",
+      authority: :human_required,
+      urgency: :critical,
+      blocking: true,
+      reversibility: :reversible,
+      question: "Which implementation should ship?",
+      context: %{short_summary: "A newer version exists", long_context_markdown: nil},
+      options: [],
+      recommendation: nil,
+      consequence_of_delay: "The agent remains paused.",
+      artifacts: [],
+      created_at: ~U[2026-07-12 12:00:00Z],
+      source_created_at: nil,
+      content_hash: "stale-dashboard-hash"
+    }
+  end
+
+  defp restore_application_env(key, nil), do: Application.delete_env(:aiur, key)
+  defp restore_application_env(key, value), do: Application.put_env(:aiur, key, value)
 
   defp eventually(fun, attempts \\ 30)
 
