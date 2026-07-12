@@ -141,6 +141,7 @@ defmodule AiurWeb.ControlCenterPresenterTest do
     failed = %{
       decision
       | answer: answer,
+        active_action_id: answer.action_id,
         decision_status: :decided,
         delivery_status: :failed,
         dispatch_attempts: [

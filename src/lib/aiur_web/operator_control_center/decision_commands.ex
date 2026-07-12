@@ -51,6 +51,10 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
     end
   end
 
+  @doc false
+  @spec actor() :: %{kind: :operator, id: String.t()}
+  def actor, do: %{kind: :operator, id: dashboard_operator_id()}
+
   defp submit_answer(socket, decision, form, reload_fun) do
     with :ok <- require_confirmation(decision, form),
          {:ok, answer} <- answer_content(form) do
@@ -126,7 +130,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   defp maybe_put_rationale(payload, _rationale), do: payload
 
   defp safe_answer(decision_id, payload) do
-    DecisionStore.answer(decision_id, payload, [actor: dashboard_actor()], decision_store())
+    DecisionStore.answer(decision_id, payload, [actor: actor()], decision_store())
   catch
     :exit, _reason -> {:error, :store_unavailable}
   end
@@ -136,8 +140,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   catch
     :exit, _reason -> {:error, :store_unavailable}
   end
-
-  defp dashboard_actor, do: %{kind: :operator, id: dashboard_operator_id()}
 
   defp dashboard_operator_id do
     case System.get_env("AIUR_DASHBOARD_USERNAME") do

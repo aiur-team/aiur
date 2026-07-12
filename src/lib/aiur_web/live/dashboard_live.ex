@@ -10,7 +10,7 @@ defmodule AiurWeb.DashboardLive do
 
   alias AiurWeb.OperatorControlCenter.{
     AgentLogModal,
-    DecisionCommands,
+    DecisionEvents,
     DecisionInbox,
     FleetTable,
     History,
@@ -21,6 +21,7 @@ defmodule AiurWeb.DashboardLive do
   @runtime_tick_ms 1_000
   @payload_reload_debounce_ms 50
   @decision_filters [:all, :open, :blocking, :undelivered, :supervisor, :resolved, :superseded]
+  @decision_events DecisionEvents.events()
 
   @impl true
   def mount(params, _session, socket) do
@@ -85,45 +86,11 @@ defmodule AiurWeb.DashboardLive do
     {:noreply, assign(socket, :decision_filter, normalize_filter(filter))}
   end
 
-  def handle_event(
-        "decision-action-change",
-        %{"decision_id" => decision_id, "answer" => form},
-        %{assigns: %{writable: true}} = socket
-      ) do
+  def handle_event(event, params, socket) when event in @decision_events do
     handle_writable_event(socket, fn ->
-      {:noreply, DecisionCommands.change(socket, decision_id, form)}
+      {:noreply, DecisionEvents.handle(event, params, socket, &reload_payload/1)}
     end)
   end
-
-  def handle_event("decision-action-change", _params, socket), do: {:noreply, socket}
-
-  def handle_event(
-        "answer-decision",
-        %{"decision_id" => decision_id, "answer" => form},
-        %{assigns: %{writable: true}} = socket
-      ) do
-    handle_writable_event(socket, fn ->
-      {:noreply, DecisionCommands.record_answer(socket, decision_id, form, &reload_payload/1)}
-    end)
-  end
-
-  def handle_event("answer-decision", _params, %{assigns: %{writable: true}} = socket) do
-    handle_writable_event(socket, fn -> {:noreply, DecisionCommands.reject_incomplete(socket)} end)
-  end
-
-  def handle_event("answer-decision", _params, socket), do: {:noreply, socket}
-
-  def handle_event(
-        "retry-decision",
-        %{"decision-id" => decision_id, "action-id" => action_id},
-        %{assigns: %{writable: true}} = socket
-      ) do
-    handle_writable_event(socket, fn ->
-      {:noreply, DecisionCommands.retry_delivery(socket, decision_id, action_id, &reload_payload/1)}
-    end)
-  end
-
-  def handle_event("retry-decision", _params, socket), do: {:noreply, socket}
 
   def handle_event("show-agent-log", %{"issue" => issue_identifier}, socket) do
     entry = AgentLogModal.find_running_entry(socket.assigns.payload, issue_identifier)

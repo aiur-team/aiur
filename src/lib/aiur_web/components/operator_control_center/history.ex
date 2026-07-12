@@ -30,6 +30,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
             <span class="timeline-time mono">{format_datetime(entry.changed_at)}</span>
             <.result_chip label="dispatch" result={entry.dispatch_result} />
             <.result_chip label="ack" result={entry.acknowledgement_result} />
+            <.result_chip label="revision" result={Map.get(entry, :revision_result)} />
             <span :if={entry.revised?} class="chip super">Revised</span>
             <span :if={entry.follow_up_required and not entry.follow_up_handled} class="chip blocking">Follow-up required</span>
             <span :if={entry.follow_up_handled} class="chip good">Follow-up handled</span>
@@ -51,6 +52,8 @@ defmodule AiurWeb.OperatorControlCenter.History do
 
   defp result_tone(result) when result in [:ok, :acknowledged, :delivered, "ok", "acknowledged", "delivered"], do: "good"
   defp result_tone(result) when result in [:failed, :delivery_failed, "failed", "delivery_failed"], do: "blocking"
+  defp result_tone(result) when result in [:no_longer_applicable, "no_longer_applicable"], do: "blocking"
+  defp result_tone(result) when result in [:dispatched, "dispatched"], do: "good"
   defp result_tone(_result), do: "attention"
 
   defp ticket_identifier(%{identifier: identifier}), do: identifier

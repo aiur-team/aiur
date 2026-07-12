@@ -7,6 +7,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     DecisionAction,
     DecisionDetail,
     DecisionInbox,
+    DecisionRevisionAction,
     FleetTable,
     History,
     LifecycleComponents,
@@ -76,6 +77,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
       rationale: "The revision could not be dispatched.",
       dispatch_result: :failed,
       acknowledgement_result: :pending,
+      revision_result: :no_longer_applicable,
       revised?: true,
       follow_up_required: true,
       follow_up_handled: false
@@ -86,6 +88,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ "Human operator"
     assert html =~ "Follow-up required"
     assert html =~ "dispatch: Failed"
+    assert html =~ "revision: No longer applicable"
     refute html =~ "supervising agent"
   end
 
@@ -179,6 +182,71 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute readonly =~ ~s(phx-submit="answer-decision")
   end
 
+  test "renders an append-only revision chain and gates its parent follow-up" do
+    original = action_answer(:operator)
+
+    revised = %{
+      original
+      | action_id: "act-revision",
+        selected_option_id: nil,
+        custom_response: "Hold the rollout",
+        rationale: "New production evidence"
+    }
+
+    decision =
+      action_decision(
+        decision_status: :decided,
+        delivery_status: :not_dispatched,
+        answer: revised,
+        original_answer: original,
+        active_action_id: revised.action_id,
+        revision_sequence: 1,
+        revisions: [
+          %{
+            sequence: 1,
+            action_id: revised.action_id,
+            prior_action_id: original.action_id,
+            answer: revised,
+            reason: "New production evidence",
+            result: :no_longer_applicable
+          }
+        ],
+        revision_follow_ups: %{
+          revised.action_id => %{
+            action_id: revised.action_id,
+            question: "What should happen next?",
+            handled_at: nil
+          }
+        }
+      )
+
+    writable =
+      render_component(&DecisionRevisionAction.decision_revision_action/1, %{
+        decision: decision,
+        state: %{},
+        writable: true
+      })
+
+    readonly =
+      render_component(&DecisionRevisionAction.decision_revision_action/1, %{
+        decision: decision,
+        state: %{},
+        writable: false
+      })
+
+    assert writable =~ "Original answer · preserved"
+    assert writable =~ "Hold the rollout"
+    assert writable =~ "No longer applicable"
+    assert writable =~ "does not claim earlier effects were rolled back"
+    assert writable =~ "Operator follow-up required"
+    assert writable =~ ~s(phx-submit="revise-decision")
+    assert writable =~ ~s(phx-submit="handle-revision-follow-up")
+    assert readonly =~ "Original answer · preserved"
+    assert readonly =~ "Operator follow-up required"
+    refute readonly =~ ~s(phx-submit="revise-decision")
+    refute readonly =~ ~s(phx-submit="handle-revision-follow-up")
+  end
+
   test "filters canonical undelivered, supervisor, resolved, and superseded states" do
     operator_answer = action_answer(:operator)
     supervisor_answer = action_answer(:supervisor)
@@ -188,7 +256,14 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
       inbox_decision("dec-undelivered", decision_status: :decided, delivery_status: :queued, lifecycle: :dispatch_pending, answer: operator_answer),
       inbox_decision("dec-supervisor", decision_status: :decided, delivery_status: :delivered, lifecycle: :delivered, answer: supervisor_answer),
       inbox_decision("dec-resolved", decision_status: :resolved, delivery_status: :delivered, lifecycle: :resolved, answer: operator_answer),
-      inbox_decision("dec-superseded", decision_status: :decided, delivery_status: :delivered, lifecycle: :superseded, answer: operator_answer)
+      inbox_decision(
+        "dec-superseded",
+        decision_status: :decided,
+        delivery_status: :delivered,
+        lifecycle: :delivered,
+        answer: operator_answer,
+        superseded?: true
+      )
     ]
 
     undelivered = render_inbox(decisions, :undelivered)
@@ -261,6 +336,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
       answer: nil,
       retryable: false,
       failure_reason: nil,
+      superseded?: false,
       lifecycle: :recorded
     }
 

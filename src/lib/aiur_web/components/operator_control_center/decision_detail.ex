@@ -3,7 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
 
   use Phoenix.Component
 
-  alias AiurWeb.OperatorControlCenter.{DecisionAction, LifecycleComponents}
+  alias AiurWeb.OperatorControlCenter.{DecisionAction, DecisionRevisionAction, LifecycleComponents}
 
   attr(:decision, :map, required: true)
   attr(:history, :list, default: [])
@@ -21,6 +21,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
     <div id={"decision-detail-#{@decision.decision_id}"} class="decision-detail" tabindex="-1">
       <LifecycleComponents.lifecycle_stepper lifecycle={@decision.lifecycle} />
       <DecisionAction.decision_action decision={@decision} state={@action_state} writable={@writable} />
+      <DecisionRevisionAction.decision_revision_action decision={@decision} state={@action_state} writable={@writable} />
 
       <div class="decision-detail-grid">
         <div>

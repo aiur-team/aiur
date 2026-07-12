@@ -18,6 +18,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
   end
 
   defp row(%Decision{} = decision) do
+    active_answer = Decision.active_answer(decision)
+
     %{
       decision_id: decision.decision_id,
       version: decision.version,
@@ -41,7 +43,14 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
       source_created_at: decision.source_created_at,
       decision_status: decision.decision_status,
       delivery_status: decision.delivery_status,
-      answer: answer_row(decision.answer),
+      original_answer: answer_row(decision.answer),
+      answer: answer_row(active_answer),
+      active_action_id: decision.active_action_id,
+      revision_sequence: decision.revision_sequence,
+      revisions: Enum.map(decision.revisions, &revision_row(&1, decision.revision_outcomes)),
+      revision_result: decision.revision_result,
+      revision_follow_ups: decision.revision_follow_ups,
+      superseded?: decision.revision_sequence > 0,
       dispatch_attempts: decision.dispatch_attempts,
       acknowledgement: decision.acknowledgement,
       resolution: decision.resolution,
@@ -76,6 +85,18 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
     }
   end
 
+  defp revision_row(revision, outcomes) do
+    %{
+      sequence: revision.sequence,
+      action_id: revision.action_id,
+      prior_action_id: revision.prior_action_id,
+      answer: answer_row(revision.answer),
+      reason: revision.reason,
+      recorded_at: revision.recorded_at,
+      result: get_in(outcomes, [revision.action_id, :result]) || :recorded
+    }
+  end
+
   defp lifecycle(%{delivery_status: :failed}), do: :delivery_failed
   defp lifecycle(%{decision_status: :resolved}), do: :resolved
   defp lifecycle(%{decision_status: :acknowledged}), do: :acknowledged
@@ -83,14 +104,16 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
   defp lifecycle(%{decision_status: :decided}), do: :dispatch_pending
   defp lifecycle(_decision), do: :recorded
 
-  defp retryable?(%{decision_status: status, delivery_status: :failed, answer: answer})
-       when status != :resolved and not is_nil(answer),
-       do: true
+  defp retryable?(%Decision{decision_status: status, delivery_status: :failed} = decision)
+       when status != :resolved do
+    not is_nil(Decision.active_answer(decision))
+  end
 
   defp retryable?(_decision), do: false
 
-  defp failure_reason(%{dispatch_attempts: attempts}) do
-    attempts
+  defp failure_reason(%Decision{} = decision) do
+    decision
+    |> Decision.active_dispatch_attempts()
     |> List.last()
     |> case do
       %{status: :failed, failure_reason_class: reason} -> reason

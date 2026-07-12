@@ -100,7 +100,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
       undelivered: Enum.count(decisions, &undelivered?/1),
       supervisor: Enum.count(decisions, &supervisor_decision?/1),
       resolved: Enum.count(decisions, &(&1.decision_status == :resolved)),
-      superseded: Enum.count(decisions, &(&1.lifecycle == :superseded))
+      superseded: Enum.count(decisions, &Map.get(&1, :superseded?, false))
     }
   end
 
@@ -109,7 +109,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
   defp filtered(decisions, :undelivered), do: Enum.filter(decisions, &undelivered?/1)
   defp filtered(decisions, :supervisor), do: Enum.filter(decisions, &supervisor_decision?/1)
   defp filtered(decisions, :resolved), do: Enum.filter(decisions, &(&1.decision_status == :resolved))
-  defp filtered(decisions, :superseded), do: Enum.filter(decisions, &(&1.lifecycle == :superseded))
+  defp filtered(decisions, :superseded), do: Enum.filter(decisions, &Map.get(&1, :superseded?, false))
   defp filtered(decisions, _filter), do: decisions
 
   defp open?(decision), do: decision.decision_status == :open
