@@ -32,7 +32,7 @@ defmodule Aiur.DecisionStore do
 
   require Logger
 
-  alias Aiur.{Alerts, Config, Decision, DecisionLog, DecisionPubSub, DecisionProjection, DecisionValidation, JsonStore}
+  alias Aiur.{Alerts, Config, Decision, DecisionLog, DecisionProjection, DecisionPubSub, DecisionValidation, JsonStore}
   alias Aiur.Events.{IdGenerator, Publisher}
 
   @ndjson_filename "decisions.ndjson"

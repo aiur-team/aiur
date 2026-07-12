@@ -200,7 +200,12 @@ defmodule Aiur.DecisionValidation do
         with {:ok, short_summary} <-
                fetch_optional_string(context, :short_summary, @short_summary_max, :context_short_summary),
              {:ok, long_context_markdown} <-
-               fetch_optional_string(context, :long_context_markdown, @long_context_max, :context_long_context_markdown) do
+               fetch_optional_string(
+                 context,
+                 :long_context_markdown,
+                 @long_context_max,
+                 :context_long_context_markdown
+               ) do
           {:ok, %{short_summary: short_summary, long_context_markdown: long_context_markdown}}
         end
 
@@ -258,15 +263,19 @@ defmodule Aiur.DecisionValidation do
       rec when is_map(rec) ->
         with {:ok, option_id} <- fetch_required_string(rec, :option_id, 1, @identity_max, :recommendation_option_id),
              {:ok, reason} <- fetch_optional_string(rec, :reason, @option_text_max, :recommendation_reason) do
-          if Enum.any?(options, &(&1.id == option_id)) do
-            {:ok, %{option_id: option_id, reason: reason}}
-          else
-            {:error, {:recommendation, :dangling_option_id}}
-          end
+          build_recommendation(option_id, reason, options)
         end
 
       _other ->
         {:error, {:recommendation, :invalid_type}}
+    end
+  end
+
+  defp build_recommendation(option_id, reason, options) do
+    if Enum.any?(options, &(&1.id == option_id)) do
+      {:ok, %{option_id: option_id, reason: reason}}
+    else
+      {:error, {:recommendation, :dangling_option_id}}
     end
   end
 

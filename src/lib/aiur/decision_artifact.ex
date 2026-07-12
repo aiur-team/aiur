@@ -41,18 +41,25 @@ defmodule Aiur.DecisionArtifact do
   end
 
   defp validate_path(value, safe_roots) do
-    if Path.type(value) != :absolute do
-      {:error, :artifact_path_not_absolute}
+    if Path.type(value) == :absolute do
+      canonicalize_and_check(value, safe_roots)
     else
-      with {:ok, canonical} <- PathSafety.canonicalize(value) do
-        if within_any_root?(canonical, safe_roots) do
-          {:ok, %{kind: :path, value: canonical}}
-        else
-          {:error, :artifact_path_outside_root}
-        end
-      else
-        {:error, _reason} -> {:error, :artifact_path_unreadable}
-      end
+      {:error, :artifact_path_not_absolute}
+    end
+  end
+
+  defp canonicalize_and_check(value, safe_roots) do
+    case PathSafety.canonicalize(value) do
+      {:ok, canonical} -> check_within_root(canonical, safe_roots)
+      {:error, _reason} -> {:error, :artifact_path_unreadable}
+    end
+  end
+
+  defp check_within_root(canonical, safe_roots) do
+    if within_any_root?(canonical, safe_roots) do
+      {:ok, %{kind: :path, value: canonical}}
+    else
+      {:error, :artifact_path_outside_root}
     end
   end
 

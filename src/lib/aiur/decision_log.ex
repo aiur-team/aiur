@@ -108,15 +108,16 @@ defmodule Aiur.DecisionLog do
     with :ok <- reject_symlink(path),
          {:ok, content} <- read_or_empty(path) do
       {clean_content, truncated?} = drop_incomplete_tail(content)
+      finish_replay(path, clean_content, truncated?, validator)
+    end
+  end
 
-      if truncated? do
-        case truncate_and_sync(path, byte_size(clean_content)) do
-          :ok -> decode_lines(clean_content, validator)
-          {:error, reason} -> {:error, reason}
-        end
-      else
-        decode_lines(clean_content, validator)
-      end
+  defp finish_replay(_path, clean_content, false, validator), do: decode_lines(clean_content, validator)
+
+  defp finish_replay(path, clean_content, true, validator) do
+    case truncate_and_sync(path, byte_size(clean_content)) do
+      :ok -> decode_lines(clean_content, validator)
+      {:error, reason} -> {:error, reason}
     end
   end
 

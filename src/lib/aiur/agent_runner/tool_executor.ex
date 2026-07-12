@@ -6,8 +6,8 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   blocker declaration immediately subscribed for prompt resume behavior.
   """
 
-  alias Aiur.{Alerts, DecisionAttention, DecisionStore, Issue}
   alias Aiur.AgentRunner.SessionLifecycle
+  alias Aiur.{Alerts, DecisionAttention, DecisionStore, Issue}
   alias Aiur.Codex.DynamicTool
   alias Aiur.Events.{Publisher, SubscriptionStore}
   alias Aiur.GitHub.IssueDependencies

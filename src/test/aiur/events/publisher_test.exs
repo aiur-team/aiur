@@ -1,7 +1,7 @@
 defmodule Aiur.Events.PublisherTest do
   use Aiur.TestSupport
 
-  alias Aiur.Events.{Exchange, Publisher}
+  alias Aiur.Events.{Exchange, IdGenerator, Publisher}
   alias Aiur.Workflow
 
   setup do
@@ -128,14 +128,14 @@ defmodule Aiur.Events.PublisherTest do
   describe "publish_persisted/4" do
     test "fans out under the caller-supplied id without touching IdGenerator" do
       :ok = Exchange.subscribe("ticket.42.agent.decision.requested")
-      before_peek = Aiur.Events.IdGenerator.peek()
+      before_peek = IdGenerator.peek()
 
       assert {:ok, 999_999, count} =
                Publisher.publish_persisted("ticket.42.agent.decision.requested", %{question: "Q?"}, 999_999)
 
       assert count >= 1
       assert_receive {:event, %{id: 999_999, question: "Q?"}}, 500
-      assert Aiur.Events.IdGenerator.peek() == before_peek
+      assert IdGenerator.peek() == before_peek
     end
 
     test "skips the contamination and dedup filters" do
