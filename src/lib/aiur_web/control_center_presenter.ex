@@ -12,20 +12,28 @@ defmodule AiurWeb.ControlCenterPresenter do
   @spec state_payload(GenServer.name(), timeout(), keyword()) :: map()
   def state_payload(orchestrator, snapshot_timeout_ms, opts \\ []) do
     decision_store = Keyword.get(opts, :decision_store, DecisionStore)
-    fleet_fun = Keyword.get(opts, :fleet_fun, fn -> Presenter.state_payload(orchestrator, snapshot_timeout_ms) end)
-    decisions_fun = Keyword.get(opts, :decisions_fun, fn -> DecisionStore.list(decision_store) end)
-    history_opts = Keyword.get(opts, :decision_history_opts, server: decision_store)
-    history_fun = Keyword.get(opts, :history_fun, fn -> required_provider_call(Aiur.DecisionHistory, :list, [history_opts]) end)
+    recent_merge_store = Keyword.get(opts, :recent_merge_store, Aiur.RecentMergeStore)
 
-    recent_merges_fun =
-      Keyword.get(opts, :recent_merges_fun, fn ->
-        required_provider_call(Aiur.RecentMergeStore, :snapshot, [Keyword.get(opts, :recent_merge_store, Aiur.RecentMergeStore)])
+    presenter_opts = [
+      decision_history_fun: fn ->
+        required_provider_call(Aiur.DecisionHistory, :list, [[server: decision_store]])
+      end,
+      recent_merge_snapshot_fun: fn ->
+        required_provider_call(Aiur.RecentMergeStore, :snapshot, [recent_merge_store])
+      end
+    ]
+
+    fleet_fun =
+      Keyword.get(opts, :fleet_fun, fn ->
+        Presenter.state_payload(orchestrator, snapshot_timeout_ms, presenter_opts)
       end)
+
+    decisions_fun = Keyword.get(opts, :decisions_fun, fn -> DecisionStore.list(decision_store) end)
 
     {fleet, fleet_health} = safe_read(fleet_fun, unavailable_fleet())
     {decisions, decisions_health} = safe_read(decisions_fun, [])
-    {history, history_health} = safe_read(history_fun, [])
-    {recent_merges, recent_outcomes_health} = safe_read(recent_merges_fun, unavailable_recent_merges())
+    {history, history_health} = history_read(fleet, opts)
+    {recent_merges, recent_outcomes_health} = recent_merges_read(fleet, opts)
 
     fleet
     |> compose(decisions, history, recent_merges)
@@ -45,12 +53,13 @@ defmodule AiurWeb.ControlCenterPresenter do
 
     %{
       generated_at: Map.get(fleet, :generated_at),
-      fleet: fleet,
+      fleet: Map.drop(fleet, [:decision_history, :recent_merges, :analytics]),
       decisions: decision_rows,
       history: Enum.map(history, &history_row/1),
       recent_outcomes: recent_outcomes,
       recent_outcomes_health: Map.get(recent_merges, :health),
       recent_outcomes_reconciliation: Map.get(recent_merges, :reconciliation),
+      analytics: analytics(Map.get(fleet, :analytics)),
       overview: overview(fleet, decision_rows, recent_outcomes),
       provider_health: %{fleet: :ok, decisions: :ok, history: :ok, recent_outcomes: :ok}
     }
@@ -184,6 +193,48 @@ defmodule AiurWeb.ControlCenterPresenter do
     else
       exit({:provider_unavailable, module, function})
     end
+  end
+
+  defp history_read(fleet, opts) do
+    case Keyword.fetch(opts, :history_fun) do
+      {:ok, fun} -> safe_read(fun, [])
+      :error -> embedded_entries(Map.get(fleet, :decision_history), [])
+    end
+  end
+
+  defp recent_merges_read(fleet, opts) do
+    case Keyword.fetch(opts, :recent_merges_fun) do
+      {:ok, fun} ->
+        safe_read(fun, unavailable_recent_merges())
+
+      :error ->
+        case Map.get(fleet, :recent_merges) do
+          %{entries: entries, health: health, reconciliation: reconciliation} = provider
+          when is_list(entries) and is_map(reconciliation) ->
+            {%{merges: entries, health: health, reconciliation: reconciliation}, provider_health(Map.get(provider, :status))}
+
+          _other ->
+            {unavailable_recent_merges(), :unavailable}
+        end
+    end
+  end
+
+  defp embedded_entries(%{entries: entries} = provider, _fallback) when is_list(entries) do
+    {entries, provider_health(Map.get(provider, :status))}
+  end
+
+  defp embedded_entries(_provider, fallback), do: {fallback, :unavailable}
+
+  defp provider_health(status) when status in [:available, :ok], do: :ok
+  defp provider_health(:degraded), do: :degraded
+  defp provider_health(_status), do: :unavailable
+
+  defp analytics(%{available?: available?, path: path, message: message}) when is_boolean(available?) do
+    %{available?: available?, path: path, message: message}
+  end
+
+  defp analytics(_analytics) do
+    %{available?: false, path: nil, message: "Telemetry analytics are unavailable."}
   end
 
   defp safe_read(fun, fallback) when is_function(fun, 0) do

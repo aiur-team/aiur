@@ -53,6 +53,7 @@ defmodule Aiur.ApplicationTest do
       Aiur.PauseContainment,
       Aiur.AgentResourceGuard,
       Aiur.GitHub.CodeOwners,
+      Aiur.RecentMergeStore,
       Aiur.Opencode.SessionSupervisor,
       Aiur.Opencode.BridgeSupervisor,
       Aiur.Opencode.TokenRegistry
@@ -120,6 +121,20 @@ defmodule Aiur.ApplicationTest do
         tracked_set = Enum.find_index(mods, &(&1 == Aiur.Orchestrator.TrackedSet))
         orchestrator = Enum.find_index(mods, &(&1 == Aiur.Orchestrator))
         assert tracked_set < orchestrator, "TrackedSet must precede Orchestrator for #{inspect(opts)}"
+      end
+    end
+
+    test "recent merge persistence starts before the GitHub-polling orchestrator" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        merge_store = Enum.find_index(mods, &(&1 == Aiur.RecentMergeStore))
+        orchestrator = Enum.find_index(mods, &(&1 == Aiur.Orchestrator))
+
+        assert merge_store < orchestrator,
+               "RecentMergeStore must precede Orchestrator for #{inspect(opts)}"
       end
     end
 

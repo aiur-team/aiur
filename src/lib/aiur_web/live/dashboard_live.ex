@@ -155,6 +155,7 @@ defmodule AiurWeb.DashboardLive do
           outcomes={@payload.recent_outcomes}
           provider_health={@payload.provider_health.recent_outcomes}
           reconciliation={@payload.recent_outcomes_reconciliation}
+          analytics={@payload.analytics}
         />
         <History.history entries={@payload.history} provider_health={@payload.provider_health.history} />
       </section>

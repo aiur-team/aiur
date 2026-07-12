@@ -77,6 +77,52 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
       assert result.events_etag == "abc123"
       assert_receive {:firehose_request, %{etag: "abc123"}}
     end
+
+    test "local merge persistence failures do not poison GitHub connectivity health" do
+      state = %{
+        base_state()
+        | events_etag: "previous-etag",
+          events_last_id: "last-seen",
+          github_connectivity: %{firehose: {:dns, 2}},
+          github_poll_delays: %{firehose: 4_000}
+      }
+
+      event = %{
+        "id" => "new-merge",
+        "type" => "PullRequestEvent",
+        "created_at" => "2026-07-12T18:00:00Z",
+        "repo" => %{"name" => "owner/repo"},
+        "payload" => %{
+          "action" => "closed",
+          "pull_request" => %{
+            "number" => 42,
+            "title" => "Merged feature",
+            "body" => "Durable outcome",
+            "html_url" => "https://github.com/owner/repo/pull/42",
+            "merged" => true,
+            "merged_at" => "2026-07-12T18:00:00Z",
+            "head" => %{"ref" => "aiur/983-history", "sha" => "head-42"}
+          }
+        }
+      }
+
+      request_fun = fn _request ->
+        {:ok, %{status: 200, headers: [{"ETag", "new-etag"}], body: [event, %{"id" => "last-seen"}]}}
+      end
+
+      result =
+        CommentPolling.poll_github_firehose(state,
+          request_fun: request_fun,
+          recent_merge_fun: fn _merge -> {:error, {:append_failed, :disk_full}} end,
+          boot_time: ~U[2026-07-12 17:00:00Z] |> DateTime.to_unix(),
+          run_id: "current-run"
+        )
+
+      assert result.events_etag == "previous-etag"
+      assert result.events_last_id == "last-seen"
+      refute Map.has_key?(result.github_connectivity, :firehose)
+      refute Map.has_key?(result.github_poll_delays, :firehose)
+    end
   end
 
   describe "human_review_comment_target_limit behavior" do

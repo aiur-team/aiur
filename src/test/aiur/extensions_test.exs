@@ -434,8 +434,9 @@ defmodule Aiur.ExtensionsTest do
 
     conn = get(build_conn(), "/api/v1/state")
     state_payload = json_response(conn, 200)
+    assert_occ_sections(state_payload)
 
-    assert state_payload == %{
+    assert without_occ_sections(state_payload) == %{
              "generated_at" => state_payload["generated_at"],
              "counts" => %{"running" => 1, "retrying" => 1, "idle" => 0},
              "running" => [
@@ -717,8 +718,9 @@ defmodule Aiur.ExtensionsTest do
              %{"error" => %{"code" => "not_found", "message" => "Route not found"}}
 
     state_payload = json_response(get(build_conn(), "/api/v1/state"), 200)
+    assert_occ_sections(state_payload)
 
-    assert state_payload ==
+    assert without_occ_sections(state_payload) ==
              %{
                "generated_at" => state_payload["generated_at"],
                "error" => %{"code" => "snapshot_unavailable", "message" => "Snapshot unavailable"}
@@ -754,8 +756,9 @@ defmodule Aiur.ExtensionsTest do
     start_test_endpoint(orchestrator: timeout_orchestrator, snapshot_timeout_ms: 1)
 
     timeout_payload = json_response(get(build_conn(), "/api/v1/state"), 200)
+    assert_occ_sections(timeout_payload)
 
-    assert timeout_payload ==
+    assert without_occ_sections(timeout_payload) ==
              %{
                "generated_at" => timeout_payload["generated_at"],
                "error" => %{"code" => "snapshot_timeout", "message" => "Snapshot timed out"}
@@ -1218,6 +1221,30 @@ defmodule Aiur.ExtensionsTest do
       source_created_at: ~U[2026-07-12 12:00:00Z],
       content_hash: "hash-#{decision_id}"
     }
+  end
+
+  defp assert_occ_sections(payload) do
+    assert %{"entries" => decision_entries, "status" => decision_status} = payload["decision_history"]
+    assert is_list(decision_entries)
+    assert decision_status in ["available", "unavailable"]
+
+    assert %{
+             "entries" => merge_entries,
+             "reconciliation" => %{"pages_fetched" => pages_fetched},
+             "status" => merge_status
+           } = payload["recent_merges"]
+
+    assert is_list(merge_entries)
+    assert is_integer(pages_fetched)
+    assert merge_status in ["available", "degraded", "unavailable"]
+
+    assert %{"available?" => available?, "message" => message} = payload["analytics"]
+    assert is_boolean(available?)
+    assert is_binary(message)
+  end
+
+  defp without_occ_sections(payload) do
+    Map.drop(payload, ["decision_history", "recent_merges", "analytics"])
   end
 
   defp wait_for_bound_port do

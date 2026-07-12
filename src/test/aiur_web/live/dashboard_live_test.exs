@@ -3,16 +3,17 @@ defmodule AiurWeb.DashboardLiveTest do
 
   alias Aiur.Issue
   alias Aiur.Orchestrator
+  alias Aiur.RecentMerge
   alias AiurWeb.{ControlCenterPresenter, DashboardLive, Presenter}
 
   defp render_payload(fleet_payload, opts \\ []) do
     payload =
       Keyword.get_lazy(opts, :payload, fn ->
-        ControlCenterPresenter.compose(
-          fleet_payload,
-          [],
-          [],
-          %{merges: [], health: :ready, reconciliation: %{status: :complete, partial?: false}}
+        ControlCenterPresenter.state_payload(
+          :unused,
+          1,
+          fleet_fun: fn -> fleet_payload end,
+          decisions_fun: fn -> [] end
         )
       end)
 
@@ -154,5 +155,94 @@ defmodule AiurWeb.DashboardLiveTest do
     assert detail_html =~ "&lt;script&gt;alert(&#39;no&#39;)&lt;/script&gt;"
     refute detail_html =~ "<script>alert('no')</script>"
     assert detail_html =~ "Read-only mode · mutation controls are hidden."
+  end
+
+  test "renders durable decision history, honest merge provenance, and the analytics link during a snapshot outage" do
+    history = [
+      history_entry("dec-human", :human_operator, "Human operator", "<script>alert('decision')</script>"),
+      history_entry("dec-supervisor", :supervising_agent, "Supervising agent", "Approve the fallback?")
+    ]
+
+    assert {:ok, merge} =
+             RecentMerge.from_github_event(merged_event(),
+               live?: true,
+               run_id: "run-observer-123456789",
+               now: ~U[2026-07-12 18:01:00Z]
+             )
+
+    telemetry_path = Path.expand("../../fixtures/run_telemetry/session-a/telemetry.ndjson", __DIR__)
+    assert File.regular?(telemetry_path), telemetry_path
+
+    payload =
+      Presenter.state_payload(Module.concat(__MODULE__, :MissingHistoryOrchestrator), 5,
+        decision_history_fun: fn -> history end,
+        recent_merge_snapshot_fun: fn ->
+          %{
+            merges: [merge],
+            health: :writable,
+            reconciliation: %{status: :partial, partial?: true, pages_fetched: 5}
+          }
+        end,
+        telemetry_file_fun: fn -> telemetry_path end
+      )
+
+    assert payload.analytics.available?, inspect(payload.analytics)
+    html = render_payload(payload)
+
+    assert html =~ "Snapshot unavailable"
+    assert html =~ "Decision history"
+    assert html =~ "Human operator"
+    assert html =~ "Supervising agent"
+    assert html =~ "&lt;script&gt;alert"
+    refute html =~ "<script>alert"
+    assert html =~ "Recent repository merges"
+    assert html =~ "Observed live"
+    assert html =~ "Observer run run-observer"
+    assert html =~ "No ticket attribution"
+    assert html =~ "5-page cap"
+    assert html =~ "&lt;img src=x onerror=alert(1)&gt;"
+    refute html =~ "<img src=x"
+    assert html =~ ~s(href="/analytics")
+    assert html =~ "Open analytics report"
+  end
+
+  defp history_entry(id, actor_type, actor_label, question) do
+    %{
+      decision_id: id,
+      ticket: %{identifier: "983", title: "OCC-6", url: "https://github.com/owner/repo/issues/983"},
+      question: question,
+      source_version: 1,
+      changed_at: "2026-07-12T18:00:00Z",
+      change: :requested,
+      actor: %{type: actor_type, id: actor_label, label: actor_label},
+      choice: nil,
+      rationale: nil,
+      dispatch_result: nil,
+      acknowledgement_result: nil,
+      revision_of: nil,
+      superseded_by: nil,
+      revised?: false
+    }
+  end
+
+  defp merged_event do
+    %{
+      "id" => "dashboard-merge",
+      "type" => "PullRequestEvent",
+      "repo" => %{"name" => "owner/repo"},
+      "payload" => %{
+        "action" => "closed",
+        "pull_request" => %{
+          "number" => 42,
+          "title" => "<img src=x onerror=alert(1)>",
+          "body" => "Repository merge",
+          "html_url" => "https://github.com/owner/repo/pull/42",
+          "merged" => true,
+          "merged_at" => "2026-07-12T18:00:00Z",
+          "head" => %{"ref" => "release/2026-07", "sha" => "head-42"},
+          "merged_by" => %{"login" => "merger"}
+        }
+      }
+    }
   end
 end

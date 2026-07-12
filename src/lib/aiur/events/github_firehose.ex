@@ -33,6 +33,7 @@ defmodule Aiur.Events.GithubFirehose do
 
   require Logger
 
+  alias Aiur.{Boot, RecentMerge, RecentMergeStore}
   alias Aiur.Events.{GithubKeys, Publisher, Sanitizer}
   alias Aiur.GitHub.Client
 
@@ -65,21 +66,27 @@ defmodule Aiur.Events.GithubFirehose do
         {:ok, %{etag: etag, last_event_id: last_event_id, count: 0, poll_interval: poll_interval}}
 
       {:ok, {:events, events, etag, poll_interval}} ->
-        with {:ok, pages} <- fetch_backfill_pages(events, last_event_id, opts) do
-          events_to_publish = events_since_watermark(pages, last_event_id)
-
-          count =
-            events_to_publish
-            |> Enum.map(&publish_one(&1, opts))
-            |> Enum.count(&match?({:ok, _, _}, &1))
+        with {:ok, %{pages: pages, partial?: partial?}} <- fetch_backfill_pages(events, last_event_id, opts),
+             %{count: count, persistence_errors: []} <-
+               pages |> events_since_watermark(last_event_id) |> process_events(opts) do
+          pages_fetched = length(pages)
+          mark_reconciliation(partial?, pages_fetched, opts)
 
           {:ok,
            %{
              etag: etag,
              last_event_id: newest_event_id(events) || last_event_id,
              count: count,
-             poll_interval: poll_interval
+             poll_interval: poll_interval,
+             pages_fetched: pages_fetched,
+             partial_window?: partial?
            }}
+        else
+          %{persistence_errors: [reason | _]} ->
+            {:error, {:recent_merge_persistence, reason}}
+
+          {:error, reason} ->
+            {:error, reason}
         end
 
       {:error, reason} ->
@@ -88,13 +95,11 @@ defmodule Aiur.Events.GithubFirehose do
     end
   end
 
-  defp fetch_backfill_pages(first_page, nil, _opts), do: {:ok, [first_page]}
-
   defp fetch_backfill_pages(first_page, last_event_id, opts) do
-    if saturated_page?(first_page) and not event_id_present?(first_page, last_event_id) do
+    if saturated_page?(first_page) and watermark_missing?(first_page, last_event_id) do
       fetch_backfill_pages([first_page], 2, last_event_id, opts)
     else
-      {:ok, [first_page]}
+      {:ok, %{pages: [first_page], partial?: false}}
     end
   end
 
@@ -107,14 +112,14 @@ defmodule Aiur.Events.GithubFirehose do
       {:ok, {:events, events, _etag, _poll_interval}} ->
         pages = [events | pages]
 
-        if saturated_page?(events) and not event_id_present?(events, last_event_id) do
+        if saturated_page?(events) and watermark_missing?(events, last_event_id) do
           fetch_backfill_pages(pages, page + 1, last_event_id, opts)
         else
-          {:ok, Enum.reverse(pages)}
+          {:ok, %{pages: Enum.reverse(pages), partial?: false}}
         end
 
       {:ok, {:not_modified, _etag, _poll_interval}} ->
-        {:ok, Enum.reverse(pages)}
+        {:ok, %{pages: Enum.reverse(pages), partial?: false}}
 
       {:error, reason} ->
         Logger.warning("GithubFirehose backfill page=#{page} failed: #{inspect(reason)}")
@@ -122,7 +127,9 @@ defmodule Aiur.Events.GithubFirehose do
     end
   end
 
-  defp fetch_backfill_pages(pages, _page, _last_event_id, _opts), do: {:ok, Enum.reverse(pages)}
+  defp fetch_backfill_pages(pages, _page, _last_event_id, _opts) do
+    {:ok, %{pages: Enum.reverse(pages), partial?: true}}
+  end
 
   defp saturated_page?(events), do: length(events) >= @repo_events_per_page
 
@@ -132,7 +139,10 @@ defmodule Aiur.Events.GithubFirehose do
 
   defp event_id_present?(_events, _event_id), do: false
 
-  defp events_since_watermark(pages, nil), do: List.first(pages) || []
+  defp watermark_missing?(_events, nil), do: true
+  defp watermark_missing?(events, event_id), do: not event_id_present?(events, event_id)
+
+  defp events_since_watermark(pages, nil), do: Enum.flat_map(pages, & &1)
 
   defp events_since_watermark(pages, last_event_id) do
     pages
@@ -142,6 +152,66 @@ defmodule Aiur.Events.GithubFirehose do
 
   defp newest_event_id([%{"id" => id} | _]) when is_binary(id), do: id
   defp newest_event_id(_events), do: nil
+
+  defp process_events(events, opts) do
+    Enum.reduce(events, %{count: 0, persistence_errors: []}, fn event, acc ->
+      persistence_result = persist_recent_merge(event, opts)
+      publish_result = publish_one(event, opts)
+
+      %{
+        count: acc.count + if(match?({:ok, _, _}, publish_result), do: 1, else: 0),
+        persistence_errors: maybe_add_persistence_error(acc.persistence_errors, persistence_result)
+      }
+    end)
+  end
+
+  defp persist_recent_merge(event, opts) do
+    live? = not GithubKeys.pre_boot_event?(event, opts)
+
+    normalize_opts = [
+      live?: live?,
+      run_id: Keyword.get(opts, :run_id, Boot.run_id()),
+      now: Keyword.get(opts, :now, DateTime.utc_now()),
+      repo: Keyword.get(opts, :repo)
+    ]
+
+    case RecentMerge.from_github_event(event, normalize_opts) do
+      :not_merge ->
+        :not_merge
+
+      {:ok, merge} ->
+        call_recent_merge_store(merge, opts)
+
+      {:error, reason} ->
+        Logger.warning("GithubFirehose recent merge skipped: #{inspect(reason)}")
+        {:malformed, reason}
+    end
+  end
+
+  defp call_recent_merge_store(merge, opts) do
+    case Keyword.get(opts, :recent_merge_fun) do
+      fun when is_function(fun, 1) -> fun.(merge)
+      _ -> RecentMergeStore.upsert(merge)
+    end
+  rescue
+    error -> {:error, {:store_exception, Exception.message(error)}}
+  catch
+    :exit, reason -> {:error, {:store_exit, reason}}
+  end
+
+  defp maybe_add_persistence_error(errors, {:error, reason}), do: errors ++ [reason]
+  defp maybe_add_persistence_error(errors, _result), do: errors
+
+  defp mark_reconciliation(partial?, pages_fetched, opts) do
+    case Keyword.get(opts, :recent_merge_reconciliation_fun) do
+      fun when is_function(fun, 2) -> fun.(partial?, pages_fetched)
+      _ -> RecentMergeStore.mark_reconciliation(partial?, pages_fetched)
+    end
+  rescue
+    error -> Logger.warning("GithubFirehose reconciliation status failed: #{Exception.message(error)}")
+  catch
+    :exit, reason -> Logger.warning("GithubFirehose reconciliation status exited: #{inspect(reason)}")
+  end
 
   defp maybe_put(opts, _key, nil), do: opts
   defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)

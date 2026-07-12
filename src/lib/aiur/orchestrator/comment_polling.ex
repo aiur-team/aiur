@@ -30,6 +30,10 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
         %{state | events_etag: etag, events_last_id: last_event_id}
 
+      {:error, {:recent_merge_persistence, reason}} ->
+        Logger.warning("GithubFirehose local outcome persistence failed; reason=#{inspect(reason)}")
+        Orchestrator.note_github_connectivity_success(state, :firehose)
+
       {:error, reason} ->
         # Preserve cached etag so we retry as If-None-Match next tick; the
         # classified failure feeds the escalation policy so a sustained

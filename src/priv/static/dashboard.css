@@ -1289,6 +1289,14 @@ textarea:focus-visible,
   gap: 0.75rem;
 }
 
+.recent-subtitle-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
 .outcome-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
