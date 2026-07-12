@@ -77,7 +77,7 @@ defmodule Aiur.DecisionRevisionDispatchTest do
 
       revalidator = fn %Issue{} = issue, _fetcher, _terminal_states ->
         send(parent, {:step, :revalidated, issue.id})
-        {:ok, %Issue{issue | state: "in-progress"}}
+        {:ok, %Issue{issue | identifier: "985", state: "in-progress"}}
       end
 
       sender = fn server, target, payload ->
@@ -96,7 +96,7 @@ defmodule Aiur.DecisionRevisionDispatchTest do
                )
 
       assert_receive {:step, :revalidated, "tracker-id-985"}
-      assert_receive {:step, :sent, :orchestrator, "tracker-id-985", payload}
+      assert_receive {:step, :sent, :orchestrator, "985", payload}
       revision = List.last(decision.revisions)
       assert payload.action_id == revision.action_id
       assert payload.correlation.prior_action_id == revision.prior_action_id

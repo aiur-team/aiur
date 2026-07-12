@@ -130,7 +130,8 @@ defmodule Aiur.DecisionRevision do
   @spec follow_up_question(t(), String.t()) :: String.t()
   def follow_up_question(%__MODULE__{} = revision, ticket_identifier)
       when is_binary(ticket_identifier) and ticket_identifier != "" do
-    "Revision #{revision.action_id} was recorded, but target ticket " <>
+    "Revision #{revision.action_id} for Decision #{revision.decision_id} " <>
+      "request version #{revision.decision_version} was recorded, but target ticket " <>
       "#{ticket_identifier} is no longer active, so Aiur could not deliver " <>
       "the new direction automatically. Earlier instructions may already " <>
       "have taken effect. What should happen next?"
