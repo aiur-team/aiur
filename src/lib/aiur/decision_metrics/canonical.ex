@@ -139,21 +139,16 @@ defmodule Aiur.DecisionMetrics.Canonical do
   defp topic_slug(stage), do: Atom.to_string(stage)
 
   defp attention_index(decisions) do
-    Enum.reduce(decisions, %{}, fn decision, index ->
-      case field(decision, :legacy_attention) do
-        attention when is_map(attention) ->
-          case {field(attention, :topic), field(decision, :decision_id)} do
-            {topic, decision_id} when is_binary(topic) and is_binary(decision_id) ->
-              Map.put(index, topic, decision_id)
+    Enum.reduce(decisions, %{}, &index_attention/2)
+  end
 
-            _invalid ->
-              index
-          end
+  defp index_attention(decision, index) do
+    attention = field(decision, :legacy_attention)
 
-        _other ->
-          index
-      end
-    end)
+    case {field(attention, :topic), field(decision, :decision_id)} do
+      {topic, decision_id} when is_binary(topic) and is_binary(decision_id) -> Map.put(index, topic, decision_id)
+      _invalid -> index
+    end
   end
 
   defp created_sort_key(decision) do

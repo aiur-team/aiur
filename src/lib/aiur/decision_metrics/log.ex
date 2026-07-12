@@ -92,11 +92,9 @@ defmodule Aiur.DecisionMetrics.Log do
   end
 
   defp read_tail(fd, record_limit, max_bytes) do
-    try do
-      read_tail_contents(fd, record_limit, max_bytes)
-    after
-      :file.close(fd)
-    end
+    read_tail_contents(fd, record_limit, max_bytes)
+  after
+    :file.close(fd)
   end
 
   defp read_tail_contents(fd, record_limit, max_bytes) do

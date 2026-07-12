@@ -175,7 +175,12 @@ defmodule Aiur.DecisionMetricsRestartTest do
   end
 
   defp remember_env(keys), do: Map.new(keys, &{&1, Application.get_env(:aiur, &1)})
-  defp stop_if_alive(pid), do: if(Process.alive?(pid), do: GenServer.stop(pid))
+
+  defp stop_if_alive(pid) do
+    if Process.alive?(pid), do: GenServer.stop(pid)
+  catch
+    :exit, _reason -> :ok
+  end
 
   defp restore_env(key, nil), do: Application.delete_env(:aiur, key)
   defp restore_env(key, value), do: Application.put_env(:aiur, key, value)

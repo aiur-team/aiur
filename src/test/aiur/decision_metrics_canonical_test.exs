@@ -153,7 +153,11 @@ defmodule Aiur.DecisionMetricsCanonicalTest do
     }
   end
 
-  defp stop_if_alive(pid), do: if(Process.alive?(pid), do: GenServer.stop(pid))
+  defp stop_if_alive(pid) do
+    if Process.alive?(pid), do: GenServer.stop(pid)
+  catch
+    :exit, _reason -> :ok
+  end
 
   defp restore_env(key, nil), do: Application.delete_env(:aiur, key)
   defp restore_env(key, value), do: Application.put_env(:aiur, key, value)

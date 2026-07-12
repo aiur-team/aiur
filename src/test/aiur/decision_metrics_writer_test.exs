@@ -207,5 +207,9 @@ defmodule Aiur.DecisionMetricsWriterTest do
     }
   end
 
-  defp stop_if_alive(pid), do: if(Process.alive?(pid), do: GenServer.stop(pid))
+  defp stop_if_alive(pid) do
+    if Process.alive?(pid), do: GenServer.stop(pid)
+  catch
+    :exit, _reason -> :ok
+  end
 end

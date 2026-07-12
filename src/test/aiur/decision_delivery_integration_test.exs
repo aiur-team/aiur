@@ -283,13 +283,7 @@ defmodule Aiur.DecisionDeliveryIntegrationTest do
     path = Path.join(dir, "decision-delivery-metrics.ndjson")
     owner = self()
 
-    append_fun = fn append_path, records ->
-      with :ok <- Log.append_batch(append_path, records) do
-        Enum.each(records, fn record ->
-          send(owner, {:decision_metric_persisted, record.decision_id, record.stage})
-        end)
-      end
-    end
+    append_fun = fn append_path, records -> append_and_notify(append_path, records, owner) end
 
     {:ok, writer} =
       Writer.start_link(name: nil, path: path, flush_interval_ms: 5, append_fun: append_fun)
@@ -308,6 +302,16 @@ defmodule Aiur.DecisionDeliveryIntegrationTest do
     end)
 
     {metrics, path}
+  end
+
+  defp append_and_notify(path, records, owner) do
+    with :ok <- Log.append_batch(path, records) do
+      Enum.each(records, &notify_metric_persisted(&1, owner))
+    end
+  end
+
+  defp notify_metric_persisted(record, owner) do
+    send(owner, {:decision_metric_persisted, record.decision_id, record.stage})
   end
 
   defp start_orchestrator!(name, identifier) do
