@@ -84,12 +84,25 @@ during document, code, and human review.*
   replace an owner-only `decisions.json` current-state projection through
   `Aiur.JsonStore`.
 - R5. Resolve both files beneath a stable owner-only state directory rooted at
-  `AIUR_BG_STATE_DIR` and isolated by sanitized `AIUR_INSTANCE_KEY` and tracker
-  project identity; do not use ticket workspaces or timestamped run logs.
+  `AIUR_BG_STATE_DIR`, isolated by a non-empty, sanitized `AIUR_INSTANCE_KEY`
+  and a project-root-unique leaf hashed from the canonicalized project root
+  (not the tracker project identity's last path segment alone, which collapses
+  when `AIUR_INSTANCE_KEY` is empty and two repos share a directory name).
+  Refuse to resolve or start when the instance key is empty or the project
+  identity is unavailable/defaults, and reject dot-only (`.`/`..`) path
+  components anywhere in the derived path instead of passing them through
+  character-class sanitization unchanged. Do not use ticket workspaces or
+  timestamped run logs.
 - R6. Replay the canonical stream at startup, safely truncate an
-  unacknowledged incomplete final record, fail closed in read-only mode on a
-  malformed interior or semantically invalid record, and surface corruption
-  to the operator without silently skipping it.
+  unacknowledged incomplete final record, and fail closed in read-only mode on
+  a malformed interior record. Detect interior corruption with more than
+  parse-validity: re-run the same schema/invariant validation used at ingress
+  against every replayed record instead of trusting anything that merely
+  decodes as JSON, since the append+fsync-before-ack barrier already limits a
+  crash to tearing only the tail — an interior record that parses but fails
+  semantic validation implies bit-rot or local-tamper within the single-writer
+  trust boundary, not a crash artifact, and must not replay as a legitimate
+  Decision. Surface corruption to the operator without silently skipping it.
 - R7. Preserve append-only history while enforcing deterministic request
   deduplication, idempotency-key conflict detection, exact version progression,
   cross-ticket identity isolation, and serialized concurrent mutation behavior.
@@ -193,6 +206,8 @@ during document, code, and human review.*
 | Trusted source context is injected at ingress | An agent-provided payload must not impersonate another ticket or session; the running issue/session is already available before a tool call. |
 | Request publication is a retryable notification effect, not persistence or answer dispatch | The durable record and projection precede both Exchange and Phoenix PubSub. A strictly reserved event identity permits Exchange crash-window retry without creating a new logical request; OCC-3 still owns the answer-dispatch outbox. |
 | Corruption is a store mode, not a skipped line | Interior corruption makes writes read-only and operator-visible; only a non-newline-terminated tail may be truncated as unacknowledged. |
+| Corruption detection re-validates full schema/invariants on replay, not parse-validity alone | A crash can only tear the tail, so an interior record that merely decodes as JSON but fails semantic validation implies bit-rot or tamper within the local single-writer trust boundary; parse-validity alone would replay it as a legitimate-but-wrong Decision. |
+| Decision state-path leaf is hashed from the canonicalized project root, not the last path segment | `Config.Paths.repo_name/0`'s last-segment-of-identity, combined with a permitted empty `AIUR_INSTANCE_KEY`, can collapse two different repos onto the same `decisions.ndjson`; a project-root-unique leaf plus refusing empty/default identity keeps instances isolated. |
 | Decision state and delivery state remain separate | A request is open even after publication; later queue transitions cannot silently resolve or acknowledge it. |
 
 ---
@@ -325,12 +340,27 @@ logs and ticket workspaces.
 
 **Approach:**
 - Extend the idempotent boot mark with a cryptographically opaque run identity
-  and UTC start time. Test reset re-mints the complete boot state together.
-- Make debug telemetry read that identity/start time while retaining only its
-  own sequence counter and debug gating.
-- Add one canonical state-path helper with a test/application override, launcher
-  environment fallback, sanitized instance/project components, and explicit
-  directory/file permission enforcement by the storage owner.
+  and UTC start time. `Aiur.Boot.remark/0` (test-only) mints a new `run_id` in
+  the same step as its monotonic/epoch reset, so a simulated reboot changes
+  the run identity together with the clocks, not just the clocks.
+- Make `Aiur.RunTelemetry.boot_id/0` and `boot_started_at/0` delegate directly
+  to `Aiur.Boot`'s identity/start time on every call rather than caching a
+  telemetry-only value minted at `start_boot/0`, so telemetry never observes a
+  stale `run_id` after a test remark simulates a reboot within one VM. Retain
+  only the debug sequence counter and debug gating in `RunTelemetry`'s own
+  state.
+- Add one canonical Decision state-path helper with a test/application
+  override, launcher environment fallback, and explicit directory/file
+  permission enforcement by the storage owner. Derive its leaf from a hash of
+  the canonicalized (realpath) project root rather than the last segment of
+  the tracker project identity, and refuse to resolve the path (fail closed,
+  do not fall back to a shared default) when `AIUR_INSTANCE_KEY` is empty or
+  the project identity is unavailable/defaults to `"aiur"`.
+- Harden the shared `Aiur.Config.Paths.sanitize/1` to reject dot-only path
+  components (`.`, `..`, and any segment that sanitizes to one) in addition to
+  its existing character-class filtering — today `sanitize("..")` returns
+  `".."` unchanged, so an identity like `foo/..` can escape the leaf. Every
+  existing consumer of `sanitize/1` benefits from this hardening.
 - Point test application boot at its existing suite-temporary root so the new
   always-on child cannot touch operator state.
 
@@ -348,9 +378,22 @@ logs and ticket workspaces.
   while telemetry sequence behavior remains monotonic.
 - Happy path: two instance keys or project identities resolve to distinct
   sanitized Decision directories beneath the configured state root.
+- Happy path: two project roots that share only their final path segment
+  resolve to distinct Decision directories because the leaf is hashed from
+  the full canonicalized root, not the last segment.
 - Error path: unsafe instance/project characters cannot escape the state root.
+- Error path: an empty `AIUR_INSTANCE_KEY`, or an unavailable/default (`"aiur"`)
+  tracker project identity, refuses to resolve the Decision state path instead
+  of silently sharing it with another instance.
+- Error path: an identity or instance-key component of `.` or `..` (e.g.
+  `foo/..`) is rejected by the hardened `sanitize/1` rather than passed
+  through unchanged.
 - Test isolation: test boot resolves under the suite-temporary tree, never the
   operator's `AIUR_BG_STATE_DIR`.
+- Integration: after `Aiur.Boot.remark/0` simulates a reboot within one VM,
+  `Aiur.RunTelemetry.boot_id/0` observes the new `run_id` immediately without a
+  separate `RunTelemetry.start_boot/0` call, and the sequence counter is
+  unaffected.
 
 **Verification:**
 - Every subsystem observes one run identity per application boot, and the
@@ -449,8 +492,10 @@ pending notification effects from the canonical stream.
 **Files:**
 - Create: `src/lib/aiur/decision_log.ex`
 - Create: `src/lib/aiur/decision_projection.ex`
+- Modify: `src/lib/aiur/fs.ex`
 - Create: `src/test/aiur/decision_log_test.exs`
 - Create: `src/test/aiur/decision_projection_test.exs`
+- Modify: `src/test/aiur/fs_test.exs`
 
 **Approach:**
 - Ensure the canonical directory is owner-only before opening files and keep
@@ -459,10 +504,20 @@ pending notification effects from the canonical stream.
   than following an attacker-controlled link outside the selected state root.
 - Encode each accepted event as one bounded JSON object plus newline, append it
   through a raw descriptor, and acknowledge only after descriptor sync.
+- Add a directory-fsync primitive to `Aiur.Fs` and call it once, immediately
+  after the canonical directory and `decisions.ndjson` are first created,
+  so the new directory entry itself is durable — `Aiur.Fs` already fsyncs the
+  file descriptor for durable appends, but never the parent directory, so the
+  very first file's directory entry could be lost on a crash before any later
+  write happens to sync that directory. Only the first-ever creation pays this
+  cost, not every append.
 - On load, treat a missing file as empty; truncate and sync only bytes following
-  the final newline; decode and semantically validate every complete line in
-  order; return the validated prefix and a corruption reason without skipping
-  malformed interior records.
+  the final newline; decode each complete line and re-run it through the same
+  request/enrichment schema and invariant validation used at ingress (U2),
+  not JSON-decode success alone, in order; return the validated prefix and a
+  corruption reason without skipping malformed interior records. A record that
+  parses as JSON but fails that validation is corruption, exactly like one that
+  fails to parse.
 - Reduce immutable request/enrichment records into current Decisions and
   indexes. Internal request-notification settlement records update only the
   notification index, not the Decision version/history presented as domain
@@ -487,8 +542,15 @@ risk in this ticket.
   can be deleted/corrupted then rebuilt from an intact audit stream.
 - Crash edge: a non-newline-terminated final fragment is truncated, synced, and
   never enters history or indexes.
+- Crash edge: the first-ever `decisions.ndjson` creation fsyncs its parent
+  directory exactly once; later appends to the existing file do not repeat
+  the directory fsync.
 - Corruption errors: malformed JSON, valid JSON with an invalid envelope, and a
   corrupt middle record return the line/reason and never skip forward.
+- Corruption errors: a record whose bytes decode as valid JSON but fail
+  schema/invariant validation (e.g., an out-of-enum field, or a flipped byte in
+  an `answer` string that stays valid JSON) is treated as interior corruption,
+  not a legitimate replayed Decision.
 - Failure paths: append/open/write/sync errors are returned; an existing
   projection remains unchanged when atomic replacement fails.
 - Security: created directories are mode 0700 and canonical/projection files
@@ -719,6 +781,10 @@ flowchart TB
 - `docs/operator-control-center/03-occ-1-decision-contract.md` becomes the
   schema/storage handoff for OCC-2 through OCC-9 and must distinguish delivered
   capabilities from deferred lifecycle work.
+- The contract doc must state the corruption threat model explicitly: the
+  append+fsync-before-ack barrier already limits a crash to tearing only the
+  tail, so interior fail-closed detection defends against local bit-rot or a
+  single-writer violation, not an adversarial rewriter.
 - Corruption remediation is intentionally operator-driven in this ticket. The
   alert and health API must include the exact file/reason without logging
   Decision contents or secrets; no automatic interior-record deletion occurs.
@@ -741,3 +807,7 @@ flowchart TB
 - **Planning PR:** #971
 - **Event foundation:** `docs/plans/2026-05-24-001-feat-event-system-foundation-plan.md`
 - **Decision attention precedent:** `docs/plans/2026-07-10-001-fix-operator-decision-escalation-plan.md`
+- **Foundation review amendment (OWNER, 2026-07-12):** five clarifications on
+  corruption detection, state-path isolation, dot-component rejection, parent-
+  directory fsync, and run_id test-reset delegation, folded into R5, R6, and
+  U1/U3 above.
