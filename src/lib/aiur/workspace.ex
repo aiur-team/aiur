@@ -8,9 +8,9 @@ defmodule Aiur.Workspace do
 
   @type worker_host :: String.t() | nil
 
-  @spec create_for_issue(map() | String.t() | nil, worker_host()) ::
+  @spec create_for_issue(map() | String.t() | nil, worker_host(), keyword()) ::
           {:ok, Path.t()} | {:error, term()}
-  def create_for_issue(issue_or_identifier, worker_host \\ nil) do
+  def create_for_issue(issue_or_identifier, worker_host \\ nil, opts \\ []) do
     issue_context = Context.build(issue_or_identifier)
 
     try do
@@ -18,7 +18,7 @@ defmodule Aiur.Workspace do
 
       with {:ok, workspace} <- Layout.workspace_path_for_issue(safe_id, worker_host),
            :ok <- Layout.validate_workspace_path(workspace, worker_host) do
-        provision_workspace(workspace, worker_host, issue_context)
+        provision_workspace(workspace, worker_host, issue_context, Keyword.get(opts, :lifecycle))
       end
     rescue
       error in [ArgumentError, ErlangError, File.Error] ->
@@ -54,7 +54,7 @@ defmodule Aiur.Workspace do
   @spec remove_issue_workspaces(term(), worker_host()) :: :ok
   defdelegate remove_issue_workspaces(identifier, worker_host), to: Remove
 
-  defp provision_workspace(workspace, worker_host, issue_context) do
+  defp provision_workspace(workspace, worker_host, issue_context, lifecycle) do
     issue_context = %{
       issue_context
       | branch_name: Provisioner.resolve_branch_name(workspace, issue_context)
@@ -65,9 +65,11 @@ defmodule Aiur.Workspace do
              workspace,
              worker_host,
              issue_context.pr_head_ref,
-             issue_context.branch_name
+             issue_context.branch_name,
+             lifecycle
            ),
          :ok <- Hooks.run_after_create(workspace, issue_context, created?, worker_host),
+         :ok <- GitMetadata.ensure_agent_logs_excluded(workspace, worker_host),
          :ok <- Hooks.run_github_preflight(workspace, issue_context, worker_host) do
       Provisioner.maybe_install_agent_skills(workspace, worker_host)
       {:ok, workspace}

@@ -144,7 +144,6 @@ defmodule Aiur.InitTest do
           end
         end,
         ensure_env: fn content ->
-          File.write!(Path.join(dir, ".env.example"), content)
           env_path = Path.join(dir, ".env")
 
           if File.regular?(env_path) do
@@ -1476,11 +1475,11 @@ defmodule Aiur.InitTest do
   end
 
   describe "closing steps (github)" do
-    test "scaffolds .env and walks through the bot-account token", %{dir: dir, target: target} do
+    test "scaffolds only .env and walks through the bot-account token", %{dir: dir, target: target} do
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
 
-      assert File.read!(Path.join(dir, ".env.example")) =~ "GITHUB_TOKEN="
-      assert File.read!(Path.join(dir, ".env")) =~ "GITHUB_TOKEN="
+      assert File.read!(Path.join(dir, ".env")) == "GITHUB_TOKEN=\n"
+      refute File.exists?(Path.join(dir, ".env.example"))
 
       log = puts_log()
       assert Enum.any?(log, &(&1 =~ ~r/bot account/i))

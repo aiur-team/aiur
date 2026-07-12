@@ -46,6 +46,18 @@ else
 fi
 unset __aiur_soft_nofile
 
+# Preserve the shell that initiated the run as a best-effort operator root.
+# An explicit positive override wins (service managers may know a better root);
+# otherwise the engine's parent is the nearest identity available before tmux
+# hands daemon ownership to its pane launcher.
+if ! [[ "${AIUR_OPERATOR_PID:-}" =~ ^[1-9][0-9]*$ ]]; then
+  if [[ "${PPID:-}" =~ ^[1-9][0-9]*$ ]]; then
+    export AIUR_OPERATOR_PID="$PPID"
+  else
+    unset AIUR_OPERATOR_PID
+  fi
+fi
+
 die() {
   echo "❌ $*" >&2
   exit 1
@@ -279,8 +291,9 @@ build_init_cmd() {
 usage() {
   cat <<'EOF'
 Usage: aiur [--interactive] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [path-to-.aiurconfig]
+       aiur run [--bg] [--debug]  explicit launch form (foreground unless --bg)
        aiur init [--force]   scaffold .aiurconfig (interactive setup wizard)
-       aiur --bg             start in a lean, headless detached tmux session
+       aiur --bg [--debug]   start in a lean, headless detached tmux session
        aiur stop             stop the running session
        aiur status           show agent status
        aiur agents           show each agent's state + current activity
@@ -502,7 +515,7 @@ run_session() {
       AIUR_TMUX_SESSION AIUR_TMUX_SOCKET AIUR_TMUX_CONF AIUR_BIN \
       AIUR_SESSION_TMPFILE AIUR_AGENT_TMPFILE AIUR_WORKSPACE_ROOT_FILE \
       ELIXIR_ERL_OPTIONS AIUR_LOGS_ROOT AIUR_OPENCODE_BRIDGE_PORT AIUR_DEBUG \
-      ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS; do
+      AIUR_OPERATOR_PID AIUR_NOFILE_SOFT_LIMIT ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS; do
       if [ -n "${!v:-}" ]; then printf 'export %s=%q\n' "$v" "${!v}"; fi
     done
     printf 'capture=%q\n' "$startup_capture"
@@ -2097,7 +2110,12 @@ aiur_engine_main() {
       ;;
     run)
       shift
-      run_session foreground "$@"
+      if [ "${1:-}" = "--bg" ]; then
+        shift
+        run_session background "$@"
+      else
+        run_session foreground "$@"
+      fi
       ;;
     status)
       shift
