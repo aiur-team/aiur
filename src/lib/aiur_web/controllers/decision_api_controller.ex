@@ -97,10 +97,23 @@ defmodule AiurWeb.DecisionApiController do
     error_response(conn, 409, "decision_conflict", "Decision state changed; refresh and retry")
   end
 
+  defp render_error(conn, :answer_missing) do
+    error_response(conn, 409, "decision_conflict", "Decision state changed; refresh and retry")
+  end
+
+  defp render_error(conn, {:answer_invalid, {:supervisor_basis, :decision_mismatch}}) do
+    error_response(conn, 409, "decision_conflict", "Decision state changed; refresh and retry")
+  end
+
+  defp render_error(conn, {:revision_invalid, {:answer_invalid, {:supervisor_basis, :decision_mismatch}}}) do
+    error_response(conn, 409, "decision_conflict", "Decision state changed; refresh and retry")
+  end
+
   defp render_error(conn, reason)
        when is_tuple(reason) and
               elem(reason, 0) in [
                 :answer_invalid,
+                :decision_invalid,
                 :delegation_invalid,
                 :enrichment_invalid,
                 :invalid_decision_id,
@@ -109,10 +122,6 @@ defmodule AiurWeb.DecisionApiController do
                 :revision_invalid
               ] do
     error_response(conn, 422, "invalid_request", "Decision request is invalid")
-  end
-
-  defp render_error(conn, :revision_service_unavailable) do
-    service_unavailable(conn)
   end
 
   defp render_error(conn, :store_unavailable) do
@@ -147,7 +156,6 @@ defmodule AiurWeb.DecisionApiController do
     |> maybe_put_new(:actor, conn.assigns[:decision_actor])
     |> maybe_put_endpoint(:store, :decision_store)
     |> maybe_put_endpoint(:policy, :decision_policy)
-    |> maybe_put_endpoint(:revision_service, :decision_revision_service)
   end
 
   defp maybe_put_new(opts, _key, nil), do: opts

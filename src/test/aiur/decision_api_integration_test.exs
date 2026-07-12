@@ -4,11 +4,10 @@ defmodule Aiur.DecisionApiIntegrationTest do
   import Plug.Conn
   import Plug.Test
 
-  alias Aiur.{DecisionEvent, DecisionStore}
+  alias Aiur.{Decision, DecisionEvent, DecisionStore}
   alias AiurWeb.Endpoint
 
   @token String.duplicate("t", 32)
-  @actor %{kind: :supervisor, id: "supervising-agent"}
   @policy %{allowed_kinds: ["architecture"], allow_non_reversible: false}
   @ticket %{identifier: "984", title: "OCC-7", url: "https://github.com/its-everdred/aiur/issues/984"}
   @source %{agent_id: "agent-984", session_id: "session-984", event_id: nil}
@@ -20,11 +19,14 @@ defmodule Aiur.DecisionApiIntegrationTest do
     Application.put_env(:aiur, :decision_state_dir, dir)
     System.put_env("AIUR_SUPERVISOR_TOKEN", @token)
     ensure_endpoint_running()
+    original_writable = Endpoint.config(:dashboard_writable)
+    configure_endpoint(dashboard_writable: true)
 
     parent = self()
 
     dispatcher = fn decision, opts ->
-      send(parent, {:dispatch_observed, DecisionStore.audit_history(decision.decision_id, opts[:store])})
+      action = Decision.active_answer(decision)
+      send(parent, {:dispatch_observed, action.action_id, DecisionStore.audit_history(decision.decision_id, opts[:store])})
       {:ok, %{status: :accepted, item: %{id: 984}}}
     end
 
@@ -38,6 +40,7 @@ defmodule Aiur.DecisionApiIntegrationTest do
 
     on_exit(fn ->
       if Process.alive?(store), do: GenServer.stop(store)
+      configure_endpoint(dashboard_writable: original_writable)
       restore_env("AIUR_SUPERVISOR_TOKEN", original_token)
 
       case original_dir do
@@ -112,7 +115,8 @@ defmodule Aiur.DecisionApiIntegrationTest do
     assert decided_body["action"]["actor"] == %{"kind" => "supervisor", "id" => "supervising-agent"}
     assert decided_body["action"]["supervisor_basis"]["confidence"] == 93
 
-    assert_receive {:dispatch_observed, {:ok, audit}}, 1_000
+    assert_receive {:dispatch_observed, action_id, {:ok, audit}}, 1_000
+    assert action_id == decided_body["action"]["action_id"]
     assert Enum.map(audit, &audit_type/1) == [:requested, :enriched, :answer_recorded]
 
     replay =
@@ -135,7 +139,7 @@ defmodule Aiur.DecisionApiIntegrationTest do
     assert persisted =~ "[REDACTED:ghp]"
   end
 
-  test "authenticated revision reaches only the injected OCC-8 boundary", %{store: store} do
+  test "authenticated revision uses OCC-8 persistence, correlation, and trusted supervisor basis", %{store: store} do
     assert {:ok, %{decision: decision}} =
              DecisionStore.request(
                %{
@@ -150,20 +154,33 @@ defmodule Aiur.DecisionApiIntegrationTest do
                store
              )
 
-    parent = self()
+    assert {:ok, %{action: original}} =
+             DecisionStore.answer(
+               decision.decision_id,
+               %{
+                 "expected_version" => 1,
+                 "idempotency_key" => "revision-original",
+                 "custom_response" => "Original direction",
+                 "rationale" => "Initial evidence"
+               },
+               [actor: %{kind: :operator, id: "operator-1"}],
+               store
+             )
 
-    revision_service = fn decision_id, payload, opts ->
-      send(parent, {:revision_service_called, decision_id, payload, opts})
-      {:ok, %{"status" => "recorded", "revision_action_id" => "rev_http"}}
-    end
+    assert_receive {:dispatch_observed, original_action_id, {:ok, original_audit}}, 1_000
+    assert original_action_id == original.action_id
+    assert Enum.map(original_audit, &audit_type/1) == [:requested, :answer_recorded]
 
     payload = %{
       "expected_version" => 1,
-      "expected_action_id" => "act_original",
+      "expected_action_id" => original.action_id,
       "expected_revision_sequence" => 0,
       "idempotency_key" => "http-revision",
       "custom_response" => "Corrected direction",
-      "reason" => "New evidence"
+      "rationale" => "New evidence",
+      "confidence" => 89,
+      "alternatives_considered" => ["Keep the original direction"],
+      "reversibility_belief" => "reversible"
     }
 
     response =
@@ -171,22 +188,38 @@ defmodule Aiur.DecisionApiIntegrationTest do
         :post,
         "/api/v1/decisions/#{decision.decision_id}/revise",
         payload,
-        store,
-        revision_service: revision_service
+        store
       )
 
     assert response.status == 202
-    assert Jason.decode!(response.resp_body)["status"] == "recorded"
-    assert_receive {:revision_service_called, decision_id, ^payload, opts}
-    assert decision_id == decision.decision_id
-    assert opts[:actor] == @actor
-    assert opts[:authority] == :supervisor_allowed
+    body = Jason.decode!(response.resp_body)
+    assert body["status"] == "accepted"
+    assert body["revision_result"] == "recorded"
+    assert body["action"]["prior_action_id"] == original.action_id
+    assert body["action"]["answer"]["actor"] == %{"kind" => "supervisor", "id" => "supervising-agent"}
+    assert body["action"]["answer"]["supervisor_basis"]["confidence"] == 89
+
+    revision_action_id = body["action"]["action_id"]
+
+    assert_receive {:dispatch_observed, ^revision_action_id, {:ok, revision_audit}}, 1_000
+    assert :revision_recorded in Enum.map(revision_audit, &audit_type/1)
+
+    replay =
+      request(
+        :post,
+        "/api/v1/decisions/#{decision.decision_id}/revise",
+        payload,
+        store
+      )
+
+    assert replay.status == 200
+    assert Jason.decode!(replay.resp_body)["status"] == "duplicate"
 
     assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, store)
-    assert Enum.map(audit, &audit_type/1) == [:requested]
+    assert Enum.count(audit, &match?(%DecisionEvent{type: :revision_recorded}, &1)) == 1
   end
 
-  defp request(method, path, body, store, extra_opts \\ []) do
+  defp request(method, path, body, store) do
     conn =
       if is_nil(body) do
         conn(method, path)
@@ -196,15 +229,10 @@ defmodule Aiur.DecisionApiIntegrationTest do
         |> put_req_header("content-type", "application/json")
       end
 
-    api_opts =
-      [store: store, policy: @policy]
-      |> Keyword.merge(extra_opts)
-
     conn
     |> put_req_header("authorization", "Bearer #{@token}")
     |> maybe_put_mutation_headers(method)
-    |> put_private(:decision_api_opts, api_opts)
-    |> put_private(:dashboard_writable, true)
+    |> put_private(:decision_api_opts, store: store, policy: @policy)
     |> Endpoint.call(Endpoint.init([]))
   end
 
@@ -229,6 +257,10 @@ defmodule Aiur.DecisionApiIntegrationTest do
       start_supervised!({Endpoint, []})
       on_exit(fn -> Application.put_env(:aiur, Endpoint, endpoint_config) end)
     end
+  end
+
+  defp configure_endpoint(changed) do
+    Endpoint.config_change(%{Endpoint => changed}, [])
   end
 
   defp audit_type(%DecisionEvent{type: type}), do: type

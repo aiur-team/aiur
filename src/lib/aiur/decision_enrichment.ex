@@ -21,7 +21,7 @@ defmodule Aiur.DecisionEnrichment do
   @artifact_fields ~w(kind value)
 
   @type normalized :: %{
-          actor: %{kind: String.t(), id: String.t()},
+          actor: %{kind: :supervisor, id: String.t()},
           changed: boolean(),
           decision: Decision.t(),
           expected_version: pos_integer()
@@ -38,16 +38,14 @@ defmodule Aiur.DecisionEnrichment do
          merged_payload <- merge_patch(current, normalized_patch),
          {:ok, normalized} <- DecisionValidation.normalize(merged_payload, validation_opts(current, now, opts)) do
       decision = %{
-        normalized
-        | decision_id: current.decision_id,
-          version: current.version + 1,
-          created_at: current.created_at,
-          decision_status: current.decision_status,
-          delivery_status: current.delivery_status,
-          answer: current.answer,
-          dispatch_attempts: current.dispatch_attempts,
-          acknowledgement: current.acknowledgement,
-          resolution: current.resolution
+        current
+        | version: current.version + 1,
+          context: normalized.context,
+          options: normalized.options,
+          recommendation: normalized.recommendation,
+          consequence_of_delay: normalized.consequence_of_delay,
+          artifacts: normalized.artifacts,
+          content_hash: normalized.content_hash
       }
 
       {:ok,

@@ -1,7 +1,7 @@
 defmodule Aiur.DecisionApiTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.{DecisionApi, DecisionStore}
+  alias Aiur.{DecisionApi, DecisionDelegation, DecisionStore}
 
   @ticket %{identifier: "984", title: "OCC-7", url: "https://github.com/its-everdred/aiur/issues/984"}
   @source %{agent_id: "agent-1", session_id: "session-1", event_id: nil}
@@ -240,48 +240,135 @@ defmodule Aiur.DecisionApiTest do
     assert current.answer == nil
   end
 
-  test "revise injects trusted actor and recorded authority into the OCC-8 service", %{store: store} do
-    decision = request!(store, "architecture", :supervisor_allowed, source_id: "revise")
-    parent = self()
+  test "the serialized writer rejects supervisor basis from a different request version", %{store: store} do
+    v1 = request!(store, "architecture", :supervisor_allowed, source_id: "policy-race")
+    payload = Map.put(decision_payload(), "expected_version", 2)
 
-    revision_service = fn decision_id, payload, opts ->
-      send(parent, {:revision_delegated, decision_id, payload, opts})
+    assert {:ok, delegation} = DecisionDelegation.normalize(v1, payload, @policy)
 
-      {:ok,
-       %{
-         "status" => "recorded",
-         "decision_id" => decision_id,
-         "revision_action_id" => "rev_1"
-       }}
-    end
+    assert {:ok, %{decision: v2}} =
+             DecisionStore.request(
+               %{
+                 "version" => 2,
+                 "source_id" => "policy-race",
+                 "question" => "Choose policy-race?",
+                 "blocking" => true,
+                 "kind" => "architecture",
+                 "authority" => "human_required",
+                 "reversibility" => "reversible"
+               },
+               [ticket: @ticket, source: @source, now: ~U[2026-07-12 10:30:00Z]],
+               store
+             )
 
-    payload = %{
-      "expected_version" => 1,
-      "expected_action_id" => "act_original",
-      "expected_revision_sequence" => 0,
-      "idempotency_key" => "revise-1",
-      "custom_response" => "Use the corrected path",
-      "reason" => "New evidence"
-    }
+    assert v2.authority == :human_required
 
-    opts = Keyword.put(supervisor_opts(store), :revision_service, revision_service)
+    assert {:error, {:answer_invalid, {:supervisor_basis, :decision_mismatch}}} =
+             DecisionStore.answer(
+               v2.decision_id,
+               delegation.answer_payload,
+               [
+                 actor: %{kind: :supervisor, id: "supervising-agent"},
+                 supervisor_basis: delegation.basis,
+                 now: ~U[2026-07-12 11:00:00Z]
+               ],
+               store
+             )
 
-    assert {:ok, %{"status" => "recorded", "revision_action_id" => "rev_1"}} =
-             DecisionApi.revise(decision.decision_id, payload, opts)
+    assert {:ok, current} = DecisionStore.get(v2.decision_id, store)
+    assert current.answer == nil
 
-    assert_receive {:revision_delegated, decision_id, ^payload, delegated_opts}
-    assert decision_id == decision.decision_id
-    assert delegated_opts[:actor] == %{kind: :supervisor, id: "supervising-agent"}
-    assert delegated_opts[:authority] == :supervisor_allowed
+    assert {:ok, %{action: original}} =
+             DecisionStore.answer(
+               v2.decision_id,
+               %{
+                 "expected_version" => 2,
+                 "idempotency_key" => "policy-race-original",
+                 "custom_response" => "Human direction",
+                 "rationale" => "Operator chose the current version"
+               },
+               [actor: %{kind: :operator, id: "operator-1"}],
+               store
+             )
 
-    assert delegated_opts[:policy_checks] == %{
-             authority_delegable: true,
-             kind_allowed: true,
-             reversibility_allowed: true
-           }
+    revision_payload =
+      original
+      |> revision_payload()
+      |> Map.put("expected_version", 2)
+
+    assert {:ok, revision_delegation} =
+             DecisionDelegation.normalize_revision(v1, revision_payload, @policy)
+
+    assert {:error, {:revision_invalid, {:answer_invalid, {:supervisor_basis, :decision_mismatch}}}} =
+             DecisionStore.revise(
+               v2.decision_id,
+               revision_delegation.answer_payload,
+               [
+                 actor: %{kind: :supervisor, id: "supervising-agent"},
+                 supervisor_basis: revision_delegation.basis,
+                 now: ~U[2026-07-12 11:01:00Z]
+               ],
+               store
+             )
+
+    assert {:ok, audit} = DecisionStore.audit_history(v2.decision_id, store)
+    assert Enum.count(audit, &match?(%Aiur.DecisionEvent{type: :revision_recorded}, &1)) == 0
   end
 
-  test "revise denies unsafe or forged calls and reports a missing OCC-8 service", %{store: store} do
+  test "revise delegates to OCC-8 with trusted actor and policy basis", %{store: store} do
+    decision = request!(store, "architecture", :supervisor_allowed, source_id: "revise")
+
+    assert {:ok, %{action: original}} =
+             DecisionStore.answer(
+               decision.decision_id,
+               %{
+                 "expected_version" => 1,
+                 "idempotency_key" => "original-answer",
+                 "custom_response" => "Use the original path",
+                 "rationale" => "Initial evidence"
+               },
+               [actor: %{kind: :operator, id: "operator-1"}, now: ~U[2026-07-12 10:30:00Z]],
+               store
+             )
+
+    payload = revision_payload(original)
+    opts = supervisor_opts(store)
+
+    assert {:ok, result} = DecisionApi.revise(decision.decision_id, payload, opts)
+    assert result["status"] == "accepted"
+    assert result["revision_result"] == "recorded"
+    assert result["action"]["prior_action_id"] == original.action_id
+    assert result["action"]["answer"]["actor"] == %{"kind" => "supervisor", "id" => "supervising-agent"}
+
+    basis = result["action"]["answer"]["supervisor_basis"]
+    assert basis["confidence"] == 88
+    assert basis["policy_basis"]["authority"] == "supervisor_allowed"
+    assert basis["policy_basis"]["checks"]["kind_allowed"]
+
+    assert {:ok, replay} = DecisionApi.revise(decision.decision_id, payload, opts)
+    assert replay["status"] == "duplicate"
+    assert replay["action"]["action_id"] == result["action"]["action_id"]
+
+    assert {:error, {:conflict, {:idempotency_conflict, _action_id}}} =
+             DecisionApi.revise(
+               decision.decision_id,
+               Map.put(payload, "custom_response", "Conflicting correction"),
+               opts
+             )
+
+    stale =
+      payload
+      |> Map.put("idempotency_key", "revise-stale")
+      |> Map.put("custom_response", "Another correction")
+
+    assert {:error, {:conflict, {:stale_action, _correlation}}} =
+             DecisionApi.revise(decision.decision_id, stale, opts)
+
+    assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, store)
+    assert Enum.count(audit, &match?(%Aiur.DecisionEvent{type: :revision_recorded}, &1)) == 1
+  end
+
+  test "revise denies unsafe, forged, or incomplete calls before OCC-8 persistence", %{store: store} do
     human = request!(store, "architecture", :human_required, source_id: "revise-human")
 
     assert {:error, {:delegation_forbidden, %{reasons: [:human_required]}}} =
@@ -289,15 +376,27 @@ defmodule Aiur.DecisionApiTest do
 
     eligible = request!(store, "architecture", :supervisor_allowed, source_id: "revise-eligible")
 
-    assert {:error, {:revision_invalid, {:forbidden_fields, ["actor", "authority"]}}} =
+    assert {:error, {:delegation_invalid, {:forbidden_fields, ["actor", "authority"]}}} =
              DecisionApi.revise(
                eligible.decision_id,
                %{"actor" => %{}, "authority" => "human_required"},
                supervisor_opts(store)
              )
 
-    assert {:error, :revision_service_unavailable} =
-             DecisionApi.revise(eligible.decision_id, %{}, supervisor_opts(store))
+    incomplete =
+      %{
+        "expected_version" => 1,
+        "expected_action_id" => "act_original",
+        "expected_revision_sequence" => 0,
+        "idempotency_key" => "revision-incomplete",
+        "custom_response" => "Corrected",
+        "rationale" => "New evidence",
+        "alternatives_considered" => [],
+        "reversibility_belief" => "reversible"
+      }
+
+    assert {:error, {:delegation_invalid, {:confidence, :invalid}}} =
+             DecisionApi.revise(eligible.decision_id, incomplete, supervisor_opts(store))
   end
 
   test "an unavailable store is a stable read error", %{store: store} do
@@ -329,6 +428,20 @@ defmodule Aiur.DecisionApiTest do
       "rationale" => "It preserves one append-only lifecycle.",
       "confidence" => 91,
       "alternatives_considered" => ["Wait for OCC-8"],
+      "reversibility_belief" => "reversible"
+    }
+  end
+
+  defp revision_payload(original) do
+    %{
+      "expected_version" => 1,
+      "expected_action_id" => original.action_id,
+      "expected_revision_sequence" => 0,
+      "idempotency_key" => "supervisor-revision-1",
+      "custom_response" => "Use the corrected path",
+      "rationale" => "New production evidence",
+      "confidence" => 88,
+      "alternatives_considered" => ["Keep the original direction"],
       "reversibility_belief" => "reversible"
     }
   end

@@ -146,7 +146,20 @@ defmodule AiurWeb.RouterAuthTest do
     end
   end
 
-  test "write API rejects duplicate Origin and Referer headers" do
+  test "write API does not trust an attacker-controlled Host as its own origin" do
+    conn =
+      :get
+      |> conn("/api/v1/pane/hide")
+      |> Map.put(:host, "evil.example")
+      |> put_req_header("origin", "http://evil.example")
+      |> put_req_header("x-aiur-request", "1")
+      |> Router.call(Router.init([]))
+
+    assert conn.status == 403
+    assert Jason.decode!(conn.resp_body) == %{"error" => "origin not allowed"}
+  end
+
+  test "write API rejects duplicate Origin, Referer, and custom headers" do
     duplicate_origin =
       write_route_get(
         headers: [
@@ -163,8 +176,18 @@ defmodule AiurWeb.RouterAuthTest do
         ]
       )
 
+    duplicate_custom =
+      write_route_get(
+        headers: [
+          {"origin", "http://localhost"},
+          {"x-aiur-request", "1"},
+          {"x-aiur-request", "1"}
+        ]
+      )
+
     assert duplicate_origin.status == 403
     assert duplicate_referer.status == 403
+    assert duplicate_custom.status == 403
   end
 
   defp write_route_get(opts) do
@@ -180,9 +203,12 @@ defmodule AiurWeb.RouterAuthTest do
         %{conn | req_headers: [{key, value} | conn.req_headers]}
       end)
 
-    conn
-    |> put_req_header("x-aiur-request", "1")
-    |> Router.call(Router.init([]))
+    conn =
+      if get_req_header(conn, "x-aiur-request") == [],
+        do: put_req_header(conn, "x-aiur-request", "1"),
+        else: conn
+
+    Router.call(conn, Router.init([]))
   end
 
   defp supervisor_request(method, path) do

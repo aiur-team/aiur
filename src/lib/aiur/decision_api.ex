@@ -9,7 +9,16 @@ defmodule Aiur.DecisionApi do
   services.
   """
 
-  alias Aiur.{Config, Decision, DecisionAnswer, DecisionAuthority, DecisionDelegation, DecisionProjection, DecisionStore}
+  alias Aiur.{
+    Config,
+    Decision,
+    DecisionAnswer,
+    DecisionAuthority,
+    DecisionDelegation,
+    DecisionProjection,
+    DecisionRevision,
+    DecisionStore
+  }
 
   @default_limit 50
   @maximum_limit 200
@@ -129,22 +138,28 @@ defmodule Aiur.DecisionApi do
   def revise(decision_id, payload, opts \\ [])
 
   def revise(decision_id, payload, opts) when is_map(payload) and is_list(opts) do
+    current_policy = policy(opts)
     store = Keyword.get(opts, :store, DecisionStore)
 
     with {:ok, normalized_id} <- normalize_decision_id(decision_id),
          {:ok, actor} <- trusted_revision_actor(opts),
          {:ok, decision} <- read_one(normalized_id, store),
-         {:ok, evaluation} <- authorize_revision(decision, policy(opts)),
-         :ok <- reject_revision_claims(payload),
+         {:ok, delegation} <- DecisionDelegation.normalize_revision(decision, payload, current_policy),
          {:ok, result} <-
-           invoke_revision_service(
-             Keyword.get(opts, :revision_service),
+           write_revision(
              normalized_id,
-             payload,
-             revision_opts(actor, decision, evaluation),
+             delegation.answer_payload,
+             revision_opts(opts, actor, delegation.basis, decision.authority),
              store
            ) do
-      {:ok, result}
+      {:ok,
+       %{
+         "status" => Atom.to_string(result.status),
+         "decision" => encode_decision(result.decision, current_policy),
+         "action" => DecisionRevision.to_json_safe(result.action, &DecisionAnswer.to_json_safe/1),
+         "revision_result" => Atom.to_string(result.revision_result),
+         "dispatch_status" => Atom.to_string(result.dispatch_status)
+       }}
     end
   end
 
@@ -213,88 +228,9 @@ defmodule Aiur.DecisionApi do
     end
   end
 
-  defp authorize_revision(decision, policy) do
-    evaluation = DecisionAuthority.evaluate(decision, policy)
-
-    if evaluation.allowed do
-      {:ok, evaluation}
-    else
-      {:error,
-       {:delegation_forbidden,
-        %{
-          checks: evaluation.checks,
-          reasons: evaluation.reasons
-        }}}
-    end
-  end
-
-  defp reject_revision_claims(payload) do
-    forbidden_fields = ~w(actor authority decision_id policy policy_basis supervisor_basis)
-
-    attempted =
-      payload
-      |> Map.keys()
-      |> Enum.map(fn
-        key when is_atom(key) -> Atom.to_string(key)
-        key -> key
-      end)
-      |> Enum.filter(&(&1 in forbidden_fields))
-      |> Enum.uniq()
-      |> Enum.sort()
-
-    if attempted == [],
-      do: :ok,
-      else: {:error, {:revision_invalid, {:forbidden_fields, attempted}}}
-  end
-
-  defp revision_opts(actor, decision, evaluation) do
-    [
-      actor: actor,
-      authority: decision.authority,
-      policy_checks: evaluation.checks,
-      allow_non_reversible: evaluation.policy.allow_non_reversible
-    ]
-  end
-
-  defp invoke_revision_service(nil, decision_id, payload, opts, store) do
-    if function_exported?(DecisionStore, :revise, 4) do
-      apply_revision_service(fn -> apply(DecisionStore, :revise, [decision_id, payload, opts, store]) end)
-    else
-      {:error, :revision_service_unavailable}
-    end
-  end
-
-  defp invoke_revision_service(service, decision_id, payload, opts, _store)
-       when is_function(service, 3) do
-    apply_revision_service(fn -> service.(decision_id, payload, opts) end)
-  end
-
-  defp invoke_revision_service(service, decision_id, payload, opts, store) when is_atom(service) do
-    cond do
-      function_exported?(service, :revise, 4) ->
-        apply_revision_service(fn -> apply(service, :revise, [decision_id, payload, opts, store]) end)
-
-      function_exported?(service, :revise, 3) ->
-        apply_revision_service(fn -> apply(service, :revise, [decision_id, payload, opts]) end)
-
-      true ->
-        {:error, :revision_service_unavailable}
-    end
-  end
-
-  defp invoke_revision_service(_service, _decision_id, _payload, _opts, _store),
-    do: {:error, :revision_service_unavailable}
-
-  defp apply_revision_service(fun) do
-    case fun.() do
-      {:ok, result} when is_map(result) -> {:ok, result}
-      {:error, reason} -> {:error, reason}
-      _invalid -> {:error, :revision_service_unavailable}
-    end
-  rescue
-    _error -> {:error, :revision_service_unavailable}
-  catch
-    :exit, _reason -> {:error, :revision_service_unavailable}
+  defp revision_opts(opts, actor, basis, authority) do
+    [actor: actor, supervisor_basis: basis, authority: authority]
+    |> maybe_put_option(:now, opts)
   end
 
   defp enrichment_opts(opts, actor, expected_version) do
@@ -469,6 +405,34 @@ defmodule Aiur.DecisionApi do
            status: status,
            decision: decision,
            action: action,
+           dispatch_status: dispatch_status
+         }}
+
+      {:error, reason} ->
+        {:error, reason}
+
+      _invalid ->
+        {:error, :store_unavailable}
+    end
+  end
+
+  defp write_revision(decision_id, payload, opts, store) do
+    case safe_store_call(fn -> DecisionStore.revise(decision_id, payload, opts, store) end) do
+      {:ok,
+       %{
+         status: status,
+         decision: %Decision{} = decision,
+         action: %DecisionRevision{} = action,
+         revision_result: revision_result,
+         dispatch_status: dispatch_status
+       }}
+      when status in [:accepted, :duplicate] and is_atom(revision_result) and is_atom(dispatch_status) ->
+        {:ok,
+         %{
+           status: status,
+           decision: decision,
+           action: action,
+           revision_result: revision_result,
            dispatch_status: dispatch_status
          }}
 

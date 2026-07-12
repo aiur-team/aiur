@@ -31,7 +31,6 @@ defmodule Aiur.HttpServer do
         decision_api = Keyword.get(opts, :decision_api, DecisionApi)
         decision_store = Keyword.get(opts, :decision_store, DecisionStore)
         decision_policy = Keyword.get(opts, :decision_policy)
-        decision_revision_service = Keyword.get(opts, :decision_revision_service)
 
         with {:ok, ip} <- parse_host(host),
              :ok <- guard_credentials_for_non_loopback(ip, host),
@@ -46,7 +45,6 @@ defmodule Aiur.HttpServer do
             decision_api: decision_api,
             decision_store: decision_store,
             decision_policy: decision_policy,
-            decision_revision_service: decision_revision_service,
             secret_key_base: secret_key_base()
           ]
 

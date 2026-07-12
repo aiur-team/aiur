@@ -1,7 +1,7 @@
 defmodule Aiur.DecisionEnrichmentTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.{DecisionAnswer, DecisionEnrichment, DecisionValidation}
+  alias Aiur.{DecisionAnswer, DecisionEnrichment, DecisionRevision, DecisionValidation}
 
   @actor %{kind: :supervisor, id: "supervising-agent"}
   @ticket %{identifier: "984", title: "OCC-7", url: "https://github.com/its-everdred/aiur/issues/984"}
@@ -168,27 +168,93 @@ defmodule Aiur.DecisionEnrichmentTest do
     }
 
     resolution = %{acknowledgement | detail: "Resolved", event_id: "resolve-1"}
+    revision_now = ~U[2026-07-12 11:02:00Z]
+
+    revision_normalizer = fn payload, _opts ->
+      DecisionAnswer.normalize(payload,
+        decision_id: current.decision_id,
+        decision_version: current.version,
+        options: current.options,
+        actor: %{kind: :operator, id: "operator-1"},
+        now: revision_now
+      )
+    end
+
+    assert {:ok, revision} =
+             DecisionRevision.normalize(
+               %{
+                 "idempotency_key" => "revision-after-answer",
+                 "expected_version" => current.version,
+                 "expected_action_id" => answer.action_id,
+                 "expected_revision_sequence" => 0,
+                 "custom_response" => "Corrected direction",
+                 "rationale" => "New evidence"
+               },
+               decision_id: current.decision_id,
+               decision_version: current.version,
+               current_action_id: answer.action_id,
+               current_revision_sequence: 0,
+               actor: %{kind: :operator, id: "operator-1"},
+               now: revision_now,
+               answer_normalizer: revision_normalizer
+             )
+
+    revision_outcome = %{
+      result: :dispatched,
+      reason_class: nil,
+      occurred_at: revision_now,
+      event_id: "revision-dispatched",
+      run_id: "run-1"
+    }
+
+    revision_follow_up = %{
+      action_id: revision.action_id,
+      slug: "decision-revision-follow-up",
+      question: "What should happen next?",
+      required_at: revision_now,
+      required_event_id: "follow-up-required",
+      handled_at: nil,
+      handled_event_id: nil,
+      handled_by: nil,
+      handled_detail: nil
+    }
 
     current =
       %{
         current
         | answer: answer,
+          active_action_id: revision.action_id,
+          revision_sequence: 1,
+          revisions: [revision],
+          revision_result: :dispatched,
+          revision_outcomes: %{revision.action_id => revision_outcome},
+          revision_follow_ups: %{revision.action_id => revision_follow_up},
           decision_status: :resolved,
           delivery_status: :consumed,
           dispatch_attempts: [dispatch_attempt],
           acknowledgement: acknowledgement,
-          resolution: resolution
+          resolution: resolution,
+          acknowledgements: %{answer.action_id => acknowledgement},
+          resolutions: %{answer.action_id => resolution}
       }
 
     assert {:ok, %{decision: enriched}} =
              normalize(current, %{"context" => %{"short_summary" => "Lifecycle-safe"}})
 
     assert enriched.answer == answer
+    assert enriched.active_action_id == revision.action_id
+    assert enriched.revision_sequence == 1
+    assert enriched.revisions == [revision]
+    assert enriched.revision_result == :dispatched
+    assert enriched.revision_outcomes == %{revision.action_id => revision_outcome}
+    assert enriched.revision_follow_ups == %{revision.action_id => revision_follow_up}
     assert enriched.decision_status == :resolved
     assert enriched.delivery_status == :consumed
     assert enriched.dispatch_attempts == [dispatch_attempt]
     assert enriched.acknowledgement == acknowledgement
     assert enriched.resolution == resolution
+    assert enriched.acknowledgements == %{answer.action_id => acknowledgement}
+    assert enriched.resolutions == %{answer.action_id => resolution}
   end
 
   defp current_decision do

@@ -153,9 +153,8 @@ defmodule AiurWeb.Router do
 
   defp present?(value), do: is_binary(value) and String.trim(value) != ""
 
-  # Origin/Referer allowlist. Accepts requests whose `Origin` (preferred)
-  # or `Referer` (fallback for older browsers) starts with the dashboard's
-  # own URL, or the loopback equivalents that operators typically use.
+  # Origin/Referer allowlist. Parses exact origins and accepts the configured
+  # dashboard host or loopback equivalents operators typically use.
   defp verify_same_origin(conn, _opts) do
     if origin_allowed?(conn) do
       conn
@@ -172,7 +171,7 @@ defmodule AiurWeb.Router do
   # tests) and fails closed: a missing/false value keeps the dashboard
   # observe-only.
   defp require_dashboard_writable(conn, _opts) do
-    if dashboard_writable?(conn) do
+    if dashboard_writable?() do
       conn
     else
       conn
@@ -182,15 +181,15 @@ defmodule AiurWeb.Router do
     end
   end
 
-  defp dashboard_writable?(conn) do
-    conn.private[:dashboard_writable] == true or AiurWeb.Endpoint.config(:dashboard_writable) == true
+  defp dashboard_writable? do
+    AiurWeb.Endpoint.config(:dashboard_writable) == true
   rescue
     _ -> false
   end
 
   defp require_custom_header(conn, _opts) do
     case Plug.Conn.get_req_header(conn, "x-aiur-request") do
-      ["1" | _] ->
+      ["1"] ->
         conn
 
       _ ->
@@ -227,11 +226,26 @@ defmodule AiurWeb.Router do
   end
 
   defp allowed_origins(conn) do
-    [request_origin(conn), safe_endpoint_origin(), {"http", "localhost", 80}, {"https", "localhost", 443}]
+    endpoint_origin = safe_endpoint_origin()
+
+    [trusted_request_origin(conn, endpoint_origin), endpoint_origin, {"http", "localhost", 80}, {"https", "localhost", 443}]
     |> Enum.reject(&is_nil/1)
     |> Enum.flat_map(&expand_loopback_aliases/1)
     |> Enum.uniq()
   end
+
+  defp trusted_request_origin(conn, endpoint_origin) do
+    case request_origin(conn) do
+      {_scheme, host, _port} = origin ->
+        if loopback_host?(host) or same_endpoint_host?(origin, endpoint_origin), do: origin
+
+      nil ->
+        nil
+    end
+  end
+
+  defp same_endpoint_host?({scheme, host, _port}, {scheme, host, _endpoint_port}), do: true
+  defp same_endpoint_host?(_request_origin, _endpoint_origin), do: false
 
   defp request_origin(%Plug.Conn{scheme: scheme, host: host, port: port})
        when scheme in [:http, :https] and is_binary(host) and is_integer(port) do

@@ -38,6 +38,29 @@ defmodule Aiur.DecisionDelegationTest do
            }
   end
 
+  test "normalizes revision reasoning while preserving OCC-8 correlation" do
+    decision = decision()
+
+    payload =
+      valid_payload()
+      |> Map.put("expected_action_id", "act_original")
+      |> Map.put("expected_revision_sequence", 0)
+
+    assert {:ok, delegation} = DecisionDelegation.normalize_revision(decision, payload, @policy)
+
+    assert delegation.answer_payload["expected_action_id"] == "act_original"
+    assert delegation.answer_payload["expected_revision_sequence"] == 0
+    assert delegation.answer_payload["rationale"] == "The canonical path preserves one audit."
+    assert delegation.basis.policy_basis.authority == :supervisor_allowed
+
+    assert {:error, {:delegation_invalid, {:unknown_fields, ["unexpected"]}}} =
+             DecisionDelegation.normalize_revision(
+               decision,
+               Map.put(payload, "unexpected", true),
+               @policy
+             )
+  end
+
   test "denies human-required, unallowlisted, and non-reversible decisions before normalization" do
     cases = [
       {decision(authority: :human_required), @policy, [:human_required]},

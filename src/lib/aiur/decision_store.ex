@@ -49,6 +49,7 @@ defmodule Aiur.DecisionStore do
     DecisionValidation,
     JsonStore
   }
+
   alias Aiur.Events.{IdGenerator, Publisher}
 
   @ndjson_filename "decisions.ndjson"
@@ -579,15 +580,11 @@ defmodule Aiur.DecisionStore do
     addressed = request_version(state, decision.decision_id, decision_version)
     options = if addressed, do: addressed.options, else: decision.options
     now = Keyword.get(opts, :now, DateTime.utc_now())
+    request = addressed || decision
+    normalization_opts = Keyword.put(opts, :now, now)
 
     answer_normalizer = fn answer_payload, _revision_opts ->
-      DecisionAnswer.normalize(answer_payload,
-        decision_id: decision.decision_id,
-        decision_version: decision_version,
-        options: options,
-        actor: actor,
-        now: now
-      )
+      normalize_answer(answer_payload, request, decision_version, options, actor, normalization_opts)
     end
 
     DecisionRevision.normalize(payload,
@@ -707,22 +704,48 @@ defmodule Aiur.DecisionStore do
     accepted = decision.answer
     addressed = request_version(state, decision.decision_id, accepted.decision_version) || decision
 
-    case normalize_answer(payload, decision, accepted.decision_version, addressed.options, actor, opts) do
+    case normalize_answer(payload, addressed, accepted.decision_version, addressed.options, actor, opts) do
       {:ok, replayed} -> evaluate_answer_replay(decision, accepted, replayed, state)
       {:error, reason} -> {:reply, {:error, answer_error(reason)}, state}
     end
   end
 
-  defp normalize_answer(payload, decision, decision_version, options, actor, opts) do
-    DecisionAnswer.normalize(payload,
-      decision_id: decision.decision_id,
-      decision_version: decision_version,
-      options: options,
-      actor: actor,
-      supervisor_basis: Keyword.get(opts, :supervisor_basis),
-      now: Keyword.get(opts, :now, DateTime.utc_now())
-    )
+  defp normalize_answer(payload, request, decision_version, options, actor, opts) do
+    with {:ok, answer} <-
+           DecisionAnswer.normalize(payload,
+             decision_id: request.decision_id,
+             decision_version: decision_version,
+             options: options,
+             actor: actor,
+             supervisor_basis: Keyword.get(opts, :supervisor_basis),
+             now: Keyword.get(opts, :now, DateTime.utc_now())
+           ),
+         :ok <- validate_answer_policy_context(answer, request) do
+      {:ok, answer}
+    end
   end
+
+  defp validate_answer_policy_context(
+         %DecisionAnswer{
+           actor: %{kind: :supervisor},
+           supervisor_basis: %{policy_basis: policy_basis}
+         },
+         %Decision{} = request
+       ) do
+    request_kind = request.kind && String.downcase(String.trim(request.kind))
+
+    if policy_basis.authority == request.authority and policy_basis.kind == request_kind and
+         policy_basis.reversibility == request.reversibility do
+      :ok
+    else
+      {:error, {:answer_invalid, {:supervisor_basis, :decision_mismatch}}}
+    end
+  end
+
+  defp validate_answer_policy_context(%DecisionAnswer{actor: %{kind: :supervisor}}, %Decision{}),
+    do: {:error, {:answer_invalid, {:supervisor_basis, :decision_mismatch}}}
+
+  defp validate_answer_policy_context(%DecisionAnswer{}, %Decision{}), do: :ok
 
   defp answer_error({:answer_invalid, {:stale_version, expected, current}}),
     do: {:conflict, {:stale_version, expected, current}}

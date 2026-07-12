@@ -16,6 +16,9 @@ defmodule Aiur.DecisionDelegation do
   @answer_fields ~w(custom_response expected_version idempotency_key option_id rationale)
   @reasoning_fields ~w(alternatives_considered confidence reversibility_belief)
   @allowed_fields @answer_fields ++ @reasoning_fields
+  @revision_correlation_fields ~w(expected_action_id expected_revision_sequence)
+  @revision_allowed_fields @allowed_fields ++ @revision_correlation_fields
+  @revision_answer_fields @answer_fields ++ @revision_correlation_fields
   @forbidden_fields ~w(action_id actor authority decision_id decision_version policy policy_basis supervisor_basis)
   @basis_fields ~w(alternatives_considered confidence policy_basis reversibility_belief)
   @policy_fields ~w(allow_non_reversible authority checks kind reversibility)
@@ -52,7 +55,7 @@ defmodule Aiur.DecisionDelegation do
     evaluation = DecisionAuthority.evaluate(decision, policy)
 
     if evaluation.allowed do
-      normalize_allowed(payload, evaluation)
+      normalize_allowed(payload, evaluation, @allowed_fields, @answer_fields)
     else
       {:error,
        {:delegation_forbidden,
@@ -64,6 +67,27 @@ defmodule Aiur.DecisionDelegation do
   end
 
   def normalize(%Decision{}, _payload, _policy),
+    do: {:error, {:delegation_invalid, {:payload, :invalid_type}}}
+
+  @doc "Authorizes and normalizes a supervisor revision plus OCC-8 correlation fields."
+  @spec normalize_revision(Decision.t(), map(), DecisionAuthority.policy() | term()) ::
+          {:ok, normalized()} | {:error, term()}
+  def normalize_revision(%Decision{} = decision, payload, policy) when is_map(payload) do
+    evaluation = DecisionAuthority.evaluate(decision, policy)
+
+    if evaluation.allowed do
+      normalize_allowed(payload, evaluation, @revision_allowed_fields, @revision_answer_fields)
+    else
+      {:error,
+       {:delegation_forbidden,
+        %{
+          checks: evaluation.checks,
+          reasons: evaluation.reasons
+        }}}
+    end
+  end
+
+  def normalize_revision(%Decision{}, _payload, _policy),
     do: {:error, {:delegation_invalid, {:payload, :invalid_type}}}
 
   @doc "Revalidates a canonical or decoded persisted supervisor basis."
@@ -107,9 +131,9 @@ defmodule Aiur.DecisionDelegation do
     }
   end
 
-  defp normalize_allowed(payload, evaluation) do
+  defp normalize_allowed(payload, evaluation, allowed_fields, answer_fields) do
     with {:ok, normalized} <- normalize_keys(payload),
-         :ok <- validate_payload_fields(normalized),
+         :ok <- validate_payload_fields(normalized, allowed_fields),
          {:ok, rationale} <- required_text(Map.get(normalized, "rationale"), @rationale_max, :rationale),
          {:ok, confidence} <- confidence(Map.get(normalized, "confidence")),
          {:ok, alternatives} <- alternatives(Map.get(normalized, "alternatives_considered")),
@@ -124,7 +148,7 @@ defmodule Aiur.DecisionDelegation do
 
       answer_payload =
         normalized
-        |> Map.take(@answer_fields)
+        |> Map.take(answer_fields)
         |> Map.put("rationale", rationale)
 
       {:ok, %{answer_payload: answer_payload, basis: basis, evaluation: evaluation}}
@@ -133,10 +157,10 @@ defmodule Aiur.DecisionDelegation do
     end
   end
 
-  defp validate_payload_fields(payload) do
+  defp validate_payload_fields(payload, allowed_fields) do
     keys = Map.keys(payload)
     forbidden = keys |> Enum.filter(&(&1 in @forbidden_fields)) |> Enum.sort()
-    unknown = keys |> Enum.reject(&(&1 in @allowed_fields or &1 in @forbidden_fields)) |> Enum.sort()
+    unknown = keys |> Enum.reject(&(&1 in allowed_fields or &1 in @forbidden_fields)) |> Enum.sort()
 
     cond do
       forbidden != [] -> {:error, {:forbidden_fields, forbidden}}

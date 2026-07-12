@@ -296,9 +296,17 @@ defmodule Aiur.DecisionEvent do
       | decision_status: :open,
         delivery_status: :not_dispatched,
         answer: nil,
+        active_action_id: nil,
+        revision_sequence: 0,
+        revisions: [],
+        revision_result: nil,
+        revision_outcomes: %{},
+        revision_follow_ups: %{},
         dispatch_attempts: [],
         acknowledgement: nil,
-        resolution: nil
+        resolution: nil,
+        acknowledgements: %{},
+        resolutions: %{}
     }
   end
 

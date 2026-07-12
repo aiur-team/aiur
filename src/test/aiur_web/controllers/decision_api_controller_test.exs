@@ -43,7 +43,7 @@ defmodule AiurWeb.DecisionApiControllerTest do
     cases = [
       {:enrich, :enrich, %{"status" => "accepted"}, 202},
       {:decide, :decide, %{"status" => "duplicate"}, 200},
-      {:revise, :revise, %{"status" => "recorded"}, 202}
+      {:revise, :revise, %{"status" => "accepted", "revision_result" => "recorded"}, 202}
     ]
 
     for {action, operation, result, expected_status} <- cases do
@@ -72,8 +72,10 @@ defmodule AiurWeb.DecisionApiControllerTest do
       {{:delegation_forbidden, %{reasons: [:human_required]}}, 403, "supervisor_forbidden"},
       {{:delegation_invalid, {:rationale, :missing}}, 422, "invalid_request"},
       {{:enrichment_invalid, {:forbidden_fields, ["authority"]}}, 422, "invalid_request"},
+      {{:decision_invalid, {:artifacts, :artifact_url_insecure_scheme}}, 422, "invalid_request"},
       {{:conflict, {:stale_version, 1, 2}}, 409, "decision_conflict"},
-      {:revision_service_unavailable, 503, "decision_service_unavailable"},
+      {{:answer_invalid, {:supervisor_basis, :decision_mismatch}}, 409, "decision_conflict"},
+      {:answer_missing, 409, "decision_conflict"},
       {{:store_unavailable, {:secret, "do-not-leak"}}, 503, "decision_service_unavailable"}
     ]
 

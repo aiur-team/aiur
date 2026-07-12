@@ -161,8 +161,26 @@ calls `OperatorMessages` or publishes an answer itself.
 ## Revise
 
 DecisionApi re-reads and authorizes the current Decision, rejects payload actor
-or authority substitution, then injects the trusted actor and recorded
-authority into OCC-8's public revision service. OCC-8 exclusively owns:
+or authority substitution, normalizes the same bounded supervisor reasoning
+required by Decide, then injects the trusted actor and server-derived policy
+basis into `DecisionStore.revise/5`. In addition to that reasoning, callers
+provide OCC-8's current request/action correlation:
+
+```json
+{
+  "expected_version": 2,
+  "expected_action_id": "act_current",
+  "expected_revision_sequence": 0,
+  "idempotency_key": "stable-client-key",
+  "custom_response": "Corrected direction",
+  "rationale": "What changed and why",
+  "confidence": 89,
+  "alternatives_considered": ["Keep the current direction"],
+  "reversibility_belief": "reversible"
+}
+```
+
+Exactly one option or custom response remains required. OCC-8 exclusively owns:
 
 - request/action/revision-sequence validation;
 - idempotency and one-winner semantics;
@@ -171,9 +189,11 @@ authority into OCC-8's public revision service. OCC-8 exclusively owns:
 - the durable parent `follow_up_required` fact and stable reminder projection;
 - durable handled/superseded facts before reminder resolution.
 
-A revision is corrective intent, not proof of rollback, reversion, undo, or
-successful application. DecisionApi does not inspect trackers, dispatch a
-message, open/resolve a reminder, or retry around OCC-8.
+A successful response includes the canonical `accepted`/`duplicate` mutation
+status, current Decision, immutable revision action, `revision_result`, and
+dispatch status. A revision is corrective intent, not proof of rollback,
+reversion, undo, or successful application. DecisionApi does not inspect
+trackers, dispatch a message, open/resolve a reminder, or retry around OCC-8.
 
 ## HTTP result vocabulary
 
@@ -187,7 +207,7 @@ message, open/resolve a reminder, or retry around OCC-8.
 | `404` | `decision_not_found` | Canonical Decision missing |
 | `405` | `method_not_allowed` | Known Decision route, unsupported method |
 | `409` | `decision_conflict` | Stale or idempotency/action correlation conflict |
-| `503` | `decision_service_unavailable` | Store or owning sibling service unavailable |
+| `503` | `decision_service_unavailable` | Canonical DecisionStore unavailable |
 
 Errors never include inspected exceptions, credentials, payloads, or raw
 downstream terms. Clients should refresh after a conflict. They may retry an
