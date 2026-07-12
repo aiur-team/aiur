@@ -5,8 +5,6 @@ defmodule Aiur.Init.Templates do
 
   alias Aiur.Init.Questions
 
-  @token_url "https://github.com/settings/tokens"
-
   # Scaffolded prompt_file template. PromptBuilder renders this as the whole
   # turn template (Liquid), so it must reference the issue or the agent gets
   # no task. The `{{REPO}}` placeholder is init-filled (not Liquid); turn-time
@@ -16,12 +14,7 @@ defmodule Aiur.Init.Templates do
   @prompt_example_template File.read!(@prompt_example_path)
   @repo_placeholder "{{REPO}}"
 
-  @env_example_content """
-  # aiur reads secrets from this file. Keep it out of version control.
-  # GitHub personal access token (repo scope). Create one at:
-  #   #{@token_url}
-  GITHUB_TOKEN=
-  """
+  @env_content "GITHUB_TOKEN=\n"
 
   # Embed the annotated example at compile time so the wizard works from a
   # release without a runtime file dependency. aiur dogfoods the `.aiur/` layout,
@@ -55,8 +48,8 @@ defmodule Aiur.Init.Templates do
   @spec config_example() :: String.t()
   def config_example, do: @example_template
 
-  @spec env_example_content() :: String.t()
-  def env_example_content, do: @env_example_content
+  @spec env_content() :: String.t()
+  def env_content, do: @env_content
 
   @doc "Raw .aiurhooks template that `aiur init` scaffolds."
   @spec aiurhooks_template() :: String.t()

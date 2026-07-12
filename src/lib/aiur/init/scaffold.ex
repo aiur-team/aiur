@@ -7,7 +7,7 @@ defmodule Aiur.Init.Scaffold do
   by the wizard flow.
   """
 
-  alias Aiur.Init.{Format, Templates}
+  alias Aiur.Init.{Dotenv, Format, Templates}
 
   @config_file_name ".aiur/config"
   @legacy_config_file_name ".aiurconfig"
@@ -15,7 +15,7 @@ defmodule Aiur.Init.Scaffold do
   @aiurhooks_file_name "hooks"
   @prewarm_file_name "prewarm"
   @env_file_name ".env"
-  @env_example_file_name ".env.example"
+  @github_token_key "GITHUB_TOKEN"
   @gitignore_entry ".aiur/"
 
   @doc false
@@ -132,17 +132,31 @@ defmodule Aiur.Init.Scaffold do
 
   @doc false
   @spec ensure_env(String.t()) :: {:created | :exists, Path.t()}
-  def ensure_env(example_content) do
+  def ensure_env(env_content) do
     cwd = File.cwd!()
-    File.write!(Path.join(cwd, @env_example_file_name), example_content)
     env_path = Path.join(cwd, @env_file_name)
 
     if File.regular?(env_path) do
+      existing = File.read!(env_path)
+      append_github_token_if_missing(env_path, existing, env_content)
       {:exists, env_path}
     else
-      File.write!(env_path, example_content)
+      File.write!(env_path, env_content)
       {:created, env_path}
     end
+  end
+
+  defp append_github_token_if_missing(env_path, existing, env_content) do
+    unless github_token_present?(existing) do
+      separator = if existing == "" or String.ends_with?(existing, "\n"), do: "", else: "\n"
+      File.write!(env_path, separator <> env_content, [:append])
+    end
+  end
+
+  defp github_token_present?(content) do
+    content
+    |> Dotenv.parse(include_empty: true)
+    |> Enum.any?(fn {key, _value} -> key == @github_token_key end)
   end
 
   @doc false
@@ -187,7 +201,7 @@ defmodule Aiur.Init.Scaffold do
   @doc false
   @spec setup_env(Aiur.Init.io(), Aiur.Init.deps(), map()) :: :ok
   def setup_env(io, deps, %{kind: "github"}) do
-    {status, path} = deps.ensure_env.(Templates.env_example_content())
+    {status, path} = deps.ensure_env.(Templates.env_content())
 
     case status do
       :created -> io.puts.(["Created: ", Format.dim(path)])

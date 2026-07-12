@@ -66,6 +66,31 @@ defmodule AiurEngineTest do
     assert out =~ "NOFILE_MATCH"
   end
 
+  test "engine captures a best-effort operator pid and preserves an explicit root" do
+    {out, 0} =
+      run_sourced_engine(
+        ~S|test "$AIUR_OPERATOR_PID" = "$PPID" && echo PARENT_MATCH|,
+        [{"AIUR_OPERATOR_PID", "invalid"}]
+      )
+
+    assert out =~ "PARENT_MATCH"
+
+    {override_out, 0} =
+      run_sourced_engine(
+        ~S|test "$AIUR_OPERATOR_PID" = "4242" && echo OVERRIDE_KEPT|,
+        [{"AIUR_OPERATOR_PID", "4242"}]
+      )
+
+    assert override_out =~ "OVERRIDE_KEPT"
+  end
+
+  test "tmux pane launcher re-exports resource attribution inputs" do
+    engine = File.read!(@engine)
+
+    assert engine =~
+             "AIUR_OPERATOR_PID AIUR_NOFILE_SOFT_LIMIT ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS"
+  end
+
   test "sourced-engine runs isolate the node identity so reaps can't hit a live host node" do
     # The engine's launch/stop paths reap any BEAM holding their node name
     # (`kill_beams_matching "-name $AIUR_RELEASE_NODE"`). When `mix test` sources
@@ -124,7 +149,31 @@ defmodule AiurEngineTest do
   test "usage describes init and no longer lists sweep" do
     {out, 0} = run_engine(["--help"], [])
     assert out =~ ~r/aiur init \[--force\]\s+scaffold/
+    assert out =~ "aiur run [--bg] [--debug]"
     refute out =~ "sweep"
+  end
+
+  test "run --bg uses the same background dispatch as top-level --bg" do
+    script = """
+    run_session() {
+      local mode="$1"
+      shift
+      printf 'MODE=%s ARGS=%s\\n' "$mode" "$*"
+    }
+    aiur_engine_main run --bg --debug
+    aiur_engine_main --bg --debug
+    aiur_engine_main run
+    aiur_engine_main
+    """
+
+    {out, 0} = run_sourced_engine(script, [])
+
+    assert String.split(out, "\n", trim: true) == [
+             "MODE=background ARGS=--debug",
+             "MODE=background ARGS=--debug",
+             "MODE=foreground ARGS=",
+             "MODE=foreground ARGS="
+           ]
   end
 
   test "--version is distribution-free so it never collides with a running node" do
