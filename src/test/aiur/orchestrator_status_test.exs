@@ -1880,11 +1880,16 @@ defmodule Aiur.OrchestratorStatusTest do
     assert_receive {:agent_queue_updated, "MT-OCC", accepted_id, _}
     assert accepted_id == accepted.id
 
+    running = :sys.get_state(pid).running
+    :sys.replace_state(pid, &%{&1 | running: %{}})
+
     assert {:ok, %{status: :duplicate, item: duplicate}} =
              Orchestrator.send_correlated_operator_message(orchestrator_name, "MT-OCC", payload)
 
     assert duplicate.id == accepted.id
     refute_receive {:agent_queue_updated, "MT-OCC", _, _}, 100
+
+    :sys.replace_state(pid, &%{&1 | running: running})
 
     assert {:ok, delivered} = OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-OCC")
     assert :ok = OperatorMessages.mark_queue_item_failed(orchestrator_name, delivered.id, :agent_unavailable)

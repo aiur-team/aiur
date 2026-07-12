@@ -352,14 +352,62 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   end
 
   defp enqueue_validated_operator_message(state, issue_identifier, text, request) do
-    case State.find_running_by_identifier(state.running, issue_identifier) do
-      nil ->
-        {{:error, :no_running_agent}, state}
+    case replay_existing_correlated_message(state, issue_identifier, text, request) do
+      {:handled, result} ->
+        result
 
-      running_entry ->
-        enqueue_for_running_entry(state, running_entry, issue_identifier, text, request)
+      :continue ->
+        case State.find_running_by_identifier(state.running, issue_identifier) do
+          nil ->
+            {{:error, :no_running_agent}, state}
+
+          running_entry ->
+            enqueue_for_running_entry(state, running_entry, issue_identifier, text, request)
+        end
     end
   end
+
+  defp replay_existing_correlated_message(
+         state,
+         issue_identifier,
+         text,
+         %{mode: :correlated, action_id: action_id} = request
+       )
+       when is_binary(action_id) do
+    case AgentQueueStore.find_by_action(state.queue_store, action_id) do
+      nil ->
+        :continue
+
+      existing ->
+        attrs = %{
+          target_issue_identifier: issue_identifier,
+          source: existing.source,
+          category: existing.category,
+          event_type: existing.event_type,
+          body: %{text: text},
+          delivery: existing.delivery,
+          action_id: action_id,
+          correlation: request.correlation,
+          causal_refs: existing.causal_refs
+        }
+
+        case AgentQueueStore.enqueue_correlated(state.queue_store, attrs) do
+          {:ok, _queue_store, _item, :duplicate}
+          when request.retry_failed and existing.status == :failed ->
+            :continue
+
+          {:ok, queue_store, item, :duplicate} ->
+            result = {{:ok, %{status: :duplicate, item: item}}, %{state | queue_store: queue_store}}
+            {:handled, result}
+
+          {:error, _reason} = error ->
+            {:handled, {error, state}}
+        end
+    end
+  end
+
+  defp replay_existing_correlated_message(_state, _issue_identifier, _text, _request),
+    do: :continue
 
   # Chatting with a paused agent auto-resumes it — but only if a slot is
   # free. Routing through `resume_paused_issue/2` reuses the same

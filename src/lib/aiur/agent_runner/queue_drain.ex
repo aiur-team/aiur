@@ -152,9 +152,15 @@ defmodule Aiur.AgentRunner.QueueDrain do
       )
       when is_integer(request_id) and is_binary(identifier) and is_binary(action_id) and is_map(correlation) do
     case DecisionStore.record_delivery(item, decision_store) do
-      {:ok, status} when status in [:accepted, :duplicate] -> OperatorWaitLog.record_delivered(request_id, identifier)
-      {:ok, :ignored} -> {:error, :decision_correlation_ignored}
-      {:error, reason} -> delivery_correlation_failed(identifier, action_id, reason)
+      {:ok, status} when status in [:accepted, :duplicate] ->
+        resolve_delivery_correlation_attention(identifier, action_id)
+        OperatorWaitLog.record_delivered(request_id, identifier)
+
+      {:ok, :ignored} ->
+        {:error, :decision_correlation_ignored}
+
+      {:error, reason} ->
+        delivery_correlation_failed(identifier, action_id, reason)
     end
   end
 
@@ -173,11 +179,10 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
   defp delivery_correlation_failed(identifier, action_id, reason) do
     Logger.warning("Decision delivery correlation failed issue=#{identifier} action_id=#{action_id} reason=#{inspect(reason)}")
-    action_slug = String.replace(action_id, "_", "-")
 
     _ =
       Alerts.emit_custom(
-        "ticket.#{identifier}.agent.attention.decision-delivery-correlation-#{action_slug}",
+        delivery_correlation_attention_topic(identifier, action_id),
         "Decision answer handoff could not be durably correlated; the queue item was restored.",
         issue: identifier,
         reason: "Decision action #{action_id} handoff correlation failed.",
@@ -186,6 +191,25 @@ defmodule Aiur.AgentRunner.QueueDrain do
       )
 
     {:error, reason}
+  end
+
+  defp resolve_delivery_correlation_attention(identifier, action_id) do
+    _ =
+      Alerts.emit_custom(
+        delivery_correlation_attention_topic(identifier, action_id) <> ".resolved",
+        "Decision answer handoff is durably correlated.",
+        issue: identifier,
+        reason: "Decision action #{action_id} handoff correlation recovered.",
+        needs_attention: false,
+        severity: "info"
+      )
+
+    :ok
+  end
+
+  defp delivery_correlation_attention_topic(identifier, action_id) do
+    action_slug = String.replace(action_id, "_", "-")
+    "ticket.#{identifier}.agent.attention.decision-delivery-correlation-#{action_slug}"
   end
 
   @doc false
