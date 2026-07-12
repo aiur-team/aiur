@@ -1355,24 +1355,25 @@ defmodule Aiur.DecisionStore do
       target: Map.get(item, :target_issue_identifier)
     }
 
-    with :ok <- require_transport_binary(context.decision_id),
-         :ok <- require_transport_version(context.decision_version),
-         :ok <- require_transport_action(context.action_id, action_id),
-         :ok <- require_transport_binary(context.attempt_id),
-         :ok <- require_transport_version(context.queue_item_id),
-         :ok <- require_transport_binary(context.target) do
-      {:ok, context}
+    case validate_transport_context(context, action_id) do
+      :ok -> {:ok, context}
+      error -> error
     end
   end
 
-  defp require_transport_binary(value) when is_binary(value), do: :ok
-  defp require_transport_binary(_value), do: {:error, :invalid_decision_correlation}
+  defp validate_transport_context(context, action_id) do
+    cond do
+      not is_binary(context.decision_id) -> {:error, :invalid_decision_correlation}
+      not positive_integer?(context.decision_version) -> {:error, :invalid_decision_correlation}
+      context.action_id != action_id -> {:error, :action_mismatch}
+      not is_binary(context.attempt_id) -> {:error, :invalid_decision_correlation}
+      not positive_integer?(context.queue_item_id) -> {:error, :invalid_decision_correlation}
+      not is_binary(context.target) -> {:error, :invalid_decision_correlation}
+      true -> :ok
+    end
+  end
 
-  defp require_transport_version(value) when is_integer(value) and value > 0, do: :ok
-  defp require_transport_version(_value), do: {:error, :invalid_decision_correlation}
-
-  defp require_transport_action(action_id, action_id), do: :ok
-  defp require_transport_action(_actual, _expected), do: {:error, :action_mismatch}
+  defp positive_integer?(value), do: is_integer(value) and value > 0
 
   defp correlation_value(correlation, key),
     do: Map.get(correlation, key, Map.get(correlation, Atom.to_string(key)))
