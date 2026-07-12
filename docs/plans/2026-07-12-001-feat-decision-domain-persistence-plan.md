@@ -89,9 +89,16 @@ during document, code, and human review.*
   (not the tracker project identity's last path segment alone, which collapses
   when `AIUR_INSTANCE_KEY` is empty and two repos share a directory name).
   Refuse to resolve or start when the instance key is empty or the project
-  identity is unavailable/defaults, and reject dot-only (`.`/`..`) path
-  components anywhere in the derived path instead of passing them through
-  character-class sanitization unchanged. Do not use ticket workspaces or
+  identity is unavailable/defaults. After building the Decision path, assert by
+  canonicalization that it still resolves beneath the configured state root
+  (the `Aiur.PathSafety` / `Workspace.Layout` root-containment precedent) so a
+  dot-only (`.`/`..`) component cannot escape the leaf — this containment check
+  belongs to the new Decision-path helper alone. It must not change the shared
+  `Aiur.Config.Paths.sanitize/1`, whose byte-for-byte output (including
+  `sanitize("..") == ".."`) is pinned by `config_paths_test.exs` as an on-disk
+  join key for four other consumers (workspace dirs, opencode model ids,
+  hook-settings temp files, test-reset paths); altering it would silently
+  rename their existing on-disk state. Do not use ticket workspaces or
   timestamped run logs.
 - R6. Replay the canonical stream at startup, safely truncate an
   unacknowledged incomplete final record, and fail closed in read-only mode on
@@ -356,11 +363,17 @@ logs and ticket workspaces.
   the tracker project identity, and refuse to resolve the path (fail closed,
   do not fall back to a shared default) when `AIUR_INSTANCE_KEY` is empty or
   the project identity is unavailable/defaults to `"aiur"`.
-- Harden the shared `Aiur.Config.Paths.sanitize/1` to reject dot-only path
-  components (`.`, `..`, and any segment that sanitizes to one) in addition to
-  its existing character-class filtering — today `sanitize("..")` returns
-  `".."` unchanged, so an identity like `foo/..` can escape the leaf. Every
-  existing consumer of `sanitize/1` benefits from this hardening.
+- Do **not** change `Aiur.Config.Paths.sanitize/1` itself — its byte-for-byte
+  output (including `sanitize("..") == ".."`) is pinned by
+  `config_paths_test.exs` as a cross-subsystem on-disk join key (workspace
+  dirs, opencode model ids, hook-settings temp files, test-reset paths), and
+  altering it would silently rename their existing state. Instead, after
+  joining the new helper's own sanitized components, canonicalize the full
+  path with `Path.expand/1` (or equivalent realpath resolution) and assert it
+  still resolves beneath the configured `AIUR_BG_STATE_DIR` root before use,
+  following the existing `Aiur.PathSafety` / `Workspace.Layout`
+  root-containment precedent — this rejects a `.`/`..` component (e.g.
+  `foo/..`) without touching `sanitize/1`'s shared contract.
 - Point test application boot at its existing suite-temporary root so the new
   always-on child cannot touch operator state.
 
@@ -386,8 +399,9 @@ logs and ticket workspaces.
   tracker project identity, refuses to resolve the Decision state path instead
   of silently sharing it with another instance.
 - Error path: an identity or instance-key component of `.` or `..` (e.g.
-  `foo/..`) is rejected by the hardened `sanitize/1` rather than passed
-  through unchanged.
+  `foo/..`) is rejected by the new helper's post-join root-containment check
+  (canonicalize and assert containment) without changing `sanitize/1`'s
+  existing pinned output for its other four consumers.
 - Test isolation: test boot resolves under the suite-temporary tree, never the
   operator's `AIUR_BG_STATE_DIR`.
 - Integration: after `Aiur.Boot.remark/0` simulates a reboot within one VM,
