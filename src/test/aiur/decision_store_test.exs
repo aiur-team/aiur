@@ -733,6 +733,17 @@ defmodule Aiur.DecisionStoreTest do
     test "target-agent failure waits for an explicit idempotent retry", %{dir: dir} do
       parent = self()
       counter = :counters.new(1, [])
+      original_log_file = Application.get_env(:aiur, :log_file)
+      log_root = Path.join(dir, "target-failure-alert-log")
+      Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+
+      on_exit(fn ->
+        if original_log_file do
+          Application.put_env(:aiur, :log_file, original_log_file)
+        else
+          Application.delete_env(:aiur, :log_file)
+        end
+      end)
 
       dispatcher = fn _decision, opts ->
         :ok = :counters.add(counter, 1, 1)
@@ -752,12 +763,17 @@ defmodule Aiur.DecisionStoreTest do
       assert_receive {:target_attempt, 1, false}, 1_000
       failed = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :failed))
       assert List.last(failed.dispatch_attempts).failure_reason_class == "target_agent_unavailable"
+
+      topic = "ticket.979.agent.attention.decision-delivery-#{String.replace(action.action_id, "_", "-")}"
+      assert [%{"topic" => ^topic}] = AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true)
+
       refute_receive {:target_attempt, _, _}, 100
 
       assert {:ok, :scheduled} = DecisionStore.retry_dispatch(decision.decision_id, action.action_id, pid)
       assert_receive {:target_attempt, 2, true}, 1_000
       settled = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :queued))
       assert Enum.map(settled.dispatch_attempts, & &1.status) == [:failed, :queued]
+      assert AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true) == []
     end
 
     test "projection repair failure after answer append suppresses dispatch", %{dir: dir} do
@@ -1001,6 +1017,7 @@ defmodule Aiur.DecisionStoreTest do
         )
 
       :ok = DecisionLog.append(Path.join(dir, "decisions.ndjson"), DecisionEvent.to_json_safe(invalid))
+      File.write!(Path.join(dir, "decisions.ndjson"), "not json at all\n", [:append])
 
       pid2 = start_store!(dir)
       assert {:corrupt, 2, {:invalid_transition, :answer_missing}} = DecisionStore.health(pid2)

@@ -100,7 +100,8 @@ defmodule Aiur.DecisionEvent do
   @doc "Decode and fully validate one typed durable event."
   @spec from_json_safe(map()) :: {:ok, t()} | {:error, term()}
   def from_json_safe(raw) when is_map(raw) do
-    with {:ok, type} <- decode_type(Map.get(raw, "event_type")),
+    with :ok <- validate_schema_version(Map.get(raw, "schema_version")),
+         {:ok, type} <- decode_type(Map.get(raw, "event_type")),
          {:ok, decision_id} <- fetch_string(raw, "decision_id", :decision_id),
          {:ok, decision_version} <- fetch_version(raw, "decision_version", :decision_version),
          {:ok, event_id} <- fetch_event_id(raw),
@@ -242,6 +243,7 @@ defmodule Aiur.DecisionEvent do
 
   defp event_material(type, event_id, run_id, decision_id, decision_version, occurred_at, data) do
     %{
+      schema_version: @schema_version,
       event_type: type,
       event_id: event_id,
       run_id: run_id,
@@ -279,6 +281,9 @@ defmodule Aiur.DecisionEvent do
 
   defp validate_type(type) when type in @types, do: :ok
   defp validate_type(_other), do: {:error, {:event_type, :unknown}}
+
+  defp validate_schema_version(@schema_version), do: :ok
+  defp validate_schema_version(_other), do: {:error, {:schema_version, :unsupported}}
 
   defp decode_type(type) when is_binary(type) do
     case Enum.find(@types, &(Atom.to_string(&1) == type)) do

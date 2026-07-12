@@ -214,7 +214,7 @@ defmodule Aiur.DecisionStore do
           health: :writable
         }
         |> repair_projection()
-        |> apply_corruption(corruption || transition_corruption)
+        |> apply_corruption(transition_corruption || corruption)
 
       {:error, reason} ->
         unavailable_state(ndjson_path, {:replay_failed, reason})
@@ -1365,8 +1365,13 @@ defmodule Aiur.DecisionStore do
     data = %{action_id: action_id, attempt_id: attempt_id, queue_item_id: nil, reason_class: reason_class}
 
     case build_and_persist_event(:failed, decision, data, DateTime.utc_now(), state) do
-      {:ok, next_state, updated} -> maybe_retry_transient(next_state, updated, reason_class)
-      {:error, append_reason} -> lifecycle_append_failed(state, :failed, append_reason)
+      {:ok, next_state, updated} ->
+        next_state
+        |> project_delivery_attention(decision, updated, :failed)
+        |> maybe_retry_transient(updated, reason_class)
+
+      {:error, append_reason} ->
+        lifecycle_append_failed(state, :failed, append_reason)
     end
   end
 
