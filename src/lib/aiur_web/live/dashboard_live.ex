@@ -5,9 +5,10 @@ defmodule AiurWeb.DashboardLive do
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
-  alias Aiur.{AgentChat, Alerts}
+  alias Aiur.{AgentChat, Alerts, DecisionPubSub}
   alias AiurWeb.{Endpoint, ObservabilityPubSub, Presenter}
   @runtime_tick_ms 1_000
+  @payload_reload_debounce_ms 50
 
   @impl true
   def mount(_params, _session, socket) do
@@ -18,10 +19,12 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:agent_log_modal, nil)
       |> assign(:drafts, %{})
       |> assign(:chat_errors, %{})
+      |> assign(:payload_reload_scheduled?, false)
       |> assign(:writable, dashboard_writable?())
 
     if connected?(socket) do
       :ok = ObservabilityPubSub.subscribe()
+      :ok = DecisionPubSub.subscribe()
       schedule_runtime_tick()
     end
 
@@ -36,13 +39,20 @@ defmodule AiurWeb.DashboardLive do
 
   @impl true
   def handle_info(:observability_updated, socket) do
-    payload = load_payload()
+    {:noreply, schedule_payload_reload(socket)}
+  end
 
+  @impl true
+  def handle_info({:decision_changed, _decision_id, _version}, socket) do
+    {:noreply, schedule_payload_reload(socket)}
+  end
+
+  @impl true
+  def handle_info(:reload_payload, socket) do
     {:noreply,
      socket
-     |> assign(:payload, payload)
-     |> assign(:now, DateTime.utc_now())
-     |> assign(:agent_log_modal, refresh_agent_log_modal(socket.assigns.agent_log_modal, payload))}
+     |> reload_payload()
+     |> assign(:payload_reload_scheduled?, false)}
   end
 
   @impl true
@@ -429,6 +439,159 @@ defmodule AiurWeb.DashboardLive do
         </section>
       <% end %>
 
+      <section class="section-card" id="decision-history">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">Decision history</h2>
+            <p class="section-copy">Append-only Decision changes with actor identity only where the audit record proves it.</p>
+          </div>
+        </div>
+
+        <%= if @payload.decision_history.status == :unavailable do %>
+          <p class="empty-state"><%= @payload.decision_history.message %></p>
+        <% else %>
+          <%= if @payload.decision_history.entries == [] do %>
+            <p class="empty-state">No Decision changes have been recorded.</p>
+          <% else %>
+            <div class="table-wrap">
+              <table class="data-table" style="min-width: 980px;">
+                <thead>
+                  <tr>
+                    <th>Changed</th>
+                    <th>Ticket</th>
+                    <th>Change</th>
+                    <th>Actor</th>
+                    <th>Decision</th>
+                    <th>Recorded outcome</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr :for={entry <- @payload.decision_history.entries}>
+                    <td class="mono numeric"><%= entry.changed_at || "n/a" %></td>
+                    <td>
+                      <%= if entry.ticket.url do %>
+                        <a class="issue-link" href={entry.ticket.url} rel="noreferrer">
+                          <%= entry.ticket.identifier || "n/a" %>
+                        </a>
+                      <% else %>
+                        <span><%= entry.ticket.identifier || "n/a" %></span>
+                      <% end %>
+                    </td>
+                    <td>
+                      <div class="detail-stack">
+                        <span class="state-badge"><%= format_label(entry.change) %></span>
+                        <span class="muted mono">v<%= entry.source_version || "?" %></span>
+                      </div>
+                    </td>
+                    <td>
+                      <div class="detail-stack">
+                        <span class={actor_badge_class(entry.actor.type)}><%= entry.actor.label %></span>
+                        <span class="muted"><%= format_label(entry.actor.type) %></span>
+                      </div>
+                    </td>
+                    <td>
+                      <div class="detail-stack">
+                        <span><%= entry.question || "Question unavailable" %></span>
+                        <span class="muted mono"><%= entry.decision_id || "n/a" %></span>
+                      </div>
+                    </td>
+                    <td><%= decision_outcome(entry) %></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          <% end %>
+        <% end %>
+      </section>
+
+      <section class="section-card" id="recent-repository-merges">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">Recent repository merges</h2>
+            <p class="section-copy">Bounded GitHub merge observations; branch linkage never implies agent or run causality.</p>
+          </div>
+        </div>
+
+        <%= if @payload.recent_merges.reconciliation[:partial?] == true do %>
+          <p class="inline-warning">
+            The GitHub Events window reached its <%= @payload.recent_merges.reconciliation.pages_fetched %>-page cap; older merges may be absent.
+          </p>
+        <% end %>
+
+        <%= if @payload.recent_merges.message do %>
+          <p class="inline-warning"><%= @payload.recent_merges.message %></p>
+        <% end %>
+
+        <%= if @payload.recent_merges.entries == [] do %>
+          <p class="empty-state">No recent repository merges are available.</p>
+        <% else %>
+          <div class="table-wrap">
+            <table class="data-table" style="min-width: 980px;">
+              <thead>
+                <tr>
+                  <th>Merged</th>
+                  <th>Pull request</th>
+                  <th>Head / ticket</th>
+                  <th>Merged by</th>
+                  <th>Observation</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={entry <- @payload.recent_merges.entries}>
+                  <td class="mono numeric"><%= entry.merged_at %></td>
+                  <td>
+                    <div class="detail-stack">
+                      <a class="issue-link" href={entry.url} rel="noreferrer">
+                        #<%= entry.number %> · <%= entry.title || "Untitled pull request" %>
+                      </a>
+                      <span :if={entry.summary} class="muted"><%= entry.summary %></span>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="detail-stack">
+                      <span class="mono"><%= entry.head_ref || "head unavailable" %></span>
+                      <span class="muted">
+                        <%= if entry.ticket_id do %>
+                          Ticket <%= entry.ticket_id %> derived from branch
+                        <% else %>
+                          No ticket attribution
+                        <% end %>
+                      </span>
+                    </div>
+                  </td>
+                  <td><%= entry.merged_by || "Unavailable" %></td>
+                  <td>
+                    <div class="detail-stack">
+                      <span class={merge_provenance_class(entry)}><%= merge_provenance(entry) %></span>
+                      <span :if={entry.observed_run_id} class="muted mono">
+                        Observer run <%= short_id(entry.observed_run_id) %>
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        <% end %>
+      </section>
+
+      <section class="section-card" id="telemetry-analytics">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">Telemetry analytics</h2>
+            <p class="section-copy"><%= @payload.analytics.message %></p>
+          </div>
+          <a
+            :if={@payload.analytics[:available?]}
+            class="primary-link"
+            href={@payload.analytics.path}
+          >Open analytics report</a>
+        </div>
+        <p :if={!@payload.analytics[:available?]} class="empty-state">
+          No durable telemetry input is present for this run.
+        </p>
+      </section>
+
       <%= if @agent_log_modal do %>
         <div class="modal-backdrop">
           <section class="modal-panel" phx-click-away="close-agent-log">
@@ -498,6 +661,22 @@ defmodule AiurWeb.DashboardLive do
 
   defp load_payload do
     Presenter.state_payload(orchestrator(), snapshot_timeout_ms())
+  end
+
+  defp reload_payload(socket) do
+    payload = load_payload()
+
+    socket
+    |> assign(:payload, payload)
+    |> assign(:now, DateTime.utc_now())
+    |> assign(:agent_log_modal, refresh_agent_log_modal(socket.assigns.agent_log_modal, payload))
+  end
+
+  defp schedule_payload_reload(%{assigns: %{payload_reload_scheduled?: true}} = socket), do: socket
+
+  defp schedule_payload_reload(socket) do
+    Process.send_after(self(), :reload_payload, @payload_reload_debounce_ms)
+    assign(socket, :payload_reload_scheduled?, true)
   end
 
   defp orchestrator do
@@ -608,6 +787,38 @@ defmodule AiurWeb.DashboardLive do
 
   defp pretty_value(nil), do: "n/a"
   defp pretty_value(value), do: inspect(value, pretty: true, limit: :infinity)
+
+  defp format_label(value), do: value |> to_string() |> String.replace("_", " ")
+
+  defp actor_badge_class(:human_operator), do: "state-badge state-badge-active"
+  defp actor_badge_class(:supervising_agent), do: "state-badge state-badge-warning"
+  defp actor_badge_class(:unknown), do: "state-badge state-badge-danger"
+  defp actor_badge_class(_type), do: "state-badge"
+
+  defp decision_outcome(entry) do
+    outcome =
+      entry.choice ||
+        entry.rationale ||
+        entry.dispatch_result ||
+        entry.acknowledgement_result ||
+        "No outcome recorded at this version."
+
+    if is_binary(outcome), do: outcome, else: pretty_value(outcome)
+  end
+
+  defp merge_provenance(%{backfilled?: true, live_observed?: true}),
+    do: "Backfilled + observed live"
+
+  defp merge_provenance(%{live_observed?: true}), do: "Observed live"
+  defp merge_provenance(_entry), do: "Backfilled"
+
+  defp merge_provenance_class(%{live_observed?: true}),
+    do: "state-badge state-badge-active"
+
+  defp merge_provenance_class(_entry), do: "state-badge state-badge-warning"
+
+  defp short_id(id) when is_binary(id) and byte_size(id) > 12, do: String.slice(id, 0, 12)
+  defp short_id(id), do: id
 
   defp find_running_entry(%{running: running}, issue_identifier) when is_list(running) do
     Enum.find(running, &(to_string(&1.issue_identifier) == issue_identifier))

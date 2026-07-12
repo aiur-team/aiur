@@ -30,6 +30,8 @@ defmodule Aiur.Decision do
     * `created_at` — canonical acceptance time, stamped by the store.
     * `source_created_at` — optional agent-reported time, provenance only;
       never controls audit order or notification age.
+    * `legacy_attention` — optional trusted `%{slug, topic}` provenance for a
+      Decision projected from the pre-OCC attention path.
     * `content_hash` — hash of the normalized payload (excludes
       `decision_id`/`version`/`created_at`), used for dedup/idempotency.
   """
@@ -48,6 +50,7 @@ defmodule Aiur.Decision do
         }
 
   @type artifact :: %{kind: :path | :url, value: String.t()}
+  @type legacy_attention :: %{slug: String.t(), topic: String.t()}
 
   @type t :: %__MODULE__{
           schema_version: pos_integer(),
@@ -73,6 +76,7 @@ defmodule Aiur.Decision do
           artifacts: [artifact()],
           created_at: DateTime.t(),
           source_created_at: DateTime.t() | nil,
+          legacy_attention: legacy_attention() | nil,
           content_hash: String.t()
         }
 
@@ -101,7 +105,8 @@ defmodule Aiur.Decision do
                 kind: nil,
                 recommendation: nil,
                 consequence_of_delay: nil,
-                source_created_at: nil
+                source_created_at: nil,
+                legacy_attention: nil
               ]
 
   @authorities [:human_required, :supervisor_allowed, :supervisor_preferred]

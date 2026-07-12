@@ -3,18 +3,26 @@ defmodule AiurWeb.Presenter do
   Shared projections for the observability API and dashboard.
   """
 
-  alias Aiur.{Config, Orchestrator}
+  alias Aiur.{Config, DecisionHistory, Orchestrator, RecentMerge, RecentMergeStore, RunTelemetry}
 
-  @spec state_payload(GenServer.name(), timeout()) :: map()
-  def state_payload(orchestrator, snapshot_timeout_ms) do
+  @recent_merge_limit 50
+
+  @spec state_payload(GenServer.name(), timeout(), keyword()) :: map()
+  def state_payload(orchestrator, snapshot_timeout_ms, opts \\ []) do
     generated_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
+    orchestrator
+    |> orchestrator_payload(snapshot_timeout_ms)
+    |> Map.put(:generated_at, generated_at)
+    |> Map.merge(auxiliary_payload(opts))
+  end
+
+  defp orchestrator_payload(orchestrator, snapshot_timeout_ms) do
     case Orchestrator.snapshot(orchestrator, snapshot_timeout_ms) do
       %{} = snapshot ->
         idle = Map.get(snapshot, :idle, [])
 
         %{
-          generated_at: generated_at,
           counts: %{
             running: length(snapshot.running),
             retrying: length(snapshot.retrying),
@@ -28,11 +36,129 @@ defmodule AiurWeb.Presenter do
         }
 
       :timeout ->
-        %{generated_at: generated_at, error: %{code: "snapshot_timeout", message: "Snapshot timed out"}}
+        %{error: %{code: "snapshot_timeout", message: "Snapshot timed out"}}
 
       :unavailable ->
-        %{generated_at: generated_at, error: %{code: "snapshot_unavailable", message: "Snapshot unavailable"}}
+        %{error: %{code: "snapshot_unavailable", message: "Snapshot unavailable"}}
     end
+  end
+
+  defp auxiliary_payload(opts) do
+    %{
+      decision_history: decision_history_payload(opts),
+      recent_merges: recent_merges_payload(opts),
+      analytics: analytics_payload(opts)
+    }
+  end
+
+  defp decision_history_payload(opts) do
+    provider = Keyword.get(opts, :decision_history_fun, fn -> DecisionHistory.list() end)
+
+    case safe_call(provider) do
+      {:ok, entries} when is_list(entries) ->
+        %{status: :available, entries: entries, message: nil}
+
+      _other ->
+        %{
+          status: :unavailable,
+          entries: [],
+          message: "Decision history is temporarily unavailable."
+        }
+    end
+  end
+
+  defp recent_merges_payload(opts) do
+    provider = Keyword.get(opts, :recent_merge_snapshot_fun, fn -> RecentMergeStore.snapshot() end)
+
+    case safe_call(provider) do
+      {:ok, %{merges: merges, health: health, reconciliation: reconciliation}}
+      when is_list(merges) and is_map(reconciliation) ->
+        %{
+          status: if(health == :writable, do: :available, else: :degraded),
+          entries:
+            merges
+            |> Enum.map(&recent_merge_payload/1)
+            |> Enum.reject(&is_nil/1)
+            |> Enum.take(@recent_merge_limit),
+          health: health,
+          reconciliation: reconciliation,
+          message: recent_merge_message(health)
+        }
+
+      _other ->
+        %{
+          status: :unavailable,
+          entries: [],
+          health: :unavailable,
+          reconciliation: %{status: :unknown, partial?: nil, pages_fetched: 0},
+          message: "Recent repository merges are temporarily unavailable."
+        }
+    end
+  end
+
+  defp recent_merge_payload(%RecentMerge{} = merge) do
+    %{
+      id: merge.id,
+      repository: merge.repository,
+      number: merge.number,
+      title: merge.title,
+      summary: merge.summary,
+      url: merge.url,
+      head_ref: merge.head_ref,
+      head_sha: merge.head_sha,
+      merge_commit_sha: merge.merge_commit_sha,
+      ticket_id: merge.ticket_id,
+      merged_by: merge.merged_by,
+      merged_at: DateTime.to_iso8601(merge.merged_at),
+      observation_source: merge.observation_source,
+      backfilled?: merge.backfilled?,
+      live_observed?: merge.live_observed?,
+      observed_run_id: merge.observed_run_id
+    }
+  end
+
+  defp recent_merge_payload(_merge), do: nil
+
+  defp recent_merge_message(:writable), do: nil
+
+  defp recent_merge_message(_health) do
+    "The durable merge audit is degraded; showing its last validated prefix."
+  end
+
+  defp analytics_payload(opts) do
+    provider = Keyword.get(opts, :telemetry_file_fun, &RunTelemetry.telemetry_file/0)
+
+    case safe_call(provider) do
+      {:ok, path} when is_binary(path) ->
+        if File.regular?(path) do
+          %{
+            available?: true,
+            path: "/analytics",
+            message: "Open the separate durable telemetry report."
+          }
+        else
+          analytics_unavailable()
+        end
+
+      _other ->
+        analytics_unavailable()
+    end
+  end
+
+  defp analytics_unavailable do
+    %{
+      available?: false,
+      path: nil,
+      message: "Telemetry analytics are available after a debug telemetry run."
+    }
+  end
+
+  defp safe_call(fun) when is_function(fun, 0) do
+    {:ok, fun.()}
+  rescue
+    _error -> :error
+  catch
+    :exit, _reason -> :error
   end
 
   @spec issue_payload(String.t(), GenServer.name(), timeout()) :: {:ok, map()} | {:error, :issue_not_found}

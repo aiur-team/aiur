@@ -115,6 +115,7 @@ defmodule Aiur.Application do
       Aiur.Events.Publisher,
       Aiur.DecisionStore,
       Aiur.DecisionMetrics,
+      Aiur.RecentMergeStore,
       Aiur.GitHub.CodeOwners,
       {Registry, keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry},
       Aiur.Events.SubscriptionStoreSupervisor,
