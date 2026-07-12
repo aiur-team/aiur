@@ -66,7 +66,7 @@ defmodule AiurWeb.Presenter do
   end
 
   defp issue_payload_body(issue_identifier, running, retry, idle) do
-    payload = %{
+    %{
       issue_identifier: issue_identifier,
       issue_id: issue_id_from_entries(running, retry, idle),
       status: issue_status(running, retry, idle),
@@ -78,23 +78,20 @@ defmodule AiurWeb.Presenter do
         restart_count: restart_count(retry),
         current_retry_attempt: retry_attempt(retry)
       },
-      running: running && running_issue_payload(running),
-      retry: retry && retry_issue_payload(retry),
-      capabilities: running && Map.get(running, :control),
+      running: optional_running_payload(running),
+      retry: optional_retry_payload(retry),
+      capabilities: issue_capabilities(running),
       queue: %{
-        depth:
-          (running && Map.get(running, :queue_depth)) ||
-            (idle && Map.get(idle, :queue_depth)) || 0
+        depth: issue_queue_depth(running, idle)
       },
       logs: %{
         codex_session_logs: []
       },
-      recent_events: (running && recent_events_payload(running)) || [],
-      last_error: retry && retry.error,
+      recent_events: optional_recent_events(running),
+      last_error: retry_error(retry),
       tracked: %{}
     }
-
-    if idle, do: Map.put(payload, :idle, idle_entry_payload(idle)), else: payload
+    |> maybe_put_idle_payload(idle)
   end
 
   defp issue_id_from_entries(running, retry, idle),
@@ -107,6 +104,30 @@ defmodule AiurWeb.Presenter do
   defp issue_status(running, _retry, _idle) when is_map(running), do: "running"
   defp issue_status(_running, retry, _idle) when is_map(retry), do: "retrying"
   defp issue_status(_running, _retry, idle) when is_map(idle), do: "idle"
+
+  defp optional_running_payload(nil), do: nil
+  defp optional_running_payload(running), do: running_issue_payload(running)
+
+  defp optional_retry_payload(nil), do: nil
+  defp optional_retry_payload(retry), do: retry_issue_payload(retry)
+
+  defp issue_capabilities(nil), do: nil
+  defp issue_capabilities(running), do: Map.get(running, :control)
+
+  defp issue_queue_depth(running, _idle) when is_map(running),
+    do: Map.get(running, :queue_depth, 0)
+
+  defp issue_queue_depth(nil, idle) when is_map(idle), do: Map.get(idle, :queue_depth, 0)
+  defp issue_queue_depth(nil, nil), do: 0
+
+  defp optional_recent_events(nil), do: []
+  defp optional_recent_events(running), do: recent_events_payload(running)
+
+  defp retry_error(nil), do: nil
+  defp retry_error(retry), do: retry.error
+
+  defp maybe_put_idle_payload(payload, nil), do: payload
+  defp maybe_put_idle_payload(payload, idle), do: Map.put(payload, :idle, idle_entry_payload(idle))
 
   defp running_entry_payload(entry) do
     %{
