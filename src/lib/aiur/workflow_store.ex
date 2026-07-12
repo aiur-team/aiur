@@ -29,11 +29,21 @@ defmodule Aiur.WorkflowStore do
   def current do
     case Process.whereis(__MODULE__) do
       pid when is_pid(pid) ->
-        GenServer.call(__MODULE__, :current)
+        current_from(pid)
 
       _ ->
         Workflow.load()
     end
+  end
+
+  defp current_from(pid) do
+    GenServer.call(pid, :current)
+  catch
+    :exit, {reason, {GenServer, :call, [^pid, :current, _timeout]}} when reason in [:normal, :noproc, :shutdown] ->
+      Workflow.load()
+
+    :exit, {{:shutdown, _reason}, {GenServer, :call, [^pid, :current, _timeout]}} ->
+      Workflow.load()
   end
 
   @spec force_reload() :: :ok | {:error, term()}
