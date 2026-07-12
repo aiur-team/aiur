@@ -13,6 +13,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.{Issue, Tracker}
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, PrAnchored, State}
+  alias Aiur.RunTelemetry.Lifecycle
 
   @comment_rework_retry_delay_ms 2_000
   @comment_rework_max_attempts 5
@@ -81,7 +82,7 @@ defmodule Aiur.Orchestrator.CommentWake do
           pos_integer()
         ) :: State.t()
   def maybe_transition_idle_issue_to_rework(state, issue_number, source, event, attempt) do
-    case transition_comment_issue_to_rework(issue_number, source, event) do
+    case transition_comment_issue_to_rework(issue_number, issue_number, source, event, nil) do
       :ok ->
         seed_idle_comment_wake_event(state, issue_number, event)
 
@@ -201,11 +202,37 @@ defmodule Aiur.Orchestrator.CommentWake do
     terminal = DispatchPolicy.terminal_state_set()
 
     if DispatchPolicy.should_dispatch_issue?(issue, state, active, terminal) do
-      Dispatcher.dispatch_issue(state, issue)
+      state
+      |> Dispatcher.dispatch_issue(issue)
+      |> maybe_record_comment_rework_resume(issue)
     else
       Orchestrator.schedule_poll_cycle_start()
       state
     end
+  end
+
+  # The successful state transition above captures the comment's rework intent,
+  # but dispatch admission must continue to use the subsequently fetched state.
+  # When that read is stale-but-active, record the intent only after a worker is
+  # actually admitted; Dispatcher records the normal fetched-`rework` case.
+  defp maybe_record_comment_rework_resume(%State{} = state, %Issue{} = issue) do
+    case Map.get(state.running, issue.id) do
+      %{pid: pid, issue: %Issue{} = dispatched_issue} = entry when is_pid(pid) ->
+        if DispatchPolicy.normalize_issue_state(dispatched_issue.state) != "rework" do
+          Lifecycle.record(
+            issue.identifier,
+            Map.get(entry, :telemetry_attempt_id),
+            :agent_resume,
+            :point,
+            %{cause: :rework_dispatch}
+          )
+        end
+
+      _other ->
+        :ok
+    end
+
+    state
   end
 
   defp fetch_comment_dispatch_issue(identifier) do
@@ -253,7 +280,13 @@ defmodule Aiur.Orchestrator.CommentWake do
        ) do
     issue_key = rework_issue_key(running_entry, issue_number)
 
-    case transition_comment_issue_to_rework(issue_key, source, event) do
+    case transition_comment_issue_to_rework(
+           issue_key,
+           issue_number,
+           source,
+           event,
+           Map.get(running_entry, :telemetry_attempt_id)
+         ) do
       :ok ->
         revalidate_comment_reactivation(state, running_entry, issue_number, source)
 
@@ -271,7 +304,7 @@ defmodule Aiur.Orchestrator.CommentWake do
     end
   end
 
-  defp transition_comment_issue_to_rework(issue_number, _source, event) do
+  defp transition_comment_issue_to_rework(issue_key, telemetry_ticket, source, event, attempt_id) do
     cond do
       not trusted_comment_event?(event) ->
         {:skip, :untrusted_author}
@@ -280,7 +313,21 @@ defmodule Aiur.Orchestrator.CommentWake do
         {:skip, :benign_review_pass_comment}
 
       true ->
-        Tracker.update_issue_state(to_string(issue_number), "rework")
+        case Tracker.update_issue_state(to_string(issue_key), "rework") do
+          :ok ->
+            Lifecycle.record(
+              to_string(telemetry_ticket),
+              attempt_id,
+              :rework_start,
+              :point,
+              %{source: source, outcome: :success}
+            )
+
+            :ok
+
+          {:error, _reason} = error ->
+            error
+        end
     end
   end
 

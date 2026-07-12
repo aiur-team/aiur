@@ -53,11 +53,21 @@ defmodule Aiur.ProcessReaperTest do
   end
 
   test "entries returns normalized registered refs for observers", %{reaper: reaper} do
-    :ok = ProcessReaper.register(reaper, :agent, {:os_pid, "4242"}, comm: "codex")
+    :ok =
+      ProcessReaper.register(reaper, :agent, {:os_pid, "4242"},
+        comm: "codex",
+        ticket: "930",
+        backend: "codex",
+        remote: false
+      )
+
     :ok = ProcessReaper.register(reaper, :serve, {:os_pid, 77}, comm: "opencode")
 
-    assert {{:os_pid, 4242}, :agent, %{comm: "codex"}} in ProcessReaper.entries(reaper)
-    assert {{:os_pid, 77}, :serve, %{comm: "opencode"}} in ProcessReaper.entries(reaper)
+    entries = ProcessReaper.entries(reaper)
+
+    assert {{:os_pid, 4242}, :agent, %{comm: "codex", ticket: "930", backend: "codex", remote: false}} in entries
+
+    assert {{:os_pid, 77}, :serve, %{comm: "opencode"}} in entries
   end
 
   test "nil and garbage refs are ignored", %{reaper: reaper} do

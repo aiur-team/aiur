@@ -12,7 +12,7 @@ defmodule Aiur.Claude.Repl.Launcher do
   alias Aiur.Claude.Repl.Command
   alias Aiur.Claude.Repl.RcAttach
   alias Aiur.Claude.Repl.Reaper
-  alias Aiur.Tmux
+  alias Aiur.{ProcessReaper, Tmux}
 
   @ready_prompt "❯"
   @ready_poll_ms 200
@@ -55,6 +55,7 @@ defmodule Aiur.Claude.Repl.Launcher do
       rc?: rc?,
       rc_name: rc_name,
       identifier: Keyword.get(opts, :identifier),
+      process_reaper: Keyword.get(opts, :process_reaper, ProcessReaper),
       hooks?: is_binary(settings_path),
       started_at: started_at,
       resume_id: resume_id,
@@ -90,8 +91,9 @@ defmodule Aiur.Claude.Repl.Launcher do
 
         # The pane runs `exec claude`, so the pane pid IS the REPL; register
         # both so shutdown reaps survive either teardown path going stale.
-        Aiur.ProcessReaper.register(:agent, {:pane, pane_id})
-        Aiur.ProcessReaper.register(:agent, {:os_pid, os_pid}, comm: "claude")
+        actor_meta = [ticket: ctx.identifier, backend: "claude-repl", worker_host: nil, remote: false]
+        ProcessReaper.register(ctx.process_reaper, :agent, {:pane, pane_id}, actor_meta)
+        ProcessReaper.register(ctx.process_reaper, :agent, {:os_pid, os_pid}, [comm: "claude"] ++ actor_meta)
 
         build_ready_session(ctx, pane_id, os_pid)
 

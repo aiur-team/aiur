@@ -146,7 +146,9 @@ defmodule Aiur.LogFile do
     :ok
   end
 
-  defp debug_enabled? do
+  @doc "Returns whether daemon debug behavior is enabled for this boot."
+  @spec debug_enabled?() :: boolean()
+  def debug_enabled? do
     case System.get_env("AIUR_DEBUG") do
       value when is_binary(value) ->
         String.downcase(String.trim(value)) in ["1", "true", "yes"]

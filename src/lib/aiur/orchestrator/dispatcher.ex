@@ -27,6 +27,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   }
 
   alias Aiur.Orchestrator.RetryEngine
+  alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
   @spec run_poll_cycle(State.t()) :: {:noreply, State.t()}
   def run_poll_cycle(%State{} = state) do
@@ -411,9 +412,23 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host) do
+    lifecycle_attempt_id =
+      if TelemetryLifecycle.enabled?(),
+        do: TelemetryLifecycle.new_attempt_id(issue.identifier)
+
+    if lifecycle_attempt_id do
+      TelemetryLifecycle.record(issue.identifier, lifecycle_attempt_id, :dispatch, :point, %{
+        outcome: :requested,
+        worker_host: worker_host,
+        remote: is_binary(worker_host),
+        retry_attempt: RetryEngine.normalize_retry_attempt(attempt)
+      })
+    end
+
     case Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
            AgentRunner.run(issue, recipient,
              attempt: attempt,
+             telemetry_attempt_id: lifecycle_attempt_id,
              worker_host: worker_host,
              orchestrator: recipient
            )
@@ -422,6 +437,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         ref = Process.monitor(pid)
 
         Logger.info("Dispatching issue to agent: #{State.issue_context(issue)} pid=#{inspect(pid)} attempt=#{inspect(attempt)} worker_host=#{worker_host || "local"}")
+        record_rework_resume(issue, lifecycle_attempt_id)
 
         running =
           Map.put(state.running, issue.id, %{
@@ -447,6 +463,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
             agent_last_reported_total_tokens: 0,
             turn_count: 0,
             control: default_running_control(issue),
+            telemetry_attempt_id: lifecycle_attempt_id,
             retry_attempt: RetryEngine.normalize_retry_attempt(attempt),
             started_at: DateTime.utc_now()
           })
@@ -467,6 +484,18 @@ defmodule Aiur.Orchestrator.Dispatcher do
           error: "failed to spawn agent: #{inspect(reason)}",
           worker_host: worker_host
         })
+    end
+  end
+
+  defp record_rework_resume(%Issue{} = issue, attempt_id) do
+    if DispatchPolicy.normalize_issue_state(issue.state) == "rework" do
+      TelemetryLifecycle.record(
+        issue.identifier,
+        attempt_id,
+        :agent_resume,
+        :point,
+        %{cause: :rework_dispatch}
+      )
     end
   end
 
