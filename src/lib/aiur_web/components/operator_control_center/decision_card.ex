@@ -3,7 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
 
   use Phoenix.Component
 
-  alias AiurWeb.OperatorControlCenter.{DecisionDetail, LifecycleComponents}
+  alias AiurWeb.OperatorControlCenter.{DecisionDetail, DecisionPath, LifecycleComponents}
   alias Phoenix.LiveView.JS
 
   attr(:decision, :map, required: true)
@@ -12,12 +12,15 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
   attr(:history, :list, default: [])
   attr(:action_state, :map, default: %{})
   attr(:writable, :boolean, required: true)
+  attr(:filter, :atom, default: :all)
 
   @spec decision_card(map()) :: Phoenix.LiveView.Rendered.t()
   def decision_card(assigns) do
     assigns =
       assigns
       |> assign(:age, age(assigns.decision.created_at, assigns.now))
+      |> assign(:collapsed_path, DecisionPath.inbox(assigns.filter))
+      |> assign(:detail_path, DecisionPath.detail(assigns.decision.decision_id, assigns.filter))
       |> assign(:source_label, source_label(assigns.decision))
       |> assign(:recommendation_label, recommendation_label(assigns.decision))
 
@@ -30,7 +33,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
     >
       <span class="severity-rail"></span>
       <.link
-        patch={if @selected, do: "/decisions", else: "/decisions/#{@decision.decision_id}"}
+        patch={if @selected, do: @collapsed_path, else: @detail_path}
         class="decision-card-head"
         aria-expanded={to_string(@selected)}
       >
@@ -62,6 +65,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
           history={@history}
           action_state={@action_state}
           writable={@writable}
+          filter={@filter}
         />
       </div>
     </article>

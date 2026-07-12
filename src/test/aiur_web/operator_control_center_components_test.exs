@@ -112,7 +112,13 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     }
 
     decisions = [%{decision_id: "dec-accessible", ticket: %{identifier: "AIUR-987"}}]
-    html = render_component(&FleetTable.fleet_table/1, %{fleet: fleet, decisions: decisions, now: ~U[2026-07-12 13:00:00Z]})
+
+    html =
+      render_component(&FleetTable.fleet_table/1, %{
+        fleet: fleet,
+        decisions: decisions,
+        now: ~U[2026-07-12 13:00:00Z]
+      })
 
     assert html =~ ~s(aria-label="Open pending decision")
     assert html =~ ~s(aria-label="Read agent conversation")
@@ -253,9 +259,24 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
 
     decisions = [
       inbox_decision("dec-open"),
-      inbox_decision("dec-undelivered", decision_status: :decided, delivery_status: :queued, lifecycle: :dispatch_pending, answer: operator_answer),
-      inbox_decision("dec-supervisor", decision_status: :decided, delivery_status: :delivered, lifecycle: :delivered, answer: supervisor_answer),
-      inbox_decision("dec-resolved", decision_status: :resolved, delivery_status: :delivered, lifecycle: :resolved, answer: operator_answer),
+      inbox_decision("dec-undelivered",
+        decision_status: :decided,
+        delivery_status: :queued,
+        lifecycle: :dispatch_pending,
+        answer: operator_answer
+      ),
+      inbox_decision("dec-supervisor",
+        decision_status: :decided,
+        delivery_status: :delivered,
+        lifecycle: :delivered,
+        answer: supervisor_answer
+      ),
+      inbox_decision("dec-resolved",
+        decision_status: :resolved,
+        delivery_status: :delivered,
+        lifecycle: :resolved,
+        answer: operator_answer
+      ),
       inbox_decision(
         "dec-superseded",
         decision_status: :decided,

@@ -7,7 +7,7 @@ defmodule AiurWeb.DashboardLiveTest do
   alias Aiur.{Decision, DecisionEvent, DecisionPubSub, DecisionStore, Issue}
   alias Aiur.Orchestrator
   alias Aiur.RecentMerge
-  alias AiurWeb.{ControlCenterPresenter, DashboardLive, ObservabilityPubSub, Presenter}
+  alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, DashboardLive, ObservabilityPubSub, Presenter}
 
   @endpoint AiurWeb.Endpoint
 
@@ -50,7 +50,14 @@ defmodule AiurWeb.DashboardLiveTest do
     @impl true
     def handle_call(:list, _from, state), do: {:reply, [state.decision], state}
     def handle_call(:all_history, _from, state), do: {:reply, %{state.decision.decision_id => [state.decision]}, state}
-    def handle_call(:all_audit_history, _from, state), do: {:reply, %{state.decision.decision_id => [state.decision]}, state}
+
+    def handle_call(:all_audit_history, _from, state) do
+      {:reply, %{state.decision.decision_id => [state.decision]}, state}
+    end
+
+    def handle_call({:recent_audit_history, _limit}, _from, state) do
+      {:reply, %{records: [state.decision], contexts: %{}, revisions: %{}}, state}
+    end
 
     def handle_call({:answer, decision_id, payload, opts}, _from, state) do
       send(state.report, {:dashboard_answer_attempt, decision_id, payload, opts})
@@ -73,7 +80,14 @@ defmodule AiurWeb.DashboardLiveTest do
     @impl true
     def handle_call(:list, _from, state), do: {:reply, [state.decision], state}
     def handle_call(:all_history, _from, state), do: {:reply, %{state.decision.decision_id => [state.decision]}, state}
-    def handle_call(:all_audit_history, _from, state), do: {:reply, %{state.decision.decision_id => [state.decision]}, state}
+
+    def handle_call(:all_audit_history, _from, state) do
+      {:reply, %{state.decision.decision_id => [state.decision]}, state}
+    end
+
+    def handle_call({:recent_audit_history, _limit}, _from, state) do
+      {:reply, %{records: [state.decision], contexts: %{}, revisions: %{}}, state}
+    end
 
     def handle_call({:revise, decision_id, payload, opts}, _from, state) do
       send(state.report, {:dashboard_revision_attempt, decision_id, payload, opts})
@@ -223,7 +237,11 @@ defmodule AiurWeb.DashboardLiveTest do
 
     payload =
       fleet_payload
-      |> ControlCenterPresenter.compose([], [], %{merges: [], health: :ready, reconciliation: %{status: :complete, partial?: false}})
+      |> ControlCenterPresenter.compose([], [], %{
+        merges: [],
+        health: :ready,
+        reconciliation: %{status: :complete, partial?: false}
+      })
       |> Map.put(:decisions, [decision])
       |> Map.put(:overview, %{
         blocking_decisions: 1,
@@ -233,7 +251,13 @@ defmodule AiurWeb.DashboardLiveTest do
       })
 
     inbox_html = render_payload(fleet_payload, payload: payload, live_action: :decisions)
-    detail_html = render_payload(fleet_payload, payload: payload, live_action: :decision, selected_decision_id: decision.decision_id)
+
+    detail_html =
+      render_payload(fleet_payload,
+        payload: payload,
+        live_action: :decision,
+        selected_decision_id: decision.decision_id
+      )
 
     assert inbox_html =~ ~s(src="/aiur-logo.png")
     assert inbox_html =~ ~s(href="/decisions/dec-safe-link")
@@ -298,7 +322,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ "Open analytics report"
   end
 
-  test "coalesces observability backfill and decision broadcasts into one reload" do
+  test "coalesces broadcasts and shares the capped reload across open dashboards" do
     orchestrator_name = Module.concat(__MODULE__, :CountingOrchestratorInstance)
 
     start_supervised!(
@@ -317,19 +341,73 @@ defmodule AiurWeb.DashboardLiveTest do
 
     {:ok, view, _html} = live(build_conn(), "/")
     initial_count = CountingOrchestrator.snapshot_count(orchestrator_name)
+    {:ok, second_view, _html} = live(build_conn(), "/")
+    assert CountingOrchestrator.snapshot_count(orchestrator_name) == initial_count
 
     for version <- 1..25 do
       ObservabilityPubSub.broadcast_update()
       DecisionPubSub.broadcast_changed("decision-#{version}", version)
     end
 
-    assert eventually(fn -> CountingOrchestrator.snapshot_count(orchestrator_name) == initial_count + 1 end)
-    Process.sleep(75)
+    assert eventually(fn -> CountingOrchestrator.snapshot_count(orchestrator_name) == initial_count + 1 end, 100)
+    Process.sleep(100)
     _html = render(view)
+    _html = render(second_view)
     assert CountingOrchestrator.snapshot_count(orchestrator_name) == initial_count + 1
 
     DecisionPubSub.broadcast_changed("decision-only", 26)
-    assert eventually(fn -> CountingOrchestrator.snapshot_count(orchestrator_name) == initial_count + 2 end)
+    assert eventually(fn -> CountingOrchestrator.snapshot_count(orchestrator_name) == initial_count + 2 end, 100)
+  end
+
+  test "persists a decision filter in the URL while opening and closing a card" do
+    orchestrator_name = Module.concat(__MODULE__, :FilterOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :FilterDecisionStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 506}}}
+      end)
+
+    decision = request_dashboard_decision(store, "dashboard-filter")
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/decisions")
+
+    view
+    |> element(~s(button[phx-click="filter-decisions"][phx-value-filter="blocking"]))
+    |> render_click()
+
+    assert_patch(view, "/decisions?filter=blocking")
+
+    view
+    |> element("#decision-#{decision.decision_id} .decision-card-head")
+    |> render_click()
+
+    assert_patch(view, "/decisions/#{decision.decision_id}?filter=blocking")
+
+    view
+    |> element("#decision-#{decision.decision_id} .decision-card-head")
+    |> render_click()
+
+    assert_patch(view, "/decisions?filter=blocking")
+  end
+
+  test "malformed filter and agent-log events do not crash the dashboard" do
+    orchestrator_name = Module.concat(__MODULE__, :MalformedEventOrchestrator)
+    start_counting_orchestrator(orchestrator_name)
+    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 100)
+
+    {:ok, view, _html} = live(build_conn(), "/decisions")
+
+    assert render_hook(view, "filter-decisions", %{}) =~ "Decision inbox"
+    assert render_hook(view, "show-agent-log", %{}) =~ "Decision inbox"
+    assert Process.alive?(view.pid)
   end
 
   test "writable decision form records once and retries a canonical delivery failure" do
@@ -375,7 +453,7 @@ defmodule AiurWeb.DashboardLiveTest do
              current.delivery_status == :failed
            end)
 
-    assert eventually(fn -> render(view) =~ "Delivery · Failed" end)
+    assert eventually(fn -> render(view) =~ "Delivery · Failed" end, 100)
     html = render(view)
     assert html =~ "Recorded answer"
     assert html =~ "Delivery · Failed"
@@ -389,7 +467,7 @@ defmodule AiurWeb.DashboardLiveTest do
              current.delivery_status == :queued
            end)
 
-    assert eventually(fn -> render(view) =~ "Delivery · Queued" end)
+    assert eventually(fn -> render(view) =~ "Delivery · Queued" end, 100)
     html = render(view)
     assert html =~ "Delivery · Queued"
     refute html =~ ~s(phx-click="retry-decision")
@@ -544,7 +622,7 @@ defmodule AiurWeb.DashboardLiveTest do
         "answer" => %{"choice" => "option:ship", "confirmed" => "true"}
       })
 
-    assert eventually(fn -> render(view) =~ ~s(phx-submit="revise-decision") end)
+    assert eventually(fn -> render(view) =~ ~s(phx-submit="revise-decision") end, 100)
 
     revision_params = %{
       "decision_id" => decision.decision_id,
@@ -638,7 +716,12 @@ defmodule AiurWeb.DashboardLiveTest do
     assert eventually(fn -> render(view) =~ "Operator follow-up required" end, 100)
 
     {:ok, pending} = DecisionStore.get(decision.decision_id, store)
-    {action_id, follow_up} = Enum.find(pending.revision_follow_ups, fn {_action_id, item} -> is_nil(item.handled_at) end)
+
+    {action_id, follow_up} =
+      Enum.find(pending.revision_follow_ups, fn {_action_id, item} ->
+        is_nil(item.handled_at)
+      end)
+
     refute follow_up.question =~ ~r/rolled back|reverted|undone/i
 
     html =
@@ -656,7 +739,10 @@ defmodule AiurWeb.DashboardLiveTest do
            end)
 
     assert {:ok, handled} = DecisionStore.get(decision.decision_id, store)
-    assert handled.revision_follow_ups[action_id].handled_detail == "Opened an incident command and notified the operator"
+
+    assert handled.revision_follow_ups[action_id].handled_detail ==
+             "Opened an incident command and notified the operator"
+
     assert handled.revision_follow_ups[action_id].handled_by.kind == :operator
   end
 
@@ -725,6 +811,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
   defp start_test_endpoint(overrides) do
     previous = Application.get_env(:aiur, AiurWeb.Endpoint)
+    cache = start_supervised!({ControlCenterCache, name: nil})
 
     endpoint_config =
       :aiur
@@ -732,7 +819,8 @@ defmodule AiurWeb.DashboardLiveTest do
       |> Keyword.merge(
         server: false,
         secret_key_base: String.duplicate("s", 64),
-        dashboard_writable: false
+        dashboard_writable: false,
+        control_center_cache: cache
       )
       |> Keyword.merge(overrides)
 
@@ -793,11 +881,21 @@ defmodule AiurWeb.DashboardLiveTest do
                  "blocking" => true,
                  "urgency" => "critical",
                  "reversibility" => reversibility,
-                 "options" => [%{"id" => "ship", "label" => "Ship it", "description" => "Proceed with the reviewed change"}],
+                 "options" => [
+                   %{
+                     "id" => "ship",
+                     "label" => "Ship it",
+                     "description" => "Proceed with the reviewed change"
+                   }
+                 ],
                  "recommendation" => %{"option_id" => "ship", "reason" => "Checks are green"}
                },
                [
-                 ticket: %{identifier: "AIUR-987", title: "Operator Control Center", url: "https://example.test/issues/987"},
+                 ticket: %{
+                   identifier: "AIUR-987",
+                   title: "Operator Control Center",
+                   url: "https://example.test/issues/987"
+                 },
                  source: %{agent_id: "agent-987", session_id: "session-987", event_id: "event-#{source_id}"}
                ],
                store

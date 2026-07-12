@@ -5,8 +5,8 @@ defmodule AiurWeb.ControlCenterPresenter do
   """
 
   alias Aiur.{Decision, DecisionStore}
-  alias AiurWeb.Presenter
   alias AiurWeb.OperatorControlCenter.DecisionPresenter
+  alias AiurWeb.Presenter
 
   @spec state_payload(GenServer.name(), timeout(), keyword()) :: map()
   def state_payload(orchestrator, snapshot_timeout_ms, opts \\ []) do
@@ -29,8 +29,8 @@ defmodule AiurWeb.ControlCenterPresenter do
 
     decisions_fun = Keyword.get(opts, :decisions_fun, fn -> DecisionStore.list(decision_store) end)
 
-    {fleet, fleet_health} = safe_read(fleet_fun, unavailable_fleet())
-    {decisions, decisions_health} = safe_read(decisions_fun, [])
+    {fleet, fleet_health} = safe_read(fleet_fun, unavailable_fleet(), &is_map/1)
+    {decisions, decisions_health} = safe_read(decisions_fun, [], &is_list/1)
     {history, history_health} = history_read(fleet, opts)
     {recent_merges, recent_outcomes_health} = recent_merges_read(fleet, opts)
 
@@ -54,7 +54,7 @@ defmodule AiurWeb.ControlCenterPresenter do
       generated_at: Map.get(fleet, :generated_at),
       fleet: Map.drop(fleet, [:decision_history, :recent_merges, :analytics]),
       decisions: decision_rows,
-      history: Enum.map(history, &history_row/1),
+      history: isolated_rows(history, &history_row/1),
       recent_outcomes: recent_outcomes,
       recent_outcomes_health: Map.get(recent_merges, :health),
       recent_outcomes_reconciliation: Map.get(recent_merges, :reconciliation),
@@ -75,7 +75,7 @@ defmodule AiurWeb.ControlCenterPresenter do
   def find_decision(_payload, _decision_id), do: :error
 
   defp overview(fleet, decisions, recent_outcomes) do
-    counts = Map.get(fleet, :counts, %{})
+    counts = if is_map(Map.get(fleet, :counts)), do: Map.get(fleet, :counts), else: %{}
 
     %{
       blocking_decisions: Enum.count(decisions, &(&1.blocking and &1.lifecycle == :recorded)),
@@ -113,7 +113,9 @@ defmodule AiurWeb.ControlCenterPresenter do
     }
   end
 
-  defp normalize_recent_outcomes(%{merges: merges}) when is_list(merges), do: Enum.map(merges, &recent_outcome_row/1)
+  defp normalize_recent_outcomes(%{merges: merges}) when is_list(merges),
+    do: isolated_rows(merges, &recent_outcome_row/1)
+
   defp normalize_recent_outcomes(_recent_merges), do: []
 
   defp recent_outcome_row(merge) do
@@ -146,7 +148,7 @@ defmodule AiurWeb.ControlCenterPresenter do
 
   defp history_read(fleet, opts) do
     case Keyword.fetch(opts, :history_fun) do
-      {:ok, fun} -> safe_read(fun, [])
+      {:ok, fun} -> safe_read(fun, [], &is_list/1)
       :error -> embedded_entries(Map.get(fleet, :decision_history), [])
     end
   end
@@ -154,13 +156,14 @@ defmodule AiurWeb.ControlCenterPresenter do
   defp recent_merges_read(fleet, opts) do
     case Keyword.fetch(opts, :recent_merges_fun) do
       {:ok, fun} ->
-        safe_read(fun, unavailable_recent_merges())
+        safe_read(fun, unavailable_recent_merges(), &is_map/1)
 
       :error ->
         case Map.get(fleet, :recent_merges) do
           %{entries: entries, health: health, reconciliation: reconciliation} = provider
           when is_list(entries) and is_map(reconciliation) ->
-            {%{merges: entries, health: health, reconciliation: reconciliation}, provider_health(Map.get(provider, :status))}
+            recent_merges = %{merges: entries, health: health, reconciliation: reconciliation}
+            {recent_merges, provider_health(Map.get(provider, :status))}
 
           _other ->
             {unavailable_recent_merges(), :unavailable}
@@ -186,13 +189,29 @@ defmodule AiurWeb.ControlCenterPresenter do
     %{available?: false, path: nil, message: "Telemetry analytics are unavailable."}
   end
 
-  defp safe_read(fun, fallback) when is_function(fun, 0) do
-    {fun.(), :ok}
+  defp safe_read(fun, fallback, validator) when is_function(fun, 0) and is_function(validator, 1) do
+    value = fun.()
+    if validator.(value), do: {value, :ok}, else: {fallback, :unavailable}
   rescue
     _error -> {fallback, :unavailable}
   catch
     :exit, _reason -> {fallback, :unavailable}
     _kind, _reason -> {fallback, :unavailable}
+  end
+
+  defp isolated_rows(entries, mapper) do
+    Enum.flat_map(entries, &isolated_row(&1, mapper))
+  end
+
+  defp isolated_row(entry, mapper) do
+    case mapper.(entry) do
+      row when is_map(row) -> [row]
+      _other -> []
+    end
+  rescue
+    _error -> []
+  catch
+    _kind, _reason -> []
   end
 
   defp unavailable_fleet do

@@ -65,16 +65,20 @@ defmodule AiurWeb.OperatorControlCenter.LifecycleComponents do
     step_index = Enum.find_index(@steps, &(&1 == step)) || 0
 
     %{
-      label: if(lifecycle == :delivery_failed and step == :delivered, do: "Delivery failed", else: label(step)),
-      state:
-        cond do
-          step_index < current_index -> "done"
-          step_index == current_index -> "current"
-          true -> "pending"
-        end,
-      failed: lifecycle == :delivery_failed and step == :delivered
+      label: step_label(step, lifecycle),
+      state: step_state(step_index, current_index),
+      failed: failed_step?(step, lifecycle)
     }
   end
+
+  defp step_label(step, :delivery_failed) when step == :delivered, do: "Delivery failed"
+  defp step_label(step, _lifecycle), do: label(step)
+
+  defp step_state(step_index, current_index) when step_index < current_index, do: "done"
+  defp step_state(step_index, current_index) when step_index == current_index, do: "current"
+  defp step_state(_step_index, _current_index), do: "pending"
+
+  defp failed_step?(step, lifecycle), do: lifecycle == :delivery_failed and step == :delivered
 
   defp chip_label(:recorded), do: "Recorded · open"
   defp chip_label(:delivered), do: "Delivered · awaiting ack"

@@ -13,8 +13,16 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
   @spec rows([Decision.t()]) :: [map()]
   def rows(decisions) when is_list(decisions) do
     decisions
-    |> Enum.map(&row/1)
+    |> Enum.flat_map(&isolated_row/1)
     |> Enum.sort_by(&sort_key/1)
+  end
+
+  defp isolated_row(decision) do
+    [row(decision)]
+  rescue
+    _error -> []
+  catch
+    _kind, _reason -> []
   end
 
   defp row(%Decision{} = decision) do

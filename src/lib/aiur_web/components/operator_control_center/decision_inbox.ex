@@ -66,6 +66,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
           history={@history}
           action_state={Map.get(@action_states, decision.decision_id, %{})}
           writable={@writable}
+          filter={@filter}
         />
       </div>
     </section>

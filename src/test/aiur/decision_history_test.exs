@@ -85,6 +85,28 @@ defmodule Aiur.DecisionHistoryTest do
     refute entry.revised?
   end
 
+  test "lists only the bounded provider window and isolates malformed records" do
+    parent = self()
+
+    recent = %{
+      records: [record(%{version: 2}), nil, record(%{version: 1})],
+      contexts: %{},
+      revisions: %{}
+    }
+
+    entries =
+      DecisionHistory.list(
+        limit: 2,
+        recent_history_fun: fn ->
+          send(parent, :bounded_history_read)
+          recent
+        end
+      )
+
+    assert_receive :bounded_history_read
+    assert Enum.map(entries, & &1.source_version) == [2, 1]
+  end
+
   test "drops unsafe ticket links from the presentation projection" do
     entry =
       record(%{ticket: %{identifier: "983", title: "OCC-6", url: "javascript:alert(1)"}})

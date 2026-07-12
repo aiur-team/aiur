@@ -155,7 +155,14 @@ defmodule Aiur.DecisionRevisionStoreTest do
     assert List.last(revised.dispatch_attempts).action_id == revision.action_id
 
     assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, pid)
-    assert Enum.map(audit, & &1.type) == [:requested, :answer_recorded, :dispatch_queued, :revision_recorded, :revision_dispatched]
+
+    assert Enum.map(audit, & &1.type) == [
+             :requested,
+             :answer_recorded,
+             :dispatch_queued,
+             :revision_recorded,
+             :revision_dispatched
+           ]
   end
 
   test "explicit retry targets the failed active revision rather than the original answer", %{dir: dir} do

@@ -3,17 +3,19 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
 
   use Phoenix.Component
 
-  alias AiurWeb.OperatorControlCenter.{DecisionAction, DecisionRevisionAction, LifecycleComponents}
+  alias AiurWeb.OperatorControlCenter.{DecisionAction, DecisionPath, DecisionRevisionAction, LifecycleComponents}
 
   attr(:decision, :map, required: true)
   attr(:history, :list, default: [])
   attr(:action_state, :map, default: %{})
   attr(:writable, :boolean, required: true)
+  attr(:filter, :atom, default: :all)
 
   @spec decision_detail(map()) :: Phoenix.LiveView.Rendered.t()
   def decision_detail(assigns) do
     assigns =
       assigns
+      |> assign(:collapse_path, DecisionPath.inbox(assigns.filter))
       |> assign(:ticket_url, trusted_url(assigns.decision.ticket[:url]))
       |> assign(:history_rows, Enum.filter(assigns.history, &(&1.decision_id == assigns.decision.decision_id)))
 
@@ -100,7 +102,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
       </div>
 
       <footer class="decision-detail-footer">
-        <.link patch="/decisions" class="btn ghost">Collapse details</.link>
+        <.link patch={@collapse_path} class="btn ghost">Collapse details</.link>
       </footer>
     </div>
     """

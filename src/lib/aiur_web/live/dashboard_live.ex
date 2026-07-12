@@ -12,20 +12,21 @@ defmodule AiurWeb.DashboardLive do
     AgentLogModal,
     DecisionEvents,
     DecisionInbox,
+    DecisionPath,
     FleetTable,
     History,
     Overview,
+    PayloadLoader,
     RecentOutcomes
   }
 
   @runtime_tick_ms 1_000
-  @payload_reload_debounce_ms 50
   @decision_filters [:all, :open, :blocking, :undelivered, :supervisor, :resolved, :superseded]
   @decision_events DecisionEvents.events()
 
   @impl true
   def mount(params, _session, socket) do
-    payload = load_payload()
+    payload = PayloadLoader.load()
 
     socket =
       socket
@@ -39,6 +40,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:writable, dashboard_writable?())
       |> assign(:decision_filter, :all)
       |> assign_selected_decision(params["decision_id"])
+      |> PayloadLoader.mark_loaded()
 
     if connected?(socket) do
       :ok = ObservabilityPubSub.subscribe()
@@ -65,30 +67,30 @@ defmodule AiurWeb.DashboardLive do
 
   @impl true
   def handle_info(:observability_updated, socket) do
-    {:noreply, schedule_payload_reload(socket)}
+    {:noreply, PayloadLoader.schedule(socket)}
   end
 
   @impl true
   def handle_info({:decision_changed, _decision_id, _version}, socket) do
-    {:noreply, schedule_payload_reload(socket)}
+    {:noreply, PayloadLoader.schedule(socket)}
   end
 
   @impl true
   def handle_info(:reload_payload, socket) do
-    {:noreply,
-     socket
-     |> reload_payload()
-     |> assign(:payload_reload_scheduled?, false)}
+    {:noreply, socket |> reload_payload(:cached) |> PayloadLoader.mark_loaded()}
   end
 
   @impl true
   def handle_event("filter-decisions", %{"filter" => filter}, socket) do
-    {:noreply, assign(socket, :decision_filter, normalize_filter(filter))}
+    filter = normalize_filter(filter)
+    {:noreply, push_patch(socket, to: decision_path(socket.assigns.selected_decision_id, filter))}
   end
+
+  def handle_event("filter-decisions", _params, socket), do: {:noreply, socket}
 
   def handle_event(event, params, socket) when event in @decision_events do
     handle_writable_event(socket, fn ->
-      {:noreply, DecisionEvents.handle(event, params, socket, &reload_payload/1)}
+      {:noreply, DecisionEvents.handle(event, params, socket, &reload_after_action/1)}
     end)
   end
 
@@ -97,11 +99,17 @@ defmodule AiurWeb.DashboardLive do
     {:noreply, assign(socket, :agent_log_modal, AgentLogModal.build(entry))}
   end
 
+  def handle_event("show-agent-log", _params, socket), do: {:noreply, socket}
+
   def handle_event("close-agent-log", _params, socket) do
     {:noreply, assign(socket, :agent_log_modal, nil)}
   end
 
-  def handle_event("composer-change", %{"message" => message}, %{assigns: %{writable: true, agent_log_modal: modal}} = socket)
+  def handle_event(
+        "composer-change",
+        %{"message" => message},
+        %{assigns: %{writable: true, agent_log_modal: modal}} = socket
+      )
       when is_map(modal) do
     handle_writable_event(socket, fn ->
       identifier = modal.issue_identifier
@@ -115,33 +123,34 @@ defmodule AiurWeb.DashboardLive do
 
   def handle_event("composer-change", _params, socket), do: {:noreply, socket}
 
-  def handle_event("send-operator-message", %{"message" => message}, %{assigns: %{writable: true, agent_log_modal: modal}} = socket)
+  def handle_event(
+        "send-operator-message",
+        %{"message" => message},
+        %{assigns: %{writable: true, agent_log_modal: modal}} = socket
+      )
       when is_map(modal) do
     handle_writable_event(socket, fn ->
-      identifier = modal.issue_identifier
-
-      case String.trim(message) do
-        "" ->
-          {:noreply, socket}
-
-        text ->
-          case AgentChat.send(identifier, text) do
-            {:ok, _request_id} -> {:noreply, clear_chat_state(socket, identifier)}
-            {:error, reason} -> {:noreply, put_chat_error(socket, identifier, reason)}
-          end
-      end
+      {:noreply, send_operator_message(socket, modal.issue_identifier, String.trim(message))}
     end)
   end
 
   def handle_event("send-operator-message", _params, socket), do: {:noreply, socket}
 
-  def handle_event("pause-agent", _params, %{assigns: %{writable: true, agent_log_modal: modal}} = socket) when is_map(modal) do
+  def handle_event(
+        "pause-agent",
+        _params,
+        %{assigns: %{writable: true, agent_log_modal: modal}} = socket
+      )
+      when is_map(modal) do
     handle_writable_event(socket, fn ->
       identifier = modal.issue_identifier
 
       case AgentChat.pause(identifier) do
-        {:ok, _request_id} -> {:noreply, assign(socket, :chat_errors, Map.delete(socket.assigns.chat_errors, identifier))}
-        {:error, reason} -> {:noreply, put_chat_error(socket, identifier, reason)}
+        {:ok, _request_id} ->
+          {:noreply, assign(socket, :chat_errors, Map.delete(socket.assigns.chat_errors, identifier))}
+
+        {:error, reason} ->
+          {:noreply, put_chat_error(socket, identifier, reason)}
       end
     end)
   end
@@ -201,13 +210,18 @@ defmodule AiurWeb.DashboardLive do
         <History.history entries={@payload.history} provider_health={@payload.provider_health.history} />
       </section>
 
-      <AgentLogModal.agent_log_modal modal={@agent_log_modal} writable={@writable} drafts={@drafts} errors={@chat_errors} />
+      <AgentLogModal.agent_log_modal
+        modal={@agent_log_modal}
+        writable={@writable}
+        drafts={@drafts}
+        errors={@chat_errors}
+      />
     </section>
     """
   end
 
-  defp reload_payload(socket) do
-    payload = load_payload()
+  defp reload_payload(socket, mode) do
+    payload = PayloadLoader.load(mode)
 
     socket
     |> assign(:payload, payload)
@@ -216,18 +230,10 @@ defmodule AiurWeb.DashboardLive do
     |> assign_selected_decision(socket.assigns.selected_decision_id)
   end
 
-  defp schedule_payload_reload(%{assigns: %{payload_reload_scheduled?: true}} = socket), do: socket
-
-  defp schedule_payload_reload(socket) do
-    Process.send_after(self(), :reload_payload, @payload_reload_debounce_ms)
-    assign(socket, :payload_reload_scheduled?, true)
-  end
-
-  defp load_payload do
-    ControlCenterPresenter.state_payload(orchestrator(), snapshot_timeout_ms(),
-      decision_store: Endpoint.config(:decision_store) || Aiur.DecisionStore,
-      recent_merge_store: Endpoint.config(:recent_merge_store) || Aiur.RecentMergeStore
-    )
+  defp reload_after_action(socket) do
+    socket
+    |> reload_payload(:fresh)
+    |> PayloadLoader.mark_loaded()
   end
 
   defp assign_selected_decision(socket, decision_id) do
@@ -247,9 +253,10 @@ defmodule AiurWeb.DashboardLive do
   end
 
   defp normalize_filter(_filter), do: :all
-  defp orchestrator, do: Endpoint.config(:orchestrator) || Aiur.Orchestrator
-  defp snapshot_timeout_ms, do: Endpoint.config(:snapshot_timeout_ms) || 15_000
   defp dashboard_writable?, do: Endpoint.config(:dashboard_writable) == true
+
+  defp decision_path(nil, filter), do: DecisionPath.inbox(filter)
+  defp decision_path(decision_id, filter), do: DecisionPath.detail(decision_id, filter)
 
   defp handle_writable_event(socket, fun) when is_function(fun, 0) do
     if dashboard_writable?() do
@@ -277,5 +284,14 @@ defmodule AiurWeb.DashboardLive do
 
   defp put_chat_error(socket, identifier, reason) do
     assign(socket, :chat_errors, Map.put(socket.assigns.chat_errors, identifier, AgentLogModal.format_error(reason)))
+  end
+
+  defp send_operator_message(socket, _identifier, ""), do: socket
+
+  defp send_operator_message(socket, identifier, text) do
+    case AgentChat.send(identifier, text) do
+      {:ok, _request_id} -> clear_chat_state(socket, identifier)
+      {:error, reason} -> put_chat_error(socket, identifier, reason)
+    end
   end
 end

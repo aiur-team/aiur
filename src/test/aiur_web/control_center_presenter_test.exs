@@ -5,7 +5,10 @@ defmodule AiurWeb.ControlCenterPresenterTest do
   alias AiurWeb.ControlCenterPresenter
 
   test "composes real decision and fleet projections without inventing lifecycle data" do
-    decisions = [decision("dec-normal", blocking: false, urgency: :normal), decision("dec-blocking", blocking: true, urgency: :critical)]
+    decisions = [
+      decision("dec-normal", blocking: false, urgency: :normal),
+      decision("dec-blocking", blocking: true, urgency: :critical)
+    ]
 
     payload =
       ControlCenterPresenter.compose(
@@ -50,7 +53,9 @@ defmodule AiurWeb.ControlCenterPresenterTest do
         fleet_fun: fn -> fleet_payload() end,
         decisions_fun: fn -> exit(:decision_store_down) end,
         history_fun: fn -> raise "history unavailable" end,
-        recent_merges_fun: fn -> %{merges: [], health: :ready, reconciliation: %{status: :complete, partial?: false}} end
+        recent_merges_fun: fn ->
+          %{merges: [], health: :ready, reconciliation: %{status: :complete, partial?: false}}
+        end
       )
 
     assert payload.decisions == []
@@ -178,10 +183,24 @@ defmodule AiurWeb.ControlCenterPresenterTest do
     assert row.answer.selected_option_id == "ship"
     assert row.retryable
     assert row.failure_reason == "target_agent_unavailable"
+    assert payload.overview.blocking_decisions == 0
 
     assert :delivered == display_lifecycle(%{failed | delivery_status: :consumed})
     assert :acknowledged == display_lifecycle(%{failed | delivery_status: :delivered, decision_status: :acknowledged})
     assert :resolved == display_lifecycle(%{failed | delivery_status: :delivered, decision_status: :resolved})
+  end
+
+  test "isolates malformed provider elements without blacking out healthy panels" do
+    valid_decision = decision("dec-valid", blocking: false, urgency: :normal)
+    history = [nil, %{decision_id: "dec-valid", question: "Healthy history"}]
+    merges = %{merges: [nil, %{repository: "its-everdred/aiur", number: 987}], health: :ready}
+
+    payload = ControlCenterPresenter.compose(fleet_payload(), [nil, valid_decision], history, merges)
+
+    assert Enum.map(payload.decisions, & &1.decision_id) == ["dec-valid"]
+    assert Enum.map(payload.history, & &1.decision_id) == ["dec-valid"]
+    assert Enum.map(payload.recent_outcomes, & &1.number) == [987]
+    assert payload.fleet.running != []
   end
 
   test "keeps blocking-first ordering when a non-blocking delivery has failed" do
@@ -231,7 +250,10 @@ defmodule AiurWeb.ControlCenterPresenterTest do
       blocking: true,
       reversibility: :reversible,
       question: "Should the bounded change ship?",
-      context: %{short_summary: "A real projected decision", long_context_markdown: "**Context stays text until the component escapes it.**"},
+      context: %{
+        short_summary: "A real projected decision",
+        long_context_markdown: "**Context stays text until the component escapes it.**"
+      },
       options: [
         %{
           id: "ship",
@@ -255,7 +277,14 @@ defmodule AiurWeb.ControlCenterPresenterTest do
 
   defp display_lifecycle(decision) do
     decision
-    |> then(&ControlCenterPresenter.compose(fleet_payload(), [&1], [], %{merges: [], health: :ready, reconciliation: %{}}))
+    |> then(fn current ->
+      ControlCenterPresenter.compose(
+        fleet_payload(),
+        [current],
+        [],
+        %{merges: [], health: :ready, reconciliation: %{}}
+      )
+    end)
     |> Map.fetch!(:decisions)
     |> hd()
     |> Map.fetch!(:lifecycle)
