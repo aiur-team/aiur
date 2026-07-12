@@ -126,14 +126,23 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     adjust_load_envelope(effective, last_decrease_ms, load, options)
   end
 
-  @spec update_load_envelope(State.t(), number() | :unavailable, number() | nil, pos_integer(), integer(), SystemCpu.snapshot() | :unavailable, boolean()) :: State.t()
+  @spec update_load_envelope(
+          State.t(),
+          number() | :unavailable,
+          number() | nil,
+          pos_integer(),
+          integer(),
+          SystemCpu.snapshot() | :unavailable,
+          boolean()
+        ) :: State.t()
   def update_load_envelope(%State{} = state, load, target, schedulers, now_ms, cpu_snapshot, queued_work?) do
-    cpu_headroom = SystemCpu.headroom(state.cpu_snapshot, cpu_snapshot)
+    envelope_state = state.load_envelope_state
+    cpu_headroom = SystemCpu.headroom(envelope_state.cpu_snapshot, cpu_snapshot)
 
     {effective, last_decrease_ms} =
       load_envelope(
         state.effective_concurrent_agents,
-        state.load_envelope_last_decrease_ms,
+        envelope_state.last_decrease_ms,
         load,
         %{
           target: target,
@@ -150,8 +159,10 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     %{
       state
       | effective_concurrent_agents: effective,
-        load_envelope_last_decrease_ms: last_decrease_ms,
-        cpu_snapshot: next_cpu_snapshot(state.cpu_snapshot, cpu_snapshot)
+        load_envelope_state: %{
+          last_decrease_ms: last_decrease_ms,
+          cpu_snapshot: next_cpu_snapshot(envelope_state.cpu_snapshot, cpu_snapshot)
+        }
     }
   end
 
