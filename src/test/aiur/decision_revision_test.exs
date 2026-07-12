@@ -124,6 +124,8 @@ defmodule Aiur.DecisionRevisionTest do
 
       question = DecisionRevision.follow_up_question(revision, "985")
 
+      assert question =~ revision.decision_id
+      assert question =~ "request version #{revision.decision_version}"
       assert question =~ revision.action_id
       assert question =~ "target ticket 985 is no longer active"
       assert question =~ "could not deliver the new direction automatically"

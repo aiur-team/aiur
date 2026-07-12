@@ -38,8 +38,8 @@ defmodule Aiur.DecisionRevisionDispatch do
           {:ok, map()} | {:no_longer_applicable, term()} | {:error, term()}
   def dispatch(%Decision{} = decision, opts \\ []) when is_list(opts) do
     with %DecisionRevision{} = revision <- List.last(decision.revisions),
-         {:ok, %Issue{}} <- revalidate_target(decision, opts) do
-      send_revision(decision, revision, opts)
+         {:ok, %Issue{} = target} <- revalidate_target(decision, opts) do
+      send_revision(decision, revision, target, opts)
     else
       nil -> {:error, :revision_missing}
       {:no_longer_applicable, _reason} = outcome -> outcome
@@ -105,7 +105,7 @@ defmodule Aiur.DecisionRevisionDispatch do
     bounded_join(header, response_text(decision, answer), footer)
   end
 
-  defp send_revision(decision, revision, opts) do
+  defp send_revision(decision, revision, target, opts) do
     attempt_id = Keyword.fetch!(opts, :attempt_id)
     retry_failed = Keyword.get(opts, :retry_failed, false)
     server = Keyword.get(opts, :operator_messages, Aiur.Orchestrator)
@@ -131,7 +131,9 @@ defmodule Aiur.DecisionRevisionDispatch do
       retry_failed: retry_failed
     }
 
-    send_fun.(server, decision.ticket.identifier, payload)
+    with {:ok, identifier} <- target_identifier(target) do
+      send_fun.(server, identifier, payload)
+    end
   end
 
   defp response_text(decision, %DecisionAnswer{selected_option_id: option_id}) when is_binary(option_id) do
@@ -167,6 +169,12 @@ defmodule Aiur.DecisionRevisionDispatch do
   end
 
   defp target_issue(_decision), do: {:error, :target_identity_missing}
+
+  defp target_identifier(%Issue{identifier: identifier}) when is_binary(identifier) and identifier != "",
+    do: {:ok, identifier}
+
+  defp target_identifier(%Issue{id: id}) when is_binary(id) and id != "", do: {:ok, id}
+  defp target_identifier(%Issue{}), do: {:error, :target_identity_missing}
 
   defp classify_revalidation({:ok, %Issue{} = issue}, _terminal_states), do: {:ok, issue}
   defp classify_revalidation({:skip, :missing}, _terminal_states), do: {:no_longer_applicable, :missing}

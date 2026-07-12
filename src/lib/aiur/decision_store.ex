@@ -46,7 +46,8 @@ defmodule Aiur.DecisionStore do
     DecisionRevision,
     DecisionRevisionDispatch,
     DecisionValidation,
-    JsonStore
+    JsonStore,
+    SecretRedactor
   }
 
   alias Aiur.Events.{IdGenerator, Publisher}
@@ -229,7 +230,8 @@ defmodule Aiur.DecisionStore do
       dispatching: MapSet.new(),
       retry_counts: %{},
       projecting_revision_follow_ups: MapSet.new(),
-      resolving_revision_follow_ups: MapSet.new()
+      resolving_revision_follow_ups: MapSet.new(),
+      dispatching_decisions: MapSet.new()
     })
   end
 
@@ -498,8 +500,13 @@ defmodule Aiur.DecisionStore do
   defp find_revision_replay(decision, payload) do
     case payload_value(payload, :idempotency_key) do
       token when is_binary(token) ->
-        token = String.trim(token)
-        Enum.find(decision.revisions, &(&1.answer.idempotency_key == token))
+        action_id =
+          token
+          |> String.trim()
+          |> SecretRedactor.redact()
+          |> then(&DecisionAnswer.action_id(decision.decision_id, &1))
+
+        Enum.find(decision.revisions, &(&1.action_id == action_id))
 
       _other ->
         nil
@@ -1441,8 +1448,14 @@ defmodule Aiur.DecisionStore do
   end
 
   def handle_info({:dispatch_result, decision_id, action_id, attempt_id, result}, state) do
-    state = %{state | dispatching: MapSet.delete(state.dispatching, action_id)}
-    {:noreply, settle_dispatch(state, decision_id, action_id, attempt_id, result)}
+    state = %{
+      state
+      | dispatching: MapSet.delete(state.dispatching, action_id),
+        dispatching_decisions: MapSet.delete(state.dispatching_decisions, decision_id)
+    }
+
+    state = settle_dispatch(state, decision_id, action_id, attempt_id, result)
+    {:noreply, maybe_schedule_superseding_dispatch(state, decision_id, action_id)}
   end
 
   def handle_info({:project_revision_follow_up, decision_id, action_id}, state) do
@@ -1635,6 +1648,7 @@ defmodule Aiur.DecisionStore do
     with true <- state.writable?,
          {:ok, decision} <- fetch_decision(state, decision_id),
          %DecisionAnswer{} = answer <- Decision.active_answer(decision),
+         false <- MapSet.member?(state.dispatching_decisions, decision_id),
          false <- MapSet.member?(state.dispatching, answer.action_id),
          true <- dispatch_allowed?(decision, retry_failed?, mode) do
       attempt_id = next_attempt_id(decision)
@@ -1649,12 +1663,21 @@ defmodule Aiur.DecisionStore do
 
       case Task.start(task) do
         {:ok, _pid} ->
-          %{state | dispatching: MapSet.put(state.dispatching, answer.action_id)}
+          %{
+            state
+            | dispatching: MapSet.put(state.dispatching, answer.action_id),
+              dispatching_decisions: MapSet.put(state.dispatching_decisions, decision_id)
+          }
 
         {:error, _reason} ->
           result = {:dispatch_result, decision.decision_id, answer.action_id, attempt_id, {:error, :task_unavailable}}
           send(self(), result)
-          %{state | dispatching: MapSet.put(state.dispatching, answer.action_id)}
+
+          %{
+            state
+            | dispatching: MapSet.put(state.dispatching, answer.action_id),
+              dispatching_decisions: MapSet.put(state.dispatching_decisions, decision_id)
+          }
       end
     else
       _other -> state
@@ -1675,6 +1698,17 @@ defmodule Aiur.DecisionStore do
     kind, _reason ->
       Logger.warning("aiur_decision_store phase=dispatcher_crashed kind=#{kind}")
       {:error, :dispatcher_crashed}
+  end
+
+  defp maybe_schedule_superseding_dispatch(state, decision_id, completed_action_id) do
+    case fetch_decision(state, decision_id) do
+      {:ok, %Decision{active_action_id: active_action_id} = decision}
+      when is_binary(active_action_id) and active_action_id != completed_action_id ->
+        maybe_schedule_after_answer(state, decision, false)
+
+      _other ->
+        state
+    end
   end
 
   defp settle_dispatch(state, decision_id, action_id, attempt_id, result) do
