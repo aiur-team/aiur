@@ -7,6 +7,8 @@ defmodule Aiur.PromptBuilder do
 
   @render_opts [strict_filters: true, strict_variables: true]
   @shared_prompt_path Path.expand("../../prompts/shared-agent-instructions.md", __DIR__)
+  @external_resource @shared_prompt_path
+  @shared_prompt File.read!(@shared_prompt_path)
 
   @spec build_prompt(Aiur.Issue.t(), keyword()) :: String.t()
   def build_prompt(issue, opts \\ []) do
@@ -44,18 +46,9 @@ defmodule Aiur.PromptBuilder do
   end
 
   defp shared_prompt_prefix do
-    case File.read(@shared_prompt_path) do
-      {:ok, content} ->
-        trimmed = String.trim(content)
-
-        if trimmed == "" do
-          ""
-        else
-          trimmed <> "\n\n"
-        end
-
-      {:error, _reason} ->
-        ""
+    case String.trim(@shared_prompt) do
+      "" -> ""
+      trimmed -> trimmed <> "\n\n"
     end
   end
 
