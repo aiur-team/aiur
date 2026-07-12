@@ -204,10 +204,7 @@ defmodule AiurWeb.ControlCenterPresenter do
   end
 
   defp isolated_row(entry, mapper) do
-    case mapper.(entry) do
-      row when is_map(row) -> [row]
-      _other -> []
-    end
+    [mapper.(entry)]
   rescue
     _error -> []
   catch

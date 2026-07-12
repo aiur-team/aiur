@@ -53,9 +53,7 @@ defmodule Aiur.Regression.CompileTimePathsTest do
     ],
     "aiur_web/static_assets.ex" => [
       "@dashboard_css_path Path.expand(\"../../priv/static/dashboard.css\", __DIR__)",
-      "@aiur_logo_path Path.expand(\"../../../website/public/assets/aiur-logo.png\", __DIR__)",
       "@external_resource @dashboard_css_path",
-      "@external_resource @aiur_logo_path",
       "@external_resource @phoenix_html_js_path",
       "@external_resource @phoenix_js_path",
       "@external_resource @phoenix_live_view_js_path"

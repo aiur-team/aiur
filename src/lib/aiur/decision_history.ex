@@ -240,10 +240,7 @@ defmodule Aiur.DecisionHistory do
   defp latest_context(contexts), do: contexts |> Map.values() |> Enum.max_by(& &1.version)
 
   defp isolated_projection(fun) do
-    case fun.() do
-      entry when is_map(entry) -> [entry]
-      _other -> []
-    end
+    [fun.()]
   rescue
     _error -> []
   catch
