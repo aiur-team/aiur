@@ -313,6 +313,12 @@ defmodule Aiur.Config do
     settings!().agent.max_agent_duration_minutes
   end
 
+  @doc "Minutes before a CI-wait agent is re-woken for one recovery check."
+  @spec ci_wait_rewake_minutes() :: pos_integer()
+  def ci_wait_rewake_minutes do
+    settings!().agent.ci_wait_rewake_minutes
+  end
+
   @doc """
   Maximum known synthetic load-generator descendants allowed per agent process
   tree. `nil` in config derives from available schedulers; `0` disables the

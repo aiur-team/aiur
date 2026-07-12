@@ -108,6 +108,9 @@ defmodule Aiur.Config.Schema.Agent do
     # Safety checkpoint: pause an agent that has been actively running this
     # many minutes (paused/blocked time excluded). 0 disables it.
     field(:max_agent_duration_minutes, :integer, default: 60)
+    # A CI-wait pause releases its dispatch slot. If no terminal CI event is
+    # observed in this window, wake the agent for one recovery check.
+    field(:ci_wait_rewake_minutes, :integer, default: 5)
     # Per-scheduler 1-min load ceiling for the dispatch load gate (#465).
     # Enabled by default so high-concurrency runs have protection without
     # extra operator knowledge; explicit YAML null disables it.
@@ -152,6 +155,7 @@ defmodule Aiur.Config.Schema.Agent do
         :turn_timeout_ms,
         :stall_timeout_ms,
         :max_agent_duration_minutes,
+        :ci_wait_rewake_minutes,
         :max_load_average,
         :target_load_average,
         :load_ramp_step,
@@ -171,6 +175,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:turn_timeout_ms, greater_than: 0)
     |> validate_number(:stall_timeout_ms, greater_than_or_equal_to: 0)
     |> validate_number(:max_agent_duration_minutes, greater_than_or_equal_to: 0)
+    |> validate_number(:ci_wait_rewake_minutes, greater_than: 0)
     |> validate_number(:max_load_average, greater_than: 0)
     |> validate_number(:target_load_average, greater_than: 0)
     |> validate_number(:load_ramp_step, greater_than: 0)

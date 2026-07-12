@@ -86,8 +86,20 @@ defmodule Aiur.Orchestrator.OperatorMessages do
       do: queue_api_call(server, {:fail_delivered_queue_items, issue_identifier, reason})
 
   @spec enqueue_event_digest_item(State.t(), String.t(), list(), map()) :: State.t()
-  def enqueue_event_digest_item(%State{} = state, identifier, events, summary_source)
+  def enqueue_event_digest_item(%State{} = state, identifier, events, _summary_source)
       when is_binary(identifier) and is_list(events) do
+    events = reject_already_queued_events(state.queue_store, events)
+
+    if events == [] do
+      state
+    else
+      do_enqueue_event_digest_item(state, identifier, events)
+    end
+  end
+
+  defp do_enqueue_event_digest_item(state, identifier, events) do
+    summary_source = if length(events) == 1, do: List.first(events), else: %{events: events}
+
     body = %{
       summary: CommentWake.event_digest_summary(summary_source),
       events: events
@@ -112,6 +124,45 @@ defmodule Aiur.Orchestrator.OperatorMessages do
 
     next_state
   end
+
+  # The orchestrator may queue a terminal CI event synchronously before it
+  # resumes a runner, while the durable SubscriptionStore delivers the same
+  # exchange event asynchronously. Keep one queue item even if the second copy
+  # arrives after the first was already delivered or consumed.
+  defp reject_already_queued_events(%AgentQueueStore{} = queue_store, events) do
+    known_ids =
+      queue_store.items
+      |> Map.values()
+      |> Enum.flat_map(&queued_event_ids/1)
+      |> MapSet.new()
+
+    Enum.reject(events, fn event ->
+      case event_id(event) do
+        id when is_integer(id) -> MapSet.member?(known_ids, id)
+        _ -> false
+      end
+    end)
+  end
+
+  defp queued_event_ids(%{
+         category: :coordination_event,
+         event_type: :events_digest,
+         body: %{events: queued}
+       }) do
+    Enum.flat_map(List.wrap(queued), &event_id_list/1)
+  end
+
+  defp queued_event_ids(_item), do: []
+
+  defp event_id_list(event) do
+    case event_id(event) do
+      id when is_integer(id) -> [id]
+      _ -> []
+    end
+  end
+
+  defp event_id(event) when is_map(event), do: Map.get(event, :id) || Map.get(event, "id")
+  defp event_id(_event), do: nil
 
   @spec enqueue_event_digest_call(State.t(), String.t(), map()) ::
           {:reply, :ok, State.t()}

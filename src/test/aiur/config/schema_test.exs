@@ -14,6 +14,27 @@ defmodule Aiur.Config.SchemaTest do
     end
   end
 
+  describe "agent CI-wait fallback" do
+    test "defaults to five minutes and accepts a positive override" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.agent.ci_wait_rewake_minutes == 5
+
+      assert {:ok, configured} =
+               Schema.parse(%{"agent" => %{"ci_wait_rewake_minutes" => 9}})
+
+      assert configured.agent.ci_wait_rewake_minutes == 9
+    end
+
+    test "rejects zero, negative, and non-integer values with the dotted field path" do
+      for value <- [0, -1, "five"] do
+        assert {:error, {:invalid_workflow_config, message}} =
+                 Schema.parse(%{"agent" => %{"ci_wait_rewake_minutes" => value}})
+
+        assert message =~ "agent.ci_wait_rewake_minutes"
+      end
+    end
+  end
+
   # FI-CFG-005: StringOrMap cast rejects non-string, non-map values
   describe "StringOrMap" do
     test "casts strings and maps, rejects everything else" do
