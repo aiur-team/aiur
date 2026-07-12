@@ -44,7 +44,9 @@ defmodule Aiur.Events.GithubFirehose do
   Polls one tick. Returns `{:ok, %{etag: ...}}` regardless of whether
   events fired — the etag is captured for the next call. On API failure
   (transport, 5xx, rate limit) returns `{:error, reason}`; the caller
-  should preserve the previous etag.
+  should preserve the previous etag. A local recent-merge persistence failure
+  returns its reason plus the successful response cursor so the caller can
+  bound retries without refetching the same published event forever.
 
   Options:
     * `:etag` — previously-captured ETag for `If-None-Match`
