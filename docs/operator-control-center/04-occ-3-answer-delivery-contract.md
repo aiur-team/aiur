@@ -65,10 +65,12 @@ nothing. Callers should re-read `DecisionStore.get/1` after any conflict.
 Aiur.DecisionStore.retry_dispatch(decision_id, action_id)
 ```
 
-This only accepts the current failed action. Orchestrator availability failures
+This accepts the current failed action or an action whose background lifecycle
+append exhausted its bounded retries. Orchestrator availability failures
 receive bounded automatic retries; a missing target agent waits for this
-deliberate retry. A retry creates a new attempt or restores the same failed
-queue item without creating another logical action.
+deliberate retry. A retry creates a new attempt, restores the same failed queue
+item, or reconciles its current snapshot without creating another logical
+action.
 
 ### Read models
 
@@ -183,9 +185,14 @@ Restart behavior is explicit:
 The backend-handoff edge is synchronous:
 `QueueDrain`/`CheckpointDelivery` must receive `{:ok, ...}` from
 `DecisionStore.record_delivery/2` before exposing correlated answer text. If
-the store cannot record that edge, they restore the queue item and withhold the
-text. Later restore/consume/fail updates are best-effort asynchronous reports;
-the successful agent turn is not retroactively converted into a failure.
+handoff beats the asynchronous dispatch settlement, the Store adopts the
+missing queued edge before recording delivery instead of bouncing the item.
+Other correlation failures withhold the text and restore the item for at most
+three claims; exhaustion marks the item failed and opens one stable attention.
+A later explicit action retry resets that claim budget. Restore/consume/fail
+updates from one queue mutation are batched into one Store message and one
+projection rewrite; the successful agent turn is not retroactively converted
+into a failure.
 
 ## Explicit agent acknowledgement
 

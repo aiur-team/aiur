@@ -259,12 +259,7 @@ defmodule Aiur.DecisionProjectionTest do
       events = [
         request,
         event(:answer_recorded, request, accepted, 1),
-        event(
-          :dispatch_queued,
-          request,
-          %{action_id: accepted.action_id, attempt_id: "attempt-1", queue_item_id: 17},
-          2
-        ),
+        event(:dispatch_queued, request, %{action_id: accepted.action_id, attempt_id: "attempt-1", queue_item_id: 17}, 2),
         event(
           :failed,
           request,
@@ -276,18 +271,8 @@ defmodule Aiur.DecisionProjectionTest do
           },
           3
         ),
-        event(
-          :dispatch_queued,
-          request,
-          %{action_id: accepted.action_id, attempt_id: "attempt-2", queue_item_id: 18},
-          4
-        ),
-        event(
-          :restored,
-          request,
-          %{action_id: accepted.action_id, attempt_id: "attempt-2", queue_item_id: 18},
-          5
-        )
+        event(:dispatch_queued, request, %{action_id: accepted.action_id, attempt_id: "attempt-2", queue_item_id: 18}, 4),
+        event(:restored, request, %{action_id: accepted.action_id, attempt_id: "attempt-2", queue_item_id: 18}, 5)
       ]
 
       current = DecisionProjection.reduce(events).current[request.decision_id]

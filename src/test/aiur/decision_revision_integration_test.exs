@@ -1,7 +1,7 @@
 defmodule Aiur.DecisionRevisionIntegrationTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.{Decision, DecisionEvent, DecisionHistory, DecisionStore}
+  alias Aiur.{Decision, DecisionEvent, DecisionHistory, DecisionPubSub, DecisionStore}
 
   @ticket %{identifier: "985", title: "OCC-8", url: "https://github.com/its-everdred/aiur/issues/985"}
   @source %{agent_id: "agent-1", session_id: "session-1", event_id: "request-1"}
@@ -12,6 +12,7 @@ defmodule Aiur.DecisionRevisionIntegrationTest do
     original_override = Application.get_env(:aiur, :decision_state_dir)
     dir = Path.join(System.tmp_dir!(), "aiur-revision-integration-#{System.unique_integer([:positive])}")
     Application.put_env(:aiur, :decision_state_dir, dir)
+    :ok = DecisionPubSub.subscribe()
 
     on_exit(fn ->
       case original_override do
@@ -194,7 +195,7 @@ defmodule Aiur.DecisionRevisionIntegrationTest do
     if predicate.(decision) do
       decision
     else
-      Process.sleep(10)
+      assert_receive {:decision_changed, ^decision_id, _version}, 2_000
       wait_for(pid, decision_id, predicate, attempts - 1)
     end
   end

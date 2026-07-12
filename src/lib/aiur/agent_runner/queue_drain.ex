@@ -21,6 +21,8 @@ defmodule Aiur.AgentRunner.QueueDrain do
   alias Aiur.Codex.DynamicTool
   alias Aiur.CodingAgent
 
+  @max_delivery_correlation_attempts 3
+
   @doc false
   @spec drain_operator_messages(map(), Issue.t(), fun(), GenServer.server(), pid() | nil) ::
           :ok | {:error, term()}
@@ -142,7 +144,8 @@ defmodule Aiur.AgentRunner.QueueDrain do
   def claim_after_queue_update(_orchestrator, _issue_identifier, false), do: :ignored
 
   @doc false
-  @spec record_operator_delivery(map(), map(), GenServer.server()) :: :ok | {:error, term()}
+  @spec record_operator_delivery(map(), map(), GenServer.server()) ::
+          :ok | {:error, {:retry | :failed, term()}}
   def record_operator_delivery(item, issue, decision_store \\ DecisionStore)
 
   def record_operator_delivery(
@@ -157,10 +160,10 @@ defmodule Aiur.AgentRunner.QueueDrain do
         OperatorWaitLog.record_delivered(request_id, identifier)
 
       {:ok, :ignored} ->
-        {:error, :decision_correlation_ignored}
+        correlation_delivery_failed(item, identifier, action_id, :decision_correlation_ignored)
 
       {:error, reason} ->
-        delivery_correlation_failed(identifier, action_id, reason)
+        correlation_delivery_failed(item, identifier, action_id, reason)
     end
   end
 
@@ -177,20 +180,43 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
   def record_operator_delivery(_item, _issue, _decision_store), do: :ok
 
-  defp delivery_correlation_failed(identifier, action_id, reason) do
-    Logger.warning("Decision delivery correlation failed issue=#{identifier} action_id=#{action_id} reason=#{inspect(reason)}")
+  @doc false
+  @spec settle_operator_delivery_failure(GenServer.server(), map(), {:retry | :failed, term()}) ::
+          :ok | {:error, term()}
+  def settle_operator_delivery_failure(orchestrator, item, {:retry, _reason}) do
+    Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item.id)
+  end
+
+  def settle_operator_delivery_failure(orchestrator, item, {:failed, reason}) do
+    Aiur.Orchestrator.mark_queue_item_failed(orchestrator, item.id, {:decision_correlation_failed, reason})
+  end
+
+  defp correlation_delivery_failed(item, identifier, action_id, reason) do
+    attempt = Map.get(item, :delivery_attempts, 1)
+
+    if attempt >= @max_delivery_correlation_attempts do
+      delivery_correlation_exhausted(identifier, action_id, reason)
+    else
+      Logger.warning("Decision delivery correlation will retry issue=#{identifier} action_id=#{action_id} attempt=#{attempt} reason=#{inspect(reason)}")
+
+      {:error, {:retry, reason}}
+    end
+  end
+
+  defp delivery_correlation_exhausted(identifier, action_id, reason) do
+    Logger.warning("Decision delivery correlation exhausted issue=#{identifier} action_id=#{action_id} reason=#{inspect(reason)}")
 
     _ =
       Alerts.emit_custom(
         delivery_correlation_attention_topic(identifier, action_id),
-        "Decision answer handoff could not be durably correlated; the queue item was restored.",
+        "Decision answer handoff could not be durably correlated after bounded retries.",
         issue: identifier,
-        reason: "Decision action #{action_id} handoff correlation failed.",
+        reason: "Decision action #{action_id} handoff correlation retries were exhausted; the queue item is failed and actionable.",
         needs_attention: true,
         severity: "warning"
       )
 
-    {:error, reason}
+    {:error, {:failed, reason}}
   end
 
   defp resolve_delivery_correlation_attention(identifier, action_id) do
@@ -390,10 +416,10 @@ defmodule Aiur.AgentRunner.QueueDrain do
           codex_update_recipient
         )
 
-      {:error, reason} ->
-        Logger.warning("Restoring uncorrelated queue delivery for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{item.id} reason=#{inspect(reason)}")
+      {:error, outcome} ->
+        Logger.warning("Settling uncorrelated queue delivery for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{item.id} outcome=#{inspect(outcome)}")
 
-        :ok = Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item.id)
+        :ok = settle_operator_delivery_failure(orchestrator, item, outcome)
         :ok
     end
   end
