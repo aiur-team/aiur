@@ -149,7 +149,31 @@ defmodule AiurEngineTest do
   test "usage describes init and no longer lists sweep" do
     {out, 0} = run_engine(["--help"], [])
     assert out =~ ~r/aiur init \[--force\]\s+scaffold/
+    assert out =~ "aiur run [--bg] [--debug]"
     refute out =~ "sweep"
+  end
+
+  test "run --bg uses the same background dispatch as top-level --bg" do
+    script = """
+    run_session() {
+      local mode="$1"
+      shift
+      printf 'MODE=%s ARGS=%s\\n' "$mode" "$*"
+    }
+    aiur_engine_main run --bg --debug
+    aiur_engine_main --bg --debug
+    aiur_engine_main run
+    aiur_engine_main
+    """
+
+    {out, 0} = run_sourced_engine(script, [])
+
+    assert String.split(out, "\n", trim: true) == [
+             "MODE=background ARGS=--debug",
+             "MODE=background ARGS=--debug",
+             "MODE=foreground ARGS=",
+             "MODE=foreground ARGS="
+           ]
   end
 
   test "--version is distribution-free so it never collides with a running node" do

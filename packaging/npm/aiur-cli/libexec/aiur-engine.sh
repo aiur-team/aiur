@@ -291,8 +291,9 @@ build_init_cmd() {
 usage() {
   cat <<'EOF'
 Usage: aiur [--interactive] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [path-to-.aiurconfig]
+       aiur run [--bg] [--debug]  explicit launch form (foreground unless --bg)
        aiur init [--force]   scaffold .aiurconfig (interactive setup wizard)
-       aiur --bg             start in a lean, headless detached tmux session
+       aiur --bg [--debug]   start in a lean, headless detached tmux session
        aiur stop             stop the running session
        aiur status           show agent status
        aiur agents           show each agent's state + current activity
@@ -2064,7 +2065,12 @@ aiur_engine_main() {
       ;;
     run)
       shift
-      run_session foreground "$@"
+      if [ "${1:-}" = "--bg" ]; then
+        shift
+        run_session background "$@"
+      else
+        run_session foreground "$@"
+      fi
       ;;
     status)
       shift

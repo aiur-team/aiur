@@ -37,14 +37,51 @@ defmodule Aiur.Init.ScaffoldTest do
     refute contents =~ "origin/main"
   end
 
-  test "ensure_env rewrites example but never clobbers env", %{dir: dir} do
+  test "ensure_env creates a missing env with only the GitHub token line", %{dir: dir} do
     File.cd!(dir, fn ->
-      assert {:created, env} = Scaffold.ensure_env("GITHUB_TOKEN=one\n")
-      File.write!(env, "GITHUB_TOKEN=custom\n")
+      assert {:created, env} = Scaffold.ensure_env("GITHUB_TOKEN=\n")
+      assert File.read!(env) == "GITHUB_TOKEN=\n"
+    end)
+  end
 
-      assert {:exists, ^env} = Scaffold.ensure_env("GITHUB_TOKEN=two\n")
-      assert File.read!(env) == "GITHUB_TOKEN=custom\n"
-      assert File.read!(Path.join(dir, ".env.example")) == "GITHUB_TOKEN=two\n"
+  test "ensure_env appends the GitHub token without rewriting existing content", %{dir: dir} do
+    File.cd!(dir, fn ->
+      env = Path.join(dir, ".env")
+
+      for {existing, expected} <- [
+            {"", "GITHUB_TOKEN=\n"},
+            {"OTHER=value", "OTHER=value\nGITHUB_TOKEN=\n"},
+            {"OTHER=value\n", "OTHER=value\nGITHUB_TOKEN=\n"}
+          ] do
+        File.write!(env, existing)
+
+        assert {:exists, ^env} = Scaffold.ensure_env("GITHUB_TOKEN=\n")
+        assert File.read!(env) == expected
+      end
+    end)
+  end
+
+  test "ensure_env leaves an existing GitHub token entry byte-for-byte unchanged", %{dir: dir} do
+    File.cd!(dir, fn ->
+      env = Path.join(dir, ".env")
+      original = "OTHER=value\nGITHUB_TOKEN="
+      File.write!(env, original)
+
+      assert {:exists, ^env} = Scaffold.ensure_env("GITHUB_TOKEN=\n")
+      assert File.read!(env) == original
+    end)
+  end
+
+  test "ensure_env never creates or modifies env example", %{dir: dir} do
+    File.cd!(dir, fn ->
+      example = Path.join(dir, ".env.example")
+
+      assert {:created, _env} = Scaffold.ensure_env("GITHUB_TOKEN=\n")
+      refute File.exists?(example)
+
+      File.write!(example, "project-owned example\n")
+      assert {:exists, _env} = Scaffold.ensure_env("GITHUB_TOKEN=\n")
+      assert File.read!(example) == "project-owned example\n"
     end)
   end
 
