@@ -1,7 +1,7 @@
 ---
 title: "feat: Fleet-state expansion (explicit waiting reasons)"
 type: feat
-status: in-progress
+status: completed
 date: 2026-07-12
 ---
 
@@ -87,14 +87,14 @@ out of scope here. Nothing in this ticket is blocked on #979.
   per its existing design. Documented as a known limitation.
 - `Presenter` projects `ci: %{decision, pr_number, head_sha}` (nil until a
   ticket has actually entered CI polling) and `review: :awaiting |
-  :not_started` per running row.
+  :not_started` for every fleet row where that context is available.
 
 ### U3 — open-decision count per row
 
-- `open_decision_count` per running/retrying/idle row, sourced from the count each
-  `Aiur.Events.SubscriptionStore` mirrors into its unique Registry value after
-  durable load/add/resolve. Both the roster and orchestrator snapshot use the
-  Registry's direct ETS lookup, so the fleet read model never synchronously
+- `open_decision_count` per running/retrying/idle row, sourced from the count
+  each `Aiur.Events.SubscriptionStore` mirrors into its unique Registry value
+  after durable load/add/resolve. Both the roster and orchestrator snapshot use
+  the Registry's direct ETS lookup, so the fleet read model never synchronously
   calls a per-ticket store (and a missing/restarting store falls back to `0`).
 
 ## Test plan
