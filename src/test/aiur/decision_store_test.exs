@@ -4,7 +4,7 @@ defmodule Aiur.DecisionStoreTest do
   import ExUnit.CaptureLog
 
   alias Aiur.{AlertFeed, Boot, DecisionEvent, DecisionLog, DecisionPubSub, DecisionStore}
-  alias Aiur.Events.Exchange
+  alias Aiur.Events.{Exchange, IdGenerator}
 
   @ticket %{identifier: "979", title: "OCC-1", url: "https://github.com/its-everdred/aiur/issues/979"}
   @source %{agent_id: "agent-1", session_id: "session-1", event_id: nil}
@@ -816,7 +816,7 @@ defmodule Aiur.DecisionStoreTest do
 
         if reservation == 2,
           do: {:error, :not_durable},
-          else: Aiur.Events.IdGenerator.reserve_durable_id()
+          else: IdGenerator.reserve_durable_id()
       end
 
       dispatcher = fn _decision, _opts ->
@@ -1185,7 +1185,7 @@ defmodule Aiur.DecisionStoreTest do
 
       assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, pid)
       assert Enum.count(audit, &(audit_type(&1) == :acknowledged)) == 1
-      assert Enum.count(audit, &(audit_type(&1) == :resolved)) == 0
+      refute Enum.any?(audit, &(audit_type(&1) == :resolved))
     end
   end
 
