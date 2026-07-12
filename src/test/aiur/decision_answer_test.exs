@@ -77,4 +77,21 @@ defmodule Aiur.DecisionAnswerTest do
     assert {:ok, replayed} = DecisionAnswer.from_json_safe(raw)
     assert replayed == answer
   end
+
+  test "redacts secrets from answer content and trusted actor metadata" do
+    secret = "ghp_" <> String.duplicate("A", 36)
+
+    payload = %{
+      "idempotency_key" => "answer-1",
+      "expected_version" => 2,
+      "custom_response" => "Use #{secret}",
+      "rationale" => "Credential #{secret} was supplied"
+    }
+
+    assert {:ok, answer} = normalize(payload, actor: %{kind: :operator, id: "operator-#{secret}"})
+    persisted = answer |> DecisionAnswer.to_json_safe() |> Jason.encode!()
+
+    refute persisted =~ secret
+    assert persisted =~ "[REDACTED:ghp]"
+  end
 end

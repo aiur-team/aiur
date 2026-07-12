@@ -4,8 +4,7 @@ defmodule Aiur.Decision do
   normalizes an untrusted `decision.requested` payload into this struct;
   `Aiur.DecisionStore` is the only writer of accepted values.
 
-  Request fields are inherited from schema version 1. Schema version 2
-  adds lifecycle projection fields without changing request normalization:
+  Schema version 1 request fields and lifecycle projection fields:
 
     * `decision_id` — canonical identity, scoped by trusted ticket context
       (see `Aiur.DecisionValidation`). Stable across versions/replays.
@@ -63,7 +62,8 @@ defmodule Aiur.Decision do
           queue_item_id: pos_integer() | nil,
           run_id: String.t(),
           status: :queued | :delivered | :restored | :consumed | :failed,
-          queued_at: DateTime.t(),
+          attempted_at: DateTime.t(),
+          queued_at: DateTime.t() | nil,
           delivered_at: DateTime.t() | nil,
           restored_at: DateTime.t() | nil,
           consumed_at: DateTime.t() | nil,
@@ -104,7 +104,7 @@ defmodule Aiur.Decision do
           resolution: map() | nil
         }
 
-  @schema_version 2
+  @schema_version 1
 
   @enforce_keys [
     :decision_id,

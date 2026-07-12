@@ -40,6 +40,15 @@ defmodule Aiur.DecisionStoreTest do
     DecisionStore.request(payload, Keyword.merge([ticket: @ticket, source: @source], opts), pid)
   end
 
+  defp answer(pid, decision_id, payload, opts \\ []) do
+    DecisionStore.answer(
+      decision_id,
+      payload,
+      Keyword.merge([actor: %{kind: :operator, id: "operator-1"}], opts),
+      pid
+    )
+  end
+
   describe "happy path" do
     test "accepts a fresh request as version 1", %{dir: dir} do
       pid = start_store!(dir)
@@ -239,6 +248,252 @@ defmodule Aiur.DecisionStoreTest do
     end
   end
 
+
+  describe "answer outbox" do
+    test "persists the answer before dispatch and then records queue acceptance", %{dir: dir} do
+      parent = self()
+
+      dispatcher = fn decision, opts ->
+        audit = DecisionStore.audit_history(decision.decision_id, opts[:store])
+        send(parent, {:dispatch_observed, audit, opts[:attempt_id]})
+        {:ok, %{status: :accepted, item: %{id: 41}}}
+      end
+
+      pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0)
+
+      assert {:ok, %{decision: decision}} =
+               request(pid, %{
+                 "question" => "Deploy now?",
+                 "blocking" => true,
+                 "source_id" => "answer-1",
+                 "options" => [%{"id" => "ship", "label" => "Ship it"}]
+               })
+
+      :ok = Exchange.subscribe("ticket.979.agent.decision.answered")
+      :ok = Exchange.subscribe("ticket.979.agent.decision.queued")
+      :ok = DecisionPubSub.subscribe()
+
+      payload = %{"idempotency_key" => "submit-1", "expected_version" => 1, "option_id" => "ship"}
+
+      assert {:ok, %{status: :accepted, action: accepted, dispatch_status: :dispatch_pending}} =
+               answer(pid, decision.decision_id, payload)
+
+      assert_receive {:dispatch_observed, {:ok, audit}, attempt_id}, 1_000
+      assert Enum.map(audit, &audit_type/1) == [:requested, :answer_recorded]
+      assert String.starts_with?(attempt_id, accepted.action_id)
+
+      settled = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :queued))
+      assert settled.answer == accepted
+      assert [%{queue_item_id: 41, attempt_id: ^attempt_id, status: :queued}] = settled.dispatch_attempts
+      assert_receive {:event, %{topic: "ticket.979.agent.decision.answered"}}, 500
+      assert_receive {:event, %{topic: "ticket.979.agent.decision.queued"}}, 500
+      assert_receive {:decision_changed, decision_id, 1}, 500
+      assert decision_id == decision.decision_id
+      assert_receive {:decision_changed, ^decision_id, 1}, 500
+    end
+
+    test "exact answer replay is duplicate while changed content under the action conflicts", %{dir: dir} do
+      parent = self()
+
+      dispatcher = fn _decision, _opts ->
+        send(parent, :dispatched)
+        {:ok, %{status: :accepted, item: %{id: 42}}}
+      end
+
+      pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0)
+      assert {:ok, %{decision: decision}} = request(pid, answerable_request("answer-dedup"))
+
+      payload = %{
+        "idempotency_key" => "submit-1",
+        "expected_version" => 1,
+        "custom_response" => "Proceed carefully",
+        "rationale" => "Checks passed"
+      }
+
+      assert {:ok, %{status: :accepted, action: accepted}} = answer(pid, decision.decision_id, payload)
+      assert_receive :dispatched, 1_000
+      _settled = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :queued))
+
+      assert {:ok, %{status: :duplicate, action: ^accepted}} = answer(pid, decision.decision_id, payload)
+      refute_receive :dispatched, 100
+
+      changed = Map.put(payload, "rationale", "Different rationale")
+
+      assert {:error, {:conflict, {:idempotency_conflict, action_id}}} =
+               answer(pid, decision.decision_id, changed)
+
+      assert action_id == accepted.action_id
+      assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, pid)
+      assert Enum.count(audit, &(audit_type(&1) == :answer_recorded)) == 1
+      assert Enum.count(audit, &(audit_type(&1) == :dispatch_queued)) == 1
+    end
+
+    test "concurrent distinct answers serialize to one winner", %{dir: dir} do
+      dispatcher = fn _decision, _opts -> {:error, :no_running_agent} end
+      pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 20)
+      assert {:ok, %{decision: decision}} = request(pid, answerable_request("answer-race"))
+
+      submissions = [
+        %{"idempotency_key" => "race-1", "expected_version" => 1, "custom_response" => "First"},
+        %{"idempotency_key" => "race-2", "expected_version" => 1, "custom_response" => "Second"}
+      ]
+
+      results =
+        submissions
+        |> Enum.map(&Task.async(fn -> answer(pid, decision.decision_id, &1) end))
+        |> Enum.map(&Task.await/1)
+
+      assert Enum.count(results, &match?({:ok, %{status: :accepted}}, &1)) == 1
+      assert Enum.count(results, &match?({:error, {:conflict, {:already_decided, _}}}, &1)) == 1
+    end
+
+    test "a stale request version rejects before append or dispatch", %{dir: dir} do
+      parent = self()
+      dispatcher = fn _decision, _opts -> send(parent, :unexpected_dispatch) end
+      pid = start_store!(dir, dispatcher: dispatcher)
+      base = answerable_request("answer-stale")
+
+      assert {:ok, %{decision: v1}} = request(pid, base)
+      assert {:ok, %{decision: v2}} = request(pid, Map.merge(base, %{"question" => "Revised?", "version" => 2}))
+
+      stale = %{"idempotency_key" => "stale-1", "expected_version" => 1, "custom_response" => "Proceed"}
+      assert {:error, {:conflict, {:stale_version, 1, 2}}} = answer(pid, v1.decision_id, stale)
+      refute_receive :unexpected_dispatch, 100
+      assert v2.answer == nil
+      assert {:ok, audit} = DecisionStore.audit_history(v1.decision_id, pid)
+      assert Enum.map(audit, &audit_type/1) == [:requested, :requested]
+    end
+
+    test "request enrichment after answer keeps dispatch tied to the answered version", %{dir: dir} do
+      parent = self()
+
+      dispatcher = fn addressed, _opts ->
+        send(parent, {:addressed_request, addressed.version, addressed.question})
+        {:ok, %{status: :accepted, item: %{id: 55}}}
+      end
+
+      pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 100)
+      base = answerable_request("answer-enrichment")
+      assert {:ok, %{decision: v1}} = request(pid, base)
+
+      payload = %{"idempotency_key" => "enrich-1", "expected_version" => 1, "option_id" => "ship"}
+      assert {:ok, %{action: action}} = answer(pid, v1.decision_id, payload)
+
+      assert {:ok, %{decision: v2}} =
+               request(pid, Map.merge(base, %{"question" => "Revised after answer?", "version" => 2}))
+
+      assert v2.version == 2
+      assert v2.answer == action
+      assert_receive {:addressed_request, 1, "Deploy now?"}, 1_000
+
+      settled = wait_for_decision(pid, v1.decision_id, &(&1.delivery_status == :queued))
+      assert settled.version == 2
+      assert settled.answer.decision_version == 1
+    end
+
+    test "restart reconciles a persisted answer that was not yet dispatched", %{dir: dir} do
+      parent = self()
+      never = fn _decision, _opts -> send(parent, :old_dispatch) end
+      pid1 = start_store!(dir, dispatcher: never, dispatch_delay_ms: 5_000, reconcile_delay_ms: 5_000)
+      assert {:ok, %{decision: decision}} = request(pid1, answerable_request("answer-restart"))
+
+      payload = %{"idempotency_key" => "restart-1", "expected_version" => 1, "custom_response" => "Proceed"}
+      assert {:ok, %{status: :accepted, action: action}} = answer(pid1, decision.decision_id, payload)
+      GenServer.stop(pid1)
+      refute_receive :old_dispatch, 100
+
+      dispatcher = fn replayed, opts ->
+        send(parent, {:reconciled, replayed.answer.action_id, opts[:attempt_id]})
+        {:ok, %{status: :accepted, item: %{id: 77}}}
+      end
+
+      pid2 = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0, reconcile_delay_ms: 0)
+      assert_receive {:reconciled, action_id, _attempt_id}, 1_000
+      assert action_id == action.action_id
+      _settled = wait_for_decision(pid2, decision.decision_id, &(&1.delivery_status == :queued))
+      refute_receive {:reconciled, _, _}, 100
+    end
+
+    test "transient dispatch failure is durable and retried with a new attempt", %{dir: dir} do
+      parent = self()
+      counter = :counters.new(1, [])
+
+      dispatcher = fn _decision, opts ->
+        :ok = :counters.add(counter, 1, 1)
+        attempt = :counters.get(counter, 1)
+        send(parent, {:attempted, attempt, opts[:attempt_id]})
+
+        if attempt == 1,
+          do: {:error, :unavailable},
+          else: {:ok, %{status: :accepted, item: %{id: 88}}}
+      end
+
+      pid =
+        start_store!(dir,
+          dispatcher: dispatcher,
+          dispatch_delay_ms: 0,
+          retry_delays_ms: [0]
+        )
+
+      assert {:ok, %{decision: decision}} = request(pid, answerable_request("answer-retry"))
+      payload = %{"idempotency_key" => "retry-1", "expected_version" => 1, "custom_response" => "Proceed"}
+      assert {:ok, _result} = answer(pid, decision.decision_id, payload)
+
+      assert_receive {:attempted, 1, first_attempt}, 1_000
+      assert_receive {:attempted, 2, second_attempt}, 1_000
+      refute first_attempt == second_attempt
+
+      settled = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :queued))
+      assert Enum.map(settled.dispatch_attempts, & &1.status) == [:failed, :queued]
+      assert hd(settled.dispatch_attempts).failure_reason_class == "orchestrator_unavailable"
+    end
+
+    test "target-agent failure waits for an explicit idempotent retry", %{dir: dir} do
+      parent = self()
+      counter = :counters.new(1, [])
+
+      dispatcher = fn _decision, opts ->
+        :ok = :counters.add(counter, 1, 1)
+        attempt = :counters.get(counter, 1)
+        send(parent, {:target_attempt, attempt, opts[:retry_failed]})
+
+        if attempt == 1,
+          do: {:error, :no_running_agent},
+          else: {:ok, %{status: :accepted, item: %{id: 89}}}
+      end
+
+      pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0, retry_delays_ms: [0])
+      assert {:ok, %{decision: decision}} = request(pid, answerable_request("answer-explicit-retry"))
+      payload = %{"idempotency_key" => "retry-2", "expected_version" => 1, "custom_response" => "Proceed"}
+      assert {:ok, %{action: action}} = answer(pid, decision.decision_id, payload)
+
+      assert_receive {:target_attempt, 1, false}, 1_000
+      failed = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :failed))
+      assert List.last(failed.dispatch_attempts).failure_reason_class == "target_agent_unavailable"
+      refute_receive {:target_attempt, _, _}, 100
+
+      assert {:ok, :scheduled} = DecisionStore.retry_dispatch(decision.decision_id, action.action_id, pid)
+      assert_receive {:target_attempt, 2, true}, 1_000
+      settled = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :queued))
+      assert Enum.map(settled.dispatch_attempts, & &1.status) == [:failed, :queued]
+    end
+
+    test "projection repair failure after answer append suppresses dispatch", %{dir: dir} do
+      parent = self()
+      dispatcher = fn _decision, _opts -> send(parent, :unexpected_dispatch) end
+      pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0)
+      assert {:ok, %{decision: decision}} = request(pid, answerable_request("answer-repair"))
+
+      File.chmod!(dir, 0o500)
+      on_exit(fn -> File.chmod!(dir, 0o700) end)
+
+      payload = %{"idempotency_key" => "repair-1", "expected_version" => 1, "custom_response" => "Proceed"}
+      assert {:ok, %{status: :accepted}} = answer(pid, decision.decision_id, payload)
+      assert {:repair, _reason} = DecisionStore.health(pid)
+      refute_receive :unexpected_dispatch, 100
+    end
+  end
+
   describe "corruption" do
     test "an interior-corrupt audit log boots read-only and keeps validated-prefix reads", %{dir: dir} do
       pid1 = start_store!(dir)
@@ -337,6 +592,34 @@ defmodule Aiur.DecisionStoreTest do
       :ok = Exchange.subscribe("ticket.979.agent.decision.requested")
       assert {:ok, %{status: :duplicate}} = request(pid, payload)
       refute_receive {:event, %{topic: "ticket.979.agent.decision.requested"}}, 200
+    end
+  end
+
+
+  defp answerable_request(source_id) do
+    %{
+      "question" => "Deploy now?",
+      "blocking" => true,
+      "source_id" => source_id,
+      "options" => [%{"id" => "ship", "label" => "Ship it"}]
+    }
+  end
+
+  defp audit_type(%DecisionEvent{type: type}), do: type
+  defp audit_type(%Aiur.Decision{}), do: :requested
+
+  defp wait_for_decision(pid, decision_id, predicate, attempts \\ 100)
+
+  defp wait_for_decision(_pid, _decision_id, _predicate, 0), do: flunk("decision did not reach expected state")
+
+  defp wait_for_decision(pid, decision_id, predicate, attempts) do
+    {:ok, decision} = DecisionStore.get(decision_id, pid)
+
+    if predicate.(decision) do
+      decision
+    else
+      Process.sleep(10)
+      wait_for_decision(pid, decision_id, predicate, attempts - 1)
     end
   end
 end
