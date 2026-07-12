@@ -123,6 +123,10 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ ~s(aria-label="Open pending decision")
     assert html =~ ~s(aria-label="Read agent conversation")
     assert html =~ ~s(aria-label="Open tracker ticket")
+    assert html =~ ~s(data-label="Ticket")
+    assert html =~ ~s(data-label="Latest")
+    assert html =~ ~s(data-label="Elapsed")
+    assert html =~ ~s(data-label="Decisions")
   end
 
   test "decision banner targets an open decision and hides when none await input" do

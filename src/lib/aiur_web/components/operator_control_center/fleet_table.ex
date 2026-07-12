@@ -45,7 +45,7 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
               phx-click={row.bucket == :running && "show-agent-log"}
               phx-value-issue={row.bucket == :running && row.issue_identifier}
             >
-              <td>
+              <td data-label="Ticket">
                 <div class="fleet-ticket">
                   <span class="fleet-state-glyph" title={humanize(row.work_state)}>{state_glyph(row)}</span>
                   <span>
@@ -54,21 +54,21 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
                   </span>
                 </div>
               </td>
-              <td>
+              <td data-label="State">
                 <span class={state_chip_class(row.state)}>{humanize(row.state || row.bucket)}</span>
                 <span class="fleet-latest-meta">{ci_review(row)}</span>
               </td>
-              <td><span class={waiting_chip_class(row.waiting_reason)}>{humanize(row.waiting_reason)}</span></td>
-              <td>
+              <td data-label="Waiting"><span class={waiting_chip_class(row.waiting_reason)}>{humanize(row.waiting_reason)}</span></td>
+              <td data-label="Latest">
                 <span class="fleet-latest" title={latest(row)}>{latest(row)}</span>
                 <span :if={row[:last_event_at]} class="fleet-latest-meta mono">{row.last_event_at}</span>
               </td>
-              <td class="mono num">{runtime(row, @now)}</td>
-              <td class="num">
+              <td class="mono num" data-label="Elapsed">{runtime(row, @now)}</td>
+              <td class="num" data-label="Decisions">
                 <span :if={row.open_decision_count > 0} class="chip attention">! {row.open_decision_count}</span>
                 <span :if={row.open_decision_count == 0} class="muted">—</span>
               </td>
-              <td>
+              <td data-label="Actions">
                 <div class="fleet-actions">
                   <.link
                     :if={decision_id = @decision_links[row.issue_identifier]}
