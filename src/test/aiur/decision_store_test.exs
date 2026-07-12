@@ -1143,7 +1143,7 @@ defmodule Aiur.DecisionStoreTest do
 
       assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, pid)
       assert Enum.count(audit, &(audit_type(&1) == :acknowledged)) == 1
-      assert Enum.count(audit, &(audit_type(&1) == :resolved)) == 0
+      refute Enum.any?(audit, &(audit_type(&1) == :resolved))
     end
   end
 

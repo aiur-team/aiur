@@ -26,7 +26,12 @@ defmodule Aiur.DecisionApiIntegrationTest do
 
     dispatcher = fn decision, opts ->
       action = Decision.active_answer(decision)
-      send(parent, {:dispatch_observed, action.action_id, DecisionStore.audit_history(decision.decision_id, opts[:store])})
+
+      send(
+        parent,
+        {:dispatch_observed, action.action_id, DecisionStore.audit_history(decision.decision_id, opts[:store])}
+      )
+
       {:ok, %{status: :accepted, item: %{id: 984}}}
     end
 

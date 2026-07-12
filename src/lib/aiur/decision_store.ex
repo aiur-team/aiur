@@ -551,7 +551,9 @@ defmodule Aiur.DecisionStore do
            accepted.sequence - 1,
            accepted.decision_version
          ) do
-      {:ok, replayed} when replayed.action_id == accepted.action_id and replayed.content_hash == accepted.content_hash ->
+      {:ok, replayed}
+      when replayed.action_id == accepted.action_id and
+             replayed.content_hash == accepted.content_hash ->
         next_state = maybe_schedule_after_answer(state, decision, false)
         {:reply, {:ok, revision_result(:duplicate, decision, accepted)}, next_state}
 
@@ -1305,7 +1307,6 @@ defmodule Aiur.DecisionStore do
          data: candidate.data
        }}
     else
-      false -> {:error, :invalid_lifecycle_payload}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -1431,14 +1432,16 @@ defmodule Aiur.DecisionStore do
 
     cond do
       not is_binary(context.decision_id) -> {:error, :invalid_decision_correlation}
-      not (is_integer(context.decision_version) and context.decision_version > 0) -> {:error, :invalid_decision_correlation}
+      not positive_integer?(context.decision_version) -> {:error, :invalid_decision_correlation}
       context.action_id != action_id -> {:error, :action_mismatch}
       not is_binary(context.attempt_id) -> {:error, :invalid_decision_correlation}
-      not (is_integer(context.queue_item_id) and context.queue_item_id > 0) -> {:error, :invalid_decision_correlation}
+      not positive_integer?(context.queue_item_id) -> {:error, :invalid_decision_correlation}
       not is_binary(context.target) -> {:error, :invalid_decision_correlation}
       true -> {:ok, context}
     end
   end
+
+  defp positive_integer?(value), do: is_integer(value) and value > 0
 
   defp correlation_value(correlation, key),
     do: Map.get(correlation, key, Map.get(correlation, Atom.to_string(key)))
@@ -1660,25 +1663,21 @@ defmodule Aiur.DecisionStore do
   end
 
   defp start_revision_follow_up_task(state, operation, decision_id, action_id) do
-    with {:ok, decision} <- fetch_decision(state, decision_id) do
-      owner = self()
-      callback = revision_follow_up_callback(state, operation)
+    case fetch_decision(state, decision_id) do
+      {:ok, decision} ->
+        owner = self()
+        callback = revision_follow_up_callback(state, operation)
 
-      task = fn ->
-        result = safe_revision_follow_up_call(callback, decision, action_id)
-        send(owner, {:revision_follow_up_result, operation, decision_id, action_id, result})
-      end
+        {:ok, _pid} =
+          Task.start(fn ->
+            result = safe_revision_follow_up_call(callback, decision, action_id)
+            send(owner, {:revision_follow_up_result, operation, decision_id, action_id, result})
+          end)
 
-      case Task.start(task) do
-        {:ok, _pid} ->
-          state
+        state
 
-        {:error, reason} ->
-          send(owner, {:revision_follow_up_result, operation, decision_id, action_id, {:error, reason}})
-          state
-      end
-    else
-      {:error, _reason} -> clear_revision_follow_up_inflight(state, operation, {decision_id, action_id})
+      {:error, _reason} ->
+        clear_revision_follow_up_inflight(state, operation, {decision_id, action_id})
     end
   end
 
@@ -1783,14 +1782,8 @@ defmodule Aiur.DecisionStore do
         send(store, {:dispatch_result, decision.decision_id, answer.action_id, attempt_id, result})
       end
 
-      case Task.start(task) do
-        {:ok, _pid} ->
-          %{state | dispatching: MapSet.put(state.dispatching, answer.action_id)}
-
-        {:error, _reason} ->
-          send(self(), {:dispatch_result, decision.decision_id, answer.action_id, attempt_id, {:error, :task_unavailable}})
-          %{state | dispatching: MapSet.put(state.dispatching, answer.action_id)}
-      end
+      {:ok, _pid} = Task.start(task)
+      %{state | dispatching: MapSet.put(state.dispatching, answer.action_id)}
     else
       _other -> state
     end

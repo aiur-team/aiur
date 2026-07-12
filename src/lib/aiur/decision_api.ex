@@ -251,17 +251,18 @@ defmodule Aiur.DecisionApi do
   defp normalize_param_keys(params) do
     Enum.reduce_while(params, {:ok, %{}}, fn {raw_key, value}, {:ok, normalized} ->
       case normalize_key(raw_key) do
-        {:ok, key} ->
-          cond do
-            key not in @list_fields -> {:halt, {:error, {:field, key, :unknown}}}
-            Map.has_key?(normalized, key) -> {:halt, {:error, {:field, key, :duplicate}}}
-            true -> {:cont, {:ok, Map.put(normalized, key, value)}}
-          end
-
-        :error ->
-          {:halt, {:error, {:field, :invalid}}}
+        {:ok, key} -> accumulate_param(normalized, key, value)
+        :error -> {:halt, {:error, {:field, :invalid}}}
       end
     end)
+  end
+
+  defp accumulate_param(normalized, key, value) do
+    cond do
+      key not in @list_fields -> {:halt, {:error, {:field, key, :unknown}}}
+      Map.has_key?(normalized, key) -> {:halt, {:error, {:field, key, :duplicate}}}
+      true -> {:cont, {:ok, Map.put(normalized, key, value)}}
+    end
   end
 
   defp normalize_key(key) when is_binary(key), do: {:ok, key}

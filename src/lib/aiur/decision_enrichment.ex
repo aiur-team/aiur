@@ -98,10 +98,8 @@ defmodule Aiur.DecisionEnrichment do
          {:ok, normalized} <- normalize_optional_map(normalized, "context", :context, @context_fields),
          {:ok, normalized} <- normalize_optional_list_of_maps(normalized, "options", :option, @option_fields),
          {:ok, normalized} <-
-           normalize_optional_map(normalized, "recommendation", :recommendation, @recommendation_fields),
-         {:ok, normalized} <-
-           normalize_optional_list_of_maps(normalized, "artifacts", :artifact, @artifact_fields) do
-      {:ok, normalized}
+           normalize_optional_map(normalized, "recommendation", :recommendation, @recommendation_fields) do
+      normalize_optional_list_of_maps(normalized, "artifacts", :artifact, @artifact_fields)
     end
   end
 
@@ -137,26 +135,36 @@ defmodule Aiur.DecisionEnrichment do
   defp normalize_optional_list_of_maps(patch, field, location, allowed_fields) do
     case Map.fetch(patch, field) do
       {:ok, values} when is_list(values) ->
-        values
-        |> Enum.reduce_while({:ok, []}, fn
-          value, {:ok, acc} when is_map(value) ->
-            with {:ok, normalized} <- normalize_keys(value),
-                 :ok <- validate_nested_fields(normalized, location, allowed_fields) do
-              {:cont, {:ok, [normalized | acc]}}
-            else
-              {:error, reason} -> {:halt, {:error, reason}}
-            end
-
-          value, {:ok, acc} ->
-            {:cont, {:ok, [value | acc]}}
-        end)
-        |> case do
+        case normalize_list_values(values, location, allowed_fields) do
           {:ok, normalized} -> {:ok, Map.put(patch, field, Enum.reverse(normalized))}
           {:error, reason} -> {:error, reason}
         end
 
       _missing_or_other ->
         {:ok, patch}
+    end
+  end
+
+  defp normalize_list_values(values, location, allowed_fields) do
+    Enum.reduce_while(values, {:ok, []}, fn value, accumulator ->
+      normalize_list_value(value, accumulator, location, allowed_fields)
+    end)
+  end
+
+  defp normalize_list_value(value, {:ok, acc}, location, allowed_fields) when is_map(value) do
+    case normalize_nested_map(value, location, allowed_fields) do
+      {:ok, normalized} -> {:cont, {:ok, [normalized | acc]}}
+      {:error, reason} -> {:halt, {:error, reason}}
+    end
+  end
+
+  defp normalize_list_value(value, {:ok, acc}, _location, _allowed_fields),
+    do: {:cont, {:ok, [value | acc]}}
+
+  defp normalize_nested_map(value, location, allowed_fields) do
+    with {:ok, normalized} <- normalize_keys(value),
+         :ok <- validate_nested_fields(normalized, location, allowed_fields) do
+      {:ok, normalized}
     end
   end
 
@@ -170,17 +178,18 @@ defmodule Aiur.DecisionEnrichment do
   defp normalize_keys(map) do
     Enum.reduce_while(map, {:ok, %{}}, fn {raw_key, value}, {:ok, normalized} ->
       case normalize_key(raw_key) do
-        {:ok, key} ->
-          if Map.has_key?(normalized, key) do
-            {:halt, {:error, {:duplicate_fields, [key]}}}
-          else
-            {:cont, {:ok, Map.put(normalized, key, value)}}
-          end
-
-        :error ->
-          {:halt, {:error, {:field, :invalid}}}
+        {:ok, key} -> accumulate_key(normalized, key, value)
+        :error -> {:halt, {:error, {:field, :invalid}}}
       end
     end)
+  end
+
+  defp accumulate_key(normalized, key, value) do
+    if Map.has_key?(normalized, key) do
+      {:halt, {:error, {:duplicate_fields, [key]}}}
+    else
+      {:cont, {:ok, Map.put(normalized, key, value)}}
+    end
   end
 
   defp normalize_key(key) when is_binary(key), do: {:ok, key}

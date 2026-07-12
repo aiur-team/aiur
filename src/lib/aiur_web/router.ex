@@ -218,9 +218,8 @@ defmodule AiurWeb.Router do
   end
 
   defp origin_matches_allowlist?(value, conn, allow_path?) when is_binary(value) do
-    with {:ok, origin} <- parse_web_origin(value, allow_path?) do
-      origin in allowed_origins(conn)
-    else
+    case parse_web_origin(value, allow_path?) do
+      {:ok, origin} -> origin in allowed_origins(conn)
       :error -> false
     end
   end

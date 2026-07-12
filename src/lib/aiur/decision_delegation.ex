@@ -234,25 +234,24 @@ defmodule Aiur.DecisionDelegation do
   defp confidence(value) when is_integer(value) and value >= 0 and value <= 100, do: {:ok, value}
   defp confidence(_value), do: {:error, {:confidence, :invalid}}
 
+  defp alternatives(values) when is_list(values) and length(values) > @alternatives_max,
+    do: {:error, {:alternatives_considered, :too_many}}
+
   defp alternatives(values) when is_list(values) do
-    if length(values) > @alternatives_max do
-      {:error, {:alternatives_considered, :too_many}}
-    else
-      values
-      |> Enum.reduce_while({:ok, []}, fn value, {:ok, acc} ->
-        case required_text(value, @alternative_max, :alternative) do
-          {:ok, normalized} -> {:cont, {:ok, [normalized | acc]}}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      end)
-      |> case do
-        {:ok, normalized} -> {:ok, Enum.reverse(normalized)}
-        {:error, reason} -> {:error, reason}
+    values
+    |> Enum.reduce_while({:ok, []}, fn value, {:ok, acc} ->
+      case required_text(value, @alternative_max, :alternative) do
+        {:ok, normalized} -> {:cont, {:ok, [normalized | acc]}}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
-    end
+    end)
+    |> finalize_alternatives()
   end
 
   defp alternatives(_values), do: {:error, {:alternatives_considered, :invalid_type}}
+
+  defp finalize_alternatives({:ok, normalized}), do: {:ok, Enum.reverse(normalized)}
+  defp finalize_alternatives({:error, reason}), do: {:error, reason}
 
   defp reversibility(value, field), do: enum(value, Decision.reversibilities(), field)
 
@@ -299,17 +298,18 @@ defmodule Aiur.DecisionDelegation do
   defp normalize_keys(map) do
     Enum.reduce_while(map, {:ok, %{}}, fn {raw_key, value}, {:ok, normalized} ->
       case normalize_key(raw_key) do
-        {:ok, key} ->
-          if Map.has_key?(normalized, key) do
-            {:halt, {:error, {:duplicate_fields, [key]}}}
-          else
-            {:cont, {:ok, Map.put(normalized, key, value)}}
-          end
-
-        :error ->
-          {:halt, {:error, {:field, :invalid}}}
+        {:ok, key} -> accumulate_key(normalized, key, value)
+        :error -> {:halt, {:error, {:field, :invalid}}}
       end
     end)
+  end
+
+  defp accumulate_key(normalized, key, value) do
+    if Map.has_key?(normalized, key) do
+      {:halt, {:error, {:duplicate_fields, [key]}}}
+    else
+      {:cont, {:ok, Map.put(normalized, key, value)}}
+    end
   end
 
   defp normalize_key(key) when is_binary(key), do: {:ok, key}

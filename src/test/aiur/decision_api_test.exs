@@ -223,7 +223,7 @@ defmodule Aiur.DecisionApiTest do
              DecisionApi.decide(human.decision_id, decision_payload(), supervisor_opts(store))
 
     assert {:ok, audit} = DecisionStore.audit_history(human.decision_id, store)
-    assert Enum.count(audit, &match?(%Aiur.DecisionEvent{type: :answer_recorded}, &1)) == 0
+    refute Enum.any?(audit, &match?(%Aiur.DecisionEvent{type: :answer_recorded}, &1))
 
     eligible = request!(store, "architecture", :supervisor_allowed, source_id: "decide-invalid")
     invalid = Map.delete(decision_payload(), "confidence")
@@ -312,7 +312,7 @@ defmodule Aiur.DecisionApiTest do
              )
 
     assert {:ok, audit} = DecisionStore.audit_history(v2.decision_id, store)
-    assert Enum.count(audit, &match?(%Aiur.DecisionEvent{type: :revision_recorded}, &1)) == 0
+    refute Enum.any?(audit, &match?(%Aiur.DecisionEvent{type: :revision_recorded}, &1))
   end
 
   test "revise delegates to OCC-8 with trusted actor and policy basis", %{store: store} do
