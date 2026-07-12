@@ -99,8 +99,10 @@ walks:
    routing, the permission mode, and an optional ordered rate-limit fallback.
 4. **Limits** — max concurrent agents, max turns, max duration, pre-warmed
    sessions, and the tracker polling interval.
-5. **GitHub token** — used to create labels and act as the bot account. With no
-   `GITHUB_TOKEN` yet, the wizard calmly explains the one next step instead of
+5. **GitHub token** — used to create labels and act as the bot account. Set
+   `AIUR_GITHUB_TOKEN` to a dedicated bot credential for daemon polling; when it
+   is absent Aiur retains the `GITHUB_TOKEN`/`gh` keyring compatibility chain.
+   With no usable credential, the wizard calmly explains the next step instead of
    failing.
 6. **Labels** — creates the lifecycle (`agent:*`), pause/watch marker,
    complexity, model, and remote-control labels the orchestrator routes on.
@@ -267,8 +269,9 @@ scripts/aiur-telemetry-dashboard \
 Passing the common `~/.aiur/logs` root recursively discovers every canonical
 telemetry stream beneath it. Add `--repo owner/repo` to recover missing PR-open,
 trusted-comment, and merge anchors from GitHub at generation time; this optional
-enrichment reads `GITHUB_TOKEN`, and auth or network failures become visible report
-warnings rather than blocking local analytics. Use
+enrichment reads the daemon credential (`AIUR_GITHUB_TOKEN` when configured,
+otherwise the `GITHUB_TOKEN`/`gh` compatibility chain), and auth or network
+failures become visible report warnings rather than blocking local analytics. Use
 `--review-resume-grace-seconds N` to tune when a trusted review comment with no
 observed rework/resume sequence is classified as broken.
 

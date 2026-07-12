@@ -90,7 +90,7 @@ defmodule Aiur.GitHub.AuthPreflight do
            detail: detail,
            endpoint: endpoint,
            repo: "#{owner}/#{repo}",
-           token_source: "GITHUB_TOKEN",
+           token_source: Aiur.GitHub.Config.token_source(),
            request_error: inspect(reason)
          }}
     end
@@ -101,7 +101,7 @@ defmodule Aiur.GitHub.AuthPreflight do
       reason: reason,
       endpoint: endpoint,
       repo: "#{owner}/#{repo}",
-      token_source: "GITHUB_TOKEN",
+      token_source: Aiur.GitHub.Config.token_source(),
       status: status,
       rate_limit_remaining: Errors.rate_limit_remaining(response),
       rate_limit_reset: Errors.rate_limit_reset(response)
@@ -146,13 +146,23 @@ defmodule Aiur.GitHub.AuthPreflight do
 
     [
       "GitHub auth preflight failed for #{source} while validating #{repo} #{endpoint} access: #{reason}.",
-      "Aiur uses GITHUB_TOKEN for GitHub tracker/API calls, and that environment token takes precedence over `gh` keyring auth.",
+      auth_source_guidance(source),
       keyring,
-      "Recovery: refresh or unset GITHUB_TOKEN in the shell or .env used to launch aiur, restart aiur so the daemon inherits the fixed environment, then verify `gh api rate_limit` and `gh api repos/#{repo}/issues?per_page=1` without printing token material."
+      "Recovery: refresh or unset #{source} in the shell or .env used to launch aiur, restart aiur so the daemon inherits the fixed environment, then verify `gh api rate_limit` and `gh api repos/#{repo}/issues?per_page=1` without printing token material."
     ]
     |> Enum.reject(&(&1 in [nil, ""]))
     |> Enum.join(" ")
   end
+
+  defp auth_source_guidance("AIUR_GITHUB_TOKEN"),
+    do: "Aiur uses the dedicated AIUR_GITHUB_TOKEN for daemon GitHub tracker/API calls and does not fall back while it is configured."
+
+  defp auth_source_guidance("GITHUB_TOKEN"),
+    do:
+      "Aiur uses GITHUB_TOKEN from the compatibility credential chain, and that environment token takes precedence over `gh` keyring auth; configure AIUR_GITHUB_TOKEN to give daemon polling a dedicated identity."
+
+  defp auth_source_guidance(source),
+    do: "Aiur selected #{source} from the compatibility credential chain; configure AIUR_GITHUB_TOKEN to give daemon polling a dedicated identity."
 
   defp human_auth_reason(%{reason: :invalid_or_expired_token, status: status}),
     do: "GitHub returned HTTP #{status}, which usually means the token is invalid or expired"

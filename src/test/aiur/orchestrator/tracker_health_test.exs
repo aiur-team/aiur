@@ -12,4 +12,11 @@ defmodule Aiur.Orchestrator.TrackerHealthTest do
 
     assert TrackerHealth.next_poll_delay_ms(state) == 3_000
   end
+
+  test "uses a protective shared budget delay when it is largest" do
+    state = %State{poll_interval_ms: 1_000, github_poll_delays: %{comments: 2_000}}
+
+    assert TrackerHealth.next_poll_delay_ms(state, budget_delay_fun: fn -> 9_000 end) == 9_000
+    assert TrackerHealth.next_poll_delay_ms(state, budget_delay_fun: fn -> 500 end) == 2_000
+  end
 end

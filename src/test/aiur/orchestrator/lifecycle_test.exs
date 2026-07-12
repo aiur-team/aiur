@@ -51,6 +51,16 @@ defmodule Aiur.Orchestrator.LifecycleTest do
     assert token == refreshed.tick_token
   end
 
+  test "request_refresh respects a protective GitHub budget delay" do
+    state = %State{next_poll_due_at_ms: System.monotonic_time(:millisecond) + 30_000, poll_check_in_progress: false}
+
+    assert {:reply, %{queued: true, coalesced: false}, refreshed} =
+             Lifecycle.request_refresh(state, budget_delay_fun: fn -> 5_000 end)
+
+    assert refreshed.next_poll_due_at_ms > System.monotonic_time(:millisecond) + 4_000
+    Process.cancel_timer(refreshed.tick_timer_ref)
+  end
+
   test "tracked-set refresh excludes deactivated entries" do
     state = %State{
       running: %{

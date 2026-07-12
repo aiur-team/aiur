@@ -7,6 +7,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
 
   alias Aiur.{CIApprovalStore, Config, ProcessReaper}
   alias Aiur.Events.{Exchange, Publisher}
+  alias Aiur.GitHub.RateBudget
 
   alias Aiur.Orchestrator.{
     AgentTeardown,
@@ -116,12 +117,13 @@ defmodule Aiur.Orchestrator.Lifecycle do
     {:noreply, state}
   end
 
-  @spec request_refresh(State.t()) :: {:reply, map(), State.t()}
-  def request_refresh(%State{} = state) do
+  @spec request_refresh(State.t(), keyword()) :: {:reply, map(), State.t()}
+  def request_refresh(%State{} = state, opts \\ []) do
     now_ms = System.monotonic_time(:millisecond)
+    budget_delay_fun = Keyword.get(opts, :budget_delay_fun, &RateBudget.delay_ms/0)
     already_due? = is_integer(state.next_poll_due_at_ms) and state.next_poll_due_at_ms <= now_ms
     coalesced = state.poll_check_in_progress == true or already_due?
-    state = if coalesced, do: state, else: schedule_tick(state, 0)
+    state = if coalesced, do: state, else: schedule_tick(state, budget_delay_fun.())
 
     {:reply,
      %{

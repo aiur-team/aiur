@@ -3,6 +3,7 @@ defmodule Aiur.InitTest do
 
   alias Aiur.GitHub.Labels
   alias Aiur.Init
+  alias Aiur.Init.Templates
   alias Aiur.Workflow
 
   @example_file Path.expand("../../../.aiur/examples/config.example", __DIR__)
@@ -1579,7 +1580,7 @@ defmodule Aiur.InitTest do
     test "scaffolds only .env and walks through the bot-account token", %{dir: dir, target: target} do
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
 
-      assert File.read!(Path.join(dir, ".env")) == "GITHUB_TOKEN=\n"
+      assert File.read!(Path.join(dir, ".env")) == Templates.env_content()
       refute File.exists?(Path.join(dir, ".env.example"))
 
       log = puts_log()
@@ -1592,7 +1593,7 @@ defmodule Aiur.InitTest do
       target: target
     } do
       # Pre-create .env so it is reported as Found, not Created.
-      File.write!(Path.join(dir, ".env"), "GITHUB_TOKEN=\n")
+      File.write!(Path.join(dir, ".env"), Templates.env_content())
 
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
 

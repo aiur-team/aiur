@@ -6,16 +6,25 @@ defmodule Aiur.GitHub.ConfigTest do
   alias Aiur.GitHub.Config
 
   @cache_key {Config, :resolved_token}
+  @source_cache_key {Config, :resolved_token_source}
 
   setup do
     original = System.get_env("GITHUB_TOKEN")
+    original_daemon = System.get_env("AIUR_GITHUB_TOKEN")
+    System.delete_env("AIUR_GITHUB_TOKEN")
 
     on_exit(fn ->
       :persistent_term.erase(@cache_key)
+      :persistent_term.erase(@source_cache_key)
 
       case original do
         nil -> System.delete_env("GITHUB_TOKEN")
         value -> System.put_env("GITHUB_TOKEN", value)
+      end
+
+      case original_daemon do
+        nil -> System.delete_env("AIUR_GITHUB_TOKEN")
+        value -> System.put_env("AIUR_GITHUB_TOKEN", value)
       end
     end)
 
@@ -37,6 +46,31 @@ defmodule Aiur.GitHub.ConfigTest do
       )
 
     assert resolved == "env-token"
+    assert Config.token_source() == "GITHUB_TOKEN"
+  end
+
+  test "configured daemon token wins and fails closed without validation fallback" do
+    System.put_env("AIUR_GITHUB_TOKEN", "daemon-token")
+    System.put_env("GITHUB_TOKEN", "env-token")
+    parent = self()
+
+    resolved =
+      Config.resolve_token(
+        validate_fun: fn token ->
+          send(parent, {:validated, token})
+          token == "env-token"
+        end,
+        keyring_fun: fn ->
+          send(parent, :keyring_called)
+          "keyring-token"
+        end
+      )
+
+    assert resolved == "daemon-token"
+    assert Config.token() == "daemon-token"
+    assert Config.token_source() == "AIUR_GITHUB_TOKEN"
+    refute_received {:validated, _}
+    refute_received :keyring_called
   end
 
   test "invalid env token + valid keyring -> returns the keyring token" do
@@ -49,6 +83,7 @@ defmodule Aiur.GitHub.ConfigTest do
       )
 
     assert resolved == "keyring-token"
+    assert Config.token_source() == "gh keyring"
   end
 
   test "rate-exhausted env token + valid keyring -> returns the keyring token" do
@@ -126,6 +161,15 @@ defmodule Aiur.GitHub.ConfigTest do
     System.put_env("GITHUB_TOKEN", "raw-env-token")
 
     assert Config.token() == "raw-env-token"
+  end
+
+  test "token/0 prefers the raw daemon token when unresolved" do
+    :persistent_term.erase(@cache_key)
+    System.put_env("AIUR_GITHUB_TOKEN", "raw-daemon-token")
+    System.put_env("GITHUB_TOKEN", "raw-env-token")
+
+    assert Config.token() == "raw-daemon-token"
+    assert Config.token_source() == "AIUR_GITHUB_TOKEN"
   end
 
   defp authorization_token(opts) do

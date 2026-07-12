@@ -61,6 +61,7 @@ defmodule Aiur.GitHub.Transport do
       end
 
     Req.get(url, headers: headers, connect_options: [timeout: 30_000])
+    |> observe_rate_budget()
   end
 
   def default_request_fun(%{method: :post, url: url, token: token, body: body} = req) do
@@ -69,6 +70,7 @@ defmodule Aiur.GitHub.Transport do
       json: body,
       connect_options: [timeout: 30_000]
     )
+    |> observe_rate_budget()
   end
 
   def default_request_fun(%{method: :patch, url: url, token: token, body: body} = req) do
@@ -77,10 +79,12 @@ defmodule Aiur.GitHub.Transport do
       json: body,
       connect_options: [timeout: 30_000]
     )
+    |> observe_rate_budget()
   end
 
   def default_request_fun(%{method: :delete, url: url, token: token} = req) do
     Req.delete(url, headers: github_headers(token, req), connect_options: [timeout: 30_000])
+    |> observe_rate_budget()
   end
 
   @spec github_headers(String.t(), map()) :: [{String.t(), String.t()}]
@@ -204,4 +208,11 @@ defmodule Aiur.GitHub.Transport do
         60
     end
   end
+
+  defp observe_rate_budget({:ok, response} = result) do
+    Aiur.GitHub.RateBudget.observe_response(response)
+    result
+  end
+
+  defp observe_rate_budget(result), do: result
 end

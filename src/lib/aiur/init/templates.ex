@@ -14,7 +14,7 @@ defmodule Aiur.Init.Templates do
   @prompt_example_template File.read!(@prompt_example_path)
   @repo_placeholder "{{REPO}}"
 
-  @env_content "GITHUB_TOKEN=\n"
+  @env_content "# Optional dedicated bot token for daemon GitHub polling.\nAIUR_GITHUB_TOKEN=\nGITHUB_TOKEN=\n"
 
   # Embed the annotated example at compile time so the wizard works from a
   # release without a runtime file dependency. aiur dogfoods the `.aiur/` layout,

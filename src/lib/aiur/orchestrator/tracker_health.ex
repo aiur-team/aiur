@@ -9,6 +9,7 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   alias Aiur.{Alerts, Config}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Connectivity, as: GitHubConnectivity
+  alias Aiur.GitHub.RateBudget
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.State
@@ -72,9 +73,12 @@ defmodule Aiur.Orchestrator.TrackerHealth do
 
   def note_github_poll_interval(%State{} = state, _source, _seconds), do: state
 
-  @spec next_poll_delay_ms(State.t()) :: non_neg_integer()
-  def next_poll_delay_ms(%State{} = state) do
-    github_next_poll_delay_ms(state) || state.poll_interval_ms
+  @spec next_poll_delay_ms(State.t(), keyword()) :: non_neg_integer()
+  def next_poll_delay_ms(%State{} = state, opts \\ []) do
+    budget_delay_fun = Keyword.get(opts, :budget_delay_fun, &RateBudget.delay_ms/0)
+
+    [state.poll_interval_ms, github_next_poll_delay_ms(state) || 0, budget_delay_fun.()]
+    |> Enum.max()
   end
 
   @doc false

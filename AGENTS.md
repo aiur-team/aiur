@@ -119,14 +119,16 @@ makes HTTPS Just Work.
 ## Auth
 
 The dashboard reads `AIUR_DASHBOARD_USERNAME` / `AIUR_DASHBOARD_PASSWORD`
-from the environment, and the GitHub tracker reads `GITHUB_TOKEN`. On a run
-the engine loads `./.env` from the current directory so the release picks
-these up (a value already exported in your shell always wins). `aiur init`
+from the environment. The GitHub tracker prefers `AIUR_GITHUB_TOKEN` for a
+dedicated daemon identity, then falls back to `GITHUB_TOKEN` and the `gh`
+keyring. On a run the engine loads `./.env` from the current directory so the
+release picks these up (a value already exported in your shell always wins). `aiur init`
 also reads `.env` for the token during setup.
 
-GitHub tracker auth uses `GITHUB_TOKEN` for polling and `gh auth setup-git`
-for git pushes/PRs. Verify with `gh auth status` in the same shell that
-will run the agent.
+GitHub tracker polling uses `AIUR_GITHUB_TOKEN` when configured; use a dedicated
+bot credential so sustained daemon polling does not consume the operator or
+agent allowance. Git pushes/PRs continue to use `gh auth setup-git`. Verify with
+`gh auth status` in the same shell that will run the agent.
 
 ## Compound Engineering
 

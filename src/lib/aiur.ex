@@ -119,6 +119,7 @@ defmodule Aiur.Application do
       Aiur.DecisionAttention,
       Aiur.OperatorWaitLog,
       Aiur.Orchestrator.TrackedSet,
+      Aiur.GitHub.RateBudget,
       Aiur.Orchestrator,
       Aiur.Events.LsRemoteTicker,
       Aiur.ProgressCheckin.Worker,

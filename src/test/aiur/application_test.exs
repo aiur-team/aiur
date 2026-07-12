@@ -118,8 +118,10 @@ defmodule Aiur.ApplicationTest do
           ] do
         mods = modules(AiurApp.child_specs(opts))
         tracked_set = Enum.find_index(mods, &(&1 == Aiur.Orchestrator.TrackedSet))
+        rate_budget = Enum.find_index(mods, &(&1 == Aiur.GitHub.RateBudget))
         orchestrator = Enum.find_index(mods, &(&1 == Aiur.Orchestrator))
         assert tracked_set < orchestrator, "TrackedSet must precede Orchestrator for #{inspect(opts)}"
+        assert rate_budget < orchestrator, "RateBudget must precede Orchestrator for #{inspect(opts)}"
       end
     end
 

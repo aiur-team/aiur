@@ -6,6 +6,8 @@ defmodule Aiur.GitHub.Config do
   @behaviour Aiur.TrackerConfig
 
   @default_label_prefix "agent"
+  @token_cache_key {__MODULE__, :resolved_token}
+  @token_source_cache_key {__MODULE__, :resolved_token_source}
 
   @spec repo() :: String.t() | nil
   def repo do
@@ -25,16 +27,24 @@ defmodule Aiur.GitHub.Config do
 
   @spec token() :: String.t() | nil
   def token do
-    case :persistent_term.get({__MODULE__, :resolved_token}, :unset) do
-      :unset -> normalize_secret(System.get_env("GITHUB_TOKEN"))
+    case :persistent_term.get(@token_cache_key, :unset) do
+      :unset -> normalize_secret(System.get_env("AIUR_GITHUB_TOKEN")) || normalize_secret(System.get_env("GITHUB_TOKEN"))
       resolved -> resolved
     end
   end
 
+  @spec token_source() :: String.t()
+  def token_source do
+    case :persistent_term.get(@token_source_cache_key, :unset) do
+      :unset -> if(normalize_secret(System.get_env("AIUR_GITHUB_TOKEN")), do: "AIUR_GITHUB_TOKEN", else: "GITHUB_TOKEN")
+      source -> source
+    end
+  end
+
   @doc """
-  Resolve the GitHub token once at startup: prefer a VALID `GITHUB_TOKEN` env
-  var, but fall back to the gh keyring when the env token is absent or invalid
-  (e.g. a stale token sourced from .env). Caches the result; `token/0` returns it.
+  Resolve the GitHub token once at startup. A configured `AIUR_GITHUB_TOKEN`
+  is daemon-specific and fail-closed. When absent, preserve the compatibility
+  chain of `GITHUB_TOKEN` followed by the gh keyring.
   """
   @spec resolve_token(keyword()) :: String.t() | nil
   def resolve_token(opts \\ []) do
@@ -46,18 +56,24 @@ defmodule Aiur.GitHub.Config do
       end)
 
     keyring = Keyword.get(opts, :keyring_fun, &keyring_token/0)
+    daemon_env = normalize_secret(System.get_env("AIUR_GITHUB_TOKEN"))
     env = normalize_secret(System.get_env("GITHUB_TOKEN"))
 
-    resolved =
+    {resolved, source} =
       cond do
-        is_binary(env) and validate.(env) -> env
-        (kt = keyring.()) && is_binary(kt) && validate.(kt) -> kt
-        true -> env
+        is_binary(daemon_env) -> {daemon_env, "AIUR_GITHUB_TOKEN"}
+        is_binary(env) and validate.(env) -> {env, "GITHUB_TOKEN"}
+        (kt = keyring.()) && is_binary(kt) && validate.(kt) -> {kt, "gh keyring"}
+        true -> {env, "GITHUB_TOKEN"}
       end
 
     # Only cache a real token; caching nil would shadow a later GITHUB_TOKEN
     # (e.g. per-test env), since token/0 treats a cached nil as resolved.
-    if is_binary(resolved), do: :persistent_term.put({__MODULE__, :resolved_token}, resolved)
+    if is_binary(resolved) do
+      :persistent_term.put(@token_cache_key, resolved)
+      :persistent_term.put(@token_source_cache_key, source)
+    end
+
     resolved
   end
 
@@ -153,7 +169,7 @@ defmodule Aiur.GitHub.Config do
   def validate! do
     cond do
       !is_binary(token()) ->
-        {:error, "GitHub token missing — set GITHUB_TOKEN env var"}
+        {:error, "GitHub token missing — set AIUR_GITHUB_TOKEN or GITHUB_TOKEN env var"}
 
       !is_binary(repo()) ->
         {:error, "GitHub repo missing — set github.repo in .aiurconfig"}
