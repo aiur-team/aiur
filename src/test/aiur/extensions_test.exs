@@ -144,6 +144,25 @@ defmodule Aiur.ExtensionsTest do
     assert :ok = ensure_workflow_store_running()
   end
 
+  test "workflow store falls back when it shuts down during a read" do
+    ensure_workflow_store_running()
+    store = Process.whereis(WorkflowStore)
+
+    on_exit(fn ->
+      if Process.alive?(store), do: :sys.resume(store)
+      ensure_workflow_store_running()
+    end)
+
+    :sys.suspend(store)
+    :erlang.trace(store, true, [:receive])
+
+    reader = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn -> WorkflowStore.current() end)
+
+    assert_receive {:trace, ^store, :receive, {:"$gen_call", _from, :current}}
+    assert :ok = Supervisor.terminate_child(Aiur.Supervisor, WorkflowStore)
+    assert {:ok, %{prompt: "You are an agent for this repository."}} = Task.await(reader)
+  end
+
   test "workflow store retries a transient parse failure during a config write" do
     ensure_workflow_store_running()
     path = Workflow.workflow_file_path()
