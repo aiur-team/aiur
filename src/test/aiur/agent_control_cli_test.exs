@@ -36,6 +36,7 @@ defmodule Aiur.AgentControlCLITest do
   defp todo_deps(issues, opts \\ []) do
     parent = self()
     active = Keyword.get(opts, :active, Map.values(issues))
+    fetch_active_result = Keyword.get(opts, :fetch_active_result, {:ok, active})
     add_result = Keyword.get(opts, :add_result, fn _id, _label -> :ok end)
     remove_result = Keyword.get(opts, :remove_result, fn _id, _label -> :ok end)
 
@@ -53,7 +54,7 @@ defmodule Aiur.AgentControlCLITest do
       end,
       fetch_active: fn states ->
         send(parent, {:todo_fetch_active, states})
-        {:ok, active}
+        fetch_active_result
       end,
       add_label: fn id, label ->
         send(parent, {:todo_add_label, id, label})
@@ -198,6 +199,49 @@ defmodule Aiur.AgentControlCLITest do
       assert stderr =~ "--only cleanup skipped because 4 requested ticket(s) failed"
       assert_received {:todo_add_label, "15", "sym:todo"}
       refute_received {:todo_fetch_active, _}
+    end
+
+    test "continues requested IDs after an add failure and skips only cleanup" do
+      issues =
+        Map.new(~w(11 12), fn id ->
+          {id, %Issue{id: id, identifier: id, state: nil, labels: []}}
+        end)
+
+      add_result = fn
+        "11", "sym:todo" -> {:error, :timeout}
+        _id, _label -> :ok
+      end
+
+      {stdout, stderr, exit_code} =
+        capture_todo(~w(11 12), deps: todo_deps(issues, add_result: add_result), only: true)
+
+      assert exit_code == 1
+      assert stdout =~ "✓ #12 → sym:todo"
+      assert stdout =~ "queued 1 ticket(s); cleared 0 other(s)"
+      assert stderr =~ "✗ #11 failed to add sym:todo: orchestrator timed out"
+      assert stderr =~ "--only cleanup skipped because 1 requested ticket(s) failed"
+      assert_received {:todo_add_label, "11", "sym:todo"}
+      assert_received {:todo_add_label, "12", "sym:todo"}
+      refute_received {:todo_fetch_active, _}
+    end
+
+    test "reports active-ticket enumeration failures and exits non-zero" do
+      issues = %{
+        "11" => %Issue{id: "11", identifier: "11", state: "todo", labels: ["sym:todo"]}
+      }
+
+      {stdout, stderr, exit_code} =
+        capture_todo(["11"],
+          deps: todo_deps(issues, fetch_active_result: {:error, :timeout}),
+          only: true
+        )
+
+      assert exit_code == 1
+      assert stdout =~ "✓ #11 already sym:todo"
+      assert stdout =~ "queued 1 ticket(s); cleared 0 other(s)"
+      assert stderr =~ "aiur: failed to enumerate active tickets (orchestrator timed out)"
+      assert_received {:todo_fetch_active, ["todo", "working", "rework"]}
+      refute_received {:todo_remove_label, _, _}
     end
 
     test "continues clearing after a removal failure and exits non-zero" do
