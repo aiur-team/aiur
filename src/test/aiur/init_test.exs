@@ -52,18 +52,25 @@ defmodule Aiur.InitTest do
   defp io(parent, answers \\ %{}) do
     %{
       puts: fn message ->
-        send(parent, {:puts, IO.chardata_to_string(message)})
+        message = IO.chardata_to_string(message)
+        send(parent, {:io_trace, {:puts, message}})
+        send(parent, {:puts, message})
         :ok
       end,
       input: fn label, default, _hint ->
+        send(parent, {:io_trace, {:input, label}})
         send(parent, {:input_label, label})
         Map.get(Map.get(answers, :input, %{}), label, default)
       end,
-      select: fn label, _opts, default -> Map.get(Map.get(answers, :select, %{}), label, default) end,
+      select: fn label, _opts, default ->
+        send(parent, {:io_trace, {:select, label}})
+        Map.get(Map.get(answers, :select, %{}), label, default)
+      end,
       multiselect: fn label, _opts, defaults ->
         Map.get(Map.get(answers, :multiselect, %{}), label, defaults)
       end,
       confirm: fn label, default ->
+        send(parent, {:io_trace, {:confirm, label}})
         send(parent, {:confirm, label})
         Map.get(Map.get(answers, :confirm, %{}), label, default)
       end
@@ -144,7 +151,6 @@ defmodule Aiur.InitTest do
           end
         end,
         ensure_env: fn content ->
-          File.write!(Path.join(dir, ".env.example"), content)
           env_path = Path.join(dir, ".env")
 
           if File.regular?(env_path) do
@@ -212,6 +218,14 @@ defmodule Aiur.InitTest do
   defp puts_log(acc \\ []) do
     receive do
       {:puts, msg} -> puts_log([msg | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
+  defp io_trace(acc \\ []) do
+    receive do
+      {:io_trace, event} -> io_trace([event | acc])
     after
       0 -> Enum.reverse(acc)
     end
@@ -295,6 +309,11 @@ defmodule Aiur.InitTest do
   @location_label "Where will you store aiur settings for this project?"
 
   @reuse_global_alerts_label "Found an existing alerts file at ~/.aiur/alerts — copy it into this repo's .aiur/alerts?"
+
+  @prewarm_command_label "Use this base build command?"
+  @base_build_command_label "Base build command"
+  @alert_sounds_label "Add sound effects for alerts (e.g. an agent is stuck or needs your input)?"
+  @gitignore_label "Add .aiur/ to .gitignore?"
 
   defp github_answers(overrides \\ %{}) do
     base = %{
@@ -387,7 +406,7 @@ defmodule Aiur.InitTest do
   end
 
   describe "pre-warm opt-in" do
-    test "detection + accept writes an enabled prewarm block with the command", %{dir: dir, target: target} do
+    test "use builds immediately before alerts and gitignore, then writes the command", %{dir: dir, target: target} do
       d =
         deps(self(), dir, target, %{
           detect_toolchain: fn ->
@@ -395,19 +414,100 @@ defmodule Aiur.InitTest do
           end
         })
 
-      answers = github_answers(%{select: %{"Use this base build command?" => "use"}})
+      answers = github_answers(%{select: %{@prewarm_command_label => "use"}})
 
       assert :ok = Init.run(%{force: false}, io(self(), answers), d)
 
+      events = io_trace()
+
+      assert [{:select, @prewarm_command_label}, {:puts, build_message} | _] =
+               Enum.drop_while(events, &(&1 != {:select, @prewarm_command_label}))
+
+      assert build_message =~ "Building the warm base now"
+
+      assert [
+               {:puts, ^build_message},
+               {:confirm, @alert_sounds_label},
+               {:confirm, @gitignore_label}
+             ] =
+               Enum.filter(events, fn
+                 {:puts, message} -> message =~ "Building the warm base now"
+                 {:confirm, label} -> label in [@alert_sounds_label, @gitignore_label]
+                 _event -> false
+               end)
+
       # init writes the command to the sibling .aiur/prewarm script and runs the
       # first warm-base build on opt-in
-      assert_received {:prewarm_file, "mise exec -- mix compile"}
       assert_received {:prewarm_build, _url, "mise exec -- mix compile"}
+      assert File.read!(Path.join([dir, ".aiur", "prewarm"])) == "mise exec -- mix compile\n"
 
       config = File.read!(target)
       assert config =~ "enabled: true"
       assert config =~ "base_build_file: prewarm"
       refute config =~ ~s(base_build: ")
+    end
+
+    test "edit builds immediately after the edited command is accepted", %{dir: dir, target: target} do
+      edited_command = "mise exec -- mix deps.get && mise exec -- mix compile"
+
+      d =
+        deps(self(), dir, target, %{
+          detect_toolchain: fn ->
+            {:ok, %{language: :elixir, build_root: "src", command: "mise exec -- mix compile"}}
+          end
+        })
+
+      answers =
+        github_answers(%{
+          select: %{@prewarm_command_label => "edit"},
+          input: %{@base_build_command_label => edited_command}
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      events = io_trace()
+
+      assert [
+               {:select, @prewarm_command_label},
+               {:input, @base_build_command_label},
+               {:puts, build_message}
+               | _rest
+             ] = Enum.drop_while(events, &(&1 != {:select, @prewarm_command_label}))
+
+      assert build_message =~ "Building the warm base now"
+      assert_received {:prewarm_build, _url, ^edited_command}
+      assert File.read!(Path.join([dir, ".aiur", "prewarm"])) == edited_command <> "\n"
+    end
+
+    test "skip does not build or write a prewarm command", %{dir: dir, target: target} do
+      d =
+        deps(self(), dir, target, %{
+          detect_toolchain: fn ->
+            {:ok, %{language: :elixir, build_root: "src", command: "mise exec -- mix compile"}}
+          end
+        })
+
+      answers = github_answers(%{select: %{@prewarm_command_label => "skip"}})
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      events = io_trace()
+
+      assert [{:select, @prewarm_command_label}, {:confirm, @alert_sounds_label} | _] =
+               Enum.drop_while(events, &(&1 != {:select, @prewarm_command_label}))
+
+      refute Enum.any?(events, fn
+               {:puts, message} -> message =~ "Building the warm base now"
+               _event -> false
+             end)
+
+      refute_received {:prewarm_build, _url, _command}
+      refute_received {:prewarm_file, _command}
+      refute File.exists?(Path.join([dir, ".aiur", "prewarm"]))
+
+      config = File.read!(target)
+      assert config =~ "enabled: false"
+      refute config =~ "base_build_file: prewarm"
     end
 
     test "detection miss prints a fallback prompt and leaves prewarm disabled", %{dir: dir, target: target} do
@@ -1476,11 +1576,11 @@ defmodule Aiur.InitTest do
   end
 
   describe "closing steps (github)" do
-    test "scaffolds .env and walks through the bot-account token", %{dir: dir, target: target} do
+    test "scaffolds only .env and walks through the bot-account token", %{dir: dir, target: target} do
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
 
-      assert File.read!(Path.join(dir, ".env.example")) =~ "GITHUB_TOKEN="
-      assert File.read!(Path.join(dir, ".env")) =~ "GITHUB_TOKEN="
+      assert File.read!(Path.join(dir, ".env")) == "GITHUB_TOKEN=\n"
+      refute File.exists?(Path.join(dir, ".env.example"))
 
       log = puts_log()
       assert Enum.any?(log, &(&1 =~ ~r/bot account/i))

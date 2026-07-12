@@ -75,7 +75,7 @@ defmodule Aiur.GitHub.IssueDependencies do
   Removes `blocker_number` from `current_number`'s blocked-by list.
   """
   @spec unblock(integer() | String.t(), integer() | String.t(), keyword()) ::
-          {:ok, map()} | {:error, term()}
+          {:ok, :removed | :not_present} | {:error, term()}
   def unblock(current_number, blocker_number, opts \\ []) do
     request_fun = Keyword.get(opts, :request_fun)
     client_opts = if request_fun, do: [request_fun: request_fun], else: []
@@ -83,8 +83,8 @@ defmodule Aiur.GitHub.IssueDependencies do
     with {:ok, blocker_issue} <- fetch_blocker(blocker_number, client_opts),
          blocker_id when is_integer(blocker_id) <- Map.get(blocker_issue, "id") do
       case Client.remove_dependency(current_number, blocker_id, client_opts) do
-        {:ok, result} -> {:ok, result}
-        {:error, reason} -> unblock_error(reason)
+        {:ok, :removed} -> verify_unblocked(current_number, blocker_id, :removed, client_opts)
+        {:error, reason} -> unblock_error(reason, current_number, blocker_id, client_opts)
       end
     end
   end
@@ -129,12 +129,24 @@ defmodule Aiur.GitHub.IssueDependencies do
     end
   end
 
-  defp unblock_error(reason) do
+  defp unblock_error(reason, current_number, blocker_id, client_opts) do
     cond do
       github_rate_limited?(reason) -> {:error, :rate_limited}
-      github_http_status?(reason, 404) -> {:ok, :not_present}
+      github_http_status?(reason, 404) -> verify_unblocked(current_number, blocker_id, :not_present, client_opts)
       github_http_status?(reason, 403) -> {:error, :permission_denied}
       true -> {:error, reason}
+    end
+  end
+
+  defp verify_unblocked(current_number, blocker_id, result, client_opts) do
+    case Client.fetch_blocked_by(current_number, client_opts) do
+      {:ok, dependencies} ->
+        if Enum.any?(dependencies, &(Map.get(&1, "id") == blocker_id)),
+          do: {:error, :dependency_still_present},
+          else: {:ok, result}
+
+      {:error, reason} ->
+        {:error, {:postcondition_check_failed, reason}}
     end
   end
 

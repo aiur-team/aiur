@@ -24,10 +24,11 @@ defmodule Aiur.WorkspaceAndConfigTest do
       File.mkdir_p!(Path.join(template_repo, "keep"))
       File.write!(Path.join([template_repo, "keep", "file.txt"]), "keep me")
       File.write!(Path.join(template_repo, "README.md"), "hook clone\n")
+      File.write!(Path.join(template_repo, ".gitignore"), "tracked-ignore/\n")
       System.cmd("git", ["-C", template_repo, "init", "-b", "main"])
       System.cmd("git", ["-C", template_repo, "config", "user.name", "Test User"])
       System.cmd("git", ["-C", template_repo, "config", "user.email", "test@example.com"])
-      System.cmd("git", ["-C", template_repo, "add", "README.md", "keep/file.txt"])
+      System.cmd("git", ["-C", template_repo, "add", ".gitignore", "README.md", "keep/file.txt"])
       System.cmd("git", ["-C", template_repo, "commit", "-m", "initial"])
 
       write_workflow_file!(Workflow.workflow_file_path(),
@@ -39,6 +40,21 @@ defmodule Aiur.WorkspaceAndConfigTest do
       assert File.exists?(Path.join(workspace, ".git"))
       assert File.read!(Path.join(workspace, "README.md")) == "hook clone\n"
       assert File.read!(Path.join([workspace, "keep", "file.txt"])) == "keep me"
+
+      assert :ok =
+               Aiur.AgentEventLog.write(workspace, nil, %{
+                 event: "notification",
+                 last_message: "workspace log remains readable"
+               })
+
+      assert File.read!(Path.join(workspace, ".gitignore")) == "tracked-ignore/\n"
+
+      assert {"", 0} =
+               System.cmd("git", ["-C", workspace, "status", "--short", "--", "logs"], stderr_to_stdout: true)
+
+      assert %{path: log_path, messages: messages} = Aiur.AgentLog.read_workspace(workspace)
+      assert log_path == Path.join([workspace, "logs", "agent.ndjson"])
+      assert Enum.any?(messages, &(&1.body =~ "workspace log remains readable"))
     after
       File.rm_rf(test_root)
     end

@@ -72,7 +72,7 @@ defmodule Aiur.AgentList.RendererTest do
       |> visible()
 
     assert out =~ "Agents:"
-    assert out =~ "claude (2/5)"
+    assert out =~ "Agents: 2/5"
   end
 
   test "marks the max display as draining when active exceeds max" do
@@ -92,7 +92,7 @@ defmodule Aiur.AgentList.RendererTest do
       )
       |> visible()
 
-    assert out =~ "codex (4/3 drain)"
+    assert out =~ "Agents: 4/3 drain"
   end
 
   test "focused max display highlights editable value and shows arrow affordances" do
@@ -107,7 +107,7 @@ defmodule Aiur.AgentList.RendererTest do
       )
       |> visible()
 
-    assert out =~ "codex (1/[2])"
+    assert out =~ "Agents: 1/[2]"
     assert out =~ "← →"
   end
 
@@ -240,7 +240,7 @@ defmodule Aiur.AgentList.RendererTest do
       )
       |> visible()
 
-    assert out =~ "codex (1/[2])"
+    assert out =~ "Agents: 1/[2]"
     refute out =~ "▶ MT-1"
   end
 
