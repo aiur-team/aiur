@@ -14,6 +14,7 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
       assert EventTopics.classify_event_topic("ticket.42.pr.merged") == {:pr_merged, "42"}
 
       assert EventTopics.classify_event_topic("ticket.42.ci.failed") == {:ci_failed, "42"}
+      assert EventTopics.classify_event_topic("ticket.42.ci.passed") == {:ci_passed, "42"}
 
       assert EventTopics.classify_event_topic("ticket.42.agent.pause.request") ==
                {:pause_request, "42"}
@@ -36,6 +37,7 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
         &EventTopics.parse_issue_commented_topic/1,
         &EventTopics.parse_pr_merged_topic/1,
         &EventTopics.parse_ci_failed_topic/1,
+        &EventTopics.parse_ci_passed_topic/1,
         &EventTopics.parse_pause_request_topic/1,
         &EventTopics.parse_branch_push_topic/1
       ]

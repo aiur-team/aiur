@@ -11,6 +11,7 @@ defmodule Aiur.OrchestratorEventsDigestCoalesceTest do
 
   alias Aiur.{AgentQueue, AgentQueueStore}
   alias Aiur.Orchestrator.OperatorMessages
+  alias Aiur.Orchestrator.State
 
   defp enqueue_events_digest(store, identifier, event) do
     item = AgentQueue.coordination_event(identifier, :events_digest, %{events: [event]}, source: :system)
@@ -80,6 +81,19 @@ defmodule Aiur.OrchestratorEventsDigestCoalesceTest do
     {_store, item} = OperatorMessages.coalesce_for_test(store, "99")
 
     assert Enum.map(item.body.events, & &1.id) == [1, 2]
+  end
+
+  test "enqueue ignores a duplicate event even after the first item was delivered" do
+    first = event(10)
+    state = OperatorMessages.enqueue_event_digest_item(%State{}, "99", [first], first)
+    {store, delivered} = AgentQueueStore.claim_next_deliverable(state.queue_store, "99")
+    state = %{state | queue_store: store}
+
+    next = OperatorMessages.enqueue_event_digest_item(state, "99", [first], first)
+
+    assert delivered.body.events == [first]
+    assert next.queue_store == state.queue_store
+    assert AgentQueueStore.list_pending(next.queue_store, "99") == []
   end
 
   test "comment events dedupe by comment id when event ids differ" do

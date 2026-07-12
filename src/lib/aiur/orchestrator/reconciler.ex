@@ -120,6 +120,11 @@ defmodule Aiur.Orchestrator.Reconciler do
         new_entry = Map.put(running_entry, :issue, issue)
         state = %{state | running: Map.put(state.running, issue.id, new_entry)}
 
+        state =
+          if pause_reason == :ci_wait,
+            do: Orchestrator.cancel_ci_wait_rewake(state, issue.id),
+            else: state
+
         case Orchestrator.resume_paused_issue(state, new_entry, false) do
           {{:ok, :resumed}, next_state} ->
             next_state
