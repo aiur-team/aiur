@@ -36,9 +36,15 @@ defmodule Aiur.Decision do
       `decision_id`/`version`/`created_at`), used for dedup/idempotency.
     * `decision_status` — `:open | :decided | :acknowledged | :resolved`.
     * `delivery_status` — transport evidence, independent of decision state.
-    * `answer` — the immutable accepted `Aiur.DecisionAnswer`, or `nil`.
-    * `dispatch_attempts` — ordered correlated queue attempts.
-    * `acknowledgement` / `resolution` — explicit agent lifecycle facts.
+    * `answer` — the immutable original accepted `Aiur.DecisionAnswer`, or `nil`.
+    * `active_action_id` — the original answer action or newest revision action.
+    * `revisions` — ordered immutable `Aiur.DecisionRevision` corrections.
+    * `revision_result` / `revision_outcomes` — semantic revision results,
+      separate from transport and acknowledgement evidence.
+    * `revision_follow_ups` — canonical blocking follow-up lifecycle by action.
+    * `dispatch_attempts` — ordered correlated queue attempts for every action.
+    * `acknowledgement` / `resolution` — current action lifecycle facts;
+      `acknowledgements` / `resolutions` preserve them for every action.
   """
 
   @type authority :: :human_required | :supervisor_allowed | :supervisor_preferred
@@ -58,6 +64,7 @@ defmodule Aiur.Decision do
   @type legacy_attention :: %{slug: String.t(), topic: String.t()}
   @type decision_status :: :open | :decided | :acknowledged | :resolved
   @type delivery_status :: :not_dispatched | :pending | :queued | :delivered | :consumed | :failed
+  @type revision_result :: :recorded | :dispatched | :no_longer_applicable
 
   @type dispatch_attempt :: %{
           action_id: String.t(),
@@ -72,6 +79,24 @@ defmodule Aiur.Decision do
           consumed_at: DateTime.t() | nil,
           failed_at: DateTime.t() | nil,
           failure_reason_class: String.t() | nil
+        }
+
+  @type revision_outcome :: %{
+          result: revision_result(),
+          reason_class: String.t() | nil,
+          occurred_at: DateTime.t(),
+          event_id: pos_integer() | String.t(),
+          run_id: String.t()
+        }
+
+  @type revision_follow_up :: %{
+          action_id: String.t(),
+          slug: String.t(),
+          question: String.t(),
+          required_at: DateTime.t(),
+          required_event_id: pos_integer() | String.t(),
+          handled_at: DateTime.t() | nil,
+          handled_event_id: pos_integer() | String.t() | nil
         }
 
   @type t :: %__MODULE__{
@@ -103,9 +128,17 @@ defmodule Aiur.Decision do
           decision_status: decision_status(),
           delivery_status: delivery_status(),
           answer: Aiur.DecisionAnswer.t() | nil,
+          active_action_id: String.t() | nil,
+          revision_sequence: non_neg_integer(),
+          revisions: [Aiur.DecisionRevision.t()],
+          revision_result: revision_result() | nil,
+          revision_outcomes: %{String.t() => revision_outcome()},
+          revision_follow_ups: %{String.t() => revision_follow_up()},
           dispatch_attempts: [dispatch_attempt()],
           acknowledgement: map() | nil,
-          resolution: map() | nil
+          resolution: map() | nil,
+          acknowledgements: %{String.t() => map()},
+          resolutions: %{String.t() => map()}
         }
 
   @schema_version 1
@@ -138,9 +171,17 @@ defmodule Aiur.Decision do
                 decision_status: :open,
                 delivery_status: :not_dispatched,
                 answer: nil,
+                active_action_id: nil,
+                revision_sequence: 0,
+                revisions: [],
+                revision_result: nil,
+                revision_outcomes: %{},
+                revision_follow_ups: %{},
                 dispatch_attempts: [],
                 acknowledgement: nil,
-                resolution: nil
+                resolution: nil,
+                acknowledgements: %{},
+                resolutions: %{}
               ]
 
   @authorities [:human_required, :supervisor_allowed, :supervisor_preferred]
@@ -159,4 +200,15 @@ defmodule Aiur.Decision do
 
   @spec reversibilities() :: [reversibility()]
   def reversibilities, do: @reversibilities
+
+  @doc "Returns the immutable answer for the currently active action."
+  @spec active_answer(t()) :: Aiur.DecisionAnswer.t() | nil
+  def active_answer(%__MODULE__{revisions: []} = decision), do: decision.answer
+  def active_answer(%__MODULE__{revisions: revisions}), do: revisions |> List.last() |> Map.fetch!(:answer)
+
+  @doc "Returns only dispatch attempts correlated to the active action."
+  @spec active_dispatch_attempts(t()) :: [dispatch_attempt()]
+  def active_dispatch_attempts(%__MODULE__{} = decision) do
+    Enum.filter(decision.dispatch_attempts, &(&1.action_id == decision.active_action_id))
+  end
 end

@@ -8,7 +8,7 @@ defmodule Aiur.DecisionEvent do
   complete semantic envelope so replay fails closed on tampering.
   """
 
-  alias Aiur.{Decision, DecisionAnswer, DecisionProjection, DecisionValidation, SecretRedactor}
+  alias Aiur.{Decision, DecisionAnswer, DecisionProjection, DecisionRevision, DecisionValidation, SecretRedactor}
 
   @schema_version 1
   @identity_max 256
@@ -17,7 +17,12 @@ defmodule Aiur.DecisionEvent do
   @types [
     :requested,
     :answer_recorded,
+    :revision_recorded,
     :dispatch_queued,
+    :revision_dispatched,
+    :revision_no_longer_applicable,
+    :follow_up_required,
+    :follow_up_handled,
     :delivered,
     :restored,
     :consumed,
@@ -25,13 +30,18 @@ defmodule Aiur.DecisionEvent do
     :acknowledged,
     :resolved
   ]
-  @transport_types [:dispatch_queued, :delivered, :restored, :consumed, :failed]
+  @transport_types [:dispatch_queued, :revision_dispatched, :delivered, :restored, :consumed, :failed]
   @actor_types [:acknowledged, :resolved]
 
   @type type ::
           :requested
           | :answer_recorded
+          | :revision_recorded
           | :dispatch_queued
+          | :revision_dispatched
+          | :revision_no_longer_applicable
+          | :follow_up_required
+          | :follow_up_handled
           | :delivered
           | :restored
           | :consumed
@@ -47,7 +57,7 @@ defmodule Aiur.DecisionEvent do
           decision_id: String.t(),
           decision_version: pos_integer(),
           occurred_at: DateTime.t(),
-          data: Decision.t() | DecisionAnswer.t() | map(),
+          data: Decision.t() | DecisionAnswer.t() | DecisionRevision.t() | map(),
           content_hash: String.t()
         }
 
@@ -173,6 +183,50 @@ defmodule Aiur.DecisionEvent do
     end
   end
 
+  defp normalize_data(:revision_recorded, %DecisionRevision{} = revision, decision_id, version) do
+    if revision.decision_id == decision_id and revision.decision_version == version do
+      {:ok, revision}
+    else
+      {:error, {:event_data, :revision_identity_mismatch}}
+    end
+  end
+
+  defp normalize_data(:revision_recorded, raw, decision_id, version) when is_map(raw) do
+    with {:ok, revision} <- DecisionRevision.from_json_safe(raw, &DecisionAnswer.from_json_safe/1),
+         true <- revision.decision_id == decision_id and revision.decision_version == version do
+      {:ok, revision}
+    else
+      false -> {:error, {:event_data, :revision_identity_mismatch}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp normalize_data(:revision_no_longer_applicable, raw, _decision_id, _version) when is_map(raw) do
+    with {:ok, action_id} <- map_required_string(raw, :action_id, @identity_max),
+         {:ok, reason_class} <- bounded_required(get(raw, :reason_class), @reason_max, :reason_class) do
+      {:ok, %{action_id: action_id, reason_class: reason_class}}
+    end
+  end
+
+  defp normalize_data(:follow_up_required, raw, _decision_id, _version) when is_map(raw) do
+    with {:ok, action_id} <- map_required_string(raw, :action_id, @identity_max),
+         {:ok, slug} <- map_required_string(raw, :slug, 64),
+         :ok <- validate_attention_slug(slug),
+         {:ok, question} <- bounded_required(get(raw, :question), @detail_max, :question) do
+      {:ok, %{action_id: action_id, slug: slug, question: question}}
+    end
+  end
+
+  defp normalize_data(:follow_up_handled, raw, _decision_id, _version) when is_map(raw) do
+    with {:ok, action_id} <- map_required_string(raw, :action_id, @identity_max),
+         {:ok, slug} <- map_required_string(raw, :slug, 64),
+         :ok <- validate_attention_slug(slug),
+         {:ok, actor} <- normalize_actor(get(raw, :actor)),
+         {:ok, detail} <- bounded_optional(get(raw, :detail), @detail_max, :detail) do
+      {:ok, %{action_id: action_id, slug: slug, actor: actor, detail: detail}}
+    end
+  end
+
   defp normalize_data(type, raw, _decision_id, _version) when type in @transport_types and is_map(raw) do
     with {:ok, action_id} <- map_required_string(raw, :action_id, @identity_max),
          {:ok, attempt_id} <- map_required_string(raw, :attempt_id, @identity_max),
@@ -255,6 +309,26 @@ defmodule Aiur.DecisionEvent do
   defp data_to_json_safe(:requested, %Decision{} = decision), do: DecisionProjection.to_json_safe(decision)
   defp data_to_json_safe(:answer_recorded, %DecisionAnswer{} = answer), do: DecisionAnswer.to_json_safe(answer)
 
+  defp data_to_json_safe(:revision_recorded, %DecisionRevision{} = revision),
+    do: DecisionRevision.to_json_safe(revision, &DecisionAnswer.to_json_safe/1)
+
+  defp data_to_json_safe(:revision_no_longer_applicable, data) do
+    %{"action_id" => data.action_id, "reason_class" => data.reason_class}
+  end
+
+  defp data_to_json_safe(:follow_up_required, data) do
+    %{"action_id" => data.action_id, "slug" => data.slug, "question" => data.question}
+  end
+
+  defp data_to_json_safe(:follow_up_handled, data) do
+    %{
+      "action_id" => data.action_id,
+      "slug" => data.slug,
+      "actor" => %{"kind" => Atom.to_string(data.actor.kind), "id" => data.actor.id},
+      "detail" => data.detail
+    }
+  end
+
   defp data_to_json_safe(type, data) when type in @transport_types do
     %{
       "action_id" => data.action_id,
@@ -279,6 +353,12 @@ defmodule Aiur.DecisionEvent do
 
   defp validate_type(type) when type in @types, do: :ok
   defp validate_type(_other), do: {:error, {:event_type, :unknown}}
+
+  defp validate_attention_slug(slug) do
+    if Regex.match?(~r/\A[a-z0-9][a-z0-9.-]{0,63}\z/, slug),
+      do: :ok,
+      else: {:error, {:slug, :invalid_format}}
+  end
 
   defp decode_type(type) when is_binary(type) do
     case Enum.find(@types, &(Atom.to_string(&1) == type)) do

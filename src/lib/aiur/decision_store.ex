@@ -32,7 +32,7 @@ defmodule Aiur.DecisionStore do
 
   require Logger
 
-  alias Aiur.{Alerts, Boot, Config, Decision, DecisionAnswer, DecisionDispatch, DecisionEvent, DecisionLog, DecisionProjection, DecisionPubSub, DecisionValidation, JsonStore}
+  alias Aiur.{Alerts, Boot, Config, Decision, DecisionAnswer, DecisionDispatch, DecisionEvent, DecisionLog, DecisionProjection, DecisionPubSub, DecisionRevision, DecisionValidation, JsonStore}
   alias Aiur.Events.{IdGenerator, Publisher}
 
   @ndjson_filename "decisions.ndjson"
@@ -89,6 +89,14 @@ defmodule Aiur.DecisionStore do
   def answer(decision_id, payload, opts \\ [], server \\ __MODULE__, timeout \\ @request_timeout)
       when is_binary(decision_id) and is_map(payload) and is_list(opts) do
     GenServer.call(server, {:answer, decision_id, payload, opts}, timeout)
+  end
+
+  @doc "Durably records an ordered correction to the active Decision action."
+  @spec revise(String.t(), map(), keyword(), GenServer.server(), timeout()) ::
+          {:ok, map()} | {:error, term()}
+  def revise(decision_id, payload, opts \\ [], server \\ __MODULE__, timeout \\ @request_timeout)
+      when is_binary(decision_id) and is_map(payload) and is_list(opts) do
+    GenServer.call(server, {:revise, decision_id, payload, opts}, timeout)
   end
 
   @doc "Explicitly schedules a previously failed action for one idempotent retry."
@@ -318,6 +326,14 @@ defmodule Aiur.DecisionStore do
     handle_answer(decision_id, payload, opts, state)
   end
 
+  def handle_call({:revise, _decision_id, _payload, _opts}, _from, %{writable?: false} = state) do
+    {:reply, {:error, {:store_unavailable, state.health}}, state}
+  end
+
+  def handle_call({:revise, decision_id, payload, opts}, _from, state) do
+    handle_revision(decision_id, payload, opts, state)
+  end
+
   def handle_call({:retry_dispatch, _decision_id, _action_id}, _from, %{writable?: false} = state) do
     {:reply, {:error, {:store_unavailable, state.health}}, state}
   end
@@ -408,6 +424,142 @@ defmodule Aiur.DecisionStore do
     else
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
+  end
+
+  defp handle_revision(decision_id, payload, opts, state) do
+    with {:ok, decision} <- fetch_decision(state, decision_id),
+         %DecisionAnswer{} <- Decision.active_answer(decision),
+         {:ok, actor} <- fetch_actor(opts) do
+      case find_revision_replay(decision, payload) do
+        %DecisionRevision{} = accepted -> replay_revision(decision, accepted, payload, actor, opts, state)
+        nil -> accept_revision(decision, payload, actor, opts, state)
+      end
+    else
+      nil -> {:reply, {:error, :answer_missing}, state}
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp find_revision_replay(decision, payload) do
+    case payload_value(payload, :idempotency_key) do
+      token when is_binary(token) ->
+        token = String.trim(token)
+        Enum.find(decision.revisions, &(&1.answer.idempotency_key == token))
+
+      _other ->
+        nil
+    end
+  end
+
+  defp accept_revision(decision, payload, actor, opts, state) do
+    active_answer = Decision.active_answer(decision)
+
+    case normalize_revision(
+           decision,
+           payload,
+           actor,
+           opts,
+           state,
+           active_answer.action_id,
+           decision.revision_sequence
+         ) do
+      {:ok, revision} -> persist_revision(decision, revision, state)
+      {:error, reason} -> {:reply, {:error, revision_error(reason, decision)}, state}
+    end
+  end
+
+  defp replay_revision(decision, accepted, payload, actor, opts, state) do
+    case normalize_revision(
+           decision,
+           payload,
+           actor,
+           opts,
+           state,
+           accepted.prior_action_id,
+           accepted.sequence - 1,
+           accepted.decision_version
+         ) do
+      {:ok, replayed} when replayed.action_id == accepted.action_id and replayed.content_hash == accepted.content_hash ->
+        next_state = maybe_schedule_after_answer(state, decision, false)
+        {:reply, {:ok, revision_result(:duplicate, decision, accepted)}, next_state}
+
+      {:ok, replayed} when replayed.action_id == accepted.action_id ->
+        {:reply, {:error, {:conflict, {:idempotency_conflict, accepted.action_id}}}, state}
+
+      {:ok, _replayed} ->
+        {:reply, {:error, {:conflict, {:revision_token_conflict, accepted.action_id}}}, state}
+
+      {:error, reason} ->
+        {:reply, {:error, revision_error(reason, decision)}, state}
+    end
+  end
+
+  defp normalize_revision(
+         decision,
+         payload,
+         actor,
+         opts,
+         state,
+         current_action_id,
+         current_revision_sequence,
+         decision_version \\ nil
+       ) do
+    decision_version = decision_version || decision.version
+    addressed = request_version(state, decision.decision_id, decision_version)
+    options = if addressed, do: addressed.options, else: decision.options
+    now = Keyword.get(opts, :now, DateTime.utc_now())
+
+    answer_normalizer = fn answer_payload, _revision_opts ->
+      DecisionAnswer.normalize(answer_payload,
+        decision_id: decision.decision_id,
+        decision_version: decision_version,
+        options: options,
+        actor: actor,
+        now: now
+      )
+    end
+
+    DecisionRevision.normalize(payload,
+      decision_id: decision.decision_id,
+      decision_version: decision_version,
+      current_action_id: current_action_id,
+      current_revision_sequence: current_revision_sequence,
+      actor: actor,
+      now: now,
+      answer_normalizer: answer_normalizer
+    )
+  end
+
+  defp revision_error({:revision_invalid, {:stale_action, correlation}}, decision),
+    do: {:conflict, {:stale_action, Map.put(correlation, :revision_sequence, decision.revision_sequence)}}
+
+  defp revision_error({:revision_invalid, {:stale_sequence, correlation}}, decision),
+    do: {:conflict, {:stale_sequence, Map.put(correlation, :action_id, decision.active_action_id)}}
+
+  defp revision_error({:revision_invalid, {:answer_invalid, {:stale_version, expected, current}}}, _decision),
+    do: {:conflict, {:stale_version, expected, current}}
+
+  defp revision_error(reason, _decision), do: reason
+
+  defp persist_revision(decision, revision, state) do
+    case build_and_persist_event(:revision_recorded, decision, revision, revision.recorded_at, state) do
+      {:ok, next_state, updated} ->
+        next_state = maybe_schedule_after_answer(next_state, updated, false)
+        {:reply, {:ok, revision_result(:accepted, updated, revision)}, next_state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp revision_result(status, decision, revision) do
+    %{
+      status: status,
+      decision: decision,
+      action: revision,
+      revision_result: Map.get(decision.revision_outcomes, revision.action_id, %{result: :recorded}).result,
+      dispatch_status: dispatch_status(decision)
+    }
   end
 
   defp fetch_decision(state, decision_id) do
@@ -841,7 +993,12 @@ defmodule Aiur.DecisionStore do
   end
 
   defp lifecycle_slug(:answer_recorded), do: "answered"
+  defp lifecycle_slug(:revision_recorded), do: "revision-recorded"
   defp lifecycle_slug(:dispatch_queued), do: "queued"
+  defp lifecycle_slug(:revision_dispatched), do: "revision-dispatched"
+  defp lifecycle_slug(:revision_no_longer_applicable), do: "revision-no-longer-applicable"
+  defp lifecycle_slug(:follow_up_required), do: "revision-follow-up-required"
+  defp lifecycle_slug(:follow_up_handled), do: "revision-follow-up-handled"
   defp lifecycle_slug(:delivered), do: "delivered"
   defp lifecycle_slug(:restored), do: "restored"
   defp lifecycle_slug(:consumed), do: "consumed"
