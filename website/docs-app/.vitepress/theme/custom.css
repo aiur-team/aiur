@@ -1,0 +1,336 @@
+:root {
+  --aiur-bg: #e7d6b2;
+  --aiur-bg-soft: #e2cfa6;
+  --aiur-fg: #2a2520;
+  --aiur-muted: #756a55;
+  --aiur-accent: #1f57c4;
+  --aiur-line: rgba(42, 37, 26, 0.16);
+  --aiur-surface: rgba(42, 37, 26, 0.035);
+
+  --vp-font-family-base: "Space Grotesk", system-ui, sans-serif;
+  --vp-font-family-mono: "JetBrains Mono", monospace;
+  --vp-c-bg: var(--aiur-bg);
+  --vp-c-bg-alt: var(--aiur-bg-soft);
+  --vp-c-bg-elv: color-mix(in srgb, var(--aiur-fg) 3%, var(--aiur-bg));
+  --vp-c-bg-soft: var(--aiur-surface);
+  --vp-c-text-1: var(--aiur-fg);
+  --vp-c-text-2: var(--aiur-muted);
+  --vp-c-text-3: color-mix(in srgb, var(--aiur-muted) 72%, transparent);
+  --vp-c-divider: var(--aiur-line);
+  --vp-c-gutter: var(--aiur-line);
+  --vp-c-brand-1: var(--aiur-accent);
+  --vp-c-brand-2: color-mix(in srgb, var(--aiur-accent) 84%, var(--aiur-fg));
+  --vp-c-brand-3: color-mix(in srgb, var(--aiur-accent) 74%, var(--aiur-fg));
+  --vp-c-brand-soft: color-mix(in srgb, var(--aiur-accent) 14%, transparent);
+  --vp-button-brand-border: var(--aiur-accent);
+  --vp-button-brand-bg: var(--aiur-accent);
+  --vp-button-brand-hover-border: var(--aiur-fg);
+  --vp-button-brand-hover-bg: var(--aiur-fg);
+  --vp-button-brand-text: #fff;
+  --vp-button-alt-border: var(--aiur-line);
+  --vp-button-alt-bg: var(--aiur-surface);
+  --vp-button-alt-hover-border: var(--aiur-accent);
+  --vp-button-alt-hover-bg: color-mix(in srgb, var(--aiur-accent) 9%, transparent);
+  --vp-button-alt-text: var(--aiur-fg);
+  --vp-code-block-bg: #f7f2e8;
+  --vp-code-line-highlight-color: color-mix(in srgb, var(--aiur-accent) 10%, transparent);
+  --vp-home-hero-name-color: var(--aiur-fg);
+  --vp-nav-bg-color: color-mix(in srgb, var(--aiur-bg) 86%, transparent);
+  --vp-sidebar-bg-color: var(--aiur-bg);
+  --vp-local-search-bg: var(--aiur-bg);
+}
+
+.dark {
+  --aiur-bg: #1a1b1e;
+  --aiur-bg-soft: #161719;
+  --aiur-fg: #edeef0;
+  --aiur-muted: #8c8d93;
+  --aiur-accent: #2f86ff;
+  --aiur-line: rgba(221, 226, 235, 0.14);
+  --aiur-surface: rgba(221, 226, 235, 0.03);
+  --vp-button-brand-text: #fff;
+  --vp-code-block-bg: #111317;
+}
+
+html {
+  background: var(--aiur-bg);
+  transition: background-color 0.35s ease;
+}
+
+body {
+  letter-spacing: -0.005em;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.35s ease, color 0.35s ease;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--aiur-accent) 28%, transparent);
+}
+
+.VPNavBar {
+  border-bottom: 1px solid var(--aiur-line);
+  background: var(--vp-nav-bg-color) !important;
+  backdrop-filter: blur(14px);
+}
+
+.VPNavBar.has-sidebar .divider {
+  display: none;
+}
+
+.VPNavBarTitle .title {
+  gap: 9px;
+  border-bottom: 0;
+  font-family: var(--vp-font-family-mono);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--aiur-muted);
+}
+
+.VPNavBarTitle .logo {
+  width: auto;
+  height: 28px;
+  margin-right: 0;
+  filter: drop-shadow(0 0 12px color-mix(in srgb, var(--aiur-accent) 22%, transparent));
+}
+
+.VPNavBarMenuLink,
+.VPNavBarMenuGroup .text,
+.VPSocialLink,
+.VPNavBarAppearance {
+  font-family: var(--vp-font-family-mono);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--aiur-muted);
+  transition: color 0.2s ease;
+}
+
+.VPNavBarMenuLink:hover,
+.VPNavBarMenuLink.active,
+.VPSocialLink:hover {
+  color: var(--aiur-fg);
+}
+
+.VPNavBarMenuLink.active {
+  position: relative;
+}
+
+.VPNavBarMenuLink.active::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  background: var(--aiur-accent);
+  content: "";
+}
+
+.VPNavBarAppearance .VPSwitchAppearance {
+  border-color: var(--aiur-line);
+  background: var(--aiur-surface);
+}
+
+.VPSidebar {
+  border-right: 1px solid var(--aiur-line);
+}
+
+.VPSidebarItem .text,
+.VPDocAsideOutline .outline-title,
+.VPDocAsideOutline .outline-link {
+  font-size: 13px;
+}
+
+.VPSidebarItem.level-0 > .item > .text,
+.VPDocAsideOutline .outline-title {
+  font-family: var(--vp-font-family-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.VPSidebarItem.is-active > .item .link > .text,
+.VPDocAsideOutline .outline-link.active {
+  color: var(--aiur-accent);
+}
+
+.VPHome {
+  overflow: hidden;
+}
+
+.VPHomeHero {
+  position: relative;
+  padding-top: clamp(92px, 14vw, 150px);
+  padding-bottom: clamp(70px, 10vw, 118px);
+}
+
+.VPHomeHero::before {
+  position: absolute;
+  top: 42%;
+  left: 50%;
+  width: min(780px, 92vw);
+  height: min(420px, 60vw);
+  border: 1px solid var(--aiur-line);
+  border-radius: 50%;
+  background: repeating-linear-gradient(
+    112deg,
+    transparent 0 28px,
+    color-mix(in srgb, var(--aiur-accent) 8%, transparent) 29px,
+    transparent 30px 58px
+  );
+  content: "";
+  opacity: 0.65;
+  transform: translate(-50%, -50%) rotate(-8deg);
+  pointer-events: none;
+  mask-image: radial-gradient(ellipse, #000 12%, transparent 72%);
+}
+
+.VPHomeHero .container {
+  position: relative;
+}
+
+.VPHomeHero .main {
+  max-width: 760px;
+  text-align: center;
+}
+
+.VPHomeHero .name {
+  font-family: "Bungee", sans-serif;
+  font-size: clamp(58px, 10vw, 108px);
+  line-height: 0.9;
+  letter-spacing: 0.01em;
+}
+
+.VPHomeHero .text {
+  margin-top: 22px;
+  font-family: var(--vp-font-family-mono);
+  font-size: clamp(16px, 2.1vw, 22px);
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  color: var(--aiur-muted);
+}
+
+.VPHomeHero .tagline {
+  max-width: 580px;
+  margin: 20px auto 0;
+  font-size: clamp(18px, 2.2vw, 24px);
+  line-height: 1.5;
+  color: var(--aiur-fg);
+}
+
+.VPHomeHero .actions {
+  justify-content: center;
+  padding-top: 32px;
+}
+
+.VPButton {
+  border-radius: 9px !important;
+  font-family: var(--vp-font-family-mono);
+  font-size: 13px;
+  font-weight: 500;
+  transition: border-color 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
+}
+
+.VPButton:hover {
+  transform: translateY(-2px);
+}
+
+.vp-doc {
+  color: var(--aiur-fg);
+}
+
+.vp-doc h1 {
+  font-size: clamp(34px, 5vw, 52px);
+  letter-spacing: -0.035em;
+}
+
+.vp-doc h2 {
+  margin-top: 52px;
+  border-top-color: var(--aiur-line);
+  letter-spacing: -0.025em;
+}
+
+.vp-doc h3 {
+  letter-spacing: -0.015em;
+}
+
+.vp-doc a {
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+
+.vp-doc :not(pre) > code {
+  border: 1px solid var(--aiur-line);
+  border-radius: 5px;
+  background: var(--aiur-surface);
+  color: var(--aiur-accent);
+}
+
+.vp-doc div[class*="language-"] {
+  border: 1px solid var(--aiur-line);
+  border-radius: 11px;
+  box-shadow: 0 22px 50px -38px rgba(0, 0, 0, 0.55);
+}
+
+.vp-doc blockquote {
+  border-left-color: var(--aiur-accent);
+  color: var(--aiur-muted);
+}
+
+.VPDocFooter {
+  border-top-color: var(--aiur-line);
+}
+
+.VPFooter {
+  border-top: 1px solid var(--aiur-line) !important;
+  background: var(--aiur-bg) !important;
+}
+
+.VPFooter .message,
+.VPFooter .copyright {
+  font-family: var(--vp-font-family-mono);
+  color: var(--aiur-muted);
+}
+
+a:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--aiur-accent) !important;
+  outline-offset: 4px;
+}
+
+@media (max-width: 959px) {
+  .VPNavBarTitle .title {
+    width: auto;
+  }
+
+  .VPSidebar {
+    border-right: 0;
+  }
+}
+
+@media (max-width: 639px) {
+  .VPNavBarTitle .title {
+    letter-spacing: 0.12em;
+  }
+
+  .VPHomeHero .name {
+    font-size: clamp(52px, 19vw, 78px);
+  }
+
+  .VPHomeHero .text {
+    font-size: 15px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html,
+  body,
+  .VPButton {
+    transition: none;
+  }
+
+  .VPButton:hover {
+    transform: none;
+  }
+}
