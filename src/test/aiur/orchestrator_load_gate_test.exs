@@ -150,7 +150,7 @@ defmodule Aiur.OrchestratorLoadGateTest do
     test "restores the static cap under clear CPU headroom when work is queued" do
       options = envelope_options(cpu_headroom: %{idle_percent: 75.0, runnable: 3}, queued_work?: true)
 
-      assert {10, 1_000} = Orchestrator.load_envelope(3, 1_000, 10.0, options)
+      assert {10, 1_000} = Orchestrator.load_envelope(3, 1_000, 13.0, options)
     end
 
     test "keeps additive recovery without demand, clear idle headroom, or low runnable pressure" do

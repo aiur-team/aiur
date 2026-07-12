@@ -155,19 +155,20 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     }
   end
 
-  defp adjust_load_envelope(effective, last_decrease_ms, load, %{target: target, schedulers: schedulers} = options)
-       when load <= target * schedulers do
-    next_effective =
-      if options.queued_work? and clear_cpu_headroom?(options.cpu_headroom, schedulers) do
-        options.static_limit
-      else
-        min(effective + options.ramp_step, options.static_limit)
-      end
-
-    {next_effective, last_decrease_ms}
+  defp adjust_load_envelope(effective, last_decrease_ms, load, %{schedulers: schedulers} = options) do
+    if options.queued_work? and clear_cpu_headroom?(options.cpu_headroom, schedulers) do
+      {options.static_limit, last_decrease_ms}
+    else
+      adjust_load_envelope_without_headroom(effective, last_decrease_ms, load, options)
+    end
   end
 
-  defp adjust_load_envelope(effective, last_decrease_ms, _load, options) do
+  defp adjust_load_envelope_without_headroom(effective, last_decrease_ms, load, %{target: target, schedulers: schedulers} = options)
+       when load <= target * schedulers do
+    {min(effective + options.ramp_step, options.static_limit), last_decrease_ms}
+  end
+
+  defp adjust_load_envelope_without_headroom(effective, last_decrease_ms, _load, options) do
     decrease_load_envelope(effective, last_decrease_ms, options)
   end
 
