@@ -155,6 +155,10 @@ defmodule Aiur.DecisionStore do
 
   defp write_projection(state) do
     JsonStore.write!(state.projection_path, DecisionProjection.serialize_current(state.current))
+    # JsonStore is a shared primitive with no opinion on permissions (other
+    # consumers don't need owner-only); Decision content does, so chmod it
+    # here rather than widening JsonStore's contract for every caller.
+    File.chmod!(state.projection_path, 0o600)
     :ok
   rescue
     error -> {:error, Exception.message(error)}

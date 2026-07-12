@@ -47,6 +47,16 @@ defmodule Aiur.DecisionStoreTest do
       assert {:ok, [^decision]} = DecisionStore.history(decision.decision_id, pid)
     end
 
+    test "the audit log and the projection file are both owner-only after an accept", %{dir: dir} do
+      pid = start_store!(dir)
+      assert {:ok, _} = request(pid, %{"question" => "Deploy now?", "blocking" => true})
+
+      for filename <- ["decisions.ndjson", "decisions.json"] do
+        %File.Stat{mode: mode} = File.stat!(Path.join(dir, filename))
+        assert Bitwise.band(mode, 0o777) == 0o600
+      end
+    end
+
     test "an unknown decision_id returns :not_found", %{dir: dir} do
       pid = start_store!(dir)
       assert {:error, :not_found} = DecisionStore.get("dec_missing", pid)
