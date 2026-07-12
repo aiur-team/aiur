@@ -113,6 +113,7 @@ defmodule Aiur.Application do
       Aiur.Events.Exchange,
       if(debug?, do: Aiur.RunTelemetry.Supervisor),
       Aiur.Events.Publisher,
+      Aiur.DecisionStore,
       Aiur.GitHub.CodeOwners,
       {Registry, keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry},
       Aiur.Events.SubscriptionStoreSupervisor,

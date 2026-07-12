@@ -76,6 +76,19 @@ defmodule Aiur.Events.IdGenerator do
     GenServer.call(server, :peek)
   end
 
+  @doc """
+  Like `next_id/1`, but fails instead of silently degrading to an
+  in-memory-only ID when persistence is unavailable. For callers (such
+  as `Aiur.DecisionStore`) that must never accept a durable request
+  under an ID that isn't itself backed by a durably persisted
+  reservation. The generic `next_id/1` API is unchanged and remains
+  fail-open for existing best-effort event sources.
+  """
+  @spec reserve_durable_id(GenServer.server()) :: {:ok, pos_integer()} | {:error, :not_durable}
+  def reserve_durable_id(server \\ __MODULE__) do
+    GenServer.call(server, :reserve_durable_id)
+  end
+
   @impl true
   def init(opts) do
     batch_size = Keyword.get(opts, :batch_size, @default_batch_size)
@@ -87,7 +100,8 @@ defmodule Aiur.Events.IdGenerator do
        reserved_through: 0,
        batch_size: batch_size,
        path: path,
-       persist_warning_emitted: false
+       persist_warning_emitted: false,
+       durable?: false
      }, {:continue, :load}}
   end
 
@@ -112,6 +126,26 @@ defmodule Aiur.Events.IdGenerator do
 
   def handle_call(:peek, _from, state) do
     {:reply, state.current, state}
+  end
+
+  def handle_call(:reserve_durable_id, _from, state) do
+    next = state.current + 1
+
+    if next <= state.reserved_through do
+      if state.durable? do
+        {:reply, {:ok, next}, %{state | current: next}}
+      else
+        {:reply, {:error, :not_durable}, state}
+      end
+    else
+      candidate = reserve_next_batch(%{state | current: next})
+
+      if candidate.durable? do
+        {:reply, {:ok, next}, candidate}
+      else
+        {:reply, {:error, :not_durable}, state}
+      end
+    end
   end
 
   @impl true
@@ -172,7 +206,7 @@ defmodule Aiur.Events.IdGenerator do
 
     case persist(new_state) do
       :ok ->
-        %{new_state | persist_warning_emitted: false}
+        %{new_state | persist_warning_emitted: false, durable?: true}
 
       {:error, reason} ->
         warn_persist_failed(new_state, reason)
@@ -189,7 +223,7 @@ defmodule Aiur.Events.IdGenerator do
       {:error, Exception.message(error)}
   end
 
-  defp warn_persist_failed(%{persist_warning_emitted: true} = state, _reason), do: state
+  defp warn_persist_failed(%{persist_warning_emitted: true} = state, _reason), do: %{state | durable?: false}
 
   defp warn_persist_failed(state, reason) do
     Logger.warning(
@@ -198,7 +232,7 @@ defmodule Aiur.Events.IdGenerator do
         "Restart-safe monotonicity is degraded for this counter path."
     )
 
-    %{state | persist_warning_emitted: true}
+    %{state | persist_warning_emitted: true, durable?: false}
   end
 
   defp default_path do
