@@ -1,7 +1,7 @@
 defmodule Aiur.DecisionAttentionTest do
   use Aiur.TestSupport
 
-  alias Aiur.{AlertFeed, DecisionAttention, Issue}
+  alias Aiur.{AlertFeed, DecisionAttention, DecisionStore, Issue}
   alias Aiur.Config.Paths
   alias Aiur.Events.SubscriptionStore
 
@@ -239,6 +239,92 @@ defmodule Aiur.DecisionAttentionTest do
     refute_receive {:bounded_import, _, _}
     assert eventually(fn -> :sys.get_state(pid).importing? == false end)
     assert map_size(:sys.get_state(pid).attentions) == 2
+  end
+
+  test "restart import cannot revert a differently worded structured enrichment" do
+    identifier = "DECISION-IMPORT-ENRICHED-#{System.unique_integer([:positive])}"
+    issue = %Issue{identifier: identifier, title: "Enriched decision"}
+    dir = Path.join(System.tmp_dir!(), "aiur-decision-import-enriched-#{System.unique_integer([:positive])}")
+    previous_dir = Application.get_env(:aiur, :decision_state_dir)
+    Application.put_env(:aiur, :decision_state_dir, dir)
+
+    on_exit(fn ->
+      case previous_dir do
+        nil -> Application.delete_env(:aiur, :decision_state_dir)
+        path -> Application.put_env(:aiur, :decision_state_dir, path)
+      end
+
+      File.rm_rf!(dir)
+    end)
+
+    {:ok, store} =
+      DecisionStore.start_link(
+        name: nil,
+        filesystem_sync_fun: fn -> :ok end
+      )
+
+    on_exit(fn -> if Process.alive?(store), do: GenServer.stop(store) end)
+
+    projector = fn payload, opts -> DecisionStore.project_attention(payload, opts, store) end
+
+    {live_pid, live_name} =
+      start_attention(
+        decision_projector: projector,
+        alert_emitter: fn _attention -> :ok end
+      )
+
+    assert {:ok, %{decision: v1}} =
+             DecisionAttention.open_with_decision(
+               live_name,
+               issue,
+               nil,
+               nil,
+               "scope-question",
+               "Original alert question?",
+               source: %{agent_id: "codex", session_id: "thread-1", event_id: "call-open"}
+             )
+
+    {:ok, correlation} = DecisionAttention.correlation(issue, "scope-question")
+
+    structured = %{
+      "source_id" => correlation.source_id,
+      "question" => "Current structured question?",
+      "blocking" => true,
+      "kind" => "architecture",
+      "context" => %{"short_summary" => "The request was clarified."}
+    }
+
+    assert {:ok, %{decision: v2}} =
+             DecisionStore.enrich_attention(
+               structured,
+               [
+                 ticket: %{identifier: identifier, title: issue.title, url: issue.url},
+                 source: %{agent_id: "codex", session_id: "thread-1", event_id: "call-enrich"},
+                 legacy_attention: correlation.legacy_attention
+               ],
+               store
+             )
+
+    GenServer.stop(live_pid)
+
+    stale_alert = %{
+      identifier: identifier,
+      slug: "scope-question",
+      question: "Original alert question?",
+      topic: correlation.legacy_attention.topic,
+      source_created_at: ~U[2026-07-12 01:00:00Z]
+    }
+
+    {restart_pid, _restart_name} =
+      start_attention(
+        attention_loader: fn -> [stale_alert] end,
+        decision_projector: projector
+      )
+
+    assert eventually(fn -> :sys.get_state(restart_pid).importing? == false end)
+    assert {:ok, ^v2} = DecisionStore.get(v1.decision_id, store)
+    assert {:ok, [^v1, ^v2]} = DecisionStore.history(v1.decision_id, store)
+    assert v2.question == "Current structured question?"
   end
 
   test "a live open wins over a delayed startup import for the same attention" do
