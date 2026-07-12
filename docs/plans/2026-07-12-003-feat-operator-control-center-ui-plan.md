@@ -32,7 +32,7 @@ The approved Claude design establishes the intended hierarchy and interaction mo
 - Long decision context is rendered as escaped, pre-wrapped text unless the repository gains an explicitly sanitized Markdown renderer; stored Markdown is never passed through as raw HTML.
 - The production dashboard uses local/system font stacks and embedded assets. The prototype's external font requests are design references, not runtime dependencies.
 - Missing optional domain fields render as unavailable or are omitted. The UI does not infer option impacts, actor identity, delivery progress, merge attribution, or analytics locations from unrelated fields.
-- OCC-3 and OCC-6 integration names are intentionally left open until their validated branches publish. The implementation will adapt their real public APIs instead of creating provisional lifecycle or outcome stores in this ticket.
+- OCC-3 integration names remain open until its validated branch publishes. OCC-6 announced stable dashboard reads as `Aiur.DecisionHistory.list/1` and `Aiur.RecentMergeStore.snapshot/1`; implementation still waits for the validated branch-push ref before stacking or compiling against them.
 
 ---
 
@@ -140,11 +140,11 @@ The UI never advances this diagram on a timer. It renders the state read from th
 - How should missing decision detail be handled? Omit or label it unavailable; never derive content from example data or unrelated log text.
 - How should decision Markdown be rendered safely? Escaped/pre-wrapped by default because the repository has no sanitizing Markdown dependency.
 - How should live updates work? Subscribe for hints, then re-read canonical stores rather than mutating UI state from event payloads.
+- Which OCC-6 provider reads should the dashboard consume? Cross-ticket decision event `1783850905740967` established `Aiur.DecisionHistory.list/1` and `Aiur.RecentMergeStore.snapshot/1`, composed through `AiurWeb.Presenter.state_payload/2`.
 
 ### Deferred to Implementation
 
 - The exact OCC-3 action/lifecycle module and result types: inspect the validated #981 branch push and bind to its public API before implementing U4.
-- The exact OCC-6 history/outcome/analytics projection types: inspect the validated #983 branch push and bind to its public API before implementing U6.
 - Whether the analytics target is a served URL, configured file URI, or unavailable state: render only the representation OCC-6 deliberately exposes.
 
 ---
@@ -441,7 +441,7 @@ flowchart TB
 
 **Requirements:** R1, R2, R3, R5, R6, R9, R10
 
-**Dependencies:** U1 and validated OCC-6 branch/API from #983
+**Dependencies:** U1, stable OCC-6 provider decision `1783850905740967`, and the validated #983 branch push before integration
 
 **Files:**
 - Create: `src/lib/aiur_web/live/operator_control_center/history.ex`
@@ -454,7 +454,8 @@ flowchart TB
 - Test: `src/test/aiur_web/live/dashboard_live_test.exs`
 
 **Approach:**
-- Inspect and stack on the validated #983 ref, then present its append-only decision events with explicit human/supervising-agent actor labels, choice/rationale/time, dispatch/acknowledgement state, and revision/supersession linkage.
+- Inspect and stack on the validated #983 ref, then consume `Aiur.DecisionHistory.list/1` for bounded newest-first canonical history and `Aiur.RecentMergeStore.snapshot/1` for merges, health, and reconciliation-window state through the shared Presenter target.
+- Present history entries with explicit human/supervising-agent actor labels, choice/rationale/time, dispatch/acknowledgement state, and revision/supersession linkage only when those optional canonical fields are present.
 - Reuse the same history component inside decision detail and the page-level recent section while keeping source records ordered canonically.
 - Render recent merges using OCC-6's attribution confidence. Use “Recent repository merges” whenever run/agent responsibility is uncertain, and never infer causality from workspace presence or event timing.
 - Link only to the analytics target deliberately exposed by OCC-6; otherwise explain how/why analytics is unavailable without fabricating a file path.
@@ -464,7 +465,7 @@ flowchart TB
 
 **Patterns to follow:**
 - OCC-0's honest merge-attribution decision and separate telemetry-surface boundary.
-- OCC-6's landed projection ordering and actor vocabulary.
+- OCC-6's announced `DecisionHistory` projection ordering/actor vocabulary and `RecentMergeStore` snapshot health/reconciliation shape.
 - Imported design's outcome cards, actor badges, revision markers, and Recent two-column layout.
 
 **Test scenarios:**
@@ -559,7 +560,7 @@ flowchart TB
 
 - #980 (OCC-2) must land before the legacy-attention path can be proven end to end; the UI remains compatible with its canonical minimal Decision projection and does not duplicate the adapter.
 - #981 (OCC-3) must publish the durable action and delivery-correlation API before U4 can complete.
-- #983 (OCC-6) must publish history, outcomes, attribution, and analytics projection APIs before U6 can complete.
+- #983 (OCC-6) has announced stable history/outcome reads, but must still publish their validated branch plus the analytics-link representation before U6 can complete.
 - The approved design import is complete and source-verified.
 
 ---
@@ -625,6 +626,7 @@ flowchart TB
 - **Action/delivery dependency:** #981
 - **Legacy-attention integration:** #980
 - **History/outcomes dependency:** #983
+- **OCC-6 provider decision:** event `1783850905740967`
 - **OCC specification PR:** #971
 - **Offline telemetry dashboard:** #930
 - **Related code:** `src/lib/aiur_web/live/dashboard_live.ex`, `src/lib/aiur_web/presenter.ex`, `src/lib/aiur/decision_store.ex`, `src/lib/aiur/orchestrator/status_report.ex`
