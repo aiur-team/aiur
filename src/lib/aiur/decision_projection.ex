@@ -287,7 +287,9 @@ defmodule Aiur.DecisionProjection do
         required_at: event.occurred_at,
         required_event_id: event.event_id,
         handled_at: nil,
-        handled_event_id: nil
+        handled_event_id: nil,
+        handled_by: nil,
+        handled_detail: nil
       }
 
       {:ok, %{decision | revision_follow_ups: Map.put(decision.revision_follow_ups, event.data.action_id, follow_up)}}
@@ -297,7 +299,14 @@ defmodule Aiur.DecisionProjection do
   defp transition(%Decision{} = decision, %DecisionEvent{type: :follow_up_handled} = event) do
     with {:ok, follow_up} <- fetch_open_follow_up(decision, event.data.action_id),
          :ok <- require_follow_up_slug(follow_up, event.data.slug) do
-      handled = %{follow_up | handled_at: event.occurred_at, handled_event_id: event.event_id}
+      handled = %{
+        follow_up
+        | handled_at: event.occurred_at,
+          handled_event_id: event.event_id,
+          handled_by: event.data.actor,
+          handled_detail: event.data.detail
+      }
+
       {:ok, %{decision | revision_follow_ups: Map.put(decision.revision_follow_ups, event.data.action_id, handled)}}
     end
   end
@@ -728,7 +737,9 @@ defmodule Aiur.DecisionProjection do
       "required_at" => DateTime.to_iso8601(follow_up.required_at),
       "required_event_id" => follow_up.required_event_id,
       "handled_at" => timestamp(follow_up.handled_at),
-      "handled_event_id" => follow_up.handled_event_id
+      "handled_event_id" => follow_up.handled_event_id,
+      "handled_by" => actor_to_json_safe(follow_up.handled_by),
+      "handled_detail" => follow_up.handled_detail
     }
   end
 
@@ -749,6 +760,9 @@ defmodule Aiur.DecisionProjection do
       "run_id" => fact.run_id
     }
   end
+
+  defp actor_to_json_safe(nil), do: nil
+  defp actor_to_json_safe(actor), do: %{"kind" => Atom.to_string(actor.kind), "id" => actor.id}
 
   defp timestamp(nil), do: nil
   defp timestamp(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)

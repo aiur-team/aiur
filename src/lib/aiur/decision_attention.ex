@@ -51,6 +51,18 @@ defmodule Aiur.DecisionAttention do
     end
   end
 
+  @doc "Projects a reminder whose canonical parent fact was already persisted elsewhere."
+  @spec open_persisted(Issue.t(), Path.t() | nil, String.t() | nil, String.t(), String.t()) :: :ok
+  def open_persisted(issue, workspace, worker_host, slug, question) do
+    open_persisted(__MODULE__, issue, workspace, worker_host, slug, question)
+  end
+
+  @spec open_persisted(GenServer.server(), Issue.t(), Path.t() | nil, String.t() | nil, String.t(), String.t()) :: :ok
+  def open_persisted(server, %Issue{} = issue, workspace, worker_host, slug, question)
+      when is_binary(slug) and is_binary(question) do
+    GenServer.call(server, {:open_persisted, issue, workspace, worker_host, slug, question}, @open_timeout)
+  end
+
   @spec open_with_decision(
           Issue.t(),
           Path.t() | nil,
@@ -140,24 +152,27 @@ defmodule Aiur.DecisionAttention do
 
     case project_attention(state.decision_projector, attention, opts) do
       {:ok, result} ->
-        cancel_timer(Map.get(state.attentions, key))
-        :ok = SubscriptionStore.attach(identifier)
-        :ok = SubscriptionStore.add_attention(identifier, slug)
-        emit(state.alert_emitter, attention)
-
-        next_attention = schedule_reask(attention, state.reask_interval_ms)
-
-        next_state = %{
-          state
-          | attentions: Map.put(state.attentions, key, next_attention),
-            resolved_during_import: MapSet.delete(state.resolved_during_import, key)
-        }
-
-        {:reply, {:ok, result}, next_state}
+        {:reply, {:ok, result}, register_attention(state, identifier, key, attention)}
 
       {:error, _reason} = error ->
         {:reply, error, state}
     end
+  end
+
+  def handle_call({:open_persisted, issue, workspace, worker_host, slug, question}, _from, state) do
+    identifier = issue_identifier!(issue)
+    key = {identifier, slug}
+
+    attention = %{
+      issue: issue,
+      workspace: workspace,
+      worker_host: worker_host,
+      slug: slug,
+      question: question,
+      timer_ref: nil
+    }
+
+    {:reply, :ok, register_attention(state, identifier, key, attention)}
   end
 
   def handle_call({:resolve, issue, slug}, _from, state) do
@@ -235,6 +250,21 @@ defmodule Aiur.DecisionAttention do
   end
 
   defp schedule_reask(attention, _interval_ms), do: attention
+
+  defp register_attention(state, identifier, key, attention) do
+    cancel_timer(Map.get(state.attentions, key))
+    :ok = SubscriptionStore.attach(identifier)
+    :ok = SubscriptionStore.add_attention(identifier, attention.slug)
+    emit(state.alert_emitter, attention)
+
+    next_attention = schedule_reask(attention, state.reask_interval_ms)
+
+    %{
+      state
+      | attentions: Map.put(state.attentions, key, next_attention),
+        resolved_during_import: MapSet.delete(state.resolved_during_import, key)
+    }
+  end
 
   defp emit(alert_emitter, attention), do: alert_emitter.(attention)
 

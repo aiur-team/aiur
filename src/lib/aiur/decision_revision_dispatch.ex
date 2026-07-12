@@ -9,7 +9,7 @@ defmodule Aiur.DecisionRevisionDispatch do
   for a permanent outcome.
   """
 
-  alias Aiur.{Decision, DecisionAnswer, DecisionRevision, Issue, Tracker}
+  alias Aiur.{Decision, DecisionAnswer, DecisionAttention, DecisionRevision, Issue, Tracker}
   alias Aiur.Orchestrator.{DispatchPolicy, Dispatcher}
   alias Aiur.Orchestrator.OperatorMessages
 
@@ -43,6 +43,36 @@ defmodule Aiur.DecisionRevisionDispatch do
     else
       nil -> {:error, :revision_missing}
       {:no_longer_applicable, _reason} = outcome -> outcome
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc "Projects one durable, open parent follow-up into DecisionAttention."
+  @spec project_follow_up(Decision.t(), String.t(), keyword()) :: :ok | {:error, term()}
+  def project_follow_up(%Decision{} = decision, action_id, opts \\ []) when is_binary(action_id) do
+    with %{handled_at: nil} = follow_up <- Map.get(decision.revision_follow_ups, action_id),
+         {:ok, issue} <- target_issue(decision),
+         {:ok, opener} <- attention_opener(opts) do
+      server = Keyword.get(opts, :attention_server, DecisionAttention)
+      opener.(server, issue, nil, nil, follow_up.slug, follow_up.question)
+    else
+      nil -> {:error, :follow_up_not_required}
+      %{handled_at: %DateTime{}} -> :ok
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc "Clears the reminder projection after its parent handled fact is durable."
+  @spec resolve_follow_up(Decision.t(), String.t(), keyword()) :: :ok | {:error, term()}
+  def resolve_follow_up(%Decision{} = decision, action_id, opts \\ []) when is_binary(action_id) do
+    with %{handled_at: %DateTime{}, slug: slug} <- Map.get(decision.revision_follow_ups, action_id),
+         {:ok, issue} <- target_issue(decision),
+         {:ok, resolver} <- attention_resolver(opts) do
+      server = Keyword.get(opts, :attention_server, DecisionAttention)
+      resolver.(server, issue, slug)
+    else
+      nil -> {:error, :follow_up_not_required}
+      %{handled_at: nil} -> {:error, :follow_up_not_handled}
       {:error, _reason} = error -> error
     end
   end
@@ -161,6 +191,20 @@ defmodule Aiur.DecisionRevisionDispatch do
     case Keyword.get(opts, :issue_fetcher, &Tracker.fetch_issue_states_by_ids/1) do
       fetcher when is_function(fetcher, 1) -> {:ok, fetcher}
       _other -> {:error, {:target_revalidation_context, :invalid_issue_fetcher}}
+    end
+  end
+
+  defp attention_opener(opts) do
+    case Keyword.get(opts, :attention_opener, &DecisionAttention.open_persisted/6) do
+      opener when is_function(opener, 6) -> {:ok, opener}
+      _other -> {:error, {:follow_up_projection_context, :invalid_attention_opener}}
+    end
+  end
+
+  defp attention_resolver(opts) do
+    case Keyword.get(opts, :attention_resolver, &DecisionAttention.resolve/3) do
+      resolver when is_function(resolver, 3) -> {:ok, resolver}
+      _other -> {:error, {:follow_up_projection_context, :invalid_attention_resolver}}
     end
   end
 

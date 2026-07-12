@@ -96,7 +96,9 @@ defmodule Aiur.Decision do
           required_at: DateTime.t(),
           required_event_id: pos_integer() | String.t(),
           handled_at: DateTime.t() | nil,
-          handled_event_id: pos_integer() | String.t() | nil
+          handled_event_id: pos_integer() | String.t() | nil,
+          handled_by: Aiur.DecisionAnswer.actor() | nil,
+          handled_detail: String.t() | nil
         }
 
   @type t :: %__MODULE__{

@@ -32,7 +32,23 @@ defmodule Aiur.DecisionStore do
 
   require Logger
 
-  alias Aiur.{Alerts, Boot, Config, Decision, DecisionAnswer, DecisionDispatch, DecisionEvent, DecisionLog, DecisionProjection, DecisionPubSub, DecisionRevision, DecisionValidation, JsonStore}
+  alias Aiur.{
+    Alerts,
+    Boot,
+    Config,
+    Decision,
+    DecisionAnswer,
+    DecisionDispatch,
+    DecisionEvent,
+    DecisionLog,
+    DecisionProjection,
+    DecisionPubSub,
+    DecisionRevision,
+    DecisionRevisionDispatch,
+    DecisionValidation,
+    JsonStore
+  }
+
   alias Aiur.Events.{IdGenerator, Publisher}
 
   @ndjson_filename "decisions.ndjson"
@@ -45,6 +61,7 @@ defmodule Aiur.DecisionStore do
   @transient_failure_classes ["orchestrator_unavailable", "orchestrator_timeout"]
   @revision_transient_failure_classes @transient_failure_classes ++
                                         ["target_agent_unavailable", "target_revalidation_failed"]
+  @system_follow_up_actor %{kind: :system, id: "decision-store"}
 
   @type accept_result :: %{status: :accepted | :duplicate, decision: Decision.t()}
 
@@ -99,6 +116,20 @@ defmodule Aiur.DecisionStore do
   def revise(decision_id, payload, opts \\ [], server \\ __MODULE__, timeout \\ @request_timeout)
       when is_binary(decision_id) and is_map(payload) and is_list(opts) do
     GenServer.call(server, {:revise, decision_id, payload, opts}, timeout)
+  end
+
+  @doc "Durably handles a blocking revision follow-up before clearing its reminder."
+  @spec handle_revision_follow_up(String.t(), String.t(), keyword(), GenServer.server(), timeout()) ::
+          {:ok, map()} | {:error, term()}
+  def handle_revision_follow_up(
+        decision_id,
+        action_id,
+        opts \\ [],
+        server \\ __MODULE__,
+        timeout \\ @request_timeout
+      )
+      when is_binary(decision_id) and is_binary(action_id) and is_list(opts) do
+    GenServer.call(server, {:handle_revision_follow_up, decision_id, action_id, opts}, timeout)
   end
 
   @doc "Explicitly schedules a previously failed action for one idempotent retry."
@@ -187,8 +218,12 @@ defmodule Aiur.DecisionStore do
       dispatch_delay_ms: Keyword.get(opts, :dispatch_delay_ms, @default_dispatch_delay_ms),
       reconcile_delay_ms: Keyword.get(opts, :reconcile_delay_ms, @default_reconcile_delay_ms),
       retry_delays_ms: Keyword.get(opts, :retry_delays_ms, @default_retry_delays_ms),
+      revision_follow_up_projector: Keyword.get(opts, :revision_follow_up_projector, &DecisionRevisionDispatch.project_follow_up/2),
+      revision_follow_up_resolver: Keyword.get(opts, :revision_follow_up_resolver, &DecisionRevisionDispatch.resolve_follow_up/2),
       dispatching: MapSet.new(),
-      retry_counts: %{}
+      retry_counts: %{},
+      projecting_revision_follow_ups: MapSet.new(),
+      resolving_revision_follow_ups: MapSet.new()
     })
   end
 
@@ -334,6 +369,14 @@ defmodule Aiur.DecisionStore do
 
   def handle_call({:revise, decision_id, payload, opts}, _from, state) do
     handle_revision(decision_id, payload, opts, state)
+  end
+
+  def handle_call({:handle_revision_follow_up, _decision_id, _action_id, _opts}, _from, %{writable?: false} = state) do
+    {:reply, {:error, {:store_unavailable, state.health}}, state}
+  end
+
+  def handle_call({:handle_revision_follow_up, decision_id, action_id, opts}, _from, state) do
+    do_handle_revision_follow_up(decision_id, action_id, opts, state)
   end
 
   def handle_call({:retry_dispatch, _decision_id, _action_id}, _from, %{writable?: false} = state) do
@@ -546,8 +589,10 @@ defmodule Aiur.DecisionStore do
   defp persist_revision(decision, revision, state) do
     case build_and_persist_event(:revision_recorded, decision, revision, revision.recorded_at, state) do
       {:ok, next_state, updated} ->
-        next_state = maybe_schedule_after_answer(next_state, updated, false)
-        {:reply, {:ok, revision_result(:accepted, updated, revision)}, next_state}
+        next_state = ensure_superseded_revision_follow_ups(next_state, updated)
+        current = Map.fetch!(next_state.current, updated.decision_id)
+        next_state = maybe_schedule_after_answer(next_state, current, false)
+        {:reply, {:ok, revision_result(:accepted, current, revision)}, next_state}
 
       {:error, reason} ->
         {:reply, {:error, reason}, state}
@@ -561,6 +606,50 @@ defmodule Aiur.DecisionStore do
       action: revision,
       revision_result: Map.get(decision.revision_outcomes, revision.action_id, %{result: :recorded}).result,
       dispatch_status: dispatch_status(decision)
+    }
+  end
+
+  defp do_handle_revision_follow_up(decision_id, action_id, opts, state) do
+    with {:ok, decision} <- fetch_decision(state, decision_id),
+         {:ok, follow_up} <- fetch_revision_follow_up(decision, action_id),
+         {:ok, actor} <- fetch_actor(opts) do
+      case follow_up.handled_at do
+        nil -> persist_follow_up_handled(state, decision, follow_up, actor, Keyword.get(opts, :detail))
+        %DateTime{} -> {:reply, {:ok, follow_up_result(:duplicate, decision, follow_up)}, state}
+      end
+    else
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp fetch_revision_follow_up(decision, action_id) do
+    case Map.get(decision.revision_follow_ups, action_id) do
+      nil -> {:error, :follow_up_not_required}
+      follow_up -> {:ok, follow_up}
+    end
+  end
+
+  defp persist_follow_up_handled(state, decision, follow_up, actor, detail) do
+    data = %{action_id: follow_up.action_id, slug: follow_up.slug, actor: actor, detail: detail}
+
+    case build_and_persist_event(:follow_up_handled, decision, data, DateTime.utc_now(), state) do
+      {:ok, next_state, updated} ->
+        next_state = maybe_schedule_revision_follow_up_resolution(next_state, updated, follow_up.action_id)
+        handled = Map.fetch!(updated.revision_follow_ups, follow_up.action_id)
+        {:reply, {:ok, follow_up_result(:accepted, updated, handled)}, next_state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp follow_up_result(status, decision, follow_up) do
+    %{
+      status: status,
+      decision_id: decision.decision_id,
+      action_id: follow_up.action_id,
+      slug: follow_up.slug,
+      handled_at: follow_up.handled_at
     }
   end
 
@@ -1319,11 +1408,7 @@ defmodule Aiur.DecisionStore do
     next_state =
       state.current
       |> Map.values()
-      |> Enum.reduce(state, fn decision, state_acc ->
-        state_acc
-        |> maybe_schedule_after_answer(decision, false)
-        |> maybe_schedule_queue_reconciliation(decision)
-      end)
+      |> Enum.reduce(state, &reconcile_decision/2)
 
     {:noreply, next_state}
   end
@@ -1340,6 +1425,143 @@ defmodule Aiur.DecisionStore do
     state = %{state | dispatching: MapSet.delete(state.dispatching, action_id)}
     {:noreply, settle_dispatch(state, decision_id, action_id, attempt_id, result)}
   end
+
+  def handle_info({:project_revision_follow_up, decision_id, action_id}, state) do
+    {:noreply, start_revision_follow_up_task(state, :project, decision_id, action_id)}
+  end
+
+  def handle_info({:resolve_revision_follow_up, decision_id, action_id}, state) do
+    {:noreply, start_revision_follow_up_task(state, :resolve, decision_id, action_id)}
+  end
+
+  def handle_info({:revision_follow_up_result, operation, decision_id, action_id, :ok}, state) do
+    {:noreply, clear_revision_follow_up_inflight(state, operation, {decision_id, action_id})}
+  end
+
+  def handle_info({:revision_follow_up_result, operation, decision_id, action_id, {:error, reason}}, state) do
+    key = {decision_id, action_id}
+
+    if retry_revision_follow_up?(state, operation, decision_id, action_id) do
+      Logger.warning(
+        "aiur_decision_store phase=revision_follow_up_#{operation}_failed " <>
+          "decision_id=#{decision_id} action_id=#{action_id} reason=#{inspect(reason)}"
+      )
+
+      message = revision_follow_up_message(operation, decision_id, action_id)
+      Process.send_after(self(), message, state.reconcile_delay_ms)
+      {:noreply, state}
+    else
+      {:noreply, clear_revision_follow_up_inflight(state, operation, key)}
+    end
+  end
+
+  defp reconcile_decision(decision, state) do
+    state = ensure_revision_follow_up_required(state, decision)
+    current = Map.fetch!(state.current, decision.decision_id)
+    state = ensure_superseded_revision_follow_ups(state, current)
+    current = Map.fetch!(state.current, decision.decision_id)
+    state = schedule_revision_follow_up_work(state, current)
+
+    state
+    |> maybe_schedule_after_answer(current, false)
+    |> maybe_schedule_queue_reconciliation(current)
+  end
+
+  defp schedule_revision_follow_up_work(state, decision) do
+    Enum.reduce(decision.revision_follow_ups, state, fn {action_id, follow_up}, state_acc ->
+      if is_nil(follow_up.handled_at),
+        do: maybe_schedule_revision_follow_up_projection(state_acc, decision, action_id),
+        else: maybe_schedule_revision_follow_up_resolution(state_acc, decision, action_id)
+    end)
+  end
+
+  defp maybe_schedule_revision_follow_up_projection(state, decision, action_id) do
+    key = {decision.decision_id, action_id}
+
+    if MapSet.member?(state.projecting_revision_follow_ups, key) do
+      state
+    else
+      send(self(), {:project_revision_follow_up, decision.decision_id, action_id})
+      %{state | projecting_revision_follow_ups: MapSet.put(state.projecting_revision_follow_ups, key)}
+    end
+  end
+
+  defp maybe_schedule_revision_follow_up_resolution(state, decision, action_id) do
+    key = {decision.decision_id, action_id}
+
+    if MapSet.member?(state.resolving_revision_follow_ups, key) do
+      state
+    else
+      send(self(), {:resolve_revision_follow_up, decision.decision_id, action_id})
+      %{state | resolving_revision_follow_ups: MapSet.put(state.resolving_revision_follow_ups, key)}
+    end
+  end
+
+  defp start_revision_follow_up_task(state, operation, decision_id, action_id) do
+    with {:ok, decision} <- fetch_decision(state, decision_id) do
+      owner = self()
+      callback = revision_follow_up_callback(state, operation)
+
+      task = fn ->
+        result = safe_revision_follow_up_call(callback, decision, action_id)
+        send(owner, {:revision_follow_up_result, operation, decision_id, action_id, result})
+      end
+
+      case Task.start(task) do
+        {:ok, _pid} ->
+          state
+
+        {:error, reason} ->
+          send(owner, {:revision_follow_up_result, operation, decision_id, action_id, {:error, reason}})
+          state
+      end
+    else
+      {:error, _reason} -> clear_revision_follow_up_inflight(state, operation, {decision_id, action_id})
+    end
+  end
+
+  defp revision_follow_up_callback(state, :project), do: state.revision_follow_up_projector
+  defp revision_follow_up_callback(state, :resolve), do: state.revision_follow_up_resolver
+
+  defp safe_revision_follow_up_call(callback, decision, action_id) do
+    case callback.(decision, action_id) do
+      :ok -> :ok
+      {:error, _reason} = error -> error
+      other -> {:error, {:invalid_result, other}}
+    end
+  rescue
+    error -> {:error, {:callback_crashed, Exception.message(error)}}
+  catch
+    kind, reason -> {:error, {:callback_crashed, {kind, reason}}}
+  end
+
+  defp clear_revision_follow_up_inflight(state, :project, key) do
+    %{state | projecting_revision_follow_ups: MapSet.delete(state.projecting_revision_follow_ups, key)}
+  end
+
+  defp clear_revision_follow_up_inflight(state, :resolve, key) do
+    %{state | resolving_revision_follow_ups: MapSet.delete(state.resolving_revision_follow_ups, key)}
+  end
+
+  defp retry_revision_follow_up?(state, operation, decision_id, action_id) do
+    case Map.get(state.current, decision_id) do
+      %Decision{} = decision ->
+        case Map.get(decision.revision_follow_ups, action_id) do
+          %{handled_at: nil} -> operation == :project
+          %{handled_at: %DateTime{}} -> operation == :resolve
+          nil -> false
+        end
+
+      nil ->
+        false
+    end
+  end
+
+  defp revision_follow_up_message(:project, decision_id, action_id),
+    do: {:project_revision_follow_up, decision_id, action_id}
+
+  defp revision_follow_up_message(:resolve, decision_id, action_id),
+    do: {:resolve_revision_follow_up, decision_id, action_id}
 
   defp maybe_schedule_after_answer(state, %Decision{} = decision, retry_failed?) do
     active_answer = Decision.active_answer(decision)
@@ -1456,7 +1678,7 @@ defmodule Aiur.DecisionStore do
       data = %{action_id: action_id, reason_class: revision_non_applicability_reason(reason)}
 
       case build_and_persist_event(:revision_no_longer_applicable, decision, data, DateTime.utc_now(), state) do
-        {:ok, next_state, _updated} -> next_state
+        {:ok, next_state, updated} -> ensure_revision_follow_up_required(next_state, updated)
         {:error, append_reason} -> lifecycle_append_failed(state, :revision_no_longer_applicable, append_reason)
       end
     else
@@ -1467,6 +1689,53 @@ defmodule Aiur.DecisionStore do
   defp revision_non_applicability_reason(:missing), do: "target_missing"
   defp revision_non_applicability_reason({:terminal, _state}), do: "target_terminal"
   defp revision_non_applicability_reason(_reason), do: "target_no_longer_applicable"
+
+  defp ensure_revision_follow_up_required(
+         state,
+         %Decision{revision_result: :no_longer_applicable, active_action_id: action_id} = decision
+       ) do
+    case Map.get(decision.revision_follow_ups, action_id) do
+      nil -> persist_revision_follow_up_required(state, decision, action_id)
+      _follow_up -> maybe_schedule_revision_follow_up_projection(state, decision, action_id)
+    end
+  end
+
+  defp ensure_revision_follow_up_required(state, _decision), do: state
+
+  defp persist_revision_follow_up_required(state, decision, action_id) do
+    revision = Enum.find(decision.revisions, &(&1.action_id == action_id))
+
+    data = %{
+      action_id: action_id,
+      slug: DecisionRevision.follow_up_slug(revision),
+      question: DecisionRevision.follow_up_question(revision, decision.ticket.identifier)
+    }
+
+    case build_and_persist_event(:follow_up_required, decision, data, DateTime.utc_now(), state) do
+      {:ok, next_state, updated} -> maybe_schedule_revision_follow_up_projection(next_state, updated, action_id)
+      {:error, reason} -> lifecycle_append_failed(state, :follow_up_required, reason)
+    end
+  end
+
+  defp ensure_superseded_revision_follow_ups(state, decision) do
+    decision.revision_follow_ups
+    |> Enum.filter(fn {action_id, follow_up} -> action_id != decision.active_action_id and is_nil(follow_up.handled_at) end)
+    |> Enum.reduce(state, fn {action_id, follow_up}, state_acc ->
+      current = Map.fetch!(state_acc.current, decision.decision_id)
+
+      data = %{
+        action_id: action_id,
+        slug: follow_up.slug,
+        actor: @system_follow_up_actor,
+        detail: "Superseded by revision #{decision.active_action_id}"
+      }
+
+      case build_and_persist_event(:follow_up_handled, current, data, DateTime.utc_now(), state_acc) do
+        {:ok, next_state, updated} -> maybe_schedule_revision_follow_up_resolution(next_state, updated, action_id)
+        {:error, reason} -> lifecycle_append_failed(state_acc, :follow_up_handled, reason)
+      end
+    end)
+  end
 
   defp settle_queue_result(state, decision, action_id, attempt_id, :retried, item) do
     restored_attempt_id = item_attempt_id(item) || attempt_id

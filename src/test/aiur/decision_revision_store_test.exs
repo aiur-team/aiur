@@ -135,6 +135,8 @@ defmodule Aiur.DecisionRevisionStoreTest do
   end
 
   test "a fresh missing target records non-applicability without a queue attempt", %{dir: dir} do
+    parent = self()
+
     dispatcher = fn dispatched, opts ->
       if dispatched.revision_sequence > 0 do
         {:no_longer_applicable, :missing}
@@ -143,17 +145,173 @@ defmodule Aiur.DecisionRevisionStoreTest do
       end
     end
 
-    pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0)
+    projector = fn projected, action_id ->
+      follow_up = Map.fetch!(projected.revision_follow_ups, action_id)
+      send(parent, {:follow_up_projected, action_id, follow_up.slug, follow_up.question})
+      :ok
+    end
+
+    resolver = fn resolved, action_id ->
+      follow_up = Map.fetch!(resolved.revision_follow_ups, action_id)
+      send(parent, {:follow_up_resolved, action_id, follow_up.handled_at})
+      :ok
+    end
+
+    pid =
+      start_store!(dir,
+        dispatcher: dispatcher,
+        dispatch_delay_ms: 0,
+        revision_follow_up_projector: projector,
+        revision_follow_up_resolver: resolver
+      )
+
     {decision, original} = answered_decision(pid)
     _original_queued = wait_for(pid, decision.decision_id, &(&1.delivery_status == :queued))
 
     assert {:ok, %{action: revision}} =
              revise(pid, decision, original, "revision-missing", "Hold the rollout")
 
-    revised = wait_for(pid, decision.decision_id, &(&1.revision_result == :no_longer_applicable))
+    revised =
+      wait_for(pid, decision.decision_id, fn current ->
+        current.revision_result == :no_longer_applicable and
+          Map.has_key?(current.revision_follow_ups, revision.action_id)
+      end)
+
     assert revised.delivery_status == :not_dispatched
     assert revised.revision_outcomes[revision.action_id].reason_class == "target_missing"
     assert Enum.count(revised.dispatch_attempts, &(&1.action_id == revision.action_id)) == 0
+
+    follow_up = Map.fetch!(revised.revision_follow_ups, revision.action_id)
+    assert follow_up.slug == Aiur.DecisionRevision.follow_up_slug(revision)
+    assert follow_up.question =~ "could not deliver the new direction automatically"
+    refute follow_up.question =~ ~r/rolled back|reverted|undone/i
+    assert_receive {:follow_up_projected, action_id, slug, _question}, 1_000
+    assert action_id == revision.action_id
+    assert slug == follow_up.slug
+
+    assert {:ok, %{status: :accepted, handled_at: %DateTime{}}} =
+             DecisionStore.handle_revision_follow_up(
+               decision.decision_id,
+               revision.action_id,
+               [actor: @actor, detail: "Escalated to a new ticket"],
+               pid
+             )
+
+    assert_receive {:follow_up_resolved, action_id, %DateTime{}}, 1_000
+    assert action_id == revision.action_id
+
+    assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, pid)
+
+    assert Enum.map(audit, & &1.type) == [
+             :requested,
+             :answer_recorded,
+             :dispatch_queued,
+             :revision_recorded,
+             :revision_no_longer_applicable,
+             :follow_up_required,
+             :follow_up_handled
+           ]
+  end
+
+  test "restart reprojects one stable unresolved follow-up from the parent audit", %{dir: dir} do
+    parent = self()
+
+    dispatcher = fn dispatched, opts ->
+      if dispatched.revision_sequence > 0 do
+        {:no_longer_applicable, {:terminal, "done"}}
+      else
+        {:ok, %{status: :accepted, item: %{id: 19, status: :pending, correlation: %{attempt_id: opts[:attempt_id]}}}}
+      end
+    end
+
+    pid =
+      start_store!(dir,
+        dispatcher: dispatcher,
+        dispatch_delay_ms: 0,
+        revision_follow_up_projector: fn _decision, _action_id -> {:error, :attention_unavailable} end
+      )
+
+    {decision, original} = answered_decision(pid)
+    _original_queued = wait_for(pid, decision.decision_id, &(&1.delivery_status == :queued))
+    assert {:ok, %{action: revision}} = revise(pid, decision, original, "revision-restart", "Hold")
+
+    current =
+      wait_for(pid, decision.decision_id, fn item ->
+        Map.has_key?(item.revision_follow_ups, revision.action_id)
+      end)
+
+    slug = current.revision_follow_ups[revision.action_id].slug
+    GenServer.stop(pid)
+
+    restarted =
+      start_store!(dir,
+        reconcile_delay_ms: 0,
+        revision_follow_up_projector: fn projected, action_id ->
+          send(parent, {:reprojected, action_id, projected.revision_follow_ups[action_id].slug})
+          :ok
+        end
+      )
+
+    assert_receive {:reprojected, action_id, ^slug}, 1_000
+    assert action_id == revision.action_id
+
+    assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, restarted)
+    assert Enum.count(audit, &match?(%DecisionEvent{type: :follow_up_required}, &1)) == 1
+  end
+
+  test "a newer revision durably supersedes the prior blocking follow-up before resolution", %{dir: dir} do
+    parent = self()
+
+    dispatcher = fn dispatched, opts ->
+      if dispatched.revision_sequence > 0 do
+        {:no_longer_applicable, :missing}
+      else
+        {:ok, %{status: :accepted, item: %{id: 23, status: :pending, correlation: %{attempt_id: opts[:attempt_id]}}}}
+      end
+    end
+
+    pid =
+      start_store!(dir,
+        dispatcher: dispatcher,
+        dispatch_delay_ms: 0,
+        revision_follow_up_resolver: fn resolved, action_id ->
+          send(parent, {:superseded_follow_up_resolved, action_id, resolved.active_action_id})
+          :ok
+        end
+      )
+
+    {decision, original} = answered_decision(pid)
+    _original_queued = wait_for(pid, decision.decision_id, &(&1.delivery_status == :queued))
+    assert {:ok, %{action: first}} = revise(pid, decision, original, "revision-first", "Hold")
+
+    current =
+      wait_for(pid, decision.decision_id, &Map.has_key?(&1.revision_follow_ups, first.action_id))
+
+    second_payload = %{
+      "idempotency_key" => "revision-second",
+      "expected_version" => current.version,
+      "expected_action_id" => current.active_action_id,
+      "expected_revision_sequence" => current.revision_sequence,
+      "custom_response" => "Open replacement work",
+      "rationale" => "The original target is closed"
+    }
+
+    assert {:ok, %{status: :accepted, action: second, decision: revised}} =
+             DecisionStore.revise(current.decision_id, second_payload, [actor: @actor], pid)
+
+    first_follow_up = revised.revision_follow_ups[first.action_id]
+    assert first_follow_up.handled_by == system_follow_up_actor()
+    assert first_follow_up.handled_detail == "Superseded by revision #{second.action_id}"
+    assert DateTime.compare(first_follow_up.handled_at, second.recorded_at) in [:eq, :gt]
+
+    assert_receive {:superseded_follow_up_resolved, first_action_id, active_action_id}, 1_000
+    assert first_action_id == first.action_id
+    assert active_action_id == second.action_id
+
+    assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, pid)
+    second_index = Enum.find_index(audit, &match?(%DecisionEvent{type: :revision_recorded, data: ^second}, &1))
+    handled_index = Enum.find_index(audit, &match?(%DecisionEvent{type: :follow_up_handled}, &1))
+    assert second_index < handled_index
   end
 
   defp start_store!(dir, opts \\ []) do
@@ -164,7 +322,9 @@ defmodule Aiur.DecisionRevisionStoreTest do
       filesystem_sync_fun: fn -> :ok end,
       dispatch_delay_ms: 60_000,
       reconcile_delay_ms: 60_000,
-      dispatcher: fn _decision, _opts -> {:error, :not_expected} end
+      dispatcher: fn _decision, _opts -> {:error, :not_expected} end,
+      revision_follow_up_projector: fn _decision, _action_id -> :ok end,
+      revision_follow_up_resolver: fn _decision, _action_id -> :ok end
     ]
 
     {:ok, pid} =
@@ -215,6 +375,8 @@ defmodule Aiur.DecisionRevisionStoreTest do
       "rationale" => "New production evidence"
     }
   end
+
+  defp system_follow_up_actor, do: %{kind: :system, id: "decision-store"}
 
   defp wait_for(pid, decision_id, predicate, attempts \\ 100)
 

@@ -124,6 +124,61 @@ defmodule Aiur.DecisionRevisionDispatchTest do
     end
   end
 
+  describe "follow-up projection" do
+    test "opens and resolves the stable parent-owned reminder" do
+      parent = self()
+      decision = revised_decision()
+      revision = List.last(decision.revisions)
+
+      follow_up = %{
+        action_id: revision.action_id,
+        slug: DecisionRevision.follow_up_slug(revision),
+        question: DecisionRevision.follow_up_question(revision, decision.ticket.identifier),
+        required_at: ~U[2026-07-12 12:01:00Z],
+        required_event_id: 10,
+        handled_at: nil,
+        handled_event_id: nil
+      }
+
+      pending = %{decision | revision_follow_ups: %{revision.action_id => follow_up}}
+
+      opener = fn server, issue, workspace, worker_host, slug, question ->
+        send(parent, {:opened, server, issue, workspace, worker_host, slug, question})
+        :ok
+      end
+
+      assert :ok =
+               DecisionRevisionDispatch.project_follow_up(pending, revision.action_id,
+                 attention_server: :attention,
+                 attention_opener: opener
+               )
+
+      assert_receive {:opened, :attention, %Issue{id: "tracker-id-985"}, nil, nil, slug, question}
+      assert slug == follow_up.slug
+      assert question == follow_up.question
+
+      handled =
+        put_in(pending.revision_follow_ups[revision.action_id], %{
+          follow_up
+          | handled_at: ~U[2026-07-12 12:02:00Z],
+            handled_event_id: 11
+        })
+
+      resolver = fn server, issue, resolved_slug ->
+        send(parent, {:resolved, server, issue, resolved_slug})
+        :ok
+      end
+
+      assert :ok =
+               DecisionRevisionDispatch.resolve_follow_up(handled, revision.action_id,
+                 attention_server: :attention,
+                 attention_resolver: resolver
+               )
+
+      assert_receive {:resolved, :attention, %Issue{id: "tracker-id-985"}, ^slug}
+    end
+  end
+
   defp revalidate(overrides) do
     defaults = [
       issue_fetcher: fn _ids -> {:ok, []} end,
