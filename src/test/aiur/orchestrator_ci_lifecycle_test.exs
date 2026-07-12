@@ -6,21 +6,25 @@ defmodule Aiur.OrchestratorCILifecycleTest do
   alias Aiur.Orchestrator.{CiLifecycle, State}
 
   defmodule RecordingGitHubClient do
+    @recipient_key {__MODULE__, :recipient}
+    @update_result_key {__MODULE__, :update_result}
+
+    def record_to(pid), do: Process.put(@recipient_key, pid)
+    def return(result), do: Process.put(@update_result_key, result)
+
     def update_issue_state(issue_id, state_name) do
       if is_pid(recipient()) do
         send(recipient(), {:tracker_update, issue_id, state_name})
       end
 
-      Application.get_env(:aiur, :ci_lifecycle_update_result, :ok)
+      Process.get(@update_result_key, :ok)
     end
 
-    defp recipient, do: Application.get_env(:aiur, :ci_lifecycle_recipient)
+    defp recipient, do: Process.get(@recipient_key)
   end
 
   setup do
     previous_client = Application.get_env(:aiur, :github_client_module)
-    previous_recipient = Application.get_env(:aiur, :ci_lifecycle_recipient)
-    previous_result = Application.get_env(:aiur, :ci_lifecycle_update_result)
     previous_store_path = Application.get_env(:aiur, :ci_approval_store_path)
 
     store_path =
@@ -38,13 +42,10 @@ defmodule Aiur.OrchestratorCILifecycleTest do
     )
 
     Application.put_env(:aiur, :github_client_module, RecordingGitHubClient)
-    Application.put_env(:aiur, :ci_lifecycle_update_result, :ok)
     Application.put_env(:aiur, :ci_approval_store_path, store_path)
 
     on_exit(fn ->
       restore_application_env(:github_client_module, previous_client)
-      restore_application_env(:ci_lifecycle_recipient, previous_recipient)
-      restore_application_env(:ci_lifecycle_update_result, previous_result)
       restore_application_env(:ci_approval_store_path, previous_store_path)
       File.rm(store_path)
     end)
@@ -56,16 +57,16 @@ defmodule Aiur.OrchestratorCILifecycleTest do
     test "pending CI writes ci-wait before pausing a live human-review runner" do
       identifier = unique_identifier("ci-pending")
       recorder = start_recorder()
-      Application.put_env(:aiur, :ci_lifecycle_recipient, recorder)
 
       issue = issue(identifier, "human-review")
       started_at = DateTime.add(DateTime.utc_now(), -30, :second)
       state = running_state(issue, recorder, :working, started_at: started_at)
 
       next = poll_ci(state, issue, %{decision: :pending, head_sha: "pending-head"})
+      sync_recorder(recorder)
 
-      assert_receive {:recorded, 1, {:tracker_update, ^identifier, "ci-wait"}}, 500
-      assert_receive {:recorded, 2, {:pause_agent, request_id}}, 500
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "ci-wait"}}
+      assert_received {:recorded, 2, {:pause_agent, request_id}}
       assert is_integer(request_id)
 
       entry = Map.fetch!(next.running, identifier)
@@ -84,8 +85,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       identifier = unique_identifier("ci-transition-failure")
       topic = "ticket.#{identifier}.ci.failed"
       recorder = start_recorder(topic)
-      Application.put_env(:aiur, :ci_lifecycle_recipient, recorder)
-      Application.put_env(:aiur, :ci_lifecycle_update_result, {:error, :tracker_down})
+      RecordingGitHubClient.return({:error, :tracker_down})
 
       issue = issue(identifier, "ci-wait")
       state = running_state(issue, recorder, :paused, paused_reason: :ci_wait)
@@ -98,8 +98,10 @@ defmodule Aiur.OrchestratorCILifecycleTest do
           failures: [%{name: "lint", result: "failure", excerpt: "failed"}]
         })
 
-      assert_receive {:recorded, 1, {:tracker_update, ^identifier, "rework"}}, 500
-      refute_receive {:recorded, 2, _message}, 100
+      sync_recorder(recorder)
+
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework"}}
+      refute_received {:recorded, 2, _message}
 
       assert next.running == state.running
       assert next.ci_lifecycle == state.ci_lifecycle
@@ -110,7 +112,6 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       identifier = unique_identifier("ci-passed")
       topic = "ticket.#{identifier}.ci.passed"
       recorder = start_recorder(topic)
-      Application.put_env(:aiur, :ci_lifecycle_recipient, recorder)
 
       issue = issue(identifier, "ci-wait")
       state = running_state(issue, recorder, :paused, paused_reason: :ci_wait)
@@ -122,20 +123,21 @@ defmodule Aiur.OrchestratorCILifecycleTest do
           pr_number: 941
         })
 
-      assert_receive {:recorded, 1, {:tracker_update, ^identifier, "human-review"}}, 500
+      sync_recorder(recorder)
 
-      assert_receive {:recorded, 2,
-                      {:event,
-                       %{
-                         topic: ^topic,
-                         source: :github,
-                         head_sha: "approved-head",
-                         pr_number: 941,
-                         message: "CI passed for the current PR head"
-                       }}},
-                     500
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "human-review"}}
 
-      refute_receive {:recorded, 3, _message}, 100
+      assert_received {:recorded, 2,
+                       {:event,
+                        %{
+                          topic: ^topic,
+                          source: :github,
+                          head_sha: "approved-head",
+                          pr_number: 941,
+                          message: "CI passed for the current PR head"
+                        }}}
+
+      refute_received {:recorded, 3, _message}
 
       assert next.running[identifier].issue.state == "human-review"
       assert next.running[identifier].control.status == :paused
@@ -146,15 +148,24 @@ defmodule Aiur.OrchestratorCILifecycleTest do
     test "pending CI is idempotent for an existing ci-wait ticket" do
       identifier = unique_identifier("ci-idempotent")
       recorder = start_recorder()
-      Application.put_env(:aiur, :ci_lifecycle_recipient, recorder)
 
       issue = issue(identifier, "ci-wait")
       state = running_state(issue, recorder, :paused, paused_reason: :ci_wait)
 
       next = poll_ci(state, issue, %{decision: :pending, head_sha: "same-head"})
+      sync_recorder(recorder)
 
-      refute_receive {:recorded, _position, _message}, 100
+      refute_received {:recorded, _position, _message}
       assert next == state
+    end
+
+    test "tracker recording ignores unrelated process traffic" do
+      recorder = start_recorder()
+
+      assert :ok = Task.async(fn -> RecordingGitHubClient.update_issue_state("42", "rework") end) |> Task.await()
+
+      sync_recorder(recorder)
+      refute_received {:recorded, _position, _message}
     end
   end
 
@@ -216,16 +227,27 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       end)
 
     assert_receive {:recorder_ready, ^recorder}, 500
+    RecordingGitHubClient.record_to(recorder)
     on_exit(fn -> if Process.alive?(recorder), do: Process.exit(recorder, :kill) end)
     recorder
   end
 
   defp record_messages(test_pid, position) do
     receive do
+      {:sync_recorder, reply_to, ref} ->
+        send(reply_to, {:recorder_synced, ref})
+        record_messages(test_pid, position)
+
       message ->
         send(test_pid, {:recorded, position, message})
         record_messages(test_pid, position + 1)
     end
+  end
+
+  defp sync_recorder(recorder) do
+    ref = make_ref()
+    send(recorder, {:sync_recorder, self(), ref})
+    assert_receive {:recorder_synced, ^ref}, 500
   end
 
   defp restore_application_env(key, nil), do: Application.delete_env(:aiur, key)
