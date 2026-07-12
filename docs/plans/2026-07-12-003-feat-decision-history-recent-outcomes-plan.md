@@ -67,10 +67,10 @@ during document, code, and human review.*
   only when the current run actually saw the live event.
 - R4. Reconcile bounded startup and polling gaps from the existing GitHub
   firehose pages, deduplicate repeated API events, and append only when a merge
-  fact gains new information. Advance the firehose's reconciliation watermark
-  only after every valid merge fact in the fetched prefix is accepted or
-  deduplicated; a local persistence failure keeps the prior watermark for retry
-  without suppressing the existing ticket-merge event.
+  fact gains new information. A local persistence failure keeps the prior
+  watermark for a bounded retry window without suppressing the existing
+  ticket-merge event; after exhaustion, advance past the already-published
+  event while keeping storage health degraded and raising operator attention.
 - R5. Label the panel **Recent repository merges** and distinguish live-observed
   from backfilled facts. Never claim that the current run or an Aiur agent caused
   a merge without an explicit durable association.
@@ -229,8 +229,8 @@ OCC-4 components without changing Decision mutation ownership.
 
 ### U2. Persist and reconcile recent repository merges
 
-**Goal:** Turn the existing transient GitHub merge stream into a restart-safe,
-append-only recent-outcomes provider without another poller.
+**Goal:** Turn the existing transient GitHub merge stream into a bounded,
+restart-safe recent-outcomes provider without another poller.
 
 **Requirements:** R3, R4, R5, R6, R8
 
@@ -249,8 +249,9 @@ append-only recent-outcomes provider without another poller.
 - Normalize only bounded display/correlation fields from a GitHub PR event,
   redact known credentials, validate timestamps/URLs, and derive a ticket only
   through `Aiur.TicketBranch`.
-- Store full current snapshots as newline-delimited append records using
-  `DecisionLog`'s durable mechanics under `Config.Paths.decision_state_dir/0`.
+- Store full current snapshots as newline-delimited records using `DecisionLog`'s
+  durable mechanics under `Config.Paths.decision_state_dir/0`. Retain the
+  newest projections and atomically compact the stream at its record ceiling.
   Replay to an in-memory index and fail read-only on interior corruption.
 - Extend the firehose's initial/gap page walk within its existing hard cap. Feed
   every merged PR fact to the store before any OCC dashboard refresh, marking
@@ -260,8 +261,9 @@ append-only recent-outcomes provider without another poller.
 - Treat an externally malformed merge fact as a surfaced source warning that
   cannot enter storage but does not wedge the GitHub cursor forever. Treat a
   valid fact that fails local durable append differently: publish the existing
-  load-bearing ticket event, preserve the prior reconciliation cursor, and
-  retry persistence on the next poll.
+  load-bearing ticket event, preserve the prior reconciliation cursor for a
+  bounded retry window, then advance with degraded health and a needs-attention
+  alert so one read-only store cannot freeze the firehose.
 - Record whether the bounded page walk hit its hard cap so the provider and UI
   can disclose a partial recent window rather than imply exhaustive coverage.
 
@@ -285,9 +287,10 @@ attribution tests before wiring the firehose.
 - Error path: malformed fields, unsafe URLs, secret-shaped text, torn final
   records, and corrupt interior records follow bounded/redacted/fail-closed
   behavior; malformed source facts are warned and skipped without retry loops.
-- Failure path: a durable append failure leaves the prior firehose watermark in
-  place for retry while the existing ticket `pr.merged` event still publishes
-  once through its normal dedup path.
+- Failure path: a durable append failure retries the prior firehose watermark a
+  bounded number of times while the existing ticket `pr.merged` event still
+  publishes once through its normal dedup path; exhaustion advances the
+  watermark, degrades health, and alerts without unbounded refetch.
 - Integration: a saturated startup/gap response walks only the existing maximum
   number of pages, records merges on later pages, exposes partial-window status,
   and preserves existing ticket `pr.merged` publication behavior.
@@ -374,8 +377,9 @@ attribution tests before wiring the firehose.
   to re-read both providers. Existing ticket merge publication remains intact.
 - **Error propagation:** Malformed external facts become bounded warnings.
   Valid-fact persistence failures remain operator-visible, hold the outcome
-  reconciliation cursor for retry, and do not suppress the orchestrator's
-  existing load-bearing `ticket.<id>.pr.merged` event.
+  reconciliation cursor for bounded retry, then advance in a degraded state;
+  they never suppress the orchestrator's existing load-bearing
+  `ticket.<id>.pr.merged` event.
 - **State lifecycle risks:** A crash may leave only an unacknowledged torn tail;
   repeated GitHub rows must be idempotent; interior corruption makes the merge
   store read-only rather than silently dropping facts.

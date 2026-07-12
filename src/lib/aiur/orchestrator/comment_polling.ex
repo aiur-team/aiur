@@ -45,21 +45,13 @@ defmodule Aiur.Orchestrator.CommentPolling do
   end
 
   defp note_recent_merge_persistence_success(state, :ok) do
-    state
-    |> Orchestrator.note_github_connectivity_success(:recent_merge_store)
-    |> then(
-      &%{
-        &1
-        | recent_merge_persistence_failures: 0,
-          recent_merge_persistence_alerted?: false
-      }
-    )
+    Orchestrator.note_github_connectivity_success(state, :recent_merge_store)
   end
 
   defp note_recent_merge_persistence_success(state, _status), do: state
 
   defp note_recent_merge_persistence_failure(state, reason, cursor, opts) do
-    failures = state.recent_merge_persistence_failures + 1
+    failures = recent_merge_persistence_failure_count(state) + 1
     retry_limit = recent_merge_persistence_retry_limit(opts)
     advance? = failures >= retry_limit
 
@@ -70,7 +62,6 @@ defmodule Aiur.Orchestrator.CommentPolling do
       |> Orchestrator.note_github_connectivity_success(:firehose)
       |> Orchestrator.note_github_poll_interval(:firehose, Map.get(cursor, :poll_interval))
       |> Orchestrator.note_github_connectivity_failure(:recent_merge_store, {:recent_merge_persistence, reason})
-      |> then(&%{&1 | recent_merge_persistence_failures: failures})
       |> maybe_alert_recent_merge_persistence(reason, retry_limit, opts)
 
     if advance? do
@@ -84,6 +75,13 @@ defmodule Aiur.Orchestrator.CommentPolling do
     end
   end
 
+  defp recent_merge_persistence_failure_count(state) do
+    case Map.get(state.github_connectivity, :recent_merge_store) do
+      {_classification, count} when is_integer(count) and count > 0 -> count
+      _other -> 0
+    end
+  end
+
   defp recent_merge_persistence_retry_limit(opts) do
     case Keyword.get(opts, :recent_merge_persistence_retry_limit, @recent_merge_persistence_retry_limit) do
       value when is_integer(value) and value > 0 -> value
@@ -91,17 +89,20 @@ defmodule Aiur.Orchestrator.CommentPolling do
     end
   end
 
-  defp maybe_alert_recent_merge_persistence(%{recent_merge_persistence_alerted?: true} = state, _reason, _limit, _opts),
-    do: state
+  defp maybe_alert_recent_merge_persistence(state, reason, limit, opts) do
+    if recent_merge_persistence_failure_count(state) == limit do
+      emit_recent_merge_persistence_alert(state, reason, opts)
+    else
+      state
+    end
+  end
 
-  defp maybe_alert_recent_merge_persistence(state, _reason, limit, _opts)
-       when state.recent_merge_persistence_failures < limit,
-       do: state
+  defp emit_recent_merge_persistence_alert(state, reason, opts) do
+    failures = recent_merge_persistence_failure_count(state)
 
-  defp maybe_alert_recent_merge_persistence(state, reason, _limit, opts) do
     message =
       "Recent repository merge audit remains read-only or unwritable after " <>
-        "#{state.recent_merge_persistence_failures} attempts (#{inspect(reason)}). " <>
+        "#{failures} attempts (#{inspect(reason)}). " <>
         "GitHub event delivery is continuing without durable outcome records until storage recovers."
 
     alert_fun = Keyword.get(opts, :recent_merge_alert_fun, &Alerts.emit_custom/3)
@@ -113,15 +114,15 @@ defmodule Aiur.Orchestrator.CommentPolling do
         severity: "warning"
       )
 
-    %{state | recent_merge_persistence_alerted?: true}
+    state
   rescue
     error ->
       Logger.warning("GithubFirehose local outcome persistence alert failed; reason=#{Exception.message(error)}")
-      %{state | recent_merge_persistence_alerted?: true}
+      state
   catch
     kind, reason ->
       Logger.warning("GithubFirehose local outcome persistence alert failed; reason=#{inspect({kind, reason})}")
-      %{state | recent_merge_persistence_alerted?: true}
+      state
   end
 
   @spec poll_github_comments(State.t(), keyword()) :: State.t()

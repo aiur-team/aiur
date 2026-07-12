@@ -44,7 +44,9 @@ defmodule Aiur.Events.GithubFirehose do
   Polls one tick. Returns `{:ok, %{etag: ...}}` regardless of whether
   events fired — the etag is captured for the next call. On API failure
   (transport, 5xx, rate limit) returns `{:error, reason}`; the caller
-  should preserve the previous etag.
+  should preserve the previous etag. A local recent-merge persistence failure
+  returns its reason plus the successful response cursor so the caller can
+  bound retries without refetching the same published event forever.
 
   Options:
     * `:etag` — previously-captured ETag for `If-None-Match`
@@ -73,35 +75,41 @@ defmodule Aiur.Events.GithubFirehose do
          }}
 
       {:ok, {:events, events, etag, poll_interval}} ->
-        with {:ok, %{pages: pages, partial?: partial?}} <- fetch_backfill_pages(events, last_event_id, opts) do
-          processed = pages |> events_since_watermark(last_event_id) |> process_events(opts)
-          pages_fetched = length(pages)
-
-          result = %{
-            etag: etag,
-            last_event_id: newest_event_id(events) || last_event_id,
-            count: processed.count,
-            poll_interval: poll_interval,
-            pages_fetched: pages_fetched,
-            partial_window?: partial?
-          }
-
-          case processed.persistence_errors do
-            [] ->
-              mark_reconciliation(partial?, pages_fetched, opts)
-
-              status = if processed.persistence_attempted?, do: :ok, else: :not_attempted
-              {:ok, Map.put(result, :recent_merge_persistence, status)}
-
-            [reason | _] ->
-              {:error, {:recent_merge_persistence, reason, result}}
-          end
-        end
+        process_event_response(events, etag, poll_interval, last_event_id, opts)
 
       {:error, reason} ->
         Logger.warning("GithubFirehose poll failed: #{inspect(reason)}")
         {:error, reason}
     end
+  end
+
+  defp process_event_response(events, etag, poll_interval, last_event_id, opts) do
+    with {:ok, %{pages: pages, partial?: partial?}} <-
+           fetch_backfill_pages(events, last_event_id, opts) do
+      processed = pages |> events_since_watermark(last_event_id) |> process_events(opts)
+      pages_fetched = length(pages)
+
+      result = %{
+        etag: etag,
+        last_event_id: newest_event_id(events) || last_event_id,
+        count: processed.count,
+        poll_interval: poll_interval,
+        pages_fetched: pages_fetched,
+        partial_window?: partial?
+      }
+
+      finish_event_response(processed, result, partial?, pages_fetched, opts)
+    end
+  end
+
+  defp finish_event_response(%{persistence_errors: []} = processed, result, partial?, pages_fetched, opts) do
+    mark_reconciliation(partial?, pages_fetched, opts)
+    status = if processed.persistence_attempted?, do: :ok, else: :not_attempted
+    {:ok, Map.put(result, :recent_merge_persistence, status)}
+  end
+
+  defp finish_event_response(%{persistence_errors: [reason | _]}, result, _partial?, _pages_fetched, _opts) do
+    {:error, {:recent_merge_persistence, reason, result}}
   end
 
   defp fetch_backfill_pages(first_page, last_event_id, opts) do

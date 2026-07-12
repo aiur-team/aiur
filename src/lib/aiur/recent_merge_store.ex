@@ -71,7 +71,11 @@ defmodule Aiur.RecentMergeStore do
       sync_fun: Keyword.get(opts, :filesystem_sync_fun, &Fs.sync_filesystem/0),
       alert_fun: Keyword.get(opts, :alert_fun, &Alerts.emit_custom/3),
       retention_limit: retention_limit,
-      compaction_record_limit: max(retention_limit, positive_limit(opts, :compaction_record_limit, @compaction_record_limit))
+      compaction_record_limit:
+        max(
+          retention_limit,
+          positive_limit(opts, :compaction_record_limit, @compaction_record_limit)
+        )
     }
   end
 
