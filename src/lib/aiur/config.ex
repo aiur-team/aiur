@@ -89,6 +89,23 @@ defmodule Aiur.Config do
   def switch_model_on_ratelimit, do: settings!().agent.switch_model_on_ratelimit || []
 
   @doc """
+  Backend the automatic codex usage-limit fallback
+  (`Aiur.Orchestrator.RateLimitFallback`) reroutes an already-running codex
+  agent to when it hits `usage_limit_exhausted`, or `nil` when disabled
+  (`agent.rate_limit_fallback: ""`). Default `"claude"`. Unlike
+  `switch_model_on_ratelimit/0` (opt-in, only ever applies to a new claim),
+  this is default-on and reroutes a running agent, reverting once
+  `Aiur.ModelAvailability` reports codex available again.
+  """
+  @spec rate_limit_fallback_backend() :: String.t() | nil
+  def rate_limit_fallback_backend do
+    case settings!().agent.rate_limit_fallback do
+      backend when is_binary(backend) and backend != "" -> backend
+      _ -> nil
+    end
+  end
+
+  @doc """
   Setting #2: whether dispatched agents attach a `claude remote-control`
   session. Orthogonal to `agent_kind/0` and only meaningful for an
   RC-capable backend. The default lives in `Config.Schema` so flipping to

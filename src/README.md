@@ -305,6 +305,12 @@ makes no view-time network requests. Run
 - When every eligible fallback backend is limited, Aiur leaves the ticket
   unclaimed and emits one visible pause/retry alert until availability changes;
   it does not busy-loop dispatch attempts.
+- `agent.rate_limit_fallback` (default `claude`) automatically reroutes an
+  **already-running** codex agent to the named backend when it pauses on
+  `usage_limit_exhausted`, and reverts it back to codex once
+  `model-usage.json` reports codex available again. Unlike
+  `switch_model_on_ratelimit` above (opt-in, new claims only), this is
+  default-on and acts on a running agent. Set it to `""` to disable.
 - `agent.target_load_average` enables the adaptive dispatch envelope (default `1.0`
   per scheduler): capacity grows by `agent.load_ramp_step` below the target and
   halves after high samples, no more often than `agent.load_cooldown_seconds`.

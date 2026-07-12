@@ -14,6 +14,39 @@ defmodule Aiur.Config.SchemaTest do
     end
   end
 
+  describe "agent rate_limit_fallback" do
+    test "defaults to claude" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.agent.rate_limit_fallback == "claude"
+    end
+
+    test "accepts a known backend other than codex" do
+      assert {:ok, settings} = Schema.parse(%{"agent" => %{"rate_limit_fallback" => "claude-repl"}})
+      assert settings.agent.rate_limit_fallback == "claude-repl"
+    end
+
+    test "accepts an empty string to disable" do
+      assert {:ok, settings} = Schema.parse(%{"agent" => %{"rate_limit_fallback" => ""}})
+      assert settings.agent.rate_limit_fallback == ""
+    end
+
+    test "rejects codex as the fallback target" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"agent" => %{"rate_limit_fallback" => "codex"}})
+
+      assert message =~ "rate_limit_fallback"
+      assert message =~ "the fallback source"
+    end
+
+    test "rejects an unknown backend" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"agent" => %{"rate_limit_fallback" => "bogus"}})
+
+      assert message =~ "rate_limit_fallback"
+      assert message =~ "must be a known backend"
+    end
+  end
+
   # FI-CFG-005: StringOrMap cast rejects non-string, non-map values
   describe "StringOrMap" do
     test "casts strings and maps, rejects everything else" do

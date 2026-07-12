@@ -157,7 +157,13 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
   # workspace or release the claim — the workspace is reused so the re-dispatched
   # agent resumes the transcript by cwd. Demonitor BEFORE killing so the agent
   # :DOWN handler doesn't fire a retry that re-dispatches underneath us.
-  defp teardown_for_redispatch(state, running_entry) do
+  #
+  # Public (not just used by promote/demote) so other backend-swap flows —
+  # `Aiur.Orchestrator.RateLimitFallback`'s codex<->claude reroute — reuse the
+  # exact same teardown ordering rather than duplicating it.
+  @doc false
+  @spec teardown_for_redispatch(State.t(), map()) :: State.t()
+  def teardown_for_redispatch(state, running_entry) do
     issue_id = get_in(running_entry, [:issue, Access.key(:id)])
     identifier = Map.get(running_entry, :identifier)
     pid = Map.get(running_entry, :pid)
