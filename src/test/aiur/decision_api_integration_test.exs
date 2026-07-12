@@ -18,7 +18,7 @@ defmodule Aiur.DecisionApiIntegrationTest do
     dir = Path.join(System.tmp_dir!(), "aiur-decision-api-integration-#{System.unique_integer([:positive])}")
     Application.put_env(:aiur, :decision_state_dir, dir)
     System.put_env("AIUR_SUPERVISOR_TOKEN", @token)
-    ensure_endpoint_running()
+    endpoint_started? = ensure_endpoint_running()
     original_writable = Endpoint.config(:dashboard_writable)
     configure_endpoint(dashboard_writable: true)
 
@@ -45,7 +45,7 @@ defmodule Aiur.DecisionApiIntegrationTest do
 
     on_exit(fn ->
       if Process.alive?(store), do: GenServer.stop(store)
-      configure_endpoint(dashboard_writable: original_writable)
+      restore_endpoint_config(original_writable, endpoint_started?)
       restore_env("AIUR_SUPERVISOR_TOKEN", original_token)
 
       case original_dir do
@@ -261,11 +261,22 @@ defmodule Aiur.DecisionApiIntegrationTest do
 
       start_supervised!({Endpoint, []})
       on_exit(fn -> Application.put_env(:aiur, Endpoint, endpoint_config) end)
+      true
+    else
+      false
     end
   end
 
   defp configure_endpoint(changed) do
     Endpoint.config_change(%{Endpoint => changed}, [])
+  end
+
+  defp restore_endpoint_config(_original_writable, true), do: :ok
+
+  defp restore_endpoint_config(original_writable, false) do
+    if Process.whereis(Endpoint) do
+      configure_endpoint(dashboard_writable: original_writable)
+    end
   end
 
   defp audit_type(%DecisionEvent{type: type}), do: type
