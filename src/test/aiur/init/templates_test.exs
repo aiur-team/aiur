@@ -10,7 +10,7 @@ defmodule Aiur.Init.TemplatesTest do
     assert Templates.aiurhooks_template() =~ "origin/$AIUR_TICKET_BRANCH"
     assert Templates.prompt_file_template() =~ "{{REPO}}"
     assert Templates.prompt_file_template() =~ "actual validated ref supplied by the event payload"
-    assert Templates.env_example_content() =~ "GITHUB_TOKEN="
+    assert Templates.env_content() == "GITHUB_TOKEN=\n"
   end
 
   test "alerts_template selects macOS and Linux bodies" do

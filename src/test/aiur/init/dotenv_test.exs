@@ -14,6 +14,10 @@ defmodule Aiur.Init.DotenvTest do
       result = Dotenv.parse("NOTAPAIR\n")
       assert result == []
     end
+
+    test "can retain empty values when callers need to detect key presence" do
+      assert Dotenv.parse("GITHUB_TOKEN=\n", include_empty: true) == [{"GITHUB_TOKEN", ""}]
+    end
   end
 
   describe "load/0" do
