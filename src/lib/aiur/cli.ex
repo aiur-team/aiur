@@ -58,20 +58,24 @@ defmodule Aiur.CLI do
         end
 
       {:todo, issue_ids, opts} ->
-        case Aiur.AgentControlCLI.todo(issue_ids, only: opts.only) do
-          0 ->
-            :ok
-
-          exit_code ->
-            # `--todo` runs under the distribution-free start_clean boot and
-            # never starts Aiur's supervision tree. Full application cleanup
-            # would touch run-only resources and can print unrelated warnings.
-            System.halt(exit_code)
-        end
+        run_todo_command(issue_ids, opts)
 
       {:error, message} ->
         IO.puts(:stderr, message)
         Aiur.Shutdown.shutdown(1)
+    end
+  end
+
+  defp run_todo_command(issue_ids, opts) do
+    case Aiur.AgentControlCLI.todo(issue_ids, only: opts.only) do
+      0 ->
+        :ok
+
+      exit_code ->
+        # `--todo` runs under the distribution-free start_clean boot and never
+        # starts Aiur's supervision tree. Full application cleanup would touch
+        # run-only resources and can print unrelated warnings.
+        System.halt(exit_code)
     end
   end
 
