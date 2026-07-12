@@ -90,7 +90,7 @@ defmodule Aiur.DecisionStore do
     GenServer.call(server, {:history, decision_id})
   end
 
-  @doc "Returns every Decision's immutable history in one serialized read."
+  @doc "Returns every Decision's immutable history in audit order in one serialized read."
   @spec all_history(GenServer.server()) :: %{String.t() => [Decision.t()]}
   def all_history(server \\ __MODULE__) do
     GenServer.call(server, :all_history)
@@ -247,7 +247,7 @@ defmodule Aiur.DecisionStore do
   end
 
   def handle_call(:all_history, _from, state) do
-    {:reply, state.history, state}
+    {:reply, reverse_histories(state.history), state}
   end
 
   def handle_call(:health, _from, state) do
