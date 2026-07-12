@@ -149,6 +149,7 @@ defmodule AiurEngineTest do
   test "usage describes init and no longer lists sweep" do
     {out, 0} = run_engine(["--help"], [])
     assert out =~ ~r/aiur init \[--force\]\s+scaffold/
+    assert out =~ "aiur --todo <ids...> [--only]"
     assert out =~ "aiur run [--bg] [--debug]"
     refute out =~ "sweep"
   end
@@ -405,6 +406,42 @@ defmodule AiurEngineTest do
     assert out =~ "Aiur.CLI.main(Aiur.CLI.argv_from_file())"
     refute out =~ "--name"
     refute out =~ "--cookie"
+  end
+
+  test "todo boots distribution-free without requiring a running node" do
+    rel = fake_release()
+    state = Path.join(System.tmp_dir!(), "aiur-st-#{System.unique_integer([:positive])}")
+
+    {out, _} =
+      run_engine(["--todo", "11", "12,13", "--only"], [
+        {"AIUR_RELEASE_DIR", rel},
+        {"AIUR_BG_STATE_DIR", state}
+      ])
+
+    assert out =~ "ELIXIR_ARGS:"
+    assert out =~ "--eval"
+    assert out =~ "Aiur.CLI.main(Aiur.CLI.argv_from_file())"
+    refute out =~ "--name"
+    refute out =~ "--cookie"
+    refute out =~ "BIN:"
+  end
+
+  test "todo without IDs exits 64 before resolving a release" do
+    {out, code} = run_engine(["--todo"], [])
+    assert code == 64
+    assert out =~ "--todo expects one or more numeric issue IDs"
+  end
+
+  test "todo rejects nonnumeric IDs" do
+    {out, code} = run_engine(["--todo", "11", "nope"], [])
+    assert code == 64
+    assert out =~ "--todo expects one or more numeric issue IDs"
+  end
+
+  test "only without todo exits 64" do
+    {out, code} = run_engine(["--only"], [])
+    assert code == 64
+    assert out =~ "--only is valid only with --todo"
   end
 
   # Lifecycle commands generate + validate a cookie, whose owner must equal
