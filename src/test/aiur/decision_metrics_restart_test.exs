@@ -1,8 +1,11 @@
 defmodule Aiur.DecisionMetricsRestartTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.{DecisionMetrics, DecisionStore, OperatorWaitLog}
+  alias Aiur.DecisionMetrics
+  alias Aiur.DecisionMetrics.Log
+  alias Aiur.DecisionStore
   alias Aiur.Events.Exchange
+  alias Aiur.OperatorWaitLog
 
   @moduletag :tmp_dir
   @requested_at ~U[2026-07-12 12:00:00.000Z]
@@ -36,12 +39,18 @@ defmodule Aiur.DecisionMetricsRestartTest do
 
     replay = fn replay_path ->
       send(parent, {:replay_started, self()})
-      receive do: (:continue_replay -> Aiur.DecisionMetrics.Log.replay(replay_path))
+      receive do: (:continue_replay -> Log.replay(replay_path))
     end
 
     starter =
       Task.async(fn ->
-        DecisionMetrics.start_link(name: nil, path: path, subscribe?: true, replay: replay, clock: fn -> @observed_at end)
+        DecisionMetrics.start_link(
+          name: nil,
+          path: path,
+          subscribe?: true,
+          replay: replay,
+          clock: fn -> @observed_at end
+        )
       end)
 
     assert_receive {:replay_started, metrics}, 2_000
@@ -117,12 +126,25 @@ defmodule Aiur.DecisionMetricsRestartTest do
 
     assert {:ok, snapshot} = DecisionMetrics.snapshot(decision.decision_id, metrics)
     assert snapshot.requested_at == DateTime.to_iso8601(decision.created_at)
-    assert File.read!(path) =~ "canonical-request:#{decision.decision_id}"
+    assert File.read!(path) =~ "canonical:requested:#{decision.decision_id}:request"
+  end
+
+  test "metrics_file/0 follows the configurable path override", %{tmp_dir: tmp_dir} do
+    path = Path.join(tmp_dir, "configured-decision-metrics.ndjson")
+    previous = Application.get_env(:aiur, :decision_metrics_path)
+    Application.put_env(:aiur, :decision_metrics_path, path)
+    on_exit(fn -> restore_env(:decision_metrics_path, previous) end)
+
+    assert DecisionMetrics.metrics_file() == path
   end
 
   defp start_metrics!(path, opts \\ []) do
+    defaults = [name: nil, path: path, subscribe?: false, seed?: false, clock: fn -> @observed_at end]
+
     {:ok, pid} =
-      DecisionMetrics.start_link(Keyword.merge([name: nil, path: path, subscribe?: false, seed?: false, clock: fn -> @observed_at end], opts))
+      defaults
+      |> Keyword.merge(opts)
+      |> DecisionMetrics.start_link()
 
     pid
   end

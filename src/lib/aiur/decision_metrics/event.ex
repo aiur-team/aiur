@@ -66,7 +66,16 @@ defmodule Aiur.DecisionMetrics.Event do
 
   defp stage_for(event, topic) do
     explicit = event["event_type"] || event["event"] || event["type"]
-    stage_alias(explicit) || Map.get(@implicit_stages, topic_label(topic))
+    stage = stage_alias(explicit) || Map.get(@implicit_stages, topic_label(topic))
+
+    if stage == :requested and revision?(event), do: :revised, else: stage
+  end
+
+  defp revision?(event) do
+    case event_value(event, ["decision_version", "version"]) do
+      version when is_integer(version) and version > 1 -> true
+      _other -> false
+    end
   end
 
   defp stage_alias(label), do: Map.get(@stage_aliases, normalize_label(label))

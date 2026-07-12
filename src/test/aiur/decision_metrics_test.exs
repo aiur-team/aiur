@@ -1,7 +1,8 @@
 defmodule Aiur.DecisionMetricsTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.{DecisionMetrics, DecisionStore}
+  alias Aiur.DecisionMetrics
+  alias Aiur.DecisionStore
   alias Aiur.Events.Exchange
 
   @moduletag :tmp_dir
@@ -77,7 +78,9 @@ defmodule Aiur.DecisionMetricsTest do
     assert :ok = DecisionMetrics.observe(attention_event(23, 3_000), pid)
     assert :duplicate = DecisionMetrics.observe(first_attention, pid)
     assert :ok = DecisionMetrics.observe(lifecycle_event(24, "reminded", 4_000), pid)
-    assert :ok = DecisionMetrics.observe(lifecycle_event(25, "revised", 5_000, %{actor: "human"}), pid)
+
+    revision = request_event(25, true) |> Map.put(:version, 2) |> Map.put(:created_at, @observed_at)
+    assert :ok = DecisionMetrics.observe(revision, pid)
 
     assert {:ok, snapshot} = DecisionMetrics.snapshot("dec-42", pid)
     assert snapshot.attention_count == 2
@@ -142,20 +145,13 @@ defmodule Aiur.DecisionMetricsTest do
     assert snapshot.requested_at == DateTime.to_iso8601(decision.created_at)
   end
 
-  test "metrics_file/0 follows the existing configurable metrics-path convention", %{path: path} do
-    previous = Application.get_env(:aiur, :decision_metrics_path)
-    Application.put_env(:aiur, :decision_metrics_path, path)
-
-    on_exit(fn ->
-      if previous, do: Application.put_env(:aiur, :decision_metrics_path, previous), else: Application.delete_env(:aiur, :decision_metrics_path)
-    end)
-
-    assert DecisionMetrics.metrics_file() == path
-  end
-
   defp start_metrics!(path, opts \\ []) do
+    defaults = [name: nil, path: path, subscribe?: false, seed?: false, clock: fn -> @observed_at end]
+
     {:ok, pid} =
-      DecisionMetrics.start_link(Keyword.merge([name: nil, path: path, subscribe?: false, seed?: false, clock: fn -> @observed_at end], opts))
+      defaults
+      |> Keyword.merge(opts)
+      |> DecisionMetrics.start_link()
 
     pid
   end

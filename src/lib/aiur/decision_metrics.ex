@@ -7,7 +7,7 @@ defmodule Aiur.DecisionMetrics do
   the stable Decision-state `metrics/decision_latency.ndjson`; the Decision
   audit stays canonical.
 
-  Startup replays that projection and seeds any missing request facts from
+  Startup replays that projection and seeds missing lifecycle facts from
   `DecisionStore`, covering the canonical service's best-effort notification gap.
 
   Missing milestones remain `nil` rather than being inferred. The snapshots
@@ -20,11 +20,10 @@ defmodule Aiur.DecisionMetrics do
 
   use GenServer
 
-  require Logger
-
-  alias Aiur.{DecisionStore, Metrics}
-  alias Aiur.DecisionMetrics.{Event, Log, Sample}
+  alias Aiur.DecisionMetrics.{Canonical, Event, Log, Sample}
+  alias Aiur.DecisionStore
   alias Aiur.Events.Exchange
+  alias Aiur.Metrics
 
   @patterns ["ticket.*.agent.decision.#", "ticket.*.agent.attention.#"]
   @metrics_filename "decision_latency.ndjson"
@@ -60,8 +59,15 @@ defmodule Aiur.DecisionMetrics do
     replay = Keyword.get(opts, :replay, &Log.replay/1)
     {samples, seen} = replay.(path)
 
-    state = %{path: path, samples: samples, seen: seen, clock: Keyword.get(opts, :clock, &DateTime.utc_now/0)}
-    state = seed_requests(state, Keyword.get(opts, :seed?, true), Keyword.get(opts, :decision_store, DecisionStore))
+    state = %{
+      path: path,
+      samples: samples,
+      seen: seen,
+      clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
+      decision_store: Keyword.get(opts, :decision_store, DecisionStore)
+    }
+
+    state = seed_canonical(state, Keyword.get(opts, :seed?, true))
     {:ok, state}
   end
 
@@ -89,62 +95,19 @@ defmodule Aiur.DecisionMetrics do
 
   def handle_info(_message, state), do: {:noreply, state}
 
-  defp seed_requests(state, false, _server), do: state
+  defp seed_canonical(state, false), do: state
 
-  defp seed_requests(state, true, server) do
-    server
-    |> canonical_requests()
-    |> Enum.reduce(state, fn request, acc ->
-      {_reply, next_state} = record_event(seed_event(request), acc)
+  defp seed_canonical(state, true) do
+    state.decision_store
+    |> Canonical.events()
+    |> Enum.reduce(state, fn event, acc ->
+      {_reply, next_state} = record_event(event, acc)
       next_state
     end)
   end
 
-  defp canonical_requests(server) do
-    server
-    |> DecisionStore.list()
-    |> Enum.map(fn current ->
-      %{
-        decision_id: current.decision_id,
-        identifier: current.ticket.identifier,
-        blocking: current.blocking,
-        requested_at: earliest_request_time(current, server)
-      }
-    end)
-  rescue
-    error ->
-      Logger.warning("decision_metrics seed_failed error=#{Exception.message(error)}")
-      []
-  catch
-    :exit, reason ->
-      Logger.warning("decision_metrics seed_failed reason=#{inspect(reason)}")
-      []
-  end
-
-  defp earliest_request_time(current, server) do
-    case DecisionStore.history(current.decision_id, server) do
-      {:ok, versions} -> Enum.reduce(versions, current.created_at, &earliest_created_at/2)
-      {:error, :not_found} -> current.created_at
-    end
-  end
-
-  defp earliest_created_at(%{created_at: %DateTime{} = candidate}, %DateTime{} = earliest) do
-    if DateTime.before?(candidate, earliest), do: candidate, else: earliest
-  end
-
-  defp seed_event(request) do
-    %{
-      id: "canonical-request:#{request.decision_id}",
-      event_type: "requested",
-      topic: "ticket.#{request.identifier}.agent.decision.requested",
-      decision_id: request.decision_id,
-      identifier: request.identifier,
-      blocking: request.blocking,
-      created_at: request.requested_at
-    }
-  end
-
   defp record_event(event, state) do
+    event = correlate_attention(event, state.decision_store)
     observed_at = state.clock.()
 
     with {:ok, fact} <- Event.normalize(event, observed_at),
@@ -164,5 +127,31 @@ defmodule Aiur.DecisionMetrics do
       true -> {:duplicate, state}
       :ignored -> {:ignored, state}
     end
+  end
+
+  defp correlate_attention(event, server) do
+    topic = event_value(event, :topic)
+
+    if attention_topic?(topic) and is_nil(event_value(event, :decision_id)) do
+      case Canonical.decision_id_for_attention(server, topic) do
+        nil -> event
+        decision_id -> put_event_value(event, :decision_id, decision_id)
+      end
+    else
+      event
+    end
+  end
+
+  defp attention_topic?(topic) when is_binary(topic) do
+    String.contains?(topic, ".agent.attention.") and not String.ends_with?(topic, ".resolved")
+  end
+
+  defp attention_topic?(_topic), do: false
+  defp event_value(event, key), do: Map.get(event, key, Map.get(event, Atom.to_string(key)))
+
+  defp put_event_value(event, key, value) do
+    if Map.has_key?(event, Atom.to_string(key)),
+      do: Map.put(event, Atom.to_string(key), value),
+      else: Map.put(event, key, value)
   end
 end

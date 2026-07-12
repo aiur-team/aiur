@@ -36,7 +36,7 @@ defmodule Aiur.DecisionMetrics.Sample do
         }
 
   @enforce_keys [:decision_id, :identifier]
-  @timestamp_fields [:requested_at, :decided_at, :dispatched_at, :delivered_at, :acknowledged_at, :resolved_at, :last_observed_at]
+  @timestamps ~w(requested_at decided_at dispatched_at delivered_at acknowledged_at resolved_at last_observed_at)a
   defstruct [
     :decision_id,
     :identifier,
@@ -129,10 +129,10 @@ defmodule Aiur.DecisionMetrics.Sample do
     %{sample | decided_at: earliest(sample.decided_at, at), actor: sample.actor || attributes[:actor]}
   end
 
-  defp apply_stage(sample, :dispatched, at, _attributes), do: %{sample | dispatched_at: earliest(sample.dispatched_at, at)}
-  defp apply_stage(sample, :delivered, at, _attributes), do: %{sample | delivered_at: earliest(sample.delivered_at, at)}
-  defp apply_stage(sample, :acknowledged, at, _attributes), do: %{sample | acknowledged_at: earliest(sample.acknowledged_at, at)}
-  defp apply_stage(sample, :resolved, at, _attributes), do: %{sample | resolved_at: earliest(sample.resolved_at, at)}
+  defp apply_stage(s, :dispatched, at, _attrs), do: %{s | dispatched_at: earliest(s.dispatched_at, at)}
+  defp apply_stage(s, :delivered, at, _attrs), do: %{s | delivered_at: earliest(s.delivered_at, at)}
+  defp apply_stage(s, :acknowledged, at, _attrs), do: %{s | acknowledged_at: earliest(s.acknowledged_at, at)}
+  defp apply_stage(s, :resolved, at, _attrs), do: %{s | resolved_at: earliest(s.resolved_at, at)}
   defp apply_stage(sample, :reminder, _at, _attributes), do: Map.update!(sample, :reminder_count, &(&1 + 1))
   defp apply_stage(sample, :revised, _at, _attributes), do: %{sample | revised: true}
 
@@ -162,16 +162,20 @@ defmodule Aiur.DecisionMetrics.Sample do
   defp duration(_started_at, _finished_at), do: nil
 
   defp earliest(nil, %DateTime{} = value), do: value
-  defp earliest(%DateTime{} = existing, %DateTime{} = value), do: if(DateTime.before?(value, existing), do: value, else: existing)
+
+  defp earliest(%DateTime{} = existing, %DateTime{} = value),
+    do: if(DateTime.before?(value, existing), do: value, else: existing)
 
   defp latest(nil, %DateTime{} = value), do: value
-  defp latest(%DateTime{} = existing, %DateTime{} = value), do: if(DateTime.after?(value, existing), do: value, else: existing)
+
+  defp latest(%DateTime{} = existing, %DateTime{} = value),
+    do: if(DateTime.after?(value, existing), do: value, else: existing)
 
   defp iso8601(%DateTime{} = value), do: DateTime.to_iso8601(value)
   defp iso8601(nil), do: nil
 
   defp timestamps_from(raw) do
-    Enum.reduce_while(@timestamp_fields, {:ok, []}, fn field, {:ok, acc} ->
+    Enum.reduce_while(@timestamps, {:ok, []}, fn field, {:ok, acc} ->
       case parse_timestamp(raw[Atom.to_string(field)]) do
         {:ok, value} -> {:cont, {:ok, [{field, value} | acc]}}
         {:error, reason} -> {:halt, {:error, {field, reason}}}
