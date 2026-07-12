@@ -3,6 +3,7 @@ defmodule Aiur.Codex.Approvals do
   Codex approval request and tool-call servicing for app-server turn methods.
   """
 
+  alias Aiur.AgentRunner.ToolExecutor
   alias Aiur.AppServer.Messages
   alias Aiur.Codex.{Rpc, UserInputAnswers}
 
@@ -59,7 +60,10 @@ defmodule Aiur.Codex.Approvals do
     tool_name = Messages.tool_call_name(params)
     arguments = Messages.tool_call_arguments(params)
 
-    result = Messages.normalize_tool_result(tool_executor.(tool_name, arguments))
+    result =
+      tool_executor
+      |> ToolExecutor.execute(tool_name, arguments, Messages.tool_call_id(params, id))
+      |> Messages.normalize_tool_result()
 
     Rpc.send_message(port, %{"id" => id, "result" => result})
 

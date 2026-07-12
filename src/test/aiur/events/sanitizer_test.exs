@@ -136,6 +136,14 @@ defmodule Aiur.Events.SanitizerTest do
       refute comment["body"] =~ key
       assert comment["body"] =~ "[REDACTED:sk]"
     end
+
+    test "delegates to the shared Aiur.SecretRedactor, preserving prior output" do
+      key = "ghp_" <> String.duplicate("a", 36)
+      payload = %{comment: %{"body" => "leaked #{key} here"}}
+
+      assert %{comment: %{"body" => out}} = Sanitizer.scrub(payload)
+      assert out == "leaked #{Aiur.SecretRedactor.redact(key)} here"
+    end
   end
 
   describe "scrub/1 boundary behavior" do

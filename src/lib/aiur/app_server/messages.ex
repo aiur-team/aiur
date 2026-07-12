@@ -48,6 +48,15 @@ defmodule Aiur.AppServer.Messages do
 
   def tool_call_arguments(_params), do: %{}
 
+  @doc "Stable protocol identity for one tool call, with the JSON-RPC id as a compatibility fallback."
+  @spec tool_call_id(term(), term()) :: term()
+  def tool_call_id(params, fallback) when is_map(params) do
+    Map.get(params, "callId") || Map.get(params, :callId) ||
+      Map.get(params, "call_id") || Map.get(params, :call_id) || fallback
+  end
+
+  def tool_call_id(_params, fallback), do: fallback
+
   @spec issue_context(map()) :: String.t()
   def issue_context(%{id: issue_id, identifier: identifier}) do
     "issue_id=#{issue_id} issue_identifier=#{identifier}"

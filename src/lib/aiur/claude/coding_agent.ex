@@ -11,6 +11,7 @@ defmodule Aiur.Claude.CodingAgent do
   @behaviour Aiur.AppServer.Adapter
 
   require Logger
+  alias Aiur.AgentRunner.ToolExecutor
   alias Aiur.AppServer.{Adapter, Messages, OperatorDelivery, Rpc, TurnState}
   alias Aiur.Claude.NotificationPolicy
   alias Aiur.Codex.DynamicTool
@@ -283,7 +284,10 @@ defmodule Aiur.Claude.CodingAgent do
     tool_name = Messages.tool_call_name(params)
     arguments = Messages.tool_call_arguments(params)
 
-    result = Messages.normalize_tool_result(state.tool_executor.(tool_name, arguments))
+    result =
+      state.tool_executor
+      |> ToolExecutor.execute(tool_name, arguments, Messages.tool_call_id(params, id))
+      |> Messages.normalize_tool_result()
 
     send_frame(session.port, %{
       "id" => id,

@@ -84,11 +84,14 @@ defmodule Aiur.Events.Publisher do
       comments published this way reach no reactivation target.
   """
   @spec publish(String.t(), map(), keyword()) ::
-          {:ok, pos_integer(), non_neg_integer()} | :filtered | :deduped
+          {:ok, pos_integer(), non_neg_integer()} | :filtered | :deduped | {:error, :decision_requires_durable_publish}
   def publish(topic, payload, opts \\ []) when is_binary(topic) and is_map(payload) do
     actor = Keyword.get(opts, :actor)
 
     cond do
+      decision_requested_topic?(topic) ->
+        {:error, :decision_requires_durable_publish}
+
       bot_self_loop?(actor) ->
         :filtered
 
@@ -107,6 +110,35 @@ defmodule Aiur.Events.Publisher do
         DebugLog.broadcast(:publish, topic, id: id, body: payload)
         {:ok, id, subscribers}
     end
+  end
+
+  @doc """
+  Publishes an event that is already durably persisted, under a
+  caller-supplied `id` from `Aiur.Events.IdGenerator.reserve_durable_id/1`.
+  Skips ID assignment and the contamination/dedup filters — the caller
+  (`Aiur.DecisionStore`) already made the accept/reject decision
+  durably; this is notification fan-out for something that already
+  happened, not a new best-effort publish. Keeps the same Exchange
+  fan-out, IssueLog marker, and debug broadcast behavior as `publish/3`.
+  """
+  @spec publish_persisted(String.t(), map(), pos_integer(), keyword()) ::
+          {:ok, pos_integer(), non_neg_integer()}
+  def publish_persisted(topic, payload, id, opts \\ [])
+      when is_binary(topic) and is_map(payload) and is_integer(id) do
+    event = Map.merge(payload, %{id: id, topic: topic})
+    subscribers = Exchange.publish(topic, event)
+    record_emit_marker(topic, event, opts)
+    DebugLog.broadcast(:publish, topic, id: id, body: payload)
+    {:ok, id, subscribers}
+  end
+
+  # `decision.requested` must only ever reach Exchange through
+  # `Aiur.DecisionStore`'s persist-before-notify path (via
+  # `publish_persisted/4`) — direct `publish/3` calls bypass durability
+  # entirely, so every call site is rejected here regardless of the
+  # ticket-namespace prefix a caller builds the topic with.
+  defp decision_requested_topic?(topic) do
+    topic == "decision.requested" or String.ends_with?(topic, ".decision.requested")
   end
 
   defp record_emit_marker(topic, event, opts) do
