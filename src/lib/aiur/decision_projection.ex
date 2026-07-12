@@ -243,17 +243,12 @@ defmodule Aiur.DecisionProjection do
   end
 
   defp require_new_attempt(decision, data) do
+    # Queue item IDs are scoped to one Orchestrator lifetime and can restart
+    # from the same integer. The durable attempt ID, not the queue-local ID,
+    # is the cross-restart identity.
     duplicate_attempt? = Enum.any?(decision.dispatch_attempts, &(&1.attempt_id == data.attempt_id))
 
-    duplicate_queue? =
-      data.queue_item_id != nil and
-        Enum.any?(decision.dispatch_attempts, &(&1.queue_item_id == data.queue_item_id))
-
-    cond do
-      duplicate_attempt? -> {:error, :duplicate_attempt}
-      duplicate_queue? -> {:error, :duplicate_queue_item}
-      true -> :ok
-    end
+    if duplicate_attempt?, do: {:error, :duplicate_attempt}, else: :ok
   end
 
   defp queue_dispatch_attempt(decision, event) do

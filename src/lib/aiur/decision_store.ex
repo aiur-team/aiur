@@ -914,13 +914,21 @@ defmodule Aiur.DecisionStore do
     next_state =
       state.current
       |> Map.values()
-      |> Enum.reduce(state, &maybe_schedule_after_answer(&2, &1, false))
+      |> Enum.reduce(state, fn decision, state_acc ->
+        state_acc
+        |> maybe_schedule_after_answer(decision, false)
+        |> maybe_schedule_queue_reconciliation(decision)
+      end)
 
     {:noreply, next_state}
   end
 
   def handle_info({:dispatch_action, decision_id, retry_failed?}, state) do
     {:noreply, maybe_start_dispatch(state, decision_id, retry_failed?)}
+  end
+
+  def handle_info({:reconcile_queue_action, decision_id}, state) do
+    {:noreply, maybe_start_dispatch(state, decision_id, false, :reconcile_queue)}
   end
 
   def handle_info({:dispatch_result, decision_id, action_id, attempt_id, result}, state) do
@@ -945,16 +953,33 @@ defmodule Aiur.DecisionStore do
     end
   end
 
+  defp maybe_schedule_queue_reconciliation(state, %Decision{} = decision) do
+    cond do
+      not state.writable? ->
+        state
+
+      not queue_reconcilable?(decision) ->
+        state
+
+      MapSet.member?(state.dispatching, decision.answer.action_id) ->
+        state
+
+      true ->
+        Process.send_after(self(), {:reconcile_queue_action, decision.decision_id}, 0)
+        state
+    end
+  end
+
   defp schedule_dispatch(decision, retry_failed?, delay_ms) do
     Process.send_after(self(), {:dispatch_action, decision.decision_id, retry_failed?}, delay_ms)
   end
 
-  defp maybe_start_dispatch(state, decision_id, retry_failed?) do
+  defp maybe_start_dispatch(state, decision_id, retry_failed?, mode \\ :normal) do
     with true <- state.writable?,
          {:ok, decision} <- fetch_decision(state, decision_id),
          %DecisionAnswer{} = answer <- decision.answer,
          false <- MapSet.member?(state.dispatching, answer.action_id),
-         true <- dispatchable?(decision, retry_failed?) do
+         true <- dispatch_allowed?(decision, retry_failed?, mode) do
       attempt_id = next_attempt_id(decision)
       dispatch_decision = decision_for_dispatch(state, decision)
       store = self()
@@ -1034,6 +1059,15 @@ defmodule Aiur.DecisionStore do
     end
   end
 
+  defp settle_queue_result(state, decision, action_id, attempt_id, :duplicate, item) do
+    accepted_attempt_id = item_attempt_id(item) || attempt_id
+
+    case Enum.find(decision.dispatch_attempts, &(&1.attempt_id == accepted_attempt_id and &1.queue_item_id == item.id)) do
+      nil -> settle_queue_acceptance(state, decision, action_id, accepted_attempt_id, item)
+      attempt -> reconcile_existing_queue_snapshot(state, decision, attempt, item)
+    end
+  end
+
   defp settle_queue_result(state, decision, action_id, attempt_id, _status, item) do
     accepted_attempt_id = item_attempt_id(item) || attempt_id
     settle_queue_acceptance(state, decision, action_id, accepted_attempt_id, item)
@@ -1074,6 +1108,30 @@ defmodule Aiur.DecisionStore do
   end
 
   defp reconcile_queue_snapshot(state, _decision, _item, _data), do: state
+
+  defp reconcile_existing_queue_snapshot(state, decision, attempt, item) do
+    data = %{
+      action_id: decision.answer.action_id,
+      attempt_id: attempt.attempt_id,
+      queue_item_id: attempt.queue_item_id
+    }
+
+    data =
+      if Map.get(item, :status) == :failed do
+        Map.put(data, :reason_class, transport_failure_class(Map.get(item, :failure_reason)))
+      else
+        data
+      end
+
+    types = missing_snapshot_transitions(attempt.status, Map.get(item, :status))
+    persist_snapshot_transitions(state, decision, data, types)
+  end
+
+  defp missing_snapshot_transitions(status, :delivered) when status in [:queued, :restored], do: [:delivered]
+  defp missing_snapshot_transitions(status, :consumed) when status in [:queued, :restored], do: [:delivered, :consumed]
+  defp missing_snapshot_transitions(:delivered, :consumed), do: [:consumed]
+  defp missing_snapshot_transitions(status, :failed) when status in [:queued, :restored, :delivered], do: [:failed]
+  defp missing_snapshot_transitions(_current, _snapshot), do: []
 
   defp persist_snapshot_transitions(state, decision, data, types) do
     Enum.reduce_while(types, {state, decision}, fn type, {state_acc, decision_acc} ->
@@ -1133,6 +1191,15 @@ defmodule Aiur.DecisionStore do
   defp next_attempt_id(decision) do
     "#{decision.answer.action_id}:#{length(decision.dispatch_attempts) + 1}"
   end
+
+  defp dispatch_allowed?(decision, retry_failed?, :normal), do: dispatchable?(decision, retry_failed?)
+  defp dispatch_allowed?(decision, _retry_failed?, :reconcile_queue), do: queue_reconcilable?(decision)
+
+  defp queue_reconcilable?(%Decision{decision_status: :decided, dispatch_attempts: attempts}) do
+    match?(%{status: status} when status in [:queued, :restored], List.last(attempts))
+  end
+
+  defp queue_reconcilable?(%Decision{}), do: false
 
   defp decision_for_dispatch(state, decision) do
     case request_version(state, decision.decision_id, decision.answer.decision_version) do
