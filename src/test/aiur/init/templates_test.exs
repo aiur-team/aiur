@@ -9,7 +9,11 @@ defmodule Aiur.Init.TemplatesTest do
     assert Templates.aiurhooks_template() =~ "AIUR_TICKET_BRANCH"
     assert Templates.aiurhooks_template() =~ "origin/$AIUR_TICKET_BRANCH"
     assert Templates.prompt_file_template() =~ "{{REPO}}"
-    assert Templates.prompt_file_template() =~ "actual validated ref supplied by the event payload"
+    prompt = Templates.prompt_file_template()
+
+    assert prompt =~ "explicit signal as readiness to consume"
+    assert prompt =~ "latest `ticket.N.branch.push` payload only to fetch and diff the actual validated ref"
+    assert prompt =~ "Never infer readiness from `branch.push` alone"
     assert Templates.env_content() == "GITHUB_TOKEN=\n"
   end
 
