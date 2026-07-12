@@ -11,6 +11,8 @@ defmodule Aiur.WorkflowStore do
   alias Aiur.Workflow
 
   @poll_interval_ms 1_000
+  @reload_attempts 3
+  @reload_retry_delay_ms 50
 
   defmodule State do
     @moduledoc false
@@ -132,11 +134,15 @@ defmodule Aiur.WorkflowStore do
     end
   end
 
-  defp load_state(path) do
+  defp load_state(path, attempts \\ @reload_attempts) do
     with {:ok, workflow} <- Workflow.load(path),
          {:ok, stamp} <- current_stamp(path) do
       {:ok, %State{path: path, stamp: stamp, workflow: workflow}}
     else
+      {:error, {:workflow_parse_error, _reason}} when attempts > 1 ->
+        Process.sleep(@reload_retry_delay_ms)
+        load_state(path, attempts - 1)
+
       {:error, reason} ->
         {:error, reason}
     end

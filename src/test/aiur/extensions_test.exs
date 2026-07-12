@@ -144,6 +144,23 @@ defmodule Aiur.ExtensionsTest do
     assert :ok = ensure_workflow_store_running()
   end
 
+  test "workflow store retries a transient parse failure during a config write" do
+    ensure_workflow_store_running()
+    path = Workflow.workflow_file_path()
+    valid_config = File.read!(path)
+
+    File.write!(path, "tracker: [\n")
+
+    writer =
+      Task.async(fn ->
+        Process.sleep(75)
+        File.write!(path, valid_config)
+      end)
+
+    assert :ok = WorkflowStore.force_reload()
+    assert :ok = Task.await(writer)
+  end
+
   test "workflow store reloads when only the prompt_file body changes" do
     ensure_workflow_store_running()
     original_path = Workflow.workflow_file_path()
