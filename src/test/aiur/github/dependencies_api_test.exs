@@ -72,15 +72,15 @@ defmodule Aiur.GitHub.DependenciesApiTest do
   end
 
   describe "remove_dependency/3" do
-    test "sends delete request for the dependency" do
-      response = %{"id" => 1}
-
-      request_fun = fn %{method: :delete, url: url} ->
-        assert url =~ "/issues/5/dependencies/blocked_by"
-        {:ok, %{status: 200, body: response}}
+    test "sends the blocker id in the full delete URL and accepts no-content success" do
+      request_fun = fn %{method: :delete, url: url, api_version: api_version} = request ->
+        assert url == "https://api.github.com/repos/owner/repo/issues/5/dependencies/blocked_by/8"
+        assert api_version == @dependencies_api_version
+        refute Map.has_key?(request, :body)
+        {:ok, %{status: 204, body: ""}}
       end
 
-      assert {:ok, ^response} = DependenciesApi.remove_dependency(5, 8, request_fun: request_fun)
+      assert {:ok, :removed} = DependenciesApi.remove_dependency(5, 8, request_fun: request_fun)
     end
   end
 end

@@ -27,7 +27,7 @@ defmodule Aiur.Regression.CompileTimePathsTest do
   # legitimate sites, captured 2026-07-07 at these locations:
   # aiur/agent_skills.ex:13,16,45,58;
   # aiur/init/templates.ex:13,14,28,29,38,39,49,50,51,52;
-  # aiur/prompt_builder.ex:9; aiur_web/static_assets.ex:4,9,10,11,12.
+  # aiur/prompt_builder.ex:9,10; aiur_web/static_assets.ex:4,9,10,11,12.
   @allowlist %{
     "aiur/agent_skills.ex" => [
       "The skill files are embedded at COMPILE time (via `@external_resource` +",
@@ -48,7 +48,8 @@ defmodule Aiur.Regression.CompileTimePathsTest do
       "@external_resource @alerts_linux_example_path"
     ],
     "aiur/prompt_builder.ex" => [
-      "@shared_prompt_path Path.expand(\"../../prompts/shared-agent-instructions.md\", __DIR__)"
+      "@shared_prompt_path Path.expand(\"../../prompts/shared-agent-instructions.md\", __DIR__)",
+      "@external_resource @shared_prompt_path"
     ],
     "aiur_web/static_assets.ex" => [
       "@dashboard_css_path Path.expand(\"../../priv/static/dashboard.css\", __DIR__)",

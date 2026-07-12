@@ -26,6 +26,28 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     printf '%s\n' "${BASH_REMATCH[1]}"
   }
 
+  aiur_build_gate_owner_pgid() {
+    local owner_file=$1 line
+
+    [[ -f $owner_file ]] || return 1
+
+    while IFS= read -r line; do
+      if [[ $line =~ ^pgid=([1-9][0-9]*)$ ]]; then
+        printf '%s\n' "${BASH_REMATCH[1]}"
+        return 0
+      fi
+    done <"$owner_file"
+
+    return 1
+  }
+
+  aiur_build_gate_process_group_alive() {
+    local pgid=$1
+
+    [[ $pgid =~ ^[1-9][0-9]*$ ]] || return 1
+    kill -0 -- "-$pgid" 2>/dev/null
+  }
+
   aiur_build_gate_available_memory_mb() {
     local meminfo_path=${AIUR_MEMINFO_PATH:-/proc/meminfo}
     local key value unit remainder
@@ -72,27 +94,31 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
   }
 
   aiur_build_gate_reclaim_stale_slot() {
-    local slot_path=$1 slot=$2 owner_file="$slot_path/owner" owner_pid
+    local slot_path=$1 slot=$2 owner_file=$slot_path owner_pid owner_pgid
+
+    [[ -e $slot_path || -L $slot_path ]] || return 1
+
+    # Accept the original directory-plus-owner shape while new leases publish
+    # one immutable owner record atomically at slot-N.
+    if [[ -d $slot_path ]]; then
+      owner_file="$slot_path/owner"
+    fi
 
     owner_pid=$(aiur_build_gate_owner_pid "$owner_file")
+    owner_pgid=$(aiur_build_gate_owner_pgid "$owner_file")
 
     if [[ -n $owner_pid ]]; then
       kill -0 "$owner_pid" 2>/dev/null && return 1
+    fi
 
-      rm -f "$owner_file"
-      if rmdir "$slot_path" 2>/dev/null; then
-        aiur_build_gate_log "stale_owner_recovered slot=$slot owner_pid=$owner_pid"
-        return 0
-      fi
-
+    # The wrapper can exit before a Mix descendant. Its recorded process group
+    # remains authoritative until every member is gone.
+    if [[ -n $owner_pgid ]] && aiur_build_gate_process_group_alive "$owner_pgid"; then
       return 1
     fi
 
-    # A process can die between mkdir and writing its owner file. Waiting
-    # contenders safely reclaim only an empty slot; a delayed owner write then
-    # fails and retries rather than running without a lease.
-    if rmdir "$slot_path" 2>/dev/null; then
-      aiur_build_gate_log "stale_owner_recovered slot=$slot owner_pid=unknown"
+    if rm -rf "$slot_path" 2>/dev/null; then
+      aiur_build_gate_log "stale_owner_recovered slot=$slot owner_pid=${owner_pid:-unknown}"
       return 0
     fi
 
@@ -267,7 +293,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     local stagger_seconds=${AIUR_BUILD_START_STAGGER_SECONDS:-0}
     local timeout_seconds=${AIUR_BUILD_GATE_TIMEOUT_SECONDS:-900}
     local min_free_memory_mb=${AIUR_MIN_FREE_MEMORY_MB:-0}
-    local queue_dir queue_file deadline slot slot_path owner_file result pacing_result
+    local queue_dir queue_file deadline slot slot_path owner_candidate owner_pid owner_pgid result pacing_result
     local available_memory_mb memory_deferred=0 memory_unavailable_logged=0
 
     if [[ ! $slots =~ ^[0-9]+$ ]] ||
@@ -296,6 +322,17 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
 
     deadline=$((SECONDS + timeout_seconds))
     aiur_build_gate_log "queued slots=$slots command=$*"
+
+    owner_pid=${BASHPID:-$$}
+    owner_pgid=$(ps -o pgid= -p "$owner_pid" 2>/dev/null)
+    owner_pgid=${owner_pgid//[[:space:]]/}
+
+    if ((slots > 0)) && [[ ! $owner_pgid =~ ^[1-9][0-9]*$ ]]; then
+      rm -f "$queue_file"
+      aiur_build_gate_log "gate_error reason=owner_process_group_unavailable pid=$owner_pid"
+      "$executable" "$@"
+      return
+    fi
 
     while :; do
       if ((min_free_memory_mb > 0)); then
@@ -346,15 +383,17 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
 
       for ((slot = 1; slot <= slots; slot++)); do
         slot_path="$gate_dir/slot-$slot"
+        owner_candidate="$gate_dir/.slot-$slot-owner.$owner_pid.$RANDOM"
 
-        if mkdir "$slot_path" 2>/dev/null; then
-          owner_file="$slot_path/owner"
+        if ! printf 'pid=%s\npgid=%s\ncommand=%s\n' "$owner_pid" "$owner_pgid" "$*" >"$owner_candidate"; then
+          rm -f "$owner_candidate"
+          continue
+        fi
 
-          if ! printf 'pid=%s\ncommand=%s\n' "$$" "$*" >"$owner_file"; then
-            rmdir "$slot_path" 2>/dev/null || true
-            continue
-          fi
-
+        # A hard link makes acquisition and the complete immutable owner record
+        # visible in one operation. No delayed writer can target a replacement.
+        if [[ ! -d $slot_path ]] && ln "$owner_candidate" "$slot_path" 2>/dev/null; then
+          rm -f "$owner_candidate"
           rm -f "$queue_file"
           aiur_build_gate_log "acquired slot=$slot command=$*"
 
@@ -379,6 +418,8 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
           aiur_build_gate_log "released slot=$slot status=$result"
           return "$result"
         fi
+
+        rm -f "$owner_candidate"
 
         aiur_build_gate_reclaim_stale_slot "$slot_path" "$slot" || true
       done

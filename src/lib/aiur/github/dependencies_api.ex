@@ -50,7 +50,7 @@ defmodule Aiur.GitHub.DependenciesApi do
   end
 
   @spec remove_dependency(integer() | String.t(), integer(), keyword()) ::
-          {:ok, map()} | {:error, term()}
+          {:ok, :removed} | {:error, term()}
   def remove_dependency(blocked_issue_number, blocker_issue_id, opts \\ [])
       when is_integer(blocker_issue_id) do
     dependency_mutate(blocked_issue_number, blocker_issue_id, :delete, opts)
@@ -85,14 +85,16 @@ defmodule Aiur.GitHub.DependenciesApi do
   end
 
   @spec dependency_mutate(integer() | String.t(), integer(), atom(), keyword()) ::
-          {:ok, map()} | {:error, term()}
+          {:ok, map() | :removed} | {:error, term()}
   def dependency_mutate(blocked_number, blocker_id, method, opts) do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token() do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
 
-      url =
+      collection_url =
         "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{blocked_number}/dependencies/blocked_by"
+
+      url = if method == :delete, do: "#{collection_url}/#{blocker_id}", else: collection_url
 
       req = %{
         method: method,
@@ -104,6 +106,9 @@ defmodule Aiur.GitHub.DependenciesApi do
       req = if method == :post, do: Map.put(req, :body, %{"issue_id" => blocker_id}), else: req
 
       case request_fun.(req) do
+        {:ok, %{status: 204}} when method == :delete ->
+          {:ok, :removed}
+
         {:ok, %{status: status, body: body}} when status in [200, 201] and is_map(body) ->
           {:ok, body}
 
