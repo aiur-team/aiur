@@ -11,7 +11,7 @@ defmodule Aiur.DecisionArtifact do
   ingestion, not that a later symlink swap can't reintroduce escape.
   """
 
-  alias Aiur.PathSafety
+  alias Aiur.{PathSafety, SecretRedactor}
 
   @default_allowed_hosts ~w(github.com api.github.com raw.githubusercontent.com)
 
@@ -57,7 +57,7 @@ defmodule Aiur.DecisionArtifact do
 
   defp check_within_root(canonical, safe_roots) do
     if within_any_root?(canonical, safe_roots) do
-      {:ok, %{kind: :path, value: canonical}}
+      {:ok, redacted_artifact(:path, canonical)}
     else
       {:error, :artifact_path_outside_root}
     end
@@ -76,8 +76,20 @@ defmodule Aiur.DecisionArtifact do
       uri.scheme != "https" -> {:error, :artifact_url_insecure_scheme}
       uri.userinfo not in [nil, ""] -> {:error, :artifact_url_has_credentials}
       not allowed_host?(uri.host) -> {:error, :artifact_url_host_not_allowed}
-      true -> {:ok, %{kind: :url, value: value}}
+      encoded_credential?(value) -> {:error, :artifact_url_has_credentials}
+      true -> {:ok, redacted_artifact(:url, value)}
     end
+  end
+
+  defp encoded_credential?(value) do
+    decoded = URI.decode(value)
+    decoded != value and SecretRedactor.redact(decoded) != decoded
+  rescue
+    ArgumentError -> false
+  end
+
+  defp redacted_artifact(kind, value) do
+    %{kind: kind, value: SecretRedactor.redact(value)}
   end
 
   defp allowed_host?(nil), do: false

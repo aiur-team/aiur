@@ -1,6 +1,7 @@
 defmodule Aiur.Codex.ApprovalsTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.AgentRunner.ToolExecutor
   alias Aiur.Codex.Approvals
 
   @metadata %{backend: "codex"}
@@ -180,6 +181,37 @@ defmodule Aiur.Codex.ApprovalsTest do
                  )
 
         assert_received {:event, %{event: :unsupported_tool_call}}
+      after
+        Port.close(port)
+      end
+    end
+
+    test "threads the stable protocol callId into tool execution" do
+      port = open_cat_port()
+      test_pid = self()
+
+      try do
+        params = %{"tool" => "my_tool", "callId" => "call-stable", "arguments" => %{}}
+        payload = %{"id" => 101, "method" => "item/tool/call", "params" => params}
+
+        tool_executor = fn _tool, _args ->
+          send(test_pid, {:invocation_id, ToolExecutor.invocation_id()})
+          %{"success" => true}
+        end
+
+        assert :approved =
+                 Approvals.maybe_handle_approval_request(
+                   port,
+                   "item/tool/call",
+                   payload,
+                   Jason.encode!(payload),
+                   fn _msg -> :ok end,
+                   @metadata,
+                   tool_executor,
+                   false
+                 )
+
+        assert_receive {:invocation_id, "call-stable"}
       after
         Port.close(port)
       end

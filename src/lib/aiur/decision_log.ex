@@ -29,18 +29,41 @@ defmodule Aiur.DecisionLog do
   @type corruption :: {:corrupt, pos_integer(), term()}
 
   @doc """
+  Prepares the canonical directory and audit file before the store starts
+  serving calls. When either entry is first created, runs one filesystem
+  barrier after both exist and have owner-only permissions. This keeps the
+  global barrier out of the request/append path.
+  """
+  @spec prepare(Path.t(), Path.t(), (-> :ok | {:error, term()})) :: :ok | {:error, term()}
+  def prepare(dir, path, sync_fun \\ &Fs.sync_filesystem/0)
+      when is_binary(dir) and is_binary(path) and is_function(sync_fun, 0) do
+    with {:ok, directory_created?} <- ensure_directory_state(dir),
+         {:ok, file_created?} <- ensure_file(path),
+         :ok <- maybe_sync_creation(directory_created? or file_created?, sync_fun) do
+      :ok
+    end
+  end
+
+  @doc """
   Ensures `dir` exists as an owner-only (`0700`) directory, rejecting a
-  symlink at that path. Syncs the filesystem once, only when `dir` is
-  created here for the first time.
+  symlink at that path. `prepare/3` owns the one-time filesystem barrier;
+  this lower-level helper only creates and hardens the directory.
   """
   @spec ensure_directory(Path.t()) :: :ok | {:error, term()}
   def ensure_directory(dir) when is_binary(dir) do
+    case ensure_directory_state(dir) do
+      {:ok, _created?} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp ensure_directory_state(dir) do
     case File.lstat(dir) do
       {:ok, %File.Stat{type: :symlink}} ->
         {:error, {:symlink_rejected, dir}}
 
       {:ok, %File.Stat{type: :directory}} ->
-        File.chmod(dir, 0o700)
+        with :ok <- File.chmod(dir, 0o700), do: {:ok, false}
 
       {:ok, %File.Stat{}} ->
         {:error, {:not_a_directory, dir}}
@@ -56,15 +79,42 @@ defmodule Aiur.DecisionLog do
   defp create_directory(dir) do
     with :ok <- File.mkdir_p(dir),
          :ok <- File.chmod(dir, 0o700) do
-      Fs.sync_filesystem()
+      {:ok, true}
     end
   end
 
+  defp ensure_file(path) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :symlink}} -> {:error, {:symlink_rejected, path}}
+      {:ok, %File.Stat{type: :regular}} -> with(:ok <- File.chmod(path, 0o600), do: {:ok, false})
+      {:ok, %File.Stat{}} -> {:error, {:not_a_file, path}}
+      {:error, :enoent} -> create_file(path)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp create_file(path) do
+    case :file.open(path, [:write, :binary, :raw, :exclusive]) do
+      {:ok, fd} ->
+        :ok = :file.close(fd)
+        with :ok <- File.chmod(path, 0o600), do: {:ok, true}
+
+      {:error, :eexist} ->
+        ensure_file(path)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp maybe_sync_creation(false, _sync_fun), do: :ok
+  defp maybe_sync_creation(true, sync_fun), do: sync_fun.()
+
   @doc """
   Appends `event` (a JSON-encodable map) as one newline-terminated
-  record to `path`, fsyncing the descriptor before returning. The first
-  time `path` itself is created, also syncs the filesystem once so the
-  new directory entry is durable.
+  record to `path`, fsyncing the descriptor before returning. Production
+  callers prepare the file with `prepare/3`, so this hot path never runs
+  the global filesystem barrier.
   """
   @spec append(Path.t(), map()) :: :ok | {:error, term()}
   def append(path, event) when is_binary(path) and is_map(event) do
@@ -76,7 +126,7 @@ defmodule Aiur.DecisionLog do
         try do
           with :ok <- :file.write(fd, line) do
             case :file.sync(fd) do
-              :ok -> after_first_create(path, existed_before?)
+              :ok -> harden_first_create(path, existed_before?)
               {:error, reason} -> {:error, reason}
             end
           end
@@ -87,12 +137,8 @@ defmodule Aiur.DecisionLog do
     end
   end
 
-  defp after_first_create(_path, true), do: :ok
-
-  defp after_first_create(path, false) do
-    _ = File.chmod(path, 0o600)
-    Fs.sync_filesystem()
-  end
+  defp harden_first_create(_path, true), do: :ok
+  defp harden_first_create(path, false), do: File.chmod(path, 0o600)
 
   @doc """
   Replays `path`: returns the validated prefix of decoded records — via

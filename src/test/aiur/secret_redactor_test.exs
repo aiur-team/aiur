@@ -11,6 +11,7 @@ defmodule Aiur.SecretRedactorTest do
       {"gho_" <> String.duplicate("a", 36), "[REDACTED:gho]"},
       {"ghu_" <> String.duplicate("a", 36), "[REDACTED:ghu]"},
       {"ghs_" <> String.duplicate("a", 36), "[REDACTED:ghs]"},
+      {"GHSAT0" <> String.duplicate("A", 36), "[REDACTED:ghsat]"},
       {"xoxb-123-456-abc", "[REDACTED:xoxb]"},
       {"AKIA" <> String.duplicate("A", 16), "[REDACTED:aws]"},
       {"ASIA" <> String.duplicate("A", 16), "[REDACTED:aws_session]"},

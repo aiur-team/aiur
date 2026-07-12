@@ -37,6 +37,7 @@ defmodule Aiur.DecisionStore do
 
   @ndjson_filename "decisions.ndjson"
   @projection_filename "decisions.json"
+  @request_timeout 60_000
 
   @type accept_result :: %{status: :accepted | :duplicate, decision: Decision.t()}
 
@@ -51,9 +52,10 @@ defmodule Aiur.DecisionStore do
   an optional `"version"`/`:version` key in `payload` states which
   version this request targets (defaults to `1`, i.e. a fresh Decision).
   """
-  @spec request(map(), keyword(), GenServer.server()) :: {:ok, accept_result()} | {:error, term()}
-  def request(payload, opts \\ [], server \\ __MODULE__) when is_map(payload) and is_list(opts) do
-    GenServer.call(server, {:request, payload, opts})
+  @spec request(map(), keyword(), GenServer.server(), timeout()) :: {:ok, accept_result()} | {:error, term()}
+  def request(payload, opts \\ [], server \\ __MODULE__, timeout \\ @request_timeout)
+      when is_map(payload) and is_list(opts) do
+    GenServer.call(server, {:request, payload, opts}, timeout)
   end
 
   @spec get(String.t(), GenServer.server()) :: {:ok, Decision.t()} | {:error, :not_found}
@@ -78,18 +80,18 @@ defmodule Aiur.DecisionStore do
   end
 
   @impl true
-  def init(_opts) do
+  def init(opts) do
     case Config.Paths.decision_state_dir() do
-      {:ok, dir} -> {:ok, boot(dir)}
+      {:ok, dir} -> {:ok, boot(dir, Keyword.get(opts, :filesystem_sync_fun, &Aiur.Fs.sync_filesystem/0))}
       {:error, reason} -> {:ok, unavailable_state(nil, {:path_unresolved, reason})}
     end
   end
 
-  defp boot(dir) do
+  defp boot(dir, filesystem_sync_fun) do
     ndjson_path = Path.join(dir, @ndjson_filename)
     projection_path = Path.join(dir, @projection_filename)
 
-    case DecisionLog.ensure_directory(dir) do
+    case DecisionLog.prepare(dir, ndjson_path, filesystem_sync_fun) do
       :ok -> replay_and_project(ndjson_path, projection_path)
       {:error, reason} -> unavailable_state(ndjson_path, {:directory_unavailable, reason})
     end

@@ -14,6 +14,7 @@ defmodule Aiur.SecretRedactor do
     {~r/gho_[A-Za-z0-9]{36,}/, "[REDACTED:gho]"},
     {~r/ghu_[A-Za-z0-9]{36,}/, "[REDACTED:ghu]"},
     {~r/ghs_[A-Za-z0-9]{36,}/, "[REDACTED:ghs]"},
+    {~r/GHSAT0[A-Za-z0-9_-]{20,}/, "[REDACTED:ghsat]"},
     {~r/xoxb-[A-Za-z0-9-]+/, "[REDACTED:xoxb]"},
     {~r/AKIA[0-9A-Z]{16}/, "[REDACTED:aws]"},
     {~r/ASIA[0-9A-Z]{16}/, "[REDACTED:aws_session]"},

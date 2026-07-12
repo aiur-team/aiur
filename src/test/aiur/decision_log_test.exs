@@ -40,6 +40,29 @@ defmodule Aiur.DecisionLogTest do
     end
   end
 
+  describe "prepare/3" do
+    test "syncs first creation once before appends enter the hot path", %{tmp_dir: tmp_dir} do
+      dir = Path.join(tmp_dir, "state")
+      path = Path.join(dir, "decisions.ndjson")
+      test_pid = self()
+
+      sync_fun = fn ->
+        send(test_pid, :filesystem_synced)
+        :ok
+      end
+
+      assert :ok = DecisionLog.prepare(dir, path, sync_fun)
+      assert_receive :filesystem_synced
+      refute_receive :filesystem_synced
+
+      assert :ok = DecisionLog.append(path, %{"version" => 1})
+      refute_receive :filesystem_synced
+
+      assert :ok = DecisionLog.prepare(dir, path, sync_fun)
+      refute_receive :filesystem_synced
+    end
+  end
+
   describe "append/2 and replay/2 happy path" do
     test "a single accepted event round-trips", %{tmp_dir: tmp_dir} do
       path = Path.join(tmp_dir, "decisions.ndjson")

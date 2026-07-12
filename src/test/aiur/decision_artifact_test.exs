@@ -96,6 +96,24 @@ defmodule Aiur.DecisionArtifactTest do
                {:error, :artifact_url_has_credentials}
     end
 
+    test "a credential in an allowlisted URL path or query is redacted" do
+      secret = "GHSAT0" <> String.duplicate("A", 36)
+      url = "https://raw.githubusercontent.com/org/repo/main/file?token=#{secret}"
+
+      assert {:ok, %{kind: :url, value: redacted}} = DecisionArtifact.validate(url, [])
+      refute redacted =~ secret
+      assert redacted =~ "[REDACTED:ghsat]"
+    end
+
+    test "a percent-encoded credential in an allowlisted URL is rejected" do
+      secret = "GHSAT0" <> String.duplicate("A", 36)
+      encoded_secret = String.replace_prefix(secret, "G", "%47")
+      url = "https://raw.githubusercontent.com/org/repo/main/file?token=#{encoded_secret}"
+
+      assert DecisionArtifact.validate(url, []) ==
+               {:error, :artifact_url_has_credentials}
+    end
+
     test "a non-allowlisted host is rejected" do
       assert DecisionArtifact.validate("https://example.com/x", []) ==
                {:error, :artifact_url_host_not_allowed}

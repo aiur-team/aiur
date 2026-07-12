@@ -26,9 +26,13 @@ defmodule Aiur.DecisionStoreTest do
     %{dir: dir}
   end
 
-  defp start_store!(dir) do
+  defp start_store!(dir, opts \\ []) do
     Application.put_env(:aiur, :decision_state_dir, dir)
-    {:ok, pid} = DecisionStore.start_link(name: nil)
+
+    start_opts =
+      Keyword.merge([name: nil, filesystem_sync_fun: fn -> :ok end], opts)
+
+    {:ok, pid} = DecisionStore.start_link(start_opts)
     pid
   end
 
@@ -56,6 +60,48 @@ defmodule Aiur.DecisionStoreTest do
       for filename <- ["decisions.ndjson", "decisions.json"] do
         %File.Stat{mode: mode} = File.stat!(Path.join(dir, filename))
         assert Bitwise.band(mode, 0o777) == 0o600
+      end
+    end
+
+    test "runs the filesystem barrier during startup rather than the first request", %{dir: dir} do
+      test_pid = self()
+
+      sync_fun = fn ->
+        send(test_pid, :filesystem_synced)
+        :ok
+      end
+
+      pid = start_store!(dir, filesystem_sync_fun: sync_fun)
+
+      assert_receive :filesystem_synced, 2_000
+      refute_receive :filesystem_synced
+
+      assert {:ok, _} = request(pid, %{"question" => "Deploy now?", "blocking" => true})
+      refute_receive :filesystem_synced
+    end
+
+    test "redacts ticket and artifact credentials before either durable file is written", %{dir: dir} do
+      pid = start_store!(dir)
+      secret = "GHSAT0" <> String.duplicate("A", 36)
+
+      ticket = %{
+        identifier: "979",
+        title: "Leaked #{secret}",
+        url: "https://github.com/its-everdred/aiur/issues/979?token=#{secret}"
+      }
+
+      payload = %{
+        "question" => "Inspect the artifact?",
+        "blocking" => true,
+        "artifacts" => ["https://raw.githubusercontent.com/org/repo/main/file?token=#{secret}"]
+      }
+
+      assert {:ok, %{status: :accepted}} = request(pid, payload, ticket: ticket)
+
+      for filename <- ["decisions.ndjson", "decisions.json"] do
+        persisted = File.read!(Path.join(dir, filename))
+        refute persisted =~ secret
+        assert persisted =~ "[REDACTED:ghsat]"
       end
     end
 

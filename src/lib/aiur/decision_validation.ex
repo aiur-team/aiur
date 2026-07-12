@@ -28,10 +28,13 @@ defmodule Aiur.DecisionValidation do
   @consequence_max 2000
   @kind_max 100
   @identity_max 200
+  @ticket_title_max 500
+  @ticket_url_max 2048
   @option_label_max 200
   @option_text_max 2000
   @options_max 20
   @artifacts_max 20
+  @artifact_value_max 4096
 
   @default_authority :human_required
   @default_urgency :normal
@@ -55,7 +58,8 @@ defmodule Aiur.DecisionValidation do
     now = Keyword.get(opts, :now, DateTime.utc_now())
     safe_roots = Keyword.get(opts, :safe_roots, default_safe_roots())
 
-    with {:ok, question} <- fetch_required_string(payload, :question, 1, @question_max, :question),
+    with {:ok, normalized_ticket} <- normalize_ticket(ticket),
+         {:ok, question} <- fetch_required_string(payload, :question, 1, @question_max, :question),
          {:ok, authority} <-
            fetch_enum_with_default(payload, :authority, Decision.authorities(), @default_authority, :authority),
          {:ok, urgency} <-
@@ -96,7 +100,7 @@ defmodule Aiur.DecisionValidation do
         decision_id: decision_id(ticket, source_id),
         source_id: source_id,
         version: 1,
-        ticket: normalize_ticket(ticket),
+        ticket: normalized_ticket,
         source: normalize_source(source),
         kind: kind,
         authority: authority,
@@ -313,6 +317,11 @@ defmodule Aiur.DecisionValidation do
 
   defp normalize_artifacts([_invalid | _rest], _safe_roots, _acc), do: {:error, {:artifacts, :invalid_type}}
 
+  defp validate_artifact(value, _rest, _safe_roots, _acc)
+       when byte_size(value) > @artifact_value_max do
+    {:error, {:artifacts, :too_long}}
+  end
+
   defp validate_artifact(value, rest, safe_roots, acc) do
     case DecisionArtifact.validate(value, safe_roots) do
       {:ok, artifact} -> normalize_artifacts(rest, safe_roots, [artifact | acc])
@@ -336,12 +345,22 @@ defmodule Aiur.DecisionValidation do
     end
   end
 
-  defp normalize_ticket(ticket) do
-    %{
-      identifier: to_string(get(ticket, :identifier)),
-      title: get(ticket, :title),
-      url: get(ticket, :url)
-    }
+  defp normalize_ticket(ticket) when is_map(ticket) do
+    with {:ok, identifier} <- normalize_ticket_identifier(get(ticket, :identifier)),
+         {:ok, title} <- fetch_optional_string(ticket, :title, @ticket_title_max, :ticket_title),
+         {:ok, url} <- fetch_optional_string(ticket, :url, @ticket_url_max, :ticket_url) do
+      {:ok, %{identifier: identifier, title: title, url: url}}
+    end
+  end
+
+  defp normalize_ticket(_ticket), do: {:error, {:ticket, :invalid_type}}
+
+  defp normalize_ticket_identifier(nil), do: {:error, {:ticket_identifier, :missing}}
+
+  defp normalize_ticket_identifier(identifier) do
+    identifier
+    |> to_string()
+    |> bound_string(1, @identity_max, :ticket_identifier)
   end
 
   defp normalize_source(source) do

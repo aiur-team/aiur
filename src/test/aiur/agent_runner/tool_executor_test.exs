@@ -21,6 +21,16 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       assert response["success"] == false
     end
+
+    test "invocation context preserves normal validation for malformed arguments" do
+      issue = %Issue{id: "gid-te-invalid", identifier: "TE-invalid"}
+      executor = ToolExecutor.build(issue, nil, nil)
+
+      response = ToolExecutor.execute(executor, "emit_event", :invalid, "call-invalid")
+
+      assert response["success"] == false
+      assert Jason.decode!(response["output"])["error"]["message"] =~ "expects an object"
+    end
   end
 
   describe "declare_blocker_for_issue via blocker_declarer closure" do
@@ -193,6 +203,77 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert Jason.decode!(second["output"])["result"]["status"] == "duplicate"
     end
 
+    test "the trusted session and tool-call id deduplicate retries without agent source_id" do
+      identifier = "TE-decision-trusted-dedup-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      executor = ToolExecutor.build(issue, nil, nil, %{thread_id: "thread-abc"})
+
+      arguments = %{
+        "name" => "decision.requested",
+        "message" => "Q?",
+        "payload" => %{"blocking" => true, "source_id" => "agent-controlled"}
+      }
+
+      first = ToolExecutor.execute(executor, "emit_event", arguments, "call-1")
+      retry = ToolExecutor.execute(executor, "emit_event", arguments, "call-1")
+      distinct_call = ToolExecutor.execute(executor, "emit_event", arguments, "call-2")
+
+      first_result = Jason.decode!(first["output"])["result"]
+      retry_result = Jason.decode!(retry["output"])["result"]
+      distinct_result = Jason.decode!(distinct_call["output"])["result"]
+
+      assert first_result["status"] == "accepted"
+      assert retry_result["status"] == "duplicate"
+      assert retry_result["decision_id"] == first_result["decision_id"]
+      assert distinct_result["status"] == "accepted"
+      refute distinct_result["decision_id"] == first_result["decision_id"]
+    end
+
+    test "trusted identity overwrites atom-keyed agent source_id values" do
+      identifier = "TE-decision-atom-source-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      executor = ToolExecutor.build(issue, nil, nil, %{thread_id: "thread-abc"})
+
+      arguments = fn source_id ->
+        %{
+          "name" => "decision.requested",
+          "message" => "Q?",
+          "payload" => %{blocking: true, source_id: source_id}
+        }
+      end
+
+      first = ToolExecutor.execute(executor, "emit_event", arguments.("agent-one"), "call-atom")
+      retry = ToolExecutor.execute(executor, "emit_event", arguments.("agent-two"), "call-atom")
+
+      first_result = Jason.decode!(first["output"])["result"]
+      retry_result = Jason.decode!(retry["output"])["result"]
+
+      assert first_result["status"] == "accepted"
+      assert retry_result["status"] == "duplicate"
+      assert retry_result["decision_id"] == first_result["decision_id"]
+    end
+
+    test "a non-scalar protocol call id cannot crash decision execution" do
+      identifier = "TE-decision-call-shape-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      executor = ToolExecutor.build(issue, nil, nil, %{thread_id: "thread-abc"})
+
+      response =
+        ToolExecutor.execute(
+          executor,
+          "emit_event",
+          %{
+            "name" => "decision.requested",
+            "message" => "Q?",
+            "payload" => %{"blocking" => true}
+          },
+          %{"unexpected" => "shape"}
+        )
+
+      assert response["success"] == true
+      assert Jason.decode!(response["output"])["result"]["status"] == "accepted"
+    end
+
     test "an invalid request fails without publishing a duplicate Exchange event" do
       identifier = "TE-decision-invalid-#{System.unique_integer([:positive])}"
       issue = %Issue{identifier: identifier}
@@ -203,6 +284,9 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       response = executor.("emit_event", %{"name" => "decision.requested", "message" => "Q?", "payload" => %{}})
 
       assert response["success"] == false
+      error = Jason.decode!(response["output"])["error"]
+      assert error["message"] == "Decision request was rejected by the durable DecisionStore."
+      assert error["reason"] =~ "blocking"
       refute_receive {:event, _}, 200
     end
 
@@ -213,7 +297,9 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       response = executor.("emit_event", %{"name" => "decision.requested", "message" => "Q?", "payload" => %{"blocking" => true}})
 
       assert response["success"] == false
-      assert Jason.decode!(response["output"])["error"]["reason"] =~ "no_issue_identifier"
+      error = Jason.decode!(response["output"])["error"]
+      assert error["message"] == "Decision requests require a ticket identifier."
+      assert error["reason"] == "no_issue_identifier"
     end
 
     test "a generic event name that only collides with the decision.requested topic suffix fails cleanly, not with a crash" do
@@ -233,6 +319,31 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       assert response["success"] == false
       assert Jason.decode!(response["output"])["error"]["reason"] =~ "decision_requires_durable_publish"
+    end
+
+    test "a DecisionStore call timeout becomes a tool failure instead of exiting the agent turn" do
+      identifier = "TE-decision-timeout-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      blocked_store = spawn(fn -> receive do: (:stop -> :ok) end)
+      on_exit(fn -> send(blocked_store, :stop) end)
+
+      decision_requester = fn payload, opts ->
+        Aiur.DecisionStore.request(payload, opts, blocked_store, 10)
+      end
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{}, decision_requester: decision_requester)
+
+      response =
+        executor.("emit_event", %{
+          "name" => "decision.requested",
+          "message" => "Q?",
+          "payload" => %{"blocking" => true}
+        })
+
+      assert response["success"] == false
+      assert Jason.decode!(response["output"])["error"]["reason"] =~ "timeout"
+      assert Process.alive?(self())
     end
   end
 

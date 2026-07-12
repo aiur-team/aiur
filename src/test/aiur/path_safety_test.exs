@@ -47,4 +47,54 @@ defmodule Aiur.PathSafetyTest do
       assert canonical == Path.expand(real)
     end
   end
+
+  describe "canonicalize/1 symlink bounds" do
+    test "a symlink cycle fails promptly instead of wedging the caller", %{tmp_dir: tmp_dir} do
+      first = Path.join(tmp_dir, "first")
+      second = Path.join(tmp_dir, "second")
+      File.ln_s!(second, first)
+      File.ln_s!(first, second)
+
+      task = Task.async(fn -> PathSafety.canonicalize(first) end)
+
+      result =
+        case Task.yield(task, 2_000) do
+          {:ok, value} ->
+            value
+
+          nil ->
+            Task.shutdown(task, :brutal_kill)
+            :timed_out
+        end
+
+      assert {:error, {:path_canonicalize_failed, ^first, :symlink_cycle}} = result
+    end
+
+    test "a symlink chain beyond the traversal cap fails like ELOOP", %{tmp_dir: tmp_dir} do
+      first = create_symlink_chain(tmp_dir, 41)
+
+      assert {:error, {:path_canonicalize_failed, ^first, :too_many_symlinks}} =
+               PathSafety.canonicalize(first)
+    end
+
+    test "a symlink chain at the traversal cap still resolves", %{tmp_dir: tmp_dir} do
+      first = create_symlink_chain(tmp_dir, 40)
+
+      assert {:ok, canonical} = PathSafety.canonicalize(first)
+      assert canonical == Path.join(tmp_dir, "target")
+    end
+  end
+
+  defp create_symlink_chain(tmp_dir, count) do
+    target = Path.join(tmp_dir, "target")
+    File.write!(target, "ok")
+
+    Enum.each(count..1//-1, fn index ->
+      link = Path.join(tmp_dir, "link-#{index}")
+      next = if index == count, do: target, else: Path.join(tmp_dir, "link-#{index + 1}")
+      File.ln_s!(next, link)
+    end)
+
+    Path.join(tmp_dir, "link-1")
+  end
 end

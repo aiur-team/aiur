@@ -112,6 +112,27 @@ defmodule Aiur.DecisionValidationTest do
       assert decision.created_at == fixed_now
       assert decision.source_created_at == ~U[1999-01-01 00:00:00Z]
     end
+
+    test "externally controlled ticket title and URL are bounded and redacted" do
+      secret = "GHSAT0" <> String.duplicate("A", 36)
+
+      ticket = %{
+        identifier: "979",
+        title: "Leaked #{secret}",
+        url: "https://github.com/its-everdred/aiur/issues/979?token=#{secret}"
+      }
+
+      assert {:ok, decision} = normalize(%{"question" => "Q?", "blocking" => true}, ticket: ticket)
+      refute decision.ticket.title =~ secret
+      refute decision.ticket.url =~ secret
+      assert decision.ticket.title =~ "[REDACTED:ghsat]"
+      assert decision.ticket.url =~ "[REDACTED:ghsat]"
+
+      overlong_ticket = %{ticket | title: String.duplicate("x", 501)}
+
+      assert normalize(%{"question" => "Q?", "blocking" => true}, ticket: overlong_ticket) ==
+               {:error, {:decision_invalid, {:ticket_title, :too_long}}}
+    end
   end
 
   describe "required fields" do
@@ -148,6 +169,19 @@ defmodule Aiur.DecisionValidationTest do
     test "newlines and tabs in the question are allowed" do
       assert {:ok, decision} = normalize(%{"question" => "line one\nline two\ttabbed", "blocking" => true})
       assert decision.question =~ "\n"
+    end
+  end
+
+  describe "artifact bounds" do
+    test "rejects an oversized artifact reference before canonicalization" do
+      oversized_url = "https://github.com/" <> String.duplicate("a", 4_097)
+
+      assert normalize(%{
+               "question" => "Inspect it?",
+               "blocking" => true,
+               "artifacts" => [oversized_url]
+             }) ==
+               {:error, {:decision_invalid, {:artifacts, :too_long}}}
     end
   end
 

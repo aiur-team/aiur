@@ -28,8 +28,8 @@ This is the schema/storage handoff for OCC-2 through OCC-9. It documents what OC
 | Field | Type | Notes |
 |---|---|---|
 | `schema_version` | integer | Currently `1`. |
-| `decision_id` | string | Canonical identity, deterministic from trusted ticket scope + an agent-supplied `source_id` (sha256-truncated); random (non-replayable) when `source_id` is absent. |
-| `source_id` | string \| nil | Agent-proposed identity, preserved for correlation only — never the canonical identity. |
+| `decision_id` | string | Canonical identity, deterministic from trusted ticket scope + `source_id` (sha256-truncated); random (non-replayable) when `source_id` is absent. |
+| `source_id` | string \| nil | Caller correlation identity. Direct service callers may propose it; agent-tool ingress replaces it with a trusted session/tool-call identity. |
 | `version` | positive integer | Starts at 1; an accepted enrichment is exactly `current + 1`. |
 | `ticket` | `%{identifier, title, url}` | Injected from trusted runtime context; never read from the raw payload. |
 | `source` | `%{agent_id, session_id, event_id}` | Injected from trusted runtime context; never read from the raw payload. |
@@ -43,18 +43,18 @@ This is the schema/storage handoff for OCC-2 through OCC-9. It documents what OC
 | `options` | list of `%{id, label, description, benefits, drawbacks, risk}` | Optional, up to 20; ids must be unique. A custom-response-only request needs no invented options. |
 | `recommendation` | `%{option_id, reason}` \| nil | `option_id` must match an existing option — a dangling reference is rejected. |
 | `consequence_of_delay` | string \| nil | Bounded at 2000 chars. |
-| `artifacts` | list of `%{kind: :path \| :url, value}` | Up to 20. See Artifact safety below. |
+| `artifacts` | list of `%{kind: :path \| :url, value}` | Up to 20; each reference is at most 4096 bytes. See Artifact safety below. |
 | `created_at` | `DateTime.t()` | Canonical acceptance time, stamped by the store's clock. |
 | `source_created_at` | `DateTime.t()` \| nil | Optional agent-reported time, provenance only — never controls audit order, version order, or notification age. |
 | `content_hash` | string | sha256 over only the meaningful content fields (question, options, context, artifacts, authority, urgency, blocking, reversibility, kind, recommendation, consequence_of_delay) — excludes identity/timestamps. Used for dedup and (on replay) tamper detection. |
 
 ### Validation
 
-`Aiur.DecisionValidation.normalize/2` bounds every field, rejects unsafe control bytes, redacts known credential patterns (`Aiur.SecretRedactor`, extracted from `Aiur.Events.Sanitizer` so both share one pattern list) before hashing, and never accepts `ticket`/`source` from the untrusted payload — those are always injected via trusted `opts`.
+`Aiur.DecisionValidation.normalize/2` bounds every field, rejects unsafe control bytes, redacts known credential patterns (`Aiur.SecretRedactor`, extracted from `Aiur.Events.Sanitizer` so both share one pattern list) before hashing, and never accepts `ticket`/`source` from the untrusted payload — those are always injected via trusted `opts`. The externally controlled ticket title and URL are bounded and redacted at that same boundary before reaching either durable file.
 
 ### Artifact safety
 
-`Aiur.DecisionArtifact.validate/2`: a local path must be absolute and canonicalize (symlink-resolved) beneath a configured safe root (workspace root or log root); a remote reference must be an HTTPS URL with no embedded credentials and a host that exactly matches, or is a dot-delimited subdomain of, an approved allowlist (`Application.get_env(:aiur, :decision_artifact_allowed_hosts)`, default `github.com`/`api.github.com`/`raw.githubusercontent.com`). File-serving consumers must re-canonicalize and re-check containment at access time — this only proves containment at ingestion.
+`Aiur.DecisionArtifact.validate/2`: a local path must be absolute and canonicalize (symlink-resolved) beneath a configured safe root (workspace root or log root); a remote reference must be an HTTPS URL with no embedded credentials and a host that exactly matches, or is a dot-delimited subdomain of, an approved allowlist (`Application.get_env(:aiur, :decision_artifact_allowed_hosts)`, default `github.com`/`api.github.com`/`raw.githubusercontent.com`). Known credential patterns are redacted from every accepted artifact value, including URL path/query data; percent-encoded credentials are rejected rather than persisted in reversible form. Canonicalization rejects symlink cycles and chains beyond 40 links instead of allowing an agent-controlled path to wedge the serialized store. File-serving consumers must re-canonicalize and re-check containment at access time — this only proves containment at ingestion.
 
 ## Storage
 
@@ -63,7 +63,7 @@ Both files live beneath `Aiur.Config.Paths.decision_state_dir/0`: an owner-only 
 - `decisions.ndjson` — canonical, append-only, newline-terminated JSON records (owner-only `0600`). Each accepted mutation appends the full Decision snapshot at its version plus its reserved `event_id`.
 - `decisions.json` — atomically-replaced current-state projection (via `Aiur.JsonStore`, then explicitly chmod'd owner-only `0600` by `Aiur.DecisionStore` — `JsonStore` itself is a shared primitive with no permission opinion, since its other callers don't need owner-only), rebuildable from the audit stream at any time.
 
-On first-ever creation of the directory or the audit file, `Aiur.Fs.sync_filesystem/0` is also called once so the new directory entry itself is durable — a file's own fsync never syncs its parent directory, and the BEAM has no way to open a directory as a file descriptor to fsync one directly (`:file.open/2` returns `:eisdir` for every mode), so this shells out to POSIX `sync(1)` as a one-time, global barrier rather than a per-append cost.
+During `Aiur.DecisionStore` initialization, the directory and audit file are created and hardened before any request can run. If either entry is new, `Aiur.Fs.sync_filesystem/0` is called exactly once so the directory entries are durable — a file's own fsync never syncs its parent directory, and the BEAM has no way to open a directory as a file descriptor to fsync one directly (`:file.open/2` returns `:eisdir` for every mode), so this shells out to POSIX `sync(1)` as a startup-only global barrier rather than a first-request or per-append cost.
 
 ## Corruption / threat model
 
@@ -97,3 +97,5 @@ This ticket implements notification as **best-effort, attempted once synchronous
 ## Agent ingress
 
 Only the structured `decision.requested` name from the agent tool boundary routes through `Aiur.DecisionStore`; every other event name (`progress`, `attention.*`, `blocked`, `pause.request`, arbitrary `decision.<slug>` coordination events) keeps its existing behavior through the generic `Aiur.Events.Publisher` path and `Aiur.DecisionAttention` unchanged.
+
+Agent ingress overwrites any payload `source_id` with a stable trusted key derived from ticket, backend thread, and protocol tool-call identity (`callId`, with JSON-RPC id fallback). Replaying the same tool call therefore deduplicates without letting an agent collide with another call; distinct tool calls remain distinct Decisions. Store calls use an explicit 60-second timeout, and the tool boundary catches GenServer exits so a slow, restarting, or unavailable store returns a decision-specific tool failure rather than terminating the agent turn.
