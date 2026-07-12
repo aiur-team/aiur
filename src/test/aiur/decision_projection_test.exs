@@ -47,6 +47,33 @@ defmodule Aiur.DecisionProjectionTest do
       assert decoded.version == 3
       assert decoded.recommendation == %{option_id: "a", reason: "simplest"}
     end
+
+    test "legacy-attention provenance survives the round trip" do
+      legacy_attention = %{
+        slug: "scope-question",
+        topic: "ticket.979.agent.attention.scope-question"
+      }
+
+      decision =
+        build_decision(
+          %{"source_id" => "legacy_attention:scope-question"},
+          legacy_attention: legacy_attention
+        )
+
+      assert {:ok, decoded} = decision |> persisted_raw() |> DecisionProjection.decode_record()
+      assert decoded.legacy_attention == legacy_attention
+      assert decoded.content_hash == decision.content_hash
+    end
+
+    test "records written before legacy provenance existed keep their content hash" do
+      decision = build_decision(%{"source_id" => "pre-occ-2"})
+      raw = persisted_raw(decision)
+
+      refute Map.has_key?(raw, "legacy_attention")
+      assert {:ok, decoded} = DecisionProjection.decode_record(raw)
+      assert decoded.legacy_attention == nil
+      assert decoded.content_hash == decision.content_hash
+    end
   end
 
   describe "decode_record/1 corruption" do
