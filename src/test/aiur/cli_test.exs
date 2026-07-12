@@ -222,6 +222,46 @@ defmodule Aiur.CLITest do
     assert_received {:workflow_checked, _path}
   end
 
+  test "routes variadic todo IDs and only without starting the workflow" do
+    assert {:todo, ["11", "12", "13"], %{only: true}} =
+             CLI.evaluate(["--todo", "11", "12,13", "--only"], deps())
+  end
+
+  test "deduplicates todo IDs in first-seen order" do
+    assert {:todo, ["11", "12"], %{only: false}} =
+             CLI.evaluate(["--todo", "11", "12", "11"], deps())
+  end
+
+  test "canonicalizes leading-zero todo IDs to match enumerated identifiers" do
+    assert {:todo, ["11"], %{only: false}} =
+             CLI.evaluate(["--todo", "011"], deps())
+  end
+
+  test "dedupes a leading-zero ID against its canonical form" do
+    assert {:todo, ["11"], %{only: false}} =
+             CLI.evaluate(["--todo", "011", "11"], deps())
+  end
+
+  test "rejects todo without IDs" do
+    assert {:error, message} = CLI.evaluate(["--todo"], deps())
+    assert message =~ "aiur --todo <id>"
+  end
+
+  test "rejects invalid todo IDs" do
+    assert {:error, message} = CLI.evaluate(["--todo", "11", "not-an-id"], deps())
+    assert message =~ "aiur --todo <id>"
+  end
+
+  test "rejects only without todo" do
+    assert {:error, message} = CLI.evaluate(["--only"], deps())
+    assert message =~ "aiur --todo <id>"
+  end
+
+  test "rejects run flags combined with todo" do
+    assert {:error, message} = CLI.evaluate(["--todo", "11", "--host", "127.0.0.1"], deps())
+    assert message =~ "aiur --todo <id>"
+  end
+
   test "enables interactive CLI mode when requested" do
     previous_value = Application.get_env(:aiur, :interactive_cli)
 
