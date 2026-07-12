@@ -100,6 +100,13 @@ defmodule Aiur.Config.Schema.Agent do
     field(:max_concurrent_agents_by_state, :map, default: %{})
     field(:routing, :map, default: %{})
     field(:switch_model_on_ratelimit, {:array, :string}, default: [])
+    # Automatic codex -> claude reroute for an ALREADY-RUNNING codex agent that
+    # hits usage_limit_exhausted, reverted at a safe boundary once
+    # ModelAvailability confirms codex recovery
+    # (Aiur.Orchestrator.RateLimitFallback). Default on, unlike
+    # switch_model_on_ratelimit above (opt-in, applies only to a new claim).
+    # "" disables it.
+    field(:rate_limit_fallback, :string, default: "claude")
     field(:complexity_prompts, :map, default: %{})
     # Backend-agnostic turn/stall timeouts (promoted from codex; claude-repl
     # already reads these via Config.agent_turn_timeout_ms/0).
@@ -151,6 +158,7 @@ defmodule Aiur.Config.Schema.Agent do
         :max_concurrent_agents_by_state,
         :routing,
         :switch_model_on_ratelimit,
+        :rate_limit_fallback,
         :complexity_prompts,
         :turn_timeout_ms,
         :stall_timeout_ms,
@@ -194,6 +202,11 @@ defmodule Aiur.Config.Schema.Agent do
         Enum.all?(backends, &(&1 in known)) -> []
         true -> [switch_model_on_ratelimit: "contains an unknown backend; known backends: #{inspect(known)}"]
       end
+    end)
+    |> validate_change(:rate_limit_fallback, fn :rate_limit_fallback, backend ->
+      if backend in ["", "claude"],
+        do: [],
+        else: [rate_limit_fallback: "must be \"claude\" or \"\" to disable"]
     end)
     |> update_change(:complexity_prompts, &AgentValidation.normalize_complexity_prompts/1)
     |> AgentValidation.validate_complexity_prompts(:complexity_prompts)

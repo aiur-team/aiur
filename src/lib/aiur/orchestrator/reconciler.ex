@@ -8,13 +8,14 @@ defmodule Aiur.Orchestrator.Reconciler do
 
   alias Aiur.{Issue, Tracker}
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{DispatchPolicy, PauseResume, State}
+  alias Aiur.Orchestrator.{DispatchPolicy, PauseResume, RateLimitFallback, State}
 
   @spec reconcile_running_lifecycle(State.t()) :: State.t()
   def reconcile_running_lifecycle(%State{} = state) do
     state = Orchestrator.reconcile_stalled_running_issues(state)
     state = Orchestrator.reconcile_overrunning_agents(state)
-    Orchestrator.reconcile_pending_auto_resumes(state)
+    state = Orchestrator.reconcile_pending_auto_resumes(state)
+    RateLimitFallback.reconcile(state)
   end
 
   @spec refresh_running_issue_states(State.t()) :: State.t()

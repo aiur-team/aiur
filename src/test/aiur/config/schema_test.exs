@@ -14,6 +14,42 @@ defmodule Aiur.Config.SchemaTest do
     end
   end
 
+  describe "agent rate_limit_fallback" do
+    test "defaults to claude" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.agent.rate_limit_fallback == "claude"
+    end
+
+    test "rejects a resumable target that could replace the codex session handle" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"agent" => %{"rate_limit_fallback" => "claude-repl"}})
+
+      assert message =~ "rate_limit_fallback"
+      assert message =~ "must be \"claude\""
+    end
+
+    test "accepts an empty string to disable" do
+      assert {:ok, settings} = Schema.parse(%{"agent" => %{"rate_limit_fallback" => ""}})
+      assert settings.agent.rate_limit_fallback == ""
+    end
+
+    test "rejects codex as the fallback target" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"agent" => %{"rate_limit_fallback" => "codex"}})
+
+      assert message =~ "rate_limit_fallback"
+      assert message =~ "must be \"claude\""
+    end
+
+    test "rejects an unknown backend" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"agent" => %{"rate_limit_fallback" => "bogus"}})
+
+      assert message =~ "rate_limit_fallback"
+      assert message =~ "must be \"claude\""
+    end
+  end
+
   describe "agent CI-wait fallback" do
     test "defaults to five minutes and accepts a positive override" do
       assert {:ok, defaults} = Schema.parse(%{})

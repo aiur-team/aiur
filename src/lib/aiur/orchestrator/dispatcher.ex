@@ -219,6 +219,53 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end
   end
 
+  @doc false
+  @spec redispatch_ready?(State.t(), Issue.t(), String.t() | nil, keyword()) ::
+          :ok | {:error, term()}
+  def redispatch_ready?(%State{} = state, %Issue{} = issue, preferred_worker_host, opts \\ []) do
+    now_ms = Keyword.get(opts, :now_ms, System.monotonic_time(:millisecond))
+
+    with {:ok, selected_issue} <- redispatch_backend(issue),
+         :ok <- known_redispatch_backend(selected_issue),
+         :ok <- redispatch_thrash_budget(state, selected_issue.id, now_ms),
+         :ok <- redispatch_worker_slot(state, selected_issue.id, preferred_worker_host) do
+      :ok
+    else
+      {:all_limited, candidates} -> {:error, {:all_limited, candidates}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp redispatch_backend(issue), do: CodingAgent.select_for_dispatch(issue)
+
+  defp known_redispatch_backend(issue) do
+    backend = CodingAgent.backend_for(issue)
+
+    if backend in CodingAgent.known_backends(),
+      do: :ok,
+      else: {:error, {:unknown_backend, backend}}
+  end
+
+  defp redispatch_thrash_budget(state, issue_id, now_ms) do
+    if next_thrash_budget_entry(state, issue_id, now_ms).count >
+         Config.codex_thrash_max_per_window(),
+       do: {:error, :thrash_circuit_open},
+       else: :ok
+  end
+
+  # A backend swap replaces the issue's existing host slot. Exclude that entry
+  # from the capacity sample, but require an exact preferred-host match so the
+  # workspace and on-disk rollout never migrate during the swap.
+  defp redispatch_worker_slot(state, issue_id, preferred_worker_host) do
+    capacity_state = %{state | running: Map.delete(state.running, issue_id)}
+
+    case Slots.select_worker_host(capacity_state, preferred_worker_host) do
+      ^preferred_worker_host -> :ok
+      :no_worker_capacity -> {:error, :no_worker_capacity}
+      _other_host -> {:error, :preferred_worker_unavailable}
+    end
+  end
+
   # Time-windowed restart budget. Independent of the willRetry:false
   # hard-failure path: catches thrash that never surfaces willRetry
   # (transport timeouts, sandbox refusals, future error classes that
@@ -232,16 +279,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @spec check_thrash_budget(State.t(), String.t(), integer()) ::
           {:ok, State.t()} | {:trip, State.t()}
   def check_thrash_budget(%State{} = state, issue_id, now_ms) do
-    window_ms = Config.codex_thrash_window_seconds() * 1_000
-
-    entry =
-      case Map.get(state.codex_thrash_budget, issue_id) do
-        %{window_start_ms: start, count: count} when now_ms - start < window_ms ->
-          %{window_start_ms: start, count: count + 1}
-
-        _ ->
-          %{window_start_ms: now_ms, count: 1}
-      end
+    entry = next_thrash_budget_entry(state, issue_id, now_ms)
 
     state = %{state | codex_thrash_budget: Map.put(state.codex_thrash_budget, issue_id, entry)}
 
@@ -249,6 +287,18 @@ defmodule Aiur.Orchestrator.Dispatcher do
       {:trip, state}
     else
       {:ok, state}
+    end
+  end
+
+  defp next_thrash_budget_entry(state, issue_id, now_ms) do
+    window_ms = Config.codex_thrash_window_seconds() * 1_000
+
+    case Map.get(state.codex_thrash_budget, issue_id) do
+      %{window_start_ms: start, count: count} when now_ms - start < window_ms ->
+        %{window_start_ms: start, count: count + 1}
+
+      _ ->
+        %{window_start_ms: now_ms, count: 1}
     end
   end
 

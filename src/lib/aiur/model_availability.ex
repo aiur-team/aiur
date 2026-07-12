@@ -35,13 +35,14 @@ defmodule Aiur.ModelAvailability do
     :global.trans({__MODULE__, path}, fn ->
       state = load(path)
       backends = Map.get(state, "backends", %{})
+      normalized = normalize_limits(limits)
 
       entry =
-        limits
-        |> normalize_limits()
+        normalized
         |> add_unknown_reset_deadlines(now)
         |> merge_entry(Map.get(backends, backend, %{}))
         |> Map.put("observed_at", DateTime.to_iso8601(now))
+        |> record_observation(normalized, now)
 
       write(path, Map.put(state, "backends", Map.put(backends, backend, entry)))
     end)
@@ -62,6 +63,17 @@ defmodule Aiur.ModelAvailability do
     entry = Keyword.get(opts, :state, load(Keyword.get(opts, :path, path()))) |> get_in(["backends", backend]) || %{}
 
     not limited?(entry, now)
+  end
+
+  @doc "Whether availability is backed by a positive observation or a real elapsed reset."
+  @spec recovery_confirmed?(String.t(), keyword()) :: boolean()
+  def recovery_confirmed?(backend, opts \\ []) when is_binary(backend) do
+    now = Keyword.get(opts, :now, DateTime.utc_now())
+    state = Keyword.get(opts, :state, load(Keyword.get(opts, :path, path())))
+    entry = get_in(state, ["backends", backend]) || %{}
+
+    available?(backend, Keyword.put(opts, :state, state)) and
+      (positive_observation_after_limit?(entry) or elapsed_real_reset?(entry, now))
   end
 
   @spec first_available([String.t()], keyword()) :: String.t() | nil
@@ -127,16 +139,115 @@ defmodule Aiur.ModelAvailability do
   defp normalize_limits(_), do: %{}
 
   defp merge_entry(new_entry, existing) do
+    existing =
+      if Enum.any?(@windows, &Map.has_key?(new_entry, &1)) and
+           not Map.has_key?(new_entry, "limited") do
+        Map.drop(existing, ["limited", "reset_at"])
+      else
+        existing
+      end
+
     existing
     |> Map.merge(Map.drop(new_entry, @windows))
     |> Map.merge(Map.take(new_entry, @windows))
+  end
+
+  defp record_observation(entry, normalized, now) do
+    timestamp = DateTime.to_iso8601(now)
+
+    cond do
+      limit_observation?(normalized) ->
+        Map.put(entry, "limited_observed_at", timestamp)
+
+      positive_observation?(normalized) and not limited?(entry, now) ->
+        Map.put(entry, "available_observed_at", timestamp)
+
+      true ->
+        entry
+    end
+  end
+
+  defp limit_observation?(entry) do
+    Map.get(entry, "limited") == true or
+      Enum.any?(@windows, &exhausted_window?(Map.get(entry, &1)))
+  end
+
+  defp positive_observation?(entry) do
+    Map.get(entry, "limited") == false or
+      Enum.any?(@windows, &available_window_observation?(Map.get(entry, &1)))
+  end
+
+  defp exhausted_window?(%{"used" => used, "limit" => limit})
+       when is_number(used) and is_number(limit),
+       do: used >= limit
+
+  defp exhausted_window?(_window), do: false
+
+  defp available_window_observation?(%{"used" => used, "limit" => limit})
+       when is_number(used) and is_number(limit),
+       do: used < limit
+
+  defp available_window_observation?(_window), do: false
+
+  defp positive_observation_after_limit?(entry) do
+    later_than_limit?(
+      parse_time(Map.get(entry, "available_observed_at")),
+      parse_time(Map.get(entry, "limited_observed_at"))
+    )
+  end
+
+  defp later_than_limit?(%DateTime{}, nil), do: true
+
+  defp later_than_limit?(%DateTime{} = available_at, %DateTime{} = limited_at),
+    do: DateTime.compare(available_at, limited_at) == :gt
+
+  defp later_than_limit?(_available_at, _limited_at), do: false
+
+  defp elapsed_real_reset?(entry, now) do
+    explicit_reset_elapsed?(entry, now) or
+      Enum.any?(@windows, &window_real_reset_elapsed?(Map.get(entry, &1), entry, now))
+  end
+
+  defp explicit_reset_elapsed?(%{"limited" => true} = entry, now) do
+    reset_elapsed?(Map.get(entry, "reset_at"), now)
+  end
+
+  defp explicit_reset_elapsed?(_entry, _now), do: false
+
+  defp window_real_reset_elapsed?(%{"used" => used, "limit" => limit} = window, entry, now)
+       when is_number(used) and is_number(limit) and used >= limit do
+    not estimated_reset?(window, entry) and reset_elapsed?(Map.get(window, "reset_at"), now)
+  end
+
+  defp window_real_reset_elapsed?(_window, _entry, _now), do: false
+
+  defp estimated_reset?(%{"reset_estimated" => true}, _entry), do: true
+  defp estimated_reset?(%{"reset_estimated" => false}, _entry), do: false
+
+  # Older ledgers cannot distinguish provider resets from the one-hour guess.
+  # Stay conservative until a fresh observation records explicit provenance.
+  defp estimated_reset?(_window, _entry), do: true
+
+  defp reset_elapsed?(value, now) do
+    case parse_time(value) do
+      %DateTime{} = reset_at -> DateTime.compare(reset_at, now) != :gt
+      nil -> false
+    end
   end
 
   defp add_unknown_reset_deadlines(entry, now) do
     Enum.reduce(@windows, entry, fn window, acc ->
       case Map.get(acc, window) do
         %{"used" => used, "limit" => limit} = bucket when is_number(used) and is_number(limit) and used >= limit ->
-          Map.put(acc, window, Map.put_new(bucket, "reset_at", DateTime.add(now, @unknown_reset_ttl_seconds, :second) |> DateTime.to_iso8601()))
+          estimated =
+            bucket
+            |> Map.put_new(
+              "reset_at",
+              DateTime.add(now, @unknown_reset_ttl_seconds, :second) |> DateTime.to_iso8601()
+            )
+            |> Map.put_new("reset_estimated", not Map.has_key?(bucket, "reset_at"))
+
+          Map.put(acc, window, estimated)
 
         _ ->
           acc
