@@ -1539,6 +1539,14 @@ defmodule Aiur.OrchestratorStatusTest do
       %{
         state
         | running: %{"issue-stale" => stale_entry},
+          retry_attempts: %{
+            "issue-retrying" => %{
+              attempt: 1,
+              timer_ref: nil,
+              due_at_ms: System.monotonic_time(:millisecond) + 5_000,
+              identifier: "MT-602"
+            }
+          },
           last_polled_issues: %{
             "issue-stale" => %Issue{id: "issue-stale", identifier: "MT-600", state: "In Progress"},
             "issue-ci-wait" => %Issue{
@@ -1546,7 +1554,8 @@ defmodule Aiur.OrchestratorStatusTest do
               identifier: "MT-601",
               state: "ci-wait",
               title: "Waiting on CI"
-            }
+            },
+            "issue-retrying" => %Issue{id: "issue-retrying", identifier: "MT-602", state: "In Progress"}
           }
       }
     end)
@@ -1558,6 +1567,8 @@ defmodule Aiur.OrchestratorStatusTest do
 
     assert stale_for_seconds > 24 * 60 * 60
 
+    # A tracker-active issue already shown in the retry-backoff bucket must
+    # not also double up as an idle row.
     assert [%{identifier: "MT-601", state: "ci-wait", waiting_reason: :waiting_for_ci}] = snapshot.idle
   end
 

@@ -155,14 +155,17 @@ defmodule AiurWeb.Presenter do
       queue_depth: Map.get(entry, :queue_depth, 0),
       waiting_reason: Map.get(entry, :waiting_reason, :active),
       open_decision_count: Map.get(entry, :open_decision_count, 0),
+      ci: ci_payload(Map.get(entry, :ci_result)),
       review: review_status(entry.state)
     }
   end
 
   # CI/PR data comes from the existing GithubCIPoller poll cadence in
-  # `Aiur.Orchestrator.CiLifecycle`, stashed onto the running entry — this
-  # never triggers a GitHub call of its own. `nil` until a ticket has
-  # actually entered CI polling (ci-wait / human-review).
+  # `Aiur.Orchestrator.CiLifecycle`, cached by ticket identifier — this never
+  # triggers a GitHub call of its own and is available for idle rows too
+  # (a ticket can keep cycling through ci-wait polls after its agent's turn
+  # ends). `nil` until a ticket has actually entered CI polling (ci-wait /
+  # human-review).
   defp ci_payload(nil), do: nil
 
   defp ci_payload(%{} = result) do

@@ -44,14 +44,14 @@ defmodule AiurWeb.DashboardLiveTest do
       last_codex_timestamp: DateTime.utc_now(),
       last_codex_message: nil,
       last_codex_event: nil,
-      paused_reason: :ci_wait,
-      last_ci_result: %{decision: :pending, pr_number: 77, head_sha: "deadbeef"}
+      paused_reason: :ci_wait
     }
 
     :sys.replace_state(pid, fn state ->
       %{
         state
         | running: %{"issue-ci-wait" => ci_wait_entry},
+          ci_poll_cache: %{"MT-900" => %{decision: :pending, pr_number: 77, head_sha: "deadbeef"}},
           last_polled_issues: %{
             "issue-ci-wait" => %Issue{id: "issue-ci-wait", identifier: "MT-900", state: "ci-wait"},
             "issue-idle" => %Issue{id: "issue-idle", identifier: "MT-901", state: "human-review", title: "Idle review"}

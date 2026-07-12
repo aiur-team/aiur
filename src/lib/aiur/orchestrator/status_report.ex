@@ -181,7 +181,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       stale_for_seconds: stale_for_seconds,
       waiting_reason: waiting_reason,
       open_decision_count: open_decision_count(metadata.identifier),
-      ci_result: Map.get(metadata, :last_ci_result)
+      ci_result: Map.get(state.ci_poll_cache, metadata.identifier)
     }
   end
 
@@ -204,11 +204,20 @@ defmodule Aiur.Orchestrator.StatusReport do
       |> Map.values()
       |> MapSet.new(&Map.get(&1, :identifier))
 
+    # Also exclude issues already shown in the retry-backoff bucket — they're
+    # tracker-active (still in `last_polled_issues`) but not in `running`,
+    # so without this they'd double up as a contradictory second row here.
+    retrying_identifiers =
+      state.retry_attempts
+      |> Map.values()
+      |> MapSet.new(&Map.get(&1, :identifier))
+
+    excluded_identifiers = MapSet.union(running_identifiers, retrying_identifiers)
     terminal_states = DispatchPolicy.terminal_state_set()
 
     state.last_polled_issues
     |> Map.values()
-    |> Enum.reject(fn issue -> MapSet.member?(running_identifiers, Map.get(issue, :identifier)) end)
+    |> Enum.reject(fn issue -> MapSet.member?(excluded_identifiers, Map.get(issue, :identifier)) end)
     |> Enum.map(&idle_issue_snapshot(state, &1, terminal_states))
   end
 
@@ -226,7 +235,8 @@ defmodule Aiur.Orchestrator.StatusReport do
       tracker_paused: Issue.paused?(issue),
       queue_depth: OM.queue_depth_for_issue(state, identifier),
       waiting_reason: WaitingReason.for_idle(issue.state, blocked_by_open?),
-      open_decision_count: open_decision_count(identifier)
+      open_decision_count: open_decision_count(identifier),
+      ci_result: Map.get(state.ci_poll_cache, identifier)
     }
   end
 
@@ -241,14 +251,8 @@ defmodule Aiur.Orchestrator.StatusReport do
     div(Config.agent_stall_timeout_ms(), 1_000)
   end
 
-  defp open_decision_count(identifier) when is_binary(identifier) do
-    case SubscriptionStore.snapshot(identifier) do
-      %{open_attentions: list} when is_list(list) -> length(list)
-      _ -> 0
-    end
-  rescue
-    _ -> 0
-  end
+  defp open_decision_count(identifier) when is_binary(identifier),
+    do: SubscriptionStore.open_attention_count(identifier)
 
   defp open_decision_count(_identifier), do: 0
 

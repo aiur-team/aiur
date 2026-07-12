@@ -286,22 +286,26 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   end
 
   # Read-only projection of the poll result for OCC-5's fleet-state row (PR
-  # number / CI decision), stashed onto the running entry independently of
-  # whatever tracker transition (or no-op) the result below triggers. Only
-  # replaces the entry when the projection actually changed, so a genuinely
-  # redundant poll for an unchanged head stays a true no-op.
-  defp stash_last_ci_result(%State{} = state, %Issue{id: issue_id}, result) do
-    case Map.get(state.running, issue_id) do
+  # number / CI decision), cached by ticket identifier independently of
+  # whatever tracker transition (or no-op) the result below triggers — a
+  # top-level cache rather than a field on the running entry so idle rows
+  # (no live process, e.g. after the agent's turn ends while still cycling
+  # through ci-wait) keep showing the last-known CI/PR state too. Only
+  # replaces the cached value when the projection actually changed, so a
+  # genuinely redundant poll for an unchanged head stays a true no-op for
+  # `state.running`/`state.claimed`/`state.ci_lifecycle`.
+  defp stash_last_ci_result(%State{} = state, %Issue{} = issue, result) do
+    case ci_target_for_issue(issue) do
       nil ->
         state
 
-      running_entry ->
+      target ->
         projection = ci_result_projection(result)
 
-        if Map.get(running_entry, :last_ci_result) == projection do
+        if Map.get(state.ci_poll_cache, target) == projection do
           state
         else
-          %{state | running: Map.put(state.running, issue_id, Map.put(running_entry, :last_ci_result, projection))}
+          %{state | ci_poll_cache: Map.put(state.ci_poll_cache, target, projection)}
         end
     end
   end

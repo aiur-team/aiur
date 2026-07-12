@@ -185,6 +185,25 @@ defmodule Aiur.Events.SubscriptionStore do
     end
   end
 
+  @doc """
+  Open-attention count for one ticket — shared by the CLI agent-list `❗N`
+  badge and the OCC-5 fleet-state row. Tolerates a torn-down or racing
+  per-ticket process (including a lookup that lands on a pid which exits
+  before the call completes, which `rescue` alone does not catch) by
+  returning `0` rather than propagating the exit to the caller.
+  """
+  @spec open_attention_count(String.t()) :: non_neg_integer()
+  def open_attention_count(identifier) when is_binary(identifier) do
+    case snapshot(identifier) do
+      %{open_attentions: list} when is_list(list) -> length(list)
+      _ -> 0
+    end
+  rescue
+    _ -> 0
+  catch
+    :exit, _ -> 0
+  end
+
   @doc false
   # Provided so tests can stub the enqueue call without invoking the
   # full orchestrator. Default behaviour: route to Aiur.Orchestrator.

@@ -133,6 +133,16 @@ defmodule Aiur.Orchestrator.WaitingReasonTest do
                stall_timeout_seconds: 3600
              }) == :paused
     end
+
+    test "a sleeping agent past the stall timeout is unresponsive, matching the watchdog's own exemption set" do
+      assert WaitingReason.for_running(%{
+               tracker_state: "in-progress",
+               pause_reason: nil,
+               work_state: :sleeping,
+               stale_for_seconds: 3601,
+               stall_timeout_seconds: 3600
+             }) == :unresponsive
+    end
   end
 
   describe "for_retry/0" do

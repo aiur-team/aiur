@@ -330,7 +330,7 @@ defmodule AiurWeb.DashboardLive do
                     <th>Issue</th>
                     <th>State</th>
                     <th>Waiting</th>
-                    <th>Review</th>
+                    <th>CI / Review</th>
                     <th>Decisions</th>
                   </tr>
                 </thead>
@@ -352,7 +352,7 @@ defmodule AiurWeb.DashboardLive do
                         <%= format_waiting_reason(entry.waiting_reason) %>
                       </span>
                     </td>
-                    <td class="numeric"><%= format_review(entry.review) %></td>
+                    <td class="numeric"><%= format_ci_review(entry.ci, entry.review) %></td>
                     <td class="numeric">
                       <%= if entry.open_decision_count > 0 do %>
                         <span class="state-badge state-badge-warning">❗<%= entry.open_decision_count %></span>

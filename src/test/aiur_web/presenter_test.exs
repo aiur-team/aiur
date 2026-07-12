@@ -37,10 +37,7 @@ defmodule AiurWeb.PresenterTest do
     ci_wait_entry =
       "issue-ci-wait"
       |> running_entry("MT-700", :paused, "ci-wait")
-      |> Map.merge(%{
-        paused_reason: :ci_wait,
-        last_ci_result: %{decision: :pending, pr_number: 55, head_sha: "abc123"}
-      })
+      |> Map.put(:paused_reason, :ci_wait)
 
     :sys.replace_state(pid, fn state ->
       %{
@@ -48,6 +45,10 @@ defmodule AiurWeb.PresenterTest do
         | running: %{"issue-ci-wait" => ci_wait_entry},
           retry_attempts: %{
             "mt-701" => %{attempt: 1, timer_ref: nil, due_at_ms: System.monotonic_time(:millisecond) + 5_000, identifier: "MT-701"}
+          },
+          ci_poll_cache: %{
+            "MT-700" => %{decision: :pending, pr_number: 55, head_sha: "abc123"},
+            "MT-702" => %{decision: :passed, pr_number: 56, head_sha: "def456"}
           },
           last_polled_issues: %{
             "issue-ci-wait" => %Issue{id: "issue-ci-wait", identifier: "MT-700", state: "ci-wait"},
@@ -74,6 +75,7 @@ defmodule AiurWeb.PresenterTest do
     assert [idle_row] = payload.idle
     assert idle_row.issue_identifier == "MT-702"
     assert idle_row.waiting_reason == :waiting_for_review
+    assert idle_row.ci == %{decision: :passed, pr_number: 56, head_sha: "def456"}
     assert idle_row.review == :awaiting
   end
 

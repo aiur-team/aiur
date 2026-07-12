@@ -160,6 +160,24 @@ defmodule Aiur.Events.SubscriptionStoreTest do
     end
   end
 
+  describe "open_attention_count/1" do
+    test "counts open attentions and tracks resolution", %{identifier: id} do
+      :ok = SubscriptionStore.attach(id)
+      assert SubscriptionStore.open_attention_count(id) == 0
+
+      :ok = SubscriptionStore.add_attention(id, "needs-review")
+      :ok = SubscriptionStore.add_attention(id, "needs-input")
+      assert SubscriptionStore.open_attention_count(id) == 2
+
+      :ok = SubscriptionStore.resolve_attention(id, "needs-review")
+      assert SubscriptionStore.open_attention_count(id) == 1
+    end
+
+    test "returns 0 for an identifier with no attached store" do
+      assert SubscriptionStore.open_attention_count("no-such-identifier") == 0
+    end
+  end
+
   describe "restart restoration" do
     test "reloads bindings into Exchange on init", %{identifier: id} do
       :ok = SubscriptionStore.attach(id)

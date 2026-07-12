@@ -57,8 +57,14 @@ defmodule Aiur.Orchestrator.WaitingReason do
   def for_idle(_tracker_state, true), do: :waiting_for_dependency
   def for_idle(tracker_state, false), do: by_tracker_state(tracker_state)
 
-  defp unresponsive?(%{work_state: :working, stale_for_seconds: stale, stall_timeout_seconds: timeout})
-       when is_integer(stale) and is_integer(timeout) and timeout > 0,
+  # Mirrors `Aiur.Orchestrator.RuntimeWatchdog.restart_stalled_issue/5`'s
+  # actual exemption set: only `:paused` and `:deactivated` entries are
+  # skipped by the stall-restart check there, so a `:sleeping` entry is just
+  # as eligible for a stall-triggered kill+retry as a `:working` one — this
+  # must classify it the same way, or the dashboard would keep calling it
+  # merely "paused" right up to the restart.
+  defp unresponsive?(%{work_state: work_state, stale_for_seconds: stale, stall_timeout_seconds: timeout})
+       when work_state in [:working, :sleeping] and is_integer(stale) and is_integer(timeout) and timeout > 0,
        do: stale >= timeout
 
   defp unresponsive?(_attrs), do: false

@@ -106,10 +106,10 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework"}}
       refute_received {:recorded, 2, _message}
 
-      # The OCC-5 CI/PR projection still stashes even when the tracker write
+      # The OCC-5 CI/PR projection still caches even when the tracker write
       # itself fails and the transition is left untouched.
-      assert next.running[identifier].last_ci_result == %{decision: :failed, pr_number: 941, head_sha: "failed-head"}
-      assert Map.delete(next.running[identifier], :last_ci_result) == state.running[identifier]
+      assert next.running == state.running
+      assert next.ci_poll_cache == %{identifier => %{decision: :failed, pr_number: 941, head_sha: "failed-head"}}
       assert next.ci_lifecycle == state.ci_lifecycle
       assert MapSet.member?(next.claimed, identifier)
     end
@@ -163,10 +163,10 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       refute_received {:recorded, _position, _message}
 
-      # A redundant poll still stashes the OCC-5 CI/PR projection (fleet-row
+      # A redundant poll still caches the OCC-5 CI/PR projection (fleet-row
       # read model) even though nothing tracker/pause-side changes.
-      assert next.running[identifier].last_ci_result == %{decision: :pending, pr_number: nil, head_sha: "same-head"}
-      assert Map.delete(next.running[identifier], :last_ci_result) == state.running[identifier]
+      assert next.running == state.running
+      assert next.ci_poll_cache == %{identifier => %{decision: :pending, pr_number: nil, head_sha: "same-head"}}
       assert next.ci_lifecycle == state.ci_lifecycle
     end
 
