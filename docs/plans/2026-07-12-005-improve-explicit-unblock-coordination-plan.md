@@ -1,7 +1,7 @@
 ---
 title: "improve: Require explicit unblock coordination"
 type: improve
-status: active
+status: completed
 date: 2026-07-12
 ---
 
