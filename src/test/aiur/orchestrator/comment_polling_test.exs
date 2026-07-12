@@ -141,7 +141,6 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
 
       assert third.events_etag == "new-etag"
       assert third.events_last_id == "new-merge"
-      assert third.recent_merge_persistence_failures == 3
       assert third.github_connectivity[:recent_merge_store] == {:transport, 3}
       assert third.github_poll_delays[:recent_merge_store] == 4_000
       assert Agent.get(attempts, & &1) == 3
@@ -155,7 +154,7 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
 
       assert fourth.events_etag == "new-etag"
       assert fourth.events_last_id == "new-merge"
-      assert fourth.recent_merge_persistence_failures == 3
+      assert fourth.github_connectivity[:recent_merge_store] == {:transport, 3}
       assert Agent.get(attempts, & &1) == 3
       refute_receive {:persistence_alert, _, _, _}
     end
