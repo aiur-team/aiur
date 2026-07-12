@@ -10,7 +10,7 @@ defmodule Aiur.DecisionRevisionDispatch do
   """
 
   alias Aiur.{Decision, DecisionAnswer, DecisionAttention, DecisionRevision, Issue, Tracker}
-  alias Aiur.Orchestrator.{DispatchPolicy, Dispatcher}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy}
   alias Aiur.Orchestrator.OperatorMessages
 
   @max_message_chars 7_800

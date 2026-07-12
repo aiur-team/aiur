@@ -110,7 +110,11 @@ defmodule Aiur.DecisionRevisionStoreTest do
       {:ok,
        %{
          status: :accepted,
-         item: %{id: System.unique_integer([:positive]), status: :pending, correlation: %{attempt_id: opts[:attempt_id]}}
+         item: %{
+           id: System.unique_integer([:positive]),
+           status: :pending,
+           correlation: %{attempt_id: opts[:attempt_id]}
+         }
        }}
     end
 
@@ -179,7 +183,7 @@ defmodule Aiur.DecisionRevisionStoreTest do
 
     assert revised.delivery_status == :not_dispatched
     assert revised.revision_outcomes[revision.action_id].reason_class == "target_missing"
-    assert Enum.count(revised.dispatch_attempts, &(&1.action_id == revision.action_id)) == 0
+    refute Enum.any?(revised.dispatch_attempts, &(&1.action_id == revision.action_id))
 
     follow_up = Map.fetch!(revised.revision_follow_ups, revision.action_id)
     assert follow_up.slug == Aiur.DecisionRevision.follow_up_slug(revision)
