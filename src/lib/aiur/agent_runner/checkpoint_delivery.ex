@@ -38,8 +38,8 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
       :ok ->
         {:deliver_text, QueueDrain.queue_item_text(item), fn _payload -> :ok end, fn _reason -> Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item.id) end}
 
-      {:error, _reason} ->
-        Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item.id)
+      {:error, outcome} ->
+        QueueDrain.settle_operator_delivery_failure(orchestrator, item, outcome)
         :noop
     end
   end
@@ -76,8 +76,8 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
         text = render_urgent_events_digest(item)
         {:deliver_text, text, fn _payload -> :ok end, fn reason -> handle_checkpoint_delivery_failure(issue, orchestrator, item.id, reason) end}
 
-      {:error, _reason} ->
-        Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item.id)
+      {:error, outcome} ->
+        QueueDrain.settle_operator_delivery_failure(orchestrator, item, outcome)
         :noop
     end
   end
@@ -116,8 +116,8 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
            handle_checkpoint_delivery_failure(issue, orchestrator, item.id, reason)
          end}
 
-      {:error, _reason} ->
-        Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item.id)
+      {:error, outcome} ->
+        QueueDrain.settle_operator_delivery_failure(orchestrator, item, outcome)
         :noop
     end
   end
