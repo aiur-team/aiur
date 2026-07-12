@@ -6,6 +6,7 @@ defmodule AiurWeb.Presenter do
   alias Aiur.{Config, DecisionHistory, Orchestrator, RecentMerge, RecentMergeStore, RunTelemetry}
 
   @recent_merge_limit 50
+  @decision_history_limit 50
 
   @spec state_payload(GenServer.name(), timeout(), keyword()) :: map()
   def state_payload(orchestrator, snapshot_timeout_ms, opts \\ []) do
@@ -56,7 +57,7 @@ defmodule AiurWeb.Presenter do
 
     case safe_call(provider) do
       {:ok, entries} when is_list(entries) ->
-        %{status: :available, entries: entries, message: nil}
+        %{status: :available, entries: Enum.take(entries, @decision_history_limit), message: nil}
 
       _other ->
         %{

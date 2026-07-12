@@ -56,6 +56,7 @@ defmodule Aiur.DecisionStore do
   @ndjson_filename "decisions.ndjson"
   @projection_filename "decisions.json"
   @request_timeout 60_000
+  @recent_audit_limit 50
   @default_legacy_question_version_limit 25
   @default_dispatch_delay_ms 0
   @default_reconcile_delay_ms 250
@@ -209,6 +210,12 @@ defmodule Aiur.DecisionStore do
     GenServer.call(server, :all_audit_history)
   end
 
+  @doc "Returns a bounded newest audit window without copying the complete history store."
+  @spec recent_audit_history(GenServer.server()) :: %{String.t() => [Decision.t() | DecisionEvent.t()]}
+  def recent_audit_history(server \\ __MODULE__) do
+    GenServer.call(server, :recent_audit_history)
+  end
+
   @doc "Complete ordered audit history, including request and lifecycle events."
   @spec audit_history(String.t(), GenServer.server()) ::
           {:ok, [Decision.t() | DecisionEvent.t()]} | {:error, :not_found}
@@ -288,6 +295,7 @@ defmodule Aiur.DecisionStore do
           # O(1). The public history call reverses them back to audit order.
           history: reverse_histories(history),
           audit_history: audit_history,
+          recent_audit: Enum.take(records, -@recent_audit_limit),
           writable?: true,
           health: :writable
         }
@@ -323,6 +331,7 @@ defmodule Aiur.DecisionStore do
       current: %{},
       history: %{},
       audit_history: %{},
+      recent_audit: [],
       writable?: false,
       health: {:unavailable, reason}
     }
@@ -479,6 +488,10 @@ defmodule Aiur.DecisionStore do
 
   def handle_call(:all_audit_history, _from, state) do
     {:reply, state.audit_history, state}
+  end
+
+  def handle_call(:recent_audit_history, _from, state) do
+    {:reply, Enum.group_by(state.recent_audit, &audit_decision_id/1), state}
   end
 
   def handle_call({:audit_history, decision_id}, _from, state) do
@@ -940,7 +953,8 @@ defmodule Aiur.DecisionStore do
           state
           | current: Map.put(state.current, current.decision_id, updated),
             history: Map.update(state.history, current.decision_id, [event.data.decision], &[event.data.decision | &1]),
-            audit_history: Map.update(state.audit_history, current.decision_id, [event], &(&1 ++ [event]))
+            audit_history: Map.update(state.audit_history, current.decision_id, [event], &(&1 ++ [event])),
+            recent_audit: append_recent_audit(state.recent_audit, event)
         }
         |> repair_projection()
 
@@ -1206,7 +1220,8 @@ defmodule Aiur.DecisionStore do
           state
           | current: Map.put(state.current, decision.decision_id, current),
             history: Map.update(state.history, decision.decision_id, [decision], &[decision | &1]),
-            audit_history: Map.update(state.audit_history, decision.decision_id, [event], &(&1 ++ [event]))
+            audit_history: Map.update(state.audit_history, decision.decision_id, [event], &(&1 ++ [event])),
+            recent_audit: append_recent_audit(state.recent_audit, event)
         }
         |> repair_projection()
 
@@ -1248,7 +1263,8 @@ defmodule Aiur.DecisionStore do
       next_state = %{
         state
         | current: Map.put(state.current, decision.decision_id, updated),
-          audit_history: Map.update(state.audit_history, decision.decision_id, [event], &(&1 ++ [event]))
+          audit_history: Map.update(state.audit_history, decision.decision_id, [event], &(&1 ++ [event])),
+          recent_audit: append_recent_audit(state.recent_audit, event)
       }
 
       {:ok, next_state, updated, event}
@@ -2494,6 +2510,14 @@ defmodule Aiur.DecisionStore do
   defp reverse_histories(histories) do
     Map.new(histories, fn {decision_id, history} -> {decision_id, Enum.reverse(history)} end)
   end
+
+  defp append_recent_audit(records, record) do
+    records
+    |> Kernel.++([record])
+    |> Enum.take(-@recent_audit_limit)
+  end
+
+  defp audit_decision_id(%{decision_id: decision_id}), do: decision_id
 
   defp legacy_question_version_limit_reached?(decision, state) do
     decision.version >= state.legacy_question_version_limit

@@ -41,7 +41,7 @@ defmodule Aiur.DecisionHistory do
   @spec list(keyword()) :: [map()]
   def list(opts \\ []) when is_list(opts) do
     server = Keyword.get(opts, :server, DecisionStore)
-    history_fun = Keyword.get(opts, :history_fun, fn -> DecisionStore.all_audit_history(server) end)
+    history_fun = Keyword.get(opts, :history_fun, fn -> DecisionStore.recent_audit_history(server) end)
 
     history_fun.()
     |> from_histories(opts)

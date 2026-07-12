@@ -36,6 +36,22 @@ defmodule Aiur.DecisionStoreTest do
     pid
   end
 
+  test "recent audit reads stay bounded with 10k stored decisions", %{dir: dir} do
+    pid = start_store!(dir)
+    records = Enum.map(1..10_000, &%{decision_id: "dec-#{&1}"})
+
+    :sys.replace_state(pid, fn state ->
+      %{state | audit_history: Map.new(records, &{&1.decision_id, [&1]}), recent_audit: Enum.take(records, -50)}
+    end)
+
+    histories = DecisionStore.recent_audit_history(pid)
+
+    assert map_size(histories) == 50
+    assert Map.has_key?(histories, "dec-9951")
+    assert Map.has_key?(histories, "dec-10000")
+    assert map_size(:sys.get_state(pid).audit_history) == 10_000
+  end
+
   defp request(pid, payload, opts \\ []) do
     DecisionStore.request(payload, Keyword.merge([ticket: @ticket, source: @source], opts), pid)
   end

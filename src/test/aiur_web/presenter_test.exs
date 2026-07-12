@@ -215,6 +215,22 @@ defmodule AiurWeb.PresenterTest do
     assert Enum.map(payload.recent_merges.entries, & &1.number) == Enum.to_list(1..50)
   end
 
+  test "the decision history projection stays bounded" do
+    decisions = Enum.map(1..10_000, &%{decision_id: "dec-#{&1}"})
+
+    payload =
+      Presenter.state_payload(Module.concat(__MODULE__, :MissingBoundedDecisionOrchestrator), 5,
+        decision_history_fun: fn -> decisions end,
+        recent_merge_snapshot_fun: fn ->
+          %{merges: [], health: :writable, reconciliation: %{status: :complete, partial?: false, pages_fetched: 1}}
+        end,
+        telemetry_file_fun: fn -> "/definitely/missing/telemetry.ndjson" end
+      )
+
+    assert length(payload.decision_history.entries) == 50
+    assert Enum.map(payload.decision_history.entries, & &1.decision_id) == Enum.map(1..50, &"dec-#{&1}")
+  end
+
   defp merged_event do
     %{
       "id" => "presenter-merge",
