@@ -23,14 +23,27 @@ defmodule Aiur.DecisionHistory do
     "agent" => :ticket_agent,
     "system" => :system
   }
+  @change_kinds %{
+    "requested" => :requested,
+    "enriched" => :enriched,
+    "answered" => :answered,
+    "revised" => :revised,
+    "superseded" => :superseded,
+    "acknowledged" => :acknowledged,
+    "resolved" => :resolved,
+    "revision_recorded" => :revised,
+    "revision_dispatched" => :revised,
+    "revision_no_longer_applicable" => :revised,
+    "follow_up_required" => :follow_up_required,
+    "follow_up_handled" => :follow_up_handled
+  }
 
   @spec list(keyword()) :: [map()]
   def list(opts \\ []) when is_list(opts) do
-    store = Keyword.get(opts, :store, DecisionStore)
-    server = Keyword.get(opts, :server, store)
+    server = Keyword.get(opts, :server, DecisionStore)
+    history_fun = Keyword.get(opts, :history_fun, fn -> DecisionStore.all_history(server) end)
 
-    store
-    |> apply(:all_history, [server])
+    history_fun.()
     |> from_histories(opts)
   end
 
@@ -136,21 +149,7 @@ defmodule Aiur.DecisionHistory do
   defp normalize_change_kind(kind) when is_atom(kind), do: kind
 
   defp normalize_change_kind(kind) when is_binary(kind) do
-    case String.downcase(kind) do
-      "requested" -> :requested
-      "enriched" -> :enriched
-      "answered" -> :answered
-      "revised" -> :revised
-      "superseded" -> :superseded
-      "acknowledged" -> :acknowledged
-      "resolved" -> :resolved
-      "revision_recorded" -> :revised
-      "revision_dispatched" -> :revised
-      "revision_no_longer_applicable" -> :revised
-      "follow_up_required" -> :follow_up_required
-      "follow_up_handled" -> :follow_up_handled
-      _other -> :unknown
-    end
+    Map.get(@change_kinds, String.downcase(kind), :unknown)
   end
 
   defp normalize_change_kind(_kind), do: :unknown
