@@ -389,6 +389,8 @@ defmodule Aiur.DecisionProjection do
     %{
       action_id: event.data.action_id,
       actor: event.data.actor,
+      source: event.data.source,
+      detail: event.data.detail,
       occurred_at: event.occurred_at,
       event_id: event.event_id,
       run_id: event.run_id
@@ -467,6 +469,8 @@ defmodule Aiur.DecisionProjection do
     %{
       "action_id" => fact.action_id,
       "actor" => %{"kind" => Atom.to_string(fact.actor.kind), "id" => fact.actor.id},
+      "source" => stringify_keys(fact.source),
+      "detail" => fact.detail,
       "occurred_at" => DateTime.to_iso8601(fact.occurred_at),
       "event_id" => fact.event_id,
       "run_id" => fact.run_id

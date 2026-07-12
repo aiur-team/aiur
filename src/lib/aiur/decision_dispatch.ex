@@ -57,6 +57,7 @@ defmodule Aiur.DecisionDispatch do
     Decision: #{decision.decision_id}
     Request version: #{answer.decision_version}
     Action: #{answer.action_id}
+    Answered by: #{answer.actor.kind}:#{answer.actor.id || "unknown"}
     Question: #{decision.question}
     """
 

@@ -99,6 +99,14 @@ defmodule Aiur.DecisionStore do
     :exit, _reason -> :ok
   end
 
+  @doc "Durably record an exact target-agent acknowledgement or resolution."
+  @spec agent_lifecycle(:acknowledged | :resolved, map(), keyword(), GenServer.server()) ::
+          {:ok, map()} | {:error, term()}
+  def agent_lifecycle(type, payload, opts, server \\ __MODULE__)
+      when type in [:acknowledged, :resolved] and is_map(payload) and is_list(opts) do
+    GenServer.call(server, {:agent_lifecycle, type, payload, opts}, @request_timeout)
+  end
+
   @spec get(String.t(), GenServer.server()) :: {:ok, Decision.t()} | {:error, :not_found}
   def get(decision_id, server \\ __MODULE__) when is_binary(decision_id) do
     GenServer.call(server, {:get, decision_id})
@@ -295,6 +303,15 @@ defmodule Aiur.DecisionStore do
 
   def handle_call({:transport_transition, type, item, reason}, _from, state) do
     {reply, next_state} = apply_transport_transition(state, type, item, reason)
+    {:reply, reply, next_state}
+  end
+
+  def handle_call({:agent_lifecycle, _type, _payload, _opts}, _from, %{writable?: false} = state) do
+    {:reply, {:error, {:store_unavailable, state.health}}, state}
+  end
+
+  def handle_call({:agent_lifecycle, type, payload, opts}, _from, state) do
+    {reply, next_state} = apply_agent_lifecycle(state, type, payload, opts)
     {:reply, reply, next_state}
   end
 
@@ -611,6 +628,122 @@ defmodule Aiur.DecisionStore do
   defp lifecycle_slug(:acknowledged), do: "acknowledged"
   defp lifecycle_slug(:resolved), do: "resolved"
 
+  defp apply_agent_lifecycle(state, type, payload, opts) do
+    with {:ok, context} <- normalize_agent_lifecycle(type, payload, opts),
+         {:ok, decision} <- fetch_decision(state, context.decision_id),
+         :ok <- validate_agent_lifecycle_target(decision, context),
+         {:ok, outcome} <- evaluate_agent_lifecycle(decision, type, context.data) do
+      persist_or_replay_agent_lifecycle(state, decision, type, context.data, outcome)
+    else
+      {:error, reason} -> {{:error, reason}, state}
+    end
+  end
+
+  defp normalize_agent_lifecycle(type, payload, opts) do
+    decision_id = payload_value(payload, :decision_id)
+    action_id = payload_value(payload, :action_id)
+    expected_version = payload_value(payload, :expected_version)
+    detail = payload_value(payload, :detail)
+    ticket_identifier = Keyword.get(opts, :ticket_identifier)
+    actor = Keyword.get(opts, :actor)
+    source = Keyword.get(opts, :source, %{})
+
+    with true <- (is_binary(decision_id) and decision_id != "") or {:error, :invalid_decision_id},
+         true <- (is_binary(ticket_identifier) and ticket_identifier != "") or {:error, :invalid_ticket},
+         true <- is_map(actor) or {:error, :invalid_actor},
+         {:ok, candidate} <-
+           DecisionEvent.new(type, decision_id, expected_version, %{action_id: action_id, actor: actor, source: source, detail: detail},
+             event_id: "lifecycle-validation",
+             run_id: "lifecycle-validation"
+           ),
+         true <- candidate.data.actor.kind == :agent or {:error, :invalid_actor} do
+      {:ok,
+       %{
+         decision_id: decision_id,
+         expected_version: expected_version,
+         ticket_identifier: ticket_identifier,
+         data: candidate.data
+       }}
+    else
+      false -> {:error, :invalid_lifecycle_payload}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp payload_value(payload, key), do: Map.get(payload, key, Map.get(payload, Atom.to_string(key)))
+
+  defp validate_agent_lifecycle_target(decision, context) do
+    cond do
+      decision.ticket.identifier != context.ticket_identifier ->
+        {:error, {:conflict, {:ticket_mismatch, context.ticket_identifier, decision.ticket.identifier}}}
+
+      is_nil(decision.answer) ->
+        {:error, {:invalid_transition, :answer_missing}}
+
+      decision.answer.action_id != context.data.action_id ->
+        {:error, {:conflict, {:action_mismatch, context.data.action_id, decision.answer.action_id}}}
+
+      decision.answer.decision_version != context.expected_version ->
+        {:error, {:conflict, {:stale_version, context.expected_version, decision.answer.decision_version}}}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp evaluate_agent_lifecycle(decision, :acknowledged, data) do
+    case decision.acknowledgement do
+      nil -> if delivered_once?(decision), do: {:ok, :accept}, else: {:error, {:invalid_transition, :not_delivered}}
+      fact -> compare_lifecycle_replay(fact, data, :already_acknowledged)
+    end
+  end
+
+  defp evaluate_agent_lifecycle(decision, :resolved, data) do
+    cond do
+      is_nil(decision.acknowledgement) -> {:error, {:invalid_transition, :not_acknowledged}}
+      is_nil(decision.resolution) -> {:ok, :accept}
+      true -> compare_lifecycle_replay(decision.resolution, data, :already_resolved)
+    end
+  end
+
+  defp delivered_once?(decision), do: Enum.any?(decision.dispatch_attempts, &(not is_nil(&1.delivered_at)))
+
+  defp compare_lifecycle_replay(fact, data, conflict) do
+    if fact.action_id == data.action_id and fact.actor == data.actor and fact.detail == data.detail do
+      {:ok, :duplicate}
+    else
+      {:error, {:conflict, {conflict, fact.action_id}}}
+    end
+  end
+
+  defp persist_or_replay_agent_lifecycle(state, decision, type, _data, :duplicate) do
+    result = agent_lifecycle_result(:duplicate, decision, type)
+    {{:ok, result}, state}
+  end
+
+  defp persist_or_replay_agent_lifecycle(state, decision, type, data, :accept) do
+    case build_and_persist_event(type, decision, data, DateTime.utc_now(), state) do
+      {:ok, next_state, updated} ->
+        next_state = project_delivery_attention(next_state, decision, updated, type)
+        {{:ok, agent_lifecycle_result(:accepted, updated, type)}, next_state}
+
+      {:error, reason} ->
+        {{:error, reason}, state}
+    end
+  end
+
+  defp agent_lifecycle_result(status, decision, type) do
+    %{
+      status: status,
+      lifecycle: type,
+      decision_id: decision.decision_id,
+      version: decision.version,
+      answered_version: decision.answer.decision_version,
+      action_id: decision.answer.action_id,
+      decision_status: decision.decision_status
+    }
+  end
+
   defp apply_transport_transition(state, type, item, reason) do
     case correlated_transport_context(state, item) do
       {:ok, decision, attempt, context} ->
@@ -731,7 +864,7 @@ defmodule Aiur.DecisionStore do
   end
 
   defp project_delivery_attention(state, prior, updated, type)
-       when type in [:dispatch_queued, :restored, :delivered] do
+       when type in [:dispatch_queued, :restored, :delivered, :acknowledged] do
     if prior.delivery_status == :failed, do: emit_failure_resolution(updated)
     state
   end

@@ -567,6 +567,124 @@ defmodule Aiur.DecisionStoreTest do
       _restored = wait_for_decision(pid2, decision.decision_id, &(&1.delivery_status == :queued))
       assert AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true) == []
     end
+
+    test "target agent explicitly acknowledges and resolves with duplicate suppression", %{dir: dir} do
+      parent = self()
+
+      dispatcher = fn _decision, opts ->
+        send(parent, {:lifecycle_attempt, opts[:attempt_id]})
+        {:ok, %{status: :accepted, item: %{id: 93}}}
+      end
+
+      pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0)
+      assert {:ok, %{decision: decision}} = request(pid, answerable_request("answer-lifecycle"))
+      answer_payload = %{"idempotency_key" => "lifecycle-1", "expected_version" => 1, "option_id" => "ship"}
+      assert {:ok, %{action: action}} = answer(pid, decision.decision_id, answer_payload)
+      assert_receive {:lifecycle_attempt, attempt_id}, 1_000
+      _queued = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :queued))
+      item = correlated_queue_item(decision, action, attempt_id, 93)
+      assert {:ok, :accepted} = DecisionStore.record_delivery(item, pid)
+
+      :ok = Exchange.subscribe("ticket.979.agent.decision.acknowledged")
+      :ok = Exchange.subscribe("ticket.979.agent.decision.resolved")
+
+      lifecycle_payload = %{
+        "decision_id" => decision.decision_id,
+        "action_id" => action.action_id,
+        "expected_version" => 1,
+        "detail" => "Observed and applying the answer"
+      }
+
+      lifecycle_opts = [
+        ticket_identifier: "979",
+        actor: %{kind: :agent, id: "ticket-agent"},
+        source: %{agent_id: "codex", session_id: "session-1", invocation_id: "call-1"}
+      ]
+
+      assert {:ok, %{status: :accepted, decision_status: :acknowledged}} =
+               DecisionStore.agent_lifecycle(:acknowledged, lifecycle_payload, lifecycle_opts, pid)
+
+      assert_receive {:event, %{topic: "ticket.979.agent.decision.acknowledged"}}, 500
+
+      assert {:ok, %{status: :duplicate}} =
+               DecisionStore.agent_lifecycle(:acknowledged, lifecycle_payload, lifecycle_opts, pid)
+
+      refute_receive {:event, %{topic: "ticket.979.agent.decision.acknowledged"}}, 100
+
+      reconnected_opts =
+        Keyword.put(lifecycle_opts, :source, %{
+          agent_id: "codex",
+          session_id: "session-2",
+          invocation_id: "call-2"
+        })
+
+      assert {:ok, %{status: :duplicate}} =
+               DecisionStore.agent_lifecycle(:acknowledged, lifecycle_payload, reconnected_opts, pid)
+
+      conflicting = Map.put(lifecycle_payload, "detail", "Different acknowledgement")
+
+      assert {:error, {:conflict, {:already_acknowledged, action_id}}} =
+               DecisionStore.agent_lifecycle(:acknowledged, conflicting, lifecycle_opts, pid)
+
+      assert action_id == action.action_id
+
+      resolved_payload = Map.put(lifecycle_payload, "detail", "Applied successfully")
+
+      assert {:ok, %{status: :accepted, decision_status: :resolved}} =
+               DecisionStore.agent_lifecycle(:resolved, resolved_payload, lifecycle_opts, pid)
+
+      assert_receive {:event, %{topic: "ticket.979.agent.decision.resolved"}}, 500
+      assert {:ok, current} = DecisionStore.get(decision.decision_id, pid)
+      assert current.acknowledgement.detail == "Observed and applying the answer"
+      assert current.acknowledgement.source.session_id == "session-1"
+      assert current.resolution.detail == "Applied successfully"
+    end
+
+    test "agent lifecycle rejects wrong correlation and illegal ordering without append", %{dir: dir} do
+      parent = self()
+
+      dispatcher = fn _decision, opts ->
+        send(parent, {:invalid_lifecycle_attempt, opts[:attempt_id]})
+        {:ok, %{status: :accepted, item: %{id: 94}}}
+      end
+
+      pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0)
+      assert {:ok, %{decision: decision}} = request(pid, answerable_request("answer-lifecycle-invalid"))
+      answer_payload = %{"idempotency_key" => "lifecycle-2", "expected_version" => 1, "option_id" => "ship"}
+      assert {:ok, %{action: action}} = answer(pid, decision.decision_id, answer_payload)
+      assert_receive {:invalid_lifecycle_attempt, attempt_id}, 1_000
+      _queued = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :queued))
+
+      payload = %{"decision_id" => decision.decision_id, "action_id" => action.action_id, "expected_version" => 1}
+      opts = [ticket_identifier: "979", actor: %{kind: :agent, id: "agent-session-2"}]
+
+      assert {:error, {:invalid_transition, :not_delivered}} =
+               DecisionStore.agent_lifecycle(:acknowledged, payload, opts, pid)
+
+      assert {:error, {:invalid_transition, :not_acknowledged}} =
+               DecisionStore.agent_lifecycle(:resolved, payload, opts, pid)
+
+      assert {:error, {:conflict, {:ticket_mismatch, "980", "979"}}} =
+               DecisionStore.agent_lifecycle(:acknowledged, payload, Keyword.put(opts, :ticket_identifier, "980"), pid)
+
+      wrong_action = Map.put(payload, "action_id", "act_wrong")
+
+      assert {:error, {:conflict, {:action_mismatch, "act_wrong", _current}}} =
+               DecisionStore.agent_lifecycle(:acknowledged, wrong_action, opts, pid)
+
+      stale = Map.put(payload, "expected_version", 2)
+
+      assert {:error, {:conflict, {:stale_version, 2, 1}}} =
+               DecisionStore.agent_lifecycle(:acknowledged, stale, opts, pid)
+
+      item = correlated_queue_item(decision, action, attempt_id, 94)
+      assert {:ok, :accepted} = DecisionStore.record_delivery(item, pid)
+      assert {:ok, %{status: :accepted}} = DecisionStore.agent_lifecycle(:acknowledged, payload, opts, pid)
+
+      assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, pid)
+      assert Enum.count(audit, &(audit_type(&1) == :acknowledged)) == 1
+      assert Enum.count(audit, &(audit_type(&1) == :resolved)) == 0
+    end
   end
 
   describe "corruption" do

@@ -57,6 +57,7 @@ defmodule Aiur.DecisionDispatchTest do
     assert payload.correlation.attempt_id == "attempt-1"
     assert payload.body =~ "Selected option `ship`: Ship it"
     assert payload.body =~ "All checks are green."
+    assert payload.body =~ "Answered by: operator:operator-1"
     assert payload.body =~ "decision.acknowledged"
     assert payload.body =~ "decision.resolved"
   end

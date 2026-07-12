@@ -13,6 +13,7 @@ defmodule Aiur.DecisionEvent do
   @schema_version 1
   @identity_max 256
   @reason_max 200
+  @detail_max 2_000
   @types [
     :requested,
     :answer_recorded,
@@ -189,8 +190,10 @@ defmodule Aiur.DecisionEvent do
 
   defp normalize_data(type, raw, _decision_id, _version) when type in @actor_types and is_map(raw) do
     with {:ok, action_id} <- map_required_string(raw, :action_id, @identity_max),
-         {:ok, actor} <- normalize_actor(get(raw, :actor)) do
-      {:ok, %{action_id: action_id, actor: actor}}
+         {:ok, actor} <- normalize_actor(get(raw, :actor)),
+         {:ok, source} <- normalize_lifecycle_source(get(raw, :source)),
+         {:ok, detail} <- bounded_optional(get(raw, :detail), @detail_max, :detail) do
+      {:ok, %{action_id: action_id, actor: actor, source: source, detail: detail}}
     end
   end
 
@@ -210,6 +213,18 @@ defmodule Aiur.DecisionEvent do
   end
 
   defp normalize_actor(_other), do: {:error, {:actor, :invalid}}
+
+  defp normalize_lifecycle_source(nil), do: normalize_lifecycle_source(%{})
+
+  defp normalize_lifecycle_source(source) when is_map(source) do
+    with {:ok, agent_id} <- bounded_optional(get(source, :agent_id), @identity_max, :source_agent_id),
+         {:ok, session_id} <- bounded_optional(get(source, :session_id), @identity_max, :source_session_id),
+         {:ok, invocation_id} <- bounded_optional(get(source, :invocation_id), @identity_max, :source_invocation_id) do
+      {:ok, %{agent_id: agent_id, session_id: session_id, invocation_id: invocation_id}}
+    end
+  end
+
+  defp normalize_lifecycle_source(_other), do: {:error, {:source, :invalid}}
 
   defp decode_actor_kind(kind) when kind in [:operator, :agent, :supervisor, :system], do: {:ok, kind}
 
@@ -252,7 +267,13 @@ defmodule Aiur.DecisionEvent do
   defp data_to_json_safe(type, data) when type in @actor_types do
     %{
       "action_id" => data.action_id,
-      "actor" => %{"kind" => Atom.to_string(data.actor.kind), "id" => data.actor.id}
+      "actor" => %{"kind" => Atom.to_string(data.actor.kind), "id" => data.actor.id},
+      "source" => %{
+        "agent_id" => data.source.agent_id,
+        "session_id" => data.source.session_id,
+        "invocation_id" => data.source.invocation_id
+      },
+      "detail" => data.detail
     }
   end
 

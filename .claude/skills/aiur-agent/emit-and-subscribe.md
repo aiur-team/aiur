@@ -27,6 +27,30 @@ Or, on failure:
 { "error": { "message": "`emit_event.name` must match the agent vocabulary: ...", "examples": [...] } }
 ```
 
+### Acknowledging a delivered Decision answer
+
+A durable answer message includes a Decision ID, the request version it
+answered, and an action ID. Treat the message as replayable and do not apply it
+twice. Once observed, acknowledge that exact action:
+
+```jsonc
+{
+  "name": "decision.acknowledged",
+  "message": "Applying the selected option",
+  "payload": {
+    "decision_id": "dec_abc123",
+    "action_id": "act_def456",
+    "expected_version": 2
+  }
+}
+```
+
+After the governed work is complete, emit `decision.resolved` with the same
+three fields. These two exact names go through the durable DecisionStore, not
+the generic event publisher. An exact retry returns `duplicate`; a wrong
+ticket, action, or version is rejected. Queue delivery or turn completion does
+not acknowledge a Decision for you.
+
 ## `aiur_subscribe(topic_pattern)`
 
 Persistent — the subscription survives BEAM restarts. Use AMQP topic-exchange wildcards:

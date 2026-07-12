@@ -36,6 +36,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   @spec build(Issue.t(), Path.t() | nil, String.t() | nil, map(), keyword()) :: (String.t(), map() -> map())
   def build(issue, workspace, worker_host, app_session \\ %{}, opts \\ []) do
     decision_requester = Keyword.get(opts, :decision_requester, &DecisionStore.request/2)
+    decision_lifecycle_recorder = Keyword.get(opts, :decision_lifecycle_recorder, &DecisionStore.agent_lifecycle/3)
 
     fn tool, arguments ->
       DynamicTool.execute(
@@ -60,7 +61,17 @@ defmodule Aiur.AgentRunner.ToolExecutor do
           )
         end,
         event_publisher: fn name, message, payload ->
-          emit_agent_event(issue, workspace, worker_host, app_session, decision_requester, name, message, payload)
+          emit_agent_event(
+            issue,
+            workspace,
+            worker_host,
+            app_session,
+            decision_requester,
+            decision_lifecycle_recorder,
+            name,
+            message,
+            payload
+          )
         end,
         subscriber: fn pattern -> subscribe_for_issue(issue, pattern) end,
         unsubscriber: fn pattern -> unsubscribe_for_issue(issue, pattern) end,
@@ -164,11 +175,16 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   # service — everything else keeps the existing generic publish path
   # below unchanged. `Publisher.publish/3` itself also rejects this topic
   # family, so this is the sole production ingress, not just a preference.
-  defp emit_agent_event(issue, _workspace, _worker_host, app_session, decision_requester, "decision.requested", message, payload) do
+  defp emit_agent_event(issue, _workspace, _worker_host, app_session, decision_requester, _lifecycle_recorder, "decision.requested", message, payload) do
     request_decision(issue, app_session, decision_requester, message, payload)
   end
 
-  defp emit_agent_event(issue, workspace, worker_host, _app_session, _decision_requester, name, message, payload) do
+  defp emit_agent_event(issue, _workspace, _worker_host, app_session, _decision_requester, lifecycle_recorder, name, message, payload)
+       when name in ["decision.acknowledged", "decision.resolved"] do
+    record_decision_lifecycle(issue, app_session, lifecycle_recorder, name, message, payload)
+  end
+
+  defp emit_agent_event(issue, workspace, worker_host, _app_session, _decision_requester, _lifecycle_recorder, name, message, payload) do
     identifier = issue_identifier(issue)
 
     topic =
@@ -243,6 +259,60 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   catch
     :exit, reason -> {:error, {:decision_store_exit, reason}}
   end
+
+  defp record_decision_lifecycle(issue, app_session, lifecycle_recorder, name, message, payload) do
+    case issue_identifier(issue) do
+      nil ->
+        {:error, :no_issue_identifier}
+
+      identifier ->
+        type = if name == "decision.acknowledged", do: :acknowledged, else: :resolved
+        lifecycle_payload = Map.put_new(payload, "detail", message)
+        trusted_context = trusted_lifecycle_context(app_session)
+
+        opts = [
+          ticket_identifier: identifier,
+          actor: trusted_context.actor,
+          source: trusted_context.source
+        ]
+
+        case safely_record_lifecycle(lifecycle_recorder, type, lifecycle_payload, opts) do
+          {:ok, result} ->
+            {:ok,
+             result
+             |> Map.take([:decision_id, :version, :answered_version, :action_id, :status, :decision_status])
+             |> Map.new(fn {key, value} -> {Atom.to_string(key), stringify_lifecycle_value(value)} end)}
+
+          {:error, reason} ->
+            {:error, {:decision_lifecycle_rejected, reason}}
+        end
+    end
+  end
+
+  defp safely_record_lifecycle(recorder, type, payload, opts) do
+    recorder.(type, payload, opts)
+  catch
+    :exit, reason -> {:error, {:decision_store_exit, reason}}
+  end
+
+  defp trusted_lifecycle_context(app_session) do
+    %{
+      actor: %{kind: :agent, id: "ticket-agent"},
+      source: %{
+        agent_id: stringify_identity(SessionLifecycle.session_backend(app_session)),
+        session_id: stringify_identity(Map.get(app_session, :thread_id)),
+        invocation_id: stringify_invocation_id(invocation_id())
+      }
+    }
+  end
+
+  defp stringify_identity(nil), do: nil
+  defp stringify_identity(value) when is_binary(value), do: value
+  defp stringify_identity(value) when is_atom(value), do: Atom.to_string(value)
+  defp stringify_identity(value), do: stringify_invocation_id(value)
+
+  defp stringify_lifecycle_value(value) when is_atom(value), do: Atom.to_string(value)
+  defp stringify_lifecycle_value(value), do: value
 
   defp trusted_source_id(identifier, app_session, request_payload) do
     material = {
