@@ -1199,7 +1199,6 @@ defmodule Aiur.DecisionStore do
          data: candidate.data
        }}
     else
-      false -> {:error, :invalid_lifecycle_payload}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -1811,14 +1810,8 @@ defmodule Aiur.DecisionStore do
         send(store, {:dispatch_result, decision.decision_id, answer.action_id, attempt_id, result})
       end
 
-      case Task.start(task) do
-        {:ok, _pid} ->
-          %{state | dispatching: MapSet.put(state.dispatching, answer.action_id)}
-
-        {:error, _reason} ->
-          send(self(), {:dispatch_result, decision.decision_id, answer.action_id, attempt_id, {:error, :task_unavailable}})
-          %{state | dispatching: MapSet.put(state.dispatching, answer.action_id)}
-      end
+      {:ok, _pid} = Task.start(task)
+      %{state | dispatching: MapSet.put(state.dispatching, answer.action_id)}
     else
       _other -> state
     end
