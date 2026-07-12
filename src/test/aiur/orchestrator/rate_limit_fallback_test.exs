@@ -10,13 +10,21 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
   describe "decide/3" do
     test "engages when a codex-backed entry pauses on usage_limit_exhausted" do
       entry = %{control: %{status: :paused}, paused_reason: :usage_limit_exhausted}
-      # Forces backend_for/1 to resolve "codex" regardless of the ambient
-      # agent.kind default (Config.inferred_agent_kind/1 falls back to
-      # "claude" for a config with no explicit agent.kind / codex / claude
-      # section, which the test fixture is).
+      issue = %Issue{id: "1", identifier: "repo#1", labels: []}
+
+      assert RateLimitFallback.decide(entry, issue, fallback_backend: "claude", current_backend: "codex") == :engage
+    end
+
+    test "does not engage when the issue already carries an explicit override, even if it resolves to codex" do
+      # override_backend/1 resolves the FIRST model:<backend> label in list
+      # order, so an operator-authored model:codex label appended alongside
+      # our own model:claude would make engage a silent no-op (or make
+      # revert strip the wrong label). Refusing to engage when any explicit
+      # override already exists avoids the ambiguity entirely.
+      entry = %{control: %{status: :paused}, paused_reason: :usage_limit_exhausted}
       issue = %Issue{id: "1", identifier: "repo#1", labels: ["model:codex"]}
 
-      assert RateLimitFallback.decide(entry, issue, fallback_backend: "claude") == :engage
+      assert RateLimitFallback.decide(entry, issue, fallback_backend: "claude", current_backend: "codex") == :noop
     end
 
     test "does nothing when the fallback backend is disabled" do
@@ -55,6 +63,18 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
                fallback_backend: "claude",
                state: %{"backends" => %{"codex" => %{}}}
              ) == :revert
+    end
+
+    test "does not revert while paused for a reason other than usage_limit_exhausted" do
+      # An operator's own pause (or any other automatic pause) must not be
+      # silently torn down and redispatched just because codex recovered.
+      entry = %{control: %{status: :paused}, paused_reason: :operator_pause}
+      issue = %Issue{id: "1", identifier: "repo#1", labels: ["model:claude", @marker_label]}
+
+      assert RateLimitFallback.decide(entry, issue,
+               fallback_backend: "claude",
+               state: %{"backends" => %{"codex" => %{}}}
+             ) == :noop
     end
 
     test "stays engaged while codex is still limited" do

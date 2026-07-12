@@ -160,17 +160,21 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
   #
   # Public (not just used by promote/demote) so other backend-swap flows —
   # `Aiur.Orchestrator.RateLimitFallback`'s codex<->claude reroute — reuse the
-  # exact same teardown ordering rather than duplicating it.
+  # exact same teardown ordering rather than duplicating it. `reason` is
+  # forwarded to the chat-stream close broadcast so a non-RC caller's
+  # teardown doesn't get logged/reported under a misleading `:remote_control`
+  # cause; it defaults to `:remote_control` so the two existing callers here
+  # are unaffected.
   @doc false
-  @spec teardown_for_redispatch(State.t(), map()) :: State.t()
-  def teardown_for_redispatch(state, running_entry) do
+  @spec teardown_for_redispatch(State.t(), map(), atom()) :: State.t()
+  def teardown_for_redispatch(state, running_entry, reason \\ :remote_control) do
     issue_id = get_in(running_entry, [:issue, Access.key(:id)])
     identifier = Map.get(running_entry, :identifier)
     pid = Map.get(running_entry, :pid)
     ref = Map.get(running_entry, :ref)
 
     Orchestrator.kill_repl_session(running_entry)
-    Orchestrator.close_active_chat_streams(identifier, :remote_control)
+    Orchestrator.close_active_chat_streams(identifier, reason)
     if is_reference(ref), do: Process.demonitor(ref, [:flush])
     if is_pid(pid), do: Orchestrator.terminate_task(pid)
 
