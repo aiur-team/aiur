@@ -1,6 +1,6 @@
 # OCC — brainstorm grounding + ticket decomposition
 
-## Grounding (verified against origin/v2)
+## Grounding (verified against origin/main)
 OCC **extends existing plumbing** rather than inventing parallel systems. Confirmed present:
 - `AiurWeb.DashboardLive` (`src/lib/aiur_web/live/dashboard_live.ex`) + `AiurWeb.Presenter` — the live dashboard + its data (running agents, retry, logs, writable chat/pause controls).
 - `Aiur.DecisionAttention` — turns unanswered agent questions into durable, repeating alerts.

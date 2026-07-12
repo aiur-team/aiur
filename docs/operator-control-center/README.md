@@ -1,6 +1,6 @@
 # Operator Control Center — planning branch
 
-Branch `occ-planning` (off `origin/v2`). Docs-only; no code yet. This is the planning home for
+Branch `occ-planning` (off `origin/main`). Docs-only; no code yet. This is the planning home for
 the **Operator Control Center (OCC)** — extending Aiur's existing LiveView dashboard into a
 decision-inbox + fleet-state + history control surface for a human operator overseeing the fleet.
 
@@ -26,4 +26,3 @@ decision-inbox + fleet-state + history control surface for a human operator over
 5. ⏳ Export the ticket docs to GitHub issues (codex sol/max), UI ticket blocked on the mock URL.
 
 Nothing is dispatched to the fleet until the ticket docs are written and reviewed.
-
