@@ -970,7 +970,8 @@ defmodule Aiur.DecisionStore do
           state
           | current: Map.put(state.current, current.decision_id, updated),
             history: Map.update(state.history, current.decision_id, [event.data.decision], &[event.data.decision | &1]),
-            audit_history: Map.update(state.audit_history, current.decision_id, [event], &(&1 ++ [event]))
+            audit_history: Map.update(state.audit_history, current.decision_id, [event], &(&1 ++ [event])),
+            recent_audit: remember_recent_audit(state.recent_audit, event)
         }
         |> repair_projection()
 
