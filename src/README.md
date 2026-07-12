@@ -162,6 +162,7 @@ on your `PATH`:
 | `aiurdev status` | Show active agents and their running/paused/idle state |
 | `aiurdev pause <id...>` / `pause --all` | Cooperatively pause agents by issue ID |
 | `aiurdev resume <id...>` / `resume --all` | Resume paused agents by issue ID |
+| `aiurdev --todo <id...> [--only]` | Queue GitHub tickets; with `--only`, dequeue all other pending tickets |
 | `aiurdev init [--force]` | Scaffold `.aiurconfig` in the current repo |
 | `aiurdev build` | Force-rebuild the local release (dev shim only) |
 
@@ -170,6 +171,13 @@ and `stop`) reuse the existing dev release when it is complete, even if sources
 are newer. They control the already-running node, so a stale-source rebuild would
 not update that session. Run/start paths and explicit `aiurdev build` still
 rebuild when needed.
+
+`--todo` is a standalone GitHub operation and does not require a running Aiur
+session. It derives labels from the current config. `--only` removes the queue
+label from other pending tickets but leaves in-progress work untouched.
+Concurrent `--only` invocations are not coordinated across processes; running
+two overlapping `aiurdev --todo ... --only` commands can drop each other's
+tickets, so avoid running them at the same time.
 
 If a control command times out while the daemon is still live, the host may be
 scheduler-saturated. Run `aiurdev stop` to interrupt that session and its workers,

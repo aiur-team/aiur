@@ -111,10 +111,16 @@ defmodule Aiur.Events.SubscriptionStore do
   """
   @spec stop(String.t()) :: :ok
   def stop(identifier) when is_binary(identifier) do
-    case Registry.lookup(@registry, identifier) do
+    case registry_lookup(identifier) do
       [{pid, _}] -> GenServer.stop(pid, :normal)
       [] -> :ok
     end
+  end
+
+  defp registry_lookup(identifier) do
+    Registry.lookup(@registry, identifier)
+  rescue
+    ArgumentError -> []
   end
 
   @doc """

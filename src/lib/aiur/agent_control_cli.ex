@@ -3,6 +3,9 @@ defmodule Aiur.AgentControlCLI do
 
   alias Aiur.{AgentChat, AlertFeed, BuildGate, Config, Orchestrator, PauseContainment}
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
+  alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.GitHub.StatePolicy
+  alias Aiur.GitHub.Tracker, as: GitHubTracker
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
 
   @exit_marker "__AIUR_CONTROL_EXIT__:"
@@ -111,6 +114,236 @@ defmodule Aiur.AgentControlCLI do
     IO.puts(:stderr, "aiur: max-agents must be a positive integer")
     exit_marker(1)
   end
+
+  @spec todo([String.t()], keyword()) :: 0 | 1
+  def todo(issue_ids, opts \\ []) when is_list(issue_ids) do
+    deps = Keyword.get(opts, :deps, todo_runtime_deps())
+    only? = Keyword.get(opts, :only, false)
+
+    result =
+      with :ok <- deps.ensure_started.(),
+           {:ok, config} <- deps.load_config.() do
+        issue_ids
+        |> normalize_todo_ids()
+        |> queue_todo_issues(config, deps)
+        |> maybe_clear_other_todos(only?, config, deps)
+      else
+        {:error, reason} ->
+          IO.puts(:stderr, "aiur: unable to queue tickets (#{format_reason(reason)})")
+          todo_result(failures: 1)
+      end
+
+    IO.puts("queued #{result.queued} ticket(s); cleared #{result.cleared} other(s)")
+    if result.failures == 0, do: 0, else: 1
+  end
+
+  defp normalize_todo_ids(issue_ids) do
+    issue_ids
+    |> Enum.map(&(to_string(&1) |> String.trim()))
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  defp queue_todo_issues(issue_ids, config, deps) do
+    Enum.reduce(issue_ids, todo_result(), &queue_todo_issue(&1, &2, config, deps))
+  end
+
+  defp queue_todo_issue(issue_id, result, config, deps) do
+    case deps.fetch_issue.(issue_id) do
+      {:ok, [issue | _]} -> queue_fetched_todo_issue(issue_id, issue, result, config, deps)
+      {:ok, []} -> todo_failure(result, issue_id, "not found")
+      {:error, reason} -> todo_failure(result, issue_id, format_reason(reason))
+    end
+  end
+
+  defp queue_fetched_todo_issue(issue_id, issue, result, config, deps) do
+    labels = normalized_issue_labels(issue)
+    queue_label = normalized_label(config.queue_label)
+    midflight_labels = Enum.filter(config.active_labels, &(&1 != queue_label and MapSet.member?(labels, &1)))
+
+    cond do
+      terminal_todo_issue?(issue, labels, config) ->
+        todo_failure(result, issue_id, "terminal ticket")
+
+      midflight_labels != [] ->
+        IO.puts("• ##{issue_id} kept #{Enum.join(midflight_labels, ", ")}")
+        select_todo_issue(result, issue_id)
+
+      MapSet.member?(labels, queue_label) ->
+        IO.puts("✓ ##{issue_id} already #{config.queue_label}")
+        result |> select_todo_issue(issue_id) |> Map.update!(:queued, &(&1 + 1))
+
+      true ->
+        add_todo_label(issue_id, result, config, deps)
+    end
+  end
+
+  defp add_todo_label(issue_id, result, config, deps) do
+    case deps.add_label.(issue_id, config.queue_label) do
+      :ok ->
+        IO.puts("✓ ##{issue_id} → #{config.queue_label}")
+        result |> select_todo_issue(issue_id) |> Map.update!(:queued, &(&1 + 1))
+
+      {:error, reason} ->
+        todo_failure(result, issue_id, "failed to add #{config.queue_label}: #{format_reason(reason)}")
+    end
+  end
+
+  defp select_todo_issue(result, issue_id) do
+    Map.update!(result, :selected, &MapSet.put(&1, issue_id))
+  end
+
+  defp todo_failure(result, issue_id, reason) do
+    IO.puts(:stderr, "✗ ##{issue_id} #{reason}")
+    Map.update!(result, :failures, &(&1 + 1))
+  end
+
+  defp maybe_clear_other_todos(result, false, _config, _deps), do: result
+
+  defp maybe_clear_other_todos(%{failures: failures} = result, true, _config, _deps) when failures > 0 do
+    IO.puts(:stderr, "aiur: --only cleanup skipped because #{failures} requested ticket(s) failed")
+    result
+  end
+
+  defp maybe_clear_other_todos(result, true, config, deps) do
+    case deps.fetch_active.(config.active_states) do
+      {:ok, issues} ->
+        issues
+        |> Enum.filter(&clearable_todo?(&1, result, config))
+        |> clear_other_todos(result, config, deps)
+
+      {:error, reason} ->
+        IO.puts(:stderr, "aiur: failed to enumerate active tickets (#{format_reason(reason)})")
+        Map.update!(result, :failures, &(&1 + 1))
+    end
+  end
+
+  defp clearable_todo?(issue, result, config) do
+    issue_id = todo_issue_id(issue)
+    labels = normalized_issue_labels(issue)
+
+    not MapSet.member?(result.selected, issue_id) and
+      not terminal_todo_issue?(issue, labels, config) and
+      MapSet.member?(labels, normalized_label(config.queue_label))
+  end
+
+  # Bound the blast radius of one `--only` cleanup run and stop hammering the
+  # API once GitHub starts throttling us, rather than issuing throttled
+  # DELETEs across the whole batch and leaving a nondeterministic partial
+  # queue.
+  @max_cleanup_batch 50
+  @max_consecutive_rate_limit_failures 3
+
+  defp clear_other_todos(candidates, result, config, deps) do
+    {batch, skipped} = Enum.split(candidates, @max_cleanup_batch)
+
+    if skipped != [] do
+      IO.puts(
+        :stderr,
+        "aiur: --only cleanup capped at #{@max_cleanup_batch} ticket(s); #{length(skipped)} other ticket(s) left untouched"
+      )
+    end
+
+    {result, _consecutive_rate_limited} =
+      Enum.reduce_while(batch, {result, 0}, &clear_other_todo_step(&1, &2, config, deps))
+
+    result
+  end
+
+  defp clear_other_todo_step(issue, {result, consecutive_rate_limited}, config, deps) do
+    issue_id = todo_issue_id(issue)
+
+    case deps.remove_label.(issue_id, config.queue_label) do
+      :ok ->
+        IO.puts("– ##{issue_id} cleared #{config.queue_label}")
+        {:cont, {Map.update!(result, :cleared, &(&1 + 1)), 0}}
+
+      {:error, {:github, :rate_limited, _detail} = reason} ->
+        IO.puts(:stderr, "✗ ##{issue_id} failed to clear #{config.queue_label}: #{format_reason(reason)}")
+        result = Map.update!(result, :failures, &(&1 + 1))
+        consecutive_rate_limited = consecutive_rate_limited + 1
+
+        if consecutive_rate_limited >= @max_consecutive_rate_limit_failures do
+          IO.puts(
+            :stderr,
+            "aiur: --only cleanup stopped after #{consecutive_rate_limited} consecutive rate-limit failures"
+          )
+
+          {:halt, {result, consecutive_rate_limited}}
+        else
+          {:cont, {result, consecutive_rate_limited}}
+        end
+
+      {:error, reason} ->
+        IO.puts(:stderr, "✗ ##{issue_id} failed to clear #{config.queue_label}: #{format_reason(reason)}")
+        {:cont, {Map.update!(result, :failures, &(&1 + 1)), 0}}
+    end
+  end
+
+  defp normalized_issue_labels(issue) do
+    issue
+    |> Map.get(:labels, [])
+    |> Enum.map(&normalized_label/1)
+    |> Enum.reject(&(&1 == ""))
+    |> MapSet.new()
+  end
+
+  defp terminal_todo_issue?(issue, labels, config) do
+    normalized_tracker_state(Map.get(issue, :state)) == "closed" or
+      Enum.any?(config.terminal_labels, &MapSet.member?(labels, &1))
+  end
+
+  defp todo_issue_id(issue) do
+    to_string(Map.get(issue, :identifier) || Map.get(issue, :id) || "")
+  end
+
+  defp todo_result(overrides \\ []) do
+    Map.merge(%{queued: 0, cleared: 0, failures: 0, selected: MapSet.new()}, Map.new(overrides))
+  end
+
+  defp todo_runtime_deps do
+    %{
+      ensure_started: &ensure_todo_runtime_started/0,
+      load_config: &load_todo_config/0,
+      fetch_issue: fn issue_id -> GitHubTracker.fetch_issue_states_by_ids([issue_id]) end,
+      fetch_active: &GitHubTracker.fetch_issues_by_states/1,
+      add_label: &GitHubTracker.add_label/2,
+      remove_label: &GitHubTracker.remove_label/2
+    }
+  end
+
+  defp ensure_todo_runtime_started do
+    case Application.ensure_all_started(:req) do
+      {:ok, _started} ->
+        _ = GitHubConfig.resolve_token()
+        :ok
+
+      {:error, reason} ->
+        {:error, {:http_client_start_failed, reason}}
+    end
+  end
+
+  defp load_todo_config do
+    with {:ok, settings} <- Config.settings(),
+         :ok <- require_github_tracker(settings),
+         :ok <- GitHubConfig.validate!() do
+      prefix = GitHubConfig.label_prefix()
+
+      {:ok,
+       %{
+         queue_label: StatePolicy.state_label(prefix, "todo"),
+         active_states: settings.tracker.active_states,
+         active_labels: Enum.map(settings.tracker.active_states, &(StatePolicy.state_label(prefix, &1) |> normalized_label())),
+         terminal_labels: Enum.map(settings.tracker.terminal_states, &(StatePolicy.state_label(prefix, &1) |> normalized_label()))
+       }}
+    end
+  end
+
+  defp require_github_tracker(%{tracker: %{kind: "github"}}), do: :ok
+  defp require_github_tracker(_settings), do: {:error, "--todo requires a GitHub tracker"}
+
+  defp normalized_label(label) when is_binary(label), do: label |> String.trim() |> String.downcase()
+  defp normalized_label(_label), do: ""
 
   defp max_agents_status_suffix(%{active: active} = status) do
     paused = Map.get(status, :paused, 0)
