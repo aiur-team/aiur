@@ -198,14 +198,9 @@ defmodule Aiur.Config.Schema.Agent do
       end
     end)
     |> validate_change(:rate_limit_fallback, fn :rate_limit_fallback, backend ->
-      known = Aiur.CodingAgent.known_backends()
-
-      cond do
-        backend == "" -> []
-        backend == "codex" -> [rate_limit_fallback: "cannot be \"codex\" (the fallback source); set \"\" to disable"]
-        backend in known -> []
-        true -> [rate_limit_fallback: "must be a known backend or \"\" to disable; known backends: #{inspect(known)}"]
-      end
+      if backend in ["", "claude"],
+        do: [],
+        else: [rate_limit_fallback: "must be \"claude\" or \"\" to disable"]
     end)
     |> update_change(:complexity_prompts, &AgentValidation.normalize_complexity_prompts/1)
     |> AgentValidation.validate_complexity_prompts(:complexity_prompts)

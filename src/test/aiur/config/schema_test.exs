@@ -20,9 +20,12 @@ defmodule Aiur.Config.SchemaTest do
       assert defaults.agent.rate_limit_fallback == "claude"
     end
 
-    test "accepts a known backend other than codex" do
-      assert {:ok, settings} = Schema.parse(%{"agent" => %{"rate_limit_fallback" => "claude-repl"}})
-      assert settings.agent.rate_limit_fallback == "claude-repl"
+    test "rejects a resumable target that could replace the codex session handle" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"agent" => %{"rate_limit_fallback" => "claude-repl"}})
+
+      assert message =~ "rate_limit_fallback"
+      assert message =~ "must be \"claude\""
     end
 
     test "accepts an empty string to disable" do
@@ -35,7 +38,7 @@ defmodule Aiur.Config.SchemaTest do
                Schema.parse(%{"agent" => %{"rate_limit_fallback" => "codex"}})
 
       assert message =~ "rate_limit_fallback"
-      assert message =~ "the fallback source"
+      assert message =~ "must be \"claude\""
     end
 
     test "rejects an unknown backend" do
@@ -43,7 +46,7 @@ defmodule Aiur.Config.SchemaTest do
                Schema.parse(%{"agent" => %{"rate_limit_fallback" => "bogus"}})
 
       assert message =~ "rate_limit_fallback"
-      assert message =~ "must be a known backend"
+      assert message =~ "must be \"claude\""
     end
   end
 

@@ -89,10 +89,11 @@ defmodule Aiur.Config do
   def switch_model_on_ratelimit, do: settings!().agent.switch_model_on_ratelimit || []
 
   @doc """
-  Backend the automatic codex usage-limit fallback
-  (`Aiur.Orchestrator.RateLimitFallback`) reroutes an already-running codex
-  agent to when it hits `usage_limit_exhausted`, or `nil` when disabled
-  (`agent.rate_limit_fallback: ""`). Default `"claude"`. Unlike
+  The headless Claude backend used by the automatic codex usage-limit fallback
+  (`Aiur.Orchestrator.RateLimitFallback`) when an already-running codex agent
+  hits `usage_limit_exhausted`, or `nil` when disabled
+  (`agent.rate_limit_fallback: ""`). The only enabled value is `"claude"`.
+  Unlike
   `switch_model_on_ratelimit/0` (opt-in, only ever applies to a new claim),
   this is default-on and reroutes a running agent, reverting once
   `Aiur.ModelAvailability` reports codex available again.

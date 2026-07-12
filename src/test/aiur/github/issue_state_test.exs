@@ -228,4 +228,12 @@ defmodule Aiur.GitHub.IssueStateTest do
       assert {:error, _} = IssueState.remove_label("42", "sym:todo", request_fun: request_fun)
     end
   end
+
+  describe "preserved_prefixed_label?/2" do
+    test "preserves automatic fallback markers across workflow state changes" do
+      assert IssueState.preserved_prefixed_label?("sym:rate-limit-fallback", "sym")
+      assert IssueState.preserved_prefixed_label?(" SYM:RATE-LIMIT-FALLBACK ", "sym")
+      refute IssueState.preserved_prefixed_label?("sym:in-progress", "sym")
+    end
+  end
 end
