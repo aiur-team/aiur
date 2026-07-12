@@ -152,18 +152,21 @@ defmodule Aiur.GitHub.IssueDependenciesTest do
   end
 
   describe "unblock/3" do
-    test "happy path: deletes and returns body" do
+    test "happy path: deletes and verifies the blocker is absent" do
       request_fun = fn req ->
         cond do
           String.contains?(req.url, "/issues/80") and not String.contains?(req.url, "dependencies") ->
             {:ok, %{status: 200, headers: [], body: %{"id" => 80_001, "number" => 80}}}
 
           req.method == :delete ->
-            {:ok, %{status: 200, headers: [], body: %{"id" => 80_001}}}
+            {:ok, %{status: 204, headers: [], body: ""}}
+
+          String.contains?(req.url, "/issues/7/dependencies/blocked_by") ->
+            {:ok, %{status: 200, headers: [], body: []}}
         end
       end
 
-      assert {:ok, %{"id" => 80_001}} = IssueDependencies.unblock(7, 80, request_fun: request_fun)
+      assert {:ok, :removed} = IssueDependencies.unblock(7, 80, request_fun: request_fun)
     end
 
     test "404 on DELETE returns :not_present (idempotent)" do
@@ -174,10 +177,49 @@ defmodule Aiur.GitHub.IssueDependenciesTest do
 
           req.method == :delete ->
             {:ok, %{status: 404, headers: [], body: ""}}
+
+          String.contains?(req.url, "/issues/7/dependencies/blocked_by") ->
+            {:ok, %{status: 200, headers: [], body: []}}
         end
       end
 
       assert {:ok, :not_present} = IssueDependencies.unblock(7, 80, request_fun: request_fun)
+    end
+
+    test "does not report removal while the blocker remains after DELETE" do
+      request_fun = fn req ->
+        cond do
+          String.contains?(req.url, "/issues/80") and not String.contains?(req.url, "dependencies") ->
+            {:ok, %{status: 200, headers: [], body: %{"id" => 80_001, "number" => 80}}}
+
+          req.method == :delete ->
+            {:ok, %{status: 204, headers: [], body: ""}}
+
+          String.contains?(req.url, "/issues/7/dependencies/blocked_by") ->
+            {:ok, %{status: 200, headers: [], body: [%{"id" => 80_001, "number" => 80}]}}
+        end
+      end
+
+      assert {:error, :dependency_still_present} =
+               IssueDependencies.unblock(7, 80, request_fun: request_fun)
+    end
+
+    test "distinguishes a malformed DELETE 404 when the blocker remains" do
+      request_fun = fn req ->
+        cond do
+          String.contains?(req.url, "/issues/80") and not String.contains?(req.url, "dependencies") ->
+            {:ok, %{status: 200, headers: [], body: %{"id" => 80_001, "number" => 80}}}
+
+          req.method == :delete ->
+            {:ok, %{status: 404, headers: [], body: ""}}
+
+          String.contains?(req.url, "/issues/7/dependencies/blocked_by") ->
+            {:ok, %{status: 200, headers: [], body: [%{"id" => 80_001, "number" => 80}]}}
+        end
+      end
+
+      assert {:error, :dependency_still_present} =
+               IssueDependencies.unblock(7, 80, request_fun: request_fun)
     end
 
     test "rate-limited DELETE 403 stays rate_limited" do

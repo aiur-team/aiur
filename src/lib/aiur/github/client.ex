@@ -81,7 +81,7 @@ defmodule Aiur.GitHub.Client do
     do: DependenciesApi.add_dependency(blocked_issue_number, blocker_issue_id, opts)
 
   @spec remove_dependency(integer() | String.t(), integer(), keyword()) ::
-          {:ok, map()} | {:error, term()}
+          {:ok, :removed} | {:error, term()}
   def remove_dependency(blocked_issue_number, blocker_issue_id, opts \\ []),
     do: DependenciesApi.remove_dependency(blocked_issue_number, blocker_issue_id, opts)
 
