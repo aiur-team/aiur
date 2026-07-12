@@ -84,6 +84,16 @@ defmodule Aiur.DecisionRevisionTest do
                {:error, {:revision_invalid, {:answer, :invalid}}}
     end
 
+    test "rejects answer provenance that differs from trusted context" do
+      answer_normalizer = fn _payload, opts ->
+        answer = normalized_answer(opts) |> put_in([:actor, :id], "forged-operator")
+        {:ok, answer}
+      end
+
+      assert normalize(valid_payload(), answer_normalizer: answer_normalizer) ==
+               {:error, {:revision_invalid, {:answer, :identity_mismatch}}}
+    end
+
     test "exact retries have the same content hash even when acceptance time changes" do
       assert {:ok, first} = normalize(valid_payload())
 
@@ -92,6 +102,19 @@ defmodule Aiur.DecisionRevisionTest do
 
       assert first.recorded_at != second.recorded_at
       assert first.content_hash == second.content_hash
+    end
+  end
+
+  describe "follow_up_slug/1" do
+    test "derives one bounded attention identity from the revision action" do
+      assert {:ok, revision} = normalize(valid_payload())
+
+      slug = DecisionRevision.follow_up_slug(revision)
+
+      assert slug == DecisionRevision.follow_up_slug("act_replacement")
+      assert slug != DecisionRevision.follow_up_slug("act_another")
+      assert String.length(slug) <= 64
+      assert Regex.match?(~r/\A[a-z0-9][a-z0-9.-]{0,63}\z/, slug)
     end
   end
 

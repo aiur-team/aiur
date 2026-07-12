@@ -3,8 +3,9 @@
 **Status:** Implemented in ticket #985
 
 **Builds on:**
-[`03-occ-1-decision-contract.md`](./03-occ-1-decision-contract.md), OCC-2's
-attention adapter, and OCC-3's durable answer-delivery contract.
+[`03-occ-1-decision-contract.md`](./03-occ-1-decision-contract.md) and OCC-3's
+durable answer-delivery contract. OCC-2 may project the follow-up attention but
+is not an OCC-8 correctness dependency.
 
 This contract defines what a revision means after an operator or supervising
 agent has already answered a Decision. A revision is a new append-only action,
@@ -17,9 +18,10 @@ reversed.
 - OCC-3 owns answer normalization, action correlation, queue attempts,
   acknowledgement, resolution, and retry settlement.
 - OCC-8 adds revision validation, causal links, target revalidation, corrective
-  message rendering, and the no-longer-applicable outcome.
+  message rendering, the no-longer-applicable outcome, and its durable blocking
+  follow-up.
 - `Aiur.DecisionAttention` and `Aiur.AlertFeed` project reminders. They never
-  own revision or child-Decision lifecycle state.
+  own revision or follow-up lifecycle state.
 - OCC-4 and OCC-7 call the same store operation and render/encode its result;
   they do not dispatch directly or reimplement conflict rules.
 
@@ -99,7 +101,7 @@ or PubSub broadcast may precede step 2.
 | Ticket exists and is non-terminal; target paused/deactivated | Remains applicable | Use OCC-3/OperatorMessages reactivation and capacity gates, then send once. |
 | Ticket exists and is non-terminal; no current process/capacity | Pending/retryable | Keep the same revision action; do not call it un-applicable. |
 | Tracker fetch/control/queue error or timeout | Pending/failed under OCC-3 retry rules | Retry the same action with attempt-specific correlation. |
-| Ticket is freshly missing or terminal | `no_longer_applicable` | Do not queue the corrective message; create the linked blocking child Decision. |
+| Ticket is freshly missing or terminal | `no_longer_applicable` | Do not queue the corrective message; create the stable blocking follow-up. |
 
 The refresh happens after revision persistence so a target that becomes
 terminal during submission produces an auditable intent followed by a truthful
@@ -117,47 +119,48 @@ The message never claims automatic rollback, retraction, revert, undo, or
 successful application. Retries preserve the same logical revision action and
 use OCC-3's attempt-specific queue handles.
 
-## No-longer-applicable child Decision
+## No-longer-applicable blocking follow-up
 
 Before opening a reminder, the parent revision audit records a deterministic
-child-follow-up link derived from the revision action. Reconciliation opens a
-stable `DecisionAttention` slug for that link. The OCC-2 adapter persists the
-corresponding blocking, human-required child Decision before alert fanout.
+`follow_up_required` fact and slug derived from the revision action.
+Reconciliation opens that stable `DecisionAttention` question only after the
+fact is durable.
 
-The child asks what should happen now that the target cannot automatically
+The follow-up asks what should happen now that the target cannot automatically
 apply the revision. It links the parent Decision, request version, and revision
 action without claiming the original answer was reversed. Replaying or
-restarting reuses the same attention source identity, so the child request is a
-duplicate rather than a second Decision.
+restarting reuses the same attention slug, so one active reminder is re-asked
+rather than duplicated.
 
-The child is answered, dispatched, acknowledged, resolved, or superseded
-through the ordinary OCC-3 lifecycle before its legacy reminder is cleared.
-The parent causal link and both Decision histories remain append-only.
+An OCC-2 adapter may expose the attention in the Decision inbox, but that is a
+projection rather than an OCC-8 storage dependency. Handling or superseding the
+follow-up appends a canonical parent event before the reminder is resolved; the
+required and handled facts remain append-only.
 
 ## Recovery and notification
 
 - A durable revision intent without a terminal applicability/dispatch fact is
   recoverable work for OCC-3 reconciliation.
-- A durable no-longer-applicable outcome plus child link without the child
-  projection is recoverable work for the asynchronous revision dispatcher.
+- A durable no-longer-applicable outcome plus open follow-up fact without its
+  reminder projection is recoverable work for the asynchronous revision
+  dispatcher.
 - Queue and alert retries use stable logical identities; individual attempts
   may have distinct transport handles.
 - `Aiur.Events.Exchange`, Decision PubSub, attentions, and alerts are emitted
   only after the event they describe is durable. Consumers recover missed live
   notifications by rereading `DecisionStore`.
-- Reconciliation runs outside `DecisionStore` calls so opening an attention
-  cannot form a `DecisionStore` -> `DecisionAttention` -> `DecisionStore`
-  synchronous cycle.
+- Reconciliation runs outside `DecisionStore` calls so attention/alert
+  projection cannot block the serialized writer.
 
 ## Downstream handoff
 
 - **OCC-4:** expose Revise Decision controls, show actor/reason/current action,
   and render the result vocabulary and immutable timeline.
-- **OCC-6:** read original/revision/child links from the canonical projection;
-  do not infer revision success from delivery.
+- **OCC-6:** read original/revision/follow-up facts from the canonical
+  projection; do not infer revision success from delivery.
 - **OCC-7:** authorize callers, inject the trusted actor, and delegate to the
   same revision operation with its stale/idempotency contract.
 - **OCC-9:** derive revision/dispatch/ack durations from canonical timestamps.
 
-No downstream consumer calls `OperatorMessages` or opens the child attention
+No downstream consumer calls `OperatorMessages` or opens/resolves the reminder
 as a substitute for the revision application service.

@@ -13,7 +13,7 @@ origin: docs/operator-control-center/00-prd.md
 Extend the canonical Decision audit and OCC-3 outbox with revision intents,
 target revalidation, and corrective follow-up delivery. Preserve every prior
 answer and transport fact, make applicability explicit, and project an
-actionable child Decision when a revision cannot reach a live target.
+actionable blocking follow-up when a revision cannot reach a live target.
 
 ---
 
@@ -40,10 +40,9 @@ implementation proceeds.*
   terminal tracker target, or a later explicit target report. Capacity,
   orchestrator unavailability, and queue timeouts remain retryable delivery
   failures so transient infrastructure cannot terminate the revision.
-- The new blocking follow-up is a canonical child Decision created through the
-  existing `Aiur.DecisionAttention` adapter. The parent revision stores a
-  durable causal link; `DecisionStore` owns both lifecycles, while
-  `DecisionAttention` / `AlertFeed` remain notification projections.
+- The new blocking follow-up is a durable required/handled fact on the parent
+  revision and is projected through `Aiur.DecisionAttention` / `Aiur.AlertFeed`;
+  those notification surfaces do not become a second source of truth.
 - OCC-8 owns the public revision application-service contract. OCC-4 presents
   its controls and outcomes, while OCC-7 exposes the same contract through the
   authenticated API without duplicating validation or dispatch.
@@ -78,9 +77,9 @@ implementation proceeds.*
   new direction and must retain evidence that earlier instructions may already
   have taken effect.
 - R9. When the target is no longer applicable, append that outcome and create
-  one stable, blocking child Decision that asks the operator what should happen
-  next. Link it from the parent revision before notification; replays and
-  restarts must not duplicate it.
+  one stable, blocking follow-up that asks the operator what should happen
+  next. Persist its required/handled lifecycle on the parent revision; replays
+  and restarts must not duplicate it.
 - R10. Keep revision outcome, dispatch state, and target acknowledgement
   distinct. A queued or consumed corrective message does not prove that prior
   effects were reversed or that the revision was applied.
@@ -179,11 +178,10 @@ implementation proceeds.*
 - Supersede an undelivered prior queue action only through OCC-3's canonical
   queue transition. If prior guidance was already handed off, send a corrective
   follow-up and retain both attempts; never imply retraction succeeded.
-- Persist a stable child-follow-up link before opening
-  `DecisionAttention`. Derive its stable slug/source identity from the revision
-  action so the existing attention adapter persists one canonical child
-  Decision before opening its alert. Rebuild the parent link and child from
-  `DecisionStore`; alerts and re-asks are replaceable projections.
+- Persist a stable blocking-follow-up-required fact before opening
+  `DecisionAttention`. Derive its stable slug from the revision action and
+  rebuild it from `DecisionStore`; alerts and re-asks are replaceable
+  projections. Append a handled/superseded fact before resolving its reminder.
 - Keep operator-facing vocabulary factual: “revision recorded,” “follow-up
   queued,” “target no longer active,” and “current state must be re-evaluated.”
   “Rolled back,” “reverted,” and “undone” are prohibited success claims.
@@ -232,7 +230,7 @@ implementation proceeds.*
 | Rejected | Invalid/stale version, wrong active action, conflict, unsafe content | None | None |
 | Accepted / pending | Valid revision, target check or transport temporarily unavailable | Revision intent plus retryable delivery state | OCC-3 reconciliation retries |
 | Accepted / dispatched | Valid revision and fresh non-terminal target | Revision intent plus correlated queue attempt | Corrective follow-up through `OperatorMessages` |
-| No longer applicable | Fresh target missing/terminal, or later explicit target report | Revision outcome, stable child-Decision link, and canonical child Decision | Stable `DecisionAttention` / `AlertFeed` projection |
+| No longer applicable | Fresh target missing/terminal, or later explicit target report | Revision outcome plus blocking-follow-up-required fact | Stable `DecisionAttention` / `AlertFeed` projection |
 
 ```mermaid
 sequenceDiagram
@@ -253,10 +251,8 @@ sequenceDiagram
         Target-->>Dispatch: correlated queue attempt
         Dispatch->>Audit: append dispatch outcome
     else target missing or terminal
-        Dispatch->>Audit: append no-longer-applicable + child link
-        Dispatch->>Attention: open deterministic follow-up
-        Attention->>Store: persist canonical child Decision
-        Attention-->>Attention: project stable blocking reminder
+        Dispatch->>Audit: append no-longer-applicable + follow-up required
+        Audit-->>Attention: project stable blocking reminder
     end
 ```
 
@@ -289,9 +285,9 @@ history.
   prior-action linkage, expected request version, revision sequence, stable
   client token/action identity, timestamps, and deterministic integrity hash.
 - Extend the lifecycle envelope and pure reducer with revision-recorded,
-  revision-dispatch, supersession, no-longer-applicable, and child-follow-up
-  link facts. Preserve the original answer and every attempt in ordered
-  history.
+  revision-dispatch, supersession, no-longer-applicable, and blocking-follow-up
+  required/handled facts. Preserve the original answer and every attempt in
+  ordered history.
 - Serialize revision acceptance inside the existing GenServer. Exact content
   replay returns the accepted revision; stale active-action/sequence or
   conflicting token reuse appends nothing.
@@ -329,7 +325,8 @@ changing store mutation behavior.
 
 **Verification:**
 - The append-only audit alone rebuilds the original action, every revision, the
-  active action, and child-follow-up link without rewriting historical bytes.
+  active action, and blocking-follow-up state without rewriting historical
+  bytes.
 
 ### U2. Revalidate the target and dispatch corrective follow-ups
 
@@ -397,14 +394,14 @@ audit before the first tracker or queue callback.
 - Every valid intent has a recoverable dispatch/applicability outcome, and no
   tracker/control call or queue insertion precedes persistence.
 
-### U3. Project an un-applicable revision into one blocking child Decision
+### U3. Project an un-applicable revision into one blocking follow-up
 
 **Goal:** Keep a no-longer-applicable revision visible and actionable without
-turning alert logs into truth or creating duplicate child Decisions on replay.
+turning alert logs into truth or creating duplicate follow-ups on replay.
 
 **Requirements:** R8, R9, R10, R11
 
-**Dependencies:** U1, U2, and OCC-2's landed attention-to-Decision adapter
+**Dependencies:** U1, U2
 
 **Files:**
 - Modify: `src/lib/aiur/decision_store.ex`
@@ -414,22 +411,20 @@ turning alert logs into truth or creating duplicate child Decisions on replay.
 - Test: `src/test/aiur/alert_feed_test.exs`
 
 **Approach:**
-- Append a deterministic child-follow-up link keyed by the revision action
-  before projecting a stable ticket/slug question through
-  `DecisionAttention`. Its OCC-2 adapter must persist the corresponding
-  blocking child Decision before alert fanout; the parent preserves the
-  original decision and revision outcome.
-- Make exact replay/restart detect the existing link and reopen the same
-  attention correlation. OCC-2's source identity makes the child request a
-  duplicate, not a second Decision, and restores at most one open reminder.
-- Answering, resolving, or superseding the child follows OCC-3's canonical
-  Decision lifecycle before the existing attention resolution path clears the
-  reminder. The parent link and child audit remain append-only.
+- Append a deterministic blocking-follow-up-required fact keyed by the
+  revision action before projecting a stable ticket/slug question through
+  `DecisionAttention`. Preserve the original decision and revision outcome.
+- Make exact replay/restart detect the existing follow-up and reopen the same
+  attention correlation at most once. An OCC-2 attention adapter may expose the
+  reminder in the Decision inbox, but it remains a projection of the parent
+  revision fact rather than an OCC-8 storage dependency.
+- Handling or superseding the follow-up appends a canonical parent event before
+  the existing attention resolution path clears the reminder. Audit history
+  remains append-only.
 - Explain that automatic application was impossible and ask the operator to
   choose a new course; do not represent the original decision as reversed.
-- Keep child lifecycle truth in `DecisionStore`. `SubscriptionStore`,
-  `Alerts`, and `AlertFeed` remain reminder/read projections and may be
-  rebuilt.
+- Keep follow-up lifecycle truth in `DecisionStore`. `SubscriptionStore`,
+  `Alerts`, and `AlertFeed` remain reminder/read projections and may be rebuilt.
 - Run reconciliation outside `DecisionStore`'s `handle_call`: a durable parent
   link is the recovery work item, and the asynchronous dispatcher calls
   `DecisionAttention` only after the parent mutation returns. This avoids a
@@ -443,30 +438,28 @@ turning alert logs into truth or creating duplicate child Decisions on replay.
   ordering.
 
 **Test scenarios:**
-- Happy path: terminal target records one child link, persists one blocking
-  child Decision, and exposes one unresolved attention with the parent
-  revision/action link.
-- Restart: canonical replay restores the child and its notification projection
-  without a second Decision or duplicate active AlertFeed card.
+- Happy path: terminal target records one blocking follow-up and exposes one
+  unresolved attention with the revision/action link.
+- Restart: canonical replay restores the follow-up projection without a second
+  durable follow-up or duplicate active AlertFeed card.
 - Idempotency: repeated target results and revision retries reuse the stable
   follow-up identity.
-- Resolution: answering/superseding the child is durable before its reminder
-  clears, while preserving the parent no-longer-applicable history.
+- Resolution: handling/superseding the follow-up is durable before its reminder
+  clears, while preserving the no-longer-applicable history.
 - Failure path: DecisionAttention/AlertFeed unavailability cannot erase or
-  falsely resolve the canonical child Decision; a later projection retry
-  recovers.
+  falsely resolve the canonical follow-up; a later projection retry recovers.
 - Language regression: the blocking question says the target cannot apply the
   revision automatically and never claims prior effects were rolled back.
 
 **Verification:**
 - A no-longer-applicable revision remains visible across restart until its
-  child Decision is explicitly handled, with one parent link, one child audit,
-  and no alert-owned lifecycle state.
+  follow-up is explicitly handled, with exactly one canonical required fact and
+  no alert-owned lifecycle state.
 
 ### U4. Prove the cross-layer revision contract and downstream handoff
 
 **Goal:** Exercise revision persistence, target races, corrective delivery, and
-blocking child Decision together, then document the stable contract for OCC-4,
+blocking follow-up together, then document the stable contract for OCC-4,
 OCC-6, OCC-7, and OCC-9.
 
 **Requirements:** R1–R12
@@ -489,7 +482,7 @@ OCC-6, OCC-7, and OCC-9.
   required to prove the application-service contract.
 - Restart DecisionStore and the transient queue independently across every
   persist/dispatch boundary and assert one logical revision action.
-- Exercise missing/terminal target outcomes and prove the child Decision is
+- Exercise missing/terminal target outcomes and prove the blocking follow-up is
   canonical before its attention projection.
 - Document result vocabulary, request/revision/action version axes, immutable
   history, target matrix, retry contract, factual message wording, and the
@@ -504,12 +497,11 @@ OCC-6, OCC-7, and OCC-9.
 - Integration: answer a request, acknowledge it, revise it, queue/deliver the
   corrective action, acknowledge the revision, and preserve both histories.
 - Retry: replay the revision before queueing, after queueing, after delivery,
-  and after acknowledgement; no second logical action or child Decision
-  appears.
+  and after acknowledgement; no second logical action or follow-up appears.
 - Concurrency: simultaneous revision submissions have one winner and expose the
   current action/sequence to the loser.
 - Target race: non-terminal target at submission becomes terminal before
-  dispatch; one no-longer-applicable outcome and one blocking child Decision.
+  dispatch; one no-longer-applicable outcome and one blocking follow-up result.
 - Crash recovery: restart after intent append, after queue acceptance, and
   before outcome append; reconciliation completes the same action.
 - Projection failure/corruption: append or projection failure prevents
@@ -526,23 +518,22 @@ OCC-6, OCC-7, and OCC-9.
 - **Interaction graph:** OCC-4/OCC-7 callers enter DecisionStore; the store
   appends then schedules OCC-3 dispatch; the dispatcher refreshes tracker state
   and calls correlated OperatorMessages; target settlement returns to the
-  audit; no-longer-applicable state creates a linked child Decision through
-  DecisionAttention and AlertFeed; OCC-6/OCC-9 consume the resulting
-  history/timestamps.
+  audit; no-longer-applicable state projects through DecisionAttention and
+  AlertFeed; OCC-6/OCC-9 consume the resulting history/timestamps.
 - **Error propagation:** Validation and concurrency conflicts return before
   append. Append/projection failure blocks every side effect. Fresh terminal or
   missing state becomes a durable semantic outcome. Transient target/control
   errors remain structured retryable delivery failures.
 - **State lifecycle risks:** Crash windows exist after revision append, target
-  refresh, queue insert, and child-link append. Stable action/child IDs and
+  refresh, queue insert, and follow-up append. Stable action/follow-up IDs and
   replay reconciliation close each window without claiming exactly-once agent
   execution.
 - **API surface parity:** OCC-4 LiveView and OCC-7 REST/supervisor paths consume
   the same result vocabulary and stale/idempotency rules. Neither calls
   OperatorMessages directly.
 - **Integration coverage:** Pure reducer tests cannot prove persistence precedes
-  tracker/queue calls or that a restart does not duplicate child Decisions. U4
-  covers those GenServer and projection boundaries.
+  tracker/queue calls or that a restart does not duplicate follow-ups. U4 covers
+  those GenServer and projection boundaries.
 - **Unchanged invariants:** Request enrichment, plain operator chat,
   coordination-event dedupe, queue consumption semantics, dashboard security,
   and legacy attention reminder ownership retain their existing contracts.
@@ -558,7 +549,7 @@ OCC-6, OCC-7, and OCC-9.
 | Revision contradicts an already-delivered instruction | Retain both facts, send explicit corrective guidance, and require current-state inspection; never report retraction or rollback. |
 | Transient outage is misclassified as semantic non-applicability | Reserve no-longer-applicable for fresh missing/terminal state or explicit target report; test every control error separately. |
 | Cross-GenServer callback cycle deadlocks the outbox | Reuse OCC-3 asynchronous dispatch/settlement boundaries; do not synchronously call Orchestrator from an Orchestrator-originated DecisionStore mutation. |
-| Replay creates duplicate child Decisions or alerts | Derive the attention slug/source identity from the revision action, reconcile from the durable parent link, and treat attention emission as an idempotent projection. |
+| Replay creates duplicate blocking follow-ups or alerts | Derive stable follow-up identity from the revision action, check canonical projection first, and treat attention emission as idempotent projection. |
 | Revision fields leak secrets or unbounded agent output | Compose OCC-3 normalization and shared SecretRedactor; store structured bounded reasons rather than inspected terms. |
 | OCC-4/OCC-7 duplicate revision rules while branches are parallel | Publish the application-service/result contract early and keep presentation/auth routing in downstream tickets. |
 

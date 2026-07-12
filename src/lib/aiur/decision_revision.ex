@@ -12,11 +12,13 @@ defmodule Aiur.DecisionRevision do
   alias Aiur.DecisionValidation
 
   @identity_max 256
+  @follow_up_slug_prefix "decision-revision-"
 
   @type normalized_answer :: %{
           required(:action_id) => String.t(),
           required(:decision_id) => String.t(),
           required(:decision_version) => pos_integer(),
+          required(:actor) => map(),
           required(:accepted_at) => DateTime.t(),
           required(:content_hash) => String.t(),
           required(:rationale) => String.t(),
@@ -67,11 +69,26 @@ defmodule Aiur.DecisionRevision do
     end
   end
 
+  @doc "Stable DecisionAttention slug for an un-applicable revision action."
+  @spec follow_up_slug(t() | String.t()) :: String.t()
+  def follow_up_slug(%__MODULE__{action_id: action_id}), do: follow_up_slug(action_id)
+
+  def follow_up_slug(action_id) when is_binary(action_id) and action_id != "" do
+    digest =
+      action_id
+      |> then(&:crypto.hash(:sha256, &1))
+      |> Base.encode16(case: :lower)
+      |> String.slice(0, 20)
+
+    @follow_up_slug_prefix <> digest
+  end
+
   defp normalize_context(opts) do
     with {:ok, decision_id} <- context_string(opts, :decision_id),
          {:ok, decision_version} <- context_positive_integer(opts, :decision_version),
          {:ok, current_action_id} <- context_string(opts, :current_action_id),
          {:ok, current_revision_sequence} <- context_non_negative_integer(opts, :current_revision_sequence),
+         {:ok, actor} <- context_map(opts, :actor),
          {:ok, now} <- context_datetime(opts, :now),
          {:ok, answer_normalizer} <- context_normalizer(opts) do
       {:ok,
@@ -80,6 +97,7 @@ defmodule Aiur.DecisionRevision do
          decision_version: decision_version,
          current_action_id: current_action_id,
          current_revision_sequence: current_revision_sequence,
+         actor: actor,
          now: now,
          answer_normalizer: answer_normalizer
        }}
@@ -99,13 +117,15 @@ defmodule Aiur.DecisionRevision do
            action_id: action_id,
            decision_id: decision_id,
            decision_version: decision_version,
-           accepted_at: %DateTime{},
+           actor: actor,
+           accepted_at: accepted_at,
            content_hash: content_hash
          } = answer,
          context
        )
        when is_binary(action_id) and action_id != "" and is_binary(content_hash) and content_hash != "" do
-    if decision_id == context.decision_id and decision_version == context.decision_version do
+    if decision_id == context.decision_id and decision_version == context.decision_version and
+         actor == context.actor and accepted_at == context.now do
       {:ok, answer}
     else
       {:error, {:answer, :identity_mismatch}}
@@ -209,6 +229,13 @@ defmodule Aiur.DecisionRevision do
   defp context_datetime(opts, key) do
     case Keyword.get(opts, key) do
       %DateTime{} = value -> {:ok, value}
+      _other -> {:error, {:context, {key, :invalid}}}
+    end
+  end
+
+  defp context_map(opts, key) do
+    case Keyword.get(opts, key) do
+      value when is_map(value) -> {:ok, value}
       _other -> {:error, {:context, {key, :invalid}}}
     end
   end
