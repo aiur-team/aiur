@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   Pure dispatch, load-gate, and issue-candidate policy for the orchestrator.
   """
 
-  alias Aiur.{Config, Issue, SystemFileDescriptors, SystemLoad, SystemMemory}
+  alias Aiur.{Config, Issue, SystemCpu, SystemFileDescriptors, SystemLoad, SystemMemory}
   alias Aiur.Orchestrator.{Slots, State}
 
   @fd_headroom_percent 10
@@ -22,6 +22,11 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       do: SystemLoad.avg1()
 
   def read_load(_hard_threshold, _target), do: :unavailable
+
+  @doc false
+  @spec read_cpu(number() | nil) :: SystemCpu.snapshot() | :unavailable
+  def read_cpu(target) when is_number(target) and target > 0, do: SystemCpu.snapshot()
+  def read_cpu(_target), do: :unavailable
 
   @doc false
   # Reads MemAvailable only while memory admission is enabled. Keeping this
@@ -102,7 +107,9 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           static_limit: pos_integer(),
           ramp_step: pos_integer(),
           cooldown_ms: non_neg_integer(),
-          now_ms: integer()
+          now_ms: integer(),
+          cpu_headroom: SystemCpu.headroom() | :unavailable,
+          queued_work?: boolean()
         }
 
   @spec load_envelope(integer() | nil, integer() | nil, number() | :unavailable, envelope_options()) ::
@@ -119,8 +126,10 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     adjust_load_envelope(effective, last_decrease_ms, load, options)
   end
 
-  @spec update_load_envelope(State.t(), number() | :unavailable, number() | nil, pos_integer(), integer()) :: State.t()
-  def update_load_envelope(%State{} = state, load, target, schedulers, now_ms) do
+  @spec update_load_envelope(State.t(), number() | :unavailable, number() | nil, pos_integer(), integer(), SystemCpu.snapshot() | :unavailable, boolean()) :: State.t()
+  def update_load_envelope(%State{} = state, load, target, schedulers, now_ms, cpu_snapshot, queued_work?) do
+    cpu_headroom = SystemCpu.headroom(state.cpu_snapshot, cpu_snapshot)
+
     {effective, last_decrease_ms} =
       load_envelope(
         state.effective_concurrent_agents,
@@ -132,20 +141,30 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           static_limit: Slots.max_concurrent_agent_limit(state),
           ramp_step: Config.load_ramp_step(),
           cooldown_ms: Config.load_cooldown_seconds() * 1_000,
-          now_ms: now_ms
+          now_ms: now_ms,
+          cpu_headroom: cpu_headroom,
+          queued_work?: queued_work?
         }
       )
 
     %{
       state
       | effective_concurrent_agents: effective,
-        load_envelope_last_decrease_ms: last_decrease_ms
+        load_envelope_last_decrease_ms: last_decrease_ms,
+        cpu_snapshot: next_cpu_snapshot(state.cpu_snapshot, cpu_snapshot)
     }
   end
 
   defp adjust_load_envelope(effective, last_decrease_ms, load, %{target: target, schedulers: schedulers} = options)
        when load <= target * schedulers do
-    {min(effective + options.ramp_step, options.static_limit), last_decrease_ms}
+    next_effective =
+      if options.queued_work? and clear_cpu_headroom?(options.cpu_headroom, schedulers) do
+        options.static_limit
+      else
+        min(effective + options.ramp_step, options.static_limit)
+      end
+
+    {next_effective, last_decrease_ms}
   end
 
   defp adjust_load_envelope(effective, last_decrease_ms, _load, options) do
@@ -163,6 +182,15 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   defp next_decrease_time(effective, reduced, _last_decrease_ms, now_ms) when reduced < effective, do: now_ms
   defp next_decrease_time(_effective, _reduced, last_decrease_ms, _now_ms), do: last_decrease_ms
+
+  defp clear_cpu_headroom?(%{idle_percent: idle_percent, runnable: runnable}, schedulers)
+       when idle_percent >= 60.0 and runnable < schedulers,
+       do: true
+
+  defp clear_cpu_headroom?(_headroom, _schedulers), do: false
+
+  defp next_cpu_snapshot(_previous, %{total: _total, idle: _idle, runnable: _runnable} = current), do: current
+  defp next_cpu_snapshot(previous, _current), do: previous
 
   defp normalize_load_envelope_limit(effective, static_limit)
        when is_integer(effective) and effective > 0 and is_integer(static_limit) and static_limit > 0,
@@ -232,6 +260,19 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       !Map.has_key?(running, issue.id) and
       state_slots_available?(issue, state) and
       Slots.worker_slots_available?(state)
+  end
+
+  @spec queued_dispatch_demand?([Issue.t()], State.t()) :: boolean()
+  def queued_dispatch_demand?(issues, %State{} = state) when is_list(issues) do
+    active_states = active_state_set()
+    terminal_states = terminal_state_set()
+
+    Enum.any?(issues, fn issue ->
+      candidate_issue?(issue, active_states, terminal_states) and
+        !todo_issue_blocked_by_non_terminal?(issue, terminal_states) and
+        !MapSet.member?(state.claimed, issue.id) and
+        !Map.has_key?(state.running, issue.id)
+    end)
   end
 
   @spec state_slots_available?(term(), term()) :: boolean()

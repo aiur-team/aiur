@@ -112,6 +112,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     memory_threshold_mb = Config.min_free_memory_mb()
     schedulers = System.schedulers_online()
     load = DispatchPolicy.read_load(hard_threshold, target)
+    cpu_snapshot = DispatchPolicy.read_cpu(target)
     available_memory_mb = DispatchPolicy.read_memory(memory_threshold_mb)
     fd_sample = DispatchPolicy.read_file_descriptors()
 
@@ -121,7 +122,9 @@ defmodule Aiur.Orchestrator.Dispatcher do
         load,
         target,
         schedulers,
-        System.monotonic_time(:millisecond)
+        System.monotonic_time(:millisecond),
+        cpu_snapshot,
+        DispatchPolicy.queued_dispatch_demand?(issues, state)
       )
 
     case DispatchPolicy.memory_gate(available_memory_mb, memory_threshold_mb) do

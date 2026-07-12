@@ -147,6 +147,40 @@ defmodule Aiur.OrchestratorLoadGateTest do
       assert {5, nil} = Orchestrator.load_envelope(3, nil, 12.0, envelope_options(ramp_step: 2, now_ms: 2_000))
     end
 
+    test "restores the static cap under clear CPU headroom when work is queued" do
+      options = envelope_options(cpu_headroom: %{idle_percent: 75.0, runnable: 3}, queued_work?: true)
+
+      assert {10, 1_000} = Orchestrator.load_envelope(3, 1_000, 10.0, options)
+    end
+
+    test "keeps additive recovery without demand, clear idle headroom, or low runnable pressure" do
+      assert {4, nil} =
+               Orchestrator.load_envelope(
+                 3,
+                 nil,
+                 10.0,
+                 envelope_options(cpu_headroom: %{idle_percent: 75.0, runnable: 3})
+               )
+
+      assert {4, nil} =
+               Orchestrator.load_envelope(
+                 3,
+                 nil,
+                 10.0,
+                 envelope_options(cpu_headroom: %{idle_percent: 59.9, runnable: 3}, queued_work?: true)
+               )
+
+      assert {4, nil} =
+               Orchestrator.load_envelope(
+                 3,
+                 nil,
+                 10.0,
+                 envelope_options(cpu_headroom: %{idle_percent: 75.0, runnable: 12}, queued_work?: true)
+               )
+
+      assert {4, nil} = Orchestrator.load_envelope(3, nil, 10.0, envelope_options(queued_work?: true))
+    end
+
     test "never increases beyond the static/session concurrency cap" do
       assert {10, nil} = Orchestrator.load_envelope(9, nil, 1.0, envelope_options(ramp_step: 3, now_ms: 1_000))
     end
@@ -186,7 +220,16 @@ defmodule Aiur.OrchestratorLoadGateTest do
 
   defp envelope_options(overrides) do
     Map.merge(
-      %{target: 1.0, schedulers: 12, static_limit: 10, ramp_step: 1, cooldown_ms: 60_000, now_ms: 0},
+      %{
+        target: 1.0,
+        schedulers: 12,
+        static_limit: 10,
+        ramp_step: 1,
+        cooldown_ms: 60_000,
+        now_ms: 0,
+        cpu_headroom: :unavailable,
+        queued_work?: false
+      },
       Map.new(overrides)
     )
   end

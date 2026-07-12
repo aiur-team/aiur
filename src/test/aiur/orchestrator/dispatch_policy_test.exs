@@ -35,6 +35,19 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
     end
   end
 
+  describe "read_cpu/1" do
+    test "does not touch procfs when the adaptive envelope is disabled" do
+      Application.put_env(:aiur, :proc_stat_source_override, fn ->
+        flunk("/proc/stat must not be read when the envelope is disabled")
+      end)
+
+      on_exit(fn -> Application.delete_env(:aiur, :proc_stat_source_override) end)
+
+      assert DispatchPolicy.read_cpu(nil) == :unavailable
+      assert DispatchPolicy.read_cpu(0) == :unavailable
+    end
+  end
+
   describe "sort_issues_for_dispatch/1" do
     test "orders by priority rank, missing priority, created_at, then identifier" do
       early = ~U[2026-01-01 00:00:00Z]
@@ -82,6 +95,35 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
                active_states,
                terminal_states
              )
+    end
+  end
+
+  describe "queued_dispatch_demand?/2" do
+    test "finds eligible queued work independently of the current envelope slots" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 5)
+      state = %State{max_concurrent_agents: 5, effective_concurrent_agents: 1}
+
+      assert DispatchPolicy.queued_dispatch_demand?([issue("queued", [])], state)
+    end
+
+    test "ignores running, claimed, paused, blocked, and unroutable issues" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 5)
+
+      issues = [
+        issue("running", []),
+        issue("claimed", []),
+        issue("paused", paused: true),
+        issue("blocked", blocked_by: [%{state: "in-progress"}]),
+        issue("remote", assigned_to_worker: false)
+      ]
+
+      state = %State{
+        max_concurrent_agents: 5,
+        running: %{"running" => %{issue: issue("running", []), control: %{status: :working}}},
+        claimed: MapSet.new(["claimed"])
+      }
+
+      refute DispatchPolicy.queued_dispatch_demand?(issues, state)
     end
   end
 
