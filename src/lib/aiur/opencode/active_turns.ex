@@ -142,7 +142,9 @@ defmodule Aiur.Opencode.ActiveTurns do
   @spec register_subscriber(String.t(), String.t(), pid()) :: {:ok, pid() | nil}
   def register_subscriber(identifier, aiur_turn_id, pid)
       when is_binary(identifier) and is_binary(aiur_turn_id) and is_pid(pid) do
-    GenServer.call(__MODULE__, {:register_subscriber, identifier, aiur_turn_id, pid})
+    with_identifier_lock(identifier, fn ->
+      GenServer.call(__MODULE__, {:register_subscriber, identifier, aiur_turn_id, pid})
+    end)
   end
 
   @impl true

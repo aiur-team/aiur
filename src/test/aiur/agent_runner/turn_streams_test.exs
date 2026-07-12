@@ -132,6 +132,36 @@ defmodule Aiur.AgentRunner.TurnStreamsTest do
       send(workspace_task.pid, :release_workspace)
       assert Task.await(workspace_task) == {:ok, :ok}
     end
+
+    test "subscriber registration cannot create an active entry during workspace bootstrap" do
+      identifier = "TS-subscriber-lock-#{System.unique_integer([:positive])}"
+      parent = self()
+
+      workspace_task =
+        Task.async(fn ->
+          ActiveTurns.with_inactive_turn(identifier, fn ->
+            send(parent, :workspace_locked)
+            assert_receive :release_workspace, 2_000
+            :ok
+          end)
+        end)
+
+      assert_receive :workspace_locked
+
+      subscriber_task =
+        Task.async(fn ->
+          send(parent, :subscriber_registration_started)
+          ActiveTurns.register_subscriber(identifier, "tSUBSCRIBER", self())
+        end)
+
+      assert_receive :subscriber_registration_started
+      refute Task.yield(subscriber_task, 0)
+
+      send(workspace_task.pid, :release_workspace)
+      assert Task.await(workspace_task) == {:ok, :ok}
+      assert Task.await(subscriber_task) == {:ok, nil}
+      assert ActiveTurns.lookup(identifier, "tSUBSCRIBER") == :active
+    end
   end
 
   describe "post_aiur_turn_markers/4" do
