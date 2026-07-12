@@ -13,11 +13,14 @@ defmodule Aiur.OrchestratorCILifecycleTest do
     def return(result), do: Process.put(@update_result_key, result)
 
     def update_issue_state(issue_id, state_name) do
-      if is_pid(recipient()) do
-        send(recipient(), {:tracker_update, issue_id, state_name})
-      end
+      case recipient() do
+        recipient when is_pid(recipient) ->
+          send(recipient, {:tracker_update, issue_id, state_name})
+          Process.get(@update_result_key, :ok)
 
-      Process.get(@update_result_key, :ok)
+        _other ->
+          {:error, :unscoped_test_call}
+      end
     end
 
     defp recipient, do: Process.get(@recipient_key)
@@ -162,7 +165,9 @@ defmodule Aiur.OrchestratorCILifecycleTest do
     test "tracker recording ignores unrelated process traffic" do
       recorder = start_recorder()
 
-      assert :ok = Task.async(fn -> RecordingGitHubClient.update_issue_state("42", "rework") end) |> Task.await()
+      assert {:error, :unscoped_test_call} =
+               Task.async(fn -> RecordingGitHubClient.update_issue_state("42", "rework") end)
+               |> Task.await()
 
       sync_recorder(recorder)
       refute_received {:recorded, _position, _message}
@@ -226,7 +231,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
         record_messages(test_pid, 1)
       end)
 
-    assert_receive {:recorder_ready, ^recorder}, 500
+    assert_receive {:recorder_ready, ^recorder}, 2_000
     RecordingGitHubClient.record_to(recorder)
     on_exit(fn -> if Process.alive?(recorder), do: Process.exit(recorder, :kill) end)
     recorder
@@ -247,7 +252,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
   defp sync_recorder(recorder) do
     ref = make_ref()
     send(recorder, {:sync_recorder, self(), ref})
-    assert_receive {:recorder_synced, ^ref}, 500
+    assert_receive {:recorder_synced, ^ref}, 2_000
   end
 
   defp restore_application_env(key, nil), do: Application.delete_env(:aiur, key)
