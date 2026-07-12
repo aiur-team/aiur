@@ -95,17 +95,80 @@ defmodule Aiur.DecisionRevisionStoreTest do
     assert Enum.count(audit, &match?(%DecisionEvent{type: :revision_recorded}, &1)) == 1
   end
 
-  defp start_store!(dir) do
+  test "dispatch begins only after the revision intent is readable from the audit", %{dir: dir} do
+    parent = self()
+
+    dispatcher = fn dispatched, opts ->
+      active = Decision.active_answer(dispatched)
+
+      if dispatched.revision_sequence > 0 do
+        assert {:ok, audit} = DecisionStore.audit_history(dispatched.decision_id, opts[:store])
+        assert Enum.any?(audit, &match?(%DecisionEvent{type: :revision_recorded}, &1))
+        send(parent, {:revision_dispatched, active.action_id, opts[:attempt_id]})
+      end
+
+      {:ok,
+       %{
+         status: :accepted,
+         item: %{id: System.unique_integer([:positive]), status: :pending, correlation: %{attempt_id: opts[:attempt_id]}}
+       }}
+    end
+
+    pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0)
+    {decision, original} = answered_decision(pid)
+    _original_queued = wait_for(pid, decision.decision_id, &(&1.delivery_status == :queued))
+
+    assert {:ok, %{action: revision}} =
+             revise(pid, decision, original, "revision-dispatch", "Hold the rollout")
+
+    assert_receive {:revision_dispatched, action_id, attempt_id}, 1_000
+    assert action_id == revision.action_id
+    assert String.starts_with?(attempt_id, revision.action_id <> ":")
+
+    revised = wait_for(pid, decision.decision_id, &(&1.revision_result == :dispatched))
+    assert revised.answer == original
+    assert revised.delivery_status == :queued
+    assert List.last(revised.dispatch_attempts).action_id == revision.action_id
+
+    assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, pid)
+    assert Enum.map(audit, & &1.type) == [:requested, :answer_recorded, :dispatch_queued, :revision_recorded, :revision_dispatched]
+  end
+
+  test "a fresh missing target records non-applicability without a queue attempt", %{dir: dir} do
+    dispatcher = fn dispatched, opts ->
+      if dispatched.revision_sequence > 0 do
+        {:no_longer_applicable, :missing}
+      else
+        {:ok, %{status: :accepted, item: %{id: 17, status: :pending, correlation: %{attempt_id: opts[:attempt_id]}}}}
+      end
+    end
+
+    pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0)
+    {decision, original} = answered_decision(pid)
+    _original_queued = wait_for(pid, decision.decision_id, &(&1.delivery_status == :queued))
+
+    assert {:ok, %{action: revision}} =
+             revise(pid, decision, original, "revision-missing", "Hold the rollout")
+
+    revised = wait_for(pid, decision.decision_id, &(&1.revision_result == :no_longer_applicable))
+    assert revised.delivery_status == :not_dispatched
+    assert revised.revision_outcomes[revision.action_id].reason_class == "target_missing"
+    assert Enum.count(revised.dispatch_attempts, &(&1.action_id == revision.action_id)) == 0
+  end
+
+  defp start_store!(dir, opts \\ []) do
     Application.put_env(:aiur, :decision_state_dir, dir)
 
+    defaults = [
+      name: nil,
+      filesystem_sync_fun: fn -> :ok end,
+      dispatch_delay_ms: 60_000,
+      reconcile_delay_ms: 60_000,
+      dispatcher: fn _decision, _opts -> {:error, :not_expected} end
+    ]
+
     {:ok, pid} =
-      DecisionStore.start_link(
-        name: nil,
-        filesystem_sync_fun: fn -> :ok end,
-        dispatch_delay_ms: 60_000,
-        reconcile_delay_ms: 60_000,
-        dispatcher: fn _decision, _opts -> {:error, :not_expected} end
-      )
+      DecisionStore.start_link(Keyword.merge(defaults, opts))
 
     pid
   end
@@ -151,5 +214,20 @@ defmodule Aiur.DecisionRevisionStoreTest do
       "custom_response" => response,
       "rationale" => "New production evidence"
     }
+  end
+
+  defp wait_for(pid, decision_id, predicate, attempts \\ 100)
+
+  defp wait_for(_pid, _decision_id, _predicate, 0), do: flunk("decision did not reach expected state")
+
+  defp wait_for(pid, decision_id, predicate, attempts) do
+    {:ok, decision} = DecisionStore.get(decision_id, pid)
+
+    if predicate.(decision) do
+      decision
+    else
+      Process.sleep(10)
+      wait_for(pid, decision_id, predicate, attempts - 1)
+    end
   end
 end

@@ -43,6 +43,8 @@ defmodule Aiur.DecisionStore do
   @default_reconcile_delay_ms 250
   @default_retry_delays_ms [250, 1_000, 5_000]
   @transient_failure_classes ["orchestrator_unavailable", "orchestrator_timeout"]
+  @revision_transient_failure_classes @transient_failure_classes ++
+                                        ["target_agent_unavailable", "target_revalidation_failed"]
 
   @type accept_result :: %{status: :accepted | :duplicate, decision: Decision.t()}
 
@@ -1340,6 +1342,8 @@ defmodule Aiur.DecisionStore do
   end
 
   defp maybe_schedule_after_answer(state, %Decision{} = decision, retry_failed?) do
+    active_answer = Decision.active_answer(decision)
+
     cond do
       not state.writable? ->
         state
@@ -1347,7 +1351,7 @@ defmodule Aiur.DecisionStore do
       not dispatchable?(decision, retry_failed?) ->
         state
 
-      MapSet.member?(state.dispatching, decision.answer.action_id) ->
+      is_nil(active_answer) or MapSet.member?(state.dispatching, active_answer.action_id) ->
         state
 
       true ->
@@ -1357,6 +1361,8 @@ defmodule Aiur.DecisionStore do
   end
 
   defp maybe_schedule_queue_reconciliation(state, %Decision{} = decision) do
+    active_answer = Decision.active_answer(decision)
+
     cond do
       not state.writable? ->
         state
@@ -1364,7 +1370,7 @@ defmodule Aiur.DecisionStore do
       not queue_reconcilable?(decision) ->
         state
 
-      MapSet.member?(state.dispatching, decision.answer.action_id) ->
+      is_nil(active_answer) or MapSet.member?(state.dispatching, active_answer.action_id) ->
         state
 
       true ->
@@ -1380,7 +1386,7 @@ defmodule Aiur.DecisionStore do
   defp maybe_start_dispatch(state, decision_id, retry_failed?, mode \\ :normal) do
     with true <- state.writable?,
          {:ok, decision} <- fetch_decision(state, decision_id),
-         %DecisionAnswer{} = answer <- decision.answer,
+         %DecisionAnswer{} = answer <- Decision.active_answer(decision),
          false <- MapSet.member?(state.dispatching, answer.action_id),
          true <- dispatch_allowed?(decision, retry_failed?, mode) do
       attempt_id = next_attempt_id(decision)
@@ -1425,11 +1431,14 @@ defmodule Aiur.DecisionStore do
   defp settle_dispatch(state, decision_id, action_id, attempt_id, result) do
     with true <- state.writable?,
          {:ok, decision} <- fetch_decision(state, decision_id),
-         %DecisionAnswer{action_id: ^action_id} <- decision.answer do
+         %DecisionAnswer{action_id: ^action_id} <- Decision.answer_for_action(decision, action_id) do
       case result do
         {:ok, %{status: status, item: %{id: queue_item_id} = item}}
         when status in [:accepted, :duplicate, :retried] and is_integer(queue_item_id) and queue_item_id > 0 ->
           settle_queue_result(state, decision, action_id, attempt_id, status, item)
+
+        {:no_longer_applicable, reason} ->
+          settle_revision_no_longer_applicable(state, decision, action_id, reason)
 
         {:error, reason} ->
           settle_dispatch_failure(state, decision, action_id, attempt_id, reason)
@@ -1441,6 +1450,23 @@ defmodule Aiur.DecisionStore do
       _other -> state
     end
   end
+
+  defp settle_revision_no_longer_applicable(state, decision, action_id, reason) do
+    if decision.active_action_id == action_id and revision_action?(decision, action_id) do
+      data = %{action_id: action_id, reason_class: revision_non_applicability_reason(reason)}
+
+      case build_and_persist_event(:revision_no_longer_applicable, decision, data, DateTime.utc_now(), state) do
+        {:ok, next_state, _updated} -> next_state
+        {:error, append_reason} -> lifecycle_append_failed(state, :revision_no_longer_applicable, append_reason)
+      end
+    else
+      state
+    end
+  end
+
+  defp revision_non_applicability_reason(:missing), do: "target_missing"
+  defp revision_non_applicability_reason({:terminal, _state}), do: "target_terminal"
+  defp revision_non_applicability_reason(_reason), do: "target_no_longer_applicable"
 
   defp settle_queue_result(state, decision, action_id, attempt_id, :retried, item) do
     restored_attempt_id = item_attempt_id(item) || attempt_id
@@ -1454,7 +1480,7 @@ defmodule Aiur.DecisionStore do
     case build_and_persist_event(:restored, decision, data, DateTime.utc_now(), state) do
       {:ok, next_state, updated} ->
         next_state
-        |> project_delivery_attention(decision, updated, :restored)
+        |> maybe_project_delivery_attention(decision, updated, :restored, action_id)
         |> then(&%{&1 | retry_counts: Map.delete(&1.retry_counts, action_id)})
 
       {:error, reason} ->
@@ -1483,18 +1509,23 @@ defmodule Aiur.DecisionStore do
     end
   end
 
+  defp revision_action?(decision, action_id) do
+    Enum.any?(decision.revisions, &(&1.action_id == action_id))
+  end
+
   defp settle_queue_acceptance(state, decision, action_id, attempt_id, item) do
     data = %{action_id: action_id, attempt_id: attempt_id, queue_item_id: item.id}
+    event_type = if revision_action?(decision, action_id), do: :revision_dispatched, else: :dispatch_queued
 
-    case build_and_persist_event(:dispatch_queued, decision, data, DateTime.utc_now(), state) do
+    case build_and_persist_event(event_type, decision, data, DateTime.utc_now(), state) do
       {:ok, next_state, updated} ->
         next_state
-        |> project_delivery_attention(decision, updated, :dispatch_queued)
+        |> maybe_project_delivery_attention(decision, updated, event_type, action_id)
         |> then(&%{&1 | retry_counts: Map.delete(&1.retry_counts, action_id)})
         |> reconcile_queue_snapshot(updated, item, data)
 
       {:error, reason} ->
-        lifecycle_append_failed(state, :dispatch_queued, reason)
+        lifecycle_append_failed(state, event_type, reason)
     end
   end
 
@@ -1514,7 +1545,7 @@ defmodule Aiur.DecisionStore do
 
   defp reconcile_existing_queue_snapshot(state, decision, attempt, item) do
     data = %{
-      action_id: decision.answer.action_id,
+      action_id: attempt.action_id,
       attempt_id: attempt.attempt_id,
       queue_item_id: attempt.queue_item_id
     }
@@ -1542,7 +1573,7 @@ defmodule Aiur.DecisionStore do
 
       case build_and_persist_event(type, decision_acc, event_data, DateTime.utc_now(), state_acc) do
         {:ok, next_state, updated} ->
-          next_state = project_delivery_attention(next_state, decision_acc, updated, type)
+          next_state = maybe_project_delivery_attention(next_state, decision_acc, updated, type, data.action_id)
           {:cont, {next_state, updated}}
 
         {:error, reason} ->
@@ -1559,8 +1590,8 @@ defmodule Aiur.DecisionStore do
     case build_and_persist_event(:failed, decision, data, DateTime.utc_now(), state) do
       {:ok, next_state, updated} ->
         next_state
-        |> project_delivery_attention(decision, updated, :failed)
-        |> maybe_retry_transient(updated, reason_class)
+        |> maybe_project_delivery_attention(decision, updated, :failed, action_id)
+        |> maybe_retry_transient(updated, action_id, reason_class)
 
       {:error, append_reason} ->
         lifecycle_append_failed(state, :failed, append_reason)
@@ -1572,8 +1603,15 @@ defmodule Aiur.DecisionStore do
     %{state | writable?: false, health: {:lifecycle_append_failed, type, reason}}
   end
 
-  defp maybe_retry_transient(state, decision, reason_class) when reason_class in @transient_failure_classes do
-    action_id = decision.answer.action_id
+  defp maybe_retry_transient(state, decision, action_id, reason_class) do
+    if decision.active_action_id == action_id and transient_failure?(decision, reason_class) do
+      schedule_transient_retry(state, decision, action_id)
+    else
+      state
+    end
+  end
+
+  defp schedule_transient_retry(state, decision, action_id) do
     retry_count = Map.get(state.retry_counts, action_id, 0)
     next_state = %{state | retry_counts: Map.put(state.retry_counts, action_id, retry_count + 1)}
 
@@ -1587,30 +1625,37 @@ defmodule Aiur.DecisionStore do
     end
   end
 
-  defp maybe_retry_transient(state, _decision, _reason_class), do: state
+  defp transient_failure?(%Decision{revision_sequence: sequence}, reason_class) when sequence > 0,
+    do: reason_class in @revision_transient_failure_classes
+
+  defp transient_failure?(%Decision{}, reason_class), do: reason_class in @transient_failure_classes
 
   defp dispatch_failure_class(:unavailable), do: "orchestrator_unavailable"
   defp dispatch_failure_class(:timeout), do: "orchestrator_timeout"
   defp dispatch_failure_class(:no_running_agent), do: "target_agent_unavailable"
   defp dispatch_failure_class(:task_unavailable), do: "dispatch_task_unavailable"
   defp dispatch_failure_class(:dispatcher_crashed), do: "dispatcher_crashed"
+  defp dispatch_failure_class({:target_revalidation_failed, _reason}), do: "target_revalidation_failed"
   defp dispatch_failure_class(_reason), do: "dispatch_rejected"
 
   defp next_attempt_id(decision) do
-    "#{decision.answer.action_id}:#{length(decision.dispatch_attempts) + 1}"
+    active_answer = Decision.active_answer(decision)
+    "#{active_answer.action_id}:#{length(Decision.active_dispatch_attempts(decision)) + 1}"
   end
 
   defp dispatch_allowed?(decision, retry_failed?, :normal), do: dispatchable?(decision, retry_failed?)
   defp dispatch_allowed?(decision, _retry_failed?, :reconcile_queue), do: queue_reconcilable?(decision)
 
-  defp queue_reconcilable?(%Decision{decision_status: :decided, dispatch_attempts: attempts}) do
-    match?(%{status: status} when status in [:queued, :restored], List.last(attempts))
+  defp queue_reconcilable?(%Decision{decision_status: :decided} = decision) do
+    match?(%{status: status} when status in [:queued, :restored], List.last(Decision.active_dispatch_attempts(decision)))
   end
 
   defp queue_reconcilable?(%Decision{}), do: false
 
   defp decision_for_dispatch(state, decision) do
-    case request_version(state, decision.decision_id, decision.answer.decision_version) do
+    active_answer = Decision.active_answer(decision)
+
+    case request_version(state, decision.decision_id, active_answer.decision_version) do
       nil ->
         decision
 
@@ -1618,35 +1663,40 @@ defmodule Aiur.DecisionStore do
         %{
           addressed
           | answer: decision.answer,
+            active_action_id: decision.active_action_id,
+            revision_sequence: decision.revision_sequence,
+            revisions: decision.revisions,
+            revision_result: decision.revision_result,
+            revision_outcomes: decision.revision_outcomes,
+            revision_follow_ups: decision.revision_follow_ups,
             decision_status: decision.decision_status,
             delivery_status: decision.delivery_status,
             dispatch_attempts: decision.dispatch_attempts,
             acknowledgement: decision.acknowledgement,
-            resolution: decision.resolution
+            resolution: decision.resolution,
+            acknowledgements: decision.acknowledgements,
+            resolutions: decision.resolutions
         }
     end
   end
 
-  defp dispatchable?(%Decision{answer: nil}, _retry_failed?), do: false
+  defp dispatchable?(%Decision{} = decision, _retry_failed?) when is_nil(decision.answer), do: false
   defp dispatchable?(%Decision{decision_status: :resolved}, _retry_failed?), do: false
-  defp dispatchable?(%Decision{dispatch_attempts: []}, _retry_failed?), do: true
+  defp dispatchable?(%Decision{revision_result: :no_longer_applicable}, _retry_failed?), do: false
 
-  defp dispatchable?(%Decision{dispatch_attempts: attempts}, true) do
-    List.last(attempts).status == :failed
-  end
-
-  defp dispatchable?(%Decision{dispatch_attempts: attempts}, false) do
-    case List.last(attempts) do
-      %{status: :failed, failure_reason_class: reason} when reason in @transient_failure_classes -> true
+  defp dispatchable?(%Decision{} = decision, retry_failed?) do
+    case List.last(Decision.active_dispatch_attempts(decision)) do
+      nil -> true
+      %{status: :failed} when retry_failed? -> true
+      %{status: :failed, failure_reason_class: reason} -> transient_failure?(decision, reason)
       _other -> false
     end
   end
 
   defp validate_explicit_retry(state, decision_id, action_id) do
     with {:ok, decision} <- fetch_decision(state, decision_id),
-         %DecisionAnswer{action_id: ^action_id} <- decision.answer,
-         :ok <- require_answerable(decision),
-         true <- match?(%{status: :failed}, List.last(decision.dispatch_attempts)) do
+         %DecisionAnswer{action_id: ^action_id} <- Decision.active_answer(decision),
+         true <- match?(%{status: :failed}, List.last(Decision.active_dispatch_attempts(decision))) do
       if MapSet.member?(state.dispatching, action_id) do
         {:ok, :already_dispatching}
       else
