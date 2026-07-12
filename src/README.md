@@ -230,6 +230,51 @@ When `server.port` (or CLI `--port`) is set, Aiur exposes:
 - JSON API under `/api/v1/*` for operational debugging (read endpoints; agent-write
   endpoints are disabled unless `observability.dashboard_writable` is set)
 
+## Debug run telemetry
+
+`aiur --debug` (or config-level `debug: true`) starts daemon-owned run telemetry.
+The daemon continuously records resource samples for itself, locally attributable
+ticket process trees, and the operator process when it can be identified. It also
+records sanitized ticket lifecycle boundaries such as dispatch, workspace setup,
+implementation, build/test, PR/review, pause/resume, and rework. Debug-off runs do
+not start the telemetry writer or sampler and do not scan procfs or create a
+telemetry file.
+
+The append-only schema-versioned stream is written beside `aiur.log` as
+`telemetry.ndjson`. A default run therefore writes to:
+
+```text
+~/.aiur/logs/<session-id>/log/telemetry.ndjson
+```
+
+Each daemon start appends a restart marker with a new boot identity. Schema 1
+readers keep valid records from every selected stream and report malformed lines,
+unknown record kinds, unsupported future schemas, attribution gaps, and unavailable
+platform metrics as warnings instead of discarding the rest of the run.
+
+From the repository root, generate the canonical analytics artifact from one file,
+one session directory, or several session roots:
+
+```bash
+scripts/aiur-telemetry-dashboard \
+  --input ~/.aiur/logs/20260711T120000Z-1234 \
+  --input ~/.aiur/logs/20260711T160000Z-5678 \
+  --output ./aiur-run.html
+```
+
+Passing the common `~/.aiur/logs` root recursively discovers every canonical
+telemetry stream beneath it. Add `--repo owner/repo` to recover missing PR-open,
+trusted-comment, and merge anchors from GitHub at generation time; this optional
+enrichment reads `GITHUB_TOKEN`, and auth or network failures become visible report
+warnings rather than blocking local analytics. Use
+`--review-resume-grace-seconds N` to tune when a trusted review comment with no
+observed rework/resume sequence is classified as broken.
+
+The output is one self-contained HTML file with all normalized data, CSS, and
+JavaScript inlined. It can be opened directly or served locally by any backend and
+makes no view-time network requests. Run
+`scripts/aiur-telemetry-dashboard --help` for the complete option list.
+
 ## Configuration notes
 
 - Path values support `~` for the home directory and `$VAR` for environment substitution.

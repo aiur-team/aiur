@@ -122,5 +122,30 @@ defmodule Aiur.ApplicationTest do
         assert tracked_set < orchestrator, "TrackedSet must precede Orchestrator for #{inspect(opts)}"
       end
     end
+
+    test "debug mode inserts telemetry after Exchange and before Publisher in both shapes" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true, debug?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false, debug?: true]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        exchange = Enum.find_index(mods, &(&1 == Aiur.Events.Exchange))
+        telemetry = Enum.find_index(mods, &(&1 == Aiur.RunTelemetry.Supervisor))
+        publisher = Enum.find_index(mods, &(&1 == Aiur.Events.Publisher))
+
+        assert exchange < telemetry, "Exchange must precede telemetry for #{inspect(opts)}"
+        assert telemetry < publisher, "telemetry must precede Publisher for #{inspect(opts)}"
+      end
+    end
+
+    test "non-debug child lists contain no telemetry process" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true, debug?: false],
+            [interactive_cli?: false, headless?: true, dashboard?: false, debug?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        refute Aiur.RunTelemetry.Supervisor in mods
+      end
+    end
   end
 end

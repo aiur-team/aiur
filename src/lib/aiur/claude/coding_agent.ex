@@ -31,11 +31,20 @@ defmodule Aiur.Claude.CodingAgent do
   @impl Aiur.CodingAgent.Backend
   def start_session(workspace, opts \\ []) do
     model = Keyword.get(opts, :model)
+    identifier = Keyword.get(opts, :identifier)
 
     with :ok <- validate_workspace_cwd(workspace),
          {:ok, port} <- start_port(workspace) do
       metadata = port_metadata(port)
-      Aiur.ProcessReaper.register(:agent, {:os_pid, metadata[:claude_app_server_pid]}, comm: "claude")
+
+      Aiur.ProcessReaper.register(:agent, {:os_pid, metadata[:claude_app_server_pid]},
+        comm: "claude",
+        ticket: identifier,
+        backend: "claude",
+        worker_host: nil,
+        remote: false
+      )
+
       expanded_workspace = Path.expand(workspace)
 
       case do_start_session(port, expanded_workspace) do

@@ -218,31 +218,30 @@ defmodule Aiur.BuildGateTest do
       Map.merge(context, %{
         slots: 2,
         stagger_seconds: 1,
-        sleep_seconds: 5
+        sleep_seconds: 3
       })
 
     first = Task.async(fn -> run_bash("mix test", paced_context) end)
     wait_for_file!(context.started_path)
-    compile_started_path = Path.join(context.gate_dir, "compile.started")
 
     second =
       Task.async(fn ->
         run_bash(
           "mise exec -- mix compile",
-          %{paced_context | started_path: compile_started_path}
+          %{paced_context | started_path: ""}
         )
       end)
 
-    wait_for_file!(compile_started_path, 200)
-    assert Task.yield(first, 0) == nil, "the first phase should still be running when the second starts"
     assert {_first_output, 0} = Task.await(first, 7_000)
     assert {second_output, 0} = Task.await(second, 7_000)
 
     events = timing_events!(context.timing_log_path)
     test_start = Map.fetch!(events, {:start, "test"})
+    test_end = Map.fetch!(events, {:end, "test"})
     compile_start = Map.fetch!(events, {:start, "compile"})
 
     assert compile_start - test_start >= 1
+    assert compile_start < test_end
     assert second_output =~ "aiur_perf phase_stagger_hold surface=build phase=compile"
   end
 
