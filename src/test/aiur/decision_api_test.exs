@@ -240,6 +240,66 @@ defmodule Aiur.DecisionApiTest do
     assert current.answer == nil
   end
 
+  test "revise injects trusted actor and recorded authority into the OCC-8 service", %{store: store} do
+    decision = request!(store, "architecture", :supervisor_allowed, source_id: "revise")
+    parent = self()
+
+    revision_service = fn decision_id, payload, opts ->
+      send(parent, {:revision_delegated, decision_id, payload, opts})
+
+      {:ok,
+       %{
+         "status" => "recorded",
+         "decision_id" => decision_id,
+         "revision_action_id" => "rev_1"
+       }}
+    end
+
+    payload = %{
+      "expected_version" => 1,
+      "expected_action_id" => "act_original",
+      "expected_revision_sequence" => 0,
+      "idempotency_key" => "revise-1",
+      "custom_response" => "Use the corrected path",
+      "reason" => "New evidence"
+    }
+
+    opts = Keyword.put(supervisor_opts(store), :revision_service, revision_service)
+
+    assert {:ok, %{"status" => "recorded", "revision_action_id" => "rev_1"}} =
+             DecisionApi.revise(decision.decision_id, payload, opts)
+
+    assert_receive {:revision_delegated, decision_id, ^payload, delegated_opts}
+    assert decision_id == decision.decision_id
+    assert delegated_opts[:actor] == %{kind: :supervisor, id: "supervising-agent"}
+    assert delegated_opts[:authority] == :supervisor_allowed
+
+    assert delegated_opts[:policy_checks] == %{
+             authority_delegable: true,
+             kind_allowed: true,
+             reversibility_allowed: true
+           }
+  end
+
+  test "revise denies unsafe or forged calls and reports a missing OCC-8 service", %{store: store} do
+    human = request!(store, "architecture", :human_required, source_id: "revise-human")
+
+    assert {:error, {:delegation_forbidden, %{reasons: [:human_required]}}} =
+             DecisionApi.revise(human.decision_id, %{}, supervisor_opts(store))
+
+    eligible = request!(store, "architecture", :supervisor_allowed, source_id: "revise-eligible")
+
+    assert {:error, {:revision_invalid, {:forbidden_fields, ["actor", "authority"]}}} =
+             DecisionApi.revise(
+               eligible.decision_id,
+               %{"actor" => %{}, "authority" => "human_required"},
+               supervisor_opts(store)
+             )
+
+    assert {:error, :revision_service_unavailable} =
+             DecisionApi.revise(eligible.decision_id, %{}, supervisor_opts(store))
+  end
+
   test "an unavailable store is a stable read error", %{store: store} do
     GenServer.stop(store)
 
@@ -256,6 +316,9 @@ defmodule Aiur.DecisionApiTest do
 
     assert {:error, :store_unavailable} =
              DecisionApi.decide("dec_missing", decision_payload(), supervisor_opts(store))
+
+    assert {:error, :store_unavailable} =
+             DecisionApi.revise("dec_missing", %{}, supervisor_opts(store))
   end
 
   defp decision_payload do

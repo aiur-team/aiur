@@ -6,13 +6,17 @@ defmodule AiurWeb.RouterAuthTest do
 
   alias AiurWeb.Router
 
+  @supervisor_token String.duplicate("s", 32)
+
   setup do
     original_username = System.get_env("AIUR_DASHBOARD_USERNAME")
     original_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
+    original_supervisor_token = System.get_env("AIUR_SUPERVISOR_TOKEN")
 
     on_exit(fn ->
       restore_env("AIUR_DASHBOARD_USERNAME", original_username)
       restore_env("AIUR_DASHBOARD_PASSWORD", original_password)
+      restore_env("AIUR_SUPERVISOR_TOKEN", original_supervisor_token)
     end)
 
     :ok
@@ -48,6 +52,71 @@ defmodule AiurWeb.RouterAuthTest do
       |> Router.call(Router.init([]))
 
     assert conn.status == 404
+  end
+
+  test "Decision reads require bearer auth, bypass dashboard Basic Auth, and stay read-only available" do
+    System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
+    System.put_env("AIUR_SUPERVISOR_TOKEN", @supervisor_token)
+
+    missing = Router.call(conn(:get, "/api/v1/decisions"), Router.init([]))
+    assert missing.status == 401
+    assert get_resp_header(missing, "www-authenticate") == ["Bearer realm=\"Aiur Supervisor\""]
+
+    basic =
+      :get
+      |> conn("/api/v1/decisions")
+      |> put_req_header("authorization", "Basic " <> Base.encode64("operator:secret"))
+      |> Router.call(Router.init([]))
+
+    assert basic.status == 401
+
+    authorized = supervisor_request(:get, "/api/v1/decisions")
+    assert authorized.status == 200
+    assert is_list(Jason.decode!(authorized.resp_body)["decisions"])
+
+    missing_decision = supervisor_request(:get, "/api/v1/decisions/dec_missing")
+    assert missing_decision.status == 404
+    assert Jason.decode!(missing_decision.resp_body)["error"]["code"] == "decision_not_found"
+  end
+
+  test "Decision mutations authenticate before the existing origin and writable gates" do
+    System.put_env("AIUR_SUPERVISOR_TOKEN", @supervisor_token)
+    path = "/api/v1/decisions/dec_known/decide"
+
+    unauthenticated = Router.call(conn(:post, path), Router.init([]))
+    assert unauthenticated.status == 401
+
+    authenticated = supervisor_request(:post, path)
+    assert authenticated.status == 403
+    assert Jason.decode!(authenticated.resp_body) == %{"error" => "origin not allowed"}
+
+    read_only =
+      :post
+      |> conn(path)
+      |> put_req_header("authorization", "Bearer #{@supervisor_token}")
+      |> put_req_header("origin", "http://localhost")
+      |> put_req_header("x-aiur-request", "1")
+      |> Router.call(Router.init([]))
+
+    assert read_only.status == 403
+    assert Jason.decode!(read_only.resp_body) == %{"error" => "dashboard is read-only"}
+  end
+
+  test "Decision route method catches cannot fall through to generic issue reads" do
+    System.put_env("AIUR_SUPERVISOR_TOKEN", @supervisor_token)
+
+    for {method, path} <- [
+          {:post, "/api/v1/decisions"},
+          {:patch, "/api/v1/decisions/dec_known"},
+          {:get, "/api/v1/decisions/dec_known/enrich"},
+          {:delete, "/api/v1/decisions/dec_known/decide"},
+          {:put, "/api/v1/decisions/dec_known/revise"}
+        ] do
+      response = supervisor_request(method, path)
+      assert response.status == 405
+      assert Jason.decode!(response.resp_body)["error"]["code"] == "method_not_allowed"
+    end
   end
 
   test "write API accepts exact loopback origins and a path-bearing Referer" do
@@ -113,6 +182,13 @@ defmodule AiurWeb.RouterAuthTest do
 
     conn
     |> put_req_header("x-aiur-request", "1")
+    |> Router.call(Router.init([]))
+  end
+
+  defp supervisor_request(method, path) do
+    method
+    |> conn(path)
+    |> put_req_header("authorization", "Bearer #{@supervisor_token}")
     |> Router.call(Router.init([]))
   end
 

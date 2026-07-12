@@ -124,6 +124,33 @@ defmodule Aiur.DecisionApi do
   def decide(_decision_id, _payload, opts) when is_list(opts),
     do: {:error, {:delegation_invalid, {:payload, :invalid_type}}}
 
+  @doc "Authorizes a supervisor revision and delegates all semantics to OCC-8."
+  @spec revise(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def revise(decision_id, payload, opts \\ [])
+
+  def revise(decision_id, payload, opts) when is_map(payload) and is_list(opts) do
+    store = Keyword.get(opts, :store, DecisionStore)
+
+    with {:ok, normalized_id} <- normalize_decision_id(decision_id),
+         {:ok, actor} <- trusted_revision_actor(opts),
+         {:ok, decision} <- read_one(normalized_id, store),
+         {:ok, evaluation} <- authorize_revision(decision, policy(opts)),
+         :ok <- reject_revision_claims(payload),
+         {:ok, result} <-
+           invoke_revision_service(
+             Keyword.get(opts, :revision_service),
+             normalized_id,
+             payload,
+             revision_opts(actor, decision, evaluation),
+             store
+           ) do
+      {:ok, result}
+    end
+  end
+
+  def revise(_decision_id, _payload, opts) when is_list(opts),
+    do: {:error, {:revision_invalid, {:payload, :invalid_type}}}
+
   defp normalize_list_params(params) do
     with {:ok, normalized} <- normalize_param_keys(params),
          {:ok, limit} <- bounded_integer(normalized["limit"], @default_limit, 1, @maximum_limit, :limit),
@@ -177,6 +204,97 @@ defmodule Aiur.DecisionApi do
       @supervisor_actor = actor -> {:ok, actor}
       _untrusted -> {:error, {:delegation_invalid, {:actor, :untrusted}}}
     end
+  end
+
+  defp trusted_revision_actor(opts) do
+    case Keyword.get(opts, :actor) do
+      @supervisor_actor = actor -> {:ok, actor}
+      _untrusted -> {:error, {:revision_invalid, {:actor, :untrusted}}}
+    end
+  end
+
+  defp authorize_revision(decision, policy) do
+    evaluation = DecisionAuthority.evaluate(decision, policy)
+
+    if evaluation.allowed do
+      {:ok, evaluation}
+    else
+      {:error,
+       {:delegation_forbidden,
+        %{
+          checks: evaluation.checks,
+          reasons: evaluation.reasons
+        }}}
+    end
+  end
+
+  defp reject_revision_claims(payload) do
+    forbidden_fields = ~w(actor authority decision_id policy policy_basis supervisor_basis)
+
+    attempted =
+      payload
+      |> Map.keys()
+      |> Enum.map(fn
+        key when is_atom(key) -> Atom.to_string(key)
+        key -> key
+      end)
+      |> Enum.filter(&(&1 in forbidden_fields))
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    if attempted == [],
+      do: :ok,
+      else: {:error, {:revision_invalid, {:forbidden_fields, attempted}}}
+  end
+
+  defp revision_opts(actor, decision, evaluation) do
+    [
+      actor: actor,
+      authority: decision.authority,
+      policy_checks: evaluation.checks,
+      allow_non_reversible: evaluation.policy.allow_non_reversible
+    ]
+  end
+
+  defp invoke_revision_service(nil, decision_id, payload, opts, store) do
+    if function_exported?(DecisionStore, :revise, 4) do
+      apply_revision_service(fn -> apply(DecisionStore, :revise, [decision_id, payload, opts, store]) end)
+    else
+      {:error, :revision_service_unavailable}
+    end
+  end
+
+  defp invoke_revision_service(service, decision_id, payload, opts, _store)
+       when is_function(service, 3) do
+    apply_revision_service(fn -> service.(decision_id, payload, opts) end)
+  end
+
+  defp invoke_revision_service(service, decision_id, payload, opts, store) when is_atom(service) do
+    cond do
+      function_exported?(service, :revise, 4) ->
+        apply_revision_service(fn -> apply(service, :revise, [decision_id, payload, opts, store]) end)
+
+      function_exported?(service, :revise, 3) ->
+        apply_revision_service(fn -> apply(service, :revise, [decision_id, payload, opts]) end)
+
+      true ->
+        {:error, :revision_service_unavailable}
+    end
+  end
+
+  defp invoke_revision_service(_service, _decision_id, _payload, _opts, _store),
+    do: {:error, :revision_service_unavailable}
+
+  defp apply_revision_service(fun) do
+    case fun.() do
+      {:ok, result} when is_map(result) -> {:ok, result}
+      {:error, reason} -> {:error, reason}
+      _invalid -> {:error, :revision_service_unavailable}
+    end
+  rescue
+    _error -> {:error, :revision_service_unavailable}
+  catch
+    :exit, _reason -> {:error, :revision_service_unavailable}
   end
 
   defp enrichment_opts(opts, actor, expected_version) do

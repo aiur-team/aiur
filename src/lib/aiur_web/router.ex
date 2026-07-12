@@ -49,6 +49,40 @@ defmodule AiurWeb.Router do
     plug(:require_dashboard_writable)
   end
 
+  # Supervisor Decision mutations retain the dashboard's existing write
+  # defenses in addition to their dedicated machine credential. Keep these
+  # specific routes before `/api/v1/:issue_identifier` so `decisions` cannot
+  # be interpreted as an issue identifier.
+  scope "/", AiurWeb do
+    pipe_through([:supervisor_auth, :api_write, :require_writable])
+
+    post("/api/v1/decisions/:decision_id/enrich", DecisionApiController, :enrich)
+    post("/api/v1/decisions/:decision_id/decide", DecisionApiController, :decide)
+    post("/api/v1/decisions/:decision_id/revise", DecisionApiController, :revise)
+  end
+
+  # Read operations require the same supervisor identity but remain available
+  # while the dashboard is observe-only and need no browser mutation headers.
+  scope "/", AiurWeb do
+    pipe_through(:supervisor_auth)
+
+    get("/api/v1/decisions", DecisionApiController, :index)
+    get("/api/v1/decisions/:decision_id", DecisionApiController, :show)
+  end
+
+  # Authenticated method/shape catches keep unsupported Decision requests from
+  # falling through into the dashboard Basic-Auth issue API.
+  scope "/", AiurWeb do
+    pipe_through(:supervisor_auth)
+
+    match(:*, "/api/v1/decisions", DecisionApiController, :method_not_allowed)
+    match(:*, "/api/v1/decisions/:decision_id/enrich", DecisionApiController, :method_not_allowed)
+    match(:*, "/api/v1/decisions/:decision_id/decide", DecisionApiController, :method_not_allowed)
+    match(:*, "/api/v1/decisions/:decision_id/revise", DecisionApiController, :method_not_allowed)
+    match(:*, "/api/v1/decisions/:decision_id", DecisionApiController, :method_not_allowed)
+    match(:*, "/api/v1/decisions/:decision_id/*path", DecisionApiController, :not_found)
+  end
+
   scope "/", AiurWeb do
     pipe_through(:dashboard_auth)
 
