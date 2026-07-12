@@ -14,8 +14,9 @@ defmodule Aiur.DecisionValidation do
   `version` is always normalized as `1` and `content_hash` covers only
   the meaningful request content (question, options, context,
   artifacts, authority, urgency, blocking, reversibility, kind,
-  recommendation, consequence_of_delay) — never ticket/source/
-  decision_id/version/created_at. `Aiur.DecisionStore` (which owns
+  recommendation, consequence_of_delay, and trusted legacy-attention
+  provenance when present) — never source/decision_id/version/created_at.
+  `Aiur.DecisionStore` (which owns
   replay/version/dedup state) decides whether a request is a fresh
   Decision, an accepted enrichment, or a duplicate.
   """
@@ -35,6 +36,8 @@ defmodule Aiur.DecisionValidation do
   @options_max 20
   @artifacts_max 20
   @artifact_value_max 4096
+  @legacy_attention_slug_max 64
+  @legacy_attention_topic_max 500
 
   @default_authority :human_required
   @default_urgency :normal
@@ -59,6 +62,8 @@ defmodule Aiur.DecisionValidation do
     safe_roots = Keyword.get(opts, :safe_roots, default_safe_roots())
 
     with {:ok, normalized_ticket} <- normalize_ticket(ticket),
+         {:ok, legacy_attention} <-
+           normalize_legacy_attention(Keyword.get(opts, :legacy_attention), normalized_ticket),
          {:ok, question} <- fetch_required_string(payload, :question, 1, @question_max, :question),
          {:ok, authority} <-
            fetch_enum_with_default(payload, :authority, Decision.authorities(), @default_authority, :authority),
@@ -82,19 +87,21 @@ defmodule Aiur.DecisionValidation do
          {:ok, artifacts} <- fetch_artifacts(payload, safe_roots),
          {:ok, source_id} <- fetch_optional_string(payload, :source_id, @identity_max, :source_id),
          {:ok, source_created_at} <- fetch_optional_timestamp(payload, :created_at, :source_created_at) do
-      content = %{
-        question: question,
-        authority: authority,
-        urgency: urgency,
-        blocking: blocking,
-        reversibility: reversibility,
-        kind: kind,
-        context: context,
-        options: options,
-        recommendation: recommendation,
-        consequence_of_delay: consequence_of_delay,
-        artifacts: artifacts
-      }
+      content =
+        %{
+          question: question,
+          authority: authority,
+          urgency: urgency,
+          blocking: blocking,
+          reversibility: reversibility,
+          kind: kind,
+          context: context,
+          options: options,
+          recommendation: recommendation,
+          consequence_of_delay: consequence_of_delay,
+          artifacts: artifacts
+        }
+        |> maybe_put_legacy_attention(legacy_attention)
 
       decision = %Decision{
         decision_id: decision_id(ticket, source_id),
@@ -115,6 +122,7 @@ defmodule Aiur.DecisionValidation do
         artifacts: artifacts,
         created_at: now,
         source_created_at: source_created_at,
+        legacy_attention: legacy_attention,
         content_hash: content_hash(content)
       }
 
@@ -344,6 +352,57 @@ defmodule Aiur.DecisionValidation do
         {:error, {field, :invalid_type}}
     end
   end
+
+  defp normalize_legacy_attention(nil, _ticket), do: {:ok, nil}
+
+  defp normalize_legacy_attention(legacy_attention, ticket) when is_map(legacy_attention) do
+    with {:ok, slug} <-
+           fetch_required_string(
+             legacy_attention,
+             :slug,
+             1,
+             @legacy_attention_slug_max,
+             :legacy_attention_slug
+           ),
+         :ok <- validate_legacy_attention_slug(slug),
+         {:ok, topic} <-
+           fetch_required_string(
+             legacy_attention,
+             :topic,
+             1,
+             @legacy_attention_topic_max,
+             :legacy_attention_topic
+           ),
+         :ok <- validate_legacy_attention_topic(topic, ticket.identifier, slug) do
+      {:ok, %{slug: slug, topic: topic}}
+    end
+  end
+
+  defp normalize_legacy_attention(_legacy_attention, _ticket) do
+    {:error, {:legacy_attention, :invalid_type}}
+  end
+
+  defp validate_legacy_attention_slug(slug) do
+    if Regex.match?(~r/\A[a-z0-9][a-z0-9.-]{0,63}\z/, slug) do
+      :ok
+    else
+      {:error, {:legacy_attention_slug, :invalid_format}}
+    end
+  end
+
+  defp validate_legacy_attention_topic(topic, ticket_identifier, slug) do
+    if topic == "ticket.#{ticket_identifier}.agent.attention.#{slug}" do
+      :ok
+    else
+      {:error, {:legacy_attention_topic, :mismatch}}
+    end
+  end
+
+  # The pre-OCC-2 hash shape did not contain this key at all. Preserve that
+  # byte-for-byte shape when provenance is absent so existing audit records
+  # continue to pass replay integrity checks after upgrading.
+  defp maybe_put_legacy_attention(content, nil), do: content
+  defp maybe_put_legacy_attention(content, legacy_attention), do: Map.put(content, :legacy_attention, legacy_attention)
 
   defp normalize_ticket(ticket) when is_map(ticket) do
     with {:ok, identifier} <- normalize_ticket_identifier(get(ticket, :identifier)),

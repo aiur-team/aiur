@@ -7,7 +7,9 @@ defmodule Aiur.Fs do
   contents or the complete new contents — never a prefix. rename(2) within
   a directory is atomic on POSIX; last-writer-wins for the target path.
   Pass `fsync: true` when the data must be on disk before the rename is
-  observable (crash-safe persistence, see `Aiur.JsonStore`).
+  observable (crash-safe persistence, see `Aiur.JsonStore`). Pass `mode:`
+  when the staged file must have explicit permissions before it becomes
+  visible at the destination path.
 
   Does not create parent directories — callers that need that (JsonStore)
   mkdir_p themselves. The staged temp file is removed on any failure.
@@ -16,12 +18,13 @@ defmodule Aiur.Fs do
   @spec atomic_write(Path.t(), iodata(), keyword()) :: :ok | {:error, term()}
   def atomic_write(path, contents, opts \\ []) when is_binary(path) do
     tmp = path <> ".tmp." <> Integer.to_string(System.unique_integer([:positive]))
+    mode = Keyword.get(opts, :mode)
 
     result =
       if Keyword.get(opts, :fsync, false) do
-        write_with_fsync(tmp, contents)
+        write_with_fsync(tmp, contents, mode)
       else
-        File.write(tmp, contents)
+        write(tmp, contents, mode)
       end
 
     case result do
@@ -42,10 +45,17 @@ defmodule Aiur.Fs do
     {:error, reason}
   end
 
-  defp write_with_fsync(tmp, contents) do
+  defp write(tmp, contents, mode) do
+    with :ok <- File.write(tmp, contents) do
+      maybe_chmod(tmp, mode)
+    end
+  end
+
+  defp write_with_fsync(tmp, contents, mode) do
     with {:ok, fd} <- :file.open(tmp, [:write, :binary, :raw]) do
       try do
-        with :ok <- :file.write(fd, contents) do
+        with :ok <- maybe_chmod(tmp, mode),
+             :ok <- :file.write(fd, contents) do
           :file.sync(fd)
         end
       after
@@ -53,6 +63,9 @@ defmodule Aiur.Fs do
       end
     end
   end
+
+  defp maybe_chmod(_path, nil), do: :ok
+  defp maybe_chmod(path, mode) when is_integer(mode), do: File.chmod(path, mode)
 
   @doc """
   Forces a durable directory entry after a first-ever file/directory

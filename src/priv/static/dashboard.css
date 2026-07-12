@@ -654,6 +654,34 @@ pre,
   color: var(--muted);
 }
 
+.inline-warning {
+  margin: 1rem 0 0;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid #f1d8a6;
+  border-radius: 14px;
+  background: #fff7e8;
+  color: #704900;
+  font-size: 0.88rem;
+}
+
+.primary-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.35rem;
+  padding: 0.55rem 0.9rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: white;
+  font-size: 0.86rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.primary-link:hover {
+  background: var(--accent-ink);
+  color: white;
+}
+
 .error-card {
   border-radius: 24px;
   padding: 1.25rem;
