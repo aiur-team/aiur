@@ -109,8 +109,8 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       # The OCC-5 CI/PR projection still caches even when the tracker write
       # itself fails and the transition is left untouched.
       assert next.running == state.running
-      assert next.ci_poll_cache == %{identifier => %{decision: :failed, pr_number: 941, head_sha: "failed-head"}}
-      assert next.ci_lifecycle == state.ci_lifecycle
+      assert next.ci_lifecycle.poll_cache == %{identifier => %{decision: :failed, pr_number: 941, head_sha: "failed-head"}}
+      assert Map.delete(next.ci_lifecycle, :poll_cache) == Map.delete(state.ci_lifecycle, :poll_cache)
       assert MapSet.member?(next.claimed, identifier)
     end
 
@@ -166,8 +166,8 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       # A redundant poll still caches the OCC-5 CI/PR projection (fleet-row
       # read model) even though nothing tracker/pause-side changes.
       assert next.running == state.running
-      assert next.ci_poll_cache == %{identifier => %{decision: :pending, pr_number: nil, head_sha: "same-head"}}
-      assert next.ci_lifecycle == state.ci_lifecycle
+      assert next.ci_lifecycle.poll_cache == %{identifier => %{decision: :pending, pr_number: nil, head_sha: "same-head"}}
+      assert Map.delete(next.ci_lifecycle, :poll_cache) == Map.delete(state.ci_lifecycle, :poll_cache)
     end
 
     test "tracker recording ignores unrelated process traffic" do

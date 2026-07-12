@@ -2,6 +2,7 @@ defmodule Aiur.OrchestratorStatusTest do
   use Aiur.TestSupport
 
   alias Aiur.Codex.CodingAgent, as: CodexCodingAgent
+  alias Aiur.Events.SubscriptionStore
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator.{OperatorMessages, WorkspaceCleanup}
   alias Aiur.SessionHandle
@@ -1570,6 +1571,43 @@ defmodule Aiur.OrchestratorStatusTest do
     # A tracker-active issue already shown in the retry-backoff bucket must
     # not also double up as an idle row.
     assert [%{identifier: "MT-601", state: "ci-wait", waiting_reason: :waiting_for_ci}] = snapshot.idle
+  end
+
+  test "orchestrator snapshot reads open decisions without calling the per-ticket store" do
+    identifier = "MT-ATTENTION-#{System.unique_integer([:positive])}"
+    issue_id = "issue-attention-#{System.unique_integer([:positive])}"
+    orchestrator_name = Module.concat(__MODULE__, :NonblockingFleetStateOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      SubscriptionStore.stop(identifier)
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    :ok = SubscriptionStore.attach(identifier)
+    :ok = SubscriptionStore.add_attention(identifier, "operator-decision")
+    [{store_pid, 1}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, identifier)
+
+    entry =
+      issue_id
+      |> running_entry(identifier, :working)
+      |> Map.merge(%{
+        codex_app_server_pid: nil,
+        last_codex_timestamp: DateTime.add(DateTime.utc_now(), -10 * 24 * 60 * 60, :second),
+        last_codex_message: nil,
+        last_codex_event: nil
+      })
+
+    :sys.replace_state(pid, fn state -> %{state | running: %{issue_id => entry}} end)
+    :ok = :sys.suspend(store_pid)
+
+    try do
+      assert %{running: [row]} = Orchestrator.snapshot(orchestrator_name, 100)
+      assert row.open_decision_count == 1
+      assert row.waiting_reason == :waiting_for_human
+    after
+      :ok = :sys.resume(store_pid)
+    end
   end
 
   test "orchestrator snapshot includes poll countdown and checking status" do

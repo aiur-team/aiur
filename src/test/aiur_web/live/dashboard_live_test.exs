@@ -51,10 +51,23 @@ defmodule AiurWeb.DashboardLiveTest do
       %{
         state
         | running: %{"issue-ci-wait" => ci_wait_entry},
-          ci_poll_cache: %{"MT-900" => %{decision: :pending, pr_number: 77, head_sha: "deadbeef"}},
+          retry_attempts: %{
+            "issue-retry" => %{
+              attempt: 2,
+              timer_ref: nil,
+              due_at_ms: System.monotonic_time(:millisecond) + 5_000,
+              identifier: "MT-902",
+              error: "temporary failure"
+            }
+          },
+          ci_lifecycle: %{
+            state.ci_lifecycle
+            | poll_cache: %{"MT-900" => %{decision: :pending, pr_number: 77, head_sha: "deadbeef"}}
+          },
           last_polled_issues: %{
             "issue-ci-wait" => %Issue{id: "issue-ci-wait", identifier: "MT-900", state: "ci-wait"},
-            "issue-idle" => %Issue{id: "issue-idle", identifier: "MT-901", state: "human-review", title: "Idle review"}
+            "issue-idle" => %Issue{id: "issue-idle", identifier: "MT-901", state: "human-review", title: "Idle review"},
+            "issue-retry" => %Issue{id: "issue-retry", identifier: "MT-902", state: "rework", title: "Retrying"}
           }
       }
     end)
@@ -70,5 +83,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ "waiting for review"
     assert html =~ "review awaiting"
     assert html =~ "Queued / waiting"
+    assert html =~ "MT-902"
+    assert html =~ "backing off"
   end
 end

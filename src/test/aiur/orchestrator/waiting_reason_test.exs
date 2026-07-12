@@ -24,6 +24,17 @@ defmodule Aiur.Orchestrator.WaitingReasonTest do
              }) == :unresponsive
     end
 
+    test "an open decision takes precedence over tracker state and staleness" do
+      assert WaitingReason.for_running(%{
+               tracker_state: "human-review",
+               pause_reason: nil,
+               work_state: :working,
+               open_decision_count: 1,
+               stale_for_seconds: 3601,
+               stall_timeout_seconds: 3600
+             }) == :waiting_for_human
+    end
+
     test "a deliberately paused agent is never classified as unresponsive" do
       assert WaitingReason.for_running(%{
                tracker_state: "in-progress",
@@ -151,18 +162,22 @@ defmodule Aiur.Orchestrator.WaitingReasonTest do
     end
   end
 
-  describe "for_idle/2" do
+  describe "for_idle/3" do
     test "an unresolved dependency wins over tracker state" do
-      assert WaitingReason.for_idle("ci-wait", true) == :waiting_for_dependency
+      assert WaitingReason.for_idle("ci-wait", true, 0) == :waiting_for_dependency
+    end
+
+    test "an open decision wins over dependency and tracker state" do
+      assert WaitingReason.for_idle("ci-wait", true, 1) == :waiting_for_human
     end
 
     test "falls back to tracker-state classification" do
-      assert WaitingReason.for_idle("ci-wait", false) == :waiting_for_ci
-      assert WaitingReason.for_idle("human-review", false) == :waiting_for_review
-      assert WaitingReason.for_idle("rework", false) == :waiting_for_human
-      assert WaitingReason.for_idle("merging", false) == :waiting_for_supervisor
-      assert WaitingReason.for_idle("todo", false) == :active
-      assert WaitingReason.for_idle(nil, false) == :active
+      assert WaitingReason.for_idle("ci-wait", false, 0) == :waiting_for_ci
+      assert WaitingReason.for_idle("human-review", false, 0) == :waiting_for_review
+      assert WaitingReason.for_idle("rework", false, 0) == :waiting_for_human
+      assert WaitingReason.for_idle("merging", false, 0) == :waiting_for_supervisor
+      assert WaitingReason.for_idle("todo", false, 0) == :active
+      assert WaitingReason.for_idle(nil, false, 0) == :active
     end
   end
 end

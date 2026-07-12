@@ -379,12 +379,16 @@ defmodule AiurWeb.DashboardLive do
             <p class="empty-state">No issues are currently backing off.</p>
           <% else %>
             <div class="table-wrap">
-              <table class="data-table" style="min-width: 680px;">
+              <table class="data-table" style="min-width: 980px;">
                 <thead>
                   <tr>
                     <th>Issue</th>
+                    <th>State</th>
+                    <th>Waiting</th>
                     <th>Attempt</th>
                     <th>Due at</th>
+                    <th>CI / Review</th>
+                    <th>Decisions</th>
                     <th>Error</th>
                   </tr>
                 </thead>
@@ -396,8 +400,26 @@ defmodule AiurWeb.DashboardLive do
                         <a class="issue-link" href={"/api/v1/#{entry.issue_identifier}"}>JSON details</a>
                       </div>
                     </td>
+                    <td>
+                      <span class={state_badge_class(entry.state)}>
+                        <%= entry.state || "n/a" %>
+                      </span>
+                    </td>
+                    <td>
+                      <span class={waiting_reason_badge_class(entry.waiting_reason)}>
+                        <%= format_waiting_reason(entry.waiting_reason) %>
+                      </span>
+                    </td>
                     <td><%= entry.attempt %></td>
                     <td class="mono"><%= entry.due_at || "n/a" %></td>
+                    <td class="numeric"><%= format_ci_review(entry.ci, entry.review) %></td>
+                    <td class="numeric">
+                      <%= if entry.open_decision_count > 0 do %>
+                        <span class="state-badge state-badge-warning">❗<%= entry.open_decision_count %></span>
+                      <% else %>
+                        <span class="muted">—</span>
+                      <% end %>
+                    </td>
                     <td><%= entry.error || "n/a" %></td>
                   </tr>
                 </tbody>

@@ -41,11 +41,12 @@ defmodule AiurWeb.Presenter do
       %{} = snapshot ->
         running = Enum.find(snapshot.running, &(&1.identifier == issue_identifier))
         retry = Enum.find(snapshot.retrying, &(&1.identifier == issue_identifier))
+        idle = Enum.find(Map.get(snapshot, :idle, []), &(&1.identifier == issue_identifier))
 
-        if is_nil(running) and is_nil(retry) do
+        if is_nil(running) and is_nil(retry) and is_nil(idle) do
           {:error, :issue_not_found}
         else
-          {:ok, issue_payload_body(issue_identifier, running, retry)}
+          {:ok, issue_payload_body(issue_identifier, running, retry, idle)}
         end
 
       _ ->
@@ -64,11 +65,11 @@ defmodule AiurWeb.Presenter do
     end
   end
 
-  defp issue_payload_body(issue_identifier, running, retry) do
-    %{
+  defp issue_payload_body(issue_identifier, running, retry, idle) do
+    payload = %{
       issue_identifier: issue_identifier,
-      issue_id: issue_id_from_entries(running, retry),
-      status: issue_status(running, retry),
+      issue_id: issue_id_from_entries(running, retry, idle),
+      status: issue_status(running, retry, idle),
       workspace: %{
         path: workspace_path(issue_identifier, running, retry),
         host: workspace_host(running, retry)
@@ -81,7 +82,9 @@ defmodule AiurWeb.Presenter do
       retry: retry && retry_issue_payload(retry),
       capabilities: running && Map.get(running, :control),
       queue: %{
-        depth: (running && Map.get(running, :queue_depth)) || 0
+        depth:
+          (running && Map.get(running, :queue_depth)) ||
+            (idle && Map.get(idle, :queue_depth)) || 0
       },
       logs: %{
         codex_session_logs: []
@@ -90,18 +93,20 @@ defmodule AiurWeb.Presenter do
       last_error: retry && retry.error,
       tracked: %{}
     }
+
+    if idle, do: Map.put(payload, :idle, idle_entry_payload(idle)), else: payload
   end
 
-  defp issue_id_from_entries(running, retry),
-    do: (running && running.issue_id) || (retry && retry.issue_id)
+  defp issue_id_from_entries(running, retry, idle),
+    do: (running && running.issue_id) || (retry && retry.issue_id) || (idle && idle.issue_id)
 
   defp restart_count(retry), do: max(retry_attempt(retry) - 1, 0)
   defp retry_attempt(nil), do: 0
   defp retry_attempt(retry), do: retry.attempt || 0
 
-  defp issue_status(_running, nil), do: "running"
-  defp issue_status(nil, _retry), do: "retrying"
-  defp issue_status(_running, _retry), do: "running"
+  defp issue_status(running, _retry, _idle) when is_map(running), do: "running"
+  defp issue_status(_running, retry, _idle) when is_map(retry), do: "retrying"
+  defp issue_status(_running, _retry, idle) when is_map(idle), do: "idle"
 
   defp running_entry_payload(entry) do
     %{
@@ -140,7 +145,14 @@ defmodule AiurWeb.Presenter do
       error: entry.error,
       worker_host: Map.get(entry, :worker_host),
       workspace_path: Map.get(entry, :workspace_path),
-      waiting_reason: Map.get(entry, :waiting_reason, :backing_off)
+      state: Map.get(entry, :state),
+      tag: Map.get(entry, :tag),
+      title: Map.get(entry, :title),
+      url: Map.get(entry, :url),
+      waiting_reason: Map.get(entry, :waiting_reason, :backing_off),
+      open_decision_count: Map.get(entry, :open_decision_count, 0),
+      ci: ci_payload(Map.get(entry, :ci_result)),
+      review: review_status(Map.get(entry, :state))
     }
   end
 
@@ -197,6 +209,11 @@ defmodule AiurWeb.Presenter do
       last_event: running.last_codex_event,
       last_message: summarize_message(running.last_codex_message),
       last_event_at: iso8601(running.last_codex_timestamp),
+      stale_for_seconds: Map.get(running, :stale_for_seconds),
+      waiting_reason: Map.get(running, :waiting_reason, :active),
+      open_decision_count: Map.get(running, :open_decision_count, 0),
+      ci: ci_payload(Map.get(running, :ci_result)),
+      review: review_status(running.state),
       tokens: %{
         input_tokens: running.agent_input_tokens,
         output_tokens: running.agent_output_tokens,
@@ -211,7 +228,12 @@ defmodule AiurWeb.Presenter do
       due_at: due_at_iso8601(retry.due_in_ms),
       error: retry.error,
       worker_host: Map.get(retry, :worker_host),
-      workspace_path: Map.get(retry, :workspace_path)
+      workspace_path: Map.get(retry, :workspace_path),
+      state: Map.get(retry, :state),
+      waiting_reason: Map.get(retry, :waiting_reason, :backing_off),
+      open_decision_count: Map.get(retry, :open_decision_count, 0),
+      ci: ci_payload(Map.get(retry, :ci_result)),
+      review: review_status(Map.get(retry, :state))
     }
   end
 

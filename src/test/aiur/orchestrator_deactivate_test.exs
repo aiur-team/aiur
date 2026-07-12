@@ -662,7 +662,11 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       state = %{
         empty_orchestrator_state()
-        | ci_lifecycle: %{approved_heads: %{"old-review" => "old-head"}, test_failure_heads: %{"old-wait" => "failed-head"}}
+        | ci_lifecycle: %{
+            approved_heads: %{"old-review" => "old-head"},
+            test_failure_heads: %{"old-wait" => "failed-head"},
+            poll_cache: %{"old-review" => %{decision: :passed}}
+          }
       }
 
       state =
@@ -673,6 +677,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       assert state.ci_lifecycle.approved_heads == %{}
       assert state.ci_lifecycle.test_failure_heads == %{}
+      assert state.ci_lifecycle.poll_cache == %{}
       assert CIApprovalStore.load() == %{approved_heads: %{}, test_failure_heads: %{}}
     end
 

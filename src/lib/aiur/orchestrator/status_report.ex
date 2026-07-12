@@ -117,9 +117,10 @@ defmodule Aiur.Orchestrator.StatusReport do
     state = Lifecycle.refresh_runtime_config(state)
     now = DateTime.utc_now()
     now_ms = System.monotonic_time(:millisecond)
+    stall_timeout_seconds = stall_timeout_seconds()
 
-    running = Enum.map(state.running, &running_snapshot(state, &1, now))
-    retrying = Enum.map(state.retry_attempts, &retry_snapshot(&1, now_ms))
+    running = Enum.map(state.running, &running_snapshot(state, &1, now, stall_timeout_seconds))
+    retrying = Enum.map(state.retry_attempts, &retry_snapshot(state, &1, now_ms))
     idle = idle_snapshot(state)
 
     {:reply,
@@ -137,19 +138,21 @@ defmodule Aiur.Orchestrator.StatusReport do
      }, state}
   end
 
-  defp running_snapshot(%State{} = state, {issue_id, metadata}, now) do
+  defp running_snapshot(%State{} = state, {issue_id, metadata}, now, stall_timeout_seconds) do
     capabilities = OM.issue_control_capabilities(state, metadata.identifier)
     work_state = get_in(metadata, [:control, :status]) || :working
     pause_reason = Map.get(metadata, :paused_reason)
     stale_for_seconds = stale_for_seconds(metadata, now)
+    open_decision_count = open_decision_count(metadata.identifier)
 
     waiting_reason =
       WaitingReason.for_running(%{
         tracker_state: metadata.issue.state,
         pause_reason: pause_reason,
         work_state: work_state,
+        open_decision_count: open_decision_count,
         stale_for_seconds: stale_for_seconds,
-        stall_timeout_seconds: stall_timeout_seconds()
+        stall_timeout_seconds: stall_timeout_seconds
       })
 
     %{
@@ -180,21 +183,30 @@ defmodule Aiur.Orchestrator.StatusReport do
       runtime_seconds: State.running_seconds(metadata.started_at, now),
       stale_for_seconds: stale_for_seconds,
       waiting_reason: waiting_reason,
-      open_decision_count: open_decision_count(metadata.identifier),
-      ci_result: Map.get(state.ci_poll_cache, metadata.identifier)
+      open_decision_count: open_decision_count,
+      ci_result: cached_ci_result(state, metadata.identifier)
     }
   end
 
-  defp retry_snapshot({issue_id, %{attempt: attempt, due_at_ms: due_at_ms} = retry}, now_ms) do
+  defp retry_snapshot(%State{} = state, {issue_id, %{attempt: attempt, due_at_ms: due_at_ms} = retry}, now_ms) do
+    identifier = Map.get(retry, :identifier)
+    issue = Map.get(state.last_polled_issues, issue_id)
+
     %{
       issue_id: issue_id,
       attempt: attempt,
       due_in_ms: max(0, due_at_ms - now_ms),
-      identifier: Map.get(retry, :identifier),
+      identifier: identifier,
+      state: issue && issue.state,
+      tag: issue && State.issue_tag(issue),
+      title: issue && issue.title,
+      url: issue && issue.url,
       error: Map.get(retry, :error),
       worker_host: Map.get(retry, :worker_host),
       workspace_path: Map.get(retry, :workspace_path),
-      waiting_reason: WaitingReason.for_retry()
+      waiting_reason: WaitingReason.for_retry(),
+      open_decision_count: open_decision_count(identifier),
+      ci_result: cached_ci_result(state, identifier)
     }
   end
 
@@ -224,6 +236,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   defp idle_issue_snapshot(%State{} = state, %Issue{} = issue, terminal_states) do
     identifier = issue.identifier || issue.id
     blocked_by_open? = DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, terminal_states)
+    open_decision_count = open_decision_count(identifier)
 
     %{
       issue_id: issue.id,
@@ -234,21 +247,30 @@ defmodule Aiur.Orchestrator.StatusReport do
       url: issue.url,
       tracker_paused: Issue.paused?(issue),
       queue_depth: OM.queue_depth_for_issue(state, identifier),
-      waiting_reason: WaitingReason.for_idle(issue.state, blocked_by_open?),
-      open_decision_count: open_decision_count(identifier),
-      ci_result: Map.get(state.ci_poll_cache, identifier)
+      waiting_reason: WaitingReason.for_idle(issue.state, blocked_by_open?, open_decision_count),
+      open_decision_count: open_decision_count,
+      ci_result: cached_ci_result(state, identifier)
     }
+  end
+
+  defp cached_ci_result(%State{} = state, identifier) do
+    state.ci_lifecycle
+    |> Map.get(:poll_cache, %{})
+    |> Map.get(identifier)
   end
 
   defp stale_for_seconds(metadata, %DateTime{} = now) do
     case Map.get(metadata, :last_codex_timestamp) || Map.get(metadata, :started_at) do
-      %DateTime{} = last_activity -> DateTime.diff(now, last_activity, :second)
+      %DateTime{} = last_activity -> max(0, DateTime.diff(now, last_activity, :second))
       _ -> nil
     end
   end
 
   defp stall_timeout_seconds do
-    div(Config.agent_stall_timeout_ms(), 1_000)
+    case Config.agent_stall_timeout_ms() do
+      0 -> 0
+      timeout_ms -> div(timeout_ms + 999, 1_000)
+    end
   end
 
   defp open_decision_count(identifier) when is_binary(identifier),

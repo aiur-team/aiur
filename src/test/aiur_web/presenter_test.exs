@@ -46,12 +46,16 @@ defmodule AiurWeb.PresenterTest do
           retry_attempts: %{
             "mt-701" => %{attempt: 1, timer_ref: nil, due_at_ms: System.monotonic_time(:millisecond) + 5_000, identifier: "MT-701"}
           },
-          ci_poll_cache: %{
-            "MT-700" => %{decision: :pending, pr_number: 55, head_sha: "abc123"},
-            "MT-702" => %{decision: :passed, pr_number: 56, head_sha: "def456"}
+          ci_lifecycle: %{
+            state.ci_lifecycle
+            | poll_cache: %{
+                "MT-700" => %{decision: :pending, pr_number: 55, head_sha: "abc123"},
+                "MT-702" => %{decision: :passed, pr_number: 56, head_sha: "def456"}
+              }
           },
           last_polled_issues: %{
             "issue-ci-wait" => %Issue{id: "issue-ci-wait", identifier: "MT-700", state: "ci-wait"},
+            "mt-701" => %Issue{id: "mt-701", identifier: "MT-701", state: "rework", title: "Retrying"},
             "issue-idle" => %Issue{id: "issue-idle", identifier: "MT-702", state: "human-review", title: "Idle review"}
           }
       }
@@ -70,7 +74,11 @@ defmodule AiurWeb.PresenterTest do
     assert is_integer(running_row.stale_for_seconds)
 
     assert [retry_row] = payload.retrying
+    assert retry_row.state == "rework"
     assert retry_row.waiting_reason == :backing_off
+    assert retry_row.open_decision_count == 0
+    assert retry_row.ci == nil
+    assert retry_row.review == :not_started
 
     assert [idle_row] = payload.idle
     assert idle_row.issue_identifier == "MT-702"

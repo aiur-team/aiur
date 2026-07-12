@@ -27,6 +27,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
     * `:pause_reason` — the running entry's `paused_reason` atom, if any
     * `:work_state` — the running entry's `control.status` (`:working` /
       `:paused` / `:sleeping` / `:deactivated`)
+    * `:open_decision_count` — unresolved ticket attentions requiring input
     * `:stale_for_seconds` — seconds since last observed agent activity
     * `:stall_timeout_seconds` — `Config.agent_stall_timeout_ms/0` in seconds
   """
@@ -35,6 +36,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
     tracker_reason = by_tracker_state(Map.get(attrs, :tracker_state))
 
     cond do
+      open_decision?(Map.get(attrs, :open_decision_count)) -> :waiting_for_human
       unresponsive?(attrs) -> :unresponsive
       tracker_reason != :active -> tracker_reason
       agent_requested_human?(Map.get(attrs, :pause_reason)) -> :waiting_for_human
@@ -49,13 +51,15 @@ defmodule Aiur.Orchestrator.WaitingReason do
 
   @doc """
   Classifies a tracker-active row with no live running process.
-  `blocked_by_open?` takes precedence — it is only ever true for a `todo`
-  issue with an unresolved dependency (see `DispatchPolicy.todo_issue_blocked_by_non_terminal?/2`).
+  An open decision takes precedence, followed by `blocked_by_open?`, which is
+  only ever true for a `todo` issue with an unresolved dependency (see
+  `DispatchPolicy.todo_issue_blocked_by_non_terminal?/2`).
   """
-  @spec for_idle(String.t() | nil, boolean()) :: t()
-  def for_idle(tracker_state, blocked_by_open?)
-  def for_idle(_tracker_state, true), do: :waiting_for_dependency
-  def for_idle(tracker_state, false), do: by_tracker_state(tracker_state)
+  @spec for_idle(String.t() | nil, boolean(), non_neg_integer()) :: t()
+  def for_idle(tracker_state, blocked_by_open?, open_decision_count)
+  def for_idle(_tracker_state, _blocked_by_open?, open_decision_count) when open_decision_count > 0, do: :waiting_for_human
+  def for_idle(_tracker_state, true, 0), do: :waiting_for_dependency
+  def for_idle(tracker_state, false, 0), do: by_tracker_state(tracker_state)
 
   # Mirrors `Aiur.Orchestrator.RuntimeWatchdog.restart_stalled_issue/5`'s
   # actual exemption set: only `:paused` and `:deactivated` entries are
@@ -68,6 +72,8 @@ defmodule Aiur.Orchestrator.WaitingReason do
        do: stale >= timeout
 
   defp unresponsive?(_attrs), do: false
+
+  defp open_decision?(count), do: is_integer(count) and count > 0
 
   defp agent_requested_human?(reason), do: reason in [:agent_pause_request, :input_required]
 

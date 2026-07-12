@@ -406,7 +406,7 @@ defmodule Aiur.ExtensionsTest do
 
     assert state_payload == %{
              "generated_at" => state_payload["generated_at"],
-             "counts" => %{"running" => 1, "retrying" => 1},
+             "counts" => %{"running" => 1, "retrying" => 1, "idle" => 0},
              "running" => [
                %{
                  "issue_id" => "issue-http",
@@ -428,6 +428,11 @@ defmodule Aiur.ExtensionsTest do
                  },
                  "started_at" => state_payload["running"] |> List.first() |> Map.fetch!("started_at"),
                  "last_event_at" => nil,
+                 "stale_for_seconds" => nil,
+                 "waiting_reason" => "active",
+                 "open_decision_count" => 0,
+                 "ci" => nil,
+                 "review" => "not_started",
                  "tokens" => %{"input_tokens" => 4, "output_tokens" => 8, "total_tokens" => 12}
                }
              ],
@@ -439,9 +444,18 @@ defmodule Aiur.ExtensionsTest do
                  "due_at" => state_payload["retrying"] |> List.first() |> Map.fetch!("due_at"),
                  "error" => "boom",
                  "worker_host" => nil,
-                 "workspace_path" => nil
+                 "workspace_path" => nil,
+                 "state" => nil,
+                 "tag" => nil,
+                 "title" => nil,
+                 "url" => nil,
+                 "waiting_reason" => "backing_off",
+                 "open_decision_count" => 0,
+                 "ci" => nil,
+                 "review" => "not_started"
                }
              ],
+             "idle" => [],
              "agent_totals" => %{
                "input_tokens" => 4,
                "output_tokens" => 8,
@@ -481,6 +495,11 @@ defmodule Aiur.ExtensionsTest do
                "last_event" => "notification",
                "last_message" => "rendered",
                "last_event_at" => nil,
+               "stale_for_seconds" => nil,
+               "waiting_reason" => "active",
+               "open_decision_count" => 0,
+               "ci" => nil,
+               "review" => "not_started",
                "tokens" => %{"input_tokens" => 4, "output_tokens" => 8, "total_tokens" => 12}
              },
              "retry" => nil,
@@ -525,6 +544,47 @@ defmodule Aiur.ExtensionsTest do
       |> post("/api/v1/MT-HTTP/messages", %{"text" => "hello"})
 
     assert json_response(conn, 202) == %{"issue_identifier" => "MT-HTTP", "request_id" => 1}
+  end
+
+  test "observability issue details include tracker-active idle rows" do
+    snapshot = %{
+      static_snapshot()
+      | running: [],
+        retrying: [],
+        idle: [
+          %{
+            issue_id: "issue-idle",
+            identifier: "MT-IDLE",
+            state: "human-review",
+            tag: "agent:human-review",
+            title: "Awaiting review",
+            url: "https://example.test/issues/idle",
+            queue_depth: 2,
+            waiting_reason: :waiting_for_review,
+            open_decision_count: 1,
+            ci_result: %{decision: :passed, pr_number: 1014, head_sha: "abc123"}
+          }
+        ]
+    }
+
+    orchestrator_name = Module.concat(__MODULE__, :IdleObservabilityApiOrchestrator)
+    {:ok, _pid} = StaticOrchestrator.start_link(name: orchestrator_name, snapshot: snapshot)
+    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
+
+    assert %{"counts" => %{"idle" => 1}} =
+             json_response(get(build_conn(), "/api/v1/state"), 200)
+
+    assert %{
+             "status" => "idle",
+             "issue_id" => "issue-idle",
+             "queue" => %{"depth" => 2},
+             "idle" => %{
+               "waiting_reason" => "waiting_for_review",
+               "open_decision_count" => 1,
+               "review" => "awaiting",
+               "ci" => %{"decision" => "passed", "pr_number" => 1014, "head_sha" => "abc123"}
+             }
+           } = json_response(get(build_conn(), "/api/v1/MT-IDLE"), 200)
   end
 
   test "read-only dashboard blocks agent-write endpoints but keeps reads working" do
@@ -944,7 +1004,7 @@ defmodule Aiur.ExtensionsTest do
 
     response = Req.get!("http://127.0.0.1:#{port}/api/v1/state")
     assert response.status == 200
-    assert response.body["counts"] == %{"running" => 1, "retrying" => 1}
+    assert response.body["counts"] == %{"running" => 1, "retrying" => 1, "idle" => 0}
 
     dashboard_css = Req.get!("http://127.0.0.1:#{port}/dashboard.css")
     assert dashboard_css.status == 200
@@ -1054,6 +1114,7 @@ defmodule Aiur.ExtensionsTest do
           error: "boom"
         }
       ],
+      idle: [],
       agent_totals: %{input_tokens: 4, output_tokens: 8, total_tokens: 12, seconds_running: 42.5},
       rate_limits: %{"primary" => %{"remaining" => 11}}
     }
