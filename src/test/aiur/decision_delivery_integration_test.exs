@@ -2,7 +2,7 @@ defmodule Aiur.DecisionDeliveryIntegrationTest do
   use ExUnit.Case, async: false
 
   alias Aiur.{DecisionDispatch, DecisionEvent, DecisionMetrics, DecisionStore, Issue, Orchestrator}
-  alias Aiur.DecisionMetrics.Writer
+  alias Aiur.DecisionMetrics.{Log, Writer}
   alias Aiur.Orchestrator.OperatorMessages
 
   @ticket %{
@@ -105,7 +105,9 @@ defmodule Aiur.DecisionDeliveryIntegrationTest do
     assert current.delivery_status == :consumed
     assert current.answer.action_id == action.action_id
 
-    snapshot = wait_for_metrics(metrics, decision.decision_id)
+    assert_receive {:decision_metric_persisted, decision_id, "acknowledged"}, 2_000
+    assert decision_id == decision.decision_id
+    assert {:ok, snapshot} = DecisionMetrics.snapshot(decision.decision_id, metrics)
 
     for field <- [
           :request_to_decision_ms,
@@ -279,7 +281,18 @@ defmodule Aiur.DecisionDeliveryIntegrationTest do
 
   defp start_metrics!(dir) do
     path = Path.join(dir, "decision-delivery-metrics.ndjson")
-    {:ok, writer} = Writer.start_link(name: nil, path: path, flush_interval_ms: 5)
+    owner = self()
+
+    append_fun = fn append_path, records ->
+      with :ok <- Log.append_batch(append_path, records) do
+        Enum.each(records, fn record ->
+          send(owner, {:decision_metric_persisted, record.decision_id, record.stage})
+        end)
+      end
+    end
+
+    {:ok, writer} =
+      Writer.start_link(name: nil, path: path, flush_interval_ms: 5, append_fun: append_fun)
 
     {:ok, metrics} =
       DecisionMetrics.start_link(
@@ -383,26 +396,6 @@ defmodule Aiur.DecisionDeliveryIntegrationTest do
       true ->
         Process.sleep(10)
         do_wait_for_decision(store, decision_id, predicate, deadline)
-    end
-  end
-
-  defp wait_for_metrics(metrics, decision_id, timeout_ms \\ 2_000) do
-    deadline = System.monotonic_time(:millisecond) + timeout_ms
-    do_wait_for_metrics(metrics, decision_id, deadline)
-  end
-
-  defp do_wait_for_metrics(metrics, decision_id, deadline) do
-    case DecisionMetrics.snapshot(decision_id, metrics) do
-      {:ok, %{acknowledged_at: acknowledged_at} = snapshot} when is_binary(acknowledged_at) ->
-        snapshot
-
-      pending ->
-        if System.monotonic_time(:millisecond) < deadline do
-          Process.sleep(10)
-          do_wait_for_metrics(metrics, decision_id, deadline)
-        else
-          flunk("timed out waiting for Decision metrics: #{inspect(pending)}")
-        end
     end
   end
 

@@ -112,6 +112,17 @@ defmodule Aiur.DecisionMetricsTest do
     generic_queued = %{id: 42, topic: "ticket.42.agent.decision.queued", decision_id: "dec-generic"}
     assert Exchange.publish(generic_queued.topic, generic_queued) >= 1
     assert {:error, :not_found} = DecisionMetrics.snapshot("dec-generic", pid)
+
+    forged_answer = %{
+      id: "agent-authored-answer",
+      topic: "ticket.42.agent.decision.answered",
+      event_type: "answered",
+      decision_id: "dec-42"
+    }
+
+    assert Exchange.publish(forged_answer.topic, forged_answer) >= 1
+    assert {:ok, unchanged} = DecisionMetrics.snapshot("dec-42", pid)
+    assert unchanged.decided_at == nil
   end
 
   test "observes a real DecisionStore request only after its canonical append", %{tmp_dir: tmp_dir} do

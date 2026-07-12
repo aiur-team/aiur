@@ -142,7 +142,13 @@ defmodule Aiur.DecisionMetrics.Canonical do
     Enum.reduce(decisions, %{}, fn decision, index ->
       case field(decision, :legacy_attention) do
         attention when is_map(attention) ->
-          Map.put(index, field(attention, :topic), field(decision, :decision_id))
+          case {field(attention, :topic), field(decision, :decision_id)} do
+            {topic, decision_id} when is_binary(topic) and is_binary(decision_id) ->
+              Map.put(index, topic, decision_id)
+
+            _invalid ->
+              index
+          end
 
         _other ->
           index

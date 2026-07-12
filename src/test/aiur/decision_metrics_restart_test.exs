@@ -123,7 +123,8 @@ defmodule Aiur.DecisionMetricsRestartTest do
     metrics = start_metrics!(path, seed?: true, decision_store: store)
     on_exit(fn -> stop_if_alive(metrics) end)
 
-    assert {:ok, snapshot} = wait_for_snapshot(metrics, decision.decision_id)
+    assert :ok = DecisionMetrics.await_seed(metrics)
+    assert {:ok, snapshot} = DecisionMetrics.snapshot(decision.decision_id, metrics)
     assert snapshot.requested_at == DateTime.to_iso8601(decision.created_at)
     assert :ok = DecisionMetrics.flush(metrics)
     assert File.read!(path) =~ "canonical:requested:#{decision.decision_id}:request"
@@ -175,20 +176,6 @@ defmodule Aiur.DecisionMetricsRestartTest do
 
   defp remember_env(keys), do: Map.new(keys, &{&1, Application.get_env(:aiur, &1)})
   defp stop_if_alive(pid), do: if(Process.alive?(pid), do: GenServer.stop(pid))
-
-  defp wait_for_snapshot(metrics, decision_id, attempts \\ 100)
-  defp wait_for_snapshot(_metrics, _decision_id, 0), do: {:error, :timeout}
-
-  defp wait_for_snapshot(metrics, decision_id, attempts) do
-    case DecisionMetrics.snapshot(decision_id, metrics) do
-      {:ok, _snapshot} = found ->
-        found
-
-      {:error, :not_found} ->
-        Process.sleep(10)
-        wait_for_snapshot(metrics, decision_id, attempts - 1)
-    end
-  end
 
   defp restore_env(key, nil), do: Application.delete_env(:aiur, key)
   defp restore_env(key, value), do: Application.put_env(:aiur, key, value)

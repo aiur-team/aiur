@@ -1,11 +1,5 @@
 defmodule Aiur.DecisionMetrics.Sample do
-  @moduledoc """
-  Pure projection of observed Decision lifecycle milestones.
-
-  The canonical Decision audit remains the source of truth. This struct is a
-  redacted metrics snapshot: it retains identifiers, timestamps, actor class,
-  and counters, but never question, answer, rationale, or artifact content.
-  """
+  @moduledoc "Pure, content-redacted projection of observed Decision lifecycle milestones."
 
   @type stage ::
           :requested

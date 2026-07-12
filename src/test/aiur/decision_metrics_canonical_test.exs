@@ -57,7 +57,7 @@ defmodule Aiur.DecisionMetricsCanonicalTest do
 
     assert decision.version == first.version + 1
     metrics = start_metrics!(context.tmp_dir, context.store)
-    assert {:ok, _snapshot} = wait_for_snapshot(metrics, decision.decision_id)
+    assert :ok = DecisionMetrics.await_seed(metrics)
     assert :ok = DecisionMetrics.observe(attention_event(1, topic, 1_000), metrics)
     assert :ok = DecisionMetrics.observe(attention_event(2, topic, 2_000), metrics)
 
@@ -117,7 +117,8 @@ defmodule Aiur.DecisionMetricsCanonicalTest do
     end)
 
     metrics = start_metrics!(context.tmp_dir, context.store)
-    assert {:ok, snapshot} = wait_for_snapshot(metrics, decision.decision_id)
+    assert :ok = DecisionMetrics.await_seed(metrics)
+    assert {:ok, snapshot} = DecisionMetrics.snapshot(decision.decision_id, metrics)
     assert snapshot.request_to_decision_ms == 1_000
     assert snapshot.decision_to_dispatch_ms == 1_000
     assert snapshot.dispatch_to_delivery_ms == 1_000
@@ -153,20 +154,6 @@ defmodule Aiur.DecisionMetricsCanonicalTest do
   end
 
   defp stop_if_alive(pid), do: if(Process.alive?(pid), do: GenServer.stop(pid))
-
-  defp wait_for_snapshot(metrics, decision_id, attempts \\ 100)
-  defp wait_for_snapshot(_metrics, _decision_id, 0), do: {:error, :timeout}
-
-  defp wait_for_snapshot(metrics, decision_id, attempts) do
-    case DecisionMetrics.snapshot(decision_id, metrics) do
-      {:ok, _snapshot} = found ->
-        found
-
-      {:error, :not_found} ->
-        Process.sleep(10)
-        wait_for_snapshot(metrics, decision_id, attempts - 1)
-    end
-  end
 
   defp restore_env(key, nil), do: Application.delete_env(:aiur, key)
   defp restore_env(key, value), do: Application.put_env(:aiur, key, value)

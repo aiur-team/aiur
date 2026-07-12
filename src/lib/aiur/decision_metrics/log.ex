@@ -4,7 +4,7 @@ defmodule Aiur.DecisionMetrics.Log do
   require Logger
 
   alias Aiur.{DecisionLog, Fs}
-  alias Aiur.DecisionMetrics.Sample
+  alias Aiur.DecisionMetrics.{Options, Sample}
 
   @type replay :: %{
           samples: %{String.t() => Sample.t()},
@@ -50,8 +50,8 @@ defmodule Aiur.DecisionMetrics.Log do
   @doc "Replays only the bounded tail of the metrics stream."
   @spec replay(Path.t(), keyword()) :: replay()
   def replay(path, opts \\ []) do
-    record_limit = positive_option(opts, :record_limit, 2_000)
-    max_bytes = positive_option(opts, :max_bytes, 8 * 1_024 * 1_024)
+    record_limit = Options.positive(opts, :record_limit, 2_000)
+    max_bytes = Options.positive(opts, :max_bytes, 8 * 1_024 * 1_024)
 
     case tail_lines(path, record_limit, max_bytes) do
       {:ok, lines, truncated?} -> reduce_lines(lines, truncated?)
@@ -167,12 +167,5 @@ defmodule Aiur.DecisionMetrics.Log do
 
   defp empty_replay do
     %{samples: %{}, records: %{}, event_ids: [], record_count: 0, truncated?: false}
-  end
-
-  defp positive_option(opts, key, default) do
-    case Keyword.get(opts, key, default) do
-      value when is_integer(value) and value > 0 -> value
-      _other -> default
-    end
   end
 end

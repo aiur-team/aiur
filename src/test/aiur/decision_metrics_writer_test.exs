@@ -128,6 +128,7 @@ defmodule Aiur.DecisionMetricsWriterTest do
     assert {:ok, _snapshot} = DecisionMetrics.snapshot("dec-live", metrics)
 
     send(seed_task, :release_seed)
+    assert :ok = DecisionMetrics.await_seed(metrics)
   end
 
   defp start_writer!(path, opts) do
