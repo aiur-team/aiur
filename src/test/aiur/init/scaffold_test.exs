@@ -47,10 +47,17 @@ defmodule Aiur.Init.ScaffoldTest do
   test "ensure_env appends the GitHub token without rewriting existing content", %{dir: dir} do
     File.cd!(dir, fn ->
       env = Path.join(dir, ".env")
-      File.write!(env, "# existing config\nOTHER=value")
 
-      assert {:exists, ^env} = Scaffold.ensure_env("GITHUB_TOKEN=\n")
-      assert File.read!(env) == "# existing config\nOTHER=value\nGITHUB_TOKEN=\n"
+      for {existing, expected} <- [
+            {"", "GITHUB_TOKEN=\n"},
+            {"OTHER=value", "OTHER=value\nGITHUB_TOKEN=\n"},
+            {"OTHER=value\n", "OTHER=value\nGITHUB_TOKEN=\n"}
+          ] do
+        File.write!(env, existing)
+
+        assert {:exists, ^env} = Scaffold.ensure_env("GITHUB_TOKEN=\n")
+        assert File.read!(env) == expected
+      end
     end)
   end
 
