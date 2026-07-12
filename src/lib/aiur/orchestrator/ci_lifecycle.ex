@@ -275,9 +275,49 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   defp apply_ci_poll_result_for_target(state, result, issues_by_target) do
     case Map.get(issues_by_target, Map.get(result, :target)) do
-      %Issue{} = issue -> apply_ci_poll_result(state, issue, result)
-      _ -> state
+      %Issue{} = issue ->
+        state
+        |> stash_last_ci_result(issue, result)
+        |> apply_ci_poll_result(issue, result)
+
+      _ ->
+        state
     end
+  end
+
+  # Read-only projection of the poll result for OCC-5's fleet-state row (PR
+  # number / CI decision), cached by ticket identifier independently of
+  # whatever tracker transition (or no-op) the result below triggers — a
+  # lifecycle-level cache rather than a field on the running entry so idle rows
+  # (no live process, e.g. after the agent's turn ends while still cycling
+  # through ci-wait) keep showing the last-known CI/PR state too. Only
+  # replaces the cached value when the projection actually changed, so a
+  # genuinely redundant poll for an unchanged head stays a true no-op for
+  # `state.running`/`state.claimed` and the persisted lifecycle markers.
+  defp stash_last_ci_result(%State{} = state, %Issue{} = issue, result) do
+    case ci_target_for_issue(issue) do
+      nil ->
+        state
+
+      target ->
+        projection = ci_result_projection(result)
+        poll_cache = Map.get(state.ci_lifecycle, :poll_cache, %{})
+
+        if Map.get(poll_cache, target) == projection do
+          state
+        else
+          ci_lifecycle = Map.put(state.ci_lifecycle, :poll_cache, Map.put(poll_cache, target, projection))
+          %{state | ci_lifecycle: ci_lifecycle}
+        end
+    end
+  end
+
+  defp ci_result_projection(result) do
+    %{
+      decision: Map.get(result, :decision),
+      pr_number: Map.get(result, :pr_number),
+      head_sha: Map.get(result, :head_sha)
+    }
   end
 
   defp all_ci_targets_failed?([], _errors), do: false
@@ -455,12 +495,19 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
     approved_heads = Map.take(state.ci_lifecycle.approved_heads, targets)
     test_failure_heads = Map.take(state.ci_lifecycle.test_failure_heads, targets)
+    poll_cache = state.ci_lifecycle |> Map.get(:poll_cache, %{}) |> Map.take(targets)
 
     if approved_heads == state.ci_lifecycle.approved_heads and
-         test_failure_heads == state.ci_lifecycle.test_failure_heads do
+         test_failure_heads == state.ci_lifecycle.test_failure_heads and
+         poll_cache == Map.get(state.ci_lifecycle, :poll_cache, %{}) do
       state
     else
-      ci_lifecycle = %{approved_heads: approved_heads, test_failure_heads: test_failure_heads}
+      ci_lifecycle =
+        state.ci_lifecycle
+        |> Map.put(:approved_heads, approved_heads)
+        |> Map.put(:test_failure_heads, test_failure_heads)
+        |> Map.put(:poll_cache, poll_cache)
+
       persist_ci_lifecycle_state(%{state | ci_lifecycle: ci_lifecycle})
     end
   end
