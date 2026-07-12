@@ -188,7 +188,7 @@ defmodule Aiur.Events.GithubFirehoseTest do
       persist = fn _merge -> {:error, {:append_failed, :disk_full}} end
       boot_time = ~U[2026-07-12 17:00:00Z] |> DateTime.to_unix()
 
-      assert {:error, {:recent_merge_persistence, {:append_failed, :disk_full}}} =
+      assert {:error, {:recent_merge_persistence, {:append_failed, :disk_full}, %{etag: ~s("failed-persist-etag"), last_event_id: "live-merge"}}} =
                GithubFirehose.poll(
                  request_fun: stub,
                  recent_merge_fun: persist,

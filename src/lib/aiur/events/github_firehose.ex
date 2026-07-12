@@ -63,30 +63,39 @@ defmodule Aiur.Events.GithubFirehose do
 
     case Client.fetch_repo_events(client_opts) do
       {:ok, {:not_modified, etag, poll_interval}} ->
-        {:ok, %{etag: etag, last_event_id: last_event_id, count: 0, poll_interval: poll_interval}}
+        {:ok,
+         %{
+           etag: etag,
+           last_event_id: last_event_id,
+           count: 0,
+           poll_interval: poll_interval,
+           recent_merge_persistence: :not_attempted
+         }}
 
       {:ok, {:events, events, etag, poll_interval}} ->
-        with {:ok, %{pages: pages, partial?: partial?}} <- fetch_backfill_pages(events, last_event_id, opts),
-             %{count: count, persistence_errors: []} <-
-               pages |> events_since_watermark(last_event_id) |> process_events(opts) do
+        with {:ok, %{pages: pages, partial?: partial?}} <- fetch_backfill_pages(events, last_event_id, opts) do
+          processed = pages |> events_since_watermark(last_event_id) |> process_events(opts)
           pages_fetched = length(pages)
-          mark_reconciliation(partial?, pages_fetched, opts)
 
-          {:ok,
-           %{
-             etag: etag,
-             last_event_id: newest_event_id(events) || last_event_id,
-             count: count,
-             poll_interval: poll_interval,
-             pages_fetched: pages_fetched,
-             partial_window?: partial?
-           }}
-        else
-          %{persistence_errors: [reason | _]} ->
-            {:error, {:recent_merge_persistence, reason}}
+          result = %{
+            etag: etag,
+            last_event_id: newest_event_id(events) || last_event_id,
+            count: processed.count,
+            poll_interval: poll_interval,
+            pages_fetched: pages_fetched,
+            partial_window?: partial?
+          }
 
-          {:error, reason} ->
-            {:error, reason}
+          case processed.persistence_errors do
+            [] ->
+              mark_reconciliation(partial?, pages_fetched, opts)
+
+              status = if processed.persistence_attempted?, do: :ok, else: :not_attempted
+              {:ok, Map.put(result, :recent_merge_persistence, status)}
+
+            [reason | _] ->
+              {:error, {:recent_merge_persistence, reason, result}}
+          end
         end
 
       {:error, reason} ->
@@ -154,13 +163,14 @@ defmodule Aiur.Events.GithubFirehose do
   defp newest_event_id(_events), do: nil
 
   defp process_events(events, opts) do
-    Enum.reduce(events, %{count: 0, persistence_errors: []}, fn event, acc ->
+    Enum.reduce(events, %{count: 0, persistence_errors: [], persistence_attempted?: false}, fn event, acc ->
       persistence_result = persist_recent_merge(event, opts)
       publish_result = publish_one(event, opts)
 
       %{
         count: acc.count + if(match?({:ok, _, _}, publish_result), do: 1, else: 0),
-        persistence_errors: maybe_add_persistence_error(acc.persistence_errors, persistence_result)
+        persistence_errors: maybe_add_persistence_error(acc.persistence_errors, persistence_result),
+        persistence_attempted?: acc.persistence_attempted? or persistence_attempted?(persistence_result)
       }
     end)
   end
@@ -201,6 +211,10 @@ defmodule Aiur.Events.GithubFirehose do
 
   defp maybe_add_persistence_error(errors, {:error, reason}), do: errors ++ [reason]
   defp maybe_add_persistence_error(errors, _result), do: errors
+
+  defp persistence_attempted?({:ok, _result}), do: true
+  defp persistence_attempted?({:error, _reason}), do: true
+  defp persistence_attempted?(_result), do: false
 
   defp mark_reconciliation(partial?, pages_fetched, opts) do
     case Keyword.get(opts, :recent_merge_reconciliation_fun) do

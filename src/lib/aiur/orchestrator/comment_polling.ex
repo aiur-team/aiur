@@ -6,11 +6,13 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
   require Logger
 
-  alias Aiur.Config
+  alias Aiur.{Alerts, Config}
   alias Aiur.Events.{GithubCommentsPoller, GithubFirehose}
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.CommentPolling.TargetSelection
   alias Aiur.Orchestrator.State
+
+  @recent_merge_persistence_retry_limit 3
 
   @spec poll_github_firehose(State.t(), keyword()) :: State.t()
   def poll_github_firehose(%State{} = state, opts \\ []) do
@@ -27,12 +29,12 @@ defmodule Aiur.Orchestrator.CommentPolling do
           state
           |> Orchestrator.note_github_connectivity_success(:firehose)
           |> Orchestrator.note_github_poll_interval(:firehose, Map.get(result, :poll_interval))
+          |> note_recent_merge_persistence_success(Map.get(result, :recent_merge_persistence))
 
         %{state | events_etag: etag, events_last_id: last_event_id}
 
-      {:error, {:recent_merge_persistence, reason}} ->
-        Logger.warning("GithubFirehose local outcome persistence failed; reason=#{inspect(reason)}")
-        Orchestrator.note_github_connectivity_success(state, :firehose)
+      {:error, {:recent_merge_persistence, reason, cursor}} ->
+        note_recent_merge_persistence_failure(state, reason, cursor, opts)
 
       {:error, reason} ->
         # Preserve cached etag so we retry as If-None-Match next tick; the
@@ -40,6 +42,86 @@ defmodule Aiur.Orchestrator.CommentPolling do
         # DNS/auth break surfaces a loud operator blocker (#617).
         Orchestrator.note_github_connectivity_failure(state, :firehose, reason)
     end
+  end
+
+  defp note_recent_merge_persistence_success(state, :ok) do
+    state
+    |> Orchestrator.note_github_connectivity_success(:recent_merge_store)
+    |> then(
+      &%{
+        &1
+        | recent_merge_persistence_failures: 0,
+          recent_merge_persistence_alerted?: false
+      }
+    )
+  end
+
+  defp note_recent_merge_persistence_success(state, _status), do: state
+
+  defp note_recent_merge_persistence_failure(state, reason, cursor, opts) do
+    failures = state.recent_merge_persistence_failures + 1
+    retry_limit = recent_merge_persistence_retry_limit(opts)
+    advance? = failures >= retry_limit
+
+    Logger.warning("GithubFirehose local outcome persistence failed; attempt=#{failures} advance=#{advance?} reason=#{inspect(reason)}")
+
+    state =
+      state
+      |> Orchestrator.note_github_connectivity_success(:firehose)
+      |> Orchestrator.note_github_poll_interval(:firehose, Map.get(cursor, :poll_interval))
+      |> Orchestrator.note_github_connectivity_failure(:recent_merge_store, {:recent_merge_persistence, reason})
+      |> then(&%{&1 | recent_merge_persistence_failures: failures})
+      |> maybe_alert_recent_merge_persistence(reason, retry_limit, opts)
+
+    if advance? do
+      %{
+        state
+        | events_etag: Map.get(cursor, :etag),
+          events_last_id: Map.get(cursor, :last_event_id)
+      }
+    else
+      state
+    end
+  end
+
+  defp recent_merge_persistence_retry_limit(opts) do
+    case Keyword.get(opts, :recent_merge_persistence_retry_limit, @recent_merge_persistence_retry_limit) do
+      value when is_integer(value) and value > 0 -> value
+      _other -> @recent_merge_persistence_retry_limit
+    end
+  end
+
+  defp maybe_alert_recent_merge_persistence(%{recent_merge_persistence_alerted?: true} = state, _reason, _limit, _opts),
+    do: state
+
+  defp maybe_alert_recent_merge_persistence(state, _reason, limit, _opts)
+       when state.recent_merge_persistence_failures < limit,
+       do: state
+
+  defp maybe_alert_recent_merge_persistence(state, reason, _limit, opts) do
+    message =
+      "Recent repository merge audit remains read-only or unwritable after " <>
+        "#{state.recent_merge_persistence_failures} attempts (#{inspect(reason)}). " <>
+        "GitHub event delivery is continuing without durable outcome records until storage recovers."
+
+    alert_fun = Keyword.get(opts, :recent_merge_alert_fun, &Alerts.emit_custom/3)
+
+    _ =
+      alert_fun.("recent_merge_store.persistence_failed", message,
+        reason: message,
+        needs_attention: true,
+        severity: "warning"
+      )
+
+    %{state | recent_merge_persistence_alerted?: true}
+  rescue
+    error ->
+      Logger.warning("GithubFirehose local outcome persistence alert failed; reason=#{Exception.message(error)}")
+      %{state | recent_merge_persistence_alerted?: true}
+  catch
+    kind, reason ->
+      Logger.warning("GithubFirehose local outcome persistence alert failed; reason=#{inspect({kind, reason})}")
+      %{state | recent_merge_persistence_alerted?: true}
   end
 
   @spec poll_github_comments(State.t(), keyword()) :: State.t()
