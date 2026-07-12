@@ -15,7 +15,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
   require Logger
 
-  alias Aiur.{AgentPubSub, Issue, OperatorWaitLog, PauseContainment}
+  alias Aiur.{AgentPubSub, Alerts, DecisionStore, Issue, OperatorWaitLog, PauseContainment}
   alias Aiur.AgentRunner.{CheckpointDelivery, EventsDigest, MessageHandler, SessionLifecycle}
   alias Aiur.AgentRunner.{ToolExecutor, TurnAlerts, TurnLoop, TurnStreams}
   alias Aiur.Codex.DynamicTool
@@ -142,15 +142,75 @@ defmodule Aiur.AgentRunner.QueueDrain do
   def claim_after_queue_update(_orchestrator, _issue_identifier, false), do: :ignored
 
   @doc false
-  @spec record_operator_delivery(map(), map()) :: :ok
-  def record_operator_delivery(%{category: :operator_message, id: request_id}, %{
-        identifier: identifier
-      })
+  @spec record_operator_delivery(map(), map(), GenServer.server()) :: :ok | {:error, term()}
+  def record_operator_delivery(item, issue, decision_store \\ DecisionStore)
+
+  def record_operator_delivery(
+        %{category: :operator_message, id: request_id, action_id: action_id, correlation: correlation} = item,
+        %{identifier: identifier},
+        decision_store
+      )
+      when is_integer(request_id) and is_binary(identifier) and is_binary(action_id) and is_map(correlation) do
+    case DecisionStore.record_delivery(item, decision_store) do
+      {:ok, status} when status in [:accepted, :duplicate] ->
+        resolve_delivery_correlation_attention(identifier, action_id)
+        OperatorWaitLog.record_delivered(request_id, identifier)
+
+      {:ok, :ignored} ->
+        {:error, :decision_correlation_ignored}
+
+      {:error, reason} ->
+        delivery_correlation_failed(identifier, action_id, reason)
+    end
+  end
+
+  def record_operator_delivery(
+        %{category: :operator_message, id: request_id},
+        %{
+          identifier: identifier
+        },
+        _decision_store
+      )
       when is_integer(request_id) and is_binary(identifier) do
     OperatorWaitLog.record_delivered(request_id, identifier)
   end
 
-  def record_operator_delivery(_item, _issue), do: :ok
+  def record_operator_delivery(_item, _issue, _decision_store), do: :ok
+
+  defp delivery_correlation_failed(identifier, action_id, reason) do
+    Logger.warning("Decision delivery correlation failed issue=#{identifier} action_id=#{action_id} reason=#{inspect(reason)}")
+
+    _ =
+      Alerts.emit_custom(
+        delivery_correlation_attention_topic(identifier, action_id),
+        "Decision answer handoff could not be durably correlated; the queue item was restored.",
+        issue: identifier,
+        reason: "Decision action #{action_id} handoff correlation failed.",
+        needs_attention: true,
+        severity: "warning"
+      )
+
+    {:error, reason}
+  end
+
+  defp resolve_delivery_correlation_attention(identifier, action_id) do
+    _ =
+      Alerts.emit_custom(
+        delivery_correlation_attention_topic(identifier, action_id) <> ".resolved",
+        "Decision answer handoff is durably correlated.",
+        issue: identifier,
+        reason: "Decision action #{action_id} handoff correlation recovered.",
+        needs_attention: false,
+        severity: "info"
+      )
+
+    :ok
+  end
+
+  defp delivery_correlation_attention_topic(identifier, action_id) do
+    action_slug = String.replace(action_id, "_", "-")
+    "ticket.#{identifier}.agent.attention.decision-delivery-correlation-#{action_slug}"
+  end
 
   @doc false
   @spec claim_next_operator_item(GenServer.server(), String.t()) :: {:ok, map()} | :empty
@@ -320,7 +380,31 @@ defmodule Aiur.AgentRunner.QueueDrain do
          orchestrator,
          codex_update_recipient
        ) do
-    record_operator_delivery(item, issue)
+    case record_operator_delivery(item, issue) do
+      :ok ->
+        run_recorded_queue_item_turn(
+          app_session,
+          issue,
+          item,
+          orchestrator,
+          codex_update_recipient
+        )
+
+      {:error, reason} ->
+        Logger.warning("Restoring uncorrelated queue delivery for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{item.id} reason=#{inspect(reason)}")
+
+        :ok = Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item.id)
+        :ok
+    end
+  end
+
+  defp run_recorded_queue_item_turn(
+         app_session,
+         issue,
+         item,
+         orchestrator,
+         codex_update_recipient
+       ) do
     text = queue_item_text(item)
     turn_id = queue_item_turn_id(item)
     workspace = SessionLifecycle.session_workspace(app_session)
