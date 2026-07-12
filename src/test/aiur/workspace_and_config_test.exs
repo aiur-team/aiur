@@ -2366,6 +2366,60 @@ defmodule Aiur.WorkspaceAndConfigTest do
              Schema.parse(%{tracker: %{kind: "memory"}, agent: %{max_load_average: 0}})
   end
 
+  test "agent.min_free_memory_mb is optional and accepts only a positive floor" do
+    assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})
+    assert settings.agent.min_free_memory_mb == nil
+
+    assert {:ok, settings} =
+             Schema.parse(%{
+               tracker: %{kind: "memory"},
+               agent: %{min_free_memory_mb: 4_096}
+             })
+
+    assert settings.agent.min_free_memory_mb == 4_096
+
+    for invalid <- [0, -1, "invalid"] do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{
+                 tracker: %{kind: "memory"},
+                 agent: %{min_free_memory_mb: invalid}
+               })
+
+      assert message =~ "agent.min_free_memory_mb"
+    end
+  end
+
+  test "agent.build_start_stagger_seconds defaults off and validates a non-negative interval" do
+    assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})
+    assert settings.agent.build_start_stagger_seconds == 0
+
+    assert {:ok, settings} =
+             Schema.parse(%{
+               tracker: %{kind: "memory"},
+               agent: %{build_start_stagger_seconds: 5}
+             })
+
+    assert settings.agent.build_start_stagger_seconds == 5
+
+    assert {:ok, settings} =
+             Schema.parse(%{
+               tracker: %{kind: "memory"},
+               agent: %{build_start_stagger_seconds: 0}
+             })
+
+    assert settings.agent.build_start_stagger_seconds == 0
+
+    for invalid <- [-1, "invalid"] do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{
+                 tracker: %{kind: "memory"},
+                 agent: %{build_start_stagger_seconds: invalid}
+               })
+
+      assert message =~ "agent.build_start_stagger_seconds"
+    end
+  end
+
   test "agent load envelope defaults safely, validates tuning, and preserves explicit disable" do
     assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})
     assert settings.agent.target_load_average == 1.0

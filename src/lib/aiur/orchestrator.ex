@@ -164,12 +164,26 @@ defmodule Aiur.Orchestrator do
   defdelegate read_load(hard_threshold, target), to: DispatchPolicy
 
   @doc false
+  @spec read_memory(integer() | nil) :: non_neg_integer() | :unavailable
+  defdelegate read_memory(threshold), to: DispatchPolicy
+
+  @doc false
   @spec prewarm_gate(boolean(), atom() | {:error, term()}) :: :dispatch | :hold
   defdelegate prewarm_gate(enabled?, phase), to: DispatchPolicy
 
   @doc false
   @spec load_gate(number() | :unavailable, number() | nil, pos_integer()) :: :dispatch | :hold
   defdelegate load_gate(load, threshold, schedulers), to: DispatchPolicy
+
+  @doc false
+  @spec memory_gate(non_neg_integer() | :unavailable, integer() | nil) :: :dispatch | :hold
+  defdelegate memory_gate(available_mb, threshold), to: DispatchPolicy
+
+  @spec fd_gate(Aiur.SystemFileDescriptors.sample_result()) :: :dispatch | :hold
+  defdelegate fd_gate(sample), to: DispatchPolicy
+
+  @spec fd_headroom_threshold(map()) :: pos_integer() | :unavailable
+  defdelegate fd_headroom_threshold(sample), to: DispatchPolicy
 
   @doc false
   @spec load_envelope(integer() | nil, integer() | nil, number() | :unavailable, map()) ::

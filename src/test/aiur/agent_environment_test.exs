@@ -130,6 +130,9 @@ defmodule Aiur.AgentEnvironmentTest do
 
       assert {~c"AIUR_BUILD_GATE_SLOTS", ~c"2"} =
                List.keyfind(env, ~c"AIUR_BUILD_GATE_SLOTS", 0)
+
+      assert {~c"AIUR_BUILD_START_STAGGER_SECONDS", ~c"0"} =
+               List.keyfind(env, ~c"AIUR_BUILD_START_STAGGER_SECONDS", 0)
     end
 
     test "unsets inherited parent log env while preserving agent workspace env" do

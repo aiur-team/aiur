@@ -108,8 +108,11 @@ defmodule Aiur.Orchestrator.Dispatcher do
   def maybe_choose_under_load(%State{} = state, issues) when is_list(issues) do
     hard_threshold = Config.max_load_average()
     target = Config.target_load_average()
+    memory_threshold_mb = Config.min_free_memory_mb()
     schedulers = System.schedulers_online()
     load = DispatchPolicy.read_load(hard_threshold, target)
+    available_memory_mb = DispatchPolicy.read_memory(memory_threshold_mb)
+    fd_sample = DispatchPolicy.read_file_descriptors()
 
     state =
       DispatchPolicy.update_load_envelope(
@@ -120,13 +123,13 @@ defmodule Aiur.Orchestrator.Dispatcher do
         System.monotonic_time(:millisecond)
       )
 
-    case DispatchPolicy.load_gate(load, hard_threshold, schedulers) do
+    case DispatchPolicy.memory_gate(available_memory_mb, memory_threshold_mb) do
       :hold ->
-        log_load_hold(load, hard_threshold, schedulers)
+        log_memory_hold(available_memory_mb, memory_threshold_mb)
         state
 
       :dispatch ->
-        maybe_choose(state, issues)
+        maybe_choose_with_fd_headroom(state, issues, fd_sample, load, hard_threshold, schedulers)
     end
   end
 
@@ -289,6 +292,50 @@ defmodule Aiur.Orchestrator.Dispatcher do
       "aiur_perf load_hold load=#{load} threshold=#{threshold} " <>
         "schedulers=#{schedulers} limit=#{threshold * schedulers}"
     )
+  end
+
+  defp log_memory_hold(available_mb, threshold_mb) do
+    Logger.info(
+      "aiur_perf memory_hold surface=dispatch available_mb=#{available_mb} " <>
+        "threshold_mb=#{threshold_mb}"
+    )
+  end
+
+  defp log_fd_hold(:exhausted) do
+    Logger.info(
+      "aiur_perf fd_hold surface=dispatch status=exhausted used=unknown limit=unknown " <>
+        "available=0 threshold=unknown threshold_pct=#{DispatchPolicy.fd_headroom_percent()}"
+    )
+  end
+
+  defp log_fd_hold(sample) do
+    Logger.info(
+      "aiur_perf fd_hold surface=dispatch used=#{sample.used} limit=#{sample.limit} " <>
+        "available=#{sample.available} threshold=#{DispatchPolicy.fd_headroom_threshold(sample)} " <>
+        "threshold_pct=#{DispatchPolicy.fd_headroom_percent()}"
+    )
+  end
+
+  defp maybe_choose_with_fd_headroom(state, issues, fd_sample, load, threshold, schedulers) do
+    case DispatchPolicy.fd_gate(fd_sample) do
+      :hold ->
+        log_fd_hold(fd_sample)
+        state
+
+      :dispatch ->
+        maybe_choose_under_hard_load(state, issues, load, threshold, schedulers)
+    end
+  end
+
+  defp maybe_choose_under_hard_load(state, issues, load, threshold, schedulers) do
+    case DispatchPolicy.load_gate(load, threshold, schedulers) do
+      :hold ->
+        log_load_hold(load, threshold, schedulers)
+        state
+
+      :dispatch ->
+        maybe_choose(state, issues)
+    end
   end
 
   defp trigger_and_status do

@@ -85,6 +85,12 @@ defmodule Aiur.Config.Schema.Agent do
     # 0 deliberately disables the gate for operators who need unrestricted
     # local verification.
     field(:max_concurrent_builds, :integer, default: 2)
+    # Minimum spacing between local Mix compile/test starts when more than one
+    # build may run concurrently. 0 disables start pacing.
+    field(:build_start_stagger_seconds, :integer, default: 0)
+    # Optional Linux MemAvailable floor shared by normal dispatch and the local
+    # Mix build gate. Omitted means memory admission is disabled.
+    field(:min_free_memory_mb, :integer)
     # nil = uncapped (no per-issue turn limit). A YAML value of `none` /
     # `unlimited` (or an absent key) resolves to nil; any present number must
     # be > 0.
@@ -134,6 +140,8 @@ defmodule Aiur.Config.Schema.Agent do
         :remote_control,
         :max_concurrent_agents,
         :max_concurrent_builds,
+        :build_start_stagger_seconds,
+        :min_free_memory_mb,
         :max_turns,
         :max_retry_attempts,
         :max_retry_backoff_ms,
@@ -155,6 +163,8 @@ defmodule Aiur.Config.Schema.Agent do
     )
     |> validate_number(:max_concurrent_agents, greater_than: 0)
     |> validate_number(:max_concurrent_builds, greater_than_or_equal_to: 0)
+    |> validate_number(:build_start_stagger_seconds, greater_than_or_equal_to: 0)
+    |> validate_number(:min_free_memory_mb, greater_than: 0)
     |> validate_number(:max_turns, greater_than: 0)
     |> validate_number(:max_retry_attempts, greater_than: 0)
     |> validate_number(:max_retry_backoff_ms, greater_than: 0)

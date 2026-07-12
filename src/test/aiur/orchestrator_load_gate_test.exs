@@ -73,6 +73,74 @@ defmodule Aiur.OrchestratorLoadGateTest do
     end
   end
 
+  describe "memory_gate/2" do
+    test "holds below the configured floor and resumes at the boundary" do
+      assert Orchestrator.memory_gate(2_047, 2_048) == :hold
+      assert Orchestrator.memory_gate(2_048, 2_048) == :dispatch
+      assert Orchestrator.memory_gate(4_096, 2_048) == :dispatch
+    end
+
+    test "is disabled without a positive floor" do
+      assert Orchestrator.memory_gate(0, nil) == :dispatch
+      assert Orchestrator.memory_gate(0, 0) == :dispatch
+      assert Orchestrator.memory_gate(0, -1) == :dispatch
+    end
+
+    test "fails open when host memory is unavailable" do
+      assert Orchestrator.memory_gate(:unavailable, 2_048) == :dispatch
+    end
+  end
+
+  describe "read_memory/1" do
+    setup do
+      previous = Application.get_env(:aiur, :meminfo_source_override)
+      on_exit(fn -> restore_app_env(:meminfo_source_override, previous) end)
+      :ok
+    end
+
+    test "reads changing host memory while the gate is enabled" do
+      Application.put_env(:aiur, :meminfo_source_override, fn ->
+        {:ok, "MemAvailable: 1048576 kB\n"}
+      end)
+
+      assert Orchestrator.read_memory(2_048) == 1_024
+
+      Application.put_env(:aiur, :meminfo_source_override, fn ->
+        {:ok, "MemAvailable: 3145728 kB\n"}
+      end)
+
+      assert Orchestrator.read_memory(2_048) == 3_072
+    end
+
+    test "does not read the source while the gate is disabled" do
+      Application.put_env(:aiur, :meminfo_source_override, fn ->
+        flunk("MemAvailable must not be read when memory admission is disabled")
+      end)
+
+      assert Orchestrator.read_memory(nil) == :unavailable
+      assert Orchestrator.read_memory(0) == :unavailable
+    end
+  end
+
+  describe "fd_gate/1" do
+    test "holds below the ten-percent reserve and resumes at the boundary" do
+      assert Orchestrator.fd_gate(%{used: 91, limit: 100, available: 9, headroom_ratio: 0.09}) == :hold
+      assert Orchestrator.fd_gate(%{used: 90, limit: 100, available: 10, headroom_ratio: 0.10}) == :dispatch
+      assert Orchestrator.fd_gate(%{used: 50, limit: 100, available: 50, headroom_ratio: 0.50}) == :dispatch
+    end
+
+    test "rounds the integer reserve up without floating-point ambiguity" do
+      assert Orchestrator.fd_headroom_threshold(%{limit: 256}) == 26
+      assert Orchestrator.fd_gate(%{used: 231, limit: 256, available: 25, headroom_ratio: 25 / 256}) == :hold
+      assert Orchestrator.fd_gate(%{used: 230, limit: 256, available: 26, headroom_ratio: 26 / 256}) == :dispatch
+    end
+
+    test "fails open when unavailable and closed when sampling is exhausted" do
+      assert Orchestrator.fd_gate(:unavailable) == :dispatch
+      assert Orchestrator.fd_gate(:exhausted) == :hold
+    end
+  end
+
   describe "load_envelope/4" do
     test "increases effective capacity below the per-scheduler target" do
       assert {3, nil} = Orchestrator.load_envelope(1, nil, 6.0, envelope_options(ramp_step: 2, now_ms: 1_000))

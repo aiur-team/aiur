@@ -32,6 +32,8 @@ agent:
   mix_scheduler_cap: 4
   # Fleet cap for agent-launched mix compile/test verification. 0 disables it.
   max_concurrent_builds: 2
+  # Offset admitted mix compile/test starts so fleet CPU ramps do not synchronize.
+  build_start_stagger_seconds: 5
   # CPU load gate (#465): hold new dispatch while 1-min load > value * schedulers
   # (~12). 1.5 → holds once load passes ~18. Raise/lower while ramping.
   max_load_average: 1.5
