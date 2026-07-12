@@ -394,6 +394,19 @@ defmodule Aiur.DecisionProjectionTest do
       assert DecisionProjection.decode_record(raw) == {:error, :event_content_hash_mismatch}
     end
 
+    test "decode rejects an unsupported lifecycle schema version" do
+      request =
+        build_decision(%{
+          "source_id" => "schema-version-1",
+          "options" => [%{"id" => "ship", "label" => "Ship it"}]
+        })
+
+      lifecycle = event(:answer_recorded, request, answer(request), 1)
+      raw = lifecycle |> DecisionEvent.to_json_safe() |> Map.put("schema_version", 2)
+
+      assert DecisionProjection.decode_record(raw) == {:error, {:schema_version, :unsupported}}
+    end
+
     test "an OCC-1 record without a discriminator still decodes as a legacy Decision" do
       decision = build_decision(%{"source_id" => "legacy-1"})
 
