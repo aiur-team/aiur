@@ -9,9 +9,7 @@ defmodule Aiur.GitHub.IssueState do
   """
 
   alias Aiur.GitHub.Config
-  alias Aiur.GitHub.{Errors, HumanReviewGate, StatePolicy, Transport}
-
-  @preserved_prefixed_label_suffixes ~w(paused watch)
+  alias Aiur.GitHub.{Errors, HumanReviewGate, Labels, StatePolicy, Transport}
 
   @spec update_issue_state(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def update_issue_state(issue_number, state_name, opts \\ [])
@@ -302,11 +300,7 @@ defmodule Aiur.GitHub.IssueState do
 
   def preserved_prefixed_label?(_label, _prefix), do: false
   @spec preserved_prefixed_label_suffix?(term()) :: boolean()
-  def preserved_prefixed_label_suffix?(suffix) when is_binary(suffix) do
-    suffix in @preserved_prefixed_label_suffixes
-  end
-
-  def preserved_prefixed_label_suffix?(_suffix), do: false
+  def preserved_prefixed_label_suffix?(suffix), do: Labels.marker_suffix?(suffix)
   @spec normalize_label_name(term()) :: String.t()
   def normalize_label_name(label) when is_binary(label) do
     label

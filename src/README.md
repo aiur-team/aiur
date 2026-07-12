@@ -309,10 +309,22 @@ makes no view-time network requests. Run
   failures. The Claude transports currently expose no equivalent authenticated
   account-usage endpoint, so they participate when a runtime limit is reported.
   Unknown reset times expire after one hour rather than excluding a backend
-  forever; a later successful refresh restores normal priority.
+  forever for new dispatches. The running-agent fallback does not treat that
+  estimate alone as recovery; it waits for a positive Codex observation or a
+  real reported reset time.
 - When every eligible fallback backend is limited, Aiur leaves the ticket
   unclaimed and emits one visible pause/retry alert until availability changes;
   it does not busy-loop dispatch attempts.
+- `agent.rate_limit_fallback` (default `claude`) automatically reroutes an
+  **already-running** codex agent to the headless Claude backend when it pauses on
+  `usage_limit_exhausted`, and reverts it back to codex at a safe turn boundary
+  after a positive recovery observation or a real reported reset. Unlike
+  `switch_model_on_ratelimit` above (opt-in, new claims only), this is
+  default-on and acts on a running agent. Set it to `""` to disable. After
+  upgrading an existing GitHub workflow, run `aiur init` once to provision the
+  marker and `model:claude` labels used by the automatic switch. Headless Claude
+  currently runs on the orchestrator host, so Aiur leaves Codex agents on SSH
+  worker workspaces parked instead of moving them to an unrunnable backend.
 - `agent.target_load_average` enables the adaptive dispatch envelope (default `1.0`
   per scheduler): capacity grows by `agent.load_ramp_step` below the target and
   halves after high samples, no more often than `agent.load_cooldown_seconds`.

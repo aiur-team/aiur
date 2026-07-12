@@ -1719,7 +1719,7 @@ defmodule Aiur.InitTest do
       refute Enum.any?(input_labels(), &(&1 =~ ~r/Press Enter to create/i))
 
       log = puts_log()
-      assert Enum.any?(log, &(&1 =~ ~r/Lifecycle agent tags: created\./))
+      assert Enum.any?(log, &(&1 =~ ~r/Required agent tags: created\./))
       assert Enum.any?(log, &(&1 =~ ~r/Complexity tags: created\./))
       assert Enum.any?(log, &(&1 =~ ~r/Model tags: created\./))
       assert Enum.any?(log, &(&1 =~ ~r/aiur is set up/i))
@@ -1739,7 +1739,7 @@ defmodule Aiur.InitTest do
 
       assert Enum.sort(labels_created()) == Enum.sort(["agent:rework", "complexity:5"])
 
-      # Lifecycle (agent:rework missing) re-prompts its Enter gate; complexity
+      # Required labels (agent:rework missing) re-prompt the Enter gate; complexity
       # (complexity:5 missing) re-asks its confirm. Fully-present stages do not.
       assert Enum.any?(input_labels(), &(&1 =~ ~r/Press Enter to create/i))
       prompts = confirm_prompts()
@@ -1750,13 +1750,13 @@ defmodule Aiur.InitTest do
       assert Enum.any?(puts_log(), &(&1 =~ ~r/Model tags: created\./))
     end
 
-    test "lifecycle labels are gated behind an explicit Enter", %{dir: dir, target: target} do
+    test "required labels are gated behind an explicit Enter", %{dir: dir, target: target} do
       deps = deps(self(), dir, target, %{github_token: fn -> "ghp_test" end})
 
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps)
 
       assert Enum.any?(input_labels(), &(&1 =~ ~r/Press Enter to create/i))
-      assert Enum.any?(puts_log(), &(&1 =~ ~r/lifecycle ticket labels are required/i))
+      assert Enum.any?(puts_log(), &(&1 =~ ~r/workflow and automatic-fallback labels are required/i))
     end
 
     test "optional stages can be skipped without creating their labels", %{dir: dir, target: target} do
@@ -1775,9 +1775,10 @@ defmodule Aiur.InitTest do
 
       created = labels_created()
       assert created != []
-      assert Enum.all?(created, &String.starts_with?(&1, "agent:"))
+      required = Labels.state_labels("agent") ++ Labels.required_rate_limit_fallback_labels("agent")
+      assert Enum.sort(created) == Enum.sort(required)
       refute Enum.any?(created, &String.starts_with?(&1, "complexity:"))
-      refute Enum.any?(created, &String.starts_with?(&1, "model:"))
+      refute Enum.any?(created, &(&1 != "model:claude" and String.starts_with?(&1, "model:")))
     end
 
     test "the remote-control stage only appears when claude is supported", %{dir: dir, target: target} do
