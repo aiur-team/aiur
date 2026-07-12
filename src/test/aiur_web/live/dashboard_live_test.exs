@@ -1,10 +1,39 @@
 defmodule AiurWeb.DashboardLiveTest do
   use Aiur.TestSupport
 
-  alias Aiur.Issue
+  import Phoenix.ConnTest
+  import Phoenix.LiveViewTest
+
+  alias Aiur.{DecisionPubSub, Issue}
   alias Aiur.Orchestrator
   alias Aiur.RecentMerge
-  alias AiurWeb.{ControlCenterPresenter, DashboardLive, Presenter}
+  alias AiurWeb.{ControlCenterPresenter, DashboardLive, ObservabilityPubSub, Presenter}
+
+  @endpoint AiurWeb.Endpoint
+
+  defmodule CountingOrchestrator do
+    use GenServer
+
+    def start_link(opts) do
+      GenServer.start_link(__MODULE__, opts, name: Keyword.fetch!(opts, :name))
+    end
+
+    def snapshot_count(server), do: GenServer.call(server, :snapshot_count)
+
+    @impl true
+    def init(opts) do
+      {:ok, %{snapshot: Keyword.fetch!(opts, :snapshot), snapshot_count: 0}}
+    end
+
+    @impl true
+    def handle_call(:snapshot, _from, state) do
+      {:reply, state.snapshot, %{state | snapshot_count: state.snapshot_count + 1}}
+    end
+
+    def handle_call(:snapshot_count, _from, state) do
+      {:reply, state.snapshot_count, state}
+    end
+  end
 
   defp render_payload(fleet_payload, opts \\ []) do
     payload =
@@ -213,6 +242,78 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ ~s(href="/analytics")
     assert html =~ "Open analytics report"
   end
+
+  test "coalesces observability backfill and decision broadcasts into one reload" do
+    orchestrator_name = Module.concat(__MODULE__, :CountingOrchestratorInstance)
+
+    start_supervised!(
+      {CountingOrchestrator,
+       name: orchestrator_name,
+       snapshot: %{
+         running: [],
+         retrying: [],
+         idle: [],
+         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+         rate_limits: nil
+       }}
+    )
+
+    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 100)
+
+    {:ok, view, _html} = live(build_conn(), "/")
+    initial_count = CountingOrchestrator.snapshot_count(orchestrator_name)
+
+    for version <- 1..25 do
+      ObservabilityPubSub.broadcast_update()
+      DecisionPubSub.broadcast_changed("decision-#{version}", version)
+    end
+
+    assert eventually(fn -> CountingOrchestrator.snapshot_count(orchestrator_name) == initial_count + 1 end)
+    Process.sleep(75)
+    _html = render(view)
+    assert CountingOrchestrator.snapshot_count(orchestrator_name) == initial_count + 1
+
+    DecisionPubSub.broadcast_changed("decision-only", 26)
+    assert eventually(fn -> CountingOrchestrator.snapshot_count(orchestrator_name) == initial_count + 2 end)
+  end
+
+  defp start_test_endpoint(overrides) do
+    previous = Application.get_env(:aiur, AiurWeb.Endpoint)
+
+    endpoint_config =
+      :aiur
+      |> Application.get_env(AiurWeb.Endpoint, [])
+      |> Keyword.merge(
+        server: false,
+        secret_key_base: String.duplicate("s", 64),
+        dashboard_writable: false
+      )
+      |> Keyword.merge(overrides)
+
+    Application.put_env(:aiur, AiurWeb.Endpoint, endpoint_config)
+
+    on_exit(fn ->
+      case previous do
+        nil -> Application.delete_env(:aiur, AiurWeb.Endpoint)
+        config -> Application.put_env(:aiur, AiurWeb.Endpoint, config)
+      end
+    end)
+
+    start_supervised!({AiurWeb.Endpoint, []})
+  end
+
+  defp eventually(fun, attempts \\ 30)
+
+  defp eventually(fun, attempts) when is_function(fun, 0) and attempts > 0 do
+    if fun.() do
+      true
+    else
+      Process.sleep(10)
+      eventually(fun, attempts - 1)
+    end
+  end
+
+  defp eventually(_fun, 0), do: false
 
   defp history_entry(id, actor_type, actor_label, question) do
     %{

@@ -214,6 +214,62 @@ defmodule Aiur.RecentMergeStoreTest do
     assert RecentMergeStore.health(pid) == :writable
   end
 
+  test "retention bounds current rows, histories, and the durable log", %{dir: dir} do
+    pid =
+      start_store!(dir,
+        retention_limit: 5,
+        compaction_record_limit: 7
+      )
+
+    for number <- 1..12 do
+      merge = merge_for_number(number)
+      assert {:ok, %{status: :accepted, merge: ^merge}} = RecentMergeStore.upsert(merge, pid)
+    end
+
+    assert Enum.map(RecentMergeStore.list(pid), & &1.number) == [12, 11, 10, 9, 8]
+
+    for number <- 1..7 do
+      assert {:error, :not_found} = RecentMergeStore.history("owner/repo##{number}", pid)
+    end
+
+    assert {:ok, [%RecentMerge{number: 8}]} = RecentMergeStore.history("owner/repo#8", pid)
+
+    path = Path.join(dir, "recent_merges.ndjson")
+    assert path |> File.read!() |> String.split("\n", trim: true) |> length() <= 7
+
+    GenServer.stop(pid)
+
+    replayed =
+      start_store!(dir,
+        retention_limit: 5,
+        compaction_record_limit: 7
+      )
+
+    assert Enum.map(RecentMergeStore.list(replayed), & &1.number) == [12, 11, 10, 9, 8]
+    assert {:error, :not_found} = RecentMergeStore.history("owner/repo#7", replayed)
+  end
+
+  test "an unavailable store emits an operator attention", %{dir: dir} do
+    blocked_path = Path.join(dir, "not-a-directory")
+    File.mkdir_p!(dir)
+    File.write!(blocked_path, "blocked")
+    parent = self()
+
+    alert_fun = fn topic, message, opts ->
+      send(parent, {:store_alert, topic, message, opts})
+      :ok
+    end
+
+    pid = start_store!(blocked_path, alert_fun: alert_fun)
+
+    assert {:unavailable, {:directory_unavailable, {:not_a_directory, ^blocked_path}}} =
+             RecentMergeStore.health(pid)
+
+    assert_receive {:store_alert, "recent_merge_store.unavailable", message, opts}
+    assert message =~ "read-only"
+    assert opts[:needs_attention]
+  end
+
   test "reconciliation status keeps a saturated window disclosed", %{dir: dir} do
     pid = start_store!(dir)
     assert %{status: :unknown, partial?: nil, pages_fetched: 0} = RecentMergeStore.reconciliation(pid)
@@ -253,6 +309,27 @@ defmodule Aiur.RecentMergeStoreTest do
     }
 
     deep_merge(base, overrides)
+  end
+
+  defp merge_for_number(number) do
+    merged_at = DateTime.add(@now, number, :second)
+
+    event =
+      merged_event(%{
+        "id" => "evt-#{number}",
+        "payload" => %{
+          "pull_request" =>
+            merged_pr(%{
+              "number" => number,
+              "html_url" => "https://github.com/owner/repo/pull/#{number}",
+              "merged_at" => DateTime.to_iso8601(merged_at),
+              "head" => %{"ref" => "release/#{number}", "sha" => "head-#{number}"}
+            })
+        }
+      })
+
+    assert {:ok, merge} = RecentMerge.from_github_event(event, live?: false, now: merged_at)
+    merge
   end
 
   defp merged_pr(overrides \\ %{}) do

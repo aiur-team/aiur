@@ -10,6 +10,7 @@ defmodule AiurWeb.DashboardLive do
   alias AiurWeb.OperatorControlCenter.{AgentLogModal, DecisionInbox, FleetTable, History, Overview, RecentOutcomes}
 
   @runtime_tick_ms 1_000
+  @payload_reload_debounce_ms 50
   @decision_filters [:all, :open, :blocking, :answered]
 
   @impl true
@@ -23,6 +24,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:agent_log_modal, nil)
       |> assign(:drafts, %{})
       |> assign(:chat_errors, %{})
+      |> assign(:payload_reload_scheduled?, false)
       |> assign(:writable, dashboard_writable?())
       |> assign(:decision_filter, :all)
       |> assign_selected_decision(params["decision_id"])
@@ -50,8 +52,23 @@ defmodule AiurWeb.DashboardLive do
     {:noreply, assign(socket, :now, DateTime.utc_now())}
   end
 
-  def handle_info(:observability_updated, socket), do: {:noreply, reload_payload(socket)}
-  def handle_info({:decision_changed, _decision_id, _version}, socket), do: {:noreply, reload_payload(socket)}
+  @impl true
+  def handle_info(:observability_updated, socket) do
+    {:noreply, schedule_payload_reload(socket)}
+  end
+
+  @impl true
+  def handle_info({:decision_changed, _decision_id, _version}, socket) do
+    {:noreply, schedule_payload_reload(socket)}
+  end
+
+  @impl true
+  def handle_info(:reload_payload, socket) do
+    {:noreply,
+     socket
+     |> reload_payload()
+     |> assign(:payload_reload_scheduled?, false)}
+  end
 
   @impl true
   def handle_event("filter-decisions", %{"filter" => filter}, socket) do
@@ -173,6 +190,13 @@ defmodule AiurWeb.DashboardLive do
     |> assign(:now, DateTime.utc_now())
     |> assign(:agent_log_modal, AgentLogModal.refresh(socket.assigns.agent_log_modal, payload))
     |> assign_selected_decision(socket.assigns.selected_decision_id)
+  end
+
+  defp schedule_payload_reload(%{assigns: %{payload_reload_scheduled?: true}} = socket), do: socket
+
+  defp schedule_payload_reload(socket) do
+    Process.send_after(self(), :reload_payload, @payload_reload_debounce_ms)
+    assign(socket, :payload_reload_scheduled?, true)
   end
 
   defp load_payload do
