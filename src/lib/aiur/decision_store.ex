@@ -965,7 +965,16 @@ defmodule Aiur.DecisionStore do
   defp reserve_event_id, do: IdGenerator.reserve_durable_id()
 
   defp lifecycle_version(_decision, %DecisionAnswer{decision_version: version}), do: version
-  defp lifecycle_version(%Decision{answer: %DecisionAnswer{decision_version: version}}, _data), do: version
+  defp lifecycle_version(_decision, %DecisionRevision{decision_version: version}), do: version
+
+  defp lifecycle_version(decision, %{action_id: action_id}) do
+    case Decision.answer_for_action(decision, action_id) do
+      %DecisionAnswer{decision_version: version} -> version
+      nil -> decision.version
+    end
+  end
+
+  defp lifecycle_version(decision, _data), do: Decision.active_answer(decision).decision_version
 
   defp validate_transition(decision, event) do
     case DecisionProjection.reduce_checked([decision, event]) do
@@ -1051,18 +1060,20 @@ defmodule Aiur.DecisionStore do
   defp payload_value(payload, key), do: Map.get(payload, key, Map.get(payload, Atom.to_string(key)))
 
   defp validate_agent_lifecycle_target(decision, context) do
+    active_answer = Decision.active_answer(decision)
+
     cond do
       decision.ticket.identifier != context.ticket_identifier ->
         {:error, {:conflict, {:ticket_mismatch, context.ticket_identifier, decision.ticket.identifier}}}
 
-      is_nil(decision.answer) ->
+      is_nil(active_answer) ->
         {:error, {:invalid_transition, :answer_missing}}
 
-      decision.answer.action_id != context.data.action_id ->
-        {:error, {:conflict, {:action_mismatch, context.data.action_id, decision.answer.action_id}}}
+      active_answer.action_id != context.data.action_id ->
+        {:error, {:conflict, {:action_mismatch, context.data.action_id, active_answer.action_id}}}
 
-      decision.answer.decision_version != context.expected_version ->
-        {:error, {:conflict, {:stale_version, context.expected_version, decision.answer.decision_version}}}
+      active_answer.decision_version != context.expected_version ->
+        {:error, {:conflict, {:stale_version, context.expected_version, active_answer.decision_version}}}
 
       true ->
         :ok
@@ -1084,7 +1095,9 @@ defmodule Aiur.DecisionStore do
     end
   end
 
-  defp delivered_once?(decision), do: Enum.any?(decision.dispatch_attempts, &(not is_nil(&1.delivered_at)))
+  defp delivered_once?(decision) do
+    Enum.any?(Decision.active_dispatch_attempts(decision), &(not is_nil(&1.delivered_at)))
+  end
 
   defp compare_lifecycle_replay(fact, data, conflict) do
     if fact.action_id == data.action_id and fact.actor == data.actor and fact.detail == data.detail do
@@ -1111,13 +1124,15 @@ defmodule Aiur.DecisionStore do
   end
 
   defp agent_lifecycle_result(status, decision, type) do
+    active_answer = Decision.active_answer(decision)
+
     %{
       status: status,
       lifecycle: type,
       decision_id: decision.decision_id,
       version: decision.version,
-      answered_version: decision.answer.decision_version,
-      action_id: decision.answer.action_id,
+      answered_version: active_answer.decision_version,
+      action_id: active_answer.action_id,
       decision_status: decision.decision_status
     }
   end
@@ -1176,11 +1191,12 @@ defmodule Aiur.DecisionStore do
     do: Map.get(correlation, key, Map.get(correlation, Atom.to_string(key)))
 
   defp validate_transport_decision(decision, context) do
+    answer = Decision.answer_for_action(decision, context.action_id)
+
     cond do
       decision.ticket.identifier != context.target -> {:error, :ticket_mismatch}
-      is_nil(decision.answer) -> {:error, :answer_missing}
-      decision.answer.action_id != context.action_id -> {:error, :action_mismatch}
-      decision.answer.decision_version != context.decision_version -> {:error, :version_mismatch}
+      is_nil(answer) -> {:error, :action_mismatch}
+      answer.decision_version != context.decision_version -> {:error, :version_mismatch}
       true -> :ok
     end
   end
@@ -1208,7 +1224,7 @@ defmodule Aiur.DecisionStore do
 
       case build_and_persist_event(type, decision, data, DateTime.utc_now(), state) do
         {:ok, next_state, updated} ->
-          next_state = project_delivery_attention(next_state, decision, updated, type)
+          next_state = maybe_project_delivery_attention(next_state, decision, updated, type, context.action_id)
           {{:ok, :accepted}, next_state}
 
         {:error, transition_reason} ->
@@ -1249,41 +1265,50 @@ defmodule Aiur.DecisionStore do
 
   defp project_delivery_attention(state, _prior, _updated, _type), do: state
 
+  defp maybe_project_delivery_attention(state, prior, updated, type, action_id) do
+    if prior.active_action_id == action_id,
+      do: project_delivery_attention(state, prior, updated, type),
+      else: state
+  end
+
   defp reproject_failure_attentions(state) do
     state.current
     |> Map.values()
-    |> Enum.filter(&(&1.delivery_status == :failed and not is_nil(&1.answer)))
+    |> Enum.filter(&(&1.delivery_status == :failed and not is_nil(Decision.active_answer(&1))))
     |> Enum.each(&emit_failure_attention/1)
 
     :ok
   end
 
   defp emit_failure_attention(decision) do
-    reason_class = decision.dispatch_attempts |> List.last() |> Map.get(:failure_reason_class, "delivery_failed")
+    active_answer = Decision.active_answer(decision)
+    reason_class = decision |> Decision.active_dispatch_attempts() |> List.last() |> Map.get(:failure_reason_class, "delivery_failed")
 
     Alerts.emit_custom(
       failure_attention_topic(decision),
       "Decision answer delivery failed for #{decision.decision_id} (#{reason_class}).",
       issue: decision.ticket.identifier,
-      reason: "Decision #{decision.decision_id} action #{decision.answer.action_id} remains actionable after #{reason_class}.",
+      reason: "Decision #{decision.decision_id} action #{active_answer.action_id} remains actionable after #{reason_class}.",
       needs_attention: true,
       severity: "warning"
     )
   end
 
   defp emit_failure_resolution(decision) do
+    active_answer = Decision.active_answer(decision)
+
     Alerts.emit_custom(
       failure_attention_topic(decision) <> ".resolved",
       "Decision answer delivery recovered for #{decision.decision_id}.",
       issue: decision.ticket.identifier,
-      reason: "Decision #{decision.decision_id} action #{decision.answer.action_id} delivery recovered.",
+      reason: "Decision #{decision.decision_id} action #{active_answer.action_id} delivery recovered.",
       needs_attention: false,
       severity: "info"
     )
   end
 
   defp failure_attention_topic(decision) do
-    action_slug = String.replace(decision.answer.action_id, "_", "-")
+    action_slug = decision |> Decision.active_answer() |> Map.fetch!(:action_id) |> String.replace("_", "-")
     "ticket.#{decision.ticket.identifier}.agent.attention.decision-delivery-#{action_slug}"
   end
 

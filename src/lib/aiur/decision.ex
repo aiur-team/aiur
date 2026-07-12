@@ -206,6 +206,14 @@ defmodule Aiur.Decision do
   def active_answer(%__MODULE__{revisions: []} = decision), do: decision.answer
   def active_answer(%__MODULE__{revisions: revisions}), do: revisions |> List.last() |> Map.fetch!(:answer)
 
+  @doc "Finds the immutable answer associated with one original or revision action."
+  @spec answer_for_action(t(), String.t()) :: Aiur.DecisionAnswer.t() | nil
+  def answer_for_action(%__MODULE__{} = decision, action_id) when is_binary(action_id) do
+    [decision.answer | Enum.map(decision.revisions, & &1.answer)]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.find(&(&1.action_id == action_id))
+  end
+
   @doc "Returns only dispatch attempts correlated to the active action."
   @spec active_dispatch_attempts(t()) :: [dispatch_attempt()]
   def active_dispatch_attempts(%__MODULE__{} = decision) do
