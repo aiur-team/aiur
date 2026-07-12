@@ -21,6 +21,16 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       assert response["success"] == false
     end
+
+    test "invocation context preserves normal validation for malformed arguments" do
+      issue = %Issue{id: "gid-te-invalid", identifier: "TE-invalid"}
+      executor = ToolExecutor.build(issue, nil, nil)
+
+      response = ToolExecutor.execute(executor, "emit_event", :invalid, "call-invalid")
+
+      assert response["success"] == false
+      assert Jason.decode!(response["output"])["error"]["message"] =~ "expects an object"
+    end
   end
 
   describe "declare_blocker_for_issue via blocker_declarer closure" do
@@ -121,6 +131,219 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       assert SubscriptionStore.snapshot(identifier).open_attentions == ["operator-decision"]
       assert executor.("emit_event", %{"name" => "attention.resolved", "message" => "Approved", "payload" => %{"slug" => "operator-decision"}})["success"] == true
+    end
+  end
+
+  describe "decision.requested routes through Aiur.DecisionStore" do
+    test "persists and returns the accepted decision_id/version/status" do
+      identifier = "TE-decision-req-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier, title: "Test ticket", url: "https://example.com/#{identifier}"}
+      executor = ToolExecutor.build(issue, nil, nil, %{backend: "codex", thread_id: "thread-abc"})
+
+      response =
+        executor.("emit_event", %{
+          "name" => "decision.requested",
+          "message" => "Deploy now?",
+          "payload" => %{"blocking" => true}
+        })
+
+      assert response["success"] == true
+      result = Jason.decode!(response["output"])["result"]
+      assert result["status"] == "accepted"
+      assert result["version"] == 1
+      assert is_binary(result["decision_id"])
+
+      {:ok, decision} = Aiur.DecisionStore.get(result["decision_id"])
+      assert decision.question == "Deploy now?"
+      assert decision.ticket.identifier == identifier
+      assert decision.source.agent_id == "codex"
+      assert decision.source.session_id == "thread-abc"
+    end
+
+    test "an omitted payload question falls back to the tool message" do
+      identifier = "TE-decision-msg-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      executor = ToolExecutor.build(issue, nil, nil)
+
+      executor.("emit_event", %{
+        "name" => "decision.requested",
+        "message" => "Use the required tool message?",
+        "payload" => %{"blocking" => false}
+      })
+
+      [decision] = Aiur.DecisionStore.list() |> Enum.filter(&(&1.ticket.identifier == identifier))
+      assert decision.question == "Use the required tool message?"
+    end
+
+    test "the agent-supplied ticket/source in payload cannot override the trusted issue context" do
+      identifier = "TE-decision-trust-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      executor = ToolExecutor.build(issue, nil, nil)
+
+      executor.("emit_event", %{
+        "name" => "decision.requested",
+        "message" => "Q?",
+        "payload" => %{"blocking" => true, "ticket" => %{"identifier" => "attacker"}}
+      })
+
+      [decision] = Aiur.DecisionStore.list() |> Enum.filter(&(&1.ticket.identifier == identifier))
+      assert decision.ticket.identifier == identifier
+    end
+
+    test "a repeat with the same source_id is deduplicated, not re-accepted" do
+      identifier = "TE-decision-dedup-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      executor = ToolExecutor.build(issue, nil, nil)
+      payload = %{"blocking" => true, "source_id" => "retry-key"}
+
+      first = executor.("emit_event", %{"name" => "decision.requested", "message" => "Q?", "payload" => payload})
+      second = executor.("emit_event", %{"name" => "decision.requested", "message" => "Q?", "payload" => payload})
+
+      assert Jason.decode!(first["output"])["result"]["status"] == "accepted"
+      assert Jason.decode!(second["output"])["result"]["status"] == "duplicate"
+    end
+
+    test "the trusted session and tool-call id deduplicate retries without agent source_id" do
+      identifier = "TE-decision-trusted-dedup-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      executor = ToolExecutor.build(issue, nil, nil, %{thread_id: "thread-abc"})
+
+      arguments = %{
+        "name" => "decision.requested",
+        "message" => "Q?",
+        "payload" => %{"blocking" => true, "source_id" => "agent-controlled"}
+      }
+
+      first = ToolExecutor.execute(executor, "emit_event", arguments, "call-1")
+      retry = ToolExecutor.execute(executor, "emit_event", arguments, "call-1")
+      distinct_call = ToolExecutor.execute(executor, "emit_event", arguments, "call-2")
+
+      first_result = Jason.decode!(first["output"])["result"]
+      retry_result = Jason.decode!(retry["output"])["result"]
+      distinct_result = Jason.decode!(distinct_call["output"])["result"]
+
+      assert first_result["status"] == "accepted"
+      assert retry_result["status"] == "duplicate"
+      assert retry_result["decision_id"] == first_result["decision_id"]
+      assert distinct_result["status"] == "accepted"
+      refute distinct_result["decision_id"] == first_result["decision_id"]
+    end
+
+    test "trusted identity overwrites atom-keyed agent source_id values" do
+      identifier = "TE-decision-atom-source-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      executor = ToolExecutor.build(issue, nil, nil, %{thread_id: "thread-abc"})
+
+      arguments = fn source_id ->
+        %{
+          "name" => "decision.requested",
+          "message" => "Q?",
+          "payload" => %{blocking: true, source_id: source_id}
+        }
+      end
+
+      first = ToolExecutor.execute(executor, "emit_event", arguments.("agent-one"), "call-atom")
+      retry = ToolExecutor.execute(executor, "emit_event", arguments.("agent-two"), "call-atom")
+
+      first_result = Jason.decode!(first["output"])["result"]
+      retry_result = Jason.decode!(retry["output"])["result"]
+
+      assert first_result["status"] == "accepted"
+      assert retry_result["status"] == "duplicate"
+      assert retry_result["decision_id"] == first_result["decision_id"]
+    end
+
+    test "a non-scalar protocol call id cannot crash decision execution" do
+      identifier = "TE-decision-call-shape-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      executor = ToolExecutor.build(issue, nil, nil, %{thread_id: "thread-abc"})
+
+      response =
+        ToolExecutor.execute(
+          executor,
+          "emit_event",
+          %{
+            "name" => "decision.requested",
+            "message" => "Q?",
+            "payload" => %{"blocking" => true}
+          },
+          %{"unexpected" => "shape"}
+        )
+
+      assert response["success"] == true
+      assert Jason.decode!(response["output"])["result"]["status"] == "accepted"
+    end
+
+    test "an invalid request fails without publishing a duplicate Exchange event" do
+      identifier = "TE-decision-invalid-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      executor = ToolExecutor.build(issue, nil, nil)
+
+      Exchange.subscribe("ticket.#{identifier}.agent.decision.requested")
+
+      response = executor.("emit_event", %{"name" => "decision.requested", "message" => "Q?", "payload" => %{}})
+
+      assert response["success"] == false
+      error = Jason.decode!(response["output"])["error"]
+      assert error["message"] == "Decision request was rejected by the durable DecisionStore."
+      assert error["reason"] =~ "blocking"
+      refute_receive {:event, _}, 200
+    end
+
+    test "an issue with no identifier fails closed" do
+      issue = %Issue{id: nil, identifier: nil}
+      executor = ToolExecutor.build(issue, nil, nil)
+
+      response = executor.("emit_event", %{"name" => "decision.requested", "message" => "Q?", "payload" => %{"blocking" => true}})
+
+      assert response["success"] == false
+      error = Jason.decode!(response["output"])["error"]
+      assert error["message"] == "Decision requests require a ticket identifier."
+      assert error["reason"] == "no_issue_identifier"
+    end
+
+    test "a generic event name that only collides with the decision.requested topic suffix fails cleanly, not with a crash" do
+      # "custom.decision.requested" is allowlisted by the emit_event tool's
+      # generic `custom.<slug>` pattern and does NOT match this module's
+      # literal "decision.requested" special case, so it takes the generic
+      # Publisher.publish/3 path — which now rejects any topic ending in
+      # ".decision.requested" (Aiur.Events.Publisher's decision-durability
+      # guard). That must surface as a normal tool failure, not an unhandled
+      # CaseClauseError.
+      identifier = "TE-decision-collision-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      executor = ToolExecutor.build(issue, nil, nil)
+
+      response =
+        executor.("emit_event", %{"name" => "custom.decision.requested", "message" => "Q?", "payload" => %{}})
+
+      assert response["success"] == false
+      assert Jason.decode!(response["output"])["error"]["reason"] =~ "decision_requires_durable_publish"
+    end
+
+    test "a DecisionStore call timeout becomes a tool failure instead of exiting the agent turn" do
+      identifier = "TE-decision-timeout-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      blocked_store = spawn(fn -> receive do: (:stop -> :ok) end)
+      on_exit(fn -> send(blocked_store, :stop) end)
+
+      decision_requester = fn payload, opts ->
+        Aiur.DecisionStore.request(payload, opts, blocked_store, 10)
+      end
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{}, decision_requester: decision_requester)
+
+      response =
+        executor.("emit_event", %{
+          "name" => "decision.requested",
+          "message" => "Q?",
+          "payload" => %{"blocking" => true}
+        })
+
+      assert response["success"] == false
+      assert Jason.decode!(response["output"])["error"]["reason"] =~ "timeout"
+      assert Process.alive?(self())
     end
   end
 

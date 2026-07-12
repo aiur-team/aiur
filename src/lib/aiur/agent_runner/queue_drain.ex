@@ -357,7 +357,8 @@ defmodule Aiur.AgentRunner.QueueDrain do
           ToolExecutor.build(
             issue,
             SessionLifecycle.session_workspace(app_session),
-            SessionLifecycle.session_worker_host(app_session)
+            SessionLifecycle.session_worker_host(app_session),
+            app_session
           )
       )
 

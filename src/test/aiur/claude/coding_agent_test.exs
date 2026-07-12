@@ -1,6 +1,7 @@
 defmodule Aiur.Claude.CodingAgentWorkspaceTest do
   use Aiur.TestSupport
 
+  alias Aiur.AgentRunner.ToolExecutor
   alias Aiur.Claude.CodingAgent, as: ClaudeAgent
   alias Aiur.Codex.DynamicTool
   alias Aiur.CodingAgent
@@ -151,7 +152,7 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
     on_message = fn message -> send(test_pid, {:agent_message, message}) end
 
     tool_executor = fn tool, arguments ->
-      send(test_pid, {:tool_called, tool, arguments})
+      send(test_pid, {:tool_called, tool, arguments, ToolExecutor.invocation_id()})
       %{"success" => false, "error" => "not available"}
     end
 
@@ -165,8 +166,8 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
 
     ClaudeAgent.stop_session(session)
 
-    assert_received {:tool_called, "emit_alert", %{"name" => "phase.work.start", "message" => "starting"}}
-    assert_received {:tool_called, nil, %{}}
+    assert_received {:tool_called, "emit_alert", %{"name" => "phase.work.start", "message" => "starting"}, 101}
+    assert_received {:tool_called, nil, %{}, 102}
     assert_received {:agent_message, %{event: :tool_call_failed, payload: %{"params" => %{"tool" => "emit_alert"}}}}
     assert_received {:agent_message, %{event: :unsupported_tool_call, payload: %{"params" => %{}}}}
 

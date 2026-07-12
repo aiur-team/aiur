@@ -151,6 +151,24 @@ defmodule Aiur.Codex.DynamicTool.Errors do
     }
   end
 
+  def payload({:decision_rejected, reason}) do
+    %{
+      "error" => %{
+        "message" => "Decision request was rejected by the durable DecisionStore.",
+        "reason" => inspect(reason)
+      }
+    }
+  end
+
+  def payload(:no_issue_identifier) do
+    %{
+      "error" => %{
+        "message" => "Decision requests require a ticket identifier.",
+        "reason" => "no_issue_identifier"
+      }
+    }
+  end
+
   def payload(:invalid_event_arguments) do
     %{
       "error" => %{

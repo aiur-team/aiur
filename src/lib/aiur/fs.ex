@@ -53,4 +53,28 @@ defmodule Aiur.Fs do
       end
     end
   end
+
+  @doc """
+  Forces a durable directory entry after a first-ever file/directory
+  creation. `atomic_write/3` and `Aiur.DecisionLog.append/2` fsync their
+  own file descriptor, but that never syncs the *parent* directory's
+  inode — so the very first file created under a fresh directory can
+  still lose its directory entry on a crash before any other write
+  happens to sync that directory.
+
+  The BEAM cannot open a directory as a file descriptor — `:file.open/2`
+  returns `:eisdir` for every mode on every OTP release tested — so
+  there is no direct way to fsync one directory's inode the way C code
+  does. Shells out to the POSIX `sync(1)` command instead, which flushes
+  all pending writes system-wide. This is a global barrier, not scoped
+  to one directory, so call it only once right after a first-ever
+  creation — never on a hot append path.
+  """
+  @spec sync_filesystem() :: :ok | {:error, term()}
+  def sync_filesystem do
+    case System.cmd("sync", [], stderr_to_stdout: true) do
+      {_output, 0} -> :ok
+      {output, status} -> {:error, {:sync_failed, status, output}}
+    end
+  end
 end

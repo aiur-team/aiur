@@ -6,14 +6,37 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   blocker declaration immediately subscribed for prompt resume behavior.
   """
 
-  alias Aiur.{Alerts, DecisionAttention, Issue}
+  alias Aiur.AgentRunner.SessionLifecycle
+  alias Aiur.{Alerts, DecisionAttention, DecisionStore, Issue}
   alias Aiur.Codex.DynamicTool
   alias Aiur.Events.{Publisher, SubscriptionStore}
   alias Aiur.GitHub.IssueDependencies
   alias Aiur.Orchestrator
 
-  @spec build(Issue.t(), Path.t() | nil, String.t() | nil) :: (String.t(), map() -> map())
-  def build(issue, workspace, worker_host) do
+  @invocation_key {__MODULE__, :invocation_id}
+
+  @doc false
+  @spec execute((String.t(), term() -> map()), String.t() | nil, term(), term()) :: map()
+  def execute(executor, tool, arguments, invocation_id)
+      when is_function(executor, 2) do
+    previous = Process.get(@invocation_key, :unset)
+    Process.put(@invocation_key, invocation_id)
+
+    try do
+      executor.(tool, arguments)
+    after
+      restore_invocation(previous)
+    end
+  end
+
+  @doc false
+  @spec invocation_id() :: term()
+  def invocation_id, do: Process.get(@invocation_key)
+
+  @spec build(Issue.t(), Path.t() | nil, String.t() | nil, map(), keyword()) :: (String.t(), map() -> map())
+  def build(issue, workspace, worker_host, app_session \\ %{}, opts \\ []) do
+    decision_requester = Keyword.get(opts, :decision_requester, &DecisionStore.request/2)
+
     fn tool, arguments ->
       DynamicTool.execute(
         tool,
@@ -37,7 +60,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
           )
         end,
         event_publisher: fn name, message, payload ->
-          emit_agent_event(issue, workspace, worker_host, name, message, payload)
+          emit_agent_event(issue, workspace, worker_host, app_session, decision_requester, name, message, payload)
         end,
         subscriber: fn pattern -> subscribe_for_issue(issue, pattern) end,
         unsubscriber: fn pattern -> unsubscribe_for_issue(issue, pattern) end,
@@ -137,7 +160,15 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     end
   end
 
-  defp emit_agent_event(issue, workspace, worker_host, name, message, payload) do
+  # The only structured request routed through the durable DecisionStore
+  # service — everything else keeps the existing generic publish path
+  # below unchanged. `Publisher.publish/3` itself also rejects this topic
+  # family, so this is the sole production ingress, not just a preference.
+  defp emit_agent_event(issue, _workspace, _worker_host, app_session, decision_requester, "decision.requested", message, payload) do
+    request_decision(issue, app_session, decision_requester, message, payload)
+  end
+
+  defp emit_agent_event(issue, workspace, worker_host, _app_session, _decision_requester, name, message, payload) do
     identifier = issue_identifier(issue)
 
     topic =
@@ -162,8 +193,85 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
       :deduped ->
         {:error, :event_deduped}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
+
+  defp request_decision(issue, app_session, decision_requester, message, payload) do
+    case issue_identifier(issue) do
+      nil ->
+        {:error, :no_issue_identifier}
+
+      identifier ->
+        ticket = %{identifier: identifier, title: Map.get(issue, :title), url: Map.get(issue, :url)}
+
+        request_payload =
+          payload
+          |> Map.put_new("question", message)
+          |> Map.delete(:source_id)
+          |> Map.delete("source_id")
+
+        source_id = trusted_source_id(identifier, app_session, request_payload)
+
+        source = %{
+          agent_id: SessionLifecycle.session_backend(app_session),
+          session_id: Map.get(app_session, :thread_id),
+          event_id: stringify_invocation_id(invocation_id())
+        }
+
+        request_payload = Map.put(request_payload, "source_id", source_id)
+
+        case safely_request_decision(decision_requester, request_payload, ticket: ticket, source: source) do
+          {:ok, %{status: status, decision: decision}} ->
+            {:ok,
+             %{
+               "decision_id" => decision.decision_id,
+               "version" => decision.version,
+               "status" => Atom.to_string(status)
+             }}
+
+          {:error, reason} ->
+            {:error, {:decision_rejected, reason}}
+        end
+    end
+  end
+
+  defp safely_request_decision(decision_requester, payload, opts) do
+    decision_requester.(payload, opts)
+  catch
+    :exit, reason -> {:error, {:decision_store_exit, reason}}
+  end
+
+  defp trusted_source_id(identifier, app_session, request_payload) do
+    material = {
+      identifier,
+      Map.get(app_session, :thread_id),
+      invocation_id() || {:request_payload, request_payload}
+    }
+
+    "tool_" <> digest_term(material, 32)
+  end
+
+  defp stringify_invocation_id(nil), do: nil
+  defp stringify_invocation_id(value) when is_binary(value), do: value
+  defp stringify_invocation_id(value) when is_integer(value), do: Integer.to_string(value)
+
+  defp stringify_invocation_id(value) do
+    "opaque_" <> digest_term(value, 24)
+  end
+
+  defp digest_term(value, length) do
+    value
+    |> :erlang.term_to_binary([:deterministic])
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
+    |> String.slice(0, length)
+  end
+
+  defp restore_invocation(:unset), do: Process.delete(@invocation_key)
+  defp restore_invocation(value), do: Process.put(@invocation_key, value)
 
   defp sync_decision_attention(issue, _workspace, _worker_host, "attention.resolved", _message, payload) do
     case Map.get(payload, "slug") do

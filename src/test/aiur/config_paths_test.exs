@@ -104,4 +104,67 @@ defmodule Aiur.Config.PathsTest do
       assert is_binary(Paths.repo_name())
     end
   end
+
+  describe "decision_state_dir/0" do
+    setup do
+      original_instance_key = System.get_env("AIUR_INSTANCE_KEY")
+      original_state_dir_env = System.get_env("AIUR_BG_STATE_DIR")
+      original_override = Application.get_env(:aiur, :decision_state_dir)
+
+      on_exit(fn ->
+        restore_system_env("AIUR_INSTANCE_KEY", original_instance_key)
+        restore_system_env("AIUR_BG_STATE_DIR", original_state_dir_env)
+
+        case original_override do
+          nil -> Application.delete_env(:aiur, :decision_state_dir)
+          value -> Application.put_env(:aiur, :decision_state_dir, value)
+        end
+      end)
+
+      Application.delete_env(:aiur, :decision_state_dir)
+      root = Path.join(System.tmp_dir!(), "aiur-decision-paths-#{System.unique_integer([:positive])}")
+      System.put_env("AIUR_BG_STATE_DIR", root)
+
+      %{root: root}
+    end
+
+    test "an Application override wins outright, skipping validation" do
+      Application.put_env(:aiur, :decision_state_dir, "/tmp/explicit-decision-override")
+      System.delete_env("AIUR_INSTANCE_KEY")
+
+      assert Paths.decision_state_dir() == {:ok, "/tmp/explicit-decision-override"}
+    end
+
+    test "refuses an empty AIUR_INSTANCE_KEY instead of sharing a default" do
+      System.put_env("AIUR_INSTANCE_KEY", "")
+
+      assert Paths.decision_state_dir() == {:error, :missing_instance_key}
+    end
+
+    test "refuses a missing AIUR_INSTANCE_KEY" do
+      System.delete_env("AIUR_INSTANCE_KEY")
+
+      assert Paths.decision_state_dir() == {:error, :missing_instance_key}
+    end
+
+    test "resolves beneath the configured root when the instance key and project identity are available",
+         %{root: root} do
+      System.put_env("AIUR_INSTANCE_KEY", "abc123")
+
+      assert {:ok, path} = Paths.decision_state_dir()
+      assert String.starts_with?(path, Path.expand(root) <> "/")
+      # The suite-wide test fixture (test/fixtures/test.aiurconfig) resolves
+      # tracker identity to "test-org/test-repo" — leaf "test-repo".
+      assert String.ends_with?(path, "/abc123/test-repo")
+    end
+
+    test "rejects an instance key that would escape the configured root" do
+      System.put_env("AIUR_INSTANCE_KEY", "..")
+
+      assert Paths.decision_state_dir() == {:error, :decision_path_outside_root}
+    end
+  end
+
+  defp restore_system_env(key, nil), do: System.delete_env(key)
+  defp restore_system_env(key, value), do: System.put_env(key, value)
 end
