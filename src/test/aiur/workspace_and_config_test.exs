@@ -6,6 +6,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   alias Aiur.Events.Exchange
   alias Aiur.Issue
   alias Aiur.Linear.Client
+  alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy}
   alias Ecto.Changeset
 
@@ -485,6 +486,44 @@ defmodule Aiur.WorkspaceAndConfigTest do
       assert String.trim(git!(["-C", workspace, "status", "--short"])) == ""
       assert trace_file |> File.read!() |> String.split("\n", trim: true) |> length() == 2
     after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "before_run preserves a live turn's checkout across a stale todo transition" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-before-run-active-turn-#{System.unique_integer([:positive])}"
+      )
+
+    identifier = "LIVE-TODO-1"
+    turn_id = "tACTIVE"
+
+    try do
+      {workspace, trace_file} = bootstrap_dirty_refresh_workspace!(test_root, identifier)
+
+      issue = %Issue{
+        id: "issue-live-todo-1",
+        identifier: identifier,
+        title: "Protect active checkout",
+        state: "in-progress",
+        labels: ["agent:todo"]
+      }
+
+      :ok = ActiveTurns.put(identifier, turn_id)
+
+      assert :ok = Workspace.run_before_run_hook(workspace, issue)
+      assert ActiveTurns.lookup(identifier, turn_id) == :active
+      assert File.read!(Path.join(workspace, "README.md")) == "dirty\n"
+      assert File.dir?(Path.join(workspace, ".git"))
+
+      assert String.trim(git!(["-C", workspace, "rev-parse", "--abbrev-ref", "HEAD"])) ==
+               "aiur/#{identifier}"
+
+      refute File.exists?(trace_file)
+    after
+      ActiveTurns.mark_closed(identifier, turn_id, :test_done)
       File.rm_rf(test_root)
     end
   end
