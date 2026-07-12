@@ -17,8 +17,8 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
 
   require Logger
 
-  alias Aiur.{CodingAgent, Config, Issue, ModelAvailability, Tracker}
   alias Aiur.Claude.Config, as: ClaudeConfig
+  alias Aiur.{CodingAgent, Config, Issue, ModelAvailability, Tracker}
 
   alias Aiur.Orchestrator.{
     Dispatcher,
@@ -53,15 +53,10 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
     {state, _transition_count} =
       state.running
       |> Enum.sort_by(fn {issue_id, _entry} -> to_string(issue_id) end)
-      |> Enum.reduce_while({state, 0}, fn {_issue_id, entry}, {acc, transition_count} ->
-        if transition_count >= max_transitions do
-          {:halt, {acc, transition_count}}
-        else
-          {next_state, transitioned?} = reconcile_entry(acc, entry, opts)
-          next_count = if transitioned?, do: transition_count + 1, else: transition_count
-          {:cont, {next_state, next_count}}
-        end
-      end)
+      |> Enum.reduce_while(
+        {state, 0},
+        &reconcile_until_limit(&1, &2, opts, max_transitions)
+      )
 
     state
   end
@@ -73,35 +68,10 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   def decide(running_entry, %Issue{} = issue, opts \\ []) do
     marker_label = Keyword.get_lazy(opts, :marker_label, &marker_label/0)
 
-    cond do
-      fallback_engaged?(issue, marker_label) ->
-        cond do
-          is_nil(CodingAgent.override_backend(issue)) and
-              usage_limited_on_primary?(running_entry, issue, opts) ->
-            :engage
-
-          recovery_pending?(running_entry) and
-              not ModelAvailability.recovery_confirmed?(@primary_backend, opts) ->
-            :cancel_revert
-
-          recovery_ready?(running_entry, opts) and safe_revert_pause?(running_entry) ->
-            :revert
-
-          recovery_ready?(running_entry, opts) and recovery_pending?(running_entry) ->
-            :noop
-
-          recovery_ready?(running_entry, opts) and State.active_running_entry?(running_entry) ->
-            :prepare_revert
-
-          true ->
-            :noop
-        end
-
-      usage_limited_on_primary?(running_entry, issue, opts) ->
-        :engage
-
-      true ->
-        :noop
+    if fallback_engaged?(issue, marker_label) do
+      decide_engaged(running_entry, issue, opts)
+    else
+      decide_unengaged(running_entry, issue, opts)
     end
   end
 
@@ -150,6 +120,59 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   defp recovery_pending?(running_entry),
     do: Map.get(running_entry, :rate_limit_fallback_revert_pending) == true
 
+  defp decide_engaged(running_entry, issue, opts) do
+    if usage_limited_on_primary?(running_entry, issue, opts),
+      do: :engage,
+      else: decide_engaged_recovery(running_entry, opts)
+  end
+
+  defp decide_engaged_recovery(running_entry, opts) do
+    cond do
+      recovery_pending?(running_entry) and
+          not ModelAvailability.recovery_confirmed?(@primary_backend, opts) ->
+        :cancel_revert
+
+      recovery_ready?(running_entry, opts) ->
+        decide_recovery_ready(running_entry)
+
+      true ->
+        :noop
+    end
+  end
+
+  defp decide_recovery_ready(running_entry) do
+    cond do
+      safe_revert_pause?(running_entry) -> :revert
+      recovery_pending?(running_entry) -> :noop
+      State.active_running_entry?(running_entry) -> :prepare_revert
+      true -> :noop
+    end
+  end
+
+  defp decide_unengaged(running_entry, issue, opts) do
+    if usage_limited_on_primary?(running_entry, issue, opts), do: :engage, else: :noop
+  end
+
+  defp reconcile_until_limit(
+         _item,
+         {state, transition_count},
+         _opts,
+         max_transitions
+       )
+       when transition_count >= max_transitions,
+       do: {:halt, {state, transition_count}}
+
+  defp reconcile_until_limit(
+         {_issue_id, entry},
+         {state, transition_count},
+         opts,
+         _max_transitions
+       ) do
+    {next_state, transitioned?} = reconcile_entry(state, entry, opts)
+    next_count = if transitioned?, do: transition_count + 1, else: transition_count
+    {:cont, {next_state, next_count}}
+  end
+
   defp reconcile_entry(state, %{issue: %Issue{} = issue} = running_entry, opts) do
     apply_decision(state, running_entry, issue, decide(running_entry, issue, opts), opts)
   end
@@ -161,26 +184,13 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   defp apply_decision(state, running_entry, issue, :engage, opts) do
     fallback_backend = Keyword.get_lazy(opts, :fallback_backend, &Config.rate_limit_fallback_backend/0)
     marker_label = Keyword.get_lazy(opts, :marker_label, &marker_label/0)
-    identifier = Map.get(running_entry, :identifier)
-    add_label = Keyword.get(opts, :add_label_fun, &Tracker.add_label/2)
-    remove_label = Keyword.get(opts, :remove_label_fun, &Tracker.remove_label/2)
     relabeled = engage_issue(issue, fallback_backend, marker_label)
+    context = transition_context(state, running_entry, issue, relabeled, opts)
 
     if fallback_backend_ready?(fallback_backend, running_entry, opts) do
       case redispatch_ready(state, relabeled, running_entry, opts) do
         :ok ->
-          engage_after_preflight(
-            state,
-            running_entry,
-            issue,
-            relabeled,
-            fallback_backend,
-            marker_label,
-            identifier,
-            add_label,
-            remove_label,
-            opts
-          )
+          engage_after_preflight(context, fallback_backend, marker_label)
 
         {:error, reason} ->
           Logger.info("Rate-limit fallback engage deferred: #{log_context(running_entry, issue)} reason=#{inspect(reason)}")
@@ -196,24 +206,12 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
 
   defp apply_decision(state, running_entry, issue, :revert, opts) do
     marker_label = Keyword.get_lazy(opts, :marker_label, &marker_label/0)
-    identifier = Map.get(running_entry, :identifier)
-    add_label = Keyword.get(opts, :add_label_fun, &Tracker.add_label/2)
-    remove_label = Keyword.get(opts, :remove_label_fun, &Tracker.remove_label/2)
     relabeled = revert_issue(issue, marker_label)
+    context = transition_context(state, running_entry, issue, relabeled, opts)
 
     case redispatch_ready(state, relabeled, running_entry, opts) do
       :ok ->
-        revert_after_preflight(
-          state,
-          running_entry,
-          issue,
-          relabeled,
-          marker_label,
-          identifier,
-          add_label,
-          remove_label,
-          opts
-        )
+        revert_after_preflight(context, marker_label)
 
       {:error, reason} ->
         maybe_resume_deferred_revert(state, running_entry, reason, opts)
@@ -264,66 +262,94 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
     end
   end
 
-  defp engage_after_preflight(
-         state,
-         running_entry,
-         issue,
-         relabeled,
-         fallback_backend,
-         marker_label,
-         identifier,
-         add_label,
-         remove_label,
-         opts
-       ) do
-    case add_label.(identifier, marker_label) do
-      :ok ->
-        case add_label.(identifier, model_label(fallback_backend)) do
-          :ok ->
-            Logger.warning("Codex usage-limit fallback engaged; re-dispatching on #{fallback_backend}: #{log_context(running_entry, issue)}")
+  defp transition_context(state, running_entry, issue, relabeled, opts) do
+    %{
+      add_label: Keyword.get(opts, :add_label_fun, &Tracker.add_label/2),
+      identifier: Map.get(running_entry, :identifier),
+      issue: issue,
+      opts: opts,
+      relabeled: relabeled,
+      remove_label: Keyword.get(opts, :remove_label_fun, &Tracker.remove_label/2),
+      running_entry: running_entry,
+      state: state
+    }
+  end
 
-            {redispatch(state, running_entry, relabeled, opts), true}
+  defp engage_after_preflight(context, fallback_backend, marker_label) do
+    case context.add_label.(context.identifier, marker_label) do
+      :ok ->
+        case context.add_label.(context.identifier, model_label(fallback_backend)) do
+          :ok ->
+            Logger.warning(
+              "Codex usage-limit fallback engaged; re-dispatching on #{fallback_backend}: " <>
+                log_context(context.running_entry, context.issue)
+            )
+
+            {redispatch(context.state, context.running_entry, context.relabeled, context.opts), true}
 
           {:error, reason} ->
-            rollback = remove_label.(identifier, marker_label)
-            log_transition_failure(:engage, running_entry, issue, reason, rollback)
-            {state, true}
+            rollback = context.remove_label.(context.identifier, marker_label)
+
+            log_transition_failure(
+              :engage,
+              context.running_entry,
+              context.issue,
+              reason,
+              rollback
+            )
+
+            {context.state, true}
         end
 
       {:error, reason} ->
-        log_transition_failure(:engage, running_entry, issue, reason, :not_needed)
-        {state, true}
+        log_transition_failure(
+          :engage,
+          context.running_entry,
+          context.issue,
+          reason,
+          :not_needed
+        )
+
+        {context.state, true}
     end
   end
 
-  defp revert_after_preflight(
-         state,
-         running_entry,
-         issue,
-         relabeled,
-         marker_label,
-         identifier,
-         add_label,
-         remove_label,
-         opts
-       ) do
-    case remove_label.(identifier, model_label(@fallback_backend)) do
+  defp revert_after_preflight(context, marker_label) do
+    case context.remove_label.(context.identifier, model_label(@fallback_backend)) do
       :ok ->
-        case remove_label.(identifier, marker_label) do
+        case context.remove_label.(context.identifier, marker_label) do
           :ok ->
-            Logger.info("Codex recovered; reverting usage-limit fallback: #{log_context(running_entry, issue)}")
+            Logger.info(
+              "Codex recovered; reverting usage-limit fallback: " <>
+                log_context(context.running_entry, context.issue)
+            )
 
-            {redispatch(state, running_entry, relabeled, opts), true}
+            {redispatch(context.state, context.running_entry, context.relabeled, context.opts), true}
 
           {:error, reason} ->
-            rollback = add_label.(identifier, model_label(@fallback_backend))
-            log_transition_failure(:revert, running_entry, issue, reason, rollback)
-            {state, true}
+            rollback = context.add_label.(context.identifier, model_label(@fallback_backend))
+
+            log_transition_failure(
+              :revert,
+              context.running_entry,
+              context.issue,
+              reason,
+              rollback
+            )
+
+            {context.state, true}
         end
 
       {:error, reason} ->
-        log_transition_failure(:revert, running_entry, issue, reason, :not_needed)
-        {state, true}
+        log_transition_failure(
+          :revert,
+          context.running_entry,
+          context.issue,
+          reason,
+          :not_needed
+        )
+
+        {context.state, true}
     end
   end
 
