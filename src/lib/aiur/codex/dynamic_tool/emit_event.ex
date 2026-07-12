@@ -20,6 +20,9 @@ defmodule Aiur.Codex.DynamicTool.EmitEvent do
   Subscribers see your `message` and optional structured `payload`. Use
   `emit_event` for coordination signals an agent on another ticket might
   want to react to; use `emit_alert` for operator-facing audible alerts.
+  The exact names `decision.acknowledged` and `decision.resolved` are durable
+  target-agent lifecycle events; their payload must carry `decision_id`,
+  `action_id`, and `expected_version` from the delivered answer envelope.
   """
   @emit_event_input_schema %{
     "type" => "object",
@@ -29,7 +32,7 @@ defmodule Aiur.Codex.DynamicTool.EmitEvent do
       "name" => %{
         "type" => "string",
         "description" =>
-          "Vocabulary tag. One of: progress (bare; payload %{percent, label}), progress.<slug>, decision.<slug>, blocked, unblocked, attention.<slug>, attention.resolved, pause.request, custom.<slug>"
+          "Vocabulary tag. One of: progress (bare; payload %{percent, label}), progress.<slug>, decision.<slug> (decision.acknowledged/resolved require durable correlation payloads), blocked, unblocked, attention.<slug>, attention.resolved, pause.request, custom.<slug>"
       },
       "message" => %{"type" => "string", "description" => "Short human-readable summary."},
       "payload" => %{

@@ -294,6 +294,15 @@ defmodule Aiur.Orchestrator do
   def send_operator_message(server, identifier, payload),
     do: OM.send_operator_message(server, identifier, payload)
 
+  @spec send_correlated_operator_message(String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def send_correlated_operator_message(identifier, payload),
+    do: OM.send_correlated_operator_message(identifier, payload)
+
+  @spec send_correlated_operator_message(GenServer.server(), String.t(), map()) ::
+          {:ok, map()} | {:error, term()}
+  def send_correlated_operator_message(server, identifier, payload),
+    do: OM.send_correlated_operator_message(server, identifier, payload)
+
   @spec pause_agent(String.t()) :: {:ok, integer()} | {:error, term()}
   def pause_agent(identifier), do: PauseResume.pause_agent(identifier)
   @spec pause_agent(GenServer.server(), String.t()) :: {:ok, integer()} | {:error, term()}
@@ -463,6 +472,9 @@ defmodule Aiur.Orchestrator do
 
   def handle_call({:send_operator_message, issue_identifier, payload}, _from, state),
     do: OM.send_operator_message_call(state, issue_identifier, payload)
+
+  def handle_call({:send_correlated_operator_message, issue_identifier, payload}, _from, state),
+    do: OM.send_correlated_operator_message_call(state, issue_identifier, payload)
 
   def handle_call({:control_capabilities, issue_identifier}, _from, state)
       when is_binary(issue_identifier),

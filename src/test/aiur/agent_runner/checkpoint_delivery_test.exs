@@ -45,9 +45,44 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
     end
   end
 
+  defmodule FakeDecisionStore do
+    use GenServer
+
+    def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
+
+    @impl true
+    def init(opts), do: {:ok, %{report: Keyword.fetch!(opts, :report), reply: Keyword.fetch!(opts, :reply)}}
+
+    @impl true
+    def handle_call({:transport_transition, :delivered, item, nil}, _from, state) do
+      send(state.report, {:decision_delivery, item.id})
+      {:reply, state.reply, state}
+    end
+  end
+
   defp start_fake(opts) do
     {:ok, pid} = FakeOrchestrator.start_link(Keyword.put(opts, :report, self()))
     pid
+  end
+
+  defp start_decision_store(reply) do
+    {:ok, pid} = FakeDecisionStore.start_link(report: self(), reply: reply)
+    pid
+  end
+
+  defp correlated_item(id) do
+    %{
+      category: :operator_message,
+      id: id,
+      body: %{text: "durable answer"},
+      action_id: "act_#{id}",
+      correlation: %{
+        decision_id: "dec_#{id}",
+        decision_version: 1,
+        action_id: "act_#{id}",
+        attempt_id: "act_#{id}:1"
+      }
+    }
   end
 
   defp issue, do: %Issue{identifier: "CD-#{System.unique_integer([:positive])}", id: "gid-cd"}
@@ -79,6 +114,29 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
       # drain re-attempts it.
       failure.(:send_failed)
       assert_receive {:restore, 5}
+    end
+
+    test "restores a correlated item instead of exposing text when durable handoff fails" do
+      item = correlated_item(6)
+      orch = start_fake(operator: {:ok, item})
+      decision_store = start_decision_store({:error, :store_unavailable})
+      handler = CheckpointDelivery.operator_immediate_handler(issue(), orch, decision_store)
+
+      assert handler.() == :noop
+      assert_receive {:decision_delivery, 6}
+      assert_receive {:restore, 6}
+    end
+
+    test "marks a correlated item failed after bounded handoff retries" do
+      item = Map.put(correlated_item(7), :delivery_attempts, 3)
+      orch = start_fake(operator: {:ok, item})
+      decision_store = start_decision_store({:error, :store_unavailable})
+      handler = CheckpointDelivery.operator_immediate_handler(issue(), orch, decision_store)
+
+      assert handler.() == :noop
+      assert_receive {:decision_delivery, 7}
+      assert_receive {:mark_failed, 7, {:decision_correlation_failed, :store_unavailable}}
+      refute_receive {:restore, 7}, 100
     end
   end
 
@@ -132,6 +190,16 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
 
       failure.({:turn_cancelled, %{}})
       assert_receive {:restore, 21}
+    end
+
+    test "persists correlated checkpoint handoff before returning deliver_text" do
+      item = correlated_item(22)
+      orch = start_fake(checkpoint: {:ok, item})
+      decision_store = start_decision_store({:ok, :accepted})
+      handler = CheckpointDelivery.safe_checkpoint_handler(issue(), orch, decision_store)
+
+      assert {:deliver_text, "durable answer", _success, _failure} = handler.(:checkpoint)
+      assert_receive {:decision_delivery, 22}
     end
 
     test "an unrecognized delivery failure marks the checkpoint item failed" do
