@@ -8,6 +8,7 @@ defmodule AiurWeb.OperatorControlCenter.RecentOutcomes do
   attr(:reconciliation, :any, default: nil)
   attr(:analytics, :map, required: true)
 
+  @spec recent_outcomes(map()) :: Phoenix.LiveView.Rendered.t()
   def recent_outcomes(assigns) do
     ~H"""
     <section id="recent-outcomes" class="recent-section" aria-labelledby="recent-outcomes-title">

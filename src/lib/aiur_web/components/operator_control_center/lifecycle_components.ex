@@ -17,6 +17,7 @@ defmodule AiurWeb.OperatorControlCenter.LifecycleComponents do
 
   attr(:lifecycle, :any, required: true)
 
+  @spec lifecycle_chip(map()) :: Phoenix.LiveView.Rendered.t()
   def lifecycle_chip(assigns) do
     lifecycle = normalize(assigns.lifecycle)
     assigns = assign(assigns, lifecycle: lifecycle, label: chip_label(lifecycle), tone: tone(lifecycle))
@@ -28,6 +29,7 @@ defmodule AiurWeb.OperatorControlCenter.LifecycleComponents do
 
   attr(:lifecycle, :any, required: true)
 
+  @spec lifecycle_stepper(map()) :: Phoenix.LiveView.Rendered.t()
   def lifecycle_stepper(assigns) do
     lifecycle = normalize(assigns.lifecycle)
 
@@ -54,6 +56,7 @@ defmodule AiurWeb.OperatorControlCenter.LifecycleComponents do
     end
   end
 
+  @spec label(term()) :: String.t()
   def label(lifecycle), do: Map.get(@labels, normalize(lifecycle), humanize(lifecycle))
 
   defp step_entry(step, lifecycle) do

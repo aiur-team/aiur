@@ -7,6 +7,7 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
   attr(:decisions, :list, default: [])
   attr(:now, :any, required: true)
 
+  @spec fleet_table(map()) :: Phoenix.LiveView.Rendered.t()
   def fleet_table(assigns) do
     assigns =
       assigns
@@ -74,6 +75,7 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
                     patch={"/decisions/#{decision_id}"}
                     class="fleet-action decision"
                     title="Open pending decision"
+                    aria-label="Open pending decision"
                     onclick="event.stopPropagation()"
                   >!</.link>
                   <button
@@ -83,6 +85,8 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
                     phx-click="show-agent-log"
                     phx-value-issue={row.issue_identifier}
                     title="Read agent conversation"
+                    aria-label="Read agent conversation"
+                    onclick="event.stopPropagation()"
                   >⌁</button>
                   <a
                     :if={trusted_url(row.url)}
@@ -91,6 +95,7 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
                     target="_blank"
                     rel="noopener noreferrer"
                     title="Open tracker ticket"
+                    aria-label="Open tracker ticket"
                     onclick="event.stopPropagation()"
                   >↗</a>
                 </div>

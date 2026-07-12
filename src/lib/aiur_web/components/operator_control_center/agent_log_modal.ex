@@ -8,6 +8,7 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModal do
   attr(:drafts, :map, required: true)
   attr(:errors, :map, required: true)
 
+  @spec agent_log_modal(map()) :: Phoenix.LiveView.Rendered.t()
   def agent_log_modal(assigns) do
     ~H"""
     <div :if={@modal} class="modal-backdrop agent-log-backdrop">
@@ -89,6 +90,7 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModal do
 
   def refresh(modal, _payload), do: modal
 
+  @spec format_error(term()) :: String.t()
   def format_error(:no_running_agent), do: "Agent is no longer running."
   def format_error(:empty_message), do: "Message is empty."
   def format_error(:message_too_long), do: "Message is too long."

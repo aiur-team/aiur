@@ -13,6 +13,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
   attr(:writable, :boolean, required: true)
   attr(:provider_health, :any, default: :ok)
 
+  @spec decision_inbox(map()) :: Phoenix.LiveView.Rendered.t()
   def decision_inbox(assigns) do
     decisions = filtered(assigns.decisions, assigns.filter)
 

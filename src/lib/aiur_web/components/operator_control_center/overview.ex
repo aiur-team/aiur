@@ -7,6 +7,7 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
   attr(:tracker_kind, :string, required: true)
   attr(:agent_kind, :string, required: true)
 
+  @spec topbar(map()) :: Phoenix.LiveView.Rendered.t()
   def topbar(assigns) do
     ~H"""
     <header class="topbar">
@@ -30,6 +31,7 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
 
   attr(:writable, :boolean, required: true)
 
+  @spec readonly_banner(map()) :: Phoenix.LiveView.Rendered.t()
   def readonly_banner(assigns) do
     ~H"""
     <div :if={!@writable} class="readonly-banner" role="status">
@@ -41,10 +43,11 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
 
   attr(:decisions, :list, required: true)
 
+  @spec decisions_banner(map()) :: Phoenix.LiveView.Rendered.t()
   def decisions_banner(assigns) do
     blocking = Enum.count(assigns.decisions, &(&1.blocking and &1.lifecycle == :recorded))
     open = Enum.count(assigns.decisions, &(&1.lifecycle == :recorded))
-    first = List.first(assigns.decisions)
+    first = Enum.find(assigns.decisions, &(&1.lifecycle == :recorded))
 
     assigns = assign(assigns, blocking: blocking, open: open, first: first)
 
@@ -66,6 +69,7 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
 
   attr(:overview, :map, required: true)
 
+  @spec overview(map()) :: Phoenix.LiveView.Rendered.t()
   def overview(assigns) do
     ~H"""
     <section class="overview-strip" aria-label="Run overview">
@@ -89,6 +93,7 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
   attr(:decision_count, :integer, required: true)
   attr(:fleet_count, :integer, required: true)
 
+  @spec tabs(map()) :: Phoenix.LiveView.Rendered.t()
   def tabs(assigns) do
     ~H"""
     <nav class="control-tabs" aria-label="Control Center surfaces">
@@ -104,6 +109,7 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
 
   attr(:error, :map, required: true)
 
+  @spec error(map()) :: Phoenix.LiveView.Rendered.t()
   def error(assigns) do
     ~H"""
     <section :if={@error} class="error-card" role="alert">

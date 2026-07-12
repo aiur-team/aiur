@@ -6,11 +6,15 @@ defmodule AiurWeb.OperatorControlCenter.History do
   attr(:entries, :list, required: true)
   attr(:provider_health, :any, default: :ok)
 
+  @spec history(map()) :: Phoenix.LiveView.Rendered.t()
   def history(assigns) do
     ~H"""
     <section class="recent-section" aria-labelledby="decision-history-title">
       <p class="recent-subtitle" id="decision-history-title">Decision history</p>
-      <div :if={@provider_health != :ok} class="empty-state compact">History provider is currently unavailable.</div>
+      <div :if={@provider_health == :unavailable} class="empty-state compact">History provider is currently unavailable.</div>
+      <div :if={@provider_health == :degraded} class="empty-state compact">
+        Decision history is degraded; showing the last validated prefix.
+      </div>
       <div :if={@provider_health == :ok and @entries == []} class="empty-state compact">No decision actions have been recorded.</div>
       <div class="history-list">
         <article :for={entry <- @entries} class="history-item">

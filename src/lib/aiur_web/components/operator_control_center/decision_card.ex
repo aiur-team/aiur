@@ -12,6 +12,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
   attr(:history, :list, default: [])
   attr(:writable, :boolean, required: true)
 
+  @spec decision_card(map()) :: Phoenix.LiveView.Rendered.t()
   def decision_card(assigns) do
     assigns =
       assigns

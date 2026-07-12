@@ -9,6 +9,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
   attr(:history, :list, default: [])
   attr(:writable, :boolean, required: true)
 
+  @spec decision_detail(map()) :: Phoenix.LiveView.Rendered.t()
   def decision_detail(assigns) do
     assigns =
       assigns

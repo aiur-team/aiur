@@ -3,7 +3,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
 
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
-  alias AiurWeb.OperatorControlCenter.{DecisionDetail, History, LifecycleComponents}
+  alias AiurWeb.OperatorControlCenter.{DecisionDetail, FleetTable, History, LifecycleComponents, Overview}
 
   test "renders delivery failure and supersession as explicit lifecycle overrides" do
     failed = render_component(&LifecycleComponents.lifecycle_stepper/1, %{lifecycle: :delivery_failed})
@@ -74,5 +74,51 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ "Follow-up required"
     assert html =~ "dispatch: Failed"
     refute html =~ "supervising agent"
+  end
+
+  test "gives fleet icon actions accessible names" do
+    fleet = %{
+      running: [
+        %{
+          issue_identifier: "AIUR-987",
+          title: "Operator Control Center",
+          state: "in-progress",
+          work_state: :working,
+          waiting_reason: :active,
+          last_message: "Reviewing the dashboard",
+          runtime_seconds: 60,
+          open_decision_count: 1,
+          url: "https://example.test/issues/987"
+        }
+      ],
+      retrying: [],
+      idle: []
+    }
+
+    decisions = [%{decision_id: "dec-accessible", ticket: %{identifier: "AIUR-987"}}]
+    html = render_component(&FleetTable.fleet_table/1, %{fleet: fleet, decisions: decisions, now: ~U[2026-07-12 13:00:00Z]})
+
+    assert html =~ ~s(aria-label="Open pending decision")
+    assert html =~ ~s(aria-label="Read agent conversation")
+    assert html =~ ~s(aria-label="Open tracker ticket")
+  end
+
+  test "decision banner targets an open decision and hides when none await input" do
+    answered = %{decision_id: "dec-answered", blocking: true, lifecycle: :resolved}
+    open = %{decision_id: "dec-open", blocking: false, lifecycle: :recorded}
+
+    html = render_component(&Overview.decisions_banner/1, %{decisions: [answered, open]})
+    empty_html = render_component(&Overview.decisions_banner/1, %{decisions: [answered]})
+
+    assert html =~ ~s(href="/decisions/dec-open")
+    refute html =~ ~s(href="/decisions/dec-answered")
+    refute empty_html =~ "decisions-banner"
+  end
+
+  test "distinguishes degraded decision history from an unavailable provider" do
+    html = render_component(&History.history/1, %{entries: [], provider_health: :degraded})
+
+    assert html =~ "Decision history is degraded"
+    refute html =~ "currently unavailable"
   end
 end
