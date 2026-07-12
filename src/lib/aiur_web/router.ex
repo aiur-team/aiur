@@ -172,7 +172,7 @@ defmodule AiurWeb.Router do
   # tests) and fails closed: a missing/false value keeps the dashboard
   # observe-only.
   defp require_dashboard_writable(conn, _opts) do
-    if dashboard_writable?() do
+    if dashboard_writable?(conn) do
       conn
     else
       conn
@@ -182,8 +182,8 @@ defmodule AiurWeb.Router do
     end
   end
 
-  defp dashboard_writable? do
-    AiurWeb.Endpoint.config(:dashboard_writable) == true
+  defp dashboard_writable?(conn) do
+    conn.private[:dashboard_writable] == true or AiurWeb.Endpoint.config(:dashboard_writable) == true
   rescue
     _ -> false
   end

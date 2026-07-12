@@ -425,6 +425,8 @@ defmodule Aiur.DecisionProjectionTest do
                {original.action_id, :queued},
                {correction.action_id, :delivered}
              ]
+    end
+
     test "checked reduction rejects a lifecycle event with the wrong action" do
       request =
         build_decision(%{
