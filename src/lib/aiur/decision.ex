@@ -4,7 +4,8 @@ defmodule Aiur.Decision do
   normalizes an untrusted `decision.requested` payload into this struct;
   `Aiur.DecisionStore` is the only writer of accepted values.
 
-  Schema version 1 fields:
+  Request fields are inherited from schema version 1. Schema version 2
+  adds lifecycle projection fields without changing request normalization:
 
     * `decision_id` — canonical identity, scoped by trusted ticket context
       (see `Aiur.DecisionValidation`). Stable across versions/replays.
@@ -32,6 +33,11 @@ defmodule Aiur.Decision do
       never controls audit order or notification age.
     * `content_hash` — hash of the normalized payload (excludes
       `decision_id`/`version`/`created_at`), used for dedup/idempotency.
+    * `decision_status` — `:open | :decided | :acknowledged | :resolved`.
+    * `delivery_status` — transport evidence, independent of decision state.
+    * `answer` — the immutable accepted `Aiur.DecisionAnswer`, or `nil`.
+    * `dispatch_attempts` — ordered correlated queue attempts.
+    * `acknowledgement` / `resolution` — explicit agent lifecycle facts.
   """
 
   @type authority :: :human_required | :supervisor_allowed | :supervisor_preferred
@@ -48,6 +54,22 @@ defmodule Aiur.Decision do
         }
 
   @type artifact :: %{kind: :path | :url, value: String.t()}
+  @type decision_status :: :open | :decided | :acknowledged | :resolved
+  @type delivery_status :: :not_dispatched | :pending | :queued | :delivered | :consumed | :failed
+
+  @type dispatch_attempt :: %{
+          action_id: String.t(),
+          attempt_id: String.t(),
+          queue_item_id: pos_integer() | nil,
+          run_id: String.t(),
+          status: :queued | :delivered | :restored | :consumed | :failed,
+          queued_at: DateTime.t(),
+          delivered_at: DateTime.t() | nil,
+          restored_at: DateTime.t() | nil,
+          consumed_at: DateTime.t() | nil,
+          failed_at: DateTime.t() | nil,
+          failure_reason_class: String.t() | nil
+        }
 
   @type t :: %__MODULE__{
           schema_version: pos_integer(),
@@ -73,10 +95,16 @@ defmodule Aiur.Decision do
           artifacts: [artifact()],
           created_at: DateTime.t(),
           source_created_at: DateTime.t() | nil,
-          content_hash: String.t()
+          content_hash: String.t(),
+          decision_status: decision_status(),
+          delivery_status: delivery_status(),
+          answer: Aiur.DecisionAnswer.t() | nil,
+          dispatch_attempts: [dispatch_attempt()],
+          acknowledgement: map() | nil,
+          resolution: map() | nil
         }
 
-  @schema_version 1
+  @schema_version 2
 
   @enforce_keys [
     :decision_id,
@@ -101,7 +129,13 @@ defmodule Aiur.Decision do
                 kind: nil,
                 recommendation: nil,
                 consequence_of_delay: nil,
-                source_created_at: nil
+                source_created_at: nil,
+                decision_status: :open,
+                delivery_status: :not_dispatched,
+                answer: nil,
+                dispatch_attempts: [],
+                acknowledgement: nil,
+                resolution: nil
               ]
 
   @authorities [:human_required, :supervisor_allowed, :supervisor_preferred]

@@ -32,7 +32,7 @@ defmodule Aiur.DecisionStore do
 
   require Logger
 
-  alias Aiur.{Alerts, Config, Decision, DecisionLog, DecisionProjection, DecisionPubSub, DecisionValidation, JsonStore}
+  alias Aiur.{Alerts, Boot, Config, Decision, DecisionEvent, DecisionLog, DecisionProjection, DecisionPubSub, DecisionValidation, JsonStore}
   alias Aiur.Events.{IdGenerator, Publisher}
 
   @ndjson_filename "decisions.ndjson"
@@ -73,6 +73,13 @@ defmodule Aiur.DecisionStore do
     GenServer.call(server, {:history, decision_id})
   end
 
+  @doc "Complete ordered audit history, including request and lifecycle events."
+  @spec audit_history(String.t(), GenServer.server()) ::
+          {:ok, [Decision.t() | DecisionEvent.t()]} | {:error, :not_found}
+  def audit_history(decision_id, server \\ __MODULE__) when is_binary(decision_id) do
+    GenServer.call(server, {:audit_history, decision_id})
+  end
+
   @doc "`:writable`, or a reason tuple describing why the store is currently read-only/unavailable."
   @spec health(GenServer.server()) :: :writable | tuple()
   def health(server \\ __MODULE__) do
@@ -100,18 +107,20 @@ defmodule Aiur.DecisionStore do
   defp replay_and_project(ndjson_path, projection_path) do
     case DecisionLog.replay(ndjson_path, &DecisionProjection.decode_record/1) do
       {:ok, records, corruption} ->
-        %{current: current, history: history} = DecisionProjection.reduce(records)
+        {%{current: current, history: history, audit_history: audit_history}, transition_corruption} =
+          DecisionProjection.reduce_checked(records)
 
         %{
           ndjson_path: ndjson_path,
           projection_path: projection_path,
           current: current,
           history: history,
+          audit_history: audit_history,
           writable?: true,
           health: :writable
         }
         |> repair_projection()
-        |> apply_corruption(corruption)
+        |> apply_corruption(corruption || transition_corruption)
 
       {:error, reason} ->
         unavailable_state(ndjson_path, {:replay_failed, reason})
@@ -141,6 +150,7 @@ defmodule Aiur.DecisionStore do
       projection_path: nil,
       current: %{},
       history: %{},
+      audit_history: %{},
       writable?: false,
       health: {:unavailable, reason}
     }
@@ -200,6 +210,13 @@ defmodule Aiur.DecisionStore do
 
   def handle_call({:history, decision_id}, _from, state) do
     case Map.fetch(state.history, decision_id) do
+      {:ok, history} -> {:reply, {:ok, history}, state}
+      :error -> {:reply, {:error, :not_found}, state}
+    end
+  end
+
+  def handle_call({:audit_history, decision_id}, _from, state) do
+    case Map.fetch(state.audit_history, decision_id) do
       {:ok, history} -> {:reply, {:ok, history}, state}
       :error -> {:reply, {:error, :not_found}, state}
     end
@@ -271,24 +288,39 @@ defmodule Aiur.DecisionStore do
   end
 
   defp persist_and_notify(decision, event_id, state) do
-    record = decision |> DecisionProjection.to_json_safe() |> Map.put("event_id", event_id)
+    with {:ok, event} <-
+           DecisionEvent.new(:requested, decision.decision_id, decision.version, decision,
+             event_id: event_id,
+             run_id: Boot.run_id(),
+             now: decision.created_at
+           ),
+         :ok <- DecisionLog.append(state.ndjson_path, DecisionEvent.to_json_safe(event)) do
+      current = project_request(state, event)
 
-    case DecisionLog.append(state.ndjson_path, record) do
-      :ok ->
-        new_state =
-          %{
-            state
-            | current: Map.put(state.current, decision.decision_id, decision),
-              history: Map.update(state.history, decision.decision_id, [decision], &(&1 ++ [decision]))
-          }
-          |> repair_projection()
+      new_state =
+        %{
+          state
+          | current: Map.put(state.current, decision.decision_id, current),
+            history: Map.update(state.history, decision.decision_id, [decision], &(&1 ++ [decision])),
+            audit_history: Map.update(state.audit_history, decision.decision_id, [event], &(&1 ++ [event]))
+        }
+        |> repair_projection()
 
-        notify(decision, event_id)
-        {:reply, {:ok, %{status: :accepted, decision: decision}}, new_state}
-
-      {:error, reason} ->
-        {:reply, {:error, {:append_failed, reason}}, state}
+      notify(current, event_id)
+      {:reply, {:ok, %{status: :accepted, decision: current}}, new_state}
+    else
+      {:error, reason} -> {:reply, {:error, {:append_failed, reason}}, state}
     end
+  end
+
+  defp project_request(state, event) do
+    records =
+      case Map.get(state.current, event.decision_id) do
+        nil -> [event]
+        existing -> [existing, event]
+      end
+
+    DecisionProjection.reduce(records).current[event.decision_id]
   end
 
   defp notify(decision, event_id) do

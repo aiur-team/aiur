@@ -3,7 +3,7 @@ defmodule Aiur.DecisionStoreTest do
 
   import ExUnit.CaptureLog
 
-  alias Aiur.{DecisionPubSub, DecisionStore}
+  alias Aiur.{Boot, DecisionEvent, DecisionLog, DecisionPubSub, DecisionStore}
   alias Aiur.Events.Exchange
 
   @ticket %{identifier: "979", title: "OCC-1", url: "https://github.com/its-everdred/aiur/issues/979"}
@@ -51,6 +51,25 @@ defmodule Aiur.DecisionStoreTest do
       assert {:ok, ^decision} = DecisionStore.get(decision.decision_id, pid)
       assert DecisionStore.list(pid) == [decision]
       assert {:ok, [^decision]} = DecisionStore.history(decision.decision_id, pid)
+      assert {:ok, [%DecisionEvent{type: :requested, data: ^decision}]} =
+               DecisionStore.audit_history(decision.decision_id, pid)
+    end
+
+    test "new request audit records carry the typed envelope and canonical run id", %{dir: dir} do
+      pid = start_store!(dir)
+      assert {:ok, %{decision: decision}} = request(pid, %{"question" => "Deploy now?", "blocking" => true})
+
+      [record] =
+        dir
+        |> Path.join("decisions.ndjson")
+        |> File.read!()
+        |> String.split("\n", trim: true)
+        |> Enum.map(&Jason.decode!/1)
+
+      assert record["event_type"] == "requested"
+      assert record["run_id"] == Boot.run_id()
+      assert is_integer(record["event_id"])
+      assert record["data"]["decision_id"] == decision.decision_id
     end
 
     test "the audit log and the projection file are both owner-only after an accept", %{dir: dir} do
@@ -234,6 +253,43 @@ defmodule Aiur.DecisionStoreTest do
       assert {:corrupt, 2, _reason} = DecisionStore.health(pid2)
       assert {:ok, ^accepted} = DecisionStore.get(accepted.decision_id, pid2)
       assert {:error, {:store_unavailable, {:corrupt, 2, _reason}}} = request(pid2, payload)
+    end
+
+    test "a valid envelope with an illegal lifecycle transition makes replay read-only", %{dir: dir} do
+      pid1 = start_store!(dir)
+      assert {:ok, %{decision: decision}} = request(pid1, %{"question" => "Deploy now?", "blocking" => true})
+      GenServer.stop(pid1)
+
+      {:ok, invalid} =
+        DecisionEvent.new(
+          :delivered,
+          decision.decision_id,
+          decision.version,
+          %{action_id: "act_missing", attempt_id: "attempt-1", queue_item_id: 7},
+          event_id: "evt-illegal-transition",
+          run_id: "run-replay-test"
+        )
+
+      :ok = DecisionLog.append(Path.join(dir, "decisions.ndjson"), DecisionEvent.to_json_safe(invalid))
+
+      pid2 = start_store!(dir)
+      assert {:corrupt, 2, {:invalid_transition, :answer_missing}} = DecisionStore.health(pid2)
+      assert {:ok, replayed} = DecisionStore.get(decision.decision_id, pid2)
+      assert replayed.decision_status == :open
+    end
+
+    test "an incomplete final lifecycle envelope is truncated and leaves the durable prefix writable", %{dir: dir} do
+      pid1 = start_store!(dir)
+      assert {:ok, %{decision: decision}} = request(pid1, %{"question" => "Deploy now?", "blocking" => true})
+      GenServer.stop(pid1)
+
+      path = Path.join(dir, "decisions.ndjson")
+      File.write!(path, ~s({"event_type":"answer_recorded","decision_id":"#{decision.decision_id}"), [:append])
+
+      pid2 = start_store!(dir)
+      assert DecisionStore.health(pid2) == :writable
+      assert {:ok, ^decision} = DecisionStore.get(decision.decision_id, pid2)
+      assert length(String.split(File.read!(path), "\n", trim: true)) == 1
     end
   end
 
