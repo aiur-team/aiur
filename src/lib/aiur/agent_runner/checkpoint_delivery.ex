@@ -20,12 +20,12 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
   # as a separate follow-up turn. A send failure restores it to pending so
   # the normal turn-boundary drain re-attempts.
   @doc false
-  @spec operator_immediate_handler(Issue.t(), GenServer.server()) :: fun()
-  def operator_immediate_handler(issue, orchestrator) do
+  @spec operator_immediate_handler(Issue.t(), GenServer.server(), GenServer.server()) :: fun()
+  def operator_immediate_handler(issue, orchestrator, decision_store \\ Aiur.DecisionStore) do
     fn ->
       case QueueDrain.claim_next_operator_item(orchestrator, issue.identifier) do
         {:ok, item} ->
-          immediate_operator_delivery(issue, orchestrator, item)
+          immediate_operator_delivery(issue, orchestrator, item, decision_store)
 
         :empty ->
           :noop
@@ -33,44 +33,53 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
     end
   end
 
-  defp immediate_operator_delivery(issue, orchestrator, item) do
-    QueueDrain.record_operator_delivery(item, issue)
+  defp immediate_operator_delivery(issue, orchestrator, item, decision_store) do
+    case QueueDrain.record_operator_delivery(item, issue, decision_store) do
+      :ok ->
+        {:deliver_text, QueueDrain.queue_item_text(item), fn _payload -> :ok end, fn _reason -> Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item.id) end}
 
-    {:deliver_text, QueueDrain.queue_item_text(item), fn _payload -> :ok end, fn _reason -> Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item.id) end}
+      {:error, _reason} ->
+        Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item.id)
+        :noop
+    end
   end
 
   @doc false
-  @spec safe_checkpoint_handler(Issue.t(), GenServer.server()) :: fun()
-  def safe_checkpoint_handler(issue, orchestrator) do
+  @spec safe_checkpoint_handler(Issue.t(), GenServer.server(), GenServer.server()) :: fun()
+  def safe_checkpoint_handler(issue, orchestrator, decision_store \\ Aiur.DecisionStore) do
     fn checkpoint ->
       case claim_blocker_critical_events_digest(orchestrator, issue.identifier) do
         {:ok, item} ->
-          urgent_checkpoint_delivery(issue, orchestrator, item, checkpoint)
+          urgent_checkpoint_delivery(issue, orchestrator, item, checkpoint, decision_store)
 
         :empty ->
-          fallback_checkpoint_claim(issue, orchestrator, checkpoint)
+          fallback_checkpoint_claim(issue, orchestrator, checkpoint, decision_store)
       end
     end
   end
 
-  defp fallback_checkpoint_claim(issue, orchestrator, checkpoint) do
+  defp fallback_checkpoint_claim(issue, orchestrator, checkpoint, decision_store) do
     case claim_next_checkpoint_queue_item(orchestrator, issue.identifier) do
       {:ok, item} ->
-        safe_checkpoint_delivery(issue, orchestrator, item, checkpoint)
+        safe_checkpoint_delivery(issue, orchestrator, item, checkpoint, decision_store)
 
       :empty ->
         :noop
     end
   end
 
-  defp urgent_checkpoint_delivery(issue, orchestrator, item, checkpoint) do
+  defp urgent_checkpoint_delivery(issue, orchestrator, item, checkpoint, decision_store) do
     Logger.info("Urgent blocker-critical events delivered mid-turn for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{item.id} checkpoint=#{inspect(checkpoint)}")
 
-    QueueDrain.record_operator_delivery(item, issue)
+    case QueueDrain.record_operator_delivery(item, issue, decision_store) do
+      :ok ->
+        text = render_urgent_events_digest(item)
+        {:deliver_text, text, fn _payload -> :ok end, fn reason -> handle_checkpoint_delivery_failure(issue, orchestrator, item.id, reason) end}
 
-    text = render_urgent_events_digest(item)
-
-    {:deliver_text, text, fn _payload -> :ok end, fn reason -> handle_checkpoint_delivery_failure(issue, orchestrator, item.id, reason) end}
+      {:error, _reason} ->
+        Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item.id)
+        :noop
+    end
   end
 
   # Reuse the renderer infrastructure but with the urgent="true" attribute.
@@ -97,15 +106,20 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
     end
   end
 
-  defp safe_checkpoint_delivery(issue, orchestrator, item, checkpoint) do
+  defp safe_checkpoint_delivery(issue, orchestrator, item, checkpoint, decision_store) do
     Logger.info("Queueing operator message into active turn for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{item.id} checkpoint=#{inspect(checkpoint)}")
 
-    QueueDrain.record_operator_delivery(item, issue)
+    case QueueDrain.record_operator_delivery(item, issue, decision_store) do
+      :ok ->
+        {:deliver_text, QueueDrain.queue_item_text(item), fn _payload -> :ok end,
+         fn reason ->
+           handle_checkpoint_delivery_failure(issue, orchestrator, item.id, reason)
+         end}
 
-    {:deliver_text, QueueDrain.queue_item_text(item), fn _payload -> :ok end,
-     fn reason ->
-       handle_checkpoint_delivery_failure(issue, orchestrator, item.id, reason)
-     end}
+      {:error, _reason} ->
+        Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item.id)
+        :noop
+    end
   end
 
   defp handle_checkpoint_delivery_failure(issue, orchestrator, item_id, :parent_turn_completed) do

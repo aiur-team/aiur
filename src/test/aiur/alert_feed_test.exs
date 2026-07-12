@@ -103,4 +103,19 @@ defmodule Aiur.AlertFeedTest do
     assert [%{source_created_at: nil}] =
              AlertFeed.list_decision_attentions(roots: [root], log_roots: [])
   end
+
+  test "collapses repeated open attentions for one ticket and slug to the latest projection", %{root: root} do
+    log_root = Path.join(root, "logs")
+    File.mkdir_p!(log_root)
+
+    File.write!(Path.join(log_root, "alerts.ndjson"), """
+    {"event":"alert","timestamp":"2026-06-25T01:00:00Z","topic":"ticket.42.agent.attention.decision-delivery-act-1","message":"first failure","needs_attention":true,"source_ticket_id":"42"}
+    {"event":"alert","timestamp":"2026-06-25T01:01:00Z","topic":"ticket.42.agent.attention.decision-delivery-act-1","message":"restart projection","needs_attention":true,"source_ticket_id":"42"}
+    {"event":"alert","timestamp":"2026-06-25T01:02:00Z","topic":"ticket.42.agent.attention.other","message":"other attention","needs_attention":true,"source_ticket_id":"42"}
+    """)
+
+    alerts = AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true)
+
+    assert Enum.map(alerts, & &1["message"]) == ["restart projection", "other attention"]
+  end
 end

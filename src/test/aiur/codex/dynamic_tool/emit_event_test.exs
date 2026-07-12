@@ -52,6 +52,22 @@ defmodule Aiur.Codex.DynamicTool.EmitEventTest do
       assert response["success"] == true
     end
 
+    test "accepts the exact durable decision lifecycle names with correlation payloads" do
+      payload = %{"decision_id" => "dec_1", "action_id" => "act_1", "expected_version" => 1}
+
+      for name <- ["decision.acknowledged", "decision.resolved"] do
+        response =
+          EmitEvent.execute(
+            "emit_event",
+            %{"name" => name, "message" => "lifecycle", "payload" => payload},
+            event_publisher: publisher()
+          )
+
+        assert response["success"] == true
+        assert_received {:published, ^name, "lifecycle", ^payload}
+      end
+    end
+
     test "accepts custom.<slug>" do
       response =
         EmitEvent.execute(
