@@ -28,7 +28,7 @@ defmodule Aiur.AgentChatBroadcastTest do
     Process.register(fake, name)
 
     ExUnit.Callbacks.on_exit(fn ->
-      if Process.alive?(fake), do: Process.unregister(name)
+      if Process.whereis(name) == fake, do: Process.unregister(name)
 
       if is_pid(original) and Process.alive?(original) and is_nil(Process.whereis(name)) do
         Process.register(original, name)
@@ -52,5 +52,11 @@ defmodule Aiur.AgentChatBroadcastTest do
 
     assert {:error, :no_running_agent} = AgentChat.send("MT-CHATBC-ERR", "hi")
     refute_receive {:transcript_event, _}, 100
+  end
+
+  test "teardown tolerates the orchestrator registration disappearing" do
+    _fake = with_fake_orchestrator({:ok, 42})
+
+    Process.unregister(Aiur.Orchestrator)
   end
 end
