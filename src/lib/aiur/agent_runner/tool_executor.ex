@@ -9,7 +9,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   require Logger
 
   alias Aiur.AgentRunner.SessionLifecycle
-  alias Aiur.{Alerts, DecisionAttention, DecisionStore, Issue}
+  alias Aiur.{Alerts, CoordinationTasks, DecisionAttention, DecisionStore, Issue}
   alias Aiur.Codex.DynamicTool
   alias Aiur.Events.{Publisher, SubscriptionStore}
   alias Aiur.GitHub.IssueDependencies
@@ -38,6 +38,10 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
   @spec build(Issue.t(), Path.t() | nil, String.t() | nil, map(), keyword()) :: (String.t(), map() -> map())
   def build(issue, workspace, worker_host, app_session \\ %{}, opts \\ []) do
+    coordination_enqueuer = Keyword.get(opts, :coordination_enqueuer, &CoordinationTasks.enqueue/1)
+    dependency_declarer = Keyword.get(opts, :dependency_declarer, &IssueDependencies.declare/2)
+    blocker_subscriber = Keyword.get(opts, :blocker_subscriber, &Orchestrator.subscribe_for_declared_blocker/2)
+
     event_handlers = %{
       decision_requester: Keyword.get(opts, :decision_requester, &DecisionStore.request/2),
       attention_enricher: Keyword.get(opts, :attention_enricher, &DecisionStore.enrich_attention/2),
@@ -68,12 +72,12 @@ defmodule Aiur.AgentRunner.ToolExecutor do
           )
         end,
         event_publisher: fn name, message, payload ->
-          emit_agent_event(issue, workspace, worker_host, app_session, event_handlers, name, message, payload)
+          emit_agent_event(issue, workspace, worker_host, app_session, event_handlers, coordination_enqueuer, name, message, payload)
         end,
         subscriber: fn pattern -> subscribe_for_issue(issue, pattern) end,
         unsubscriber: fn pattern -> unsubscribe_for_issue(issue, pattern) end,
         blocker_declarer: fn blocker_number ->
-          declare_blocker_for_issue(issue, blocker_number)
+          declare_blocker_for_issue(issue, blocker_number, coordination_enqueuer, dependency_declarer, blocker_subscriber)
         end,
         unblocker: fn blocker_number ->
           unblock_for_issue(issue, blocker_number)
@@ -100,30 +104,24 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
   defp prefix_with_ticket_namespace(name, _issue), do: name
 
-  defp declare_blocker_for_issue(issue, blocker_number) do
+  defp declare_blocker_for_issue(issue, blocker_number, coordination_enqueuer, dependency_declarer, blocker_subscriber) do
     case issue_number_of(issue) do
       nil ->
         {:error, :no_issue_number}
 
       current ->
-        result = IssueDependencies.declare(current, blocker_number)
+        :pending =
+          coordination_enqueuer.(fn ->
+            case dependency_declarer.(current, blocker_number) do
+              {:ok, _} ->
+                blocker_subscriber.(current, blocker_number)
 
-        # Add the SubscriptionStore subscription IMMEDIATELY on a
-        # successful (or `:already_present`) declare, instead of
-        # waiting for the orchestrator's poll-driven
-        # `auto_subscribe_for_dependency`. GitHub state can lag, drop,
-        # or already-present the dependency due to PR open/close
-        # cycles; without the direct subscribe, the blockee's
-        # SubscriptionStore never gets `ticket.<blocker>.branch.push`
-        # and the blockee never auto-resumes. Idempotent.
-        case result do
-          {:ok, _} ->
-            Orchestrator.subscribe_for_declared_blocker(current, blocker_number)
-            result
+              {:error, reason} ->
+                Logger.error("blocker declaration failed issue=#{current} blocker=#{blocker_number} reason=#{inspect(reason)}")
+            end
+          end)
 
-          other ->
-            other
-        end
+        {:ok, :pending}
     end
   end
 
@@ -172,11 +170,11 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   # service — everything else keeps the existing generic publish path
   # below unchanged. `Publisher.publish/3` itself also rejects this topic
   # family, so this is the sole production ingress, not just a preference.
-  defp emit_agent_event(issue, _workspace, _worker_host, app_session, handlers, "decision.requested", message, payload) do
+  defp emit_agent_event(issue, _workspace, _worker_host, app_session, handlers, _coordination_enqueuer, "decision.requested", message, payload) do
     request_decision(issue, app_session, handlers, message, payload)
   end
 
-  defp emit_agent_event(issue, workspace, worker_host, app_session, handlers, name, message, payload) do
+  defp emit_agent_event(issue, workspace, worker_host, app_session, handlers, coordination_enqueuer, name, message, payload) do
     identifier = issue_identifier(issue)
 
     topic =
@@ -191,38 +189,37 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       |> Map.put("name", name)
       |> Map.put("issue", identifier)
 
-    decision_projection =
-      prepare_decision_attention(
-        issue,
-        workspace,
-        worker_host,
-        app_session,
-        handlers.attention_opener,
-        name,
-        message,
-        payload
-      )
+    source = trusted_source(app_session)
 
-    log_decision_projection_failure(decision_projection, topic)
+    if String.ends_with?(topic, ".decision.requested") do
+      {:error, :decision_requires_durable_publish}
+    else
+      :pending =
+        coordination_enqueuer.(fn ->
+          decision_projection =
+            prepare_decision_attention(
+              issue,
+              workspace,
+              worker_host,
+              source,
+              handlers.attention_opener,
+              name,
+              message,
+              payload
+            )
 
-    case Publisher.publish(topic, event_payload) do
-      {:ok, id, _subscribers} ->
-        sync_decision_resolution(issue, name, payload, handlers.attention_resolver)
+          log_decision_projection_failure(decision_projection, topic)
 
-        result =
-          %{"id" => id, "topic" => topic}
-          |> add_decision_projection_result(decision_projection)
+          case Publisher.publish(topic, event_payload) do
+            {:ok, _id, _subscribers} ->
+              sync_decision_resolution(issue, name, payload, handlers.attention_resolver)
 
-        {:ok, result}
+            result ->
+              Logger.error("coordination event publish failed topic=#{topic} reason=#{inspect(result)}")
+          end
+        end)
 
-      :filtered ->
-        {:error, :event_filtered}
-
-      :deduped ->
-        {:error, :event_deduped}
-
-      {:error, reason} ->
-        {:error, reason}
+      {:ok, %{"status" => "pending", "topic" => topic}}
     end
   end
 
@@ -339,7 +336,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
          _issue,
          _workspace,
          _worker_host,
-         _app_session,
+         _source,
          _opener,
          "attention.resolved",
          _message,
@@ -352,16 +349,16 @@ defmodule Aiur.AgentRunner.ToolExecutor do
          issue,
          workspace,
          worker_host,
-         app_session,
+         source,
          opener,
          "attention." <> slug,
          message,
          _payload
        ) do
-    open_decision_attention(opener, issue, workspace, worker_host, slug, message, trusted_source(app_session))
+    open_decision_attention(opener, issue, workspace, worker_host, slug, message, source)
   end
 
-  defp prepare_decision_attention(issue, workspace, worker_host, app_session, opener, name, message, payload)
+  defp prepare_decision_attention(issue, workspace, worker_host, source, opener, name, message, payload)
        when name in ["blocked", "pause.request"] do
     case operator_decision_question(message, payload) do
       nil ->
@@ -375,7 +372,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
           worker_host,
           "operator-decision",
           question,
-          trusted_source(app_session)
+          source
         )
     end
   end
@@ -384,7 +381,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
          _issue,
          _workspace,
          _worker_host,
-         _app_session,
+         _source,
          _opener,
          _name,
          _message,
@@ -445,22 +442,6 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   end
 
   defp log_decision_projection_failure({:ok, _result}, _topic), do: :ok
-
-  defp add_decision_projection_result(result, {:ok, decision_result}) do
-    add_decision_result(result, decision_result)
-  end
-
-  defp add_decision_projection_result(result, {:error, _reason}), do: result
-
-  defp add_decision_result(result, nil), do: result
-
-  defp add_decision_result(result, %{status: status, decision: decision}) do
-    Map.merge(result, %{
-      "decision_id" => decision.decision_id,
-      "version" => decision.version,
-      "status" => Atom.to_string(status)
-    })
-  end
 
   defp trusted_source(app_session) do
     %{

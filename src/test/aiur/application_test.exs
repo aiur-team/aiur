@@ -52,6 +52,7 @@ defmodule Aiur.ApplicationTest do
       Aiur.ProcessReaper,
       Aiur.PauseContainment,
       Aiur.AgentResourceGuard,
+      Aiur.CoordinationTasks,
       Aiur.GitHub.CodeOwners,
       Aiur.RecentMergeStore,
       Aiur.Opencode.SessionSupervisor,

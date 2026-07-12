@@ -107,6 +107,7 @@ defmodule Aiur.Application do
       Aiur.PauseContainment,
       Aiur.AgentResourceGuard,
       {Task.Supervisor, name: Aiur.TaskSupervisor},
+      Aiur.CoordinationTasks,
       Aiur.WorkflowStore,
       Aiur.RepoBase,
       Aiur.Events.IdGenerator,

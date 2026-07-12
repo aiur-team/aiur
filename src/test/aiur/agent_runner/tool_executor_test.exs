@@ -1,8 +1,6 @@
 defmodule Aiur.AgentRunner.ToolExecutorTest do
   use ExUnit.Case, async: true
 
-  import ExUnit.CaptureLog
-
   alias Aiur.AgentRunner.ToolExecutor
   alias Aiur.{DecisionStore, Issue}
   alias Aiur.Events.{Exchange, SubscriptionStore}
@@ -44,6 +42,52 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       assert response["success"] == false
       assert Jason.decode!(response["output"])["error"]["reason"] =~ "no_issue_number"
+    end
+
+    test "returns pending without executing the declaration on the RPC path" do
+      issue = %Issue{identifier: "1031"}
+      test_pid = self()
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{},
+          coordination_enqueuer: fn operation ->
+            send(test_pid, {:enqueued, operation})
+            :pending
+          end
+        )
+
+      response = executor.("aiur_declare_blocker", %{"issue_number" => 999})
+
+      assert response["success"] == true
+      assert Jason.decode!(response["output"])["result"] == "pending"
+      assert_receive {:enqueued, operation}
+      assert is_function(operation, 0)
+    end
+
+    test "returns within a small bound while dependency declaration is stalled" do
+      issue = %Issue{identifier: "1031"}
+      test_pid = self()
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{},
+          dependency_declarer: fn _current, _blocker ->
+            send(test_pid, {:dependency_started, self()})
+            receive do: (:release -> {:ok, :created})
+          end,
+          blocker_subscriber: fn current, blocker ->
+            send(test_pid, {:subscribed, current, blocker})
+            :ok
+          end
+        )
+
+      call = Task.async(fn -> executor.("aiur_declare_blocker", %{"issue_number" => 999}) end)
+
+      assert {:ok, response} = Task.yield(call, 100)
+      assert response["success"] == true
+      assert Jason.decode!(response["output"])["result"] == "pending"
+      assert_receive {:dependency_started, worker}, 200
+      send(worker, :release)
+      assert_receive {:subscribed, "1031", 999}, 200
     end
   end
 
@@ -87,6 +131,40 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert response["success"] == true
       result = Jason.decode!(response["output"])
       assert result["ok"] == true
+      assert result["result"]["status"] == "pending"
+    end
+
+    test "returns pending while downstream event work is stalled" do
+      identifier = "TE-slow-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      test_pid = self()
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{},
+          attention_opener: fn _issue, _workspace, _worker_host, _slug, _question, _opts ->
+            send(test_pid, {:downstream_started, self()})
+
+            receive do
+              :release -> {:error, :released_for_test}
+            end
+          end
+        )
+
+      call =
+        Task.async(fn ->
+          executor.("emit_event", %{
+            "name" => "attention.slow-store",
+            "message" => "wait"
+          })
+        end)
+
+      assert {:ok, response} = Task.yield(call, 100)
+
+      assert response["success"] == true
+      assert Jason.decode!(response["output"])["result"]["status"] == "pending"
+      assert_receive {:downstream_started, worker}, 200
+      assert Process.alive?(worker)
+      send(worker, :release)
     end
 
     test "Exchange subscribers receive the event with the namespaced topic" do
@@ -111,10 +189,10 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       executor = ToolExecutor.build(issue, nil, nil)
 
       assert executor.("emit_event", %{"name" => "attention.scope-question", "message" => "Approve the target?"})["success"] == true
-      assert SubscriptionStore.snapshot(identifier).open_attentions == ["scope-question"]
+      assert_eventually(fn -> open_attentions(identifier) == ["scope-question"] end)
 
       assert executor.("emit_event", %{"name" => "attention.resolved", "message" => "Approved", "payload" => %{"slug" => "scope-question"}})["success"] == true
-      assert SubscriptionStore.snapshot(identifier).open_attentions == []
+      assert_eventually(fn -> open_attentions(identifier) == [] end)
     end
 
     test "operator-decision pause requests raise a durable attention" do
@@ -131,7 +209,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
                }
              )["success"] == true
 
-      assert SubscriptionStore.snapshot(identifier).open_attentions == ["operator-decision"]
+      assert_eventually(fn -> open_attentions(identifier) == ["operator-decision"] end)
       assert executor.("emit_event", %{"name" => "attention.resolved", "message" => "Approved", "payload" => %{"slug" => "operator-decision"}})["success"] == true
     end
 
@@ -162,9 +240,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert_receive {:event, %{topic: "ticket." <> _}}
 
       result = Jason.decode!(response["output"])["result"]
-      assert result["decision_id"] == "dec_order"
-      assert result["version"] == 1
-      assert result["status"] == "accepted"
+      assert result["status"] == "pending"
     end
 
     test "an overlong attention still publishes its generic operator signal when projection fails" do
@@ -181,21 +257,16 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       :ok = Exchange.subscribe("ticket.#{identifier}.agent.attention.scope-question")
 
-      log =
-        capture_log(fn ->
-          response =
-            executor.("emit_event", %{
-              "name" => "attention.scope-question",
-              "message" => question
-            })
+      response =
+        executor.("emit_event", %{
+          "name" => "attention.scope-question",
+          "message" => question
+        })
 
-          assert response["success"] == true
-        end)
+      assert response["success"] == true
 
       expected_topic = "ticket.#{identifier}.agent.attention.scope-question"
       assert_receive {:event, %{topic: ^expected_topic}}, 200
-      assert log =~ "phase=decision_attention_projection_failed"
-      assert log =~ "question, :too_long"
     end
 
     test "a control-character operator-decision block still publishes when projection fails" do
@@ -256,23 +327,18 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       :ok = Exchange.subscribe("ticket.#{identifier}.agent.attention.resolved")
 
-      log =
-        capture_log(fn ->
-          response =
-            executor.("emit_event", %{
-              "name" => "attention.resolved",
-              "message" => "Resolved",
-              "payload" => %{"slug" => "scope-question"}
-            })
+      response =
+        executor.("emit_event", %{
+          "name" => "attention.resolved",
+          "message" => "Resolved",
+          "payload" => %{"slug" => "scope-question"}
+        })
 
-          assert response["success"] == true
-          assert Process.alive?(self())
-        end)
+      assert response["success"] == true
+      assert Process.alive?(self())
 
       expected_topic = "ticket.#{identifier}.agent.attention.resolved"
       assert_receive {:event, %{topic: ^expected_topic}}, 200
-      assert log =~ "phase=decision_attention_resolution_failed"
-      assert log =~ "timeout"
     end
   end
 
@@ -412,7 +478,12 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
         )
 
       legacy_result = Jason.decode!(legacy["output"])["result"]
-      assert legacy_result["version"] == 1
+      assert legacy_result["status"] == "pending"
+      assert_eventually(fn -> Enum.any?(DecisionStore.list(), &(&1.ticket.identifier == identifier)) end)
+
+      legacy_decision =
+        DecisionStore.list()
+        |> Enum.find(&(&1.ticket.identifier == identifier))
 
       structured_arguments = %{
         "name" => "decision.requested",
@@ -435,17 +506,20 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       enriched = ToolExecutor.execute(executor, "emit_event", structured_arguments, "call-enrich")
       retry = ToolExecutor.execute(executor, "emit_event", structured_arguments, "call-enrich")
 
+      assert enriched["success"] == true, enriched["output"]
+      assert retry["success"] == true, retry["output"]
+
       enriched_result = Jason.decode!(enriched["output"])["result"]
       retry_result = Jason.decode!(retry["output"])["result"]
 
-      assert enriched_result["decision_id"] == legacy_result["decision_id"]
+      assert enriched_result["decision_id"] == legacy_decision.decision_id
       assert enriched_result["version"] == 2
       assert enriched_result["status"] == "accepted"
-      assert retry_result["decision_id"] == legacy_result["decision_id"]
+      assert retry_result["decision_id"] == legacy_decision.decision_id
       assert retry_result["version"] == 2
       assert retry_result["status"] == "duplicate"
 
-      {:ok, history} = DecisionStore.history(legacy_result["decision_id"])
+      {:ok, history} = DecisionStore.history(legacy_decision.decision_id)
       assert Enum.map(history, & &1.version) == [1, 2]
       assert List.last(history).options != []
 
@@ -453,7 +527,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
                DecisionStore.list()
                |> Enum.filter(&(&1.ticket.identifier == identifier))
 
-      assert current.decision_id == legacy_result["decision_id"]
+      assert current.decision_id == legacy_decision.decision_id
       assert current.source_id == "legacy_attention:scope-question"
       assert current.legacy_attention.topic == "ticket.#{identifier}.agent.attention.scope-question"
     end
@@ -583,6 +657,26 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       response = executor.("aiur_subscribe", %{"topic_pattern" => ""})
 
       assert response["success"] == false
+    end
+  end
+
+  defp assert_eventually(predicate, attempts \\ 20)
+
+  defp assert_eventually(predicate, attempts) when attempts > 0 do
+    if predicate.() do
+      :ok
+    else
+      Process.sleep(10)
+      assert_eventually(predicate, attempts - 1)
+    end
+  end
+
+  defp assert_eventually(predicate, 0), do: assert(predicate.())
+
+  defp open_attentions(identifier) do
+    case SubscriptionStore.snapshot(identifier) do
+      :not_found -> []
+      snapshot -> snapshot.open_attentions
     end
   end
 end
