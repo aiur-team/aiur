@@ -50,6 +50,19 @@ defmodule Aiur.Events.SubscriptionStoreTest do
     end
   end
 
+  describe "stop/1" do
+    test "is a no-op when the registry is already stopped", %{identifier: id} do
+      :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Events.SubscriptionStoreRegistry)
+
+      try do
+        assert :ok = SubscriptionStore.stop(id)
+      after
+        {:ok, _pid} =
+          Supervisor.restart_child(Aiur.Supervisor, Aiur.Events.SubscriptionStoreRegistry)
+      end
+    end
+  end
+
   describe "add_subscription/3" do
     test "writes file and registers with Exchange", %{identifier: id} do
       :ok = SubscriptionStore.attach(id)

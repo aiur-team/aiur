@@ -236,16 +236,35 @@ release_dir=""
 vsn_dir=""
 release_bin=""
 
+control_release_retry() {
+  [ -n "${AIUR_CONTROL_RELEASE_RETRY_SIGNAL:-}" ] && : >"$AIUR_CONTROL_RELEASE_RETRY_SIGNAL"
+  return 75
+}
+
 resolve_release() {
   release_dir="${AIUR_RELEASE_DIR:-}"
   [ -n "$release_dir" ] || die "AIUR_RELEASE_DIR is not set; the engine must be invoked via the aiur or aiurdev wrapper"
-  [ -d "$release_dir" ] || die "AIUR_RELEASE_DIR does not exist: $release_dir"
+  if [ ! -d "$release_dir" ]; then
+    # aiurdev uses EX_TEMPFAIL to wait out an in-place dev rebuild and retry
+    # exactly once. Product launches keep the existing fatal diagnostics.
+    if [ "${AIUR_CONTROL_RELEASE_RETRYABLE:-0}" = "1" ]; then
+      control_release_retry
+      return $?
+    fi
+    die "AIUR_RELEASE_DIR does not exist: $release_dir"
+  fi
 
   local release_vsn
-  release_vsn="$(cut -d' ' -f2 "$release_dir/releases/start_erl.data")"
+  release_vsn="$(cut -d' ' -f2 "$release_dir/releases/start_erl.data" 2>/dev/null || true)"
   vsn_dir="$release_dir/releases/$release_vsn"
   release_bin="$release_dir/bin/aiur"
-  [ -x "$vsn_dir/elixir" ] || die "release elixir launcher not found at $vsn_dir/elixir"
+  if [ -z "$release_vsn" ] || [ ! -x "$release_bin" ] || [ ! -x "$vsn_dir/elixir" ]; then
+    if [ "${AIUR_CONTROL_RELEASE_RETRYABLE:-0}" = "1" ]; then
+      control_release_retry
+      return $?
+    fi
+    die "release elixir launcher not found at $vsn_dir/elixir"
+  fi
 }
 
 # --- argv round-trip (System.argv is empty under `elixir --eval`) -------------
@@ -1569,7 +1588,7 @@ run_release_rpc_with_timeout() {
 # `__AIUR_CONTROL_EXIT__:<code>` marker we translate into the process exit code.
 run_control_rpc() {
   local expression="$1"
-  resolve_release
+  resolve_release || return $?
   prepare_distribution || die "distribution setup failed; cannot contact aiur"
   resolve_control_identity_from_records
   if [ "${AIUR_CONTROL_ADOPTED_RECORD:-0}" -eq 1 ]; then
@@ -1584,6 +1603,12 @@ run_control_rpc() {
   status=$?
   output="$AIUR_CONTROL_RPC_OUTPUT"
   set -e
+
+  if [ "$status" -ne 0 ] && [ "${AIUR_CONTROL_RELEASE_RETRYABLE:-0}" = "1" ] && \
+    { [ ! -x "$release_bin" ] || [ ! -x "$vsn_dir/elixir" ] || [ ! -r "$release_dir/releases/start_erl.data" ]; }; then
+    control_release_retry
+    return $?
+  fi
 
   if [ "${AIUR_CONTROL_RPC_TIMED_OUT:-0}" -eq 1 ]; then
     [ -n "$output" ] && printf '%s\n' "$output" >&2

@@ -154,6 +154,65 @@ defmodule AiurEngineTest do
     refute out =~ "sweep"
   end
 
+  test "an incomplete dev release returns the retryable control code" do
+    rel = fake_release()
+    state = tmp_state()
+    signal = Path.join(System.tmp_dir!(), "aiur-control-retry-#{System.unique_integer([:positive])}")
+    File.rm!(Path.join([rel, "releases", "0.1.1", "elixir"]))
+
+    on_exit(fn ->
+      File.rm_rf(rel)
+      File.rm_rf(state)
+      File.rm(signal)
+    end)
+
+    {out, 0} =
+      run_sourced_engine(
+        ~s|if run_control_rpc "Aiur.AgentControlCLI.status()"; then code=0; else code=$?; fi; echo "CODE=$code"|,
+        [
+          {"AIUR_RELEASE_DIR", rel},
+          {"AIUR_BG_STATE_DIR", state},
+          {"AIUR_CONTROL_RELEASE_RETRYABLE", "1"},
+          {"AIUR_CONTROL_RELEASE_RETRY_SIGNAL", signal}
+        ]
+      )
+
+    assert out =~ "CODE=75"
+    assert File.exists?(signal)
+    refute out =~ "release elixir launcher not found"
+  end
+
+  test "an rpc launcher removed by an overwrite returns the retryable control code" do
+    rel = fake_release()
+    state = tmp_state()
+    signal = Path.join(System.tmp_dir!(), "aiur-control-retry-#{System.unique_integer([:positive])}")
+    release_bin = Path.join([rel, "bin", "aiur"])
+
+    File.write!(release_bin, "#!/usr/bin/env bash\nrm -f \"$0\" \"#{rel}/releases/0.1.1/elixir\"\nexit 42\n")
+    File.chmod!(release_bin, 0o755)
+
+    on_exit(fn ->
+      File.rm_rf(rel)
+      File.rm_rf(state)
+      File.rm(signal)
+    end)
+
+    {out, 0} =
+      run_sourced_engine(
+        ~s|if run_control_rpc "Aiur.AgentControlCLI.status()"; then code=0; else code=$?; fi; echo "CODE=$code"|,
+        [
+          {"AIUR_RELEASE_DIR", rel},
+          {"AIUR_BG_STATE_DIR", state},
+          {"AIUR_CONTROL_RELEASE_RETRYABLE", "1"},
+          {"AIUR_CONTROL_RELEASE_RETRY_SIGNAL", signal}
+        ]
+      )
+
+    assert out =~ "CODE=75"
+    assert File.exists?(signal)
+    refute out =~ "rpc to"
+  end
+
   test "run --bg uses the same background dispatch as top-level --bg" do
     script = """
     run_session() {
