@@ -1630,6 +1630,8 @@ defmodule Aiur.InitTest do
       assert joined =~ "Contents"
       assert joined =~ "Pull requests"
       assert joined =~ "write access to this repo"
+      assert joined =~ "AIUR_GITHUB_TOKEN=<token>"
+      assert joined =~ "GITHUB_TOKEN=<token> remains supported"
     end
 
     test "with a token: creates labels and shows the ready screen", %{dir: dir, target: target} do

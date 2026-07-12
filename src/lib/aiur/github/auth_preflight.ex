@@ -148,7 +148,7 @@ defmodule Aiur.GitHub.AuthPreflight do
       "GitHub auth preflight failed for #{source} while validating #{repo} #{endpoint} access: #{reason}.",
       auth_source_guidance(source),
       keyring,
-      "Recovery: refresh or unset #{source} in the shell or .env used to launch aiur, restart aiur so the daemon inherits the fixed environment, then verify `gh api rate_limit` and `gh api repos/#{repo}/issues?per_page=1` without printing token material."
+      recovery_guidance(source, repo)
     ]
     |> Enum.reject(&(&1 in [nil, ""]))
     |> Enum.join(" ")
@@ -163,6 +163,14 @@ defmodule Aiur.GitHub.AuthPreflight do
 
   defp auth_source_guidance(source),
     do: "Aiur selected #{source} from the compatibility credential chain; configure AIUR_GITHUB_TOKEN to give daemon polling a dedicated identity."
+
+  defp recovery_guidance("gh keyring", repo),
+    do:
+      "Recovery: refresh the GitHub CLI login with `gh auth login` (or configure AIUR_GITHUB_TOKEN), restart aiur, then verify `gh api rate_limit` and `gh api repos/#{repo}/issues?per_page=1` without printing token material."
+
+  defp recovery_guidance(source, repo),
+    do:
+      "Recovery: refresh or unset #{source} in the shell or .env used to launch aiur, restart aiur so the daemon inherits the fixed environment, then verify `gh api rate_limit` and `gh api repos/#{repo}/issues?per_page=1` without printing token material."
 
   defp human_auth_reason(%{reason: :invalid_or_expired_token, status: status}),
     do: "GitHub returned HTTP #{status}, which usually means the token is invalid or expired"

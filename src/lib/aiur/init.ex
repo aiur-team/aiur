@@ -221,7 +221,8 @@ defmodule Aiur.Init do
     io.puts.("           – Contents")
     io.puts.("           – Pull requests")
     io.puts.(IO.ANSI.format([:faint, "     The token's account must have write access to this repo (otherwise GitHub returns 404)."]))
-    io.puts.("  2. Put it in #{@env_file_name} as GITHUB_TOKEN=<token> (aiur's bot account).")
+    io.puts.("  2. Put the bot credential in #{@env_file_name} as AIUR_GITHUB_TOKEN=<token> for dedicated daemon polling.")
+    io.puts.("     GITHUB_TOKEN=<token> remains supported as the compatibility credential.")
     io.puts.("  3. Run `aiur init` again to continue creating repo tags.")
   end
 
