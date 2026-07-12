@@ -80,13 +80,20 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
       assert_receive {:decision_delivery, %{action_id: "act_9"}}
     end
 
-    test "returns an error and keeps attention open until correlation recovers", %{log_root: log_root} do
+    test "bounds correlation retries and keeps terminal attention open until recovery", %{log_root: log_root} do
       {:ok, store} = FakeDecisionStore.start_link(report: self(), reply: {:error, :store_unavailable})
       issue = %Issue{identifier: "QD-09", id: "gid-qd09"}
       topic = "ticket.QD-09.agent.attention.decision-delivery-correlation-act-9"
 
       assert QueueDrain.record_operator_delivery(correlated_item(), issue, store) ==
-               {:error, :store_unavailable}
+               {:error, {:retry, :store_unavailable}}
+
+      assert AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true) == []
+
+      exhausted = Map.put(correlated_item(), :delivery_attempts, 3)
+
+      assert QueueDrain.record_operator_delivery(exhausted, issue, store) ==
+               {:error, {:failed, :store_unavailable}}
 
       assert [%{"topic" => ^topic}] = AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true)
 

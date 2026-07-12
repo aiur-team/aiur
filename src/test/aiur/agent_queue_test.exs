@@ -40,12 +40,29 @@ defmodule Aiur.AgentQueueTest do
     assert item.event_type == :text
     assert item.body == %{text: "focus on auth"}
     assert item.delivery.priority == :next
+    assert item.delivery_attempts == 0
 
     {store, claimed} = AgentQueueStore.claim_next_deliverable(store, "MT-100")
 
     assert claimed.id == item.id
     assert claimed.status == :delivered
+    assert claimed.delivery_attempts == 1
     assert AgentQueueStore.list_pending(store, "MT-100") == []
+  end
+
+  test "delivery attempt count survives restoration and increments on reclaim" do
+    {store, item} =
+      AgentQueue.operator_message("MT-101", "retry correlation")
+      |> then(&AgentQueueStore.enqueue(AgentQueueStore.new(), &1))
+
+    {store, first} = AgentQueueStore.claim_next_deliverable(store, "MT-101")
+    assert first.delivery_attempts == 1
+
+    {store, restored} = AgentQueueStore.restore_pending(store, item.id)
+    assert restored.delivery_attempts == 1
+
+    {_store, second} = AgentQueueStore.claim_next_deliverable(store, "MT-101")
+    assert second.delivery_attempts == 2
   end
 
   test "immediate delivery policy flags pass-through, now priority, immediate consume point" do
@@ -216,6 +233,7 @@ defmodule Aiur.AgentQueueTest do
       assert retried.status == :pending
       assert retried.failed_at == nil
       assert retried.failure_reason == nil
+      assert retried.delivery_attempts == 0
       assert retried.correlation.attempt_id == "act_123:1"
       assert [%{id: id}] = AgentQueueStore.list_pending(retried_store, "MT-981")
       assert id == item.id
