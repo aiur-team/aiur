@@ -208,18 +208,24 @@ defmodule AiurWeb.DashboardLive do
                 <colgroup>
                   <col style="width: 12rem;" />
                   <col style="width: 8rem;" />
+                  <col style="width: 9rem;" />
                   <col style="width: 7.5rem;" />
                   <col style="width: 8.5rem;" />
                   <col />
+                  <col style="width: 9rem;" />
+                  <col style="width: 6rem;" />
                   <col style="width: 10rem;" />
                 </colgroup>
                 <thead>
                   <tr>
                     <th>Issue</th>
                     <th>State</th>
+                    <th>Waiting</th>
                     <th>Session</th>
                     <th>Runtime / turns</th>
                     <th>Agent update</th>
+                    <th>CI / Review</th>
+                    <th>Decisions</th>
                     <th>Tokens</th>
                   </tr>
                 </thead>
@@ -243,6 +249,11 @@ defmodule AiurWeb.DashboardLive do
                     <td>
                       <span class={state_badge_class(entry.state)}>
                         <%= entry.state %>
+                      </span>
+                    </td>
+                    <td>
+                      <span class={waiting_reason_badge_class(entry.waiting_reason)}>
+                        <%= format_waiting_reason(entry.waiting_reason) %>
                       </span>
                     </td>
                     <td>
@@ -274,14 +285,80 @@ defmodule AiurWeb.DashboardLive do
                           <%= if entry.last_event_at do %>
                             · <span class="mono numeric"><%= entry.last_event_at %></span>
                           <% end %>
+                          <%= if age = format_stale_age(entry.stale_for_seconds) do %>
+                            · <span class="numeric"><%= age %></span>
+                          <% end %>
                         </span>
                       </div>
+                    </td>
+                    <td class="numeric"><%= format_ci_review(entry.ci, entry.review) %></td>
+                    <td class="numeric">
+                      <%= if entry.open_decision_count > 0 do %>
+                        <span class="state-badge state-badge-warning">❗<%= entry.open_decision_count %></span>
+                      <% else %>
+                        <span class="muted">—</span>
+                      <% end %>
                     </td>
                     <td>
                       <div class="token-stack numeric">
                         <span>Total: <%= format_int(entry.tokens.total_tokens) %></span>
                         <span class="muted">In <%= format_int(entry.tokens.input_tokens) %> / Out <%= format_int(entry.tokens.output_tokens) %></span>
                       </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          <% end %>
+        </section>
+
+        <section class="section-card">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">Queued / waiting</h2>
+              <p class="section-copy">Tracker-active work with no live agent process right now.</p>
+            </div>
+          </div>
+
+          <%= if @payload.idle == [] do %>
+            <p class="empty-state">No queued or waiting issues.</p>
+          <% else %>
+            <div class="table-wrap">
+              <table class="data-table" style="min-width: 620px;">
+                <thead>
+                  <tr>
+                    <th>Issue</th>
+                    <th>State</th>
+                    <th>Waiting</th>
+                    <th>CI / Review</th>
+                    <th>Decisions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr :for={entry <- @payload.idle}>
+                    <td>
+                      <div class="issue-stack">
+                        <span class="issue-id"><%= entry.issue_identifier %></span>
+                        <a class="issue-link" href={"/api/v1/#{entry.issue_identifier}"}>JSON details</a>
+                      </div>
+                    </td>
+                    <td>
+                      <span class={state_badge_class(entry.state)}>
+                        <%= entry.state %>
+                      </span>
+                    </td>
+                    <td>
+                      <span class={waiting_reason_badge_class(entry.waiting_reason)}>
+                        <%= format_waiting_reason(entry.waiting_reason) %>
+                      </span>
+                    </td>
+                    <td class="numeric"><%= format_ci_review(entry.ci, entry.review) %></td>
+                    <td class="numeric">
+                      <%= if entry.open_decision_count > 0 do %>
+                        <span class="state-badge state-badge-warning">❗<%= entry.open_decision_count %></span>
+                      <% else %>
+                        <span class="muted">—</span>
+                      <% end %>
                     </td>
                   </tr>
                 </tbody>
@@ -302,12 +379,16 @@ defmodule AiurWeb.DashboardLive do
             <p class="empty-state">No issues are currently backing off.</p>
           <% else %>
             <div class="table-wrap">
-              <table class="data-table" style="min-width: 680px;">
+              <table class="data-table" style="min-width: 980px;">
                 <thead>
                   <tr>
                     <th>Issue</th>
+                    <th>State</th>
+                    <th>Waiting</th>
                     <th>Attempt</th>
                     <th>Due at</th>
+                    <th>CI / Review</th>
+                    <th>Decisions</th>
                     <th>Error</th>
                   </tr>
                 </thead>
@@ -319,8 +400,26 @@ defmodule AiurWeb.DashboardLive do
                         <a class="issue-link" href={"/api/v1/#{entry.issue_identifier}"}>JSON details</a>
                       </div>
                     </td>
+                    <td>
+                      <span class={state_badge_class(entry.state)}>
+                        <%= entry.state || "n/a" %>
+                      </span>
+                    </td>
+                    <td>
+                      <span class={waiting_reason_badge_class(entry.waiting_reason)}>
+                        <%= format_waiting_reason(entry.waiting_reason) %>
+                      </span>
+                    </td>
                     <td><%= entry.attempt %></td>
                     <td class="mono"><%= entry.due_at || "n/a" %></td>
+                    <td class="numeric"><%= format_ci_review(entry.ci, entry.review) %></td>
+                    <td class="numeric">
+                      <%= if entry.open_decision_count > 0 do %>
+                        <span class="state-badge state-badge-warning">❗<%= entry.open_decision_count %></span>
+                      <% else %>
+                        <span class="muted">—</span>
+                      <% end %>
+                    </td>
                     <td><%= entry.error || "n/a" %></td>
                   </tr>
                 </tbody>
@@ -474,6 +573,31 @@ defmodule AiurWeb.DashboardLive do
       true -> base
     end
   end
+
+  # Explicit waiting-reason vocabulary (OCC-5) — never "blocked". Reuses the
+  # existing badge palette rather than adding new colors.
+  defp waiting_reason_badge_class(:active), do: "state-badge state-badge-active"
+  defp waiting_reason_badge_class(:unresponsive), do: "state-badge state-badge-danger"
+  defp waiting_reason_badge_class(_reason), do: "state-badge state-badge-warning"
+
+  defp format_waiting_reason(:active), do: "active"
+  defp format_waiting_reason(reason), do: reason |> to_string() |> String.replace("_", " ")
+
+  defp format_stale_age(seconds) when is_integer(seconds) and seconds >= 0 do
+    "#{format_runtime_seconds(seconds)} ago"
+  end
+
+  defp format_stale_age(_seconds), do: nil
+
+  defp format_ci_review(nil, review), do: format_review(review)
+
+  defp format_ci_review(%{decision: decision, pr_number: pr_number}, review) do
+    pr = if pr_number, do: "PR ##{pr_number}", else: "CI"
+    "#{pr} #{decision} · #{format_review(review)}"
+  end
+
+  defp format_review(:awaiting), do: "review awaiting"
+  defp format_review(_review), do: "review not started"
 
   defp schedule_runtime_tick do
     Process.send_after(self(), :runtime_tick, @runtime_tick_ms)

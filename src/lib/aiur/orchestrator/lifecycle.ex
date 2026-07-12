@@ -62,7 +62,10 @@ defmodule Aiur.Orchestrator.Lifecycle do
       tick_timer_ref: nil,
       tick_token: nil,
       initial_dispatch_cycle: true,
-      ci_lifecycle: Map.put(CIApprovalStore.load(), :rewakes, %{}),
+      ci_lifecycle:
+        CIApprovalStore.load()
+        |> Map.put(:poll_cache, %{})
+        |> Map.put(:rewakes, %{}),
       agent_totals: @empty_agent_totals,
       agent_rate_limits: nil
     }

@@ -19,7 +19,12 @@ defmodule Aiur.Orchestrator.State do
           initial_dispatch_cycle: boolean() | nil,
           queue_store: term(),
           last_polled_issues: map(),
-          ci_lifecycle: %{approved_heads: map(), test_failure_heads: map(), rewakes: map()},
+          ci_lifecycle: %{
+            approved_heads: map(),
+            test_failure_heads: map(),
+            poll_cache: map(),
+            rewakes: map()
+          },
           todo_over_capacity_alert_active: boolean(),
           running: map(),
           completed: MapSet.t(),
@@ -53,7 +58,7 @@ defmodule Aiur.Orchestrator.State do
     :initial_dispatch_cycle,
     queue_store: AgentQueueStore.new(),
     last_polled_issues: %{},
-    ci_lifecycle: %{approved_heads: %{}, test_failure_heads: %{}, rewakes: %{}},
+    ci_lifecycle: %{approved_heads: %{}, test_failure_heads: %{}, poll_cache: %{}, rewakes: %{}},
     todo_over_capacity_alert_active: false,
     running: %{},
     completed: MapSet.new(),
