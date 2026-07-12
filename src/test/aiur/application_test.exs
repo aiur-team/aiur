@@ -52,6 +52,7 @@ defmodule Aiur.ApplicationTest do
       Aiur.ProcessReaper,
       Aiur.PauseContainment,
       Aiur.AgentResourceGuard,
+      Aiur.DecisionMetrics.Writer,
       Aiur.DecisionMetrics,
       Aiur.GitHub.CodeOwners,
       Aiur.RecentMergeStore,
@@ -132,9 +133,11 @@ defmodule Aiur.ApplicationTest do
           ] do
         mods = modules(AiurApp.child_specs(opts))
         decision_store = Enum.find_index(mods, &(&1 == Aiur.DecisionStore))
+        metrics_writer = Enum.find_index(mods, &(&1 == Aiur.DecisionMetrics.Writer))
         decision_metrics = Enum.find_index(mods, &(&1 == Aiur.DecisionMetrics))
 
-        assert decision_store < decision_metrics, "DecisionStore must precede metrics for #{inspect(opts)}"
+        assert decision_store < metrics_writer, "DecisionStore must precede metrics for #{inspect(opts)}"
+        assert metrics_writer < decision_metrics, "metrics writer must precede collector for #{inspect(opts)}"
       end
     end
 

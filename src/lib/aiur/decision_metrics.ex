@@ -1,32 +1,26 @@
 defmodule Aiur.DecisionMetrics do
   @moduledoc """
-  Append-only Decision lifecycle latency metrics.
+  Bounded Decision lifecycle latency metrics.
 
-  This worker observes existing `Aiur.Events.Exchange` notifications only
-  after `DecisionStore` has persisted them. It appends redacted snapshots to
-  the stable Decision-state `metrics/decision_latency.ndjson`; the Decision
-  audit stays canonical.
-
-  Startup replays that projection and seeds missing lifecycle facts from
-  `DecisionStore`, covering the canonical service's best-effort notification gap.
-
-  Missing milestones remain `nil` rather than being inferred. The snapshots
-  retain request→decision, decision→dispatch, dispatch→delivery,
-  delivery→acknowledgement, observed blocked time, reminder count, actor class,
-  and whether a revision was observed. For a blocking Decision, blocked time
-  ends at acknowledgement (or resolution when no acknowledgement exists) and
-  otherwise advances only when another lifecycle fact is observed.
+  This worker observes `Aiur.Events.Exchange` notifications only after the
+  canonical `DecisionStore` append. It keeps a bounded in-memory projection and
+  hands redacted snapshots to an asynchronous, compacting writer under stable
+  Decision state. Missing or out-of-order milestones remain unknown.
   """
 
   use GenServer
 
-  alias Aiur.DecisionMetrics.{Canonical, Event, Log, Sample}
+  require Logger
+
+  alias Aiur.DecisionMetrics.{Canonical, Event, Log, Sample, Writer}
   alias Aiur.DecisionStore
   alias Aiur.Events.Exchange
   alias Aiur.Metrics
 
   @patterns ["ticket.*.agent.decision.#", "ticket.*.agent.attention.#"]
   @metrics_filename "decision_latency.ndjson"
+  @sample_limit 1_000
+  @seen_limit 5_000
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -36,38 +30,53 @@ defmodule Aiur.DecisionMetrics do
     end
   end
 
-  @doc "Synchronously observes one already-persisted Exchange event."
+  @doc "Synchronously projects one already-persisted Exchange event."
   @spec observe(map(), GenServer.server()) :: :ok | :duplicate | :ignored
   def observe(event, server \\ __MODULE__) when is_map(event) do
     GenServer.call(server, {:observe, event})
   end
 
-  @doc "Returns the current redacted snapshot for one Decision."
+  @doc "Returns the current redacted snapshot for one retained Decision."
   @spec snapshot(String.t(), GenServer.server()) :: {:ok, map()} | {:error, :not_found}
   def snapshot(decision_id, server \\ __MODULE__) when is_binary(decision_id) do
     GenServer.call(server, {:snapshot, decision_id})
   end
 
-  @doc "Absolute path of the append-only decision latency metrics stream."
+  @doc "Flushes queued metric snapshots to the bounded stream."
+  @spec flush(GenServer.server()) :: :ok | {:error, term()}
+  def flush(server \\ __MODULE__), do: GenServer.call(server, :flush, 30_000)
+
+  @doc "Absolute path of the bounded decision latency metrics stream."
   @spec metrics_file() :: Path.t()
   def metrics_file, do: Metrics.file(:decision_metrics_path, @metrics_filename, :decision_state)
 
   @impl true
   def init(opts) do
-    path = Keyword.get(opts, :path, metrics_file())
     if Keyword.get(opts, :subscribe?, true), do: Enum.each(@patterns, &Exchange.subscribe/1)
-    replay = Keyword.get(opts, :replay, &Log.replay/1)
-    {samples, seen} = replay.(path)
 
-    state = %{
-      path: path,
-      samples: samples,
-      seen: seen,
-      clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
-      decision_store: Keyword.get(opts, :decision_store, DecisionStore)
-    }
+    {writer, owned_writer?} = writer(opts)
+    loaded = Writer.load(writer)
+    sample_limit = positive_option(opts, :sample_limit, @sample_limit)
+    seen_limit = positive_option(opts, :seen_limit, @seen_limit)
 
-    state = seed_canonical(state, Keyword.get(opts, :seed?, true))
+    state =
+      %{
+        samples: loaded.samples,
+        seen: MapSet.new(),
+        seen_order: :queue.new(),
+        seen_count: 0,
+        sample_limit: sample_limit,
+        seen_limit: seen_limit,
+        attention_index: %{},
+        clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
+        decision_store: Keyword.get(opts, :decision_store, DecisionStore),
+        writer: writer,
+        owned_writer?: owned_writer?
+      }
+      |> remember_events(loaded.event_ids)
+      |> bound_samples()
+
+    start_canonical_seed(state, opts)
     {:ok, state}
   end
 
@@ -87,40 +96,119 @@ defmodule Aiur.DecisionMetrics do
     {:reply, reply, state}
   end
 
+  def handle_call(:flush, _from, state) do
+    {:reply, flush_writer(state.writer), state}
+  end
+
   @impl true
   def handle_info({:event, event}, state) when is_map(event) do
     {_reply, next_state} = record_event(event, state)
     {:noreply, next_state}
   end
 
+  def handle_info({:canonical_seed, %{events: events, attention_index: index}}, state) do
+    state = %{state | attention_index: Map.merge(index, state.attention_index)}
+
+    next_state =
+      Enum.reduce(events, state, fn event, acc ->
+        {_reply, next_acc} = record_event(event, acc)
+        next_acc
+      end)
+
+    {:noreply, bound_samples(next_state)}
+  end
+
+  def handle_info({:canonical_seed_failed, reason}, state) do
+    Logger.warning("decision_metrics canonical_seed_failed reason=#{inspect(reason)}")
+    {:noreply, state}
+  end
+
   def handle_info(_message, state), do: {:noreply, state}
 
-  defp seed_canonical(state, false), do: state
+  @impl true
+  def terminate(_reason, %{owned_writer?: true, writer: writer}) when is_pid(writer) do
+    if Process.alive?(writer) do
+      _ = Writer.flush(writer)
+      GenServer.stop(writer)
+    end
 
-  defp seed_canonical(state, true) do
-    state.decision_store
-    |> Canonical.events()
-    |> Enum.reduce(state, fn event, acc ->
-      {_reply, next_state} = record_event(event, acc)
-      next_state
-    end)
+    :ok
+  end
+
+  def terminate(_reason, _state), do: :ok
+
+  defp writer(opts) do
+    case Keyword.fetch(opts, :writer) do
+      {:ok, writer} -> {writer, false}
+      :error -> maybe_start_private_writer(opts)
+    end
+  end
+
+  defp maybe_start_private_writer(opts) do
+    case Keyword.get(opts, :path) do
+      path when is_binary(path) ->
+        writer_opts =
+          opts
+          |> Keyword.take([
+            :sample_limit,
+            :record_limit,
+            :seen_limit,
+            :batch_limit,
+            :flush_interval_ms,
+            :replay_record_limit,
+            :replay_bytes,
+            :replay_fun,
+            :append_fun,
+            :compact_fun
+          ])
+          |> Keyword.merge(name: nil, path: path)
+
+        {:ok, writer} = Writer.start_link(writer_opts)
+        {writer, true}
+
+      _other ->
+        {Writer, false}
+    end
+  end
+
+  defp start_canonical_seed(state, opts) do
+    if Keyword.get(opts, :seed?, true) do
+      owner = self()
+      server = state.decision_store
+      limit = state.sample_limit
+      seed_fun = Keyword.get(opts, :seed_fun, &Canonical.snapshot/2)
+
+      Task.start(fn -> run_canonical_seed(owner, seed_fun, server, limit) end)
+    end
+
+    :ok
+  end
+
+  defp run_canonical_seed(owner, seed_fun, server, limit) do
+    result = seed_fun.(server, limit)
+    send(owner, {:canonical_seed, result})
+  rescue
+    error -> send(owner, {:canonical_seed_failed, Exception.message(error)})
+  catch
+    kind, reason -> send(owner, {:canonical_seed_failed, {kind, reason}})
   end
 
   defp record_event(event, state) do
-    event = correlate_attention(event, state.decision_store)
+    state = index_attention(event, state)
+    event = correlate_attention(event, state.attention_index)
     observed_at = state.clock.()
 
     with {:ok, fact} <- Event.normalize(event, observed_at),
          false <- MapSet.member?(state.seen, fact.event_id) do
       sample = Map.get(state.samples, fact.decision_id, Sample.new(fact.decision_id, fact.identifier))
       updated = Sample.observe(sample, fact.stage, fact)
-      Log.append(state.path, updated, fact, observed_at)
+      Writer.persist(Log.record(updated, fact, observed_at), state.writer)
 
-      next_state = %{
+      next_state =
         state
-        | samples: Map.put(state.samples, fact.decision_id, updated),
-          seen: MapSet.put(state.seen, fact.event_id)
-      }
+        |> Map.update!(:samples, &Map.put(&1, fact.decision_id, updated))
+        |> remember_event(fact.event_id)
+        |> bound_samples()
 
       {:ok, next_state}
     else
@@ -129,11 +217,21 @@ defmodule Aiur.DecisionMetrics do
     end
   end
 
-  defp correlate_attention(event, server) do
+  defp index_attention(event, state) do
+    case Event.attention_correlation(event) do
+      {topic, decision_id} ->
+        %{state | attention_index: Map.put(state.attention_index, topic, decision_id)}
+
+      nil ->
+        state
+    end
+  end
+
+  defp correlate_attention(event, index) do
     topic = event_value(event, :topic)
 
     if attention_topic?(topic) and is_nil(event_value(event, :decision_id)) do
-      case Canonical.decision_id_for_attention(server, topic) do
+      case Map.get(index, topic) do
         nil -> event
         decision_id -> put_event_value(event, :decision_id, decision_id)
       end
@@ -153,5 +251,67 @@ defmodule Aiur.DecisionMetrics do
     if Map.has_key?(event, Atom.to_string(key)),
       do: Map.put(event, Atom.to_string(key), value),
       else: Map.put(event, key, value)
+  end
+
+  defp bound_samples(state) when map_size(state.samples) <= state.sample_limit do
+    state
+  end
+
+  defp bound_samples(state) do
+    retained =
+      state.samples
+      |> Enum.sort_by(fn {_decision_id, sample} -> observed_sort_key(sample.last_observed_at) end, :desc)
+      |> Enum.take(state.sample_limit)
+
+    retained_ids = retained |> Enum.map(&elem(&1, 0)) |> MapSet.new()
+
+    %{
+      state
+      | samples: Map.new(retained),
+        attention_index:
+          Map.filter(state.attention_index, fn {_topic, decision_id} ->
+            MapSet.member?(retained_ids, decision_id)
+          end)
+    }
+  end
+
+  defp observed_sort_key(%DateTime{} = at), do: DateTime.to_unix(at, :microsecond)
+  defp observed_sort_key(_at), do: 0
+
+  defp remember_events(state, event_ids), do: Enum.reduce(event_ids, state, &remember_event(&2, &1))
+
+  defp remember_event(state, event_id) do
+    if MapSet.member?(state.seen, event_id) do
+      state
+    else
+      state = %{
+        state
+        | seen: MapSet.put(state.seen, event_id),
+          seen_order: :queue.in(event_id, state.seen_order),
+          seen_count: state.seen_count + 1
+      }
+
+      evict_seen(state)
+    end
+  end
+
+  defp evict_seen(%{seen_count: count, seen_limit: limit} = state) when count > limit do
+    {{:value, oldest}, order} = :queue.out(state.seen_order)
+    %{state | seen: MapSet.delete(state.seen, oldest), seen_order: order, seen_count: count - 1}
+  end
+
+  defp evict_seen(state), do: state
+
+  defp flush_writer(writer) do
+    Writer.flush(writer)
+  catch
+    :exit, reason -> {:error, {:writer_exit, reason}}
+  end
+
+  defp positive_option(opts, key, default) do
+    case Keyword.get(opts, key, default) do
+      value when is_integer(value) and value > 0 -> value
+      _other -> default
+    end
   end
 end

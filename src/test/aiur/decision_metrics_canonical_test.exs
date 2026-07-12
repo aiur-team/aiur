@@ -23,7 +23,13 @@ defmodule Aiur.DecisionMetricsCanonicalTest do
   test "correlates OCC-2 reminders without duplicating its adapter", context do
     topic = "ticket.42.agent.attention.operator-decision"
 
-    assert {:ok, %{decision: decision}} =
+    opts = [
+      ticket: context.ticket,
+      source: context.source,
+      legacy_attention: %{slug: "operator-decision", topic: topic}
+    ]
+
+    assert {:ok, %{decision: first}} =
              DecisionStore.project_attention(
                %{
                  "source_id" => "legacy_attention:operator-decision",
@@ -32,21 +38,33 @@ defmodule Aiur.DecisionMetricsCanonicalTest do
                  "blocking" => true,
                  "options" => []
                },
-               [
-                 ticket: context.ticket,
-                 source: context.source,
-                 legacy_attention: %{slug: "operator-decision", topic: topic}
-               ],
+               opts,
                context.store
              )
 
+    assert {:ok, %{decision: decision}} =
+             DecisionStore.project_attention(
+               %{
+                 "source_id" => "legacy_attention:operator-decision",
+                 "kind" => "legacy_attention",
+                 "question" => "Choose an updated path",
+                 "blocking" => true,
+                 "options" => []
+               },
+               opts,
+               context.store
+             )
+
+    assert decision.version == first.version + 1
     metrics = start_metrics!(context.tmp_dir, context.store)
+    assert {:ok, _snapshot} = wait_for_snapshot(metrics, decision.decision_id)
     assert :ok = DecisionMetrics.observe(attention_event(1, topic, 1_000), metrics)
     assert :ok = DecisionMetrics.observe(attention_event(2, topic, 2_000), metrics)
 
     assert {:ok, snapshot} = DecisionMetrics.snapshot(decision.decision_id, metrics)
     assert snapshot.attention_count == 2
     assert snapshot.reminder_count == 1
+    refute snapshot.revised
   end
 
   test "backfills the OCC-3 current projection shape after a missed publication", context do
@@ -99,7 +117,7 @@ defmodule Aiur.DecisionMetricsCanonicalTest do
     end)
 
     metrics = start_metrics!(context.tmp_dir, context.store)
-    assert {:ok, snapshot} = DecisionMetrics.snapshot(decision.decision_id, metrics)
+    assert {:ok, snapshot} = wait_for_snapshot(metrics, decision.decision_id)
     assert snapshot.request_to_decision_ms == 1_000
     assert snapshot.decision_to_dispatch_ms == 1_000
     assert snapshot.dispatch_to_delivery_ms == 1_000
@@ -135,6 +153,21 @@ defmodule Aiur.DecisionMetricsCanonicalTest do
   end
 
   defp stop_if_alive(pid), do: if(Process.alive?(pid), do: GenServer.stop(pid))
+
+  defp wait_for_snapshot(metrics, decision_id, attempts \\ 100)
+  defp wait_for_snapshot(_metrics, _decision_id, 0), do: {:error, :timeout}
+
+  defp wait_for_snapshot(metrics, decision_id, attempts) do
+    case DecisionMetrics.snapshot(decision_id, metrics) do
+      {:ok, _snapshot} = found ->
+        found
+
+      {:error, :not_found} ->
+        Process.sleep(10)
+        wait_for_snapshot(metrics, decision_id, attempts - 1)
+    end
+  end
+
   defp restore_env(key, nil), do: Application.delete_env(:aiur, key)
   defp restore_env(key, value), do: Application.put_env(:aiur, key, value)
 end

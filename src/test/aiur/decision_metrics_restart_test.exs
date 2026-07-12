@@ -37,9 +37,9 @@ defmodule Aiur.DecisionMetricsRestartTest do
     path = Path.join(tmp_dir, "subscribe-before-replay.ndjson")
     parent = self()
 
-    replay = fn replay_path ->
+    replay = fn replay_path, opts ->
       send(parent, {:replay_started, self()})
-      receive do: (:continue_replay -> Log.replay(replay_path))
+      receive do: (:continue_replay -> Log.replay(replay_path, opts))
     end
 
     starter =
@@ -48,16 +48,15 @@ defmodule Aiur.DecisionMetricsRestartTest do
           name: nil,
           path: path,
           subscribe?: true,
-          replay: replay,
+          replay_fun: replay,
           clock: fn -> @observed_at end
         )
       end)
 
-    assert_receive {:replay_started, metrics}, 2_000
-    assert "ticket.*.agent.decision.#" in Exchange.bindings_for(metrics)
+    assert_receive {:replay_started, writer}, 2_000
     assert Exchange.publish("ticket.42.agent.decision.requested", request_event(35)) >= 1
-    send(metrics, :continue_replay)
-    assert {:ok, ^metrics} = Task.await(starter)
+    send(writer, :continue_replay)
+    assert {:ok, metrics} = Task.await(starter)
     on_exit(fn -> stop_if_alive(metrics) end)
 
     assert {:ok, snapshot} = DecisionMetrics.snapshot("dec-42", metrics)
@@ -124,8 +123,9 @@ defmodule Aiur.DecisionMetricsRestartTest do
     metrics = start_metrics!(path, seed?: true, decision_store: store)
     on_exit(fn -> stop_if_alive(metrics) end)
 
-    assert {:ok, snapshot} = DecisionMetrics.snapshot(decision.decision_id, metrics)
+    assert {:ok, snapshot} = wait_for_snapshot(metrics, decision.decision_id)
     assert snapshot.requested_at == DateTime.to_iso8601(decision.created_at)
+    assert :ok = DecisionMetrics.flush(metrics)
     assert File.read!(path) =~ "canonical:requested:#{decision.decision_id}:request"
   end
 
@@ -163,7 +163,7 @@ defmodule Aiur.DecisionMetricsRestartTest do
   defp lifecycle_event(id, suffix, offset_ms, extra \\ %{}) do
     Map.merge(
       %{
-        id: id,
+        id: "canonical:test:#{id}",
         topic: "ticket.42.agent.decision.#{suffix}",
         event_type: suffix,
         decision_id: "dec-42",
@@ -175,6 +175,21 @@ defmodule Aiur.DecisionMetricsRestartTest do
 
   defp remember_env(keys), do: Map.new(keys, &{&1, Application.get_env(:aiur, &1)})
   defp stop_if_alive(pid), do: if(Process.alive?(pid), do: GenServer.stop(pid))
+
+  defp wait_for_snapshot(metrics, decision_id, attempts \\ 100)
+  defp wait_for_snapshot(_metrics, _decision_id, 0), do: {:error, :timeout}
+
+  defp wait_for_snapshot(metrics, decision_id, attempts) do
+    case DecisionMetrics.snapshot(decision_id, metrics) do
+      {:ok, _snapshot} = found ->
+        found
+
+      {:error, :not_found} ->
+        Process.sleep(10)
+        wait_for_snapshot(metrics, decision_id, attempts - 1)
+    end
+  end
+
   defp restore_env(key, nil), do: Application.delete_env(:aiur, key)
   defp restore_env(key, value), do: Application.put_env(:aiur, key, value)
 end

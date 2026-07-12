@@ -5,27 +5,19 @@ defmodule Aiur.DecisionMetrics.Canonical do
 
   alias Aiur.DecisionStore
 
-  @doc "Builds redacted lifecycle events from every current canonical Decision."
-  @spec events(GenServer.server()) :: [map()]
-  def events(server) do
-    server
-    |> current_decisions()
-    |> Enum.flat_map(&decision_events(&1, server))
-  end
+  @doc "Builds a bounded redacted lifecycle seed and legacy-attention index."
+  @spec snapshot(GenServer.server(), pos_integer()) :: %{events: [map()], attention_index: map()}
+  def snapshot(server, limit) when is_integer(limit) and limit > 0 do
+    decisions =
+      server
+      |> current_decisions()
+      |> Enum.sort_by(&created_sort_key/1, :desc)
+      |> Enum.take(limit)
 
-  @doc "Finds the Decision projected from one canonical legacy-attention topic."
-  @spec decision_id_for_attention(GenServer.server(), String.t()) :: String.t() | nil
-  def decision_id_for_attention(server, topic) when is_binary(topic) do
-    server
-    |> current_decisions()
-    |> Enum.find_value(&attention_decision_id(&1, topic))
-  end
-
-  defp attention_decision_id(decision, topic) do
-    attention = field(decision, :legacy_attention)
-
-    if is_map(attention) and field(attention, :topic) == topic,
-      do: field(decision, :decision_id)
+    %{
+      events: Enum.flat_map(decisions, &decision_events(&1, server)),
+      attention_index: attention_index(decisions)
+    }
   end
 
   defp current_decisions(server) do
@@ -71,8 +63,8 @@ defmodule Aiur.DecisionMetrics.Canonical do
   end
 
   defp revision_events(decision, identifier) do
-    case field(decision, :version) do
-      version when is_integer(version) and version > 1 ->
+    case {field(decision, :version), field(decision, :legacy_attention)} do
+      {version, nil} when is_integer(version) and version > 1 ->
         optional_event(decision, identifier, :revised, version, field(decision, :created_at))
 
       _other ->
@@ -145,6 +137,25 @@ defmodule Aiur.DecisionMetrics.Canonical do
   defp topic_slug(:answer_recorded), do: "answered"
   defp topic_slug(:dispatch_queued), do: "queued"
   defp topic_slug(stage), do: Atom.to_string(stage)
+
+  defp attention_index(decisions) do
+    Enum.reduce(decisions, %{}, fn decision, index ->
+      case field(decision, :legacy_attention) do
+        attention when is_map(attention) ->
+          Map.put(index, field(attention, :topic), field(decision, :decision_id))
+
+        _other ->
+          index
+      end
+    end)
+  end
+
+  defp created_sort_key(decision) do
+    case field(decision, :created_at) do
+      %DateTime{} = created_at -> DateTime.to_unix(created_at, :microsecond)
+      _other -> 0
+    end
+  end
 
   defp field(nil, _key), do: nil
   defp field(map, key), do: field(map, key, nil)

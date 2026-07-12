@@ -43,6 +43,7 @@ defmodule Aiur.DecisionMetricsTest do
     assert snapshot.actor == "human"
     refute snapshot.revised
 
+    assert :ok = DecisionMetrics.flush(pid)
     lines = path |> File.read!() |> String.split("\n", trim: true)
     assert length(lines) == 5
 
@@ -88,6 +89,7 @@ defmodule Aiur.DecisionMetricsTest do
     assert snapshot.actor == "supervisor"
     assert snapshot.revised
 
+    assert :ok = DecisionMetrics.flush(pid)
     persisted = File.read!(path)
     refute persisted =~ "the exact question"
     refute persisted =~ "the operator answer"
@@ -145,6 +147,31 @@ defmodule Aiur.DecisionMetricsTest do
     assert snapshot.requested_at == DateTime.to_iso8601(decision.created_at)
   end
 
+  test "indexes legacy attentions from requests without scanning the store", %{tmp_dir: tmp_dir} do
+    topic = "ticket.42.agent.attention.operator-decision"
+    path = Path.join(tmp_dir, "indexed-attention.ndjson")
+    metrics = start_metrics!(path, decision_store: :missing_decision_store)
+    on_exit(fn -> stop_if_alive(metrics) end)
+
+    request =
+      request_event(50, true)
+      |> Map.put(:version, 2)
+      |> Map.put(:legacy_attention, %{slug: "operator-decision", topic: topic})
+
+    attention = %{
+      id: 51,
+      type: "alert",
+      topic: topic,
+      created_at: DateTime.add(@requested_at, 1_000, :millisecond)
+    }
+
+    assert :ok = DecisionMetrics.observe(request, metrics)
+    assert :ok = DecisionMetrics.observe(attention, metrics)
+    assert {:ok, snapshot} = DecisionMetrics.snapshot("dec-42", metrics)
+    assert snapshot.attention_count == 1
+    refute snapshot.revised
+  end
+
   defp start_metrics!(path, opts \\ []) do
     defaults = [name: nil, path: path, subscribe?: false, seed?: false, clock: fn -> @observed_at end]
 
@@ -171,7 +198,7 @@ defmodule Aiur.DecisionMetricsTest do
   defp lifecycle_event(id, suffix, offset_ms, extra \\ %{}) do
     Map.merge(
       %{
-        id: id,
+        id: "canonical:test:#{id}",
         topic: "ticket.42.agent.decision.#{suffix}",
         event_type: suffix,
         decision_id: "dec-42",

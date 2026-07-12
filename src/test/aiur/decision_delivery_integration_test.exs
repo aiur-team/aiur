@@ -1,7 +1,8 @@
 defmodule Aiur.DecisionDeliveryIntegrationTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.{DecisionDispatch, DecisionEvent, DecisionStore, Issue, Orchestrator}
+  alias Aiur.{DecisionDispatch, DecisionEvent, DecisionMetrics, DecisionStore, Issue, Orchestrator}
+  alias Aiur.DecisionMetrics.Writer
   alias Aiur.Orchestrator.OperatorMessages
 
   @ticket %{
@@ -30,6 +31,7 @@ defmodule Aiur.DecisionDeliveryIntegrationTest do
       start_orchestrator!(Module.concat(__MODULE__, :HappyPathOrchestrator), "981")
 
     store = start_store!(dir, dispatcher: dispatch_via(orchestrator), dispatch_delay_ms: 50)
+    {metrics, metrics_path} = start_metrics!(dir)
 
     assert {:ok, %{status: :accepted, decision: decision}} = request(store, request_payload("happy"))
 
@@ -103,6 +105,22 @@ defmodule Aiur.DecisionDeliveryIntegrationTest do
     assert current.delivery_status == :consumed
     assert current.answer.action_id == action.action_id
 
+    snapshot = wait_for_metrics(metrics, decision.decision_id)
+
+    for field <- [
+          :request_to_decision_ms,
+          :decision_to_dispatch_ms,
+          :dispatch_to_delivery_ms,
+          :delivery_to_ack_ms,
+          :blocked_time_ms
+        ] do
+      assert is_integer(snapshot[field]) and snapshot[field] >= 0
+    end
+
+    assert snapshot.actor == "human"
+    assert :ok = DecisionMetrics.flush(metrics)
+    assert metrics_path |> File.read!() |> String.split("\n", trim: true) |> length() >= 5
+
     assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, store)
 
     assert Enum.map(audit, &audit_type/1) == [
@@ -171,7 +189,9 @@ defmodule Aiur.DecisionDeliveryIntegrationTest do
 
     assert {:ok, %{decision: decision}} = request(store1, request_payload("store-restart"))
     answer_payload = custom_answer("store-restart")
-    assert {:ok, %{action: action}} = DecisionStore.answer(decision.decision_id, answer_payload, [actor: @actor], store1)
+
+    assert {:ok, %{action: action}} =
+             DecisionStore.answer(decision.decision_id, answer_payload, [actor: @actor], store1)
 
     assert_receive {:queue_accepted_before_store_crash, dispatch_task, {:ok, %{status: :accepted}}}, 1_000
     assert_receive {:agent_queue_updated, "981", queue_item_id, _delivery}, 1_000
@@ -247,14 +267,34 @@ defmodule Aiur.DecisionDeliveryIntegrationTest do
   defp start_store!(dir, opts) do
     Application.put_env(:aiur, :decision_state_dir, dir)
 
-    {:ok, pid} =
-      DecisionStore.start_link(Keyword.merge([name: nil, filesystem_sync_fun: fn -> :ok end, reconcile_delay_ms: 5_000], opts))
+    defaults = [name: nil, filesystem_sync_fun: fn -> :ok end, reconcile_delay_ms: 5_000]
+    {:ok, pid} = DecisionStore.start_link(Keyword.merge(defaults, opts))
 
     on_exit(fn ->
       stop_if_alive(pid)
     end)
 
     pid
+  end
+
+  defp start_metrics!(dir) do
+    path = Path.join(dir, "decision-delivery-metrics.ndjson")
+    {:ok, writer} = Writer.start_link(name: nil, path: path, flush_interval_ms: 5)
+
+    {:ok, metrics} =
+      DecisionMetrics.start_link(
+        name: nil,
+        writer: writer,
+        subscribe?: true,
+        seed?: false
+      )
+
+    on_exit(fn ->
+      stop_if_alive(metrics)
+      stop_if_alive(writer)
+    end)
+
+    {metrics, path}
   end
 
   defp start_orchestrator!(name, identifier) do
@@ -343,6 +383,26 @@ defmodule Aiur.DecisionDeliveryIntegrationTest do
       true ->
         Process.sleep(10)
         do_wait_for_decision(store, decision_id, predicate, deadline)
+    end
+  end
+
+  defp wait_for_metrics(metrics, decision_id, timeout_ms \\ 2_000) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    do_wait_for_metrics(metrics, decision_id, deadline)
+  end
+
+  defp do_wait_for_metrics(metrics, decision_id, deadline) do
+    case DecisionMetrics.snapshot(decision_id, metrics) do
+      {:ok, %{acknowledged_at: acknowledged_at} = snapshot} when is_binary(acknowledged_at) ->
+        snapshot
+
+      pending ->
+        if System.monotonic_time(:millisecond) < deadline do
+          Process.sleep(10)
+          do_wait_for_metrics(metrics, decision_id, deadline)
+        else
+          flunk("timed out waiting for Decision metrics: #{inspect(pending)}")
+        end
     end
   end
 

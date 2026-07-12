@@ -4,6 +4,8 @@ defmodule Aiur.DecisionMetrics.Event do
   the small, redacted fact shape consumed by `Aiur.DecisionMetrics`.
   """
 
+  alias Aiur.DecisionEvent
+
   @stage_aliases %{
     "request" => :requested,
     "requested" => :requested,
@@ -46,6 +48,7 @@ defmodule Aiur.DecisionMetrics.Event do
     topic = event["topic"]
 
     with stage when is_atom(stage) and not is_nil(stage) <- stage_for(event, topic),
+         true <- trusted_stage?(stage, event),
          decision_id when is_binary(decision_id) <- decision_id(event),
          identifier when is_binary(identifier) <- identifier(event, topic),
          event_id when is_binary(event_id) <- event_id(event) do
@@ -64,6 +67,21 @@ defmodule Aiur.DecisionMetrics.Event do
     end
   end
 
+  @doc "Returns legacy-attention topic correlation carried by a persisted request."
+  @spec attention_correlation(map()) :: {String.t(), String.t()} | nil
+  def attention_correlation(event) when is_map(event) do
+    event = stringify_keys(event)
+    attention = event |> event_value(["legacy_attention"]) |> stringify_keys()
+
+    case {attention, decision_id(event)} do
+      {%{"topic" => topic}, decision_id} when is_binary(topic) and is_binary(decision_id) ->
+        {topic, decision_id}
+
+      _other ->
+        nil
+    end
+  end
+
   defp stage_for(event, topic) do
     explicit = event["event_type"] || event["event"] || event["type"]
     stage = stage_alias(explicit) || Map.get(@implicit_stages, topic_label(topic))
@@ -72,13 +90,26 @@ defmodule Aiur.DecisionMetrics.Event do
   end
 
   defp revision?(event) do
-    case event_value(event, ["decision_version", "version"]) do
-      version when is_integer(version) and version > 1 -> true
-      _other -> false
-    end
+    version = event_value(event, ["decision_version", "version"])
+    legacy_attention = event_value(event, ["legacy_attention"])
+    is_integer(version) and version > 1 and is_nil(legacy_attention)
   end
 
   defp stage_alias(label), do: Map.get(@stage_aliases, normalize_label(label))
+
+  defp trusted_stage?(stage, event)
+       when stage in [:decided, :dispatched, :delivered, :acknowledged, :resolved] do
+    canonical_event?(event) or match?({:ok, %DecisionEvent{}}, DecisionEvent.from_json_safe(event))
+  end
+
+  defp trusted_stage?(_stage, _event), do: true
+
+  defp canonical_event?(event) do
+    case event_id(event) do
+      "canonical:" <> _suffix -> true
+      _other -> false
+    end
+  end
 
   defp topic_label(topic) when is_binary(topic) do
     cond do

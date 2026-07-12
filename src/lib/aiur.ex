@@ -114,6 +114,7 @@ defmodule Aiur.Application do
       if(debug?, do: Aiur.RunTelemetry.Supervisor),
       Aiur.Events.Publisher,
       Aiur.DecisionStore,
+      {Aiur.DecisionMetrics.Writer, path: Aiur.DecisionMetrics.metrics_file()},
       Aiur.DecisionMetrics,
       Aiur.RecentMergeStore,
       Aiur.GitHub.CodeOwners,
