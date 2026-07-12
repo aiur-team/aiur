@@ -15,6 +15,7 @@ defmodule Aiur.DecisionAttention do
   alias Aiur.Events.SubscriptionStore
 
   @default_reask_interval_ms :timer.minutes(15)
+  @default_import_limit 100
   # The outer registry call must outlast DecisionStore's 60-second write call
   # so the caller cannot time out while the registry later opens the alert.
   @open_timeout 65_000
@@ -78,7 +79,8 @@ defmodule Aiur.DecisionAttention do
   end
 
   @doc "Trusted correlation material shared by legacy projection and structured enrichment."
-  @spec correlation(Issue.t(), String.t()) :: {:ok, %{source_id: String.t(), legacy_attention: map()}} | {:error, term()}
+  @spec correlation(Issue.t(), String.t()) ::
+          {:ok, %{source_id: String.t(), legacy_attention: map()}} | {:error, term()}
   def correlation(%Issue{} = issue, slug) when is_binary(slug) do
     if Regex.match?(~r/\A[a-z0-9][a-z0-9.-]{0,63}\z/, slug) do
       identifier = issue_identifier!(issue)
@@ -101,7 +103,7 @@ defmodule Aiur.DecisionAttention do
 
   @spec resolve(GenServer.server(), Issue.t(), String.t()) :: :ok
   def resolve(server, %Issue{} = issue, slug) when is_binary(slug) do
-    GenServer.call(server, {:resolve, issue, slug})
+    GenServer.call(server, {:resolve, issue, slug}, @open_timeout)
   end
 
   @impl true
@@ -113,6 +115,7 @@ defmodule Aiur.DecisionAttention do
       resolution_emitter: Keyword.get(opts, :resolution_emitter, &emit_resolution_alert/1),
       attention_loader: Keyword.get(opts, :attention_loader, &AlertFeed.list_decision_attentions/0),
       decision_projector: Keyword.get(opts, :decision_projector, &DecisionStore.project_attention/2),
+      import_limit: import_limit(opts),
       importing?: true,
       resolved_during_import: MapSet.new()
     }
@@ -202,7 +205,16 @@ defmodule Aiur.DecisionAttention do
   end
 
   def handle_info({:legacy_attentions_loaded, attentions}, state) when is_list(attentions) do
-    Enum.each(attentions, &send(self(), {:restore_attention, &1}))
+    {to_import, ignored} = Enum.split(attentions, state.import_limit)
+
+    if ignored != [] do
+      Logger.warning(
+        "decision_attention legacy_import_truncated " <>
+          "limit=#{state.import_limit} ignored_count=#{length(ignored)}"
+      )
+    end
+
+    Enum.each(to_import, &send(self(), {:restore_attention, &1}))
     send(self(), :legacy_attention_import_complete)
     {:noreply, state}
   end
@@ -241,7 +253,8 @@ defmodule Aiur.DecisionAttention do
       projector_opts = [
         ticket: ticket_context(attention.issue),
         source: Keyword.get(opts, :source, %{}),
-        legacy_attention: correlation.legacy_attention
+        legacy_attention: correlation.legacy_attention,
+        legacy_import: Keyword.get(opts, :legacy_import, false)
       ]
 
       safely_project(projector, payload, projector_opts)
@@ -318,7 +331,8 @@ defmodule Aiur.DecisionAttention do
 
     opts = [
       source: %{agent_id: "legacy_attention", session_id: nil, event_id: nil},
-      source_created_at: source_created_at
+      source_created_at: source_created_at,
+      legacy_import: true
     ]
 
     case project_attention(state.decision_projector, attention, opts) do
@@ -377,6 +391,13 @@ defmodule Aiur.DecisionAttention do
 
   defp issue_identifier!(%Issue{id: id}) when is_binary(id) and id != "", do: id
   defp issue_identifier!(%Issue{identifier: identifier}) when is_binary(identifier) and identifier != "", do: identifier
+
+  defp import_limit(opts) do
+    case Keyword.get(opts, :import_limit, @default_import_limit) do
+      limit when is_integer(limit) and limit > 0 -> limit
+      _invalid -> @default_import_limit
+    end
+  end
 
   defp cancel_timer(%{timer_ref: timer_ref}) when is_reference(timer_ref) do
     Process.cancel_timer(timer_ref)

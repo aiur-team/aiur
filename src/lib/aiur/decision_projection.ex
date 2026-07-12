@@ -67,12 +67,20 @@ defmodule Aiur.DecisionProjection do
           history: %{String.t() => [Decision.t()]}
         }
   def reduce(decisions) when is_list(decisions) do
-    Enum.reduce(decisions, %{current: %{}, history: %{}}, fn decision, acc ->
-      %{
-        current: maybe_replace_current(acc.current, decision),
-        history: Map.update(acc.history, decision.decision_id, [decision], &(&1 ++ [decision]))
-      }
-    end)
+    projection =
+      Enum.reduce(decisions, %{current: %{}, history: %{}}, fn decision, acc ->
+        %{
+          current: maybe_replace_current(acc.current, decision),
+          history: Map.update(acc.history, decision.decision_id, [decision], &[decision | &1])
+        }
+      end)
+
+    history =
+      Map.new(projection.history, fn {decision_id, records} ->
+        {decision_id, Enum.reverse(records)}
+      end)
+
+    %{projection | history: history}
   end
 
   defp maybe_replace_current(current, decision) do

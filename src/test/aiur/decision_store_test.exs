@@ -379,6 +379,39 @@ defmodule Aiur.DecisionStoreTest do
       assert v3.options == v2.options
     end
 
+    test "a stale startup import cannot replace an enriched current question", %{dir: dir} do
+      pid = start_store!(dir)
+      assert {:ok, %{decision: v1}} = project_attention(pid, minimal_attention("Original alert question?"))
+
+      structured =
+        minimal_attention("Current structured question?")
+        |> Map.put("kind", "architecture")
+        |> Map.put("context", %{"short_summary" => "The request was clarified."})
+
+      assert {:ok, %{decision: v2}} =
+               enrich_attention(pid, structured, source: %{agent_id: "agent-1", session_id: "session-1", event_id: "call-enrich"})
+
+      assert {:ok, %{status: :duplicate, decision: ^v2}} =
+               project_attention(pid, minimal_attention("Original alert question?"), legacy_import: true)
+
+      assert {:ok, ^v2} = DecisionStore.get(v1.decision_id, pid)
+      assert {:ok, [^v1, ^v2]} = DecisionStore.history(v1.decision_id, pid)
+    end
+
+    test "changing legacy questions cannot grow one Decision beyond its configured bound", %{dir: dir} do
+      pid = start_store!(dir, legacy_question_version_limit: 3)
+
+      assert {:ok, %{decision: v1}} = project_attention(pid, minimal_attention("Question one?"))
+      assert {:ok, %{decision: v2}} = project_attention(pid, minimal_attention("Question two?"))
+      assert {:ok, %{decision: v3}} = project_attention(pid, minimal_attention("Question three?"))
+
+      assert {:error, {:legacy_attention, {:version_limit, 3}}} =
+               project_attention(pid, minimal_attention("Question four?"))
+
+      assert {:ok, ^v3} = DecisionStore.get(v1.decision_id, pid)
+      assert {:ok, [^v1, ^v2, ^v3]} = DecisionStore.history(v1.decision_id, pid)
+    end
+
     test "enrichment and later reminders preserve the original alert timestamp", %{dir: dir} do
       pid = start_store!(dir)
 

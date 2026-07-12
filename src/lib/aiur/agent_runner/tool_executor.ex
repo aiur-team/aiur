@@ -6,6 +6,8 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   blocker declaration immediately subscribed for prompt resume behavior.
   """
 
+  require Logger
+
   alias Aiur.AgentRunner.SessionLifecycle
   alias Aiur.{Alerts, DecisionAttention, DecisionStore, Issue}
   alias Aiur.Codex.DynamicTool
@@ -39,7 +41,8 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     event_handlers = %{
       decision_requester: Keyword.get(opts, :decision_requester, &DecisionStore.request/2),
       attention_enricher: Keyword.get(opts, :attention_enricher, &DecisionStore.enrich_attention/2),
-      attention_opener: Keyword.get(opts, :attention_opener, &DecisionAttention.open_with_decision/6)
+      attention_opener: Keyword.get(opts, :attention_opener, &DecisionAttention.open_with_decision/6),
+      attention_resolver: Keyword.get(opts, :attention_resolver, &DecisionAttention.resolve/2)
     }
 
     fn tool, arguments ->
@@ -188,27 +191,38 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       |> Map.put("name", name)
       |> Map.put("issue", identifier)
 
-    with {:ok, decision_result} <-
-           prepare_decision_attention(issue, workspace, worker_host, app_session, handlers.attention_opener, name, message, payload) do
-      case Publisher.publish(topic, event_payload) do
-        {:ok, id, _subscribers} ->
-          sync_decision_resolution(issue, name, payload)
+    decision_projection =
+      prepare_decision_attention(
+        issue,
+        workspace,
+        worker_host,
+        app_session,
+        handlers.attention_opener,
+        name,
+        message,
+        payload
+      )
 
-          result =
-            %{"id" => id, "topic" => topic}
-            |> add_decision_result(decision_result)
+    log_decision_projection_failure(decision_projection, topic)
 
-          {:ok, result}
+    case Publisher.publish(topic, event_payload) do
+      {:ok, id, _subscribers} ->
+        sync_decision_resolution(issue, name, payload, handlers.attention_resolver)
 
-        :filtered ->
-          {:error, :event_filtered}
+        result =
+          %{"id" => id, "topic" => topic}
+          |> add_decision_projection_result(decision_projection)
 
-        :deduped ->
-          {:error, :event_deduped}
+        {:ok, result}
 
-        {:error, reason} ->
-          {:error, reason}
-      end
+      :filtered ->
+        {:error, :event_filtered}
+
+      :deduped ->
+        {:error, :event_deduped}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -249,19 +263,21 @@ defmodule Aiur.AgentRunner.ToolExecutor do
         request_and_format(handlers.decision_requester, payload, ticket: ticket, source: source)
 
       slug when is_binary(slug) ->
-        with {:ok, correlation} <- DecisionAttention.correlation(issue, slug) do
-          payload =
-            request_payload
-            |> remove_attention_slug()
-            |> Map.put("source_id", correlation.source_id)
+        case DecisionAttention.correlation(issue, slug) do
+          {:ok, correlation} ->
+            payload =
+              request_payload
+              |> remove_attention_slug()
+              |> Map.put("source_id", correlation.source_id)
 
-          request_and_format(handlers.attention_enricher, payload,
-            ticket: ticket,
-            source: source,
-            legacy_attention: correlation.legacy_attention
-          )
-        else
-          {:error, reason} -> {:error, {:decision_rejected, reason}}
+            request_and_format(handlers.attention_enricher, payload,
+              ticket: ticket,
+              source: source,
+              legacy_attention: correlation.legacy_attention
+            )
+
+          {:error, reason} ->
+            {:error, {:decision_rejected, reason}}
         end
 
       _invalid ->
@@ -319,23 +335,61 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   defp restore_invocation(:unset), do: Process.delete(@invocation_key)
   defp restore_invocation(value), do: Process.put(@invocation_key, value)
 
-  defp prepare_decision_attention(_issue, _workspace, _worker_host, _app_session, _opener, "attention.resolved", _message, _payload) do
+  defp prepare_decision_attention(
+         _issue,
+         _workspace,
+         _worker_host,
+         _app_session,
+         _opener,
+         "attention.resolved",
+         _message,
+         _payload
+       ) do
     {:ok, nil}
   end
 
-  defp prepare_decision_attention(issue, workspace, worker_host, app_session, opener, "attention." <> slug, message, _payload) do
+  defp prepare_decision_attention(
+         issue,
+         workspace,
+         worker_host,
+         app_session,
+         opener,
+         "attention." <> slug,
+         message,
+         _payload
+       ) do
     open_decision_attention(opener, issue, workspace, worker_host, slug, message, trusted_source(app_session))
   end
 
   defp prepare_decision_attention(issue, workspace, worker_host, app_session, opener, name, message, payload)
        when name in ["blocked", "pause.request"] do
     case operator_decision_question(message, payload) do
-      nil -> {:ok, nil}
-      question -> open_decision_attention(opener, issue, workspace, worker_host, "operator-decision", question, trusted_source(app_session))
+      nil ->
+        {:ok, nil}
+
+      question ->
+        open_decision_attention(
+          opener,
+          issue,
+          workspace,
+          worker_host,
+          "operator-decision",
+          question,
+          trusted_source(app_session)
+        )
     end
   end
 
-  defp prepare_decision_attention(_issue, _workspace, _worker_host, _app_session, _opener, _name, _message, _payload) do
+  defp prepare_decision_attention(
+         _issue,
+         _workspace,
+         _worker_host,
+         _app_session,
+         _opener,
+         _name,
+         _message,
+         _payload
+       ) do
     {:ok, nil}
   end
 
@@ -353,14 +407,50 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     :exit, reason -> {:error, {:decision_store_exit, reason}}
   end
 
-  defp sync_decision_resolution(issue, "attention.resolved", payload) do
+  defp sync_decision_resolution(issue, "attention.resolved", payload, resolver) do
     case MapAccess.get(payload, :slug) do
-      slug when is_binary(slug) -> DecisionAttention.resolve(issue, slug)
+      slug when is_binary(slug) -> safely_resolve_attention(resolver, issue, slug)
       _ -> :ok
     end
   end
 
-  defp sync_decision_resolution(_issue, _name, _payload), do: :ok
+  defp sync_decision_resolution(_issue, _name, _payload, _resolver), do: :ok
+
+  defp safely_resolve_attention(resolver, issue, slug) do
+    case resolver.(issue, slug) do
+      :ok -> :ok
+      {:error, reason} -> log_decision_resolution_failure(issue, slug, reason)
+      other -> log_decision_resolution_failure(issue, slug, {:unexpected_result, other})
+    end
+  rescue
+    error -> log_decision_resolution_failure(issue, slug, {:decision_attention_error, Exception.message(error)})
+  catch
+    :exit, reason -> log_decision_resolution_failure(issue, slug, {:decision_attention_exit, reason})
+  end
+
+  defp log_decision_resolution_failure(issue, slug, reason) do
+    Logger.warning(
+      "aiur_tool_executor phase=decision_attention_resolution_failed " <>
+        "issue=#{inspect(issue_identifier(issue))} slug=#{inspect(slug)} reason=#{inspect(reason)}"
+    )
+
+    :ok
+  end
+
+  defp log_decision_projection_failure({:error, reason}, topic) do
+    Logger.warning(
+      "aiur_tool_executor phase=decision_attention_projection_failed " <>
+        "topic=#{inspect(topic)} reason=#{inspect(reason)}"
+    )
+  end
+
+  defp log_decision_projection_failure({:ok, _result}, _topic), do: :ok
+
+  defp add_decision_projection_result(result, {:ok, decision_result}) do
+    add_decision_result(result, decision_result)
+  end
+
+  defp add_decision_projection_result(result, {:error, _reason}), do: result
 
   defp add_decision_result(result, nil), do: result
 

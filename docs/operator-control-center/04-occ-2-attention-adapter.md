@@ -15,7 +15,7 @@ the only canonical writer.
 
 | Agent event | Decision correlation | Behavior |
 |---|---|---|
-| `attention.<slug>` | Trusted ticket + bounded `<slug>` | Projected as a blocking Decision before the original event and alert fan out. |
+| `attention.<slug>` | Trusted ticket + bounded `<slug>` | Attempts a blocking Decision projection before the alert and original event fan out. |
 | `blocked` or `pause.request` with `payload.reason` equal to `operator_decision` or `operator-decision` | Trusted ticket + fixed `operator-decision` slug | The payload question, or the event message when absent, is projected through the same path. |
 | `attention.resolved` | Existing legacy slug from `payload.slug` | Retains legacy alert and `SubscriptionStore` resolution behavior; it does not create or canonically resolve a Decision in OCC-2. |
 
@@ -35,8 +35,11 @@ invented.
 The Decision ID is therefore stable for one ticket and slug. Reopening the same
 question is a duplicate. A changed legacy question appends the next version
 without erasing richer context, options, or recommendation already attached to
-that Decision. Later versions retain the earliest source-alert timestamp, while
-their canonical `created_at` remains the time each version was accepted.
+that Decision, up to the adapter's bounded legacy-refresh limit. Later versions
+retain the earliest source-alert timestamp, while their canonical `created_at`
+remains the time each version was accepted. Internally, replay and live writes
+build history in constant time per record while the public history remains in
+chronological audit order.
 
 ## Structured enrichment
 
@@ -56,7 +59,7 @@ from a different action is also a duplicate rather than a no-op audit append.
 
 ## Persistence and fanout order
 
-For a live legacy signal, ordering is:
+For a live legacy signal whose Decision projection succeeds, ordering is:
 
 1. Validate and append the complete Decision snapshot to `decisions.ndjson`.
 2. Atomically replace `decisions.json` and emit the existing persisted
@@ -65,10 +68,15 @@ For a live legacy signal, ordering is:
    the bounded reminder.
 4. Publish the original generic agent event on its unchanged topic.
 
-A DecisionStore validation, health, append, or projection failure stops the
-tool action before steps 3 and 4. If generic publication fails after durable
-acceptance, the Decision remains canonical and recoverable; the caller still
-receives the existing publication failure.
+A DecisionStore validation, health, append, or projection failure skips the
+alert/open-attention side effects and is logged, but it cannot suppress the
+original generic event: that event still publishes on its unchanged topic so a
+blocked agent remains visible to the operator. The tool reports success when
+that compatibility event publishes, without claiming a Decision correlation.
+If generic publication fails after durable acceptance, the Decision remains
+canonical and recoverable; the caller still receives the existing publication
+failure. Structured `decision.requested` calls remain durability-gated and fail
+when their canonical write fails.
 
 ## Startup compatibility import
 
@@ -80,12 +88,15 @@ alerts. Repeated reminders collapse to one ticket/slug candidate, retaining
 the earliest valid alert timestamp as `source_created_at` provenance and the
 latest question.
 
-Each candidate passes through the same DecisionStore projection. Import does
-not emit an immediate duplicate alert, but it restores the existing
-`SubscriptionStore` slug and bounded reminder. A live open already processed
-during bootstrap wins over its delayed import candidate. Because legacy
-metadata is absent from old OCC-1 records and included in hashes only when
-present, no storage migration or rewrite is required.
+Each candidate passes through the same DecisionStore projection. Import is
+bounded to 100 candidates per registry boot and does not emit an immediate
+duplicate alert, but it restores the existing `SubscriptionStore` slug and
+bounded reminder. A live open already processed during bootstrap wins over its
+delayed import candidate. When a Decision already exists, the current durable
+version also wins over the lossy alert-log candidate, so a stale pre-enrichment
+question cannot mint a new version or replace richer current content. Because
+legacy metadata is absent from old OCC-1 records and included in hashes only
+when present, no storage migration or rewrite is required.
 
 ## Temporary lifecycle boundary
 

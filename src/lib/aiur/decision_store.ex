@@ -38,6 +38,7 @@ defmodule Aiur.DecisionStore do
   @ndjson_filename "decisions.ndjson"
   @projection_filename "decisions.json"
   @request_timeout 60_000
+  @default_legacy_question_version_limit 25
 
   @type accept_result :: %{status: :accepted | :duplicate, decision: Decision.t()}
 
@@ -97,10 +98,13 @@ defmodule Aiur.DecisionStore do
 
   @impl true
   def init(opts) do
-    case Config.Paths.decision_state_dir() do
-      {:ok, dir} -> {:ok, boot(dir, Keyword.get(opts, :filesystem_sync_fun, &Aiur.Fs.sync_filesystem/0))}
-      {:error, reason} -> {:ok, unavailable_state(nil, {:path_unresolved, reason})}
-    end
+    state =
+      case Config.Paths.decision_state_dir() do
+        {:ok, dir} -> boot(dir, Keyword.get(opts, :filesystem_sync_fun, &Aiur.Fs.sync_filesystem/0))
+        {:error, reason} -> unavailable_state(nil, {:path_unresolved, reason})
+      end
+
+    {:ok, Map.put(state, :legacy_question_version_limit, legacy_question_version_limit(opts))}
   end
 
   defp boot(dir, filesystem_sync_fun) do
@@ -122,7 +126,9 @@ defmodule Aiur.DecisionStore do
           ndjson_path: ndjson_path,
           projection_path: projection_path,
           current: current,
-          history: history,
+          # The store keeps histories newest-first so every accepted append is
+          # O(1). The public history call reverses them back to audit order.
+          history: reverse_histories(history),
           writable?: true,
           health: :writable
         }
@@ -229,7 +235,7 @@ defmodule Aiur.DecisionStore do
 
   def handle_call({:history, decision_id}, _from, state) do
     case Map.fetch(state.history, decision_id) do
-      {:ok, history} -> {:reply, {:ok, history}, state}
+      {:ok, history} -> {:reply, {:ok, Enum.reverse(history)}, state}
       :error -> {:reply, {:error, :not_found}, state}
     end
   end
@@ -248,9 +254,8 @@ defmodule Aiur.DecisionStore do
   end
 
   defp handle_attention_projection(payload, opts, state) do
-    with {:ok, decision} <- normalize_legacy_attention(payload, opts) do
-      apply_attention_projection_for_source(decision, opts, state)
-    else
+    case normalize_legacy_attention(payload, opts) do
+      {:ok, decision} -> apply_attention_projection_for_source(decision, opts, state)
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
@@ -276,8 +281,15 @@ defmodule Aiur.DecisionStore do
       existing.legacy_attention != decision.legacy_attention ->
         {:reply, {:error, {:legacy_attention, :provenance_mismatch}}, state}
 
+      Keyword.get(opts, :legacy_import, false) ->
+        {:reply, {:ok, %{status: :duplicate, decision: existing}}, state}
+
       existing.question == decision.question ->
         {:reply, {:ok, %{status: :duplicate, decision: existing}}, state}
+
+      legacy_question_version_limit_reached?(existing, state) ->
+        limit = state.legacy_question_version_limit
+        {:reply, {:error, {:legacy_attention, {:version_limit, limit}}}, state}
 
       true ->
         merge_attention_question(existing, decision, opts, state)
@@ -338,9 +350,8 @@ defmodule Aiur.DecisionStore do
   end
 
   defp evaluate_attention_enrichment(existing, decision, payload, state) do
-    with {:ok, requested_version} <- fetch_attention_enrichment_version(payload, existing.version) do
-      evaluate_and_apply(decision, requested_version, state)
-    else
+    case fetch_attention_enrichment_version(payload, existing.version) do
+      {:ok, requested_version} -> evaluate_and_apply(decision, requested_version, state)
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
@@ -481,7 +492,7 @@ defmodule Aiur.DecisionStore do
           %{
             state
             | current: Map.put(state.current, decision.decision_id, decision),
-              history: Map.update(state.history, decision.decision_id, [decision], &(&1 ++ [decision]))
+              history: Map.update(state.history, decision.decision_id, [decision], &[decision | &1])
           }
           |> repair_projection()
 
@@ -510,5 +521,20 @@ defmodule Aiur.DecisionStore do
     end
 
     :ok
+  end
+
+  defp reverse_histories(histories) do
+    Map.new(histories, fn {decision_id, history} -> {decision_id, Enum.reverse(history)} end)
+  end
+
+  defp legacy_question_version_limit_reached?(decision, state) do
+    decision.version >= state.legacy_question_version_limit
+  end
+
+  defp legacy_question_version_limit(opts) do
+    case Keyword.get(opts, :legacy_question_version_limit, @default_legacy_question_version_limit) do
+      limit when is_integer(limit) and limit > 0 -> limit
+      _invalid -> @default_legacy_question_version_limit
+    end
   end
 end

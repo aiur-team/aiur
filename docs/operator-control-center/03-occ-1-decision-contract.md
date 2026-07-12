@@ -101,10 +101,14 @@ This ticket implements notification as **best-effort, attempted once synchronous
 
 Structured `decision.requested` calls route through `Aiur.DecisionStore`.
 OCC-2 also preflights `attention.<slug>` and operator-decision-marked
-`blocked`/`pause.request` calls through `Aiur.DecisionAttention`, which persists
-a minimal Decision before retaining their existing generic Publisher and alert
-behavior. Other events remain generic, including progress, ordinary
-blocked/pause signals, and arbitrary `decision.<slug>` coordination events.
+`blocked`/`pause.request` calls through `Aiur.DecisionAttention`, which attempts
+to persist a minimal Decision before retaining their existing generic Publisher
+behavior. Successful projection precedes the alert/reminder side effects. A
+projection rejection is logged and suppresses those derived side effects, but
+the original generic signal still publishes so durable-store degradation cannot
+hide a blocked agent from the operator. Other events remain generic, including
+progress, ordinary blocked/pause signals, and arbitrary `decision.<slug>`
+coordination events.
 
 Agent ingress overwrites any payload `source_id` with a stable trusted key derived from ticket, backend thread, and protocol tool-call identity (`callId`, with JSON-RPC id fallback). Replaying the same tool call therefore deduplicates without letting an agent collide with another call; distinct tool calls remain distinct Decisions. Store calls use an explicit 60-second timeout, and the tool boundary catches GenServer exits so a slow, restarting, or unavailable store returns a decision-specific tool failure rather than terminating the agent turn.
 

@@ -1,8 +1,10 @@
 defmodule Aiur.AgentRunner.ToolExecutorTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.{DecisionStore, Issue}
+  import ExUnit.CaptureLog
+
   alias Aiur.AgentRunner.ToolExecutor
+  alias Aiur.{DecisionStore, Issue}
   alias Aiur.Events.{Exchange, SubscriptionStore}
 
   describe "build/3" do
@@ -165,32 +167,61 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert result["status"] == "accepted"
     end
 
-    test "a legacy projection failure suppresses generic event publication" do
+    test "an overlong attention still publishes its generic operator signal when projection fails" do
       identifier = "TE-attention-fail-#{System.unique_integer([:positive])}"
       issue = %Issue{identifier: identifier}
+      question = String.duplicate("x", 2_001)
 
       executor =
         ToolExecutor.build(issue, nil, nil, %{},
-          attention_opener: fn _issue, _workspace, _worker_host, _slug, _question, _opts ->
-            {:error, :store_down}
+          attention_opener: fn _issue, _workspace, _worker_host, _slug, ^question, _opts ->
+            {:error, {:decision_invalid, {:question, :too_long}}}
           end
         )
 
       :ok = Exchange.subscribe("ticket.#{identifier}.agent.attention.scope-question")
 
-      response =
-        executor.("emit_event", %{
-          "name" => "attention.scope-question",
-          "message" => "Approve the target?"
-        })
+      log =
+        capture_log(fn ->
+          response =
+            executor.("emit_event", %{
+              "name" => "attention.scope-question",
+              "message" => question
+            })
 
-      assert response["success"] == false
-
-      assert Jason.decode!(response["output"])["error"]["message"] ==
-               "Decision request was rejected by the durable DecisionStore."
+          assert response["success"] == true
+        end)
 
       expected_topic = "ticket.#{identifier}.agent.attention.scope-question"
-      refute_receive {:event, %{topic: ^expected_topic}}, 200
+      assert_receive {:event, %{topic: ^expected_topic}}, 200
+      assert log =~ "phase=decision_attention_projection_failed"
+      assert log =~ "question, :too_long"
+    end
+
+    test "a control-character operator-decision block still publishes when projection fails" do
+      identifier = "TE-blocked-fail-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      question = "Approve this?\u0007"
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{},
+          attention_opener: fn _issue, _workspace, _worker_host, "operator-decision", ^question, _opts ->
+            {:error, {:decision_invalid, {:question, :unsafe_characters}}}
+          end
+        )
+
+      :ok = Exchange.subscribe("ticket.#{identifier}.agent.blocked")
+
+      response =
+        executor.("emit_event", %{
+          "name" => "blocked",
+          "message" => "Waiting for a decision",
+          "payload" => %{"reason" => "operator_decision", "question" => question}
+        })
+
+      assert response["success"] == true
+      expected_topic = "ticket.#{identifier}.agent.blocked"
+      assert_receive {:event, %{topic: ^expected_topic}}, 200
     end
 
     test "ordinary blocked events do not enter the legacy Decision adapter" do
@@ -208,6 +239,40 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       assert executor.("emit_event", %{"name" => "blocked", "message" => "Waiting for a dependency"})["success"] == true
       refute_receive :unexpected_attention_projection
+    end
+
+    test "a resolution timeout cannot suppress the published resolved event or exit the caller" do
+      identifier = "TE-resolution-timeout-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      blocked_registry = spawn(fn -> receive do: (:stop -> :ok) end)
+      on_exit(fn -> send(blocked_registry, :stop) end)
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{},
+          attention_resolver: fn _issue, _slug ->
+            GenServer.call(blocked_registry, :resolve, 10)
+          end
+        )
+
+      :ok = Exchange.subscribe("ticket.#{identifier}.agent.attention.resolved")
+
+      log =
+        capture_log(fn ->
+          response =
+            executor.("emit_event", %{
+              "name" => "attention.resolved",
+              "message" => "Resolved",
+              "payload" => %{"slug" => "scope-question"}
+            })
+
+          assert response["success"] == true
+          assert Process.alive?(self())
+        end)
+
+      expected_topic = "ticket.#{identifier}.agent.attention.resolved"
+      assert_receive {:event, %{topic: ^expected_topic}}, 200
+      assert log =~ "phase=decision_attention_resolution_failed"
+      assert log =~ "timeout"
     end
   end
 

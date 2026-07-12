@@ -50,10 +50,10 @@ unable to represent older or unstructured requests consistently.
   trusted ticket identifier plus attention slug, with the question, blocking
   state, slug/source-alert provenance, available trusted ticket context, and no
   invented options.
-- R2. Persist the canonical Decision audit and current projection before
-  publishing the legacy event, emitting an alert/reminder, or broadcasting
-  Decision changes; a persistence failure must fail the tool action without a
-  false reminder or open-attention update.
+- R2. Attempt the canonical Decision audit and current projection before
+  emitting an alert/reminder or broadcasting Decision changes. A persistence
+  failure must not create a false reminder or open-attention update, but it
+  must not suppress the original generic operator-facing event.
 - R3. Import discoverable active legacy attention alerts at startup into the
   same store, preserving a valid alert timestamp only as source provenance,
   without importing resolved alerts or cross-project records.
@@ -139,8 +139,8 @@ unable to represent older or unstructured requests consistently.
   not by parsing raw logs in DecisionAttention or treating alert logs as the new
   source of truth.
 - Preflight live attention persistence before the generic Publisher call. The
-  existing attention topic and alert still fire after acceptance, preserving
-  compatibility while satisfying persist-before-notify.
+  existing alert fires only after acceptance, while the original generic topic
+  remains visible even when projection fails.
 
 ---
 
@@ -245,8 +245,9 @@ wrong merge or replay rule can silently corrupt append-only history.
   second current record.
 - Retry: redelivery of the same structured tool action remains one enrichment
   record even after the current state has advanced.
-- Edge case: a changed minimal question appends a new version while retaining
-  existing structured fields rather than downgrading the Decision.
+- Edge case: a changed minimal question appends a bounded new version while
+  retaining existing structured fields rather than downgrading the Decision;
+  further refreshes stop at the configured adapter limit.
 - Error path: an unknown slug correlation, mismatched provenance topic, unsafe
   slug, stale explicit version, or different ticket is rejected without an
   audit append or notification.
@@ -279,9 +280,9 @@ projection changes.
 - Add a focused AlertFeed projection that returns only active, project-scoped
   decision-attention topics with recovered ticket, slug, question, source
   topic, and timestamp.
-- On DecisionAttention startup, project those candidates through DecisionStore
-  and restore bounded re-asks/open-attention bookkeeping without emitting a
-  duplicate immediate alert.
+- On DecisionAttention startup, project a bounded number of candidates through
+  DecisionStore and restore bounded re-asks/open-attention bookkeeping without
+  emitting a duplicate immediate alert.
 - On live open, synchronously project first; only then update
   SubscriptionStore, emit the alert, and schedule the timer. Keep resolve and
   `.resolved` alert compatibility unchanged.
@@ -306,7 +307,8 @@ side effects.
 - Failure: a store rejection returns an error and emits no alert, opens no
   attention, and schedules no re-ask.
 - Idempotency: restart import over an already-projected attention does not add a
-  Decision version or immediate reminder.
+  Decision version or immediate reminder, including when the alert-log question
+  predates structured enrichment.
 - Compatibility: re-ask and resolve still emit the same alert topics and clear
   the same SubscriptionStore slug.
 
@@ -349,8 +351,8 @@ correct order while preserving every unrelated dynamic event behavior.
   slug and the same persistence order.
 - Enrichment: a later structured call with the same slug updates the same
   Decision, and a retry with the same protocol call ID does not append again.
-- Error path: store failure prevents generic publication and yields a
-  Decision-specific tool failure.
+- Error path: store failure skips alert bookkeeping and logs the projection
+  rejection, while the generic operator-facing event still publishes.
 - Security: agent-supplied ticket, source, Decision ID, or mismatched legacy
   topic cannot redirect enrichment outside the bound issue.
 - Regression: `attention.resolved` still clears the slug; non-decision
@@ -370,8 +372,9 @@ correct order while preserving every unrelated dynamic event behavior.
   AlertFeed supplies startup candidates; existing Exchange/PubSub/Alerts remain
   read-model fanout.
 - **Error propagation:** Validation, store health, append, or projection errors
-  fail the dynamic action before an attention appears; bootstrap import logs a
-  bounded warning and leaves DecisionStore health authoritative.
+  prevent derived alert state and are logged, while generic operator-facing
+  signals remain publishable; bootstrap import logs a bounded warning and
+  leaves DecisionStore health authoritative.
 - **State lifecycle risks:** Startup redelivery and repeated tool calls must
   deduplicate; minimal repeats must not erase structured context; resolved
   state remains split between the legacy SubscriptionStore and future OCC-3
@@ -394,6 +397,7 @@ correct order while preserving every unrelated dynamic event behavior.
 |------|------------|
 | Startup import crosses repository boundaries | Scope workspace roots through the configured tracker repository and treat the current central alert log as instance-local. |
 | A legacy re-open downgrades a structured Decision | Merge the minimal question into current content inside the serialized store rather than normalizing a replacement snapshot. |
+| Lossy startup data or changing questions grow history without bound | Existing durable state wins over startup imports; cap legacy question refresh versions and startup candidate fanout, and prepend internal history in O(1). |
 | New metadata invalidates OCC-1 audit hashes | Omit absent metadata from hash input and add explicit old-record replay coverage. |
 | Publish failure occurs after durable acceptance | Preserve the durable Decision and return the existing event failure; consumers recover from DecisionStore rather than assuming Exchange is storage. |
 | OCC-3 changes lifecycle shape | Keep resolution out of the canonical schema here and document the temporary legacy open-state join explicitly. |

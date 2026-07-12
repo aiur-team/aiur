@@ -195,8 +195,50 @@ defmodule Aiur.DecisionAttentionTest do
     assert payload["created_at"] == "2026-07-12T01:00:00Z"
     assert opts[:ticket].identifier == identifier
     assert opts[:legacy_attention].slug == "scope-question"
+    assert opts[:legacy_import]
     refute_receive {:decision_alert, _}
-    assert SubscriptionStore.snapshot(identifier).open_attentions == ["scope-question"]
+
+    assert eventually(fn ->
+             match?(%{open_attentions: ["scope-question"]}, SubscriptionStore.snapshot(identifier))
+           end)
+  end
+
+  test "startup import bounds projection fanout and restored timers" do
+    prefix = "DECISION-IMPORT-LIMIT-#{System.unique_integer([:positive])}"
+    test_pid = self()
+
+    attentions =
+      for index <- 1..5 do
+        identifier = "#{prefix}-#{index}"
+
+        %{
+          identifier: identifier,
+          slug: "scope-question",
+          question: "Question #{index}?",
+          topic: "ticket.#{identifier}.agent.attention.scope-question",
+          source_created_at: ~U[2026-07-12 01:00:00Z]
+        }
+      end
+
+    projector = fn payload, opts ->
+      send(test_pid, {:bounded_import, opts[:ticket].identifier, payload["question"]})
+      accepted_projection().(payload, opts)
+    end
+
+    {pid, _name} =
+      start_attention(
+        attention_loader: fn -> attentions end,
+        decision_projector: projector,
+        import_limit: 2
+      )
+
+    first_identifier = "#{prefix}-1"
+    second_identifier = "#{prefix}-2"
+    assert_receive {:bounded_import, ^first_identifier, "Question 1?"}
+    assert_receive {:bounded_import, ^second_identifier, "Question 2?"}
+    refute_receive {:bounded_import, _, _}
+    assert eventually(fn -> :sys.get_state(pid).importing? == false end)
+    assert map_size(:sys.get_state(pid).attentions) == 2
   end
 
   test "a live open wins over a delayed startup import for the same attention" do
