@@ -18,15 +18,14 @@ defmodule Aiur.DecisionMetrics.Canonical do
   def decision_id_for_attention(server, topic) when is_binary(topic) do
     server
     |> current_decisions()
-    |> Enum.find_value(fn decision ->
-      case field(decision, :legacy_attention) do
-        attention when is_map(attention) ->
-          if field(attention, :topic) == topic, do: field(decision, :decision_id)
+    |> Enum.find_value(&attention_decision_id(&1, topic))
+  end
 
-        _other ->
-          nil
-      end
-    end)
+  defp attention_decision_id(decision, topic) do
+    attention = field(decision, :legacy_attention)
+
+    if is_map(attention) and field(attention, :topic) == topic,
+      do: field(decision, :decision_id)
   end
 
   defp current_decisions(server) do
