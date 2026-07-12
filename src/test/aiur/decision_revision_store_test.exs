@@ -2,6 +2,7 @@ defmodule Aiur.DecisionRevisionStoreTest do
   use ExUnit.Case, async: false
 
   alias Aiur.{Decision, DecisionEvent, DecisionPubSub, DecisionStore}
+  alias Aiur.Events.IdGenerator
 
   @ticket %{identifier: "985", title: "OCC-8", url: "https://github.com/its-everdred/aiur/issues/985"}
   @source %{agent_id: "agent-1", session_id: "session-1", event_id: "request-1"}
@@ -280,7 +281,7 @@ defmodule Aiur.DecisionRevisionStoreTest do
 
       if reservation == 4,
         do: {:error, :not_durable},
-        else: Aiur.Events.IdGenerator.reserve_durable_id()
+        else: IdGenerator.reserve_durable_id()
     end
 
     dispatcher = fn dispatched, opts ->

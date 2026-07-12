@@ -496,19 +496,21 @@ defmodule Aiur.DecisionStore do
   defp handle_answer(decision_id, payload, opts, state) do
     with {:ok, decision} <- fetch_decision(state, decision_id),
          {:ok, actor} <- fetch_actor(opts) do
-      case decision.answer do
-        nil ->
-          case require_answerable(decision) do
-            :ok -> accept_answer(decision, payload, actor, opts, state)
-            {:error, reason} -> {:reply, {:error, reason}, state}
-          end
-
-        %DecisionAnswer{} ->
-          replay_answer(decision, payload, actor, opts, state)
-      end
+      accept_or_replay_answer(decision, payload, actor, opts, state)
     else
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
+  end
+
+  defp accept_or_replay_answer(%Decision{answer: nil} = decision, payload, actor, opts, state) do
+    case require_answerable(decision) do
+      :ok -> accept_answer(decision, payload, actor, opts, state)
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp accept_or_replay_answer(%Decision{answer: %DecisionAnswer{}} = decision, payload, actor, opts, state) do
+    replay_answer(decision, payload, actor, opts, state)
   end
 
   defp handle_revision(decision_id, payload, opts, state) do
@@ -1322,23 +1324,26 @@ defmodule Aiur.DecisionStore do
     if is_map(correlation) and is_binary(action_id) do
       with {:ok, context} <- normalize_transport_context(item, correlation, action_id),
            {:ok, decision} <- fetch_decision(state, context.decision_id),
-           :ok <- validate_transport_decision(decision, context) do
-        case fetch_dispatch_attempt(decision, context) do
-          {:ok, attempt} ->
-            {:ok, decision, attempt, context}
-
-          {:error, :attempt_not_found} ->
-            if Enum.any?(decision.dispatch_attempts, &(&1.action_id == context.action_id)),
-              do: {:error, :attempt_not_found},
-              else: {:ok, decision, :missing_attempt, context}
-
-          {:error, reason} ->
-            {:error, reason}
-        end
+           :ok <- validate_transport_decision(decision, context),
+           {:ok, attempt} <- resolve_dispatch_attempt(decision, context) do
+        {:ok, decision, attempt, context}
       end
     else
       {:ok, :ignored}
     end
+  end
+
+  defp resolve_dispatch_attempt(decision, context) do
+    case fetch_dispatch_attempt(decision, context) do
+      {:error, :attempt_not_found} -> resolve_missing_dispatch_attempt(decision, context.action_id)
+      result -> result
+    end
+  end
+
+  defp resolve_missing_dispatch_attempt(decision, action_id) do
+    if Enum.any?(decision.dispatch_attempts, &(&1.action_id == action_id)),
+      do: {:error, :attempt_not_found},
+      else: {:ok, :missing_attempt}
   end
 
   defp normalize_transport_context(item, correlation, action_id) do
@@ -1473,35 +1478,43 @@ defmodule Aiur.DecisionStore do
   end
 
   defp apply_transport_transitions(state, type, items, reason) do
-    {next_state, lifecycle_events} =
-      Enum.reduce(items, {state, []}, fn item, {state_acc, events_acc} ->
-        case correlated_transport_context(state_acc, item) do
-          {:ok, decision, attempt, context} when is_map(attempt) ->
-            case append_transport_transition(state_acc, decision, attempt, context, type, reason) do
-              {:ok, :duplicate, duplicate_state, nil} ->
-                {duplicate_state, events_acc}
+    items
+    |> Enum.reduce({state, []}, &apply_transport_transition_item(&1, &2, type, reason))
+    |> finalize_transport_transitions(type)
+  end
 
-              {:ok, :accepted, appended_state, {updated, event}} ->
-                {appended_state, [{decision, updated, event} | events_acc]}
+  defp apply_transport_transition_item(item, {state, events}, type, reason) do
+    case correlated_transport_context(state, item) do
+      {:ok, decision, attempt, context} when is_map(attempt) ->
+        append_transport_transition_item(state, events, decision, attempt, context, type, reason)
 
-              {:error, append_reason} ->
-                {recover_background_append(state_acc, decision, context.action_id, type, append_reason), events_acc}
-            end
+      {:ok, _decision, :missing_attempt, _context} ->
+        Logger.warning("aiur_decision_store phase=transport_batch_missing_attempt type=#{type}")
+        {state, events}
 
-          {:ok, _decision, :missing_attempt, _context} ->
-            Logger.warning("aiur_decision_store phase=transport_batch_missing_attempt type=#{type}")
-            {state_acc, events_acc}
+      {:ok, :ignored} ->
+        {state, events}
 
-          {:ok, :ignored} ->
-            {state_acc, events_acc}
+      {:error, context_reason} ->
+        Logger.warning("aiur_decision_store phase=transport_batch_rejected type=#{type} reason=#{inspect(context_reason)}")
+        {state, events}
+    end
+  end
 
-          {:error, context_reason} ->
-            Logger.warning("aiur_decision_store phase=transport_batch_rejected type=#{type} reason=#{inspect(context_reason)}")
+  defp append_transport_transition_item(state, events, decision, attempt, context, type, reason) do
+    case append_transport_transition(state, decision, attempt, context, type, reason) do
+      {:ok, :duplicate, duplicate_state, nil} ->
+        {duplicate_state, events}
 
-            {state_acc, events_acc}
-        end
-      end)
+      {:ok, :accepted, appended_state, {updated, event}} ->
+        {appended_state, [{decision, updated, event} | events]}
 
+      {:error, append_reason} ->
+        {recover_background_append(state, decision, context.action_id, type, append_reason), events}
+    end
+  end
+
+  defp finalize_transport_transitions({next_state, lifecycle_events}, type) do
     ordered_events = Enum.reverse(lifecycle_events)
 
     finalized =
