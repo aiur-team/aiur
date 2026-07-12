@@ -1873,6 +1873,20 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert Config.dashboard_writable?()
   end
 
+  test "decision supervisor policy round-trips through workflow configuration" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      supervisor_decision_allowed_kinds: [" Architecture ", "PRODUCT", "architecture"],
+      supervisor_decision_allow_non_reversible: true
+    )
+
+    assert :ok = Config.validate!()
+
+    assert Config.supervisor_decision_policy() == %{
+             allowed_kinds: ["architecture", "product"],
+             allow_non_reversible: true
+           }
+  end
+
   test "config reads defaults for optional settings" do
     previous_linear_api_key = System.get_env("LINEAR_API_KEY")
     on_exit(fn -> restore_env("LINEAR_API_KEY", previous_linear_api_key) end)
@@ -1909,6 +1923,11 @@ defmodule Aiur.WorkspaceAndConfigTest do
     # Dashboard is read-only by default until the parity pass (#371).
     assert config.observability.dashboard_writable == false
     refute Config.dashboard_writable?()
+
+    assert Config.supervisor_decision_policy() == %{
+             allowed_kinds: [],
+             allow_non_reversible: false
+           }
 
     assert config.agent.codex.command == "codex app-server"
 
