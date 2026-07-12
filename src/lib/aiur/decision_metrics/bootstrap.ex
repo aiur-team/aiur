@@ -51,7 +51,7 @@ defmodule Aiur.DecisionMetrics.Bootstrap do
     result = seed_fun.(server, limit)
     send(owner, {:canonical_seed, result})
   rescue
-    error -> send(owner, {:canonical_seed_failed, Exception.message(error)})
+    error -> send(owner, {:canonical_seed_failed, {:exception, Exception.message(error)}})
   catch
     kind, reason -> send(owner, {:canonical_seed_failed, {kind, reason}})
   end

@@ -4,7 +4,7 @@ defmodule Aiur.DecisionMetrics.Event do
   the small, redacted fact shape consumed by `Aiur.DecisionMetrics`.
   """
 
-  alias Aiur.DecisionEvent
+  alias Aiur.{Decision, DecisionEvent, DecisionProjection}
   alias Aiur.DecisionMetrics.Event.Fields
 
   @stage_aliases %{
@@ -97,6 +97,11 @@ defmodule Aiur.DecisionMetrics.Event do
   end
 
   defp stage_alias(label), do: Map.get(@stage_aliases, normalize_label(label))
+
+  defp trusted_stage?(stage, event) when stage in [:requested, :revised] do
+    canonical_event?(event) or
+      match?({:ok, %Decision{}}, DecisionProjection.decode_request_record(event))
+  end
 
   defp trusted_stage?(stage, event)
        when stage in [:decided, :dispatched, :delivered, :acknowledged, :resolved] do

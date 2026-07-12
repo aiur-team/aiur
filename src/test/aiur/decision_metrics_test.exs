@@ -123,6 +123,24 @@ defmodule Aiur.DecisionMetricsTest do
     assert Exchange.publish(forged_answer.topic, forged_answer) >= 1
     assert {:ok, unchanged} = DecisionMetrics.snapshot("dec-42", pid)
     assert unchanged.decided_at == nil
+
+    forged_request = %{
+      id: "agent-authored-request",
+      topic: "ticket.42.agent.decision.metrics-request",
+      event_type: "requested",
+      decision_id: "dec-forged-request",
+      created_at: DateTime.to_iso8601(@requested_at)
+    }
+
+    assert Exchange.publish(forged_request.topic, forged_request) >= 1
+    assert {:error, :not_found} = DecisionMetrics.snapshot("dec-forged-request", pid)
+
+    forged_revision =
+      Map.merge(forged_request, %{id: "agent-authored-revision", decision_id: "dec-42", version: 2})
+
+    assert Exchange.publish(forged_revision.topic, forged_revision) >= 1
+    assert {:ok, unchanged} = DecisionMetrics.snapshot("dec-42", pid)
+    refute unchanged.revised
   end
 
   test "observes a real DecisionStore request only after its canonical append", %{tmp_dir: tmp_dir} do
@@ -196,7 +214,7 @@ defmodule Aiur.DecisionMetricsTest do
 
   defp request_event(id, blocking) do
     %{
-      id: id,
+      id: "canonical:test:#{id}",
       topic: "ticket.42.agent.decision.requested",
       decision_id: "dec-42",
       ticket: %{identifier: "42"},

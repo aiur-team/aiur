@@ -89,7 +89,7 @@ defmodule Aiur.DecisionMetrics.Sample do
     }
   end
 
-  @doc "Rehydrates the latest snapshot while replaying the append-only metrics log."
+  @doc "Rehydrates the latest snapshot while replaying the bounded metrics stream."
   @spec from_map(map()) :: {:ok, t()} | {:error, term()}
   def from_map(raw) when is_map(raw) do
     with decision_id when is_binary(decision_id) <- raw["decision_id"],

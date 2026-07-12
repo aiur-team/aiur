@@ -100,6 +100,24 @@ defmodule Aiur.DecisionMetricsWriterTest do
     assert :ok = DecisionMetrics.flush(metrics)
   end
 
+  test "failed append retains the latest projection for compaction retry", %{tmp_dir: tmp_dir} do
+    path = Path.join(tmp_dir, "retry-after-write-failure.ndjson")
+
+    writer =
+      start_writer!(path,
+        append_fun: fn _path, _records -> {:error, :disk_full} end,
+        flush_interval_ms: 60_000
+      )
+
+    Writer.persist(record(1), writer)
+    assert {:error, :disk_full} = Writer.flush(writer)
+    assert Writer.stats(writer).force_compact?
+
+    assert :ok = Writer.flush(writer)
+    refute Writer.stats(writer).force_compact?
+    assert path |> File.read!() |> String.split("\n", trim: true) |> length() == 1
+  end
+
   test "canonical seeding does not block startup or event collection", %{tmp_dir: tmp_dir} do
     path = Path.join(tmp_dir, "async-seed.ndjson")
     parent = self()
@@ -129,6 +147,23 @@ defmodule Aiur.DecisionMetricsWriterTest do
 
     send(seed_task, :release_seed)
     assert :ok = DecisionMetrics.await_seed(metrics)
+  end
+
+  test "canonical seed failure is observable without stopping collection", %{tmp_dir: tmp_dir} do
+    path = Path.join(tmp_dir, "failed-seed.ndjson")
+
+    {:ok, metrics} =
+      DecisionMetrics.start_link(
+        name: nil,
+        path: path,
+        subscribe?: false,
+        seed_fun: fn _store, _limit -> raise "seed unavailable" end
+      )
+
+    on_exit(fn -> stop_if_alive(metrics) end)
+    assert {:error, {:exception, "seed unavailable"}} = DecisionMetrics.await_seed(metrics)
+    assert :ok = DecisionMetrics.observe(request_event(4, "dec-after-failed-seed"), metrics)
+    assert {:ok, _snapshot} = DecisionMetrics.snapshot("dec-after-failed-seed", metrics)
   end
 
   defp start_writer!(path, opts) do
@@ -164,7 +199,7 @@ defmodule Aiur.DecisionMetricsWriterTest do
 
   defp request_event(id, decision_id) do
     %{
-      id: id,
+      id: "canonical:test:#{id}",
       topic: "ticket.42.agent.decision.requested",
       decision_id: decision_id,
       blocking: true,

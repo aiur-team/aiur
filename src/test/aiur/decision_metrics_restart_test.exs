@@ -152,7 +152,7 @@ defmodule Aiur.DecisionMetricsRestartTest do
 
   defp request_event(id) do
     %{
-      id: id,
+      id: "canonical:test:#{id}",
       topic: "ticket.42.agent.decision.requested",
       decision_id: "dec-42",
       ticket: %{identifier: "42"},

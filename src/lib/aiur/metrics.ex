@@ -1,5 +1,5 @@
 defmodule Aiur.Metrics do
-  @moduledoc "Shared path convention for append-only runtime metric streams."
+  @moduledoc "Shared path convention for runtime metric files."
 
   alias Aiur.Config.Paths
 
