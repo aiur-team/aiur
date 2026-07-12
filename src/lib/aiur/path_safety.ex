@@ -8,7 +8,7 @@ defmodule Aiur.PathSafety do
     expanded_path = Path.expand(path)
     {root, segments} = split_absolute_path(expanded_path)
 
-    case resolve_segments(root, [], segments, MapSet.new(), 0) do
+    case resolve_segments(root, [], segments, %{}, 0) do
       {:ok, canonical_path} ->
         {:ok, canonical_path}
 
@@ -45,7 +45,7 @@ defmodule Aiur.PathSafety do
 
   defp follow_symlink(candidate_path, root, resolved_segments, rest, visited, depth) do
     cond do
-      MapSet.member?(visited, candidate_path) ->
+      Map.has_key?(visited, candidate_path) ->
         {:error, :symlink_cycle}
 
       depth >= @max_symlink_depth ->
@@ -65,7 +65,7 @@ defmodule Aiur.PathSafety do
         target_root,
         [],
         target_segments ++ rest,
-        MapSet.put(visited, candidate_path),
+        Map.put(visited, candidate_path, true),
         depth + 1
       )
     end
