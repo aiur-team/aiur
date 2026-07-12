@@ -38,6 +38,8 @@ defmodule Aiur.Orchestrator.AgentTeardown do
   @doc false
   @spec terminate_running_issue(State.t(), String.t(), boolean()) :: State.t()
   def terminate_running_issue(%State{} = state, issue_id, cleanup_workspace) do
+    state = Orchestrator.cancel_ci_wait_rewake(state, issue_id)
+
     case Map.get(state.running, issue_id) do
       nil ->
         RetryEngine.release_issue_claim(state, issue_id)

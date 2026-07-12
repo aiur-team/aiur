@@ -22,9 +22,11 @@ what you're doing — you don't need all four every turn.
 
 ## The shortest version
 
-- Move the issue to `agent:in-progress`, keep one `## Agent Workpad` comment
-  current, and flip to `agent:human-review` when the PR is ready for review. Do
-  **not** self-merge — always await human review.
+- Move the issue to `agent:in-progress` and keep one `## Agent Workpad` comment
+  current. When implementation and draft-PR self-review are complete, move to
+  `agent:ci-wait` and end the turn; after the delivered pass result, mark the PR
+  ready and flip to `agent:human-review`. Do **not** self-merge — always await
+  human review.
 - Right-size the CE loop to the work: large asks usually run
   `ce-brainstorm → ce-plan → ce-work → ce-code-review`; smaller asks may skip
   brainstorm, plan, or review, but err on the side of using them when in doubt.

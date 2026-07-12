@@ -6,6 +6,7 @@ GitHub issue state is label-based:
 
 - `agent:todo`
 - `agent:in-progress`
+- `agent:ci-wait`
 - `agent:human-review`
 - `agent:rework`
 - `agent:merging`
@@ -26,10 +27,13 @@ GitHub issue state is label-based:
    `ce-brainstorm` -> `ce-plan` -> `ce-work` -> `ce-code-review`.
 8. Smaller asks may skip brainstorm, plan, or review when the extra step would
    be overhead, but err on the side of using these skills when in doubt.
-9. Move the issue to `Human Review` when implementation work is ready for review.
-10. Move the issue to `Done` only when the issue explicitly says the agent should
+9. When implementation and draft-PR self-review are complete and only CI remains,
+   move the issue to `agent:ci-wait` and end the turn. The daemon owns continuous
+   CI polling. Do not loop on `gh pr checks` in a live agent turn.
+10. On a delivered CI pass, mark the PR ready and move the issue to `Human Review`.
+11. Move the issue to `Done` only when the issue explicitly says the agent should
     close it out without human review.
-11. Before ending a turn while the issue remains active, update the handoff with
+12. Before ending a turn while the issue remains active, update the handoff with
     current phase, key decisions, validation completed, and remaining next steps.
 
 ## PR review feedback loop
