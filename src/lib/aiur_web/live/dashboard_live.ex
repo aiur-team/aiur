@@ -148,7 +148,7 @@ defmodule AiurWeb.DashboardLive do
           <div>
             <p class="section-eyebrow">Durable outcomes</p>
             <h2 id="recent-title">Recent</h2>
-            <p>Merged pull requests and recorded decision actions from the current run.</p>
+            <p>Repository merges and recorded decision actions from durable projections.</p>
           </div>
         </header>
         <RecentOutcomes.recent_outcomes

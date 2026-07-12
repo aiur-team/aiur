@@ -28,7 +28,7 @@ defmodule AiurWeb.OperatorControlCenter.RecentOutcomes do
         Recent outcomes are degraded; showing the last validated prefix.
       </div>
       <div :if={@provider_health != :unavailable and @outcomes == []} class="empty-state compact">
-        No merged pull requests are recorded for this run.
+        No recent repository merges are recorded.
       </div>
       <div class="outcome-list">
         <article :for={outcome <- @outcomes} class="outcome-card">

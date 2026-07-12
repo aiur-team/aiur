@@ -75,7 +75,12 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
       <span class="stat-divider"></span>
       <.stat href="/" tone={if @overview.queued_or_retrying > 0, do: "attn", else: "good"} value={@overview.queued_or_retrying} label="Queued / retrying" />
       <span class="stat-divider"></span>
-      <.stat href="#recent-outcomes" tone="good" value={@overview.merged_this_run} label="Merged this run" />
+      <.stat
+        href="#recent-outcomes"
+        tone="good"
+        value={@overview.recent_repository_merges}
+        label="Recent repo merges"
+      />
     </section>
     """
   end

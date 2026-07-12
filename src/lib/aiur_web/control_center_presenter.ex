@@ -132,7 +132,7 @@ defmodule AiurWeb.ControlCenterPresenter do
       blocking_decisions: Enum.count(decisions, &(&1.blocking and &1.lifecycle == :recorded)),
       running: Map.get(counts, :running, 0),
       queued_or_retrying: Map.get(counts, :idle, 0) + Map.get(counts, :retrying, 0),
-      merged_this_run: length(recent_outcomes)
+      recent_repository_merges: length(recent_outcomes)
     }
   end
 

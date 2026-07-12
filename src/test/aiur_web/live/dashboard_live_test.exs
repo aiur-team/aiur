@@ -141,7 +141,12 @@ defmodule AiurWeb.DashboardLiveTest do
       fleet_payload
       |> ControlCenterPresenter.compose([], [], %{merges: [], health: :ready, reconciliation: %{status: :complete, partial?: false}})
       |> Map.put(:decisions, [decision])
-      |> Map.put(:overview, %{blocking_decisions: 1, running: 0, queued_or_retrying: 0, merged_this_run: 0})
+      |> Map.put(:overview, %{
+        blocking_decisions: 1,
+        running: 0,
+        queued_or_retrying: 0,
+        recent_repository_merges: 0
+      })
 
     inbox_html = render_payload(fleet_payload, payload: payload, live_action: :decisions)
     detail_html = render_payload(fleet_payload, payload: payload, live_action: :decision, selected_decision_id: decision.decision_id)
@@ -190,6 +195,9 @@ defmodule AiurWeb.DashboardLiveTest do
     html = render_payload(payload)
 
     assert html =~ "Snapshot unavailable"
+    assert html =~ "Recent repo merges"
+    refute html =~ "Merged this run"
+    refute html =~ "from the current run"
     assert html =~ "Decision history"
     assert html =~ "Human operator"
     assert html =~ "Supervising agent"

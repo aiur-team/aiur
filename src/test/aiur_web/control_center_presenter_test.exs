@@ -19,7 +19,7 @@ defmodule AiurWeb.ControlCenterPresenterTest do
              blocking_decisions: 1,
              running: 1,
              queued_or_retrying: 1,
-             merged_this_run: 0
+             recent_repository_merges: 0
            }
 
     assert [blocking, normal] = payload.decisions
@@ -116,7 +116,7 @@ defmodule AiurWeb.ControlCenterPresenterTest do
     assert outcome.merged_by == "operator"
     assert outcome.live_observed?
     refute Map.has_key?(outcome, :agent)
-    assert payload.overview.merged_this_run == 1
+    assert payload.overview.recent_repository_merges == 1
     assert payload.recent_outcomes_reconciliation == %{status: :complete, partial?: false}
   end
 
