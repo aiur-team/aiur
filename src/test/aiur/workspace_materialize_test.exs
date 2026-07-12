@@ -154,6 +154,34 @@ defmodule Aiur.WorkspaceMaterializeTest do
              Workspace.materialize_from_base(Path.join(tmp, "nope"), Path.join(tmp, "ws"))
   end
 
+  test "failed replacement preserves the existing checkout", %{tmp: tmp} do
+    workspace = Path.join(tmp, "preserved")
+    File.mkdir_p!(workspace)
+    File.write!(Path.join(workspace, "sentinel"), "original\n")
+
+    assert {:error, _} =
+             Workspace.materialize_from_base(Path.join(tmp, "missing-base"), workspace)
+
+    assert File.read!(Path.join(workspace, "sentinel")) == "original\n"
+  end
+
+  test "successful replacement promotes a complete checkout and removes staging paths", %{
+    tmp: tmp,
+    base: base
+  } do
+    workspace = Path.join(tmp, "replaced")
+    File.mkdir_p!(workspace)
+    File.write!(Path.join(workspace, "sentinel"), "original\n")
+
+    assert :ok = Workspace.materialize_from_base(base, workspace)
+
+    refute File.exists?(Path.join(workspace, "sentinel"))
+    assert File.read!(Path.join(workspace, "README.md")) == "v1\n"
+    assert branch(workspace) == "aiur/replaced"
+    assert Path.wildcard(workspace <> ".materializing-*") == []
+    assert Path.wildcard(workspace <> ".replaced-*") == []
+  end
+
   test "branches off the live origin tip, not the stale warm-base HEAD (#567)", %{tmp: tmp} do
     # A bare origin advances to v2 AFTER the warm base was cloned at v1, mirroring
     # the staleness window where a merge lands but the warm base hasn't refetched.

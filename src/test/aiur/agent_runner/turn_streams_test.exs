@@ -80,6 +80,60 @@ defmodule Aiur.AgentRunner.TurnStreamsTest do
     end
   end
 
+  describe "workspace exclusion" do
+    test "turn registration waits for the same identifier's workspace operation" do
+      identifier = "TS-lock-#{System.unique_integer([:positive])}"
+      parent = self()
+
+      workspace_task =
+        Task.async(fn ->
+          ActiveTurns.with_inactive_turn(identifier, fn ->
+            send(parent, :workspace_locked)
+            assert_receive :release_workspace, 2_000
+            :ok
+          end)
+        end)
+
+      assert_receive :workspace_locked
+
+      turn_task =
+        Task.async(fn ->
+          send(parent, :turn_registration_started)
+          ActiveTurns.put(identifier, "tWAIT")
+        end)
+
+      assert_receive :turn_registration_started
+      refute Task.yield(turn_task, 0)
+
+      send(workspace_task.pid, :release_workspace)
+      assert Task.await(workspace_task) == {:ok, :ok}
+      assert Task.await(turn_task) == :ok
+      assert ActiveTurns.lookup(identifier, "tWAIT") == :active
+    end
+
+    test "workspace operations remain independent across identifiers" do
+      locked_identifier = "TS-lock-a-#{System.unique_integer([:positive])}"
+      other_identifier = "TS-lock-b-#{System.unique_integer([:positive])}"
+      parent = self()
+
+      workspace_task =
+        Task.async(fn ->
+          ActiveTurns.with_inactive_turn(locked_identifier, fn ->
+            send(parent, :workspace_locked)
+            assert_receive :release_workspace, 2_000
+            :ok
+          end)
+        end)
+
+      assert_receive :workspace_locked
+      assert :ok = ActiveTurns.put(other_identifier, "tOTHER")
+      assert ActiveTurns.lookup(other_identifier, "tOTHER") == :active
+
+      send(workspace_task.pid, :release_workspace)
+      assert Task.await(workspace_task) == {:ok, :ok}
+    end
+  end
+
   describe "post_aiur_turn_markers/4" do
     test "fires exactly one post per attached writer" do
       parent = self()

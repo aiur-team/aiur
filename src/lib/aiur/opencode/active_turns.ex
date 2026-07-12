@@ -45,9 +45,11 @@ defmodule Aiur.Opencode.ActiveTurns do
   @spec put(String.t(), String.t()) :: :ok
   def put(identifier, aiur_turn_id)
       when is_binary(identifier) and is_binary(aiur_turn_id) do
-    ensure_table()
-    :ets.insert(@table, {{identifier, aiur_turn_id}, :active, nil})
-    :ok
+    with_identifier_lock(identifier, fn ->
+      ensure_table()
+      :ets.insert(@table, {{identifier, aiur_turn_id}, :active, nil})
+      :ok
+    end)
   end
 
   @doc """
@@ -59,11 +61,32 @@ defmodule Aiur.Opencode.ActiveTurns do
   @spec mark_closed(String.t(), String.t(), term()) :: :ok
   def mark_closed(identifier, aiur_turn_id, reason)
       when is_binary(identifier) and is_binary(aiur_turn_id) do
-    ensure_table()
-    prior_pid = current_subscriber_pid({identifier, aiur_turn_id})
-    :ets.insert(@table, {{identifier, aiur_turn_id}, {:closed, reason}, prior_pid})
-    schedule_cleanup({identifier, aiur_turn_id})
-    :ok
+    with_identifier_lock(identifier, fn ->
+      ensure_table()
+      prior_pid = current_subscriber_pid({identifier, aiur_turn_id})
+      :ets.insert(@table, {{identifier, aiur_turn_id}, {:closed, reason}, prior_pid})
+      schedule_cleanup({identifier, aiur_turn_id})
+      :ok
+    end)
+  end
+
+  @doc """
+  Runs a workspace operation while no turn for `identifier` is active.
+
+  Turn activation and closure use the same per-identifier lock, so the empty
+  check and the operation form one critical section without serializing work
+  for unrelated tickets.
+  """
+  @spec with_inactive_turn(String.t(), (-> result)) :: {:ok, result} | {:error, :active_turn}
+        when result: term()
+  def with_inactive_turn(identifier, operation)
+      when is_binary(identifier) and is_function(operation, 0) do
+    with_identifier_lock(identifier, fn ->
+      case active_turn_ids(identifier) do
+        [] -> {:ok, operation.()}
+        _turn_ids -> {:error, :active_turn}
+      end
+    end)
   end
 
   @doc """
@@ -173,5 +196,9 @@ defmodule Aiur.Opencode.ActiveTurns do
       :undefined -> :ets.new(@table, [:named_table, :public, read_concurrency: true])
       _tid -> @table
     end
+  end
+
+  defp with_identifier_lock(identifier, operation) do
+    :global.trans({{__MODULE__, identifier}, self()}, operation)
   end
 end

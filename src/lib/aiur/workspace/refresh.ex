@@ -3,6 +3,7 @@ defmodule Aiur.Workspace.Refresh do
 
   require Logger
   alias Aiur.Config
+  alias Aiur.Opencode.ActiveTurns
   alias Aiur.Workspace.{BootstrapImage, Context, GitMetadata, Hooks, Provisioner}
 
   @spec run(Path.t(), map() | String.t() | nil, String.t() | nil) :: :ok | {:error, term()}
@@ -12,6 +13,24 @@ defmodule Aiur.Workspace.Refresh do
       |> Context.build()
       |> then(&%{&1 | branch_name: Provisioner.resolve_branch_name(workspace, &1)})
 
+    identifier = turn_identifier(issue_or_identifier, issue_context)
+
+    case ActiveTurns.with_inactive_turn(identifier, fn ->
+           run_without_active_turn(workspace, issue_context, worker_host)
+         end) do
+      {:ok, result} ->
+        result
+
+      {:error, :active_turn} ->
+        Logger.info(
+          "Skipping before_run workspace refresh: active turn holds checkout #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=#{Context.worker_host_for_log(worker_host)}"
+        )
+
+        :ok
+    end
+  end
+
+  defp run_without_active_turn(workspace, issue_context, worker_host) do
     hooks = Config.settings!().hooks
 
     hook_result = run_before_run_command(hooks.before_run, workspace, issue_context, worker_host)
@@ -31,6 +50,12 @@ defmodule Aiur.Workspace.Refresh do
         )
     end
   end
+
+  defp turn_identifier(%{identifier: identifier}, _issue_context) when is_binary(identifier),
+    do: identifier
+
+  defp turn_identifier(_issue_or_identifier, issue_context),
+    do: issue_context.issue_identifier
 
   @doc false
   @spec maybe_recreate_stale_workspace(

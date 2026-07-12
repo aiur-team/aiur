@@ -2,6 +2,7 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
   use Aiur.TestSupport
 
   alias Aiur.PathSafety
+  alias Aiur.Opencode.ActiveTurns
 
   describe "before_run refresh/recreate decision table (#569→#577→#653→#661)" do
     test "clean workspace: before_run refreshes and returns :ok without recreate" do
@@ -72,6 +73,36 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
         assert String.trim(git!(["-C", workspace, "status", "--short"])) == ""
         assert trace_count(trace_file) == 2
       after
+        File.rm_rf(test_root)
+      end
+    end
+
+    test "live turn survives a stale todo refresh without touching its checkout (#1030)" do
+      test_root = test_root("active-turn")
+      identifier = "REG-ACTIVE-TURN-1"
+      turn_id = "tACTIVE"
+
+      try do
+        {workspace, trace_file} = bootstrap_dirty_refresh_workspace!(test_root, identifier)
+
+        issue = %Issue{
+          id: "issue-active-turn-1",
+          identifier: identifier,
+          title: "Protect active checkout",
+          state: "in-progress",
+          labels: ["agent:todo"]
+        }
+
+        :ok = ActiveTurns.put(identifier, turn_id)
+
+        assert :ok = Workspace.run_before_run_hook(workspace, issue)
+        assert ActiveTurns.lookup(identifier, turn_id) == :active
+        assert File.read!(Path.join(workspace, "README.md")) == "dirty\n"
+        assert File.dir?(Path.join(workspace, ".git"))
+        assert branch(workspace) == "aiur/#{identifier}"
+        refute File.exists?(trace_file)
+      after
+        ActiveTurns.mark_closed(identifier, turn_id, :test_done)
         File.rm_rf(test_root)
       end
     end
