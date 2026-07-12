@@ -196,6 +196,7 @@ Operators currently have to open GitHub or invoke `gh` repeatedly to queue a sel
 
 - Add the command to shared launcher help and both operator command tables.
 - Call out that `--only` dequeues other pending work but does not stop agents already in progress.
+- Call out that `--only` cleanup is a non-atomic read-modify-write with no cross-process coordination: overlapping `--todo ... --only` invocations can drop each other's tickets.
 
 ---
 

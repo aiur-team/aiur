@@ -270,6 +270,61 @@ defmodule Aiur.AgentControlCLITest do
       assert_received {:todo_remove_label, "20", "sym:todo"}
       assert_received {:todo_remove_label, "21", "sym:todo"}
     end
+
+    test "caps --only cleanup at a batch size and reports what was left untouched" do
+      issues = %{
+        "11" => %Issue{id: "11", identifier: "11", state: "todo", labels: ["sym:todo"]}
+      }
+
+      others =
+        Enum.map(21..71, fn n ->
+          id = to_string(n)
+          %Issue{id: id, identifier: id, state: "todo", labels: ["sym:todo"]}
+        end)
+
+      active = [issues["11"] | others]
+
+      {stdout, stderr, exit_code} =
+        capture_todo(["11"], deps: todo_deps(issues, active: active), only: true)
+
+      assert exit_code == 0
+      assert stdout =~ "queued 1 ticket(s); cleared 50 other(s)"
+      assert stderr =~ "aiur: --only cleanup capped at 50 ticket(s); 1 other ticket(s) left untouched"
+      assert_received {:todo_remove_label, "70", "sym:todo"}
+      refute_received {:todo_remove_label, "71", "sym:todo"}
+    end
+
+    test "stops --only cleanup after repeated rate-limit failures mid-stream" do
+      issues = %{
+        "11" => %Issue{id: "11", identifier: "11", state: "todo", labels: ["sym:todo"]}
+      }
+
+      active = [
+        issues["11"],
+        %Issue{id: "20", identifier: "20", state: "todo", labels: ["sym:todo"]},
+        %Issue{id: "21", identifier: "21", state: "todo", labels: ["sym:todo"]},
+        %Issue{id: "22", identifier: "22", state: "todo", labels: ["sym:todo"]},
+        %Issue{id: "23", identifier: "23", state: "todo", labels: ["sym:todo"]}
+      ]
+
+      rate_limited = {:error, {:github, :rate_limited, %{status: 429, retry_after: 60, poll_interval: nil}}}
+
+      remove_result = fn
+        id, "sym:todo" when id in ["20", "21", "22"] -> rate_limited
+        _id, _label -> :ok
+      end
+
+      {stdout, stderr, exit_code} =
+        capture_todo(["11"], deps: todo_deps(issues, active: active, remove_result: remove_result), only: true)
+
+      assert exit_code == 1
+      assert stdout =~ "queued 1 ticket(s); cleared 0 other(s)"
+      assert stderr =~ "aiur: --only cleanup stopped after 3 consecutive rate-limit failures"
+      assert_received {:todo_remove_label, "20", "sym:todo"}
+      assert_received {:todo_remove_label, "21", "sym:todo"}
+      assert_received {:todo_remove_label, "22", "sym:todo"}
+      refute_received {:todo_remove_label, "23", "sym:todo"}
+    end
   end
 
   test "pause reports already paused agents as a successful no-op", %{orchestrator: pid} do

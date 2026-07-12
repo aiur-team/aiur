@@ -65,7 +65,9 @@ to the issues you want worked and run `aiur`.
 
 `aiur --todo` works without a running daemon and derives its repository and
 labels from the current config. `--only` leaves tickets already in progress
-untouched.
+untouched. Concurrent `--only` invocations are not coordinated across
+processes; running two overlapping `aiur --todo ... --only` commands can drop
+each other's tickets, so avoid running them at the same time.
 
 If a control command times out while the daemon is still live, the host may be
 scheduler-saturated. Run `aiur stop` to interrupt that session and its workers,

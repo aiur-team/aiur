@@ -173,6 +173,9 @@ rebuild when needed.
 `--todo` is a standalone GitHub operation and does not require a running Aiur
 session. It derives labels from the current config. `--only` removes the queue
 label from other pending tickets but leaves in-progress work untouched.
+Concurrent `--only` invocations are not coordinated across processes; running
+two overlapping `aiurdev --todo ... --only` commands can drop each other's
+tickets, so avoid running them at the same time.
 
 If a control command times out while the daemon is still live, the host may be
 scheduler-saturated. Run `aiurdev stop` to interrupt that session and its workers,

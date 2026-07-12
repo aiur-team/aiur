@@ -208,7 +208,9 @@ defmodule Aiur.AgentControlCLI do
   defp maybe_clear_other_todos(result, true, config, deps) do
     case deps.fetch_active.(config.active_states) do
       {:ok, issues} ->
-        Enum.reduce(issues, result, &clear_other_todo(&1, &2, config, deps))
+        issues
+        |> Enum.filter(&clearable_todo?(&1, result, config))
+        |> clear_other_todos(result, config, deps)
 
       {:error, reason} ->
         IO.puts(:stderr, "aiur: failed to enumerate active tickets (#{format_reason(reason)})")
@@ -216,34 +218,65 @@ defmodule Aiur.AgentControlCLI do
     end
   end
 
-  defp clear_other_todo(issue, result, config, deps) do
+  defp clearable_todo?(issue, result, config) do
     issue_id = todo_issue_id(issue)
     labels = normalized_issue_labels(issue)
 
-    cond do
-      MapSet.member?(result.selected, issue_id) ->
-        result
-
-      terminal_todo_issue?(issue, labels, config) ->
-        result
-
-      not MapSet.member?(labels, normalized_label(config.queue_label)) ->
-        result
-
-      true ->
-        remove_other_todo(issue_id, result, config, deps)
-    end
+    not MapSet.member?(result.selected, issue_id) and
+      not terminal_todo_issue?(issue, labels, config) and
+      MapSet.member?(labels, normalized_label(config.queue_label))
   end
 
-  defp remove_other_todo(issue_id, result, config, deps) do
+  # Bound the blast radius of one `--only` cleanup run and stop hammering the
+  # API once GitHub starts throttling us, rather than issuing throttled
+  # DELETEs across the whole batch and leaving a nondeterministic partial
+  # queue.
+  @max_cleanup_batch 50
+  @max_consecutive_rate_limit_failures 3
+
+  defp clear_other_todos(candidates, result, config, deps) do
+    {batch, skipped} = Enum.split(candidates, @max_cleanup_batch)
+
+    if skipped != [] do
+      IO.puts(
+        :stderr,
+        "aiur: --only cleanup capped at #{@max_cleanup_batch} ticket(s); #{length(skipped)} other ticket(s) left untouched"
+      )
+    end
+
+    {result, _consecutive_rate_limited} =
+      Enum.reduce_while(batch, {result, 0}, &clear_other_todo_step(&1, &2, config, deps))
+
+    result
+  end
+
+  defp clear_other_todo_step(issue, {result, consecutive_rate_limited}, config, deps) do
+    issue_id = todo_issue_id(issue)
+
     case deps.remove_label.(issue_id, config.queue_label) do
       :ok ->
         IO.puts("– ##{issue_id} cleared #{config.queue_label}")
-        Map.update!(result, :cleared, &(&1 + 1))
+        {:cont, {Map.update!(result, :cleared, &(&1 + 1)), 0}}
+
+      {:error, {:github, :rate_limited, _detail} = reason} ->
+        IO.puts(:stderr, "✗ ##{issue_id} failed to clear #{config.queue_label}: #{format_reason(reason)}")
+        result = Map.update!(result, :failures, &(&1 + 1))
+        consecutive_rate_limited = consecutive_rate_limited + 1
+
+        if consecutive_rate_limited >= @max_consecutive_rate_limit_failures do
+          IO.puts(
+            :stderr,
+            "aiur: --only cleanup stopped after #{consecutive_rate_limited} consecutive rate-limit failures"
+          )
+
+          {:halt, {result, consecutive_rate_limited}}
+        else
+          {:cont, {result, consecutive_rate_limited}}
+        end
 
       {:error, reason} ->
         IO.puts(:stderr, "✗ ##{issue_id} failed to clear #{config.queue_label}: #{format_reason(reason)}")
-        Map.update!(result, :failures, &(&1 + 1))
+        {:cont, {Map.update!(result, :failures, &(&1 + 1)), 0}}
     end
   end
 

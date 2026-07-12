@@ -175,11 +175,16 @@ defmodule Aiur.CLI do
       |> Enum.map(&String.trim/1)
 
     if issue_ids != [] and Enum.all?(issue_ids, &Regex.match?(~r/^\d+$/, &1)) do
-      {:ok, Enum.uniq(issue_ids)}
+      {:ok, issue_ids |> Enum.map(&canonicalize_todo_id/1) |> Enum.uniq()}
     else
       :error
     end
   end
+
+  # Enumerated issue identifiers are canonical (no leading zeros, see
+  # github/issues.ex normalize_issue/4), so a requested ID must match that
+  # form or `--only` can mistake the ticket it just queued for one to clear.
+  defp canonicalize_todo_id(id), do: id |> String.to_integer() |> Integer.to_string()
 
   @spec run(String.t(), deps()) :: :ok | {:error, String.t()}
   def run(workflow_path, deps) do

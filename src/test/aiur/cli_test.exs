@@ -232,6 +232,16 @@ defmodule Aiur.CLITest do
              CLI.evaluate(["--todo", "11", "12", "11"], deps())
   end
 
+  test "canonicalizes leading-zero todo IDs to match enumerated identifiers" do
+    assert {:todo, ["11"], %{only: false}} =
+             CLI.evaluate(["--todo", "011"], deps())
+  end
+
+  test "dedupes a leading-zero ID against its canonical form" do
+    assert {:todo, ["11"], %{only: false}} =
+             CLI.evaluate(["--todo", "011", "11"], deps())
+  end
+
   test "rejects todo without IDs" do
     assert {:error, message} = CLI.evaluate(["--todo"], deps())
     assert message =~ "aiur --todo <id>"
