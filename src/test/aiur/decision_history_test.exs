@@ -112,6 +112,7 @@ defmodule Aiur.DecisionHistoryTest do
         version: nil,
         created_at: nil,
         revision: %{
+          decision_version: 2,
           action_id: "action-revision-1",
           prior_action_id: "action-original",
           sequence: 1,
@@ -132,15 +133,19 @@ defmodule Aiur.DecisionHistoryTest do
     assert answer_entry.change == :answered
     assert answer_entry.action_id == "action-original"
     assert answer_entry.choice == "ship"
+    assert answer_entry.changed_at == "2026-07-12T12:03:00Z"
     assert answer_entry.actor.type == :human_operator
 
     assert revision_entry.change == :revised
+    assert revision_entry.source_version == 2
     assert revision_entry.action_id == "action-revision-1"
     assert revision_entry.prior_action_id == "action-original"
     assert revision_entry.revision_sequence == 1
     assert revision_entry.revision_result == :recorded
     assert revision_entry.dispatch_result == :delivered
+    assert revision_entry.choice == "Hold the rollout"
     assert revision_entry.rationale == "New production evidence"
+    assert revision_entry.changed_at == "2026-07-12T12:04:00Z"
     assert revision_entry.actor.type == :supervising_agent
     refute inspect(revision_entry) =~ "rolled back"
   end
@@ -173,10 +178,12 @@ defmodule Aiur.DecisionHistoryTest do
     handled_entry = DecisionHistory.project_record(handled)
 
     assert required_entry.change == :follow_up_required
+    assert required_entry.changed_at == "2026-07-12T12:05:00Z"
     assert required_entry.follow_up.required?
     refute required_entry.follow_up.handled?
 
     assert handled_entry.change == :follow_up_handled
+    assert handled_entry.changed_at == "2026-07-12T12:06:00Z"
     assert handled_entry.follow_up.required?
     assert handled_entry.follow_up.handled?
     assert handled_entry.follow_up.slug == "decision-revision-abc"

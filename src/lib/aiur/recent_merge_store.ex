@@ -165,14 +165,22 @@ defmodule Aiur.RecentMergeStore do
   end
 
   def handle_call({:mark_reconciliation, partial?, pages_fetched}, _from, state) do
-    reconciliation = %{
+    reconciliation = reconciliation_status(state.reconciliation, partial?, pages_fetched)
+
+    if reconciliation != state.reconciliation, do: notify()
+    {:reply, :ok, %{state | reconciliation: reconciliation}}
+  end
+
+  defp reconciliation_status(%{partial?: true} = current, _partial?, pages_fetched) do
+    %{current | status: :partial, pages_fetched: max(current.pages_fetched, pages_fetched)}
+  end
+
+  defp reconciliation_status(_current, partial?, pages_fetched) do
+    %{
       status: if(partial?, do: :partial, else: :complete),
       partial?: partial?,
       pages_fetched: pages_fetched
     }
-
-    if reconciliation != state.reconciliation, do: notify()
-    {:reply, :ok, %{state | reconciliation: reconciliation}}
   end
 
   defp evaluate_enrichment(existing, incoming, state) do
@@ -185,13 +193,15 @@ defmodule Aiur.RecentMergeStore do
   defp persist(merge, state) do
     case state.append_fun.(state.path, RecentMerge.to_record(merge)) do
       :ok ->
-        new_state = reduce_record(merge, state)
+        new_state = merge |> reduce_record(state) |> Map.put(:health, :writable)
         notify()
         {:reply, {:ok, %{status: :accepted, merge: merge}}, new_state}
 
       {:error, reason} ->
         Logger.warning("aiur_recent_merge_store phase=append_failed reason=#{inspect(reason)}")
-        {:reply, {:error, {:append_failed, reason}}, state}
+        health = {:append_failed, reason}
+        if state.health != health, do: notify()
+        {:reply, {:error, health}, %{state | health: health}}
     end
   end
 

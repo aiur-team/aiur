@@ -5,6 +5,8 @@ defmodule AiurWeb.Presenter do
 
   alias Aiur.{Config, DecisionHistory, Orchestrator, RecentMerge, RecentMergeStore, RunTelemetry}
 
+  @recent_merge_limit 50
+
   @spec state_payload(GenServer.name(), timeout(), keyword()) :: map()
   def state_payload(orchestrator, snapshot_timeout_ms, opts \\ []) do
     generated_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
@@ -73,7 +75,11 @@ defmodule AiurWeb.Presenter do
       when is_list(merges) and is_map(reconciliation) ->
         %{
           status: if(health == :writable, do: :available, else: :degraded),
-          entries: merges |> Enum.map(&recent_merge_payload/1) |> Enum.reject(&is_nil/1),
+          entries:
+            merges
+            |> Enum.map(&recent_merge_payload/1)
+            |> Enum.reject(&is_nil/1)
+            |> Enum.take(@recent_merge_limit),
           health: health,
           reconciliation: reconciliation,
           message: recent_merge_message(health)

@@ -237,7 +237,7 @@ instead of hard-coded socket names.
 When `server.port` (or CLI `--port`) is set, Aiur exposes:
 
 - LiveView dashboard at `/` — active agents, logs, read-only per-agent log modal
-  plus append-only Decision history and bounded recent repository merges
+  plus append-only Decision history and the 50 newest recent repository merges
 - JSON API under `/api/v1/*` for operational debugging (read endpoints; agent-write
   endpoints are disabled unless `observability.dashboard_writable` is set)
 - Read-only telemetry analytics at `/analytics` when the current run has a

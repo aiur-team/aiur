@@ -61,10 +61,11 @@ defmodule Aiur.DecisionHistory do
   @doc "Projects one canonical history record into the operator-facing shape."
   @spec project_record(map()) :: map()
   def project_record(record) when is_map(record) do
-    version = value(record, :version)
     answer = map_value(record, :answer)
     revision = map_value(record, :revision) || revision_record(record)
+    revision_answer = map_value(revision, :answer)
     follow_up = map_value(record, :follow_up)
+    version = source_version(record, answer, revision)
     revision_of = first_value([value(record, :revision_of), value(revision, :prior_action_id)])
     follow_up_payload = follow_up(record, follow_up)
     change = change_kind(record, version, answer, revision, follow_up_payload)
@@ -81,7 +82,7 @@ defmodule Aiur.DecisionHistory do
       prior_action_id: first_value([value(record, :prior_action_id), value(revision, :prior_action_id)]),
       revision_sequence: first_value([value(record, :revision_sequence), value(revision, :sequence)]),
       revision_result: first_value([value(record, :revision_result), value(revision, :result)]),
-      choice: choice(record, answer),
+      choice: choice(record, answer, revision_answer),
       rationale: first_value([value(record, :rationale), value(revision, :reason), value(answer, :rationale)]),
       dispatch_result: value(record, :dispatch_result),
       acknowledgement_result: value(record, :acknowledgement_result),
@@ -166,25 +167,42 @@ defmodule Aiur.DecisionHistory do
 
   defp changed_at(record, answer, revision, follow_up) do
     [
-      value(record, :created_at),
       value(record, :recorded_at),
       value(record, :accepted_at),
       value(revision, :recorded_at),
       value(answer, :accepted_at),
+      value(record, :follow_up_handled_at),
+      value(follow_up, :handled_at),
+      value(record, :follow_up_required_at),
+      value(follow_up, :required_at),
       value(follow_up, :recorded_at),
-      value(record, :timestamp)
+      value(record, :timestamp),
+      value(record, :created_at)
     ]
     |> first_value()
     |> timestamp()
   end
 
-  defp choice(record, answer) do
+  defp choice(record, answer, revision_answer) do
     first_value([
       value(record, :choice),
       value(answer, :choice),
       value(answer, :option_id),
       value(answer, :custom_response),
-      value(answer, :response)
+      value(answer, :response),
+      value(revision_answer, :choice),
+      value(revision_answer, :option_id),
+      value(revision_answer, :custom_response),
+      value(revision_answer, :response)
+    ])
+  end
+
+  defp source_version(record, answer, revision) do
+    first_value([
+      value(record, :version),
+      value(record, :decision_version),
+      value(answer, :decision_version),
+      value(revision, :decision_version)
     ])
   end
 
@@ -231,7 +249,12 @@ defmodule Aiur.DecisionHistory do
   defp timestamp(_timestamp), do: nil
 
   defp sort_key(entry) do
-    {timestamp_key(entry.changed_at), integer(entry.source_version)}
+    {
+      timestamp_key(entry.changed_at),
+      integer(entry.source_version),
+      present(entry.decision_id) || "",
+      present(entry.action_id) || ""
+    }
   end
 
   defp timestamp_key(timestamp) when is_binary(timestamp) do

@@ -186,6 +186,35 @@ defmodule AiurWeb.PresenterTest do
     refute payload.analytics.available?
   end
 
+  test "the recent repository merge projection stays bounded" do
+    assert {:ok, merge} =
+             RecentMerge.from_github_event(merged_event(),
+               live?: false,
+               now: ~U[2026-07-12 18:01:00Z]
+             )
+
+    merges =
+      Enum.map(1..51, fn number ->
+        %{merge | id: "owner/repo##{number}", number: number, url: "https://github.com/owner/repo/pull/#{number}"}
+      end)
+
+    payload =
+      Presenter.state_payload(Module.concat(__MODULE__, :MissingBoundedOrchestrator), 5,
+        decision_history_fun: fn -> [] end,
+        recent_merge_snapshot_fun: fn ->
+          %{
+            merges: merges,
+            health: :writable,
+            reconciliation: %{status: :complete, partial?: false, pages_fetched: 1}
+          }
+        end,
+        telemetry_file_fun: fn -> "/definitely/missing/telemetry.ndjson" end
+      )
+
+    assert length(payload.recent_merges.entries) == 50
+    assert Enum.map(payload.recent_merges.entries, & &1.number) == Enum.to_list(1..50)
+  end
+
   defp merged_event do
     %{
       "id" => "presenter-merge",

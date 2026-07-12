@@ -193,23 +193,39 @@ defmodule Aiur.RecentMergeStoreTest do
   end
 
   test "durable append failure does not alter current state", %{dir: dir} do
-    append_fun = fn _path, _record -> {:error, :disk_full} end
+    {:ok, append_mode} = Agent.start_link(fn -> :fail end)
+
+    append_fun = fn path, record ->
+      case Agent.get(append_mode, & &1) do
+        :fail -> {:error, :disk_full}
+        :ok -> Aiur.DecisionLog.append(path, record)
+      end
+    end
+
     pid = start_store!(dir, append_fun: append_fun)
     assert {:ok, merge} = RecentMerge.from_github_event(merged_event(), live?: true, run_id: "run", now: @now)
 
     assert {:error, {:append_failed, :disk_full}} = RecentMergeStore.upsert(merge, pid)
     assert RecentMergeStore.list(pid) == []
+    assert RecentMergeStore.health(pid) == {:append_failed, :disk_full}
+
+    Agent.update(append_mode, fn _ -> :ok end)
+    assert {:ok, %{status: :accepted}} = RecentMergeStore.upsert(merge, pid)
+    assert RecentMergeStore.health(pid) == :writable
   end
 
-  test "reconciliation status discloses an unknown or partial bounded window", %{dir: dir} do
+  test "reconciliation status keeps a saturated window disclosed", %{dir: dir} do
     pid = start_store!(dir)
     assert %{status: :unknown, partial?: nil, pages_fetched: 0} = RecentMergeStore.reconciliation(pid)
+
+    assert :ok = RecentMergeStore.mark_reconciliation(false, 2, pid)
+    assert %{status: :complete, partial?: false, pages_fetched: 2} = RecentMergeStore.reconciliation(pid)
 
     assert :ok = RecentMergeStore.mark_reconciliation(true, 5, pid)
     assert %{status: :partial, partial?: true, pages_fetched: 5} = RecentMergeStore.reconciliation(pid)
 
-    assert :ok = RecentMergeStore.mark_reconciliation(false, 2, pid)
-    assert %{status: :complete, partial?: false, pages_fetched: 2} = RecentMergeStore.reconciliation(pid)
+    assert :ok = RecentMergeStore.mark_reconciliation(false, 1, pid)
+    assert %{status: :partial, partial?: true, pages_fetched: 5} = RecentMergeStore.reconciliation(pid)
   end
 
   defp start_store!(dir, opts \\ []) do
