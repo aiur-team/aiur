@@ -6,14 +6,15 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   blocker declaration immediately subscribed for prompt resume behavior.
   """
 
-  alias Aiur.{Alerts, DecisionAttention, Issue}
+  alias Aiur.{Alerts, DecisionAttention, DecisionStore, Issue}
+  alias Aiur.AgentRunner.SessionLifecycle
   alias Aiur.Codex.DynamicTool
   alias Aiur.Events.{Publisher, SubscriptionStore}
   alias Aiur.GitHub.IssueDependencies
   alias Aiur.Orchestrator
 
-  @spec build(Issue.t(), Path.t() | nil, String.t() | nil) :: (String.t(), map() -> map())
-  def build(issue, workspace, worker_host) do
+  @spec build(Issue.t(), Path.t() | nil, String.t() | nil, map()) :: (String.t(), map() -> map())
+  def build(issue, workspace, worker_host, app_session \\ %{}) do
     fn tool, arguments ->
       DynamicTool.execute(
         tool,
@@ -37,7 +38,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
           )
         end,
         event_publisher: fn name, message, payload ->
-          emit_agent_event(issue, workspace, worker_host, name, message, payload)
+          emit_agent_event(issue, workspace, worker_host, app_session, name, message, payload)
         end,
         subscriber: fn pattern -> subscribe_for_issue(issue, pattern) end,
         unsubscriber: fn pattern -> unsubscribe_for_issue(issue, pattern) end,
@@ -137,7 +138,15 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     end
   end
 
-  defp emit_agent_event(issue, workspace, worker_host, name, message, payload) do
+  # The only structured request routed through the durable DecisionStore
+  # service — everything else keeps the existing generic publish path
+  # below unchanged. `Publisher.publish/3` itself also rejects this topic
+  # family, so this is the sole production ingress, not just a preference.
+  defp emit_agent_event(issue, _workspace, _worker_host, app_session, "decision.requested", message, payload) do
+    request_decision(issue, app_session, message, payload)
+  end
+
+  defp emit_agent_event(issue, workspace, worker_host, _app_session, name, message, payload) do
     identifier = issue_identifier(issue)
 
     topic =
@@ -162,6 +171,37 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
       :deduped ->
         {:error, :event_deduped}
+    end
+  end
+
+  defp request_decision(issue, app_session, message, payload) do
+    case issue_identifier(issue) do
+      nil ->
+        {:error, :no_issue_identifier}
+
+      identifier ->
+        ticket = %{identifier: identifier, title: Map.get(issue, :title), url: Map.get(issue, :url)}
+
+        source = %{
+          agent_id: SessionLifecycle.session_backend(app_session),
+          session_id: Map.get(app_session, :thread_id),
+          event_id: nil
+        }
+
+        request_payload = Map.put_new(payload, "question", message)
+
+        case DecisionStore.request(request_payload, ticket: ticket, source: source) do
+          {:ok, %{status: status, decision: decision}} ->
+            {:ok,
+             %{
+               "decision_id" => decision.decision_id,
+               "version" => decision.version,
+               "status" => Atom.to_string(status)
+             }}
+
+          {:error, reason} ->
+            {:error, {:decision_rejected, reason}}
+        end
     end
   end
 

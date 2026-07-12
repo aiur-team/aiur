@@ -88,7 +88,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
         on_message: message_handler,
         on_safe_checkpoint: safe_checkpoint_handler,
         on_operator_message: CheckpointDelivery.operator_immediate_handler(issue, orchestrator),
-        tool_executor: ToolExecutor.build(issue, workspace, worker_host)
+        tool_executor: ToolExecutor.build(issue, workspace, worker_host, app_session)
       )
 
     record_implementation_end(issue, lifecycle_attempt_id, operation_id, turn_number, result)

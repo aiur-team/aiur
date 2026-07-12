@@ -124,6 +124,99 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
     end
   end
 
+  describe "decision.requested routes through Aiur.DecisionStore" do
+    test "persists and returns the accepted decision_id/version/status" do
+      identifier = "TE-decision-req-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier, title: "Test ticket", url: "https://example.com/#{identifier}"}
+      executor = ToolExecutor.build(issue, nil, nil, %{backend: "codex", thread_id: "thread-abc"})
+
+      response =
+        executor.("emit_event", %{
+          "name" => "decision.requested",
+          "message" => "Deploy now?",
+          "payload" => %{"blocking" => true}
+        })
+
+      assert response["success"] == true
+      result = Jason.decode!(response["output"])["result"]
+      assert result["status"] == "accepted"
+      assert result["version"] == 1
+      assert is_binary(result["decision_id"])
+
+      {:ok, decision} = Aiur.DecisionStore.get(result["decision_id"])
+      assert decision.question == "Deploy now?"
+      assert decision.ticket.identifier == identifier
+      assert decision.source.agent_id == "codex"
+      assert decision.source.session_id == "thread-abc"
+    end
+
+    test "an omitted payload question falls back to the tool message" do
+      identifier = "TE-decision-msg-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      executor = ToolExecutor.build(issue, nil, nil)
+
+      executor.("emit_event", %{
+        "name" => "decision.requested",
+        "message" => "Use the required tool message?",
+        "payload" => %{"blocking" => false}
+      })
+
+      [decision] = Aiur.DecisionStore.list() |> Enum.filter(&(&1.ticket.identifier == identifier))
+      assert decision.question == "Use the required tool message?"
+    end
+
+    test "the agent-supplied ticket/source in payload cannot override the trusted issue context" do
+      identifier = "TE-decision-trust-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      executor = ToolExecutor.build(issue, nil, nil)
+
+      executor.("emit_event", %{
+        "name" => "decision.requested",
+        "message" => "Q?",
+        "payload" => %{"blocking" => true, "ticket" => %{"identifier" => "attacker"}}
+      })
+
+      [decision] = Aiur.DecisionStore.list() |> Enum.filter(&(&1.ticket.identifier == identifier))
+      assert decision.ticket.identifier == identifier
+    end
+
+    test "a repeat with the same source_id is deduplicated, not re-accepted" do
+      identifier = "TE-decision-dedup-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      executor = ToolExecutor.build(issue, nil, nil)
+      payload = %{"blocking" => true, "source_id" => "retry-key"}
+
+      first = executor.("emit_event", %{"name" => "decision.requested", "message" => "Q?", "payload" => payload})
+      second = executor.("emit_event", %{"name" => "decision.requested", "message" => "Q?", "payload" => payload})
+
+      assert Jason.decode!(first["output"])["result"]["status"] == "accepted"
+      assert Jason.decode!(second["output"])["result"]["status"] == "duplicate"
+    end
+
+    test "an invalid request fails without publishing a duplicate Exchange event" do
+      identifier = "TE-decision-invalid-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      executor = ToolExecutor.build(issue, nil, nil)
+
+      Exchange.subscribe("ticket.#{identifier}.agent.decision.requested")
+
+      response = executor.("emit_event", %{"name" => "decision.requested", "message" => "Q?", "payload" => %{}})
+
+      assert response["success"] == false
+      refute_receive {:event, _}, 200
+    end
+
+    test "an issue with no identifier fails closed" do
+      issue = %Issue{id: nil, identifier: nil}
+      executor = ToolExecutor.build(issue, nil, nil)
+
+      response = executor.("emit_event", %{"name" => "decision.requested", "message" => "Q?", "payload" => %{"blocking" => true}})
+
+      assert response["success"] == false
+      assert Jason.decode!(response["output"])["error"]["reason"] =~ "no_issue_identifier"
+    end
+  end
+
   describe "subscriber closure" do
     test "missing topic pattern returns failure response" do
       issue = %Issue{id: "gid-te-08", identifier: "TE-08"}
