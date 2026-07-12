@@ -10,6 +10,10 @@ defmodule AiurWeb.Router do
     plug(:dashboard_basic_auth)
   end
 
+  pipeline :supervisor_auth do
+    plug(AiurWeb.SupervisorAuth)
+  end
+
   pipeline :browser do
     plug(:fetch_session)
     plug(:fetch_live_flash)
@@ -165,32 +169,89 @@ defmodule AiurWeb.Router do
 
   defp origin_allowed?(conn) do
     case Plug.Conn.get_req_header(conn, "origin") do
-      [origin | _] ->
-        origin_matches_allowlist?(origin)
+      [origin] ->
+        origin_matches_allowlist?(origin, conn, false)
 
       [] ->
         case Plug.Conn.get_req_header(conn, "referer") do
-          [referer | _] -> origin_matches_allowlist?(referer)
+          [referer] -> origin_matches_allowlist?(referer, conn, true)
           [] -> false
+          _ambiguous -> false
         end
+
+      _ambiguous ->
+        false
     end
   end
 
-  defp origin_matches_allowlist?(value) when is_binary(value) do
-    allowed_origins()
-    |> Enum.any?(fn allowed -> String.starts_with?(value, allowed) end)
+  defp origin_matches_allowlist?(value, conn, allow_path?) when is_binary(value) do
+    with {:ok, origin} <- parse_web_origin(value, allow_path?) do
+      origin in allowed_origins(conn)
+    else
+      :error -> false
+    end
   end
 
-  defp allowed_origins do
-    own = safe_endpoint_url()
-    base = ["http://127.0.0.1", "http://localhost", "https://127.0.0.1", "https://localhost"]
-
-    if is_binary(own), do: [own | base], else: base
+  defp allowed_origins(conn) do
+    [request_origin(conn), safe_endpoint_origin(), {"http", "localhost", 80}, {"https", "localhost", 443}]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.flat_map(&expand_loopback_aliases/1)
+    |> Enum.uniq()
   end
 
-  defp safe_endpoint_url do
+  defp request_origin(%Plug.Conn{scheme: scheme, host: host, port: port})
+       when scheme in [:http, :https] and is_binary(host) and is_integer(port) do
+    {Atom.to_string(scheme), String.downcase(host), port}
+  end
+
+  defp request_origin(_conn), do: nil
+
+  defp safe_endpoint_origin do
     AiurWeb.Endpoint.url()
+    |> parse_web_origin(false)
+    |> case do
+      {:ok, origin} -> origin
+      :error -> nil
+    end
   rescue
     _ -> nil
   end
+
+  defp parse_web_origin(value, allow_path?) do
+    uri = URI.parse(value)
+
+    with scheme when scheme in ["http", "https"] <- normalize_scheme(uri.scheme),
+         host when is_binary(host) and host != "" <- normalize_host(uri.host),
+         true <- is_nil(uri.userinfo),
+         true <- allow_path? or uri.path in [nil, ""],
+         true <- allow_path? or is_nil(uri.query),
+         true <- is_nil(uri.fragment),
+         port when is_integer(port) and port in 1..65_535 <- effective_port(uri, scheme) do
+      {:ok, {scheme, host, port}}
+    else
+      _invalid -> :error
+    end
+  rescue
+    _invalid -> :error
+  end
+
+  defp normalize_scheme(scheme) when is_binary(scheme), do: String.downcase(scheme)
+  defp normalize_scheme(_scheme), do: nil
+
+  defp normalize_host(host) when is_binary(host), do: String.downcase(host)
+  defp normalize_host(_host), do: nil
+
+  defp effective_port(%URI{port: port}, _scheme) when is_integer(port), do: port
+  defp effective_port(%URI{}, "http"), do: 80
+  defp effective_port(%URI{}, "https"), do: 443
+
+  defp expand_loopback_aliases({scheme, host, port} = origin) do
+    if loopback_host?(host) do
+      Enum.map(["localhost", "127.0.0.1", "::1"], &{scheme, &1, port})
+    else
+      [origin]
+    end
+  end
+
+  defp loopback_host?(host), do: host in ["localhost", "127.0.0.1", "::1"]
 end
