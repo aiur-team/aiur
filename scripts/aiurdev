@@ -455,8 +455,8 @@ if [ "${#passthrough[@]}" -gt 0 ]; then
     set -e
 
     if [ "$control_status" -eq 75 ] && [ -f "$control_retry_signal" ]; then
-      # The shared engine reserves EX_TEMPFAIL for a dev release that became
-      # incomplete between our readiness check and its RPC launcher exec.
+      # The shared engine reserves EX_TEMPFAIL plus this per-invocation signal
+      # for a dev release that became incomplete before its RPC launcher exec.
       rm -f "$control_retry_signal"
       echo "⏳ dev release changed during control command; waiting for rebuild and retrying" >&2
       acquire_build_lock
