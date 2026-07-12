@@ -1,0 +1,738 @@
+defmodule Aiur.RunTelemetry.Dataset do
+  @moduledoc """
+  Tolerant offline reducer for one or more durable telemetry streams.
+
+  Parsing is line-isolated: malformed, unsupported, or partial records become
+  report warnings while adjacent valid records remain usable. The reducer owns
+  ordering, profile statistics, lifecycle interval pairing, and review wakeup
+  diagnostics; renderers consume its backend-neutral map.
+  """
+
+  alias Aiur.RunTelemetry
+  alias Aiur.RunTelemetry.Lifecycle
+
+  @telemetry_filename "telemetry.ndjson"
+  @supported_kinds ~w(restart lifecycle resource warning)
+  @resource_metrics ~w(
+    cpu_percent rss_bytes fd_count read_bytes write_bytes
+    read_bytes_per_second write_bytes_per_second
+    system_fd_used system_fd_limit system_fd_available system_fd_headroom_ratio
+  )
+  @default_sample_interval_ms 5_000
+  @default_gap_threshold_multiplier 1.5
+  @default_review_resume_grace_seconds 300
+
+  @type dataset :: map()
+
+  @doc "Discovers, validates, and reduces telemetry inputs into report data."
+  @spec build(Path.t() | [Path.t()], keyword()) ::
+          {:ok, dataset()} | {:error, {:no_telemetry_files, [Path.t()]}}
+  def build(inputs, opts \\ []) when is_list(opts) do
+    inputs = inputs |> List.wrap() |> Enum.map(&Path.expand/1)
+    files = discover_files(inputs)
+
+    if files == [] do
+      {:error, {:no_telemetry_files, inputs}}
+    else
+      {file_records, parse_warnings} = read_files(files)
+      {github_records, github_warnings} = github_records(Keyword.get(opts, :github_events, []))
+
+      {records, dedupe_warnings} =
+        (file_records ++ github_records)
+        |> Enum.sort_by(&record_sort_key/1)
+        |> dedupe_records()
+
+      sequence_warnings = sequence_warnings(file_records)
+      runtime_warnings = runtime_warnings(records)
+      {actors, actor_warnings} = reduce_actors(records, opts)
+      {tickets, findings} = reduce_tickets(records, opts)
+
+      warnings =
+        parse_warnings ++
+          github_warnings ++
+          dedupe_warnings ++
+          sequence_warnings ++
+          runtime_warnings ++ actor_warnings
+
+      {:ok,
+       %{
+         records: records,
+         restarts: Enum.filter(records, &(&1.kind == "restart")),
+         actors: actors,
+         tickets: tickets,
+         findings: findings,
+         warnings: warnings,
+         provenance: provenance(inputs, files, records)
+       }}
+    end
+  end
+
+  defp discover_files(inputs) do
+    inputs
+    |> Enum.flat_map(fn input ->
+      cond do
+        File.regular?(input) ->
+          [input]
+
+        File.dir?(input) ->
+          Path.wildcard(Path.join([input, "**", @telemetry_filename]), match_dot: true)
+
+        true ->
+          []
+      end
+    end)
+    |> Enum.map(&Path.expand/1)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp read_files(files) do
+    Enum.reduce(files, {[], []}, fn file, {records, warnings} ->
+      {file_records, file_warnings} = read_file(file)
+      {file_records ++ records, file_warnings ++ warnings}
+    end)
+    |> then(fn {records, warnings} -> {Enum.reverse(records), Enum.reverse(warnings)} end)
+  end
+
+  defp read_file(file) do
+    file
+    |> File.stream!(:line, [])
+    |> Stream.with_index(1)
+    |> Enum.reduce({[], []}, fn {line, line_number}, {records, warnings} ->
+      case parse_line(line, file, line_number) do
+        {:ok, record} -> {[record | records], warnings}
+        {:warning, warning} -> {records, [warning | warnings]}
+      end
+    end)
+  rescue
+    error ->
+      {[], [%{type: :file_read_error, path: file, reason: exception_class(error)}]}
+  end
+
+  defp parse_line(line, path, line_number) do
+    case Jason.decode(line) do
+      {:ok, decoded} when is_map(decoded) -> validate_record(decoded, path, line_number)
+      {:ok, _other} -> {:warning, warning(:invalid_record, path, line_number)}
+      {:error, _reason} -> {:warning, warning(:malformed_line, path, line_number)}
+    end
+  end
+
+  defp validate_record(decoded, path, line_number) do
+    schema_version = Map.get(decoded, "schema_version")
+
+    cond do
+      schema_version != RunTelemetry.schema_version() ->
+        {:warning,
+         warning(:unsupported_schema, path, line_number, %{
+           schema_version: schema_version
+         })}
+
+      missing = missing_required_fields(decoded) ->
+        {:warning, warning(:missing_fields, path, line_number, %{fields: missing})}
+
+      Map.get(decoded, "kind") not in @supported_kinds ->
+        {:warning,
+         warning(:unknown_kind, path, line_number, %{
+           kind: Map.get(decoded, "kind")
+         })}
+
+      true ->
+        normalize_record(decoded, path, line_number)
+    end
+  end
+
+  defp missing_required_fields(decoded) do
+    required = ~w(kind timestamp boot_id sequence record_id attributes)
+    missing = Enum.reject(required, &Map.has_key?(decoded, &1))
+
+    cond do
+      missing != [] -> missing
+      not is_binary(decoded["kind"]) -> ["kind"]
+      not is_binary(decoded["timestamp"]) -> ["timestamp"]
+      not is_binary(decoded["boot_id"]) -> ["boot_id"]
+      not is_integer(decoded["sequence"]) -> ["sequence"]
+      not is_binary(decoded["record_id"]) -> ["record_id"]
+      not is_map(decoded["attributes"]) -> ["attributes"]
+      true -> nil
+    end
+  end
+
+  defp normalize_record(decoded, path, line_number) do
+    case parse_timestamp(decoded["timestamp"]) do
+      {:ok, timestamp} ->
+        {:ok,
+         %{
+           schema_version: decoded["schema_version"],
+           kind: decoded["kind"],
+           timestamp: timestamp,
+           timestamp_iso: DateTime.to_iso8601(timestamp),
+           timestamp_ms: DateTime.to_unix(timestamp, :millisecond),
+           recorded_at: decoded["recorded_at"],
+           boot_id: decoded["boot_id"],
+           sequence: decoded["sequence"],
+           record_id: decoded["record_id"],
+           attributes: decoded["attributes"],
+           source_path: path,
+           source_line: line_number
+         }}
+
+      :error ->
+        {:warning, warning(:invalid_timestamp, path, line_number)}
+    end
+  end
+
+  defp parse_timestamp(%DateTime{} = timestamp), do: {:ok, timestamp}
+
+  defp parse_timestamp(timestamp) when is_binary(timestamp) do
+    case DateTime.from_iso8601(timestamp) do
+      {:ok, parsed, _offset} -> {:ok, parsed}
+      _other -> :error
+    end
+  end
+
+  defp parse_timestamp(_timestamp), do: :error
+
+  defp github_records(events) when is_list(events) do
+    events
+    |> Enum.with_index(1)
+    |> Enum.reduce({[], []}, fn {event, sequence}, {records, warnings} ->
+      case github_record(event, sequence) do
+        {:ok, record} -> {[record | records], warnings}
+        {:warning, warning} -> {records, [warning | warnings]}
+        :skip -> {records, warnings}
+      end
+    end)
+    |> then(fn {records, warnings} -> {Enum.reverse(records), Enum.reverse(warnings)} end)
+  end
+
+  defp github_records(_events), do: {[], [%{type: :invalid_github_events}]}
+
+  defp github_record(event, sequence) do
+    with {:ok, attributes, timestamp} <- Lifecycle.external_anchor(event),
+         {:ok, parsed} <- parse_timestamp(timestamp) do
+      source_id = Map.get(attributes, :source_id) || "event:#{sequence}"
+
+      {:ok,
+       %{
+         schema_version: RunTelemetry.schema_version(),
+         kind: "lifecycle",
+         timestamp: parsed,
+         timestamp_iso: DateTime.to_iso8601(parsed),
+         timestamp_ms: DateTime.to_unix(parsed, :millisecond),
+         recorded_at: nil,
+         boot_id: "github",
+         sequence: sequence,
+         record_id: "github:#{source_id}",
+         attributes: stringify_keys(attributes),
+         source_path: "(github)",
+         source_line: sequence
+       }}
+    else
+      :skip -> :skip
+      :error -> {:warning, %{type: :invalid_github_timestamp, source_index: sequence}}
+    end
+  end
+
+  defp dedupe_records(records) do
+    records
+    |> Enum.reduce({[], MapSet.new(), MapSet.new(), []}, fn record, {kept, record_ids, event_keys, warnings} ->
+      event_key = lifecycle_event_key(record)
+
+      cond do
+        MapSet.member?(record_ids, record.record_id) ->
+          warning = %{type: :duplicate_record, record_id: record.record_id}
+          {kept, record_ids, event_keys, [warning | warnings]}
+
+        event_key && MapSet.member?(event_keys, event_key) ->
+          warning = %{type: :duplicate_lifecycle_boundary, event_key: event_key}
+          {kept, MapSet.put(record_ids, record.record_id), event_keys, [warning | warnings]}
+
+        true ->
+          {
+            [record | kept],
+            MapSet.put(record_ids, record.record_id),
+            maybe_put_event_key(event_keys, event_key),
+            warnings
+          }
+      end
+    end)
+    |> then(fn {kept, _record_ids, _event_keys, warnings} ->
+      {Enum.reverse(kept), Enum.reverse(warnings)}
+    end)
+  end
+
+  defp maybe_put_event_key(event_keys, nil), do: event_keys
+  defp maybe_put_event_key(event_keys, event_key), do: MapSet.put(event_keys, event_key)
+
+  defp lifecycle_event_key(%{kind: "lifecycle", attributes: attributes}) do
+    if Map.get(attributes, "source_id") || Map.get(attributes, "operation_id") do
+      Map.get(attributes, "event_key")
+    end
+  end
+
+  defp lifecycle_event_key(_record), do: nil
+
+  defp sequence_warnings(records) do
+    records
+    |> Enum.reject(&(&1.boot_id == "github"))
+    |> Enum.group_by(& &1.boot_id)
+    |> Enum.flat_map(fn {boot_id, boot_records} ->
+      boot_records
+      |> Enum.sort_by(& &1.sequence)
+      |> Enum.chunk_every(2, 1, :discard)
+      |> Enum.flat_map(&sequence_gap(&1, boot_id))
+    end)
+    |> Enum.sort_by(&{&1.boot_id, &1.after_sequence})
+  end
+
+  defp sequence_gap([previous, current], boot_id) do
+    if current.sequence > previous.sequence + 1 do
+      [
+        %{
+          type: :sequence_gap,
+          boot_id: boot_id,
+          after_sequence: previous.sequence,
+          before_sequence: current.sequence,
+          missing_count: current.sequence - previous.sequence - 1
+        }
+      ]
+    else
+      []
+    end
+  end
+
+  defp runtime_warnings(records) do
+    records
+    |> Enum.filter(&(&1.kind == "warning"))
+    |> Enum.map(fn record ->
+      %{
+        type: :runtime_warning,
+        timestamp: record.timestamp_iso,
+        boot_id: record.boot_id,
+        attributes: record.attributes
+      }
+    end)
+  end
+
+  defp reduce_actors(records, opts) do
+    resources = Enum.filter(records, &(&1.kind == "resource"))
+
+    {valid, warnings} =
+      Enum.reduce(resources, {[], []}, fn record, {valid, warnings} ->
+        case Map.get(record.attributes, "actor") do
+          actor when is_binary(actor) and actor != "" -> {[record | valid], warnings}
+          _other -> {valid, [%{type: :resource_actor_missing, record_id: record.record_id} | warnings]}
+        end
+      end)
+
+    actors =
+      valid
+      |> Enum.reverse()
+      |> Enum.group_by(&Map.fetch!(&1.attributes, "actor"))
+      |> Map.new(fn {actor, actor_records} ->
+        samples = Enum.map(actor_records, &resource_sample/1)
+
+        {actor,
+         %{
+           actor: actor,
+           actor_type: actor_records |> List.first() |> then(&Map.get(&1.attributes, "actor_type")),
+           samples: samples,
+           profile: resource_profile(samples),
+           gaps: resource_gaps(samples, opts),
+           availability: availability_counts(samples)
+         }}
+      end)
+
+    {actors, Enum.reverse(warnings)}
+  end
+
+  defp resource_sample(record) do
+    metrics =
+      @resource_metrics
+      |> Map.new(fn metric -> {metric, resource_metric(record.attributes, metric)} end)
+
+    Map.merge(metrics, %{
+      actor: record.attributes["actor"],
+      actor_type: record.attributes["actor_type"],
+      ticket: record.attributes["ticket"],
+      availability: record.attributes["availability"] || "unavailable",
+      unavailable_reason: record.attributes["unavailable_reason"],
+      process_count: record.attributes["process_count"],
+      partial_fields: record.attributes["partial_fields"] || [],
+      timestamp: record.timestamp_iso,
+      timestamp_ms: record.timestamp_ms,
+      boot_id: record.boot_id,
+      record_id: record.record_id
+    })
+  end
+
+  defp resource_metric(attributes, "system_fd_used"), do: get_in(attributes, ["system_fd", "used"])
+  defp resource_metric(attributes, "system_fd_limit"), do: get_in(attributes, ["system_fd", "limit"])
+  defp resource_metric(attributes, "system_fd_available"), do: get_in(attributes, ["system_fd", "available"])
+
+  defp resource_metric(attributes, "system_fd_headroom_ratio"),
+    do: get_in(attributes, ["system_fd", "headroom_ratio"])
+
+  defp resource_metric(attributes, metric), do: Map.get(attributes, metric)
+
+  defp resource_profile(samples) do
+    @resource_metrics
+    |> Enum.flat_map(fn metric ->
+      values = samples |> Enum.map(&Map.get(&1, metric)) |> Enum.filter(&is_number/1)
+      if values == [], do: [], else: [{metric, statistics(values)}]
+    end)
+    |> Map.new()
+  end
+
+  defp statistics(values) do
+    sorted = Enum.sort(values)
+    count = length(sorted)
+
+    %{
+      count: count,
+      min: hd(sorted),
+      mean: Enum.sum(sorted) / count,
+      median: percentile(sorted, 0.5, :interpolate),
+      p95: percentile(sorted, 0.95, :nearest_rank),
+      max: List.last(sorted)
+    }
+  end
+
+  defp percentile(sorted, percentile, :nearest_rank) do
+    index = max(ceil(percentile * length(sorted)) - 1, 0)
+    Enum.at(sorted, index)
+  end
+
+  defp percentile(sorted, 0.5, :interpolate) do
+    count = length(sorted)
+    midpoint = div(count, 2)
+
+    if rem(count, 2) == 1 do
+      Enum.at(sorted, midpoint)
+    else
+      (Enum.at(sorted, midpoint - 1) + Enum.at(sorted, midpoint)) / 2
+    end
+  end
+
+  defp resource_gaps(samples, opts) do
+    interval_ms = Keyword.get(opts, :sample_interval_ms, @default_sample_interval_ms)
+
+    threshold_ms =
+      Keyword.get(
+        opts,
+        :sample_gap_threshold_ms,
+        round(interval_ms * @default_gap_threshold_multiplier)
+      )
+
+    samples
+    |> Enum.group_by(& &1.boot_id)
+    |> Enum.flat_map(fn {boot_id, boot_samples} ->
+      boot_samples
+      |> Enum.sort_by(& &1.timestamp_ms)
+      |> Enum.chunk_every(2, 1, :discard)
+      |> Enum.flat_map(&resource_gap(&1, boot_id, interval_ms, threshold_ms))
+    end)
+    |> Enum.sort_by(&{&1.start_at, &1.boot_id})
+  end
+
+  defp resource_gap([previous, current], boot_id, interval_ms, threshold_ms) do
+    duration_ms = current.timestamp_ms - previous.timestamp_ms
+
+    if duration_ms > threshold_ms do
+      [
+        %{
+          boot_id: boot_id,
+          start_at: previous.timestamp,
+          end_at: current.timestamp,
+          duration_ms: duration_ms,
+          expected_interval_ms: interval_ms
+        }
+      ]
+    else
+      []
+    end
+  end
+
+  defp availability_counts(samples) do
+    Enum.reduce(samples, %{measured: 0, unavailable: 0}, fn sample, counts ->
+      key = if sample.availability == "measured", do: :measured, else: :unavailable
+      Map.update!(counts, key, &(&1 + 1))
+    end)
+  end
+
+  defp reduce_tickets(records, opts) do
+    events =
+      records
+      |> Enum.filter(&(&1.kind == "lifecycle"))
+      |> Enum.flat_map(&lifecycle_event/1)
+      |> Enum.sort_by(&{&1.timestamp_ms, &1.boot_id, &1.sequence})
+
+    events_by_ticket = Enum.group_by(events, & &1.ticket)
+    findings = review_findings(events_by_ticket, opts)
+    findings_by_ticket = Enum.group_by(findings, & &1.ticket)
+
+    tickets =
+      Map.new(events_by_ticket, fn {ticket, ticket_events} ->
+        {ticket,
+         %{
+           ticket: ticket,
+           events: ticket_events,
+           intervals: lifecycle_intervals(ticket_events),
+           findings: Map.get(findings_by_ticket, ticket, [])
+         }}
+      end)
+
+    {tickets, findings}
+  end
+
+  defp lifecycle_event(record) do
+    attributes = record.attributes
+
+    with ticket when is_binary(ticket) and ticket != "" <- Map.get(attributes, "ticket"),
+         event when is_binary(event) and event != "" <- Map.get(attributes, "event"),
+         boundary when boundary in ["start", "end", "point"] <- Map.get(attributes, "boundary") do
+      [
+        %{
+          ticket: ticket,
+          event: event,
+          boundary: boundary,
+          attempt_id: Map.get(attributes, "attempt_id"),
+          operation_id: Map.get(attributes, "operation_id"),
+          outcome: Map.get(attributes, "outcome"),
+          command_class: Map.get(attributes, "command_class"),
+          cause: Map.get(attributes, "cause"),
+          source: Map.get(attributes, "source"),
+          source_id: Map.get(attributes, "source_id"),
+          timestamp: record.timestamp_iso,
+          timestamp_dt: record.timestamp,
+          timestamp_ms: record.timestamp_ms,
+          boot_id: record.boot_id,
+          sequence: record.sequence,
+          record_id: record.record_id
+        }
+      ]
+    else
+      _other -> []
+    end
+  end
+
+  defp lifecycle_intervals(events) do
+    {intervals, open} =
+      Enum.reduce(events, {[], %{}}, fn event, {intervals, open} ->
+        key = lifecycle_pair_key(event)
+
+        case event.boundary do
+          "start" ->
+            {intervals, Map.put(open, key, event)}
+
+          "end" ->
+            close_lifecycle_interval(event, intervals, open, key)
+
+          "point" ->
+            {[point_interval(event, "point") | intervals], open}
+        end
+      end)
+
+    open_intervals = Enum.map(open, fn {_key, event} -> open_interval(event) end)
+
+    (intervals ++ open_intervals)
+    |> Enum.sort_by(&{&1.start_ms, &1.phase, &1.operation_id || ""})
+  end
+
+  defp close_lifecycle_interval(event, intervals, open, key) do
+    case Map.pop(open, key) do
+      {nil, next_open} -> {[point_interval(event, "orphan_end") | intervals], next_open}
+      {started, next_open} -> {[closed_interval(started, event) | intervals], next_open}
+    end
+  end
+
+  defp lifecycle_pair_key(event),
+    do: {event.attempt_id, event.event, event.operation_id}
+
+  defp closed_interval(started, finished) do
+    interval_base(started)
+    |> Map.merge(%{
+      status: "closed",
+      end_at: finished.timestamp,
+      end_ms: finished.timestamp_ms,
+      duration_ms: max(finished.timestamp_ms - started.timestamp_ms, 0),
+      outcome: finished.outcome || started.outcome
+    })
+  end
+
+  defp point_interval(event, status) do
+    interval_base(event)
+    |> Map.merge(%{
+      status: status,
+      end_at: nil,
+      end_ms: nil,
+      duration_ms: nil,
+      outcome: event.outcome
+    })
+  end
+
+  defp open_interval(event) do
+    interval_base(event)
+    |> Map.merge(%{
+      status: "open",
+      end_at: nil,
+      end_ms: nil,
+      duration_ms: nil,
+      outcome: event.outcome
+    })
+  end
+
+  defp interval_base(event) do
+    %{
+      ticket: event.ticket,
+      phase: event.event,
+      attempt_id: event.attempt_id,
+      operation_id: event.operation_id,
+      command_class: event.command_class,
+      cause: event.cause,
+      source_id: event.source_id,
+      start_at: event.timestamp,
+      start_ms: event.timestamp_ms
+    }
+  end
+
+  defp review_findings(events_by_ticket, opts) do
+    grace_seconds =
+      Keyword.get(
+        opts,
+        :review_resume_grace_seconds,
+        @default_review_resume_grace_seconds
+      )
+
+    now = Keyword.get(opts, :now, DateTime.utc_now())
+
+    events_by_ticket
+    |> Enum.flat_map(fn {ticket, events} ->
+      events
+      |> Enum.filter(&(&1.event == "comment_received"))
+      |> Enum.flat_map(&review_finding(ticket, events, &1, now, grace_seconds))
+    end)
+    |> Enum.sort_by(&{&1.comment_at, &1.ticket})
+  end
+
+  defp review_finding(ticket, events, comment, now, grace_seconds) do
+    case active_review_pause(events, comment) do
+      nil ->
+        []
+
+      review_pause ->
+        {window, closing_event} = response_window(events, comment)
+        rework_index = Enum.find_index(window, &(&1.event == "rework_start"))
+
+        resume_after_rework? =
+          is_integer(rework_index) and
+            window
+            |> Enum.drop(rework_index + 1)
+            |> Enum.any?(&(&1.event == "agent_resume"))
+
+        rework? = is_integer(rework_index)
+        terminal? = match?(%{event: "pr_merged"}, closing_event)
+        missing = missing_response_events(rework?, resume_after_rework?)
+        deadline = DateTime.add(comment.timestamp_dt, grace_seconds, :second)
+
+        status =
+          cond do
+            missing == [] -> "resolved"
+            terminal? -> "closed"
+            DateTime.compare(now, deadline) == :lt -> "pending"
+            true -> "broken"
+          end
+
+        [
+          %{
+            type: "review_pause_resume",
+            ticket: ticket,
+            status: status,
+            review_pause_at: review_pause.timestamp,
+            comment_at: comment.timestamp,
+            comment_source_id: comment.source_id,
+            grace_deadline: DateTime.to_iso8601(deadline),
+            missing: missing
+          }
+        ]
+    end
+  end
+
+  defp active_review_pause(events, comment) do
+    events
+    |> Enum.take_while(&(&1.timestamp_ms < comment.timestamp_ms))
+    |> Enum.reverse()
+    |> Enum.take_while(&(&1.event not in ["pr_merged", "agent_resume"]))
+    |> Enum.find(&(&1.event == "review_pause"))
+  end
+
+  defp response_window(events, comment) do
+    events
+    |> Enum.drop_while(&(&1.timestamp_ms <= comment.timestamp_ms))
+    |> Enum.reduce_while({[], nil}, fn event, {window, _closing_event} ->
+      if event.event in ["review_pause", "pr_merged"] do
+        {:halt, {Enum.reverse(window), event}}
+      else
+        {:cont, {[event | window], nil}}
+      end
+    end)
+    |> then(fn
+      {window, nil} -> {Enum.reverse(window), nil}
+      result -> result
+    end)
+  end
+
+  defp missing_response_events(rework?, resume?) do
+    []
+    |> maybe_missing(not rework?, "rework_start")
+    |> maybe_missing(not resume?, "agent_resume")
+  end
+
+  defp maybe_missing(missing, true, event), do: missing ++ [event]
+  defp maybe_missing(missing, false, _event), do: missing
+
+  defp provenance(inputs, files, records) do
+    schema_versions = records |> Enum.map(& &1.schema_version) |> Enum.uniq() |> Enum.sort()
+
+    time_range =
+      case records do
+        [] -> nil
+        records -> %{start: hd(records).timestamp_iso, end: List.last(records).timestamp_iso}
+      end
+
+    %{
+      inputs: inputs,
+      files: files,
+      schema_versions: schema_versions,
+      time_range: time_range,
+      record_count: length(records)
+    }
+  end
+
+  defp record_sort_key(record) do
+    {
+      record.timestamp_ms,
+      record.boot_id,
+      record.sequence,
+      record.record_id,
+      record.source_path,
+      record.source_line
+    }
+  end
+
+  defp stringify_keys(map) when is_map(map) do
+    Map.new(map, fn {key, value} -> {to_string(key), stringify_keys(value)} end)
+  end
+
+  defp stringify_keys(value) when is_list(value), do: Enum.map(value, &stringify_keys/1)
+  defp stringify_keys(value) when is_boolean(value) or is_nil(value), do: value
+  defp stringify_keys(value) when is_atom(value), do: Atom.to_string(value)
+  defp stringify_keys(value), do: value
+
+  defp warning(type, path, line_number, extra \\ %{}) do
+    Map.merge(extra, %{type: type, path: path, line: line_number})
+  end
+
+  defp exception_class(%{__struct__: module}),
+    do: module |> Module.split() |> List.last() |> Macro.underscore()
+end
