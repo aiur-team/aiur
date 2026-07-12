@@ -719,6 +719,7 @@ defmodule Aiur.DecisionStore do
       decision_version: decision_version,
       options: options,
       actor: actor,
+      supervisor_basis: Keyword.get(opts, :supervisor_basis),
       now: Keyword.get(opts, :now, DateTime.utc_now())
     )
   end

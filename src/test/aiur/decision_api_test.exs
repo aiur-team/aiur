@@ -191,6 +191,55 @@ defmodule Aiur.DecisionApiTest do
              )
   end
 
+  test "decide snapshots supervisor reasoning and delegates exactly once to OCC-3", %{store: store} do
+    decision = request!(store, "architecture", :supervisor_allowed, source_id: "decide")
+    payload = decision_payload()
+    opts = supervisor_opts(store)
+
+    assert {:ok, result} = DecisionApi.decide(decision.decision_id, payload, opts)
+    assert result["status"] == "accepted"
+    assert result["dispatch_status"] == "dispatch_pending"
+    assert result["decision"]["decision_status"] == "decided"
+
+    basis = result["action"]["supervisor_basis"]
+    assert basis["confidence"] == 91
+    assert basis["alternatives_considered"] == ["Wait for OCC-8"]
+    assert basis["reversibility_belief"] == "reversible"
+    assert basis["policy_basis"]["authority"] == "supervisor_allowed"
+    assert basis["policy_basis"]["checks"]["kind_allowed"]
+
+    assert {:ok, replay} = DecisionApi.decide(decision.decision_id, payload, opts)
+    assert replay["status"] == "duplicate"
+    assert replay["action"]["action_id"] == result["action"]["action_id"]
+
+    assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, store)
+    assert Enum.count(audit, &match?(%Aiur.DecisionEvent{type: :answer_recorded}, &1)) == 1
+  end
+
+  test "decide denies unsafe policy or incomplete reasoning before answer persistence", %{store: store} do
+    human = request!(store, "architecture", :human_required, source_id: "decide-human")
+
+    assert {:error, {:delegation_forbidden, %{reasons: [:human_required]}}} =
+             DecisionApi.decide(human.decision_id, decision_payload(), supervisor_opts(store))
+
+    assert {:ok, audit} = DecisionStore.audit_history(human.decision_id, store)
+    assert Enum.count(audit, &match?(%Aiur.DecisionEvent{type: :answer_recorded}, &1)) == 0
+
+    eligible = request!(store, "architecture", :supervisor_allowed, source_id: "decide-invalid")
+    invalid = Map.delete(decision_payload(), "confidence")
+
+    assert {:error, {:delegation_invalid, {:confidence, :invalid}}} =
+             DecisionApi.decide(eligible.decision_id, invalid, supervisor_opts(store))
+
+    forged = Map.put(decision_payload(), "actor", %{"kind" => "operator"})
+
+    assert {:error, {:delegation_invalid, {:forbidden_fields, ["actor"]}}} =
+             DecisionApi.decide(eligible.decision_id, forged, supervisor_opts(store))
+
+    assert {:ok, current} = DecisionStore.get(eligible.decision_id, store)
+    assert current.answer == nil
+  end
+
   test "an unavailable store is a stable read error", %{store: store} do
     GenServer.stop(store)
 
@@ -204,6 +253,30 @@ defmodule Aiur.DecisionApiTest do
                store: store,
                actor: %{kind: :supervisor, id: "supervising-agent"}
              )
+
+    assert {:error, :store_unavailable} =
+             DecisionApi.decide("dec_missing", decision_payload(), supervisor_opts(store))
+  end
+
+  defp decision_payload do
+    %{
+      "idempotency_key" => "supervisor-decide-1",
+      "expected_version" => 1,
+      "custom_response" => "Use the canonical path",
+      "rationale" => "It preserves one append-only lifecycle.",
+      "confidence" => 91,
+      "alternatives_considered" => ["Wait for OCC-8"],
+      "reversibility_belief" => "reversible"
+    }
+  end
+
+  defp supervisor_opts(store) do
+    [
+      store: store,
+      policy: @policy,
+      actor: %{kind: :supervisor, id: "supervising-agent"},
+      now: ~U[2026-07-12 11:00:00Z]
+    ]
   end
 
   defp request!(store, kind, authority, opts) do

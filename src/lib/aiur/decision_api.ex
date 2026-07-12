@@ -9,7 +9,7 @@ defmodule Aiur.DecisionApi do
   services.
   """
 
-  alias Aiur.{Config, Decision, DecisionAuthority, DecisionProjection, DecisionStore}
+  alias Aiur.{Config, Decision, DecisionAnswer, DecisionAuthority, DecisionDelegation, DecisionProjection, DecisionStore}
 
   @default_limit 50
   @maximum_limit 200
@@ -92,6 +92,38 @@ defmodule Aiur.DecisionApi do
   def enrich(_decision_id, _payload, opts) when is_list(opts),
     do: {:error, {:invalid_enrichment, {:payload, :invalid_type}}}
 
+  @doc "Authorizes and delegates one supervisor answer to OCC-3's canonical outbox."
+  @spec decide(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def decide(decision_id, payload, opts \\ [])
+
+  def decide(decision_id, payload, opts) when is_map(payload) and is_list(opts) do
+    current_policy = policy(opts)
+    store = Keyword.get(opts, :store, DecisionStore)
+
+    with {:ok, normalized_id} <- normalize_decision_id(decision_id),
+         {:ok, actor} <- trusted_decision_actor(opts),
+         {:ok, decision} <- read_one(normalized_id, store),
+         {:ok, delegation} <- DecisionDelegation.normalize(decision, payload, current_policy),
+         {:ok, result} <-
+           write_answer(
+             normalized_id,
+             delegation.answer_payload,
+             answer_opts(opts, actor, delegation.basis),
+             store
+           ) do
+      {:ok,
+       %{
+         "status" => Atom.to_string(result.status),
+         "decision" => encode_decision(result.decision, current_policy),
+         "action" => DecisionAnswer.to_json_safe(result.action),
+         "dispatch_status" => Atom.to_string(result.dispatch_status)
+       }}
+    end
+  end
+
+  def decide(_decision_id, _payload, opts) when is_list(opts),
+    do: {:error, {:delegation_invalid, {:payload, :invalid_type}}}
+
   defp normalize_list_params(params) do
     with {:ok, normalized} <- normalize_param_keys(params),
          {:ok, limit} <- bounded_integer(normalized["limit"], @default_limit, 1, @maximum_limit, :limit),
@@ -140,10 +172,22 @@ defmodule Aiur.DecisionApi do
     end
   end
 
+  defp trusted_decision_actor(opts) do
+    case Keyword.get(opts, :actor) do
+      @supervisor_actor = actor -> {:ok, actor}
+      _untrusted -> {:error, {:delegation_invalid, {:actor, :untrusted}}}
+    end
+  end
+
   defp enrichment_opts(opts, actor, expected_version) do
     [actor: actor, expected_version: expected_version]
     |> maybe_put_option(:now, opts)
     |> maybe_put_option(:safe_roots, opts)
+  end
+
+  defp answer_opts(opts, actor, basis) do
+    [actor: actor, supervisor_basis: basis]
+    |> maybe_put_option(:now, opts)
   end
 
   defp maybe_put_option(target, key, source) do
@@ -283,6 +327,32 @@ defmodule Aiur.DecisionApi do
       {:ok, %{status: status, decision: %Decision{} = decision}}
       when status in [:accepted, :duplicate] ->
         {:ok, %{status: status, decision: decision}}
+
+      {:error, reason} ->
+        {:error, reason}
+
+      _invalid ->
+        {:error, :store_unavailable}
+    end
+  end
+
+  defp write_answer(decision_id, payload, opts, store) do
+    case safe_store_call(fn -> DecisionStore.answer(decision_id, payload, opts, store) end) do
+      {:ok,
+       %{
+         status: status,
+         decision: %Decision{} = decision,
+         action: %DecisionAnswer{} = action,
+         dispatch_status: dispatch_status
+       }}
+      when status in [:accepted, :duplicate] and is_atom(dispatch_status) ->
+        {:ok,
+         %{
+           status: status,
+           decision: decision,
+           action: action,
+           dispatch_status: dispatch_status
+         }}
 
       {:error, reason} ->
         {:error, reason}

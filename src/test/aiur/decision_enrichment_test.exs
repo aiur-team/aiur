@@ -138,7 +138,7 @@ defmodule Aiur.DecisionEnrichmentTest do
         decision_id: current.decision_id,
         decision_version: current.version,
         options: current.options,
-        actor: @actor,
+        actor: %{kind: :operator, id: "operator-1"},
         now: ~U[2026-07-12 11:00:00Z]
       )
 
