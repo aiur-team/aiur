@@ -1843,6 +1843,72 @@ defmodule Aiur.OrchestratorStatusTest do
              Orchestrator.send_operator_message(orchestrator_name, "MT-MISSING", %{kind: :text, body: "hello"})
   end
 
+  test "correlated operator messages return queue snapshots and notify only on enqueue or failed retry" do
+    orchestrator_name = Module.concat(__MODULE__, :CorrelatedOperatorMessageOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    parent = self()
+    worker_pid = spawn(fn -> operator_message_probe(parent) end)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+      if Process.alive?(worker_pid), do: Process.exit(worker_pid, :normal)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-occ" => running_entry("issue-occ", "MT-OCC", :working, worker_pid)}}
+    end)
+
+    correlation = %{
+      decision_id: "dec_123",
+      decision_version: 1,
+      action_id: "act_123",
+      actor: %{kind: :operator, id: "operator-1"}
+    }
+
+    payload = %{
+      kind: :text,
+      body: "Decision dec_123 answered: ship",
+      action_id: "act_123",
+      correlation: correlation
+    }
+
+    assert {:ok, %{status: :accepted, item: accepted}} =
+             Orchestrator.send_correlated_operator_message(orchestrator_name, "MT-OCC", payload)
+
+    assert accepted.status == :pending
+    assert accepted.correlation == correlation
+    assert_receive {:agent_queue_updated, "MT-OCC", accepted_id, _}
+    assert accepted_id == accepted.id
+
+    assert {:ok, %{status: :duplicate, item: duplicate}} =
+             Orchestrator.send_correlated_operator_message(orchestrator_name, "MT-OCC", payload)
+
+    assert duplicate.id == accepted.id
+    refute_receive {:agent_queue_updated, "MT-OCC", _, _}, 100
+
+    assert {:ok, delivered} = OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-OCC")
+    assert :ok = OperatorMessages.mark_queue_item_failed(orchestrator_name, delivered.id, :agent_unavailable)
+
+    assert {:ok, %{status: :retried, item: retried}} =
+             Orchestrator.send_correlated_operator_message(
+               orchestrator_name,
+               "MT-OCC",
+               Map.put(payload, :retry_failed, true)
+             )
+
+    assert retried.id == accepted.id
+    assert retried.status == :pending
+    assert_receive {:agent_queue_updated, "MT-OCC", retried_id, _}
+    assert retried_id == accepted.id
+
+    assert {:error, {:idempotency_conflict, "act_123"}} =
+             Orchestrator.send_correlated_operator_message(
+               orchestrator_name,
+               "MT-OCC",
+               Map.put(payload, :body, "Decision dec_123 answered differently")
+             )
+  end
+
   test "event digest wakes a sleeping agent task" do
     orchestrator_name = Module.concat(__MODULE__, :SleepingEventDigestOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)

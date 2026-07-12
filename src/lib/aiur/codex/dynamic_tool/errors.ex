@@ -160,6 +160,15 @@ defmodule Aiur.Codex.DynamicTool.Errors do
     }
   end
 
+  def payload({:decision_lifecycle_rejected, reason}) do
+    %{
+      "error" => %{
+        "message" => "Decision lifecycle event was rejected by the durable DecisionStore.",
+        "reason" => inspect(reason)
+      }
+    }
+  end
+
   def payload(:no_issue_identifier) do
     %{
       "error" => %{

@@ -1,7 +1,7 @@
 defmodule Aiur.DecisionProjectionTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.{Decision, DecisionProjection, DecisionValidation}
+  alias Aiur.{Decision, DecisionAnswer, DecisionEvent, DecisionProjection, DecisionValidation}
 
   @ticket %{identifier: "979", title: "OCC-1", url: "https://github.com/its-everdred/aiur/issues/979"}
   @source %{agent_id: "agent-1", session_id: "session-1", event_id: "evt-1"}
@@ -17,6 +17,40 @@ defmodule Aiur.DecisionProjectionTest do
   # string-keyed map decode_record/1 actually receives from DecisionLog.
   defp persisted_raw(decision) do
     decision |> DecisionProjection.to_json_safe() |> Jason.encode!() |> Jason.decode!()
+  end
+
+  defp answer(decision, overrides \\ %{}) do
+    payload =
+      Map.merge(
+        %{
+          "idempotency_key" => "operator-answer-1",
+          "expected_version" => decision.version,
+          "option_id" => "ship"
+        },
+        overrides
+      )
+
+    {:ok, answer} =
+      DecisionAnswer.normalize(payload,
+        decision_id: decision.decision_id,
+        decision_version: decision.version,
+        options: decision.options,
+        actor: %{kind: :operator, id: "operator-1"},
+        now: ~U[2026-07-12 10:01:00Z]
+      )
+
+    answer
+  end
+
+  defp event(type, decision, data, sequence) do
+    {:ok, event} =
+      DecisionEvent.new(type, decision.decision_id, decision.version, data,
+        event_id: "evt-#{sequence}",
+        run_id: "run-1",
+        now: DateTime.add(~U[2026-07-12 10:00:00Z], sequence, :second)
+      )
+
+    event
   end
 
   describe "decode_record/1 happy path" do
@@ -132,7 +166,138 @@ defmodule Aiur.DecisionProjectionTest do
     end
 
     test "an empty list reduces to empty current and history" do
-      assert DecisionProjection.reduce([]) == %{current: %{}, history: %{}}
+      assert DecisionProjection.reduce([]) == %{current: %{}, history: %{}, audit_history: %{}}
+    end
+
+    test "lifecycle events keep decision and delivery state independent" do
+      request =
+        build_decision(%{
+          "source_id" => "lifecycle-1",
+          "options" => [%{"id" => "ship", "label" => "Ship it"}]
+        })
+
+      accepted = answer(request)
+
+      events = [
+        request,
+        event(:answer_recorded, request, accepted, 1),
+        event(:dispatch_queued, request, %{action_id: accepted.action_id, attempt_id: "attempt-1", queue_item_id: 17}, 2),
+        event(:delivered, request, %{action_id: accepted.action_id, attempt_id: "attempt-1", queue_item_id: 17}, 3),
+        event(:acknowledged, request, %{action_id: accepted.action_id, actor: %{kind: :agent, id: "agent-1"}}, 4),
+        event(:resolved, request, %{action_id: accepted.action_id, actor: %{kind: :agent, id: "agent-1"}}, 5)
+      ]
+
+      result = DecisionProjection.reduce(events)
+      current = result.current[request.decision_id]
+
+      assert current.answer == accepted
+      assert current.decision_status == :resolved
+      assert current.delivery_status == :delivered
+      assert [%{attempt_id: "attempt-1", queue_item_id: 17, status: :delivered}] = current.dispatch_attempts
+      assert current.acknowledgement.action_id == accepted.action_id
+      assert current.resolution.action_id == accepted.action_id
+      assert length(result.audit_history[request.decision_id]) == 6
+    end
+
+    test "multiple dispatch attempts remain correlated to one immutable answer" do
+      request =
+        build_decision(%{
+          "source_id" => "attempts-1",
+          "options" => [%{"id" => "ship", "label" => "Ship it"}]
+        })
+
+      accepted = answer(request)
+
+      events = [
+        request,
+        event(:answer_recorded, request, accepted, 1),
+        event(:dispatch_queued, request, %{action_id: accepted.action_id, attempt_id: "attempt-1", queue_item_id: 17}, 2),
+        event(:failed, request, %{action_id: accepted.action_id, attempt_id: "attempt-1", queue_item_id: 17, reason_class: "agent_unavailable"}, 3),
+        event(:dispatch_queued, request, %{action_id: accepted.action_id, attempt_id: "attempt-2", queue_item_id: 18}, 4),
+        event(:restored, request, %{action_id: accepted.action_id, attempt_id: "attempt-2", queue_item_id: 18}, 5)
+      ]
+
+      current = DecisionProjection.reduce(events).current[request.decision_id]
+
+      assert current.answer == accepted
+      assert current.decision_status == :decided
+      assert current.delivery_status == :queued
+
+      assert Enum.map(current.dispatch_attempts, &{&1.attempt_id, &1.queue_item_id, &1.status}) == [
+               {"attempt-1", 17, :failed},
+               {"attempt-2", 18, :queued}
+             ]
+    end
+
+    test "a later request enrichment preserves the accepted answer and attempts" do
+      v1 =
+        build_decision(%{
+          "source_id" => "enrichment-1",
+          "options" => [%{"id" => "ship", "label" => "Ship it"}]
+        })
+
+      accepted = answer(v1)
+
+      v2 =
+        %{v1 | version: 2, question: "Deploy after the final smoke test?", content_hash: String.duplicate("a", 64)}
+
+      events = [
+        v1,
+        event(:answer_recorded, v1, accepted, 1),
+        event(:dispatch_queued, v1, %{action_id: accepted.action_id, attempt_id: "attempt-1", queue_item_id: 17}, 2),
+        v2
+      ]
+
+      result = DecisionProjection.reduce(events)
+      current = result.current[v1.decision_id]
+
+      assert current.version == 2
+      assert current.answer == accepted
+      assert current.answer.decision_version == 1
+      assert [%{attempt_id: "attempt-1"}] = current.dispatch_attempts
+      assert Enum.map(result.history[v1.decision_id], & &1.version) == [1, 2]
+    end
+
+    test "checked reduction rejects a lifecycle event with the wrong action" do
+      request =
+        build_decision(%{
+          "source_id" => "bad-action",
+          "options" => [%{"id" => "ship", "label" => "Ship it"}]
+        })
+
+      accepted = answer(request)
+      invalid = event(:delivered, request, %{action_id: "act_wrong", attempt_id: "attempt-1", queue_item_id: 17}, 2)
+
+      assert {projection, {:corrupt, 3, {:invalid_transition, :action_mismatch}}} =
+               DecisionProjection.reduce_checked([request, event(:answer_recorded, request, accepted, 1), invalid])
+
+      assert projection.current[request.decision_id].delivery_status == :pending
+    end
+  end
+
+  describe "typed audit records" do
+    test "decode rejects a lifecycle record whose content hash changed" do
+      request =
+        build_decision(%{
+          "source_id" => "hash-1",
+          "options" => [%{"id" => "ship", "label" => "Ship it"}]
+        })
+
+      accepted = answer(request)
+      lifecycle = event(:answer_recorded, request, accepted, 1)
+
+      raw = lifecycle |> DecisionEvent.to_json_safe() |> Map.put("run_id", "tampered-run")
+
+      assert DecisionProjection.decode_record(raw) == {:error, :event_content_hash_mismatch}
+    end
+
+    test "an OCC-1 record without a discriminator still decodes as a legacy Decision" do
+      decision = build_decision(%{"source_id" => "legacy-1"})
+
+      assert {:ok, %Decision{} = decoded} = DecisionProjection.decode_record(persisted_raw(decision))
+      assert decoded.decision_id == decision.decision_id
+      assert decoded.decision_status == :open
+      assert decoded.delivery_status == :not_dispatched
     end
   end
 
