@@ -85,7 +85,7 @@ defmodule Aiur.GitHub.DependenciesApi do
   end
 
   @spec dependency_mutate(integer() | String.t(), integer(), atom(), keyword()) ::
-          {:ok, map()} | {:error, term()}
+          {:ok, map() | :removed} | {:error, term()}
   def dependency_mutate(blocked_number, blocker_id, method, opts) do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token() do
