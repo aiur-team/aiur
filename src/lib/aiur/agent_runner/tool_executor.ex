@@ -12,6 +12,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   alias Aiur.Events.{Publisher, SubscriptionStore}
   alias Aiur.GitHub.IssueDependencies
   alias Aiur.Orchestrator
+  alias Aiur.Protocol.MapAccess
 
   @invocation_key {__MODULE__, :invocation_id}
 
@@ -35,7 +36,11 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
   @spec build(Issue.t(), Path.t() | nil, String.t() | nil, map(), keyword()) :: (String.t(), map() -> map())
   def build(issue, workspace, worker_host, app_session \\ %{}, opts \\ []) do
-    decision_requester = Keyword.get(opts, :decision_requester, &DecisionStore.request/2)
+    event_handlers = %{
+      decision_requester: Keyword.get(opts, :decision_requester, &DecisionStore.request/2),
+      attention_enricher: Keyword.get(opts, :attention_enricher, &DecisionStore.enrich_attention/2),
+      attention_opener: Keyword.get(opts, :attention_opener, &DecisionAttention.open_with_decision/6)
+    }
 
     fn tool, arguments ->
       DynamicTool.execute(
@@ -60,7 +65,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
           )
         end,
         event_publisher: fn name, message, payload ->
-          emit_agent_event(issue, workspace, worker_host, app_session, decision_requester, name, message, payload)
+          emit_agent_event(issue, workspace, worker_host, app_session, event_handlers, name, message, payload)
         end,
         subscriber: fn pattern -> subscribe_for_issue(issue, pattern) end,
         unsubscriber: fn pattern -> unsubscribe_for_issue(issue, pattern) end,
@@ -164,11 +169,11 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   # service — everything else keeps the existing generic publish path
   # below unchanged. `Publisher.publish/3` itself also rejects this topic
   # family, so this is the sole production ingress, not just a preference.
-  defp emit_agent_event(issue, _workspace, _worker_host, app_session, decision_requester, "decision.requested", message, payload) do
-    request_decision(issue, app_session, decision_requester, message, payload)
+  defp emit_agent_event(issue, _workspace, _worker_host, app_session, handlers, "decision.requested", message, payload) do
+    request_decision(issue, app_session, handlers, message, payload)
   end
 
-  defp emit_agent_event(issue, workspace, worker_host, _app_session, _decision_requester, name, message, payload) do
+  defp emit_agent_event(issue, workspace, worker_host, app_session, handlers, name, message, payload) do
     identifier = issue_identifier(issue)
 
     topic =
@@ -183,23 +188,31 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       |> Map.put("name", name)
       |> Map.put("issue", identifier)
 
-    case Publisher.publish(topic, event_payload) do
-      {:ok, id, _subscribers} ->
-        sync_decision_attention(issue, workspace, worker_host, name, message, payload)
-        {:ok, %{"id" => id, "topic" => topic}}
+    with {:ok, decision_result} <-
+           prepare_decision_attention(issue, workspace, worker_host, app_session, handlers.attention_opener, name, message, payload) do
+      case Publisher.publish(topic, event_payload) do
+        {:ok, id, _subscribers} ->
+          sync_decision_resolution(issue, name, payload)
 
-      :filtered ->
-        {:error, :event_filtered}
+          result =
+            %{"id" => id, "topic" => topic}
+            |> add_decision_result(decision_result)
 
-      :deduped ->
-        {:error, :event_deduped}
+          {:ok, result}
 
-      {:error, reason} ->
-        {:error, reason}
+        :filtered ->
+          {:error, :event_filtered}
+
+        :deduped ->
+          {:error, :event_deduped}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
   end
 
-  defp request_decision(issue, app_session, decision_requester, message, payload) do
+  defp request_decision(issue, app_session, handlers, message, payload) do
     case issue_identifier(issue) do
       nil ->
         {:error, :no_issue_identifier}
@@ -210,31 +223,64 @@ defmodule Aiur.AgentRunner.ToolExecutor do
         request_payload =
           payload
           |> Map.put_new("question", message)
-          |> Map.delete(:source_id)
-          |> Map.delete("source_id")
+          |> remove_untrusted_decision_identity()
 
-        source_id = trusted_source_id(identifier, app_session, request_payload)
+        source = trusted_source(app_session)
 
-        source = %{
-          agent_id: SessionLifecycle.session_backend(app_session),
-          session_id: Map.get(app_session, :thread_id),
-          event_id: stringify_invocation_id(invocation_id())
-        }
+        request_decision_by_correlation(
+          issue,
+          identifier,
+          request_payload,
+          ticket,
+          source,
+          handlers
+        )
+    end
+  end
 
-        request_payload = Map.put(request_payload, "source_id", source_id)
+  defp request_decision_by_correlation(issue, identifier, request_payload, ticket, source, handlers) do
+    case MapAccess.get(request_payload, :attention_slug) do
+      nil ->
+        payload =
+          request_payload
+          |> remove_attention_slug()
+          |> Map.put("source_id", trusted_source_id(identifier, source.session_id, request_payload))
 
-        case safely_request_decision(decision_requester, request_payload, ticket: ticket, source: source) do
-          {:ok, %{status: status, decision: decision}} ->
-            {:ok,
-             %{
-               "decision_id" => decision.decision_id,
-               "version" => decision.version,
-               "status" => Atom.to_string(status)
-             }}
+        request_and_format(handlers.decision_requester, payload, ticket: ticket, source: source)
 
-          {:error, reason} ->
-            {:error, {:decision_rejected, reason}}
+      slug when is_binary(slug) ->
+        with {:ok, correlation} <- DecisionAttention.correlation(issue, slug) do
+          payload =
+            request_payload
+            |> remove_attention_slug()
+            |> Map.put("source_id", correlation.source_id)
+
+          request_and_format(handlers.attention_enricher, payload,
+            ticket: ticket,
+            source: source,
+            legacy_attention: correlation.legacy_attention
+          )
+        else
+          {:error, reason} -> {:error, {:decision_rejected, reason}}
         end
+
+      _invalid ->
+        {:error, {:decision_rejected, {:legacy_attention_slug, :invalid_type}}}
+    end
+  end
+
+  defp request_and_format(requester, payload, opts) do
+    case safely_request_decision(requester, payload, opts) do
+      {:ok, %{status: status, decision: decision}} ->
+        {:ok,
+         %{
+           "decision_id" => decision.decision_id,
+           "version" => decision.version,
+           "status" => Atom.to_string(status)
+         }}
+
+      {:error, reason} ->
+        {:error, {:decision_rejected, reason}}
     end
   end
 
@@ -244,10 +290,10 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     :exit, reason -> {:error, {:decision_store_exit, reason}}
   end
 
-  defp trusted_source_id(identifier, app_session, request_payload) do
+  defp trusted_source_id(identifier, session_id, request_payload) do
     material = {
       identifier,
-      Map.get(app_session, :thread_id),
+      session_id,
       invocation_id() || {:request_payload, request_payload}
     }
 
@@ -273,29 +319,76 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   defp restore_invocation(:unset), do: Process.delete(@invocation_key)
   defp restore_invocation(value), do: Process.put(@invocation_key, value)
 
-  defp sync_decision_attention(issue, _workspace, _worker_host, "attention.resolved", _message, payload) do
-    case Map.get(payload, "slug") do
+  defp prepare_decision_attention(_issue, _workspace, _worker_host, _app_session, _opener, "attention.resolved", _message, _payload) do
+    {:ok, nil}
+  end
+
+  defp prepare_decision_attention(issue, workspace, worker_host, app_session, opener, "attention." <> slug, message, _payload) do
+    open_decision_attention(opener, issue, workspace, worker_host, slug, message, trusted_source(app_session))
+  end
+
+  defp prepare_decision_attention(issue, workspace, worker_host, app_session, opener, name, message, payload)
+       when name in ["blocked", "pause.request"] do
+    case operator_decision_question(message, payload) do
+      nil -> {:ok, nil}
+      question -> open_decision_attention(opener, issue, workspace, worker_host, "operator-decision", question, trusted_source(app_session))
+    end
+  end
+
+  defp prepare_decision_attention(_issue, _workspace, _worker_host, _app_session, _opener, _name, _message, _payload) do
+    {:ok, nil}
+  end
+
+  defp open_decision_attention(opener, issue, workspace, worker_host, slug, question, source) do
+    case safely_open_attention(opener, issue, workspace, worker_host, slug, question, source: source) do
+      {:ok, result} -> {:ok, result}
+      :ok -> {:ok, nil}
+      {:error, reason} -> {:error, {:decision_rejected, reason}}
+    end
+  end
+
+  defp safely_open_attention(opener, issue, workspace, worker_host, slug, question, opts) do
+    opener.(issue, workspace, worker_host, slug, question, opts)
+  catch
+    :exit, reason -> {:error, {:decision_store_exit, reason}}
+  end
+
+  defp sync_decision_resolution(issue, "attention.resolved", payload) do
+    case MapAccess.get(payload, :slug) do
       slug when is_binary(slug) -> DecisionAttention.resolve(issue, slug)
       _ -> :ok
     end
   end
 
-  defp sync_decision_attention(issue, workspace, worker_host, "attention." <> slug, message, _payload) do
-    DecisionAttention.open(issue, workspace, worker_host, slug, message)
+  defp sync_decision_resolution(_issue, _name, _payload), do: :ok
+
+  defp add_decision_result(result, nil), do: result
+
+  defp add_decision_result(result, %{status: status, decision: decision}) do
+    Map.merge(result, %{
+      "decision_id" => decision.decision_id,
+      "version" => decision.version,
+      "status" => Atom.to_string(status)
+    })
   end
 
-  defp sync_decision_attention(issue, workspace, worker_host, name, message, payload) when name in ["blocked", "pause.request"] do
-    case operator_decision_question(message, payload) do
-      nil -> :ok
-      question -> DecisionAttention.open(issue, workspace, worker_host, "operator-decision", question)
-    end
+  defp trusted_source(app_session) do
+    %{
+      agent_id: SessionLifecycle.session_backend(app_session),
+      session_id: Map.get(app_session, :thread_id),
+      event_id: stringify_invocation_id(invocation_id())
+    }
   end
 
-  defp sync_decision_attention(_issue, _workspace, _worker_host, _name, _message, _payload), do: :ok
+  defp remove_untrusted_decision_identity(payload) do
+    Map.drop(payload, [:source_id, "source_id", :decision_id, "decision_id", :legacy_attention, "legacy_attention"])
+  end
+
+  defp remove_attention_slug(payload), do: Map.drop(payload, [:attention_slug, "attention_slug"])
 
   defp operator_decision_question(message, payload) do
-    if Map.get(payload, "reason") in ["operator_decision", "operator-decision"] do
-      case Map.get(payload, "question") do
+    if MapAccess.get(payload, :reason) in ["operator_decision", "operator-decision"] do
+      case MapAccess.get(payload, :question) do
         question when is_binary(question) and question != "" -> question
         _ -> message
       end

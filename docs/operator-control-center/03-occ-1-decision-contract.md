@@ -4,7 +4,7 @@
 
 **Source:** [`docs/operator-control-center/02-occ-0-audit-and-design-decisions.md`](./02-occ-0-audit-and-design-decisions.md) (accepted foundation), amended per a foundation-review comment on #979 (owner, 2026-07-12).
 
-This is the schema/storage handoff for OCC-2 through OCC-9. It documents what OCC-1 delivers; it does not claim answer dispatch, delivery correlation, acknowledgement, or resolution exist yet — those are OCC-2/3.
+This is the schema/storage handoff for OCC-2 through OCC-9. It documents what OCC-1 delivered and the compatible schema extension added by OCC-2; it does not claim answer dispatch, delivery correlation, acknowledgement, or canonical resolution exist yet — those are OCC-3.
 
 ## Delivered capabilities
 
@@ -12,13 +12,15 @@ This is the schema/storage handoff for OCC-2 through OCC-9. It documents what OC
 - `Aiur.DecisionStore`, the single public application service and serialized writer: persist-before-notify, deduplication, version progression/conflict detection, replay-and-repair on restart, read-only corruption mode.
 - A neutral, BEAM-lifetime `run_id` on `Aiur.Boot`, shared by audit records and debug telemetry.
 - A project/instance-isolated, owner-only on-disk state directory.
+- OCC-2 projects active legacy attentions into this same store and enriches the
+  same Decision when a correlated structured request arrives. See
+  [`04-occ-2-attention-adapter.md`](./04-occ-2-attention-adapter.md).
 
 ## Not yet delivered (owned by later tickets)
 
 - Operator answers, revisions, acknowledgement/resolution lifecycle (OCC-3, OCC-8).
 - Durable dispatch/outbox correlation with `Aiur.Orchestrator.OperatorMessages` (OCC-3).
 - LiveView, REST, and dashboard surfaces (OCC-4, OCC-7).
-- Legacy `attention.*`/`blocked`/`pause.request` adapter into this schema (OCC-2); `Aiur.DecisionAttention` is unchanged.
 - Fleet/outcomes and latency metrics (OCC-5, OCC-6, OCC-9).
 
 ## Schema (version 1)
@@ -46,7 +48,8 @@ This is the schema/storage handoff for OCC-2 through OCC-9. It documents what OC
 | `artifacts` | list of `%{kind: :path \| :url, value}` | Up to 20; each reference is at most 4096 bytes. See Artifact safety below. |
 | `created_at` | `DateTime.t()` | Canonical acceptance time, stamped by the store's clock. |
 | `source_created_at` | `DateTime.t()` \| nil | Optional agent-reported time, provenance only — never controls audit order, version order, or notification age. |
-| `content_hash` | string | sha256 over only the meaningful content fields (question, options, context, artifacts, authority, urgency, blocking, reversibility, kind, recommendation, consequence_of_delay) — excludes identity/timestamps. Used for dedup and (on replay) tamper detection. |
+| `legacy_attention` | `%{slug, topic}` \| nil | OCC-2 trusted provenance for a Decision projected from an older attention. The topic must exactly match the trusted ticket and bounded slug. |
+| `content_hash` | string | sha256 over only the meaningful content fields (question, options, context, artifacts, authority, urgency, blocking, reversibility, kind, recommendation, consequence_of_delay, plus legacy provenance when present) — excludes source, Decision ID, version, and timestamps. Used for dedup and (on replay) tamper detection. Omitting absent legacy provenance preserves pre-OCC-2 record hashes. |
 
 ### Validation
 
@@ -96,6 +99,17 @@ This ticket implements notification as **best-effort, attempted once synchronous
 
 ## Agent ingress
 
-Only the structured `decision.requested` name from the agent tool boundary routes through `Aiur.DecisionStore`; every other event name (`progress`, `attention.*`, `blocked`, `pause.request`, arbitrary `decision.<slug>` coordination events) keeps its existing behavior through the generic `Aiur.Events.Publisher` path and `Aiur.DecisionAttention` unchanged.
+Structured `decision.requested` calls route through `Aiur.DecisionStore`.
+OCC-2 also preflights `attention.<slug>` and operator-decision-marked
+`blocked`/`pause.request` calls through `Aiur.DecisionAttention`, which persists
+a minimal Decision before retaining their existing generic Publisher and alert
+behavior. Other events remain generic, including progress, ordinary
+blocked/pause signals, and arbitrary `decision.<slug>` coordination events.
 
 Agent ingress overwrites any payload `source_id` with a stable trusted key derived from ticket, backend thread, and protocol tool-call identity (`callId`, with JSON-RPC id fallback). Replaying the same tool call therefore deduplicates without letting an agent collide with another call; distinct tool calls remain distinct Decisions. Store calls use an explicit 60-second timeout, and the tool boundary catches GenServer exits so a slow, restarting, or unavailable store returns a decision-specific tool failure rather than terminating the agent turn.
+
+A structured request may instead provide `attention_slug` to enrich the
+ticket-and-slug Decision created by OCC-2. The tool boundary removes that hint,
+derives the trusted legacy source identity and exact topic, and fails closed if
+no matching projected attention exists; an agent-supplied canonical Decision
+ID or legacy provenance is never trusted.

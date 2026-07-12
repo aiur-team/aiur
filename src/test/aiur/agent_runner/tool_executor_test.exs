@@ -1,9 +1,9 @@
 defmodule Aiur.AgentRunner.ToolExecutorTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.{DecisionStore, Issue}
   alias Aiur.AgentRunner.ToolExecutor
   alias Aiur.Events.{Exchange, SubscriptionStore}
-  alias Aiur.Issue
 
   describe "build/3" do
     test "returns a 2-arity closure" do
@@ -132,6 +132,83 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert SubscriptionStore.snapshot(identifier).open_attentions == ["operator-decision"]
       assert executor.("emit_event", %{"name" => "attention.resolved", "message" => "Approved", "payload" => %{"slug" => "operator-decision"}})["success"] == true
     end
+
+    test "legacy attention persistence precedes generic event publication and returns Decision correlation" do
+      identifier = "TE-attention-order-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      test_pid = self()
+
+      attention_opener = fn _issue, _workspace, _worker_host, slug, question, opts ->
+        send(test_pid, {:projected_attention, slug, question, opts})
+        {:ok, %{status: :accepted, decision: %{decision_id: "dec_order", version: 1}}}
+      end
+
+      executor = ToolExecutor.build(issue, nil, nil, %{backend: "codex", thread_id: "thread-1"}, attention_opener: attention_opener)
+      :ok = Exchange.subscribe("ticket.#{identifier}.agent.attention.scope-question")
+
+      response =
+        ToolExecutor.execute(
+          executor,
+          "emit_event",
+          %{"name" => "attention.scope-question", "message" => "Approve the target?"},
+          "call-attention"
+        )
+
+      assert_receive {:projected_attention, "scope-question", "Approve the target?", opts}
+      assert opts[:source].session_id == "thread-1"
+      assert opts[:source].event_id == "call-attention"
+      assert_receive {:event, %{topic: "ticket." <> _}}
+
+      result = Jason.decode!(response["output"])["result"]
+      assert result["decision_id"] == "dec_order"
+      assert result["version"] == 1
+      assert result["status"] == "accepted"
+    end
+
+    test "a legacy projection failure suppresses generic event publication" do
+      identifier = "TE-attention-fail-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{},
+          attention_opener: fn _issue, _workspace, _worker_host, _slug, _question, _opts ->
+            {:error, :store_down}
+          end
+        )
+
+      :ok = Exchange.subscribe("ticket.#{identifier}.agent.attention.scope-question")
+
+      response =
+        executor.("emit_event", %{
+          "name" => "attention.scope-question",
+          "message" => "Approve the target?"
+        })
+
+      assert response["success"] == false
+
+      assert Jason.decode!(response["output"])["error"]["message"] ==
+               "Decision request was rejected by the durable DecisionStore."
+
+      expected_topic = "ticket.#{identifier}.agent.attention.scope-question"
+      refute_receive {:event, %{topic: ^expected_topic}}, 200
+    end
+
+    test "ordinary blocked events do not enter the legacy Decision adapter" do
+      identifier = "TE-blocked-no-decision-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      test_pid = self()
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{},
+          attention_opener: fn _issue, _workspace, _worker_host, _slug, _question, _opts ->
+            send(test_pid, :unexpected_attention_projection)
+            {:error, :unexpected}
+          end
+        )
+
+      assert executor.("emit_event", %{"name" => "blocked", "message" => "Waiting for a dependency"})["success"] == true
+      refute_receive :unexpected_attention_projection
+    end
   end
 
   describe "decision.requested routes through Aiur.DecisionStore" do
@@ -251,6 +328,92 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert first_result["status"] == "accepted"
       assert retry_result["status"] == "duplicate"
       assert retry_result["decision_id"] == first_result["decision_id"]
+    end
+
+    test "a structured request enriches its legacy attention instead of duplicating it" do
+      identifier = "TE-decision-attention-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier, title: "Adapter ticket"}
+      executor = ToolExecutor.build(issue, nil, nil, %{backend: "codex", thread_id: "thread-adapter"})
+
+      legacy =
+        ToolExecutor.execute(
+          executor,
+          "emit_event",
+          %{
+            "name" => "attention.scope-question",
+            "message" => "Which scope owns this?"
+          },
+          "call-legacy"
+        )
+
+      legacy_result = Jason.decode!(legacy["output"])["result"]
+      assert legacy_result["version"] == 1
+
+      structured_arguments = %{
+        "name" => "decision.requested",
+        "message" => "Which scope owns this?",
+        "payload" => %{
+          "attention_slug" => "scope-question",
+          "decision_id" => "dec_attacker",
+          "source_id" => "attacker-controlled",
+          "legacy_attention" => %{
+            "slug" => "other",
+            "topic" => "ticket.attacker.agent.attention.other"
+          },
+          "blocking" => true,
+          "kind" => "architecture",
+          "context" => %{"short_summary" => "Two owners are viable."},
+          "options" => [%{"id" => "runtime", "label" => "Runtime"}]
+        }
+      }
+
+      enriched = ToolExecutor.execute(executor, "emit_event", structured_arguments, "call-enrich")
+      retry = ToolExecutor.execute(executor, "emit_event", structured_arguments, "call-enrich")
+
+      enriched_result = Jason.decode!(enriched["output"])["result"]
+      retry_result = Jason.decode!(retry["output"])["result"]
+
+      assert enriched_result["decision_id"] == legacy_result["decision_id"]
+      assert enriched_result["version"] == 2
+      assert enriched_result["status"] == "accepted"
+      assert retry_result["decision_id"] == legacy_result["decision_id"]
+      assert retry_result["version"] == 2
+      assert retry_result["status"] == "duplicate"
+
+      {:ok, history} = DecisionStore.history(legacy_result["decision_id"])
+      assert Enum.map(history, & &1.version) == [1, 2]
+      assert List.last(history).options != []
+
+      assert [current] =
+               DecisionStore.list()
+               |> Enum.filter(&(&1.ticket.identifier == identifier))
+
+      assert current.decision_id == legacy_result["decision_id"]
+      assert current.source_id == "legacy_attention:scope-question"
+      assert current.legacy_attention.topic == "ticket.#{identifier}.agent.attention.scope-question"
+    end
+
+    test "an unknown attention slug cannot create a correlated structured Decision" do
+      identifier = "TE-decision-attention-missing-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      executor = ToolExecutor.build(issue, nil, nil, %{thread_id: "thread-adapter"})
+
+      response =
+        ToolExecutor.execute(
+          executor,
+          "emit_event",
+          %{
+            "name" => "decision.requested",
+            "message" => "Which scope owns this?",
+            "payload" => %{"attention_slug" => "missing", "blocking" => true}
+          },
+          "call-missing"
+        )
+
+      assert response["success"] == false
+      assert Jason.decode!(response["output"])["error"]["reason"] =~ "not_found"
+
+      refute Enum.any?(DecisionStore.list(), &(&1.ticket.identifier == identifier))
     end
 
     test "a non-scalar protocol call id cannot crash decision execution" do

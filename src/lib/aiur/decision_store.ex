@@ -58,6 +58,22 @@ defmodule Aiur.DecisionStore do
     GenServer.call(server, {:request, payload, opts}, timeout)
   end
 
+  @doc "Projects one legacy attention into the canonical Decision history."
+  @spec project_attention(map(), keyword(), GenServer.server(), timeout()) ::
+          {:ok, accept_result()} | {:error, term()}
+  def project_attention(payload, opts \\ [], server \\ __MODULE__, timeout \\ @request_timeout)
+      when is_map(payload) and is_list(opts) do
+    GenServer.call(server, {:project_attention, payload, opts}, timeout)
+  end
+
+  @doc "Enriches an existing legacy-attention Decision with structured request content."
+  @spec enrich_attention(map(), keyword(), GenServer.server(), timeout()) ::
+          {:ok, accept_result()} | {:error, term()}
+  def enrich_attention(payload, opts \\ [], server \\ __MODULE__, timeout \\ @request_timeout)
+      when is_map(payload) and is_list(opts) do
+    GenServer.call(server, {:enrich_attention, payload, opts}, timeout)
+  end
+
   @spec get(String.t(), GenServer.server()) :: {:ok, Decision.t()} | {:error, :not_found}
   def get(decision_id, server \\ __MODULE__) when is_binary(decision_id) do
     GenServer.call(server, {:get, decision_id})
@@ -183,8 +199,21 @@ defmodule Aiur.DecisionStore do
     {:reply, {:error, {:store_unavailable, state.health}}, state}
   end
 
+  def handle_call({operation, _payload, _opts}, _from, %{writable?: false} = state)
+      when operation in [:project_attention, :enrich_attention] do
+    {:reply, {:error, {:store_unavailable, state.health}}, state}
+  end
+
   def handle_call({:request, payload, opts}, _from, state) do
     handle_request(payload, opts, state)
+  end
+
+  def handle_call({:project_attention, payload, opts}, _from, state) do
+    handle_attention_projection(payload, opts, state)
+  end
+
+  def handle_call({:enrich_attention, payload, opts}, _from, state) do
+    handle_attention_enrichment(payload, opts, state)
   end
 
   def handle_call({:get, decision_id}, _from, state) do
@@ -218,13 +247,186 @@ defmodule Aiur.DecisionStore do
     end
   end
 
-  defp fetch_requested_version(payload) do
-    case Map.get(payload, "version", Map.get(payload, :version)) do
-      nil -> {:ok, 1}
+  defp handle_attention_projection(payload, opts, state) do
+    with {:ok, decision} <- normalize_legacy_attention(payload, opts) do
+      apply_attention_projection_for_source(decision, opts, state)
+    else
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp apply_attention_projection_for_source(decision, opts, state) do
+    case prior_source_event_result(decision, state) do
+      {:duplicate, prior} ->
+        {:reply, {:ok, %{status: :duplicate, decision: prior}}, state}
+
+      {:conflict, event_id} ->
+        {:reply, {:error, {:conflict, {:source_event_conflict, event_id}}}, state}
+
+      :new ->
+        case Map.get(state.current, decision.decision_id) do
+          nil -> accept(%{decision | version: 1}, state)
+          existing -> apply_attention_projection(existing, decision, opts, state)
+        end
+    end
+  end
+
+  defp apply_attention_projection(existing, decision, opts, state) do
+    cond do
+      existing.legacy_attention != decision.legacy_attention ->
+        {:reply, {:error, {:legacy_attention, :provenance_mismatch}}, state}
+
+      existing.question == decision.question ->
+        {:reply, {:ok, %{status: :duplicate, decision: existing}}, state}
+
+      true ->
+        merge_attention_question(existing, decision, opts, state)
+    end
+  end
+
+  defp merge_attention_question(existing, incoming, opts, state) do
+    source_created_at = earliest_source_created_at(existing.source_created_at, incoming.source_created_at)
+
+    payload =
+      existing
+      |> DecisionProjection.to_request_payload()
+      |> Map.put("question", incoming.question)
+      |> replace_source_created_at(source_created_at)
+
+    normalize_opts =
+      opts
+      |> Keyword.put(:ticket, existing.ticket)
+      |> Keyword.put(:source, incoming.source)
+      |> Keyword.put(:now, incoming.created_at)
+      |> Keyword.put(:legacy_attention, existing.legacy_attention)
+
+    case DecisionValidation.normalize(payload, normalize_opts) do
+      {:ok, merged} -> accept(%{merged | version: existing.version + 1}, state)
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp handle_attention_enrichment(payload, opts, state) do
+    with {:ok, decision} <- normalize_legacy_attention(payload, opts),
+         {:ok, existing} <- fetch_legacy_attention(state, decision) do
+      decision = preserve_source_created_at(existing, decision)
+      apply_attention_enrichment(existing, decision, payload, state)
+    else
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp apply_attention_enrichment(existing, decision, payload, state) do
+    case prior_source_event_result(decision, state) do
+      {:duplicate, prior} ->
+        {:reply, {:ok, %{status: :duplicate, decision: prior}}, state}
+
+      {:conflict, event_id} ->
+        {:reply, {:error, {:conflict, {:source_event_conflict, event_id}}}, state}
+
+      :new ->
+        apply_new_attention_enrichment(existing, decision, payload, state)
+    end
+  end
+
+  defp apply_new_attention_enrichment(existing, decision, payload, state) do
+    if explicit_version?(payload) or existing.content_hash != decision.content_hash do
+      evaluate_attention_enrichment(existing, decision, payload, state)
+    else
+      {:reply, {:ok, %{status: :duplicate, decision: existing}}, state}
+    end
+  end
+
+  defp evaluate_attention_enrichment(existing, decision, payload, state) do
+    with {:ok, requested_version} <- fetch_attention_enrichment_version(payload, existing.version) do
+      evaluate_and_apply(decision, requested_version, state)
+    else
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp normalize_legacy_attention(payload, opts) do
+    with {:ok, decision} <- DecisionValidation.normalize(payload, opts),
+         %{} <- decision.legacy_attention do
+      {:ok, decision}
+    else
+      nil -> {:error, {:legacy_attention, :missing_provenance}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp fetch_legacy_attention(state, decision) do
+    case Map.get(state.current, decision.decision_id) do
+      nil ->
+        {:error, {:legacy_attention, :not_found}}
+
+      %{legacy_attention: legacy_attention} = existing
+      when legacy_attention == decision.legacy_attention ->
+        {:ok, existing}
+
+      _existing ->
+        {:error, {:legacy_attention, :provenance_mismatch}}
+    end
+  end
+
+  defp prior_source_event_result(decision, state) do
+    case source_event_key(decision) do
+      nil ->
+        :new
+
+      key ->
+        state.history
+        |> Map.get(decision.decision_id, [])
+        |> Enum.find(&(source_event_key(&1) == key))
+        |> case do
+          nil -> :new
+          %{content_hash: hash} = prior when hash == decision.content_hash -> {:duplicate, prior}
+          _prior -> {:conflict, elem(key, 2)}
+        end
+    end
+  end
+
+  defp source_event_key(%{source: %{agent_id: agent_id, session_id: session_id, event_id: event_id}})
+       when is_binary(event_id) and event_id != "" do
+    {agent_id, session_id, event_id}
+  end
+
+  defp source_event_key(_decision), do: nil
+
+  defp fetch_attention_enrichment_version(payload, current_version) do
+    fetch_requested_version(payload, current_version + 1)
+  end
+
+  defp explicit_version?(payload) do
+    not is_nil(raw_version(payload))
+  end
+
+  defp replace_source_created_at(payload, nil), do: Map.delete(payload, "created_at")
+
+  defp replace_source_created_at(payload, source_created_at) do
+    Map.put(payload, "created_at", DateTime.to_iso8601(source_created_at))
+  end
+
+  defp preserve_source_created_at(existing, incoming) do
+    %{incoming | source_created_at: earliest_source_created_at(existing.source_created_at, incoming.source_created_at)}
+  end
+
+  defp earliest_source_created_at(nil, incoming), do: incoming
+  defp earliest_source_created_at(existing, nil), do: existing
+
+  defp earliest_source_created_at(existing, incoming) do
+    if DateTime.compare(existing, incoming) == :gt, do: incoming, else: existing
+  end
+
+  defp fetch_requested_version(payload, default \\ 1) do
+    case raw_version(payload) do
+      nil -> {:ok, default}
       version when is_integer(version) and version > 0 -> {:ok, version}
       _other -> {:error, {:version, :invalid_type}}
     end
   end
+
+  defp raw_version(payload), do: Map.get(payload, "version", Map.get(payload, :version))
 
   defp evaluate_and_apply(decision, requested_version, state) do
     case evaluate(decision, requested_version, state) do

@@ -88,6 +88,49 @@ defmodule Aiur.DecisionValidationTest do
 
       refute first.decision_id == second.decision_id
     end
+
+    test "trusted legacy-attention provenance is normalized and integrity protected" do
+      legacy_attention = %{
+        slug: "scope-question",
+        topic: "ticket.979.agent.attention.scope-question"
+      }
+
+      payload = %{
+        "question" => "Which scope should own this?",
+        "blocking" => true,
+        "source_id" => "legacy_attention:scope-question"
+      }
+
+      assert {:ok, decision} = normalize(payload, legacy_attention: legacy_attention)
+      assert decision.legacy_attention == legacy_attention
+
+      assert {:ok, without_provenance} = normalize(payload)
+      refute decision.content_hash == without_provenance.content_hash
+    end
+
+    test "legacy-attention provenance must match its trusted ticket and slug" do
+      payload = %{
+        "question" => "Which scope should own this?",
+        "blocking" => true,
+        "source_id" => "legacy_attention:scope-question"
+      }
+
+      assert normalize(payload,
+               legacy_attention: %{
+                 slug: "scope-question",
+                 topic: "ticket.111.agent.attention.scope-question"
+               }
+             ) ==
+               {:error, {:decision_invalid, {:legacy_attention_topic, :mismatch}}}
+
+      assert normalize(payload,
+               legacy_attention: %{
+                 slug: "bad\nslug",
+                 topic: "ticket.979.agent.attention.bad\nslug"
+               }
+             ) ==
+               {:error, {:decision_invalid, {:legacy_attention_slug, :invalid_format}}}
+    end
   end
 
   describe "trusted context injection" do
