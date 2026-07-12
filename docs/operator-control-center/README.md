@@ -14,6 +14,7 @@ operator overseeing the fleet.
 | `02-occ-0-audit-and-design-decisions.md` | Accepted architecture audit and cross-ticket design decisions | OCC-0 |
 | `03-occ-1-decision-contract.md` | Durable request schema/store handoff | OCC-1 |
 | `04-occ-3-answer-delivery-contract.md` | Answer, dispatch, transport, and agent acknowledgement handoff | OCC-3 |
+| `05-occ-8-decision-revision-contract.md` | Append-only revision, corrective dispatch, and blocking follow-up handoff | OCC-8 |
 | `claude-design-prompt.md` | Ready-to-send prompt → Claude builds a self-contained HTML mock with example data | design handoff |
 
 ## Decisions locked (from the brainstorm)
@@ -26,8 +27,9 @@ operator overseeing the fleet.
 ## Implementation status
 
 OCC-0 established the architecture decisions, OCC-1 delivered the durable
-Decision request store, and OCC-3 extends it with persist-before-dispatch answer
-delivery. Follow the numbered contract docs rather than reconstructing behavior
-from individual implementation tickets. The inbox UI remains gated on its
-design handoff; API, revision, fleet, and metrics tickets build on these
-contracts independently as shown in the decomposition.
+Decision request store, OCC-3 added persist-before-dispatch answer delivery,
+and OCC-8 extends that same audit/outbox with ordered revisions. Follow the
+numbered contract docs rather than reconstructing behavior from individual
+implementation tickets. The inbox UI remains gated on its design handoff;
+API, fleet, and metrics tickets build on these contracts independently as
+shown in the decomposition.

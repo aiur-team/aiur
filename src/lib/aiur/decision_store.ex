@@ -186,6 +186,12 @@ defmodule Aiur.DecisionStore do
     GenServer.call(server, :all_history)
   end
 
+  @doc "Returns every Decision's complete immutable audit history in one serialized read."
+  @spec all_audit_history(GenServer.server()) :: %{String.t() => [Decision.t() | DecisionEvent.t()]}
+  def all_audit_history(server \\ __MODULE__) do
+    GenServer.call(server, :all_audit_history)
+  end
+
   @doc "Complete ordered audit history, including request and lifecycle events."
   @spec audit_history(String.t(), GenServer.server()) ::
           {:ok, [Decision.t() | DecisionEvent.t()]} | {:error, :not_found}
@@ -435,6 +441,10 @@ defmodule Aiur.DecisionStore do
 
   def handle_call(:all_history, _from, state) do
     {:reply, reverse_histories(state.history), state}
+  end
+
+  def handle_call(:all_audit_history, _from, state) do
+    {:reply, state.audit_history, state}
   end
 
   def handle_call({:audit_history, decision_id}, _from, state) do

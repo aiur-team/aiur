@@ -53,6 +53,19 @@ control-character checks, redaction, and option validation. The store derives
 the revision action ID in the Decision scope. A caller cannot choose the
 canonical action ID, acceptance timestamp, ticket, or actor provenance.
 
+The canonical application-service entry points are:
+
+- `Aiur.DecisionStore.revise/5` for accepted/replayed corrections;
+- `Aiur.DecisionStore.handle_revision_follow_up/5` for a durable handled fact
+  before reminder resolution;
+- `Aiur.DecisionStore.all_audit_history/1` for OCC-6 and other read models that
+  need request plus lifecycle records rather than request snapshots alone.
+
+The typed event vocabulary added by OCC-8 is `revision_recorded`,
+`revision_dispatched`, `revision_no_longer_applicable`, `follow_up_required`,
+and `follow_up_handled`. OCC-3 transport and target lifecycle events continue
+to describe delivery, acknowledgement, and resolution for the active action.
+
 ## Result vocabulary
 
 | Result | Meaning | Safe caller presentation |
@@ -124,7 +137,9 @@ use OCC-3's attempt-specific queue handles.
 Before opening a reminder, the parent revision audit records a deterministic
 `follow_up_required` fact and slug derived from the revision action.
 Reconciliation opens that stable `DecisionAttention` question only after the
-fact is durable.
+fact is durable. It uses `DecisionAttention.open_persisted/6`, whose contract
+is deliberately reminder-only: it does not project a second child Decision
+because the parent follow-up fact is already canonical.
 
 The follow-up asks what should happen now that the target cannot automatically
 apply the revision. It links the parent Decision, request version, and revision
