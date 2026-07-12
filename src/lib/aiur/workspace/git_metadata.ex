@@ -110,14 +110,17 @@ defmodule Aiur.Workspace.GitMetadata do
 
   defp append_agent_logs_exclusion(path) do
     with {:ok, contents} <- read_optional_file(path) do
-      if exclusion_present?(contents) do
-        :ok
-      else
-        with :ok <- File.mkdir_p(Path.dirname(path)),
-             :ok <- File.write(path, exclusion_suffix(contents), [:append]) do
-          :ok
-        end
-      end
+      maybe_append_agent_logs_exclusion(path, contents)
+    end
+  end
+
+  defp maybe_append_agent_logs_exclusion(path, contents) do
+    if exclusion_present?(contents), do: :ok, else: write_agent_logs_exclusion(path, contents)
+  end
+
+  defp write_agent_logs_exclusion(path, contents) do
+    with :ok <- File.mkdir_p(Path.dirname(path)) do
+      File.write(path, exclusion_suffix(contents), [:append])
     end
   end
 
