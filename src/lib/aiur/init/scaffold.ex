@@ -138,16 +138,18 @@ defmodule Aiur.Init.Scaffold do
 
     if File.regular?(env_path) do
       existing = File.read!(env_path)
-
-      unless github_token_present?(existing) do
-        separator = if existing == "" or String.ends_with?(existing, "\n"), do: "", else: "\n"
-        File.write!(env_path, separator <> env_content, [:append])
-      end
-
+      append_github_token_if_missing(env_path, existing, env_content)
       {:exists, env_path}
     else
       File.write!(env_path, env_content)
       {:created, env_path}
+    end
+  end
+
+  defp append_github_token_if_missing(env_path, existing, env_content) do
+    unless github_token_present?(existing) do
+      separator = if existing == "" or String.ends_with?(existing, "\n"), do: "", else: "\n"
+      File.write!(env_path, separator <> env_content, [:append])
     end
   end
 
