@@ -101,6 +101,7 @@ defmodule Aiur.Init do
     polling = Questions.prompt_int(io, "How often should aiur check the tracker for new work? (seconds)", 30, 1)
     prompt_file = if location == :global, do: "", else: io.input.("Per-repo agent prompt file", @prompt_basename, nil)
     prewarm = Prewarm.prompt_prewarm(io, deps, location)
+    Prewarm.maybe_first_prewarm(io, deps, tracker, prewarm)
     alerts = Alerts.prompt_alerts(io, deps, target)
 
     fills =
@@ -133,7 +134,6 @@ defmodule Aiur.Init do
         Scaffold.setup_env(io, deps, tracker)
         Scaffold.maybe_offer_gitignore(io, deps, location)
         Aiur.Init.Codeowners.setup_codeowners(io, deps, tracker)
-        Prewarm.maybe_first_prewarm(io, deps, tracker, prewarm)
         provision(io, deps, tracker, agents)
 
       {:error, reason} ->

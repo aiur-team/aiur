@@ -76,11 +76,16 @@ defmodule Aiur.BuildGate do
   defp active_count(gate_dir, capacity) do
     1..capacity
     |> Enum.count(fn slot ->
-      gate_dir
-      |> Path.join("slot-#{slot}/owner")
-      |> owner_pid()
-      |> owner_alive?()
+      slot_path = Path.join(gate_dir, "slot-#{slot}")
+
+      slot_path
+      |> slot_owner_path()
+      |> owner_record_alive?()
     end)
+  end
+
+  defp slot_owner_path(slot_path) do
+    if File.dir?(slot_path), do: Path.join(slot_path, "owner"), else: slot_path
   end
 
   defp queue_count(gate_dir) do
@@ -107,6 +112,20 @@ defmodule Aiur.BuildGate do
     end
   end
 
+  defp owner_pgid(path) do
+    with {:ok, record} <- File.read(path),
+         "pgid=" <> value <- Enum.find(String.split(record, "\n", trim: true), &String.starts_with?(&1, "pgid=")),
+         {pgid, ""} when pgid > 0 <- Integer.parse(value) do
+      pgid
+    else
+      _ -> nil
+    end
+  end
+
+  defp owner_record_alive?(path) do
+    owner_alive?(owner_pid(path)) or process_group_alive?(owner_pgid(path))
+  end
+
   defp owner_alive?(pid) when is_integer(pid) and pid > 0 do
     case System.find_executable("sh") do
       nil -> false
@@ -117,6 +136,17 @@ defmodule Aiur.BuildGate do
   end
 
   defp owner_alive?(_pid), do: false
+
+  defp process_group_alive?(pgid) when is_integer(pgid) and pgid > 0 do
+    case System.find_executable("sh") do
+      nil -> false
+      shell -> match?({_output, 0}, System.cmd(shell, ["-c", "kill -0 -#{pgid}"], stderr_to_stdout: true))
+    end
+  rescue
+    _ -> false
+  end
+
+  defp process_group_alive?(_pgid), do: false
 
   defp gate_enabled?(slots, stagger_seconds, min_free_memory_mb) do
     (is_integer(slots) and slots > 0) or

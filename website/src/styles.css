@@ -56,12 +56,27 @@
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--muted);
+    text-decoration: none;
   }
-  .brand-mini .dot {
-    width: 7px; height: 7px; border-radius: 50%;
-    background: var(--accent);
-    box-shadow: 0 0 10px var(--accent);
+  .brand-mini-logo {
+    width: auto;
+    height: 28px;
+    display: block;
   }
+  .topbar-actions {
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+  }
+  .topbar-link {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 13px;
+    color: var(--muted);
+    text-decoration: none;
+    transition: color 0.2s ease;
+  }
+  .topbar-link:hover { color: var(--fg); }
 
   .toggle {
     pointer-events: auto;
@@ -81,6 +96,13 @@
   html[data-theme="light"] .toggle .icon-sun { display: none; }
   html[data-theme="light"] .toggle .icon-moon { display: block; }
   html[data-theme="light"] .toggle { transform: rotate(360deg); }
+  .brand-mini:focus-visible,
+  .topbar-link:focus-visible,
+  .toggle:focus-visible,
+  .foot-links a:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 4px;
+  }
 
   /* ---------- hero ---------- */
   .hero {
@@ -671,4 +693,4 @@
   }
   .foot-links a:hover { color: var(--fg); }
   .foot-links a svg { width: 17px; height: 17px; display: block; }
-
+  .foot-links .github-link { gap: 0; }

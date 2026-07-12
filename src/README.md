@@ -18,9 +18,11 @@ PRs, and lets you watch and chat with each agent in real time.
 **Warm base pre-warm (opt-in).** Instead of every agent cold-cloning and recompiling the
 repo, aiur can build one shared, pre-compiled base of latest `main` once and materialize each
 workspace from it via copy-on-write. `aiur init` offers to set it up and auto-detects the
-build command (Elixir/Node/Go/Rust/Python) so you write no build shell; the base is built
-eagerly before the first dispatch (the agent list shows a loading bar) and rebuilt whenever
-`main` advances. Unconfigured or undetected repos fall back to the normal cold-clone path.
+build command (Elixir/Node/Go/Rust/Python) so you write no build shell. Once you accept the
+detected or edited command, init starts the one-time build immediately before continuing with
+alert and scaffolding prompts. The base is ready before the first dispatch (the agent list shows
+a loading bar) and rebuilt whenever `main` advances. Unconfigured or undetected repos fall back
+to the normal cold-clone path.
 Enable via the `prewarm:` block in `.aiur/config`.
 
 **Bootstrap image cache seeding (opt-in).** Repos can also publish a warm Docker image and set

@@ -39,6 +39,14 @@ defmodule Aiur.BuildGateTest do
              BuildGate.status(gate_dir: gate_dir, capacity: 2)
   end
 
+  test "reports a slot with a dead owner and live process group as active", %{gate_dir: gate_dir} do
+    slot_path = Path.join(gate_dir, "slot-1")
+    {pgid, 0} = System.cmd("ps", ["-o", "pgid=", "-p", System.pid()])
+    File.write!(slot_path, "pid=999999999\npgid=#{String.trim(pgid)}\ncommand=test\n")
+
+    assert %{active: 1} = BuildGate.status(gate_dir: gate_dir, capacity: 1)
+  end
+
   test "reports disabled status without inspecting a gate directory" do
     assert %{enabled?: false, capacity: 0, active: 0, queued: 0} =
              BuildGate.status(
@@ -129,6 +137,18 @@ defmodule Aiur.BuildGateTest do
     assert File.read!(context.log_path) == "test\ncompile\n"
   end
 
+  test "publishes a complete numbered-slot owner record atomically", context do
+    command = Task.async(fn -> run_bash("mix test", Map.put(context, :sleep_seconds, 2)) end)
+    wait_for_file!(context.started_path)
+
+    slot_path = Path.join(context.gate_dir, "slot-1")
+    assert File.regular?(slot_path)
+    assert File.read!(slot_path) =~ ~r/^pid=[1-9][0-9]*\npgid=[1-9][0-9]*\ncommand=test\n$/
+
+    assert {_output, 0} = Task.await(command, 5_000)
+    refute File.exists?(slot_path)
+  end
+
   test "times out without running Mix while every slot has a live owner", context do
     slot_path = Path.join(context.gate_dir, "slot-1")
     File.mkdir_p!(slot_path)
@@ -147,6 +167,31 @@ defmodule Aiur.BuildGateTest do
     assert {output, 0} = run_bash("mix compile", context)
     assert output =~ "aiur_build_gate stale_owner_recovered slot=1 owner_pid=999999999"
     assert File.read!(context.log_path) == "compile\n"
+  end
+
+  test "reclaims an interrupted numbered-slot owner publication", context do
+    slot_path = Path.join(context.gate_dir, "slot-1")
+    File.mkdir_p!(slot_path)
+    File.write!(Path.join(slot_path, "owner"), "pid=")
+
+    assert {output, 0} = run_bash("mix compile", context)
+    assert output =~ "aiur_build_gate stale_owner_recovered slot=1 owner_pid=unknown"
+    assert File.read!(context.log_path) == "compile\n"
+  end
+
+  test "keeps a slot while a dead owner's process group still has a child", context do
+    command = """
+    setsid bash -c 'sleep 2 &' &
+    owner_pid=$!
+    wait "$owner_pid"
+    printf 'pid=%s\npgid=%s\ncommand=test\n' "$owner_pid" "$owner_pid" > "#{context.gate_dir}/slot-1"
+    mix compile
+    """
+
+    assert {output, 124} = run_bash(command, Map.put(context, :timeout_seconds, 0))
+    assert output =~ "aiur_build_gate timeout"
+    refute output =~ "stale_owner_recovered"
+    refute File.exists?(context.log_path)
   end
 
   test "defers below the memory floor and resumes after MemAvailable recovers", context do
@@ -378,7 +423,7 @@ defmodule Aiur.BuildGateTest do
   test "fails open when phase lock publication is unavailable", context do
     assert {output, 0} =
              run_bash(
-               "ln() { return 1; }; mix compile",
+               "ln() { [[ ${!#} == */phase-start.lock ]] && return 1; command ln \"$@\"; }; mix compile",
                Map.merge(context, %{slots: 2, stagger_seconds: 5})
              )
 

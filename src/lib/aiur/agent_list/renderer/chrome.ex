@@ -41,15 +41,13 @@ defmodule Aiur.AgentList.Renderer.Chrome do
   end
 
   @spec agents_row(term(), term(), term(), term(), term(), term()) :: term()
-  def agents_row(kind, count, max, focused?, alert?, inner_width)
+  def agents_row(_kind, count, max, focused?, alert?, inner_width)
       when is_integer(count) and is_integer(max) and max > 0 do
-    kind_value = if is_binary(kind) and kind != "", do: kind, else: "agents"
-    agents_row_iolist(kind_value, count, max, focused?, alert?, inner_width)
+    agents_row_iolist(nil, count, max, focused?, alert?, inner_width)
   end
 
-  def agents_row(kind, count, _max, _focused?, _alert?, inner_width) when is_integer(count) do
-    kind_value = if is_binary(kind) and kind != "", do: kind, else: "agents"
-    metadata_row_iolist("Agents:", "#{kind_value} (#{count})", Style.cyan(), inner_width)
+  def agents_row(_kind, count, _max, _focused?, _alert?, inner_width) when is_integer(count) do
+    metadata_row_iolist("Agents:", to_string(count), Style.cyan(), inner_width)
   end
 
   def agents_row(_kind, _count, _max, _focused?, _alert?, inner_width),
@@ -86,14 +84,14 @@ defmodule Aiur.AgentList.Renderer.Chrome do
   end
 
   @spec agents_row_iolist(term(), term(), term(), term(), term(), term()) :: term()
-  def agents_row_iolist(kind, count, max, focused?, alert?, inner_width) do
+  def agents_row_iolist(_kind, count, max, focused?, alert?, inner_width) do
     label = "Agents:"
     prefix = "│ "
     bold_label = Style.bold() <> label <> Style.reset()
     max_text = if focused?, do: "[#{max}]", else: to_string(max)
     affordance = if focused?, do: "  ← →", else: ""
     drain_text = if count > max, do: " drain", else: ""
-    plain = "#{prefix}#{label} #{kind} (#{count}/#{max_text}#{drain_text})#{affordance}"
+    plain = "#{prefix}#{label} #{count}/#{max_text}#{drain_text}#{affordance}"
     pad = Text.padding_for(plain, inner_width)
 
     max_style =
@@ -108,8 +106,6 @@ defmodule Aiur.AgentList.Renderer.Chrome do
       bold_label,
       " ",
       Style.cyan(),
-      kind,
-      " (",
       Integer.to_string(count),
       "/",
       max_style,
@@ -117,7 +113,6 @@ defmodule Aiur.AgentList.Renderer.Chrome do
       Style.reset(),
       Style.cyan(),
       drain_text,
-      ")",
       affordance,
       Style.reset(),
       pad
