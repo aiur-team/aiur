@@ -444,6 +444,33 @@ export AIUR_RELEASE_DIR="$release_dir"
 
 apply_agent_ir_xdg_env
 if [ "${#passthrough[@]}" -gt 0 ]; then
+  if pure_control_command "${passthrough[0]}"; then
+    control_retry_signal="$(mktemp "${TMPDIR:-/tmp}/aiurdev-control-retry.XXXXXX")"
+    rm -f "$control_retry_signal"
+    export AIUR_CONTROL_RELEASE_RETRYABLE=1
+    export AIUR_CONTROL_RELEASE_RETRY_SIGNAL="$control_retry_signal"
+    set +e
+    "$engine" "${passthrough[@]}"
+    control_status=$?
+    set -e
+
+    if [ "$control_status" -eq 75 ] && [ -f "$control_retry_signal" ]; then
+      # The shared engine reserves EX_TEMPFAIL for a dev release that became
+      # incomplete between our readiness check and its RPC launcher exec.
+      rm -f "$control_retry_signal"
+      echo "⏳ dev release changed during control command; waiting for rebuild and retrying" >&2
+      acquire_build_lock
+      if ! release_ready; then
+        ensure_built_locked
+      fi
+      release_build_lock
+      export AIUR_CONTROL_RELEASE_RETRYABLE=0
+      exec "$engine" "${passthrough[@]}"
+    fi
+
+    rm -f "$control_retry_signal"
+    exit "$control_status"
+  fi
   exec "$engine" "${passthrough[@]}"
 else
   exec "$engine"
