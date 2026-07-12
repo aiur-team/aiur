@@ -1,7 +1,7 @@
 defmodule Aiur.DecisionProjectionTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.{Decision, DecisionAnswer, DecisionEvent, DecisionProjection, DecisionValidation}
+  alias Aiur.{Decision, DecisionAnswer, DecisionEvent, DecisionProjection, DecisionRevision, DecisionValidation}
 
   @ticket %{identifier: "979", title: "OCC-1", url: "https://github.com/its-everdred/aiur/issues/979"}
   @source %{agent_id: "agent-1", session_id: "session-1", event_id: "evt-1"}
@@ -51,6 +51,46 @@ defmodule Aiur.DecisionProjectionTest do
       )
 
     event
+  end
+
+  defp revision(decision, prior_answer, overrides \\ %{}) do
+    now = ~U[2026-07-12 10:10:00Z]
+
+    payload =
+      Map.merge(
+        %{
+          "idempotency_key" => "revision-1",
+          "expected_version" => decision.version,
+          "expected_action_id" => prior_answer.action_id,
+          "expected_revision_sequence" => 0,
+          "custom_response" => "Hold the rollout",
+          "rationale" => "New production evidence"
+        },
+        overrides
+      )
+
+    normalizer = fn answer_payload, _opts ->
+      DecisionAnswer.normalize(answer_payload,
+        decision_id: decision.decision_id,
+        decision_version: decision.version,
+        options: decision.options,
+        actor: %{kind: :supervisor, id: "supervisor-1"},
+        now: now
+      )
+    end
+
+    {:ok, revision} =
+      DecisionRevision.normalize(payload,
+        decision_id: decision.decision_id,
+        decision_version: decision.version,
+        current_action_id: prior_answer.action_id,
+        current_revision_sequence: 0,
+        actor: %{kind: :supervisor, id: "supervisor-1"},
+        now: now,
+        answer_normalizer: normalizer
+      )
+
+    revision
   end
 
   describe "decode_record/1 happy path" do
@@ -256,6 +296,69 @@ defmodule Aiur.DecisionProjectionTest do
       assert current.answer.decision_version == 1
       assert [%{attempt_id: "attempt-1"}] = current.dispatch_attempts
       assert Enum.map(result.history[v1.decision_id], & &1.version) == [1, 2]
+    end
+
+    test "a revision preserves the original answer and advances the active action" do
+      request =
+        build_decision(%{
+          "source_id" => "revision-1",
+          "options" => [%{"id" => "ship", "label" => "Ship it"}]
+        })
+
+      original = answer(request)
+      correction = revision(request, original)
+
+      events = [
+        request,
+        event(:answer_recorded, request, original, 1),
+        event(:dispatch_queued, request, %{action_id: original.action_id, attempt_id: "original:1", queue_item_id: 17}, 2),
+        event(:delivered, request, %{action_id: original.action_id, attempt_id: "original:1", queue_item_id: 17}, 3),
+        event(:acknowledged, request, %{action_id: original.action_id, actor: %{kind: :agent, id: "agent-1"}}, 4),
+        event(:resolved, request, %{action_id: original.action_id, actor: %{kind: :agent, id: "agent-1"}}, 5),
+        event(:revision_recorded, request, correction, 6)
+      ]
+
+      current = DecisionProjection.reduce(events).current[request.decision_id]
+
+      assert current.answer == original
+      assert current.active_action_id == correction.action_id
+      assert current.revision_sequence == 1
+      assert current.revisions == [correction]
+      assert current.revision_result == :recorded
+      assert current.decision_status == :decided
+      assert current.delivery_status == :pending
+      assert current.acknowledgement == nil
+      assert current.resolution == nil
+      assert current.acknowledgements[original.action_id].action_id == original.action_id
+      assert current.resolutions[original.action_id].action_id == original.action_id
+      assert [%{action_id: original_action}] = current.dispatch_attempts
+      assert original_action == original.action_id
+    end
+
+    test "revision dispatch and transport remain correlated without rewriting prior attempts" do
+      request = build_decision(%{"source_id" => "revision-dispatch"})
+      original = answer(request, %{"option_id" => nil, "custom_response" => "Proceed"})
+      correction = revision(request, original)
+
+      events = [
+        request,
+        event(:answer_recorded, request, original, 1),
+        event(:dispatch_queued, request, %{action_id: original.action_id, attempt_id: "original:1", queue_item_id: 17}, 2),
+        event(:revision_recorded, request, correction, 3),
+        event(:revision_dispatched, request, %{action_id: correction.action_id, attempt_id: "revision:1", queue_item_id: 18}, 4),
+        event(:delivered, request, %{action_id: correction.action_id, attempt_id: "revision:1", queue_item_id: 18}, 5)
+      ]
+
+      current = DecisionProjection.reduce(events).current[request.decision_id]
+
+      assert current.answer == original
+      assert current.revision_result == :dispatched
+      assert current.delivery_status == :delivered
+
+      assert Enum.map(current.dispatch_attempts, &{&1.action_id, &1.status}) == [
+               {original.action_id, :queued},
+               {correction.action_id, :delivered}
+             ]
     end
 
     test "checked reduction rejects a lifecycle event with the wrong action" do

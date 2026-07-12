@@ -69,7 +69,9 @@ Both files live beneath `Aiur.Config.Paths.decision_state_dir/0`: an owner-only 
 
 - `decisions.ndjson` — canonical, append-only, newline-terminated JSON records
   (owner-only `0600`). OCC-1 request versions and OCC-3 lifecycle facts use
-  typed, hashed envelopes with reserved event IDs.
+  typed, hashed envelopes with reserved event IDs. OCC-8 adds revision and
+  blocking-follow-up facts to that same envelope; it does not create another
+  log or rewrite an accepted answer.
 - `decisions.json` — atomically-replaced current-state projection (via `Aiur.JsonStore`, then explicitly chmod'd owner-only `0600` by `Aiur.DecisionStore` — `JsonStore` itself is a shared primitive with no permission opinion, since its other callers don't need owner-only), rebuildable from the audit stream at any time.
 
 During `Aiur.DecisionStore` initialization, the directory and audit file are created and hardened before any request can run. If either entry is new, `Aiur.Fs.sync_filesystem/0` is called exactly once so the directory entries are durable — a file's own fsync never syncs its parent directory, and the BEAM has no way to open a directory as a file descriptor to fsync one directly (`:file.open/2` returns `:eisdir` for every mode), so this shells out to POSIX `sync(1)` as a startup-only global barrier rather than a first-request or per-append cost.
@@ -106,7 +108,8 @@ synchronously** right after persistence succeeds. The durable audit record and
 projection are unaffected either way; every consumer must re-read
 `Aiur.DecisionStore` on mount/reconnect rather than trust the broadcast alone.
 OCC-3 adds a separate persisted answer outbox and settlement records; its
-restart contract is documented in the OCC-3 handoff.
+restart contract is documented in the OCC-3 handoff. OCC-8 reuses that outbox
+for corrective actions and documents the extension in the OCC-8 handoff.
 
 ## Agent ingress
 
