@@ -198,24 +198,24 @@ defmodule Aiur.Orchestrator.CommentWake do
   end
 
   defp dispatch_reworked_comment_issue(%State{} = state, %Issue{} = issue) do
-    # The tracker transition immediately above is authoritative even when a
-    # subsequent read is briefly stale (or the in-memory adapter is immutable).
-    # Carry that accepted state into dispatch so resume telemetry is not lost.
-    issue = %{issue | state: "rework"}
     active = DispatchPolicy.active_state_set()
     terminal = DispatchPolicy.terminal_state_set()
 
     if DispatchPolicy.should_dispatch_issue?(issue, state, active, terminal) do
       state
       |> Dispatcher.dispatch_issue(issue)
-      |> maybe_record_stale_rework_resume(issue)
+      |> maybe_record_comment_rework_resume(issue)
     else
       Orchestrator.schedule_poll_cycle_start()
       state
     end
   end
 
-  defp maybe_record_stale_rework_resume(%State{} = state, %Issue{} = issue) do
+  # The successful state transition above captures the comment's rework intent,
+  # but dispatch admission must continue to use the subsequently fetched state.
+  # When that read is stale-but-active, record the intent only after a worker is
+  # actually admitted; Dispatcher records the normal fetched-`rework` case.
+  defp maybe_record_comment_rework_resume(%State{} = state, %Issue{} = issue) do
     case Map.get(state.running, issue.id) do
       %{pid: pid, issue: %Issue{} = dispatched_issue} = entry when is_pid(pid) ->
         if DispatchPolicy.normalize_issue_state(dispatched_issue.state) != "rework" do

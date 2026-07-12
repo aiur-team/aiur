@@ -2687,7 +2687,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       end
     end
 
-    test "trusted idle review comment fetches the reworked issue and dispatches immediately" do
+    test "trusted idle review comment preserves stale active state while recording resume intent" do
       test_root =
         Path.join(
           System.tmp_dir!(),
@@ -2732,7 +2732,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
           %Issue{
             id: issue_identifier,
             identifier: issue_identifier,
-            state: "rework",
+            state: "todo",
             title: "Review comment requested rework",
             description: "",
             labels: []
@@ -2773,7 +2773,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
                ] = AgentQueueStore.list_pending(next_state.queue_store, issue_identifier)
 
         assert %{^issue_identifier => entry} = next_state.running
-        assert entry.issue.state == "rework"
+        assert entry.issue.state == "todo"
         assert MapSet.member?(next_state.claimed, issue_identifier)
 
         assert_receive {:lifecycle, :lifecycle,
@@ -2801,6 +2801,67 @@ defmodule Aiur.OrchestratorDeactivateTest do
         restore_application_env(:direct_dispatch_issues, previous_direct_issues)
         restore_application_env(:run_telemetry_lifecycle_recorder, previous_lifecycle_recorder)
         File.rm_rf(test_root)
+      end
+    end
+
+    test "trusted idle review comment does not admit a concurrently terminal issue" do
+      issue_identifier = "58"
+      previous_github_client = Application.get_env(:aiur, :github_client_module)
+      previous_direct_recipient = Application.get_env(:aiur, :direct_dispatch_recipient)
+      previous_direct_issues = Application.get_env(:aiur, :direct_dispatch_issues)
+
+      try do
+        write_workflow_file!(Workflow.workflow_file_path(),
+          tracker_kind: "github",
+          tracker_repo: "owner/repo",
+          tracker_label_prefix: "agent",
+          tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+          tracker_terminal_states: ["done", "cancelled", "canceled"]
+        )
+
+        Application.put_env(:aiur, :github_client_module, DirectDispatchGitHubClient)
+        Application.put_env(:aiur, :direct_dispatch_recipient, self())
+
+        Application.put_env(:aiur, :direct_dispatch_issues, [
+          %Issue{
+            id: issue_identifier,
+            identifier: issue_identifier,
+            state: "done",
+            title: "Merged while the comment event was in flight",
+            description: "",
+            labels: []
+          }
+        ])
+
+        state = %Orchestrator.State{
+          running: %{},
+          claimed: MapSet.new(),
+          codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+          retry_attempts: %{},
+          max_concurrent_agents: 6
+        }
+
+        event = %{
+          id: 3_473_822_448,
+          topic: "ticket.#{issue_identifier}.pr.review_comment",
+          source: :github,
+          author_trusted?: true,
+          message: "comment raced with merge",
+          comment: %{"body" => "comment raced with merge", "id" => 3_473_822_448}
+        }
+
+        assert {:noreply, next_state} = Orchestrator.handle_info({:event, event}, state)
+
+        assert_receive {:direct_dispatch_update, ^issue_identifier, "rework"}
+        assert_receive {:direct_dispatch_fetch, [^issue_identifier]}
+        refute_receive {:direct_dispatch_fetch, [^issue_identifier]}, 100
+        assert_receive :run_poll_cycle, 100
+        assert next_state.running == %{}
+        assert next_state.claimed == MapSet.new()
+      after
+        restore_application_env(:github_client_module, previous_github_client)
+        restore_application_env(:direct_dispatch_recipient, previous_direct_recipient)
+        restore_application_env(:direct_dispatch_issues, previous_direct_issues)
       end
     end
 
