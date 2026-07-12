@@ -217,6 +217,120 @@ defmodule Aiur.DecisionRevisionStoreTest do
     assert current.active_action_id == second.action_id
   end
 
+  test "revision handoff before settlement reconstructs the missing revision attempt", %{dir: dir} do
+    parent = self()
+
+    dispatcher = fn dispatched, opts ->
+      active = Decision.active_answer(dispatched)
+
+      item = %{
+        id: System.unique_integer([:positive]),
+        target_issue_identifier: dispatched.ticket.identifier,
+        action_id: active.action_id,
+        status: :pending,
+        correlation: %{
+          decision_id: dispatched.decision_id,
+          decision_version: active.decision_version,
+          action_id: active.action_id,
+          attempt_id: opts[:attempt_id]
+        }
+      }
+
+      if dispatched.revision_sequence > 0 do
+        send(parent, {:revision_handoff_before_settlement, self(), item})
+
+        receive do
+          :release_revision_settlement -> :ok
+        end
+      end
+
+      {:ok, %{status: :accepted, item: item}}
+    end
+
+    pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0)
+    {decision, original} = answered_decision(pid)
+    _original_queued = wait_for(pid, decision.decision_id, &(&1.delivery_status == :queued))
+
+    assert {:ok, %{action: revision}} =
+             revise(pid, decision, original, "revision-handoff-race", "Hold the rollout")
+
+    assert_receive {:revision_handoff_before_settlement, dispatcher_pid, item}, 2_000
+    on_exit(fn -> send(dispatcher_pid, :release_revision_settlement) end)
+
+    assert {:ok, :accepted} = DecisionStore.record_delivery(item, pid)
+    delivered = wait_for(pid, decision.decision_id, &(&1.delivery_status == :delivered))
+
+    assert delivered.revision_result == :dispatched
+    assert [%{action_id: revision_action_id, status: :delivered}] = Decision.active_dispatch_attempts(delivered)
+    assert revision_action_id == revision.action_id
+
+    send(dispatcher_pid, :release_revision_settlement)
+    assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, pid)
+    assert Enum.count(audit, &match?(%DecisionEvent{type: :revision_dispatched}, &1)) == 1
+  end
+
+  test "revision lifecycle append failure stays action-scoped and retryable", %{dir: dir} do
+    parent = self()
+    reservation_count = :counters.new(1, [])
+
+    event_id_reserver = fn ->
+      :ok = :counters.add(reservation_count, 1, 1)
+      reservation = :counters.get(reservation_count, 1)
+      send(parent, {:revision_lifecycle_reservation, reservation})
+
+      if reservation == 4,
+        do: {:error, :not_durable},
+        else: Aiur.Events.IdGenerator.reserve_durable_id()
+    end
+
+    dispatcher = fn dispatched, opts ->
+      active = Decision.active_answer(dispatched)
+      send(parent, {:revision_append_dispatch, dispatched.revision_sequence, active.action_id})
+
+      {:ok,
+       %{
+         status: :accepted,
+         item: %{
+           id: System.unique_integer([:positive]),
+           status: :pending,
+           correlation: %{attempt_id: opts[:attempt_id]}
+         }
+       }}
+    end
+
+    pid =
+      start_store!(dir,
+        dispatcher: dispatcher,
+        dispatch_delay_ms: 0,
+        retry_delays_ms: [],
+        event_id_reserver: event_id_reserver
+      )
+
+    {decision, original} = answered_decision(pid)
+    assert_receive {:revision_append_dispatch, 0, original_action_id}, 2_000
+    assert original_action_id == original.action_id
+    _original_queued = wait_for(pid, decision.decision_id, &(&1.delivery_status == :queued))
+
+    assert {:ok, %{action: revision}} =
+             revise(pid, decision, original, "revision-append-retry", "Hold the rollout")
+
+    assert_receive {:revision_append_dispatch, 1, revision_action_id}, 2_000
+    assert revision_action_id == revision.action_id
+    assert_receive {:revision_lifecycle_reservation, 4}, 2_000
+    assert DecisionStore.health(pid) == :writable
+
+    state = :sys.get_state(pid)
+    assert MapSet.member?(state.lifecycle_append_failures, revision.action_id)
+    refute MapSet.member?(state.lifecycle_append_failures, original.action_id)
+
+    assert {:ok, :scheduled} = DecisionStore.retry_dispatch(decision.decision_id, revision.action_id, pid)
+    assert_receive {:revision_append_dispatch, 1, ^revision_action_id}, 2_000
+
+    revised = wait_for(pid, decision.decision_id, &(&1.revision_result == :dispatched))
+    refute MapSet.member?(:sys.get_state(pid).lifecycle_append_failures, revision.action_id)
+    assert revised.active_action_id == revision.action_id
+  end
+
   test "a fresh missing target records non-applicability without a queue attempt", %{dir: dir} do
     parent = self()
 

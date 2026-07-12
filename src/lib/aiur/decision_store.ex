@@ -1327,8 +1327,10 @@ defmodule Aiur.DecisionStore do
           {:ok, attempt} ->
             {:ok, decision, attempt, context}
 
-          {:error, :attempt_not_found} when decision.dispatch_attempts == [] ->
-            {:ok, decision, :missing_attempt, context}
+          {:error, :attempt_not_found} ->
+            if Enum.any?(decision.dispatch_attempts, &(&1.action_id == context.action_id)),
+              do: {:error, :attempt_not_found},
+              else: {:ok, decision, :missing_attempt, context}
 
           {:error, reason} ->
             {:error, reason}
