@@ -76,6 +76,50 @@ defmodule Aiur.DecisionAnswerTest do
 
     assert {:ok, replayed} = DecisionAnswer.from_json_safe(raw)
     assert replayed == answer
+    refute Map.has_key?(raw, "supervisor_basis")
+  end
+
+  test "requires and round trips a validated basis for supervisor answers" do
+    payload = %{
+      "idempotency_key" => "supervisor-submit-1",
+      "expected_version" => 2,
+      "option_id" => "ship",
+      "rationale" => "The policy permits this choice."
+    }
+
+    basis = supervisor_basis()
+    opts = [actor: %{kind: :supervisor, id: "supervising-agent"}, supervisor_basis: basis]
+
+    assert {:ok, answer} = normalize(payload, opts)
+    assert answer.supervisor_basis == basis
+
+    raw = answer |> DecisionAnswer.to_json_safe() |> Jason.encode!() |> Jason.decode!()
+    assert raw["supervisor_basis"]["policy_basis"]["authority"] == "supervisor_allowed"
+    assert {:ok, ^answer} = DecisionAnswer.from_json_safe(raw)
+
+    assert {:error, {:answer_invalid, {:supervisor_basis, :missing}}} =
+             normalize(payload, actor: %{kind: :supervisor, id: "supervising-agent"})
+
+    assert {:error, {:answer_invalid, {:supervisor_basis, :unexpected}}} =
+             normalize(payload, supervisor_basis: basis)
+  end
+
+  test "supervisor basis participates in answer idempotency content" do
+    payload = %{
+      "idempotency_key" => "supervisor-submit-1",
+      "expected_version" => 2,
+      "option_id" => "ship",
+      "rationale" => "Proceed"
+    }
+
+    opts = [actor: %{kind: :supervisor, id: "supervising-agent"}, supervisor_basis: supervisor_basis()]
+    assert {:ok, first} = normalize(payload, opts)
+
+    changed_basis = put_in(supervisor_basis(), [:confidence], 50)
+    assert {:ok, changed} = normalize(payload, Keyword.put(opts, :supervisor_basis, changed_basis))
+
+    assert first.action_id == changed.action_id
+    refute first.content_hash == changed.content_hash
   end
 
   test "redacts secrets from answer content and trusted actor metadata" do
@@ -93,5 +137,24 @@ defmodule Aiur.DecisionAnswerTest do
 
     refute persisted =~ secret
     assert persisted =~ "[REDACTED:ghp]"
+  end
+
+  defp supervisor_basis do
+    %{
+      confidence: 87,
+      alternatives_considered: ["Wait"],
+      reversibility_belief: :reversible,
+      policy_basis: %{
+        authority: :supervisor_allowed,
+        kind: "architecture",
+        reversibility: :reversible,
+        checks: %{
+          authority_delegable: true,
+          kind_allowed: true,
+          reversibility_allowed: true
+        },
+        allow_non_reversible: false
+      }
+    }
   end
 end

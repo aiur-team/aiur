@@ -449,6 +449,19 @@ defmodule Aiur.Config do
     settings!().observability.dashboard_writable
   end
 
+  @spec supervisor_decision_policy() :: %{
+          allowed_kinds: [String.t()],
+          allow_non_reversible: boolean()
+        }
+  def supervisor_decision_policy do
+    decisions = settings!().decisions
+
+    %{
+      allowed_kinds: decisions.supervisor_allowed_kinds,
+      allow_non_reversible: decisions.supervisor_allow_non_reversible
+    }
+  end
+
   @spec observability_refresh_ms() :: pos_integer()
   def observability_refresh_ms do
     settings!().observability.refresh_ms
