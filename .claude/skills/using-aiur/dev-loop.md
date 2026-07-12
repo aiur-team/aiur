@@ -57,18 +57,31 @@ matching branch, and exits non-zero when no branch or more than one branch exist
 9. Implement any issues `ce-code-review` surfaces (commit + push the fixes).
 10. Re-run the scoped local pre-PR verification gate after review fixes if any
     code, tests, prompt, skill, or config files changed.
-11. If you still believe the work is complete and correct, **mark the PR ready
-    for review** and add the `agent:human-review` label.
+11. If you still believe the work is complete and correct and only CI remains,
+    keep the PR as a draft, add the `agent:ci-wait` label, and end the turn. Do
+    not loop on `gh pr checks` + sleep: the daemon polls CI centrally and
+    returns the dispatch slot while this runner is paused.
+12. On a delivered terminal CI event:
+    - **Passed:** trust the delivered result without re-polling, mark the PR ready
+      for review, emit the required 100% progress sample, and add
+      `agent:human-review`.
+    - **Failed:** use the delivered failed-check names and excerpt, keep or move
+      the ticket in `agent:rework`, and begin the repair loop.
+13. On a CI re-wake timeout, run `gh pr checks` exactly once. If CI is terminal,
+    follow the pass or failure path; if it is still pending, return to
+    `agent:ci-wait` and end the turn without polling again.
 
 Do **not** self-merge. Always await user review after marking the PR ready.
 
-**When you flip the label to `agent:human-review`, your turn loop ends
-naturally.** Do not keep polling `gh pr view` / `gh issue view` waiting for review
-comments — that wastes turns. Aiur will resume you when the label flips back to
-`agent:in-progress` (for rework) or `merging`. If you have nothing left to do on
-the current turn but the label is still `agent:in-progress` (e.g., you're blocked
-on an upstream PR merging), emit `pause.request` instead of looping; the operator
-will see the ❗ and reply when ready.
+**When you flip the label to `agent:ci-wait` or `agent:human-review`, your turn
+loop ends naturally.** Do not keep polling `gh pr checks`, `gh pr view`, or
+`gh issue view` waiting for CI or review comments — that wastes turns. Aiur will
+resume you with a terminal CI result, a bounded CI fallback re-wake, or when the
+label flips back to `agent:in-progress` / `agent:rework` / `merging`. If you have
+nothing left to do on the current turn but the label is still
+`agent:in-progress` for a non-CI reason (for example, an upstream PR must merge),
+emit `pause.request` instead of looping; the operator will see the ❗ and reply
+when ready.
 
 ## Manual CLI verification before opening a PR
 

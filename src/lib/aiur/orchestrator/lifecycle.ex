@@ -183,6 +183,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
       Exchange.subscribe("ticket.*.issue.commented")
       Exchange.subscribe("ticket.*.pr.merged")
       Exchange.subscribe("ticket.*.ci.failed")
+      Exchange.subscribe("ticket.*.ci.passed")
       Exchange.subscribe("ticket.*.agent.pause.request")
       Exchange.subscribe("ticket.*.branch.push")
       Exchange.subscribe("system.*.branch.push")

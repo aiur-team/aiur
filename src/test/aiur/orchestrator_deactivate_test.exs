@@ -316,11 +316,11 @@ defmodule Aiur.OrchestratorDeactivateTest do
           end
         )
 
-      assert_receive {:ci_watcher_update, "822", "human-review"}
+      assert_receive {:ci_watcher_update, "822", "in-progress"}
       assert state.ci_lifecycle.approved_heads == %{"822" => "new-head"}
     end
 
-    test "an approved head stays in human review after an orchestrator restart" do
+    test "an approved head stays in human review after the agent handoff and an orchestrator restart" do
       identifier = "ci-restart"
       waiting_issue = %Issue{id: identifier, identifier: identifier, state: "ci-wait", title: "Restart-safe CI"}
 
@@ -332,7 +332,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
           end
         )
 
-      assert_receive {:ci_watcher_update, ^identifier, "human-review"}
+      assert_receive {:ci_watcher_update, ^identifier, "in-progress"}
       assert state.ci_lifecycle.approved_heads == %{"ci-restart" => "approved-head"}
 
       persisted = CIApprovalStore.load()
@@ -706,6 +706,33 @@ defmodule Aiur.OrchestratorDeactivateTest do
       refute_receive {:ci_wait_control, {:resume_agent, _request_id}}
       assert get_in(next_state.running[identifier], [:control, :status]) == :paused
       assert next_state.running[identifier].paused_reason == :label_override
+    end
+
+    test "CI pass events resume an eligible CI-wait runner in the active handoff state" do
+      identifier = "ci-pass-event-wake"
+      agent_pid = control_test_agent(self())
+
+      on_exit(fn ->
+        if Process.alive?(agent_pid), do: Process.exit(agent_pid, :kill)
+      end)
+
+      active_issue = %Issue{id: identifier, identifier: identifier, state: "in-progress"}
+
+      state =
+        human_review_running_state(identifier, agent_pid)
+        |> put_in([Access.key(:running), identifier, :issue], active_issue)
+        |> put_in([Access.key(:running), identifier, :control], %{status: :paused})
+        |> put_in([Access.key(:running), identifier, :paused_reason], :ci_wait)
+
+      assert {:noreply, next_state} =
+               Orchestrator.handle_info(
+                 {:event, %{topic: "ticket.#{identifier}.ci.passed"}},
+                 state
+               )
+
+      assert_receive {:ci_wait_control, {:resume_agent, _request_id}}
+      assert get_in(next_state.running[identifier], [:control, :status]) == :working
+      refute Map.has_key?(next_state.running[identifier], :paused_reason)
     end
 
     test "CI failure events respect a fresh operator pause on a ci-wait runner" do

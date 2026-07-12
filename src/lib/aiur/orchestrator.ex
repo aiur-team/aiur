@@ -96,6 +96,11 @@ defmodule Aiur.Orchestrator do
 
   def handle_info({:retry_issue, _issue_id}, state), do: {:noreply, state}
 
+  def handle_info({:ci_wait_rewake, issue_id, token}, state)
+      when is_binary(issue_id) and is_reference(token) do
+    {:noreply, CiLifecycle.handle_ci_wait_rewake(state, issue_id, token)}
+  end
+
   def handle_info({:retry_comment_rework, issue_number, source, event, attempt}, state)
       when is_integer(attempt) do
     {:noreply, CommentWake.maybe_reactivate_on_comment(state, issue_number, source, event, attempt)}
@@ -233,6 +238,8 @@ defmodule Aiur.Orchestrator do
 
   @spec pause_issue_for_ci_wait(State.t(), Issue.t()) :: State.t()
   def pause_issue_for_ci_wait(state, issue), do: CiLifecycle.pause_issue_for_ci_wait(state, issue)
+  @spec cancel_ci_wait_rewake(State.t(), String.t()) :: State.t()
+  def cancel_ci_wait_rewake(state, issue_id), do: CiLifecycle.cancel_ci_wait_rewake(state, issue_id)
   @spec reconcile_pending_auto_resumes(State.t()) :: State.t()
   def reconcile_pending_auto_resumes(%State{} = state),
     do: PushRouting.reconcile_pending_auto_resumes(state)

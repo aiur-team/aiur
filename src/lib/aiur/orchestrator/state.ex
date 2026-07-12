@@ -20,6 +20,7 @@ defmodule Aiur.Orchestrator.State do
           queue_store: term(),
           last_polled_issues: map(),
           ci_lifecycle: %{approved_heads: map(), test_failure_heads: map()},
+          ci_wait_rewakes: map(),
           todo_over_capacity_alert_active: boolean(),
           running: map(),
           completed: MapSet.t(),
@@ -54,6 +55,7 @@ defmodule Aiur.Orchestrator.State do
     queue_store: AgentQueueStore.new(),
     last_polled_issues: %{},
     ci_lifecycle: %{approved_heads: %{}, test_failure_heads: %{}},
+    ci_wait_rewakes: %{},
     todo_over_capacity_alert_active: false,
     running: %{},
     completed: MapSet.new(),
@@ -176,6 +178,16 @@ defmodule Aiur.Orchestrator.State do
   end
 
   def paused_running_count(_running), do: 0
+
+  @spec reserved_paused_running_count(term()) :: non_neg_integer()
+  def reserved_paused_running_count(running) when is_map(running) do
+    Enum.count(running, fn
+      {_issue_id, %{paused_reason: :ci_wait}} -> false
+      {_issue_id, entry} -> paused_running_entry?(entry)
+    end)
+  end
+
+  def reserved_paused_running_count(_running), do: 0
 
   @spec active_running_entry?(term()) :: boolean()
   def active_running_entry?(entry) when is_map(entry) do

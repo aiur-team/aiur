@@ -1,7 +1,7 @@
 defmodule Aiur.OrchestratorCILifecycleTest do
   use Aiur.TestSupport
 
-  alias Aiur.CIApprovalStore
+  alias Aiur.{AgentQueueStore, CIApprovalStore}
   alias Aiur.Events.Exchange
   alias Aiur.Orchestrator.{CiLifecycle, State}
 
@@ -82,6 +82,9 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert entry.started_at == started_at
       assert MapSet.member?(next.claimed, identifier)
       assert Process.alive?(recorder)
+      assert %{token: token, timer_ref: timer_ref} = next.ci_wait_rewakes[identifier]
+      assert is_reference(token)
+      assert is_reference(timer_ref)
     end
 
     test "a failed tracker transition publishes nothing and leaves the runner untouched" do
@@ -91,7 +94,11 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       RecordingGitHubClient.return({:error, :tracker_down})
 
       issue = issue(identifier, "ci-wait")
-      state = running_state(issue, recorder, :paused, paused_reason: :ci_wait)
+
+      state =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
 
       next =
         poll_ci(state, issue, %{
@@ -111,13 +118,17 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert MapSet.member?(next.claimed, identifier)
     end
 
-    test "passing CI records the head and publishes after the human-review write" do
+    test "passing CI records the head and publishes after the active-state write" do
       identifier = unique_identifier("ci-passed")
       topic = "ticket.#{identifier}.ci.passed"
       recorder = start_recorder(topic)
 
       issue = issue(identifier, "ci-wait")
-      state = running_state(issue, recorder, :paused, paused_reason: :ci_wait)
+
+      state =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
 
       next =
         poll_ci(state, issue, %{
@@ -128,7 +139,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       sync_recorder(recorder)
 
-      assert_received {:recorded, 1, {:tracker_update, ^identifier, "human-review"}}
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "in-progress"}}
 
       assert_received {:recorded, 2,
                        {:event,
@@ -140,12 +151,57 @@ defmodule Aiur.OrchestratorCILifecycleTest do
                           message: "CI passed for the current PR head"
                         }}}
 
-      refute_received {:recorded, 3, _message}
+      assert_received {:recorded, 3, {:agent_queue_updated, ^identifier, _item_id, false}}
+      assert_received {:recorded, 4, {:resume_agent, _request_id}}
 
-      assert next.running[identifier].issue.state == "human-review"
-      assert next.running[identifier].control.status == :paused
+      assert next.running[identifier].issue.state == "in-progress"
+      assert next.running[identifier].control.status == :working
       assert next.ci_lifecycle.approved_heads == %{identifier => "approved-head"}
       assert CIApprovalStore.load().approved_heads == %{identifier => "approved-head"}
+      refute Map.has_key?(next.ci_wait_rewakes, identifier)
+
+      assert [%{body: %{events: [event]}}] = AgentQueueStore.list_pending(next.queue_store, identifier)
+      assert event.topic == topic
+      assert event.message == "CI passed for the current PR head"
+    end
+
+    test "failing CI queues failed-check context before resuming into rework" do
+      identifier = unique_identifier("ci-failed")
+      topic = "ticket.#{identifier}.ci.failed"
+      recorder = start_recorder(topic)
+      issue = issue(identifier, "ci-wait")
+
+      state =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+
+      next =
+        poll_ci(state, issue, %{
+          decision: :failed,
+          head_sha: "failed-head",
+          pr_number: 942,
+          failures: [
+            %{name: "lint", result: "failure", excerpt: "lint failed"},
+            %{name: "coverage", result: "failure"}
+          ]
+        })
+
+      sync_recorder(recorder)
+
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework"}}
+      assert_received {:recorded, 2, {:event, %{topic: ^topic}}}
+      assert_received {:recorded, 3, {:agent_queue_updated, ^identifier, _item_id, false}}
+      assert_received {:recorded, 4, {:resume_agent, _request_id}}
+
+      assert next.running[identifier].issue.state == "rework"
+      assert next.running[identifier].control.status == :working
+      refute Map.has_key?(next.ci_wait_rewakes, identifier)
+
+      assert [%{body: %{events: [event]}}] = AgentQueueStore.list_pending(next.queue_store, identifier)
+      assert Enum.map(event.checks, & &1.name) == ["lint", "coverage"]
+      assert event.failure_excerpt == "lint failed"
+      assert event.message =~ "CI failed: lint, coverage"
     end
 
     test "pending CI is idempotent for an existing ci-wait ticket" do
@@ -155,11 +211,126 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       issue = issue(identifier, "ci-wait")
       state = running_state(issue, recorder, :paused, paused_reason: :ci_wait)
 
-      next = poll_ci(state, issue, %{decision: :pending, head_sha: "same-head"})
+      armed = CiLifecycle.pause_issue_for_ci_wait(state, issue)
+      next = poll_ci(armed, issue, %{decision: :pending, head_sha: "same-head"})
       sync_recorder(recorder)
 
       refute_received {:recorded, _position, _message}
-      assert next == state
+      assert next == armed
+    end
+
+    test "a pre-existing operator pause does not arm the CI fallback" do
+      identifier = unique_identifier("ci-operator-paused")
+      recorder = start_recorder()
+      issue = issue(identifier, "ci-wait")
+      state = running_state(issue, recorder, :paused, paused_reason: :operator_pause)
+
+      next = CiLifecycle.pause_issue_for_ci_wait(state, issue)
+      sync_recorder(recorder)
+
+      assert next.running[identifier].paused_reason == :operator_pause
+      assert next.ci_wait_rewakes == %{}
+      refute_received {:recorded, _position, _message}
+    end
+
+    test "a matching fallback token revalidates, queues one-check guidance, and resumes" do
+      identifier = unique_identifier("ci-rewake")
+      recorder = start_recorder()
+      issue = issue(identifier, "ci-wait")
+
+      armed =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+
+      token = armed.ci_wait_rewakes[identifier].token
+
+      next =
+        CiLifecycle.handle_ci_wait_rewake(armed, identifier, token, issue_fetcher: fn [^identifier] -> {:ok, [issue]} end)
+
+      sync_recorder(recorder)
+
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "in-progress"}}
+      assert_received {:recorded, 2, {:agent_queue_updated, ^identifier, _item_id, false}}
+      assert_received {:recorded, 3, {:resume_agent, request_id}}
+      assert is_integer(request_id)
+
+      assert next.running[identifier].issue.state == "in-progress"
+      assert next.running[identifier].control.status == :working
+      refute Map.has_key?(next.ci_wait_rewakes, identifier)
+
+      assert [%{body: %{events: [event]}}] = AgentQueueStore.list_pending(next.queue_store, identifier)
+      assert event.topic == "ticket.#{identifier}.ci.rewake"
+      assert event.message =~ "Check CI once"
+      assert event.message =~ "return to agent:ci-wait"
+    end
+
+    test "stale fallback tokens cannot wake a CI-wait runner" do
+      identifier = unique_identifier("ci-stale-rewake")
+      recorder = start_recorder()
+      issue = issue(identifier, "ci-wait")
+
+      armed =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+
+      next =
+        CiLifecycle.handle_ci_wait_rewake(armed, identifier, make_ref(), issue_fetcher: fn _ids -> flunk("stale token must not fetch tracker state") end)
+
+      sync_recorder(recorder)
+
+      assert next == armed
+      refute_received {:recorded, _position, _message}
+    end
+
+    test "a failed fallback transition replaces the expired timer token" do
+      identifier = unique_identifier("ci-rewake-retry")
+      recorder = start_recorder()
+      issue = issue(identifier, "ci-wait")
+      RecordingGitHubClient.return({:error, :tracker_down})
+
+      armed =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+
+      expired_token = armed.ci_wait_rewakes[identifier].token
+
+      next =
+        CiLifecycle.handle_ci_wait_rewake(armed, identifier, expired_token, issue_fetcher: fn [^identifier] -> {:ok, [issue]} end)
+
+      sync_recorder(recorder)
+
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "in-progress"}}
+      refute_received {:recorded, _position, {:resume_agent, _request_id}}
+      assert %{token: replacement_token} = next.ci_wait_rewakes[identifier]
+      assert is_reference(replacement_token)
+      refute replacement_token == expired_token
+      assert next.running[identifier].control.status == :paused
+    end
+
+    test "fallback timeout does not wake a freshly operator-paused ticket" do
+      identifier = unique_identifier("ci-rewake-paused")
+      recorder = start_recorder()
+      issue = %{issue(identifier, "ci-wait") | paused: true}
+
+      armed =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+
+      token = armed.ci_wait_rewakes[identifier].token
+
+      next =
+        CiLifecycle.handle_ci_wait_rewake(armed, identifier, token, issue_fetcher: fn [^identifier] -> {:ok, [issue]} end)
+
+      sync_recorder(recorder)
+
+      refute_received {:recorded, _position, _message}
+      assert next.running[identifier].control.status == :paused
+      assert next.running[identifier].issue.paused
+      refute Map.has_key?(next.ci_wait_rewakes, identifier)
     end
 
     test "tracker recording ignores unrelated process traffic" do
