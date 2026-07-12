@@ -38,9 +38,8 @@ defmodule Aiur.DecisionLog do
   def prepare(dir, path, sync_fun \\ &Fs.sync_filesystem/0)
       when is_binary(dir) and is_binary(path) and is_function(sync_fun, 0) do
     with {:ok, directory_created?} <- ensure_directory_state(dir),
-         {:ok, file_created?} <- ensure_file(path),
-         :ok <- maybe_sync_creation(directory_created? or file_created?, sync_fun) do
-      :ok
+         {:ok, file_created?} <- ensure_file(path) do
+      maybe_sync_creation(directory_created? or file_created?, sync_fun)
     end
   end
 
