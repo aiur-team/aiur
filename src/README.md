@@ -245,6 +245,28 @@ When `server.port` (or CLI `--port`) is set, Aiur exposes:
   reducer, and self-contained renderer as the CLI artifact and is served with
   `Cache-Control: no-store`
 
+### Supervisor Decision API
+
+The machine Decision API under `/api/v1/decisions` uses a dedicated bearer
+credential, not dashboard Basic Auth. Set `AIUR_SUPERVISOR_TOKEN` to at least 32
+random bearer-safe bytes. Keep the dashboard on loopback/private tunneling or
+terminate HTTPS before using the credential remotely.
+
+Supervisor answers and revisions are disabled until their Decision kinds are
+explicitly delegated:
+
+```yaml
+decisions:
+  supervisor_allowed_kinds: [architecture]
+  supervisor_allow_non_reversible: false
+```
+
+`human_required` remains absolute. Mutating enrich/decide/revise requests also
+require `observability.dashboard_writable: true`, an exact dashboard/loopback
+`Origin`, and `X-Aiur-Request: 1`. See the
+[OCC-7 supervisor Decision API contract](../docs/operator-control-center/06-occ-7-supervisor-decision-api-contract.md)
+for routes, payloads, retry semantics, and audit guarantees.
+
 ## Debug run telemetry
 
 `aiur --debug` (or config-level `debug: true`) starts daemon-owned run telemetry.
