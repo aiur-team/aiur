@@ -1,0 +1,165 @@
+defmodule Aiur.RunTelemetryTest do
+  use ExUnit.Case, async: false
+
+  alias Aiur.RunTelemetry
+  alias Aiur.RunTelemetry.{Dashboard, Lifecycle, Writer}
+
+  setup do
+    original_debug = System.get_env("AIUR_DEBUG")
+    original_log_file = Application.get_env(:aiur, :log_file)
+
+    root = Path.join(System.tmp_dir!(), "aiur-run-telemetry-#{System.unique_integer([:positive])}")
+    log_file = Path.join(root, "log/aiur.log")
+    Application.put_env(:aiur, :log_file, log_file)
+
+    on_exit(fn ->
+      File.rm_rf!(root)
+
+      case original_debug do
+        nil -> System.delete_env("AIUR_DEBUG")
+        value -> System.put_env("AIUR_DEBUG", value)
+      end
+
+      case original_log_file do
+        nil -> Application.delete_env(:aiur, :log_file)
+        value -> Application.put_env(:aiur, :log_file, value)
+      end
+    end)
+
+    %{root: root}
+  end
+
+  test "telemetry_file/0 lives beside the daemon log", %{root: root} do
+    assert RunTelemetry.telemetry_file() == Path.join(root, "log/telemetry.ndjson")
+  end
+
+  test "telemetry_file/0 falls back to the default daemon log" do
+    Application.delete_env(:aiur, :log_file)
+
+    assert RunTelemetry.telemetry_file() ==
+             Path.join(Path.dirname(Aiur.LogFile.default_log_file()), "telemetry.ndjson")
+  end
+
+  test "boot state initializes lazily and invalid facade inputs remain no-ops" do
+    boot_state_key = {RunTelemetry, :boot_state}
+    :persistent_term.erase(boot_state_key)
+    on_exit(&RunTelemetry.start_boot/0)
+
+    assert is_binary(RunTelemetry.boot_id())
+    assert %DateTime{} = RunTelemetry.boot_started_at()
+    assert RunTelemetry.next_sequence() == 1
+    assert :ok = RunTelemetry.record(123, :invalid, :invalid)
+    assert :ok = RunTelemetry.record_batch(:invalid, :invalid)
+  end
+
+  test "record/2 is a no-op with no file when debug is disabled", %{root: root} do
+    System.delete_env("AIUR_DEBUG")
+
+    assert :ok = RunTelemetry.record(:lifecycle, %{event: :dispatch})
+    assert :ok = RunTelemetry.record_batch([{:resource, %{actor: "_daemon"}}])
+    refute File.exists?(Path.join(root, "log/telemetry.ndjson"))
+  end
+
+  test "record/2 remains fail-open when debug is enabled but the writer is absent" do
+    System.put_env("AIUR_DEBUG", "1")
+
+    assert :ok = RunTelemetry.record(:lifecycle, %{event: :dispatch})
+  end
+
+  test "debug-enabled facade writes through the supervised writer", %{root: root} do
+    System.put_env("AIUR_DEBUG", "1")
+    RunTelemetry.start_boot()
+
+    start_supervised!(
+      {Aiur.RunTelemetry.Supervisor,
+       name: __MODULE__.Supervisor, writer_opts: [name: __MODULE__.Writer, path: Path.join(root, "log/telemetry.ndjson")], sampler_opts: [name: __MODULE__.Sampler, start_immediately?: false]}
+    )
+
+    assert :ok =
+             RunTelemetry.record(:lifecycle, %{ticket: "930", event: :dispatch}, writer: __MODULE__.Writer)
+
+    assert :ok = Aiur.RunTelemetry.Writer.flush(__MODULE__.Writer)
+
+    records =
+      root
+      |> Path.join("log/telemetry.ndjson")
+      |> File.stream!(:line, [])
+      |> Enum.map(&Jason.decode!/1)
+
+    assert Enum.map(records, & &1["kind"]) == ["restart", "lifecycle"]
+    assert Enum.at(records, 1)["attributes"]["ticket"] == "930"
+  end
+
+  test "supervised sampling and lifecycle evidence generate an offline dashboard", %{root: root} do
+    System.put_env("AIUR_DEBUG", "1")
+    RunTelemetry.start_boot()
+    test_pid = self()
+    telemetry_path = Path.join(root, "log/telemetry.ndjson")
+    output = Path.join(root, "analytics.html")
+
+    sample_fun = fn _previous ->
+      %{
+        records: [
+          %{
+            actor: "_daemon",
+            actor_type: "daemon",
+            ticket: nil,
+            availability: "measured",
+            unavailable_reason: nil,
+            process_count: 1,
+            rss_bytes: 1_024,
+            fd_count: 12,
+            read_bytes: 100,
+            write_bytes: 200,
+            cpu_percent: 3.5,
+            read_bytes_per_second: nil,
+            write_bytes_per_second: nil,
+            partial_fields: []
+          }
+        ],
+        warnings: [],
+        previous: %{}
+      }
+    end
+
+    recorder = fn records ->
+      RunTelemetry.record_batch(records, writer: __MODULE__.PipelineWriter)
+      Writer.flush(__MODULE__.PipelineWriter)
+      send(test_pid, :resource_sample_recorded)
+    end
+
+    start_supervised!(
+      {Aiur.RunTelemetry.Supervisor,
+       name: __MODULE__.PipelineSupervisor,
+       writer_opts: [name: __MODULE__.PipelineWriter, path: telemetry_path],
+       sampler_opts: [
+         name: __MODULE__.PipelineSampler,
+         sample_fun: sample_fun,
+         recorder: recorder,
+         interval_ms: 60_000,
+         start_immediately?: true
+       ]}
+    )
+
+    assert_receive :resource_sample_recorded
+
+    lifecycle_recorder = fn kind, attributes, opts ->
+      RunTelemetry.record(kind, attributes, Keyword.put(opts, :writer, __MODULE__.PipelineWriter))
+    end
+
+    assert :ok =
+             Lifecycle.record("930", "attempt-1", :dispatch, :point, %{},
+               recorder: lifecycle_recorder,
+               timestamp: ~U[2026-07-11 12:00:00Z]
+             )
+
+    assert :ok = Writer.flush(__MODULE__.PipelineWriter)
+
+    assert {:ok, result} =
+             Dashboard.generate(telemetry_path, output, generated_at: ~U[2026-07-11 12:01:00Z])
+
+    assert result.dataset.actors["_daemon"].profile["rss_bytes"].max == 1_024
+    assert Enum.any?(result.dataset.tickets["930"].events, &(&1.event == "dispatch"))
+    assert File.read!(output) =~ "<!doctype html>"
+  end
+end

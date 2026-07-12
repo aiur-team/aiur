@@ -10,6 +10,7 @@ defmodule Aiur.Orchestrator.HumanReview do
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.{Issue, Tracker}
   alias Aiur.Orchestrator.{AgentTeardown, DispatchPolicy, Reconciler, State}
+  alias Aiur.RunTelemetry.Lifecycle
   @transient_github_graphql_error_types ~w(
     INTERNAL
     INTERNAL_SERVER_ERROR
@@ -32,6 +33,14 @@ defmodule Aiur.Orchestrator.HumanReview do
   def maybe_deactivate_human_review_issue(%State{} = state, %Issue{} = issue) do
     case verify_human_review_ready(issue) do
       :ok ->
+        Lifecycle.record(
+          issue.identifier,
+          get_in(state.running, [issue.id, :telemetry_attempt_id]),
+          :review_pause,
+          :point,
+          %{cause: :human_review_ready, outcome: :accepted}
+        )
+
         AgentTeardown.deactivate_running_issue(state, issue.id)
 
       {:error, reason} ->

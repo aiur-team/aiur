@@ -27,6 +27,8 @@ defmodule Aiur.Application do
     :ok = Aiur.LogFile.ensure_session_log_file()
     :ok = Aiur.LogFile.apply_config_debug()
     :ok = Aiur.LogFile.configure()
+    debug? = Aiur.LogFile.debug_enabled?()
+    if debug?, do: Aiur.RunTelemetry.start_boot()
     Logger.info("aiur_boot phase=start elapsed_ms=0")
     log_process_identity()
     Aiur.Shutdown.record_workspace_root()
@@ -44,7 +46,8 @@ defmodule Aiur.Application do
       child_specs(
         interactive_cli?: interactive_cli?,
         headless?: headless?,
-        dashboard?: dashboard_enabled?(headless?)
+        dashboard?: dashboard_enabled?(headless?),
+        debug?: debug?
       )
 
     Supervisor.start_link(
@@ -74,6 +77,7 @@ defmodule Aiur.Application do
     interactive_cli? = Keyword.fetch!(opts, :interactive_cli?)
     headless? = Keyword.fetch!(opts, :headless?)
     dashboard? = Keyword.fetch!(opts, :dashboard?)
+    debug? = Keyword.get(opts, :debug?, false)
 
     cli_children =
       if interactive_cli? do
@@ -107,6 +111,7 @@ defmodule Aiur.Application do
       Aiur.RepoBase,
       Aiur.Events.IdGenerator,
       Aiur.Events.Exchange,
+      if(debug?, do: Aiur.RunTelemetry.Supervisor),
       Aiur.Events.Publisher,
       Aiur.GitHub.CodeOwners,
       {Registry, keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry},

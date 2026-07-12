@@ -77,6 +77,31 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
 
       assert_receive {:codex_worker_update, "gid-mh-07", _normalized}, 2_000
     end
+
+    test "observes raw backend operation boundaries before transcript extraction" do
+      issue = %Issue{id: "gid-mh-08", identifier: "930"}
+
+      recorder = fn kind, attributes, opts ->
+        send(self(), {:lifecycle, kind, attributes, opts})
+        :ok
+      end
+
+      handler =
+        MessageHandler.build(nil, issue, nil, nil, "codex", nil,
+          attempt_id: "attempt-1",
+          recorder: recorder
+        )
+
+      handler.(%{
+        event: :notification,
+        payload: %{
+          method: "item/started",
+          params: %{item: %{id: "cmd-1", type: "commandExecution", command: "mix test"}}
+        }
+      })
+
+      assert_receive {:lifecycle, :lifecycle, %{event: "build_test", boundary: "start", operation_id: "cmd-1"}, _opts}
+    end
   end
 
   describe "send_control_state/3" do
