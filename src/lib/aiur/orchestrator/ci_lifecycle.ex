@@ -717,8 +717,6 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       DispatchPolicy.normalize_issue_state(issue.state) == "rework"
   end
 
-  defp terminal_handoff_state?(_issue, _outcome), do: false
-
   defp resume_ci_wait_runner(state, running_entry, identifier) do
     case PauseResume.resume_paused_issue(state, running_entry, false) do
       {{:ok, :resumed}, next_state} ->
