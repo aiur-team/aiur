@@ -126,6 +126,18 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
       assert_receive {:decision_delivery, 6}
       assert_receive {:restore, 6}
     end
+
+    test "marks a correlated item failed after bounded handoff retries" do
+      item = Map.put(correlated_item(7), :delivery_attempts, 3)
+      orch = start_fake(operator: {:ok, item})
+      decision_store = start_decision_store({:error, :store_unavailable})
+      handler = CheckpointDelivery.operator_immediate_handler(issue(), orch, decision_store)
+
+      assert handler.() == :noop
+      assert_receive {:decision_delivery, 7}
+      assert_receive {:mark_failed, 7, {:decision_correlation_failed, :store_unavailable}}
+      refute_receive {:restore, 7}, 100
+    end
   end
 
   describe "safe_checkpoint_handler/2" do

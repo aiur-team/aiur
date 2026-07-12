@@ -133,7 +133,7 @@ defmodule Aiur.DecisionStore do
     GenServer.call(server, {:handle_revision_follow_up, decision_id, action_id, opts}, timeout)
   end
 
-  @doc "Explicitly schedules a previously failed action for one idempotent retry."
+  @doc "Explicitly retries a failed action or an interrupted lifecycle append."
   @spec retry_dispatch(String.t(), String.t(), GenServer.server()) ::
           {:ok, :scheduled | :already_dispatching} | {:error, term()}
   def retry_dispatch(decision_id, action_id, server \\ __MODULE__)
@@ -153,7 +153,14 @@ defmodule Aiur.DecisionStore do
   @spec record_transport_async(:restored | :consumed | :failed, map(), term(), GenServer.server()) :: :ok
   def record_transport_async(type, item, reason \\ nil, server \\ __MODULE__)
       when type in [:restored, :consumed, :failed] and is_map(item) do
-    GenServer.cast(server, {:transport_transition, type, item, reason})
+    record_transport_batch_async(type, [item], reason, server)
+  end
+
+  @doc "Asynchronously report one queue mutation's correlated settlements as a single batch."
+  @spec record_transport_batch_async(:restored | :consumed | :failed, [map()], term(), GenServer.server()) :: :ok
+  def record_transport_batch_async(type, items, reason \\ nil, server \\ __MODULE__)
+      when type in [:restored, :consumed, :failed] and is_list(items) do
+    GenServer.cast(server, {:transport_transitions, type, items, reason})
   catch
     :exit, _reason -> :ok
   end
@@ -227,8 +234,11 @@ defmodule Aiur.DecisionStore do
       retry_delays_ms: Keyword.get(opts, :retry_delays_ms, @default_retry_delays_ms),
       revision_follow_up_projector: Keyword.get(opts, :revision_follow_up_projector, &DecisionRevisionDispatch.project_follow_up/2),
       revision_follow_up_resolver: Keyword.get(opts, :revision_follow_up_resolver, &DecisionRevisionDispatch.resolve_follow_up/2),
+      event_id_reserver: Keyword.get(opts, :event_id_reserver, &IdGenerator.reserve_durable_id/0),
       dispatching: MapSet.new(),
       retry_counts: %{},
+      append_retry_counts: %{},
+      lifecycle_append_failures: MapSet.new(),
       projecting_revision_follow_ups: MapSet.new(),
       resolving_revision_follow_ups: MapSet.new(),
       dispatching_decisions: MapSet.new()
@@ -397,7 +407,12 @@ defmodule Aiur.DecisionStore do
         {:reply, {:ok, :already_dispatching}, state}
 
       {:ok, decision} ->
-        schedule_dispatch(decision, true, 0)
+        if lifecycle_append_failed?(state, action_id) do
+          schedule_append_reconciliation(decision, action_id, 0)
+        else
+          schedule_dispatch(decision, true, 0)
+        end
+
         {:reply, {:ok, :scheduled}, state}
 
       {:error, reason} ->
@@ -470,13 +485,26 @@ defmodule Aiur.DecisionStore do
     {:noreply, next_state}
   end
 
+  def handle_cast({:transport_transitions, _type, _items, _reason}, %{writable?: false} = state) do
+    {:noreply, state}
+  end
+
+  def handle_cast({:transport_transitions, type, items, reason}, state) do
+    {:noreply, apply_transport_transitions(state, type, items, reason)}
+  end
+
   defp handle_answer(decision_id, payload, opts, state) do
     with {:ok, decision} <- fetch_decision(state, decision_id),
-         :ok <- require_answerable(decision),
          {:ok, actor} <- fetch_actor(opts) do
       case decision.answer do
-        nil -> accept_answer(decision, payload, actor, opts, state)
-        %DecisionAnswer{} -> replay_answer(decision, payload, actor, opts, state)
+        nil ->
+          case require_answerable(decision) do
+            :ok -> accept_answer(decision, payload, actor, opts, state)
+            {:error, reason} -> {:reply, {:error, reason}, state}
+          end
+
+        %DecisionAnswer{} ->
+          replay_answer(decision, payload, actor, opts, state)
       end
     else
       {:error, reason} -> {:reply, {:error, reason}, state}
@@ -1046,7 +1074,15 @@ defmodule Aiur.DecisionStore do
   end
 
   defp build_and_persist_event(type, decision, data, occurred_at, state) do
-    with {:ok, event_id} <- reserve_event_id(),
+    with {:ok, next_state, updated, event} <-
+           build_and_append_event(type, decision, data, occurred_at, state) do
+      finalized = repair_and_notify_lifecycle(next_state, [{updated, event}])
+      {:ok, finalized, updated}
+    end
+  end
+
+  defp build_and_append_event(type, decision, data, occurred_at, state) do
+    with {:ok, event_id} <- state.event_id_reserver.(),
          {:ok, event} <-
            DecisionEvent.new(type, decision.decision_id, lifecycle_version(decision, data), data,
              event_id: event_id,
@@ -1055,23 +1091,33 @@ defmodule Aiur.DecisionStore do
            ),
          {:ok, updated} <- validate_transition(decision, event),
          :ok <- DecisionLog.append(state.ndjson_path, DecisionEvent.to_json_safe(event)) do
-      next_state =
-        %{
-          state
-          | current: Map.put(state.current, decision.decision_id, updated),
-            audit_history: Map.update(state.audit_history, decision.decision_id, [event], &(&1 ++ [event]))
-        }
-        |> repair_projection()
+      next_state = %{
+        state
+        | current: Map.put(state.current, decision.decision_id, updated),
+          audit_history: Map.update(state.audit_history, decision.decision_id, [event], &(&1 ++ [event]))
+      }
 
-      if next_state.writable?, do: notify_lifecycle(updated, event)
-      {:ok, next_state, updated}
+      {:ok, next_state, updated, event}
     else
       {:error, :not_durable} -> {:error, :event_id_not_durable}
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp reserve_event_id, do: IdGenerator.reserve_durable_id()
+  defp repair_and_notify_lifecycle(state, lifecycle_events) do
+    next_state = repair_projection(state)
+
+    next_state =
+      Enum.reduce(lifecycle_events, next_state, fn {decision, event}, state_acc ->
+        resolve_lifecycle_append_failure(state_acc, decision, event.data.action_id)
+      end)
+
+    if next_state.writable? do
+      Enum.each(lifecycle_events, fn {decision, event} -> notify_lifecycle(decision, event) end)
+    end
+
+    next_state
+  end
 
   defp lifecycle_version(_decision, %DecisionAnswer{decision_version: version}), do: version
   defp lifecycle_version(_decision, %DecisionRevision{decision_version: version}), do: version
@@ -1248,8 +1294,18 @@ defmodule Aiur.DecisionStore do
 
   defp apply_transport_transition(state, type, item, reason) do
     case correlated_transport_context(state, item) do
-      {:ok, decision, attempt, context} ->
-        persist_transport_transition(state, decision, attempt, context, type, reason)
+      {:ok, decision, attempt, context} when is_map(attempt) ->
+        if type == :delivered and attempt.status == :failed do
+          persist_restored_attempt_delivery(state, decision, context)
+        else
+          persist_transport_transition(state, decision, attempt, context, type, reason)
+        end
+
+      {:ok, decision, :missing_attempt, context} when type == :delivered ->
+        persist_missing_attempt_delivery(state, decision, context)
+
+      {:ok, _decision, :missing_attempt, _context} ->
+        {{:error, :attempt_not_found}, state}
 
       {:ok, :ignored} ->
         {{:ok, :ignored}, state}
@@ -1266,9 +1322,17 @@ defmodule Aiur.DecisionStore do
     if is_map(correlation) and is_binary(action_id) do
       with {:ok, context} <- normalize_transport_context(item, correlation, action_id),
            {:ok, decision} <- fetch_decision(state, context.decision_id),
-           :ok <- validate_transport_decision(decision, context),
-           {:ok, attempt} <- fetch_dispatch_attempt(decision, context) do
-        {:ok, decision, attempt, context}
+           :ok <- validate_transport_decision(decision, context) do
+        case fetch_dispatch_attempt(decision, context) do
+          {:ok, attempt} ->
+            {:ok, decision, attempt, context}
+
+          {:error, :attempt_not_found} when decision.dispatch_attempts == [] ->
+            {:ok, decision, :missing_attempt, context}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
       end
     else
       {:ok, :ignored}
@@ -1326,11 +1390,68 @@ defmodule Aiur.DecisionStore do
     end
   end
 
+  defp persist_missing_attempt_delivery(state, decision, context) do
+    data = %{
+      action_id: context.action_id,
+      attempt_id: context.attempt_id,
+      queue_item_id: context.queue_item_id
+    }
+
+    event_type = if revision_action?(decision, context.action_id), do: :revision_dispatched, else: :dispatch_queued
+
+    case build_and_persist_event(event_type, decision, data, DateTime.utc_now(), state) do
+      {:ok, %{writable?: true} = queued_state, queued_decision} ->
+        {:ok, attempt} = fetch_dispatch_attempt(queued_decision, context)
+        persist_transport_transition(queued_state, queued_decision, attempt, context, :delivered, nil)
+
+      {:ok, queued_state, _queued_decision} ->
+        {{:error, {:store_unavailable, queued_state.health}}, queued_state}
+
+      {:error, reason} ->
+        {{:error, reason}, state}
+    end
+  end
+
+  defp persist_restored_attempt_delivery(state, decision, context) do
+    data = %{
+      action_id: context.action_id,
+      attempt_id: context.attempt_id,
+      queue_item_id: context.queue_item_id
+    }
+
+    case build_and_persist_event(:restored, decision, data, DateTime.utc_now(), state) do
+      {:ok, %{writable?: true} = restored_state, restored_decision} ->
+        {:ok, restored_attempt} = fetch_dispatch_attempt(restored_decision, context)
+        persist_transport_transition(restored_state, restored_decision, restored_attempt, context, :delivered, nil)
+
+      {:ok, restored_state, _restored_decision} ->
+        {{:error, {:store_unavailable, restored_state.health}}, restored_state}
+
+      {:error, reason} ->
+        {{:error, reason}, state}
+    end
+  end
+
   defp persist_transport_transition(state, decision, attempt, context, type, reason) do
+    case append_transport_transition(state, decision, attempt, context, type, reason) do
+      {:ok, :duplicate, next_state, nil} ->
+        {{:ok, :duplicate}, next_state}
+
+      {:ok, :accepted, next_state, {updated, event}} ->
+        finalized = repair_and_notify_lifecycle(next_state, [{updated, event}])
+        finalized = maybe_project_delivery_attention(finalized, decision, updated, type, context.action_id)
+        {{:ok, :accepted}, finalized}
+
+      {:error, transition_reason} ->
+        {{:error, transition_reason}, state}
+    end
+  end
+
+  defp append_transport_transition(state, decision, attempt, context, type, reason) do
     reason_class = if type == :failed, do: transport_failure_class(reason)
 
     if duplicate_transport_transition?(attempt, type, reason_class) do
-      {{:ok, :duplicate}, state}
+      {:ok, :duplicate, state, nil}
     else
       data = %{
         action_id: context.action_id,
@@ -1339,15 +1460,57 @@ defmodule Aiur.DecisionStore do
         reason_class: reason_class
       }
 
-      case build_and_persist_event(type, decision, data, DateTime.utc_now(), state) do
-        {:ok, next_state, updated} ->
-          next_state = maybe_project_delivery_attention(next_state, decision, updated, type, context.action_id)
-          {{:ok, :accepted}, next_state}
+      case build_and_append_event(type, decision, data, DateTime.utc_now(), state) do
+        {:ok, next_state, updated, event} ->
+          {:ok, :accepted, next_state, {updated, event}}
 
         {:error, transition_reason} ->
-          {{:error, transition_reason}, state}
+          {:error, transition_reason}
       end
     end
+  end
+
+  defp apply_transport_transitions(state, type, items, reason) do
+    {next_state, lifecycle_events} =
+      Enum.reduce(items, {state, []}, fn item, {state_acc, events_acc} ->
+        case correlated_transport_context(state_acc, item) do
+          {:ok, decision, attempt, context} when is_map(attempt) ->
+            case append_transport_transition(state_acc, decision, attempt, context, type, reason) do
+              {:ok, :duplicate, duplicate_state, nil} ->
+                {duplicate_state, events_acc}
+
+              {:ok, :accepted, appended_state, {updated, event}} ->
+                {appended_state, [{decision, updated, event} | events_acc]}
+
+              {:error, append_reason} ->
+                {recover_background_append(state_acc, decision, context.action_id, type, append_reason), events_acc}
+            end
+
+          {:ok, _decision, :missing_attempt, _context} ->
+            Logger.warning("aiur_decision_store phase=transport_batch_missing_attempt type=#{type}")
+            {state_acc, events_acc}
+
+          {:ok, :ignored} ->
+            {state_acc, events_acc}
+
+          {:error, context_reason} ->
+            Logger.warning("aiur_decision_store phase=transport_batch_rejected type=#{type} reason=#{inspect(context_reason)}")
+
+            {state_acc, events_acc}
+        end
+      end)
+
+    ordered_events = Enum.reverse(lifecycle_events)
+
+    finalized =
+      case ordered_events do
+        [] -> next_state
+        events -> repair_and_notify_lifecycle(next_state, Enum.map(events, fn {_prior, updated, event} -> {updated, event} end))
+      end
+
+    Enum.reduce(ordered_events, finalized, fn {prior, updated, event}, state_acc ->
+      maybe_project_delivery_attention(state_acc, prior, updated, type, event.data.action_id)
+    end)
   end
 
   defp duplicate_transport_transition?(attempt, :delivered, _reason),
@@ -1399,7 +1562,12 @@ defmodule Aiur.DecisionStore do
 
   defp emit_failure_attention(decision) do
     active_answer = Decision.active_answer(decision)
-    reason_class = decision |> Decision.active_dispatch_attempts() |> List.last() |> Map.get(:failure_reason_class, "delivery_failed")
+
+    reason_class =
+      case List.last(Decision.active_dispatch_attempts(decision)) do
+        %{failure_reason_class: reason_class} when is_binary(reason_class) -> reason_class
+        _other -> "delivery_failed"
+      end
 
     Alerts.emit_custom(
       failure_attention_topic(decision),
@@ -1445,6 +1613,10 @@ defmodule Aiur.DecisionStore do
 
   def handle_info({:reconcile_queue_action, decision_id}, state) do
     {:noreply, maybe_start_dispatch(state, decision_id, false, :reconcile_queue)}
+  end
+
+  def handle_info({:reconcile_lifecycle_append, decision_id, action_id}, state) do
+    {:noreply, maybe_reconcile_lifecycle_append(state, decision_id, action_id)}
   end
 
   def handle_info({:dispatch_result, decision_id, action_id, attempt_id, result}, state) do
@@ -1644,6 +1816,16 @@ defmodule Aiur.DecisionStore do
     Process.send_after(self(), {:dispatch_action, decision.decision_id, retry_failed?}, delay_ms)
   end
 
+  defp maybe_reconcile_lifecycle_append(state, decision_id, action_id) do
+    with {:ok, decision} <- fetch_decision(state, decision_id),
+         %DecisionAnswer{action_id: ^action_id} <- Decision.active_answer(decision),
+         true <- lifecycle_append_failed?(state, action_id) do
+      maybe_start_dispatch(state, decision_id, true, :recover_append)
+    else
+      _other -> state
+    end
+  end
+
   defp maybe_start_dispatch(state, decision_id, retry_failed?, mode \\ :normal) do
     with true <- state.writable?,
          {:ok, decision} <- fetch_decision(state, decision_id),
@@ -1739,8 +1921,11 @@ defmodule Aiur.DecisionStore do
       data = %{action_id: action_id, reason_class: revision_non_applicability_reason(reason)}
 
       case build_and_persist_event(:revision_no_longer_applicable, decision, data, DateTime.utc_now(), state) do
-        {:ok, next_state, updated} -> ensure_revision_follow_up_required(next_state, updated)
-        {:error, append_reason} -> lifecycle_append_failed(state, :revision_no_longer_applicable, append_reason)
+        {:ok, next_state, updated} ->
+          ensure_revision_follow_up_required(next_state, updated)
+
+        {:error, append_reason} ->
+          recover_background_append(state, decision, action_id, :revision_no_longer_applicable, append_reason)
       end
     else
       state
@@ -1774,7 +1959,7 @@ defmodule Aiur.DecisionStore do
 
     case build_and_persist_event(:follow_up_required, decision, data, DateTime.utc_now(), state) do
       {:ok, next_state, updated} -> maybe_schedule_revision_follow_up_projection(next_state, updated, action_id)
-      {:error, reason} -> lifecycle_append_failed(state, :follow_up_required, reason)
+      {:error, reason} -> fatal_lifecycle_append_failed(state, :follow_up_required, reason)
     end
   end
 
@@ -1793,7 +1978,7 @@ defmodule Aiur.DecisionStore do
 
       case build_and_persist_event(:follow_up_handled, current, data, DateTime.utc_now(), state_acc) do
         {:ok, next_state, updated} -> maybe_schedule_revision_follow_up_resolution(next_state, updated, action_id)
-        {:error, reason} -> lifecycle_append_failed(state_acc, :follow_up_handled, reason)
+        {:error, reason} -> fatal_lifecycle_append_failed(state_acc, :follow_up_handled, reason)
       end
     end)
   end
@@ -1801,20 +1986,26 @@ defmodule Aiur.DecisionStore do
   defp settle_queue_result(state, decision, action_id, attempt_id, :retried, item) do
     restored_attempt_id = item_attempt_id(item) || attempt_id
 
-    data = %{
-      action_id: action_id,
-      attempt_id: restored_attempt_id,
-      queue_item_id: item.id
-    }
+    case Enum.find(decision.dispatch_attempts, &(&1.attempt_id == restored_attempt_id and &1.queue_item_id == item.id)) do
+      nil ->
+        data = %{
+          action_id: action_id,
+          attempt_id: restored_attempt_id,
+          queue_item_id: item.id
+        }
 
-    case build_and_persist_event(:restored, decision, data, DateTime.utc_now(), state) do
-      {:ok, next_state, updated} ->
-        next_state
-        |> maybe_project_delivery_attention(decision, updated, :restored, action_id)
-        |> then(&%{&1 | retry_counts: Map.delete(&1.retry_counts, action_id)})
+        case build_and_persist_event(:restored, decision, data, DateTime.utc_now(), state) do
+          {:ok, next_state, updated} ->
+            next_state
+            |> maybe_project_delivery_attention(decision, updated, :restored, action_id)
+            |> then(&%{&1 | retry_counts: Map.delete(&1.retry_counts, action_id)})
 
-      {:error, reason} ->
-        lifecycle_append_failed(state, :restored, reason)
+          {:error, reason} ->
+            recover_background_append(state, decision, action_id, :restored, reason)
+        end
+
+      attempt ->
+        reconcile_existing_queue_snapshot(state, decision, attempt, item)
     end
   end
 
@@ -1829,7 +2020,11 @@ defmodule Aiur.DecisionStore do
 
   defp settle_queue_result(state, decision, action_id, attempt_id, _status, item) do
     accepted_attempt_id = item_attempt_id(item) || attempt_id
-    settle_queue_acceptance(state, decision, action_id, accepted_attempt_id, item)
+
+    case Enum.find(decision.dispatch_attempts, &(&1.attempt_id == accepted_attempt_id and &1.queue_item_id == item.id)) do
+      nil -> settle_queue_acceptance(state, decision, action_id, accepted_attempt_id, item)
+      attempt -> reconcile_existing_queue_snapshot(state, decision, attempt, item)
+    end
   end
 
   defp item_attempt_id(item) do
@@ -1855,9 +2050,11 @@ defmodule Aiur.DecisionStore do
         |> reconcile_queue_snapshot(updated, item, data)
 
       {:error, reason} ->
-        lifecycle_append_failed(state, event_type, reason)
+        recover_background_append(state, decision, action_id, event_type, reason)
     end
   end
+
+  defp reconcile_queue_snapshot(%{writable?: false} = state, _decision, _item, _data), do: state
 
   defp reconcile_queue_snapshot(state, decision, %{status: :delivered}, data) do
     persist_snapshot_transitions(state, decision, data, [:delivered])
@@ -1907,7 +2104,7 @@ defmodule Aiur.DecisionStore do
           {:cont, {next_state, updated}}
 
         {:error, reason} ->
-          {:halt, {lifecycle_append_failed(state_acc, type, reason), decision_acc}}
+          {:halt, {recover_background_append(state_acc, decision_acc, data.action_id, type, reason), decision_acc}}
       end
     end)
     |> elem(0)
@@ -1924,11 +2121,85 @@ defmodule Aiur.DecisionStore do
         |> maybe_retry_transient(updated, action_id, reason_class)
 
       {:error, append_reason} ->
-        lifecycle_append_failed(state, :failed, append_reason)
+        recover_background_append(state, decision, action_id, :failed, append_reason)
     end
   end
 
-  defp lifecycle_append_failed(state, type, reason) do
+  defp recover_background_append(state, decision, action_id, type, reason) do
+    state
+    |> lifecycle_append_failed(decision, action_id, type, reason)
+    |> schedule_append_retry(decision, action_id)
+  end
+
+  defp lifecycle_append_failed(state, decision, action_id, type, reason) do
+    Logger.error("aiur_decision_store phase=lifecycle_append_failed type=#{type} reason=#{inspect(reason)}")
+
+    failures = Map.get(state, :lifecycle_append_failures, MapSet.new())
+
+    unless MapSet.member?(failures, action_id) do
+      _ =
+        Alerts.emit_custom(
+          lifecycle_append_failure_topic(decision, action_id),
+          "Decision delivery persistence is temporarily unavailable for #{decision.decision_id}.",
+          issue: decision.ticket.identifier,
+          reason: "Decision #{decision.decision_id} action #{action_id} could not record #{type}; retry is bounded and the store remains available.",
+          needs_attention: true,
+          severity: "warning"
+        )
+    end
+
+    %{state | lifecycle_append_failures: MapSet.put(failures, action_id)}
+  end
+
+  defp schedule_append_retry(state, decision, action_id) do
+    retry_counts = Map.get(state, :append_retry_counts, %{})
+    retry_count = Map.get(retry_counts, action_id, 0)
+    next_state = %{state | append_retry_counts: Map.put(retry_counts, action_id, retry_count + 1)}
+
+    case Enum.at(state.retry_delays_ms, retry_count) do
+      delay when is_integer(delay) and delay >= 0 ->
+        schedule_append_reconciliation(decision, action_id, delay)
+        next_state
+
+      _other ->
+        next_state
+    end
+  end
+
+  defp resolve_lifecycle_append_failure(state, decision, action_id) when is_binary(action_id) do
+    failures = Map.get(state, :lifecycle_append_failures, MapSet.new())
+
+    if MapSet.member?(failures, action_id) do
+      _ =
+        Alerts.emit_custom(
+          lifecycle_append_failure_topic(decision, action_id) <> ".resolved",
+          "Decision delivery persistence recovered for #{decision.decision_id}.",
+          issue: decision.ticket.identifier,
+          reason: "Decision #{decision.decision_id} action #{action_id} resumed durable lifecycle recording.",
+          needs_attention: false,
+          severity: "info"
+        )
+
+      %{
+        state
+        | lifecycle_append_failures: MapSet.delete(failures, action_id),
+          append_retry_counts: Map.delete(Map.get(state, :append_retry_counts, %{}), action_id)
+      }
+    else
+      state
+    end
+  end
+
+  defp schedule_append_reconciliation(decision, action_id, delay_ms) do
+    Process.send_after(self(), {:reconcile_lifecycle_append, decision.decision_id, action_id}, delay_ms)
+  end
+
+  defp lifecycle_append_failure_topic(decision, action_id) do
+    action_slug = String.replace(action_id, "_", "-")
+    "ticket.#{decision.ticket.identifier}.agent.attention.decision-lifecycle-persistence-#{action_slug}"
+  end
+
+  defp fatal_lifecycle_append_failed(state, type, reason) do
     Logger.error("aiur_decision_store phase=lifecycle_append_failed type=#{type} reason=#{inspect(reason)}")
     %{state | writable?: false, health: {:lifecycle_append_failed, type, reason}}
   end
@@ -1975,6 +2246,7 @@ defmodule Aiur.DecisionStore do
 
   defp dispatch_allowed?(decision, retry_failed?, :normal), do: dispatchable?(decision, retry_failed?)
   defp dispatch_allowed?(decision, _retry_failed?, :reconcile_queue), do: queue_reconcilable?(decision)
+  defp dispatch_allowed?(%Decision{decision_status: status}, _retry_failed?, :recover_append), do: status != :resolved
 
   defp queue_reconcilable?(%Decision{decision_status: :decided} = decision) do
     match?(%{status: status} when status in [:queued, :restored], List.last(Decision.active_dispatch_attempts(decision)))
@@ -2026,7 +2298,8 @@ defmodule Aiur.DecisionStore do
   defp validate_explicit_retry(state, decision_id, action_id) do
     with {:ok, decision} <- fetch_decision(state, decision_id),
          %DecisionAnswer{action_id: ^action_id} <- Decision.active_answer(decision),
-         true <- match?(%{status: :failed}, List.last(Decision.active_dispatch_attempts(decision))) do
+         :ok <- require_answerable(decision),
+         true <- retryable_dispatch?(state, decision, action_id) do
       if MapSet.member?(state.dispatching, action_id) do
         {:ok, :already_dispatching}
       else
@@ -2038,6 +2311,15 @@ defmodule Aiur.DecisionStore do
       false -> {:error, :dispatch_not_failed}
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp retryable_dispatch?(state, decision, action_id) do
+    match?(%{status: :failed}, List.last(Decision.active_dispatch_attempts(decision))) or
+      lifecycle_append_failed?(state, action_id)
+  end
+
+  defp lifecycle_append_failed?(state, action_id) do
+    MapSet.member?(Map.get(state, :lifecycle_append_failures, MapSet.new()), action_id)
   end
 
   defp notify(decision, event_id) do
