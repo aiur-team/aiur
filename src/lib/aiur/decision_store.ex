@@ -1735,15 +1735,8 @@ defmodule Aiur.DecisionStore do
       send(owner, {:revision_follow_up_result, operation, decision.decision_id, action_id, result})
     end
 
-    case Task.start(task) do
-      {:ok, _pid} ->
-        state
-
-      {:error, reason} ->
-        result = {:revision_follow_up_result, operation, decision.decision_id, action_id, {:error, reason}}
-        send(owner, result)
-        state
-    end
+    {:ok, _pid} = Task.start(task)
+    state
   end
 
   defp revision_follow_up_callback(state, :project), do: state.revision_follow_up_projector
