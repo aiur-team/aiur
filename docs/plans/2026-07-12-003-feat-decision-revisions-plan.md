@@ -1,7 +1,7 @@
 ---
 title: "feat: Add append-only decision revisions"
 type: feat
-status: active
+status: completed
 date: 2026-07-12
 origin: docs/operator-control-center/00-prd.md
 ---
