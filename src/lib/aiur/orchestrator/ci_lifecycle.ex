@@ -44,13 +44,13 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       when is_binary(identifier) and outcome in [:passed, :failed] do
     case State.find_running_by_identifier(state.running, identifier) do
       %{control: %{status: :paused}, paused_reason: :ci_wait} = running_entry ->
-        if terminal_handoff_state?(Map.get(running_entry, :issue), outcome) do
-          state
-          |> cancel_ci_wait_rewake(get_in(running_entry, [:issue, Access.key(:id)]))
-          |> maybe_resume_ci_wait_runner(running_entry, identifier)
-        else
-          state
-        end
+        revalidate_ci_terminal_wake(
+          state,
+          running_entry,
+          identifier,
+          outcome,
+          &Tracker.fetch_issue_states_by_ids/1
+        )
 
       _ ->
         state
@@ -148,7 +148,9 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   @spec arm_ci_wait_rewake(State.t(), Issue.t()) :: State.t()
   def arm_ci_wait_rewake(%State{} = state, %Issue{id: issue_id} = issue)
       when is_binary(issue_id) do
-    if Map.has_key?(state.ci_wait_rewakes, issue_id) do
+    rewakes = ci_wait_rewakes(state)
+
+    if Map.has_key?(rewakes, issue_id) do
       state
     else
       delay_ms = Config.ci_wait_rewake_minutes() * 60_000
@@ -162,7 +164,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
         deadline_ms: System.monotonic_time(:millisecond) + delay_ms
       }
 
-      %{state | ci_wait_rewakes: Map.put(state.ci_wait_rewakes, issue_id, rewake)}
+      put_ci_wait_rewakes(state, Map.put(rewakes, issue_id, rewake))
     end
   end
 
@@ -171,10 +173,10 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   @doc false
   @spec cancel_ci_wait_rewake(State.t(), String.t() | nil) :: State.t()
   def cancel_ci_wait_rewake(%State{} = state, issue_id) when is_binary(issue_id) do
-    case Map.pop(state.ci_wait_rewakes, issue_id) do
+    case Map.pop(ci_wait_rewakes(state), issue_id) do
       {%{timer_ref: timer_ref}, remaining} ->
         if is_reference(timer_ref), do: Process.cancel_timer(timer_ref)
-        %{state | ci_wait_rewakes: remaining}
+        put_ci_wait_rewakes(state, remaining)
 
       {nil, _remaining} ->
         state
@@ -187,9 +189,11 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   @spec handle_ci_wait_rewake(State.t(), String.t(), reference(), keyword()) :: State.t()
   def handle_ci_wait_rewake(%State{} = state, issue_id, token, opts \\ [])
       when is_binary(issue_id) and is_reference(token) do
-    case Map.get(state.ci_wait_rewakes, issue_id) do
+    rewakes = ci_wait_rewakes(state)
+
+    case Map.get(rewakes, issue_id) do
       %{token: ^token} ->
-        state = %{state | ci_wait_rewakes: Map.delete(state.ci_wait_rewakes, issue_id)}
+        state = put_ci_wait_rewakes(state, Map.delete(rewakes, issue_id))
         issue_fetcher = Keyword.get(opts, :issue_fetcher, &Tracker.fetch_issue_states_by_ids/1)
         handle_current_ci_wait_rewake(state, issue_id, issue_fetcher)
 
@@ -413,7 +417,6 @@ defmodule Aiur.Orchestrator.CiLifecycle do
         |> Reconciler.refresh_running_issue_state(active_issue)
         |> ensure_ci_terminal_subscription(issue)
         |> publish_ci_terminal_event(issue, result, :passed)
-        |> maybe_reactivate_after_ci_terminal(active_issue)
 
       {:error, reason} ->
         Logger.warning("CI pass transition skipped: #{State.issue_context(issue)} reason=#{inspect(reason)}")
@@ -433,7 +436,6 @@ defmodule Aiur.Orchestrator.CiLifecycle do
         |> Reconciler.refresh_running_issue_state(rework_issue)
         |> ensure_ci_terminal_subscription(issue)
         |> publish_ci_terminal_event(issue, result, :failed)
-        |> maybe_reactivate_after_ci_terminal(rework_issue)
 
       {:error, reason} ->
         Logger.warning("CI failure transition skipped: #{State.issue_context(issue)} reason=#{inspect(reason)}")
@@ -441,7 +443,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     end
   end
 
-  defp maybe_reactivate_after_ci_terminal(state, issue) do
+  defp maybe_reactivate_after_ci_wait_fallback(state, issue) do
     if Issue.paused?(issue) do
       Reconciler.refresh_running_issue_state(state, issue)
     else
@@ -545,7 +547,11 @@ defmodule Aiur.Orchestrator.CiLifecycle do
          test_failure_heads == state.ci_lifecycle.test_failure_heads do
       state
     else
-      ci_lifecycle = %{approved_heads: approved_heads, test_failure_heads: test_failure_heads}
+      ci_lifecycle =
+        state.ci_lifecycle
+        |> Map.put(:approved_heads, approved_heads)
+        |> Map.put(:test_failure_heads, test_failure_heads)
+
       persist_ci_lifecycle_state(%{state | ci_lifecycle: ci_lifecycle})
     end
   end
@@ -574,7 +580,11 @@ defmodule Aiur.Orchestrator.CiLifecycle do
         rearm_ci_wait_rewake(state, issue_id)
 
       other ->
-        Logger.warning("CI wait fallback revalidation returned unexpected value: issue_id=#{issue_id} value=#{inspect(other)}")
+        Logger.warning(
+          "CI wait fallback revalidation returned unexpected value: " <>
+            "issue_id=#{issue_id} value=#{inspect(other)}"
+        )
+
         rearm_ci_wait_rewake(state, issue_id)
     end
   end
@@ -609,7 +619,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
         state
         |> Reconciler.refresh_running_issue_state(active_issue)
         |> enqueue_ci_wait_rewake_handoff(active_issue)
-        |> maybe_reactivate_after_ci_terminal(active_issue)
+        |> maybe_reactivate_after_ci_wait_fallback(active_issue)
 
       {:error, reason} ->
         Logger.warning("CI wait fallback transition failed: #{State.issue_context(issue)} reason=#{inspect(reason)}")
@@ -620,13 +630,17 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   defp enqueue_ci_wait_rewake_handoff(state, issue) do
     identifier = issue.identifier || issue.id
 
+    message =
+      "No terminal CI event arrived before the fallback timeout. " <>
+        "Check CI once; if it is still pending, return to agent:ci-wait without polling."
+
     event = %{
       id: IdGenerator.next_id(),
       topic: "ticket.#{identifier}.ci.rewake",
       source: :runtime,
       reason: :ci_wait_timeout,
       timeout_minutes: Config.ci_wait_rewake_minutes(),
-      message: "No terminal CI event arrived before the fallback timeout. Check CI once; if it is still pending, return to agent:ci-wait without polling."
+      message: message
     }
 
     OperatorMessages.enqueue_event_digest_item(state, identifier, [event], event)
@@ -650,13 +664,57 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     end
   end
 
+  defp revalidate_ci_terminal_wake(state, running_entry, identifier, outcome, issue_fetcher) do
+    issue_id = get_in(running_entry, [:issue, Access.key(:id)])
+
+    case issue_fetcher.([issue_id]) do
+      {:ok, issues} when is_list(issues) ->
+        resume_revalidated_ci_terminal(state, running_entry, identifier, outcome, issue_id, issues)
+
+      {:error, reason} ->
+        Logger.warning("CI terminal wake revalidation failed: issue_id=#{issue_id} reason=#{inspect(reason)}")
+
+        state
+
+      other ->
+        Logger.warning(
+          "CI terminal wake revalidation returned unexpected value: " <>
+            "issue_id=#{issue_id} value=#{inspect(other)}"
+        )
+
+        state
+    end
+  end
+
+  defp resume_revalidated_ci_terminal(state, running_entry, identifier, outcome, issue_id, issues) do
+    case Enum.find(issues, &match?(%Issue{id: ^issue_id}, &1)) do
+      %Issue{} = issue ->
+        state = Reconciler.refresh_running_entry_issue(state, issue, running_entry)
+        refreshed_entry = Map.fetch!(state.running, issue_id)
+
+        if terminal_handoff_state?(issue, outcome) do
+          state
+          |> cancel_ci_wait_rewake(issue_id)
+          |> maybe_resume_ci_wait_runner(refreshed_entry, identifier)
+        else
+          state
+        end
+
+      nil ->
+        state
+    end
+  end
+
   defp terminal_handoff_state?(%Issue{} = issue, :passed) do
-    not Issue.paused?(issue) and
+    DispatchPolicy.issue_routable_to_worker?(issue) and
+      not Issue.paused?(issue) and
       DispatchPolicy.normalize_issue_state(issue.state) == @active_handoff_state
   end
 
   defp terminal_handoff_state?(%Issue{} = issue, :failed) do
-    not Issue.paused?(issue) and DispatchPolicy.normalize_issue_state(issue.state) == "rework"
+    DispatchPolicy.issue_routable_to_worker?(issue) and
+      not Issue.paused?(issue) and
+      DispatchPolicy.normalize_issue_state(issue.state) == "rework"
   end
 
   defp terminal_handoff_state?(_issue, _outcome), do: false
@@ -667,7 +725,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
         next_state
 
       {{:error, reason}, next_state} ->
-        Logger.warning("CI failure auto-resume deferred: issue_identifier=#{identifier} reason=#{inspect(reason)}")
+        Logger.warning("CI terminal auto-resume deferred: issue_identifier=#{identifier} reason=#{inspect(reason)}")
         next_state
     end
   end
@@ -678,6 +736,12 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   end
 
   defp ci_event_dedup_key(_target, _outcome, _head_sha), do: nil
+
+  defp ci_wait_rewakes(%State{} = state), do: Map.get(state.ci_lifecycle, :rewakes, %{})
+
+  defp put_ci_wait_rewakes(%State{} = state, rewakes) when is_map(rewakes) do
+    %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :rewakes, rewakes)}
+  end
 
   defp ci_failure_excerpt(failures) when is_list(failures) do
     Enum.find_value(failures, fn

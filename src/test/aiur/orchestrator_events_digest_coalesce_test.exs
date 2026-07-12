@@ -10,8 +10,8 @@ defmodule Aiur.OrchestratorEventsDigestCoalesceTest do
   use ExUnit.Case, async: true
 
   alias Aiur.{AgentQueue, AgentQueueStore}
-  alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.OperatorMessages
+  alias Aiur.Orchestrator.State
 
   defp enqueue_events_digest(store, identifier, event) do
     item = AgentQueue.coordination_event(identifier, :events_digest, %{events: [event]}, source: :system)

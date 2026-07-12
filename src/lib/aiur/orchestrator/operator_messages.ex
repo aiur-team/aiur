@@ -133,18 +133,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     known_ids =
       queue_store.items
       |> Map.values()
-      |> Enum.flat_map(fn
-        %{category: :coordination_event, event_type: :events_digest, body: %{events: queued}} ->
-          Enum.flat_map(List.wrap(queued), fn event ->
-            case event_id(event) do
-              id when is_integer(id) -> [id]
-              _ -> []
-            end
-          end)
-
-        _ ->
-          []
-      end)
+      |> Enum.flat_map(&queued_event_ids/1)
       |> MapSet.new()
 
     Enum.reject(events, fn event ->
@@ -153,6 +142,23 @@ defmodule Aiur.Orchestrator.OperatorMessages do
         _ -> false
       end
     end)
+  end
+
+  defp queued_event_ids(%{
+         category: :coordination_event,
+         event_type: :events_digest,
+         body: %{events: queued}
+       }) do
+    Enum.flat_map(List.wrap(queued), &event_id_list/1)
+  end
+
+  defp queued_event_ids(_item), do: []
+
+  defp event_id_list(event) do
+    case event_id(event) do
+      id when is_integer(id) -> [id]
+      _ -> []
+    end
   end
 
   defp event_id(event) when is_map(event), do: Map.get(event, :id) || Map.get(event, "id")

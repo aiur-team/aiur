@@ -8,9 +8,16 @@ defmodule Aiur.OrchestratorCILifecycleTest do
   defmodule RecordingGitHubClient do
     @recipient_key {__MODULE__, :recipient}
     @update_result_key {__MODULE__, :update_result}
+    @issues_key {__MODULE__, :issues}
 
     def record_to(pid), do: Process.put(@recipient_key, pid)
     def return(result), do: Process.put(@update_result_key, result)
+    def return_issues(issues), do: Process.put(@issues_key, issues)
+
+    def fetch_issue_states_by_ids(issue_ids) do
+      issues = Process.get(@issues_key, [])
+      {:ok, Enum.filter(issues, &(&1.id in issue_ids))}
+    end
 
     def update_issue_state(issue_id, state_name) do
       case recipient() do
@@ -82,7 +89,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert entry.started_at == started_at
       assert MapSet.member?(next.claimed, identifier)
       assert Process.alive?(recorder)
-      assert %{token: token, timer_ref: timer_ref} = next.ci_wait_rewakes[identifier]
+      assert %{token: token, timer_ref: timer_ref} = next.ci_lifecycle.rewakes[identifier]
       assert is_reference(token)
       assert is_reference(timer_ref)
     end
@@ -158,7 +165,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert next.running[identifier].control.status == :working
       assert next.ci_lifecycle.approved_heads == %{identifier => "approved-head"}
       assert CIApprovalStore.load().approved_heads == %{identifier => "approved-head"}
-      refute Map.has_key?(next.ci_wait_rewakes, identifier)
+      refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
 
       assert [%{body: %{events: [event]}}] = AgentQueueStore.list_pending(next.queue_store, identifier)
       assert event.topic == topic
@@ -196,7 +203,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       assert next.running[identifier].issue.state == "rework"
       assert next.running[identifier].control.status == :working
-      refute Map.has_key?(next.ci_wait_rewakes, identifier)
+      refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
 
       assert [%{body: %{events: [event]}}] = AgentQueueStore.list_pending(next.queue_store, identifier)
       assert Enum.map(event.checks, & &1.name) == ["lint", "coverage"]
@@ -229,7 +236,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       sync_recorder(recorder)
 
       assert next.running[identifier].paused_reason == :operator_pause
-      assert next.ci_wait_rewakes == %{}
+      assert next.ci_lifecycle.rewakes == %{}
       refute_received {:recorded, _position, _message}
     end
 
@@ -243,10 +250,11 @@ defmodule Aiur.OrchestratorCILifecycleTest do
         |> running_state(recorder, :paused, paused_reason: :ci_wait)
         |> CiLifecycle.pause_issue_for_ci_wait(issue)
 
-      token = armed.ci_wait_rewakes[identifier].token
+      token = armed.ci_lifecycle.rewakes[identifier].token
+      issue_fetcher = fn [^identifier] -> {:ok, [issue]} end
 
       next =
-        CiLifecycle.handle_ci_wait_rewake(armed, identifier, token, issue_fetcher: fn [^identifier] -> {:ok, [issue]} end)
+        CiLifecycle.handle_ci_wait_rewake(armed, identifier, token, issue_fetcher: issue_fetcher)
 
       sync_recorder(recorder)
 
@@ -257,7 +265,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       assert next.running[identifier].issue.state == "in-progress"
       assert next.running[identifier].control.status == :working
-      refute Map.has_key?(next.ci_wait_rewakes, identifier)
+      refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
 
       assert [%{body: %{events: [event]}}] = AgentQueueStore.list_pending(next.queue_store, identifier)
       assert event.topic == "ticket.#{identifier}.ci.rewake"
@@ -275,8 +283,10 @@ defmodule Aiur.OrchestratorCILifecycleTest do
         |> running_state(recorder, :paused, paused_reason: :ci_wait)
         |> CiLifecycle.pause_issue_for_ci_wait(issue)
 
+      issue_fetcher = fn _ids -> flunk("stale token must not fetch tracker state") end
+
       next =
-        CiLifecycle.handle_ci_wait_rewake(armed, identifier, make_ref(), issue_fetcher: fn _ids -> flunk("stale token must not fetch tracker state") end)
+        CiLifecycle.handle_ci_wait_rewake(armed, identifier, make_ref(), issue_fetcher: issue_fetcher)
 
       sync_recorder(recorder)
 
@@ -295,16 +305,17 @@ defmodule Aiur.OrchestratorCILifecycleTest do
         |> running_state(recorder, :paused, paused_reason: :ci_wait)
         |> CiLifecycle.pause_issue_for_ci_wait(issue)
 
-      expired_token = armed.ci_wait_rewakes[identifier].token
+      expired_token = armed.ci_lifecycle.rewakes[identifier].token
+      issue_fetcher = fn [^identifier] -> {:ok, [issue]} end
 
       next =
-        CiLifecycle.handle_ci_wait_rewake(armed, identifier, expired_token, issue_fetcher: fn [^identifier] -> {:ok, [issue]} end)
+        CiLifecycle.handle_ci_wait_rewake(armed, identifier, expired_token, issue_fetcher: issue_fetcher)
 
       sync_recorder(recorder)
 
       assert_received {:recorded, 1, {:tracker_update, ^identifier, "in-progress"}}
       refute_received {:recorded, _position, {:resume_agent, _request_id}}
-      assert %{token: replacement_token} = next.ci_wait_rewakes[identifier]
+      assert %{token: replacement_token} = next.ci_lifecycle.rewakes[identifier]
       assert is_reference(replacement_token)
       refute replacement_token == expired_token
       assert next.running[identifier].control.status == :paused
@@ -320,17 +331,41 @@ defmodule Aiur.OrchestratorCILifecycleTest do
         |> running_state(recorder, :paused, paused_reason: :ci_wait)
         |> CiLifecycle.pause_issue_for_ci_wait(issue)
 
-      token = armed.ci_wait_rewakes[identifier].token
+      token = armed.ci_lifecycle.rewakes[identifier].token
+      issue_fetcher = fn [^identifier] -> {:ok, [issue]} end
 
       next =
-        CiLifecycle.handle_ci_wait_rewake(armed, identifier, token, issue_fetcher: fn [^identifier] -> {:ok, [issue]} end)
+        CiLifecycle.handle_ci_wait_rewake(armed, identifier, token, issue_fetcher: issue_fetcher)
 
       sync_recorder(recorder)
 
       refute_received {:recorded, _position, _message}
       assert next.running[identifier].control.status == :paused
       assert next.running[identifier].issue.paused
-      refute Map.has_key?(next.ci_wait_rewakes, identifier)
+      refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
+    end
+
+    test "fallback timeout does not wake a ticket routed away from this worker" do
+      identifier = unique_identifier("ci-rewake-routed-away")
+      recorder = start_recorder()
+      issue = %{issue(identifier, "ci-wait") | assigned_to_worker: false}
+
+      armed =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+
+      token = armed.ci_lifecycle.rewakes[identifier].token
+      issue_fetcher = fn [^identifier] -> {:ok, [issue]} end
+
+      next =
+        CiLifecycle.handle_ci_wait_rewake(armed, identifier, token, issue_fetcher: issue_fetcher)
+
+      sync_recorder(recorder)
+
+      refute_received {:recorded, _position, _message}
+      assert next.running[identifier].control.status == :paused
+      refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
     end
 
     test "tracker recording ignores unrelated process traffic" do
@@ -346,14 +381,34 @@ defmodule Aiur.OrchestratorCILifecycleTest do
   end
 
   defp poll_ci(state, issue, result) do
-    CiLifecycle.poll_github_ci(state,
-      ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
-      ci_poller: fn [target], _opts ->
-        assert target == issue.identifier
-        {:ok, %{results: [Map.put(result, :target, target)], errors: []}}
-      end
-    )
+    next =
+      CiLifecycle.poll_github_ci(state,
+        ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
+        ci_poller: fn [target], _opts ->
+          assert target == issue.identifier
+          {:ok, %{results: [Map.put(result, :target, target)], errors: []}}
+        end
+      )
+
+    maybe_route_ci_terminal(next, issue, result)
   end
+
+  defp maybe_route_ci_terminal(state, issue, %{decision: outcome}) when outcome in [:passed, :failed] do
+    handoff_state = if outcome == :passed, do: "in-progress", else: "rework"
+
+    case get_in(state.running, [issue.id, :issue, Access.key(:state)]) do
+      ^handoff_state ->
+        current_issue = %{issue | state: handoff_state}
+        RecordingGitHubClient.return_issues([current_issue])
+
+        CiLifecycle.maybe_resume_for_ci_terminal(state, issue.identifier, outcome)
+
+      _ ->
+        state
+    end
+  end
+
+  defp maybe_route_ci_terminal(state, _issue, _result), do: state
 
   defp running_state(issue, pid, status, attrs) do
     entry =

@@ -1,7 +1,7 @@
 ---
 title: "feat: Pause agents while CI runs"
 type: feat
-status: active
+status: completed
 date: 2026-07-12
 ---
 
