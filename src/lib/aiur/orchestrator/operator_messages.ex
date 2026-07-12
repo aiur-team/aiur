@@ -24,6 +24,19 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   def send_operator_message(server, issue_identifier, payload),
     do: control_api_call(server, {:send_operator_message, issue_identifier, payload}, 5_000)
 
+  @doc "Send one idempotent action-correlated operator message and return its queue snapshot."
+  @spec send_correlated_operator_message(String.t(), map()) ::
+          {:ok, %{status: :accepted | :duplicate | :retried, item: Aiur.AgentQueueItem.t()}}
+          | {:error, term()}
+  def send_correlated_operator_message(issue_identifier, payload),
+    do: send_correlated_operator_message(Aiur.Orchestrator, issue_identifier, payload)
+
+  @spec send_correlated_operator_message(GenServer.server(), String.t(), map()) ::
+          {:ok, %{status: :accepted | :duplicate | :retried, item: Aiur.AgentQueueItem.t()}}
+          | {:error, term()}
+  def send_correlated_operator_message(server, issue_identifier, payload),
+    do: control_api_call(server, {:send_correlated_operator_message, issue_identifier, payload}, 5_000)
+
   @spec control_capabilities(String.t()) :: {:ok, map()} | {:error, term()}
   def control_capabilities(issue_identifier),
     do: control_capabilities(Aiur.Orchestrator, issue_identifier)
@@ -193,6 +206,26 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     {:reply, {:error, :invalid_message}, state}
   end
 
+  @spec send_correlated_operator_message_call(State.t(), String.t(), map()) ::
+          {:reply, {:ok, map()} | {:error, term()}, State.t()}
+  def send_correlated_operator_message_call(
+        %State{} = state,
+        issue_identifier,
+        %{kind: :text, body: body, action_id: action_id, correlation: correlation} = payload
+      )
+      when is_binary(issue_identifier) and is_binary(body) and is_binary(action_id) and is_map(correlation) do
+    if correlation_action_id(correlation) == action_id do
+      {reply, next_state} = enqueue_operator_message(state, issue_identifier, body, payload, :correlated)
+      {:reply, reply, next_state}
+    else
+      {:reply, {:error, :action_mismatch}, state}
+    end
+  end
+
+  def send_correlated_operator_message_call(%State{} = state, _issue_identifier, _payload) do
+    {:reply, {:error, :invalid_message}, state}
+  end
+
   @spec control_capabilities_call(State.t(), String.t()) :: {:reply, {:ok, map()}, State.t()}
   def control_capabilities_call(%State{} = state, issue_identifier)
       when is_binary(issue_identifier) do
@@ -256,36 +289,36 @@ defmodule Aiur.Orchestrator.OperatorMessages do
 
   @spec mark_queue_item_consumed_call(State.t(), integer()) :: {:reply, :ok, State.t()}
   def mark_queue_item_consumed_call(%State{} = state, item_id) when is_integer(item_id) do
-    update_queue_store(state, &AgentQueueStore.mark_consumed(&1, item_id))
+    update_queue_store(state, &AgentQueueStore.mark_consumed(&1, item_id), :consumed)
   end
 
   @spec restore_queue_item_pending_call(State.t(), integer()) :: {:reply, :ok, State.t()}
   def restore_queue_item_pending_call(%State{} = state, item_id) when is_integer(item_id) do
-    update_queue_store(state, &AgentQueueStore.restore_pending(&1, item_id))
+    update_queue_store(state, &AgentQueueStore.restore_pending(&1, item_id), :restored)
   end
 
   @spec mark_queue_item_failed_call(State.t(), integer(), term()) :: {:reply, :ok, State.t()}
   def mark_queue_item_failed_call(%State{} = state, item_id, reason) when is_integer(item_id) do
-    update_queue_store(state, &AgentQueueStore.mark_failed(&1, item_id, reason))
+    update_queue_store(state, &AgentQueueStore.mark_failed(&1, item_id, reason), :failed, reason)
   end
 
   @spec consume_delivered_queue_items_call(State.t(), String.t()) :: {:reply, :ok, State.t()}
   def consume_delivered_queue_items_call(%State{} = state, issue_identifier)
       when is_binary(issue_identifier) do
-    update_queue_store(state, &AgentQueueStore.consume_delivered(&1, issue_identifier))
+    update_queue_store(state, &AgentQueueStore.consume_delivered(&1, issue_identifier), :consumed)
   end
 
   @spec restore_delivered_queue_items_call(State.t(), String.t()) :: {:reply, :ok, State.t()}
   def restore_delivered_queue_items_call(%State{} = state, issue_identifier)
       when is_binary(issue_identifier) do
-    update_queue_store(state, &AgentQueueStore.restore_delivered(&1, issue_identifier))
+    update_queue_store(state, &AgentQueueStore.restore_delivered(&1, issue_identifier), :restored)
   end
 
   @spec fail_delivered_queue_items_call(State.t(), String.t(), term()) ::
           {:reply, :ok, State.t()}
   def fail_delivered_queue_items_call(%State{} = state, issue_identifier, reason)
       when is_binary(issue_identifier) do
-    update_queue_store(state, &AgentQueueStore.fail_delivered(&1, issue_identifier, reason))
+    update_queue_store(state, &AgentQueueStore.fail_delivered(&1, issue_identifier, reason), :failed, reason)
   end
 
   @doc false
@@ -296,51 +329,35 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     maybe_coalesce_events(queue_store, issue_identifier, item)
   end
 
-  @spec enqueue_operator_message(State.t(), String.t(), String.t(), map()) ::
-          {{:ok, integer()} | {:error, term()}, State.t()}
-  def enqueue_operator_message(state, issue_identifier, body, payload) do
-    delivery_policy = Map.get(payload, :delivery_policy, :checkpoint)
-    fallback = Map.get(payload, :fallback)
-    turn_id = Map.get(payload, :turn_id)
+  @spec enqueue_operator_message(State.t(), String.t(), String.t(), map(), :plain | :correlated) ::
+          {{:ok, integer() | map()} | {:error, term()}, State.t()}
+  def enqueue_operator_message(state, issue_identifier, body, payload, mode \\ :plain) do
+    request = %{
+      delivery_policy: Map.get(payload, :delivery_policy, :checkpoint),
+      fallback: Map.get(payload, :fallback),
+      turn_id: Map.get(payload, :turn_id),
+      action_id: if(mode == :correlated, do: Map.get(payload, :action_id)),
+      correlation: if(mode == :correlated, do: Map.get(payload, :correlation)),
+      retry_failed: mode == :correlated and Map.get(payload, :retry_failed, false) == true,
+      mode: mode
+    }
 
     case validate_operator_message(body) do
       {:ok, text} ->
-        enqueue_validated_operator_message(
-          state,
-          issue_identifier,
-          text,
-          delivery_policy,
-          fallback,
-          turn_id
-        )
+        enqueue_validated_operator_message(state, issue_identifier, text, request)
 
       {:error, _reason} = error ->
         {error, state}
     end
   end
 
-  defp enqueue_validated_operator_message(
-         state,
-         issue_identifier,
-         text,
-         delivery_policy,
-         fallback,
-         turn_id
-       ) do
+  defp enqueue_validated_operator_message(state, issue_identifier, text, request) do
     case State.find_running_by_identifier(state.running, issue_identifier) do
       nil ->
         {{:error, :no_running_agent}, state}
 
       running_entry ->
-        enqueue_for_running_entry(
-          state,
-          running_entry,
-          issue_identifier,
-          text,
-          delivery_policy,
-          fallback,
-          turn_id
-        )
+        enqueue_for_running_entry(state, running_entry, issue_identifier, text, request)
     end
   end
 
@@ -350,140 +367,82 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   # so we can't push active over max no matter which entry point the
   # operator uses. If no slot is free, the cap error propagates and the
   # conversation pane surfaces it.
-  defp enqueue_for_running_entry(
-         state,
-         running_entry,
-         issue_identifier,
-         text,
-         delivery_policy,
-         fallback,
-         turn_id
-       ) do
+  defp enqueue_for_running_entry(state, running_entry, issue_identifier, text, request) do
     cond do
       State.deactivated_running_entry?(running_entry) ->
-        enqueue_after_reactivate(
-          state,
-          running_entry,
-          issue_identifier,
-          text,
-          delivery_policy,
-          fallback,
-          turn_id
-        )
+        enqueue_after_reactivate(state, running_entry, issue_identifier, text, request)
 
       State.paused_running_entry?(running_entry) ->
-        enqueue_after_resume(
-          state,
-          running_entry,
-          issue_identifier,
-          text,
-          delivery_policy,
-          fallback,
-          turn_id
-        )
+        enqueue_after_resume(state, running_entry, issue_identifier, text, request)
 
       true ->
-        do_enqueue_running_operator_message(
-          state,
-          running_entry,
-          issue_identifier,
-          text,
-          delivery_policy,
-          fallback,
-          turn_id
-        )
+        do_enqueue_running_operator_message(state, running_entry, issue_identifier, text, request)
     end
   end
 
-  # Mirrors `enqueue_after_resume/7` for the `:deactivated → :working`
+  # Mirrors `enqueue_after_resume/5` for the `:deactivated → :working`
   # transition. The fresh agent task spawned by `reactivate_issue/2`
   # will pick up the queued operator message when it boots.
-  defp enqueue_after_reactivate(
-         state,
-         running_entry,
-         issue_identifier,
-         text,
-         delivery_policy,
-         fallback,
-         turn_id
-       ) do
+  defp enqueue_after_reactivate(state, running_entry, issue_identifier, text, request) do
     case Aiur.Orchestrator.reactivate_issue(state, running_entry) do
       {{:ok, :reactivated}, next_state} ->
         reactivated_entry = State.find_running_by_identifier(next_state.running, issue_identifier)
 
-        do_enqueue_running_operator_message(
-          next_state,
-          reactivated_entry,
-          issue_identifier,
-          text,
-          delivery_policy,
-          fallback,
-          turn_id
-        )
+        do_enqueue_running_operator_message(next_state, reactivated_entry, issue_identifier, text, request)
 
       {{:error, _reason} = error, next_state} ->
         {error, next_state}
     end
   end
 
-  defp enqueue_after_resume(
-         state,
-         running_entry,
-         issue_identifier,
-         text,
-         delivery_policy,
-         fallback,
-         turn_id
-       ) do
+  defp enqueue_after_resume(state, running_entry, issue_identifier, text, request) do
     case Aiur.Orchestrator.resume_paused_issue(state, running_entry) do
       {{:ok, :resumed}, next_state} ->
         resumed_entry = State.find_running_by_identifier(next_state.running, issue_identifier)
 
-        do_enqueue_running_operator_message(
-          next_state,
-          resumed_entry,
-          issue_identifier,
-          text,
-          delivery_policy,
-          fallback,
-          turn_id
-        )
+        do_enqueue_running_operator_message(next_state, resumed_entry, issue_identifier, text, request)
 
       {{:error, _reason} = error, next_state} ->
         {error, next_state}
     end
   end
 
-  defp do_enqueue_running_operator_message(
-         state,
-         running_entry,
-         issue_identifier,
-         text,
-         delivery_policy,
-         fallback,
-         turn_id
-       ) do
+  defp do_enqueue_running_operator_message(state, running_entry, issue_identifier, text, request) do
     capabilities = Capabilities.issue_control_capabilities(state, issue_identifier)
 
-    case DeliveryPolicy.normalize_delivery_request(delivery_policy, fallback, capabilities) do
+    case DeliveryPolicy.normalize_delivery_request(request.delivery_policy, request.fallback, capabilities) do
       {:ok, queue_opts} ->
-        {queue_store, item} =
+        attrs =
           AgentQueue.operator_message(
             issue_identifier,
             text,
-            Keyword.put(queue_opts, :turn_id, turn_id)
+            queue_opts
+            |> Keyword.put(:turn_id, request.turn_id)
+            |> Keyword.put(:action_id, request.action_id)
+            |> Keyword.put(:correlation, request.correlation)
           )
-          |> then(&Aiur.AgentQueueStore.enqueue(state.queue_store, &1))
 
-        # NOTE: previously we emitted a `chat.send` alert here for every
-        # operator message. That alert was pure noise — it duplicated
-        # the `[user]` line the pane already renders and added a
-        # `[alert] chat.send: Message sent` row plus a log line for
-        # every keystroke-submitted message. Removed.
+        finish_operator_enqueue(state, running_entry, attrs, request)
 
-        next_state = %{state | queue_store: queue_store}
-        DeliveryPolicy.notify_running_queue_update(running_entry, item)
-        {{:ok, item.id}, next_state}
+      {:error, _reason} = error ->
+        {error, state}
+    end
+  end
+
+  defp finish_operator_enqueue(state, running_entry, attrs, %{mode: :plain}) do
+    {queue_store, item} = AgentQueueStore.enqueue(state.queue_store, attrs)
+    DeliveryPolicy.notify_running_queue_update(running_entry, item)
+    {{:ok, item.id}, %{state | queue_store: queue_store}}
+  end
+
+  defp finish_operator_enqueue(state, running_entry, attrs, %{mode: :correlated} = request) do
+    case AgentQueueStore.enqueue_correlated(state.queue_store, attrs, retry_failed: request.retry_failed) do
+      {:ok, queue_store, item, status} ->
+        if status in [:accepted, :retried] do
+          DeliveryPolicy.notify_running_queue_update(running_entry, item)
+        end
+
+        {{:ok, %{status: status, item: item}}, %{state | queue_store: queue_store}}
 
       {:error, _reason} = error ->
         {error, state}
@@ -549,8 +508,9 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     {:reply, reply, %{state | queue_store: queue_store}}
   end
 
-  defp update_queue_store(%State{} = state, update) when is_function(update, 1) do
-    {queue_store, _items} = update.(state.queue_store)
+  defp update_queue_store(%State{} = state, update, transition, reason \\ nil) when is_function(update, 1) do
+    {queue_store, items} = update.(state.queue_store)
+    items |> List.wrap() |> Enum.each(&Aiur.DecisionStore.record_transport_async(transition, &1, reason))
     {:reply, :ok, %{state | queue_store: queue_store}}
   end
 
@@ -579,6 +539,10 @@ defmodule Aiur.Orchestrator.OperatorMessages do
       String.length(text) > @max_operator_message_chars -> {:error, :message_too_long}
       true -> {:ok, text}
     end
+  end
+
+  defp correlation_action_id(correlation) do
+    Map.get(correlation, :action_id, Map.get(correlation, "action_id"))
   end
 
   @spec send_running_control_message(State.t(), String.t(), (integer() -> term())) ::

@@ -40,6 +40,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   def build(issue, workspace, worker_host, app_session \\ %{}, opts \\ []) do
     event_handlers = %{
       decision_requester: Keyword.get(opts, :decision_requester, &DecisionStore.request/2),
+      decision_lifecycle_recorder: Keyword.get(opts, :decision_lifecycle_recorder, &DecisionStore.agent_lifecycle/3),
       attention_enricher: Keyword.get(opts, :attention_enricher, &DecisionStore.enrich_attention/2),
       attention_opener: Keyword.get(opts, :attention_opener, &DecisionAttention.open_with_decision/6),
       attention_resolver: Keyword.get(opts, :attention_resolver, &DecisionAttention.resolve/2)
@@ -176,6 +177,11 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     request_decision(issue, app_session, handlers, message, payload)
   end
 
+  defp emit_agent_event(issue, _workspace, _worker_host, app_session, handlers, name, message, payload)
+       when name in ["decision.acknowledged", "decision.resolved"] do
+    record_decision_lifecycle(issue, app_session, handlers.decision_lifecycle_recorder, name, message, payload)
+  end
+
   defp emit_agent_event(issue, workspace, worker_host, app_session, handlers, name, message, payload) do
     identifier = issue_identifier(issue)
 
@@ -305,6 +311,60 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   catch
     :exit, reason -> {:error, {:decision_store_exit, reason}}
   end
+
+  defp record_decision_lifecycle(issue, app_session, lifecycle_recorder, name, message, payload) do
+    case issue_identifier(issue) do
+      nil ->
+        {:error, :no_issue_identifier}
+
+      identifier ->
+        type = if name == "decision.acknowledged", do: :acknowledged, else: :resolved
+        lifecycle_payload = Map.put_new(payload, "detail", message)
+        trusted_context = trusted_lifecycle_context(app_session)
+
+        opts = [
+          ticket_identifier: identifier,
+          actor: trusted_context.actor,
+          source: trusted_context.source
+        ]
+
+        case safely_record_lifecycle(lifecycle_recorder, type, lifecycle_payload, opts) do
+          {:ok, result} ->
+            {:ok,
+             result
+             |> Map.take([:decision_id, :version, :answered_version, :action_id, :status, :decision_status])
+             |> Map.new(fn {key, value} -> {Atom.to_string(key), stringify_lifecycle_value(value)} end)}
+
+          {:error, reason} ->
+            {:error, {:decision_lifecycle_rejected, reason}}
+        end
+    end
+  end
+
+  defp safely_record_lifecycle(recorder, type, payload, opts) do
+    recorder.(type, payload, opts)
+  catch
+    :exit, reason -> {:error, {:decision_store_exit, reason}}
+  end
+
+  defp trusted_lifecycle_context(app_session) do
+    %{
+      actor: %{kind: :agent, id: "ticket-agent"},
+      source: %{
+        agent_id: stringify_identity(SessionLifecycle.session_backend(app_session)),
+        session_id: stringify_identity(Map.get(app_session, :thread_id)),
+        invocation_id: stringify_invocation_id(invocation_id())
+      }
+    }
+  end
+
+  defp stringify_identity(nil), do: nil
+  defp stringify_identity(value) when is_binary(value), do: value
+  defp stringify_identity(value) when is_atom(value), do: Atom.to_string(value)
+  defp stringify_identity(value), do: stringify_invocation_id(value)
+
+  defp stringify_lifecycle_value(value) when is_atom(value), do: Atom.to_string(value)
+  defp stringify_lifecycle_value(value), do: value
 
   defp trusted_source_id(identifier, session_id, request_payload) do
     material = {

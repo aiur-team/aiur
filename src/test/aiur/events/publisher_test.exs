@@ -123,6 +123,27 @@ defmodule Aiur.Events.PublisherTest do
     test "rejects direct publication of a bare decision.requested topic" do
       assert {:error, :decision_requires_durable_publish} = Publisher.publish("decision.requested", %{})
     end
+
+    test "rejects direct publication of reserved acknowledgement and resolution topics" do
+      for topic <- [
+            "decision.acknowledged",
+            "ticket.42.agent.decision.acknowledged",
+            "decision.resolved",
+            "ticket.42.agent.decision.resolved",
+            "ticket.42.agent.custom.decision.acknowledged"
+          ] do
+        assert {:error, :decision_requires_durable_publish} = Publisher.publish(topic, %{})
+      end
+    end
+
+    test "keeps unrelated architectural decision events on the generic path" do
+      :ok = Exchange.subscribe("ticket.42.agent.decision.use-something")
+
+      assert {:ok, _id, _count} =
+               Publisher.publish("ticket.42.agent.decision.use-something", %{message: "ordinary"})
+
+      assert_receive {:event, %{topic: "ticket.42.agent.decision.use-something"}}, 500
+    end
   end
 
   describe "publish_persisted/4" do
