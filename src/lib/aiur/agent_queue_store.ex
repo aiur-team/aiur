@@ -59,6 +59,7 @@ defmodule Aiur.AgentQueueStore do
       turn_id: Map.get(attrs, :turn_id),
       subscription: Map.get(attrs, :subscription),
       status: :pending,
+      delivery_attempts: 0,
       inserted_at: now
     }
 
@@ -104,7 +105,12 @@ defmodule Aiur.AgentQueueStore do
         {store, nil}
 
       %AgentQueueItem{} = item ->
-        claimed_item = %{item | status: :delivered, delivered_at: DateTime.utc_now()}
+        claimed_item = %{
+          item
+          | status: :delivered,
+            delivery_attempts: item.delivery_attempts + 1,
+            delivered_at: DateTime.utc_now()
+        }
 
         store =
           store
@@ -126,7 +132,12 @@ defmodule Aiur.AgentQueueStore do
         {store, nil}
 
       %AgentQueueItem{} = item ->
-        claimed_item = %{item | status: :delivered, delivered_at: DateTime.utc_now()}
+        claimed_item = %{
+          item
+          | status: :delivered,
+            delivery_attempts: item.delivery_attempts + 1,
+            delivered_at: DateTime.utc_now()
+        }
 
         store =
           store
@@ -342,6 +353,7 @@ defmodule Aiur.AgentQueueStore do
     restored = %{
       existing
       | status: :pending,
+        delivery_attempts: 0,
         delivered_at: nil,
         failed_at: nil,
         failure_reason: nil

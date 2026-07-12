@@ -18,6 +18,10 @@ defmodule AiurWeb.Router do
     plug(:put_secure_browser_headers)
   end
 
+  pipeline :secure_document do
+    plug(:put_secure_browser_headers)
+  end
+
   # CSRF defense for the bare REST JSON write endpoints. `Plug.CSRFProtection`
   # is the wrong tool here — it depends on a session-stored token, and the
   # API isn't driven by our own LiveView (curl + 3rd-party scripts are
@@ -54,6 +58,12 @@ defmodule AiurWeb.Router do
     pipe_through([:dashboard_auth, :browser])
 
     live("/", DashboardLive, :index)
+  end
+
+  scope "/", AiurWeb do
+    pipe_through([:dashboard_auth, :secure_document])
+
+    get("/analytics", TelemetryDashboardController, :show)
   end
 
   # Agent-write endpoints driven from the browser/API. Gated read-only by

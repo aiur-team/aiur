@@ -558,7 +558,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
 
   defp update_queue_store(%State{} = state, update, transition, reason \\ nil) when is_function(update, 1) do
     {queue_store, items} = update.(state.queue_store)
-    items |> List.wrap() |> Enum.each(&Aiur.DecisionStore.record_transport_async(transition, &1, reason))
+    Aiur.DecisionStore.record_transport_batch_async(transition, List.wrap(items), reason)
     {:reply, :ok, %{state | queue_store: queue_store}}
   end
 

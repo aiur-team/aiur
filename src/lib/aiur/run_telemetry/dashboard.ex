@@ -15,13 +15,24 @@ defmodule Aiur.RunTelemetry.Dashboard do
   def generate(inputs, output, opts \\ []) when is_binary(output) and is_list(opts) do
     output = Path.expand(output)
 
-    with {:ok, initial} <- Dataset.build(inputs, opts),
-         {:ok, dataset} <- enrich_dataset(inputs, initial, opts),
+    with {:ok, %{dataset: dataset, html: html}} <- render_inputs(inputs, opts),
          :ok <- File.mkdir_p(Path.dirname(output)),
-         :ok <- File.write(output, render(dataset, opts)) do
+         :ok <- File.write(output, html) do
       {:ok, %{output: output, dataset: dataset}}
     else
       {:error, _reason} = error -> error
+    end
+  rescue
+    error -> {:error, {:dashboard_generation_failed, Lifecycle.reason_class(error)}}
+  end
+
+  @doc "Builds current telemetry inputs and renders the canonical HTML without writing a file."
+  @spec render_inputs(Path.t() | [Path.t()], keyword()) ::
+          {:ok, %{html: String.t(), dataset: map()}} | {:error, term()}
+  def render_inputs(inputs, opts \\ []) when is_list(opts) do
+    with {:ok, initial} <- Dataset.build(inputs, opts),
+         {:ok, dataset} <- enrich_dataset(inputs, initial, opts) do
+      {:ok, %{html: render(dataset, opts), dataset: dataset}}
     end
   rescue
     error -> {:error, {:dashboard_generation_failed, Lifecycle.reason_class(error)}}
