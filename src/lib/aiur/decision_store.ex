@@ -90,6 +90,12 @@ defmodule Aiur.DecisionStore do
     GenServer.call(server, {:history, decision_id})
   end
 
+  @doc "Returns every Decision's immutable history in audit order in one serialized read."
+  @spec all_history(GenServer.server()) :: %{String.t() => [Decision.t()]}
+  def all_history(server \\ __MODULE__) do
+    GenServer.call(server, :all_history)
+  end
+
   @doc "`:writable`, or a reason tuple describing why the store is currently read-only/unavailable."
   @spec health(GenServer.server()) :: :writable | tuple()
   def health(server \\ __MODULE__) do
@@ -238,6 +244,10 @@ defmodule Aiur.DecisionStore do
       {:ok, history} -> {:reply, {:ok, Enum.reverse(history)}, state}
       :error -> {:reply, {:error, :not_found}, state}
     end
+  end
+
+  def handle_call(:all_history, _from, state) do
+    {:reply, reverse_histories(state.history), state}
   end
 
   def handle_call(:health, _from, state) do

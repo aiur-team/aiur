@@ -83,6 +83,7 @@ defmodule Aiur.DecisionStoreTest do
       assert {:ok, ^decision} = DecisionStore.get(decision.decision_id, pid)
       assert DecisionStore.list(pid) == [decision]
       assert {:ok, [^decision]} = DecisionStore.history(decision.decision_id, pid)
+      assert DecisionStore.all_history(pid) == %{decision.decision_id => [decision]}
     end
 
     test "the audit log and the projection file are both owner-only after an accept", %{dir: dir} do
@@ -168,6 +169,7 @@ defmodule Aiur.DecisionStoreTest do
       assert v2.decision_id == v1.decision_id
       assert v2.version == 2
       assert {:ok, [^v1, ^v2]} = DecisionStore.history(v1.decision_id, pid)
+      assert DecisionStore.all_history(pid)[v1.decision_id] == [v1, v2]
       assert {:ok, ^v2} = DecisionStore.get(v1.decision_id, pid)
     end
 
@@ -478,6 +480,7 @@ defmodule Aiur.DecisionStoreTest do
       assert {:ok, replayed} = DecisionStore.get(accepted.decision_id, pid2)
       assert replayed.question == accepted.question
       assert replayed.content_hash == accepted.content_hash
+      assert DecisionStore.all_history(pid2)[accepted.decision_id] == [replayed]
       assert DecisionStore.health(pid2) == :writable
     end
 
