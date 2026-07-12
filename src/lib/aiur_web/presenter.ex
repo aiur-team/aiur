@@ -134,10 +134,17 @@ defmodule AiurWeb.Presenter do
       issue_id: entry.issue_id,
       issue_identifier: entry.identifier,
       state: entry.state,
+      tag: Map.get(entry, :tag),
+      title: Map.get(entry, :title),
+      url: Map.get(entry, :url),
       worker_host: Map.get(entry, :worker_host),
       workspace_path: Map.get(entry, :workspace_path),
       session_id: entry.session_id,
       turn_count: Map.get(entry, :turn_count, 0),
+      runtime_seconds: Map.get(entry, :runtime_seconds, 0),
+      work_state: Map.get(entry, :work_state, :working),
+      pause_reason: Map.get(entry, :pause_reason),
+      tracker_paused: Map.get(entry, :tracker_paused, false),
       last_event: entry.last_codex_event,
       last_message: summarize_message(entry.last_codex_message),
       queue_depth: Map.get(entry, :queue_depth, 0),
@@ -170,6 +177,9 @@ defmodule AiurWeb.Presenter do
       tag: Map.get(entry, :tag),
       title: Map.get(entry, :title),
       url: Map.get(entry, :url),
+      runtime_seconds: 0,
+      work_state: :retrying,
+      tracker_paused: false,
       waiting_reason: Map.get(entry, :waiting_reason, :backing_off),
       open_decision_count: Map.get(entry, :open_decision_count, 0),
       ci: ci_payload(Map.get(entry, :ci_result)),
@@ -185,6 +195,9 @@ defmodule AiurWeb.Presenter do
       tag: Map.get(entry, :tag),
       title: Map.get(entry, :title),
       url: Map.get(entry, :url),
+      runtime_seconds: 0,
+      work_state: idle_work_state(entry),
+      tracker_paused: Map.get(entry, :tracker_paused, false),
       queue_depth: Map.get(entry, :queue_depth, 0),
       waiting_reason: Map.get(entry, :waiting_reason, :active),
       open_decision_count: Map.get(entry, :open_decision_count, 0),
@@ -216,6 +229,10 @@ defmodule AiurWeb.Presenter do
   # call on every dashboard refresh, duplicating that existing check.
   defp review_status("human-review"), do: :awaiting
   defp review_status(_state), do: :not_started
+
+  defp idle_work_state(entry) do
+    if Map.get(entry, :tracker_paused, false), do: :paused, else: :idle
+  end
 
   defp running_issue_payload(running) do
     %{
