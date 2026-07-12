@@ -43,6 +43,14 @@ defmodule ScriptsAiurdevTest do
         "    echo \"AIUR_OPENCODE_BRIDGE_PORT: ${AIUR_OPENCODE_BRIDGE_PORT:-}\"\n" <>
         "  } >> \"$AIUR_ENGINE_TRACE\"\n" <>
         "fi\n" <>
+        ~S|if [ -n "${AIUR_FAKE_ENGINE_TRANSIENT_ONCE:-}" ] && [ ! -e "$AIUR_FAKE_ENGINE_TRANSIENT_ONCE" ]; then| <>
+        "\n" <>
+        "  : > \"$AIUR_FAKE_ENGINE_TRANSIENT_ONCE\"\n" <>
+        "  : > \"$AIUR_CONTROL_RELEASE_RETRY_SIGNAL\"\n" <>
+        "  exit 75\n" <>
+        "fi\n" <>
+        ~S|[ -n "${AIUR_FAKE_ENGINE_EXIT:-}" ] && exit "$AIUR_FAKE_ENGINE_EXIT"| <>
+        "\n" <>
         "echo \"ENGINE_ARGS: $*\"\n" <>
         "echo \"RELEASE_DIR: ${AIUR_RELEASE_DIR:-}\"\n" <>
         "echo \"AIUR_DEBUG: ${AIUR_DEBUG:-}\"\n" <>
@@ -301,6 +309,47 @@ defmodule ScriptsAiurdevTest do
 
     assert out =~ "ENGINE_ARGS: status"
     refute out =~ "waiting for aiurdev rebuild lock"
+  end
+
+  test "control commands retry once when the ready release changes before rpc" do
+    root = fake_repo()
+    mise = fake_mise()
+    trace = engine_trace(root)
+    transient = Path.join(root, "transient-once")
+
+    seed_ready_release(root)
+
+    {out, 0} =
+      run_shim(["status"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_MISE_BIN", mise},
+        {"AIUR_ENGINE_TRACE", trace},
+        {"AIUR_FAKE_ENGINE_TRANSIENT_ONCE", transient},
+        {"TMUX", nil}
+      ])
+
+    assert out =~ "dev release changed during control command"
+    assert out =~ "ENGINE_ARGS: status"
+    assert File.read!(trace) |> String.split("ENGINE_ARGS: status") |> Enum.count() == 3
+  end
+
+  test "an ordinary control exit 75 is not retried without the release signal" do
+    root = fake_repo()
+    mise = fake_mise()
+    trace = engine_trace(root)
+
+    seed_ready_release(root)
+
+    {_, 75} =
+      run_shim(["status"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_MISE_BIN", mise},
+        {"AIUR_ENGINE_TRACE", trace},
+        {"AIUR_FAKE_ENGINE_EXIT", "75"},
+        {"TMUX", nil}
+      ])
+
+    assert File.read!(trace) |> String.split("ENGINE_ARGS: status") |> Enum.count() == 2
   end
 
   test "control commands rebuild when any ready-release artifact is missing" do
