@@ -19,6 +19,7 @@ defmodule Aiur.Config.Paths do
   `Aiur.Events.IdGenerator` + `Aiur.Events.SubscriptionStore` modules.
   """
 
+  alias Aiur.PathSafety
   alias Aiur.Tracker
 
   @doc """
@@ -30,6 +31,35 @@ defmodule Aiur.Config.Paths do
     case Application.get_env(:aiur, :log_file) do
       path when is_binary(path) -> Path.dirname(path)
       _ -> Path.join(File.cwd!(), "log")
+    end
+  end
+
+  @doc """
+  Resolves the owner-only Decision state directory.
+
+  An `Application` env override (tests, and any future explicit
+  configuration) wins outright and skips validation below — it is a
+  trusted, explicit value. Otherwise the directory is built from
+  `AIUR_BG_STATE_DIR`, the `AIUR_INSTANCE_KEY` (already a truncated
+  sha256 of the launcher-resolved project root — see
+  `aiur-engine.sh`'s `aiur_instance_key`), and the tracker project
+  identity.
+
+  Fails closed instead of silently sharing state across instances or
+  projects: an empty `AIUR_INSTANCE_KEY` (the explicit shared-identity
+  override `aiur-engine.sh` still honors) or an unavailable/default
+  project identity would leave `repo_name/0`'s last-path-segment
+  fallback as the only discriminator, which collapses when two
+  projects share a directory name. The resolved path is also
+  canonicalized and asserted to stay beneath the configured root (the
+  `Aiur.PathSafety` / `Aiur.Workspace.Layout` root-containment
+  precedent), so a stray `.`/`..` component cannot escape the leaf.
+  """
+  @spec decision_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def decision_state_dir do
+    case Application.get_env(:aiur, :decision_state_dir) do
+      path when is_binary(path) and path != "" -> {:ok, path}
+      _ -> resolve_decision_state_dir()
     end
   end
 
@@ -87,4 +117,69 @@ defmodule Aiur.Config.Paths do
 
   defp default_if_empty(""), do: "aiur"
   defp default_if_empty(value), do: value
+
+  defp resolve_decision_state_dir do
+    with {:ok, instance_key} <- decision_instance_key(),
+         {:ok, project_leaf} <- decision_project_leaf() do
+      root = decision_state_root()
+      candidate = Path.join([root, instance_key, project_leaf])
+      contain_within_root(root, candidate)
+    end
+  end
+
+  defp decision_instance_key do
+    case System.get_env("AIUR_INSTANCE_KEY") do
+      key when is_binary(key) and key != "" -> {:ok, sanitize(key)}
+      _ -> {:error, :missing_instance_key}
+    end
+  end
+
+  # Rejects unavailable identity outright rather than falling back to a
+  # shared default the way `repo_name/0` does — `AIUR_INSTANCE_KEY` already
+  # guarantees per-project uniqueness once validated non-empty, so a
+  # genuinely-resolved leaf that happens to read "aiur" (e.g. this very
+  # repo) is not itself a collision risk and must not be rejected.
+  defp decision_project_leaf do
+    with identity when is_binary(identity) and identity != "" <- safe_project_identity(),
+         leaf <- identity |> String.split("/") |> List.last() |> sanitize(),
+         false <- leaf in ["", ".", ".."] do
+      {:ok, leaf}
+    else
+      _ -> {:error, :missing_project_identity}
+    end
+  end
+
+  defp decision_state_root do
+    case System.get_env("AIUR_BG_STATE_DIR") do
+      root when is_binary(root) and root != "" -> root
+      _ -> Path.join(File.cwd!(), ".aiur-state")
+    end
+  end
+
+  defp contain_within_root(root, candidate) do
+    expanded_root = Path.expand(root)
+    expanded_candidate = Path.expand(candidate)
+    expanded_root_prefix = expanded_root <> "/"
+
+    with {:ok, canonical_root} <- PathSafety.canonicalize(expanded_root),
+         {:ok, canonical_candidate} <- PathSafety.canonicalize(expanded_candidate) do
+      canonical_root_prefix = canonical_root <> "/"
+
+      cond do
+        canonical_candidate == canonical_root ->
+          {:error, :decision_path_equals_root}
+
+        String.starts_with?(canonical_candidate <> "/", canonical_root_prefix) ->
+          {:ok, canonical_candidate}
+
+        String.starts_with?(expanded_candidate <> "/", expanded_root_prefix) ->
+          {:error, :decision_path_symlink_escape}
+
+        true ->
+          {:error, :decision_path_outside_root}
+      end
+    else
+      {:error, _reason} -> {:error, :decision_path_unreadable}
+    end
+  end
 end

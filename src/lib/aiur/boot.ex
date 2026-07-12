@@ -1,7 +1,10 @@
 defmodule Aiur.Boot do
   @moduledoc """
   Records the monotonic time at which Aiur's BEAM started, so every
-  subsystem can emit `elapsed_ms=<N>` in its phase logs.
+  subsystem can emit `elapsed_ms=<N>` in its phase logs. Also mints the
+  one opaque `run_id` for this BEAM-lifetime run — every subsystem that
+  needs a run identity (audit records, debug telemetry) reads it from
+  here instead of minting its own.
 
   Set once at application start via `mark/0`; readers call `elapsed_ms/0`
   to get a stable millisecond delta from boot. Pure persistent_term, no
@@ -10,6 +13,7 @@ defmodule Aiur.Boot do
 
   @key {__MODULE__, :start_ms}
   @epoch_key {__MODULE__, :start_epoch_seconds}
+  @run_id_key {__MODULE__, :run_id}
 
   @doc """
   Capture the current monotonic time as the boot reference. Idempotent —
@@ -26,6 +30,7 @@ defmodule Aiur.Boot do
         # pre-boot drop filter). Stored alongside the monotonic mark so
         # both readers stay cheap and consistent.
         :persistent_term.put(@epoch_key, System.os_time(:second))
+        ensure_run_id()
         :ok
 
       _ ->
@@ -33,11 +38,16 @@ defmodule Aiur.Boot do
     end
   end
 
-  @doc "Force re-mark — only for test resets."
+  @doc """
+  Force re-mark — only for test resets. Mints a new `run_id` together
+  with the clock reset so a test simulating a reboot within one VM sees
+  a new run identity too, not just new clocks.
+  """
   @spec remark() :: :ok
   def remark do
     :persistent_term.put(@key, System.monotonic_time(:millisecond))
     :persistent_term.put(@epoch_key, System.os_time(:second))
+    :persistent_term.put(@run_id_key, generate_run_id())
     :ok
   end
 
@@ -65,5 +75,43 @@ defmodule Aiur.Boot do
       :unset -> 0
       start when is_integer(start) -> System.monotonic_time(:millisecond) - start
     end
+  end
+
+  @doc """
+  Opaque identity for this BEAM-lifetime run. Stable once minted; lazily
+  mints and caches on first read if `mark/0` hasn't run yet, so callers
+  that bypass full application boot (unit tests) still get one stable
+  value per process lifetime.
+  """
+  @spec run_id() :: String.t()
+  def run_id do
+    case :persistent_term.get(@run_id_key, :unset) do
+      :unset -> ensure_run_id()
+      id when is_binary(id) -> id
+    end
+  end
+
+  @doc """
+  Wall-clock start time of this run, derived from `epoch_seconds/0`.
+  """
+  @spec started_at() :: DateTime.t()
+  def started_at do
+    DateTime.from_unix!(epoch_seconds(), :second)
+  end
+
+  defp ensure_run_id do
+    case :persistent_term.get(@run_id_key, :unset) do
+      :unset ->
+        id = generate_run_id()
+        :persistent_term.put(@run_id_key, id)
+        id
+
+      id when is_binary(id) ->
+        id
+    end
+  end
+
+  defp generate_run_id do
+    12 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false)
   end
 end

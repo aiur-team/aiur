@@ -84,16 +84,24 @@ during document, code, and human review.*
   replace an owner-only `decisions.json` current-state projection through
   `Aiur.JsonStore`.
 - R5. Resolve both files beneath a stable owner-only state directory rooted at
-  `AIUR_BG_STATE_DIR`, isolated by a non-empty, sanitized `AIUR_INSTANCE_KEY`
-  and a project-root-unique leaf hashed from the canonicalized project root
-  (not the tracker project identity's last path segment alone, which collapses
-  when `AIUR_INSTANCE_KEY` is empty and two repos share a directory name).
-  Refuse to resolve or start when the instance key is empty or the project
-  identity is unavailable/defaults. After building the Decision path, assert by
-  canonicalization that it still resolves beneath the configured state root
-  (the `Aiur.PathSafety` / `Workspace.Layout` root-containment precedent) so a
-  dot-only (`.`/`..`) component cannot escape the leaf — this containment check
-  belongs to the new Decision-path helper alone. It must not change the shared
+  `AIUR_BG_STATE_DIR`, isolated by the sanitized `AIUR_INSTANCE_KEY` (already a
+  truncated sha256 of the launcher-resolved project root — see
+  `aiur-engine.sh`'s `aiur_instance_key`/`instance_identity_test.exs`) plus the
+  sanitized tracker project identity as a secondary, human-readable component.
+  Refuse to resolve or start when `AIUR_INSTANCE_KEY` is explicitly empty (the
+  `#443` shared-identity override that `aiur-engine.sh` still honors) or the
+  project identity is unavailable, instead of silently substituting a shared
+  default the way `Config.Paths.repo_name/0` falls back to the literal `"aiur"`
+  when identity resolution fails. Once `AIUR_INSTANCE_KEY` is validated
+  non-empty it already guarantees per-project uniqueness, so a
+  successfully-resolved identity whose last segment happens to read `"aiur"`
+  (this very repository, for instance) is not itself a collision and must not
+  be rejected — only an unavailable/failed identity resolution is refused.
+  After building the Decision path, assert by canonicalization that it still
+  resolves beneath the configured state root (the `Aiur.PathSafety` /
+  `Workspace.Layout` root-containment precedent) so a dot-only (`.`/`..`)
+  component cannot escape the leaf — this containment check belongs to the new
+  Decision-path helper alone. It must not change the shared
   `Aiur.Config.Paths.sanitize/1`, whose byte-for-byte output (including
   `sanitize("..") == ".."`) is pinned by `config_paths_test.exs` as an on-disk
   join key for four other consumers (workspace dirs, opencode model ids,
@@ -214,7 +222,7 @@ during document, code, and human review.*
 | Request publication is a retryable notification effect, not persistence or answer dispatch | The durable record and projection precede both Exchange and Phoenix PubSub. A strictly reserved event identity permits Exchange crash-window retry without creating a new logical request; OCC-3 still owns the answer-dispatch outbox. |
 | Corruption is a store mode, not a skipped line | Interior corruption makes writes read-only and operator-visible; only a non-newline-terminated tail may be truncated as unacknowledged. |
 | Corruption detection re-validates full schema/invariants on replay, not parse-validity alone | A crash can only tear the tail, so an interior record that merely decodes as JSON but fails semantic validation implies bit-rot or tamper within the local single-writer trust boundary; parse-validity alone would replay it as a legitimate-but-wrong Decision. |
-| Decision state-path leaf is hashed from the canonicalized project root, not the last path segment | `Config.Paths.repo_name/0`'s last-segment-of-identity, combined with a permitted empty `AIUR_INSTANCE_KEY`, can collapse two different repos onto the same `decisions.ndjson`; a project-root-unique leaf plus refusing empty/default identity keeps instances isolated. |
+| Decision state-path isolation keys off `AIUR_INSTANCE_KEY` (already a project-root hash) rather than `repo_name/0`'s fallback | A permitted empty `AIUR_INSTANCE_KEY` plus `repo_name/0`'s silent `"aiur"` default on failed identity resolution can collapse two different repos onto the same `decisions.ndjson`; refusing both empty-key and failed-identity cases (without penalizing a genuinely-resolved leaf that happens to read `"aiur"`) keeps instances isolated. |
 | Decision state and delivery state remain separate | A request is open even after publication; later queue transitions cannot silently resolve or acknowledge it. |
 
 ---
@@ -358,11 +366,14 @@ logs and ticket workspaces.
   state.
 - Add one canonical Decision state-path helper with a test/application
   override, launcher environment fallback, and explicit directory/file
-  permission enforcement by the storage owner. Derive its leaf from a hash of
-  the canonicalized (realpath) project root rather than the last segment of
-  the tracker project identity, and refuse to resolve the path (fail closed,
-  do not fall back to a shared default) when `AIUR_INSTANCE_KEY` is empty or
-  the project identity is unavailable/defaults to `"aiur"`.
+  permission enforcement by the storage owner. Join `AIUR_INSTANCE_KEY`
+  (already a project-root hash minted by the launcher, not a value this
+  helper recomputes) with the sanitized tracker project identity, and refuse
+  to resolve the path (fail closed, do not fall back to a shared default)
+  when `AIUR_INSTANCE_KEY` is empty or the project identity fails to
+  resolve. Do not reject a successfully-resolved identity merely because its
+  last segment happens to read `"aiur"` — once the instance key is
+  validated non-empty it already guarantees per-project uniqueness.
 - Do **not** change `Aiur.Config.Paths.sanitize/1` itself — its byte-for-byte
   output (including `sanitize("..") == ".."`) is pinned by
   `config_paths_test.exs` as a cross-subsystem on-disk join key (workspace
@@ -391,13 +402,14 @@ logs and ticket workspaces.
   while telemetry sequence behavior remains monotonic.
 - Happy path: two instance keys or project identities resolve to distinct
   sanitized Decision directories beneath the configured state root.
-- Happy path: two project roots that share only their final path segment
-  resolve to distinct Decision directories because the leaf is hashed from
-  the full canonicalized root, not the last segment.
+- Happy path: a project identity whose last segment is literally `"aiur"`
+  (this repository, for instance) still resolves normally once the instance
+  key is present — only unavailable identity resolution is refused, not a
+  successfully-resolved value.
 - Error path: unsafe instance/project characters cannot escape the state root.
-- Error path: an empty `AIUR_INSTANCE_KEY`, or an unavailable/default (`"aiur"`)
-  tracker project identity, refuses to resolve the Decision state path instead
-  of silently sharing it with another instance.
+- Error path: an empty `AIUR_INSTANCE_KEY`, or an unavailable tracker project
+  identity, refuses to resolve the Decision state path instead of silently
+  sharing it with another instance.
 - Error path: an identity or instance-key component of `.` or `..` (e.g.
   `foo/..`) is rejected by the new helper's post-join root-containment check
   (canonicalize and assert containment) without changing `sanitize/1`'s
