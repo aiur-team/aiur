@@ -37,6 +37,9 @@ defmodule Aiur.DecisionRevision do
           content_hash: String.t()
         }
 
+  @type answer_encoder :: (normalized_answer() -> map())
+  @type answer_decoder :: (map() -> {:ok, normalized_answer()} | {:error, term()})
+
   @enforce_keys [
     :decision_id,
     :decision_version,
@@ -69,6 +72,46 @@ defmodule Aiur.DecisionRevision do
     end
   end
 
+  @doc "JSON-safe durable representation using OCC-3's answer codec."
+  @spec to_json_safe(t(), answer_encoder()) :: map()
+  def to_json_safe(%__MODULE__{} = revision, answer_encoder) when is_function(answer_encoder, 1) do
+    %{
+      "decision_id" => revision.decision_id,
+      "decision_version" => revision.decision_version,
+      "sequence" => revision.sequence,
+      "action_id" => revision.action_id,
+      "prior_action_id" => revision.prior_action_id,
+      "answer" => answer_encoder.(revision.answer),
+      "reason" => revision.reason,
+      "recorded_at" => DateTime.to_iso8601(revision.recorded_at),
+      "content_hash" => revision.content_hash
+    }
+  end
+
+  @doc "Decode and fully validate one persisted revision shape."
+  @spec from_json_safe(map(), answer_decoder()) :: {:ok, t()} | {:error, term()}
+  def from_json_safe(raw, answer_decoder) when is_map(raw) and is_function(answer_decoder, 1) do
+    with {:ok, decision_id} <- persisted_string(raw, "decision_id", :decision_id),
+         {:ok, decision_version} <- persisted_positive_integer(raw, "decision_version", :decision_version),
+         {:ok, sequence} <- persisted_positive_integer(raw, "sequence", :sequence),
+         {:ok, action_id} <- persisted_string(raw, "action_id", :action_id),
+         {:ok, prior_action_id} <- persisted_string(raw, "prior_action_id", :prior_action_id),
+         {:ok, answer_raw} <- persisted_map(raw, "answer", :answer),
+         {:ok, answer} <- decode_answer(answer_raw, answer_decoder),
+         {:ok, reason} <- persisted_string(raw, "reason", :reason),
+         {:ok, recorded_at} <- persisted_timestamp(raw, "recorded_at", :recorded_at),
+         {:ok, persisted_hash} <- persisted_string(raw, "content_hash", :content_hash),
+         {:ok, revision} <-
+           rebuild(decision_id, decision_version, sequence, prior_action_id, answer, recorded_at),
+         :ok <- compare_persisted(revision.action_id, action_id, :revision_action_id_mismatch),
+         :ok <- compare_persisted(revision.reason, reason, :revision_reason_mismatch),
+         :ok <- compare_persisted(revision.content_hash, persisted_hash, :revision_content_hash_mismatch) do
+      {:ok, revision}
+    end
+  end
+
+  def from_json_safe(_raw, _answer_decoder), do: {:error, :revision_not_a_map}
+
   @doc "Stable DecisionAttention slug for an un-applicable revision action."
   @spec follow_up_slug(t() | String.t()) :: String.t()
   def follow_up_slug(%__MODULE__{action_id: action_id}), do: follow_up_slug(action_id)
@@ -81,6 +124,16 @@ defmodule Aiur.DecisionRevision do
       |> String.slice(0, 20)
 
     @follow_up_slug_prefix <> digest
+  end
+
+  @doc "Blocking question shown when a target cannot accept the revision."
+  @spec follow_up_question(t(), String.t()) :: String.t()
+  def follow_up_question(%__MODULE__{} = revision, ticket_identifier)
+      when is_binary(ticket_identifier) and ticket_identifier != "" do
+    "Revision #{revision.action_id} was recorded, but target ticket " <>
+      "#{ticket_identifier} is no longer active, so Aiur could not deliver " <>
+      "the new direction automatically. Earlier instructions may already " <>
+      "have taken effect. What should happen next?"
   end
 
   defp normalize_context(opts) do
@@ -161,6 +214,31 @@ defmodule Aiur.DecisionRevision do
       recorded_at: answer.accepted_at,
       content_hash: DecisionValidation.content_hash(content)
     }
+  end
+
+  defp rebuild(decision_id, decision_version, sequence, prior_action_id, answer, recorded_at) do
+    context = %{
+      decision_id: decision_id,
+      decision_version: decision_version,
+      current_action_id: prior_action_id,
+      current_revision_sequence: sequence - 1,
+      actor: Map.get(answer, :actor),
+      now: recorded_at
+    }
+
+    with {:ok, answer} <- validate_answer(answer, context),
+         :ok <- changed_action(answer.action_id, prior_action_id),
+         {:ok, reason} <- required_reason(answer) do
+      {:ok, build(context, answer, reason)}
+    end
+  end
+
+  defp decode_answer(raw, decoder) do
+    case decoder.(raw) do
+      {:ok, answer} -> {:ok, answer}
+      {:error, reason} -> {:error, reason}
+      _other -> {:error, :answer_decoder_invalid_result}
+    end
   end
 
   defp required_string(payload, key) do
@@ -246,6 +324,43 @@ defmodule Aiur.DecisionRevision do
       _other -> {:error, {:context, {:answer_normalizer, :invalid}}}
     end
   end
+
+  defp persisted_string(raw, key, field) do
+    case Map.get(raw, key) do
+      value when is_binary(value) and value != "" -> {:ok, value}
+      _other -> {:error, {field, :missing_or_invalid}}
+    end
+  end
+
+  defp persisted_positive_integer(raw, key, field) do
+    case Map.get(raw, key) do
+      value when is_integer(value) and value > 0 -> {:ok, value}
+      _other -> {:error, {field, :missing_or_invalid}}
+    end
+  end
+
+  defp persisted_map(raw, key, field) do
+    case Map.get(raw, key) do
+      value when is_map(value) -> {:ok, value}
+      _other -> {:error, {field, :missing_or_invalid}}
+    end
+  end
+
+  defp persisted_timestamp(raw, key, field) do
+    case Map.get(raw, key) do
+      value when is_binary(value) ->
+        case DateTime.from_iso8601(value) do
+          {:ok, datetime, _offset} -> {:ok, datetime}
+          {:error, _reason} -> {:error, {field, :invalid_timestamp}}
+        end
+
+      _other ->
+        {:error, {field, :missing_or_invalid}}
+    end
+  end
+
+  defp compare_persisted(value, value, _reason), do: :ok
+  defp compare_persisted(_actual, _persisted, reason), do: {:error, reason}
 
   defp unsafe_control_chars?(text) do
     text

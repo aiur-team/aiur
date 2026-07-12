@@ -118,6 +118,64 @@ defmodule Aiur.DecisionRevisionTest do
     end
   end
 
+  describe "follow_up_question/2" do
+    test "states non-applicability without claiming prior effects changed" do
+      assert {:ok, revision} = normalize(valid_payload())
+
+      question = DecisionRevision.follow_up_question(revision, "985")
+
+      assert question =~ revision.action_id
+      assert question =~ "target ticket 985 is no longer active"
+      assert question =~ "could not deliver the new direction automatically"
+      assert question =~ "Earlier instructions may already have taken effect"
+      refute question =~ ~r/rolled back|reverted|undone/i
+      assert String.length(question) <= 2_000
+    end
+  end
+
+  describe "durable representation" do
+    test "round-trips a fully validated revision through the answer codec" do
+      assert {:ok, revision} = normalize(valid_payload())
+
+      raw = DecisionRevision.to_json_safe(revision, &encode_answer/1)
+
+      assert {:ok, replayed} = DecisionRevision.from_json_safe(raw, &decode_answer/1)
+      assert replayed == revision
+    end
+
+    test "rejects tampered revision content even when the shape still decodes" do
+      assert {:ok, revision} = normalize(valid_payload())
+
+      raw =
+        revision
+        |> DecisionRevision.to_json_safe(&encode_answer/1)
+        |> Map.put("sequence", 2)
+
+      assert DecisionRevision.from_json_safe(raw, &decode_answer/1) ==
+               {:error, :revision_content_hash_mismatch}
+    end
+
+    test "rejects a persisted reason that differs from the normalized answer" do
+      assert {:ok, revision} = normalize(valid_payload())
+
+      raw =
+        revision
+        |> DecisionRevision.to_json_safe(&encode_answer/1)
+        |> Map.put("reason", "Forged reason")
+
+      assert DecisionRevision.from_json_safe(raw, &decode_answer/1) ==
+               {:error, :revision_reason_mismatch}
+    end
+
+    test "propagates answer decoder failures" do
+      assert {:ok, revision} = normalize(valid_payload())
+      raw = DecisionRevision.to_json_safe(revision, &encode_answer/1)
+
+      assert DecisionRevision.from_json_safe(raw, fn _raw -> {:error, :bad_answer} end) ==
+               {:error, :bad_answer}
+    end
+  end
+
   defp normalize(payload, overrides \\ []) do
     defaults = [
       decision_id: @decision_id,
@@ -157,5 +215,34 @@ defmodule Aiur.DecisionRevisionTest do
     }
 
     Map.put(content, :content_hash, DecisionValidation.content_hash(Map.delete(content, :accepted_at)))
+  end
+
+  defp encode_answer(answer) do
+    %{
+      "action_id" => answer.action_id,
+      "decision_id" => answer.decision_id,
+      "decision_version" => answer.decision_version,
+      "idempotency_key" => answer.idempotency_key,
+      "actor" => %{"kind" => Atom.to_string(answer.actor.kind), "id" => answer.actor.id},
+      "accepted_at" => DateTime.to_iso8601(answer.accepted_at),
+      "rationale" => answer.rationale,
+      "content_hash" => answer.content_hash
+    }
+  end
+
+  defp decode_answer(raw) do
+    with {:ok, accepted_at, _offset} <- DateTime.from_iso8601(raw["accepted_at"]) do
+      {:ok,
+       %{
+         action_id: raw["action_id"],
+         decision_id: raw["decision_id"],
+         decision_version: raw["decision_version"],
+         idempotency_key: raw["idempotency_key"],
+         actor: %{kind: String.to_existing_atom(raw["actor"]["kind"]), id: raw["actor"]["id"]},
+         accepted_at: accepted_at,
+         rationale: raw["rationale"],
+         content_hash: raw["content_hash"]
+       }}
+    end
   end
 end
