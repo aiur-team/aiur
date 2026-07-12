@@ -35,7 +35,12 @@ defmodule Aiur.DecisionProjection do
          {:ok, created_at} <- fetch_timestamp(raw, "created_at", :created_at) do
       replay_payload = Map.put(raw, "created_at", Map.get(raw, "source_created_at"))
 
-      case DecisionValidation.normalize(replay_payload, ticket: ticket, source: source, now: created_at) do
+      case DecisionValidation.normalize(replay_payload,
+             ticket: ticket,
+             source: source,
+             now: created_at,
+             legacy_attention: Map.get(raw, "legacy_attention")
+           ) do
         {:ok, decision} -> verify_content_hash(decision, persisted_decision_id, version, persisted_content_hash)
         {:error, reason} -> {:error, reason}
       end
@@ -62,12 +67,20 @@ defmodule Aiur.DecisionProjection do
           history: %{String.t() => [Decision.t()]}
         }
   def reduce(decisions) when is_list(decisions) do
-    Enum.reduce(decisions, %{current: %{}, history: %{}}, fn decision, acc ->
-      %{
-        current: maybe_replace_current(acc.current, decision),
-        history: Map.update(acc.history, decision.decision_id, [decision], &(&1 ++ [decision]))
-      }
-    end)
+    projection =
+      Enum.reduce(decisions, %{current: %{}, history: %{}}, fn decision, acc ->
+        %{
+          current: maybe_replace_current(acc.current, decision),
+          history: Map.update(acc.history, decision.decision_id, [decision], &[decision | &1])
+        }
+      end)
+
+    history =
+      Map.new(projection.history, fn {decision_id, records} ->
+        {decision_id, Enum.reverse(records)}
+      end)
+
+    %{projection | history: history}
   end
 
   defp maybe_replace_current(current, decision) do
@@ -108,6 +121,30 @@ defmodule Aiur.DecisionProjection do
       "source_created_at" => decision.source_created_at && DateTime.to_iso8601(decision.source_created_at),
       "content_hash" => decision.content_hash
     }
+    |> maybe_put_legacy_attention(decision.legacy_attention)
+  end
+
+  @doc "Normalized request-shaped content for adapter-owned enrichment merges."
+  @spec to_request_payload(Decision.t()) :: map()
+  def to_request_payload(%Decision{} = decision) do
+    persisted = to_json_safe(decision)
+
+    persisted
+    |> Map.take([
+      "source_id",
+      "kind",
+      "authority",
+      "urgency",
+      "blocking",
+      "reversibility",
+      "question",
+      "context",
+      "options",
+      "recommendation",
+      "consequence_of_delay",
+      "artifacts"
+    ])
+    |> maybe_put_source_created_at(decision.source_created_at)
   end
 
   @doc "JSON-safe shape for the `decisions.json` current-state projection."
@@ -120,6 +157,18 @@ defmodule Aiur.DecisionProjection do
   end
 
   defp stringify_artifact(%{kind: kind, value: value}), do: %{"kind" => Atom.to_string(kind), "value" => value}
+
+  defp maybe_put_legacy_attention(map, nil), do: map
+
+  defp maybe_put_legacy_attention(map, legacy_attention) do
+    Map.put(map, "legacy_attention", stringify_keys(legacy_attention))
+  end
+
+  defp maybe_put_source_created_at(payload, nil), do: payload
+
+  defp maybe_put_source_created_at(payload, source_created_at) do
+    Map.put(payload, "created_at", DateTime.to_iso8601(source_created_at))
+  end
 
   defp stringify_keys(nil), do: nil
   defp stringify_keys(map) when is_map(map), do: Map.new(map, fn {k, v} -> {to_string(k), v} end)
