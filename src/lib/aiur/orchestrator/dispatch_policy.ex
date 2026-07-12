@@ -174,7 +174,12 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     end
   end
 
-  defp adjust_load_envelope_without_headroom(effective, last_decrease_ms, load, %{target: target, schedulers: schedulers} = options)
+  defp adjust_load_envelope_without_headroom(
+         effective,
+         last_decrease_ms,
+         load,
+         %{target: target, schedulers: schedulers} = options
+       )
        when load <= target * schedulers do
     {min(effective + options.ramp_step, options.static_limit), last_decrease_ms}
   end
