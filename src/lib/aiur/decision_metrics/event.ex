@@ -27,6 +27,7 @@ defmodule Aiur.DecisionMetrics.Event do
     "revision_recorded" => :revised,
     "attention" => :attention
   }
+  @implicit_stages %{"attention" => :attention, "requested" => :requested}
 
   @type fact :: %{
           stage: Aiur.DecisionMetrics.Sample.stage(),
@@ -64,8 +65,8 @@ defmodule Aiur.DecisionMetrics.Event do
   end
 
   defp stage_for(event, topic) do
-    explicit = event["event_type"] || event["type"]
-    stage_alias(explicit) || stage_alias(topic_label(topic))
+    explicit = event["event_type"] || event["event"] || event["type"]
+    stage_alias(explicit) || Map.get(@implicit_stages, topic_label(topic))
   end
 
   defp stage_alias(label), do: Map.get(@stage_aliases, normalize_label(label))

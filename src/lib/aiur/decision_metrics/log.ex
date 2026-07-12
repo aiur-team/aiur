@@ -21,7 +21,7 @@ defmodule Aiur.DecisionMetrics.Log do
     File.write!(path, Jason.encode!(payload) <> "\n", [:append])
   rescue
     error ->
-      Logger.error("decision_metrics write_failed decision_id=#{fact.decision_id} stage=#{fact.stage} error=#{inspect(error)}")
+      Logger.error("decision_metrics write_failed issue_identifier=#{sample.identifier} decision_id=#{fact.decision_id} stage=#{fact.stage} error=#{inspect(error)}")
 
       :ok
   end

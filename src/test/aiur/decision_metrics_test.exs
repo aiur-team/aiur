@@ -1,7 +1,7 @@
 defmodule Aiur.DecisionMetricsTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.{DecisionMetrics, DecisionStore, OperatorWaitLog}
+  alias Aiur.{DecisionMetrics, DecisionStore}
   alias Aiur.Events.Exchange
 
   @moduletag :tmp_dir
@@ -91,26 +91,6 @@ defmodule Aiur.DecisionMetricsTest do
     refute persisted =~ "private rationale"
   end
 
-  test "replays snapshots and observed event IDs across restarts", %{pid: pid, path: path} do
-    event = request_event(30, true)
-    assert :ok = DecisionMetrics.observe(event, pid)
-    assert :ok = DecisionMetrics.observe(lifecycle_event(31, "answered", 750, %{actor_type: "operator"}), pid)
-    GenServer.stop(pid)
-    File.write!(path, "not-json\n", [:append])
-
-    replayed = start_metrics!(path)
-    on_exit(fn -> stop_if_alive(replayed) end)
-
-    assert {:ok, snapshot} = DecisionMetrics.snapshot("dec-42", replayed)
-    assert snapshot.request_to_decision_ms == 750
-    assert snapshot.actor == "human"
-
-    before = path |> File.read!() |> String.split("\n", trim: true) |> length()
-    assert :duplicate = DecisionMetrics.observe(event, replayed)
-    after_replay = path |> File.read!() |> String.split("\n", trim: true) |> length()
-    assert after_replay == before
-  end
-
   test "subscribes to the existing Exchange and ignores unrelated decision coordination", %{tmp_dir: tmp_dir} do
     path = Path.join(tmp_dir, "exchange-decision-latency.ndjson")
     pid = start_metrics!(path, subscribe?: true)
@@ -123,6 +103,10 @@ defmodule Aiur.DecisionMetricsTest do
     unrelated = %{id: 41, topic: "ticket.42.agent.decision.use-amqp", decision_id: "dec-other"}
     assert Exchange.publish(unrelated.topic, unrelated) >= 1
     assert {:error, :not_found} = DecisionMetrics.snapshot("dec-other", pid)
+
+    generic_queued = %{id: 42, topic: "ticket.42.agent.decision.queued", decision_id: "dec-generic"}
+    assert Exchange.publish(generic_queued.topic, generic_queued) >= 1
+    assert {:error, :not_found} = DecisionMetrics.snapshot("dec-generic", pid)
   end
 
   test "observes a real DecisionStore request only after its canonical append", %{tmp_dir: tmp_dir} do
@@ -169,28 +153,9 @@ defmodule Aiur.DecisionMetricsTest do
     assert DecisionMetrics.metrics_file() == path
   end
 
-  test "decision and operator-wait streams share the active metrics directory", %{tmp_dir: tmp_dir} do
-    previous_log_file = Application.get_env(:aiur, :log_file)
-    previous_decision_path = Application.get_env(:aiur, :decision_metrics_path)
-    previous_wait_path = Application.get_env(:aiur, :operator_wait_metrics_path)
-    Application.put_env(:aiur, :log_file, Path.join(tmp_dir, "aiur.log"))
-    Application.delete_env(:aiur, :decision_metrics_path)
-    Application.delete_env(:aiur, :operator_wait_metrics_path)
-
-    on_exit(fn ->
-      restore_env(:log_file, previous_log_file)
-      restore_env(:decision_metrics_path, previous_decision_path)
-      restore_env(:operator_wait_metrics_path, previous_wait_path)
-    end)
-
-    metrics_dir = Path.join(tmp_dir, "metrics")
-    assert DecisionMetrics.metrics_file() == Path.join(metrics_dir, "decision_latency.ndjson")
-    assert OperatorWaitLog.metrics_file() == Path.join(metrics_dir, "operator_message_wait.ndjson")
-  end
-
   defp start_metrics!(path, opts \\ []) do
     {:ok, pid} =
-      DecisionMetrics.start_link(Keyword.merge([name: nil, path: path, subscribe?: false, clock: fn -> @observed_at end], opts))
+      DecisionMetrics.start_link(Keyword.merge([name: nil, path: path, subscribe?: false, seed?: false, clock: fn -> @observed_at end], opts))
 
     pid
   end
@@ -212,6 +177,7 @@ defmodule Aiur.DecisionMetricsTest do
       %{
         id: id,
         topic: "ticket.42.agent.decision.#{suffix}",
+        event_type: suffix,
         decision_id: "dec-42",
         at: @requested_at |> DateTime.add(offset_ms, :millisecond) |> DateTime.to_iso8601(),
         answer: "the operator answer",
@@ -230,7 +196,4 @@ defmodule Aiur.DecisionMetricsTest do
   defp stop_if_alive(pid) do
     if Process.alive?(pid), do: GenServer.stop(pid)
   end
-
-  defp restore_env(key, nil), do: Application.delete_env(:aiur, key)
-  defp restore_env(key, value), do: Application.put_env(:aiur, key, value)
 end

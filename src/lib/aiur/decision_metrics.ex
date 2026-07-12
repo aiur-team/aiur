@@ -4,7 +4,11 @@ defmodule Aiur.DecisionMetrics do
 
   This worker observes existing `Aiur.Events.Exchange` notifications only
   after `DecisionStore` has persisted them. It appends redacted snapshots to
-  `metrics/decision_latency.ndjson`; the Decision audit stays canonical.
+  the stable Decision-state `metrics/decision_latency.ndjson`; the Decision
+  audit stays canonical.
+
+  Startup replays that projection and seeds any missing request facts from
+  `DecisionStore`, covering the canonical service's best-effort notification gap.
 
   Missing milestones remain `nil` rather than being inferred. The snapshots
   retain request→decision, decision→dispatch, dispatch→delivery,
@@ -16,9 +20,11 @@ defmodule Aiur.DecisionMetrics do
 
   use GenServer
 
+  require Logger
+
+  alias Aiur.{DecisionStore, Metrics}
   alias Aiur.DecisionMetrics.{Event, Log, Sample}
   alias Aiur.Events.Exchange
-  alias Aiur.Metrics
 
   @patterns ["ticket.*.agent.decision.#", "ticket.*.agent.attention.#"]
   @metrics_filename "decision_latency.ndjson"
@@ -45,15 +51,18 @@ defmodule Aiur.DecisionMetrics do
 
   @doc "Absolute path of the append-only decision latency metrics stream."
   @spec metrics_file() :: Path.t()
-  def metrics_file, do: Metrics.file(:decision_metrics_path, @metrics_filename)
+  def metrics_file, do: Metrics.file(:decision_metrics_path, @metrics_filename, :decision_state)
 
   @impl true
   def init(opts) do
     path = Keyword.get(opts, :path, metrics_file())
-    {samples, seen} = Log.replay(path)
     if Keyword.get(opts, :subscribe?, true), do: Enum.each(@patterns, &Exchange.subscribe/1)
+    replay = Keyword.get(opts, :replay, &Log.replay/1)
+    {samples, seen} = replay.(path)
 
-    {:ok, %{path: path, samples: samples, seen: seen, clock: Keyword.get(opts, :clock, &DateTime.utc_now/0)}}
+    state = %{path: path, samples: samples, seen: seen, clock: Keyword.get(opts, :clock, &DateTime.utc_now/0)}
+    state = seed_requests(state, Keyword.get(opts, :seed?, true), Keyword.get(opts, :decision_store, DecisionStore))
+    {:ok, state}
   end
 
   @impl true
@@ -79,6 +88,61 @@ defmodule Aiur.DecisionMetrics do
   end
 
   def handle_info(_message, state), do: {:noreply, state}
+
+  defp seed_requests(state, false, _server), do: state
+
+  defp seed_requests(state, true, server) do
+    server
+    |> canonical_requests()
+    |> Enum.reduce(state, fn request, acc ->
+      {_reply, next_state} = record_event(seed_event(request), acc)
+      next_state
+    end)
+  end
+
+  defp canonical_requests(server) do
+    server
+    |> DecisionStore.list()
+    |> Enum.map(fn current ->
+      %{
+        decision_id: current.decision_id,
+        identifier: current.ticket.identifier,
+        blocking: current.blocking,
+        requested_at: earliest_request_time(current, server)
+      }
+    end)
+  rescue
+    error ->
+      Logger.warning("decision_metrics seed_failed error=#{Exception.message(error)}")
+      []
+  catch
+    :exit, reason ->
+      Logger.warning("decision_metrics seed_failed reason=#{inspect(reason)}")
+      []
+  end
+
+  defp earliest_request_time(current, server) do
+    case DecisionStore.history(current.decision_id, server) do
+      {:ok, versions} -> Enum.reduce(versions, current.created_at, &earliest_created_at/2)
+      {:error, :not_found} -> current.created_at
+    end
+  end
+
+  defp earliest_created_at(%{created_at: %DateTime{} = candidate}, %DateTime{} = earliest) do
+    if DateTime.before?(candidate, earliest), do: candidate, else: earliest
+  end
+
+  defp seed_event(request) do
+    %{
+      id: "canonical-request:#{request.decision_id}",
+      event_type: "requested",
+      topic: "ticket.#{request.identifier}.agent.decision.requested",
+      decision_id: request.decision_id,
+      identifier: request.identifier,
+      blocking: request.blocking,
+      created_at: request.requested_at
+    }
+  end
 
   defp record_event(event, state) do
     observed_at = state.clock.()
