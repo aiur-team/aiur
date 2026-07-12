@@ -109,6 +109,10 @@ defmodule Aiur.DecisionProjection do
     apply_request(projection, decision, event)
   end
 
+  defp apply_record(projection, %DecisionEvent{type: :enriched} = event) do
+    apply_enrichment(projection, event)
+  end
+
   defp apply_record(projection, %DecisionEvent{} = event), do: apply_lifecycle(projection, event)
   defp apply_record(_projection, _record), do: {:error, :unknown_record}
 
@@ -152,6 +156,47 @@ defmodule Aiur.DecisionProjection do
         acknowledgements: existing.acknowledgements,
         resolutions: existing.resolutions
     }
+  end
+
+  defp apply_enrichment(projection, %DecisionEvent{data: data} = event) do
+    with {:ok, current} <- fetch_current(projection, event.decision_id),
+         :ok <- require_enrichment_version(current, event),
+         :ok <- require_enrichment_base(current, data.decision) do
+      apply_request(projection, data.decision, event)
+    end
+  end
+
+  defp require_enrichment_version(current, event) do
+    if event.data.expected_version == current.version and event.decision_version == current.version + 1 do
+      :ok
+    else
+      {:error, :enrichment_version_mismatch}
+    end
+  end
+
+  defp require_enrichment_base(current, candidate) do
+    immutable_fields = [
+      :schema_version,
+      :decision_id,
+      :source_id,
+      :ticket,
+      :source,
+      :kind,
+      :authority,
+      :urgency,
+      :blocking,
+      :reversibility,
+      :question,
+      :created_at,
+      :source_created_at,
+      :legacy_attention
+    ]
+
+    if Map.take(current, immutable_fields) == Map.take(candidate, immutable_fields) do
+      :ok
+    else
+      {:error, :enrichment_forbidden_change}
+    end
   end
 
   defp apply_lifecycle(projection, %DecisionEvent{} = event) do

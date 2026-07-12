@@ -450,6 +450,7 @@ defmodule Aiur.TestSupport do
           observability_refresh_ms,
           observability_render_interval_ms
         ),
+        decisions_yaml(overrides),
         server_yaml(server_port, server_host),
         opencode_yaml(
           opencode_command,
@@ -669,6 +670,31 @@ defmodule Aiur.TestSupport do
     ]
     |> Enum.reject(&(&1 == false))
     |> Enum.join("\n")
+  end
+
+  defp decisions_yaml(overrides) do
+    lines =
+      [
+        decisions_line(
+          "supervisor_allowed_kinds",
+          overrides,
+          :supervisor_decision_allowed_kinds
+        ),
+        decisions_line(
+          "supervisor_allow_non_reversible",
+          overrides,
+          :supervisor_decision_allow_non_reversible
+        )
+      ]
+      |> Enum.reject(&is_nil/1)
+
+    if lines == [], do: nil, else: Enum.join(["decisions:" | lines], "\n")
+  end
+
+  defp decisions_line(key, overrides, override_key) do
+    if Keyword.has_key?(overrides, override_key) do
+      "  #{key}: #{yaml_value(Keyword.get(overrides, override_key))}"
+    end
   end
 
   defp server_yaml(nil, nil), do: nil

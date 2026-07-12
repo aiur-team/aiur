@@ -1,6 +1,6 @@
 defmodule Aiur.DecisionAnswer do
   @moduledoc """
-  Immutable, validated operator answer to one version of a Decision.
+  Immutable, validated operator or supervisor answer to one Decision version.
 
   The caller supplies an idempotency key, but the canonical `action_id`
   is derived under the Decision's scope. This prevents the same token on
@@ -9,7 +9,7 @@ defmodule Aiur.DecisionAnswer do
   part of `content_hash`, so an identical retry compares equal.
   """
 
-  alias Aiur.{DecisionValidation, SecretRedactor}
+  alias Aiur.{DecisionDelegation, DecisionValidation, SecretRedactor}
 
   @identity_max 200
   @response_max 4_000
@@ -26,6 +26,7 @@ defmodule Aiur.DecisionAnswer do
           selected_option_id: String.t() | nil,
           custom_response: String.t() | nil,
           rationale: String.t() | nil,
+          supervisor_basis: DecisionDelegation.basis() | nil,
           actor: actor(),
           accepted_at: DateTime.t(),
           content_hash: String.t()
@@ -40,7 +41,8 @@ defmodule Aiur.DecisionAnswer do
     :accepted_at,
     :content_hash
   ]
-  defstruct @enforce_keys ++ [selected_option_id: nil, custom_response: nil, rationale: nil]
+  defstruct @enforce_keys ++
+              [selected_option_id: nil, custom_response: nil, rationale: nil, supervisor_basis: nil]
 
   @doc "Normalize an untrusted answer payload using trusted Decision and actor context."
   @spec normalize(map(), keyword()) :: {:ok, t()} | {:error, {:answer_invalid, term()}}
@@ -59,19 +61,22 @@ defmodule Aiur.DecisionAnswer do
          :ok <- validate_option(selected_option_id, options, Keyword.get(opts, :allow_unchecked_option, false)),
          {:ok, rationale} <- optional_string(payload, :rationale, @rationale_max),
          {:ok, actor} <- normalize_actor(Keyword.fetch!(opts, :actor)),
+         {:ok, supervisor_basis} <- normalize_supervisor_basis(actor, opts),
          :ok <- validate_datetime(now, :accepted_at) do
       action_id = action_id(decision_id, idempotency_key)
 
-      content = %{
-        action_id: action_id,
-        decision_id: decision_id,
-        decision_version: decision_version,
-        idempotency_key: idempotency_key,
-        selected_option_id: selected_option_id,
-        custom_response: custom_response,
-        rationale: rationale,
-        actor: actor
-      }
+      content =
+        %{
+          action_id: action_id,
+          decision_id: decision_id,
+          decision_version: decision_version,
+          idempotency_key: idempotency_key,
+          selected_option_id: selected_option_id,
+          custom_response: custom_response,
+          rationale: rationale,
+          actor: actor
+        }
+        |> maybe_put_supervisor_basis(supervisor_basis)
 
       {:ok,
        struct!(
@@ -108,7 +113,9 @@ defmodule Aiur.DecisionAnswer do
              decision_version: decision_version,
              actor: actor,
              now: accepted_at,
-             allow_unchecked_option: true
+             allow_unchecked_option: true,
+             supervisor_basis: Map.get(raw, "supervisor_basis"),
+             allow_legacy_supervisor_basis: not Map.has_key?(raw, "supervisor_basis")
            ),
          :ok <- compare_persisted(answer.action_id, persisted_action_id, :action_id_mismatch),
          :ok <- compare_persisted(answer.content_hash, persisted_hash, :answer_content_hash_mismatch) do
@@ -133,6 +140,7 @@ defmodule Aiur.DecisionAnswer do
       "accepted_at" => DateTime.to_iso8601(answer.accepted_at),
       "content_hash" => answer.content_hash
     }
+    |> maybe_put_supervisor_basis_json(answer.supervisor_basis)
   end
 
   @doc "Canonical Decision-scoped identity for one logical answer action."
@@ -178,6 +186,28 @@ defmodule Aiur.DecisionAnswer do
   end
 
   defp normalize_actor(_other), do: {:error, {:actor, :invalid_type}}
+
+  defp normalize_supervisor_basis(%{kind: :supervisor}, opts) do
+    case Keyword.get(opts, :supervisor_basis) do
+      nil ->
+        if Keyword.get(opts, :allow_legacy_supervisor_basis, false),
+          do: {:ok, nil},
+          else: {:error, {:supervisor_basis, :missing}}
+
+      basis ->
+        case DecisionDelegation.validate_basis(basis) do
+          {:ok, normalized} -> {:ok, normalized}
+          {:error, reason} -> {:error, {:supervisor_basis, reason}}
+        end
+    end
+  end
+
+  defp normalize_supervisor_basis(_actor, opts) do
+    case Keyword.get(opts, :supervisor_basis) do
+      nil -> {:ok, nil}
+      _unexpected -> {:error, {:supervisor_basis, :unexpected}}
+    end
+  end
 
   defp actor_kind(kind) when kind in @actor_kinds, do: {:ok, kind}
 
@@ -279,4 +309,13 @@ defmodule Aiur.DecisionAnswer do
   end
 
   defp get(payload, key), do: Map.get(payload, key, Map.get(payload, Atom.to_string(key)))
+
+  defp maybe_put_supervisor_basis(content, nil), do: content
+  defp maybe_put_supervisor_basis(content, basis), do: Map.put(content, :supervisor_basis, basis)
+
+  defp maybe_put_supervisor_basis_json(content, nil), do: content
+
+  defp maybe_put_supervisor_basis_json(content, basis) do
+    Map.put(content, "supervisor_basis", DecisionDelegation.to_json_safe(basis))
+  end
 end
