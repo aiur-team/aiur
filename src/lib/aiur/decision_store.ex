@@ -39,6 +39,7 @@ defmodule Aiur.DecisionStore do
     Decision,
     DecisionAnswer,
     DecisionDispatch,
+    DecisionEnrichment,
     DecisionEvent,
     DecisionLog,
     DecisionProjection,
@@ -48,7 +49,6 @@ defmodule Aiur.DecisionStore do
     DecisionValidation,
     JsonStore
   }
-
   alias Aiur.Events.{IdGenerator, Publisher}
 
   @ndjson_filename "decisions.ndjson"
@@ -96,6 +96,14 @@ defmodule Aiur.DecisionStore do
   def enrich_attention(payload, opts \\ [], server \\ __MODULE__, timeout \\ @request_timeout)
       when is_map(payload) and is_list(opts) do
     GenServer.call(server, {:enrich_attention, payload, opts}, timeout)
+  end
+
+  @doc "Appends one constrained, attributed supervisor enrichment to a Decision."
+  @spec enrich(String.t(), map(), keyword(), GenServer.server(), timeout()) ::
+          {:ok, accept_result()} | {:error, term()}
+  def enrich(decision_id, patch, opts \\ [], server \\ __MODULE__, timeout \\ @request_timeout)
+      when is_binary(decision_id) and is_map(patch) and is_list(opts) do
+    GenServer.call(server, {:enrich, decision_id, patch, opts}, timeout)
   end
 
   @doc """
@@ -359,6 +367,14 @@ defmodule Aiur.DecisionStore do
 
   def handle_call({:enrich_attention, payload, opts}, _from, state) do
     handle_attention_enrichment(payload, opts, state)
+  end
+
+  def handle_call({:enrich, _decision_id, _patch, _opts}, _from, %{writable?: false} = state) do
+    {:reply, {:error, {:store_unavailable, state.health}}, state}
+  end
+
+  def handle_call({:enrich, decision_id, patch, opts}, _from, state) do
+    handle_enrichment(decision_id, patch, opts, state)
   end
 
   def handle_call({:answer, _decision_id, _payload, _opts}, _from, %{writable?: false} = state) do
@@ -762,6 +778,117 @@ defmodule Aiur.DecisionStore do
   defp dispatch_status(%Decision{delivery_status: :pending}), do: :dispatch_pending
   defp dispatch_status(%Decision{delivery_status: status}), do: status
 
+  defp handle_enrichment(decision_id, patch, opts, state) do
+    with {:ok, current} <- fetch_decision(state, decision_id),
+         {:ok, expected_version} <- enrichment_expected_version(opts),
+         {:ok, base} <- enrichment_base(state, current, expected_version),
+         normalization_opts <-
+           opts
+           |> Keyword.put(:expected_version, expected_version)
+           |> Keyword.put_new(:now, DateTime.utc_now()),
+         {:ok, enrichment} <- DecisionEnrichment.normalize(base, patch, normalization_opts) do
+      apply_enrichment(state, current, enrichment, normalization_opts[:now])
+    else
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp enrichment_expected_version(opts) do
+    case Keyword.get(opts, :expected_version) do
+      version when is_integer(version) and version > 0 -> {:ok, version}
+      _invalid -> {:error, {:enrichment_invalid, {:expected_version, :invalid}}}
+    end
+  end
+
+  defp enrichment_base(state, current, expected_version) do
+    cond do
+      expected_version == current.version ->
+        {:ok, current}
+
+      base = request_version(state, current.decision_id, expected_version) ->
+        {:ok, base}
+
+      true ->
+        {:error, {:conflict, {:stale_version, expected_version, current.version}}}
+    end
+  end
+
+  defp apply_enrichment(state, current, enrichment, occurred_at) do
+    case prior_enrichment(state, current.decision_id, enrichment.expected_version) do
+      %DecisionEvent{} = prior ->
+        evaluate_enrichment_replay(state, prior, enrichment)
+
+      nil when enrichment.expected_version != current.version ->
+        {:reply, {:error, {:conflict, {:stale_version, enrichment.expected_version, current.version}}}, state}
+
+      nil when not enrichment.changed ->
+        {:reply, {:ok, %{status: :duplicate, decision: current}}, state}
+
+      nil ->
+        persist_enrichment(state, current, enrichment, occurred_at)
+    end
+  end
+
+  defp prior_enrichment(state, decision_id, expected_version) do
+    state.audit_history
+    |> Map.get(decision_id, [])
+    |> Enum.find(fn
+      %DecisionEvent{type: :enriched, data: %{expected_version: ^expected_version}} -> true
+      _other -> false
+    end)
+  end
+
+  defp evaluate_enrichment_replay(state, prior, enrichment) do
+    if prior.data.actor == enrichment.actor and
+         prior.data.decision.content_hash == enrichment.decision.content_hash do
+      decision = enrichment_replay_decision(state, prior)
+      {:reply, {:ok, %{status: :duplicate, decision: decision}}, state}
+    else
+      {:reply, {:error, {:conflict, {:idempotency_conflict, enrichment.expected_version}}}, state}
+    end
+  end
+
+  defp enrichment_replay_decision(state, prior) do
+    current = Map.fetch!(state.current, prior.decision_id)
+
+    if current.version == prior.data.decision.version,
+      do: current,
+      else: prior.data.decision
+  end
+
+  defp persist_enrichment(state, current, enrichment, occurred_at) do
+    data = %{
+      decision: enrichment.decision,
+      actor: enrichment.actor,
+      expected_version: enrichment.expected_version
+    }
+
+    with {:ok, event_id} <- reserve_event_id(),
+         {:ok, event} <-
+           DecisionEvent.new(:enriched, current.decision_id, enrichment.decision.version, data,
+             event_id: event_id,
+             run_id: Boot.run_id(),
+             now: occurred_at
+           ),
+         {:ok, updated} <- validate_transition(current, event),
+         :ok <- DecisionLog.append(state.ndjson_path, DecisionEvent.to_json_safe(event)) do
+      next_state =
+        %{
+          state
+          | current: Map.put(state.current, current.decision_id, updated),
+            history: Map.update(state.history, current.decision_id, [event.data.decision], &[event.data.decision | &1]),
+            audit_history: Map.update(state.audit_history, current.decision_id, [event], &(&1 ++ [event]))
+        }
+        |> repair_projection()
+
+      if next_state.writable?, do: notify_lifecycle(updated, event)
+      {:reply, {:ok, %{status: :accepted, decision: updated}}, next_state}
+    else
+      {:error, :not_durable} -> {:reply, {:error, :event_id_not_durable}, state}
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
   defp handle_request(payload, opts, state) do
     with {:ok, requested_version} <- fetch_requested_version(payload),
          {:ok, decision} <- DecisionValidation.normalize(payload, opts) do
@@ -1103,6 +1230,7 @@ defmodule Aiur.DecisionStore do
   end
 
   defp lifecycle_slug(:answer_recorded), do: "answered"
+  defp lifecycle_slug(:enriched), do: "enriched"
   defp lifecycle_slug(:revision_recorded), do: "revision-recorded"
   defp lifecycle_slug(:dispatch_queued), do: "queued"
   defp lifecycle_slug(:revision_dispatched), do: "revision-dispatched"

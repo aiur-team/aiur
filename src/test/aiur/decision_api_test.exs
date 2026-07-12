@@ -129,11 +129,81 @@ defmodule Aiur.DecisionApiTest do
              DecisionApi.get(String.duplicate("a", 257), store: store, policy: @policy)
   end
 
+  test "enrich delegates a constrained attributed version to the canonical store", %{store: store} do
+    decision = request!(store, "architecture", :supervisor_allowed, source_id: "enrich")
+
+    payload = %{
+      "expected_version" => 1,
+      "context" => %{"short_summary" => "Canonical context"}
+    }
+
+    opts = [
+      store: store,
+      policy: @policy,
+      actor: %{kind: :supervisor, id: "supervising-agent"},
+      now: ~U[2026-07-12 11:00:00Z]
+    ]
+
+    assert {:ok, %{"status" => "accepted", "decision" => enriched}} =
+             DecisionApi.enrich(decision.decision_id, payload, opts)
+
+    assert enriched["version"] == 2
+    assert enriched["context"]["short_summary"] == "Canonical context"
+    assert enriched["supervisor_policy"]["allowed"]
+
+    assert {:ok, %{"status" => "duplicate", "decision" => duplicate}} =
+             DecisionApi.enrich(decision.decision_id, payload, opts)
+
+    assert duplicate["version"] == 2
+  end
+
+  test "enrich rejects untrusted actor claims and malformed correlation", %{store: store} do
+    decision = request!(store, "architecture", :supervisor_allowed, source_id: "enrich-invalid")
+
+    opts = [
+      store: store,
+      policy: @policy,
+      actor: %{kind: :supervisor, id: "supervising-agent"}
+    ]
+
+    assert {:error, {:enrichment_invalid, {:forbidden_fields, ["actor"]}}} =
+             DecisionApi.enrich(
+               decision.decision_id,
+               %{"expected_version" => 1, "actor" => %{"kind" => "operator"}},
+               opts
+             )
+
+    assert {:error, {:invalid_enrichment, {:expected_version, :invalid}}} =
+             DecisionApi.enrich(decision.decision_id, %{"expected_version" => "1"}, opts)
+
+    assert {:error, {:invalid_enrichment, {:expected_version, :duplicate}}} =
+             DecisionApi.enrich(
+               decision.decision_id,
+               %{"expected_version" => 1, expected_version: 1},
+               opts
+             )
+
+    assert {:error, {:invalid_enrichment, {:actor, :untrusted}}} =
+             DecisionApi.enrich(
+               decision.decision_id,
+               %{"expected_version" => 1, "context" => %{"short_summary" => "No"}},
+               Keyword.put(opts, :actor, %{kind: :operator, id: "operator-1"})
+             )
+  end
+
   test "an unavailable store is a stable read error", %{store: store} do
     GenServer.stop(store)
 
     assert {:error, :store_unavailable} = DecisionApi.list(%{}, store: store, policy: @policy)
     assert {:error, :store_unavailable} = DecisionApi.get("dec_missing", store: store, policy: @policy)
+
+    assert {:error, :store_unavailable} =
+             DecisionApi.enrich(
+               "dec_missing",
+               %{"expected_version" => 1, "context" => %{"short_summary" => "No store"}},
+               store: store,
+               actor: %{kind: :supervisor, id: "supervising-agent"}
+             )
   end
 
   defp request!(store, kind, authority, opts) do

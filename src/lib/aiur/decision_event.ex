@@ -16,6 +16,7 @@ defmodule Aiur.DecisionEvent do
   @detail_max 2_000
   @types [
     :requested,
+    :enriched,
     :answer_recorded,
     :revision_recorded,
     :dispatch_queued,
@@ -35,6 +36,7 @@ defmodule Aiur.DecisionEvent do
 
   @type type ::
           :requested
+          | :enriched
           | :answer_recorded
           | :revision_recorded
           | :dispatch_queued
@@ -166,6 +168,19 @@ defmodule Aiur.DecisionEvent do
     end
   end
 
+  defp normalize_data(:enriched, raw, decision_id, version) when is_map(raw) do
+    with {:ok, decision} <- normalize_enrichment_decision(get(raw, :decision), decision_id, version),
+         {:ok, actor} <- normalize_actor(get(raw, :actor)),
+         :ok <- require_supervisor_actor(actor),
+         {:ok, expected_version} <- map_required_pos_integer(raw, :expected_version),
+         true <- expected_version + 1 == version do
+      {:ok, %{decision: decision, actor: actor, expected_version: expected_version}}
+    else
+      false -> {:error, {:event_data, :enrichment_version_mismatch}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   defp normalize_data(:answer_recorded, %DecisionAnswer{} = answer, decision_id, version) do
     if answer.decision_id == decision_id and answer.decision_version == version do
       {:ok, answer}
@@ -254,6 +269,39 @@ defmodule Aiur.DecisionEvent do
 
   defp normalize_data(_type, _data, _decision_id, _version), do: {:error, {:event_data, :invalid}}
 
+  defp normalize_enrichment_decision(%Decision{} = decision, decision_id, version) do
+    if decision.decision_id == decision_id and decision.version == version do
+      {:ok, request_snapshot(decision)}
+    else
+      {:error, {:event_data, :enrichment_identity_mismatch}}
+    end
+  end
+
+  defp normalize_enrichment_decision(raw, decision_id, version) when is_map(raw) do
+    with {:ok, decision} <- DecisionProjection.decode_request_record(raw),
+         true <- decision.decision_id == decision_id and decision.version == version do
+      {:ok, request_snapshot(decision)}
+    else
+      false -> {:error, {:event_data, :enrichment_identity_mismatch}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp normalize_enrichment_decision(_raw, _decision_id, _version),
+    do: {:error, {:event_data, :enrichment_invalid}}
+
+  defp request_snapshot(decision) do
+    %{
+      decision
+      | decision_status: :open,
+        delivery_status: :not_dispatched,
+        answer: nil,
+        dispatch_attempts: [],
+        acknowledgement: nil,
+        resolution: nil
+    }
+  end
+
   defp normalize_reason(:failed, reason), do: bounded_required(reason, @reason_max, :reason_class)
   defp normalize_reason(_type, nil), do: {:ok, nil}
   defp normalize_reason(_type, _reason), do: {:error, {:reason_class, :unexpected}}
@@ -295,6 +343,9 @@ defmodule Aiur.DecisionEvent do
 
   defp decode_actor_kind(_other), do: {:error, {:actor_kind, :invalid}}
 
+  defp require_supervisor_actor(%{kind: :supervisor}), do: :ok
+  defp require_supervisor_actor(_actor), do: {:error, {:actor_kind, :not_supervisor}}
+
   defp event_material(type, event_id, run_id, decision_id, decision_version, occurred_at, data) do
     %{
       schema_version: @schema_version,
@@ -309,6 +360,15 @@ defmodule Aiur.DecisionEvent do
   end
 
   defp data_to_json_safe(:requested, %Decision{} = decision), do: DecisionProjection.to_json_safe(decision)
+
+  defp data_to_json_safe(:enriched, data) do
+    %{
+      "decision" => DecisionProjection.to_json_safe(data.decision),
+      "actor" => %{"kind" => Atom.to_string(data.actor.kind), "id" => data.actor.id},
+      "expected_version" => data.expected_version
+    }
+  end
+
   defp data_to_json_safe(:answer_recorded, %DecisionAnswer{} = answer), do: DecisionAnswer.to_json_safe(answer)
 
   defp data_to_json_safe(:revision_recorded, %DecisionRevision{} = revision),
@@ -413,6 +473,13 @@ defmodule Aiur.DecisionEvent do
   defp map_optional_pos_integer(raw, key) do
     case get(raw, key) do
       nil -> {:ok, nil}
+      value when is_integer(value) and value > 0 -> {:ok, value}
+      _other -> {:error, {key, :invalid}}
+    end
+  end
+
+  defp map_required_pos_integer(raw, key) do
+    case get(raw, key) do
       value when is_integer(value) and value > 0 -> {:ok, value}
       _other -> {:error, {key, :invalid}}
     end

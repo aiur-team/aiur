@@ -1,7 +1,15 @@
 defmodule Aiur.DecisionProjectionTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.{Decision, DecisionAnswer, DecisionEvent, DecisionProjection, DecisionRevision, DecisionValidation}
+  alias Aiur.{
+    Decision,
+    DecisionAnswer,
+    DecisionEnrichment,
+    DecisionEvent,
+    DecisionProjection,
+    DecisionRevision,
+    DecisionValidation
+  }
 
   @ticket %{identifier: "979", title: "OCC-1", url: "https://github.com/its-everdred/aiur/issues/979"}
   @source %{agent_id: "agent-1", session_id: "session-1", event_id: "evt-1"}
@@ -298,6 +306,64 @@ defmodule Aiur.DecisionProjectionTest do
       assert Enum.map(result.history[v1.decision_id], & &1.version) == [1, 2]
     end
 
+    test "an attributed enrichment event advances request content and preserves lifecycle" do
+      request =
+        build_decision(%{
+          "source_id" => "supervisor-enrichment",
+          "options" => [%{"id" => "ship", "label" => "Ship it"}]
+        })
+
+      accepted = answer(request)
+      answered = event(:answer_recorded, request, accepted, 1)
+
+      queued =
+        event(
+          :dispatch_queued,
+          request,
+          %{action_id: accepted.action_id, attempt_id: "attempt-1", queue_item_id: 17},
+          2
+        )
+
+      current = DecisionProjection.reduce([request, answered, queued]).current[request.decision_id]
+
+      assert {:ok, enrichment} =
+               DecisionEnrichment.normalize(
+                 current,
+                 %{"context" => %{"short_summary" => "Use the canonical path"}},
+                 expected_version: 1,
+                 actor: %{kind: :supervisor, id: "supervising-agent"},
+                 now: ~U[2026-07-12 11:00:00Z]
+               )
+
+      assert {:ok, enriched_event} =
+               DecisionEvent.new(
+                 :enriched,
+                 request.decision_id,
+                 2,
+                 %{
+                   decision: enrichment.decision,
+                   actor: enrichment.actor,
+                   expected_version: enrichment.expected_version
+                 },
+                 event_id: "evt-3",
+                 run_id: "run-1",
+                 now: ~U[2026-07-12 11:00:00Z]
+               )
+
+      raw = enriched_event |> DecisionEvent.to_json_safe() |> Jason.encode!() |> Jason.decode!()
+      assert {:ok, %DecisionEvent{type: :enriched}} = DecisionProjection.decode_record(raw)
+
+      result = DecisionProjection.reduce([request, answered, queued, enriched_event])
+      updated = result.current[request.decision_id]
+
+      assert updated.version == 2
+      assert updated.context.short_summary == "Use the canonical path"
+      assert updated.answer == accepted
+      assert [%{attempt_id: "attempt-1"}] = updated.dispatch_attempts
+      assert Enum.map(result.history[request.decision_id], & &1.version) == [1, 2]
+      assert List.last(result.audit_history[request.decision_id]).data.actor == enrichment.actor
+    end
+
     test "a revision preserves the original answer and advances the active action" do
       request =
         build_decision(%{
@@ -359,8 +425,6 @@ defmodule Aiur.DecisionProjectionTest do
                {original.action_id, :queued},
                {correction.action_id, :delivered}
              ]
-    end
-
     test "checked reduction rejects a lifecycle event with the wrong action" do
       request =
         build_decision(%{

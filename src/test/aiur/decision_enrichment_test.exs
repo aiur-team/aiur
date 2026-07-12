@@ -39,6 +39,7 @@ defmodule Aiur.DecisionEnrichmentTest do
     assert decision.version == 4
     assert decision.ticket == current.ticket
     assert decision.source == current.source
+    assert decision.created_at == current.created_at
     assert decision.question == current.question
     assert decision.authority == current.authority
     assert decision.kind == current.kind

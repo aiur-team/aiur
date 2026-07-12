@@ -1,12 +1,12 @@
 defmodule Aiur.DecisionApi do
   @moduledoc """
-  Machine-facing application facade for canonical Decision reads.
+  Machine-facing application facade for canonical Decision operations.
 
   This module does not persist a parallel API representation. It reads the
   current `Aiur.DecisionStore` projection, encodes it through
   `Aiur.DecisionProjection`, and adds a current fail-closed supervisor policy
-  evaluation. Mutation delegates are added only when their owning store
-  services are available.
+  evaluation. Mutations remain thin delegates to their canonical store
+  services.
   """
 
   alias Aiur.{Config, Decision, DecisionAuthority, DecisionProjection, DecisionStore}
@@ -16,6 +16,7 @@ defmodule Aiur.DecisionApi do
   @maximum_offset 1_000_000
   @decision_id_max 256
   @list_fields ~w(authority blocking kind limit offset ticket)
+  @supervisor_actor %{kind: :supervisor, id: "supervising-agent"}
 
   @type read_error ::
           :not_found
@@ -65,6 +66,32 @@ defmodule Aiur.DecisionApi do
     end
   end
 
+  @doc "Appends one constrained supervisor enrichment through DecisionStore."
+  @spec enrich(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def enrich(decision_id, payload, opts \\ [])
+
+  def enrich(decision_id, payload, opts) when is_map(payload) and is_list(opts) do
+    with {:ok, normalized_id} <- normalize_decision_id(decision_id),
+         {:ok, expected_version, patch} <- split_enrichment_payload(payload),
+         {:ok, actor} <- trusted_supervisor_actor(opts),
+         {:ok, result} <-
+           write_enrichment(
+             normalized_id,
+             patch,
+             enrichment_opts(opts, actor, expected_version),
+             Keyword.get(opts, :store, DecisionStore)
+           ) do
+      {:ok,
+       %{
+         "status" => Atom.to_string(result.status),
+         "decision" => encode_decision(result.decision, policy(opts))
+       }}
+    end
+  end
+
+  def enrich(_decision_id, _payload, opts) when is_list(opts),
+    do: {:error, {:invalid_enrichment, {:payload, :invalid_type}}}
+
   defp normalize_list_params(params) do
     with {:ok, normalized} <- normalize_param_keys(params),
          {:ok, limit} <- bounded_integer(normalized["limit"], @default_limit, 1, @maximum_limit, :limit),
@@ -85,6 +112,42 @@ defmodule Aiur.DecisionApi do
     else
       {:error, reason} -> {:error, {:invalid_list, reason}}
     end
+  end
+
+  defp split_enrichment_payload(payload) do
+    string_value = Map.fetch(payload, "expected_version")
+    atom_value = Map.fetch(payload, :expected_version)
+
+    case {string_value, atom_value} do
+      {{:ok, _value}, {:ok, _duplicate}} ->
+        {:error, {:invalid_enrichment, {:expected_version, :duplicate}}}
+
+      {{:ok, version}, :error} when is_integer(version) and version > 0 ->
+        {:ok, version, Map.delete(payload, "expected_version")}
+
+      {:error, {:ok, version}} when is_integer(version) and version > 0 ->
+        {:ok, version, Map.delete(payload, :expected_version)}
+
+      _missing_or_invalid ->
+        {:error, {:invalid_enrichment, {:expected_version, :invalid}}}
+    end
+  end
+
+  defp trusted_supervisor_actor(opts) do
+    case Keyword.get(opts, :actor) do
+      @supervisor_actor = actor -> {:ok, actor}
+      _untrusted -> {:error, {:invalid_enrichment, {:actor, :untrusted}}}
+    end
+  end
+
+  defp enrichment_opts(opts, actor, expected_version) do
+    [actor: actor, expected_version: expected_version]
+    |> maybe_put_option(:now, opts)
+    |> maybe_put_option(:safe_roots, opts)
+  end
+
+  defp maybe_put_option(target, key, source) do
+    if Keyword.has_key?(source, key), do: Keyword.put(target, key, Keyword.get(source, key)), else: target
   end
 
   defp normalize_param_keys(params) do
@@ -212,6 +275,20 @@ defmodule Aiur.DecisionApi do
       {:ok, %Decision{} = decision} -> {:ok, decision}
       {:error, :not_found} -> {:error, :not_found}
       _invalid -> {:error, :store_unavailable}
+    end
+  end
+
+  defp write_enrichment(decision_id, patch, opts, store) do
+    case safe_store_call(fn -> DecisionStore.enrich(decision_id, patch, opts, store) end) do
+      {:ok, %{status: status, decision: %Decision{} = decision}}
+      when status in [:accepted, :duplicate] ->
+        {:ok, %{status: status, decision: decision}}
+
+      {:error, reason} ->
+        {:error, reason}
+
+      _invalid ->
+        {:error, :store_unavailable}
     end
   end
 

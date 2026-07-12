@@ -41,6 +41,7 @@ defmodule Aiur.DecisionEnrichment do
         normalized
         | decision_id: current.decision_id,
           version: current.version + 1,
+          created_at: current.created_at,
           decision_status: current.decision_status,
           delivery_status: current.delivery_status,
           answer: current.answer,
