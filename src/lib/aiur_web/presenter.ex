@@ -11,14 +11,18 @@ defmodule AiurWeb.Presenter do
 
     case Orchestrator.snapshot(orchestrator, snapshot_timeout_ms) do
       %{} = snapshot ->
+        idle = Map.get(snapshot, :idle, [])
+
         %{
           generated_at: generated_at,
           counts: %{
             running: length(snapshot.running),
-            retrying: length(snapshot.retrying)
+            retrying: length(snapshot.retrying),
+            idle: length(idle)
           },
           running: Enum.map(snapshot.running, &running_entry_payload/1),
           retrying: Enum.map(snapshot.retrying, &retry_entry_payload/1),
+          idle: Enum.map(idle, &idle_entry_payload/1),
           agent_totals: snapshot.agent_totals,
           rate_limits: snapshot.rate_limits
         }
@@ -114,6 +118,11 @@ defmodule AiurWeb.Presenter do
       capabilities: Map.get(entry, :control),
       started_at: iso8601(entry.started_at),
       last_event_at: iso8601(entry.last_codex_timestamp),
+      stale_for_seconds: Map.get(entry, :stale_for_seconds),
+      waiting_reason: Map.get(entry, :waiting_reason, :active),
+      open_decision_count: Map.get(entry, :open_decision_count, 0),
+      ci: ci_payload(Map.get(entry, :ci_result)),
+      review: review_status(entry.state),
       tokens: %{
         input_tokens: entry.agent_input_tokens,
         output_tokens: entry.agent_output_tokens,
@@ -130,9 +139,47 @@ defmodule AiurWeb.Presenter do
       due_at: due_at_iso8601(entry.due_in_ms),
       error: entry.error,
       worker_host: Map.get(entry, :worker_host),
-      workspace_path: Map.get(entry, :workspace_path)
+      workspace_path: Map.get(entry, :workspace_path),
+      waiting_reason: Map.get(entry, :waiting_reason, :backing_off)
     }
   end
+
+  defp idle_entry_payload(entry) do
+    %{
+      issue_id: entry.issue_id,
+      issue_identifier: entry.identifier,
+      state: entry.state,
+      tag: Map.get(entry, :tag),
+      title: Map.get(entry, :title),
+      url: Map.get(entry, :url),
+      queue_depth: Map.get(entry, :queue_depth, 0),
+      waiting_reason: Map.get(entry, :waiting_reason, :active),
+      open_decision_count: Map.get(entry, :open_decision_count, 0),
+      review: review_status(entry.state)
+    }
+  end
+
+  # CI/PR data comes from the existing GithubCIPoller poll cadence in
+  # `Aiur.Orchestrator.CiLifecycle`, stashed onto the running entry — this
+  # never triggers a GitHub call of its own. `nil` until a ticket has
+  # actually entered CI polling (ci-wait / human-review).
+  defp ci_payload(nil), do: nil
+
+  defp ci_payload(%{} = result) do
+    %{
+      decision: Map.get(result, :decision),
+      pr_number: Map.get(result, :pr_number),
+      head_sha: Map.get(result, :head_sha)
+    }
+  end
+
+  # Review status is derived from tracker state only. The unresolved-thread
+  # detail behind `human-review` remains a one-shot check performed by
+  # `Aiur.GitHub.HumanReviewGate` at the transition moment, not a cached
+  # per-row poll target — surfacing it live per row would mean a new GitHub
+  # call on every dashboard refresh, duplicating that existing check.
+  defp review_status("human-review"), do: :awaiting
+  defp review_status(_state), do: :not_started
 
   defp running_issue_payload(running) do
     %{

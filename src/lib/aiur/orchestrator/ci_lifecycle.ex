@@ -275,9 +275,43 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   defp apply_ci_poll_result_for_target(state, result, issues_by_target) do
     case Map.get(issues_by_target, Map.get(result, :target)) do
-      %Issue{} = issue -> apply_ci_poll_result(state, issue, result)
-      _ -> state
+      %Issue{} = issue ->
+        state
+        |> stash_last_ci_result(issue, result)
+        |> apply_ci_poll_result(issue, result)
+
+      _ ->
+        state
     end
+  end
+
+  # Read-only projection of the poll result for OCC-5's fleet-state row (PR
+  # number / CI decision), stashed onto the running entry independently of
+  # whatever tracker transition (or no-op) the result below triggers. Only
+  # replaces the entry when the projection actually changed, so a genuinely
+  # redundant poll for an unchanged head stays a true no-op.
+  defp stash_last_ci_result(%State{} = state, %Issue{id: issue_id}, result) do
+    case Map.get(state.running, issue_id) do
+      nil ->
+        state
+
+      running_entry ->
+        projection = ci_result_projection(result)
+
+        if Map.get(running_entry, :last_ci_result) == projection do
+          state
+        else
+          %{state | running: Map.put(state.running, issue_id, Map.put(running_entry, :last_ci_result, projection))}
+        end
+    end
+  end
+
+  defp ci_result_projection(result) do
+    %{
+      decision: Map.get(result, :decision),
+      pr_number: Map.get(result, :pr_number),
+      head_sha: Map.get(result, :head_sha)
+    }
   end
 
   defp all_ci_targets_failed?([], _errors), do: false

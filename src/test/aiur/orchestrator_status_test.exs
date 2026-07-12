@@ -1521,6 +1521,46 @@ defmodule Aiur.OrchestratorStatusTest do
     assert due_in_ms > 0
   end
 
+  test "orchestrator snapshot includes idle rows and explicit waiting reasons" do
+    orchestrator_name = Module.concat(__MODULE__, :FleetStateOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    stale_entry =
+      "issue-stale"
+      |> running_entry("MT-600", :working)
+      |> Map.put(:last_codex_timestamp, DateTime.add(DateTime.utc_now(), -10 * 24 * 60 * 60, :second))
+      |> Map.merge(%{codex_app_server_pid: nil, last_codex_message: nil, last_codex_event: nil})
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | running: %{"issue-stale" => stale_entry},
+          last_polled_issues: %{
+            "issue-stale" => %Issue{id: "issue-stale", identifier: "MT-600", state: "In Progress"},
+            "issue-ci-wait" => %Issue{
+              id: "issue-ci-wait",
+              identifier: "MT-601",
+              state: "ci-wait",
+              title: "Waiting on CI"
+            }
+          }
+      }
+    end)
+
+    snapshot = Orchestrator.snapshot(orchestrator_name, 1_000)
+
+    assert [%{identifier: "MT-600", waiting_reason: :unresponsive, stale_for_seconds: stale_for_seconds}] =
+             snapshot.running
+
+    assert stale_for_seconds > 24 * 60 * 60
+
+    assert [%{identifier: "MT-601", state: "ci-wait", waiting_reason: :waiting_for_ci}] = snapshot.idle
+  end
+
   test "orchestrator snapshot includes poll countdown and checking status" do
     orchestrator_name = Module.concat(__MODULE__, :PollingSnapshotOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)

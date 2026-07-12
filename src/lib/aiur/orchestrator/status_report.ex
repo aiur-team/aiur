@@ -4,12 +4,15 @@ defmodule Aiur.Orchestrator.StatusReport do
   All functions execute inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{AgentEvents, AgentPubSub, CodingAgent, Issue}
+  alias Aiur.{AgentEvents, AgentPubSub, CodingAgent, Config, Issue}
+  alias Aiur.Events.SubscriptionStore
+  alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.Lifecycle
   alias Aiur.Orchestrator.OperatorMessages, as: OM
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.WaitingReason
   alias AiurWeb.ObservabilityPubSub
 
   @spec snapshot_api() :: map() | :timeout | :unavailable
@@ -117,11 +120,13 @@ defmodule Aiur.Orchestrator.StatusReport do
 
     running = Enum.map(state.running, &running_snapshot(state, &1, now))
     retrying = Enum.map(state.retry_attempts, &retry_snapshot(&1, now_ms))
+    idle = idle_snapshot(state)
 
     {:reply,
      %{
        running: running,
        retrying: retrying,
+       idle: idle,
        agent_totals: state.agent_totals,
        rate_limits: Map.get(state, :agent_rate_limits),
        polling: %{
@@ -134,6 +139,18 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   defp running_snapshot(%State{} = state, {issue_id, metadata}, now) do
     capabilities = OM.issue_control_capabilities(state, metadata.identifier)
+    work_state = get_in(metadata, [:control, :status]) || :working
+    pause_reason = Map.get(metadata, :paused_reason)
+    stale_for_seconds = stale_for_seconds(metadata, now)
+
+    waiting_reason =
+      WaitingReason.for_running(%{
+        tracker_state: metadata.issue.state,
+        pause_reason: pause_reason,
+        work_state: work_state,
+        stale_for_seconds: stale_for_seconds,
+        stall_timeout_seconds: stall_timeout_seconds()
+      })
 
     %{
       issue_id: issue_id,
@@ -154,13 +171,17 @@ defmodule Aiur.Orchestrator.StatusReport do
       last_codex_timestamp: metadata.last_codex_timestamp,
       last_codex_message: metadata.last_codex_message,
       last_codex_event: metadata.last_codex_event,
-      work_state: get_in(metadata, [:control, :status]) || :working,
-      pause_reason: Map.get(metadata, :paused_reason),
+      work_state: work_state,
+      pause_reason: pause_reason,
       tracker_paused: Issue.paused?(metadata.issue),
       queue_depth: capabilities.queue_depth,
       pending_operator_messages: OM.pending_operator_messages_for_issue(state, metadata.identifier),
       control: capabilities,
-      runtime_seconds: State.running_seconds(metadata.started_at, now)
+      runtime_seconds: State.running_seconds(metadata.started_at, now),
+      stale_for_seconds: stale_for_seconds,
+      waiting_reason: waiting_reason,
+      open_decision_count: open_decision_count(metadata.identifier),
+      ci_result: Map.get(metadata, :last_ci_result)
     }
   end
 
@@ -172,9 +193,64 @@ defmodule Aiur.Orchestrator.StatusReport do
       identifier: Map.get(retry, :identifier),
       error: Map.get(retry, :error),
       worker_host: Map.get(retry, :worker_host),
-      workspace_path: Map.get(retry, :workspace_path)
+      workspace_path: Map.get(retry, :workspace_path),
+      waiting_reason: WaitingReason.for_retry()
     }
   end
+
+  defp idle_snapshot(%State{} = state) do
+    running_identifiers =
+      state.running
+      |> Map.values()
+      |> MapSet.new(&Map.get(&1, :identifier))
+
+    terminal_states = DispatchPolicy.terminal_state_set()
+
+    state.last_polled_issues
+    |> Map.values()
+    |> Enum.reject(fn issue -> MapSet.member?(running_identifiers, Map.get(issue, :identifier)) end)
+    |> Enum.map(&idle_issue_snapshot(state, &1, terminal_states))
+  end
+
+  defp idle_issue_snapshot(%State{} = state, %Issue{} = issue, terminal_states) do
+    identifier = issue.identifier || issue.id
+    blocked_by_open? = DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, terminal_states)
+
+    %{
+      issue_id: issue.id,
+      identifier: identifier,
+      state: issue.state,
+      tag: State.issue_tag(issue),
+      title: issue.title,
+      url: issue.url,
+      tracker_paused: Issue.paused?(issue),
+      queue_depth: OM.queue_depth_for_issue(state, identifier),
+      waiting_reason: WaitingReason.for_idle(issue.state, blocked_by_open?),
+      open_decision_count: open_decision_count(identifier)
+    }
+  end
+
+  defp stale_for_seconds(metadata, %DateTime{} = now) do
+    case Map.get(metadata, :last_codex_timestamp) || Map.get(metadata, :started_at) do
+      %DateTime{} = last_activity -> DateTime.diff(now, last_activity, :second)
+      _ -> nil
+    end
+  end
+
+  defp stall_timeout_seconds do
+    div(Config.agent_stall_timeout_ms(), 1_000)
+  end
+
+  defp open_decision_count(identifier) when is_binary(identifier) do
+    case SubscriptionStore.snapshot(identifier) do
+      %{open_attentions: list} when is_list(list) -> length(list)
+      _ -> 0
+    end
+  rescue
+    _ -> 0
+  end
+
+  defp open_decision_count(_identifier), do: 0
 
   defp status_api_call(server, request, timeout, distinguish_timeout?) do
     if Process.whereis(server) do
