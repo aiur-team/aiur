@@ -19,6 +19,26 @@ defmodule Aiur.Workspace.GitMetadataTest do
     refute File.exists?(lock)
   end
 
+  test "ensure_agent_logs_excluded preserves local excludes and ignores logs idempotently", %{tmp: tmp} do
+    repo = init_repo!(Path.join(tmp, "repo"))
+    gitignore = Path.join(repo, ".gitignore")
+    exclude = Path.join([repo, ".git", "info", "exclude"])
+
+    File.write!(gitignore, "tracked-ignore/\n")
+    File.write!(exclude, "# existing local exclude")
+
+    assert :ok = GitMetadata.ensure_agent_logs_excluded(repo)
+    assert :ok = GitMetadata.ensure_agent_logs_excluded(repo)
+
+    assert File.read!(gitignore) == "tracked-ignore/\n"
+    assert File.read!(exclude) == "# existing local exclude\nlogs/\n"
+
+    File.mkdir_p!(Path.join(repo, "logs"))
+    File.write!(Path.join([repo, "logs", "agent.md"]), "agent log\n")
+
+    assert String.trim(git!(["-C", repo, "status", "--short", "--", "logs"])) == ""
+  end
+
   test "ensure_git_metadata_writable removes a readable ticket remote-ref lock", %{tmp: tmp} do
     repo = init_repo!(Path.join(tmp, "repo"))
     branch = "aiur/123-add-new-test-cases"

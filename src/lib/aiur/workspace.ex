@@ -68,6 +68,7 @@ defmodule Aiur.Workspace do
              issue_context.branch_name
            ),
          :ok <- Hooks.run_after_create(workspace, issue_context, created?, worker_host),
+         :ok <- GitMetadata.ensure_agent_logs_excluded(workspace, worker_host),
          :ok <- Hooks.run_github_preflight(workspace, issue_context, worker_host) do
       Provisioner.maybe_install_agent_skills(workspace, worker_host)
       {:ok, workspace}

@@ -2,7 +2,37 @@ defmodule Aiur.Workspace.GitMetadata do
   @moduledoc ".git writability probes and stale-lock repair, local and remote, including the git-dir-inside-workspace containment guard."
   alias Aiur.{Config, PathSafety}
   alias Aiur.Workspace.{Checkout, Remote}
+  @agent_logs_exclusion "logs/"
   @type worker_host :: String.t() | nil
+
+  @doc false
+  @spec ensure_agent_logs_excluded(Path.t(), worker_host()) :: :ok | {:error, term()}
+  def ensure_agent_logs_excluded(workspace, worker_host \\ nil)
+
+  def ensure_agent_logs_excluded(workspace, nil) when is_binary(workspace) do
+    case local_git_metadata_dir(workspace) do
+      {:ok, git_dir} ->
+        with :ok <- ensure_git_dir_inside_workspace(git_dir, workspace),
+             :ok <- append_agent_logs_exclusion(Path.join([git_dir, "info", "exclude"])) do
+          :ok
+        else
+          {:error, reason} -> {:error, {:workspace_git_metadata_unwritable, workspace, reason}}
+        end
+
+      :not_git ->
+        :ok
+
+      {:error, reason} ->
+        {:error, {:workspace_git_metadata_unwritable, workspace, reason}}
+    end
+  end
+
+  # AgentEventLog only writes workspace-local logs. Remote workspaces therefore
+  # have no Aiur-created logs directory to exclude.
+  def ensure_agent_logs_excluded(workspace, worker_host)
+      when is_binary(workspace) and is_binary(worker_host),
+      do: :ok
+
   @spec ensure_git_metadata_writable(Path.t(), worker_host()) :: :ok | {:error, term()}
   def ensure_git_metadata_writable(workspace, worker_host \\ nil)
 
@@ -76,6 +106,40 @@ defmodule Aiur.Workspace.GitMetadata do
          :ok <- ensure_git_dir_inside_workspace(git_dir, workspace) do
       {:ok, git_metadata_probe_paths(workspace, git_dir)}
     end
+  end
+
+  defp append_agent_logs_exclusion(path) do
+    with {:ok, contents} <- read_optional_file(path) do
+      if exclusion_present?(contents) do
+        :ok
+      else
+        with :ok <- File.mkdir_p(Path.dirname(path)),
+             :ok <- File.write(path, exclusion_suffix(contents), [:append]) do
+          :ok
+        end
+      end
+    end
+  end
+
+  defp read_optional_file(path) do
+    case File.read(path) do
+      {:ok, contents} -> {:ok, contents}
+      {:error, :enoent} -> {:ok, ""}
+      {:error, reason} -> {:error, {:git_exclude_unreadable, path, reason}}
+    end
+  end
+
+  defp exclusion_present?(contents) do
+    contents
+    |> String.split("\n")
+    |> Enum.any?(&(String.trim(&1) == @agent_logs_exclusion))
+  end
+
+  defp exclusion_suffix(""), do: @agent_logs_exclusion <> "\n"
+
+  defp exclusion_suffix(contents) do
+    separator = if String.ends_with?(contents, "\n"), do: "", else: "\n"
+    separator <> @agent_logs_exclusion <> "\n"
   end
 
   defp probe_lock_files(paths) do
