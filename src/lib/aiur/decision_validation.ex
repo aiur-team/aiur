@@ -288,14 +288,28 @@ defmodule Aiur.DecisionValidation do
 
   defp normalize_artifacts([], _safe_roots, acc), do: {:ok, Enum.reverse(acc)}
 
+  # Ingress shape (a fresh, unvalidated agent payload) is a raw path/URL
+  # string. Replay feeds back the *persisted* shape instead — the
+  # `%{"kind" =>, "value" =>}` map `Aiur.DecisionProjection.to_json_safe/1`
+  # writes — so both are accepted here, re-running the extracted value
+  # through the same validator either way (full re-validation on replay,
+  # not a trust-the-shape shortcut).
   defp normalize_artifacts([raw | rest], safe_roots, acc) when is_binary(raw) do
-    case DecisionArtifact.validate(raw, safe_roots) do
+    validate_artifact(raw, rest, safe_roots, acc)
+  end
+
+  defp normalize_artifacts([%{"value" => value} | rest], safe_roots, acc) when is_binary(value) do
+    validate_artifact(value, rest, safe_roots, acc)
+  end
+
+  defp normalize_artifacts([_invalid | _rest], _safe_roots, _acc), do: {:error, {:artifacts, :invalid_type}}
+
+  defp validate_artifact(value, rest, safe_roots, acc) do
+    case DecisionArtifact.validate(value, safe_roots) do
       {:ok, artifact} -> normalize_artifacts(rest, safe_roots, [artifact | acc])
       {:error, reason} -> {:error, {:artifacts, reason}}
     end
   end
-
-  defp normalize_artifacts([_invalid | _rest], _safe_roots, _acc), do: {:error, {:artifacts, :invalid_type}}
 
   defp fetch_optional_timestamp(payload, key, field) do
     case get(payload, key) do

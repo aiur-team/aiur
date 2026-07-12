@@ -215,6 +215,25 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert response["success"] == false
       assert Jason.decode!(response["output"])["error"]["reason"] =~ "no_issue_identifier"
     end
+
+    test "a generic event name that only collides with the decision.requested topic suffix fails cleanly, not with a crash" do
+      # "custom.decision.requested" is allowlisted by the emit_event tool's
+      # generic `custom.<slug>` pattern and does NOT match this module's
+      # literal "decision.requested" special case, so it takes the generic
+      # Publisher.publish/3 path — which now rejects any topic ending in
+      # ".decision.requested" (Aiur.Events.Publisher's decision-durability
+      # guard). That must surface as a normal tool failure, not an unhandled
+      # CaseClauseError.
+      identifier = "TE-decision-collision-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      executor = ToolExecutor.build(issue, nil, nil)
+
+      response =
+        executor.("emit_event", %{"name" => "custom.decision.requested", "message" => "Q?", "payload" => %{}})
+
+      assert response["success"] == false
+      assert Jason.decode!(response["output"])["error"]["reason"] =~ "decision_requires_durable_publish"
+    end
   end
 
   describe "subscriber closure" do

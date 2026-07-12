@@ -47,4 +47,28 @@ defmodule Aiur.PathSafety do
   defp join_path(root, segments) when is_list(segments) do
     Enum.reduce(segments, root, fn segment, acc -> Path.join(acc, segment) end)
   end
+
+  @doc """
+  Asserts `candidate` canonicalizes (symlink-resolved) to `root` itself or
+  a subpath of it. Returns the canonicalized pair so callers can layer
+  their own additional rules on top (e.g. treating exact equality to
+  root as disallowed) rather than baking every caller's policy in here.
+  """
+  @spec contained?(Path.t(), Path.t()) ::
+          {:ok, %{root: Path.t(), candidate: Path.t()}} | {:error, :outside_root} | {:error, :unreadable}
+  def contained?(root, candidate) do
+    with {:ok, canonical_root} <- canonicalize(Path.expand(root)),
+         {:ok, canonical_candidate} <- canonicalize(Path.expand(candidate)) do
+      canonical_root_prefix = canonical_root <> "/"
+
+      if canonical_candidate == canonical_root or
+           String.starts_with?(canonical_candidate <> "/", canonical_root_prefix) do
+        {:ok, %{root: canonical_root, candidate: canonical_candidate}}
+      else
+        {:error, :outside_root}
+      end
+    else
+      {:error, {:path_canonicalize_failed, _path, _reason}} -> {:error, :unreadable}
+    end
+  end
 end

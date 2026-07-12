@@ -131,19 +131,23 @@ defmodule Aiur.Events.IdGenerator do
   def handle_call(:reserve_durable_id, _from, state) do
     next = state.current + 1
 
-    if next <= state.reserved_through do
-      if state.durable? do
-        {:reply, {:ok, next}, %{state | current: next}}
-      else
-        {:reply, {:error, :not_durable}, state}
-      end
+    if next <= state.reserved_through and state.durable? do
+      {:reply, {:ok, next}, %{state | current: next}}
     else
+      # Not already in a confirmed-durable block (either crossing into a new
+      # batch, or the current one never durably persisted) — always retry
+      # the reservation rather than failing without another attempt, so a
+      # transient outage doesn't strand this the only strict caller ever has
+      # forever. On failure, reply with the pre-attempt current/reserved_through
+      # (no ID was actually issued, so none should be skipped) but keep
+      # candidate's persist_warning_emitted so repeated failures log once,
+      # not once per call.
       candidate = reserve_next_batch(%{state | current: next})
 
       if candidate.durable? do
         {:reply, {:ok, next}, candidate}
       else
-        {:reply, {:error, :not_durable}, state}
+        {:reply, {:error, :not_durable}, %{state | persist_warning_emitted: candidate.persist_warning_emitted}}
       end
     end
   end

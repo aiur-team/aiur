@@ -13,6 +13,7 @@ defmodule Aiur.Boot do
 
   @key {__MODULE__, :start_ms}
   @epoch_key {__MODULE__, :start_epoch_seconds}
+  @started_at_key {__MODULE__, :started_at}
   @run_id_key {__MODULE__, :run_id}
 
   @doc """
@@ -24,12 +25,15 @@ defmodule Aiur.Boot do
   def mark do
     case :persistent_term.get(@key, :unset) do
       :unset ->
-        :persistent_term.put(@key, System.monotonic_time(:millisecond))
         # Wall-clock epoch is needed by subsystems that compare against
         # external timestamps (e.g. GitHub event `created_at` for the
-        # pre-boot drop filter). Stored alongside the monotonic mark so
-        # both readers stay cheap and consistent.
-        :persistent_term.put(@epoch_key, System.os_time(:second))
+        # pre-boot drop filter); `started_at/0` needs sub-second precision
+        # for telemetry. Both derive from the same `DateTime.utc_now()` so
+        # they can never disagree, alongside the monotonic mark.
+        now = DateTime.utc_now()
+        :persistent_term.put(@key, System.monotonic_time(:millisecond))
+        :persistent_term.put(@epoch_key, DateTime.to_unix(now, :second))
+        :persistent_term.put(@started_at_key, now)
         ensure_run_id()
         :ok
 
@@ -45,8 +49,10 @@ defmodule Aiur.Boot do
   """
   @spec remark() :: :ok
   def remark do
+    now = DateTime.utc_now()
     :persistent_term.put(@key, System.monotonic_time(:millisecond))
-    :persistent_term.put(@epoch_key, System.os_time(:second))
+    :persistent_term.put(@epoch_key, DateTime.to_unix(now, :second))
+    :persistent_term.put(@started_at_key, now)
     :persistent_term.put(@run_id_key, generate_run_id())
     :ok
   end
@@ -92,11 +98,16 @@ defmodule Aiur.Boot do
   end
 
   @doc """
-  Wall-clock start time of this run, derived from `epoch_seconds/0`.
+  Sub-second wall-clock start time of this run. Falls back to "now"
+  when `mark/0` hasn't run yet, matching `epoch_seconds/0`'s bypass
+  behavior for tests that skip full application boot.
   """
   @spec started_at() :: DateTime.t()
   def started_at do
-    DateTime.from_unix!(epoch_seconds(), :second)
+    case :persistent_term.get(@started_at_key, :unset) do
+      :unset -> DateTime.utc_now()
+      %DateTime{} = value -> value
+    end
   end
 
   defp ensure_run_id do

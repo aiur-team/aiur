@@ -273,6 +273,22 @@ defmodule Aiur.DecisionValidationTest do
       assert {:ok, decision} = normalize(payload)
       assert [%{kind: :url}] = decision.artifacts
     end
+
+    test "the persisted %{kind:, value:} artifact shape (not just a raw string) is accepted on replay" do
+      # Aiur.DecisionProjection.to_json_safe/1 persists artifacts as
+      # %{"kind" =>, "value" =>} maps, and replay feeds that shape straight
+      # back into normalize/2 — it must not require the raw-string ingress
+      # shape only, or every persisted Decision with an artifact would fail
+      # replay validation and be flagged as corrupt.
+      payload = %{
+        "question" => "Q?",
+        "blocking" => true,
+        "artifacts" => [%{"kind" => "url", "value" => "https://github.com/its-everdred/aiur"}]
+      }
+
+      assert {:ok, decision} = normalize(payload)
+      assert [%{kind: :url, value: "https://github.com/its-everdred/aiur"}] = decision.artifacts
+    end
   end
 
   describe "content_hash/1" do

@@ -1,6 +1,8 @@
 defmodule Aiur.DecisionStoreTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias Aiur.{DecisionPubSub, DecisionStore}
   alias Aiur.Events.Exchange
 
@@ -125,7 +127,7 @@ defmodule Aiur.DecisionStoreTest do
     test "a fresh decision_id requested at a version other than 1 is a version gap", %{dir: dir} do
       pid = start_store!(dir)
       payload = %{"question" => "Q?", "blocking" => true, "version" => 2}
-      assert {:error, {:conflict, {:version_gap, 2}}} = request(pid, payload)
+      assert {:error, {:conflict, {:version_gap, 2, nil}}} = request(pid, payload)
     end
   end
 
@@ -150,6 +152,26 @@ defmodule Aiur.DecisionStoreTest do
       assert replayed.content_hash == accepted.content_hash
       assert DecisionStore.health(pid2) == :writable
     end
+
+    test "a decision with an artifact survives restart without being flagged as corrupt", %{dir: dir} do
+      pid1 = start_store!(dir)
+
+      payload = %{
+        "question" => "Deploy now?",
+        "blocking" => true,
+        "source_id" => "retry-1",
+        "artifacts" => ["https://github.com/its-everdred/aiur"]
+      }
+
+      assert {:ok, %{status: :accepted, decision: accepted}} = request(pid1, payload)
+      assert [%{kind: :url}] = accepted.artifacts
+      GenServer.stop(pid1)
+
+      pid2 = start_store!(dir)
+      assert DecisionStore.health(pid2) == :writable
+      assert {:ok, replayed} = DecisionStore.get(accepted.decision_id, pid2)
+      assert replayed.artifacts == accepted.artifacts
+    end
   end
 
   describe "corruption" do
@@ -166,6 +188,27 @@ defmodule Aiur.DecisionStoreTest do
       assert {:corrupt, 2, _reason} = DecisionStore.health(pid2)
       assert {:ok, ^accepted} = DecisionStore.get(accepted.decision_id, pid2)
       assert {:error, {:store_unavailable, {:corrupt, 2, _reason}}} = request(pid2, payload)
+    end
+  end
+
+  describe "repair mode" do
+    test "a projection write failure during an accept logs and alerts, not just flips health silently", %{dir: dir} do
+      pid = start_store!(dir)
+      assert {:ok, %{status: :accepted}} = request(pid, %{"question" => "Q1?", "blocking" => true})
+
+      # Make the projection's directory unwritable so its NEXT atomic write
+      # (temp-file create + rename) fails, without touching the audit log.
+      File.chmod!(dir, 0o500)
+      on_exit(fn -> File.chmod!(dir, 0o700) end)
+
+      log =
+        capture_log(fn ->
+          assert {:ok, %{status: :accepted}} =
+                   request(pid, %{"question" => "Q2?", "blocking" => true, "source_id" => "other"})
+        end)
+
+      assert log =~ "aiur_decision_store phase=projection_repair_failed"
+      assert {:repair, _reason} = DecisionStore.health(pid)
     end
   end
 

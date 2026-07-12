@@ -214,5 +214,33 @@ defmodule Aiur.Events.IdGeneratorTest do
         GenServer.stop(pid)
       end)
     end
+
+    test "recovers once the counter path becomes writable again, instead of staying stuck forever", %{
+      tmp_dir: tmp_dir
+    } do
+      Process.flag(:trap_exit, true)
+
+      unwritable_dir = Path.join(tmp_dir, "unwritable")
+      File.mkdir_p!(unwritable_dir)
+      File.chmod!(unwritable_dir, 0o500)
+      path = Path.join(unwritable_dir, "event_id")
+      on_exit(fn -> File.chmod!(unwritable_dir, 0o700) end)
+
+      capture_log(fn ->
+        {:ok, pid} = IdGenerator.start_link(name: nil, path: path, batch_size: 2)
+
+        assert {:error, :not_durable} = IdGenerator.reserve_durable_id(pid)
+
+        # The underlying issue resolves (operator fixes permissions) —
+        # a later strict call in the SAME still-open batch must retry
+        # persistence rather than staying permanently refused.
+        File.chmod!(unwritable_dir, 0o700)
+
+        assert {:ok, id} = IdGenerator.reserve_durable_id(pid)
+        assert is_integer(id)
+
+        GenServer.stop(pid)
+      end)
+    end
   end
 end

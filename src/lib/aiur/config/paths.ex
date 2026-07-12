@@ -157,29 +157,11 @@ defmodule Aiur.Config.Paths do
   end
 
   defp contain_within_root(root, candidate) do
-    expanded_root = Path.expand(root)
-    expanded_candidate = Path.expand(candidate)
-    expanded_root_prefix = expanded_root <> "/"
-
-    with {:ok, canonical_root} <- PathSafety.canonicalize(expanded_root),
-         {:ok, canonical_candidate} <- PathSafety.canonicalize(expanded_candidate) do
-      canonical_root_prefix = canonical_root <> "/"
-
-      cond do
-        canonical_candidate == canonical_root ->
-          {:error, :decision_path_equals_root}
-
-        String.starts_with?(canonical_candidate <> "/", canonical_root_prefix) ->
-          {:ok, canonical_candidate}
-
-        String.starts_with?(expanded_candidate <> "/", expanded_root_prefix) ->
-          {:error, :decision_path_symlink_escape}
-
-        true ->
-          {:error, :decision_path_outside_root}
-      end
-    else
-      {:error, _reason} -> {:error, :decision_path_unreadable}
+    case PathSafety.contained?(root, candidate) do
+      {:ok, %{root: same, candidate: same}} -> {:error, :decision_path_equals_root}
+      {:ok, %{candidate: canonical_candidate}} -> {:ok, canonical_candidate}
+      {:error, :outside_root} -> {:error, :decision_path_outside_root}
+      {:error, :unreadable} -> {:error, :decision_path_unreadable}
     end
   end
 end

@@ -146,8 +146,20 @@ defmodule Aiur.DecisionStore do
 
   defp repair_projection(state) do
     case write_projection(state) do
-      :ok -> state
-      {:error, reason} -> %{state | writable?: false, health: {:repair, reason}}
+      :ok ->
+        state
+
+      {:error, reason} ->
+        Logger.error("aiur_decision_store phase=projection_repair_failed reason=#{inspect(reason)}")
+
+        _ =
+          Alerts.emit_custom(
+            "decision_store.repair_failed",
+            "DecisionStore's decisions.json projection failed to write (#{inspect(reason)}); the audit record stays authoritative, but the store is read-only until repaired.",
+            needs_attention: true
+          )
+
+        %{state | writable?: false, health: {:repair, reason}}
     end
   end
 
@@ -228,7 +240,7 @@ defmodule Aiur.DecisionStore do
   end
 
   defp evaluate_fresh(decision, 1), do: {:accept, %{decision | version: 1}}
-  defp evaluate_fresh(_decision, requested_version), do: {:reject, {:version_gap, requested_version}}
+  defp evaluate_fresh(_decision, requested_version), do: {:reject, {:version_gap, requested_version, nil}}
 
   defp evaluate_against_existing(decision, requested_version, existing) do
     cond do

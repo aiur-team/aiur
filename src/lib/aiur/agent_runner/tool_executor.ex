@@ -171,6 +171,9 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
       :deduped ->
         {:error, :event_deduped}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

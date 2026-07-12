@@ -5,16 +5,19 @@ defmodule Aiur.BootTest do
 
   @start_key {Boot, :start_ms}
   @epoch_key {Boot, :start_epoch_seconds}
+  @started_at_key {Boot, :started_at}
   @run_id_key {Boot, :run_id}
 
   setup do
     original_start = :persistent_term.get(@start_key, :unset)
     original_epoch = :persistent_term.get(@epoch_key, :unset)
+    original_started_at = :persistent_term.get(@started_at_key, :unset)
     original_run_id = :persistent_term.get(@run_id_key, :unset)
 
     on_exit(fn ->
       restore(@start_key, original_start)
       restore(@epoch_key, original_epoch)
+      restore(@started_at_key, original_started_at)
       restore(@run_id_key, original_run_id)
     end)
 
@@ -59,8 +62,24 @@ defmodule Aiur.BootTest do
     assert Boot.run_id() == id
   end
 
-  test "started_at/0 derives from epoch_seconds/0" do
+  test "started_at/0 is sub-second precision and consistent with epoch_seconds/0" do
+    :persistent_term.erase(@start_key)
+    :persistent_term.erase(@epoch_key)
+    :persistent_term.erase(@started_at_key)
+
     Boot.mark()
-    assert Boot.started_at() == DateTime.from_unix!(Boot.epoch_seconds(), :second)
+
+    assert %DateTime{microsecond: {_value, precision}} = Boot.started_at()
+    assert precision > 0
+    assert DateTime.to_unix(Boot.started_at(), :second) == Boot.epoch_seconds()
+  end
+
+  test "remark/0 advances started_at/0 together with the other clocks" do
+    Boot.mark()
+    original_started_at = Boot.started_at()
+
+    assert :ok = Boot.remark()
+
+    assert DateTime.compare(Boot.started_at(), original_started_at) != :lt
   end
 end

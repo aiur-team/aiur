@@ -58,14 +58,7 @@ defmodule Aiur.DecisionArtifact do
 
   defp within_any_root?(canonical, safe_roots) do
     Enum.any?(safe_roots, fn root ->
-      case PathSafety.canonicalize(root) do
-        {:ok, canonical_root} ->
-          canonical == canonical_root or
-            String.starts_with?(canonical <> "/", canonical_root <> "/")
-
-        _ ->
-          false
-      end
+      match?({:ok, _}, PathSafety.contained?(root, canonical))
     end)
   end
 
