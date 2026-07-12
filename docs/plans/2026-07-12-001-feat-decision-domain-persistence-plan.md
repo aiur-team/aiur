@@ -530,13 +530,16 @@ pending notification effects from the canonical stream.
   than following an attacker-controlled link outside the selected state root.
 - Encode each accepted event as one bounded JSON object plus newline, append it
   through a raw descriptor, and acknowledge only after descriptor sync.
-- Add a directory-fsync primitive to `Aiur.Fs` and call it once, immediately
-  after the canonical directory and `decisions.ndjson` are first created,
-  so the new directory entry itself is durable — `Aiur.Fs` already fsyncs the
-  file descriptor for durable appends, but never the parent directory, so the
-  very first file's directory entry could be lost on a crash before any later
-  write happens to sync that directory. Only the first-ever creation pays this
-  cost, not every append.
+- Add `Aiur.Fs.sync_filesystem/0` and call it once, immediately after the
+  canonical directory and `decisions.ndjson` are first created, so the new
+  directory entry itself is durable — `Aiur.Fs` already fsyncs the file
+  descriptor for durable appends, but never the parent directory, so the very
+  first file's directory entry could be lost on a crash before any later write
+  happens to sync that directory. The BEAM cannot open a directory as a file
+  descriptor (`:file.open/2` returns `:eisdir` for every mode), so there is no
+  direct per-directory fsync available; `sync_filesystem/0` shells out to the
+  POSIX `sync(1)` command instead, a global barrier rather than a scoped one.
+  Only the first-ever creation pays this cost, not every append.
 - On load, treat a missing file as empty; truncate and sync only bytes following
   the final newline; decode each complete line and re-run it through the same
   request/enrichment schema and invariant validation used at ingress (U2),
