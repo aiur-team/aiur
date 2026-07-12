@@ -5,9 +5,7 @@ defmodule Aiur.GitHub.Issues do
 
   require Logger
   alias Aiur.{Config, GitHub, Issue}
-  alias Aiur.GitHub.{Errors, StatePolicy, Transport}
-
-  @preserved_prefixed_label_suffixes ~w(paused watch)
+  alias Aiur.GitHub.{Errors, Labels, StatePolicy, Transport}
 
   @spec fetch_candidate_issues(keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_candidate_issues(opts \\ []) do
@@ -253,7 +251,7 @@ defmodule Aiur.GitHub.Issues do
   end
 
   defp state_suffix_unless_preserved(suffix),
-    do: unless(preserved_prefixed_label_suffix?(suffix), do: suffix)
+    do: unless(Labels.marker_suffix?(suffix), do: suffix)
 
   defp paused_label?(label_names, prefix) when is_list(label_names) do
     paused_label = normalize_label_name("#{prefix}:paused")
@@ -262,9 +260,6 @@ defmodule Aiur.GitHub.Issues do
       normalize_label_name(name) == paused_label
     end)
   end
-
-  defp preserved_prefixed_label_suffix?(suffix) when is_binary(suffix),
-    do: suffix in @preserved_prefixed_label_suffixes
 
   defp normalize_label_name(label) when is_binary(label),
     do: String.downcase(String.trim(label))

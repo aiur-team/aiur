@@ -146,6 +146,57 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     end
   end
 
+  describe "redispatch_ready?/4" do
+    test "treats the current issue's worker slot as a transferable reservation" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        worker_ssh_hosts: ["worker-a"],
+        worker_max_concurrent_agents_per_host: 1
+      )
+
+      issue = %Issue{id: "issue-1", identifier: "repo#1", selected_backend: "claude"}
+
+      state = %State{
+        running: %{
+          issue.id => %{
+            issue: issue,
+            worker_host: "worker-a",
+            control: %{status: :working}
+          }
+        }
+      }
+
+      assert :ok = Dispatcher.redispatch_ready?(state, issue, "worker-a", now_ms: 1_000)
+      assert state.codex_thrash_budget == %{}
+    end
+
+    test "rejects a swap before teardown when the next restart would trip thrash protection" do
+      issue = %Issue{id: "issue-1", identifier: "repo#1", selected_backend: "claude"}
+
+      state = %State{
+        codex_thrash_budget: %{
+          issue.id => %{window_start_ms: 0, count: 6}
+        }
+      }
+
+      assert {:error, :thrash_circuit_open} =
+               Dispatcher.redispatch_ready?(state, issue, nil, now_ms: 1_000)
+
+      assert get_in(state.codex_thrash_budget, [issue.id, :count]) == 6
+    end
+
+    test "does not silently migrate a remote workspace when its worker is unavailable" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        worker_ssh_hosts: ["worker-a"],
+        worker_max_concurrent_agents_per_host: 1
+      )
+
+      issue = %Issue{id: "issue-1", identifier: "repo#1", selected_backend: "claude"}
+
+      assert {:error, :preferred_worker_unavailable} =
+               Dispatcher.redispatch_ready?(%State{}, issue, "worker-b", now_ms: 1_000)
+    end
+  end
+
   defp restore_app_env(key, nil), do: Application.delete_env(:aiur, key)
   defp restore_app_env(key, value), do: Application.put_env(:aiur, key, value)
 

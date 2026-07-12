@@ -47,7 +47,14 @@ defmodule Aiur.Init.ResumeTest do
     deps = %{detect_repo: fn -> "detected/repo" end}
 
     assert Resume.tracker_from_config(deps, %{"tracker" => %{"kind" => "github"}}) ==
-             %{kind: "github", repo: "detected/repo"}
+             %{kind: "github", repo: "detected/repo", label_prefix: "agent"}
+
+    assert Resume.tracker_from_config(deps, %{
+             "tracker" => %{
+               "kind" => "github",
+               "github" => %{"repo" => "owner/repo", "label_prefix" => "team"}
+             }
+           }) == %{kind: "github", repo: "owner/repo", label_prefix: "team"}
 
     assert Resume.tracker_from_config(deps, %{
              "tracker" => %{"kind" => "linear", "linear" => %{"api_key" => "key", "project_slug" => "slug"}}

@@ -196,6 +196,25 @@ defmodule Aiur.GitHub.IssuesTest do
       assert issue.paused == true
       assert issue.state == "in-progress"
     end
+
+    test "keeps the fallback marker out of workflow state selection" do
+      gh = %{
+        "number" => 13,
+        "title" => "Fallback",
+        "body" => nil,
+        "html_url" => "https://github.com/owner/repo/issues/13",
+        "labels" => [%{"name" => "sym:rate-limit-fallback"}, %{"name" => "sym:in-progress"}],
+        "assignee" => nil,
+        "state" => "open",
+        "created_at" => "2026-01-01T00:00:00Z",
+        "updated_at" => "2026-01-02T00:00:00Z"
+      }
+
+      issue = Issues.normalize_issue(gh, "owner", "repo", "sym")
+
+      assert issue.state == "in-progress"
+      assert "sym:rate-limit-fallback" in issue.labels
+    end
   end
 
   describe "parse_datetime/1" do
