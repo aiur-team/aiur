@@ -254,6 +254,44 @@ defmodule Aiur.Config.SchemaTest do
       assert settings.events.codeowners_refresh_seconds == 7_200
     end
 
+    test "Decisions section defaults supervisor autonomy to denied" do
+      {:ok, settings} = Schema.parse(%{})
+
+      assert settings.decisions.supervisor_allowed_kinds == []
+      assert settings.decisions.supervisor_allow_non_reversible == false
+    end
+
+    test "Decisions section normalizes an explicit supervisor policy" do
+      {:ok, settings} =
+        Schema.parse(%{
+          "decisions" => %{
+            "supervisor_allowed_kinds" => [" Architecture ", "product", "ARCHITECTURE"],
+            "supervisor_allow_non_reversible" => true
+          }
+        })
+
+      assert settings.decisions.supervisor_allowed_kinds == ["architecture", "product"]
+      assert settings.decisions.supervisor_allow_non_reversible == true
+    end
+
+    test "Decisions section rejects unsafe or unbounded supervisor kinds" do
+      invalid_kind_sets = [
+        [""],
+        ["   "],
+        ["architecture\n"],
+        ["architecture\u0000credential"],
+        [String.duplicate("a", 101)],
+        Enum.map(1..101, &"kind-#{&1}")
+      ]
+
+      for kinds <- invalid_kind_sets do
+        assert {:error, {:invalid_workflow_config, message}} =
+                 Schema.parse(%{"decisions" => %{"supervisor_allowed_kinds" => kinds}})
+
+        assert message =~ "decisions.supervisor_allowed_kinds"
+      end
+    end
+
     test "Hooks section parses with defaults" do
       {:ok, settings} = Schema.parse(%{})
       assert settings.hooks.timeout_ms == 600_000
