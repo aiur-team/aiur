@@ -48,7 +48,13 @@ defmodule Aiur.GitHub.RateBudgetTest do
 
   defp observe(name, limit, remaining, reset_at) do
     RateBudget.observe_response(
-      %{headers: %{"x-ratelimit-limit" => Integer.to_string(limit), "x-ratelimit-remaining" => Integer.to_string(remaining), "x-ratelimit-reset" => Integer.to_string(reset_at)}},
+      %{
+        headers: %{
+          "x-ratelimit-limit" => Integer.to_string(limit),
+          "x-ratelimit-remaining" => Integer.to_string(remaining),
+          "x-ratelimit-reset" => Integer.to_string(reset_at)
+        }
+      },
       name
     )
 

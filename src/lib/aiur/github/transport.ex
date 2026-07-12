@@ -5,6 +5,7 @@ defmodule Aiur.GitHub.Transport do
 
   alias Aiur.GitHub
   alias Aiur.GitHub.Errors
+  alias Aiur.GitHub.RateBudget
 
   @base_url "https://api.github.com"
   @graphql_url "#{@base_url}/graphql"
@@ -210,7 +211,7 @@ defmodule Aiur.GitHub.Transport do
   end
 
   defp observe_rate_budget({:ok, response} = result) do
-    Aiur.GitHub.RateBudget.observe_response(response)
+    RateBudget.observe_response(response)
     result
   end
 

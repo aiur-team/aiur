@@ -3,8 +3,7 @@ defmodule Aiur.GitHub.AuthPreflight do
   Startup GitHub authentication preflight diagnostics.
   """
 
-  alias Aiur.GitHub.Errors
-  alias Aiur.GitHub.Transport
+  alias Aiur.GitHub.{Config, Errors, Transport}
 
   @spec preflight_auth(keyword()) :: :ok | {:error, term()}
   def preflight_auth(opts \\ []) do
@@ -90,7 +89,7 @@ defmodule Aiur.GitHub.AuthPreflight do
            detail: detail,
            endpoint: endpoint,
            repo: "#{owner}/#{repo}",
-           token_source: Aiur.GitHub.Config.token_source(),
+           token_source: Config.token_source(),
            request_error: inspect(reason)
          }}
     end
@@ -101,7 +100,7 @@ defmodule Aiur.GitHub.AuthPreflight do
       reason: reason,
       endpoint: endpoint,
       repo: "#{owner}/#{repo}",
-      token_source: Aiur.GitHub.Config.token_source(),
+      token_source: Config.token_source(),
       status: status,
       rate_limit_remaining: Errors.rate_limit_remaining(response),
       rate_limit_reset: Errors.rate_limit_reset(response)
