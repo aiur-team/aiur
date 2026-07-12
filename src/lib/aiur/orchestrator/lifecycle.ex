@@ -20,6 +20,17 @@ defmodule Aiur.Orchestrator.Lifecycle do
   }
 
   @poll_transition_render_delay_ms 20
+  @orchestrator_topics [
+    "ticket.*.pr.review_comment",
+    "ticket.*.issue.commented",
+    "ticket.*.pr.merged",
+    "ticket.*.ci.failed",
+    "ticket.*.ci.passed",
+    "ticket.*.agent.pause.request",
+    "ticket.*.agent.unblocked",
+    "ticket.*.branch.push",
+    "system.*.branch.push"
+  ]
   @empty_agent_totals %{
     input_tokens: 0,
     output_tokens: 0,
@@ -182,16 +193,13 @@ defmodule Aiur.Orchestrator.Lifecycle do
   # before the first tick is seeded.
   defp subscribe_to_orchestrator_topics do
     if Process.whereis(Exchange) do
-      Exchange.subscribe("ticket.*.pr.review_comment")
-      Exchange.subscribe("ticket.*.issue.commented")
-      Exchange.subscribe("ticket.*.pr.merged")
-      Exchange.subscribe("ticket.*.ci.failed")
-      Exchange.subscribe("ticket.*.ci.passed")
-      Exchange.subscribe("ticket.*.agent.pause.request")
-      Exchange.subscribe("ticket.*.branch.push")
-      Exchange.subscribe("system.*.branch.push")
+      Enum.each(@orchestrator_topics, &Exchange.subscribe/1)
     end
 
     :ok
   end
+
+  @doc false
+  @spec orchestrator_topics() :: [String.t()]
+  def orchestrator_topics, do: @orchestrator_topics
 end

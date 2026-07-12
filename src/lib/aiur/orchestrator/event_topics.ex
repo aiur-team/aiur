@@ -28,8 +28,10 @@ defmodule Aiur.Orchestrator.EventTopics do
   defp route_classified(state, {:pause_request, identifier}, _event),
     do: PushRouting.maybe_pause_on_request(state, identifier)
 
-  defp route_classified(state, {:branch_push, blocker_identifier}, %{topic: topic}),
-    do: PushRouting.maybe_resume_blockees_on_push(state, blocker_identifier, topic)
+  defp route_classified(state, {:agent_unblocked, blocker_identifier}, %{topic: topic}),
+    do: PushRouting.maybe_resume_blockees_on_unblocked(state, blocker_identifier, topic)
+
+  defp route_classified(state, {:branch_push, _blocker_identifier}, _event), do: state
 
   defp route_classified(state, {:system_branch_push, branch}, event),
     do: PushRouting.maybe_notify_agents_on_default_branch_push(state, branch, event)
@@ -92,6 +94,14 @@ defmodule Aiur.Orchestrator.EventTopics do
     end
   end
 
+  @spec parse_agent_unblocked_topic(String.t()) :: {:ok, String.t()} | :nomatch
+  def parse_agent_unblocked_topic(topic) do
+    case Regex.run(~r{\Aticket\.([^.]+)\.agent\.unblocked\z}, topic) do
+      [_, identifier] -> {:ok, identifier}
+      _ -> :nomatch
+    end
+  end
+
   @spec parse_system_branch_push_topic(String.t()) :: {:ok, String.t()} | :nomatch
   def parse_system_branch_push_topic(topic) do
     case Regex.run(~r{\Asystem\.([^.]+)\.branch\.push\z}, topic) do
@@ -112,6 +122,7 @@ defmodule Aiur.Orchestrator.EventTopics do
          :nomatch <- tag_topic(:ci_failed, parse_ci_failed_topic(topic)),
          :nomatch <- tag_topic(:ci_passed, parse_ci_passed_topic(topic)),
          :nomatch <- tag_topic(:pause_request, parse_pause_request_topic(topic)),
+         :nomatch <- tag_topic(:agent_unblocked, parse_agent_unblocked_topic(topic)),
          :nomatch <- tag_topic(:branch_push, parse_branch_push_topic(topic)) do
       tag_topic(:system_branch_push, parse_system_branch_push_topic(topic))
     end

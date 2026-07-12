@@ -410,8 +410,8 @@ defmodule Aiur.Orchestrator.PauseResume do
   # automated/blocker auto-resume cannot silently reset the budget: the
   # entry resumes already over the cap and the next overrun tick re-pauses
   # it, which is the runaway safety net — a wedged duration-capped agent
-  # that keeps getting auto-resumed on blocker pushes stays bounded instead
-  # of running forever.
+  # that keeps getting auto-resumed on blocker unblocked signals stays bounded
+  # instead of running forever.
   #
   # Label-override pauses have no special duration semantics; resuming just
   # clears their attribution marker after the normal pause-clock thaw.

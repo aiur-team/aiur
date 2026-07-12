@@ -4588,7 +4588,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
   end
 
   describe "subscribe_for_declared_blocker/2 (called from agent_runner on declare)" do
-    test "blockee gets ticket.<blocker>.branch.push subscription immediately" do
+    test "blockee gets unblock readiness and branch-ref subscriptions immediately" do
       blockee = "BSDB-blockee-#{System.unique_integer([:positive])}"
       blocker = "BSDB-blocker-#{System.unique_integer([:positive])}"
 
@@ -4603,8 +4603,11 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       topics = Enum.map(subs, fn entry -> entry["topic"] || entry[:topic] end)
 
+      assert "ticket.#{blocker}.agent.unblocked" in topics,
+             "blockee must subscribe to explicit unblock readiness"
+
       assert "ticket.#{blocker}.branch.push" in topics,
-             "blockee must subscribe to blocker's branch.push so auto-resume can fire"
+             "blockee must retain the blocker branch ref for fetch and inspection"
     end
 
     test "second call is idempotent (no duplicate subscriptions)" do
@@ -4794,13 +4797,13 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
   end
 
-  describe "ticket.<blocker>.branch.push auto-resumes paused blockees" do
+  describe "ticket.<blocker>.agent.unblocked auto-resumes paused blockees" do
     setup do
       # Isolate subscription persistence to a unique tmp dir. `attach` loads
       # any `<repo>.<identifier>.subscriptions.json` left on disk, and the
       # `unique_integer` identifier can repeat across separate `mix test`
       # runs (the counter resets per VM boot). Without isolation a sibling
-      # test's persisted `ticket.99.branch.push` subscription leaks back in
+      # test's persisted `ticket.99.agent.unblocked` subscription leaks back in
       # and wrongly auto-resumes a blockee that should stay paused.
       tmp_dir =
         Path.join(System.tmp_dir!(), "aiur_blockee_subscr_#{System.unique_integer([:positive])}")
@@ -4835,14 +4838,14 @@ defmodule Aiur.OrchestratorDeactivateTest do
       end
     end
 
-    test "paused blockee subscribed to ticket.99.branch.push flips to :working", %{
+    test "parked blockee ignores branch push then consumes explicit unblocked and resumes", %{
       identifier: identifier,
       fake_pid: fake_pid
     } do
       :ok =
         SubscriptionStore.add_subscription(
           identifier,
-          "ticket.99.branch.push",
+          "ticket.99.agent.unblocked",
           "blocker:auto"
         )
 
@@ -4865,7 +4868,10 @@ defmodule Aiur.OrchestratorDeactivateTest do
         max_concurrent_agents: 6
       }
 
-      next = PushRouting.apply_branch_push(state, "99")
+      after_push = EventTopics.route(state, %{topic: "ticket.99.branch.push"})
+      assert get_in(after_push.running, [issue_id, :control, :status]) == :paused
+
+      next = EventTopics.route(after_push, %{topic: "ticket.99.agent.unblocked"})
       assert get_in(next.running, [issue_id, :control, :status]) == :working
     end
 
@@ -4876,7 +4882,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       :ok =
         SubscriptionStore.add_subscription(
           identifier,
-          "ticket.99.branch.push",
+          "ticket.99.agent.unblocked",
           "blocker:auto"
         )
 
@@ -4899,7 +4905,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         max_concurrent_agents: 6
       }
 
-      next = PushRouting.apply_branch_push(state, "99")
+      next = PushRouting.apply_agent_unblocked(state, "99")
       assert get_in(next.running, [issue_id, :control, :status]) == :working
     end
 
@@ -4907,12 +4913,12 @@ defmodule Aiur.OrchestratorDeactivateTest do
       identifier: identifier,
       fake_pid: fake_pid
     } do
-      # Subscribe to a DIFFERENT blocker's push; the 99 push should be
+      # Subscribe to a DIFFERENT blocker's unblock; the 99 unblock should be
       # treated as not relevant to this entry.
       :ok =
         SubscriptionStore.add_subscription(
           identifier,
-          "ticket.42.branch.push",
+          "ticket.42.agent.unblocked",
           "blocker:auto"
         )
 
@@ -4935,7 +4941,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         max_concurrent_agents: 6
       }
 
-      next = PushRouting.apply_branch_push(state, "99")
+      next = PushRouting.apply_agent_unblocked(state, "99")
       assert get_in(next.running, [issue_id, :control, :status]) == :paused
     end
 
@@ -4948,7 +4954,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       :ok =
         SubscriptionStore.add_subscription(
           identifier,
-          "ticket.99.branch.push",
+          "ticket.99.agent.unblocked",
           "blocker:auto"
         )
 
@@ -4978,7 +4984,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       }
 
       before_ms = System.monotonic_time(:millisecond)
-      next = PushRouting.apply_branch_push(state, "99")
+      next = PushRouting.apply_agent_unblocked(state, "99")
       after_ms = System.monotonic_time(:millisecond)
 
       entry = next.running[issue_id]
@@ -4994,16 +5000,16 @@ defmodule Aiur.OrchestratorDeactivateTest do
              "last_codex_timestamp must be refreshed to ~now() on auto-resume"
     end
 
-    test "blocker's own entry is never resumed against its own push", %{
+    test "blocker's own entry is never resumed against its own unblocked event", %{
       identifier: blocker_identifier,
       fake_pid: fake_pid
     } do
-      # An agent could theoretically be subscribed to its own push topic
+      # An agent could theoretically be subscribed to its own unblock topic
       # (via aiur_subscribe). Defensive: don't resume the publisher itself.
       :ok =
         SubscriptionStore.add_subscription(
           blocker_identifier,
-          "ticket.#{blocker_identifier}.branch.push",
+          "ticket.#{blocker_identifier}.agent.unblocked",
           "manual:agent"
         )
 
@@ -5030,7 +5036,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         max_concurrent_agents: 6
       }
 
-      next = PushRouting.apply_branch_push(state, blocker_identifier)
+      next = PushRouting.apply_agent_unblocked(state, blocker_identifier)
       assert get_in(next.running, [issue_id, :control, :status]) == :paused
     end
   end

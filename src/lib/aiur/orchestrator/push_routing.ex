@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.PushRouting do
   @moduledoc """
   Agent pause-on-request, default-branch push notification, sleeping state, and
-  blocker auto-resume with pending_auto_resume drain.
+  explicit blocker-unblocked auto-resume with pending_auto_resume drain.
   All functions execute inside the orchestrator GenServer process.
   """
 
@@ -20,11 +20,11 @@ defmodule Aiur.Orchestrator.PushRouting do
     GenServer.cast(server, {:mark_sleeping, issue_identifier})
   end
 
-  @spec apply_branch_push(State.t(), String.t()) :: State.t()
-  def apply_branch_push(%State{} = state, blocker_identifier)
+  @spec apply_agent_unblocked(State.t(), String.t()) :: State.t()
+  def apply_agent_unblocked(%State{} = state, blocker_identifier)
       when is_binary(blocker_identifier) do
-    topic = "ticket." <> blocker_identifier <> ".branch.push"
-    maybe_resume_blockees_on_push(state, blocker_identifier, topic)
+    topic = "ticket." <> blocker_identifier <> ".agent.unblocked"
+    maybe_resume_blockees_on_unblocked(state, blocker_identifier, topic)
   end
 
   @spec maybe_pause_on_request(State.t(), String.t() | integer()) :: State.t()
@@ -93,8 +93,8 @@ defmodule Aiur.Orchestrator.PushRouting do
     end
   end
 
-  @spec maybe_resume_blockees_on_push(State.t(), String.t() | integer(), String.t()) :: State.t()
-  def maybe_resume_blockees_on_push(%State{} = state, blocker_identifier, topic) do
+  @spec maybe_resume_blockees_on_unblocked(State.t(), String.t() | integer(), String.t()) :: State.t()
+  def maybe_resume_blockees_on_unblocked(%State{} = state, blocker_identifier, topic) do
     Enum.reduce(state.running, state, fn {_issue_id, entry}, acc ->
       cond do
         not is_map(entry) -> acc
@@ -146,12 +146,12 @@ defmodule Aiur.Orchestrator.PushRouting do
 
   # Resume can fail when the concurrent-agent cap is already full —
   # the blockee would otherwise sit silently paused forever because
-  # the push event is consumed exactly once and the firehose / ls-remote
-  # dedup table prevents a re-emit. Log a warning so operators can see
+  # the explicit unblock event is consumed exactly once. Log a warning so
+  # operators can see
   # the cap is blocking the resume, and stamp a hint on the entry so a
   # future reconcile tick (when a slot opens up) can drain the queue.
   defp attempt_auto_resume(state, entry, identifier, blocker_identifier, topic) do
-    Logger.info("Auto-resume on blocker push: blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}")
+    Logger.info("Auto-resume on blocker unblocked: blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}")
 
     # operator?: false — an automated blocker resume must preserve a
     # duration-capped agent's cumulative overrun (no fresh budget).
@@ -173,7 +173,7 @@ defmodule Aiur.Orchestrator.PushRouting do
 
   # Record a pending_auto_resume marker on the running entry so a
   # future tick (reconcile_pending_auto_resumes/1) can retry once a
-  # slot opens up. Without this the cap-full case loses the push
+  # slot opens up. Without this the cap-full case loses the unblock
   # signal and the blockee stays paused forever.
   defp stamp_pending_auto_resume(state, identifier, blocker_identifier, topic) do
     case State.find_running_by_identifier(state.running, identifier) do
