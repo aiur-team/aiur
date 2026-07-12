@@ -51,6 +51,18 @@ defmodule Aiur.RunTelemetry.DashboardTest do
     assert is_boolean(hd(payload["restarts"])["existing_records"])
   end
 
+  test "renders telemetry inputs through the same reducer without writing an artifact" do
+    assert {:ok, %{html: html, dataset: dataset}} =
+             Dashboard.render_inputs(@fixtures,
+               now: ~U[2026-07-11 00:02:00Z],
+               generated_at: ~U[2026-07-11 16:00:00Z]
+             )
+
+    assert dataset.provenance.record_count > 0
+    assert html =~ ~s(<script id="aiur-data" type="application/json">)
+    assert {:ok, _document} = Floki.parse_document(html)
+  end
+
   test "escapes script-closing input and never references external assets or fetch" do
     {:ok, dataset} = Dataset.build(@fixtures)
 

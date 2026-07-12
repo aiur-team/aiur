@@ -4,6 +4,7 @@ defmodule AiurWeb.PresenterTest do
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Issue
   alias Aiur.Orchestrator
+  alias Aiur.RecentMerge
   alias AiurWeb.Presenter
 
   defp running_entry(issue_id, identifier, status, issue_state \\ "In Progress") do
@@ -109,5 +110,100 @@ defmodule AiurWeb.PresenterTest do
 
     assert [running_row] = payload.running
     assert running_row.open_decision_count == 1
+  end
+
+  test "durable history and outcomes remain visible when the orchestrator is unavailable" do
+    telemetry_path = Path.join(System.tmp_dir!(), "presenter-telemetry-#{System.unique_integer([:positive])}.ndjson")
+    File.write!(telemetry_path, "")
+    on_exit(fn -> File.rm(telemetry_path) end)
+
+    decision = %{
+      decision_id: "dec-history",
+      ticket: %{identifier: "983", title: "OCC-6", url: nil},
+      question: "Ship it?",
+      source_version: 1,
+      changed_at: "2026-07-12T18:00:00Z",
+      change: :requested,
+      actor: %{type: :human_operator, id: "operator-1", label: "Operator"},
+      choice: nil,
+      rationale: nil,
+      dispatch_result: nil,
+      acknowledgement_result: nil,
+      revision_of: nil,
+      superseded_by: nil,
+      revised?: false
+    }
+
+    assert {:ok, merge} =
+             RecentMerge.from_github_event(merged_event(),
+               live?: false,
+               now: ~U[2026-07-12 18:01:00Z]
+             )
+
+    payload =
+      Presenter.state_payload(Module.concat(__MODULE__, :MissingOrchestrator), 5,
+        decision_history_fun: fn -> [decision] end,
+        recent_merge_snapshot_fun: fn ->
+          %{
+            merges: [merge],
+            health: :writable,
+            reconciliation: %{status: :partial, partial?: true, pages_fetched: 5}
+          }
+        end,
+        telemetry_file_fun: fn -> telemetry_path end
+      )
+
+    assert payload.error.code == "snapshot_unavailable"
+    assert payload.decision_history == %{status: :available, entries: [decision], message: nil}
+    assert [recent] = payload.recent_merges.entries
+    assert recent.number == 42
+    assert recent.ticket_id == nil
+    assert payload.recent_merges.reconciliation.partial?
+
+    assert payload.analytics == %{
+             available?: true,
+             path: "/analytics",
+             message: "Open the separate durable telemetry report."
+           }
+  end
+
+  test "an unavailable optional provider does not hide the other durable section" do
+    payload =
+      Presenter.state_payload(Module.concat(__MODULE__, :MissingProvidersOrchestrator), 5,
+        decision_history_fun: fn -> raise "offline" end,
+        recent_merge_snapshot_fun: fn ->
+          %{
+            merges: [],
+            health: :writable,
+            reconciliation: %{status: :complete, partial?: false, pages_fetched: 1}
+          }
+        end,
+        telemetry_file_fun: fn -> "/definitely/missing/telemetry.ndjson" end
+      )
+
+    assert payload.decision_history.status == :unavailable
+    assert payload.recent_merges.status == :available
+    refute payload.analytics.available?
+  end
+
+  defp merged_event do
+    %{
+      "id" => "presenter-merge",
+      "type" => "PullRequestEvent",
+      "repo" => %{"name" => "owner/repo"},
+      "payload" => %{
+        "action" => "closed",
+        "pull_request" => %{
+          "number" => 42,
+          "title" => "Merged feature",
+          "body" => "Repository-level outcome",
+          "html_url" => "https://github.com/owner/repo/pull/42",
+          "merged" => true,
+          "merged_at" => "2026-07-12T18:00:00Z",
+          "head" => %{"ref" => "release/2026-07", "sha" => "head-42"},
+          "merged_by" => %{"login" => "merger"}
+        }
+      }
+    }
   end
 end

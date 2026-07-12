@@ -237,8 +237,13 @@ instead of hard-coded socket names.
 When `server.port` (or CLI `--port`) is set, Aiur exposes:
 
 - LiveView dashboard at `/` — active agents, logs, read-only per-agent log modal
+  plus append-only Decision history and bounded recent repository merges
 - JSON API under `/api/v1/*` for operational debugging (read endpoints; agent-write
   endpoints are disabled unless `observability.dashboard_writable` is set)
+- Read-only telemetry analytics at `/analytics` when the current run has a
+  `telemetry.ndjson` input; this route uses the same dashboard basic auth,
+  reducer, and self-contained renderer as the CLI artifact and is served with
+  `Cache-Control: no-store`
 
 ## Debug run telemetry
 
@@ -284,6 +289,12 @@ The output is one self-contained HTML file with all normalized data, CSS, and
 JavaScript inlined. It can be opened directly or served locally by any backend and
 makes no view-time network requests. Run
 `scripts/aiur-telemetry-dashboard --help` for the complete option list.
+
+While Aiur is running with its browser dashboard enabled, `/analytics` renders
+the current canonical `telemetry.ndjson` through that same reducer and renderer.
+The Operations Dashboard links to it only when the input exists; debug-off runs
+instead show an explicit analytics-unavailable state. The route accepts no input
+path parameter and is never browser-cacheable.
 
 ## Configuration notes
 
