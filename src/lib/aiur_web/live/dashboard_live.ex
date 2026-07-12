@@ -8,6 +8,7 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.{AgentChat, Alerts, DecisionPubSub}
   alias AiurWeb.{Endpoint, ObservabilityPubSub, Presenter}
   @runtime_tick_ms 1_000
+  @payload_reload_debounce_ms 50
 
   @impl true
   def mount(_params, _session, socket) do
@@ -18,6 +19,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:agent_log_modal, nil)
       |> assign(:drafts, %{})
       |> assign(:chat_errors, %{})
+      |> assign(:payload_reload_scheduled?, false)
       |> assign(:writable, dashboard_writable?())
 
     if connected?(socket) do
@@ -37,12 +39,20 @@ defmodule AiurWeb.DashboardLive do
 
   @impl true
   def handle_info(:observability_updated, socket) do
-    {:noreply, reload_payload(socket)}
+    {:noreply, schedule_payload_reload(socket)}
   end
 
   @impl true
   def handle_info({:decision_changed, _decision_id, _version}, socket) do
-    {:noreply, reload_payload(socket)}
+    {:noreply, schedule_payload_reload(socket)}
+  end
+
+  @impl true
+  def handle_info(:reload_payload, socket) do
+    {:noreply,
+     socket
+     |> reload_payload()
+     |> assign(:payload_reload_scheduled?, false)}
   end
 
   @impl true
@@ -660,6 +670,13 @@ defmodule AiurWeb.DashboardLive do
     |> assign(:payload, payload)
     |> assign(:now, DateTime.utc_now())
     |> assign(:agent_log_modal, refresh_agent_log_modal(socket.assigns.agent_log_modal, payload))
+  end
+
+  defp schedule_payload_reload(%{assigns: %{payload_reload_scheduled?: true}} = socket), do: socket
+
+  defp schedule_payload_reload(socket) do
+    Process.send_after(self(), :reload_payload, @payload_reload_debounce_ms)
+    assign(socket, :payload_reload_scheduled?, true)
   end
 
   defp orchestrator do
