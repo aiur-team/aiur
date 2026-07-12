@@ -380,7 +380,7 @@ defmodule Aiur.AgentQueueStore do
       body: Map.get(attrs, :body),
       delivery: normalize_delivery(Map.get(attrs, :delivery, %{})),
       action_id: Map.get(attrs, :action_id),
-      correlation: Map.get(attrs, :correlation),
+      correlation: stable_correlation(Map.get(attrs, :correlation)),
       causal_refs: Map.get(attrs, :causal_refs, [])
     }
 
@@ -388,6 +388,14 @@ defmodule Aiur.AgentQueueStore do
     |> :erlang.term_to_binary([:deterministic])
     |> then(&:crypto.hash(:sha256, &1))
   end
+
+  defp stable_correlation(correlation) when is_map(correlation) do
+    correlation
+    |> Map.delete(:attempt_id)
+    |> Map.delete("attempt_id")
+  end
+
+  defp stable_correlation(correlation), do: correlation
 
   defp normalize_delivery(delivery) when is_map(delivery) do
     %{

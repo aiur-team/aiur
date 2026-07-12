@@ -177,24 +177,8 @@ defmodule Aiur.DecisionProjection do
 
   defp transition(%Decision{} = decision, %DecisionEvent{type: :dispatch_queued} = event) do
     with {:ok, answer} <- require_answer(decision),
-         :ok <- require_answer_event(answer, event),
-         :ok <- require_new_attempt(decision, event.data) do
-      attempt = %{
-        action_id: answer.action_id,
-        attempt_id: event.data.attempt_id,
-        queue_item_id: event.data.queue_item_id,
-        run_id: event.run_id,
-        status: :queued,
-        attempted_at: event.occurred_at,
-        queued_at: event.occurred_at,
-        delivered_at: nil,
-        restored_at: nil,
-        consumed_at: nil,
-        failed_at: nil,
-        failure_reason_class: nil
-      }
-
-      {:ok, %{decision | dispatch_attempts: decision.dispatch_attempts ++ [attempt], delivery_status: :queued}}
+         :ok <- require_answer_event(answer, event) do
+      queue_dispatch_attempt(decision, event)
     end
   end
 
@@ -272,6 +256,49 @@ defmodule Aiur.DecisionProjection do
     end
   end
 
+  defp queue_dispatch_attempt(decision, event) do
+    case Enum.find(decision.dispatch_attempts, &(&1.attempt_id == event.data.attempt_id)) do
+      %{status: :failed, queue_item_id: nil} = failed ->
+        queued = %{
+          failed
+          | queue_item_id: event.data.queue_item_id,
+            run_id: event.run_id,
+            status: :queued,
+            queued_at: event.occurred_at
+        }
+
+        attempts = Enum.map(decision.dispatch_attempts, &if(&1.attempt_id == failed.attempt_id, do: queued, else: &1))
+        {:ok, %{decision | dispatch_attempts: attempts, delivery_status: :queued}}
+
+      nil ->
+        append_queued_dispatch_attempt(decision, event)
+
+      _existing ->
+        {:error, :duplicate_attempt}
+    end
+  end
+
+  defp append_queued_dispatch_attempt(decision, event) do
+    with :ok <- require_new_attempt(decision, event.data) do
+      attempt = %{
+        action_id: event.data.action_id,
+        attempt_id: event.data.attempt_id,
+        queue_item_id: event.data.queue_item_id,
+        run_id: event.run_id,
+        status: :queued,
+        attempted_at: event.occurred_at,
+        queued_at: event.occurred_at,
+        delivered_at: nil,
+        restored_at: nil,
+        consumed_at: nil,
+        failed_at: nil,
+        failure_reason_class: nil
+      }
+
+      {:ok, %{decision | dispatch_attempts: decision.dispatch_attempts ++ [attempt], delivery_status: :queued}}
+    end
+  end
+
   defp fetch_attempt(decision, data) do
     case Enum.find(decision.dispatch_attempts, &(&1.attempt_id == data.attempt_id)) do
       nil ->
@@ -332,6 +359,7 @@ defmodule Aiur.DecisionProjection do
 
   defp require_transport_transition(status, :delivered) when status in [:queued, :restored], do: :ok
   defp require_transport_transition(:delivered, :restored), do: :ok
+  defp require_transport_transition(:failed, :restored), do: :ok
   defp require_transport_transition(:delivered, :consumed), do: :ok
   defp require_transport_transition(status, :failed) when status in [:queued, :restored, :delivered], do: :ok
   defp require_transport_transition(_status, _type), do: {:error, :illegal_transport_transition}

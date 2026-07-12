@@ -3,7 +3,7 @@ defmodule Aiur.DecisionStoreTest do
 
   import ExUnit.CaptureLog
 
-  alias Aiur.{Boot, DecisionEvent, DecisionLog, DecisionPubSub, DecisionStore}
+  alias Aiur.{AlertFeed, Boot, DecisionEvent, DecisionLog, DecisionPubSub, DecisionStore}
   alias Aiur.Events.Exchange
 
   @ticket %{identifier: "979", title: "OCC-1", url: "https://github.com/its-everdred/aiur/issues/979"}
@@ -60,6 +60,7 @@ defmodule Aiur.DecisionStoreTest do
       assert {:ok, ^decision} = DecisionStore.get(decision.decision_id, pid)
       assert DecisionStore.list(pid) == [decision]
       assert {:ok, [^decision]} = DecisionStore.history(decision.decision_id, pid)
+
       assert {:ok, [%DecisionEvent{type: :requested, data: ^decision}]} =
                DecisionStore.audit_history(decision.decision_id, pid)
     end
@@ -247,7 +248,6 @@ defmodule Aiur.DecisionStoreTest do
       assert replayed.artifacts == accepted.artifacts
     end
   end
-
 
   describe "answer outbox" do
     test "persists the answer before dispatch and then records queue acceptance", %{dir: dir} do
@@ -492,6 +492,81 @@ defmodule Aiur.DecisionStoreTest do
       assert {:repair, _reason} = DecisionStore.health(pid)
       refute_receive :unexpected_dispatch, 100
     end
+
+    test "correlated handoff and consumption append idempotent transport evidence", %{dir: dir} do
+      parent = self()
+
+      dispatcher = fn _decision, opts ->
+        send(parent, {:queue_attempt, opts[:attempt_id]})
+        {:ok, %{status: :accepted, item: %{id: 91}}}
+      end
+
+      pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0)
+      assert {:ok, %{decision: decision}} = request(pid, answerable_request("answer-transport"))
+      payload = %{"idempotency_key" => "transport-1", "expected_version" => 1, "option_id" => "ship"}
+      assert {:ok, %{action: action}} = answer(pid, decision.decision_id, payload)
+      assert_receive {:queue_attempt, attempt_id}, 1_000
+      _queued = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :queued))
+
+      item = correlated_queue_item(decision, action, attempt_id, 91)
+      assert {:ok, :accepted} = DecisionStore.record_delivery(item, pid)
+      assert {:ok, :duplicate} = DecisionStore.record_delivery(item, pid)
+
+      assert :ok = DecisionStore.record_transport_async(:consumed, item, nil, pid)
+      consumed = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :consumed))
+      assert consumed.decision_status == :decided
+
+      assert :ok = DecisionStore.record_transport_async(:consumed, item, nil, pid)
+      Process.sleep(20)
+      assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, pid)
+      assert Enum.count(audit, &(audit_type(&1) == :delivered)) == 1
+      assert Enum.count(audit, &(audit_type(&1) == :consumed)) == 1
+    end
+
+    test "durable transport failure opens one stable attention and restoration resolves it", %{dir: dir} do
+      parent = self()
+      original_log_file = Application.get_env(:aiur, :log_file)
+      log_root = Path.join(dir, "alert-log")
+      Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+
+      on_exit(fn ->
+        if original_log_file do
+          Application.put_env(:aiur, :log_file, original_log_file)
+        else
+          Application.delete_env(:aiur, :log_file)
+        end
+      end)
+
+      dispatcher = fn _decision, opts ->
+        send(parent, {:queue_attempt, opts[:attempt_id]})
+        {:ok, %{status: :accepted, item: %{id: 92}}}
+      end
+
+      pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0)
+      assert {:ok, %{decision: decision}} = request(pid, answerable_request("answer-attention"))
+      payload = %{"idempotency_key" => "attention-1", "expected_version" => 1, "option_id" => "ship"}
+      assert {:ok, %{action: action}} = answer(pid, decision.decision_id, payload)
+      assert_receive {:queue_attempt, attempt_id}, 1_000
+      _queued = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :queued))
+
+      item = correlated_queue_item(decision, action, attempt_id, 92)
+      assert {:ok, :accepted} = DecisionStore.record_delivery(item, pid)
+
+      topic = "ticket.979.agent.attention.decision-delivery-#{String.replace(action.action_id, "_", "-")}"
+
+      assert :ok = DecisionStore.record_transport_async(:failed, item, :send_failed, pid)
+      failed = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :failed))
+      assert List.last(failed.dispatch_attempts).failure_reason_class == "send_failed"
+      assert [%{"topic" => ^topic}] = AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true)
+
+      GenServer.stop(pid)
+      pid2 = start_store!(dir, dispatcher: fn _decision, _opts -> {:error, :no_running_agent} end)
+      assert [%{"topic" => ^topic}] = AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true)
+
+      assert :ok = DecisionStore.record_transport_async(:restored, item, nil, pid2)
+      _restored = wait_for_decision(pid2, decision.decision_id, &(&1.delivery_status == :queued))
+      assert AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true) == []
+    end
   end
 
   describe "corruption" do
@@ -595,7 +670,6 @@ defmodule Aiur.DecisionStoreTest do
     end
   end
 
-
   defp answerable_request(source_id) do
     %{
       "question" => "Deploy now?",
@@ -607,6 +681,21 @@ defmodule Aiur.DecisionStoreTest do
 
   defp audit_type(%DecisionEvent{type: type}), do: type
   defp audit_type(%Aiur.Decision{}), do: :requested
+
+  defp correlated_queue_item(decision, action, attempt_id, queue_item_id) do
+    %{
+      id: queue_item_id,
+      target_issue_identifier: decision.ticket.identifier,
+      action_id: action.action_id,
+      correlation: %{
+        decision_id: decision.decision_id,
+        decision_version: action.decision_version,
+        action_id: action.action_id,
+        attempt_id: attempt_id,
+        actor: action.actor
+      }
+    }
+  end
 
   defp wait_for_decision(pid, decision_id, predicate, attempts \\ 100)
 

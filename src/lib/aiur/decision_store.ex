@@ -82,6 +82,23 @@ defmodule Aiur.DecisionStore do
     GenServer.call(server, {:retry_dispatch, decision_id, action_id})
   end
 
+  @doc "Synchronously persist the backend-handoff edge for one correlated queue item."
+  @spec record_delivery(map(), GenServer.server()) :: {:ok, :accepted | :duplicate | :ignored} | {:error, term()}
+  def record_delivery(item, server \\ __MODULE__) when is_map(item) do
+    GenServer.call(server, {:transport_transition, :delivered, item, nil}, @request_timeout)
+  catch
+    :exit, _reason -> {:error, :store_unavailable}
+  end
+
+  @doc "Asynchronously report a later queue settlement without blocking the Orchestrator."
+  @spec record_transport_async(:restored | :consumed | :failed, map(), term(), GenServer.server()) :: :ok
+  def record_transport_async(type, item, reason \\ nil, server \\ __MODULE__)
+      when type in [:restored, :consumed, :failed] and is_map(item) do
+    GenServer.cast(server, {:transport_transition, type, item, reason})
+  catch
+    :exit, _reason -> :ok
+  end
+
   @spec get(String.t(), GenServer.server()) :: {:ok, Decision.t()} | {:error, :not_found}
   def get(decision_id, server \\ __MODULE__) when is_binary(decision_id) do
     GenServer.call(server, {:get, decision_id})
@@ -136,6 +153,7 @@ defmodule Aiur.DecisionStore do
   @impl true
   def handle_continue(:schedule_reconciliation, state) do
     if state.writable? do
+      reproject_failure_attentions(state)
       Process.send_after(self(), :reconcile_dispatches, state.reconcile_delay_ms)
     end
 
@@ -271,6 +289,15 @@ defmodule Aiur.DecisionStore do
     end
   end
 
+  def handle_call({:transport_transition, _type, _item, _reason}, _from, %{writable?: false} = state) do
+    {:reply, {:error, {:store_unavailable, state.health}}, state}
+  end
+
+  def handle_call({:transport_transition, type, item, reason}, _from, state) do
+    {reply, next_state} = apply_transport_transition(state, type, item, reason)
+    {:reply, reply, next_state}
+  end
+
   def handle_call({:get, decision_id}, _from, state) do
     case Map.fetch(state.current, decision_id) do
       {:ok, decision} -> {:reply, {:ok, decision}, state}
@@ -298,6 +325,16 @@ defmodule Aiur.DecisionStore do
 
   def handle_call(:health, _from, state) do
     {:reply, state.health, state}
+  end
+
+  @impl true
+  def handle_cast({:transport_transition, _type, _item, _reason}, %{writable?: false} = state) do
+    {:noreply, state}
+  end
+
+  def handle_cast({:transport_transition, type, item, reason}, state) do
+    {_reply, next_state} = apply_transport_transition(state, type, item, reason)
+    {:noreply, next_state}
   end
 
   defp handle_answer(decision_id, payload, opts, state) do
@@ -574,6 +611,171 @@ defmodule Aiur.DecisionStore do
   defp lifecycle_slug(:acknowledged), do: "acknowledged"
   defp lifecycle_slug(:resolved), do: "resolved"
 
+  defp apply_transport_transition(state, type, item, reason) do
+    case correlated_transport_context(state, item) do
+      {:ok, decision, attempt, context} ->
+        persist_transport_transition(state, decision, attempt, context, type, reason)
+
+      {:ok, :ignored} ->
+        {{:ok, :ignored}, state}
+
+      {:error, reason} ->
+        {{:error, reason}, state}
+    end
+  end
+
+  defp correlated_transport_context(state, item) do
+    correlation = Map.get(item, :correlation)
+    action_id = Map.get(item, :action_id)
+
+    if is_map(correlation) and is_binary(action_id) do
+      with {:ok, context} <- normalize_transport_context(item, correlation, action_id),
+           {:ok, decision} <- fetch_decision(state, context.decision_id),
+           :ok <- validate_transport_decision(decision, context),
+           {:ok, attempt} <- fetch_dispatch_attempt(decision, context) do
+        {:ok, decision, attempt, context}
+      end
+    else
+      {:ok, :ignored}
+    end
+  end
+
+  defp normalize_transport_context(item, correlation, action_id) do
+    context = %{
+      decision_id: correlation_value(correlation, :decision_id),
+      decision_version: correlation_value(correlation, :decision_version),
+      action_id: correlation_value(correlation, :action_id),
+      attempt_id: correlation_value(correlation, :attempt_id),
+      queue_item_id: Map.get(item, :id),
+      target: Map.get(item, :target_issue_identifier)
+    }
+
+    cond do
+      not is_binary(context.decision_id) -> {:error, :invalid_decision_correlation}
+      not (is_integer(context.decision_version) and context.decision_version > 0) -> {:error, :invalid_decision_correlation}
+      context.action_id != action_id -> {:error, :action_mismatch}
+      not is_binary(context.attempt_id) -> {:error, :invalid_decision_correlation}
+      not (is_integer(context.queue_item_id) and context.queue_item_id > 0) -> {:error, :invalid_decision_correlation}
+      not is_binary(context.target) -> {:error, :invalid_decision_correlation}
+      true -> {:ok, context}
+    end
+  end
+
+  defp correlation_value(correlation, key),
+    do: Map.get(correlation, key, Map.get(correlation, Atom.to_string(key)))
+
+  defp validate_transport_decision(decision, context) do
+    cond do
+      decision.ticket.identifier != context.target -> {:error, :ticket_mismatch}
+      is_nil(decision.answer) -> {:error, :answer_missing}
+      decision.answer.action_id != context.action_id -> {:error, :action_mismatch}
+      decision.answer.decision_version != context.decision_version -> {:error, :version_mismatch}
+      true -> :ok
+    end
+  end
+
+  defp fetch_dispatch_attempt(decision, context) do
+    case Enum.find(decision.dispatch_attempts, &(&1.attempt_id == context.attempt_id)) do
+      nil -> {:error, :attempt_not_found}
+      %{queue_item_id: queue_item_id} = attempt when queue_item_id == context.queue_item_id -> {:ok, attempt}
+      _attempt -> {:error, :queue_item_mismatch}
+    end
+  end
+
+  defp persist_transport_transition(state, decision, attempt, context, type, reason) do
+    reason_class = if type == :failed, do: transport_failure_class(reason)
+
+    if duplicate_transport_transition?(attempt, type, reason_class) do
+      {{:ok, :duplicate}, state}
+    else
+      data = %{
+        action_id: context.action_id,
+        attempt_id: context.attempt_id,
+        queue_item_id: context.queue_item_id,
+        reason_class: reason_class
+      }
+
+      case build_and_persist_event(type, decision, data, DateTime.utc_now(), state) do
+        {:ok, next_state, updated} ->
+          next_state = project_delivery_attention(next_state, decision, updated, type)
+          {{:ok, :accepted}, next_state}
+
+        {:error, transition_reason} ->
+          {{:error, transition_reason}, state}
+      end
+    end
+  end
+
+  defp duplicate_transport_transition?(attempt, :delivered, _reason),
+    do: attempt.status in [:delivered, :consumed, :failed] and not is_nil(attempt.delivered_at)
+
+  defp duplicate_transport_transition?(attempt, :restored, _reason),
+    do: attempt.status == :queued and not is_nil(attempt.restored_at)
+
+  defp duplicate_transport_transition?(attempt, :consumed, _reason), do: attempt.status == :consumed
+
+  defp duplicate_transport_transition?(attempt, :failed, reason),
+    do: attempt.status == :failed and attempt.failure_reason_class == reason
+
+  defp transport_failure_class(:response_timeout), do: "response_timeout"
+  defp transport_failure_class(:turn_timeout), do: "turn_timeout"
+  defp transport_failure_class(:send_failed), do: "send_failed"
+  defp transport_failure_class({:turn_start_failed, _reason}), do: "turn_start_failed"
+  defp transport_failure_class({:turn_interrupted, _payload}), do: "turn_interrupted"
+  defp transport_failure_class({:turn_cancelled, _payload}), do: "turn_cancelled"
+  defp transport_failure_class(_reason), do: "turn_failed"
+
+  defp project_delivery_attention(state, _prior, updated, :failed) do
+    emit_failure_attention(updated)
+    state
+  end
+
+  defp project_delivery_attention(state, prior, updated, type)
+       when type in [:dispatch_queued, :restored, :delivered] do
+    if prior.delivery_status == :failed, do: emit_failure_resolution(updated)
+    state
+  end
+
+  defp project_delivery_attention(state, _prior, _updated, _type), do: state
+
+  defp reproject_failure_attentions(state) do
+    state.current
+    |> Map.values()
+    |> Enum.filter(&(&1.delivery_status == :failed and not is_nil(&1.answer)))
+    |> Enum.each(&emit_failure_attention/1)
+
+    :ok
+  end
+
+  defp emit_failure_attention(decision) do
+    reason_class = decision.dispatch_attempts |> List.last() |> Map.get(:failure_reason_class, "delivery_failed")
+
+    Alerts.emit_custom(
+      failure_attention_topic(decision),
+      "Decision answer delivery failed for #{decision.decision_id} (#{reason_class}).",
+      issue: decision.ticket.identifier,
+      reason: "Decision #{decision.decision_id} action #{decision.answer.action_id} remains actionable after #{reason_class}.",
+      needs_attention: true,
+      severity: "warning"
+    )
+  end
+
+  defp emit_failure_resolution(decision) do
+    Alerts.emit_custom(
+      failure_attention_topic(decision) <> ".resolved",
+      "Decision answer delivery recovered for #{decision.decision_id}.",
+      issue: decision.ticket.identifier,
+      reason: "Decision #{decision.decision_id} action #{decision.answer.action_id} delivery recovered.",
+      needs_attention: false,
+      severity: "info"
+    )
+  end
+
+  defp failure_attention_topic(decision) do
+    action_slug = String.replace(decision.answer.action_id, "_", "-")
+    "ticket.#{decision.ticket.identifier}.agent.attention.decision-delivery-#{action_slug}"
+  end
+
   @impl true
   def handle_info(:reconcile_dispatches, state) do
     next_state =
@@ -595,9 +797,14 @@ defmodule Aiur.DecisionStore do
 
   defp maybe_schedule_after_answer(state, %Decision{} = decision, retry_failed?) do
     cond do
-      not state.writable? -> state
-      not dispatchable?(decision, retry_failed?) -> state
-      MapSet.member?(state.dispatching, decision.answer.action_id) -> state
+      not state.writable? ->
+        state
+
+      not dispatchable?(decision, retry_failed?) ->
+        state
+
+      MapSet.member?(state.dispatching, decision.answer.action_id) ->
+        state
 
       true ->
         schedule_dispatch(decision, retry_failed?, state.dispatch_delay_ms)
@@ -626,7 +833,9 @@ defmodule Aiur.DecisionStore do
       end
 
       case Task.start(task) do
-        {:ok, _pid} -> %{state | dispatching: MapSet.put(state.dispatching, answer.action_id)}
+        {:ok, _pid} ->
+          %{state | dispatching: MapSet.put(state.dispatching, answer.action_id)}
+
         {:error, _reason} ->
           send(self(), {:dispatch_result, decision.decision_id, answer.action_id, attempt_id, {:error, :task_unavailable}})
           %{state | dispatching: MapSet.put(state.dispatching, answer.action_id)}
@@ -657,8 +866,9 @@ defmodule Aiur.DecisionStore do
          {:ok, decision} <- fetch_decision(state, decision_id),
          %DecisionAnswer{action_id: ^action_id} <- decision.answer do
       case result do
-        {:ok, %{item: %{id: queue_item_id}}} when is_integer(queue_item_id) and queue_item_id > 0 ->
-          settle_queue_acceptance(state, decision, action_id, attempt_id, queue_item_id)
+        {:ok, %{status: status, item: %{id: queue_item_id} = item}}
+        when status in [:accepted, :duplicate, :retried] and is_integer(queue_item_id) and queue_item_id > 0 ->
+          settle_queue_result(state, decision, action_id, attempt_id, status, item)
 
         {:error, reason} ->
           settle_dispatch_failure(state, decision, action_id, attempt_id, reason)
@@ -671,13 +881,81 @@ defmodule Aiur.DecisionStore do
     end
   end
 
-  defp settle_queue_acceptance(state, decision, action_id, attempt_id, queue_item_id) do
-    data = %{action_id: action_id, attempt_id: attempt_id, queue_item_id: queue_item_id}
+  defp settle_queue_result(state, decision, action_id, attempt_id, :retried, item) do
+    restored_attempt_id = item_attempt_id(item) || attempt_id
+
+    data = %{
+      action_id: action_id,
+      attempt_id: restored_attempt_id,
+      queue_item_id: item.id
+    }
+
+    case build_and_persist_event(:restored, decision, data, DateTime.utc_now(), state) do
+      {:ok, next_state, updated} ->
+        next_state
+        |> project_delivery_attention(decision, updated, :restored)
+        |> then(&%{&1 | retry_counts: Map.delete(&1.retry_counts, action_id)})
+
+      {:error, reason} ->
+        lifecycle_append_failed(state, :restored, reason)
+    end
+  end
+
+  defp settle_queue_result(state, decision, action_id, attempt_id, _status, item) do
+    accepted_attempt_id = item_attempt_id(item) || attempt_id
+    settle_queue_acceptance(state, decision, action_id, accepted_attempt_id, item)
+  end
+
+  defp item_attempt_id(item) do
+    case Map.get(item, :correlation) do
+      correlation when is_map(correlation) -> correlation_value(correlation, :attempt_id)
+      _other -> nil
+    end
+  end
+
+  defp settle_queue_acceptance(state, decision, action_id, attempt_id, item) do
+    data = %{action_id: action_id, attempt_id: attempt_id, queue_item_id: item.id}
 
     case build_and_persist_event(:dispatch_queued, decision, data, DateTime.utc_now(), state) do
-      {:ok, next_state, _updated} -> %{next_state | retry_counts: Map.delete(next_state.retry_counts, action_id)}
-      {:error, reason} -> lifecycle_append_failed(state, :dispatch_queued, reason)
+      {:ok, next_state, updated} ->
+        next_state
+        |> project_delivery_attention(decision, updated, :dispatch_queued)
+        |> then(&%{&1 | retry_counts: Map.delete(&1.retry_counts, action_id)})
+        |> reconcile_queue_snapshot(updated, item, data)
+
+      {:error, reason} ->
+        lifecycle_append_failed(state, :dispatch_queued, reason)
     end
+  end
+
+  defp reconcile_queue_snapshot(state, decision, %{status: :delivered}, data) do
+    persist_snapshot_transitions(state, decision, data, [:delivered])
+  end
+
+  defp reconcile_queue_snapshot(state, decision, %{status: :consumed}, data) do
+    persist_snapshot_transitions(state, decision, data, [:delivered, :consumed])
+  end
+
+  defp reconcile_queue_snapshot(state, decision, %{status: :failed} = item, data) do
+    persist_snapshot_transitions(state, decision, Map.put(data, :reason_class, transport_failure_class(Map.get(item, :failure_reason))), [:failed])
+  end
+
+  defp reconcile_queue_snapshot(state, _decision, _item, _data), do: state
+
+  defp persist_snapshot_transitions(state, decision, data, types) do
+    Enum.reduce_while(types, {state, decision}, fn type, {state_acc, decision_acc} ->
+      event_data = if type == :failed, do: data, else: Map.delete(data, :reason_class)
+
+      case build_and_persist_event(type, decision_acc, event_data, DateTime.utc_now(), state_acc) do
+        {:ok, next_state, updated} ->
+          next_state = project_delivery_attention(next_state, decision_acc, updated, type)
+          {:cont, {next_state, updated}}
+
+        {:error, reason} ->
+          {:halt, {lifecycle_append_failed(state_acc, type, reason), decision_acc}}
+      end
+    end)
+    |> elem(0)
   end
 
   defp settle_dispatch_failure(state, decision, action_id, attempt_id, reason) do

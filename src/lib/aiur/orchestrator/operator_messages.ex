@@ -289,36 +289,36 @@ defmodule Aiur.Orchestrator.OperatorMessages do
 
   @spec mark_queue_item_consumed_call(State.t(), integer()) :: {:reply, :ok, State.t()}
   def mark_queue_item_consumed_call(%State{} = state, item_id) when is_integer(item_id) do
-    update_queue_store(state, &AgentQueueStore.mark_consumed(&1, item_id))
+    update_queue_store(state, &AgentQueueStore.mark_consumed(&1, item_id), :consumed)
   end
 
   @spec restore_queue_item_pending_call(State.t(), integer()) :: {:reply, :ok, State.t()}
   def restore_queue_item_pending_call(%State{} = state, item_id) when is_integer(item_id) do
-    update_queue_store(state, &AgentQueueStore.restore_pending(&1, item_id))
+    update_queue_store(state, &AgentQueueStore.restore_pending(&1, item_id), :restored)
   end
 
   @spec mark_queue_item_failed_call(State.t(), integer(), term()) :: {:reply, :ok, State.t()}
   def mark_queue_item_failed_call(%State{} = state, item_id, reason) when is_integer(item_id) do
-    update_queue_store(state, &AgentQueueStore.mark_failed(&1, item_id, reason))
+    update_queue_store(state, &AgentQueueStore.mark_failed(&1, item_id, reason), :failed, reason)
   end
 
   @spec consume_delivered_queue_items_call(State.t(), String.t()) :: {:reply, :ok, State.t()}
   def consume_delivered_queue_items_call(%State{} = state, issue_identifier)
       when is_binary(issue_identifier) do
-    update_queue_store(state, &AgentQueueStore.consume_delivered(&1, issue_identifier))
+    update_queue_store(state, &AgentQueueStore.consume_delivered(&1, issue_identifier), :consumed)
   end
 
   @spec restore_delivered_queue_items_call(State.t(), String.t()) :: {:reply, :ok, State.t()}
   def restore_delivered_queue_items_call(%State{} = state, issue_identifier)
       when is_binary(issue_identifier) do
-    update_queue_store(state, &AgentQueueStore.restore_delivered(&1, issue_identifier))
+    update_queue_store(state, &AgentQueueStore.restore_delivered(&1, issue_identifier), :restored)
   end
 
   @spec fail_delivered_queue_items_call(State.t(), String.t(), term()) ::
           {:reply, :ok, State.t()}
   def fail_delivered_queue_items_call(%State{} = state, issue_identifier, reason)
       when is_binary(issue_identifier) do
-    update_queue_store(state, &AgentQueueStore.fail_delivered(&1, issue_identifier, reason))
+    update_queue_store(state, &AgentQueueStore.fail_delivered(&1, issue_identifier, reason), :failed, reason)
   end
 
   @doc false
@@ -508,8 +508,9 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     {:reply, reply, %{state | queue_store: queue_store}}
   end
 
-  defp update_queue_store(%State{} = state, update) when is_function(update, 1) do
-    {queue_store, _items} = update.(state.queue_store)
+  defp update_queue_store(%State{} = state, update, transition, reason \\ nil) when is_function(update, 1) do
+    {queue_store, items} = update.(state.queue_store)
+    items |> List.wrap() |> Enum.each(&Aiur.DecisionStore.record_transport_async(transition, &1, reason))
     {:reply, :ok, %{state | queue_store: queue_store}}
   end
 

@@ -9,6 +9,7 @@ defmodule Aiur.AgentQueueTest do
         decision_id: "dec_123",
         decision_version: 2,
         action_id: "act_123",
+        attempt_id: "act_123:1",
         actor: %{kind: :operator, id: "operator-1"}
       },
       overrides
@@ -145,7 +146,6 @@ defmodule Aiur.AgentQueueTest do
     assert pending_item.id == second.id
   end
 
-
   describe "correlated operator-message idempotency" do
     test "a fresh action produces one pending item with structured correlation" do
       assert {:ok, store, item, :accepted} =
@@ -204,18 +204,24 @@ defmodule Aiur.AgentQueueTest do
       {store, failed} = AgentQueueStore.mark_failed(store, item.id, :agent_unavailable)
       assert failed.status == :failed
 
+      retry_attrs =
+        correlated_message("Ship the approved option",
+          correlation: decision_correlation(%{attempt_id: "act_123:2"})
+        )
+
       assert {:ok, retried_store, retried, :retried} =
-               AgentQueueStore.enqueue_correlated(store, attrs, retry_failed: true)
+               AgentQueueStore.enqueue_correlated(store, retry_attrs, retry_failed: true)
 
       assert retried.id == item.id
       assert retried.status == :pending
       assert retried.failed_at == nil
       assert retried.failure_reason == nil
+      assert retried.correlation.attempt_id == "act_123:1"
       assert [%{id: id}] = AgentQueueStore.list_pending(retried_store, "MT-981")
       assert id == item.id
 
       assert {:ok, ^retried_store, duplicate, :duplicate} =
-               AgentQueueStore.enqueue_correlated(retried_store, attrs, retry_failed: true)
+               AgentQueueStore.enqueue_correlated(retried_store, retry_attrs, retry_failed: true)
 
       assert duplicate.id == item.id
     end
@@ -456,7 +462,6 @@ defmodule Aiur.AgentQueueTest do
     assert claimed_first.id == first.id
     assert claimed_second.id == second.id
   end
-
 
   defp assert_same_correlated_item(store, attrs, expected) do
     assert {:ok, ^store, replayed, :duplicate} = AgentQueueStore.enqueue_correlated(store, attrs)
