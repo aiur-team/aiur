@@ -21,6 +21,28 @@ recommendations in
    BO-011; DASH-003/BO-018 and DASH-001/BO-008 as contract deps).
 5. Add an executable owner for /aiur-build automation verification.
 
+## Operator decisions recorded 2026-07-13
+
+- **Single Build Order (pending final review):** the operator prefers one
+  consolidated Build Order containing every ticket in the program (all BO +
+  DASH work) so agents parallelize across the whole graph. The plan-preview
+  artifact was consolidated to one 54-member graph for review; restructuring
+  root membership in the pack (root children, denominators, capstone
+  semantics) awaits the operator's review of that preview. This also signals
+  ledger question 1 toward "keep the accounting family included" (the two
+  human Claude-protocol gates inside it still need owners).
+- **Epic labels are the planner's choice:** docs/frontend/backend/infra were
+  prototype examples. This program's preview uses plan-graph / runtime /
+  dashboard-ui / accounting / platform. The /aiur-build skill now instructs
+  planners to choose 3–6 fitting lanes, fold one-ticket lanes, and key icons
+  from the BO_ICONS line-art library.
+- **Plan breakdowns are product scope:** per-phase and per-epic count/point
+  breakdowns ship on the real Build Order page — added as BO-020 (validated,
+  0 errors) with BO-015 capstone coverage; root grew to twenty members, 56
+  issues / 105 blocker edges at publication.
+- **Skill delivery = merge PR #1065** when planning wraps (constraint on the
+  prior run is gone); branch reconciled with main and green.
+
 ## Commands or Access Needed
 
 - Rotate the dashboard Basic Auth credential pasted into chat. It will not be
