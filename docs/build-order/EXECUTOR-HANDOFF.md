@@ -18,13 +18,13 @@ MERGEABLE. Draft PR #1064 carries this pack.
 **Ordered pre-run checklist:**
 
 1. **Operator decisions** (see `questions.md`, "Questions for Kevin" plus the
-   2026-07-13 decisions section): the accounting-family slice, the
-   publication-ceremony scope, merge candidates, structural parallelism
-   changes, an /aiur-build verification owner — and above all the
-   **single-Build-Order consolidation**: the operator prefers one root
-   containing every ticket (all BO + DASH) so agents parallelize across the
-   whole graph. If confirmed, restructure membership, denominators, and this
-   handoff's "separate tracks" language before publication.
+   2026-07-13 decisions section): the **single-Build-Order consolidation is
+   DONE** — one root contains every ticket (all 54 BO + DASH members) so
+   agents parallelize across the whole graph; membership, denominators, and
+   this handoff reflect it, and ledger question 1 is resolved as "keep — the
+   accounting family is included in the consolidated graph". Still pending:
+   the publication-ceremony scope, merge candidates, structural parallelism
+   changes, and an /aiur-build verification owner.
 2. **Merge PR #1065 into `main` first** (operator-approved 2026-07-13; the
    old wait-for-run constraint is lifted). The skills must be on `main`
    before Build Order work is dispatched. Verify `/aiur-build`, `/aiur-run`,
@@ -71,14 +71,14 @@ implement tickets, or add `agent:todo`.
 
 The immutable receipt and final verifier attest the publication-finalization
 snapshot: all 56 issues are open and unlocked, have their receipt-bound
-titles/bodies/full labels, the root has exactly twenty BO children, every
-non-root has no children, and all 105 blockers are exact. Run that full verifier
+titles/bodies/full labels, the root has exactly 54 children, every
+non-root has no children, and all 107 blockers are exact. Run that full verifier
 immediately before the first execution mutation. Once the authorized run
 begins, later lifecycle changes are legitimate runtime truth and do not rewrite
 the receipt: gate resolution may update live issues, the skill-delivery issue
-may close, and BO issues may acquire `agent:*` labels. Record and resolve both
+may close, and member issues may acquire `agent:*` labels. Record and resolve both
 external gates while the skill issue is still open; only after both gates are
-proven may the Executor close the skill issue and dispatch BO work. Never close
+proven may the Executor close the skill issue and dispatch member work. Never close
 the skill issue or add dispatch labels first and then attempt to use the now
 historical OPEN receipt as though it were a fresh publication snapshot.
 
@@ -92,10 +92,12 @@ historical OPEN receipt as though it were a fresh publication snapshot.
 - GitHub root: resolve live by the hidden Build Order root marker; do not trust
   a copied pending number
 
-Deliver the twenty-ticket authenticated, GitHub-planning-read-only Build Order
-feature. GitHub owns current plan facts; Aiur owns runtime facts. The thirty-four
-dashboard companions, Linear #1067, skill-delivery work and deferred findings
-are separate tracks and cannot change this run's denominator or ETA.
+Deliver the consolidated 54-ticket program: the authenticated,
+GitHub-planning-read-only Build Order feature plus the dashboard companion
+members, all direct children of one root (operator decision 2026-07-13).
+GitHub owns current plan facts; Aiur owns runtime facts. Linear #1067,
+skill-delivery work and deferred findings remain outside the root and cannot
+change this run's 54-member denominator or ETA.
 
 ## Required startup
 
@@ -105,7 +107,8 @@ are separate tracks and cannot change this run's denominator or ETA.
    - `docs/build-order/05-technical-decisions.md`
    - `docs/build-order/build-order.json`
    - every `tickets[].document` path in
-     `docs/build-order/build-order.json` (BO-001 through BO-020)
+     `docs/build-order/build-order.json` (BO-001 through BO-020 under
+     `tickets/` and DASH-001 through DASH-034 under `companion-tickets/`)
    - `docs/build-order/validation-report.md`
    - `docs/build-order/github-publication.md`
 2. Use `/aiur-run`, not the retired `/aiur-loop` workflow. Verify the loaded
@@ -119,11 +122,12 @@ are separate tracks and cannot change this run's denominator or ETA.
    requery repository instructions, configured integration branch, the GitHub
    root/members/blockers/full labels/open+unlocked state, active PRs, CI and
    Aiur status. Never use the planning JSON as fresher live GitHub truth.
-5. Queue only approved BO members under explicit user authority. Companion
-   issues remain inactive unless separately authorized; their shared
+5. Queue only approved members of the consolidated root under explicit user
+   authority. The shared
    predecessor baseline is recorded as resolved (`origin/main` at
    `9849f32963c2a65367bce565b3f5ede3777c218f`), and any ticket-specific
-   provider gate must still be resolved.
+   provider gate (GATE-003 on DASH-019, GATE-004 on DASH-013) must still be
+   resolved before those tickets are pickable.
 
 ## External pre-dispatch gates
 
@@ -163,11 +167,12 @@ Aiur progress, including 100%, never clears a GitHub blocker.
 
 ## Initial graph and capacity
 
-After both external gates resolve, start BO-004 and BO-008 in parallel. BO-001
+After both external gates resolve, start BO-004, BO-008, DASH-006, DASH-017,
+and DASH-018 in parallel. BO-001
 and BO-017 follow BO-004. BO-002 follows BO-001; BO-003 follows BO-002; BO-005
 follows BO-017. BO-003, BO-005, BO-016, and BO-019 serialize on the
 application-supervision seam wherever hard dependencies do not already order
-them; BO-005 also serializes with companion DASH-029 on observation-envelope
+them; BO-005 also serializes with DASH-029 on observation-envelope
 consumption. BO-006 follows BO-005. BO-007 follows BO-001, BO-003, and BO-005.
 BO-009 follows BO-001 and BO-008; BO-010 follows BO-008 and BO-009. BO-016
 follows BO-004 and owns configured-repository ticket detail. BO-019 follows
@@ -177,21 +182,22 @@ BO-018 and adds Build Order relationships and truthful destination links.
 BO-012 follows BO-003, BO-007, BO-010, and BO-011; BO-013 follows BO-008 and
 BO-012; BO-014 follows BO-008 and BO-013. BO-020 follows BO-003 and BO-012 and
 serializes with BO-013/BO-014 on the shared Build Order route surface. BO-015
-follows BO-006, BO-014, and BO-020.
+follows BO-006, BO-014, BO-020, DASH-023, and DASH-033.
 
-If separately authorized companion work is active, honor its companion-owned
-cross-pack serialization: DASH-001 with BO-012, DASH-023 with BO-013/014, and
+The DASH members carry the same in-graph serialization: DASH-001 with BO-012
+on the OCC route/navigation shell, DASH-023 with BO-013/014 on the Build
+Order route surface, and
 DASH-029 with BO-005. DASH-018/019 serialize on the Claude process-lifecycle
 adapter. DASH-004/019 depend on BO-004's configured-repository identity. The
-eight supervised companion services—DASH-002/009/012/018/019/024/025/026—also
-declare every independently ready same-pack and cross-pack serialization pair
+eight supervised member services—DASH-002/009/012/018/019/024/025/026—also
+declare every independently ready serialization pair
 against BO-003/005/016/019 on the central application supervision tree. Hard
 dependencies already order the omitted pairs.
 
 Derive current readiness from GitHub native blockers, ticket lifecycle,
 declared serialization and real capacity. Phase is only a rollout/display hint.
 Maximize progress against ready critical-path work, not raw active count. Do not
-activate companions or deferred findings to keep slots busy.
+activate deferred findings to keep slots busy.
 
 ## Review, rework and convergence
 
@@ -269,12 +275,15 @@ irrelevant source context.
 
 ## Terminal condition
 
-Stop only when BO-001 through BO-020 are implemented, reviewed, green on the
+Stop only when all 54 members — BO-001 through BO-020 and DASH-001 through
+DASH-034 — are implemented, reviewed, green on the
 current configured integration branch, merged, documented, cleaned up and
 proven after merge.
 
 BO-015 owns the acceptance matrix, real published-root dogfood, synthetic
-cycle/invalid/degraded/20/50/100 fixtures and post-merge smoke. The Executor
+cycle/invalid/degraded/20/50/100 fixtures and post-merge smoke, and closes the
+root only after DASH-033's dashboard-parity proof and the Build Order
+acceptance evidence both land. The Executor
 runs the canonical real CLI/TUI flow from the Executor repository root because
 issue workspaces cannot bypass the `--test` guard. Proof also covers the
 authenticated browser, selection/deep links, LKG degradation, live activity,

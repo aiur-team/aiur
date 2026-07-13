@@ -23,14 +23,14 @@ recommendations in
 
 ## Operator decisions recorded 2026-07-13
 
-- **Single Build Order (pending final review):** the operator prefers one
+- **Single Build Order (decided and executed):** the operator decided on one
   consolidated Build Order containing every ticket in the program (all BO +
-  DASH work) so agents parallelize across the whole graph. The plan-preview
-  artifact was consolidated to one 54-member graph for review; restructuring
-  root membership in the pack (root children, denominators, capstone
-  semantics) awaits the operator's review of that preview. This also signals
-  ledger question 1 toward "keep the accounting family included" (the two
-  human Claude-protocol gates inside it still need owners).
+  DASH work) so agents parallelize across the whole graph, and the pack now
+  implements it — all 54 tickets are direct members of the one root in
+  `build-order.json`, denominators and capstone semantics updated (DEC-014).
+  Ledger question 1 (accounting family) is resolved as **keep — included in
+  the consolidated graph**; its two human Claude-protocol gates (GATE-003 on
+  DASH-019, GATE-004 on DASH-013) remain visible in-graph blockers.
 - **Epic labels are the planner's choice:** docs/frontend/backend/infra were
   prototype examples. This program's preview uses plan-graph / runtime /
   dashboard-ui / accounting / platform. The /aiur-build skill now instructs
@@ -38,8 +38,8 @@ recommendations in
   from the BO_ICONS line-art library.
 - **Plan breakdowns are product scope:** per-phase and per-epic count/point
   breakdowns ship on the real Build Order page — added as BO-020 (validated,
-  0 errors) with BO-015 capstone coverage; root grew to twenty members, 56
-  issues / 105 blocker edges at publication.
+  0 errors) with BO-015 capstone coverage; after consolidation the root holds
+  54 members, 56 issues / 107 blocker edges at publication.
 - **Skill delivery = merge PR #1065** when planning wraps (constraint on the
   prior run is gone); branch reconciled with main and green.
 

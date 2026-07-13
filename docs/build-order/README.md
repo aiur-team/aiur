@@ -15,10 +15,11 @@ contracts. It does not implement Build Order, launch Aiur, or dispatch work.
 - Plan version: 1
 - Build Order ID: `its-everdred/aiur:build-order-dashboard`
 - Researched code: `9849f32963c2a65367bce565b3f5ede3777c218f`
-- Build Order: 19 executable/capstone tickets, 71 points
-- Standalone dashboard companions: 34 tickets, 111 points
-- GitHub graph: 56 issues including the root and the skill-delivery issue,
-  105 native blocker edges
+- One consolidated Build Order (operator decision 2026-07-13): 54 members —
+  20 BO tickets (73 points) plus 34 DASH tickets (111 points) — across five
+  lanes (plan-graph, runtime, dashboard-ui, accounting, platform)
+- GitHub graph: 56 issues — 54 members plus the root and the skill-delivery
+  issue — with 107 native blocker edges
 - GitHub materialization: mechanically valid; two clean semantic passes and
   final reconciliation remain pending
 - Dispatch: prohibited in this planning run; never add `agent:todo`
@@ -43,9 +44,9 @@ selected-order integration into independently verifiable work.
    [usage/accounting decision](04-usage-accounting.md)
 4. [Technical decisions](05-technical-decisions.md)
 5. [Implementation plan](../plans/2026-07-12-005-feat-build-order-dashboard-plan.md)
-6. [Canonical Build Order baseline](build-order.json) and [member tickets](tickets/)
-7. [Standalone companion index](dashboard-companions.md) and
-   [companion baseline](dashboard-companions.json)
+6. [Canonical Build Order baseline](build-order.json) and member tickets in
+   [tickets/](tickets/) and [companion-tickets/](companion-tickets/)
+7. [Companion history and ownership boundaries](dashboard-companions.md)
 8. [Auxiliary publication manifest](publication.json)
 9. [Validation report](validation-report.md)
 10. [Publication receipt](github-publication.md)
@@ -92,18 +93,18 @@ graph TD
   B14 --> B15
 ```
 
+The diagram shows the BO spine; the canonical baseline renders all 54 members.
 Phase is presentation and rollout guidance, not a barrier. Native GitHub hard
 dependencies, ticket state, declared serialization conflicts and current
-capacity determine readiness. BO-003, BO-005, BO-016, and BO-019 serialize on
-the application-supervision tree wherever hard dependencies do not already
-order them. When the separately authorized companion pack runs, DASH-002,
+capacity determine readiness. BO-003, BO-005, BO-016, BO-019, DASH-002,
 DASH-009, DASH-012, DASH-018, DASH-019, DASH-024, DASH-025, and DASH-026
-declare the remaining cross-pack and same-pack serialization pairs on that
-same central bootstrap surface.
+declare symmetric serialization pairs on the central application-supervision
+bootstrap surface wherever hard dependencies do not already order them.
 
-BO-004 and BO-008 are the independent initial implementation nodes;
-none is ready until both external gates are recorded as resolved on the live
-root. The integration baseline is resolved — `origin/main` at
+BO-004, BO-008, DASH-006, DASH-017, and DASH-018 are the independent initial
+implementation nodes; no BO node is ready until both external gates are
+recorded as resolved on the live root, and DASH-013/019 additionally wait on
+their named Claude-protocol gates (GATE-004/GATE-003). The integration baseline is resolved — `origin/main` at
 `9849f32963c2a65367bce565b3f5ede3777c218f` contains the completed OCC
 predecessor — while the bounded Executor skills remain isolated in PR #1065;
 the skill gate may not be inferred away.
@@ -125,12 +126,14 @@ pixel-perfect or architectural mandate.
 
 ## Finite boundary
 
-Build Order finishes only when BO-001 through BO-020 are implemented, reviewed,
+Build Order finishes only when all 54 members — BO-001 through BO-020 and
+DASH-001 through DASH-034 — are implemented, reviewed,
 green on the current configured integration branch, merged, documented,
 cleaned up and proven after merge through the real CLI plus authenticated
-browser workflow. BO-015 owns the acceptance matrix and root closure.
+browser workflow. BO-015 owns the acceptance matrix and root closure, and
+DASH-033 is the in-graph dashboard-parity proof it depends on.
 
-The thirty-four dashboard companions, Linear parity #1067, skill-delivery tracking,
+Linear parity #1067, skill-delivery tracking,
 deferred findings and optimizations do not change that denominator or ETA.
 During execution, contained review findings return to the existing ticket;
 only an independent P0/P1 acceptance blocker can expand the active feature.
@@ -139,31 +142,30 @@ work outpaces completion, promotion freezes until the bounded feature lands.
 
 ## Publication boundary
 
-Materialize one non-dispatchable root plus twenty direct native sub-issues.
+Materialize one non-dispatchable root plus all 54 direct native sub-issues.
 Each member receives exactly one `complexity:N`, `model:codex`, one `phase:N`
 and one `build-lane:*`; the root receives only `build-order` from this label
-family. Materialize the thirty-four companions separately with complexity and
-`model:codex`, no Build Order parent/phase/lane, and their real native blockers.
+family.
 
-Every one of the 55 titles comes from its approved document H1, and every body
+Every one of the 56 titles comes from its approved document H1, and every body
 links the real immutable approval commit and carries one schema-2 logical-ID
 marker. After publication, requery node IDs, exact titles, bodies,
 exact `OPEN` and unlocked state, membership, hard relationships, full labels,
 parenthood, non-root subissue absence, and the uniquely
 marked pending reconciliation comment. Run both the isolated `/aiur-build`
 canonical validator and `scripts/validate_publication.py`. The canonical
-validator owns the BO membership/label/dependency receipt; the publication
-validator proves exact companion coverage, standalone root/skill/companion
+validator owns the membership/label/dependency receipt for all 54 members;
+the publication validator proves standalone root/skill
 parenthood, observed labels, expected-versus-observed exact titles, body
-markers/hashes, companion and external-skill
+markers/hashes, the external-skill
 blocker edges, approval identity, and structured pending-comment evidence. No
 newly published issue may have any `agent:*` state.
 
-The immutable materialization uses core receipt v3, companion/auxiliary receipt
-v2, and bundle v2. The final verifier derives its expected graph only from that
+The immutable materialization uses core receipt v3 and auxiliary receipt
+v2. The final verifier derives its expected graph only from that
 validated receipt and reads GitHub twice with finite bounds. Both complete
-snapshots must be identical and exactly cover 55 open, unlocked issues, the
-twenty root members, 105 native blockers, all logical-marker matches including
+snapshots must be identical and exactly cover 56 open, unlocked issues, the
+54 root members, 107 native blockers, all logical-marker matches including
 closed and PR-shaped collisions, and the exact pending/successful comment. Run
 it before and after the one pending-to-successful comment edit.
 

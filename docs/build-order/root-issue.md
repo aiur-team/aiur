@@ -6,10 +6,11 @@ lifecycle and native hard blockers; Aiur owns current activity and progress.
 
 ## Finite boundary
 
-This root contains BO-001 through BO-020 only. Completion requires all twenty
+This root contains all 54 members: BO-001 through BO-020 and DASH-001 through
+DASH-034. Completion requires all 54
 issues implemented, reviewed, green on the current configured integration
 branch, merged, documented, cleaned up and proven after merge through the real
-CLI plus authenticated browser workflow. Dashboard companion work, Linear
+CLI plus authenticated browser workflow. Linear
 parity, skill delivery, reliability findings and optimizations do not change
 this root's remaining count or ETA.
 
@@ -44,14 +45,15 @@ BO-001 depends on BO-004 and inherits both gates:
   discoverable.
 
 These are external execution gates, not child tickets and not additions to the
-twenty-ticket denominator. The skill-delivery issue is published as a native
-blocker of both initial nodes so no branch silently bypasses GATE-002.
+54-member denominator. The skill-delivery issue is published as a native
+blocker of both initial BO nodes so no branch silently bypasses GATE-002.
 
 ## Closure
 
-BO-015 owns the acceptance matrix and post-merge proof. The Executor closes
+BO-015 owns the acceptance matrix and post-merge proof, and depends on
+DASH-033's dashboard-parity evidence. The Executor closes
 this root with state reason `COMPLETED` only after BO-015 satisfies the terminal
-condition. Incidental non-blockers remain deferred.
+condition for all 54 members. Incidental non-blockers remain deferred.
 
 <!-- aiur-planning-issue
 {"schema":2,"logical_id":"its-everdred/aiur:build-order-dashboard","plan_version":1,"approved_planning_commit":"<APPROVED_SHA>"}

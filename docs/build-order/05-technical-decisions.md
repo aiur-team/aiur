@@ -108,17 +108,20 @@ root-independent configured-repository capabilities. Build Order adds only
 relationship diagnostics and truthful destination links; it never treats
 navigation as proof that a destination action succeeded.
 
-## DEC-009 — Keep companion dashboard work separate
+## DEC-009 — Keep companion ownership boundaries separate
 
-**Status:** accepted
+**Status:** accepted; the membership split is superseded by DEC-014
 
 Responsive shell, recoverable Units membership/policy/presentation, runtime
 control protocol/UI, Decision query/provenance/Commands, account identity,
 usage envelope/ledger/aggregate/retention, Remote Control transport and
 accounting, cost projection, provider-meter foundation/adapters, run summary,
 financial authorization, the two summary surfaces, and selected-order usage
-integration are twenty-five companion tickets. They do not enter the Build
-Order root or terminal condition. BO-016 owns configured-repository ticket
+integration are companion tickets with their own contract and ownership
+boundaries. Their original standalone membership — outside the Build Order
+root and terminal condition — is superseded by DEC-014's consolidation; the
+ownership boundaries below remain authoritative. BO-016 owns
+configured-repository ticket
 detail, BO-019 owns bounded sanitized recent history, BO-018 owns the accessible
 base context, and BO-011 adapts it to Build Order relationships. BO-012 consumes
 the shared route contract without waiting for companion metrics.
@@ -184,6 +187,20 @@ Order execution is additionally gated on the bounded `/aiur-run` revision from
 PR #1065 commit `f92aa045` (or an explicitly reviewed compatible successor)
 being installed and discoverable. These are external pre-dispatch gates, not
 feature tickets or additions to the completion denominator.
+
+## DEC-014 — Consolidate to a single Build Order
+
+**Status:** accepted (operator direction 2026-07-13)
+
+One GitHub root holds every executable ticket in the program as a direct
+member: all 54 tickets (BO-001..BO-020 and DASH-001..DASH-034) parallelize
+across one graph. Lanes (`build-lane:plan-graph` / `runtime` / `dashboard-ui`
+/ `accounting` / `platform`) and phase hints carry the separation that
+membership previously did; DEC-002's 100-member cap still holds at 54.
+DEC-009's separation of membership is superseded, while its ownership
+boundaries remain in force. BO-015 stays the single program capstone and now
+hard-depends on the graph's sinks, including DASH-033's dashboard-parity
+proof and DASH-023's selected-order usage integration.
 
 ## Rejected alternatives
 

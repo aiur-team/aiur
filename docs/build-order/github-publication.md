@@ -1,5 +1,13 @@
 # GitHub Publication Plan and Receipt
 
+> **Consolidation note (2026-07-13):** the operator consolidated the program
+> into a single Build Order (DEC-014). All 54 tickets — BO-001..020 and
+> DASH-001..034 — are direct native sub-issues of the one root defined in
+> `build-order.json`; `dashboard-companions.json` was retired and
+> `scripts/validate_publication.py` now validates the single manifest. Read
+> the step list below through that lens: DASH issues are members, not
+> standalone issues, and the graph totals are 56 issues / 107 blocker edges.
+
 ## Status
 
 Publication is the final planning action. Do not launch Aiur, add a dispatch

@@ -163,3 +163,18 @@ implementation dependencies, spine staffing).
   gap is only the resume ack + correlation).
 - `ecto` is already a dependency (repo-less), so `Decimal` is available for
   exact-money work — no new dependency decision needed.
+
+## Post-review operator decisions (2026-07-13)
+
+- **Consolidation executed:** the operator directed a single Build Order and
+  the pack now implements it (DEC-014) — all 54 tickets (BO-001..020,
+  DASH-001..034) are direct members of one root; `build-order.json` is the
+  single canonical manifest and `dashboard-companions.json` was retired.
+- **Q1 resolved as keep:** the usage/cost accounting family stays in the
+  consolidated graph; its two human Claude-protocol gates (GATE-003/GATE-004)
+  remain visible in-graph blockers on DASH-019/DASH-013.
+- **Epics adopted:** the five program lanes are plan-graph, runtime,
+  dashboard-ui, accounting, and platform, projected as `build-lane:*` labels
+  across every member.
+- **BO-020 added:** per-phase and per-epic plan breakdowns ship on the Build
+  Order page as their own executable member with BO-015 capstone coverage.

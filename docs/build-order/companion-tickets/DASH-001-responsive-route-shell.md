@@ -113,12 +113,10 @@ artifacts; this ticket may add shell scenarios but must not fork the harness.
 ## Sibling boundaries and open gates
 
 BO-008 is a hard predecessor only for the shared Phoenix/LiveView browser
-harness; DASH-001 remains a standalone dashboard companion and is not part of
-Build Order acceptance. DASH-003, DASH-005, DASH-007, DASH-021, DASH-022, and
+harness. DASH-003, DASH-005, DASH-007, DASH-021, DASH-022, and
 DASH-015 consume this shell directly or transitively but own their content.
-This companion declares the cross-pack `serializes_with: BO-012` edge because
-both tickets write the OCC route/navigation shell; Build Order registers its
-route without making this ticket part of Build Order acceptance. If the
+This ticket declares the symmetric `serializes_with: BO-012` edge because
+both tickets write the OCC route/navigation shell. If the
 configured implementation base does not yet contain closed #1034, the shared
 predecessor-baseline gate—not a new feature ticket—must be resolved before
 pickup.
