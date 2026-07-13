@@ -11,12 +11,22 @@ defmodule AiurWeb.Layouts do
 
     ~H"""
     <!DOCTYPE html>
-    <html lang="en">
+    <html lang="en" data-theme="dark">
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="csrf-token" content={@csrf_token} />
-        <title>Aiur Observability</title>
+        <title>Aiur Operator Control Center</title>
+        <script>
+          (function () {
+            try {
+              var stored = window.localStorage.getItem("aiur-theme");
+              if (stored === "light" || stored === "dark") {
+                document.documentElement.dataset.theme = stored;
+              }
+            } catch (_error) {}
+          })();
+        </script>
         <script defer src="/vendor/phoenix_html/phoenix_html.js"></script>
         <script defer src="/vendor/phoenix/phoenix.js"></script>
         <script defer src="/vendor/phoenix_live_view/phoenix_live_view.js"></script>
@@ -74,6 +84,26 @@ defmodule AiurWeb.Layouts do
 
                 this.liveButton.dataset.live = live ? "true" : "false";
                 this.liveButton.setAttribute("aria-pressed", live ? "true" : "false");
+              }
+            };
+
+            Hooks.ThemeToggle = {
+              mounted: function () {
+                this.onClick = () => {
+                  var current = document.documentElement.dataset.theme === "light" ? "light" : "dark";
+                  var next = current === "light" ? "dark" : "light";
+                  document.documentElement.dataset.theme = next;
+                  this.el.setAttribute("aria-label", "Switch to " + current + " theme");
+
+                  try {
+                    window.localStorage.setItem("aiur-theme", next);
+                  } catch (_error) {}
+                };
+
+                this.el.addEventListener("click", this.onClick);
+              },
+              destroyed: function () {
+                this.el.removeEventListener("click", this.onClick);
               }
             };
 
