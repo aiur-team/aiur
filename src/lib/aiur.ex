@@ -111,6 +111,7 @@ defmodule Aiur.Application do
       Aiur.RepoBase,
       Aiur.Events.IdGenerator,
       Aiur.Events.Exchange,
+      Aiur.Events.BranchRefStore,
       if(debug?, do: Aiur.RunTelemetry.Supervisor),
       Aiur.Events.Publisher,
       Aiur.DecisionStore,

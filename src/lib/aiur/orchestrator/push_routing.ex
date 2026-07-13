@@ -8,6 +8,7 @@ defmodule Aiur.Orchestrator.PushRouting do
   require Logger
 
   alias Aiur.Config
+  alias Aiur.Events.BranchRefStore
   alias Aiur.Events.GithubKeys
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Orchestrator
@@ -25,11 +26,7 @@ defmodule Aiur.Orchestrator.PushRouting do
   def apply_agent_unblocked(%State{} = state, blocker_identifier)
       when is_binary(blocker_identifier) do
     topic = "ticket." <> blocker_identifier <> ".agent.unblocked"
-
-    metadata =
-      state.running
-      |> Map.values()
-      |> Enum.find_value(&get_in(&1, [:blocker_branch_pushes, blocker_identifier]))
+    metadata = BranchRefStore.latest(blocker_identifier)
 
     if metadata,
       do: maybe_resume_blockees_on_unblocked(state, blocker_identifier, topic, metadata),
@@ -75,14 +72,8 @@ defmodule Aiur.Orchestrator.PushRouting do
   def record_blocker_branch_push(%State{} = state, blocker_identifier, event) do
     case validated_branch_metadata(blocker_identifier, event) do
       {:ok, metadata} ->
-        topic = "ticket.#{blocker_identifier}.agent.unblocked"
-
-        running =
-          Map.new(state.running, fn {issue_id, entry} ->
-            {issue_id, maybe_record_blocker_push(entry, blocker_identifier, topic, metadata)}
-          end)
-
-        %{state | running: running}
+        :ok = BranchRefStore.record(metadata.ref, metadata.sha)
+        state
 
       :error ->
         state
@@ -138,13 +129,17 @@ defmodule Aiur.Orchestrator.PushRouting do
   def maybe_resume_blockees_on_unblocked(%State{} = state, blocker_identifier, topic, metadata) do
     unblock_key = topic <> ":" <> metadata.sha
 
-    Enum.reduce(state.running, state, fn {_issue_id, entry}, acc ->
-      cond do
-        not is_map(entry) -> acc
-        State.deactivated_running_entry?(entry) -> acc
-        true -> maybe_record_or_resume_for_topic(acc, entry, blocker_identifier, topic, metadata, unblock_key)
-      end
-    end)
+    if BranchRefStore.latest(blocker_identifier) == metadata do
+      Enum.reduce(state.running, state, fn {_issue_id, entry}, acc ->
+        cond do
+          not is_map(entry) -> acc
+          State.deactivated_running_entry?(entry) -> acc
+          true -> maybe_record_or_resume_for_topic(acc, entry, blocker_identifier, topic, unblock_key)
+        end
+      end)
+    else
+      state
+    end
   end
 
   @doc false
@@ -168,7 +163,7 @@ defmodule Aiur.Orchestrator.PushRouting do
     end
   end
 
-  defp maybe_record_or_resume_for_topic(state, entry, blocker_identifier, topic, metadata, unblock_key) do
+  defp maybe_record_or_resume_for_topic(state, entry, blocker_identifier, topic, unblock_key) do
     identifier = Map.get(entry, :identifier)
 
     cond do
@@ -181,19 +176,24 @@ defmodule Aiur.Orchestrator.PushRouting do
       consumed_unblock?(entry, unblock_key) ->
         state
 
-      get_in(entry, [:blocker_branch_pushes, to_string(blocker_identifier)]) != metadata ->
+      subscribed_to_topic?(identifier, topic) ->
+        route_matching_blocker_pause(state, entry, identifier, blocker_identifier, topic, unblock_key)
+
+      true ->
         state
+    end
+  end
 
-      subscribed_to_topic?(identifier, topic) and matching_blocker_pause?(entry, blocker_identifier) ->
-        pause_generation = get_in(entry, [:blocker_pause, :generation])
-
+  defp route_matching_blocker_pause(state, entry, identifier, blocker_identifier, topic, unblock_key) do
+    case matching_blocker_pause_generation(entry, blocker_identifier) do
+      {:ok, pause_generation} ->
         if State.paused_running_entry?(entry) do
           attempt_auto_resume(state, entry, identifier, blocker_identifier, topic, unblock_key, pause_generation)
         else
           stamp_pending_auto_resume(state, identifier, blocker_identifier, topic, unblock_key, pause_generation)
         end
 
-      true ->
+      :error ->
         state
     end
   end
@@ -367,12 +367,26 @@ defmodule Aiur.Orchestrator.PushRouting do
     end
   end
 
-  defp matching_blocker_pause?(entry, blocker_identifier),
-    do: get_in(entry, [:blocker_pause, :blocker_identifier]) == to_string(blocker_identifier)
+  defp matching_blocker_pause_generation(entry, blocker_identifier) do
+    generation = get_in(entry, [:blocker_pause, :generation])
+
+    if Map.get(entry, :paused_reason) == :blocker_dependency and
+         get_in(entry, [:blocker_pause, :blocker_identifier]) == to_string(blocker_identifier) and
+         is_integer(generation) and generation > 0 and
+         Map.get(entry, :blocker_pause_generation) == generation do
+      {:ok, generation}
+    else
+      :error
+    end
+  end
 
   defp matching_hint_pause?(entry, hint) do
+    generation = get_in(entry, [:blocker_pause, :generation])
+
     get_in(entry, [:blocker_pause, :blocker_identifier]) == Map.get(hint, :blocker_identifier) and
-      get_in(entry, [:blocker_pause, :generation]) == Map.get(hint, :pause_generation) and
+      is_integer(generation) and generation > 0 and
+      generation == Map.get(hint, :pause_generation) and
+      Map.get(entry, :blocker_pause_generation) == generation and
       Map.get(entry, :paused_reason) == :blocker_dependency
   end
 
@@ -392,17 +406,6 @@ defmodule Aiur.Orchestrator.PushRouting do
   end
 
   defp event_payload(event), do: Map.get(event, :payload) || Map.get(event, "payload") || event
-
-  defp maybe_record_blocker_push(entry, blocker_identifier, topic, metadata) when is_map(entry) do
-    if subscribed_to_topic?(Map.get(entry, :identifier), topic) do
-      pushes = Map.get(entry, :blocker_branch_pushes, %{})
-      Map.put(entry, :blocker_branch_pushes, Map.put(pushes, to_string(blocker_identifier), metadata))
-    else
-      entry
-    end
-  end
-
-  defp maybe_record_blocker_push(entry, _blocker_identifier, _topic, _metadata), do: entry
 
   defp update_running_entry(state, identifier, fun) do
     case State.find_running_by_identifier(state.running, identifier) do

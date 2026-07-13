@@ -29,7 +29,7 @@ defmodule Aiur.Events.LsRemoteTicker do
 
   require Logger
 
-  alias Aiur.Events.{GithubKeys, Publisher}
+  alias Aiur.Events.{BranchRefStore, GithubKeys, Publisher}
   alias Aiur.Git
   alias Aiur.GitHub.Connectivity
 
@@ -136,6 +136,7 @@ defmodule Aiur.Events.LsRemoteTicker do
 
   defp fold_refs(state, current_refs) do
     repo = state.repo || resolve_repo()
+    :ok = BranchRefStore.replace(current_refs)
 
     if state.bootstrapped? do
       Enum.each(current_refs, &maybe_publish_change(state, &1, repo))

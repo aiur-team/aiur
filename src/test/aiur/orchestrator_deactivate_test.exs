@@ -4,7 +4,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
   alias Aiur.AgentPubSub
   alias Aiur.AgentQueueStore
   alias Aiur.CIApprovalStore
-  alias Aiur.Events.{Exchange, SubscriptionStore}
+  alias Aiur.Events.{BranchRefStore, Exchange, SubscriptionStore}
   alias Aiur.GitHub.CodeOwners
   alias Aiur.Issue
   alias Aiur.Opencode.ActiveTurns
@@ -4799,6 +4799,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
   describe "ticket.<blocker>.agent.unblocked auto-resumes paused blockees" do
     setup do
+      :ok = BranchRefStore.reset()
+
       # Isolate subscription persistence to a unique tmp dir. `attach` loads
       # any `<repo>.<identifier>.subscriptions.json` left on disk, and the
       # `unique_integer` identifier can repeat across separate `mix test`
@@ -4816,6 +4818,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       :ok = SubscriptionStore.attach(identifier)
 
       on_exit(fn ->
+        :ok = BranchRefStore.reset()
         :ok = SubscriptionStore.stop(identifier)
 
         if original_log_file do
@@ -4850,7 +4853,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
 
     defp with_blocker_push(entry) do
-      Map.put(entry, :blocker_branch_pushes, %{"99" => %{ref: blocker_ref(), sha: blocker_sha()}})
+      :ok = BranchRefStore.record(blocker_ref(), blocker_sha())
+      entry
     end
 
     test "dependency pause requests establish a blocker-specific generation", %{
@@ -4886,6 +4890,143 @@ defmodule Aiur.OrchestratorDeactivateTest do
       generic = PushRouting.maybe_pause_on_request(state, identifier, %{})
       assert get_in(generic.running, [issue_id, :paused_reason]) == :agent_pause_request
       refute Map.has_key?(generic.running[issue_id], :blocker_pause)
+    end
+
+    test "unrelated real pause transitions replace blocker context before final unblock", %{
+      identifier: identifier,
+      fake_pid: fake_pid
+    } do
+      :ok = SubscriptionStore.add_subscription(identifier, "ticket.99.agent.unblocked", "blocker:auto")
+      :ok = BranchRefStore.record(blocker_ref(), blocker_sha())
+
+      issue_id = "issue-replaced-pause"
+      issue = %Issue{id: issue_id, state: "ci-wait", identifier: identifier}
+
+      entry =
+        %{
+          pid: fake_pid,
+          ref: nil,
+          identifier: identifier,
+          issue: issue,
+          started_at: DateTime.utc_now(),
+          control: %{status: :paused},
+          pending_auto_resume: %{pause_generation: 1}
+        }
+        |> Map.merge(blocker_pause_fields())
+
+      state = %Orchestrator.State{
+        running: %{issue_id => entry},
+        claimed: MapSet.new([issue_id]),
+        max_concurrent_agents: 6
+      }
+
+      transitions = [
+        {:label_override, fn current -> PauseResume.pause_issue_for_label_override(current, issue) end},
+        {:ci_wait, fn current -> CiLifecycle.pause_issue_for_ci_wait(current, issue) end},
+        {:operator_pause, fn current -> elem(PauseResume.pause_agent_reply(current, identifier), 1) end},
+        {:max_agent_duration,
+         fn current ->
+           paused_entry = Map.put(current.running[issue_id], :paused_reason, :max_agent_duration)
+           PauseResume.transition_control_status(current, paused_entry, :paused, "max_agent_duration")
+         end}
+      ]
+
+      for {reason, transition} <- transitions do
+        transitioned = transition.(state)
+        assert transitioned.running[issue_id].paused_reason == reason
+        refute Map.has_key?(transitioned.running[issue_id], :blocker_pause)
+        refute Map.has_key?(transitioned.running[issue_id], :pending_auto_resume)
+
+        next =
+          EventTopics.route(transitioned, %{
+            topic: "ticket.99.agent.unblocked",
+            payload: %{ref: blocker_ref(), sha: blocker_sha()}
+          })
+
+        assert get_in(next.running, [issue_id, :control, :status]) == :paused
+      end
+    end
+
+    test "direct final unblock requires the current blocker-pause reason and generation", %{
+      identifier: identifier,
+      fake_pid: fake_pid
+    } do
+      :ok = SubscriptionStore.add_subscription(identifier, "ticket.99.agent.unblocked", "blocker:auto")
+      :ok = BranchRefStore.record(blocker_ref(), blocker_sha())
+      issue_id = "issue-current-generation"
+
+      matching_entry =
+        %{
+          pid: fake_pid,
+          ref: nil,
+          identifier: identifier,
+          issue: %Issue{id: issue_id, state: "in-progress", identifier: identifier},
+          started_at: DateTime.utc_now(),
+          control: %{status: :paused}
+        }
+        |> Map.merge(blocker_pause_fields())
+
+      mismatched_entries = [
+        Map.put(matching_entry, :paused_reason, :operator_pause),
+        put_in(matching_entry, [:blocker_pause, :generation], 2)
+      ]
+
+      for entry <- mismatched_entries do
+        state = %Orchestrator.State{
+          running: %{issue_id => entry},
+          claimed: MapSet.new([issue_id]),
+          max_concurrent_agents: 6
+        }
+
+        next =
+          EventTopics.route(state, %{
+            topic: "ticket.99.agent.unblocked",
+            payload: %{ref: blocker_ref(), sha: blocker_sha()}
+          })
+
+        assert get_in(next.running, [issue_id, :control, :status]) == :paused
+      end
+    end
+
+    test "branch push before consumer subscription corroborates later final unblock", %{
+      identifier: identifier,
+      fake_pid: fake_pid
+    } do
+      empty = %Orchestrator.State{running: %{}}
+
+      EventTopics.route(empty, %{
+        topic: "ticket.99.branch.push",
+        ref: blocker_ref(),
+        sha: blocker_sha()
+      })
+
+      :ok = SubscriptionStore.add_subscription(identifier, "ticket.99.agent.unblocked", "blocker:auto")
+      issue_id = "issue-push-before-subscribe"
+
+      entry =
+        %{
+          pid: fake_pid,
+          ref: nil,
+          identifier: identifier,
+          issue: %Issue{id: issue_id, state: "in-progress", identifier: identifier},
+          started_at: DateTime.utc_now(),
+          control: %{status: :paused}
+        }
+        |> Map.merge(blocker_pause_fields())
+
+      state = %Orchestrator.State{
+        running: %{issue_id => entry},
+        claimed: MapSet.new([issue_id]),
+        max_concurrent_agents: 6
+      }
+
+      next =
+        EventTopics.route(state, %{
+          topic: "ticket.99.agent.unblocked",
+          payload: %{ref: blocker_ref(), sha: blocker_sha()}
+        })
+
+      assert get_in(next.running, [issue_id, :control, :status]) == :working
     end
 
     test "parked blockee ignores branch push then consumes explicit unblocked and resumes", %{
@@ -5083,6 +5224,15 @@ defmodule Aiur.OrchestratorDeactivateTest do
         |> put_in([Access.key(:running), issue_id, :blocker_pause, :generation], 2)
 
       reconciled = PushRouting.reconcile_pending_auto_resumes(next_generation)
+      assert get_in(reconciled.running, [issue_id, :control, :status]) == :paused
+      refute Map.has_key?(reconciled.running[issue_id], :pending_auto_resume)
+
+      advanced_counter =
+        ready
+        |> put_in([Access.key(:running), issue_id, :control, :status], :paused)
+        |> put_in([Access.key(:running), issue_id, :blocker_pause_generation], 2)
+
+      reconciled = PushRouting.reconcile_pending_auto_resumes(advanced_counter)
       assert get_in(reconciled.running, [issue_id, :control, :status]) == :paused
       refute Map.has_key?(reconciled.running[issue_id], :pending_auto_resume)
     end

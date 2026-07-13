@@ -72,8 +72,16 @@ defmodule Aiur.Orchestrator.PauseResume do
       nil ->
         RetryEngine.release_issue_claim(state, issue.id)
 
-      %{control: %{status: status}} = running_entry when status in [:deactivated, :paused] ->
+      %{control: %{status: :deactivated}} = running_entry ->
         Reconciler.refresh_running_entry_issue(state, issue, running_entry)
+
+      %{control: %{status: :paused}} = running_entry ->
+        running_entry =
+          running_entry
+          |> Map.put(:issue, issue)
+          |> Map.put(:paused_reason, :label_override)
+
+        transition_control_status(state, running_entry, :paused, "label_override")
 
       running_entry when is_map(running_entry) ->
         identifier = Map.get(running_entry, :identifier, issue.identifier || issue.id)
@@ -219,13 +227,14 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   @spec transition_control_status(State.t(), map(), atom(), String.t()) :: State.t()
   def transition_control_status(%State{} = state, running_entry, new_status, reason) do
+    running_entry = normalize_pause_context(running_entry, new_status)
     issue_id = get_in(running_entry, [:issue, Access.key(:id)])
     identifier = Map.get(running_entry, :identifier)
     existing = Map.get(running_entry, :control, %{})
     old_status = Map.get(existing, :status, :working)
 
     if old_status == new_status do
-      state
+      %{state | running: Map.put(state.running, issue_id, running_entry)}
     else
       Logger.info("Control status: identifier=#{identifier} #{old_status} -> #{new_status} reason=#{reason}")
 
@@ -243,6 +252,18 @@ defmodule Aiur.Orchestrator.PauseResume do
       next_state
     end
   end
+
+  defp normalize_pause_context(running_entry, :paused) do
+    if Map.get(running_entry, :paused_reason) == :blocker_dependency do
+      running_entry
+    else
+      running_entry
+      |> Map.delete(:blocker_pause)
+      |> Map.delete(:pending_auto_resume)
+    end
+  end
+
+  defp normalize_pause_context(running_entry, _status), do: running_entry
 
   defp do_reactivate(%State{} = state, running_entry) do
     issue_id = get_in(running_entry, [:issue, Access.key(:id)])
