@@ -5,6 +5,7 @@ defmodule Aiur.DecisionStoreTest do
 
   alias Aiur.{AlertFeed, Boot, DecisionEvent, DecisionHistory, DecisionLog, DecisionPubSub, DecisionStore}
   alias Aiur.Events.{Exchange, IdGenerator}
+  alias AiurWeb.ControlCenterPresenter
 
   @ticket %{identifier: "979", title: "OCC-1", url: "https://github.com/its-everdred/aiur/issues/979"}
   @source %{agent_id: "agent-1", session_id: "session-1", event_id: nil}
@@ -36,7 +37,7 @@ defmodule Aiur.DecisionStoreTest do
     pid
   end
 
-  test "recent audit reads stay bounded with 10k stored decisions", %{dir: dir} do
+  test "dashboard projections stay bounded with 10k stored decisions", %{dir: dir} do
     pid = start_store!(dir)
 
     assert {:ok, %{decision: decision}} = request(pid, %{"question" => "Bound this history?", "blocking" => false})
@@ -49,11 +50,14 @@ defmodule Aiur.DecisionStoreTest do
         %{event | decision_id: decision_id, data: %{event.data | decision_id: decision_id}}
       end)
 
+    recent_decisions = records |> Enum.reverse() |> Enum.take(50) |> Enum.map(& &1.data)
+
     :sys.replace_state(pid, fn state ->
       %{
         state
         | audit_history: Map.new(records, &{&1.decision_id, [&1]}),
           current: Map.new(records, &{&1.decision_id, &1.data}),
+          recent_decisions: recent_decisions,
           recent_audit: records |> Enum.reverse() |> Enum.take(50)
       }
     end)
@@ -64,6 +68,19 @@ defmodule Aiur.DecisionStoreTest do
     assert Enum.map(recent.records, & &1.decision_id) == Enum.map(10_000..9_951//-1, &"dec-#{&1}")
     assert map_size(recent.contexts) == 50
     assert map_size(:sys.get_state(pid).audit_history) == 10_000
+
+    payload =
+      ControlCenterPresenter.state_payload(:unused, 10,
+        decision_store: pid,
+        fleet_fun: fn -> %{generated_at: nil, counts: %{}, analytics: nil} end,
+        history_fun: fn -> [] end,
+        recent_merges_fun: fn -> %{merges: [], health: :ready, reconciliation: %{}} end
+      )
+
+    assert length(payload.decisions) == 50
+
+    assert MapSet.new(payload.decisions, & &1.decision_id) ==
+             MapSet.new(10_000..9_951//-1, &"dec-#{&1}")
   end
 
   defp request(pid, payload, opts \\ []) do
@@ -151,7 +168,7 @@ defmodule Aiur.DecisionStoreTest do
                request(pid, %{
                  "source_id" => "recent-audit-context",
                  "question" => "Does a bounded lifecycle event retain its context?",
-                 "blocking" => false,
+                 "blocking" => true,
                  "options" => [%{"id" => "yes", "label" => "Yes"}]
                })
 
@@ -173,6 +190,7 @@ defmodule Aiur.DecisionStoreTest do
       assert map_size(contexts) == 5
       assert %{records: capped} = DecisionStore.recent_audit_history(500, pid)
       assert length(capped) == 50
+      assert Enum.any?(DecisionStore.recent_decisions(50, pid), &(&1.decision_id == contextual.decision_id))
 
       assert {:ok, _answer_result} =
                answer(pid, contextual.decision_id, %{

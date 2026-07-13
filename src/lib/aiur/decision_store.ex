@@ -61,6 +61,7 @@ defmodule Aiur.DecisionStore do
   @default_reconcile_delay_ms 250
   @default_retry_delays_ms [250, 1_000, 5_000]
   @recent_audit_limit 50
+  @recent_decision_limit 50
   @transient_failure_classes ["orchestrator_unavailable", "orchestrator_timeout"]
   @revision_transient_failure_classes @transient_failure_classes ++
                                         ["target_agent_unavailable", "target_revalidation_failed"]
@@ -193,6 +194,13 @@ defmodule Aiur.DecisionStore do
     GenServer.call(server, :list)
   end
 
+  @doc "Returns a bounded dashboard window, prioritizing unresolved and blocking Decisions."
+  @spec recent_decisions(non_neg_integer(), GenServer.server()) :: [Decision.t()]
+  def recent_decisions(limit \\ @recent_decision_limit, server \\ __MODULE__)
+      when is_integer(limit) and limit >= 0 do
+    GenServer.call(server, {:recent_decisions, min(limit, @recent_decision_limit)})
+  end
+
   @spec history(String.t(), GenServer.server()) :: {:ok, [Decision.t()]} | {:error, :not_found}
   def history(decision_id, server \\ __MODULE__) when is_binary(decision_id) do
     GenServer.call(server, {:history, decision_id})
@@ -302,6 +310,7 @@ defmodule Aiur.DecisionStore do
           ndjson_path: ndjson_path,
           projection_path: projection_path,
           current: current,
+          recent_decisions: current |> Map.values() |> recent_decision_window(),
           # The store keeps histories newest-first so every accepted append is
           # O(1). The public history call reverses them back to audit order.
           history: reverse_histories(history),
@@ -344,6 +353,7 @@ defmodule Aiur.DecisionStore do
       ndjson_path: ndjson_path,
       projection_path: nil,
       current: %{},
+      recent_decisions: [],
       history: %{},
       audit_history: %{},
       recent_audit: [],
@@ -489,6 +499,10 @@ defmodule Aiur.DecisionStore do
 
   def handle_call(:list, _from, state) do
     {:reply, Map.values(state.current), state}
+  end
+
+  def handle_call({:recent_decisions, limit}, _from, state) do
+    {:reply, Enum.take(state.recent_decisions, limit), state}
   end
 
   def handle_call({:history, decision_id}, _from, state) do
@@ -969,6 +983,7 @@ defmodule Aiur.DecisionStore do
         %{
           state
           | current: Map.put(state.current, current.decision_id, updated),
+            recent_decisions: remember_recent_decision(state.recent_decisions, updated),
             history: Map.update(state.history, current.decision_id, [event.data.decision], &[event.data.decision | &1]),
             audit_history: Map.update(state.audit_history, current.decision_id, [event], &(&1 ++ [event])),
             recent_audit: remember_recent_audit(state.recent_audit, event)
@@ -1236,6 +1251,7 @@ defmodule Aiur.DecisionStore do
         %{
           state
           | current: Map.put(state.current, decision.decision_id, current),
+            recent_decisions: remember_recent_decision(state.recent_decisions, current),
             history: Map.update(state.history, decision.decision_id, [decision], &[decision | &1]),
             audit_history: Map.update(state.audit_history, decision.decision_id, [event], &(&1 ++ [event])),
             recent_audit: remember_recent_audit(state.recent_audit, event)
@@ -1280,6 +1296,7 @@ defmodule Aiur.DecisionStore do
       next_state = %{
         state
         | current: Map.put(state.current, decision.decision_id, updated),
+          recent_decisions: remember_recent_decision(state.recent_decisions, updated),
           audit_history: Map.update(state.audit_history, decision.decision_id, [event], &(&1 ++ [event])),
           recent_audit: remember_recent_audit(state.recent_audit, event)
       }
@@ -2605,6 +2622,37 @@ defmodule Aiur.DecisionStore do
   defp audit_action_id(_record), do: nil
 
   defp remember_recent_audit(records, event), do: Enum.take([event | records], @recent_audit_limit)
+
+  defp remember_recent_decision(decisions, %Decision{} = decision) do
+    decisions
+    |> Enum.reject(&(&1.decision_id == decision.decision_id))
+    |> then(&[decision | &1])
+    |> recent_decision_window()
+  end
+
+  defp recent_decision_window(decisions) do
+    decisions
+    |> Enum.sort_by(&recent_decision_sort_key/1)
+    |> Enum.take(@recent_decision_limit)
+  end
+
+  defp recent_decision_sort_key(%Decision{} = decision) do
+    {
+      decision.decision_status == :resolved,
+      not decision.blocking,
+      -urgency_rank(decision.urgency),
+      -datetime_sort_key(decision.created_at),
+      decision.decision_id
+    }
+  end
+
+  defp urgency_rank(:critical), do: 3
+  defp urgency_rank(:high), do: 2
+  defp urgency_rank(:normal), do: 1
+  defp urgency_rank(_urgency), do: 0
+
+  defp datetime_sort_key(%DateTime{} = datetime), do: DateTime.to_unix(datetime, :microsecond)
+  defp datetime_sort_key(_datetime), do: 0
 
   defp reverse_histories(histories) do
     Map.new(histories, fn {decision_id, history} -> {decision_id, Enum.reverse(history)} end)
