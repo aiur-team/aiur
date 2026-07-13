@@ -322,10 +322,25 @@ class Publisher:
         if not isinstance(raw, dict) or raw.get("html_url") != authority.root_comment_url:
             return None
         body = raw.get("body")
-        for state, commit, url in (
-            ("successful", receipt_commit, receipt_url),
-            ("pending", None, None),
+        for state, commit, url, canonical_body in (
+            (
+                "successful", receipt_commit, receipt_url,
+                render_successful_comment(
+                    authority.root_id, authority.plan_version,
+                    authority.approved_commit, authority.repository,
+                    receipt_commit, receipt_url,
+                ),
+            ),
+            (
+                "pending", None, None,
+                render_pending_comment(
+                    authority.root_id, authority.plan_version,
+                    authority.approved_commit, authority.repository,
+                ),
+            ),
         ):
+            if body != canonical_body:
+                continue
             report = Report()
             if inspect_comment(
                 body, raw.get("html_url"), authority.root_id,

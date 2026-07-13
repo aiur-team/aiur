@@ -571,6 +571,39 @@ class FinalizationTests(unittest.TestCase):
         self.assertEqual(second.verifications, ["successful"])
         self.assertEqual(sum(call[0] == "PATCH" for call in client.calls), 1)
 
+    @patch("publication_operator.exact_commit", return_value=True)
+    @patch(
+        "publication_operator.run_authority_git",
+        return_value=subprocess.CompletedProcess([], 0, "", ""),
+    )
+    def test_visible_pending_drift_before_patch_fails_without_mutation(
+        self, _git: Any, _commit: Any,
+    ) -> None:
+        pending = self._comment("pending")
+        drifted = copy.deepcopy(pending)
+        drifted["body"] = "Operator revoked finalization.\n\n" + drifted["body"]
+
+        class DriftingCommentClient(FakeClient):
+            get_count = 0
+
+            def request(inner, method: str, path: str, payload=None, *, allow_404=False):
+                inner.calls.append((method, path, payload))
+                if method == "GET":
+                    inner.get_count += 1
+                    return copy.deepcopy(pending if inner.get_count == 1 else drifted)
+                if method == "PATCH":
+                    raise AssertionError("finalization must not overwrite visible comment drift")
+                raise AssertionError((method, path))
+
+        client = DriftingCommentClient({})
+        publisher = self._publisher(client)
+        with self.assertRaisesRegex(
+            PublicationError, "pending comment changed before finalization",
+        ):
+            publisher.finalize(RECEIPT, self.receipt_url)
+        self.assertEqual(publisher.verifications, ["pending"])
+        self.assertTrue(all(call[0] == "GET" for call in client.calls))
+
 
 class AuthorityCheckpointTests(unittest.TestCase):
     def test_drift_stops_before_next_bounded_mutation(self) -> None:
