@@ -7,14 +7,16 @@
 | Command | Purpose |
 | --- | --- |
 | `aiur` or `aiur run` | Start the interactive foreground run. |
-| `aiur --bg` | Start a detached headless run. |
+| `aiur --bg` | Start a detached headless run with the web dashboard enabled. |
+| `aiur --bg --no-dashboard` | Start a lean detached run without the dashboard listener. |
+| `aiur --no-dashboard` | Start the foreground terminal UI without the dashboard listener. |
 | `aiur --max-agents N` | Override the configured concurrency cap for this launch. |
 | `aiur --todo 142 143` | Queue the listed ticket IDs. |
 | `aiur --todo 142 143 --only` | Queue those IDs and dequeue other pending tickets. |
 | `aiur --host 127.0.0.1 --port 4000` | Override the dashboard bind for this launch. |
 | `aiur --debug` | Enable durable debug logging and chat-pane recording. |
 
-Foreground mode provides the terminal board and live chat panes. Background mode omits that interactive UI; use `agents`, `status`, or `watch` to observe it.
+Foreground mode provides the terminal board and live chat panes. Background mode omits that terminal UI but continues serving the web dashboard. Detachment and dashboard availability are independent; add `--no-dashboard` in either mode to suppress the HTTP listener. Because Claude Remote Control lifecycle hooks post to that listener, Aiur rejects `--no-dashboard` when `agent.remote_control` is enabled or an `agent.routing` value uses `+remote`, and refuses later `model:remote` or live Remote Control activation while no listener is bound. A background launch prints the confirmed bound URL or an explicit listener-unavailable warning. Non-loopback dashboard binds still require `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD`.
 
 ## Inspect a run
 

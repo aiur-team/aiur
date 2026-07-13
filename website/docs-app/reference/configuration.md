@@ -148,7 +148,7 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
-| `observability.dashboard_enabled` | boolean | true | Reserved compatibility setting; foreground startup currently ignores it, while headless dashboard opt-in is a positive server port. |
+| `observability.dashboard_enabled` | boolean | true | Reserved compatibility setting; use the launch-time `--no-dashboard` flag to suppress the listener in foreground or background mode. |
 | `observability.dashboard_writable` | boolean | false | Enables dashboard write paths. |
 | `observability.refresh_ms` | integer | 1000 | Dashboard data refresh interval. |
 | `observability.render_interval_ms` | integer | 16 | Minimum render interval. |

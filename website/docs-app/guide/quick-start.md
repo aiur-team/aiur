@@ -30,7 +30,8 @@ The launch output prints the private dashboard URL. Open it to see the fleet and
 
 | Command | What it does |
 | --- | --- |
-| `aiur --bg` | Start a headless detached background run. |
+| `aiur --bg` | Start a headless detached run with the dashboard enabled. |
+| `aiur --bg --no-dashboard` | Start a lean detached run without the dashboard. |
 | `aiur status` | Show a table of active agents and their running, paused, or idle state. |
 | `aiur agents` | Show per-agent activity with runtime and current activity. |
 | `aiur watch` | Show a one-shot board of tickets, state, and what each agent is doing; add `--interval <secs>` to refresh continuously. |

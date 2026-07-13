@@ -113,6 +113,8 @@ defmodule Aiur.Claude.Repl.LauncherTest do
         Launcher.start_session(ws,
           tmux: tmux,
           remote_control: true,
+          identifier: "930",
+          hook_settings_fun: fn true, "930" -> "/tmp/aiur-hooks-930.json" end,
           rc_name: "aiur-rc-test",
           window_name: "aiur-rc-test",
           # 0ms URL capture budget so the first banner-less capture exhausts it
@@ -141,5 +143,17 @@ defmodule Aiur.Claude.Repl.LauncherTest do
     respond(tmux, "")
 
     assert {:error, :remote_control_unavailable} = Task.await(task, 2_000)
+  end
+
+  test "RC spawn fails before opening a pane when the lifecycle-hook listener is unavailable", %{tmux: tmux} do
+    assert {:error, :remote_control_requires_dashboard} =
+             Launcher.start_session(Path.expand(System.tmp_dir!()),
+               tmux: tmux,
+               remote_control: true,
+               identifier: "1077",
+               hook_settings_fun: fn true, "1077" -> nil end
+             )
+
+    refute_receive {:tmux_mock_out, _command}, 100
   end
 end

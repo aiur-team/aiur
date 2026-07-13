@@ -34,35 +34,67 @@ defmodule Aiur.Claude.Repl.Launcher do
     # the live session's jsonl only at first-message time, always after this.
     started_at = System.os_time(:second)
 
-    # RC sessions emit no structured stdout, so turn detection rides on claude
-    # lifecycle hooks POSTed to the dashboard. Inject them via --settings (which
-    # composes with the Executor’s own settings). Best-effort: a missing
-    # identifier or unbound dashboard degrades to no hooks rather than failing.
-    settings_path = Command.maybe_hook_settings(rc?, Keyword.get(opts, :identifier))
-
-    # Resume the prior conversation across an aiur restart when the runner
-    # handed us a persisted session id whose transcript still exists (#613).
-    # nil means a clean start (no handle, or its transcript is gone).
-    resume_id = Command.resume_session_id(opts, expanded)
-    command = Command.build_command(expanded, model, effort, rc?, rc_name, settings_path, resume_id)
-
-    Aiur.Perf.event(:repl_agent_spawn, workspace: expanded, remote_control: rc?, resumed: is_binary(resume_id))
-
     ctx = %{
       tmux: tmux,
       workspace: expanded,
       model: model,
+      effort: effort,
       rc?: rc?,
       rc_name: rc_name,
-      identifier: Keyword.get(opts, :identifier),
-      process_reaper: Keyword.get(opts, :process_reaper, ProcessReaper),
-      hooks?: is_binary(settings_path),
+      window_name: window_name,
       started_at: started_at,
-      resume_id: resume_id,
       opts: opts
     }
 
-    case Tmux.new_hidden_window(tmux, window_name, command) do
+    # RC sessions emit no structured stdout, so turn detection rides on Claude
+    # lifecycle hooks POSTed to Aiur.HttpServer. Never start RC without that
+    # capability: model:remote tickets and live promotion can opt into RC after
+    # application boot, beyond the launcher's static config compatibility check.
+    settings_path =
+      opts
+      |> Keyword.get(:hook_settings_fun, &Command.maybe_hook_settings/2)
+      |> then(& &1.(rc?, Keyword.get(opts, :identifier)))
+
+    if rc? and not is_binary(settings_path) do
+      Logger.error("claude-repl remote-control requires a bound Aiur.HttpServer lifecycle-hook listener")
+      {:error, :remote_control_requires_dashboard}
+    else
+      do_start_session(ctx, settings_path)
+    end
+  end
+
+  defp do_start_session(ctx, settings_path) do
+    # Resume the prior conversation across an aiur restart when the runner
+    # handed us a persisted session id whose transcript still exists (#613).
+    # nil means a clean start (no handle, or its transcript is gone).
+    resume_id = Command.resume_session_id(ctx.opts, ctx.workspace)
+
+    command =
+      Command.build_command(
+        ctx.workspace,
+        ctx.model,
+        ctx.effort,
+        ctx.rc?,
+        ctx.rc_name,
+        settings_path,
+        resume_id
+      )
+
+    Aiur.Perf.event(:repl_agent_spawn,
+      workspace: ctx.workspace,
+      remote_control: ctx.rc?,
+      resumed: is_binary(resume_id)
+    )
+
+    ctx =
+      Map.merge(ctx, %{
+        identifier: Keyword.get(ctx.opts, :identifier),
+        process_reaper: Keyword.get(ctx.opts, :process_reaper, ProcessReaper),
+        hooks?: is_binary(settings_path),
+        resume_id: resume_id
+      })
+
+    case Tmux.new_hidden_window(ctx.tmux, ctx.window_name, command) do
       {:ok, pane_id} ->
         finish_start(ctx, pane_id)
 

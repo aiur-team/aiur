@@ -309,10 +309,10 @@ build_init_cmd() {
 
 usage() {
   cat <<'EOF'
-Usage: aiur [--interactive] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [path-to-.aiurconfig]
-       aiur run [--bg] [--debug]  explicit launch form (foreground unless --bg)
+Usage: aiur [--interactive] [--no-dashboard] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [path-to-.aiurconfig]
+       aiur run [--bg] [--no-dashboard] [--debug]  explicit launch form (foreground unless --bg)
        aiur init [--force]   scaffold .aiurconfig (interactive setup wizard)
-       aiur --bg [--debug]   start in a lean, headless detached tmux session
+       aiur --bg [--no-dashboard] [--debug]   start detached; dashboard on unless suppressed
        aiur stop             stop the running session
        aiur status           show agent status
        aiur agents           show each agent's state + current activity
@@ -393,6 +393,33 @@ load_dotenv() {
   done <"$file"
 }
 
+run_argv=()
+build_run_argv() {
+  local mode="$1"
+  shift
+
+  local has_host=0 has_interactive=0 has_headless=0 has_ack=0 arg
+  for arg in "$@"; do
+    case "$arg" in
+      --host | --host=*) has_host=1 ;;
+      --interactive) has_interactive=1 ;;
+      --headless) has_headless=1 ;;
+      --i-understand-that-this-will-be-running-without-the-usual-guardrails) has_ack=1 ;;
+    esac
+  done
+
+  local injected=()
+  [ "$has_host" -eq 1 ] || injected+=(--host 127.0.0.1)
+  if [ "$mode" = "background" ] && [ "$has_interactive" -eq 0 ]; then
+    [ "$has_headless" -eq 1 ] || injected+=(--headless)
+  else
+    [ "$has_interactive" -eq 1 ] || injected+=(--interactive)
+  fi
+  [ "$has_ack" -eq 1 ] || injected+=(--i-understand-that-this-will-be-running-without-the-usual-guardrails)
+
+  run_argv=("${injected[@]}" "$@")
+}
+
 run_session() {
   local mode="$1"
   shift
@@ -424,29 +451,17 @@ run_session() {
 
   # Inject the flags a bare `aiur` needs: loopback bind, UI mode, and the
   # no-guardrails ack. Skip any the user already passed. Foreground runs are
-  # interactive (tmux panes + dashboard); `--bg` runs lean/headless — no panes,
-  # no dashboard bind, no chat backfill — and is driven over the control RPC
-  # (status/agents/message/pause/set). `aiur --bg --interactive` opts back into
-  # the full interactive stack for an attachable background session.
-  local has_host=0 has_interactive=0 has_headless=0 has_ack=0 arg
-  for arg in "$@"; do
-    case "$arg" in
-      --host | --host=*) has_host=1 ;;
-      --interactive) has_interactive=1 ;;
-      --headless) has_headless=1 ;;
-      --i-understand-that-this-will-be-running-without-the-usual-guardrails) has_ack=1 ;;
-    esac
+  # interactive; `--bg` runs headless (no panes/chat backfill) and is driven
+  # over the control RPC (status/agents/message/pause/set). Dashboard binding is
+  # independent: it remains enabled in either mode unless `--no-dashboard` is
+  # supplied. `aiur --bg --interactive` opts back into the full terminal stack
+  # for an attachable background session.
+  build_run_argv "$mode" "$@"
+  local no_dashboard=0
+  for run_arg in "${run_argv[@]}"; do
+    [ "$run_arg" = "--no-dashboard" ] && no_dashboard=1
   done
-  local injected=()
-  [ "$has_host" -eq 1 ] || injected+=(--host 127.0.0.1)
-  if [ "$mode" = "background" ] && [ "$has_interactive" -eq 0 ]; then
-    [ "$has_headless" -eq 1 ] || injected+=(--headless)
-  else
-    [ "$has_interactive" -eq 1 ] || injected+=(--interactive)
-  fi
-  [ "$has_ack" -eq 1 ] || injected+=(--i-understand-that-this-will-be-running-without-the-usual-guardrails)
-
-  write_argv "${injected[@]}" "$@"
+  write_argv "${run_argv[@]}"
   export AIUR_ARGV_FILE="$argv_file"
 
   prepare_distribution
@@ -648,6 +663,7 @@ run_session() {
       "$AIUR_RELEASE_NODE" "${AIUR_LOGS_ROOT:-}" \
       "$(aiur_stop_sentinel_path)" "$(aiur_crash_marker_path)" "$AIUR_WORKSPACE_ROOT_FILE")"
     disown "$background_watchdog_pid" 2>/dev/null || true
+    print_background_dashboard_status "$no_dashboard" "$startup_capture"
     echo "aiur started in the background (tmux socket ${socket}, session ${session}). Attach with: aiur" >&2
     # Keep $startup_capture (boot.out.log) for the run's lifetime; only the
     # transient argv file is no longer needed.
@@ -1258,6 +1274,37 @@ probe_control_liveness() {
     printf 'up'
   else
     printf 'down'
+  fi
+}
+
+# Return the externally useful dashboard URL only when the running node confirms
+# that Bandit actually bound a listener. An empty result means the listener was
+# suppressed or refused; configured server.port alone is never proof of service.
+probe_dashboard_url() {
+  local expression output status marker="__AIUR_DASHBOARD_URL__:"
+  expression='case Aiur.HttpServer.base_url() do url when is_binary(url) -> IO.puts("__AIUR_DASHBOARD_URL__:" <> url); _ -> :ok end'
+
+  set +e
+  output="$("$release_bin" rpc "$expression" 2>&1)"
+  status=$?
+  set -e
+
+  if [ "$status" -eq 0 ] && [[ "$output" == *"$marker"* ]]; then
+    output="${output#*"$marker"}"
+    printf '%s' "${output%%$'\n'*}"
+  fi
+}
+
+print_background_dashboard_status() {
+  local no_dashboard="$1" startup_capture="$2" url
+  url="$(probe_dashboard_url)"
+
+  if [ -n "$url" ]; then
+    echo "Dashboard: ${url}" >&2
+  elif [ "$no_dashboard" -eq 1 ]; then
+    echo "Dashboard disabled by --no-dashboard." >&2
+  else
+    echo "⚠️ dashboard listener unavailable; inspect ${startup_capture} for bind or authentication refusal." >&2
   fi
 }
 
@@ -2107,6 +2154,21 @@ cmd_stop() {
 
 # --- dispatch ----------------------------------------------------------------
 
+dispatch_run() {
+  local mode="foreground" arg
+  local args=()
+
+  for arg in "$@"; do
+    if [ "$arg" = "--bg" ]; then
+      mode="background"
+    else
+      args+=("$arg")
+    fi
+  done
+
+  run_session "$mode" "${args[@]}"
+}
+
 aiur_engine_main() {
   local cmd="${1:-}"
   case "$cmd" in
@@ -2130,17 +2192,11 @@ aiur_engine_main() {
       run_init "$@"
       ;;
     --bg)
-      shift
-      run_session background "$@"
+      dispatch_run "$@"
       ;;
     run)
       shift
-      if [ "${1:-}" = "--bg" ]; then
-        shift
-        run_session background "$@"
-      else
-        run_session foreground "$@"
-      fi
+      dispatch_run "$@"
       ;;
     status)
       shift
@@ -2178,16 +2234,16 @@ aiur_engine_main() {
       cmd_stop
       ;;
     "")
-      run_session foreground
+      dispatch_run
       ;;
     -*)
       # leading-flag forms (e.g. `aiur --interactive <config>`) are a run
-      run_session foreground "$@"
+      dispatch_run "$@"
       ;;
     *)
       # a path/config argument is a run; anything else is a usage error
       if [ -e "$cmd" ]; then
-        run_session foreground "$@"
+        dispatch_run "$@"
       else
         echo "aiur: unknown command: $cmd" >&2
         usage >&2

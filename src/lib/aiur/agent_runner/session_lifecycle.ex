@@ -321,6 +321,9 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
       {:ok, session} ->
         {:ok, Map.put(session, :backend, backend)}
 
+      {:error, :remote_control_requires_dashboard} = error ->
+        error
+
       {:error, reason} = error ->
         case CodingAgent.fallback_backend(backend) do
           nil -> error
