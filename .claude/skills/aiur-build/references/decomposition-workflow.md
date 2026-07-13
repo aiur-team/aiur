@@ -142,6 +142,11 @@ Every executable ticket needs:
 - for each producer/consumer contract pair, one concrete interface sketch
   (message JSON or struct typespec) in the producer ticket, quoted verbatim by
   consumers — cheap models copy well and reconcile badly;
+- a plan-context navigation block linking the pack index, the graph/wave
+  analysis, the decisions registry, and the ticket's implementation-pointers
+  section, pinned to the approved planning commit (published issue bodies
+  carry the ticket document verbatim, so workers navigate from their issue
+  back to the whole plan);
 - complexity rationale, separate risk, and capability needs;
 - typed dependencies/conflicts and likely read/write/contract surfaces;
 - error, security, migration, and accessibility concerns where relevant;
