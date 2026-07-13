@@ -98,15 +98,16 @@ defmodule Aiur.AgentRunner.TurnStreamsTest do
 
       turn_task =
         Task.async(fn ->
-          send(parent, :turn_registration_started)
-          ActiveTurns.put(identifier, "tWAIT")
+          result = ActiveTurns.put(identifier, "tWAIT")
+          send(parent, :turn_registered)
+          result
         end)
 
-      assert_receive :turn_registration_started
-      refute Task.yield(turn_task, 0)
+      refute_receive :turn_registered, 100
 
       send(workspace_task.pid, :release_workspace)
       assert Task.await(workspace_task) == {:ok, :ok}
+      assert_receive :turn_registered, 1_000
       assert Task.await(turn_task) == :ok
       assert ActiveTurns.lookup(identifier, "tWAIT") == :active
     end
@@ -150,15 +151,16 @@ defmodule Aiur.AgentRunner.TurnStreamsTest do
 
       subscriber_task =
         Task.async(fn ->
-          send(parent, :subscriber_registration_started)
-          ActiveTurns.register_subscriber(identifier, "tSUBSCRIBER", self())
+          result = ActiveTurns.register_subscriber(identifier, "tSUBSCRIBER", self())
+          send(parent, :subscriber_registered)
+          result
         end)
 
-      assert_receive :subscriber_registration_started
-      refute Task.yield(subscriber_task, 0)
+      refute_receive :subscriber_registered, 100
 
       send(workspace_task.pid, :release_workspace)
       assert Task.await(workspace_task) == {:ok, :ok}
+      assert_receive :subscriber_registered, 1_000
       assert Task.await(subscriber_task) == {:ok, nil}
       assert ActiveTurns.lookup(identifier, "tSUBSCRIBER") == :active
     end

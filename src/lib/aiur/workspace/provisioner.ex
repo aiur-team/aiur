@@ -74,17 +74,19 @@ defmodule Aiur.Workspace.Provisioner do
           {:ok, Path.t(), boolean() | :materialized} | {:error, term()}
   def ensure_workspace(workspace, nil, pr_head_ref, branch_name, lifecycle)
       when is_binary(branch_name) do
-    cond do
-      File.dir?(workspace) ->
-        record_prewarm_point(lifecycle, :existing, :skipped)
-        {:ok, workspace, false}
+    with :ok <- Materialize.recover_interrupted_replacement(workspace) do
+      cond do
+        File.dir?(workspace) ->
+          record_prewarm_point(lifecycle, :existing, :skipped)
+          {:ok, workspace, false}
 
-      File.exists?(workspace) ->
-        File.rm_rf!(workspace)
-        create_or_materialize(workspace, branch_name, pr_head_ref, lifecycle)
+        File.exists?(workspace) ->
+          File.rm_rf!(workspace)
+          create_or_materialize(workspace, branch_name, pr_head_ref, lifecycle)
 
-      true ->
-        create_or_materialize(workspace, branch_name, pr_head_ref, lifecycle)
+        true ->
+          create_or_materialize(workspace, branch_name, pr_head_ref, lifecycle)
+      end
     end
   end
 
@@ -97,16 +99,18 @@ defmodule Aiur.Workspace.Provisioner do
   @spec ensure_workspace(Path.t(), worker_host()) ::
           {:ok, Path.t(), boolean() | :materialized} | {:error, term()}
   def ensure_workspace(workspace, nil) do
-    cond do
-      File.dir?(workspace) ->
-        {:ok, workspace, false}
+    with :ok <- Materialize.recover_interrupted_replacement(workspace) do
+      cond do
+        File.dir?(workspace) ->
+          {:ok, workspace, false}
 
-      File.exists?(workspace) ->
-        File.rm_rf!(workspace)
-        create_or_materialize(workspace, legacy_branch_name(workspace), nil)
+        File.exists?(workspace) ->
+          File.rm_rf!(workspace)
+          create_or_materialize(workspace, legacy_branch_name(workspace), nil)
 
-      true ->
-        create_or_materialize(workspace, legacy_branch_name(workspace), nil)
+        true ->
+          create_or_materialize(workspace, legacy_branch_name(workspace), nil)
+      end
     end
   end
 
@@ -171,10 +175,10 @@ defmodule Aiur.Workspace.Provisioner do
 
   @spec recreate(Path.t(), worker_host()) :: :ok | {:error, term()}
   def recreate(workspace, nil) do
-    {:ok, _workspace, _created?} =
-      create_or_materialize(workspace, legacy_branch_name(workspace), nil)
-
-    :ok
+    case create_or_materialize(workspace, legacy_branch_name(workspace), nil) do
+      {:ok, _workspace, _created?} -> :ok
+      {:error, _reason} = error -> error
+    end
   end
 
   def recreate(workspace, worker_host) when is_binary(worker_host) do
@@ -196,8 +200,10 @@ defmodule Aiur.Workspace.Provisioner do
 
   @spec recreate(Path.t(), worker_host(), String.t() | nil, String.t()) :: :ok | {:error, term()}
   def recreate(workspace, nil, pr_head_ref, branch_name) when is_binary(branch_name) do
-    {:ok, _workspace, _created?} = create_or_materialize(workspace, branch_name, pr_head_ref)
-    :ok
+    case create_or_materialize(workspace, branch_name, pr_head_ref) do
+      {:ok, _workspace, _created?} -> :ok
+      {:error, _reason} = error -> error
+    end
   end
 
   def recreate(workspace, worker_host, _pr_head_ref, _branch_name) when is_binary(worker_host),
@@ -211,10 +217,16 @@ defmodule Aiur.Workspace.Provisioner do
 
   # When pre-warm is enabled and the shared base is ready, materialize the
   # workspace from it (copy-on-write where the filesystem supports it, carrying
-  # the warm `_build`/deps) instead of cold-cloning + recompiling. Anything that
-  # rules pre-warm out — disabled, base not ready, missing, or a copy failure —
-  # falls through to the unchanged cold `create_workspace/1` path.
+  # the warm `_build`/deps) instead of cold-cloning + recompiling. An unavailable
+  # base uses the cold path; a failed replacement preserves the old checkout and
+  # propagates the error so callers cannot erase it with a second bootstrap.
   defp create_or_materialize(workspace, branch_name, pr_head_ref, lifecycle \\ nil) do
+    with :ok <- Materialize.recover_interrupted_replacement(workspace) do
+      do_create_or_materialize(workspace, branch_name, pr_head_ref, lifecycle)
+    end
+  end
+
+  defp do_create_or_materialize(workspace, branch_name, pr_head_ref, lifecycle) do
     case prewarm_base() do
       {:ready, base} ->
         record_prewarm(lifecycle, :start, %{prewarm_outcome: :materialized})
@@ -235,13 +247,23 @@ defmodule Aiur.Workspace.Provisioner do
               reason_class: Lifecycle.reason_class(reason)
             })
 
-            record_prewarm_point(lifecycle, :cold_fallback, :success)
-            create_workspace(workspace)
+            preserve_or_create_workspace(workspace, {:materialize_failed, reason}, lifecycle)
         end
 
       {:skip, outcome} ->
         record_prewarm_point(lifecycle, outcome, :skipped)
+        record_prewarm_point(lifecycle, :cold_fallback, :success)
         create_workspace(workspace)
+    end
+  end
+
+  defp preserve_or_create_workspace(workspace, reason, lifecycle) do
+    if File.exists?(workspace) do
+      record_prewarm_point(lifecycle, :cold_fallback, :preserved)
+      {:error, {:workspace_replacement_preserved, workspace, reason}}
+    else
+      record_prewarm_point(lifecycle, :cold_fallback, :success)
+      create_workspace(workspace)
     end
   end
 

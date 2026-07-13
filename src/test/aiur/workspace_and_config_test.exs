@@ -528,6 +528,60 @@ defmodule Aiur.WorkspaceAndConfigTest do
     end
   end
 
+  test "before_run preserves a dirty checkout when production prewarm replacement fails" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-before-run-prewarm-rollback-#{System.unique_integer([:positive])}"
+      )
+
+    repo_base_state = :sys.get_state(Aiur.RepoBase)
+
+    try do
+      identifier = "STALE-PREWARM-1"
+      {workspace, trace_file} = bootstrap_dirty_refresh_workspace!(test_root, identifier)
+      invalid_base = Path.join(test_root, "invalid-base")
+      File.mkdir_p!(invalid_base)
+
+      workflow_file = Workflow.workflow_file_path()
+
+      File.write!(
+        workflow_file,
+        File.read!(workflow_file) <> "prewarm:\n  enabled: true\n  base_build: \"true\"\n"
+      )
+
+      Aiur.WorkflowStore.force_reload()
+
+      :sys.replace_state(Aiur.RepoBase, fn state ->
+        %{state | phase: :ready, base_path: invalid_base}
+      end)
+
+      issue = %Issue{
+        id: "issue-stale-prewarm-1",
+        identifier: identifier,
+        title: "Preserve failed prewarm replacement",
+        state: "todo",
+        labels: ["agent:todo"]
+      }
+
+      assert {:error, {:workspace_replacement_preserved, ^workspace, {:materialize_failed, _reason}}} = Workspace.run_before_run_hook(workspace, issue)
+
+      assert File.read!(Path.join(workspace, "README.md")) == "dirty\n"
+      assert File.dir?(Path.join(workspace, ".git"))
+
+      assert String.trim(git!(["-C", workspace, "rev-parse", "--abbrev-ref", "HEAD"])) ==
+               "aiur/#{identifier}"
+
+      assert trace_file |> File.read!() |> String.split("\n", trim: true) |> length() == 1
+    after
+      if Process.whereis(Aiur.RepoBase) do
+        :sys.replace_state(Aiur.RepoBase, fn _state -> repo_base_state end)
+      end
+
+      File.rm_rf(test_root)
+    end
+  end
+
   test "before_run dirty refresh refusal uses exit 65 rather than output wording" do
     test_root =
       Path.join(

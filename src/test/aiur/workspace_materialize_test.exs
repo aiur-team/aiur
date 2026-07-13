@@ -2,6 +2,7 @@ defmodule Aiur.WorkspaceMaterializeTest do
   use ExUnit.Case, async: true
 
   alias Aiur.Workspace
+  alias Aiur.Workspace.Materialize
 
   setup do
     tmp = Path.join(System.tmp_dir!(), "aiur_ws_#{System.unique_integer([:positive])}")
@@ -180,6 +181,66 @@ defmodule Aiur.WorkspaceMaterializeTest do
     assert branch(workspace) == "aiur/replaced"
     assert Path.wildcard(workspace <> ".materializing-*") == []
     assert Path.wildcard(workspace <> ".replaced-*") == []
+  end
+
+  test "recovers a valid checkout left in an interrupted replacement backup", %{
+    tmp: tmp,
+    base: base
+  } do
+    workspace = Path.join(tmp, "interrupted")
+    backup = workspace <> ".replaced-" <> String.duplicate("a", 32)
+    staging = workspace <> ".materializing-" <> String.duplicate("b", 32)
+
+    File.cp_r!(base, backup)
+    File.mkdir_p!(staging)
+
+    assert :ok = Materialize.recover_interrupted_replacement(workspace)
+    assert File.read!(Path.join(workspace, "README.md")) == "v1\n"
+    assert String.trim(git!(["-C", workspace, "rev-parse", "--is-inside-work-tree"])) == "true"
+    refute File.exists?(backup)
+    refute File.exists?(staging)
+  end
+
+  test "cleans recognized stale remnants without touching unrelated siblings", %{tmp: tmp} do
+    workspace = Path.join(tmp, "existing")
+    staging = workspace <> ".materializing-" <> String.duplicate("c", 32)
+    reservation = staging <> ".lock"
+    unrelated = workspace <> ".materializing-operator-notes"
+
+    File.mkdir_p!(workspace)
+    File.mkdir_p!(staging)
+    File.write!(reservation, "stale")
+    File.mkdir_p!(unrelated)
+
+    assert :ok = Materialize.recover_interrupted_replacement(workspace)
+    assert File.dir?(workspace)
+    refute File.exists?(staging)
+    refute File.exists?(reservation)
+    assert File.dir?(unrelated)
+  end
+
+  test "exclusive sibling reservation retries preexisting paths", %{tmp: tmp} do
+    workspace = Path.join(tmp, "reserved")
+    collision = String.duplicate("d", 32)
+    available = String.duplicate("e", 32)
+    collision_path = workspace <> ".materializing-" <> collision
+    Process.put(:reservation_tokens, [collision, available])
+    File.mkdir_p!(collision_path)
+
+    token_fun = fn ->
+      [token | remaining] = Process.get(:reservation_tokens)
+      Process.put(:reservation_tokens, remaining)
+      token
+    end
+
+    assert {:ok, selected_path} =
+             Materialize.with_reserved_sibling(workspace, "materializing", token_fun, fn path ->
+               {:ok, path}
+             end)
+
+    assert selected_path == workspace <> ".materializing-" <> available
+    assert File.dir?(collision_path)
+    refute File.exists?(selected_path <> ".lock")
   end
 
   test "branches off the live origin tip, not the stale warm-base HEAD (#567)", %{tmp: tmp} do
