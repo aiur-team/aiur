@@ -25,17 +25,17 @@ pending.
 - Prototype constraints SHA-256:
   `49e068d4999d62197dbd1d5c0438db21a25cd1b5873fb959a58a7e0388c7829a`
 - Canonical Build Order JSON SHA-256:
-  `b820c856e4c65488f5a135c0d892d7964f25cea2fd86af7f382ffa063863fedc`
+  `6a325647de58b526024bf57577234a7a8c9b3183ccae74e45d5f3af85ac73aeb`
 - Companion baseline JSON SHA-256:
   `dc641ee49a5a00dd49312123e864d627bfce2d2377a90d1900990693e9fb7ac9`
 - Publication manifest SHA-256:
   `0ffd8d82eadf3525bab29ea555931319d94f11f02ee184534b4b6cb1bf6a86ba`
 - Requirements SHA-256:
-  `bf75997f1c32b4032d88186f4891fb0249598699ba7ae284fb8ad1ec27c20789`
+  `8382c30e43d3c375651aa8f697d586824e898199f05f57f00587745e507807fc`
 - Implementation plan SHA-256:
   `53313576913e30f52e10a9cafd1e46fc037dc1353163d1f41d426c5043bdc295`
 - Latest validator/skill authority: isolated draft PR #1065 at
-  `311ffa17866b50731b521114cc6fe2f610a03a11`
+  `a9a2142fb6763bec31c30474f98d112c4dad049e`
 - Approval commit: pending two clean passes
 
 The design hashes match [the manifest](design-manifest.md). The prototype was
@@ -81,7 +81,7 @@ updates and a final ticket-boundary correction:
 |---|---|
 | Canonical validator | 0 errors, 0 warnings |
 | Companion/publication validator | 0 errors, 0 warnings |
-| Publication regression suite | 59 tests pass |
+| Publication regression suite | 63 tests pass |
 | Build Order tickets | 19, 71 complexity points |
 | Standalone companions | 25, 87 complexity points |
 | Planned GitHub materialization | 46 new issues: one root, 44 executable issues, one human issue |
@@ -324,6 +324,25 @@ no new product capability, but did find execution and fail-closed gaps:
    repository commit link whose SHA resolves locally before the comment can be
    the durable start gate.
 
+### Corrective pass 9 — receipt authority and skill pin
+
+This pass was not clean. Independent publication and integrated reviewers
+found two remaining authorization gaps:
+
+1. The final comment verifier accepted caller-consistent repository, root,
+   approval and URL values while proving only that the named receipt SHA was a
+   local commit. A foreign repository identity and the current unmaterialized
+   planning commit could therefore masquerade as the durable start gate. The
+   verifier now loads raw regular blobs from the exact receipt commit into a
+   no-checkout temporary clone, requires all three reconciliation receipts,
+   runs the trusted current publication validator, derives all authority from
+   that validated snapshot, and treats CLI values only as equality assertions.
+2. The requirements still permitted an obsolete PR #1065 revision that
+   predated approved-document freezing and protected receipt handling. Every
+   gate and handoff now pins skill commit `a9a2142f`, whose reusable contract
+   also requires a fully validated materialized receipt commit rather than
+   mere commit existence.
+
 ### Clean pass 1
 
 Pending review of an immutable checkpoint.
@@ -334,7 +353,7 @@ Pending a second review of the unchanged candidate after clean pass 1.
 
 ## Skill verification
 
-At isolated skill commit `311ffa17866b50731b521114cc6fe2f610a03a11`:
+At isolated skill commit `a9a2142fb6763bec31c30474f98d112c4dad049e`:
 
 - 69 adversarial `aiur-build` validator tests pass;
 - the canonical example validates with zero errors and warnings; and

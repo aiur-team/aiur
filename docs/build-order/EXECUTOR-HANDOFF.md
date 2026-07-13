@@ -4,10 +4,12 @@
 
 This handoff becomes executable only after the live Build Order root contains a
 uniquely marked `aiur-build-order-reconciliation` comment linking a successful
-immutable post-publication receipt, both external gates below are recorded as
-resolved, and the user separately authorizes a run. Planning publication
-does not queue work. Until then, do not run Aiur, implement tickets, or add
-`agent:todo`.
+immutable post-publication receipt whose exact commit contains all three valid
+reconciliations, both external gates below are recorded as resolved, and the
+user separately authorizes a run. Re-run the trusted final-comment verifier;
+neither caller-supplied identity nor a merely existing commit is a start gate.
+Planning publication does not queue work. Until then, do not run Aiur,
+implement tickets, or add `agent:todo`.
 
 ## Identity and objective
 
@@ -36,7 +38,7 @@ are separate tracks and cannot change this run's denominator or ETA.
    - `docs/build-order/validation-report.md`
    - `docs/build-order/github-publication.md`
 2. Use `/aiur-run`, not the retired `/aiur-loop` workflow. Verify the loaded
-   skill is PR #1065 commit `311ffa17` or an explicitly reviewed compatible
+   skill is PR #1065 commit `a9a2142f` or an explicitly reviewed compatible
    successor preserving its finite-boundary, review/rework, circuit-breaker,
    and publication rules. A matching skill name is insufficient.
 3. Write a three-to-five-sentence `/goal` stating that you are the Executor,

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -183,25 +182,58 @@ class IssueRenderingTests(unittest.TestCase):
 
 
 class FinalCommentTests(unittest.TestCase):
-    def values(self):
-        receipt = subprocess.run(
-            ["git", "-C", str(SCRIPT_DIR), "rev-parse", "HEAD"],
-            check=True, capture_output=True, text=True,
-        ).stdout.strip()
-        receipt_url = f"https://github.com/{REPOSITORY}/commit/{receipt}"
-        root_url = f"https://github.com/{REPOSITORY}/issues/901"
-        comment_url = root_url + "#issuecomment-123"
-        body = render_successful_comment(
-            ROOT_ID, 1, APPROVED, REPOSITORY, receipt, receipt_url
+    @classmethod
+    def setUpClass(cls) -> None:
+        data, build, manifest = materialized_pack()
+        cls.fixture = Fixture(
+            data, build, manifest, pack_prefix="docs/build-order"
         )
-        return receipt, receipt_url, root_url, comment_url, body
+        cls.receipt = cls.fixture.commit_materialized()
+        materialized_build = json.loads(
+            cls.fixture.build_path.read_text(encoding="utf-8")
+        )
+        materialized_companions = json.loads(
+            cls.fixture.companion_path.read_text(encoding="utf-8")
+        )
+        cls.repository = materialized_companions["repository"]
+        cls.root_id = materialized_build["build_order_id"]
+        cls.plan_version = materialized_companions["plan_version"]
+        cls.approved = materialized_companions["approved_planning_commit"]
+        cls.root_url = materialized_build["github_root"]["url"]
 
-    def report(self, matches, receipt=None, receipt_url=None):
-        baseline_receipt, baseline_url, root_url, _, _ = self.values()
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.fixture.close()
+
+    def values(self):
+        receipt_url = (
+            f"https://github.com/{self.repository}/commit/{self.receipt}"
+        )
+        comment_url = self.root_url + "#issuecomment-123"
+        body = render_successful_comment(
+            self.root_id, self.plan_version, self.approved, self.repository,
+            self.receipt, receipt_url,
+        )
+        return self.receipt, receipt_url, self.root_url, comment_url, body
+
+    def report(
+        self, matches, receipt=None, receipt_url=None, root_id=None,
+        plan_version=None, approved=None, root_url=None, repository=None,
+        repository_anchor=None,
+    ):
+        baseline_receipt, baseline_url, _, _, _ = self.values()
         report = Report()
         validate_final_comment_matches(
-            matches, ROOT_ID, 1, APPROVED, receipt or baseline_receipt,
-            receipt_url or baseline_url, root_url, REPOSITORY, report,
+            matches,
+            self.root_id if root_id is None else root_id,
+            self.plan_version if plan_version is None else plan_version,
+            self.approved if approved is None else approved,
+            baseline_receipt if receipt is None else receipt,
+            baseline_url if receipt_url is None else receipt_url,
+            self.root_url if root_url is None else root_url,
+            self.repository if repository is None else repository,
+            report,
+            repository_anchor=repository_anchor or self.fixture.build_path,
         )
         return report
 
@@ -209,22 +241,18 @@ class FinalCommentTests(unittest.TestCase):
         _, _, _, url, body = self.values()
         self.assertEqual([], self.report([{"url": url, "body": body}]).errors)
 
-    def test_duplicate_comment_matches_and_wrong_receipt_fail(self) -> None:
+    def test_duplicate_comment_matches_fail(self) -> None:
         _, _, _, url, body = self.values()
         item = {"url": url, "body": body}
         self.assertIn(
             "exactly one comment match", "\n".join(self.report([item, dict(item)]).errors)
         )
-        wrong = "c" * 40
-        wrong_url = f"https://github.com/{REPOSITORY}/commit/{wrong}"
-        self.assertIn(
-            "canonical successful receipt",
-            "\n".join(self.report([item], wrong, wrong_url).errors),
-        )
 
     def test_pending_state_and_duplicate_marker_fail_final_verification(self) -> None:
         _, _, _, url, body = self.values()
-        pending = render_pending_comment(ROOT_ID, 1, APPROVED, REPOSITORY)
+        pending = render_pending_comment(
+            self.root_id, self.plan_version, self.approved, self.repository
+        )
         self.assertIn(
             "canonical successful receipt",
             "\n".join(self.report([{"url": url, "body": pending}]).errors),
@@ -237,23 +265,23 @@ class FinalCommentTests(unittest.TestCase):
 
     def test_nonexistent_receipt_commit_fails_final_verification(self) -> None:
         missing = "0" * 40
-        receipt_url = f"https://github.com/{REPOSITORY}/commit/{missing}"
-        _, _, root_url, comment_url, _ = self.values()
+        receipt_url = f"https://github.com/{self.repository}/commit/{missing}"
+        _, _, _, comment_url, _ = self.values()
         body = render_successful_comment(
-            ROOT_ID, 1, APPROVED, REPOSITORY, missing, receipt_url
+            self.root_id, self.plan_version, self.approved, self.repository,
+            missing, receipt_url,
         )
-        report = Report()
-        validate_final_comment_matches(
-            [{"url": comment_url, "body": body}], ROOT_ID, 1, APPROVED,
-            missing, receipt_url, root_url, REPOSITORY, report,
+        report = self.report(
+            [{"url": comment_url, "body": body}],
+            receipt=missing, receipt_url=receipt_url,
         )
         self.assertIn(
             "receipt_commit must resolve to an exact commit in this repository",
             report.errors,
         )
 
-    def test_foreign_or_malformed_receipt_url_fails_final_verification(self) -> None:
-        receipt, canonical_url, root_url, comment_url, _ = self.values()
+    def test_malformed_receipt_url_fails_final_verification(self) -> None:
+        receipt, canonical_url, _, comment_url, _ = self.values()
         urls = (
             f"https://evil.example/receipts/{receipt}",
             canonical_url + "?not-the-commit-object",
@@ -261,16 +289,108 @@ class FinalCommentTests(unittest.TestCase):
         for receipt_url in urls:
             with self.subTest(receipt_url=receipt_url):
                 body = render_successful_comment(
-                    ROOT_ID, 1, APPROVED, REPOSITORY, receipt, receipt_url
+                    self.root_id, self.plan_version, self.approved,
+                    self.repository, receipt, receipt_url,
                 )
-                report = Report()
-                validate_final_comment_matches(
-                    [{"url": comment_url, "body": body}], ROOT_ID, 1,
-                    APPROVED, receipt, receipt_url, root_url, REPOSITORY, report,
+                report = self.report(
+                    [{"url": comment_url, "body": body}],
+                    receipt_url=receipt_url,
                 )
                 self.assertIn(
                     f"receipt_url must equal {canonical_url}", report.errors
                 )
+
+    def test_caller_consistent_foreign_authority_is_rejected(self) -> None:
+        foreign_repository = "attacker/fork"
+        foreign_root_id = "attacker/fork:build-order-dashboard"
+        foreign_root_url = "https://github.com/attacker/fork/issues/901"
+        receipt_url = (
+            f"https://github.com/{foreign_repository}/commit/{self.receipt}"
+        )
+        body = render_successful_comment(
+            foreign_root_id, self.plan_version, self.approved,
+            foreign_repository, self.receipt, receipt_url,
+        )
+        report = self.report(
+            [{"url": foreign_root_url + "#issuecomment-123", "body": body}],
+            receipt_url=receipt_url,
+            root_id=foreign_root_id,
+            root_url=foreign_root_url,
+            repository=foreign_repository,
+        )
+        joined = "\n".join(report.errors)
+        self.assertIn("repository must equal receipt authority value", joined)
+        self.assertIn("root_id must equal receipt authority value", joined)
+        self.assertIn("root_issue_url must equal receipt authority value", joined)
+
+    def test_nonexistent_caller_approval_is_rejected(self) -> None:
+        missing = "0" * 40
+        _, receipt_url, _, comment_url, _ = self.values()
+        body = render_successful_comment(
+            self.root_id, self.plan_version, missing, self.repository,
+            self.receipt, receipt_url,
+        )
+        report = self.report(
+            [{"url": comment_url, "body": body}], approved=missing,
+        )
+        self.assertTrue(any(
+            "approved planning commit must equal receipt authority value" in error
+            for error in report.errors
+        ))
+
+    def test_receipt_with_nonexistent_approval_is_rejected(self) -> None:
+        data, build, manifest = materialized_pack()
+        fixture = Fixture(
+            data, build, manifest, pack_prefix="docs/build-order"
+        )
+        self.addCleanup(fixture.close)
+        missing = "0" * 40
+        for path in (fixture.companion_path, fixture.publication_path):
+            value = json.loads(path.read_text(encoding="utf-8"))
+            value["approved_planning_commit"] = missing
+            path.write_text(json.dumps(value), encoding="utf-8")
+        receipt = fixture.commit_materialized()
+        materialized_build = json.loads(
+            fixture.build_path.read_text(encoding="utf-8")
+        )
+        repository = data["repository"]
+        root_url = materialized_build["github_root"]["url"]
+        receipt_url = f"https://github.com/{repository}/commit/{receipt}"
+        body = render_successful_comment(
+            materialized_build["build_order_id"], data["plan_version"], missing,
+            repository, receipt, receipt_url,
+        )
+        report = Report()
+        validate_final_comment_matches(
+            [{"url": root_url + "#issuecomment-123", "body": body}],
+            materialized_build["build_order_id"], data["plan_version"], missing,
+            receipt, receipt_url, root_url, repository, report,
+            repository_anchor=fixture.build_path,
+        )
+        self.assertTrue(any(
+            "approved_planning_commit must resolve to an exact commit" in error
+            for error in report.errors
+        ))
+
+    def test_unmaterialized_local_commit_cannot_be_receipt(self) -> None:
+        assert self.fixture.approved_commit is not None
+        receipt = self.fixture.approved_commit
+        receipt_url = f"https://github.com/{self.repository}/commit/{receipt}"
+        body = render_successful_comment(
+            self.root_id, self.plan_version, self.approved, self.repository,
+            receipt, receipt_url,
+        )
+        report = self.report(
+            [{"url": self.root_url + "#issuecomment-123", "body": body}],
+            receipt=receipt, receipt_url=receipt_url,
+        )
+        for name in (
+            "build-order.json", "dashboard-companions.json", "publication.json",
+        ):
+            self.assertIn(
+                f"receipt commit {name} github_reconciliation must be materialized",
+                report.errors,
+            )
 
 
 if __name__ == "__main__":

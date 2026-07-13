@@ -14,8 +14,6 @@ from publication_common import SHA, Report, strict_object
 from publication_rendering import (
     BODY_SHA,
     approved_link,
-    exact_commit,
-    repository_root,
 )
 
 
@@ -130,30 +128,53 @@ def validate_final_comment_matches(
     )
     if not receipt_is_sha:
         report.error("receipt_commit must be a 40-character Git SHA")
-    else:
-        root = repository_root(repository_anchor or Path(__file__), report)
-        if root is not None:
-            exact_commit(root, receipt_commit, "receipt_commit", report)
-    expected_receipt_url = approved_link(repository, receipt_commit)
+        return
+
+    # Function-local import avoids the validator -> auxiliary receipt -> comment
+    # import cycle while ensuring only the current trusted validator is loaded.
+    from publication_receipt_authority import load_receipt_authority
+
+    authority = load_receipt_authority(
+        receipt_commit, repository_anchor or Path(__file__), report
+    )
+    if authority is None:
+        return
+    authority_values = (
+        ("root_id", root_id, authority.root_id),
+        ("plan_version", plan_version, authority.plan_version),
+        ("approved planning commit", approved, authority.approved_commit),
+        ("root_issue_url", root_issue_url, authority.root_issue_url),
+        ("repository", repository, authority.repository),
+    )
+    for field, observed, expected in authority_values:
+        if observed != expected:
+            report.error(f"{field} must equal receipt authority value {expected}")
+
+    expected_receipt_url = approved_link(authority.repository, receipt_commit)
     if receipt_url != expected_receipt_url:
         report.error(f"receipt_url must equal {expected_receipt_url}")
     expected_body = render_successful_comment(
-        root_id, plan_version, approved, repository, receipt_commit, receipt_url
+        authority.root_id, authority.plan_version, authority.approved_commit,
+        authority.repository, receipt_commit, expected_receipt_url,
     )
     for index, raw in enumerate(value):
         item = strict_object(raw, f"{label}[{index}]", LIVE_COMMENT_KEYS, report)
         if item is None:
             continue
         url, body = item.get("url"), item.get("body")
-        if not isinstance(url, str) or not _comment_url(root_issue_url).fullmatch(url):
+        if (
+            not isinstance(url, str)
+            or not _comment_url(authority.root_issue_url).fullmatch(url)
+        ):
             report.error("final reconciliation comment URL must point to the mapped root issue")
         if body != expected_body:
             report.error(
                 "final reconciliation comment body must equal the canonical successful receipt"
             )
         inspect_comment(
-            body, url, root_id, plan_version, approved, "successful",
-            receipt_commit, receipt_url, repository,
+            body, url, authority.root_id, authority.plan_version,
+            authority.approved_commit, "successful", receipt_commit,
+            expected_receipt_url, authority.repository,
             f"{label}[{index}]", report,
         )
 

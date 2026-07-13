@@ -58,7 +58,12 @@ relationships requery successfully, commit and push that receipt, then edit the
 same comment to the canonical `successful` body with the exact immutable
 receipt commit and link. Requery the final live comment and run the read-only
 `scripts/publication_comment.py` verifier; the final comment edit is the last
-publication mutation. This two-commit
+publication mutation. The verifier treats its CLI identity arguments as
+assertions, not authority: it derives repository, root identity and URL, plan
+version, and approval from the exact receipt commit, requires all three
+materialized reconciliation receipts, and runs the trusted current validator
+against raw regular blobs from that commit before accepting the comment. The
+mere existence of a local commit cannot authorize execution. This two-commit
 authority preserves reviewed scope while giving the immutable handoff a live
 route to the eventual receipt. A conflicting marker, parent, receipt comment,
 or existing identity stops publication for reconciliation; never use a

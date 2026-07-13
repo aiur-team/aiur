@@ -17,19 +17,23 @@ EXPECTED_COMMENT_SHA = "<EXPECTED_COMMENT_SHA256>"
 class FixtureBase:
     def __init__(
         self, companion: dict[str, object], build: dict[str, object],
-        publication_data: dict[str, object],
+        publication_data: dict[str, object], pack_prefix: str = ".",
     ) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.base = Path(self.temp.name)
-        self.companion_path = self.base / "dashboard-companions.json"
-        self.build_path = self.base / "build-order.json"
-        self.publication_path = self.base / "publication.json"
+        self.pack = self.base / pack_prefix
+        self.pack.mkdir(parents=True, exist_ok=True)
+        self.companion_path = self.pack / "dashboard-companions.json"
+        self.build_path = self.pack / "build-order.json"
+        self.publication_path = self.pack / "publication.json"
+        self.approved_commit: str | None = None
         values = copy.deepcopy((companion, build, publication_data))
         if self._needs_git(*values):
             source = self._approved_source(*values)
             self._write(*source)
             self._init_git()
             approved = self._head()
+            self.approved_commit = approved
             values = tuple(_replace_approval(item, approved) for item in values)
             self._write(*values)
             self._fill_expected_receipts(*values, approved)
@@ -46,13 +50,13 @@ class FixtureBase:
             document = ticket.get("document")
             if not isinstance(document, str):
                 continue
-            path = self.base / document
+            path = self.pack / document
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(f"# {ticket['id']} — Test\n", encoding="utf-8")
         for ticket in companion.get("tickets", []):
             if not isinstance(ticket, dict) or not isinstance(ticket.get("id"), str):
                 continue
-            path = self.base / str(ticket.get("document"))
+            path = self.pack / str(ticket.get("document"))
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(_ticket_text(ticket), encoding="utf-8")
         self.companion_path.write_text(json.dumps(companion), encoding="utf-8")
@@ -67,7 +71,7 @@ class FixtureBase:
             logical_id, document = issue.get("logical_id"), issue.get("document")
             if not isinstance(logical_id, str) or not isinstance(document, str):
                 continue
-            path = self.base / document
+            path = self.pack / document
             path.parent.mkdir(parents=True, exist_ok=True)
             text = _template_text(title, logical_id, repository, plan_version)
             approved = publication_data.get("approved_planning_commit")
@@ -171,6 +175,14 @@ class FixtureBase:
             ["git", "-C", str(self.base), "rev-parse", "HEAD"],
             check=True, capture_output=True, text=True,
         ).stdout.strip()
+
+    def commit_materialized(self) -> str:
+        subprocess.run(["git", "-C", str(self.base), "add", "-A"], check=True)
+        subprocess.run(
+            ["git", "-C", str(self.base), "commit", "-qm", "receipt"],
+            check=True,
+        )
+        return self._head()
 
     def close(self) -> None:
         self.temp.cleanup()

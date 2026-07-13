@@ -181,8 +181,9 @@ class Fixture(FixtureBase):
         companion: dict[str, object] | None = None,
         build: dict[str, object] | None = None,
         publication_data: dict[str, object] | None = None,
+        pack_prefix: str = ".",
     ) -> None:
         super().__init__(
             companion or companions(), build or build_order(),
-            publication_data or publication(),
+            publication_data or publication(), pack_prefix,
         )
