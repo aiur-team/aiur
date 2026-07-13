@@ -12,9 +12,21 @@ from validation_git_authority import (
     _reject_legacy_grafts,
     _validate_trusted_repository_commits,
 )
+from validation_git_repository import _github_origin_repository
 
 
 class RepositoryAuthorityTests(GitAuthorityCase):
+    def test_remote_lookup_timeout_fails_closed(self) -> None:
+        report = Report()
+        with patch(
+            "validation_git_bounded.subprocess.Popen",
+            side_effect=subprocess.TimeoutExpired(["git"], 30),
+        ):
+            self.assertIsNone(_github_origin_repository(self.root, report))
+        self.assertIn(
+            "requires a configured GitHub origin", "\n".join(report.errors),
+        )
+
     def test_legacy_graft_file_cannot_authorize_history(self) -> None:
         unrelated_receipt, merged_target = self.unrelated_receipt_and_tip()
         grafts = self.root / ".git/info/grafts"

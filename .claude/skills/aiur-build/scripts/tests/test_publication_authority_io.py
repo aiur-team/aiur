@@ -20,13 +20,13 @@ class PublicationAuthorityIoTests(unittest.TestCase):
     def test_git_reads_have_a_finite_timeout(self) -> None:
         completed = subprocess.CompletedProcess(["git"], 0, "a" * 40 + "\n", "")
         with patch(
-            "validation_publication_authority.subprocess.run",
+            "validation_publication_authority.run_bounded_git",
             return_value=completed,
         ) as run:
             self.assertEqual(0, _git(Path("."), "rev-parse", "HEAD").returncode)
         self.assertEqual(
             GIT_AUTHORITY_TIMEOUT_SECONDS,
-            run.call_args.kwargs["timeout"],
+            run.call_args.kwargs["timeout_seconds"],
         )
 
     def test_timeout_and_os_error_fail_closed(self) -> None:
@@ -37,7 +37,7 @@ class PublicationAuthorityIoTests(unittest.TestCase):
             with self.subTest(failure=type(failure).__name__):
                 report = Report()
                 with patch(
-                    "validation_publication_authority.subprocess.run",
+                    "validation_git_bounded.subprocess.Popen",
                     side_effect=failure,
                 ):
                     authority = load_frozen_publication_authority(

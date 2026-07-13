@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -19,6 +18,7 @@ from validation_common import (
     repository_relative_path,
     strict_object,
 )
+from validation_git_bounded import run_bounded_git
 
 
 MANIFEST_KEYS = {
@@ -32,6 +32,8 @@ ISSUE_URL = re.compile(
     r"^https://github\.com/[^/\s]+/[^/\s]+/issues/[1-9][0-9]*$", re.ASCII,
 )
 GIT_AUTHORITY_TIMEOUT_SECONDS = 30
+MAX_PUBLICATION_GIT_OUTPUT_BYTES = 64 * 1024
+MAX_PUBLICATION_MANIFEST_BYTES = 256 * 1024
 
 
 @dataclass(frozen=True)
@@ -92,7 +94,10 @@ def _manifest(
     if entry.returncode or not _regular_blob(entry.stdout, path):
         report.error(f"{label} publication manifest must be a regular file at {path}")
         return None
-    result = _git(root, "show", f"{commit}:{path}", binary=True)
+    result = _git(
+        root, "show", f"{commit}:{path}", binary=True,
+        stdout_limit=MAX_PUBLICATION_MANIFEST_BYTES,
+    )
     try:
         value = json.loads(result.stdout.decode("utf-8")) if result.returncode == 0 else None
     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -159,14 +164,11 @@ def _regular_blob(raw: bytes, path: str) -> bool:
 
 def _git(
     root: Path, *arguments: str, binary: bool = False,
-) -> subprocess.CompletedProcess:
-    command = ["git", "-C", str(root), *arguments]
-    try:
-        return subprocess.run(
-            command, check=False, capture_output=True, text=not binary,
-            env=git_no_replace_env(), timeout=GIT_AUTHORITY_TIMEOUT_SECONDS,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        empty = b"" if binary else ""
-        error = str(exc).encode() if binary else str(exc)
-        return subprocess.CompletedProcess(command, 124, empty, error)
+    stdout_limit: int = MAX_PUBLICATION_GIT_OUTPUT_BYTES,
+):
+    return run_bounded_git(
+        root, *arguments, environment=git_no_replace_env(), text=not binary,
+        timeout_seconds=GIT_AUTHORITY_TIMEOUT_SECONDS,
+        stdout_limit=stdout_limit,
+        stderr_limit=MAX_PUBLICATION_GIT_OUTPUT_BYTES,
+    )

@@ -55,11 +55,28 @@ class ReceiptModeIntegrationTests(unittest.TestCase):
             receipt = self.output(root, "rev-parse", "HEAD")
             self.git(root, "branch", "main", receipt)
             reader = FakeReader(snapshot, copy.deepcopy(snapshot))
+            events: list[str] = []
+            read_snapshot = reader.repository_issues
+
+            def authority_target(*_args: object, **_kwargs: object) -> str:
+                events.append("authority")
+                return receipt
+
+            def live_snapshot(repository: str) -> list[dict]:
+                events.append("live")
+                return read_snapshot(repository)
+
             with (
-                patch("validation_git_authority._load_github_branch_target", return_value=receipt),
+                patch(
+                    "validation_git_authority._load_github_branch_target",
+                    side_effect=authority_target,
+                ),
                 patch("validation_git_authority._github_compare_proves_ancestor", return_value=True),
                 patch("validation_git_authority._clean_clone_proves_ancestor", return_value=True),
                 patch("validate_build_order.GhApiReader", return_value=reader),
+                patch.object(
+                    reader, "repository_issues", side_effect=live_snapshot,
+                ),
             ):
                 report = _validate_receipt(
                     pack / "build-order.json", root, "pack/root.md", receipt,
@@ -67,6 +84,13 @@ class ReceiptModeIntegrationTests(unittest.TestCase):
         self.assertEqual([], report.errors)
         self.assertEqual([], report.warnings)
         self.assertEqual(2, reader.repository_reads)
+        self.assertEqual(
+            [
+                "authority", "authority", "live", "live",
+                "authority", "authority",
+            ],
+            events,
+        )
 
     def materialized(
         self, root: Path, pack: Path, approved: str, root_template: str,

@@ -17,8 +17,9 @@ their run requests as this workflow.
 
 Identify the working repository and read its `AGENTS.md`, `CONTRIBUTING.md`,
 Aiur config, and Executor handoff. Record the authority envelope from the
-Executor reference: scope, issue creation, review/comment, merge, self-fix,
-concurrency, cadence, debug mode, and terminal condition.
+Executor reference: scope, issue creation/comment, review, merge, self-fix,
+concurrency, cadence, debug mode, and terminal condition. Record external issue
+mutation authority separately from debug mode; one never implies the other.
 
 The handoff must identify the finite feature boundary, critical path, required
 documentation/cleanup, required end-to-end proof, and deferred-findings ledger.
@@ -70,9 +71,10 @@ in consumer repositories. Equivalent background forms are:
 "$AIUR_CMD" --bg --debug --max-agents <n>
 ```
 
-Include `--debug` only when authorized. Its incident-reporting consequence is
-defined in the Executor reference. Do not combine the separate `--todo` command
-with launch options.
+Include `--debug` only when authorized. It controls evidence capture and never
+authorizes filing or commenting on an issue; those mutations require separately
+recorded authority. Do not combine the separate `--todo` command with launch
+options.
 
 Verify `status`, then use a full monitor snapshot to confirm the orchestrator,
 queue, alerts, and first dispatch. Background mode is intentionally headless;

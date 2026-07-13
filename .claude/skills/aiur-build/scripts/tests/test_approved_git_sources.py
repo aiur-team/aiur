@@ -2,13 +2,64 @@
 
 import json
 import subprocess
+from unittest.mock import patch
 
 from approved_body_helpers import ApprovedCommitCase
 from validation_common import Report
+from validation_git_approved_source import (
+    MAX_APPROVED_SOURCE_BYTES,
+    approved_text,
+    exact_approved_commit,
+)
 from validation_github_approved import render_approved_build_order
 
 
 class ApprovedGitSourceTests(ApprovedCommitCase):
+    def test_approved_git_timeout_and_os_error_fail_closed(self) -> None:
+        failures = (
+            subprocess.TimeoutExpired(["git"], 30),
+            OSError("git unavailable"),
+        )
+        for failure in failures:
+            with self.subTest(operation="commit", failure=type(failure).__name__):
+                report = Report()
+                with patch(
+                    "validation_git_bounded.subprocess.Popen", side_effect=failure,
+                ):
+                    self.assertFalse(exact_approved_commit(
+                        self.root, self.sha, report,
+                    ))
+                self.assertTrue(report.errors)
+            with self.subTest(operation="source", failure=type(failure).__name__):
+                report = Report()
+                with patch(
+                    "validation_git_bounded.subprocess.Popen", side_effect=failure,
+                ):
+                    self.assertIsNone(approved_text(
+                        self.root, self.sha, "pack/root.md",
+                        "approved root document", report,
+                    ))
+                self.assertTrue(report.errors)
+
+    def test_approved_blob_output_is_hard_bounded(self) -> None:
+        oversized = self.root / "pack/oversized.md"
+        oversized.write_bytes(b"x" * (MAX_APPROVED_SOURCE_BYTES + 1))
+        subprocess.run(["git", "-C", str(self.root), "add", "pack"], check=True)
+        subprocess.run(
+            ["git", "-C", str(self.root), "commit", "-qm", "oversized"],
+            check=True,
+        )
+        approved = subprocess.run(
+            ["git", "-C", str(self.root), "rev-parse", "HEAD"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        report = Report()
+        self.assertIsNone(approved_text(
+            self.root, approved, "pack/oversized.md", "approved ticket",
+            report,
+        ))
+        self.assertIn("exceeds approved source byte bound", report.errors[0])
+
     def test_missing_approved_pack_and_document_fail_closed(self) -> None:
         report = Report()
         self.assertIsNone(render_approved_build_order(

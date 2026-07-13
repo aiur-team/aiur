@@ -8,9 +8,12 @@ import subprocess
 from pathlib import Path
 
 from validation_common import Report, git_no_replace_env
+from validation_git_bounded import run_bounded_git
 
 
 GITHUB_REPOSITORY = re.compile(r"^[^/\s]+/[^/\s]+$", re.ASCII)
+GIT_REPOSITORY_TIMEOUT_SECONDS = 30
+GIT_REPOSITORY_OUTPUT_BYTES = 64 * 1024
 
 
 def _valid_branch_ref(root: Path, value: object, report: Report) -> bool:
@@ -110,11 +113,15 @@ def _git(
     root: Path,
     *arguments: str,
     git_environment: dict[str, str] | None = None,
-    **kwargs: object,
+    capture_output: bool = False,
+    text: bool = False,
 ) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        ["git", "-C", str(root), *arguments],
-        check=False,
-        env=git_environment or git_no_replace_env(),
-        **kwargs,
+    del capture_output
+    return run_bounded_git(
+        root, *arguments,
+        environment=git_environment or git_no_replace_env(),
+        text=text,
+        timeout_seconds=GIT_REPOSITORY_TIMEOUT_SECONDS,
+        stdout_limit=GIT_REPOSITORY_OUTPUT_BYTES,
+        stderr_limit=GIT_REPOSITORY_OUTPUT_BYTES,
     )
