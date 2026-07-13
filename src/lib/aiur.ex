@@ -129,6 +129,7 @@ defmodule Aiur.Application do
       Aiur.Logs.Retention,
       # Dashboard: always on interactively; in headless only when the
       # operator opted in via `--port`/`server.port` (see `dashboard?/1`).
+      if(dashboard?, do: AiurWeb.ControlCenterCache),
       if(dashboard?, do: Aiur.HttpServer),
       Aiur.Opencode.TokenRegistry,
       Aiur.Opencode.ActiveTurns,

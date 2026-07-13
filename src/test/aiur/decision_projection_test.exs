@@ -229,7 +229,12 @@ defmodule Aiur.DecisionProjectionTest do
       events = [
         request,
         event(:answer_recorded, request, accepted, 1),
-        event(:dispatch_queued, request, %{action_id: accepted.action_id, attempt_id: "attempt-1", queue_item_id: 17}, 2),
+        event(
+          :dispatch_queued,
+          request,
+          %{action_id: accepted.action_id, attempt_id: "attempt-1", queue_item_id: 17},
+          2
+        ),
         event(:delivered, request, %{action_id: accepted.action_id, attempt_id: "attempt-1", queue_item_id: 17}, 3),
         event(:acknowledged, request, %{action_id: accepted.action_id, actor: %{kind: :agent, id: "agent-1"}}, 4),
         event(:resolved, request, %{action_id: accepted.action_id, actor: %{kind: :agent, id: "agent-1"}}, 5)
@@ -259,7 +264,12 @@ defmodule Aiur.DecisionProjectionTest do
       events = [
         request,
         event(:answer_recorded, request, accepted, 1),
-        event(:dispatch_queued, request, %{action_id: accepted.action_id, attempt_id: "attempt-1", queue_item_id: 17}, 2),
+        event(
+          :dispatch_queued,
+          request,
+          %{action_id: accepted.action_id, attempt_id: "attempt-1", queue_item_id: 17},
+          2
+        ),
         event(
           :failed,
           request,
@@ -271,7 +281,12 @@ defmodule Aiur.DecisionProjectionTest do
           },
           3
         ),
-        event(:dispatch_queued, request, %{action_id: accepted.action_id, attempt_id: "attempt-2", queue_item_id: 18}, 4),
+        event(
+          :dispatch_queued,
+          request,
+          %{action_id: accepted.action_id, attempt_id: "attempt-2", queue_item_id: 18},
+          4
+        ),
         event(:restored, request, %{action_id: accepted.action_id, attempt_id: "attempt-2", queue_item_id: 18}, 5)
       ]
 
@@ -397,7 +412,12 @@ defmodule Aiur.DecisionProjectionTest do
       events = [
         request,
         event(:answer_recorded, request, original, 1),
-        event(:dispatch_queued, request, %{action_id: original.action_id, attempt_id: "original:1", queue_item_id: 17}, 2),
+        event(
+          :dispatch_queued,
+          request,
+          %{action_id: original.action_id, attempt_id: "original:1", queue_item_id: 17},
+          2
+        ),
         event(:delivered, request, %{action_id: original.action_id, attempt_id: "original:1", queue_item_id: 17}, 3),
         event(:acknowledged, request, %{action_id: original.action_id, actor: %{kind: :agent, id: "agent-1"}}, 4),
         event(:resolved, request, %{action_id: original.action_id, actor: %{kind: :agent, id: "agent-1"}}, 5),
@@ -429,9 +449,19 @@ defmodule Aiur.DecisionProjectionTest do
       events = [
         request,
         event(:answer_recorded, request, original, 1),
-        event(:dispatch_queued, request, %{action_id: original.action_id, attempt_id: "original:1", queue_item_id: 17}, 2),
+        event(
+          :dispatch_queued,
+          request,
+          %{action_id: original.action_id, attempt_id: "original:1", queue_item_id: 17},
+          2
+        ),
         event(:revision_recorded, request, correction, 3),
-        event(:revision_dispatched, request, %{action_id: correction.action_id, attempt_id: "revision:1", queue_item_id: 18}, 4),
+        event(
+          :revision_dispatched,
+          request,
+          %{action_id: correction.action_id, attempt_id: "revision:1", queue_item_id: 18},
+          4
+        ),
         event(:delivered, request, %{action_id: correction.action_id, attempt_id: "revision:1", queue_item_id: 18}, 5)
       ]
 

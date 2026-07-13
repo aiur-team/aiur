@@ -12,7 +12,13 @@ defmodule AiurWeb.PresenterTest do
       pid: self(),
       ref: make_ref(),
       identifier: identifier,
-      issue: %Issue{id: issue_id, identifier: identifier, state: issue_state, title: "Row #{identifier}"},
+      issue: %Issue{
+        id: issue_id,
+        identifier: identifier,
+        state: issue_state,
+        title: "Row #{identifier}",
+        url: "https://example.test/issues/#{identifier}"
+      },
       worker_host: nil,
       control: %{can_interrupt: true, safe_checkpoints: [:notification], status: status},
       session_id: "thread-#{identifier}",
@@ -68,6 +74,11 @@ defmodule AiurWeb.PresenterTest do
 
     assert [running_row] = payload.running
     assert running_row.issue_identifier == "MT-700"
+    assert running_row.title == "Row MT-700"
+    assert running_row.url == "https://example.test/issues/MT-700"
+    assert running_row.work_state == :paused
+    assert running_row.tracker_paused == false
+    assert is_integer(running_row.runtime_seconds)
     assert running_row.waiting_reason == :waiting_for_ci
     assert running_row.ci == %{decision: :pending, pr_number: 55, head_sha: "abc123"}
     assert running_row.review == :not_started
