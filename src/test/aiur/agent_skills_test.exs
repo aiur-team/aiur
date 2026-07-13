@@ -33,6 +33,19 @@ defmodule Aiur.AgentSkillsTest do
     assert File.read!(metadata) =~ ~s(display_name: "Design Import")
   end
 
+  test "installs the complete aiur-debug reference set", %{workspace: ws} do
+    assert :ok = AgentSkills.install(ws)
+
+    skill = Path.join([ws, ".claude", "skills", "aiur-debug"])
+
+    for file <- ~w(SKILL.md evidence-and-correlation.md diagnostic-recipes.md examples-and-reporting.md) do
+      assert File.exists?(Path.join(skill, file)), "missing aiur-debug/#{file}"
+    end
+
+    assert {:ok, "../../.claude/skills/aiur-debug"} =
+             File.read_link(Path.join([ws, ".codex", "skills", "aiur-debug"]))
+  end
+
   test "remote install script materializes discoverable Claude and Codex skills", %{workspace: ws} do
     remote_workspace = Path.join(ws, "remote workspace")
     script = AgentSkills.remote_install_script(remote_workspace)
