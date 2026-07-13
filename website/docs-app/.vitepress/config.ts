@@ -7,6 +7,10 @@ export default defineConfig({
   outDir: '../dist/docs',
   cleanUrls: true,
   ignoreDeadLinks: [/\.claude\//, /\.codex\//, /src\/lib\//],
+  appearance: {
+    initialValue: 'dark',
+    storageKey: 'aiur-theme'
+  },
   vite: {
     publicDir: '../public'
   },
@@ -17,6 +21,7 @@ export default defineConfig({
       `(() => {
         const savedTheme = localStorage.getItem('aiur-theme')
         if (savedTheme === 'dark' || savedTheme === 'light') {
+          localStorage.setItem('vitepress-theme-appearance', savedTheme)
           document.documentElement.classList.toggle('dark', savedTheme === 'dark')
         }
       })()`

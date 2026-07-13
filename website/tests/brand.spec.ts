@@ -8,6 +8,24 @@ test('homepage establishes the canonical default theme', async ({ page }) => {
   await expect.poll(() => page.evaluate(() => localStorage.getItem('aiur-theme'))).toBe('dark')
 })
 
+test('light preference is applied before docs hydration', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('aiur-theme', 'light')
+    localStorage.setItem('vitepress-theme-appearance', 'dark')
+    ;(window as typeof window & { darkThemeObserved?: boolean }).darkThemeObserved = false
+    new MutationObserver(() => {
+      if (document.documentElement.classList.contains('dark')) {
+        ;(window as typeof window & { darkThemeObserved?: boolean }).darkThemeObserved = true
+      }
+    }).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+  })
+
+  await page.goto('/docs/guide/quick-start')
+  await expect(page.locator('html')).not.toHaveClass(/dark/)
+  expect(await page.evaluate(() => (window as typeof window & { darkThemeObserved?: boolean }).darkThemeObserved)).toBe(false)
+  expect(await page.evaluate(() => localStorage.getItem('vitepress-theme-appearance'))).toBe('light')
+})
+
 for (const theme of themes) {
   test(`${theme} theme remains accessible across home and docs`, async ({ page }) => {
     await page.addInitScript((savedTheme) => {
@@ -34,6 +52,10 @@ for (const theme of themes) {
       const styles = getComputedStyle(document.documentElement)
       return {
         muted: styles.getPropertyValue('--aiur-muted').trim(),
+        brandButton: {
+          foreground: styles.getPropertyValue('--vp-button-brand-text').trim(),
+          background: styles.getPropertyValue('--vp-button-brand-bg').trim()
+        },
         backgrounds: [
           styles.getPropertyValue('--aiur-bg').trim(),
           styles.getPropertyValue('--aiur-bg-soft').trim()
@@ -43,6 +65,7 @@ for (const theme of themes) {
     for (const background of contrast.backgrounds) {
       expect(contrastRatio(contrast.muted, background)).toBeGreaterThanOrEqual(4.5)
     }
+    expect(contrastRatio(contrast.brandButton.foreground, contrast.brandButton.background)).toBeGreaterThanOrEqual(4.5)
 
     const homeLink = page.getByRole('link', { name: 'Home' })
     await expect(homeLink).toHaveAttribute('href', 'https://aiur.team/')

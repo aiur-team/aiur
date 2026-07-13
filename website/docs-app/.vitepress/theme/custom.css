@@ -26,7 +26,7 @@
   --vp-button-brand-bg: var(--aiur-accent);
   --vp-button-brand-hover-border: var(--aiur-fg);
   --vp-button-brand-hover-bg: var(--aiur-fg);
-  --vp-button-brand-text: #fff;
+  --vp-button-brand-text: #ffffff;
   --vp-button-alt-border: var(--aiur-line);
   --vp-button-alt-bg: var(--aiur-surface);
   --vp-button-alt-hover-border: var(--aiur-accent);
@@ -48,7 +48,9 @@
   --aiur-accent: #2f86ff;
   --aiur-line: rgba(221, 226, 235, 0.14);
   --aiur-surface: rgba(221, 226, 235, 0.03);
-  --vp-button-brand-text: #fff;
+  --vp-button-brand-border: #1f6fcf;
+  --vp-button-brand-bg: #1f6fcf;
+  --vp-button-brand-text: #ffffff;
   --vp-code-block-bg: #111317;
 }
 
