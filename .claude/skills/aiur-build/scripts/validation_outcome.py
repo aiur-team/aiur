@@ -47,7 +47,7 @@ def validate_label_coverage(
         for extra in sorted(actual_keys - expected_keys):
             report.error(f"label_projection.{key} has unused key {extra}")
         all_labels.extend(value for value in mapping.values() if nonempty_string(value))
-    if len(all_labels) != len(set(all_labels)):
+    if len(all_labels) != len({label.casefold() for label in all_labels}):
         report.error("label_projection reuses a label for multiple meanings")
 
 

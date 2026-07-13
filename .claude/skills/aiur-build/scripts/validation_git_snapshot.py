@@ -5,10 +5,19 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path, PurePosixPath
 
-from validation_common import SHA, Report, git_no_replace_env
+from validation_common import (
+    SHA,
+    Report,
+    git_no_replace_env,
+    repository_relative_path,
+)
 
 
 REGULAR_MODES = {b"100644", b"100755"}
+MAX_PACK_FILES = 512
+MAX_PACK_FILE_BYTES = 2 * 1024 * 1024
+MAX_PACK_BYTES = 32 * 1024 * 1024
+GIT_SNAPSHOT_TIMEOUT_SECONDS = 30
 
 
 def materialize_receipt_pack(
@@ -26,16 +35,22 @@ def materialize_receipt_pack(
     entries = _entries(source_root, receipt_commit, pack_path, report)
     if entries is None:
         return False
+    total_bytes = 0
     for path, executable in entries:
-        raw = _git(
-            source_root, "show", f"{receipt_commit}:{path}", capture_output=True,
-        )
-        if raw.returncode:
-            report.error(f"receipt pack file is unreadable at {path}")
+        size = _blob_size(source_root, receipt_commit, path, report)
+        if size is None:
             continue
+        total_bytes += size
+        if size > MAX_PACK_FILE_BYTES:
+            report.error(f"receipt pack file exceeds byte bound: {path}")
+            continue
+        if total_bytes > MAX_PACK_BYTES:
+            report.error("receipt planning pack exceeds aggregate byte bound")
+            break
         target = destination.joinpath(*PurePosixPath(path).parts)
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(raw.stdout)
+        if not _write_blob(source_root, receipt_commit, path, target, report):
+            continue
         if executable:
             target.chmod(0o755)
     return not report.errors
@@ -46,7 +61,6 @@ def _clone(source: Path, destination: Path, report: Report) -> bool:
         source,
         "clone", "--quiet", "--shared", "--no-checkout", "--",
         str(source), str(destination),
-        capture_output=True,
         text=True,
     )
     if result.returncode:
@@ -61,16 +75,16 @@ def _entries(
     prefix = _safe_pack_path(pack_path, report)
     if prefix is None:
         return None
-    result = _git(
-        root, "ls-tree", "-r", "-z", commit, "--", prefix,
-        capture_output=True,
-    )
+    result = _git(root, "ls-tree", "-r", "-z", commit, "--", prefix)
     if result.returncode:
         report.error("receipt commit or planning pack cannot be read")
         return None
     entries: list[tuple[str, bool]] = []
     seen: set[str] = set()
     for raw in (item for item in result.stdout.split(b"\0") if item):
+        if len(entries) >= MAX_PACK_FILES:
+            report.error("receipt planning pack exceeds file-count bound")
+            break
         parsed = _entry(raw, prefix, seen, report)
         if parsed is not None:
             entries.append(parsed)
@@ -88,12 +102,20 @@ def _entry(
     metadata, encoded_path = raw.split(b"\t", 1)
     fields = metadata.split()
     try:
-        path = encoded_path.decode("utf-8")
+        raw_path = encoded_path.decode("utf-8")
     except UnicodeDecodeError:
         report.error("receipt planning pack paths must be UTF-8")
         return None
-    if not _within_pack(path, prefix) or path.casefold() in seen:
-        report.error(f"receipt planning pack path is unsafe or duplicated: {path}")
+    path = repository_relative_path(
+        raw_path, "receipt planning pack path", report,
+    )
+    prefix_parts = PurePosixPath(prefix).parts
+    if (
+        path is None
+        or PurePosixPath(path).parts[:len(prefix_parts)] != prefix_parts
+        or path.casefold() in seen
+    ):
+        report.error(f"receipt planning pack path is unsafe or duplicated: {raw_path}")
         return None
     seen.add(path.casefold())
     if len(fields) != 3 or fields[0] not in REGULAR_MODES or fields[1] != b"blob":
@@ -103,32 +125,53 @@ def _entry(
 
 
 def _safe_pack_path(value: str, report: Report) -> str | None:
-    path = PurePosixPath(value)
-    if path.is_absolute() or ".." in path.parts or path.as_posix() != value:
-        report.error("receipt planning pack must be a safe repository-relative path")
+    return repository_relative_path(value, "receipt planning pack", report)
+
+
+def _blob_size(
+    root: Path, commit: str, path: str, report: Report,
+) -> int | None:
+    result = _git(root, "cat-file", "-s", f"{commit}:{path}", text=True)
+    try:
+        size = int(result.stdout.strip()) if result.returncode == 0 else -1
+    except ValueError:
+        size = -1
+    if size < 0:
+        report.error(f"receipt pack file size is unreadable at {path}")
         return None
-    if not value or value == "." or any(part.casefold() == ".git" for part in path.parts):
-        report.error("receipt planning pack path is not allowed")
-        return None
-    return value
+    return size
 
 
-def _within_pack(value: str, prefix: str) -> bool:
-    path = PurePosixPath(value)
-    return (
-        not path.is_absolute()
-        and ".." not in path.parts
-        and path.as_posix() == value
-        and tuple(path.parts[:len(PurePosixPath(prefix).parts)])
-        == PurePosixPath(prefix).parts
-        and all(part.casefold() != ".git" for part in path.parts)
-    )
+def _write_blob(
+    root: Path, commit: str, path: str, target: Path, report: Report,
+) -> bool:
+    try:
+        with target.open("wb") as stream:
+            result = subprocess.run(
+                ["git", "-C", str(root), "show", f"{commit}:{path}"],
+                check=False, stdout=stream, stderr=subprocess.PIPE,
+                env=git_no_replace_env(), timeout=GIT_SNAPSHOT_TIMEOUT_SECONDS,
+            )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        report.error(f"receipt pack file read failed at {path}: {exc}")
+        return False
+    if result.returncode:
+        report.error(f"receipt pack file is unreadable at {path}")
+        return False
+    return True
 
 
-def _git(root: Path, *arguments: str, **kwargs: object) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        ["git", "-C", str(root), *arguments],
-        check=False,
-        env=git_no_replace_env(),
-        **kwargs,
-    )
+def _git(
+    root: Path, *arguments: str, text: bool = False,
+) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(
+            ["git", "-C", str(root), *arguments], check=False,
+            capture_output=True, text=text, env=git_no_replace_env(),
+            timeout=GIT_SNAPSHOT_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return subprocess.CompletedProcess(
+            ["git", *arguments], 124, "" if text else b"",
+            str(exc) if text else str(exc).encode(),
+        )

@@ -135,7 +135,10 @@ def validate_label_projection(data: dict[str, Any], report: Report) -> dict[str,
         "label_projection.forbidden_labels",
         report,
     )
-    overlap = sorted(set(required) & set(forbidden))
+    overlap = sorted(
+        {label.casefold() for label in required}
+        & {label.casefold() for label in forbidden}
+    )
     if overlap:
         report.error(
             "label_projection requires and forbids the same labels: " + ", ".join(overlap)

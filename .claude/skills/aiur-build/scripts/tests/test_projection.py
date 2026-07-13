@@ -8,6 +8,7 @@ from helpers import ValidatorCase, example, report_for
 from validation_common import Report
 from validation_github_approved import ApprovedIssueExpectations
 from validation_github_rendering import render_ticket_body, inspect_issue_body
+from validation_publication_authority import PublicationAuthority
 
 
 def github(repository: str, number: int, node_id: str):
@@ -162,6 +163,21 @@ class GithubTests(ValidatorCase):
         data = self.materialized()
         data["github_reconciliation"]["observed_labels"]["BO-001"].append("agent:todo")
         self.assert_error(data, "forbidden labels present for BO-001")
+
+    def test_immutable_authority_limits_mutations_and_lifecycle_labels(self) -> None:
+        authority = PublicationAuthority(
+            "refs/heads/main", "root.md", ("example/repo",),
+            ("https://github.com/example/repo/issues/101",), "workflow",
+        )
+        data = self.materialized()
+        data["github_reconciliation"]["observed_labels"]["BO-001"].append(
+            "WoRkFlOw:ToDo"
+        )
+        report = report_for(data, self.approved_body_expectations, authority)
+        joined = "\n".join(report.errors)
+        self.assertIn("BO-002.github is outside immutable mutation authority", joined)
+        self.assertIn("BO-001.github maps a reference-only issue", joined)
+        self.assertIn("forbidden labels present for BO-001", joined)
 
     def test_reconciliation_rejects_root_only_label_on_members(self) -> None:
         for field in ("projected_labels", "observed_labels"):

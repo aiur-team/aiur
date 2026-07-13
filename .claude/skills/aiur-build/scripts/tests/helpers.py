@@ -15,6 +15,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 from validate_build_order import validate_data  # noqa: E402
 from validation_github_approved import ApprovedIssueExpectations  # noqa: E402
+from validation_publication_authority import PublicationAuthority  # noqa: E402
 
 
 REFERENCES = SCRIPT_DIR.parent / "references"
@@ -28,8 +29,11 @@ def example() -> dict[str, Any]:
 def report_for(
     data: object,
     approved_expectations: ApprovedIssueExpectations | None = None,
+    publication_authority: PublicationAuthority | None = None,
 ):
-    return validate_data(data, REFERENCES, approved_expectations)
+    return validate_data(
+        data, REFERENCES, approved_expectations, publication_authority,
+    )
 
 
 def umbrella(ticket_id: str, document: str, children: list[str]) -> dict[str, Any]:

@@ -6,6 +6,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 
@@ -121,3 +122,74 @@ def normalize_surfaces(record: dict[str, Any]) -> dict[str, str]:
 def safe_list(record: dict[str, Any], field_name: str) -> list[Any]:
     value = record.get(field_name)
     return value if isinstance(value, list) else []
+
+
+def repository_relative_path(
+    value: object,
+    label: str,
+    report: Report,
+    *,
+    allow_dot: bool = False,
+) -> str | None:
+    """Return one canonical repository-relative path or fail closed."""
+    if not isinstance(value, str) or not value:
+        report.error(f"{label} must be a non-empty repository-relative path")
+        return None
+    path = PurePosixPath(value)
+    normalized = path.as_posix()
+    if (
+        path.is_absolute()
+        or ".." in path.parts
+        or (normalized == "." and not allow_dot)
+        or normalized != value
+        or "\x00" in value
+        or any(part.casefold() == ".git" for part in path.parts)
+    ):
+        report.error(f"{label} must be a safe repository-relative path")
+        return None
+    return normalized
+
+
+def repository_path_from_file(
+    path: Path, repository_root: Path, label: str, report: Report,
+) -> str | None:
+    """Convert an existing caller path through the canonical path sanitizer."""
+    try:
+        relative = path.resolve().relative_to(repository_root.resolve()).as_posix()
+    except ValueError:
+        report.error(f"{label} must resolve within the repository")
+        return None
+    return repository_relative_path(relative, label, report)
+
+
+def resolve_regular_file(
+    root: Path,
+    value: object,
+    label: str,
+    report: Report,
+    *,
+    reject_symlinks: bool = True,
+) -> Path | None:
+    """Resolve a sanitized path to a readable in-repository regular file."""
+    relative = repository_relative_path(value, label, report)
+    if relative is None:
+        return None
+    candidate = root
+    for part in PurePosixPath(relative).parts:
+        candidate /= part
+        if reject_symlinks and candidate.is_symlink():
+            report.error(f"{label} must not be a symlink")
+            return None
+    try:
+        resolved = candidate.resolve(strict=True)
+        resolved.relative_to(root.resolve())
+    except FileNotFoundError:
+        report.error(f"{label} does not exist: {relative}")
+        return None
+    except (OSError, ValueError) as exc:
+        report.error(f"{label} must resolve within the repository: {exc}")
+        return None
+    if not resolved.is_file():
+        report.error(f"{label} must be a regular file at {relative}")
+        return None
+    return resolved

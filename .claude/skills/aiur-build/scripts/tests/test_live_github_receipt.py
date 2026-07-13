@@ -22,6 +22,7 @@ from validation_github_live import (
     LiveGitHubError,
     validate_live_github_receipt,
 )
+from validation_github_reader import QueryBudget
 from validation_github_rendering import inspect_issue_body, render_ticket_body
 
 
@@ -194,7 +195,7 @@ class LiveReceiptTests(unittest.TestCase):
         self.assertEqual([], validate(data, reader).errors)
         self.assertEqual(2, reader.repository_reads)
 
-    def test_receipt_mode_automatically_runs_live_gate_between_authority_checks(self) -> None:
+    def test_receipt_mode_extracts_real_pack_before_ordered_live_gate(self) -> None:
         data, snapshot = fixture()
         reader = FakeReader(snapshot, copy.deepcopy(snapshot))
         with tempfile.TemporaryDirectory() as directory:
@@ -202,28 +203,61 @@ class LiveReceiptTests(unittest.TestCase):
             pack = root / "pack"
             pack.mkdir()
             path = pack / "build-order.json"
-            path.write_text("{}", encoding="utf-8")
+            path.write_text(json.dumps(data), encoding="utf-8")
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            subprocess.run(
+                ["git", "-C", str(root), "config", "user.email", "test@example.com"],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(root), "config", "user.name", "Test"], check=True,
+            )
+            subprocess.run(["git", "-C", str(root), "add", "pack"], check=True)
+            subprocess.run(
+                ["git", "-C", str(root), "commit", "-qm", "receipt"], check=True,
+            )
+            receipt_commit = subprocess.run(
+                ["git", "-C", str(root), "rev-parse", "HEAD"], check=True,
+                capture_output=True, text=True,
+            ).stdout.strip()
             validated = Report()
+            events: list[str] = []
+
+            def authority_check(*_args: object, **_kwargs: object) -> object:
+                events.append("authority")
+                from validation_publication_authority import PublicationAuthority
+                return PublicationAuthority(
+                    "refs/heads/main", "pack/root.md", (REPOSITORY,), (), "agent",
+                )
+
+            def validate_path(*_args: object, **_kwargs: object) -> object:
+                events.append("pack")
+                return data, validated
+
+            class OrderedReader(FakeReader):
+                def repository_issues(self, repository: str) -> list[dict[str, Any]]:
+                    if self.repository_reads == 0:
+                        events.append("live")
+                    return super().repository_issues(repository)
+
+            reader = OrderedReader(snapshot, copy.deepcopy(snapshot))
             with (
                 patch(
-                    "validate_build_order.materialize_receipt_pack",
-                    return_value=True,
-                ),
-                patch(
                     "validate_build_order._validate_path",
-                    return_value=(data, validated),
+                    side_effect=validate_path,
                 ),
                 patch(
-                    "validate_build_order.validate_publication_commit_authority"
-                ) as authority,
+                    "validate_build_order.validate_publication_commit_authority",
+                    side_effect=authority_check,
+                ),
                 patch("validate_build_order.GhApiReader", return_value=reader),
             ):
                 report = _validate_receipt(
-                    path, root, "pack/root.md", "c" * 40,
+                    path, root, "pack/root.md", receipt_commit,
                 )
         self.assertEqual([], report.errors)
         self.assertEqual(2, reader.repository_reads)
-        self.assertEqual(2, authority.call_count)
+        self.assertEqual(["authority", "pack", "live", "authority"], events)
 
     def test_forged_mapping_receipt_fails(self) -> None:
         data, snapshot = fixture()
@@ -385,7 +419,7 @@ class GhApiReaderTests(unittest.TestCase):
             with self.assertRaisesRegex(LiveGitHubError, "malformed item"):
                 reader.repository_issues(REPOSITORY)
         with (
-            patch("validation_github_live.MAX_ITEMS", 1),
+            patch("validation_github_reader.MAX_ITEMS", 1),
             patch(
                 "validation_github_api.subprocess.run",
                 return_value=self.result("[{},{}]"),
@@ -411,9 +445,9 @@ class GhApiReaderTests(unittest.TestCase):
         reader = GhApiReader(Path("."))
         page = self.result("[{},{}]")
         with (
-            patch("validation_github_live.PAGE_SIZE", 2),
-            patch("validation_github_live.MAX_PAGES", 2),
-            patch("validation_github_live.MAX_ITEMS", 4),
+            patch("validation_github_reader.PAGE_SIZE", 2),
+            patch("validation_github_reader.MAX_PAGES", 2),
+            patch("validation_github_reader.MAX_ITEMS", 4),
             patch(
                 "validation_github_api.subprocess.run",
                 side_effect=(page, page),
@@ -448,6 +482,18 @@ class GhApiReaderTests(unittest.TestCase):
             arguments[arguments.index("--method"):arguments.index("--method") + 2],
         )
         self.assertEqual(GITHUB_TIMEOUT_SECONDS, run.call_args.kwargs["timeout"])
+
+    def test_one_budget_is_shared_across_sequential_snapshot_reads(self) -> None:
+        reader = GhApiReader(Path("."), budget=QueryBudget(
+            requests_remaining=1, items_remaining=10,
+        ))
+        with patch(
+            "validation_github_api.subprocess.run",
+            return_value=self.result("[]"),
+        ):
+            self.assertEqual([], reader.repository_issues(REPOSITORY))
+            with self.assertRaisesRegex(LiveGitHubError, "total request bound"):
+                reader.repository_issues(REPOSITORY)
 
     def test_query_timeout_and_os_error_fail_closed(self) -> None:
         reader = GhApiReader(Path("."))

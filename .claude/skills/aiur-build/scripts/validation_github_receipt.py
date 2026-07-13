@@ -17,6 +17,7 @@ from validation_github_evidence import (
     validate_marker_query_matches,
 )
 from validation_github_approved import ApprovedIssueExpectations
+from validation_publication_authority import PublicationAuthority
 
 
 RECONCILIATION_KEYS = {
@@ -35,6 +36,10 @@ RECONCILIATION_KEYS = {
     "marker_query_matches",
 }
 DEPENDENCY_KEYS = {"ticket_id", "depends_on"}
+LIFECYCLE_SLUGS = {
+    "todo", "in-progress", "human-review", "rework", "merging", "done",
+    "paused",
+}
 
 
 def validate_reconciliation(
@@ -44,6 +49,7 @@ def validate_reconciliation(
     ticket_mappings: dict[str, dict[str, Any] | None],
     report: Report,
     approved_expectations: ApprovedIssueExpectations | None = None,
+    publication_authority: PublicationAuthority | None = None,
 ) -> None:
     value = data.get("github_reconciliation")
     any_mapping = root is not None or any(item is not None for item in ticket_mappings.values())
@@ -105,8 +111,18 @@ def validate_reconciliation(
         {root_id: root, **ticket_mappings},
         report,
     )
-    _validate_label_sets(data, by_id, receipt.get("projected_labels"), "projected", report)
-    _validate_label_sets(data, by_id, receipt.get("observed_labels"), "observed", report)
+    lifecycle_prefix = (
+        publication_authority.tracker_lifecycle_label_prefix
+        if publication_authority is not None else "agent"
+    )
+    _validate_label_sets(
+        data, by_id, receipt.get("projected_labels"), "projected",
+        lifecycle_prefix, report,
+    )
+    _validate_label_sets(
+        data, by_id, receipt.get("observed_labels"), "observed",
+        lifecycle_prefix, report,
+    )
 
 
 def _validate_issue_titles(
@@ -189,6 +205,7 @@ def _validate_label_sets(
     by_id: dict[str, dict[str, Any]],
     value: object,
     field: str,
+    lifecycle_prefix: str,
     report: Report,
 ) -> None:
     if not isinstance(value, dict):
@@ -197,18 +214,20 @@ def _validate_label_sets(
     projection = data.get("label_projection") if isinstance(data.get("label_projection"), dict) else {}
     root_id = data.get("build_order_id")
     root_label = projection.get("build_order")
-    required = set(
-        label
+    root_label_key = root_label.casefold() if nonempty_string(root_label) else None
+    required = {
+        label.casefold()
         for label in projection.get("required_ticket_labels", [])
         if nonempty_string(label)
-    )
-    forbidden = set(
-        label for label in projection.get("forbidden_labels", []) if nonempty_string(label)
-    )
+    }
+    forbidden = {
+        label.casefold() for label in projection.get("forbidden_labels", [])
+        if nonempty_string(label)
+    }
     expected: dict[str, set[str]] = {}
     if nonempty_string(root_id):
         expected[str(root_id)] = (
-            {root_label} if nonempty_string(root_label) else set()
+            {root_label_key} if root_label_key is not None else set()
         )
     for ticket_id, ticket in by_id.items():
         labels: set[str] = set(required)
@@ -220,7 +239,7 @@ def _validate_label_sets(
         for group, key in selectors:
             mapping = projection.get(group)
             if isinstance(mapping, dict) and key in mapping and nonempty_string(mapping[key]):
-                labels.add(mapping[key])
+                labels.add(mapping[key].casefold())
         expected[ticket_id] = labels
     if set(value) != set(expected):
         report.error(f"github_reconciliation.{field}_labels keys must match root and tickets")
@@ -228,7 +247,13 @@ def _validate_label_sets(
         labels = checked_string_list(
             value.get(identity), f"github_reconciliation.{field}_labels.{identity}", report
         )
-        actual = set(labels)
+        normalized = [label.casefold() for label in labels]
+        actual = set(normalized)
+        if len(normalized) != len(actual):
+            report.error(
+                f"github_reconciliation.{field}_labels.{identity} "
+                "contains case-insensitive duplicates"
+            )
         missing = sorted(expected_labels - actual)
         if missing:
             report.error(
@@ -236,18 +261,28 @@ def _validate_label_sets(
                 + ", ".join(missing)
             )
         forbidden_hits = sorted(actual & forbidden)
+        forbidden_hits.extend(sorted(
+            actual
+            & {
+                f"{lifecycle_prefix.casefold()}:{slug}"
+                for slug in LIFECYCLE_SLUGS
+            }
+        ))
+        forbidden_hits = sorted(set(forbidden_hits))
         if forbidden_hits:
             report.error(
                 f"github_reconciliation forbidden labels present for {identity}: "
                 + ", ".join(forbidden_hits)
             )
-        if identity != root_id and nonempty_string(root_label) and root_label in actual:
+        if identity != root_id and root_label_key is not None and root_label_key in actual:
             report.error(
                 f"github_reconciliation root-only label present for {identity}: {root_label}"
             )
-        routing_prefixes = (
-            "agent:", "human:", "model:", "phase:", "complexity:",
-            "build-lane:",
+        routing_prefixes = tuple(
+            f"{prefix.casefold()}:" for prefix in (
+                lifecycle_prefix, "human", "model", "phase", "complexity",
+                "build-lane",
+            )
         )
         unexpected = {
             label for label in actual

@@ -6,7 +6,13 @@ import re
 from pathlib import Path
 from typing import Any
 
-from validation_common import RUNNABLE_KINDS, Report, nonempty_string, safe_list
+from validation_common import (
+    RUNNABLE_KINDS,
+    Report,
+    nonempty_string,
+    resolve_regular_file,
+    safe_list,
+)
 
 
 REQUIRED_HEADINGS = (
@@ -32,23 +38,10 @@ def validate_document(
     base_dir: Path,
     report: Report,
 ) -> None:
-    if not nonempty_string(value):
-        report.error(f"{ticket_id}.document must be a non-empty relative path")
-        return
-    document = Path(value)
-    if document.is_absolute() or ".." in document.parts:
-        report.error(f"{ticket_id}.document must stay within the planning pack")
-        return
-    path = base_dir / document
-    try:
-        if not path.resolve().is_relative_to(base_dir.resolve()):
-            report.error(f"{ticket_id}.document must stay within the planning pack")
-            return
-    except OSError as exc:
-        report.error(f"{ticket_id}.document cannot be resolved: {exc}")
-        return
-    if not path.is_file():
-        report.error(f"{ticket_id}.document does not exist: {value}")
+    path = resolve_regular_file(
+        base_dir, value, f"{ticket_id}.document", report,
+    )
+    if path is None:
         return
     try:
         text = path.read_text(encoding="utf-8")

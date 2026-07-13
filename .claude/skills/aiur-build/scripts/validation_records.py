@@ -12,6 +12,7 @@ from validation_common import (
     Report,
     checked_string_list,
     nonempty_string,
+    resolve_regular_file,
     safe_list,
     strict_object,
 )
@@ -22,25 +23,7 @@ DECISION_KEYS = {"id", "summary", "status", "rationale", "design_evidence_refs"}
 
 
 def _artifact_path(value: object, label: str, base_dir: Path, report: Report) -> Path | None:
-    if not nonempty_string(value):
-        report.error(f"{label} must be a non-empty relative path")
-        return None
-    relative = Path(value)
-    if relative.is_absolute() or ".." in relative.parts:
-        report.error(f"{label} must stay within the planning pack")
-        return None
-    path = base_dir / relative
-    try:
-        if not path.resolve().is_relative_to(base_dir.resolve()):
-            report.error(f"{label} must stay within the planning pack")
-            return None
-    except OSError as exc:
-        report.error(f"{label} cannot be resolved: {exc}")
-        return None
-    if not path.is_file():
-        report.error(f"{label} does not exist: {value}")
-        return None
-    return path
+    return resolve_regular_file(base_dir, value, label, report)
 
 
 def validate_design_evidence(

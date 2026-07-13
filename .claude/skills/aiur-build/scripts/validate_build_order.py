@@ -10,13 +10,12 @@ import tempfile
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from validation_common import Report
+from validation_common import Report, repository_path_from_file
 from validation_git_authority import validate_publication_commit_authority
 from validation_git_snapshot import materialize_receipt_pack
 from validation_github_approved import (
     ApprovedIssueExpectations,
     render_approved_build_order,
-    repository_relative,
 )
 from validation_github import validate_all_github
 from validation_github_live import GhApiReader, validate_live_github_receipt
@@ -43,11 +42,13 @@ from validation_outcome import (
 )
 from validation_records import validate_decisions, validate_design_evidence, validate_record_refs
 from validation_tickets import validate_tickets
+from validation_publication_authority import PublicationAuthority
 
 
 def validate_data(
     value: object, base_dir: Path,
     approved_expectations: ApprovedIssueExpectations | None = None,
+    publication_authority: PublicationAuthority | None = None,
 ) -> Report:
     report = Report()
     if not isinstance(value, dict):
@@ -73,7 +74,9 @@ def validate_data(
     validate_label_coverage(projection, workstreams, by_id, report)
     validate_surface_conflicts(by_id, closure, report)
     validate_epic_acceptance(data, by_id, closure, critical_path, report)
-    validate_all_github(data, by_id, report, approved_expectations)
+    validate_all_github(
+        data, by_id, report, approved_expectations, publication_authority,
+    )
     return report
 
 
@@ -90,11 +93,14 @@ def _validate_path(
     repository_root: Path | None,
     root_document: str | None,
     report: Report,
+    publication_authority: PublicationAuthority | None = None,
 ) -> tuple[object | None, Report]:
     value = load(path, report)
     expectations = None
     if isinstance(value, dict) and repository_root is not None and root_document is not None:
-        build_path = repository_relative(path, repository_root, report)
+        build_path = repository_path_from_file(
+            path, repository_root, "build-order path", report,
+        )
         receipt = value.get("github_reconciliation")
         approved = receipt.get("approved_planning_commit") if isinstance(receipt, dict) else None
         if build_path is not None:
@@ -103,7 +109,9 @@ def _validate_path(
             )
     if value is None:
         return value, report
-    validated = validate_data(value, path.parent, expectations)
+    validated = validate_data(
+        value, path.parent, expectations, publication_authority,
+    )
     validated.errors[:0] = report.errors
     validated.warnings[:0] = report.warnings
     return value, validated
@@ -116,7 +124,9 @@ def _validate_receipt(
     receipt_commit: str,
 ) -> Report:
     report = Report()
-    build_path = repository_relative(path, repository_root, report)
+    build_path = repository_path_from_file(
+        path, repository_root, "build-order path", report,
+    )
     if build_path is None:
         return report
     pack_path = str(PurePosixPath(build_path).parent)
@@ -127,23 +137,38 @@ def _validate_receipt(
         ):
             return report
         receipt_path = snapshot.joinpath(*PurePosixPath(build_path).parts)
+        preview = load(receipt_path, report)
+        if not isinstance(preview, dict):
+            return report
+        receipt = preview.get("github_reconciliation")
+        approved = (
+            receipt.get("approved_planning_commit")
+            if isinstance(receipt, dict) else None
+        )
+        publication_path = str(PurePosixPath(build_path).parent / "publication.json")
+        authority = validate_publication_commit_authority(
+            repository_root,
+            preview.get("repository"),
+            publication_path,
+            approved,
+            receipt_commit,
+            report,
+        )
+        if authority is None or report.errors:
+            return report
+        if root_document != authority.root_document:
+            report.error(
+                "--root-document must equal immutable publication root_document"
+            )
+            return report
         value, validated = _validate_path(
-            receipt_path, snapshot, root_document, report,
+            receipt_path, snapshot, authority.root_document, report, authority,
         )
         if isinstance(value, dict):
             receipt = value.get("github_reconciliation")
             approved = (
                 receipt.get("approved_planning_commit")
                 if isinstance(receipt, dict) else None
-            )
-            publication_path = str(PurePosixPath(build_path).parent / "publication.json")
-            validate_publication_commit_authority(
-                repository_root,
-                value.get("repository"),
-                publication_path,
-                approved,
-                receipt_commit,
-                validated,
             )
             if not validated.errors:
                 validate_live_github_receipt(

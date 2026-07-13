@@ -132,7 +132,24 @@ class TrustedRepositoryRefTests(unittest.TestCase):
             self.clean_order,
         )
         self.assertIn(
-            "receipt trusted_repository_ref must equal its approved value",
+            "receipt publication authority must equal its approved value",
+            report.errors,
+        )
+
+    def test_receipt_cannot_change_canonical_root_path(self) -> None:
+        self.git("switch", "-q", "--detach", self.receipt)
+        self.write_manifest(TRUSTED_REF, root_document="pack/attacker.md")
+        self.git("add", "pack/publication.json")
+        self.git("commit", "-qm", "tamper root")
+        tampered = self.sha()
+        report = Report()
+        validate_publication_commit_authority(
+            self.root, "example/repo", "pack/publication.json", self.approved,
+            tampered, report, lambda *_args: tampered,
+            self.github_order, self.clean_order,
+        )
+        self.assertIn(
+            "receipt publication authority must equal its approved value",
             report.errors,
         )
 
@@ -469,9 +486,17 @@ class TrustedRepositoryRefTests(unittest.TestCase):
             text=True,
         ).stdout.strip()
 
-    def write_manifest(self, trusted_ref: str) -> None:
+    def write_manifest(
+        self, trusted_ref: str, *, root_document: str = "pack/root.md",
+    ) -> None:
         self.manifest.write_text(
-            json.dumps({"trusted_repository_ref": trusted_ref}) + "\n",
+            json.dumps({
+                "trusted_repository_ref": trusted_ref,
+                "root_document": root_document,
+                "mutation_repositories": ["example/repo", "example/other"],
+                "reference_only_issue_urls": [],
+                "tracker_lifecycle_label_prefix": "agent",
+            }) + "\n",
             encoding="utf-8",
         )
 

@@ -6,11 +6,18 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
 from validation_common import SHA, Report, nonempty_string, strict_int
-from validation_github_api import GhApiClient, GitHubApiError
+from validation_github_reader import (
+    GhApiReader,
+    GitHubReader,
+    LiveGitHubError,
+    MAX_ITEMS,
+    MAX_PAGES,
+    PAGE_SIZE,
+    QueryBudget,
+)
 from validation_github_rendering import (
     MARKER,
     MARKER_KEYS,
@@ -23,95 +30,6 @@ ISSUE_URL = re.compile(
     r"^https://github\.com/([^/\s]+/[^/\s]+)/issues/([1-9][0-9]*)$",
     re.ASCII,
 )
-MAX_PAGES = 100
-PAGE_SIZE = 100
-MAX_ITEMS = 10_000
-
-
-class LiveGitHubError(RuntimeError):
-    """A read-only GitHub query could not produce trustworthy JSON."""
-
-
-class GitHubReader(Protocol):
-    def repository_issues(self, repository: str) -> list[dict[str, Any]]: ...
-
-    def subissues(self, repository: str, number: int) -> list[dict[str, Any]]: ...
-
-    def blockers(self, repository: str, number: int) -> list[dict[str, Any]]: ...
-
-    def parent(self, repository: str, number: int) -> dict[str, Any] | None: ...
-
-
-class GhApiReader:
-    """Read the bounded publication graph through the authenticated ``gh`` CLI."""
-
-    def __init__(self, cwd: Path, executable: str = "gh") -> None:
-        self.cwd = cwd
-        self.executable = executable
-        self.api = GhApiClient(cwd, executable)
-
-    def repository_issues(self, repository: str) -> list[dict[str, Any]]:
-        return self._paged(f"repos/{repository}/issues?state=all&per_page=100")
-
-    def subissues(self, repository: str, number: int) -> list[dict[str, Any]]:
-        return self._paged(
-            f"repos/{repository}/issues/{number}/sub_issues?per_page=100"
-        )
-
-    def blockers(self, repository: str, number: int) -> list[dict[str, Any]]:
-        return self._paged(
-            f"repos/{repository}/issues/{number}/dependencies/blocked_by?per_page=100"
-        )
-
-    def parent(self, repository: str, number: int) -> dict[str, Any] | None:
-        return self._one(
-            f"repos/{repository}/issues/{number}/parent", allow_404=True,
-        )
-
-    def _paged(self, endpoint: str) -> list[dict[str, Any]]:
-        separator = "&" if "?" in endpoint else "?"
-        items: list[dict[str, Any]] = []
-        for page_number in range(1, MAX_PAGES + 1):
-            page_endpoint = f"{endpoint}{separator}page={page_number}"
-            page = self._json(page_endpoint)
-            if not isinstance(page, list):
-                raise LiveGitHubError(
-                    f"GitHub paginated query returned an invalid page for {endpoint}"
-                )
-            if len(page) > PAGE_SIZE:
-                raise LiveGitHubError(
-                    f"GitHub query exceeds the {PAGE_SIZE}-item page bound: {endpoint}"
-                )
-            if any(not isinstance(item, dict) for item in page):
-                raise LiveGitHubError(
-                    f"GitHub paginated query contains a malformed item for {endpoint}"
-                )
-            if len(items) + len(page) > MAX_ITEMS:
-                raise LiveGitHubError(
-                    f"GitHub query exceeds the {MAX_ITEMS}-item verification bound: "
-                    f"{endpoint}"
-                )
-            items.extend(page)
-            if len(page) < PAGE_SIZE:
-                return items
-        raise LiveGitHubError(
-            f"GitHub query reaches the {MAX_PAGES}-page verification ceiling: "
-            f"{endpoint}"
-        )
-
-    def _one(self, endpoint: str, *, allow_404: bool = False) -> dict[str, Any] | None:
-        value = self._json(endpoint, allow_404=allow_404)
-        if value is None:
-            return None
-        if not isinstance(value, dict):
-            raise LiveGitHubError(f"GitHub query returned an invalid object for {endpoint}")
-        return value
-
-    def _json(self, endpoint: str, *, allow_404: bool = False) -> object | None:
-        try:
-            return self.api.get(endpoint, allow_404=allow_404)
-        except GitHubApiError as exc:
-            raise LiveGitHubError(str(exc)) from exc
 
 
 @dataclass(frozen=True)
