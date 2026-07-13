@@ -17,7 +17,27 @@ defmodule Aiur.TestCwdGuard do
 
   defp scan_scope(expression, env, locals), do: scan_expression(expression, env, locals)
 
-  defp scan_expression({:quote, _, _}, env, _locals), do: {env, false, []}
+  defp scan_expression({:quote, _, arguments}, env, locals) do
+    arguments
+    |> directive_options()
+    |> Keyword.get(:do)
+    |> scan_unquotes(env, locals)
+    |> then(fn {mutation?, modules} -> {env, mutation?, modules} end)
+  end
+
+  defp scan_expression(
+         {:alias, _, [{{:., _, [{:__aliases__, _, root}, :{}]}, _, members}]},
+         env,
+         _locals
+       ) do
+    aliases =
+      Enum.reduce(members, env.aliases, fn {:__aliases__, _, member}, aliases ->
+        target = resolve_alias(root ++ member, aliases)
+        Map.put(aliases, List.last(member), target)
+      end)
+
+    {%{env | aliases: aliases}, false, []}
+  end
 
   defp scan_expression({:alias, _, [{:__aliases__, _, target} | options]}, env, _locals) do
     target = resolve_alias(target, env.aliases)
@@ -137,14 +157,40 @@ defmodule Aiur.TestCwdGuard do
     imports =
       case Keyword.get(options, :only) do
         nil -> @file_cwd_functions
+        :functions -> @file_cwd_functions
+        :macros -> MapSet.new()
         functions -> MapSet.intersection(@file_cwd_functions, MapSet.new(functions))
       end
 
     case Keyword.get(options, :except) do
       nil -> imports
+      :functions -> MapSet.new()
+      :macros -> imports
       functions -> MapSet.difference(imports, MapSet.new(functions))
     end
   end
+
+  defp scan_unquotes({kind, _, [operand]}, env, locals) when kind in [:unquote, :unquote_splicing] do
+    {_operand_env, mutation?, modules} = scan_scope(operand, env, locals)
+    {mutation?, modules}
+  end
+
+  defp scan_unquotes({:quote, _, _arguments}, _env, _locals), do: {false, []}
+
+  defp scan_unquotes(expression, env, locals) when is_list(expression) do
+    Enum.reduce(expression, {false, []}, fn child, {mutation?, modules} ->
+      {child_mutation?, child_modules} = scan_unquotes(child, env, locals)
+      {mutation? or child_mutation?, modules ++ child_modules}
+    end)
+  end
+
+  defp scan_unquotes(expression, env, locals) when is_tuple(expression) do
+    expression
+    |> Tuple.to_list()
+    |> scan_unquotes(env, locals)
+  end
+
+  defp scan_unquotes(_expression, _env, _locals), do: {false, []}
 
   defp resolve_alias([:"Elixir" | target], _aliases), do: target
 
@@ -309,6 +355,68 @@ defmodule Aiur.TestEnvironmentTest do
            defmodule Live do
              use ExUnit.Case, async: true
              quote do: File.cd!("tmp")
+           end
+           """) == []
+  end
+
+  test "detects executable unquotes while suppressing inert quoted AST" do
+    assert CwdGuard.violations("""
+           defmodule ActiveUnquote do
+             use ExUnit.Case, async: true
+
+             quote do
+               File.cd!("inert")
+               unquote(File.cd!("active"))
+             end
+           end
+
+           defmodule ActiveSplice do
+             use ExUnit.Case, async: true
+             quote do: unquote_splicing([File.cd!("active")])
+           end
+           """) == ["ActiveUnquote", "ActiveSplice"]
+  end
+
+  test "handles atom import filters" do
+    assert CwdGuard.violations("""
+           defmodule OnlyFunctions do
+             use ExUnit.Case, async: true
+             import File, only: :functions
+             cd!("active")
+           end
+
+           defmodule ExceptMacros do
+             use ExUnit.Case, async: true
+             import File, except: :macros
+             cd!("active")
+           end
+
+           defmodule OnlyMacros do
+             use ExUnit.Case, async: true
+             import File, only: :macros
+             cd!("local")
+           end
+
+           defmodule ExceptFunctions do
+             use ExUnit.Case, async: true
+             import File, except: :functions
+             cd!("local")
+           end
+           """) == ["OnlyFunctions", "ExceptMacros"]
+  end
+
+  test "registers grouped and root-qualified grouped aliases" do
+    assert CwdGuard.violations("""
+           defmodule Grouped do
+             use ExUnit.Case, async: true
+             alias Other.{File, Thing}
+             File.cd!("not-file")
+           end
+
+           defmodule RootQualifiedGrouped do
+             use ExUnit.Case, async: true
+             alias Elixir.Other.{File, Thing}
+             File.cd!("not-file")
            end
            """) == []
   end
