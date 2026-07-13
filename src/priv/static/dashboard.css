@@ -1379,6 +1379,13 @@ textarea:focus-visible,
   font-size: 0.76rem;
 }
 
+.decision-latency-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.55rem;
+}
+
 .link-list {
   align-items: flex-start;
 }
