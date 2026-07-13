@@ -1,5 +1,54 @@
 # Build Order Executor Handoff
 
+## Current state and pre-run checklist (updated 2026-07-13)
+
+You are the **Executor**: you run Aiur to implement this feature, make every
+PR merge-ready via review, do the merging, keep agents genuinely working, and
+act as the fallback when an agent cannot finish its last mile. Everything
+below this section is the binding contract; this section is where things
+stand and what must happen, in order, before the first dispatch.
+
+**State right now:** the planning pack is complete, independently reviewed
+(nine lenses; see `09-plan-review-synthesis.md`), reconciled, and validating
+clean — canonical and publication validators both report 0 errors / 0
+warnings and the 102-test publication suite passes. **No GitHub issues have
+been created.** Skills PR #1065 is reconciled with `main`, fully green, and
+MERGEABLE. Draft PR #1064 carries this pack.
+
+**Ordered pre-run checklist:**
+
+1. **Operator decisions** (see `questions.md`, "Questions for Kevin" plus the
+   2026-07-13 decisions section): the accounting-family slice, the
+   publication-ceremony scope, merge candidates, structural parallelism
+   changes, an /aiur-build verification owner — and above all the
+   **single-Build-Order consolidation**: the operator prefers one root
+   containing every ticket (all BO + DASH) so agents parallelize across the
+   whole graph. If confirmed, restructure membership, denominators, and this
+   handoff's "separate tracks" language before publication.
+2. **Merge PR #1065 into `main` first** (operator-approved 2026-07-13; the
+   old wait-for-run constraint is lifted). The skills must be on `main`
+   before Build Order work is dispatched. Verify `/aiur-build`, `/aiur-run`,
+   `/aiur-monitor` are discoverable afterward (GATE-002).
+3. **Finalize and publish** the issue graph per `github-publication.md` at
+   whatever ceremony scope the operator chose. Every issue body carries the
+   full ticket contract plus a "Plan context" block linking back to this
+   pack at the approved commit.
+4. **Record GATE-001's resolution** on the live root and prove GATE-002,
+   then obtain the operator's explicit run authorization.
+5. **Run Aiur** via `/aiur-run` and drive to the terminal condition.
+
+**Read-first map for this run:** `README.md` (pack index) →
+`08-implementation-pointers.md` (verified per-ticket file/module/function
+anchors for all 54 tickets — workers start here, and every published issue
+links its own section) → `07-graph-parallelism-review.md` (waves, critical
+path, serialization cliques) → `09-plan-review-synthesis.md` (review verdict
+and accepted recommendations). Day-one width is 5 tickets (BO-004, BO-008,
+DASH-006, DASH-017, DASH-018 have no blockers); staff the top fan-out spine
+first — DASH-003 (8 dependents), BO-008 (6), BO-004 (5), BO-017 (5), BO-005,
+DASH-001, DASH-008 — a stall there starves more of the fleet than anything
+else. The serial critical path is BO-004→001→002→003→007→011→012→013→014→015
+(amber in the plan-preview artifact); keep it staffed continuously.
+
 ## Start gate
 
 This handoff becomes executable only after the live Build Order root contains a
@@ -163,6 +212,49 @@ reliability/optimization findings as active only when separately authorized or
 otherwise deferred. Deferred work cannot consume critical-path capacity or
 prevent completion.
 
+## Operational playbook (field-proven in the OCC run)
+
+These patterns come from the predecessor dashboard run that shipped the OCC
+wave; the full version lives at
+`docs/operator-control-center/EXECUTOR-HANDOFF.md` on branch `occ-planning`.
+
+- **Merge gates, every time:** verify the PR's `baseRefName` is the
+  configured integration branch before merging (agents build stacked PRs — a
+  mis-based squash lands in the wrong branch silently), and run
+  `git merge-base --is-ancestor origin/<base> origin/<branch>` (a green PR
+  can be green against a stale base). Merge with `--squash --admin`; the
+  known seed-dependent SlotPolicy flake (#506) is mergeable-past when
+  build/lint/dialyzer are green. Closing merged issues is manual.
+- **Unstick with a message, not resume:** a paused/idle worker that is not
+  converging (frozen HEAD, no file edits, not load-throttled, not
+  attention-flagged) needs `scripts/aiurdev message <id> "<directive>"` to
+  inject a real turn; resume alone re-pauses. Post durable directives as
+  issue comments — message-queue text is lost on restart.
+- **Finalization wedge:** a worker that committed but never pushes gets its
+  work pushed by you from its workspace once the tree is clean; its own later
+  push becomes a no-op.
+- **Hand-fix the last mile in a worktree:** when nudges fail on lint/dialyzer
+  or a small must-fix, take over — always in a fresh `git worktree`, never
+  the main working tree (it holds the live `.aiur/config`) and never a live
+  agent's workspace mid-edit. Verify Elixir edits with
+  `Code.string_to_quoted!/1` and run `make lint` before pushing.
+- **Restarts are branch-safe:** the checkout logic re-fetches an existing
+  remote ticket branch, so recycling a wedged worker (bloated thread,
+  CI-poll loop) loses only the unproductive turn, never committed work.
+- **Capacity:** track real CPU (`vmstat` id%), not 1-minute load; the
+  observed thrash ceiling is ~8–11 concurrent agents on a 12-core box with
+  `max_concurrent_builds: 2` as the true protector. Ramp `set max-agents`
+  into measured idle, not optimism.
+- **Review discipline:** dual review (correctness + adversarial) on every
+  substantive PR, front-loaded in parallel; only `must_fix_before_merge`
+  findings block a merge — downgrade the rest to the deferred ledger. Drive
+  rework with `gh issue comment` (issue_comment), not `gh pr review`.
+- **Hygiene:** commit subjects 3–7 word imperative, no AI/model mentions or
+  attribution trailers anywhere; never edit `src/test/aiur/regression/`;
+  patch labels via the REST API when `gh issue edit` hits the
+  classic-Projects GraphQL error; never paste credentials into files,
+  commands, or issues.
+
 ## Recovery and Aiur defects
 
 Monitor workers, alerts, Commands, PRs, reviews, CI and machine capacity. First
@@ -197,6 +289,10 @@ optimization opportunity is exhausted.
 ## Adjacent delivery that must not be lost
 
 Draft PR #1065 contains the isolated `/aiur-build` and bounded Executor skill
-rewrite. Its separate human-blocked tracking issue may land only after the
-current dashboard Executor stops using the prior contracts. Never merge mixed
-research PR #1064 merely to recover the skill files.
+rewrite. The operator confirmed on 2026-07-13 that it merges into `main` when
+planning wraps — before Build Order dispatch — and the old wait-for-run
+constraint is lifted. The branch is reconciled with `main` and green; the
+reviewed pin is `f92aa045` with successor commits (main merge + review
+amendments: implementation-pointer, sizing, parallelism, epic-label/icon, and
+plan-context rules) awaiting the operator's confirmation as the new reviewed
+head. Never merge mixed research PR #1064 merely to recover the skill files.
