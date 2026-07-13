@@ -47,14 +47,21 @@ defmodule Aiur.Orchestrator.RetryEngine do
         {:noreply, state}
 
       issue_id ->
-        {running_entry, state} = State.pop_running_entry(state, issue_id)
+        running_entry = Map.fetch!(running, issue_id)
         state = TokenAccounting.record_session_completion_totals(state, running_entry)
         session_id = State.running_entry_session_id(running_entry)
 
         state =
-          case reason do
-            :normal ->
+          case {reason, State.completed_running_entry?(running_entry)} do
+            {:normal, true} ->
+              Logger.info("Completed agent task exited normally for issue_id=#{issue_id} session_id=#{session_id}; parking replaceable entry")
+
+              park_completed_entry(state, issue_id, running_entry)
+
+            {:normal, false} ->
               Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
+
+              {_running_entry, state} = State.pop_running_entry(state, issue_id)
 
               state
               |> complete_issue(issue_id)
@@ -65,9 +72,10 @@ defmodule Aiur.Orchestrator.RetryEngine do
                 workspace_path: Map.get(running_entry, :workspace_path)
               })
 
-            _ ->
+            {_reason, false} ->
               Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
 
+              {_running_entry, state} = State.pop_running_entry(state, issue_id)
               next_attempt = next_retry_attempt_from_running(running_entry)
 
               schedule_issue_retry(state, issue_id, next_attempt, %{
@@ -76,6 +84,11 @@ defmodule Aiur.Orchestrator.RetryEngine do
                 worker_host: Map.get(running_entry, :worker_host),
                 workspace_path: Map.get(running_entry, :workspace_path)
               })
+
+            {_reason, true} ->
+              Logger.warning("Completed agent task exited abnormally for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; preserving completed boundary")
+
+              park_completed_entry(state, issue_id, running_entry)
           end
 
         Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
@@ -83,6 +96,22 @@ defmodule Aiur.Orchestrator.RetryEngine do
         StatusReport.notify_dashboard(state)
         {:noreply, state}
     end
+  end
+
+  defp park_completed_entry(state, issue_id, running_entry) do
+    parked_entry =
+      running_entry
+      |> Map.put(:pid, nil)
+      |> Map.put(:ref, nil)
+      |> Map.put(:completion_totals_recorded, true)
+
+    %{
+      state
+      | running: Map.put(state.running, issue_id, parked_entry),
+        completed: MapSet.put(state.completed, issue_id),
+        claimed: MapSet.put(state.claimed, issue_id),
+        retry_attempts: Map.delete(state.retry_attempts, issue_id)
+    }
   end
 
   @doc false

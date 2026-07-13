@@ -8,6 +8,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     AutoSubscriptions,
     CommentWake,
     DigestCoalescer,
+    PauseResume,
     State
   }
 
@@ -480,7 +481,8 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   defp finish_operator_enqueue(state, running_entry, attrs, %{mode: :plain}) do
     {queue_store, item} = AgentQueueStore.enqueue(state.queue_store, attrs)
     DeliveryPolicy.notify_running_queue_update(running_entry, item)
-    {{:ok, item.id}, %{state | queue_store: queue_store}}
+    next_state = maybe_replace_completed_runner(%{state | queue_store: queue_store}, running_entry)
+    {{:ok, item.id}, next_state}
   end
 
   defp finish_operator_enqueue(state, running_entry, attrs, %{mode: :correlated} = request) do
@@ -490,10 +492,18 @@ defmodule Aiur.Orchestrator.OperatorMessages do
           DeliveryPolicy.notify_running_queue_update(running_entry, item)
         end
 
-        {{:ok, %{status: status, item: item}}, %{state | queue_store: queue_store}}
+        next_state = maybe_replace_completed_runner(%{state | queue_store: queue_store}, running_entry)
+        {{:ok, %{status: status, item: item}}, next_state}
 
       {:error, _reason} = error ->
         {error, state}
+    end
+  end
+
+  defp maybe_replace_completed_runner(state, running_entry) do
+    case Map.get(running_entry, :issue) do
+      %Aiur.Issue{} = issue -> PauseResume.replace_completed_issue(state, running_entry, issue)
+      _ -> state
     end
   end
 
