@@ -7,7 +7,6 @@ defmodule AiurWeb.OperatorControlCenter.FleetFilters do
   @stuck_reasons [:backing_off, :unresponsive]
   @finished_states ["done", "closed", "cancelled", "canceled"]
 
-  @spec default() :: MapSet.t()
   def default, do: MapSet.new(@default_filters)
 
   @spec all() :: [atom()]
@@ -65,7 +64,7 @@ defmodule AiurWeb.OperatorControlCenter.FleetFilters do
 
   defp toggle_all(filters) do
     all = MapSet.new(@filters)
-    if MapSet.equal?(filters, all), do: MapSet.new(), else: all
+    if filters == all, do: MapSet.new(), else: all
   end
 
   defp toggle_one(filters, filter) do
