@@ -79,9 +79,9 @@ Read in this order:
    [technical decisions](05-technical-decisions.md), and
    [state/source-of-truth design](03-source-of-truth-and-state.md);
 5. [usage/accounting](04-usage-accounting.md);
-6. [dashboard companion index](dashboard-companions.md),
-   `dashboard-companions.json`, and the individual ticket contracts;
-7. `build-order.json`, the BO tickets, and
+6. [dashboard companion history and ownership boundaries](dashboard-companions.md),
+   `build-order.json`, and the individual ticket contracts;
+7. the BO tickets and
    [the implementation plan](../plans/2026-07-12-005-feat-build-order-dashboard-plan.md);
 8. [GitHub publication instructions](github-publication.md),
    `publication.json`, and [the validation report](validation-report.md);
@@ -274,7 +274,7 @@ Explicitly rejected false gaps:
 The new/re-scoped ticket Markdown exists, but the pack is intentionally not yet
 internally consistent. At minimum, the successor must update:
 
-- `dashboard-companions.json` and `dashboard-companions.md`;
+- `dashboard-companions.md` and `build-order.json`;
 - DREQ-003/005/008/011/015/023 and add DREQ-026..034 in the requirements;
 - `02-dashboard-design-delta.md`, `04-usage-accounting.md`, and
   `06-prototype-capability-audit.md`;

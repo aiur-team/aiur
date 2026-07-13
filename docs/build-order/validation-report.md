@@ -34,7 +34,7 @@ the reviewed 40-character commit SHA.
 |---|---|
 | Vendored canonical validator | 0 errors, 0 warnings |
 | Consolidated publication validator | 0 errors, 0 warnings |
-| Vendored `/aiur-build` validator suite | 115 tests pass |
+| Vendored `/aiur-build` validator suite | 134 tests pass |
 | Publication regression suite | 103 tests pass |
 | Ticket documents | All 54 manifest paths resolve and agree with structured records |
 | Hard-edge graph | 105 internal edges; acyclic; all references resolve |
