@@ -7,7 +7,7 @@ defmodule Aiur.DecisionDispatch do
   projection are durable.
   """
 
-  alias Aiur.{Decision, DecisionAnswer}
+  alias Aiur.{Decision, DecisionAnswer, DecisionRevisionDispatch}
   alias Aiur.Orchestrator.OperatorMessages
 
   @max_message_chars 7_800
@@ -19,6 +19,10 @@ defmodule Aiur.DecisionDispatch do
   @doc "Send an answered Decision through the correlated operator-message path."
   @spec dispatch(Decision.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def dispatch(decision, opts \\ [])
+
+  def dispatch(%Decision{revisions: [_revision | _]} = decision, opts) do
+    DecisionRevisionDispatch.dispatch(decision, opts)
+  end
 
   def dispatch(%Decision{answer: %DecisionAnswer{} = answer} = decision, opts) do
     attempt_id = Keyword.fetch!(opts, :attempt_id)

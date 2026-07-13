@@ -34,6 +34,8 @@ the work at a higher level._
   input while Aiur keeps the Codex/Claude runtime and transcript as the source of truth.
 - **Dashboard auth and hosting:** the Phoenix dashboard supports Basic Auth and can be bound to a
   configured host/port for private operational access.
+- **Supervisor Decision API:** an independently authenticated machine API can inspect, enrich,
+  answer, and revise durable Decisions under an explicit fail-closed delegation policy.
 - **Workflow helpers:** repo-local skills and scripts keep issue work, PR creation, and landing
   behavior consistent across runs without making those workflows part of Aiur's core model.
 - **Optional alert sounds:** users can edit the checked-in `.aiur/alerts` file, where each alert

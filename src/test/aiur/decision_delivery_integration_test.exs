@@ -1,7 +1,8 @@
 defmodule Aiur.DecisionDeliveryIntegrationTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.{DecisionDispatch, DecisionEvent, DecisionStore, Issue, Orchestrator}
+  alias Aiur.{DecisionDispatch, DecisionEvent, DecisionMetrics, DecisionStore, Issue, Orchestrator}
+  alias Aiur.DecisionMetrics.{Log, Writer}
   alias Aiur.Orchestrator.OperatorMessages
 
   @ticket %{
@@ -30,6 +31,7 @@ defmodule Aiur.DecisionDeliveryIntegrationTest do
       start_orchestrator!(Module.concat(__MODULE__, :HappyPathOrchestrator), "981")
 
     store = start_store!(dir, dispatcher: dispatch_via(orchestrator), dispatch_delay_ms: 50)
+    {metrics, metrics_path} = start_metrics!(dir)
 
     assert {:ok, %{status: :accepted, decision: decision}} = request(store, request_payload("happy"))
 
@@ -103,6 +105,24 @@ defmodule Aiur.DecisionDeliveryIntegrationTest do
     assert current.delivery_status == :consumed
     assert current.answer.action_id == action.action_id
 
+    assert_receive {:decision_metric_persisted, decision_id, "acknowledged"}, 2_000
+    assert decision_id == decision.decision_id
+    assert {:ok, snapshot} = DecisionMetrics.snapshot(decision.decision_id, metrics)
+
+    for field <- [
+          :request_to_decision_ms,
+          :decision_to_dispatch_ms,
+          :dispatch_to_delivery_ms,
+          :delivery_to_ack_ms,
+          :blocked_time_ms
+        ] do
+      assert is_integer(snapshot[field]) and snapshot[field] >= 0
+    end
+
+    assert snapshot.actor == "human"
+    assert :ok = DecisionMetrics.flush(metrics)
+    assert metrics_path |> File.read!() |> String.split("\n", trim: true) |> length() >= 5
+
     assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, store)
 
     assert Enum.map(audit, &audit_type/1) == [
@@ -171,7 +191,9 @@ defmodule Aiur.DecisionDeliveryIntegrationTest do
 
     assert {:ok, %{decision: decision}} = request(store1, request_payload("store-restart"))
     answer_payload = custom_answer("store-restart")
-    assert {:ok, %{action: action}} = DecisionStore.answer(decision.decision_id, answer_payload, [actor: @actor], store1)
+
+    assert {:ok, %{action: action}} =
+             DecisionStore.answer(decision.decision_id, answer_payload, [actor: @actor], store1)
 
     assert_receive {:queue_accepted_before_store_crash, dispatch_task, {:ok, %{status: :accepted}}}, 1_000
     assert_receive {:agent_queue_updated, "981", queue_item_id, _delivery}, 1_000
@@ -247,14 +269,49 @@ defmodule Aiur.DecisionDeliveryIntegrationTest do
   defp start_store!(dir, opts) do
     Application.put_env(:aiur, :decision_state_dir, dir)
 
-    {:ok, pid} =
-      DecisionStore.start_link(Keyword.merge([name: nil, filesystem_sync_fun: fn -> :ok end, reconcile_delay_ms: 5_000], opts))
+    defaults = [name: nil, filesystem_sync_fun: fn -> :ok end, reconcile_delay_ms: 5_000]
+    {:ok, pid} = DecisionStore.start_link(Keyword.merge(defaults, opts))
 
     on_exit(fn ->
       stop_if_alive(pid)
     end)
 
     pid
+  end
+
+  defp start_metrics!(dir) do
+    path = Path.join(dir, "decision-delivery-metrics.ndjson")
+    owner = self()
+
+    append_fun = fn append_path, records -> append_and_notify(append_path, records, owner) end
+
+    {:ok, writer} =
+      Writer.start_link(name: nil, path: path, flush_interval_ms: 5, append_fun: append_fun)
+
+    {:ok, metrics} =
+      DecisionMetrics.start_link(
+        name: nil,
+        writer: writer,
+        subscribe?: true,
+        seed?: false
+      )
+
+    on_exit(fn ->
+      stop_if_alive(metrics)
+      stop_if_alive(writer)
+    end)
+
+    {metrics, path}
+  end
+
+  defp append_and_notify(path, records, owner) do
+    with :ok <- Log.append_batch(path, records) do
+      Enum.each(records, &notify_metric_persisted(&1, owner))
+    end
+  end
+
+  defp notify_metric_persisted(record, owner) do
+    send(owner, {:decision_metric_persisted, record.decision_id, record.stage})
   end
 
   defp start_orchestrator!(name, identifier) do

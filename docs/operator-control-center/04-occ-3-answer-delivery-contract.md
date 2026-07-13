@@ -240,8 +240,11 @@ credentials are not copied into Decision audit data.
 - OCC-4 owns the inbox/detail LiveView and answer form.
 - OCC-7 owns the public machine-readable Decision API and supervising-agent
   policy.
-- OCC-8 owns revisions and follow-up answer semantics. OCC-3 answers remain
-  immutable.
+- OCC-8 extends this exact action/outbox contract through
+  [`05-occ-8-decision-revision-contract.md`](./05-occ-8-decision-revision-contract.md).
+  The original OCC-3 answer remains immutable; `DecisionStore.revise/5`
+  appends a new active action and reuses correlated queue attempts rather than
+  replacing the answer or introducing another dispatcher.
 - OCC-2 owns adaptation of legacy attention/block/pause signals into Decisions.
 - OCC-5/6/9 own fleet presentation, history UX, and metrics derived from this
   audit stream.

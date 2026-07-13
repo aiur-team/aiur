@@ -10,7 +10,7 @@ defmodule Aiur.DecisionProjection do
   returns the usable prefix plus its exact corrupt line.
   """
 
-  alias Aiur.{Decision, DecisionAnswer, DecisionEvent, DecisionValidation}
+  alias Aiur.{Decision, DecisionAnswer, DecisionEvent, DecisionRevision, DecisionValidation}
 
   @type projection :: %{
           current: %{String.t() => Decision.t()},
@@ -109,6 +109,10 @@ defmodule Aiur.DecisionProjection do
     apply_request(projection, decision, event)
   end
 
+  defp apply_record(projection, %DecisionEvent{type: :enriched} = event) do
+    apply_enrichment(projection, event)
+  end
+
   defp apply_record(projection, %DecisionEvent{} = event), do: apply_lifecycle(projection, event)
   defp apply_record(_projection, _record), do: {:error, :unknown_record}
 
@@ -140,10 +144,59 @@ defmodule Aiur.DecisionProjection do
       | decision_status: existing.decision_status,
         delivery_status: existing.delivery_status,
         answer: existing.answer,
+        active_action_id: existing.active_action_id,
+        revision_sequence: existing.revision_sequence,
+        revisions: existing.revisions,
+        revision_result: existing.revision_result,
+        revision_outcomes: existing.revision_outcomes,
+        revision_follow_ups: existing.revision_follow_ups,
         dispatch_attempts: existing.dispatch_attempts,
         acknowledgement: existing.acknowledgement,
-        resolution: existing.resolution
+        resolution: existing.resolution,
+        acknowledgements: existing.acknowledgements,
+        resolutions: existing.resolutions
     }
+  end
+
+  defp apply_enrichment(projection, %DecisionEvent{data: data} = event) do
+    with {:ok, current} <- fetch_current(projection, event.decision_id),
+         :ok <- require_enrichment_version(current, event),
+         :ok <- require_enrichment_base(current, data.decision) do
+      apply_request(projection, data.decision, event)
+    end
+  end
+
+  defp require_enrichment_version(current, event) do
+    if event.data.expected_version == current.version and event.decision_version == current.version + 1 do
+      :ok
+    else
+      {:error, :enrichment_version_mismatch}
+    end
+  end
+
+  defp require_enrichment_base(current, candidate) do
+    immutable_fields = [
+      :schema_version,
+      :decision_id,
+      :source_id,
+      :ticket,
+      :source,
+      :kind,
+      :authority,
+      :urgency,
+      :blocking,
+      :reversibility,
+      :question,
+      :created_at,
+      :source_created_at,
+      :legacy_attention
+    ]
+
+    if Map.take(current, immutable_fields) == Map.take(candidate, immutable_fields) do
+      :ok
+    else
+      {:error, :enrichment_forbidden_change}
+    end
   end
 
   defp apply_lifecycle(projection, %DecisionEvent{} = event) do
@@ -174,43 +227,132 @@ defmodule Aiur.DecisionProjection do
        %{
          decision
          | answer: answer,
+           active_action_id: answer.action_id,
            decision_status: :decided,
            delivery_status: :pending
        }}
     end
   end
 
-  defp transition(%Decision{} = decision, %DecisionEvent{type: :dispatch_queued} = event) do
-    with {:ok, answer} <- require_answer(decision),
-         :ok <- require_answer_event(answer, event) do
+  defp transition(%Decision{} = decision, %DecisionEvent{type: :revision_recorded, data: revision} = event) do
+    with :ok <- require_current_version(decision, event.decision_version),
+         {:ok, _answer} <- require_answer(decision),
+         :ok <- require_revision_identity(decision, revision),
+         :ok <- require_option(decision, revision.answer),
+         :ok <- require_active_action(decision, revision.prior_action_id),
+         :ok <- require_next_revision_sequence(decision, revision.sequence),
+         :ok <- require_unknown_action(decision, revision.action_id) do
+      outcome = revision_outcome(:recorded, nil, event)
+
+      {:ok,
+       %{
+         decision
+         | active_action_id: revision.action_id,
+           revision_sequence: revision.sequence,
+           revisions: decision.revisions ++ [revision],
+           revision_result: :recorded,
+           revision_outcomes: Map.put(decision.revision_outcomes, revision.action_id, outcome),
+           decision_status: :decided,
+           delivery_status: :pending,
+           acknowledgement: nil,
+           resolution: nil
+       }}
+    end
+  end
+
+  defp transition(%Decision{} = decision, %DecisionEvent{type: type} = event)
+       when type in [:dispatch_queued, :revision_dispatched] do
+    with {:ok, _answer} <- answer_for_event(decision, event),
+         :ok <- require_revision_dispatch_kind(decision, event) do
       queue_dispatch_attempt(decision, event)
     end
   end
 
   defp transition(%Decision{} = decision, %DecisionEvent{type: type} = event)
        when type in [:delivered, :restored, :consumed, :failed] do
-    with {:ok, answer} <- require_answer(decision),
-         :ok <- require_answer_event(answer, event) do
+    with {:ok, _answer} <- answer_for_event(decision, event) do
       transition_transport(decision, event)
     end
   end
 
   defp transition(%Decision{} = decision, %DecisionEvent{type: :acknowledged} = event) do
-    with {:ok, answer} <- require_answer(decision),
-         :ok <- require_answer_event(answer, event),
+    with {:ok, _answer} <- active_answer_for_event(decision, event),
          :ok <- require_absent(decision.acknowledgement, :already_acknowledged) do
       acknowledgement = lifecycle_fact(event)
-      {:ok, %{decision | decision_status: :acknowledged, acknowledgement: acknowledgement}}
+
+      {:ok,
+       %{
+         decision
+         | decision_status: :acknowledged,
+           acknowledgement: acknowledgement,
+           acknowledgements: Map.put(decision.acknowledgements, event.data.action_id, acknowledgement)
+       }}
     end
   end
 
   defp transition(%Decision{} = decision, %DecisionEvent{type: :resolved} = event) do
-    with {:ok, answer} <- require_answer(decision),
-         :ok <- require_answer_event(answer, event),
+    with {:ok, _answer} <- active_answer_for_event(decision, event),
          :ok <- require_present(decision.acknowledgement, :not_acknowledged),
          :ok <- require_absent(decision.resolution, :already_resolved) do
       resolution = lifecycle_fact(event)
-      {:ok, %{decision | decision_status: :resolved, resolution: resolution}}
+
+      {:ok,
+       %{
+         decision
+         | decision_status: :resolved,
+           resolution: resolution,
+           resolutions: Map.put(decision.resolutions, event.data.action_id, resolution)
+       }}
+    end
+  end
+
+  defp transition(%Decision{} = decision, %DecisionEvent{type: :revision_no_longer_applicable} = event) do
+    with {:ok, %DecisionRevision{}} <- active_revision_for_event(decision, event),
+         :ok <- require_revision_pending(decision) do
+      outcome = revision_outcome(:no_longer_applicable, event.data.reason_class, event)
+
+      {:ok,
+       %{
+         decision
+         | revision_result: :no_longer_applicable,
+           revision_outcomes: Map.put(decision.revision_outcomes, event.data.action_id, outcome),
+           delivery_status: :not_dispatched
+       }}
+    end
+  end
+
+  defp transition(%Decision{} = decision, %DecisionEvent{type: :follow_up_required} = event) do
+    with {:ok, %DecisionRevision{}} <- active_revision_for_event(decision, event),
+         :ok <- require_no_longer_applicable(decision),
+         :ok <- require_follow_up_absent(decision, event.data.action_id) do
+      follow_up = %{
+        action_id: event.data.action_id,
+        slug: event.data.slug,
+        question: event.data.question,
+        required_at: event.occurred_at,
+        required_event_id: event.event_id,
+        handled_at: nil,
+        handled_event_id: nil,
+        handled_by: nil,
+        handled_detail: nil
+      }
+
+      {:ok, %{decision | revision_follow_ups: Map.put(decision.revision_follow_ups, event.data.action_id, follow_up)}}
+    end
+  end
+
+  defp transition(%Decision{} = decision, %DecisionEvent{type: :follow_up_handled} = event) do
+    with {:ok, follow_up} <- fetch_open_follow_up(decision, event.data.action_id),
+         :ok <- require_follow_up_slug(follow_up, event.data.slug) do
+      handled = %{
+        follow_up
+        | handled_at: event.occurred_at,
+          handled_event_id: event.event_id,
+          handled_by: event.data.actor,
+          handled_detail: event.data.detail
+      }
+
+      {:ok, %{decision | revision_follow_ups: Map.put(decision.revision_follow_ups, event.data.action_id, handled)}}
     end
   end
 
@@ -238,6 +380,109 @@ defmodule Aiur.DecisionProjection do
 
   defp require_answer(%Decision{answer: %DecisionAnswer{} = answer}), do: {:ok, answer}
   defp require_answer(_decision), do: {:error, :answer_missing}
+
+  defp require_revision_identity(decision, revision) do
+    if revision.decision_id == decision.decision_id and revision.decision_version == decision.version,
+      do: :ok,
+      else: {:error, :revision_identity_mismatch}
+  end
+
+  defp require_active_action(%Decision{active_action_id: action_id}, action_id), do: :ok
+  defp require_active_action(_decision, _action_id), do: {:error, :action_mismatch}
+
+  defp require_next_revision_sequence(decision, sequence) do
+    if sequence == decision.revision_sequence + 1, do: :ok, else: {:error, :revision_sequence_mismatch}
+  end
+
+  defp require_unknown_action(decision, action_id) do
+    if Enum.any?(all_answers(decision), &(&1.action_id == action_id)),
+      do: {:error, :duplicate_action},
+      else: :ok
+  end
+
+  defp all_answers(decision) do
+    List.wrap(decision.answer) ++ Enum.map(decision.revisions, & &1.answer)
+  end
+
+  defp answer_for_event(%Decision{answer: nil}, _event), do: {:error, :answer_missing}
+
+  defp answer_for_event(decision, event) do
+    case Enum.find(all_answers(decision), &(&1.action_id == event.data.action_id)) do
+      nil -> {:error, :action_mismatch}
+      answer -> require_answer_event(answer, event) |> then(&if(&1 == :ok, do: {:ok, answer}, else: &1))
+    end
+  end
+
+  defp active_answer_for_event(decision, event) do
+    with {:ok, answer} <- answer_for_event(decision, event),
+         :ok <- require_active_action(decision, answer.action_id) do
+      {:ok, answer}
+    end
+  end
+
+  defp active_revision_for_event(decision, event) do
+    case List.last(decision.revisions) do
+      %DecisionRevision{action_id: action_id, decision_version: version} = revision
+      when action_id == event.data.action_id and version == event.decision_version ->
+        {:ok, revision}
+
+      _other ->
+        {:error, :revision_action_mismatch}
+    end
+  end
+
+  defp require_revision_dispatch_kind(
+         %Decision{answer: %DecisionAnswer{action_id: action_id}},
+         %DecisionEvent{type: :dispatch_queued, data: %{action_id: action_id}}
+       ),
+       do: :ok
+
+  defp require_revision_dispatch_kind(decision, %DecisionEvent{type: :revision_dispatched} = event) do
+    case revision_for_event(decision, event) do
+      {:ok, _revision} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp require_revision_dispatch_kind(_decision, _event), do: {:error, :dispatch_event_kind_mismatch}
+
+  defp revision_for_event(decision, event) do
+    case Enum.find(decision.revisions, &(&1.action_id == event.data.action_id)) do
+      %DecisionRevision{decision_version: version} = revision when version == event.decision_version -> {:ok, revision}
+      _other -> {:error, :revision_action_mismatch}
+    end
+  end
+
+  defp require_revision_pending(%Decision{revision_result: :recorded}), do: :ok
+  defp require_revision_pending(_decision), do: {:error, :revision_not_pending}
+
+  defp require_no_longer_applicable(%Decision{revision_result: :no_longer_applicable}), do: :ok
+  defp require_no_longer_applicable(_decision), do: {:error, :revision_still_applicable}
+
+  defp require_follow_up_absent(decision, action_id) do
+    if Map.has_key?(decision.revision_follow_ups, action_id), do: {:error, :follow_up_already_required}, else: :ok
+  end
+
+  defp fetch_open_follow_up(decision, action_id) do
+    case Map.get(decision.revision_follow_ups, action_id) do
+      nil -> {:error, :follow_up_not_required}
+      %{handled_at: nil} = follow_up -> {:ok, follow_up}
+      _handled -> {:error, :follow_up_already_handled}
+    end
+  end
+
+  defp require_follow_up_slug(%{slug: slug}, slug), do: :ok
+  defp require_follow_up_slug(_follow_up, _slug), do: {:error, :follow_up_slug_mismatch}
+
+  defp revision_outcome(result, reason_class, event) do
+    %{
+      result: result,
+      reason_class: reason_class,
+      occurred_at: event.occurred_at,
+      event_id: event.event_id,
+      run_id: event.run_id
+    }
+  end
 
   defp require_answer_event(answer, event) do
     cond do
@@ -268,7 +513,7 @@ defmodule Aiur.DecisionProjection do
         }
 
         attempts = Enum.map(decision.dispatch_attempts, &if(&1.attempt_id == failed.attempt_id, do: queued, else: &1))
-        {:ok, %{decision | dispatch_attempts: attempts, delivery_status: :queued}}
+        {:ok, apply_dispatch_result(%{decision | dispatch_attempts: attempts}, event)}
 
       nil ->
         append_queued_dispatch_attempt(decision, event)
@@ -295,8 +540,24 @@ defmodule Aiur.DecisionProjection do
         failure_reason_class: nil
       }
 
-      {:ok, %{decision | dispatch_attempts: decision.dispatch_attempts ++ [attempt], delivery_status: :queued}}
+      {:ok, apply_dispatch_result(%{decision | dispatch_attempts: decision.dispatch_attempts ++ [attempt]}, event)}
     end
+  end
+
+  defp apply_dispatch_result(decision, %DecisionEvent{type: :revision_dispatched} = event) do
+    outcome = revision_outcome(:dispatched, nil, event)
+
+    decision = %{decision | revision_outcomes: Map.put(decision.revision_outcomes, event.data.action_id, outcome)}
+
+    if decision.active_action_id == event.data.action_id,
+      do: %{decision | delivery_status: :queued, revision_result: :dispatched},
+      else: decision
+  end
+
+  defp apply_dispatch_result(decision, event) do
+    if decision.active_action_id == event.data.action_id,
+      do: %{decision | delivery_status: :queued},
+      else: decision
   end
 
   defp fetch_attempt(decision, data) do
@@ -332,7 +593,11 @@ defmodule Aiur.DecisionProjection do
       updated_attempt = update_attempt(attempt, event)
       attempts = Enum.map(decision.dispatch_attempts, &if(&1.attempt_id == attempt.attempt_id, do: updated_attempt, else: &1))
 
-      {:ok, %{decision | dispatch_attempts: attempts, delivery_status: delivery_status(event.type)}}
+      updated = %{decision | dispatch_attempts: attempts}
+
+      if decision.active_action_id == event.data.action_id,
+        do: {:ok, %{updated | delivery_status: delivery_status(event.type)}},
+        else: {:ok, updated}
     end
   end
 
@@ -353,7 +618,11 @@ defmodule Aiur.DecisionProjection do
         failure_reason_class: event.data.reason_class
       }
 
-      {:ok, %{decision | dispatch_attempts: decision.dispatch_attempts ++ [attempt], delivery_status: :failed}}
+      updated = %{decision | dispatch_attempts: decision.dispatch_attempts ++ [attempt]}
+
+      if decision.active_action_id == event.data.action_id,
+        do: {:ok, %{updated | delivery_status: :failed}},
+        else: {:ok, updated}
     end
   end
 
@@ -431,9 +700,17 @@ defmodule Aiur.DecisionProjection do
       "decision_status" => Atom.to_string(decision.decision_status),
       "delivery_status" => Atom.to_string(decision.delivery_status),
       "answer" => decision.answer && DecisionAnswer.to_json_safe(decision.answer),
+      "active_action_id" => decision.active_action_id,
+      "revision_sequence" => decision.revision_sequence,
+      "revisions" => Enum.map(decision.revisions, &DecisionRevision.to_json_safe(&1, fn answer -> DecisionAnswer.to_json_safe(answer) end)),
+      "revision_result" => decision.revision_result && Atom.to_string(decision.revision_result),
+      "revision_outcomes" => stringify_action_map(decision.revision_outcomes, &revision_outcome_to_json_safe/1),
+      "revision_follow_ups" => stringify_action_map(decision.revision_follow_ups, &follow_up_to_json_safe/1),
       "dispatch_attempts" => Enum.map(decision.dispatch_attempts, &attempt_to_json_safe/1),
       "acknowledgement" => fact_to_json_safe(decision.acknowledgement),
-      "resolution" => fact_to_json_safe(decision.resolution)
+      "resolution" => fact_to_json_safe(decision.resolution),
+      "acknowledgements" => stringify_action_map(decision.acknowledgements, &fact_to_json_safe/1),
+      "resolutions" => stringify_action_map(decision.resolutions, &fact_to_json_safe/1)
     }
     |> maybe_put_legacy_attention(decision.legacy_attention)
   end
@@ -487,6 +764,34 @@ defmodule Aiur.DecisionProjection do
     }
   end
 
+  defp revision_outcome_to_json_safe(outcome) do
+    %{
+      "result" => Atom.to_string(outcome.result),
+      "reason_class" => outcome.reason_class,
+      "occurred_at" => DateTime.to_iso8601(outcome.occurred_at),
+      "event_id" => outcome.event_id,
+      "run_id" => outcome.run_id
+    }
+  end
+
+  defp follow_up_to_json_safe(follow_up) do
+    %{
+      "action_id" => follow_up.action_id,
+      "slug" => follow_up.slug,
+      "question" => follow_up.question,
+      "required_at" => DateTime.to_iso8601(follow_up.required_at),
+      "required_event_id" => follow_up.required_event_id,
+      "handled_at" => timestamp(follow_up.handled_at),
+      "handled_event_id" => follow_up.handled_event_id,
+      "handled_by" => actor_to_json_safe(follow_up.handled_by),
+      "handled_detail" => follow_up.handled_detail
+    }
+  end
+
+  defp stringify_action_map(map, mapper) do
+    Map.new(map, fn {action_id, value} -> {action_id, mapper.(value)} end)
+  end
+
   defp fact_to_json_safe(nil), do: nil
 
   defp fact_to_json_safe(fact) do
@@ -500,6 +805,9 @@ defmodule Aiur.DecisionProjection do
       "run_id" => fact.run_id
     }
   end
+
+  defp actor_to_json_safe(nil), do: nil
+  defp actor_to_json_safe(actor), do: %{"kind" => Atom.to_string(actor.kind), "id" => actor.id}
 
   defp timestamp(nil), do: nil
   defp timestamp(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)

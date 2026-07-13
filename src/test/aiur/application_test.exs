@@ -52,6 +52,8 @@ defmodule Aiur.ApplicationTest do
       Aiur.ProcessReaper,
       Aiur.PauseContainment,
       Aiur.AgentResourceGuard,
+      Aiur.DecisionMetrics.Writer,
+      Aiur.DecisionMetrics,
       Aiur.GitHub.CodeOwners,
       Aiur.RecentMergeStore,
       Aiur.Opencode.SessionSupervisor,
@@ -121,6 +123,21 @@ defmodule Aiur.ApplicationTest do
         tracked_set = Enum.find_index(mods, &(&1 == Aiur.Orchestrator.TrackedSet))
         orchestrator = Enum.find_index(mods, &(&1 == Aiur.Orchestrator))
         assert tracked_set < orchestrator, "TrackedSet must precede Orchestrator for #{inspect(opts)}"
+      end
+    end
+
+    test "Decision metrics starts after the durable Decision service in both shapes" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        decision_store = Enum.find_index(mods, &(&1 == Aiur.DecisionStore))
+        metrics_writer = Enum.find_index(mods, &(&1 == Aiur.DecisionMetrics.Writer))
+        decision_metrics = Enum.find_index(mods, &(&1 == Aiur.DecisionMetrics))
+
+        assert decision_store < metrics_writer, "DecisionStore must precede metrics for #{inspect(opts)}"
+        assert metrics_writer < decision_metrics, "metrics writer must precede collector for #{inspect(opts)}"
       end
     end
 
