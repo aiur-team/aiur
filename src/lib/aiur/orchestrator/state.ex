@@ -224,6 +224,13 @@ defmodule Aiur.Orchestrator.State do
 
   def completed_running_entry?(_entry), do: false
 
+  @spec completed_provenance?(term()) :: boolean()
+  def completed_provenance?(entry) when is_map(entry) do
+    completed_running_entry?(entry) or Map.get(entry, :completed_provenance) == true
+  end
+
+  def completed_provenance?(_entry), do: false
+
   @spec deactivated_running_entry?(term()) :: boolean()
   def deactivated_running_entry?(entry) when is_map(entry) do
     get_in(entry, [:control, :status]) == :deactivated

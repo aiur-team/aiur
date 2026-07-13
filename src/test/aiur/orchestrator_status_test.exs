@@ -5,7 +5,7 @@ defmodule Aiur.OrchestratorStatusTest do
   alias Aiur.Codex.CodingAgent, as: CodexCodingAgent
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Opencode.ActiveTurns
-  alias Aiur.Orchestrator.{OperatorMessages, PauseResume, State, WorkspaceCleanup}
+  alias Aiur.Orchestrator.{CiLifecycle, HumanReview, OperatorMessages, PauseResume, Reconciler, State, WorkspaceCleanup}
   alias Aiur.SessionHandle
 
   defmodule StartupCleanupLinearClient do
@@ -2483,6 +2483,7 @@ defmodule Aiur.OrchestratorStatusTest do
       |> Map.put(:ref, old_ref)
       |> Map.put(:issue, issue)
       |> Map.put(:session_id, "thread-preserved")
+      |> Map.put(:started_at, DateTime.add(DateTime.utc_now(), -30, :second))
 
     {queue_store, first} =
       AgentQueueStore.enqueue(%AgentQueueStore{}, %{
@@ -2529,12 +2530,51 @@ defmodule Aiur.OrchestratorStatusTest do
     assert restored.control.status == :completed
     assert restored.session_id == "thread-preserved"
     assert restored.worker_host == "worker-a"
+    assert restored.completed_provenance
+    assert restored.completion_totals_recorded
     assert MapSet.member?(next.claimed, issue.id)
     assert next.queue_store.pending_ids_by_target[issue.identifier] == [first.id, second.id]
     refute Map.has_key?(next.retry_attempts, issue.id)
+
+    first_totals = next.agent_totals
+    assert first_totals.seconds_running >= 30
+
+    repeated =
+      PauseResume.replace_admitted_completed_entry(
+        next,
+        restored,
+        issue,
+        "worker-a",
+        spawn_failure
+      )
+
+    assert repeated.agent_totals == first_totals
+    assert repeated.running[issue.id].completion_totals_recorded
+    assert repeated.queue_store.pending_ids_by_target[issue.identifier] == [first.id, second.id]
   end
 
-  test "state-cap admission retains the completed row and FIFO queue" do
+  test "tracker rework after completed CI wait honors effective capacity" do
+    issue = completed_rework_issue("tracker-effective-cap")
+    configure_completed_revalidation!([issue], max_concurrent_agents: 3)
+    {state, parked_entry, worker, item_ids} = tracker_completed_retention_fixture(issue)
+
+    other =
+      "other-effective-cap"
+      |> running_entry("MT-OTHER-EFFECTIVE-CAP", :working)
+      |> Map.put(:issue, completed_rework_issue("other-effective-cap"))
+
+    state = %{
+      state
+      | effective_concurrent_agents: 1,
+        running: Map.put(state.running, "other-effective-cap", other)
+    }
+
+    next = Reconciler.maybe_reactivate_or_refresh(state, issue)
+
+    assert_tracker_completed_preflight_retained(next, parked_entry, worker, item_ids)
+  end
+
+  test "tracker rework after completed CI wait honors the state cap" do
     issue = completed_rework_issue("state-cap")
 
     configure_completed_revalidation!([issue],
@@ -2542,7 +2582,7 @@ defmodule Aiur.OrchestratorStatusTest do
       max_concurrent_agents_by_state: %{"rework" => 1}
     )
 
-    {state, entry, worker, item_ids} = completed_retention_fixture(issue)
+    {state, parked_entry, worker, item_ids} = tracker_completed_retention_fixture(issue)
 
     other =
       "other-state-cap"
@@ -2550,12 +2590,12 @@ defmodule Aiur.OrchestratorStatusTest do
       |> Map.put(:issue, completed_rework_issue("other-state-cap"))
 
     state = %{state | running: Map.put(state.running, "other-state-cap", other)}
-    next = PauseResume.replace_completed_issue(state, entry, issue)
+    next = Reconciler.maybe_reactivate_or_refresh(state, issue)
 
-    assert_completed_preflight_retained(next, entry, worker, item_ids)
+    assert_tracker_completed_preflight_retained(next, parked_entry, worker, item_ids)
   end
 
-  test "worker-host admission retains the completed row and FIFO queue" do
+  test "tracker rework after completed CI wait preserves the worker host gate" do
     issue = completed_rework_issue("host-cap")
 
     configure_completed_revalidation!([issue],
@@ -2564,7 +2604,8 @@ defmodule Aiur.OrchestratorStatusTest do
       worker_max_concurrent_agents_per_host: 1
     )
 
-    {state, entry, worker, item_ids} = completed_retention_fixture(issue, "worker-a")
+    {state, parked_entry, worker, item_ids} =
+      tracker_completed_retention_fixture(issue, "worker-a")
 
     other =
       "other-host-cap"
@@ -2572,15 +2613,15 @@ defmodule Aiur.OrchestratorStatusTest do
       |> Map.put(:issue, completed_rework_issue("other-host-cap"))
 
     state = %{state | running: Map.put(state.running, "other-host-cap", other)}
-    next = PauseResume.replace_completed_issue(state, entry, issue)
+    next = Reconciler.maybe_reactivate_or_refresh(state, issue)
 
-    assert_completed_preflight_retained(next, entry, worker, item_ids)
+    assert_tracker_completed_preflight_retained(next, parked_entry, worker, item_ids)
   end
 
-  test "thrash admission retains the completed row and FIFO queue" do
+  test "tracker rework after completed CI wait honors the thrash gate" do
     issue = completed_rework_issue("thrash")
     configure_completed_revalidation!([issue], max_concurrent_agents: 3)
-    {state, entry, worker, item_ids} = completed_retention_fixture(issue)
+    {state, parked_entry, worker, item_ids} = tracker_completed_retention_fixture(issue)
 
     state = %{
       state
@@ -2592,12 +2633,12 @@ defmodule Aiur.OrchestratorStatusTest do
         }
     }
 
-    next = PauseResume.replace_completed_issue(state, entry, issue)
+    next = Reconciler.maybe_reactivate_or_refresh(state, issue)
 
-    assert_completed_preflight_retained(next, entry, worker, item_ids)
+    assert_tracker_completed_preflight_retained(next, parked_entry, worker, item_ids)
   end
 
-  test "all-limited model admission retains the completed row and FIFO queue" do
+  test "tracker rework after completed CI wait honors all-limited model admission" do
     issue = %{completed_rework_issue("all-limited") | selected_backend: nil}
 
     configure_completed_revalidation!([issue],
@@ -2630,10 +2671,69 @@ defmodule Aiur.OrchestratorStatusTest do
       })
     )
 
-    {state, entry, worker, item_ids} = completed_retention_fixture(issue)
-    next = PauseResume.replace_completed_issue(state, entry, issue)
+    {state, parked_entry, worker, item_ids} = tracker_completed_retention_fixture(issue)
+    next = Reconciler.maybe_reactivate_or_refresh(state, issue)
 
-    assert_completed_preflight_retained(next, entry, worker, item_ids)
+    assert_tracker_completed_preflight_retained(next, parked_entry, worker, item_ids)
+  end
+
+  test "tracker rework after completed human review uses hardened replacement" do
+    active_issue = completed_rework_issue("human-review-provenance")
+    review_issue = %{active_issue | state: "human-review"}
+    configure_completed_revalidation!([active_issue], max_concurrent_agents: 3)
+    previous_verifier = Application.get_env(:aiur, :human_review_ready_verifier)
+    Application.put_env(:aiur, :human_review_ready_verifier, fn _issue_id -> :ok end)
+
+    on_exit(fn ->
+      restore_application_env(:human_review_ready_verifier, previous_verifier)
+    end)
+
+    {state, _entry, worker, item_ids} = completed_retention_fixture(review_issue)
+    parked = HumanReview.maybe_deactivate_human_review_issue(state, review_issue)
+    parked_entry = Map.fetch!(parked.running, active_issue.id)
+
+    refute Process.alive?(worker)
+    assert parked_entry.control.status == :deactivated
+    assert parked_entry.completed_provenance
+    assert parked_entry.completion_totals_recorded
+
+    next = Reconciler.maybe_reactivate_or_refresh(parked, active_issue)
+    replacement = Map.fetch!(next.running, active_issue.id)
+
+    assert replacement.control.status == :working
+    assert is_pid(replacement.pid) and Process.alive?(replacement.pid)
+    assert is_reference(replacement.ref)
+    assert replacement.worker_host == parked_entry.worker_host
+    assert next.queue_store.pending_ids_by_target[active_issue.identifier] == item_ids
+  end
+
+  test "tracker unpause after completion replaces instead of resuming a dead runner" do
+    active_issue = completed_rework_issue("paused-provenance")
+    paused_issue = %{active_issue | paused: true}
+    configure_completed_revalidation!([active_issue], max_concurrent_agents: 3)
+    {state, _entry, worker, item_ids} = completed_retention_fixture(active_issue)
+
+    paused = PauseResume.pause_issue_for_label_override(state, paused_issue)
+    paused_entry = Map.fetch!(paused.running, active_issue.id)
+
+    refute Process.alive?(worker)
+    assert paused_entry.control.status == :paused
+    assert paused_entry.paused_reason == :label_override
+    assert paused_entry.completed_provenance
+    assert paused_entry.completion_totals_recorded
+    assert paused_entry.pid == nil
+    assert paused_entry.ref == nil
+    refute_received {:pause_agent, _request_id}
+
+    assert PauseResume.pause_issue_for_label_override(paused, paused_issue) == paused
+
+    next = Reconciler.maybe_reactivate_or_refresh(paused, active_issue)
+    replacement = Map.fetch!(next.running, active_issue.id)
+
+    assert replacement.control.status == :working
+    assert is_pid(replacement.pid) and Process.alive?(replacement.pid)
+    assert is_reference(replacement.ref)
+    assert next.queue_store.pending_ids_by_target[active_issue.identifier] == item_ids
   end
 
   test "operator messages rearm multiple completed runners without returned workers holding slots" do
@@ -3120,19 +3220,38 @@ defmodule Aiur.OrchestratorStatusTest do
     {state, entry, worker, [first.id, second.id]}
   end
 
-  defp assert_completed_preflight_retained(state, original_entry, worker, item_ids) do
-    issue = original_entry.issue
+  defp tracker_completed_retention_fixture(issue, worker_host \\ nil) do
+    {state, _entry, worker, item_ids} = completed_retention_fixture(issue, worker_host)
+    parked_issue = %{issue | state: "ci-wait"}
+    parked = CiLifecycle.pause_issue_for_ci_wait(state, parked_issue)
+    parked_entry = Map.fetch!(parked.running, issue.id)
+
+    refute Process.alive?(worker)
+    assert parked_entry.control.status == :deactivated
+    assert parked_entry.completed_provenance
+    assert parked_entry.completion_totals_recorded
+    assert parked_entry.pid == nil
+    assert parked_entry.ref == nil
+
+    {parked, parked_entry, worker, item_ids}
+  end
+
+  defp assert_tracker_completed_preflight_retained(state, parked_entry, worker, item_ids) do
+    issue = parked_entry.issue
     retained = Map.fetch!(state.running, issue.id)
 
-    assert Process.alive?(worker)
-    assert retained.pid == worker
-    assert retained.ref == original_entry.ref
+    refute Process.alive?(worker)
+    assert retained.pid == nil
+    assert retained.ref == nil
     assert retained.control.status == :completed
-    assert retained.session_id == original_entry.session_id
-    assert retained.worker_host == original_entry.worker_host
+    assert retained.completed_provenance
+    assert retained.completion_totals_recorded
+    assert retained.session_id == parked_entry.session_id
+    assert retained.worker_host == parked_entry.worker_host
     assert MapSet.member?(state.claimed, issue.id)
     assert state.queue_store.pending_ids_by_target[issue.identifier] == item_ids
     refute Map.has_key?(state.retry_attempts, issue.id)
+    refute Map.has_key?(state.ci_lifecycle.rewakes, issue.id)
   end
 
   defp configure_completed_revalidation!(issues, overrides \\ []) do

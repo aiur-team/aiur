@@ -80,6 +80,8 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert entry.control.status == :deactivated
       assert entry.pid == nil
       assert entry.ref == nil
+      assert entry.completed_provenance
+      assert entry.completion_totals_recorded
       assert %{token: token, timer_ref: timer_ref} = next.ci_lifecycle.rewakes[identifier]
       assert is_reference(token)
       assert is_reference(timer_ref)

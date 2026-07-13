@@ -53,8 +53,8 @@ defmodule Aiur.Orchestrator.PauseResume do
     case State.find_running_by_identifier(state.running, issue_identifier) do
       running_entry when is_map(running_entry) ->
         cond do
-          State.completed_running_entry?(running_entry) ->
-            restart_completed_issue(state, running_entry)
+          State.completed_provenance?(running_entry) ->
+            restart_completed_provenance_issue(state, running_entry)
 
           State.deactivated_running_entry?(running_entry) ->
             reactivate_issue(state, running_entry)
@@ -76,6 +76,12 @@ defmodule Aiur.Orchestrator.PauseResume do
     case Map.get(state.running, issue.id) do
       nil ->
         RetryEngine.release_issue_claim(state, issue.id)
+
+      %{completed_provenance: true} = running_entry ->
+        pause_completed_issue_for_label_override(state, running_entry, issue)
+
+      %{control: %{status: :completed}} = running_entry ->
+        pause_completed_issue_for_label_override(state, running_entry, issue)
 
       %{control: %{status: status}} = running_entry when status in [:deactivated, :paused] ->
         Reconciler.refresh_running_entry_issue(state, issue, running_entry)
@@ -121,6 +127,24 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   def resume_label_overridden_issue(%State{} = state, running_entry),
     do: resume_paused_issue(state, running_entry)
+
+  defp pause_completed_issue_for_label_override(state, running_entry, issue) do
+    if State.paused_running_entry?(running_entry) and
+         Map.get(running_entry, :paused_reason) == :label_override do
+      Reconciler.refresh_running_entry_issue(state, issue, running_entry)
+    else
+      state = Reconciler.refresh_running_entry_issue(state, issue, running_entry)
+      state = AgentTeardown.deactivate_running_issue(state, issue.id)
+      parked_entry = Map.fetch!(state.running, issue.id)
+
+      parked_entry =
+        parked_entry
+        |> Map.put(:issue, issue)
+        |> Map.put(:paused_reason, :label_override)
+
+      transition_control_status(state, parked_entry, :paused, "label_override.completed")
+    end
+  end
 
   @spec recover_startup_pause_overrides(State.t(), [term()]) :: [term()]
   def recover_startup_pause_overrides(
@@ -178,7 +202,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   # checkpoint — then queue the cooperative `{:pause_agent}` control message.
   defp pause_running_or_inactive(state, running_entry, issue_identifier) do
     if State.deactivated_running_entry?(running_entry) or
-         State.completed_running_entry?(running_entry) do
+         State.completed_provenance?(running_entry) do
       {{:error, :already_inactive}, state}
     else
       reply = send_pause_control_message(state, issue_identifier)
@@ -253,11 +277,19 @@ defmodule Aiur.Orchestrator.PauseResume do
   @doc false
   @spec replace_completed_issue(State.t(), map(), Issue.t()) :: State.t()
   def replace_completed_issue(%State{} = state, running_entry, %Issue{} = issue) do
-    if State.completed_running_entry?(running_entry) do
+    if State.completed_provenance?(running_entry) do
       revalidate_completed_replacement(state, running_entry, issue)
     else
       state
     end
+  end
+
+  defp normalize_completed_entry(running_entry, issue) do
+    running_entry
+    |> Map.put(:issue, issue)
+    |> Map.put(:completed_provenance, true)
+    |> Map.delete(:paused_reason)
+    |> put_in([:control, :status], :completed)
   end
 
   defp revalidate_completed_replacement(state, running_entry, issue) do
@@ -283,6 +315,13 @@ defmodule Aiur.Orchestrator.PauseResume do
   end
 
   defp dispatch_completed_replacement(state, running_entry, issue) do
+    running_entry = normalize_completed_entry(running_entry, issue)
+
+    state =
+      state
+      |> Map.update!(:running, &Map.put(&1, issue.id, running_entry))
+      |> Aiur.Orchestrator.cancel_ci_wait_rewake(issue.id)
+
     worker_host = Map.get(running_entry, :worker_host)
 
     with true <- Slots.dispatch_slots_available?(issue, state),
@@ -350,6 +389,8 @@ defmodule Aiur.Orchestrator.PauseResume do
       |> Map.put(:issue, issue)
       |> Map.put(:pid, nil)
       |> Map.put(:ref, nil)
+      |> Map.put(:completed_provenance, true)
+      |> Map.put(:completion_totals_recorded, true)
       |> put_in([:control, :status], :completed)
 
     %{
@@ -370,6 +411,24 @@ defmodule Aiur.Orchestrator.PauseResume do
       {{:error, :redispatch_deferred}, next_state}
     end
   end
+
+  defp restart_completed_provenance_issue(
+         state,
+         %{paused_reason: :label_override} = running_entry
+       ) do
+    case clear_pause_override(running_entry) do
+      {:ok, cleared_entry} ->
+        issue_id = get_in(cleared_entry, [:issue, Access.key(:id)])
+        state = %{state | running: Map.put(state.running, issue_id, cleared_entry)}
+        restart_completed_issue(state, cleared_entry)
+
+      {:error, reason} ->
+        {{:error, {:pause_override_clear_failed, reason}}, state}
+    end
+  end
+
+  defp restart_completed_provenance_issue(state, running_entry),
+    do: restart_completed_issue(state, running_entry)
 
   defp do_reactivate(%State{} = state, running_entry) do
     issue_id = get_in(running_entry, [:issue, Access.key(:id)])
