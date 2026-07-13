@@ -201,7 +201,7 @@ defmodule Aiur.Opencode.SlotPolicyTest do
       assert partitions != []
 
       Enum.each(partitions, &:sys.suspend/1)
-      on_exit(fn -> Enum.each(partitions, &resume_if_suspended/1) end)
+      on_exit(fn -> Enum.each(partitions, &:sys.resume/1) end)
 
       test_pid = self()
 
@@ -215,6 +215,26 @@ defmodule Aiur.Opencode.SlotPolicyTest do
 
       assert_received :registry_cleanup_released
       assert Registry.lookup(SlotRegistry.registry_name(), 1) == []
+    end
+
+    test "fails when Registry does not remove dead slot keys before the timeout" do
+      {:ok, slot} = FakeSlot.start_link(1)
+      Process.unlink(slot)
+
+      partitions = registry_partitions()
+      assert partitions != []
+
+      Enum.each(partitions, &:sys.suspend/1)
+
+      try do
+        assert_raise ExUnit.AssertionError,
+                     ~r/slot registry did not clear within 25ms: 1 entries remain/,
+                     fn -> stop_registered_slots(25) end
+
+        assert Registry.lookup(SlotRegistry.registry_name(), 1) != []
+      after
+        Enum.each(partitions, &:sys.resume/1)
+      end
     end
   end
 
@@ -247,11 +267,7 @@ defmodule Aiur.Opencode.SlotPolicyTest do
     |> Enum.map(fn {_id, pid, :worker, [Registry.Partition]} -> pid end)
   end
 
-  defp resume_if_suspended(pid) do
-    if Process.info(pid, :status) == {:status, :suspended}, do: :sys.resume(pid)
-  end
-
-  defp stop_registered_slots do
+  defp stop_registered_slots(timeout \\ @registry_cleanup_timeout) do
     for {_index, pid} <- SlotRegistry.all(), Process.alive?(pid) do
       ref = Process.monitor(pid)
       Process.exit(pid, :kill)
@@ -263,11 +279,11 @@ defmodule Aiur.Opencode.SlotPolicyTest do
       end
     end
 
-    deadline = System.monotonic_time(:millisecond) + @registry_cleanup_timeout
-    wait_for_registry_cleanup(deadline)
+    deadline = System.monotonic_time(:millisecond) + timeout
+    wait_for_registry_cleanup(deadline, timeout)
   end
 
-  defp wait_for_registry_cleanup(deadline) do
+  defp wait_for_registry_cleanup(deadline, timeout) do
     remaining = Registry.count(SlotRegistry.registry_name())
 
     cond do
@@ -275,11 +291,11 @@ defmodule Aiur.Opencode.SlotPolicyTest do
         :ok
 
       System.monotonic_time(:millisecond) >= deadline ->
-        flunk("slot registry did not clear within #{@registry_cleanup_timeout}ms: #{remaining} entries remain")
+        flunk("slot registry did not clear within #{timeout}ms: #{remaining} entries remain")
 
       true ->
         Process.sleep(10)
-        wait_for_registry_cleanup(deadline)
+        wait_for_registry_cleanup(deadline, timeout)
     end
   end
 end
