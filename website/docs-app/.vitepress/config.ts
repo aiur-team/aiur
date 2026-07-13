@@ -41,7 +41,7 @@ export default defineConfig({
     logo: '/assets/aiur-logo.png',
     siteTitle: 'aiur · cli',
     nav: [
-      { text: 'Home', link: 'https://aiur.team/' },
+      { text: 'Home', link: 'https://aiur.team/', target: '_self' },
       { text: 'Docs', link: '/guide/quick-start', activeMatch: '^/' }
     ],
     sidebar: [

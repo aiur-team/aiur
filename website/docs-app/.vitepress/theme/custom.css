@@ -51,6 +51,9 @@
   --vp-button-brand-border: #1f6fcf;
   --vp-button-brand-bg: #1f6fcf;
   --vp-button-brand-text: #ffffff;
+  --vp-button-brand-hover-border: #165eae;
+  --vp-button-brand-hover-bg: #165eae;
+  --vp-button-brand-hover-text: #ffffff;
   --vp-code-block-bg: #111317;
 }
 
@@ -236,6 +239,12 @@ body {
 
 .VPButton:hover {
   transform: translateY(-2px);
+}
+
+.dark .VPButton.brand:focus {
+  border-color: #165eae;
+  background: #165eae;
+  color: #ffffff;
 }
 
 .vp-doc {

@@ -8,6 +8,22 @@ test('homepage establishes the canonical default theme', async ({ page }) => {
   await expect.poll(() => page.evaluate(() => localStorage.getItem('aiur-theme'))).toBe('dark')
 })
 
+test('light homepage preference is applied before module hydration', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('aiur-theme', 'light')
+    ;(window as typeof window & { darkHomepageObserved?: boolean }).darkHomepageObserved = false
+    new MutationObserver(() => {
+      if (document.documentElement.getAttribute('data-theme') === 'dark') {
+        ;(window as typeof window & { darkHomepageObserved?: boolean }).darkHomepageObserved = true
+      }
+    }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+  })
+
+  await page.goto('/')
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+  expect(await page.evaluate(() => (window as typeof window & { darkHomepageObserved?: boolean }).darkHomepageObserved)).toBe(false)
+})
+
 test('light preference is applied before docs hydration', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('aiur-theme', 'light')
@@ -69,11 +85,30 @@ for (const theme of themes) {
 
     const homeLink = page.getByRole('link', { name: 'Home' })
     await expect(homeLink).toHaveAttribute('href', 'https://aiur.team/')
-    await page.goto('/')
-    await expect(page).toHaveURL('http://127.0.0.1:43127/')
-    await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+    await expect(homeLink).toHaveAttribute('target', '_self')
+    await page.route('https://aiur.team/', (route) => route.fulfill({
+      contentType: 'text/html',
+      body: '<!doctype html><title>Aiur home</title><h1>Aiur</h1>'
+    }))
+    const pageCount = page.context().pages().length
+    await homeLink.click()
+    await expect(page).toHaveURL('https://aiur.team/')
+    expect(page.context().pages()).toHaveLength(pageCount)
   })
 }
+
+test('dark brand CTA interaction states meet contrast requirements', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('aiur-theme', 'dark'))
+  await page.goto('/docs/')
+  const cta = page.locator('.VPButton.brand').first()
+
+  await cta.hover()
+  expect(contrastRatio(...await colors(cta))).toBeGreaterThanOrEqual(4.5)
+
+  await page.mouse.move(0, 0)
+  await cta.focus()
+  expect(contrastRatio(...await colors(cta))).toBeGreaterThanOrEqual(4.5)
+})
 
 function localStorageTheme(value: string | null): 'light' | 'dark' | null {
   return value === 'light' || value === 'dark' ? value : null
@@ -91,4 +126,15 @@ function contrastRatio(foreground: string, background: string): number {
   }
   const [lighter, darker] = [luminance(foreground), luminance(background)].sort((a, b) => b - a)
   return (lighter + 0.05) / (darker + 0.05)
+}
+
+async function colors(locator: import('@playwright/test').Locator): Promise<[string, string]> {
+  return locator.evaluate((element) => {
+    const styles = getComputedStyle(element)
+    const toHex = (color: string) => {
+      const channels = color.match(/\d+/g)?.slice(0, 3).map(Number) ?? []
+      return `#${channels.map((channel) => channel.toString(16).padStart(2, '0')).join('')}`
+    }
+    return [toHex(styles.color), toHex(styles.backgroundColor)]
+  })
 }
