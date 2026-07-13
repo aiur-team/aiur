@@ -47,17 +47,28 @@ defmodule Aiur.DecisionStoreTest do
     records =
       Enum.map(1..10_000, fn index ->
         decision_id = "dec-#{index}"
-        %{event | decision_id: decision_id, data: %{event.data | decision_id: decision_id}}
+        created_at = DateTime.add(event.data.created_at, index, :microsecond)
+
+        %{
+          event
+          | decision_id: decision_id,
+            data: %{event.data | decision_id: decision_id, created_at: created_at, source_created_at: created_at}
+        }
       end)
 
-    recent_decisions = records |> Enum.reverse() |> Enum.take(50) |> Enum.map(& &1.data)
+    current = Map.new(records, &{&1.decision_id, &1.data})
+
+    decision_index =
+      records
+      |> Enum.map(&decision_index_key(&1.data))
+      |> :gb_sets.from_list()
 
     :sys.replace_state(pid, fn state ->
       %{
         state
         | audit_history: Map.new(records, &{&1.decision_id, [&1]}),
-          current: Map.new(records, &{&1.decision_id, &1.data}),
-          recent_decisions: recent_decisions,
+          current: current,
+          decision_index: decision_index,
           recent_audit: records |> Enum.reverse() |> Enum.take(50)
       }
     end)
@@ -83,8 +94,87 @@ defmodule Aiur.DecisionStoreTest do
              MapSet.new(10_000..9_951//-1, &"dec-#{&1}")
   end
 
+  test "resolving a cached decision backfills the untouched 51st open decision", %{dir: dir} do
+    parent = self()
+
+    dispatcher = fn _decision, opts ->
+      send(parent, {:backfill_dispatch, opts[:attempt_id]})
+      {:ok, %{status: :accepted, item: %{id: 51}}}
+    end
+
+    pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0)
+
+    assert {:ok, %{decision: cached}} =
+             request(pid, %{
+               "source_id" => "cached-blocker",
+               "question" => "Resolve this cached blocker?",
+               "blocking" => true,
+               "options" => [%{"id" => "ship", "label" => "Ship"}]
+             })
+
+    assert {:ok, %{action: action}} =
+             answer(pid, cached.decision_id, %{
+               "idempotency_key" => "cached-blocker-answer",
+               "expected_version" => 1,
+               "option_id" => "ship"
+             })
+
+    assert_receive {:backfill_dispatch, attempt_id}, 1_000
+    _queued = wait_for_decision(pid, cached.decision_id, &(&1.delivery_status == :queued))
+    assert {:ok, :accepted} = DecisionStore.record_delivery(correlated_queue_item(cached, action, attempt_id, 51), pid)
+
+    untouched =
+      for index <- 1..50 do
+        assert {:ok, %{decision: decision}} =
+                 request(pid, %{
+                   "source_id" => "untouched-#{index}",
+                   "question" => "Untouched open decision #{index}?",
+                   "blocking" => false
+                 })
+
+        decision
+      end
+
+    assert length(DecisionStore.recent_decisions(50, pid)) == 50
+    assert Enum.any?(DecisionStore.recent_decisions(50, pid), &(&1.decision_id == cached.decision_id))
+
+    lifecycle_payload = %{
+      "decision_id" => cached.decision_id,
+      "action_id" => action.action_id,
+      "expected_version" => 1
+    }
+
+    lifecycle_opts = [
+      ticket_identifier: "979",
+      actor: %{kind: :agent, id: "ticket-agent"},
+      source: %{agent_id: "codex", session_id: "session-1", invocation_id: "backfill-test"}
+    ]
+
+    assert {:ok, %{status: :accepted}} =
+             DecisionStore.agent_lifecycle(:acknowledged, lifecycle_payload, lifecycle_opts, pid)
+
+    assert {:ok, %{status: :accepted, decision_status: :resolved}} =
+             DecisionStore.agent_lifecycle(:resolved, lifecycle_payload, lifecycle_opts, pid)
+
+    projected_ids = MapSet.new(DecisionStore.recent_decisions(50, pid), & &1.decision_id)
+    refute MapSet.member?(projected_ids, cached.decision_id)
+    assert projected_ids == MapSet.new(untouched, & &1.decision_id)
+  end
+
   defp request(pid, payload, opts \\ []) do
     DecisionStore.request(payload, Keyword.merge([ticket: @ticket, source: @source], opts), pid)
+  end
+
+  defp decision_index_key(decision) do
+    urgency = %{low: 0, normal: 1, high: 2, critical: 3}
+
+    {
+      decision.decision_status == :resolved,
+      not decision.blocking,
+      -Map.fetch!(urgency, decision.urgency),
+      -DateTime.to_unix(decision.created_at, :microsecond),
+      decision.decision_id
+    }
   end
 
   defp project_attention(pid, payload, opts \\ []) do

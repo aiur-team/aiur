@@ -310,7 +310,7 @@ defmodule Aiur.DecisionStore do
           ndjson_path: ndjson_path,
           projection_path: projection_path,
           current: current,
-          recent_decisions: current |> Map.values() |> recent_decision_window(),
+          decision_index: build_decision_index(current),
           # The store keeps histories newest-first so every accepted append is
           # O(1). The public history call reverses them back to audit order.
           history: reverse_histories(history),
@@ -353,7 +353,7 @@ defmodule Aiur.DecisionStore do
       ndjson_path: ndjson_path,
       projection_path: nil,
       current: %{},
-      recent_decisions: [],
+      decision_index: :gb_sets.empty(),
       history: %{},
       audit_history: %{},
       recent_audit: [],
@@ -502,7 +502,8 @@ defmodule Aiur.DecisionStore do
   end
 
   def handle_call({:recent_decisions, limit}, _from, state) do
-    {:reply, Enum.take(state.recent_decisions, limit), state}
+    decisions = take_indexed_decisions(state.decision_index, state.current, limit)
+    {:reply, decisions, state}
   end
 
   def handle_call({:history, decision_id}, _from, state) do
@@ -983,7 +984,7 @@ defmodule Aiur.DecisionStore do
         %{
           state
           | current: Map.put(state.current, current.decision_id, updated),
-            recent_decisions: remember_recent_decision(state.recent_decisions, updated),
+            decision_index: update_decision_index(state.decision_index, current, updated),
             history: Map.update(state.history, current.decision_id, [event.data.decision], &[event.data.decision | &1]),
             audit_history: Map.update(state.audit_history, current.decision_id, [event], &(&1 ++ [event])),
             recent_audit: remember_recent_audit(state.recent_audit, event)
@@ -1251,7 +1252,12 @@ defmodule Aiur.DecisionStore do
         %{
           state
           | current: Map.put(state.current, decision.decision_id, current),
-            recent_decisions: remember_recent_decision(state.recent_decisions, current),
+            decision_index:
+              update_decision_index(
+                state.decision_index,
+                Map.get(state.current, decision.decision_id),
+                current
+              ),
             history: Map.update(state.history, decision.decision_id, [decision], &[decision | &1]),
             audit_history: Map.update(state.audit_history, decision.decision_id, [event], &(&1 ++ [event])),
             recent_audit: remember_recent_audit(state.recent_audit, event)
@@ -1296,7 +1302,7 @@ defmodule Aiur.DecisionStore do
       next_state = %{
         state
         | current: Map.put(state.current, decision.decision_id, updated),
-          recent_decisions: remember_recent_decision(state.recent_decisions, updated),
+          decision_index: update_decision_index(state.decision_index, decision, updated),
           audit_history: Map.update(state.audit_history, decision.decision_id, [event], &(&1 ++ [event])),
           recent_audit: remember_recent_audit(state.recent_audit, event)
       }
@@ -2623,17 +2629,41 @@ defmodule Aiur.DecisionStore do
 
   defp remember_recent_audit(records, event), do: Enum.take([event | records], @recent_audit_limit)
 
-  defp remember_recent_decision(decisions, %Decision{} = decision) do
-    decisions
-    |> Enum.reject(&(&1.decision_id == decision.decision_id))
-    |> then(&[decision | &1])
-    |> recent_decision_window()
+  defp build_decision_index(current) do
+    current
+    |> Map.values()
+    |> Enum.map(&recent_decision_sort_key/1)
+    |> :gb_sets.from_list()
   end
 
-  defp recent_decision_window(decisions) do
-    decisions
-    |> Enum.sort_by(&recent_decision_sort_key/1)
-    |> Enum.take(@recent_decision_limit)
+  defp update_decision_index(index, prior, %Decision{} = decision) do
+    updated_index = delete_decision_index(index, prior)
+    :gb_sets.add(recent_decision_sort_key(decision), updated_index)
+  end
+
+  defp delete_decision_index(index, %Decision{} = decision),
+    do: :gb_sets.delete_any(recent_decision_sort_key(decision), index)
+
+  defp delete_decision_index(index, _prior), do: index
+
+  defp take_indexed_decisions(index, current, limit),
+    do: take_indexed_decisions(:gb_sets.iterator(index), current, limit, [])
+
+  defp take_indexed_decisions(_iterator, _current, 0, decisions), do: Enum.reverse(decisions)
+
+  defp take_indexed_decisions(iterator, current, remaining, decisions) do
+    case :gb_sets.next(iterator) do
+      {{_resolved, _non_blocking, _urgency, _created_at, decision_id}, next_iterator} ->
+        take_indexed_decisions(
+          next_iterator,
+          current,
+          remaining - 1,
+          [Map.fetch!(current, decision_id) | decisions]
+        )
+
+      :none ->
+        Enum.reverse(decisions)
+    end
   end
 
   defp recent_decision_sort_key(%Decision{} = decision) do
