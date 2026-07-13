@@ -61,8 +61,14 @@ defmodule Aiur.GitHub.Transport do
         etag -> [{"If-None-Match", etag} | github_headers(token, req)]
       end
 
-    Req.get(url, headers: headers, connect_options: [timeout: 30_000])
-    |> observe_rate_budget()
+    case RateBudget.acquire_core_request() do
+      :ok ->
+        Req.get(url, headers: headers, connect_options: [timeout: 30_000])
+        |> observe_rate_budget()
+
+      {:defer, delay_ms} ->
+        {:error, {:github_rate_budget_deferred, delay_ms}}
+    end
   end
 
   def default_request_fun(%{method: :post, url: url, token: token, body: body} = req) do

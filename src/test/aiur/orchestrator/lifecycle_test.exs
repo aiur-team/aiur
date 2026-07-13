@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.LifecycleTest do
   use Aiur.TestSupport
 
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{Lifecycle, State, TrackedSet}
+  alias Aiur.Orchestrator.{Dispatcher, Lifecycle, State, TrackedSet}
 
   test "schedule_tick replaces the timer with a new token" do
     old_token = make_ref()
@@ -97,6 +97,43 @@ defmodule Aiur.Orchestrator.LifecycleTest do
 
     Process.cancel_timer(coalesced.tick_timer_ref)
     refute_receive :unprotected_tick
+  end
+
+  test "dispatcher budget schedule keeps its deadline across the first refresh" do
+    state = %State{
+      poll_interval_ms: 1_000,
+      github_poll_delays: %{},
+      poll_check_in_progress: false
+    }
+
+    scheduled = Dispatcher.schedule_next_poll(state, budget_delay_fun: fn -> 5_000 end)
+
+    assert {:budget_protected, token} = scheduled.tick_token
+    assert is_reference(token)
+
+    assert {:reply, %{queued: true, coalesced: true}, refreshed} =
+             Lifecycle.request_refresh(scheduled, budget_delay_fun: fn -> 4_500 end)
+
+    assert refreshed.tick_timer_ref == scheduled.tick_timer_ref
+    assert refreshed.tick_token == scheduled.tick_token
+    assert refreshed.next_poll_due_at_ms == scheduled.next_poll_due_at_ms
+    Process.cancel_timer(refreshed.tick_timer_ref)
+  end
+
+  test "a stale protected tick cannot start a poll cycle" do
+    current_token = {:budget_protected, make_ref()}
+
+    state = %State{
+      tick_timer_ref: make_ref(),
+      tick_token: current_token,
+      next_poll_due_at_ms: System.monotonic_time(:millisecond) + 30_000,
+      poll_check_in_progress: false
+    }
+
+    assert {:noreply, ^state} =
+             Orchestrator.handle_info({:tick, {:budget_protected, make_ref()}}, state)
+
+    refute_receive :run_poll_cycle
   end
 
   test "tracked-set refresh excludes deactivated entries" do

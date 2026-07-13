@@ -75,10 +75,19 @@ defmodule Aiur.Orchestrator.TrackerHealth do
 
   @spec next_poll_delay_ms(State.t(), keyword()) :: non_neg_integer()
   def next_poll_delay_ms(%State{} = state, opts \\ []) do
-    budget_delay_fun = Keyword.get(opts, :budget_delay_fun, &RateBudget.delay_ms/0)
+    state
+    |> next_poll_schedule(opts)
+    |> elem(0)
+  end
 
-    [state.poll_interval_ms, github_next_poll_delay_ms(state) || 0, budget_delay_fun.()]
-    |> Enum.max()
+  @doc false
+  @spec next_poll_schedule(State.t(), keyword()) :: {non_neg_integer(), boolean()}
+  def next_poll_schedule(%State{} = state, opts \\ []) do
+    budget_delay_fun = Keyword.get(opts, :budget_delay_fun, &RateBudget.delay_ms/0)
+    baseline_delay = max(state.poll_interval_ms, github_next_poll_delay_ms(state) || 0)
+    budget_delay = budget_delay_fun.()
+
+    {max(baseline_delay, budget_delay), budget_delay > 0 and budget_delay >= baseline_delay}
   end
 
   @doc false

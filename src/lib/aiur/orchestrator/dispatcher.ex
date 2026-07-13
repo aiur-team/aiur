@@ -33,11 +33,18 @@ defmodule Aiur.Orchestrator.Dispatcher do
   def run_poll_cycle(%State{} = state) do
     state = Lifecycle.refresh_runtime_config(state)
     state = maybe_dispatch(state)
-    state = Lifecycle.schedule_tick(state, TrackerHealth.next_poll_delay_ms(state))
+    state = schedule_next_poll(state)
     state = %{state | poll_check_in_progress: false}
 
     StatusReport.notify_dashboard(state)
     {:noreply, state}
+  end
+
+  @doc false
+  @spec schedule_next_poll(State.t(), keyword()) :: State.t()
+  def schedule_next_poll(%State{} = state, opts \\ []) do
+    {delay_ms, budget_protected?} = TrackerHealth.next_poll_schedule(state, opts)
+    Lifecycle.schedule_tick(state, delay_ms, budget_protected?: budget_protected?)
   end
 
   @spec maybe_dispatch(State.t()) :: State.t()

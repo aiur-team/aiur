@@ -137,7 +137,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
       if coalesced do
         state
       else
-        schedule_tick(state, budget_delay_ms, budget_delay_ms > 0)
+        schedule_tick_with_provenance(state, budget_delay_ms, budget_delay_ms > 0)
       end
 
     {:reply,
@@ -151,10 +151,16 @@ defmodule Aiur.Orchestrator.Lifecycle do
 
   @spec schedule_tick(State.t(), non_neg_integer()) :: State.t()
   def schedule_tick(%State{} = state, delay_ms) when is_integer(delay_ms) and delay_ms >= 0 do
-    schedule_tick(state, delay_ms, false)
+    schedule_tick_with_provenance(state, delay_ms, false)
   end
 
-  defp schedule_tick(%State{} = state, delay_ms, budget_protected?) do
+  @spec schedule_tick(State.t(), non_neg_integer(), keyword()) :: State.t()
+  def schedule_tick(%State{} = state, delay_ms, opts)
+      when is_integer(delay_ms) and delay_ms >= 0 and is_list(opts) do
+    schedule_tick_with_provenance(state, delay_ms, Keyword.get(opts, :budget_protected?, false))
+  end
+
+  defp schedule_tick_with_provenance(%State{} = state, delay_ms, budget_protected?) do
     if is_reference(state.tick_timer_ref) do
       Process.cancel_timer(state.tick_timer_ref)
     end

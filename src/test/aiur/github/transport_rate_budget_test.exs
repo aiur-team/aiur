@@ -46,6 +46,31 @@ defmodule Aiur.GitHub.TransportRateBudgetTest do
     assert nil == :sys.get_state(RateBudget)
   end
 
+  test "a paced REST GET with a stale ETag is deferred before it can return 200" do
+    now = System.system_time(:second)
+
+    RateBudget.observe_response(%{
+      headers: %{
+        "x-ratelimit-limit" => "5000",
+        "x-ratelimit-remaining" => "100",
+        "x-ratelimit-reset" => Integer.to_string(now + 1_000),
+        "x-ratelimit-resource" => "core"
+      }
+    })
+
+    :sys.get_state(RateBudget)
+
+    assert {:error, {:github_rate_budget_deferred, delay_ms}} =
+             Transport.default_request_fun(%{
+               method: :get,
+               url: "http://127.0.0.1:1/should-not-connect",
+               token: "test-token",
+               etag: ~s("stale-etag")
+             })
+
+    assert delay_ms > 0
+  end
+
   defp request_once(method, resource) do
     {url, server} = start_http_server(resource)
 

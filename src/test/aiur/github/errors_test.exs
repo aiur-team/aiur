@@ -13,6 +13,11 @@ defmodule Aiur.GitHub.ErrorsTest do
     assert Errors.classify_error({:error, :other}) == {:github, :transport, %{reason: :other}}
   end
 
+  test "classifies proactive budget deferral as rate limited" do
+    assert {:github, :rate_limited, %{reason: :github_rate_budget_deferred, retry_after: 2}} =
+             Errors.classify_error({:error, {:github_rate_budget_deferred, 1_001}})
+  end
+
   test "classifies HTTP auth, rate-limit, and generic statuses" do
     assert Errors.classify_error(%{status: 401, body: %{"message" => "Bad credentials"}}) ==
              {:github, :auth, %{status: 401, message: "Bad credentials"}}

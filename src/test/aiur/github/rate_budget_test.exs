@@ -52,6 +52,41 @@ defmodule Aiur.GitHub.RateBudgetTest do
     assert RateBudget.calculate_delay_ms(%{limit: 100, remaining: 100, reset_at: 2_000}, 1_000) == 0
   end
 
+  test "a bounded fifty-target comment cycle cannot spend past the observed core budget" do
+    name = Module.concat(__MODULE__, "Budget#{System.unique_integer([:positive])}")
+    start_supervised!({RateBudget, name: name})
+
+    now = 1_000
+    monotonic_ms = 10_000
+    observe(name, 5_000, 100, now + 1_000, now, monotonic_ms)
+
+    initial_delay = RateBudget.delay_ms(server: name, now_seconds: now, monotonic_ms: monotonic_ms)
+    assert initial_delay > 0
+
+    request_time = monotonic_ms + initial_delay
+
+    # Twenty-five human-review targets plus twenty-five watched PRs can each
+    # attempt a freshness lookup, issue comments, and PR comments in one cycle.
+    results =
+      1..150
+      |> Task.async_stream(
+        fn _ ->
+          RateBudget.acquire_core_request(
+            server: name,
+            now_seconds: now + div(initial_delay, 1_000),
+            monotonic_ms: request_time
+          )
+        end,
+        max_concurrency: 50,
+        ordered: false
+      )
+      |> Enum.map(fn {:ok, result} -> result end)
+
+    assert Enum.count(results, &(&1 == :ok)) == 1
+    assert Enum.count(results, &match?({:defer, _}, &1)) == 149
+    assert %{remaining: 99} = :sys.get_state(name)
+  end
+
   test "observing a response does not wait for a suspended budget process" do
     name = Module.concat(__MODULE__, "Budget#{System.unique_integer([:positive])}")
     start_supervised!({RateBudget, name: name})
@@ -61,6 +96,22 @@ defmodule Aiur.GitHub.RateBudgetTest do
       task = Task.async(fn -> RateBudget.observe_response(%{headers: headers(5_000, 50, System.system_time(:second) + 1_000)}, name) end)
 
       assert {:ok, :ok} = Task.yield(task, 500)
+    after
+      :sys.resume(name)
+    end
+  end
+
+  test "request admission fails closed when an observed budget process is unavailable" do
+    name = Module.concat(__MODULE__, "Budget#{System.unique_integer([:positive])}")
+    start_supervised!({RateBudget, name: name})
+    now = System.system_time(:second)
+    observe(name, 5_000, 100, now + 1_000)
+    :sys.suspend(name)
+
+    try do
+      task = Task.async(fn -> RateBudget.acquire_core_request(server: name) end)
+      assert {:ok, {:defer, delay_ms}} = Task.yield(task, 500)
+      assert delay_ms > 0
     after
       :sys.resume(name)
     end
@@ -178,11 +229,24 @@ defmodule Aiur.GitHub.RateBudgetTest do
   end
 
   defp observe(name, limit, remaining, reset_at) do
+    observe(
+      name,
+      limit,
+      remaining,
+      reset_at,
+      System.system_time(:second),
+      System.monotonic_time(:millisecond)
+    )
+  end
+
+  defp observe(name, limit, remaining, reset_at, now_seconds, monotonic_ms) do
     RateBudget.observe_response(
       %{
         headers: headers(limit, remaining, reset_at)
       },
-      name
+      name,
+      now_seconds: now_seconds,
+      monotonic_ms: monotonic_ms
     )
 
     :sys.get_state(name)

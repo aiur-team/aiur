@@ -25,7 +25,8 @@ defmodule Aiur.GitHub.RateBudget do
           required(:remaining) => non_neg_integer(),
           required(:reset_at) => pos_integer(),
           optional(:observed_at_wall_seconds) => integer(),
-          optional(:observed_at_monotonic_ms) => integer()
+          optional(:observed_at_monotonic_ms) => integer(),
+          optional(:next_admission_at_monotonic_ms) => integer()
         }
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -62,6 +63,26 @@ defmodule Aiur.GitHub.RateBudget do
     :exit, _ -> 0
   end
 
+  @doc "Atomically reserves one background REST-core request or returns its pacing delay."
+  @spec acquire_core_request(keyword()) :: :ok | {:defer, pos_integer()}
+  def acquire_core_request(opts \\ []) do
+    server = Keyword.get(opts, :server, __MODULE__)
+    now_seconds = Keyword.get_lazy(opts, :now_seconds, fn -> System.system_time(:second) end)
+    monotonic_ms = Keyword.get_lazy(opts, :monotonic_ms, fn -> System.monotonic_time(:millisecond) end)
+
+    try do
+      case GenServer.whereis(server) do
+        pid when is_pid(pid) ->
+          GenServer.call(pid, {:acquire_core_request, now_seconds, monotonic_ms}, 250)
+
+        _ ->
+          :ok
+      end
+    catch
+      :exit, _ -> fallback_core_request(server, now_seconds, monotonic_ms)
+    end
+  end
+
   @doc "Returns non-secret detail when the REST poll budget is actively pacing requests."
   @spec status(keyword()) :: map() | nil
   def status(opts \\ []) do
@@ -72,7 +93,7 @@ defmodule Aiur.GitHub.RateBudget do
     with server when is_atom(server) <- server,
          [{:observation, observation}] <- :ets.lookup(server, :observation) do
       normalized_now_seconds = normalized_wall_seconds(observation, now_seconds, monotonic_ms)
-      delay_ms = calculate_delay_ms(observation, normalized_now_seconds)
+      delay_ms = effective_delay_ms(observation, normalized_now_seconds, monotonic_ms)
       status_detail(clear_expired(observation, normalized_now_seconds), delay_ms, normalized_now_seconds)
     else
       _ -> nil
@@ -138,16 +159,32 @@ defmodule Aiur.GitHub.RateBudget do
   @impl true
   def handle_call({:delay_ms, wall_seconds, monotonic_ms}, _from, observation) do
     now_seconds = normalized_wall_seconds(observation, wall_seconds, monotonic_ms)
-    delay = calculate_delay_ms(observation, now_seconds)
-    next = clear_expired(observation, now_seconds)
+    observation = clear_expired(observation, now_seconds)
+    {delay, next} = schedule_next_admission(observation, now_seconds, monotonic_ms)
     publish_observation(next)
     {:reply, delay, next}
+  end
+
+  def handle_call(
+        {:acquire_core_request, wall_seconds, monotonic_ms},
+        _from,
+        observation
+      ) do
+    now_seconds = normalized_wall_seconds(observation, wall_seconds, monotonic_ms)
+    observation = clear_expired(observation, now_seconds)
+    {reply, next} = acquire(observation, now_seconds, monotonic_ms)
+    publish_observation(next)
+    {:reply, reply, next}
   end
 
   defp merge_observation(nil, incoming), do: incoming
 
   defp merge_observation(%{reset_at: reset_at} = current, %{reset_at: reset_at} = incoming) do
-    if incoming.remaining < current.remaining, do: incoming, else: current
+    if incoming.remaining < current.remaining do
+      preserve_admission_deadline(incoming, current)
+    else
+      current
+    end
   end
 
   defp merge_observation(_current, incoming), do: incoming
@@ -165,6 +202,114 @@ defmodule Aiur.GitHub.RateBudget do
 
   defp clear_expired(%{reset_at: reset_at}, now_seconds) when reset_at <= now_seconds, do: nil
   defp clear_expired(observation, _now_seconds), do: observation
+
+  defp acquire(nil, _now_seconds, _monotonic_ms), do: {:ok, nil}
+
+  defp acquire(observation, now_seconds, monotonic_ms) do
+    reserve = reserve(observation.limit)
+
+    cond do
+      observation.remaining > reserve ->
+        {:ok, reserve_request(observation)}
+
+      observation.remaining == 0 ->
+        delay = reset_delay_ms(observation, now_seconds)
+        {{:defer, delay}, put_admission_deadline(observation, monotonic_ms + delay)}
+
+      admission_ready?(observation, monotonic_ms) ->
+        spacing = request_spacing_ms(observation, now_seconds)
+
+        next =
+          observation
+          |> reserve_request()
+          |> put_admission_deadline(monotonic_ms + spacing)
+
+        {:ok, next}
+
+      true ->
+        {delay, next} = schedule_next_admission(observation, now_seconds, monotonic_ms)
+        {{:defer, max(delay, 1)}, next}
+    end
+  end
+
+  defp schedule_next_admission(nil, _now_seconds, _monotonic_ms), do: {0, nil}
+
+  defp schedule_next_admission(observation, now_seconds, monotonic_ms) do
+    case effective_delay_ms(observation, now_seconds, monotonic_ms) do
+      0 ->
+        {0, observation}
+
+      delay ->
+        next =
+          if Map.has_key?(observation, :next_admission_at_monotonic_ms) do
+            observation
+          else
+            put_admission_deadline(observation, monotonic_ms + delay)
+          end
+
+        {delay, next}
+    end
+  end
+
+  defp effective_delay_ms(nil, _now_seconds, _monotonic_ms), do: 0
+
+  defp effective_delay_ms(observation, now_seconds, monotonic_ms) do
+    case Map.get(observation, :next_admission_at_monotonic_ms) do
+      deadline when is_integer(deadline) and deadline > monotonic_ms -> deadline - monotonic_ms
+      deadline when is_integer(deadline) -> 0
+      _ -> calculate_delay_ms(observation, now_seconds)
+    end
+  end
+
+  defp admission_ready?(observation, monotonic_ms) do
+    case Map.get(observation, :next_admission_at_monotonic_ms) do
+      deadline when is_integer(deadline) -> deadline <= monotonic_ms
+      _ -> false
+    end
+  end
+
+  defp reserve_request(observation) do
+    %{observation | remaining: observation.remaining - 1}
+  end
+
+  defp request_spacing_ms(observation, now_seconds) do
+    window_ms = max(observation.reset_at - now_seconds, 1) * 1_000
+    max(div(window_ms + max(observation.remaining, 1) - 1, max(observation.remaining, 1)), 1)
+  end
+
+  defp reset_delay_ms(observation, now_seconds) do
+    min(max(observation.reset_at - now_seconds, 0) * 1_000 + @reset_margin_ms, @max_delay_ms)
+  end
+
+  defp put_admission_deadline(observation, deadline) do
+    Map.put(observation, :next_admission_at_monotonic_ms, deadline)
+  end
+
+  defp preserve_admission_deadline(incoming, current) do
+    case Map.get(current, :next_admission_at_monotonic_ms) do
+      deadline when is_integer(deadline) -> put_admission_deadline(incoming, deadline)
+      _ -> incoming
+    end
+  end
+
+  defp fallback_core_request(server, now_seconds, monotonic_ms) when is_atom(server) do
+    case :ets.lookup(server, :observation) do
+      [{:observation, observation}] ->
+        normalized_now_seconds = normalized_wall_seconds(observation, now_seconds, monotonic_ms)
+
+        case clear_expired(observation, normalized_now_seconds) do
+          nil -> :ok
+          active -> {:defer, max(calculate_delay_ms(active, normalized_now_seconds), 1_000)}
+        end
+
+      _ ->
+        :ok
+    end
+  rescue
+    ArgumentError -> :ok
+  end
+
+  defp fallback_core_request(_server, _now_seconds, _monotonic_ms), do: :ok
 
   defp publish_observation(nil) do
     case Process.info(self(), :registered_name) do
@@ -197,6 +342,8 @@ defmodule Aiur.GitHub.RateBudget do
     max_reset_at = now_seconds + @max_reset_window_seconds + @reset_window_slack_seconds
     limit > 0 and remaining >= 0 and remaining <= limit and reset_at > now_seconds and reset_at <= max_reset_at
   end
+
+  defp reserve(limit), do: min(max(@reserve_floor, div(limit * @reserve_percent, 100)), limit - 1)
 
   defp progressive_delay_ms(0, _reserve, seconds_until_reset) do
     min(seconds_until_reset * 1_000 + @reset_margin_ms, @max_delay_ms)

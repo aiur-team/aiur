@@ -46,6 +46,15 @@ defmodule Aiur.GitHub.Errors do
   def classify_transport(reason), do: classify_transport_reason(reason)
 
   @spec classify_transport_reason(term()) :: {:github, classification(), map()}
+  def classify_transport_reason({:github_rate_budget_deferred, delay_ms})
+      when is_integer(delay_ms) and delay_ms > 0 do
+    {:github, :rate_limited,
+     %{
+       reason: :github_rate_budget_deferred,
+       retry_after: div(delay_ms + 999, 1_000)
+     }}
+  end
+
   def classify_transport_reason(:nxdomain), do: {:github, :dns, %{reason: :nxdomain}}
 
   def classify_transport_reason(reason)
