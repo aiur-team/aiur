@@ -62,6 +62,21 @@ defmodule Aiur.AppServer.MessagesTest do
     assert result["output"] =~ "saved as JSON"
   end
 
+  test "normalize_tool_result/2 includes the full Claude wire envelope at the exact boundary", %{tmp_dir: tmp_dir} do
+    {_output, 0} = System.cmd("git", ["init", "-q"], cd: tmp_dir)
+    response_id = "boundary-id"
+    empty = %{"success" => true, "output" => ""}
+    overhead = claude_wire_size(response_id, empty)
+    boundary = Map.put(empty, "output", String.duplicate("x", 100 * 1024 - overhead))
+
+    assert claude_wire_size(response_id, boundary) == 100 * 1024
+    assert Messages.normalize_tool_result(boundary, %{workspace: tmp_dir, response_id: response_id}) == boundary
+
+    oversized = Map.update!(boundary, "output", &(&1 <> "x"))
+    assert claude_wire_size(response_id, oversized) == 100 * 1024 + 1
+    assert Messages.normalize_tool_result(oversized, %{workspace: tmp_dir, response_id: response_id})["output"] =~ "saved as JSON"
+  end
+
   test "normalize_tool_result/2 keeps small and failed results unchanged", %{tmp_dir: tmp_dir} do
     small = %{"success" => true, "output" => "ok", "contentItems" => [%{"text" => "ok"}]}
     failed = %{"success" => false, "output" => String.duplicate("x", 110 * 1024)}
@@ -77,7 +92,9 @@ defmodule Aiur.AppServer.MessagesTest do
     File.ln_s!(outside, Path.join(tmp_dir, ".aiur-runtime"))
     original = %{"success" => true, "output" => String.duplicate("x", 110 * 1024)}
 
-    assert Messages.normalize_tool_result(original, %{workspace: tmp_dir, response_id: 3}) == original
+    result = Messages.normalize_tool_result(original, %{workspace: tmp_dir, response_id: 3})
+    refute result["success"]
+    assert byte_size(Jason.encode!(%{"id" => 3, "result" => result}) <> "\n") < 1024
     assert File.ls!(outside) == []
   end
 
@@ -90,8 +107,26 @@ defmodule Aiur.AppServer.MessagesTest do
     File.ln_s!(outside, Path.join(runtime, "tool-results"))
     original = %{"success" => true, "output" => String.duplicate("x", 110 * 1024)}
 
-    assert Messages.normalize_tool_result(original, %{workspace: tmp_dir, response_id: 4}) == original
+    result = Messages.normalize_tool_result(original, %{workspace: tmp_dir, response_id: 4})
+    refute result["success"]
+    assert byte_size(Jason.encode!(%{"id" => 4, "result" => result}) <> "\n") < 1024
     assert File.ls!(outside) == []
+  end
+
+  test "normalize_tool_result/2 returns a bounded failure when git exclusion is unsafe", %{tmp_dir: tmp_dir} do
+    {_output, 0} = System.cmd("git", ["init", "-q"], cd: tmp_dir)
+    exclude = Path.join([tmp_dir, ".git", "info", "exclude"])
+    outside = Path.join(tmp_dir, "outside-exclude")
+    File.write!(outside, "unchanged\n")
+    File.rm!(exclude)
+    File.ln_s!(outside, exclude)
+    original = %{"success" => true, "output" => String.duplicate("x", 110 * 1024)}
+
+    result = Messages.normalize_tool_result(original, %{workspace: tmp_dir, response_id: 5})
+
+    refute result["success"]
+    assert byte_size(Jason.encode!(%{"jsonrpc" => "2.0", "id" => 5, "result" => result}) <> "\n") < 1024
+    assert File.read!(outside) == "unchanged\n"
   end
 
   test "tool call helpers normalize blank names and missing arguments" do
@@ -116,5 +151,9 @@ defmodule Aiur.AppServer.MessagesTest do
   defp private_mode?(path, expected) do
     {:ok, %File.Stat{mode: mode}} = File.stat(path)
     Bitwise.band(mode, 0o777) == expected
+  end
+
+  defp claude_wire_size(id, result) do
+    byte_size(Jason.encode!(%{"jsonrpc" => "2.0", "id" => id, "result" => result}) <> "\n")
   end
 end

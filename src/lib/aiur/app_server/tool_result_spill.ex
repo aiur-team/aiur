@@ -21,9 +21,10 @@ defmodule Aiur.AppServer.ToolResultSpill do
   def maybe_spill(result, _context), do: result
 
   defp frame_size(result, response_id) do
-    %{"id" => response_id, "result" => result}
+    %{"jsonrpc" => "2.0", "id" => response_id, "result" => result}
     |> Jason.encode_to_iodata!()
     |> IO.iodata_length()
+    |> Kernel.+(1)
   end
 
   defp spill(result, workspace) do
@@ -35,7 +36,7 @@ defmodule Aiur.AppServer.ToolResultSpill do
     else
       {:error, reason} ->
         Logger.warning("oversized tool result spill failed reason=#{inspect(reason)}")
-        result
+        bounded_failure()
     end
   end
 
@@ -122,5 +123,13 @@ defmodule Aiur.AppServer.ToolResultSpill do
   defp bounded_result(path) do
     message = "Tool result exceeded #{@max_inline_frame_bytes} inline bytes and was saved as JSON to #{path}. Read the file from disk in chunks."
     %{"success" => true, "output" => message, "contentItems" => [%{"type" => "inputText", "text" => message}]}
+  end
+
+  defp bounded_failure do
+    %{
+      "success" => false,
+      "output" => "Tool result exceeded the inline limit but could not be saved safely.",
+      "contentItems" => []
+    }
   end
 end

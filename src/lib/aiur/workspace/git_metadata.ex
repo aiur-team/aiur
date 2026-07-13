@@ -14,7 +14,7 @@ defmodule Aiur.Workspace.GitMetadata do
     case local_git_metadata_dir(workspace) do
       {:ok, git_dir} ->
         with :ok <- ensure_git_dir_inside_workspace(git_dir, workspace),
-             :ok <- append_exclusions(Path.join([git_dir, "info", "exclude"]), [@agent_logs_exclusion, @tool_results_exclusion]) do
+             :ok <- append_exclusions(git_dir, [@agent_logs_exclusion, @tool_results_exclusion]) do
           :ok
         else
           {:error, reason} -> {:error, {:workspace_git_metadata_unwritable, workspace, reason}}
@@ -40,7 +40,7 @@ defmodule Aiur.Workspace.GitMetadata do
     case local_git_metadata_dir(workspace) do
       {:ok, git_dir} ->
         with :ok <- ensure_git_dir_inside_workspace(git_dir, workspace),
-             :ok <- append_exclusions(Path.join([git_dir, "info", "exclude"]), [@tool_results_exclusion]) do
+             :ok <- append_exclusions(git_dir, [@tool_results_exclusion]) do
           :ok
         else
           {:error, reason} -> {:error, {:workspace_git_metadata_unwritable, workspace, reason}}
@@ -129,26 +129,84 @@ defmodule Aiur.Workspace.GitMetadata do
     end
   end
 
-  defp append_exclusions(path, exclusions) do
-    with {:ok, contents} <- read_optional_file(path) do
+  defp append_exclusions(git_dir, exclusions) do
+    with {:ok, info_dir} <- ensure_git_info_directory(git_dir),
+         path = Path.join(info_dir, "exclude"),
+         {:ok, contents} <- read_optional_regular_file(path) do
       missing = Enum.reject(exclusions, &exclusion_present?(contents, &1))
-      write_exclusions(path, contents, missing)
+      write_exclusions(info_dir, path, contents, missing)
     end
   end
 
-  defp write_exclusions(_path, _contents, []), do: :ok
+  defp ensure_git_info_directory(git_dir) do
+    path = Path.join(git_dir, "info")
 
-  defp write_exclusions(path, contents, exclusions) do
-    with :ok <- File.mkdir_p(Path.dirname(path)) do
-      File.write(path, exclusion_suffix(contents, exclusions), [:append])
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :directory}} ->
+        {:ok, path}
+
+      {:ok, %File.Stat{type: :symlink}} ->
+        {:error, {:symlinked_git_info, path}}
+
+      {:ok, _stat} ->
+        {:error, {:invalid_git_info, path}}
+
+      {:error, :enoent} ->
+        with :ok <- File.mkdir(path),
+             {:ok, %File.Stat{type: :directory}} <- File.lstat(path),
+             do: {:ok, path}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
-  defp read_optional_file(path) do
-    case File.read(path) do
-      {:ok, contents} -> {:ok, contents}
+  defp write_exclusions(_info_dir, _path, _contents, []), do: :ok
+
+  defp write_exclusions(info_dir, path, contents, exclusions) do
+    tmp = Path.join(info_dir, ".exclude-#{System.unique_integer([:positive])}.tmp")
+
+    try do
+      with {:ok, io} <- :file.open(String.to_charlist(tmp), [:write, :binary, :raw, :exclusive]),
+           :ok <- write_and_close(io, contents <> exclusion_suffix(contents, exclusions)),
+           {:ok, %File.Stat{type: :directory}} <- File.lstat(info_dir),
+           {:ok, final_state} <- regular_or_missing(path),
+           true <- final_state in [:regular, :missing],
+           :ok <- File.rename(tmp, path) do
+        :ok
+      else
+        false -> {:error, {:invalid_git_exclude, path}}
+        {:error, reason} -> {:error, reason}
+      end
+    after
+      _ = File.rm(tmp)
+    end
+  end
+
+  defp write_and_close(io, contents) do
+    try do
+      with :ok <- :file.write(io, contents), do: :file.sync(io)
+    after
+      :ok = :file.close(io)
+    end
+  end
+
+  defp read_optional_regular_file(path) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :regular}} -> File.read(path)
+      {:ok, %File.Stat{type: :symlink}} -> {:error, {:symlinked_git_exclude, path}}
+      {:ok, _stat} -> {:error, {:invalid_git_exclude, path}}
       {:error, :enoent} -> {:ok, ""}
       {:error, reason} -> {:error, {:git_exclude_unreadable, path, reason}}
+    end
+  end
+
+  defp regular_or_missing(path) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :regular}} -> {:ok, :regular}
+      {:error, :enoent} -> {:ok, :missing}
+      {:ok, _stat} -> {:ok, :invalid}
+      {:error, reason} -> {:error, reason}
     end
   end
 

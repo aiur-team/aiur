@@ -50,6 +50,31 @@ defmodule Aiur.Workspace.GitMetadataTest do
     assert {_output, 0} = System.cmd("git", ["-C", repo, "check-ignore", "-q", artifact])
   end
 
+  test "ensure_tool_results_excluded rejects a symlinked git info directory", %{tmp: tmp} do
+    repo = init_repo!(Path.join(tmp, "repo"))
+    outside = Path.join(tmp, "outside-info")
+    info = Path.join([repo, ".git", "info"])
+    File.mkdir_p!(outside)
+    File.rm_rf!(info)
+    File.ln_s!(outside, info)
+
+    assert {:error, {:workspace_git_metadata_unwritable, ^repo, {:symlinked_git_info, ^info}}} = GitMetadata.ensure_tool_results_excluded(repo)
+    assert File.ls!(outside) == []
+  end
+
+  test "ensure_tool_results_excluded rejects a symlinked exclude file", %{tmp: tmp} do
+    repo = init_repo!(Path.join(tmp, "repo"))
+    exclude = Path.join([repo, ".git", "info", "exclude"])
+    outside = Path.join(tmp, "outside-exclude")
+    original = "do not change\n"
+    File.write!(outside, original)
+    File.rm!(exclude)
+    File.ln_s!(outside, exclude)
+
+    assert {:error, {:workspace_git_metadata_unwritable, ^repo, {:symlinked_git_exclude, ^exclude}}} = GitMetadata.ensure_tool_results_excluded(repo)
+    assert File.read!(outside) == original
+  end
+
   test "ensure_git_metadata_writable removes a readable ticket remote-ref lock", %{tmp: tmp} do
     repo = init_repo!(Path.join(tmp, "repo"))
     branch = "aiur/123-add-new-test-cases"
