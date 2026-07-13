@@ -18,6 +18,49 @@ defmodule Aiur.Codex.Approvals do
           map(),
           (term(), term() -> term()),
           boolean(),
+          map(),
+          boolean()
+        ) :: :approved | :approval_required | :input_required | :unhandled
+  def maybe_handle_approval_request(
+        port,
+        method,
+        payload,
+        payload_string,
+        on_message,
+        metadata,
+        tool_executor,
+        auto_approve_requests,
+        context,
+        paused?
+      ) do
+    case {method, payload, paused?} do
+      {"item/tool/call", %{"id" => id, "params" => params}, false} ->
+        handle_tool_call(port, id, params, payload, payload_string, on_message, metadata, tool_executor, context)
+
+      _ ->
+        maybe_handle_approval_request(
+          port,
+          method,
+          payload,
+          payload_string,
+          on_message,
+          metadata,
+          tool_executor,
+          auto_approve_requests,
+          paused?
+        )
+    end
+  end
+
+  @spec maybe_handle_approval_request(
+          port(),
+          String.t(),
+          map(),
+          String.t(),
+          (map() -> term()),
+          map(),
+          (term(), term() -> term()),
+          boolean(),
           boolean()
         ) :: :approved | :approval_required | :input_required | :unhandled
   def maybe_handle_approval_request(port, method, %{"id" => id} = payload, payload_string, on_message, metadata, _tool_executor, _auto_approve_requests, true) do
@@ -57,26 +100,7 @@ defmodule Aiur.Codex.Approvals do
         _auto_approve_requests,
         false
       ) do
-    tool_name = Messages.tool_call_name(params)
-    arguments = Messages.tool_call_arguments(params)
-
-    result =
-      tool_executor
-      |> ToolExecutor.execute(tool_name, arguments, Messages.tool_call_id(params, id))
-      |> Messages.normalize_tool_result()
-
-    Rpc.send_message(port, %{"id" => id, "result" => result})
-
-    event =
-      case result do
-        %{"success" => true} -> :tool_call_completed
-        _ when is_nil(tool_name) -> :unsupported_tool_call
-        _ -> :tool_call_failed
-      end
-
-    Messages.emit_message(on_message, event, %{payload: payload, raw: payload_string}, metadata)
-
-    :approved
+    handle_tool_call(port, id, params, payload, payload_string, on_message, metadata, tool_executor, nil)
   end
 
   def maybe_handle_approval_request(
@@ -188,6 +212,28 @@ defmodule Aiur.Codex.Approvals do
 
   defp approve_or_require(_port, _id, _decision, _payload, _payload_string, _on_message, _metadata, false) do
     :approval_required
+  end
+
+  defp handle_tool_call(port, id, params, payload, payload_string, on_message, metadata, tool_executor, context) do
+    tool_name = Messages.tool_call_name(params)
+    arguments = Messages.tool_call_arguments(params)
+
+    result =
+      tool_executor
+      |> ToolExecutor.execute(tool_name, arguments, Messages.tool_call_id(params, id))
+      |> Messages.normalize_tool_result(context)
+
+    Rpc.send_message(port, %{"id" => id, "result" => result})
+
+    event =
+      case result do
+        %{"success" => true} -> :tool_call_completed
+        _ when is_nil(tool_name) -> :unsupported_tool_call
+        _ -> :tool_call_failed
+      end
+
+    Messages.emit_message(on_message, event, %{payload: payload, raw: payload_string}, metadata)
+    :approved
   end
 
   defp maybe_auto_answer_tool_request_user_input(port, id, params, payload, payload_string, on_message, metadata, true) do
