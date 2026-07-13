@@ -42,6 +42,7 @@ defmodule Aiur.HttpServer do
             orchestrator: orchestrator,
             snapshot_timeout_ms: snapshot_timeout_ms,
             dashboard_writable: dashboard_writable,
+            dashboard_auth_required: dashboard_writable or not loopback?(ip),
             decision_api: decision_api,
             decision_store: decision_store,
             decision_policy: decision_policy,
