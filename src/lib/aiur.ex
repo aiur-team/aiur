@@ -37,6 +37,7 @@ defmodule Aiur.Application do
     if Application.get_env(:aiur, :resolve_github_token_on_boot, true), do: resolve_github_token()
 
     headless? = Application.get_env(:aiur, :headless, false)
+    dashboard? = not Application.get_env(:aiur, :no_dashboard, false)
     # Headless is authoritative: if both flags somehow end up set (e.g. a
     # hand-run `aiur --headless` that also injected `--interactive`), the lean
     # path wins rather than booting a half-built interactive tree.
@@ -46,7 +47,7 @@ defmodule Aiur.Application do
       child_specs(
         interactive_cli?: interactive_cli?,
         headless?: headless?,
-        dashboard?: dashboard_enabled?(headless?),
+        dashboard?: dashboard?,
         debug?: debug?
       )
 
@@ -60,10 +61,11 @@ defmodule Aiur.Application do
   @doc """
   Build the supervision children for the given run shape.
 
-  `--bg`/headless runs (`headless?: true`) skip the work that only ever
-  serves the interactive UI — the web dashboard, the opencode chat-pane
-  machinery, and the whole interactive CLI block (tmux, pane manager,
-  opencode pre-warm, agent-list panes). The agent **backends** that
+  `--bg`/headless runs (`headless?: true`) skip terminal-only work — the
+  opencode chat-pane machinery and the whole interactive CLI block (tmux,
+  pane manager, opencode pre-warm, agent-list panes). Dashboard supervision
+  is independent and remains enabled unless `--no-dashboard` is supplied.
+  The agent **backends** that
   actually run agents (session writers, the opencode bridge, token
   registry) are kept so a headless node still does real work; an Executor
   drives it over the control RPC (`status` / `agents` / `message` /
@@ -127,8 +129,8 @@ defmodule Aiur.Application do
       Aiur.Events.LsRemoteTicker,
       Aiur.ProgressCheckin.Worker,
       Aiur.Logs.Retention,
-      # Dashboard: always on interactively; in headless only when the
-      # Executor opted in via `--port`/`server.port` (see `dashboard?/1`).
+      # Dashboard supervision is independent of terminal attachment/headless
+      # mode. Aiur.HttpServer retains its own bind and credential guards.
       if(dashboard?, do: AiurWeb.ControlCenterCache),
       if(dashboard?, do: Aiur.HttpServer),
       Aiur.Opencode.TokenRegistry,
@@ -140,27 +142,6 @@ defmodule Aiur.Application do
     ]
     |> Enum.reject(&is_nil/1)
     |> Kernel.++(cli_children)
-  end
-
-  # In headless mode the dashboard is off unless the Executor explicitly
-  # asked for it — `--port` (server_port_override) or a non-zero
-  # `server.port` in config. Interactive runs always start it (unchanged).
-  defp dashboard_enabled?(false = _headless?), do: true
-
-  defp dashboard_enabled?(true = _headless?) do
-    dashboard_opted_in?()
-  rescue
-    # Config not resolvable at boot — fail closed (no dashboard in headless).
-    _ -> false
-  end
-
-  # A usable port is the opt-in signal: a positive `--port` override or a
-  # non-zero `server.port`. Port 0 (the default, and an ephemeral-bind value)
-  # is NOT an opt-in — otherwise `--bg --port 0` would silently bind the
-  # dashboard, defeating the lean-mode "no dashboard bind" guarantee.
-  defp dashboard_opted_in? do
-    port_override = Application.get_env(:aiur, :server_port_override)
-    (is_integer(port_override) and port_override > 0) or Aiur.Config.settings!().server.port > 0
   end
 
   @impl true

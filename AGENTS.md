@@ -45,7 +45,9 @@ hand unless something is broken.
 
 ```text
 aiurdev                       # foreground run, local-only bind (full interactive UI)
-aiurdev --bg                  # lean headless background run (one detached tmux lifetime session, no panes/dashboard)
+aiurdev --bg                  # detached headless run (no panes; dashboard remains available)
+aiurdev --bg --no-dashboard   # lean detached run with no panes or dashboard listener
+aiurdev --no-dashboard        # foreground terminal UI without the dashboard listener
 aiurdev --max-agents <n>      # override agent.max_concurrent_agents at launch
 aiurdev stop                  # stop the session (BEAM + tmux)
 aiurdev status                # report the running session
@@ -306,8 +308,10 @@ by that launched instance.
 
 Gotchas worth remembering:
 - `--bg` mode runs the workflow/agents **headlessly** inside the BEAM: it
-  skips the interactive UI tree (no agent-list pane, chat panes, prewarm
-  panes, or dashboard bind unless explicitly requested). The launcher still
+  skips the terminal UI tree (no agent-list pane, chat panes, or prewarm
+  panes) while keeping the dashboard enabled. Add `--no-dashboard` for the
+  lean no-listener background shape; the same flag suppresses only the
+  dashboard in foreground mode. The launcher still
   creates one detached tmux session as the BEAM lifetime holder and crash
   cleanup anchor. Observe it with `aiurdev agents` / `aiurdev status` over
   the control RPC. If that tmux session already exists, `--bg` treats a live

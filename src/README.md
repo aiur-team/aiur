@@ -155,7 +155,9 @@ on your `PATH`:
 | `aiurdev <path-to-.aiurconfig>` | Run an explicit config in the foreground |
 | `aiurdev --test` | Reset the first pinned sandbox ticket, then start an interactive smoke run |
 | `aiurdev --test3` | Reset the pinned 3-ticket blocker-chain sandbox, then start an interactive smoke run |
-| `aiurdev --bg` | Start a headless BEAM in one detached tmux lifetime session after the control RPC is ready |
+| `aiurdev --bg` | Start a detached headless BEAM with the web dashboard enabled |
+| `aiurdev --bg --no-dashboard` | Start a lean detached headless BEAM without the web dashboard |
+| `aiurdev --no-dashboard` | Start the foreground terminal UI without the web dashboard |
 | `aiurdev stop` | Stop the running session (BEAM + tmux) |
 | `aiurdev status` | Show active agents and their running/paused/idle state |
 | `aiurdev pause <id...>` / `pause --all` | Cooperatively pause agents by issue ID |
@@ -205,13 +207,19 @@ shows the override as `paused`.
 By default the engine injects `--host 127.0.0.1` on the run path so the dashboard
 stays local. Pass `--host` explicitly to opt out.
 
-Background mode is headless at the application layer: it skips the interactive
-agent-list pane, chat/prewarm panes, and dashboard unless the dashboard is
-explicitly opted in with a positive port. The launcher still uses one detached
-tmux session to own the BEAM lifetime and cleanup watchdog. If that session is
-already live, `aiurdev --bg` exits successfully with an "already running" hint;
-if the tmux session is stale and the control RPC is down, the launcher cleans it
-up before starting a fresh background run.
+Background mode is headless at the terminal layer: it skips the interactive
+agent-list and chat/prewarm panes while serving the web dashboard at the
+configured host and port. Detachment and dashboard availability are independent:
+add `--no-dashboard` for the lean background shape, or use `--no-dashboard` in
+foreground mode to keep the terminal UI without an HTTP listener. The launcher
+still uses one detached tmux session to own the BEAM lifetime and cleanup
+watchdog. If that session is already live, `aiurdev --bg` exits successfully
+with an "already running" hint; if the tmux session is stale and the control RPC
+is down, the launcher cleans it up before starting a fresh background run.
+
+Non-loopback dashboard binds retain the authentication guard: set both
+`AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD`, or Aiur refuses the
+dashboard bind while leaving the agent runtime available.
 
 Use `--port <N>` before the config path to override the dashboard/workflow port
 for one invocation:
@@ -219,6 +227,7 @@ for one invocation:
 ```bash
 aiurdev --port 4099
 aiurdev --port 4099 --bg
+aiurdev --port 4099 --bg --no-dashboard
 aiurdev --port 4102 ./.aiurconfig
 ```
 

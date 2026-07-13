@@ -56,7 +56,9 @@ to the issues you want worked and run `aiur`.
 |---|---|
 | `aiur init` | Interactive setup wizard (scaffold `.aiurconfig`) |
 | `aiur` | Start the workflow in the foreground (local-only bind) |
-| `aiur --bg` | Start a headless BEAM in one detached tmux lifetime session |
+| `aiur --bg` | Start a detached headless BEAM with the web dashboard enabled |
+| `aiur --bg --no-dashboard` | Start a lean detached headless BEAM without the dashboard |
+| `aiur --no-dashboard` | Keep the foreground terminal UI without the dashboard |
 | `aiur status` | Show active agents and their state |
 | `aiur alerts [--needs-attention]` | Show structured alert feed JSON lines |
 | `aiur pause <id…>` / `resume <id…>` | Pause or resume agents by issue ID |
@@ -83,11 +85,14 @@ single-agent pause.
 - **Smart Alerts** — Customize notifications and sounds when agents finish, stall, or need a decision.
 - **Live Dashboard** — Shareable web view of every agent, event, and progress bar.
 
-Background mode is headless inside Aiur: it skips the interactive agent-list
-pane, chat/prewarm panes, and dashboard unless you explicitly opt into a
-dashboard port. The launcher still keeps one detached tmux session as the BEAM
-lifetime holder. Re-running `aiur --bg` against a live session exits with an
-already-running hint; stale tmux state is cleaned up before restart.
+Background mode is headless inside Aiur: it skips the interactive agent-list and
+chat/prewarm panes, but serves the dashboard at the configured host and port.
+Use `--bg --no-dashboard` for the lean no-listener shape. `--no-dashboard` also
+works in foreground mode without removing the terminal UI. Non-loopback binds
+still require both dashboard Basic Auth environment variables. The launcher
+keeps one detached tmux session as the BEAM lifetime holder. Re-running
+`aiur --bg` against a live session exits with an already-running hint; stale
+tmux state is cleaned up before restart.
 
 ---
 

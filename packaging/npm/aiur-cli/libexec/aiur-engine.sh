@@ -309,10 +309,10 @@ build_init_cmd() {
 
 usage() {
   cat <<'EOF'
-Usage: aiur [--interactive] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [path-to-.aiurconfig]
-       aiur run [--bg] [--debug]  explicit launch form (foreground unless --bg)
+Usage: aiur [--interactive] [--no-dashboard] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [path-to-.aiurconfig]
+       aiur run [--bg] [--no-dashboard] [--debug]  explicit launch form (foreground unless --bg)
        aiur init [--force]   scaffold .aiurconfig (interactive setup wizard)
-       aiur --bg [--debug]   start in a lean, headless detached tmux session
+       aiur --bg [--no-dashboard] [--debug]   start detached; dashboard on unless suppressed
        aiur stop             stop the running session
        aiur status           show agent status
        aiur agents           show each agent's state + current activity
@@ -393,6 +393,33 @@ load_dotenv() {
   done <"$file"
 }
 
+run_argv=()
+build_run_argv() {
+  local mode="$1"
+  shift
+
+  local has_host=0 has_interactive=0 has_headless=0 has_ack=0 arg
+  for arg in "$@"; do
+    case "$arg" in
+      --host | --host=*) has_host=1 ;;
+      --interactive) has_interactive=1 ;;
+      --headless) has_headless=1 ;;
+      --i-understand-that-this-will-be-running-without-the-usual-guardrails) has_ack=1 ;;
+    esac
+  done
+
+  local injected=()
+  [ "$has_host" -eq 1 ] || injected+=(--host 127.0.0.1)
+  if [ "$mode" = "background" ] && [ "$has_interactive" -eq 0 ]; then
+    [ "$has_headless" -eq 1 ] || injected+=(--headless)
+  else
+    [ "$has_interactive" -eq 1 ] || injected+=(--interactive)
+  fi
+  [ "$has_ack" -eq 1 ] || injected+=(--i-understand-that-this-will-be-running-without-the-usual-guardrails)
+
+  run_argv=("${injected[@]}" "$@")
+}
+
 run_session() {
   local mode="$1"
   shift
@@ -424,29 +451,13 @@ run_session() {
 
   # Inject the flags a bare `aiur` needs: loopback bind, UI mode, and the
   # no-guardrails ack. Skip any the user already passed. Foreground runs are
-  # interactive (tmux panes + dashboard); `--bg` runs lean/headless — no panes,
-  # no dashboard bind, no chat backfill — and is driven over the control RPC
-  # (status/agents/message/pause/set). `aiur --bg --interactive` opts back into
-  # the full interactive stack for an attachable background session.
-  local has_host=0 has_interactive=0 has_headless=0 has_ack=0 arg
-  for arg in "$@"; do
-    case "$arg" in
-      --host | --host=*) has_host=1 ;;
-      --interactive) has_interactive=1 ;;
-      --headless) has_headless=1 ;;
-      --i-understand-that-this-will-be-running-without-the-usual-guardrails) has_ack=1 ;;
-    esac
-  done
-  local injected=()
-  [ "$has_host" -eq 1 ] || injected+=(--host 127.0.0.1)
-  if [ "$mode" = "background" ] && [ "$has_interactive" -eq 0 ]; then
-    [ "$has_headless" -eq 1 ] || injected+=(--headless)
-  else
-    [ "$has_interactive" -eq 1 ] || injected+=(--interactive)
-  fi
-  [ "$has_ack" -eq 1 ] || injected+=(--i-understand-that-this-will-be-running-without-the-usual-guardrails)
-
-  write_argv "${injected[@]}" "$@"
+  # interactive; `--bg` runs headless (no panes/chat backfill) and is driven
+  # over the control RPC (status/agents/message/pause/set). Dashboard binding is
+  # independent: it remains enabled in either mode unless `--no-dashboard` is
+  # supplied. `aiur --bg --interactive` opts back into the full terminal stack
+  # for an attachable background session.
+  build_run_argv "$mode" "$@"
+  write_argv "${run_argv[@]}"
   export AIUR_ARGV_FILE="$argv_file"
 
   prepare_distribution

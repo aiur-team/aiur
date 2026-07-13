@@ -150,7 +150,8 @@ defmodule AiurEngineTest do
     {out, 0} = run_engine(["--help"], [])
     assert out =~ ~r/aiur init \[--force\]\s+scaffold/
     assert out =~ "aiur --todo <ids...> [--only]"
-    assert out =~ "aiur run [--bg] [--debug]"
+    assert out =~ "aiur run [--bg] [--no-dashboard] [--debug]"
+    assert out =~ "aiur --bg [--no-dashboard] [--debug]"
     refute out =~ "sweep"
   end
 
@@ -213,27 +214,54 @@ defmodule AiurEngineTest do
     refute out =~ "rpc to"
   end
 
-  test "run --bg uses the same background dispatch as top-level --bg" do
+  test "--bg controls detachment independently from --no-dashboard" do
     script = """
     run_session() {
       local mode="$1"
       shift
       printf 'MODE=%s ARGS=%s\\n' "$mode" "$*"
     }
-    aiur_engine_main run --bg --debug
-    aiur_engine_main --bg --debug
-    aiur_engine_main run
-    aiur_engine_main
+    aiur_engine_main run --bg --no-dashboard --debug
+    aiur_engine_main --bg --no-dashboard --debug
+    aiur_engine_main run --no-dashboard
+    aiur_engine_main --no-dashboard
     """
 
     {out, 0} = run_sourced_engine(script, [])
 
     assert String.split(out, "\n", trim: true) == [
-             "MODE=background ARGS=--debug",
-             "MODE=background ARGS=--debug",
-             "MODE=foreground ARGS=",
-             "MODE=foreground ARGS="
+             "MODE=background ARGS=--no-dashboard --debug",
+             "MODE=background ARGS=--no-dashboard --debug",
+             "MODE=foreground ARGS=--no-dashboard",
+             "MODE=foreground ARGS=--no-dashboard"
            ]
+  end
+
+  test "run argv keeps dashboard suppression independent from headless mode" do
+    script = """
+    print_run_argv() {
+      local mode="$1"
+      shift
+      build_run_argv "$mode" "$@"
+      printf '%s|' "${run_argv[@]}"
+      printf '\n'
+    }
+    print_run_argv background --host 127.0.0.1
+    print_run_argv background --no-dashboard
+    print_run_argv foreground --no-dashboard
+    """
+
+    {out, 0} = run_sourced_engine(script, [])
+
+    [background, lean_background, foreground] = String.split(out, "\n", trim: true)
+
+    assert background =~ "--headless|"
+    refute background =~ "--no-dashboard|"
+    assert lean_background =~ "--headless|"
+    assert lean_background =~ "--no-dashboard|"
+    assert foreground =~ "--interactive|"
+    assert foreground =~ "--no-dashboard|"
+    refute foreground =~ "--headless|"
   end
 
   test "--version is distribution-free so it never collides with a running node" do
