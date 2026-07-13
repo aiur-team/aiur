@@ -4,13 +4,28 @@
   "repository": "its-everdred/aiur",
   "researched_at_commit": "9849f32963c2a65367bce565b3f5ede3777c218f",
   "approved_planning_commit": null,
-  "required_labels": ["model:codex"],
-  "forbidden_labels": ["agent:todo", "agent:in-progress", "agent:human-review", "agent:rework", "agent:merging", "agent:paused", "agent:done", "agent:ci-wait", "agent:error", "agent:canceled", "agent:cancelled", "agent:watch"],
+  "required_labels": [
+    "model:codex"
+  ],
+  "forbidden_labels": [
+    "agent:todo",
+    "agent:in-progress",
+    "agent:human-review",
+    "agent:rework",
+    "agent:merging",
+    "agent:paused",
+    "agent:done",
+    "agent:ci-wait",
+    "agent:error",
+    "agent:canceled",
+    "agent:cancelled",
+    "agent:watch"
+  ],
   "external_gates": [
     {
       "id": "GATE-OCC-PREDECESSOR-BASELINE",
       "owner": "product owner and current OCC Executor",
-      "resolution_criteria": "The bounded predecessor dashboard run is complete and the configured implementation branch contains closed #1034 plus every accepted OCC successor; record the resolved branch and SHA before dispatching any DASH ticket"
+      "resolution_criteria": "RESOLVED — the bounded predecessor dashboard run is complete and origin/main at 9849f32963c2a65367bce565b3f5ede3777c218f contains closed #1034 plus every accepted OCC successor; retained for history and referenced by no ticket"
     },
     {
       "id": "GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY",
@@ -25,204 +40,1343 @@
   ],
   "tickets": [
     {
-      "id": "DASH-001", "title": "Ship responsive route-aware shell", "document": "companion-tickets/DASH-001-responsive-route-shell.md", "requirement_ref": "DREQ-001", "complexity_points": 3,
-      "depends_on": ["BO-008"], "serializes_with": ["BO-012"], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
-      "read_surfaces": ["current dashboard routes and auth state", "BO-008 browser harness"],
-      "write_surfaces": ["OCC route/navigation shell", "shared OCC responsive CSS"],
-      "contract_surfaces": ["route registry", "responsive shell offsets"],
-      "safety_surfaces": ["existing route compatibility", "dashboard auth and Analytics preservation"], "conflict_exceptions": [], "github": null
+      "id": "DASH-001",
+      "title": "Ship responsive route-aware shell",
+      "document": "companion-tickets/DASH-001-responsive-route-shell.md",
+      "requirement_ref": "DREQ-001",
+      "complexity_points": 3,
+      "depends_on": [
+        "BO-008"
+      ],
+      "serializes_with": [
+        "BO-012"
+      ],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "current dashboard routes and auth state",
+        "BO-008 browser harness"
+      ],
+      "write_surfaces": [
+        "OCC route/navigation shell",
+        "shared OCC responsive CSS"
+      ],
+      "contract_surfaces": [
+        "route registry",
+        "responsive shell offsets"
+      ],
+      "safety_surfaces": [
+        "existing route compatibility",
+        "dashboard auth and Analytics preservation"
+      ],
+      "conflict_exceptions": [],
+      "github": null
     },
     {
-      "id": "DASH-002", "title": "Recover canonical current-run membership", "document": "companion-tickets/DASH-002-current-run-membership.md", "requirement_ref": "DREQ-002", "complexity_points": 4,
-      "depends_on": ["BO-017"], "serializes_with": ["BO-003", "BO-005", "BO-016", "BO-019", "DASH-009", "DASH-012", "DASH-018", "DASH-019", "DASH-024", "DASH-025"], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
-      "read_surfaces": ["BO-017 propagated ticket identity", "StatusReport and tracker lifecycle", "current run identity"],
-      "write_surfaces": ["current-run membership journal/checkpoint", "membership health/generation PubSub"],
-      "contract_surfaces": ["current-run membership and terminal retention", "membership recovery generation"],
-      "safety_surfaces": ["run-generation isolation", "owner-only content-free recovery state", "application supervision tree"], "conflict_exceptions": [], "github": null
+      "id": "DASH-002",
+      "title": "Recover canonical current-run membership",
+      "document": "companion-tickets/DASH-002-current-run-membership.md",
+      "requirement_ref": "DREQ-002",
+      "complexity_points": 4,
+      "depends_on": [
+        "BO-017"
+      ],
+      "serializes_with": [
+        "BO-003",
+        "BO-005",
+        "BO-016",
+        "BO-019",
+        "DASH-009",
+        "DASH-012",
+        "DASH-018",
+        "DASH-019",
+        "DASH-024",
+        "DASH-025",
+        "DASH-026"
+      ],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "BO-017 propagated ticket identity",
+        "StatusReport and tracker lifecycle",
+        "current run identity"
+      ],
+      "write_surfaces": [
+        "current-run membership journal/checkpoint",
+        "membership health/generation PubSub"
+      ],
+      "contract_surfaces": [
+        "current-run membership and terminal retention",
+        "membership recovery generation"
+      ],
+      "safety_surfaces": [
+        "run-generation isolation",
+        "owner-only content-free recovery state",
+        "application supervision tree"
+      ],
+      "conflict_exceptions": [],
+      "github": null
     },
     {
-      "id": "DASH-003", "title": "Render responsive Units interface", "document": "companion-tickets/DASH-003-units-interface.md", "requirement_ref": "DREQ-003", "complexity_points": 3,
-      "depends_on": ["DASH-001", "DASH-016", "BO-018"], "serializes_with": ["DASH-007", "DASH-021"], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
-      "read_surfaces": ["DASH-016 Units rows/policy", "BO-018 accessible base ticket context", "URL filter state"],
-      "write_surfaces": ["OCC DashboardLive composition", "shared OCC responsive CSS", "Units presentation"],
-      "contract_surfaces": ["Units URL presentation", "Units row action seam"],
-      "safety_surfaces": ["focus-preserving live updates", "trusted ticket navigation"], "conflict_exceptions": [], "github": null
+      "id": "DASH-003",
+      "title": "Render responsive Units interface",
+      "document": "companion-tickets/DASH-003-units-interface.md",
+      "requirement_ref": "DREQ-003",
+      "complexity_points": 3,
+      "depends_on": [
+        "DASH-001",
+        "DASH-016",
+        "BO-018"
+      ],
+      "serializes_with": [
+        "DASH-007",
+        "DASH-021"
+      ],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "DASH-016 Units rows/policy",
+        "BO-018 accessible base ticket context",
+        "URL filter state"
+      ],
+      "write_surfaces": [
+        "OCC DashboardLive composition",
+        "shared OCC responsive CSS",
+        "Units presentation"
+      ],
+      "contract_surfaces": [
+        "Units URL presentation",
+        "Units row action seam"
+      ],
+      "safety_surfaces": [
+        "focus-preserving live updates",
+        "trusted ticket navigation"
+      ],
+      "conflict_exceptions": [],
+      "github": null
     },
     {
-      "id": "DASH-004", "title": "Confirm applied unit controls", "document": "companion-tickets/DASH-004-applied-unit-control-protocol.md", "requirement_ref": "DREQ-004", "complexity_points": 4,
-      "depends_on": ["BO-004"], "serializes_with": [], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
-      "read_surfaces": ["BO-004 canonical configured-repository identity", "Orchestrator unit state", "worker/backend generation and capability"],
-      "write_surfaces": ["unit-control request/ack protocol", "pending control lifecycle and audit events"],
-      "contract_surfaces": ["correlated requested/accepted/applied lifecycle", "control capability and rejection taxonomy"],
-      "safety_surfaces": ["stale-worker isolation", "idempotent control application"], "conflict_exceptions": [], "github": null
+      "id": "DASH-004",
+      "title": "Confirm applied unit controls",
+      "document": "companion-tickets/DASH-004-applied-unit-control-protocol.md",
+      "requirement_ref": "DREQ-004",
+      "complexity_points": 4,
+      "depends_on": [
+        "BO-004"
+      ],
+      "serializes_with": [],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "BO-004 canonical configured-repository identity",
+        "Orchestrator unit state",
+        "worker/backend generation and capability"
+      ],
+      "write_surfaces": [
+        "unit-control request/ack protocol",
+        "pending control lifecycle and audit events"
+      ],
+      "contract_surfaces": [
+        "correlated requested/accepted/applied lifecycle",
+        "control capability and rejection taxonomy"
+      ],
+      "safety_surfaces": [
+        "stale-worker isolation",
+        "idempotent control application"
+      ],
+      "conflict_exceptions": [],
+      "github": null
     },
     {
-      "id": "DASH-005", "title": "Render unit and capacity controls", "document": "companion-tickets/DASH-005-unit-capacity-controls-ui.md", "requirement_ref": "DREQ-005", "complexity_points": 3,
-      "depends_on": ["DASH-003", "DASH-004"], "serializes_with": ["DASH-007", "DASH-015", "DASH-021", "DASH-022"], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
-      "read_surfaces": ["DASH-016 Units rows", "DASH-004 control lifecycle", "slot capacity and auth/write state"],
-      "write_surfaces": ["OCC DashboardLive composition", "shared OCC responsive CSS", "Units control handlers"],
-      "contract_surfaces": ["unit-control eligibility UI", "positive capacity input/reconciliation"],
-      "safety_surfaces": ["server-side authorization recheck", "no optimistic worker/cap state"], "conflict_exceptions": [], "github": null
+      "id": "DASH-005",
+      "title": "Render applied unit controls",
+      "document": "companion-tickets/DASH-005-unit-capacity-controls-ui.md",
+      "requirement_ref": "DREQ-005",
+      "complexity_points": 3,
+      "depends_on": [
+        "DASH-003",
+        "DASH-004"
+      ],
+      "serializes_with": [
+        "DASH-007",
+        "DASH-015",
+        "DASH-021",
+        "DASH-022",
+        "DASH-027",
+        "DASH-028",
+        "DASH-031",
+        "DASH-034"
+      ],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "DASH-016 Units rows through DASH-003 action seam",
+        "DASH-004 control capabilities/lifecycle",
+        "writable/auth state"
+      ],
+      "write_surfaces": [
+        "LiveView unit-control handlers",
+        "pending/error presentation",
+        "Units control components"
+      ],
+      "contract_surfaces": [
+        "Units pause/resume eligibility",
+        "applied-state presentation"
+      ],
+      "safety_surfaces": [
+        "server-side authorization recheck",
+        "no optimistic worker state"
+      ],
+      "conflict_exceptions": [],
+      "github": null
     },
     {
-      "id": "DASH-006", "title": "Add retained Decision lookup and queries", "document": "companion-tickets/DASH-006-decision-lookup.md", "requirement_ref": "DREQ-006", "complexity_points": 3,
-      "depends_on": [], "serializes_with": ["DASH-017"], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
-      "read_surfaces": ["Decision retained store/audit", "Decision metrics/presenters"],
-      "write_surfaces": ["Decision store modules", "Decision lookup/query provider"],
-      "contract_surfaces": ["exact Decision detail lookup", "bounded retained cursor query and counts"],
-      "safety_surfaces": ["Decision sanitization", "bounded stable pagination"], "conflict_exceptions": [], "github": null
+      "id": "DASH-006",
+      "title": "Add retained Decision lookup and queries",
+      "document": "companion-tickets/DASH-006-decision-lookup.md",
+      "requirement_ref": "DREQ-006",
+      "complexity_points": 3,
+      "depends_on": [],
+      "serializes_with": [
+        "DASH-017"
+      ],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "Decision retained store/audit",
+        "Decision metrics/presenters"
+      ],
+      "write_surfaces": [
+        "Decision store modules",
+        "Decision lookup/query provider"
+      ],
+      "contract_surfaces": [
+        "exact Decision detail lookup",
+        "bounded retained cursor query and counts"
+      ],
+      "safety_surfaces": [
+        "Decision sanitization",
+        "bounded stable pagination"
+      ],
+      "conflict_exceptions": [],
+      "github": null
     },
     {
-      "id": "DASH-007", "title": "Align Commands presentation", "document": "companion-tickets/DASH-007-commands-interface.md", "requirement_ref": "DREQ-007", "complexity_points": 3,
-      "depends_on": ["DASH-001", "DASH-006", "DASH-017"], "serializes_with": ["DASH-003", "DASH-005", "DASH-015", "DASH-021", "DASH-022"], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
-      "read_surfaces": ["DASH-006 Decision queries", "DASH-017 provenance", "existing supervisor basis and lifecycle"],
-      "write_surfaces": ["OCC DashboardLive composition", "shared OCC responsive CSS", "Commands presentation"],
-      "contract_surfaces": ["Commands vocabulary/filter reachability", "unchanged 0..100 supervisor confidence presentation"],
-      "safety_surfaces": ["Decision action/auth compatibility", "no prose-derived provenance"], "conflict_exceptions": [], "github": null
+      "id": "DASH-007",
+      "title": "Align Commands presentation",
+      "document": "companion-tickets/DASH-007-commands-interface.md",
+      "requirement_ref": "DREQ-007",
+      "complexity_points": 3,
+      "depends_on": [
+        "DASH-001",
+        "DASH-006",
+        "DASH-017"
+      ],
+      "serializes_with": [
+        "DASH-003",
+        "DASH-005",
+        "DASH-015",
+        "DASH-021",
+        "DASH-022",
+        "DASH-027",
+        "DASH-028",
+        "DASH-031",
+        "DASH-034"
+      ],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "DASH-006 Decision queries",
+        "DASH-017 provenance",
+        "existing supervisor basis and lifecycle"
+      ],
+      "write_surfaces": [
+        "OCC DashboardLive composition",
+        "shared OCC responsive CSS",
+        "Commands presentation"
+      ],
+      "contract_surfaces": [
+        "Commands vocabulary/filter reachability",
+        "unchanged 0..100 supervisor confidence presentation"
+      ],
+      "safety_surfaces": [
+        "Decision action/auth compatibility",
+        "no prose-derived provenance"
+      ],
+      "conflict_exceptions": [],
+      "github": null
     },
     {
-      "id": "DASH-008", "title": "Normalize attributed usage envelopes", "document": "companion-tickets/DASH-008-usage-envelope.md", "requirement_ref": "DREQ-008", "complexity_points": 4,
-      "depends_on": ["BO-017", "DASH-018"], "serializes_with": ["BO-005"], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
-      "read_surfaces": ["Codex/Claude headless protocol events", "BO-017 propagated identity", "DASH-018 account generation"],
-      "write_surfaces": ["agent event ingestion/normalization seam", "UsageEnvelope publication"],
-      "contract_surfaces": ["provider-neutral raw measurement envelope", "versioned provider/source token-dimension relationships and provider-total authority", "measurement/counter semantics"],
-      "safety_surfaces": ["exact ticket attribution", "unknown relationship fail-closed coverage", "raw payload/account redaction"], "conflict_exceptions": [], "github": null
+      "id": "DASH-008",
+      "title": "Define attributed usage envelopes",
+      "document": "companion-tickets/DASH-008-usage-envelope.md",
+      "requirement_ref": "DREQ-008",
+      "complexity_points": 3,
+      "depends_on": [
+        "BO-017",
+        "DASH-018"
+      ],
+      "serializes_with": [],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "BO-017 trusted run/ticket/attempt/session/backend/model identity",
+        "DASH-018 account-generation contract"
+      ],
+      "write_surfaces": [
+        "UsageEnvelope schema",
+        "token-relationship registry",
+        "validation/serialization/exact-money helpers",
+        "compatibility contract and fixtures"
+      ],
+      "contract_surfaces": [
+        "provider account versus counter-epoch identity",
+        "occurrence-price bucket and measurement semantics",
+        "versioned provider/source token-dimension relationships and provider-total authority",
+        "exact provider-cost representation and attribution/redaction"
+      ],
+      "safety_surfaces": [
+        "exact ticket attribution",
+        "unknown relationship fail-closed coverage",
+        "raw payload/account redaction"
+      ],
+      "conflict_exceptions": [],
+      "github": null
     },
     {
-      "id": "DASH-009", "title": "Persist canonical usage ledger", "document": "companion-tickets/DASH-009-durable-usage-ledger.md", "requirement_ref": "DREQ-009", "complexity_points": 4,
-      "depends_on": ["DASH-008"], "serializes_with": ["BO-003", "BO-005", "BO-016", "BO-019", "DASH-002", "DASH-012", "DASH-019"], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
-      "read_surfaces": ["DASH-008 UsageEnvelope stream with token-relationship revisions", "private daemon state configuration"],
-      "write_surfaces": ["usage raw ledger segments", "usage idempotency/counter checkpoints", "relationship-revision-preserving usage derived-delta stream"],
-      "contract_surfaces": ["durable append/delta/replay acknowledgement", "unchanged source-version and token-relationship evidence"],
-      "safety_surfaces": ["exactly-once accounting", "no replay-time relationship revision substitution", "raw-ledger crash consistency", "owner-only content-free storage", "application supervision tree"], "conflict_exceptions": [], "github": null
+      "id": "DASH-009",
+      "title": "Persist canonical usage ledger",
+      "document": "companion-tickets/DASH-009-durable-usage-ledger.md",
+      "requirement_ref": "DREQ-009",
+      "complexity_points": 4,
+      "depends_on": [
+        "DASH-008"
+      ],
+      "serializes_with": [
+        "BO-003",
+        "BO-005",
+        "BO-016",
+        "BO-019",
+        "DASH-002",
+        "DASH-012",
+        "DASH-019",
+        "DASH-026"
+      ],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "DASH-008 UsageEnvelope stream with token-relationship revisions",
+        "private daemon state configuration"
+      ],
+      "write_surfaces": [
+        "usage raw ledger segments",
+        "usage idempotency/counter checkpoints",
+        "relationship-revision-preserving usage derived-delta stream"
+      ],
+      "contract_surfaces": [
+        "durable append/delta/replay acknowledgement",
+        "unchanged source-version and token-relationship evidence"
+      ],
+      "safety_surfaces": [
+        "exactly-once accounting",
+        "no replay-time relationship revision substitution",
+        "raw-ledger crash consistency",
+        "owner-only content-free storage",
+        "application supervision tree"
+      ],
+      "conflict_exceptions": [],
+      "github": null
     },
     {
-      "id": "DASH-010", "title": "Normalize Claude Remote usage", "document": "companion-tickets/DASH-010-claude-remote-usage.md", "requirement_ref": "DREQ-010", "complexity_points": 3,
-      "depends_on": ["DASH-008", "DASH-019"], "serializes_with": [], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
-      "read_surfaces": ["DASH-019 authenticated Claude request events/correlation", "DASH-008 envelope contract"],
-      "write_surfaces": ["Claude Remote usage adapter", "UsageEnvelope and coverage events"],
-      "contract_surfaces": ["source-versioned Claude additive request-dimension to envelope mapping"],
-      "safety_surfaces": ["cross-ticket correlation isolation", "content/account redaction"], "conflict_exceptions": [], "github": null
+      "id": "DASH-010",
+      "title": "Normalize Claude Remote usage",
+      "document": "companion-tickets/DASH-010-claude-remote-usage.md",
+      "requirement_ref": "DREQ-010",
+      "complexity_points": 3,
+      "depends_on": [
+        "DASH-008",
+        "DASH-019"
+      ],
+      "serializes_with": [],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "DASH-019 authenticated Claude request events/correlation",
+        "DASH-008 envelope contract"
+      ],
+      "write_surfaces": [
+        "Claude Remote usage adapter",
+        "UsageEnvelope and coverage events"
+      ],
+      "contract_surfaces": [
+        "source-versioned Claude additive request-dimension to envelope mapping"
+      ],
+      "safety_surfaces": [
+        "cross-ticket correlation isolation",
+        "content/account redaction"
+      ],
+      "conflict_exceptions": [],
+      "github": null
     },
     {
-      "id": "DASH-011", "title": "Project cost and usage groups", "document": "companion-tickets/DASH-011-cost-grouping-projection.md", "requirement_ref": "DREQ-011", "complexity_points": 4,
-      "depends_on": ["DASH-024"], "serializes_with": [], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
-      "read_surfaces": ["usage aggregate query API", "token-relationship revisions in aggregate rows", "DASH-008 immutable provider/source token-relationship registry", "versioned effective-dated price table", "explicit typed ticket/run scopes"],
-      "write_surfaces": ["cost/usage grouping projection", "pricing revisions and fixtures"],
-      "contract_surfaces": ["relationship-aware token pricing and provider-total reconciliation", "exact basis/currency/generation grouping", "compatible-currency API-equivalent run/build roll-up", "explicit run/build accounting query"],
-      "safety_surfaces": ["unknown/contradictory token relationship fail-closed pricing", "no unlike-basis/currency summation", "preserved provider/account-generation contributors", "no provider/backend-only tier join"], "conflict_exceptions": [], "github": null
+      "id": "DASH-011",
+      "title": "Resolve exact usage pricing",
+      "document": "companion-tickets/DASH-011-cost-grouping-projection.md",
+      "requirement_ref": "DREQ-011",
+      "complexity_points": 3,
+      "depends_on": [
+        "DASH-008"
+      ],
+      "serializes_with": [],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "DASH-008 normalized pricing inputs and immutable relationship registry",
+        "versioned effective-dated price table"
+      ],
+      "write_surfaces": [
+        "exact pricing/token-reconciliation resolver",
+        "immutable price revisions and fixtures"
+      ],
+      "contract_surfaces": [
+        "relationship-aware exact effective-date/currency pricing",
+        "token/provider-total reconciliation",
+        "generation-qualified tier join key"
+      ],
+      "safety_surfaces": [
+        "unknown/contradictory token relationship fail-closed pricing",
+        "no unlike-basis/currency summation"
+      ],
+      "conflict_exceptions": [],
+      "github": null
     },
     {
-      "id": "DASH-012", "title": "Project canonical provider meters", "document": "companion-tickets/DASH-012-provider-meter-foundation.md", "requirement_ref": "DREQ-012", "complexity_points": 3,
-      "depends_on": ["DASH-018"], "serializes_with": ["BO-003", "BO-005", "BO-016", "BO-019", "DASH-002", "DASH-009", "DASH-019", "DASH-024", "DASH-025"], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
-      "read_surfaces": ["DASH-018 account generation", "typed provider adapter updates"],
-      "write_surfaces": ["provider-meter projection and LKG state", "provider-meter PubSub"],
-      "contract_surfaces": ["ProviderMeterSnapshot", "snapshot/patch/tombstone and freshness semantics"],
-      "safety_surfaces": ["account-generation isolation", "provider payload redaction", "application supervision tree"], "conflict_exceptions": [], "github": null
+      "id": "DASH-012",
+      "title": "Project canonical provider meters",
+      "document": "companion-tickets/DASH-012-provider-meter-foundation.md",
+      "requirement_ref": "DREQ-012",
+      "complexity_points": 3,
+      "depends_on": [
+        "DASH-018"
+      ],
+      "serializes_with": [
+        "BO-003",
+        "BO-005",
+        "BO-016",
+        "BO-019",
+        "DASH-002",
+        "DASH-009",
+        "DASH-019",
+        "DASH-024",
+        "DASH-025",
+        "DASH-026"
+      ],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "DASH-018 account generation",
+        "typed provider adapter updates"
+      ],
+      "write_surfaces": [
+        "provider-meter projection and LKG state",
+        "provider-meter PubSub"
+      ],
+      "contract_surfaces": [
+        "ProviderMeterSnapshot",
+        "snapshot/patch/tombstone and freshness semantics"
+      ],
+      "safety_surfaces": [
+        "account-generation isolation",
+        "provider payload redaction",
+        "application supervision tree"
+      ],
+      "conflict_exceptions": [],
+      "github": null
     },
     {
-      "id": "DASH-013", "title": "Normalize Claude account meters", "document": "companion-tickets/DASH-013-claude-provider-meters.md", "requirement_ref": "DREQ-013", "complexity_points": 4,
-      "depends_on": ["DASH-012"], "serializes_with": [], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE", "GATE-CLAUDE-METER-PROTOCOL-AUTHORITY"],
-      "read_surfaces": ["gate-pinned Claude meter protocol", "DASH-018 account generation", "DASH-012 meter contract"],
-      "write_surfaces": ["Aiur Claude provider-meter adapter", "Claude lifecycle observations and fixtures"],
-      "contract_surfaces": ["Claude subscription/API parity on ProviderMeterSnapshot"],
-      "safety_surfaces": ["pinned sibling compatibility", "no sibling mutation or interactive scraping"], "conflict_exceptions": [], "github": null
+      "id": "DASH-013",
+      "title": "Normalize Claude account meters",
+      "document": "companion-tickets/DASH-013-claude-provider-meters.md",
+      "requirement_ref": "DREQ-013",
+      "complexity_points": 4,
+      "depends_on": [
+        "DASH-012"
+      ],
+      "serializes_with": [],
+      "external_blockers": [],
+      "external_gate_ids": [
+        "GATE-CLAUDE-METER-PROTOCOL-AUTHORITY"
+      ],
+      "read_surfaces": [
+        "gate-pinned Claude meter protocol",
+        "DASH-018 account generation",
+        "DASH-012 meter contract"
+      ],
+      "write_surfaces": [
+        "Aiur Claude provider-meter adapter",
+        "Claude lifecycle observations and fixtures"
+      ],
+      "contract_surfaces": [
+        "Claude subscription/API parity on ProviderMeterSnapshot"
+      ],
+      "safety_surfaces": [
+        "pinned sibling compatibility",
+        "no sibling mutation or interactive scraping"
+      ],
+      "conflict_exceptions": [],
+      "github": null
     },
     {
-      "id": "DASH-014", "title": "Project canonical run summary", "document": "companion-tickets/DASH-014-current-run-summary.md", "requirement_ref": "DREQ-014", "complexity_points": 4,
-      "depends_on": ["DASH-016"], "serializes_with": [], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
-      "read_surfaces": ["DASH-016 Units rows/predicates", "run start and progress/complexity provenance"],
-      "write_surfaces": ["current-run summary projection", "run-summary PubSub"],
-      "contract_surfaces": ["weighted progress/coverage", "wall elapsed and conservative ETA"],
-      "safety_surfaces": ["unknown-progress preservation", "run-generation isolation"], "conflict_exceptions": [], "github": null
+      "id": "DASH-014",
+      "title": "Project canonical run summary",
+      "document": "companion-tickets/DASH-014-current-run-summary.md",
+      "requirement_ref": "DREQ-014",
+      "complexity_points": 4,
+      "depends_on": [
+        "DASH-016"
+      ],
+      "serializes_with": [],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "DASH-016 Units rows/predicates",
+        "run start and progress/complexity provenance"
+      ],
+      "write_surfaces": [
+        "current-run summary projection",
+        "run-summary PubSub"
+      ],
+      "contract_surfaces": [
+        "weighted progress/coverage",
+        "wall elapsed and conservative ETA"
+      ],
+      "safety_surfaces": [
+        "unknown-progress preservation",
+        "run-generation isolation"
+      ],
+      "conflict_exceptions": [],
+      "github": null
     },
     {
-      "id": "DASH-015", "title": "Render authenticated usage and provider summary", "document": "companion-tickets/DASH-015-usage-provider-summary-ui.md", "requirement_ref": "DREQ-015", "complexity_points": 4,
-      "depends_on": ["DASH-003", "DASH-010", "DASH-011", "DASH-013", "DASH-020", "DASH-021", "DASH-025"], "serializes_with": ["DASH-005", "DASH-007", "DASH-022"], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
-      "read_surfaces": ["protected grouped usage/estimates", "Codex/Claude meters", "DASH-021 protected delivery", "DASH-025 retained coverage"],
-      "write_surfaces": ["OCC DashboardLive composition", "shared OCC responsive CSS", "shared OCC summary layout", "protected usage/provider components"],
-      "contract_surfaces": ["authenticated usage/provider summary", "compatible-currency API-equivalent total reconciliation", "exact-generation tier composition and estimate disclosure"],
-      "safety_surfaces": ["financial-data nonleakage", "no unlike-basis/currency summation", "preserved provider/account-generation contributors"], "conflict_exceptions": [], "github": null
+      "id": "DASH-015",
+      "title": "Render authenticated provider meters",
+      "document": "companion-tickets/DASH-015-usage-provider-summary-ui.md",
+      "requirement_ref": "DREQ-015",
+      "complexity_points": 3,
+      "depends_on": [
+        "DASH-003",
+        "DASH-013",
+        "DASH-020",
+        "DASH-021"
+      ],
+      "serializes_with": [
+        "DASH-005",
+        "DASH-007",
+        "DASH-022",
+        "DASH-027",
+        "DASH-028",
+        "DASH-031",
+        "DASH-034"
+      ],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "DASH-013 Claude meters",
+        "DASH-020 Codex meters",
+        "DASH-021 protected query/subscription contract",
+        "DASH-003 Units composition"
+      ],
+      "write_surfaces": [
+        "protected provider-meter presenters/components",
+        "authorized subscriptions",
+        "shared OCC responsive CSS"
+      ],
+      "contract_surfaces": [
+        "exact-generation provider-meter cards",
+        "responsive/accessibility/live-update behavior"
+      ],
+      "safety_surfaces": [
+        "financial-data nonleakage",
+        "exact-generation tier composition"
+      ],
+      "conflict_exceptions": [],
+      "github": null
     },
     {
-      "id": "DASH-016", "title": "Project canonical Units rows and policy", "document": "companion-tickets/DASH-016-units-row-policy.md", "requirement_ref": "DREQ-016", "complexity_points": 3,
-      "depends_on": ["DASH-002", "BO-005"], "serializes_with": [], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
-      "read_surfaces": ["DASH-002 membership", "BO-005 activity", "StatusReport/tracker and Decision counts"],
-      "write_surfaces": ["UnitsRow projection", "Units predicate/count/URL policy"],
-      "contract_surfaces": ["source-aware Units rows", "scope/condition truth table and URL codec"],
-      "safety_surfaces": ["source authority preservation", "unknown fact preservation"], "conflict_exceptions": [], "github": null
+      "id": "DASH-016",
+      "title": "Project canonical Units rows and policy",
+      "document": "companion-tickets/DASH-016-units-row-policy.md",
+      "requirement_ref": "DREQ-016",
+      "complexity_points": 3,
+      "depends_on": [
+        "DASH-002",
+        "BO-005"
+      ],
+      "serializes_with": [],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "DASH-002 membership",
+        "BO-005 activity",
+        "StatusReport/tracker and Decision counts"
+      ],
+      "write_surfaces": [
+        "UnitsRow projection",
+        "Units predicate/count/URL policy"
+      ],
+      "contract_surfaces": [
+        "source-aware Units rows",
+        "scope/condition truth table and URL codec"
+      ],
+      "safety_surfaces": [
+        "source authority preservation",
+        "unknown fact preservation"
+      ],
+      "conflict_exceptions": [],
+      "github": null
     },
     {
-      "id": "DASH-017", "title": "Persist trusted Decision provenance", "document": "companion-tickets/DASH-017-decision-provenance.md", "requirement_ref": "DREQ-017", "complexity_points": 3,
-      "depends_on": [], "serializes_with": ["DASH-006"], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
-      "read_surfaces": ["trusted runtime/session context", "existing Decision and supervisor-basis records"],
-      "write_surfaces": ["Decision store modules", "Decision provenance schema/replay migration"],
-      "contract_surfaces": ["trusted immutable Decision provenance", "unchanged supervisor_basis.confidence integer 0..100"],
-      "safety_surfaces": ["Decision audit compatibility", "supervisor authority and provenance redaction"], "conflict_exceptions": [], "github": null
+      "id": "DASH-017",
+      "title": "Persist trusted Decision provenance",
+      "document": "companion-tickets/DASH-017-decision-provenance.md",
+      "requirement_ref": "DREQ-017",
+      "complexity_points": 3,
+      "depends_on": [],
+      "serializes_with": [
+        "DASH-006"
+      ],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "trusted runtime/session context",
+        "existing Decision and supervisor-basis records"
+      ],
+      "write_surfaces": [
+        "Decision store modules",
+        "Decision provenance schema/replay migration"
+      ],
+      "contract_surfaces": [
+        "trusted immutable Decision provenance",
+        "unchanged supervisor_basis.confidence integer 0..100"
+      ],
+      "safety_surfaces": [
+        "Decision audit compatibility",
+        "supervisor authority and provenance redaction"
+      ],
+      "conflict_exceptions": [],
+      "github": null
     },
     {
-      "id": "DASH-018", "title": "Own provider-account generation identity", "document": "companion-tickets/DASH-018-provider-account-generation.md", "requirement_ref": "DREQ-018", "complexity_points": 3,
-      "depends_on": [], "serializes_with": ["BO-003", "BO-005", "BO-016", "BO-019", "DASH-002", "DASH-019"], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
-      "read_surfaces": ["trusted Codex/Claude auth and process-binding lifecycle"],
-      "write_surfaces": ["provider-account generation owner/state", "account-generation lifecycle events", "Claude process lifecycle adapters"],
-      "contract_surfaces": ["shared opaque generation lookup/rotation/health"],
-      "safety_surfaces": ["non-derivable account identity", "provider/backend isolation", "application supervision tree"], "conflict_exceptions": [], "github": null
+      "id": "DASH-018",
+      "title": "Own provider-account generation identity",
+      "document": "companion-tickets/DASH-018-provider-account-generation.md",
+      "requirement_ref": "DREQ-018",
+      "complexity_points": 3,
+      "depends_on": [],
+      "serializes_with": [
+        "BO-003",
+        "BO-005",
+        "BO-016",
+        "BO-019",
+        "DASH-002",
+        "DASH-019",
+        "DASH-026"
+      ],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "trusted Codex/Claude auth and process-binding lifecycle"
+      ],
+      "write_surfaces": [
+        "provider-account generation owner/state",
+        "account-generation lifecycle events",
+        "Claude process lifecycle adapters"
+      ],
+      "contract_surfaces": [
+        "shared opaque generation lookup/rotation/health"
+      ],
+      "safety_surfaces": [
+        "non-derivable account identity",
+        "provider/backend isolation",
+        "application supervision tree"
+      ],
+      "conflict_exceptions": [],
+      "github": null
     },
     {
-      "id": "DASH-019", "title": "Authenticate Claude telemetry transport", "document": "companion-tickets/DASH-019-claude-telemetry-transport.md", "requirement_ref": "DREQ-019", "complexity_points": 4,
-      "depends_on": ["BO-004"], "serializes_with": ["BO-003", "BO-005", "BO-016", "BO-019", "DASH-002", "DASH-009", "DASH-012", "DASH-018", "DASH-024", "DASH-025"], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE", "GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY"],
-      "read_surfaces": ["BO-004 canonical configured-repository identity", "owned Claude process/session lifecycle", "gate-pinned local telemetry protocol"],
-      "write_surfaces": ["Aiur local telemetry receiver/capability lifecycle", "trusted Claude correlation registry", "Claude process lifecycle adapters"],
-      "contract_surfaces": ["producer-authenticated bounded local telemetry"],
-      "safety_surfaces": ["auth-before-decode", "resource bounds and content redaction", "no sibling mutation", "application supervision tree"], "conflict_exceptions": [], "github": null
+      "id": "DASH-019",
+      "title": "Authenticate Claude telemetry transport",
+      "document": "companion-tickets/DASH-019-claude-telemetry-transport.md",
+      "requirement_ref": "DREQ-019",
+      "complexity_points": 4,
+      "depends_on": [
+        "BO-004"
+      ],
+      "serializes_with": [
+        "BO-003",
+        "BO-005",
+        "BO-016",
+        "BO-019",
+        "DASH-002",
+        "DASH-009",
+        "DASH-012",
+        "DASH-018",
+        "DASH-024",
+        "DASH-025",
+        "DASH-026"
+      ],
+      "external_blockers": [],
+      "external_gate_ids": [
+        "GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY"
+      ],
+      "read_surfaces": [
+        "BO-004 canonical configured-repository identity",
+        "owned Claude process/session lifecycle",
+        "gate-pinned local telemetry protocol"
+      ],
+      "write_surfaces": [
+        "Aiur local telemetry receiver/capability lifecycle",
+        "trusted Claude correlation registry",
+        "Claude process lifecycle adapters"
+      ],
+      "contract_surfaces": [
+        "producer-authenticated bounded local telemetry"
+      ],
+      "safety_surfaces": [
+        "auth-before-decode",
+        "resource bounds and content redaction",
+        "no sibling mutation",
+        "application supervision tree"
+      ],
+      "conflict_exceptions": [],
+      "github": null
     },
     {
-      "id": "DASH-020", "title": "Normalize Codex account meters", "document": "companion-tickets/DASH-020-codex-provider-meter-adapter.md", "requirement_ref": "DREQ-020", "complexity_points": 3,
-      "depends_on": ["DASH-012"], "serializes_with": [], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
-      "read_surfaces": ["structured Codex account/rate-limit protocol", "DASH-012 meter contract", "DASH-018 lifecycle"],
-      "write_surfaces": ["Codex meter adapter", "ModelAvailability compatibility feed"],
-      "contract_surfaces": ["Codex subscription/API meter parity", "conservative scheduling compatibility"],
-      "safety_surfaces": ["no meter-local identity", "account/raw-response redaction"], "conflict_exceptions": [], "github": null
+      "id": "DASH-020",
+      "title": "Normalize Codex account meters",
+      "document": "companion-tickets/DASH-020-codex-provider-meter-adapter.md",
+      "requirement_ref": "DREQ-020",
+      "complexity_points": 3,
+      "depends_on": [
+        "DASH-012"
+      ],
+      "serializes_with": [],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "structured Codex account/rate-limit protocol",
+        "DASH-012 meter contract",
+        "DASH-018 lifecycle"
+      ],
+      "write_surfaces": [
+        "Codex meter adapter",
+        "ModelAvailability compatibility feed"
+      ],
+      "contract_surfaces": [
+        "Codex subscription/API meter parity",
+        "conservative scheduling compatibility"
+      ],
+      "safety_surfaces": [
+        "no meter-local identity",
+        "account/raw-response redaction"
+      ],
+      "conflict_exceptions": [],
+      "github": null
     },
     {
-      "id": "DASH-021", "title": "Enforce financial-data authentication", "document": "companion-tickets/DASH-021-financial-data-auth-boundary.md", "requirement_ref": "DREQ-021", "complexity_points": 3,
-      "depends_on": ["DASH-001"], "serializes_with": ["DASH-003", "DASH-005", "DASH-007", "DASH-022"], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
-      "read_surfaces": ["trusted dashboard auth/session/config", "financial provider capability metadata"],
-      "write_surfaces": ["OCC DashboardLive composition", "financial auth/query/subscription boundary"],
-      "contract_surfaces": ["record-context-aware protected delivery", "nonfinancial StatusReport/Units fact preservation"],
-      "safety_surfaces": ["financial-data nonleakage", "unauthenticated runtime backend/model availability"], "conflict_exceptions": [], "github": null
+      "id": "DASH-021",
+      "title": "Enforce financial-data authentication",
+      "document": "companion-tickets/DASH-021-financial-data-auth-boundary.md",
+      "requirement_ref": "DREQ-021",
+      "complexity_points": 3,
+      "depends_on": [
+        "DASH-001"
+      ],
+      "serializes_with": [
+        "DASH-003",
+        "DASH-005",
+        "DASH-007",
+        "DASH-022",
+        "DASH-027",
+        "DASH-028",
+        "DASH-034"
+      ],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "trusted dashboard auth/session/config",
+        "financial provider capability metadata"
+      ],
+      "write_surfaces": [
+        "OCC DashboardLive composition",
+        "financial auth/query/subscription boundary"
+      ],
+      "contract_surfaces": [
+        "record-context-aware protected delivery",
+        "nonfinancial StatusReport/Units fact preservation"
+      ],
+      "safety_surfaces": [
+        "financial-data nonleakage",
+        "unauthenticated runtime backend/model availability"
+      ],
+      "conflict_exceptions": [],
+      "github": null
     },
     {
-      "id": "DASH-022", "title": "Render accessible current-run summary", "document": "companion-tickets/DASH-022-current-run-summary-ui.md", "requirement_ref": "DREQ-022", "complexity_points": 3,
-      "depends_on": ["DASH-003", "DASH-014"], "serializes_with": ["DASH-005", "DASH-007", "DASH-015", "DASH-021", "DASH-023"], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
-      "read_surfaces": ["DASH-014 nonfinancial run summary", "DASH-003 Units composition"],
-      "write_surfaces": ["OCC DashboardLive composition", "shared OCC responsive CSS", "shared OCC summary layout"],
-      "contract_surfaces": ["accessible nonfinancial current-run summary"],
-      "safety_surfaces": ["unknown progress/ETA preservation", "absence of protected financial facts"], "conflict_exceptions": [], "github": null
+      "id": "DASH-022",
+      "title": "Render accessible current-run summary",
+      "document": "companion-tickets/DASH-022-current-run-summary-ui.md",
+      "requirement_ref": "DREQ-022",
+      "complexity_points": 3,
+      "depends_on": [
+        "DASH-003",
+        "DASH-014"
+      ],
+      "serializes_with": [
+        "DASH-005",
+        "DASH-007",
+        "DASH-015",
+        "DASH-021",
+        "DASH-023",
+        "DASH-027",
+        "DASH-028",
+        "DASH-034"
+      ],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "DASH-014 nonfinancial run summary",
+        "DASH-003 Units composition"
+      ],
+      "write_surfaces": [
+        "OCC DashboardLive composition",
+        "shared OCC responsive CSS",
+        "shared OCC summary layout"
+      ],
+      "contract_surfaces": [
+        "accessible nonfinancial current-run summary"
+      ],
+      "safety_surfaces": [
+        "unknown progress/ETA preservation",
+        "absence of protected financial facts"
+      ],
+      "conflict_exceptions": [],
+      "github": null
     },
     {
-      "id": "DASH-023", "title": "Integrate selected Build Order usage", "document": "companion-tickets/DASH-023-selected-build-order-usage.md", "requirement_ref": "DREQ-023", "complexity_points": 4,
-      "depends_on": ["BO-003", "BO-012", "DASH-011", "DASH-015", "DASH-021"], "serializes_with": ["DASH-022", "BO-013", "BO-014"], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
-      "read_surfaces": ["BO-003 current selected members", "BO-012 URL selection", "DASH-011 explicit-ticket query", "DASH-021 protected delivery"],
-      "write_surfaces": ["Build Order LiveView composition", "Build Order route component CSS", "shared OCC summary layout", "selected-build accounting scope"],
-      "contract_surfaces": ["exact current-member this-build usage integration", "compatible-currency API-equivalent build-total reconciliation", "membership/accounting generation reconciliation"],
-      "safety_surfaces": ["GitHub/Aiur read-only boundary", "cross-root stale-result isolation", "pre-membership inclusion/removal exclusion"], "conflict_exceptions": [], "github": null
+      "id": "DASH-023",
+      "title": "Integrate selected Build Order usage",
+      "document": "companion-tickets/DASH-023-selected-build-order-usage.md",
+      "requirement_ref": "DREQ-023",
+      "complexity_points": 4,
+      "depends_on": [
+        "BO-003",
+        "BO-012",
+        "DASH-030",
+        "DASH-031",
+        "DASH-021"
+      ],
+      "serializes_with": [
+        "DASH-022",
+        "BO-013",
+        "BO-014"
+      ],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "BO-003 current selected graph/members",
+        "BO-012 URL route state",
+        "DASH-030 explicit-ticket query",
+        "DASH-031 component contract",
+        "DASH-021 protected delivery"
+      ],
+      "write_surfaces": [
+        "selected-build scope adapter",
+        "generation-keyed query/cache/subscriptions",
+        "Build Order usage composition",
+        "Build Order route component CSS"
+      ],
+      "contract_surfaces": [
+        "exact current-member this-build accounting scope",
+        "compatible-currency API-equivalent total/constituent reconciliation",
+        "live generation reconciliation"
+      ],
+      "safety_surfaces": [
+        "GitHub/Aiur read-only boundary",
+        "protected financial delivery",
+        "cross-root stale-result isolation"
+      ],
+      "conflict_exceptions": [],
+      "github": null
     },
     {
-      "id": "DASH-024", "title": "Project durable usage aggregates", "document": "companion-tickets/DASH-024-usage-aggregate-query.md", "requirement_ref": "DREQ-024", "complexity_points": 4,
-      "depends_on": ["DASH-009"], "serializes_with": ["BO-003", "BO-005", "BO-016", "BO-019", "DASH-002", "DASH-012", "DASH-019"], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
-      "read_surfaces": ["relationship-revision-preserving usage derived-delta stream", "usage raw ledger replay/coverage"],
-      "write_surfaces": ["token-relationship-revision-partitioned usage aggregate/checkpoint snapshots", "usage aggregate query API"],
-      "contract_surfaces": ["exact multidimensional usage aggregate/query behavior", "no token-relationship revision merging"],
-      "safety_surfaces": ["reproducible projection", "exact group reconciliation", "relationship revision isolation", "no raw-store mutation", "application supervision tree"], "conflict_exceptions": [], "github": null
+      "id": "DASH-024",
+      "title": "Project durable usage aggregates",
+      "document": "companion-tickets/DASH-024-usage-aggregate-query.md",
+      "requirement_ref": "DREQ-024",
+      "complexity_points": 4,
+      "depends_on": [
+        "DASH-009"
+      ],
+      "serializes_with": [
+        "BO-003",
+        "BO-005",
+        "BO-016",
+        "BO-019",
+        "DASH-002",
+        "DASH-012",
+        "DASH-019",
+        "DASH-026"
+      ],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "relationship-revision-preserving usage derived-delta stream",
+        "usage raw ledger replay/coverage"
+      ],
+      "write_surfaces": [
+        "token-relationship-revision-partitioned usage aggregate/checkpoint snapshots",
+        "usage aggregate query API"
+      ],
+      "contract_surfaces": [
+        "exact multidimensional usage aggregate/query behavior",
+        "no token-relationship revision merging"
+      ],
+      "safety_surfaces": [
+        "reproducible projection",
+        "exact group reconciliation",
+        "relationship revision isolation",
+        "no raw-store mutation",
+        "application supervision tree"
+      ],
+      "conflict_exceptions": [],
+      "github": null
     },
     {
-      "id": "DASH-025", "title": "Harden usage retention and compaction", "document": "companion-tickets/DASH-025-usage-retention-compaction.md", "requirement_ref": "DREQ-025", "complexity_points": 4,
-      "depends_on": ["DASH-024"], "serializes_with": ["BO-003", "BO-005", "BO-016", "BO-019", "DASH-002", "DASH-012", "DASH-019"], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
-      "read_surfaces": ["usage raw ledger segments", "token-relationship-revision-partitioned usage aggregate/checkpoint snapshots", "usage aggregate query API"],
-      "write_surfaces": ["usage compaction manifest", "relationship-revision-preserving usage compacted aggregate blocks", "usage raw segment retirement"],
-      "contract_surfaces": ["dimension- and token-relationship-revision-preserving compaction", "retained-coverage semantics"],
-      "safety_surfaces": ["no-delete-before-coverage", "no relationship revision merging", "crash-safe destructive state machine", "exact query equivalence", "application supervision tree"], "conflict_exceptions": [], "github": null
+      "id": "DASH-025",
+      "title": "Harden usage retention and compaction",
+      "document": "companion-tickets/DASH-025-usage-retention-compaction.md",
+      "requirement_ref": "DREQ-025",
+      "complexity_points": 4,
+      "depends_on": [
+        "DASH-024"
+      ],
+      "serializes_with": [
+        "BO-003",
+        "BO-005",
+        "BO-016",
+        "BO-019",
+        "DASH-002",
+        "DASH-012",
+        "DASH-019",
+        "DASH-026"
+      ],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "usage raw ledger segments",
+        "token-relationship-revision-partitioned usage aggregate/checkpoint snapshots",
+        "usage aggregate query API"
+      ],
+      "write_surfaces": [
+        "usage compaction manifest",
+        "relationship-revision-preserving usage compacted aggregate blocks",
+        "usage raw segment retirement"
+      ],
+      "contract_surfaces": [
+        "dimension- and token-relationship-revision-preserving compaction",
+        "retained-coverage semantics"
+      ],
+      "safety_surfaces": [
+        "no-delete-before-coverage",
+        "no relationship revision merging",
+        "crash-safe destructive state machine",
+        "exact query equivalence",
+        "application supervision tree"
+      ],
+      "conflict_exceptions": [],
+      "github": null
+    },
+    {
+      "id": "DASH-026",
+      "title": "Project bounded live conversations",
+      "document": "companion-tickets/DASH-026-bounded-live-conversation-projection.md",
+      "requirement_ref": "DREQ-026",
+      "complexity_points": 3,
+      "depends_on": [
+        "BO-017"
+      ],
+      "serializes_with": [
+        "BO-003",
+        "BO-005",
+        "BO-016",
+        "BO-019",
+        "DASH-002",
+        "DASH-009",
+        "DASH-012",
+        "DASH-018",
+        "DASH-019",
+        "DASH-024",
+        "DASH-025"
+      ],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "BO-017 propagated BO-004 identity",
+        "trusted run/attempt/session/worker generation",
+        "allowlisted structured runtime conversation events"
+      ],
+      "write_surfaces": [
+        "live conversation normalizer/projection",
+        "bounded snapshots",
+        "health/freshness/change notifications"
+      ],
+      "contract_surfaces": [
+        "LiveConversationSnapshot",
+        "role/event allowlist and generation isolation",
+        "bounds/redaction and source-state semantics"
+      ],
+      "safety_surfaces": [
+        "structured-event redaction",
+        "application supervision tree"
+      ],
+      "conflict_exceptions": [],
+      "github": null
+    },
+    {
+      "id": "DASH-027",
+      "title": "Render accessible conversation drawer",
+      "document": "companion-tickets/DASH-027-accessible-conversation-drawer.md",
+      "requirement_ref": "DREQ-027",
+      "complexity_points": 3,
+      "depends_on": [
+        "DASH-003",
+        "DASH-026"
+      ],
+      "serializes_with": [
+        "DASH-005",
+        "DASH-007",
+        "DASH-015",
+        "DASH-021",
+        "DASH-022",
+        "DASH-028",
+        "DASH-031",
+        "DASH-034"
+      ],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "DASH-003 Units action/row identity",
+        "DASH-026 snapshots and change notifications",
+        "dashboard auth/read-only state"
+      ],
+      "write_surfaces": [
+        "conversation drawer presenter/component",
+        "explicit Units Chat action",
+        "focus/scroll hook and responsive tokens"
+      ],
+      "contract_surfaces": [
+        "read-only Chat destination",
+        "drawer focus/live-update lifecycle",
+        "no-I/O render boundary"
+      ],
+      "safety_surfaces": [
+        "read-only no-mutation drawer",
+        "path/raw-payload nonleakage"
+      ],
+      "conflict_exceptions": [],
+      "github": null
+    },
+    {
+      "id": "DASH-028",
+      "title": "Render runtime capacity control",
+      "document": "companion-tickets/DASH-028-authoritative-runtime-capacity-control.md",
+      "requirement_ref": "DREQ-028",
+      "complexity_points": 2,
+      "depends_on": [
+        "DASH-003"
+      ],
+      "serializes_with": [
+        "DASH-005",
+        "DASH-007",
+        "DASH-015",
+        "DASH-021",
+        "DASH-022",
+        "DASH-027",
+        "DASH-031",
+        "DASH-034"
+      ],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "authoritative Slots/StatusReport capacity",
+        "dashboard auth/write state through DASH-003 composition"
+      ],
+      "write_surfaces": [
+        "LiveView capacity handlers/presenter",
+        "pending/error presentation",
+        "responsive components"
+      ],
+      "contract_surfaces": [
+        "positive capacity input",
+        "requested-versus-authoritative result presentation"
+      ],
+      "safety_surfaces": [
+        "no client-side scheduling",
+        "no per-unit pause side effects"
+      ],
+      "conflict_exceptions": [],
+      "github": null
+    },
+    {
+      "id": "DASH-029",
+      "title": "Normalize headless usage sources",
+      "document": "companion-tickets/DASH-029-headless-usage-sources.md",
+      "requirement_ref": "DREQ-029",
+      "complexity_points": 3,
+      "depends_on": [
+        "DASH-008",
+        "BO-017",
+        "DASH-018"
+      ],
+      "serializes_with": [
+        "BO-005"
+      ],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "supported Codex/Claude headless protocol events",
+        "DASH-008 envelope/registry and trusted attribution contracts",
+        "DASH-018 account generation"
+      ],
+      "write_surfaces": [
+        "versioned provider normalizers",
+        "envelope publication",
+        "compatibility projection and redacted fixtures"
+      ],
+      "contract_surfaces": [
+        "exact source-to-envelope mappings",
+        "normal-run emission"
+      ],
+      "safety_surfaces": [
+        "provider payload redaction",
+        "agent-event ingestion seam"
+      ],
+      "conflict_exceptions": [],
+      "github": null
+    },
+    {
+      "id": "DASH-030",
+      "title": "Project grouped usage scopes",
+      "document": "companion-tickets/DASH-030-grouped-usage-scopes.md",
+      "requirement_ref": "DREQ-030",
+      "complexity_points": 3,
+      "depends_on": [
+        "DASH-011",
+        "DASH-024"
+      ],
+      "serializes_with": [],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "DASH-024 aggregate/query snapshots",
+        "DASH-011 exact priced/token reconciliation",
+        "caller-supplied typed scopes"
+      ],
+      "write_surfaces": [
+        "grouped usage query/projection",
+        "bounded cursors/snapshots",
+        "change notifications and fixtures"
+      ],
+      "contract_surfaces": [
+        "exact run/ticket scopes",
+        "contributor reconciliation and compatible-currency roll-ups",
+        "exact-generation tier keys"
+      ],
+      "safety_surfaces": [
+        "protected grouped data",
+        "stale-generation isolation"
+      ],
+      "conflict_exceptions": [],
+      "github": null
+    },
+    {
+      "id": "DASH-031",
+      "title": "Render authenticated usage and cost summary",
+      "document": "companion-tickets/DASH-031-usage-cost-summary-ui.md",
+      "requirement_ref": "DREQ-031",
+      "complexity_points": 4,
+      "depends_on": [
+        "DASH-003",
+        "DASH-010",
+        "DASH-013",
+        "DASH-020",
+        "DASH-021",
+        "DASH-025",
+        "DASH-029",
+        "DASH-030"
+      ],
+      "serializes_with": [
+        "DASH-005",
+        "DASH-007",
+        "DASH-015",
+        "DASH-022",
+        "DASH-027",
+        "DASH-028",
+        "DASH-034"
+      ],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "DASH-030 grouped usage",
+        "DASH-010/029 source coverage",
+        "DASH-013/020 exact-generation meter facts",
+        "DASH-025 retained coverage",
+        "DASH-021 protected delivery"
+      ],
+      "write_surfaces": [
+        "protected accounting presenters/components",
+        "bounded drill-down and popover",
+        "authorized subscriptions and responsive CSS"
+      ],
+      "contract_surfaces": [
+        "authenticated usage/cost summary",
+        "exact tier composition and estimate disclosure",
+        "contributor reconciliation and live scope behavior"
+      ],
+      "safety_surfaces": [
+        "financial-data nonleakage",
+        "generation-safe updates"
+      ],
+      "conflict_exceptions": [],
+      "github": null
+    },
+    {
+      "id": "DASH-032",
+      "title": "Project truthful current-run outcomes",
+      "document": "companion-tickets/DASH-032-truthful-current-run-recent-outcomes.md",
+      "requirement_ref": "DREQ-032",
+      "complexity_points": 3,
+      "depends_on": [
+        "DASH-002",
+        "DASH-014"
+      ],
+      "serializes_with": [],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "DASH-002 membership snapshots/lookups",
+        "DASH-014 run identity/window",
+        "RecentMergeStore snapshot/reconciliation",
+        "configured repository and TicketBranch facts"
+      ],
+      "write_surfaces": [
+        "pure current-run outcome projection",
+        "association/exclusion policy",
+        "snapshot schema"
+      ],
+      "contract_surfaces": [
+        "CurrentRunOutcomeSnapshot",
+        "current-run merge qualification",
+        "observation-versus-association semantics"
+      ],
+      "safety_surfaces": [
+        "observation-only provenance semantics",
+        "run-generation isolation",
+        "bounded redacted merge facts"
+      ],
+      "conflict_exceptions": [],
+      "github": null
+    },
+    {
+      "id": "DASH-033",
+      "title": "Prove existing-dashboard parity",
+      "document": "companion-tickets/DASH-033-dashboard-parity-capstone.md",
+      "requirement_ref": "DREQ-033",
+      "complexity_points": 3,
+      "depends_on": [
+        "DASH-001",
+        "DASH-003",
+        "DASH-005",
+        "DASH-007",
+        "DASH-015",
+        "DASH-022",
+        "DASH-027",
+        "DASH-028",
+        "DASH-031",
+        "DASH-034"
+      ],
+      "serializes_with": [
+        "BO-015"
+      ],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "all accepted companion contracts",
+        "configured integration SHA",
+        "real dashboard/TUI behavior and CI evidence"
+      ],
+      "write_surfaces": [
+        "bounded integration fixes",
+        "parity checklist and screenshots/evidence",
+        "documentation"
+      ],
+      "contract_surfaces": [
+        "composed dashboard definition of done",
+        "predecessor-behavior preservation"
+      ],
+      "safety_surfaces": [
+        "finite feature boundary",
+        "protected-data nonleakage",
+        "deferred-findings circuit breaker"
+      ],
+      "conflict_exceptions": [],
+      "github": null
+    },
+    {
+      "id": "DASH-034",
+      "title": "Render current-run Recent outcomes",
+      "document": "companion-tickets/DASH-034-current-run-recent-ui.md",
+      "requirement_ref": "DREQ-034",
+      "complexity_points": 3,
+      "depends_on": [
+        "DASH-003",
+        "DASH-007",
+        "DASH-032"
+      ],
+      "serializes_with": [
+        "DASH-005",
+        "DASH-015",
+        "DASH-021",
+        "DASH-022",
+        "DASH-027",
+        "DASH-028",
+        "DASH-031"
+      ],
+      "external_blockers": [],
+      "external_gate_ids": [],
+      "read_surfaces": [
+        "DASH-003 Units composition",
+        "DASH-007 Commands/Decision-history preservation",
+        "DASH-032 current-run outcome snapshots",
+        "real Analytics route"
+      ],
+      "write_surfaces": [
+        "current-run Recent presenter/component",
+        "DashboardLive composition",
+        "responsive CSS"
+      ],
+      "contract_surfaces": [
+        "Finished this run presentation",
+        "separation of current-run, global merge, and Decision-history scopes"
+      ],
+      "safety_surfaces": [
+        "causality-safe wording",
+        "trusted links",
+        "generation-safe live updates"
+      ],
+      "conflict_exceptions": [],
+      "github": null
     }
   ],
   "github_reconciliation": null
