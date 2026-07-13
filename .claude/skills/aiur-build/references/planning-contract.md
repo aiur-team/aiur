@@ -84,9 +84,12 @@ expected number:
 
 Keep `github_reconciliation` null before publication. After publication it is a
 bounded receipt from a fresh requery: timestamp, root node ID, exact direct
-membership, exact native dependency edges, and projected Build Order labels.
-The validator compares that receipt with the baseline and requires every GitHub
-mapping; it cannot prove the remote query was honestly performed.
+membership, exact native dependency edges, and the full observed label set for
+the root and tickets. `label_projection.required_ticket_labels` defines static
+routing labels; `forbidden_labels` defines labels that must be absent. The
+validator requires projected labels, rejects projected-family drift and
+forbidden dispatch states, and requires every GitHub mapping; it cannot prove
+the remote query was honestly performed.
 
 ## Ticket document template
 

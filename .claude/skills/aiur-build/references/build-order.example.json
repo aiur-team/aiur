@@ -18,7 +18,9 @@
       "integration": "build-lane:integration"
     },
     "phases": {"1": "phase:1", "2": "phase:2"},
-    "complexities": {"2": "complexity:2", "3": "complexity:3"}
+    "complexities": {"2": "complexity:2", "3": "complexity:3"},
+    "required_ticket_labels": ["model:codex"],
+    "forbidden_labels": ["agent:todo", "agent:in-progress", "agent:rework", "agent:merging"]
   },
   "feature_boundary": {
     "acceptance_criteria": [

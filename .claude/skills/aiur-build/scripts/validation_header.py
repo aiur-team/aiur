@@ -30,7 +30,10 @@ BOUNDARY_KEYS = {
     "acceptance_criteria", "critical_path_ticket_ids", "required_documentation",
     "required_cleanup", "end_to_end_proof", "completion_condition",
 }
-LABEL_KEYS = {"build_order", "workstreams", "phases", "complexities"}
+LABEL_KEYS = {
+    "build_order", "workstreams", "phases", "complexities",
+    "required_ticket_labels", "forbidden_labels",
+}
 
 
 def validate_identity(data: dict[str, Any], report: Report) -> None:
@@ -120,6 +123,21 @@ def validate_label_projection(data: dict[str, Any], report: Report) -> dict[str,
         labels = [value for value in mapping.values() if nonempty_string(value)]
         if len(labels) != len(set(labels)):
             report.error(f"label_projection.{key} contains duplicate labels")
+    required = checked_string_list(
+        projection.get("required_ticket_labels"),
+        "label_projection.required_ticket_labels",
+        report,
+    )
+    forbidden = checked_string_list(
+        projection.get("forbidden_labels"),
+        "label_projection.forbidden_labels",
+        report,
+    )
+    overlap = sorted(set(required) & set(forbidden))
+    if overlap:
+        report.error(
+            "label_projection requires and forbids the same labels: " + ", ".join(overlap)
+        )
     return projection
 
 

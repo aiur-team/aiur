@@ -52,8 +52,8 @@ class GithubTests(ValidatorCase):
             "dependency_edges": [{"ticket_id": "BO-002", "depends_on": "BO-001"}],
             "projected_labels": {
                 "github_root": ["build-order"],
-                "BO-001": ["build-lane:platform", "phase:1", "complexity:3"],
-                "BO-002": ["build-lane:integration", "phase:2", "complexity:2"],
+                "BO-001": ["build-lane:platform", "phase:1", "complexity:3", "model:codex"],
+                "BO-002": ["build-lane:integration", "phase:2", "complexity:2", "model:codex"],
             },
         }
         return data
@@ -87,6 +87,22 @@ class GithubTests(ValidatorCase):
         data = self.materialized()
         data["github_reconciliation"]["dependency_edges"] = []
         self.assert_error(data, "dependencies must exactly match")
+
+    def test_reconciliation_requires_routing_and_forbids_dispatch_labels(self) -> None:
+        data = self.materialized()
+        data["github_reconciliation"]["projected_labels"]["BO-001"].remove("model:codex")
+        self.assert_error(data, "projected labels missing for BO-001")
+        data = self.materialized()
+        data["github_reconciliation"]["projected_labels"]["BO-001"].append("agent:todo")
+        self.assert_error(data, "forbidden labels present for BO-001")
+
+    def test_reconciliation_allows_unrelated_labels_but_rejects_family_drift(self) -> None:
+        data = self.materialized()
+        data["github_reconciliation"]["projected_labels"]["BO-001"].append("enhancement")
+        self.assert_clean(data)
+        data = self.materialized()
+        data["github_reconciliation"]["projected_labels"]["BO-001"].append("phase:2")
+        self.assert_error(data, "unexpected projected labels for BO-001")
 
     def test_reconciliation_is_strict_and_malformed_safe(self) -> None:
         data = self.materialized()

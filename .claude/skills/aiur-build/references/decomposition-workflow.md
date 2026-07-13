@@ -188,8 +188,8 @@ This stage requires explicit permission.
 - Map logical IDs to returned node IDs and repo-qualified numbers.
 - Publish membership and native issue-dependency edges.
 - Requery every relationship and fail on drift.
-- Apply complexity, phase, and workflow labels without leaving contradictory
-  active-state labels on terminal issues.
+- Apply projected and required routing labels, record full observed labels in
+  the receipt, and prove every forbidden dispatch/active-state label is absent.
 
 For GitHub, a root issue with native sub-issues is a practical v1 membership
 model. GitHub supports up to 100 direct sub-issues per parent; larger programs

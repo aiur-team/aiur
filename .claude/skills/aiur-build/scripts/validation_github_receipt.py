@@ -100,11 +100,19 @@ def _validate_projected_labels(
         return
     projection = data.get("label_projection") if isinstance(data.get("label_projection"), dict) else {}
     root_label = projection.get("build_order")
+    required = set(
+        label
+        for label in projection.get("required_ticket_labels", [])
+        if nonempty_string(label)
+    )
+    forbidden = set(
+        label for label in projection.get("forbidden_labels", []) if nonempty_string(label)
+    )
     expected: dict[str, set[str]] = {
         "github_root": {root_label} if nonempty_string(root_label) else set()
     }
     for ticket_id, ticket in by_id.items():
-        labels: set[str] = set()
+        labels: set[str] = set(required)
         selectors = (
             ("workstreams", ticket.get("workstream")),
             ("phases", str(ticket.get("phase_hint"))),
@@ -121,5 +129,35 @@ def _validate_projected_labels(
         labels = checked_string_list(
             value.get(identity), f"github_reconciliation.projected_labels.{identity}", report
         )
-        if set(labels) != expected_labels:
-            report.error(f"github_reconciliation projected labels drift for {identity}")
+        actual = set(labels)
+        missing = sorted(expected_labels - actual)
+        if missing:
+            report.error(
+                f"github_reconciliation projected labels missing for {identity}: "
+                + ", ".join(missing)
+            )
+        forbidden_hits = sorted(actual & forbidden)
+        if forbidden_hits:
+            report.error(
+                f"github_reconciliation forbidden labels present for {identity}: "
+                + ", ".join(forbidden_hits)
+            )
+        projected_family = {
+            label
+            for group in ("workstreams", "phases", "complexities")
+            for label in (
+                projection.get(group, {}).values()
+                if isinstance(projection.get(group), dict)
+                else []
+            )
+            if nonempty_string(label)
+        }
+        if nonempty_string(root_label):
+            projected_family.add(root_label)
+        projected_family.update(required)
+        unexpected = sorted((actual & projected_family) - expected_labels)
+        if unexpected:
+            report.error(
+                f"github_reconciliation unexpected projected labels for {identity}: "
+                + ", ".join(unexpected)
+            )
