@@ -39,10 +39,6 @@ require_mise() {
 ensure_pinned_opencode() {
   local opencode_dir
 
-  # Test shims use this existing flag to skip all dev-environment setup. Real
-  # launches remain fail-closed when the repository's pinned runtime is absent.
-  [ "${AIUR_SKIP_BUILD:-0}" = "1" ] && return
-
   require_mise
   opencode_dir="$("$mise_bin" where -C "$repo_root" opencode 2>/dev/null || true)"
 
@@ -52,6 +48,21 @@ ensure_pinned_opencode() {
   fi
 
   export PATH="$opencode_dir:$PATH"
+}
+
+requires_pinned_opencode() {
+  local cmd="${1:-}"
+
+  # Match the shared engine's dispatch boundary: only commands that can start
+  # an Aiur session need OpenCode. Control and utility commands must remain
+  # usable against an existing daemon when the local tool install is missing.
+  case "$cmd" in
+    "" | run | --bg) return 0 ;;
+    help | -h | -help | --h | --help | --version | --todo | --only | init) return 1 ;;
+    agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | watch) return 1 ;;
+    -*) return 0 ;;
+    *) [ -e "$cmd" ] ;;
+  esac
 }
 
 elixir_deps_ready() {
@@ -440,7 +451,9 @@ if [ "$test3_mode" -eq 1 ]; then
 fi
 
 export AIUR_RELEASE_DIR="$release_dir"
-ensure_pinned_opencode
+if requires_pinned_opencode "${passthrough[0]:-}"; then
+  ensure_pinned_opencode
+fi
 
 # ── Processor optimization: cap schedulers on agent-spawned Elixir BEAMs ──
 # Every agent pre-PR gate command (`mix compile`, `mix test`, `mix credo`)
