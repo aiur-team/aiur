@@ -2,13 +2,13 @@ defmodule AiurWeb.OperatorControlCenter.FleetFilters do
   @moduledoc false
 
   @filters [:running, :blocked, :paused, :stuck, :finished]
-  @default_filters MapSet.new([:running, :blocked, :paused, :stuck])
+  @default_filters [:running, :blocked, :paused, :stuck]
   @blocked_reasons [:waiting_for_human, :waiting_for_supervisor, :waiting_for_dependency]
   @stuck_reasons [:backing_off, :unresponsive]
   @finished_states ["done", "closed", "cancelled", "canceled"]
 
   @spec default() :: MapSet.t(atom())
-  def default, do: @default_filters
+  def default, do: MapSet.new(@default_filters)
 
   @spec all() :: [atom()]
   def all, do: @filters
