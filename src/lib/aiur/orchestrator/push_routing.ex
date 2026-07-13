@@ -67,6 +67,7 @@ defmodule Aiur.Orchestrator.PushRouting do
   end
 
   @doc false
+  @spec record_blocker_branch_push(State.t(), String.t() | integer(), map()) :: State.t()
   def record_blocker_branch_push(%State{} = state, blocker_identifier, event) do
     case validated_branch_metadata(blocker_identifier, event) do
       {:ok, metadata} -> %{state | blocker_branch_pushes: Map.put(state.blocker_branch_pushes, blocker_identifier, metadata)}
@@ -75,6 +76,8 @@ defmodule Aiur.Orchestrator.PushRouting do
   end
 
   @doc false
+  @spec corroborated_unblock_metadata(State.t(), String.t() | integer(), map()) ::
+          %{ref: String.t(), sha: String.t()} | nil
   def corroborated_unblock_metadata(%State{} = state, blocker_identifier, event) do
     with {:ok, metadata} <- validated_branch_metadata(blocker_identifier, event),
          ^metadata <- Map.get(state.blocker_branch_pushes, blocker_identifier) do
