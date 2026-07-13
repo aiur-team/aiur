@@ -8,7 +8,7 @@ defmodule Aiur.AlertFeed do
   alias Aiur.Jsonl
   alias Aiur.Workspace.Layout
 
-  @decision_attention_prefix "Operator decision required: "
+  @decision_attention_prefix "Executor decision required: "
 
   @spec list(keyword()) :: [map()]
   def list(opts \\ []) do

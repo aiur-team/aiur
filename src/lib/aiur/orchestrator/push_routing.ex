@@ -147,13 +147,13 @@ defmodule Aiur.Orchestrator.PushRouting do
   # Resume can fail when the concurrent-agent cap is already full —
   # the blockee would otherwise sit silently paused forever because
   # the push event is consumed exactly once and the firehose / ls-remote
-  # dedup table prevents a re-emit. Log a warning so operators can see
+  # dedup table prevents a re-emit. Log a warning so Executors can see
   # the cap is blocking the resume, and stamp a hint on the entry so a
   # future reconcile tick (when a slot opens up) can drain the queue.
   defp attempt_auto_resume(state, entry, identifier, blocker_identifier, topic) do
     Logger.info("Auto-resume on blocker push: blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}")
 
-    # operator?: false — an automated blocker resume must preserve a
+    # Executor?: false — an automated blocker resume must preserve a
     # duration-capped agent's cumulative overrun (no fresh budget).
     case Orchestrator.resume_paused_issue(state, entry, false) do
       {{:ok, :resumed}, next_state} ->
@@ -220,7 +220,7 @@ defmodule Aiur.Orchestrator.PushRouting do
   defp maybe_drain_pending_auto_resume(state, entry, hint) do
     cond do
       not State.paused_running_entry?(entry) ->
-        # Already resumed by another path (operator chat, label flip);
+        # Already resumed by another path (Executor chat, label flip);
         # clear the stale hint.
         clear_pending_auto_resume(state, entry)
 
@@ -232,7 +232,7 @@ defmodule Aiur.Orchestrator.PushRouting do
         blocker_identifier = Map.get(hint, :blocker_identifier)
         topic = Map.get(hint, :topic)
 
-        # operator?: false — same automated path as attempt_auto_resume,
+        # Executor?: false — same automated path as attempt_auto_resume,
         # just deferred until a slot opened; preserve the duration overrun.
         case Orchestrator.resume_paused_issue(state, entry, false) do
           {{:ok, :resumed}, next_state} ->

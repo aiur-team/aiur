@@ -1,15 +1,15 @@
-# Operator Control Center
+# Executor Control Center
 
-This is the planning and implementation-contract home for the **Operator
+This is the planning and implementation-contract home for the **Executor
 Control Center (OCC)** — extending Aiur's existing LiveView dashboard into a
 decision inbox, fleet-state view, and history control surface for a human
-operator overseeing the fleet.
+Executor overseeing the fleet.
 
 ## Layout
 
 | File | What it is | Owner |
 |---|---|---|
-| `00-prd.md` | The feature scope / PRD (the source of truth for what OCC is) | operator's doc |
+| `00-prd.md` | The feature scope / PRD (the source of truth for what OCC is) | Executor’s doc |
 | `01-brainstorm-and-decomposition.md` | CE-brainstorm grounding, the scoping decisions, and the ticket breakdown | this session |
 | `02-occ-0-audit-and-design-decisions.md` | Accepted architecture audit and cross-ticket design decisions | OCC-0 |
 | `03-occ-1-decision-contract.md` | Durable request schema/store handoff | OCC-1 |
@@ -21,7 +21,7 @@ operator overseeing the fleet.
 ## Decisions locked (from the brainstorm)
 
 1. **Full scope is v1**, decomposed into **many parallelizable tickets** (not a single mega-PR).
-2. **Claude designs a mock** (HTML artifact). The **UI ticket is blocked** on the operator sending that mock's URL; the agent then productionizes it into LiveView.
+2. **Claude designs a mock** (HTML artifact). The **UI ticket is blocked** on the Executor sending that mock's URL; the agent then productionizes it into LiveView.
 3. **Link, don't merge**, with #930's offline telemetry/analytics dashboard — two separate surfaces.
 4. Tickets route to **codex 5.6 sol / max** (heavy model).
 
@@ -40,7 +40,7 @@ individual implementation tickets.
 
 | Capability | Canonical owner | Dashboard responsibility |
 |---|---|---|
-| Human answer and retry | `Aiur.DecisionStore` + `Aiur.DecisionDispatch` | Submit an operator-attributed command and reload canonical state |
+| Human answer and retry | `Aiur.DecisionStore` + `Aiur.DecisionDispatch` | Submit an Executor-attributed command and reload canonical state |
 | Supervisor enrich/decide/revise | `Aiur.DecisionApi` behind supervisor authentication and policy | Render the shared Decision projection; never borrow supervisor authority for human actions |
 | Human revision and follow-up | `Aiur.DecisionStore` OCC-8 revision APIs | Submit an append-only correction and render original/revised actions |
 | History | `Aiur.DecisionHistory` over the Decision audit store | Render provider rows without rebuilding lifecycle events |
@@ -52,10 +52,10 @@ individual implementation tickets.
 acknowledgement, resolution, history, and latency are consequences of its real
 append-only lifecycle; the LiveView does not synthesize transitions.
 
-## Operator-root acceptance drive
+## Executor-root acceptance drive
 
 This is the required running-daemon check for the integrated control center.
-Run it from the operator repository root. `--test` is deliberately blocked in
+Run it from the Executor repository root. `--test` is deliberately blocked in
 generated agent issue workspaces because it resets pinned sandbox tickets; do
 not copy the checkout or substitute HTTP calls or log inspection for this
 drive-through.
@@ -70,7 +70,7 @@ drive-through.
      port: 4000
    ```
 
-2. Launch the real foreground CLI from the operator checkout:
+2. Launch the real foreground CLI from the Executor checkout:
 
    ```bash
    scripts/aiurdev --test --force --allow-remote
@@ -80,7 +80,7 @@ drive-through.
    `AGENTS.md`, then interact with the inner AgentList and chat pane using
    `tmux send-keys` and `tmux capture-pane`.
 
-3. Open a running agent's chat pane and send an operator message asking it to
+3. Open a running agent's chat pane and send an Executor message asking it to
    emit a real `decision.requested` event for its own ticket. Use a reversible
    `human_required` architecture decision with at least two options so both the
    authority badge and choice controls are visible. Confirm the chat renders
@@ -94,7 +94,7 @@ drive-through.
 
 5. Answer from the dashboard. Confirm the UI first reports the durable answer
    as recorded/dispatch-pending, then shows the correlated queue delivery. In
-   the agent chat, observe the actual durable operator-answer message with the
+   the agent chat, observe the actual durable Executor-answer message with the
    same Decision ID, action ID, and request version.
 
 6. Before resolving, use **Revise decision** to record a different answer and
@@ -106,7 +106,7 @@ drive-through.
 7. Let the target agent emit the exact `decision.acknowledged` and
    `decision.resolved` events using the correlation fields from the active
    answer message. Confirm the browser advances through Delivered →
-   Acknowledged → Resolved and that History records the operator, target-agent,
+   Acknowledged → Resolved and that History records the Executor, target-agent,
    dispatch, revision, acknowledgement, and resolution facts.
 
 8. Return to `/` and verify Fleet, Recent outcomes, and Decision history are

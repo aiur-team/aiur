@@ -1273,7 +1273,7 @@ defmodule Aiur.CoreTest do
     assert prompt =~ "## Shared Agent Instructions"
     assert prompt =~ "using-aiur"
     assert prompt =~ "Progress emits"
-    assert prompt =~ "Operator check-ins"
+    assert prompt =~ "Executor check-ins"
 
     # The general operating manual (complexity routing, CODEOWNERS authority,
     # PR shape, milestone-alert names, the dev loop) now lives only in the
@@ -2636,7 +2636,7 @@ defmodule Aiur.CoreTest do
         |> File.read!()
 
       assert workspace_log =~ "worker_paused"
-      assert workspace_log =~ "Agent paused by operator."
+      assert workspace_log =~ "Agent paused by Executor."
     after
       System.delete_env("SYMP_TEST_CODEX_TRACE")
       File.rm_rf(test_root)

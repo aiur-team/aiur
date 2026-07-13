@@ -1,7 +1,7 @@
 defmodule Aiur.Init.Codeowners do
   @moduledoc """
   CODEOWNERS setup step for the `aiur init` wizard — creates the file and
-  offers to add the operator's GitHub login to it.
+  offers to add the Executor’s GitHub login to it.
   """
 
   alias Aiur.Codeowners

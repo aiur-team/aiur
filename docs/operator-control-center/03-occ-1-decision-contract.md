@@ -82,7 +82,7 @@ The append+fsync-before-ack barrier means a **crash** can only tear the tail of 
 
 An **interior** record that fails to decode, or that decodes as valid JSON but fails full schema/invariant re-validation, is corruption — bit-rot or a violation of the single-writer trust boundary, not a crash artifact — and is never silently skipped. Replay reuses `Aiur.DecisionValidation.normalize/2` itself (the same ingress pipeline, not a second parallel implementation) and recomputes `content_hash` for comparison against the persisted value, so a record that merely decodes as JSON but whose content changed since it was written (e.g. a flipped byte in a still-valid-JSON string field) is caught. This explicitly does **not** defend against an adversarial rewriter with full access to overwrite the file with internally-consistent fabricated records — that is outside the local single-writer trust boundary this ticket protects.
 
-On interior corruption, the store enters read-only mode: reads keep serving the validated prefix, every mutation is rejected (`{:error, {:store_unavailable, {:corrupt, line, reason}}}`), and one operator alert (`decision_store.corrupted`) is emitted — never retried silently.
+On interior corruption, the store enters read-only mode: reads keep serving the validated prefix, every mutation is rejected (`{:error, {:store_unavailable, {:corrupt, line, reason}}}`), and one Executor alert (`decision_store.corrupted`) is emitted — never retried silently.
 
 ## Versioning and deduplication
 
@@ -114,13 +114,13 @@ for corrective actions and documents the extension in the OCC-8 handoff.
 ## Agent ingress
 
 Structured `decision.requested` calls route through `Aiur.DecisionStore`.
-OCC-2 also preflights `attention.<slug>` and operator-decision-marked
+OCC-2 also preflights `attention.<slug>` and Executor-decision-marked
 `blocked`/`pause.request` calls through `Aiur.DecisionAttention`, which attempts
 to persist a minimal Decision before retaining their existing generic Publisher
 behavior. Successful projection precedes the alert/reminder side effects. A
 projection rejection is logged and suppresses those derived side effects, but
 the original generic signal still publishes so durable-store degradation cannot
-hide a blocked agent from the operator. Other events remain generic, including
+hide a blocked agent from the Executor. Other events remain generic, including
 progress, ordinary blocked/pause signals, and arbitrary `decision.<slug>`
 coordination events.
 

@@ -4,7 +4,7 @@
 
 **Date:** 2026-07-12
 
-**Source:** [Operator Control Center planning PR #971](https://github.com/its-everdred/aiur/pull/971), especially `00-prd.md` and `01-brainstorm-and-decomposition.md`
+**Source:** [Executor Control Center planning PR #971](https://github.com/its-everdred/aiur/pull/971), especially `00-prd.md` and `01-brainstorm-and-decomposition.md`
 
 This note resolves the phase-0 questions that block OCC-1 through OCC-9. It
 records current ownership and the few new seams OCC needs; it does not define
@@ -14,12 +14,12 @@ the full Decision schema or implement feature code.
 
 | Path | What exists now | OCC consequence |
 |---|---|---|
-| Decision attention | `Aiur.AgentRunner.ToolExecutor` maps `attention.*` and operator-decision `blocked` / `pause.request` events into `Aiur.DecisionAttention`. That GenServer owns repeat reminders in memory and stores only the open slug in `Aiur.Events.SubscriptionStore`; the question itself survives only in alert logs. Generic `decision.*` events do not enter this path. | Keep `DecisionAttention` as the legacy-attention adapter/reminder owner, but make `DecisionStore` own the full durable record before any reminder is emitted. |
+| Decision attention | `Aiur.AgentRunner.ToolExecutor` maps `attention.*` and Executor-decision `blocked` / `pause.request` events into `Aiur.DecisionAttention`. That GenServer owns repeat reminders in memory and stores only the open slug in `Aiur.Events.SubscriptionStore`; the question itself survives only in alert logs. Generic `decision.*` events do not enter this path. | Keep `DecisionAttention` as the legacy-attention adapter/reminder owner, but make `DecisionStore` own the full durable record before any reminder is emitted. |
 | Alerts | `Aiur.Alerts` publishes to `Aiur.Events.Exchange`, then best-effort appends an alert to workspace `agent.ndjson` or central `alerts.ndjson`, broadcasts to the agent UI, and refreshes observability. `Aiur.AlertFeed` reconstructs a read model by scanning those logs and matching `.resolved` topics. | Alerts and `AlertFeed` remain notification/history projections. Their payload is lossy and their current publish-before-log order makes them unsuitable as canonical Decision storage. |
 | Event bus | `Aiur.Events.Publisher` assigns durable monotonic event IDs, applies filtering/dedup policy, records issue-log markers, and hands events to `Aiur.Events.Exchange`. The exchange is an in-memory, asynchronous topic router. | Reuse this bus after a Decision mutation is durable. Do not add another bus and do not treat exchange delivery as persistence. |
-| Operator messages | `Aiur.AgentChat` calls `Aiur.Orchestrator.OperatorMessages`, which validates the message, safely reactivates/resumes the target when capacity permits, and inserts an item into `Aiur.AgentQueueStore`. The queue is explicitly in-memory. Item IDs restart with the orchestrator. | Reuse this delivery path, including its wake/resume gates. A durable Decision outbox and deterministic idempotency key must cover daemon restarts and correlate the transient queue item. |
+| Executor messages | `Aiur.AgentChat` calls `Aiur.Orchestrator.OperatorMessages`, which validates the message, safely reactivates/resumes the target when capacity permits, and inserts an item into `Aiur.AgentQueueStore`. The queue is explicitly in-memory. Item IDs restart with the orchestrator. | Reuse this delivery path, including its wake/resume gates. A durable Decision outbox and deterministic idempotency key must cover daemon restarts and correlate the transient queue item. |
 | Delivery settlement | Queue items move `pending` -> `delivered` when claimed and `consumed` after a successful agent turn. Interrupted/paused paths restore them; terminal turn failures mark them failed. `OperatorWaitLog` calls “delivered” the point at which text is handed to the backend. | These transitions can support recorded / queued / handed-off / failed. `consumed` is not proof that the agent understood a decision, so acknowledgement must remain a separate agent-emitted Decision event. |
-| Dashboard and API | `AiurWeb.Presenter` projects only the live orchestrator snapshot (running and retrying). `AiurWeb.DashboardLive` refreshes through `AiurWeb.ObservabilityPubSub` and sends writes through `AgentChat`; `AiurWeb.ObservabilityApiController` reads through `Presenter` and sends operator text through the orchestrator. Browser writes fail closed behind `dashboard_writable`; REST writes additionally pass the configured basic-auth policy, same-origin checks, and `X-Aiur-Request`. | Compose Decision and outcome projections into `Presenter`/`DashboardLive`; route LiveView and API mutations through the same public `DecisionStore` API, preserving the existing writable and request-security gates. |
+| Dashboard and API | `AiurWeb.Presenter` projects only the live orchestrator snapshot (running and retrying). `AiurWeb.DashboardLive` refreshes through `AiurWeb.ObservabilityPubSub` and sends writes through `AgentChat`; `AiurWeb.ObservabilityApiController` reads through `Presenter` and sends Executor text through the orchestrator. Browser writes fail closed behind `dashboard_writable`; REST writes additionally pass the configured basic-auth policy, same-origin checks, and `X-Aiur-Request`. | Compose Decision and outcome projections into `Presenter`/`DashboardLive`; route LiveView and API mutations through the same public `DecisionStore` API, preserving the existing writable and request-security gates. |
 | File persistence | `Aiur.JsonStore` provides fsynced atomic JSON replacement. `SubscriptionStore` demonstrates one serializing GenServer per owner. Agent, alert, wait-time, and debug telemetry streams use append-only NDJSON, but those writers are best-effort and do not fsync each record. | Reuse the single-writer, NDJSON, and atomic-projection patterns, with stronger write acknowledgement for Decision mutations. |
 | SQLite | The only SQLite dependency is used by `Aiur.Opencode.DB` to adapt to opencode's owned database. Aiur has no application `Ecto.Repo`, migrations, backup policy, or shared relational store. | There is no existing Aiur SQLite subsystem to extend. Adding one for Decisions would create the parallel lifecycle the PRD cautions against. |
 | PR merges | `Aiur.Events.GithubFirehose` converts a GitHub `PullRequestEvent` (`closed`, `merged: true`) to `ticket.<id>.pr.merged` only when the PR head is a recognized ticket branch. It preserves the sanitized PR payload, bypasses the tracked-ticket filter, and drops old pre-boot events. The orchestrator marks the ticket done; debug telemetry may record an external `pr_merged` point. | The event authoritatively links a merge to a ticket/branch and merge time, but carries no Aiur run or worker-attempt identity. It supports a recent repository-merges view, not causal current-run attribution. |
@@ -49,7 +49,7 @@ Every accepted mutation follows this order:
 2. append the audit event and fsync it;
 3. update the in-memory projection and atomically replace `decisions.json`;
 4. only then publish to `Events.Exchange`, project an alert, refresh LiveView,
-   or attempt operator-message delivery.
+   or attempt Executor-message delivery.
 
 Validation before append must bound identifier and text sizes, reject unsafe
 control data, canonicalize artifact paths beneath configured safe roots, allow
@@ -67,7 +67,7 @@ durable, return an error and do not report the Decision or answer as accepted.
 Append each event as one newline-terminated record. On startup, validate the
 stream before replay: an incomplete final record that was never acknowledged
 may be truncated, while malformed interior records are corruption and must fail
-closed (read-only with an operator alert), never be silently skipped. Rebuild
+closed (read-only with an Executor alert), never be silently skipped. Rebuild
 the projection only from the validated prefix.
 
 The event volume is low and the access patterns are “open list + one detail +
@@ -166,7 +166,7 @@ flowchart LR
 
 An answer/revision event contains a stable action ID. The persisted state then
 shows `dispatch_pending`; a dispatcher calls `OperatorMessages` with that action
-ID as a deterministic dedupe/correlation key. OCC-3 must extend the operator
+ID as a deterministic dedupe/correlation key. OCC-3 must extend the Executor
 message API and queue item with this key. `AgentQueueStore` must retain an index
 across pending (including restored), delivered, consumed, failed, and superseded
 states for that queue-store lifetime, returning the previously accepted queue
@@ -186,7 +186,7 @@ acknowledgement, and the agent intake path must treat a repeated action ID +
 version as a replay rather than a new answer. Any downstream side effect that
 supports an idempotency key must receive the action ID; otherwise the agent must
 reconcile whether the effect already happened before repeating it. OCC-3 may
-extend operator queue items and transition notifications, but must not create
+extend Executor queue items and transition notifications, but must not create
 another queue or claim exactly-once delivery.
 
 The agent must explicitly emit acknowledgement/resolution with the Decision ID

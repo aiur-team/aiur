@@ -123,7 +123,7 @@ defmodule Aiur.Alerts do
 
     # Always publish through the Exchange — even when there's no matching
     # alert entry. Subscribers to the topic bus see every alert-emitted
-    # event, regardless of whether the operator-facing sound/badge fires.
+    # event, regardless of whether the Executor-facing sound/badge fires.
     metadata = alert_metadata(message, opts)
     publish_to_exchange(topic, message, metadata, opts)
 
@@ -328,7 +328,7 @@ defmodule Aiur.Alerts do
   # canonical file is absent but a legacy `.aiur/alerts.yaml` still sits next to
   # the config, the mappings silently resolve to `%{}` and every alert goes
   # quiet with no signal. Warn once — keyed on the legacy path via
-  # `:persistent_term`, so a single VM logs it a single time — so the operator
+  # `:persistent_term`, so a single VM logs it a single time — so the Executor
   # knows to rename the file. The yaml is never read; only its presence is
   # detected.
   defp warn_if_legacy_yaml_only(nil), do: :ok
@@ -362,7 +362,7 @@ defmodule Aiur.Alerts do
   # The default alert definitions live alongside the aiur config, at
   # `<config-dir>/alerts` (i.e. `.aiur/alerts`). Resolved at RUNTIME
   # from the active config path rather than a compile-time module attribute, so
-  # it tracks the operator's `.aiur/` directory and resolves correctly inside an
+  # it tracks the Executor’s `.aiur/` directory and resolves correctly inside an
   # assembled release/escript (a baked source path would not).
   defp default_alerts_path do
     case Workflow.workflow_file_path() do

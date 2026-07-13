@@ -6,7 +6,7 @@
 
 This is the application-service and agent-handoff contract for OCC-4, OCC-7,
 and OCC-8. OCC-3 accepts an immutable answer, persists it before dispatch,
-delivers it through the existing operator-message queue, and correlates every
+delivers it through the existing Executor-message queue, and correlates every
 transport and agent lifecycle fact back to that answer.
 
 ## Public service boundary
@@ -126,7 +126,7 @@ ID is the durable discriminator.
 | Event | Durable meaning |
 |---|---|
 | `requested` | Accepted request version. |
-| `answer_recorded` | Immutable operator/supervisor answer accepted. |
+| `answer_recorded` | Immutable Executor/supervisor answer accepted. |
 | `dispatch_queued` | One correlated queue attempt exists. |
 | `delivered` | The store synchronously recorded backend handoff before answer text was exposed to the agent. |
 | `restored` | A failed or delivered queue item became pending again. |
@@ -143,7 +143,7 @@ read-only until repaired.
 
 ## Queue and restart correlation
 
-`DecisionDispatch` renders a bounded operator message containing the question,
+`DecisionDispatch` renders a bounded Executor message containing the question,
 selected/custom answer, rationale, trusted actor, Decision ID, addressed
 version, immutable action ID, replay warning, and exact acknowledgement and
 resolution instructions.
@@ -221,7 +221,7 @@ families is rejected so callers cannot bypass persistence.
 
 ## Failure projection
 
-A durable failed attempt emits one stable operator attention:
+A durable failed attempt emits one stable Executor attention:
 
 ```text
 ticket.<ticket>.agent.attention.decision-delivery-<action-slug>

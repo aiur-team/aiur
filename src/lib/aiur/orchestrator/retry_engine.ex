@@ -135,14 +135,14 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
       Alerts.emit_system("ticket.#{identifier}.agent.retry_exhausted",
         issue: identifier,
-        reason: "Agent retry attempts were exhausted; the ticket needs operator review.",
+        reason: "Agent retry attempts were exhausted; the ticket needs Executor review.",
         needs_attention: true,
         severity: "warning"
       )
 
       move_exhausted_issue_to_error_state(issue_id, identifier)
 
-      # Release the claim so a later label-driven re-dispatch (operator moves the
+      # Release the claim so a later label-driven re-dispatch (Executor moves the
       # ticket from `error` back to an active state) is picked up without a full
       # daemon restart (#699). The crash path pops `running` but deliberately
       # holds the claim across retries; on give-up that hold must end, otherwise
@@ -300,7 +300,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
     end
   end
 
-  # On genuine retry exhaustion, surface the ticket in an operator-visible
+  # On genuine retry exhaustion, surface the ticket in an Executor-visible
   # state instead of silently leaving it in `rework` with no live agent (#699).
   # `error` ("agent hit an error") is a valid state in neither the active nor
   # the terminal set, so it does not get auto-redispatched. Best-effort: a

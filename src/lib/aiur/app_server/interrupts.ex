@@ -1,6 +1,6 @@
 defmodule Aiur.AppServer.Interrupts do
   @moduledoc """
-  Shared pause and operator-queue interrupt state machine.
+  Shared pause and Executor-queue interrupt state machine.
   """
 
   @spec handle_pause_request(map(), map(), integer()) ::

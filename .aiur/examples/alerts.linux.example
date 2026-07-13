@@ -51,7 +51,7 @@ alerts:
     sound:
       - "/usr/share/sounds/freedesktop/stereo/power-unplug.oga"
   "ticket.*.agent.attention.*":
-    message: Operator decision required
+    message: Executor decision required
     sound:
       - "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga"
   "ticket.*.agent.unpaused":

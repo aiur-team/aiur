@@ -20,7 +20,7 @@ defmodule Aiur.AgentEvents do
   Origin of a transcript line. `:user` and `:assistant` are
   conversational turns; `:system` covers contextual/external information
   (intro, errors, status); `:command` is a shell/tool command the agent
-  issues; `:alert` is an operator-facing notification.
+  issues; `:alert` is an Executor-facing notification.
   """
   @type role :: :user | :assistant | :system | :command | :alert | :reasoning | :tool
 
@@ -88,10 +88,10 @@ defmodule Aiur.AgentEvents do
 
   Tag-to-meaning map:
     * `agent`     — `:assistant` — words from the agent
-    * `user`      — `:user`      — operator's typed message
+    * `user`      — `:user`      — Executor’s typed message
     * `sys`       — `:system`    — external context (intro, errors)
     * `cmd`       — `:command`   — commands the agent runs
-    * `alert`     — `:alert`     — operator-facing notifications
+    * `alert`     — `:alert`     — Executor-facing notifications
     * `reasoning` — `:reasoning` — agent reasoning / thinking blocks
     * `tool`      — `:tool`      — non-shell tool calls (MCP, file edits)
   """

@@ -46,7 +46,7 @@ else
 fi
 unset __aiur_soft_nofile
 
-# Preserve the shell that initiated the run as a best-effort operator root.
+# Preserve the shell that initiated the run as a best-effort Executor root.
 # An explicit positive override wins (service managers may know a better root);
 # otherwise the engine's parent is the nearest identity available before tmux
 # hands daemon ownership to its pane launcher.
@@ -320,7 +320,7 @@ Usage: aiur [--interactive] [--max-agents <n>] [--logs-root <path>] [--port <por
        aiur watch [--full|--changes] [--interval <secs>]  server-side status board
        aiur set max-agents <n>   change the concurrent-agent cap at runtime
        aiur pause <ids|--all> | resume <ids|--all>
-       aiur message <id> <text>  send operator text to a running agent
+       aiur message <id> <text>  send Executor text to a running agent
        aiur --todo <ids...> [--only]  queue tickets; optionally dequeue all other pending tickets
        aiur cleanup-stale [--dry-run]  list/reap stale manual-smoke leftovers
        aiur --version
@@ -501,7 +501,7 @@ run_session() {
   # is diagnosable instead of vanishing. Written next to the run's aiur.log so it
   # survives the launcher's tempfile cleanup; ERL_CRASH_DUMP_SECONDS bounds the
   # write so a wedged BEAM can't hang the dump indefinitely. Nothing in the
-  # release boot disables dumps, and an operator override of either var is kept.
+  # release boot disables dumps, and an Executor override of either var is kept.
   # Requires a durable logs root (background run or agent IR sandbox).
   if [ -n "${AIUR_LOGS_ROOT:-}" ]; then
     export ERL_CRASH_DUMP="${ERL_CRASH_DUMP:-$AIUR_LOGS_ROOT/erl_crash.dump}"
@@ -973,7 +973,7 @@ agent_pid_matches() {
 #
 # tmux runs on aiur's PRIVATE socket (-L aiur-$USER), so kill-server tears down
 # every REPL/chat pane agent in one shot AND leaves no live aiur tmux server —
-# never touching the operator's own default tmux. Headless agents (claude/codex
+# never touching the Executor’s own default tmux. Headless agents (claude/codex
 # app-servers spawned via Port) are bare OS processes that reparent to init on a
 # BEAM crash; kill-server can't see them, so they're reaped from the pidfile by
 # process tree, comm-guarded against pid reuse. Idempotent.
@@ -1756,7 +1756,7 @@ cmd_pause_resume() {
   run_control_rpc "$expression"
 }
 
-# `aiur message <issue> <text>` — deliver operator text to one running agent.
+# `aiur message <issue> <text>` — deliver Executor text to one running agent.
 # The text is base64-encoded for the RPC hop so arbitrary content (quotes,
 # backslashes, `#{}`, newlines) survives without Elixir-string escaping.
 cmd_message() {
@@ -1788,7 +1788,7 @@ cmd_agents() {
 }
 
 # `aiur alerts` — newline-delimited structured alert feed from persisted
-# per-agent logs. `--needs-attention` filters to operator-actionable alerts.
+# per-agent logs. `--needs-attention` filters to Executor-actionable alerts.
 cmd_alerts() {
   local needs_attention=0 arg
   for arg in "$@"; do
@@ -1932,7 +1932,7 @@ sweep_dead_tmux_sockets() {
 # foreground teardown (session_cleanup) and on `aiur stop`. Bounded and safe:
 #
 #   * Only exact top-level Aiur artifact families under the temp roots the engine
-#     and BEAM write to. Arbitrary operator worktrees/checkouts like
+#     and BEAM write to. Arbitrary Executor worktrees/checkouts like
 #     `/tmp/aiur-pr490` are not candidates.
 #   * Age-gated by AIUR_TMP_REAP_MINUTES (default 1440 = 24h). An entry is removed
 #     only when NOTHING in its subtree was modified within the window, so a live

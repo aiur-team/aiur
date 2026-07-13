@@ -175,7 +175,7 @@ defmodule Aiur.GitHub.CodeOwners do
       # silently trust nobody — which disables the whole review-comment → rework
       # loop (#693) by dropping every comment as :untrusted_author — fall back to
       # the repo owner (inherently trusted, unlike an arbitrary third party per
-      # #687) and surface the gap loudly so the operator sets CODEOWNERS /
+      # #687) and surface the gap loudly so the Executor sets CODEOWNERS /
       # trusted_accounts.
       owner = repo_owner_login()
       state = maybe_alert_empty_allowlist(state, owner)

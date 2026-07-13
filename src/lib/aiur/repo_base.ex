@@ -305,7 +305,7 @@ defmodule Aiur.RepoBase do
   defp run_base_build(_base_path, ""), do: :ok
 
   defp run_base_build(base_path, command) do
-    # Same execution shape as workspace hooks: scrub the operator's Erlang
+    # Same execution shape as workspace hooks: scrub the Executor’s Erlang
     # distribution env at the shell level, then run in the base dir. `base_env/1`
     # trusts the base's mise.toml (MISE_TRUSTED_CONFIG_PATHS) so mise-provided
     # tools run; the detected command still sets its own HEX_HOME/MIX_HOME so the

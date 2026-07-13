@@ -1,6 +1,6 @@
 defmodule Aiur.Orchestrator.OperatorMessages do
   @moduledoc """
-  Queues and routes operator messages and event digests to running agents. All functions execute inside the orchestrator GenServer process.
+  Queues and routes Executor messages and event digests to running agents. All functions execute inside the orchestrator GenServer process.
   """
   alias Aiur.{AgentQueue, AgentQueueStore, Alerts}
 
@@ -24,7 +24,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   def send_operator_message(server, issue_identifier, payload),
     do: control_api_call(server, {:send_operator_message, issue_identifier, payload}, 5_000)
 
-  @doc "Send one idempotent action-correlated operator message and return its queue snapshot."
+  @doc "Send one idempotent action-correlated Executor message and return its queue snapshot."
   @spec send_correlated_operator_message(String.t(), map()) ::
           {:ok, %{status: :accepted | :duplicate | :retried, item: Aiur.AgentQueueItem.t()}}
           | {:error, term()}
@@ -413,7 +413,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   # free. Routing through `resume_paused_issue/2` reuses the same
   # active-cap and per-state slot gates as the explicit space-key resume,
   # so we can't push active over max no matter which entry point the
-  # operator uses. If no slot is free, the cap error propagates and the
+  # Executor uses. If no slot is free, the cap error propagates and the
   # conversation pane surfaces it.
   defp enqueue_for_running_entry(state, running_entry, issue_identifier, text, request) do
     cond do
@@ -430,7 +430,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
 
   # Mirrors `enqueue_after_resume/5` for the `:deactivated → :working`
   # transition. The fresh agent task spawned by `reactivate_issue/2`
-  # will pick up the queued operator message when it boots.
+  # will pick up the queued Executor message when it boots.
   defp enqueue_after_reactivate(state, running_entry, issue_identifier, text, request) do
     case Aiur.Orchestrator.reactivate_issue(state, running_entry) do
       {{:ok, :reactivated}, next_state} ->
@@ -520,7 +520,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
       issue: Map.get(running_entry, :identifier),
       workspace: Map.get(running_entry, :workspace_path),
       worker_host: Map.get(running_entry, :worker_host),
-      reason: "Agent paused and may need operator input before continuing.",
+      reason: "Agent paused and may need Executor input before continuing.",
       needs_attention: true,
       severity: "warning"
     )
@@ -532,7 +532,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
       issue: Map.get(running_entry, :identifier),
       workspace: Map.get(running_entry, :workspace_path),
       worker_host: Map.get(running_entry, :worker_host),
-      reason: "Agent resumed; no operator action is needed.",
+      reason: "Agent resumed; no Executor action is needed.",
       needs_attention: false,
       severity: "info"
     )

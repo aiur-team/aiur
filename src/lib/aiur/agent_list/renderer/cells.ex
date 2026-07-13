@@ -53,7 +53,7 @@ defmodule Aiur.AgentList.Renderer.Cells do
   end
 
   # Remote-control indicator cell. `:launching` shows 📲 (registration
-  # is a network round-trip, so the operator gets feedback the instant
+  # is a network round-trip, so the Executor gets feedback the instant
   # `r` is pressed, before the URL lands — a distinct glyph from the ⏳
   # warming marker so the two never read as the same state); `:on`
   # shows 📱; `:failed` shows ❌; `:off`/absent shows nothing. Width is
@@ -79,7 +79,7 @@ defmodule Aiur.AgentList.Renderer.Cells do
   #
   # At percent: 100 (the agent's stop-work signal — see
   # `src/prompts/shared-agent-instructions.md`'s "Progress emits"
-  # section), the bar is tinted green so the operator sees at a
+  # section), the bar is tinted green so the Executor sees at a
   # glance that the agent is done for this iteration. The cell is
   # otherwise wrapped in `Style.dim()` at the call site; we reset and
   # re-apply dim around the green wrap so terminals render the

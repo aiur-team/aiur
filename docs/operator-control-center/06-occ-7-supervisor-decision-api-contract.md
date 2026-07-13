@@ -150,7 +150,7 @@ does not override the recorded value used by policy.
 The accepted immutable `DecisionAnswer` stores these fields plus a
 server-derived `policy_basis`: recorded authority/kind/reversibility, the three
 authorization checks, and the non-reversible opt-in state. Supervisor basis
-participates in answer content hashing. Legacy operator answer serialization
+participates in answer content hashing. Legacy Executor answer serialization
 and hashes remain unchanged because their absent basis field is omitted.
 
 DecisionApi calls only `DecisionStore.answer`. OCC-3 owns append, action

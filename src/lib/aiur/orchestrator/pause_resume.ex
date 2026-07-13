@@ -138,7 +138,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   # entry has no live pid to send a resume-control message to.
   #
   # Capacity check: returns `{:error, :max_concurrent_agents_reached}`
-  # without flipping state when all slots are full. The operator can
+  # without flipping state when all slots are full. The Executor can
   # retry once a slot opens (a working agent flips to `:deactivated`
   # or merges its PR). No `pending_reactivation` flag — the existing
   # `max_concurrent_agents` gate is the natural backpressure.
@@ -167,7 +167,7 @@ defmodule Aiur.Orchestrator.PauseResume do
     end
   end
 
-  # Operator pause from the list/CLI. Optimistically flip the entry to `:paused`
+  # Executor pause from the list/CLI. Optimistically flip the entry to `:paused`
   # (mirrors `maybe_pause_on_request` and the Ctrl+C path) so the row reflects
   # the pause immediately — even mid-spin-up, before the worker reaches a
   # checkpoint — then queue the cooperative `{:pause_agent}` control message.
@@ -259,7 +259,7 @@ defmodule Aiur.Orchestrator.PauseResume do
 
     Logger.info("Reactivating deactivated issue: identifier=#{Map.get(running_entry, :identifier)}; spawning fresh agent task")
 
-    # Reactivation is a deliberate operator restart; clear the thrash
+    # Reactivation is a deliberate Executor restart; clear the thrash
     # budget so the fresh task starts with a full window.
     state = Dispatcher.reset_thrash_budget(state, issue_id)
 
@@ -277,19 +277,19 @@ defmodule Aiur.Orchestrator.PauseResume do
         # `select_worker_host/2`, the thrash breaker, or Task.Supervisor can
         # decline a dispatch after the entry is optimistically made `:working`.
         # Restore the parked entry so the tracker still shows it as needing a
-        # wake and the comment path can emit its durable operator alert.
+        # wake and the comment path can emit its durable Executor alert.
         restored_state = %{dispatched_state | running: Map.put(dispatched_state.running, issue_id, running_entry)}
         {{:error, :dispatch_not_started}, TrackedSet.refresh(restored_state)}
     end
   end
 
-  # `operator?` distinguishes a deliberate operator resume (label flip,
+  # `operator?` distinguishes a deliberate Executor resume (label flip,
   # chat reply) from an automated/blocker auto-resume. It only matters
-  # for a duration-capped pause: an operator resume is "check in, keep
+  # for a duration-capped pause: an Executor resume is "check in, keep
   # going" and earns a fresh budget; an automated resume must PRESERVE
   # the cumulative overrun so a runaway is still bounded (see
-  # `reset_duration_clock_if_capped/4`). Defaults to operator so the
-  # operator-facing callers stay unchanged.
+  # `reset_duration_clock_if_capped/4`). Defaults to Executor so the
+  # Executor-facing callers stay unchanged.
   @doc false
   @spec resume_paused_issue(State.t(), map(), boolean()) :: {{:ok, :resumed} | {:error, term()}, State.t()}
   def resume_paused_issue(%State{} = state, running_entry, operator? \\ true) do
@@ -329,7 +329,7 @@ defmodule Aiur.Orchestrator.PauseResume do
         # any codex notification could refresh the field.
         state = update_in(state.running, &reset_last_codex_timestamp(&1, issue_id, now))
         # A duration-capped pause froze the entry after its *active*
-        # runtime already exceeded `max_agent_duration`. An OPERATOR resume
+        # runtime already exceeded `max_agent_duration`. An Executor resume
         # is a deliberate "check in, keep going," so reset `started_at` to
         # NOW for a fresh budget (a plain thaw only excludes the paused
         # interval, leaving `running_seconds` over the cap, which the next
@@ -343,7 +343,7 @@ defmodule Aiur.Orchestrator.PauseResume do
         state =
           update_in(state.running, &reset_duration_clock_if_capped(&1, issue_id, now, operator?))
 
-        # An operator-driven resume is a deliberate restart, so clear any
+        # An Executor-driven resume is a deliberate restart, so clear any
         # thrash budget the entry accrued before it paused — otherwise a
         # long-paused blockee could resume already over its window.
         state = Dispatcher.reset_thrash_budget(state, issue_id)
@@ -404,7 +404,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   # and so the overrun check re-stamps it fresh if the agent overruns again.
   #
   # `operator?: true` ALSO restarts the duration baseline (`started_at` ->
-  # now) so an operator resume hands the agent a full fresh budget.
+  # now) so an Executor resume hands the agent a full fresh budget.
   #
   # `operator?: false` PRESERVES `started_at` (the cumulative overrun) so an
   # automated/blocker auto-resume cannot silently reset the budget: the
@@ -496,8 +496,8 @@ defmodule Aiur.Orchestrator.PauseResume do
       is_nil(issue) ->
         {{:error, :no_running_agent}, state}
 
-      # Manual start (operator pressed space on a queued ticket): paused
-      # agents are excluded from the cap so the operator can fill a free
+      # Manual start (Executor pressed space on a queued ticket): paused
+      # agents are excluded from the cap so the Executor can fill a free
       # active slot even when a paused agent is parked in `running`.
       State.active_running_count(state.running) >= Slots.max_concurrent_agent_limit(state) ->
         {{:error, :max_concurrent_agents_reached}, state}

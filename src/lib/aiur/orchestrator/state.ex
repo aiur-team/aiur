@@ -264,7 +264,7 @@ defmodule Aiur.Orchestrator.State do
   def shift_started_at_by_pause_if(entry, _previous, _now), do: entry
 
   # A duration-capped pause is owned by `reset_duration_clock_if_capped/4`
-  # (operator resume -> fresh budget, automated resume -> preserve overrun),
+  # (Executor resume -> fresh budget, automated resume -> preserve overrun),
   # so the thaw must only un-freeze the pause clock (clear `paused_at`) and
   # must NOT credit the paused interval back into `started_at`. Crediting it
   # would advance `started_at` toward now and silently reset the overrun on

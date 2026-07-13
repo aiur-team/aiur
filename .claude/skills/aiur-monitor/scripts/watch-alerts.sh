@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
 # Stream NEW aiur ALERT events out of every active agent's structured NDJSON log,
-# one JSON line per alert, as they fire — so the operator agent running aiur can
+# one JSON line per alert, as they fire — so the Executor agent running aiur can
 # post the "why" in chat in near real time instead of waiting for the 5-minute
 # status tick. This is the immediacy half of the alert relay; `aiurdev watch`'s
 # ACTIONABLE section is the periodic floor/backstop.
 #
 # Unlike a one-shot board snapshot, this is LONG-LIVED: it keeps
-# running and prints each new alert as it lands. Drive it from the operator
+# running and prints each new alert as it lands. Drive it from the Executor
 # agent's harness as a streaming background watch (the Monitor tool) so every
 # printed line becomes one in-chat notification. It never drives the status
 # cadence (that stays an armed /loop), so it does not violate the monitor skill's
@@ -30,7 +30,7 @@
 #    "operator_decision":false}
 #
 # `operator_decision:true` marks the canonical `attention.operator-decision`
-# topic so the operator relay can distinguish an unanswered scope or acceptance
+# topic so the Executor relay can distinguish an unanswered scope or acceptance
 # question from a routine pause and fan it out to the active surfaces.
 #
 # New alerts are detected by tracking, per feed file, the count of alert lines
@@ -38,7 +38,7 @@
 # cursor, so no cross-run state collisions and nothing to grow unbounded). At
 # startup each existing file is baselined to its current count (routine history
 # is skipped — it is covered by the `aiurdev watch` tick). The one exception is
-# the latest unresolved operator-decision attention, which is replayed so a
+# the latest unresolved Executor decision attention, which is replayed so a
 # watcher restart cannot hide an unanswered question.
 #
 # Tune with env vars:

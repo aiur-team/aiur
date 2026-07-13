@@ -100,7 +100,7 @@ defmodule Aiur.Tmux.Exec do
   defp handle_tmux_exit(trimmed, status, full_args) do
     # "no server running on …" repeats every screen-grab tick
     # (2s) once the user kills the tmux server but leaves the
-    # operator BEAM running. Demote those to debug so the log
+    # Executor BEAM running. Demote those to debug so the log
     # isn't flooded — pane_manager still treats `{:error, _}`
     # the same way, so behavior doesn't change.
     if String.contains?(trimmed, "no server running") do

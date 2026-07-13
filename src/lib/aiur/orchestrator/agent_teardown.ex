@@ -62,7 +62,7 @@ defmodule Aiur.Orchestrator.AgentTeardown do
         # bypassing the normal `close_aiur_turn_streams` path; without
         # the explicit close the bridge streams stay subscribed at the
         # old `aiur_turn_id` and miss every event the next-dispatched
-        # agent emits. The operator sees an empty chat pane until the
+        # agent emits. The Executor sees an empty chat pane until the
         # 10-minute watchdog fires.
         close_active_chat_streams(identifier, terminate_reason(cleanup_workspace))
 

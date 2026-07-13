@@ -10,11 +10,11 @@ OCC **extends existing plumbing** rather than inventing parallel systems. Confir
 - `Aiur.AgentQueueStore`, crash-safe JSON/NDJSON patterns, Ecto+Exqlite deps.
 - `dashboard_writable` config gate (write controls are gated).
 
-So the missing layer is **a structured, persistent Decision object + an operator UX to answer it** — built on the above, not beside it.
+So the missing layer is **a structured, persistent Decision object + an Executor UX to answer it** — built on the above, not beside it.
 
-## Scoping decisions (operator, this session)
+## Scoping decisions (Executor, this session)
 1. **Full scope is v1**, but delivered as **many parallelizable tickets**, not one mega-PR.
-2. **Claude designs a mock** (HTML artifact w/ example data); the **UI ticket is blocked** on the operator supplying the mock URL, then productionizes it.
+2. **Claude designs a mock** (HTML artifact w/ example data); the **UI ticket is blocked** on the Executor supplying the mock URL, then productionizes it.
 3. **Link** OCC to #930's offline telemetry/analytics dashboard — keep them as two separate surfaces.
 4. Tickets route to **codex 5.6 sol / max**.
 
