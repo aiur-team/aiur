@@ -164,7 +164,7 @@ assigns or hooks.
 - Reads: BO-003 catalog/selected snapshots; BO-007 view model; BO-010 adapter;
   BO-011 context; current route/auth/navigation state.
 - Writes: Build Order routes, LiveView/component/navigation integration, CSS,
-  subscriptions, and tests.
+  subscriptions, tests, and the OCC route/navigation shell seam.
 - Contracts: URL/root selection; route/provider-state/freshness matrix;
   generation-safe bounded PubSub rendering; derived-icon rendering/fallback;
   read-only GitHub boundary; minimum semantic graph markup.
@@ -172,5 +172,7 @@ assigns or hooks.
 ## Sibling boundaries and open gates
 
 BO-013 owns advanced interaction/accessibility and BO-014 owns redraw/scale.
-Shell, Units, Commands, and usage companions are reuse/serialization seams only;
-none belongs to this hard dependency graph.
+The standalone DASH-001 companion declares the cross-pack serialization edge
+for the shared OCC route/navigation shell. Units, Commands, and usage
+companions are reuse/serialization seams only; none belongs to this hard
+dependency graph.

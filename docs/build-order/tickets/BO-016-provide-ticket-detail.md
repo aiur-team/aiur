@@ -12,7 +12,7 @@
 
 **Depends on:** BO-004
 
-**Serializes with:** none
+**Serializes with:** BO-003, BO-005, BO-019
 
 **Requirements:** BOREQ-011
 
@@ -89,6 +89,8 @@ or Build Order root/member field.
 
 - Reinspect current GitHub transport, BO-004 identity, supervision/cache,
   configuration, safe-URL policy, and test factories at pickup.
+- Reconcile application supervision edits with BO-003, BO-005, and BO-019
+  before overlapping branches merge.
 - Use injected clock/tasks and deterministic barriers rather than sleeps.
 - Publish a narrow snapshot/query/subscription seam for BO-018.
 
@@ -130,6 +132,8 @@ or Build Order root/member field.
   provider/cache configuration.
 - Writes: configured-repository detail adapter/cache; health/freshness,
   redaction, supervision, and provider tests.
+- Safety: ticket-detail privacy/no-mutation boundary and application
+  supervision tree.
 - Contracts: on-demand detail snapshot/health; reject-before-I/O repository
   boundary; complete/LKG/unavailable semantics.
 
@@ -137,5 +141,6 @@ or Build Order root/member field.
 
 BO-018 owns accessible base context, BO-019 owns recent history, BO-011 owns
 Build Order relationships/destinations, and BO-002/003 remain body-free graph
-providers. Other-repository endpoints are diagnostics/validated outbound links,
-never detail requests.
+providers. BO-003, BO-005, and BO-019 share only the application supervision
+tree with this ticket and serialize on that seam. Other-repository endpoints
+are diagnostics/validated outbound links, never detail requests.

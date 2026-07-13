@@ -84,8 +84,9 @@ Aiur progress, including 100%, never clears a GitHub blocker.
 
 After both external gates resolve, start BO-004 and BO-008 in parallel. BO-001
 and BO-017 follow BO-004. BO-002 follows BO-001; BO-003 follows BO-002; BO-005
-follows BO-017; BO-003 and BO-005 serialize on the application-supervision
-seam, and BO-005 serializes with companion DASH-008 on observation-envelope
+follows BO-017. BO-003, BO-005, BO-016, and BO-019 serialize on the
+application-supervision seam wherever hard dependencies do not already order
+them; BO-005 also serializes with companion DASH-008 on observation-envelope
 consumption. BO-006 follows BO-005. BO-007 follows BO-001, BO-003, and BO-005.
 BO-009 follows BO-001 and BO-008; BO-010 follows BO-008 and BO-009. BO-016
 follows BO-004 and owns configured-repository ticket detail. BO-019 follows
@@ -94,6 +95,11 @@ BO-016, and BO-019 and owns accessible base context. BO-011 follows BO-007 and
 BO-018 and adds Build Order relationships and truthful destination links.
 BO-012 follows BO-003, BO-007, BO-010, and BO-011; BO-013 follows BO-008 and
 BO-012; BO-014 follows BO-008 and BO-013; BO-015 follows BO-006 and BO-014.
+
+If separately authorized companion work is active, honor its companion-owned
+cross-pack serialization: DASH-001 with BO-012, DASH-023 with BO-013/014, and
+DASH-008 with BO-005. DASH-018/019 serialize on the Claude process-lifecycle
+adapter. DASH-004/019 depend on BO-004's configured-repository identity.
 
 Derive current readiness from GitHub native blockers, ticket lifecycle,
 declared serialization and real capacity. Phase is only a rollout/display hint.

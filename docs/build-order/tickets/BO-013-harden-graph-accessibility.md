@@ -137,12 +137,14 @@ browser/a11y harness. Keep one interaction state owner per selected root.
 - Reads: BO-012 semantic graph and adjacency; BO-010 geometry/fallback;
   BO-011 context/focus contract; input/theme/motion/viewport state.
 - Writes: interaction reducers/hook events, controls, highlight/transform
-  styles, accessible summaries/help/announcements, and browser tests.
+  styles, Build Order route component CSS, accessible
+  summaries/help/announcements, and browser tests.
 - Contracts: root-scoped interaction state; input equivalence; dependency-chain
   selection; pan/zoom bounds and focus behavior.
 
 ## Sibling boundaries and open gates
 
 BO-014 owns responsive redraw and measured scale, not interaction semantics.
-Companion navigation/CSS may require merge serialization, but no companion is a
-hard prerequisite or may redefine these controls.
+The standalone DASH-023 companion declares the cross-pack serialization edge
+for Build Order route component CSS. No companion is a hard prerequisite or may
+redefine these controls.

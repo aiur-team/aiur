@@ -605,7 +605,9 @@
         "BO-002"
       ],
       "serializes_with": [
-        "BO-005"
+        "BO-005",
+        "BO-016",
+        "BO-019"
       ],
       "suggested_after": [],
       "contains": [],
@@ -824,7 +826,8 @@
         "BO-017"
       ],
       "serializes_with": [
-        "BO-003"
+        "BO-003",
+        "BO-016"
       ],
       "suggested_after": [],
       "contains": [],
@@ -1349,7 +1352,11 @@
       "depends_on": [
         "BO-004"
       ],
-      "serializes_with": [],
+      "serializes_with": [
+        "BO-003",
+        "BO-005",
+        "BO-019"
+      ],
       "suggested_after": [],
       "contains": [],
       "external_gates": [],
@@ -1366,7 +1373,8 @@
         "reject-before-I/O repository boundary"
       ],
       "safety_surfaces": [
-        "ticket-detail privacy and no-mutation boundary"
+        "ticket-detail privacy and no-mutation boundary",
+        "application supervision tree"
       ],
       "conflict_exceptions": [],
       "acceptance": {
@@ -1421,7 +1429,10 @@
       "depends_on": [
         "BO-005"
       ],
-      "serializes_with": [],
+      "serializes_with": [
+        "BO-003",
+        "BO-016"
+      ],
       "suggested_after": [],
       "contains": [],
       "external_gates": [],
@@ -1438,7 +1449,8 @@
         "history freshness restart missing and unavailable states"
       ],
       "safety_surfaces": [
-        "structured activity history privacy"
+        "structured activity history privacy",
+        "application supervision tree"
       ],
       "conflict_exceptions": [],
       "acceptance": {
@@ -1591,6 +1603,7 @@
       ],
       "write_surfaces": [
         "Build Order LiveView routes and components",
+        "OCC route/navigation shell",
         "route/auth/integration tests"
       ],
       "contract_surfaces": [
@@ -1672,6 +1685,7 @@
       ],
       "write_surfaces": [
         "graph interaction controller and controls",
+        "Build Order route component CSS",
         "keyboard/touch/screen-reader tests"
       ],
       "contract_surfaces": [
@@ -1717,7 +1731,8 @@
       ],
       "non_goals": [
         "Change product semantics or add graph filters/minimap",
-        "Use the real root as the only scale fixture"
+        "Use the real root as the only scale fixture",
+        "Edit shared OCC shell Units or Commands CSS"
       ],
       "phase_hint": 7,
       "complexity_points": 4,
@@ -1748,6 +1763,7 @@
       ],
       "write_surfaces": [
         "responsive canvas hardening",
+        "Build Order route component CSS",
         "performance budgets and evidence tests"
       ],
       "contract_surfaces": [

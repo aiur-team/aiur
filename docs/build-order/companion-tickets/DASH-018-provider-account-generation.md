@@ -10,7 +10,7 @@
 
 **Depends on:** none
 
-**Serializes with:** none
+**Serializes with:** DASH-019 — shared Claude process lifecycle adapters
 
 **External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
 
@@ -90,9 +90,16 @@ Extend trusted Codex app-server and Claude/aiur-claude authentication/process li
 ## Surfaces
 
 - Reads: trusted Codex/Claude auth and process-binding lifecycle observations.
-- Writes: opaque generation owner/state, lifecycle adapters, change events, tests.
+- Writes: opaque generation owner/state, Claude process lifecycle adapters,
+  change events, tests.
 - Contracts: shared provider-account-generation lookup, rotation, health, and privacy semantics.
 
 ## Sibling boundaries and open gates
 
-DASH-008 consumes this identity for usage envelopes. DASH-012 consumes it for generic meter snapshots, while DASH-020 and DASH-013 report provider lifecycle changes through the trusted owner. DASH-011 groups but never joins meters; DASH-015 performs the only exact-generation usage/tier composition.
+DASH-008 consumes this identity for usage envelopes. DASH-012 consumes it for
+generic meter snapshots, while DASH-020 and DASH-013 report provider lifecycle
+changes through the trusted owner. DASH-018 serializes with DASH-019 because
+both write Claude process lifecycle adapters; this ticket owns account
+generation while DASH-019 owns authenticated telemetry transport. DASH-011
+groups but never joins meters; DASH-015 performs the only exact-generation
+usage/tier composition.

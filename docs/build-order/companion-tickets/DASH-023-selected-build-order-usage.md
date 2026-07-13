@@ -10,7 +10,7 @@
 
 **Depends on:** BO-003, BO-012, DASH-011, DASH-015, DASH-021
 
-**Serializes with:** DASH-022 — shared summary layout/CSS
+**Serializes with:** DASH-022, BO-013, BO-014 — summary and Build Order route CSS
 
 **External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
 
@@ -94,10 +94,17 @@ Extend BO-012's selected-route composition with a thin generation-safe scope ada
 ## Surfaces
 
 - Reads: BO-003 current selected graph/members, BO-012 URL route state, DASH-011 explicit-ticket query, DASH-015 component contract, DASH-021 protected delivery.
-- Writes: selected-build scope adapter, generation-keyed query/cache/subscriptions, Build Order usage composition and tests.
+- Writes: selected-build scope adapter, generation-keyed
+  query/cache/subscriptions, Build Order usage composition, Build Order route
+  component CSS, and tests.
 - Contracts: exact current-member `this build` accounting scope and live generation reconciliation.
 - Safety: GitHub/Aiur read-only boundary, protected financial delivery, cross-root stale-result isolation.
 
 ## Sibling boundaries and open gates
 
-DASH-015 owns provider/usage presentation and is a hard predecessor. DASH-022 owns nonfinancial run summary and serializes on shared layout only. BO-003/012 retain Build Order truth; this standalone companion never enters root membership or completion.
+DASH-015 owns provider/usage presentation and is a hard predecessor. DASH-022
+owns nonfinancial run summary and serializes on shared layout only. This
+companion declares the cross-pack serialization edges with BO-013 and BO-014
+because all three write Build Order route component CSS. BO-003/012 retain Build
+Order truth; this standalone companion never enters root membership or
+completion.

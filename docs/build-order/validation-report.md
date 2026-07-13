@@ -25,15 +25,15 @@ pending.
 - Prototype constraints SHA-256:
   `49e068d4999d62197dbd1d5c0438db21a25cd1b5873fb959a58a7e0388c7829a`
 - Canonical Build Order JSON SHA-256:
-  `f8f1dddda2a75d3411d789091f2a56eef84db1e6235f8bfbe557020c2177655b`
+  `aadc54d9a1a1614107174e9ba8c719e75e0c06d36c5e044385b83324433f79ef`
 - Companion baseline JSON SHA-256:
-  `4f3b3d6e446cf0701fbbc377350b0b811cec9d12b392eb654588a5245c58b189`
+  `4aa23836eb7ba07c36167878929365a3f61e56f937cb399f2570e36d14429095`
 - Publication manifest SHA-256:
   `0ffd8d82eadf3525bab29ea555931319d94f11f02ee184534b4b6cb1bf6a86ba`
 - Requirements SHA-256:
   `bf75997f1c32b4032d88186f4891fb0249598699ba7ae284fb8ad1ec27c20789`
 - Implementation plan SHA-256:
-  `7ed9045b376ea04f5d0275a06b8c43467799cc579a5964ecd8fe934da9a8b551`
+  `a3478093c73cd3366cab04dc23e5dc18ec406278d74668ede8ff61c4f3c64857`
 - Latest validator/skill authority: isolated draft PR #1065 at
   `0bb9ec025efb1cabb56b3450f96abebdb6a86baf`
 - Approval commit: pending two clean passes
@@ -275,6 +275,27 @@ This pass was not clean. It found and corrected:
    now derives every body from the exact approval commit and rejects any later
    title, scope, graph, label, or document drift; only returned GitHub mappings
    and reconciliation receipts may change after approval.
+
+### Corrective pass 7 — shared execution seams
+
+This pass was not clean. Independent core and dashboard reviewers found no new
+product scope, but did find missing scheduling truth:
+
+1. DASH-004 and DASH-019 consumed repository-qualified ticket identity while
+   appearing initially ready. Both now depend on BO-004, the sole canonical
+   configured-repository identity owner.
+2. BO-003/005 were serialized on application supervision, but BO-016/019 also
+   introduce supervised providers/caches through the same bootstrap surface.
+   Every independently ready pair among BO-003/005/016/019 now serializes;
+   BO-005 to BO-019 remains hard-ordered.
+3. Prose required shell and selected-build route/CSS coordination without
+   typed edges. Companion-declared cross-pack serialization now orders
+   DASH-001 with BO-012 and DASH-023 with BO-013/014. BO-014 is explicitly
+   limited to Build Order route-scoped styles rather than shared Units,
+   Commands, or shell CSS.
+4. DASH-018 and DASH-019 independently touched the Claude auth/process launch
+   lifecycle. They now share an explicit lifecycle-adapter surface and
+   serialize while preserving account-generation versus telemetry ownership.
 
 ### Clean pass 1
 

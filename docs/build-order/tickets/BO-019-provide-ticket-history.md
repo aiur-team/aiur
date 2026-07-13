@@ -12,7 +12,7 @@
 
 **Depends on:** BO-005
 
-**Serializes with:** none
+**Serializes with:** BO-003, BO-016
 
 **Requirements:** BOREQ-006, BOREQ-011
 
@@ -92,6 +92,8 @@ supervised/headless-safe; LiveView is only a subscriber/consumer.
 - Reinspect BO-005, event bus, IssueLog structured APIs, retention/redaction,
   supervision, and PubSub seams at pickup. If IssueLog lacks a supported typed
   query, expose `missing_source` rather than parsing files.
+- Reconcile application supervision edits with BO-003 and BO-016 before
+  overlapping branches merge.
 - Use injected clocks and deterministic barriers; avoid sleep/poll tests.
 - Keep the provider query/snapshot API small enough for BO-018 to render without
   knowing storage mechanics.
@@ -135,6 +137,7 @@ supervised/headless-safe; LiveView is only a subscriber/consumer.
   IssueLog query APIs; injected clock/configuration.
 - Writes: TicketHistoryProvider snapshots/PubSub; bounded allowlist,
   sanitization, freshness/restart, retention, and tests.
+- Safety: structured activity-history privacy and application supervision tree.
 - Contracts: bounded recent history; progress/latest projection; available/
   empty/missing/stale/unavailable/restart states.
 
@@ -143,4 +146,5 @@ supervised/headless-safe; LiveView is only a subscriber/consumer.
 BO-005 owns current activity, BO-017 owns event envelopes, BO-018 renders the
 base context/Logs timeline, and usage companions own financial events. This
 ticket must report a missing structured history source rather than bypass it
-with raw-log parsing.
+with raw-log parsing. BO-003 and BO-016 share only the application supervision
+tree with this ticket and serialize on that seam.

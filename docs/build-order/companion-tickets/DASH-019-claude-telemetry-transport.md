@@ -8,9 +8,9 @@
 
 **Risk:** high
 
-**Depends on:** none
+**Depends on:** BO-004
 
-**Serializes with:** none after the human gate pins an already-landed compatible protocol
+**Serializes with:** DASH-018 — shared Claude process lifecycle adapters
 
 **External gates:** `GATE-OCC-PREDECESSOR-BASELINE`; and `GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY`, owned by a human with `aiur-claude` write authority and resolved before dispatch
 
@@ -29,13 +29,18 @@ Claude processes owned by Aiur can deliver allowlisted structured telemetry thro
 ## Context and evidence
 
 Claude Code exposes official OpenTelemetry monitoring events, but loopback binding or possession of a Claude session ID does not authenticate a producer. Remote Control bypasses the existing headless `MessageHandler`, and an exporter may retry or reconnect. Transport security, launch authority, and trusted correlation form one cross-process boundary; DASH-010 separately maps accepted events into usage envelopes.
+BO-004 supplies the repository-qualified ticket identity carried by trusted
+correlation; same-number tickets in different repositories must never collide.
 
 ## Scope
 
 - Resolve `GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY` with a reviewed capability matrix selecting either a secure Aiur-only launch/receiver path or an already-landed pinned compatible `aiur-claude` revision. If sibling work is missing, a human must authorize and land it through a separate sibling issue/PR before this ticket becomes pickable.
 - Configure or embed one local-only telemetry receiver for Claude processes Aiur owns. Prefer an owner-only Unix-domain socket.
 - If loopback TCP is required, mint an unguessable per-process capability, inject it only at owned process launch, authenticate it before payload decoding/logging, bind it to process/session generation, and revoke it on teardown.
-- Maintain a trusted correlation registry established at process/session creation: producer generation, Claude session identity, current `run_id`, repository-qualified ticket, attempt, backend/transport, and worker generation.
+- Maintain a trusted correlation registry established at process/session
+  creation: producer generation, Claude session identity, current `run_id`,
+  BO-004 repository-qualified ticket identity, attempt, backend/transport, and
+  worker generation.
 - Define resume/reconnect/replacement semantics. Session ID alone never proves producer or ticket ownership; stale producer/session generations are rejected.
 - Accept only the required structured event family/version and allowlisted bounded attributes. Enforce body, attribute count/length, concurrent connection, and per-capability event-rate limits before expensive allocation.
 - Suppress authenticated replay floods with a bounded in-memory guard while preserving deterministic event/request identity for DASH-009's later durable deduplication.
@@ -92,10 +97,20 @@ Extend Claude REPL/Remote Control process/session lifecycle and trusted launch c
 
 ## Surfaces
 
-- Reads: owned Claude launch/session lifecycle and official local telemetry transport.
-- Writes: Aiur permissioned receiver or authenticated-loopback capability lifecycle, trusted correlation registry, allowlisted event stream, health/rejections, fixtures/tests.
+- Reads: BO-004 repository-qualified tracker identity, owned Claude
+  launch/session lifecycle, and official local telemetry transport.
+- Writes: Aiur permissioned receiver or authenticated-loopback capability
+  lifecycle, Claude process lifecycle adapters, trusted correlation registry,
+  allowlisted event stream, health/rejections, fixtures/tests.
 - Contracts: producer-authenticated bounded local telemetry and `GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY` receipt.
 
 ## Sibling boundaries and open gates
 
-DASH-010 alone converts delivered events into DASH-008 envelopes. This ticket is not dispatchable until its human gate names an Aiur-only path or already-landed pinned compatible sibling revision. Missing sibling capability requires a separate human-authorized sibling issue/PR and cannot be implemented here or reclassified as unsupported completion.
+DASH-010 alone converts delivered events into DASH-008 envelopes. BO-004 owns
+repository-qualified identity. DASH-019 serializes with DASH-018 because both
+write Claude process lifecycle adapters; this ticket owns telemetry transport,
+not account-generation identity. This ticket is not dispatchable until its
+human gate names an Aiur-only path or already-landed pinned compatible sibling
+revision. Missing sibling capability requires a separate human-authorized
+sibling issue/PR and cannot be implemented here or reclassified as unsupported
+completion.

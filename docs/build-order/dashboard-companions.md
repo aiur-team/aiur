@@ -74,20 +74,27 @@ The complete evidence matrix is
   Phoenix/LiveView browser harness. Closed #1034 is accepted predecessor
   evidence, not a new native blocker.
 - DASH-002 and DASH-008 consume BO-017 propagated identity; DASH-002 owns only
-  membership/recovery.
+  membership/recovery. DASH-004 and DASH-019 depend on BO-004's canonical
+  configured-repository identity before issuing controls or correlating
+  telemetry.
   DASH-016 joins BO-005 activity and owns all Units rows/predicates/counts/URL
   policy. DASH-003 consumes BO-018's accessible reusable base context rather
   than building a second modal; BO-011 remains Build Order-specific.
 - DASH-003/005/007/015/021/022/023 and BO-012..014 touch shared dashboard,
-  authentication, or CSS surfaces and must follow the typed symmetric
-  `serializes_with` edges in the manifests. DASH-015/023 are hard-ordered;
+  authentication, or CSS surfaces and must follow typed serialization edges.
+  Same-pack edges are symmetric; cross-pack edges are declared by companions
+  because the standalone core manifest cannot reference DASH IDs. DASH-001
+  serializes with BO-012, and DASH-023 serializes with BO-013/014 while its
+  dependency already orders it after BO-012. DASH-015/023 are hard-ordered;
   DASH-022 serializes with each on the shared summary layout.
 - DASH-006 and DASH-017 `serialize_with` each other on Decision store/schema
   files. DASH-006 owns read/query behavior; DASH-017 owns durable trusted
   fields and migration.
 - DASH-018 solely owns the opaque provider-account generation shared by usage
   and meters. DASH-008/012 consume it, and provider adapters only report
-  trusted lifecycle evidence.
+  trusted lifecycle evidence. DASH-018/019 serialize on the shared Claude
+  process-lifecycle adapter; DASH-019 still owns only telemetry launch,
+  producer authentication, and session correlation.
 - DASH-008 serializes with BO-005's event migration. DASH-009 owns raw append,
   counter delta, checkpoint and replay; DASH-024 owns aggregate/query recovery;
   DASH-025 alone owns destructive rotation/retention/compaction and preserves
@@ -96,7 +103,9 @@ The complete evidence matrix is
   DASH-015 alone joins tier facts by provider, backend, and exact known
   generation, with explicit unknown/mixed/mismatch states.
 - DASH-019 owns secure local Claude transport/correlation and its protocol gate;
-  DASH-010 owns only authenticated event-to-envelope mapping.
+  DASH-010 owns only authenticated event-to-envelope mapping. Its BO-004
+  prerequisite supplies repository-qualified ticket correlation and does not
+  transfer telemetry ownership to the Build Order graph.
 - DASH-012 owns the generic meter/LKG contract. DASH-020 and DASH-013 can run in
   parallel after it.
 - DASH-021 owns protected query/subscription delivery. DASH-022 receives only

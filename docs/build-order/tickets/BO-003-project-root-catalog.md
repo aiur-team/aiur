@@ -12,7 +12,7 @@
 
 **Depends on:** BO-002
 
-**Serializes with:** BO-005
+**Serializes with:** BO-005, BO-016, BO-019
 
 **Requirements:** BOREQ-001, BOREQ-004
 
@@ -101,7 +101,8 @@ polling, or the interactive AgentList process.
 ## Refreshable implementation notes
 
 - Refresh current application-supervision and cache APIs before adding the
-  child; serialize with BO-005 when both touch those owners.
+  child; serialize with BO-005, BO-016, and BO-019 when they touch the same
+  application supervision tree.
 - Prefer deterministic injected timers/tasks and explicit generation tokens;
   avoid sleep-based tests.
 - Keep the 60-second catalog, 15-second demanded-root, and 5-second selection/
@@ -131,7 +132,8 @@ polling, or the interactive AgentList process.
 
 - Supervision, PubSub, task/cache, provider, compile/lint/spec, and full CI pass
   on the current configured integration branch.
-- Shared supervision changes are reconciled with BO-005 before either merges.
+- Shared supervision changes are reconciled with BO-005, BO-016, and BO-019
+  before overlapping branches merge.
 
 ### Human/manual evidence
 
@@ -159,6 +161,7 @@ polling, or the interactive AgentList process.
 
 BO-007/012 consume catalog/graph snapshots. BO-016 separately owns
 root-independent on-demand ticket detail and its cache. BO-005 owns only Aiur
-activity and shares no data contract, but the two tickets serialize on
+activity, while BO-019 owns recent history. These tickets share no data
+contract, but BO-003 serializes with BO-005, BO-016, and BO-019 on application
 supervision changes. A companion shell may reuse provider status components
 later without becoming a dependency.

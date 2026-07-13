@@ -73,6 +73,8 @@ stable.
 - Weaken accessibility, edge diagnostics, fallback, or state truth to hit a
   benchmark.
 - Treat one developer-machine run or prototype screenshot as scale proof.
+- Edit shared OCC shell, Units, or Commands CSS; responsive changes stay inside
+  the Build Order route component namespace.
 
 ## Existing owner and reuse target
 
@@ -99,8 +101,8 @@ performance policy in tests and documented evidence, not magic delays.
   evidence, not silent test relaxation.
 - Prefer event-driven font/observer/worker readiness and animation-frame
   coalescing over fixed sleeps/debounce delays.
-- Sequence shared responsive CSS changes with active companion shell/Units work
-  while retaining independent acceptance.
+- Sequence Build Order route component CSS with DASH-023 while retaining
+  independent acceptance. Do not edit shared OCC shell, Units, or Commands CSS.
 
 ## Acceptance and verification
 
@@ -142,12 +144,15 @@ performance policy in tests and documented evidence, not magic delays.
 - Reads: BO-010/012/013 layout/page/interaction state; font/container/viewport
   lifecycle; BO-008 fixtures and measurement API.
 - Writes: observer/coalescing/redraw lifecycle, responsive CSS, performance
-  budgets/tests/evidence, health/fallback tuning, and cleanup checks.
+  budgets/tests/evidence, Build Order route component CSS, health/fallback
+  tuning, and cleanup checks.
 - Contracts: redraw triggers/coalescing; root/viewport state preservation;
   20/50/100 performance and responsive acceptance budgets.
 
 ## Sibling boundaries and open gates
 
 BO-015 owns merged real/synthetic proof. Companion responsive shell work may be
-reused or serialized at shared CSS boundaries but cannot relax these budgets or
-become part of Build Order completion.
+reused but this ticket does not edit its shared CSS. The standalone DASH-023
+companion declares the cross-pack serialization edge for Build Order route
+component CSS and cannot relax these budgets or become part of Build Order
+completion.

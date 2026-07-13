@@ -8,7 +8,7 @@
 
 **Risk:** high
 
-**Depends on:** none
+**Depends on:** BO-004
 
 **Serializes with:** none
 
@@ -29,10 +29,16 @@ Every supported per-unit pause or resume request advances through a correlated r
 ## Context and evidence
 
 Current `Aiur.AgentChat.pause/1` and `resume/1` route controls through the Orchestrator, but the pause path may update Orchestrator state after sending control without a correlated acknowledgement that the worker actually applied it. A subsequent snapshot therefore cannot by itself prove worker application. The refreshed prototype flips a client object immediately; production requires an end-to-end control contract before exposing that interaction as authoritative.
+BO-004 supplies the repository-qualified ticket identity that this protocol
+must carry; bare issue numbers cannot safely address units across repositories.
 
 ## Scope
 
-- Define a versioned control request containing `request_id`, typed issue identity, action (`pause` or `resume`), worker/backend generation, expected authoritative state/version, requester class, and request time. Request IDs are unique per intent and stable across safe retry of that intent.
+- Define a versioned control request containing `request_id`, BO-004
+  repository-qualified typed issue identity, action (`pause` or `resume`),
+  worker/backend generation, expected authoritative state/version, requester
+  class, and request time. Request IDs are unique per intent and stable across
+  safe retry of that intent.
 - Define lifecycle states and events: `requested` when admitted, `accepted` when the authoritative control plane routes it to the expected live worker, `applied` only after that worker reports the correlated state transition, `rejected` with a structured reason, and `expired` after a bounded timeout or generation loss.
 - Extend supported worker/backend adapters to return a correlated application result. Capability discovery must distinguish applied-confirmation support, request-only support, and unsupported controls; request-only is never labelled applied.
 - Make retries with the same request ID idempotent. A new conflicting intent supersedes an older pending request explicitly; late acknowledgement from an old worker generation cannot change current state.
@@ -92,10 +98,15 @@ Extend `Aiur.AgentChat`, `Aiur.Orchestrator.PauseResume`, worker control message
 
 ## Surfaces
 
-- Reads: current Orchestrator unit state, worker/backend generation and capability.
+- Reads: BO-004 repository-qualified tracker identity, current Orchestrator unit
+  state, worker/backend generation, and capability.
 - Writes: control request/ack envelopes, pending lifecycle projection, normalized audit/PubSub events, tests.
 - Contracts: correlated unit-control lifecycle, capability levels, rejection taxonomy.
 
 ## Sibling boundaries and open gates
 
-DASH-005 renders and invokes this contract. Capacity changes remain on the existing slot API and do not share the pause/resume acknowledgement protocol. Unsupported Remote Control application evidence remains visible rather than silently weakening the contract.
+DASH-005 renders and invokes this contract. BO-004 owns repository-qualified
+identity; this ticket only carries it through the control lifecycle. Capacity
+changes remain on the existing slot API and do not share the pause/resume
+acknowledgement protocol. Unsupported Remote Control application evidence
+remains visible rather than silently weakening the contract.

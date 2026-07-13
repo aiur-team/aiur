@@ -12,7 +12,7 @@
 
 **Depends on:** BO-017
 
-**Serializes with:** BO-003
+**Serializes with:** BO-003, BO-016
 
 **Requirements:** BOREQ-005, BOREQ-006
 
@@ -102,7 +102,7 @@ until BO-006 completes.
 ## Refreshable implementation notes
 
 - Refresh the current AgentList reducer and application-supervision seams before
-  extraction; serialize supervision edits with BO-003.
+  extraction; serialize supervision edits with BO-003 and BO-016.
 - Use injected clock/retention policy and deterministic reducer tests rather
   than sleeps.
 - Keep normalized evidence concise and redacted; full transcripts/logs stay in
@@ -127,7 +127,8 @@ until BO-006 completes.
 
 - Event/projection/supervision tests, compile/lint/spec checks, and full CI pass
   on the current configured integration branch.
-- Shared supervision changes are reconciled with BO-003 before merge.
+- Shared supervision changes are reconciled with BO-003 and BO-016 before
+  overlapping branches merge.
 
 ### Human/manual evidence
 
@@ -156,8 +157,10 @@ until BO-006 completes.
 
 BO-004 owns identity, BO-017 owns envelope/producer propagation, BO-006
 migrates AgentList, BO-019 owns bounded recent history, and BO-007 performs the
-GitHub/Aiur join. Usage companions may reuse identity or serialize on shared
-event producers, but financial observation/storage is outside this ticket.
+GitHub/Aiur join. BO-003 and BO-016 share only the application supervision tree
+with this ticket and therefore serialize rather than gaining data dependencies.
+Usage companions may reuse identity or serialize on shared event producers, but
+financial observation/storage is outside this ticket.
 DASH-008 declares the cross-pack `serializes_with: BO-005` edge in the companion
 manifest; the joined publication graph derives the reverse edge because the
 standalone core manifest cannot reference an external logical ID.

@@ -84,8 +84,9 @@ graph TD
 
 Phase is presentation and rollout guidance, not a barrier. Native GitHub hard
 dependencies, ticket state, declared serialization conflicts and current
-capacity determine readiness. BO-003 and BO-005 serialize on the supervision
-tree even after their different hard prerequisites land.
+capacity determine readiness. BO-003, BO-005, BO-016, and BO-019 serialize on
+the application-supervision tree wherever hard dependencies do not already
+order them.
 
 BO-004 and BO-008 are the independent initial implementation nodes;
 none is ready until both external gates are recorded as resolved. The current

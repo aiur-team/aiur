@@ -90,9 +90,9 @@ cached normalized providers rather than fetching per node or parsing logs.
 | BO-019 | Bounded sanitized recent ticket history | 3 | 4 | Backend | BO-005 |
 | BO-018 | Accessible root-independent base context | 3 | 4 | Frontend | BO-008, BO-016, BO-019 |
 
-BO-003 and BO-005 serialize because both change the application supervision
-surface after different prerequisites. Phase is a display/rollout hint, not a
-wave barrier. Same-phase hard edges are valid.
+BO-003, BO-005, BO-016, and BO-019 serialize wherever hard dependencies do not
+already order their changes to the application-supervision surface. Phase is a
+display/rollout hint, not a wave barrier. Same-phase hard edges are valid.
 
 ## Parallel execution shape
 
@@ -101,9 +101,10 @@ wave barrier. Same-phase hard edges are valid.
    blocker of both initial nodes.
 2. BO-001, BO-017, and BO-016 follow identity. BO-002 follows BO-001; BO-005
    follows BO-017; BO-009 follows BO-001 and BO-008; BO-019 follows BO-005.
-3. BO-003 follows BO-002; sequence BO-003 and BO-005 on the supervision seam
-   and BO-005 with DASH-008 on observation-envelope consumption. BO-010 follows
-   BO-008/009 while BO-018 follows BO-008/016/019.
+3. BO-003 follows BO-002; sequence every independently ready BO-003/005/016/019
+   pair on the supervision seam and BO-005 with DASH-008 on
+   observation-envelope consumption. BO-010 follows BO-008/009 while BO-018
+   follows BO-008/016/019.
 4. BO-006 follows activity; BO-007 follows activity and planning; BO-011 joins
    BO-018 base context to BO-007 relationship truth and destination capability.
 5. BO-012 joins graph providers, presenter, layout and relationship context.
@@ -200,12 +201,16 @@ and DASH-025 owns destructive rotation/retention/compaction while preserving
 every grouping dimension. DASH-011 prices those qualified groups;
 DASH-015 alone joins them to DASH-020/013 tier facts by an exact known
 provider/backend/generation match. DASH-001 consumes BO-008's shared real-route
-browser harness. DASH-003 consumes BO-018's root-independent base context;
+browser harness and serializes with BO-012 on route/navigation registration.
+DASH-003 consumes BO-018's root-independent base context;
 BO-011 remains Build Order-specific. DASH-006 and DASH-017 serialize on
 Decision storage while remaining independently acceptable. DASH-019 owns the
-local trust/correlation boundary; DASH-010 only normalizes accepted requests.
+local trust/correlation boundary; it and DASH-004 depend on BO-004 identity,
+and DASH-018/019 serialize on the Claude lifecycle adapter. DASH-010 only
+normalizes accepted requests.
 DASH-023 alone maps the selected root's current membership generation into
-retained usage scope without entering Build Order completion.
+retained usage scope without entering Build Order completion and serializes
+with BO-013/014 on Build Order route component work.
 DASH-001/003/005/007/015/022/023 and BO-012..014 touch shared dashboard composition
 or CSS and must be sequenced/rebased. Companion publication receives complexity and
 `model:codex`, never phase/lane/root membership or `agent:todo`.
