@@ -45,7 +45,9 @@ hand unless something is broken.
 
 ```text
 aiurdev                       # foreground run, local-only bind (full interactive UI)
-aiurdev --bg                  # lean headless background run (one detached tmux lifetime session, no panes/dashboard)
+aiurdev --bg                  # detached headless run (no panes; dashboard remains available)
+aiurdev --bg --no-dashboard   # lean detached run with no panes or dashboard listener
+aiurdev --no-dashboard        # foreground terminal UI without the dashboard listener
 aiurdev --max-agents <n>      # override agent.max_concurrent_agents at launch
 aiurdev stop                  # stop the session (BEAM + tmux)
 aiurdev status                # report the running session
@@ -63,6 +65,13 @@ npm-installed `aiur` accepts the exact same set. The engine injects
 `--host 127.0.0.1` on the run path unless you pass `--host` somewhere in the
 args. Pass `--host` when you want to expose the dashboard over the network
 (e.g. Tailscale, LAN).
+
+Claude Remote Control requires the dashboard server's lifecycle-hook endpoint.
+Aiur therefore rejects `--no-dashboard` when `agent.remote_control` is enabled
+or an `agent.routing` value carries `+remote`; remove `--no-dashboard` or
+disable that Remote Control configuration. Runtime Remote Control activation
+(including `model:remote` tickets and the live `r` promotion) is also refused
+unless the HTTP listener is confirmed bound.
 
 ## Per-issue workspaces
 
@@ -306,8 +315,10 @@ by that launched instance.
 
 Gotchas worth remembering:
 - `--bg` mode runs the workflow/agents **headlessly** inside the BEAM: it
-  skips the interactive UI tree (no agent-list pane, chat panes, prewarm
-  panes, or dashboard bind unless explicitly requested). The launcher still
+  skips the terminal UI tree (no agent-list pane, chat panes, or prewarm
+  panes) while keeping the dashboard enabled. Add `--no-dashboard` for the
+  lean no-listener background shape; the same flag suppresses only the
+  dashboard in foreground mode. The launcher still
   creates one detached tmux session as the BEAM lifetime holder and crash
   cleanup anchor. Observe it with `aiurdev agents` / `aiurdev status` over
   the control RPC. If that tmux session already exists, `--bg` treats a live

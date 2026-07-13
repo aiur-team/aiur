@@ -79,6 +79,23 @@ defmodule Aiur.HttpServer do
     :exit, _reason -> nil
   end
 
+  @doc "Return the dashboard URL only when the HTTP listener is actually bound."
+  @spec base_url() :: String.t() | nil
+  def base_url do
+    case bound_port() do
+      port when is_integer(port) and port > 0 ->
+        host = Config.server_host()
+        "http://#{display_host(host)}:#{port}"
+
+      _ ->
+        nil
+    end
+  rescue
+    _error -> nil
+  catch
+    :exit, _reason -> nil
+  end
+
   # Require basic-auth credentials for writable dashboards on every host, and
   # for read-only dashboards exposed beyond loopback. Returns `:ok` to proceed,
   # or a sentinel that disables the dashboard after logging remediation.
@@ -197,6 +214,10 @@ defmodule Aiur.HttpServer do
   defp normalize_host(host) when host in ["", nil], do: "127.0.0.1"
   defp normalize_host(host) when is_binary(host), do: host
   defp normalize_host(host), do: to_string(host)
+
+  defp display_host(host) when host in ["0.0.0.0", "::", "", nil], do: "127.0.0.1"
+  defp display_host(host) when is_binary(host), do: host
+  defp display_host(host), do: to_string(host)
 
   defp secret_key_base do
     Base.encode64(:crypto.strong_rand_bytes(@secret_key_bytes), padding: false)

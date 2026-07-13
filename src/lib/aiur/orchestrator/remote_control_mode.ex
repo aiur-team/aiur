@@ -6,6 +6,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
 
   alias Aiur.Claude.{RemoteControl, ReplAgent}
   alias Aiur.CodingAgent
+  alias Aiur.HttpServer
   alias Aiur.Issue
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{Dispatcher, State, StatusReport}
@@ -47,12 +48,12 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
   end
 
   @doc false
-  @spec set_remote_control_reply(State.t(), String.t(), boolean()) :: {term(), State.t()}
-  def set_remote_control_reply(state, issue_identifier, on?) do
+  @spec set_remote_control_reply(State.t(), String.t(), boolean(), keyword()) :: {term(), State.t()}
+  def set_remote_control_reply(state, issue_identifier, on?, opts \\ []) do
     case State.find_running_by_identifier(state.running, issue_identifier) do
       running_entry when is_map(running_entry) ->
         if on?,
-          do: promote_to_remote(state, running_entry),
+          do: promote_to_remote(state, running_entry, opts),
           else: demote_from_remote(state, running_entry)
 
       _ ->
@@ -65,9 +66,10 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
   # re-dispatch the same issue. The re-dispatch resolves `claude-repl` + forced
   # RC (the alias from `CodingAgent`) and resumes the transcript by cwd, so the
   # Executor gets a persistent REPL with RC attached on the same conversation.
-  defp promote_to_remote(state, running_entry) do
+  defp promote_to_remote(state, running_entry, opts) do
     issue = Map.get(running_entry, :issue)
     workspace = Map.get(running_entry, :workspace_path)
+    dashboard_url_fun = Keyword.get(opts, :dashboard_url_fun, &HttpServer.base_url/0)
 
     cond do
       # Already remote (label present) — toggling on again is a no-op.
@@ -81,6 +83,9 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
 
       is_nil(workspace) ->
         {{:error, :workspace_unavailable}, state}
+
+      is_nil(dashboard_url_fun.()) ->
+        {{:error, :remote_control_requires_dashboard}, state}
 
       true ->
         # Trust the workspace before tearing down the current agent. If trust
