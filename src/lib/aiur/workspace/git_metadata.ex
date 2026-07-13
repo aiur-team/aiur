@@ -184,11 +184,9 @@ defmodule Aiur.Workspace.GitMetadata do
   end
 
   defp write_and_close(io, contents) do
-    try do
-      with :ok <- :file.write(io, contents), do: :file.sync(io)
-    after
-      :ok = :file.close(io)
-    end
+    with :ok <- :file.write(io, contents), do: :file.sync(io)
+  after
+    :ok = :file.close(io)
   end
 
   defp read_optional_regular_file(path) do

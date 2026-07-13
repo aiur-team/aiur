@@ -58,7 +58,9 @@ defmodule Aiur.Workspace.GitMetadataTest do
     File.rm_rf!(info)
     File.ln_s!(outside, info)
 
-    assert {:error, {:workspace_git_metadata_unwritable, ^repo, {:symlinked_git_info, ^info}}} = GitMetadata.ensure_tool_results_excluded(repo)
+    assert {:error, {:workspace_git_metadata_unwritable, ^repo, {:symlinked_git_info, ^info}}} =
+             GitMetadata.ensure_tool_results_excluded(repo)
+
     assert File.ls!(outside) == []
   end
 
@@ -71,7 +73,9 @@ defmodule Aiur.Workspace.GitMetadataTest do
     File.rm!(exclude)
     File.ln_s!(outside, exclude)
 
-    assert {:error, {:workspace_git_metadata_unwritable, ^repo, {:symlinked_git_exclude, ^exclude}}} = GitMetadata.ensure_tool_results_excluded(repo)
+    assert {:error, {:workspace_git_metadata_unwritable, ^repo, {:symlinked_git_exclude, ^exclude}}} =
+             GitMetadata.ensure_tool_results_excluded(repo)
+
     assert File.read!(outside) == original
   end
 
