@@ -11,6 +11,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
 from publication_common import SHA, Report, valid_trusted_branch_ref
+from publication_paths import safe_repository_relative
 from publication_rendering import (
     exact_commit,
     reject_legacy_grafts,
@@ -25,6 +26,9 @@ MANIFEST_NAMES = (
     "publication.json",
 )
 REGULAR_MODES = {b"100644", b"100755"}
+MAX_RECEIPT_FILES = 512
+MAX_RECEIPT_FILE_BYTES = 2 * 1024 * 1024
+MAX_RECEIPT_BYTES = 32 * 1024 * 1024
 GITHUB_REPOSITORY = re.compile(r"^[^/\s]+/[^/\s]+$", re.ASCII)
 GITHUB_TIMEOUT_SECONDS = 30
 RemoteRefContainmentChecker = Callable[[str, str, str, str], bool]
@@ -42,6 +46,29 @@ class ReceiptAuthority:
     receipt_manifests: dict[str, dict[str, Any]] = field(
         repr=False, compare=False,
     )
+
+
+@dataclass
+class ReceiptBlobBudget:
+    files_remaining: int = MAX_RECEIPT_FILES
+    bytes_remaining: int = MAX_RECEIPT_BYTES
+
+    def reserve_file(self, label: str, report: Report) -> bool:
+        if self.files_remaining <= 0:
+            report.error("receipt snapshot exceeds file-count bound")
+            return False
+        self.files_remaining -= 1
+        return True
+
+    def reserve_bytes(self, size: int, label: str, report: Report) -> bool:
+        if size > MAX_RECEIPT_FILE_BYTES:
+            report.error(f"{label} exceeds per-file byte bound")
+            return False
+        if size > self.bytes_remaining:
+            report.error("receipt snapshot exceeds aggregate byte bound")
+            return False
+        self.bytes_remaining -= size
+        return True
 
 
 def load_receipt_authority(
@@ -153,9 +180,12 @@ def _snapshot_blobs(
 ) -> tuple[dict[str, dict[str, Any]], dict[str, bytes]] | None:
     manifests: dict[str, dict[str, Any]] = {}
     blobs: dict[str, bytes] = {}
+    budget = ReceiptBlobBudget()
     for name in MANIFEST_NAMES:
         path = (PACK_ROOT / name).as_posix()
-        raw = _commit_blob(root, receipt_commit, path, f"receipt {name}", report)
+        raw = _commit_blob(
+            root, receipt_commit, path, f"receipt {name}", budget, report,
+        )
         if raw is None:
             continue
         blobs[path] = raw
@@ -167,7 +197,7 @@ def _snapshot_blobs(
 
     reserved = {path.casefold(): path for path in blobs}
     for label, relative in _document_references(manifests):
-        safe = _safe_relative_path(relative, label, report)
+        safe = safe_repository_relative(relative, label, report)
         if safe is None:
             continue
         path = (PACK_ROOT / PurePosixPath(safe)).as_posix()
@@ -177,7 +207,7 @@ def _snapshot_blobs(
                 f"{label} collides with reserved receipt path {reserved[folded]}"
             )
             continue
-        raw = _commit_blob(root, receipt_commit, path, label, report)
+        raw = _commit_blob(root, receipt_commit, path, label, budget, report)
         if raw is not None:
             blobs[path] = raw
             reserved[folded] = path
@@ -206,28 +236,12 @@ def _document_references(
     return references
 
 
-def _safe_relative_path(value: object, label: str, report: Report) -> str | None:
-    if not isinstance(value, str) or not value:
-        report.error(f"{label} must be a non-empty repository-relative path")
-        return None
-    path = PurePosixPath(value)
-    normalized = path.as_posix()
-    if (
-        path.is_absolute()
-        or ".." in path.parts
-        or normalized == "."
-        or normalized != value
-        or "\x00" in value
-        or any(part.casefold() == ".git" for part in path.parts)
-    ):
-        report.error(f"{label} must be a safe repository-relative path")
-        return None
-    return normalized
-
-
 def _commit_blob(
-    root: Path, commit: str, path: str, label: str, report: Report,
+    root: Path, commit: str, path: str, label: str,
+    budget: ReceiptBlobBudget, report: Report,
 ) -> bytes | None:
+    if not budget.reserve_file(label, report):
+        return None
     entry = run_authority_git(
         ["git", "-C", str(root), "ls-tree", "-z", commit, "--", path],
         check=False,
@@ -235,6 +249,9 @@ def _commit_blob(
     )
     if entry.returncode or not _regular_tree_entry(entry.stdout, path):
         report.error(f"{label} must be a regular file at {path}")
+        return None
+    size = _commit_blob_size(root, commit, path, label, report)
+    if size is None or not budget.reserve_bytes(size, label, report):
         return None
     result = run_authority_git(
         ["git", "-C", str(root), "show", f"{commit}:{path}"],
@@ -244,7 +261,27 @@ def _commit_blob(
     if result.returncode:
         report.error(f"{label} is absent from receipt commit at {path}")
         return None
+    if len(result.stdout) != size:
+        report.error(f"{label} byte size changed during receipt read at {path}")
+        return None
     return result.stdout
+
+
+def _commit_blob_size(
+    root: Path, commit: str, path: str, label: str, report: Report,
+) -> int | None:
+    result = run_authority_git(
+        ["git", "-C", str(root), "cat-file", "-s", f"{commit}:{path}"],
+        check=False, capture_output=True, text=True,
+    )
+    try:
+        size = int(result.stdout.strip()) if result.returncode == 0 else -1
+    except ValueError:
+        size = -1
+    if size < 0:
+        report.error(f"{label} byte size is unreadable at {path}")
+        return None
+    return size
 
 
 def _regular_tree_entry(raw: bytes, path: str) -> bool:

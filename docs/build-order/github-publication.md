@@ -168,7 +168,7 @@ Root:
 All 54 members — BO-001 through BO-020 and DASH-001 through DASH-034:
 
 - exactly one `complexity:N`;
-- `model:codex-gpt-5.6-sol`;
+- `model:codex-gpt-5.6-terra`;
 - exactly one `phase:N`;
 - exactly one `build-lane:plan-graph|runtime|dashboard-ui|accounting|platform`;
 - no active `agent:*` state.
@@ -180,9 +180,9 @@ Skill delivery:
 - no `agent:*` label and no Build Order membership.
 
 Create missing `build-order`, five `build-lane:*`, required phase labels, and
-the exact `model:codex-gpt-5.6-sol` label with Build Order-neutral
+the exact `model:codex-gpt-5.6-terra` label with Build Order-neutral
 descriptions. Reuse current complexity labels. Never substitute generic
-`model:codex`, a Claude model label, or a different Codex variant.
+`model:codex`, a Sol, Luna, or Claude model label, or a different Codex variant.
 The version-3 core receipt records both the deterministic projected labels and
 the full observed label set so the validator can prove required routing labels
 and wildcard routing-family exclusions, not merely a self-authored manifest.

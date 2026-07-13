@@ -161,7 +161,7 @@ native dependencies, current lifecycle, data health, conflicts, and capacity.
 **Status:** accepted
 
 After user review, publish the approved GitHub issues with exactly one
-`complexity:N` and `model:codex-gpt-5.6-sol` on executable work. Do not apply
+`complexity:N` and `model:codex-gpt-5.6-terra` on executable work. Do not apply
 `agent:todo`, start Aiur, or otherwise dispatch a ticket during planning.
 
 ## DEC-012 — Protect the finite boundary

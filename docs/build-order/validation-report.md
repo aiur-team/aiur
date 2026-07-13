@@ -22,9 +22,9 @@ the reviewed 40-character commit SHA.
 - One canonical member manifest/core receipt in `build-order.json` and one
   auxiliary root/skill receipt in `publication.json`.
 - Every member has exactly one `complexity:N`, one `phase:N`, one of the five
-  `build-lane:*` labels, and exactly `model:codex-gpt-5.6-sol`.
-- Generic `model:codex`, Claude model labels, other Codex variants, and every
-  unexpected routing-family label fail validation.
+  `build-lane:*` labels, and exactly `model:codex-gpt-5.6-terra`.
+- Generic `model:codex`, Sol, Luna, Claude model labels, other Codex variants,
+  and every unexpected routing-family label fail validation.
 - Root and skill issues remain parentless; all 54 executable issues have the
   one root as their direct native parent.
 

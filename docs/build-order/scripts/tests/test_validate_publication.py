@@ -183,7 +183,7 @@ class PublicationValidationTests(unittest.TestCase):
         receipt = build["github_reconciliation"]
         receipt["dependency_edges"] = []
         receipt["observed_labels"]["BO-001"] = [
-            "model:codex-gpt-5.6-sol", "agent:paused",
+            "model:codex-gpt-5.6-terra", "agent:paused",
         ]
         fixture = Fixture(build, manifest)
         self.addCleanup(fixture.close)

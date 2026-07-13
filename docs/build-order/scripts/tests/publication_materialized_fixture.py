@@ -43,7 +43,7 @@ def materialized_pack() -> tuple[dict, dict]:
     ticket_ids = [ticket["id"] for ticket in build["tickets"]]
     ticket_labels = {
         ticket["id"]: [
-            "model:codex-gpt-5.6-sol", "build-lane:backend", "phase:1",
+            "model:codex-gpt-5.6-terra", "build-lane:backend", "phase:1",
             f"complexity:{ticket['complexity_points']}",
         ]
         for ticket in build["tickets"]

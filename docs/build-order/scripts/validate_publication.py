@@ -31,7 +31,7 @@ from publication_records import (
 )
 
 
-MODEL_LABEL = "model:codex-gpt-5.6-sol"
+MODEL_LABEL = "model:codex-gpt-5.6-terra"
 
 
 def validate(build_path: Path, publication_path: Path | None = None) -> Report:

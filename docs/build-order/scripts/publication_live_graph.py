@@ -37,6 +37,8 @@ COMMENT_URL = re.compile(
 MAX_PAGES = 100
 PAGE_SIZE = 100
 MAX_ITEMS = MAX_PAGES * PAGE_SIZE
+MAX_TOTAL_REQUESTS = 2_500
+MAX_TOTAL_ITEMS = 50_000
 GITHUB_TIMEOUT_SECONDS = 30
 # The expected issue and blockedBy-edge totals are not constants: they are
 # derived from the validated receipt manifests (every consolidated Build Order
@@ -46,6 +48,22 @@ GITHUB_TIMEOUT_SECONDS = 30
 
 class LiveGraphError(RuntimeError):
     """A bounded GitHub read returned incomplete, ambiguous, or invalid data."""
+
+
+@dataclass
+class QueryBudget:
+    requests_remaining: int = MAX_TOTAL_REQUESTS
+    items_remaining: int = MAX_TOTAL_ITEMS
+
+    def consume_request(self) -> None:
+        if self.requests_remaining <= 0:
+            raise LiveGraphError("GitHub verification exceeds total request bound")
+        self.requests_remaining -= 1
+
+    def consume_items(self, count: int) -> None:
+        if count > self.items_remaining:
+            raise LiveGraphError("GitHub verification exceeds total item bound")
+        self.items_remaining -= count
 
 
 @dataclass(frozen=True)
@@ -76,8 +94,13 @@ def verify_live_graph(
     """Query GitHub twice and compare one stable graph to the immutable receipt."""
     try:
         expected = _expected_graph(authority)
-        first = _capture_snapshot(authority, expected, expected_comment_body)
-        second = _capture_snapshot(authority, expected, expected_comment_body)
+        budget = QueryBudget()
+        first = _capture_snapshot(
+            authority, expected, expected_comment_body, budget,
+        )
+        second = _capture_snapshot(
+            authority, expected, expected_comment_body, budget,
+        )
     except LiveGraphError as exc:
         report.error(f"live GitHub publication graph query failed: {exc}")
         return False
@@ -189,10 +212,14 @@ def _capture_snapshot(
     authority: ReceiptAuthority,
     expected: ExpectedGraph,
     expected_comment_body: str,
+    budget: QueryBudget | None = None,
 ) -> dict[str, Any]:
+    budget = budget or QueryBudget()
     repository = authority.repository
     base = f"repos/{repository}"
-    raw_issues = _github_pages(f"{base}/issues?state=all&per_page=100")
+    raw_issues = _github_pages(
+        f"{base}/issues?state=all&per_page=100", budget=budget,
+    )
     by_number: dict[int, dict[str, Any]] = {}
     all_numbers: set[int] = set()
     all_nodes: set[str] = set()
@@ -248,20 +275,23 @@ def _capture_snapshot(
         if not isinstance(updated_at, str) or not updated_at:
             raise LiveGraphError(f"mapped issue {logical_id} lacks updated_at")
         number = item.mapping["number"]
-        parent_raw = _github_json(f"{base}/issues/{number}/parent", allow_404=True)
+        parent_raw = _github_json(
+            f"{base}/issues/{number}/parent", allow_404=True, budget=budget,
+        )
         parent = None if parent_raw is None else _relationship_ref(
             parent_raw, repository, mapped_numbers,
         )
         subissues = tuple(sorted(
             _relationship_ref(value, repository, mapped_numbers)
             for value in _github_pages(
-                f"{base}/issues/{number}/sub_issues?per_page=100"
+                f"{base}/issues/{number}/sub_issues?per_page=100", budget=budget,
             )
         ))
         blocked_by = tuple(sorted(
             _relationship_ref(value, repository, mapped_numbers)
             for value in _github_pages(
-                f"{base}/issues/{number}/dependencies/blocked_by?per_page=100"
+                f"{base}/issues/{number}/dependencies/blocked_by?per_page=100",
+                budget=budget,
             )
         ))
         issues[logical_id] = {
@@ -281,7 +311,9 @@ def _capture_snapshot(
     if comment_match is None or comment_match.group("repository") != repository:
         raise LiveGraphError("receipt comment URL is not in the trusted repository")
     comment_id = comment_match.group("comment")
-    comment = _github_json(f"{base}/issues/comments/{comment_id}")
+    comment = _github_json(
+        f"{base}/issues/comments/{comment_id}", budget=budget,
+    )
     if not isinstance(comment, dict):
         raise LiveGraphError("exact reconciliation comment query returned no object")
     comment_url, comment_body = comment.get("html_url"), comment.get("body")
@@ -289,7 +321,7 @@ def _capture_snapshot(
         raise LiveGraphError("exact reconciliation comment returned invalid content")
     root_number = expected.issues[authority.root_id].mapping["number"]
     raw_comments = _github_pages(
-        f"{base}/issues/{root_number}/comments?per_page=100"
+        f"{base}/issues/{root_number}/comments?per_page=100", budget=budget,
     )
     marker_comment_urls: list[str] = []
     for raw in raw_comments:
@@ -620,11 +652,16 @@ def _relationship_ref(
     return f"{relationship_repository}#{number}"
 
 
-def _github_pages(endpoint: str) -> list[Any]:
+def _github_pages(
+    endpoint: str, *, budget: QueryBudget | None = None,
+) -> list[Any]:
+    budget = budget or QueryBudget()
     separator = "&" if "?" in endpoint else "?"
     result: list[Any] = []
     for page in range(1, MAX_PAGES + 1):
-        value = _github_json(f"{endpoint}{separator}page={page}")
+        value = _github_json(
+            f"{endpoint}{separator}page={page}", budget=budget,
+        )
         if not isinstance(value, list):
             raise LiveGraphError(f"paginated GitHub response is not an array: {endpoint}")
         if len(value) > PAGE_SIZE:
@@ -636,13 +673,19 @@ def _github_pages(endpoint: str) -> list[Any]:
             raise LiveGraphError(
                 f"paginated GitHub response exceeded {MAX_ITEMS} items: {endpoint}"
             )
+        budget.consume_items(len(value))
         result.extend(value)
         if len(value) < PAGE_SIZE:
             return result
     raise LiveGraphError(f"paginated GitHub response exceeded {MAX_PAGES} pages: {endpoint}")
 
 
-def _github_json(endpoint: str, *, allow_404: bool = False) -> object | None:
+def _github_json(
+    endpoint: str, *, allow_404: bool = False,
+    budget: QueryBudget | None = None,
+) -> object | None:
+    budget = budget or QueryBudget()
+    budget.consume_request()
     try:
         result = subprocess.run(
             [
@@ -666,6 +709,9 @@ def _github_json(endpoint: str, *, allow_404: bool = False) -> object | None:
         detail = result.stderr.strip() or f"exit {result.returncode}"
         raise LiveGraphError(f"GitHub GET {endpoint} failed: {detail}")
     try:
-        return json.loads(result.stdout)
+        value = json.loads(result.stdout)
     except json.JSONDecodeError as exc:
         raise LiveGraphError(f"GitHub GET {endpoint} returned invalid JSON: {exc}") from exc
+    if value is not None and not isinstance(value, list):
+        budget.consume_items(1)
+    return value

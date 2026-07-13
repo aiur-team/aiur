@@ -57,7 +57,7 @@
    "4": "complexity:4"
   },
   "required_ticket_labels": [
-   "model:codex-gpt-5.6-sol"
+   "model:codex-gpt-5.6-terra"
   ],
   "forbidden_labels": [
    "agent:todo",

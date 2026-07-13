@@ -9,6 +9,7 @@ from pathlib import Path
 from helpers import ValidatorCase, example, report_for
 from validation_common import Report
 from validation_documents import validate_document
+from validation_tickets import validate_implementation_pointers
 
 
 class SchemaTests(ValidatorCase):
@@ -171,6 +172,31 @@ class SchemaTests(ValidatorCase):
                 report,
             )
             self.assertTrue(any("missing section: Outcome" in item for item in report.errors))
+
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            pointers = base / "08-implementation-pointers.md"
+            (base / "ticket.md").write_text(
+                "See 08-implementation-pointers.md before work.\n", encoding="utf-8",
+            )
+            pointers.write_text("### BO-001\n\n### BO-001\n", encoding="utf-8")
+            report = Report()
+            validate_implementation_pointers(
+                {
+                    "BO-001": {"document": "ticket.md"},
+                    "BO-002": {"document": "ticket.md"},
+                },
+                base, report,
+            )
+            joined = "\n".join(report.errors)
+            self.assertIn("### BO-001 section; found 2", joined)
+            self.assertIn("### BO-002 section; found 0", joined)
+            pointers.unlink()
+            report = Report()
+            validate_implementation_pointers(
+                {"BO-001": {"document": "ticket.md"}}, base, report,
+            )
+            self.assertIn("regular non-symlink file", "\n".join(report.errors))
 
     def test_mutating_fixture_does_not_leak(self) -> None:
         first = example()

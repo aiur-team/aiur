@@ -12,6 +12,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from publication_common import SHA, Report, strict_object, valid_issue_title
+from publication_paths import safe_repository_relative
 
 
 MARKER_NAME = "aiur-planning-issue"
@@ -39,6 +40,9 @@ MARKER = re.compile(
 )
 
 
+AUTHORITY_GIT_TIMEOUT_SECONDS = 30
+
+
 def run_authority_git(
     args: list[str], **kwargs: Any,
 ) -> subprocess.CompletedProcess[Any]:
@@ -46,7 +50,14 @@ def run_authority_git(
     configured = kwargs.pop("env", None)
     env = os.environ.copy() if configured is None else dict(configured)
     env["GIT_NO_REPLACE_OBJECTS"] = "1"
-    return subprocess.run(args, env=env, **kwargs)
+    kwargs.setdefault("timeout", AUTHORITY_GIT_TIMEOUT_SECONDS)
+    try:
+        return subprocess.run(args, env=env, **kwargs)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        text = bool(kwargs.get("text"))
+        empty = "" if text else b""
+        detail = str(exc) if text else str(exc).encode()
+        return subprocess.CompletedProcess(args, 124, empty, detail)
 
 
 def reject_legacy_grafts(root: Path, report: Report) -> bool:
@@ -355,7 +366,9 @@ def _approved_document_title(
     if logical_id in output:
         report.error(f"approved title rendering duplicates logical ID {logical_id}")
         return
-    safe_document = _safe_path(document, f"{label}.document", report)
+    safe_document = safe_repository_relative(
+        document, f"{label}.document", report,
+    )
     if safe_document is None:
         return
     source = _git_show(
@@ -437,7 +450,9 @@ def _render_tickets(
 ) -> None:
     for logical_id in sorted(tickets):
         ticket = tickets[logical_id]
-        document = _safe_path(ticket.get("document"), f"approved {logical_id}.document", report)
+        document = safe_repository_relative(
+            ticket.get("document"), f"approved {logical_id}.document", report,
+        )
         if document is None:
             continue
         source = _git_show(
@@ -477,7 +492,9 @@ def _render_template(
 ) -> None:
     if not isinstance(issue, dict):
         return
-    document = _safe_path(issue.get("document"), f"{label}.document", report)
+    document = safe_repository_relative(
+        issue.get("document"), f"{label}.document", report,
+    )
     if document is None:
         return
     template = _git_show(
@@ -545,28 +562,10 @@ def _tickets(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
     }
 
 
-def _safe_path(value: object, label: str, report: Report) -> str | None:
-    if not isinstance(value, str) or not value:
-        report.error(f"{label} must be a non-empty repository-relative path")
-        return None
-    path = PurePosixPath(value)
-    normalized = path.as_posix()
-    if (
-        path.is_absolute()
-        or ".." in path.parts
-        or normalized == "."
-        or normalized != value
-        or "\x00" in value
-    ):
-        report.error(f"{label} must be a safe repository-relative path")
-        return None
-    return normalized
-
-
 def _current_document_bytes(
     base: Path, value: object, label: str, report: Report,
 ) -> bytes | None:
-    relative = _safe_path(value, label, report)
+    relative = safe_repository_relative(value, label, report)
     if relative is None:
         return None
     candidate = base.joinpath(*PurePosixPath(relative).parts)

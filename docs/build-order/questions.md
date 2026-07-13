@@ -110,7 +110,7 @@ recommendations in
   determine the final recommendation.
 - After Kevin reviews the ticket documents, materialize the approved root and
   implementation issues in GitHub. Apply one `complexity:N` label and
-  `model:codex-gpt-5.6-sol` to each executable ticket, but do not apply
+  `model:codex-gpt-5.6-terra` to each executable ticket, but do not apply
   `agent:todo` or otherwise dispatch work.
 - The authorized materialization set includes all 54 direct root members
   (BO-001..020 and DASH-001..034) and one parentless human-blocked issue

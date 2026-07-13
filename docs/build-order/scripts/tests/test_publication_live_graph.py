@@ -20,6 +20,7 @@ from publication_comment import render_successful_comment  # noqa: E402
 from publication_common import Report  # noqa: E402
 from publication_live_graph import (  # noqa: E402
     LiveGraphError,
+    QueryBudget,
     _capture_snapshot,
     _expected_graph,
     _github_json,
@@ -101,6 +102,10 @@ class LiveGraphVerifierTests(unittest.TestCase):
                 self.authority, RECEIPT, self.comment_body, report,
             )
         self.assertEqual(2, capture.call_count)
+        self.assertIs(
+            capture.call_args_list[0].args[3],
+            capture.call_args_list[1].args[3],
+        )
         return report
 
     def test_two_identical_complete_snapshots_are_clean(self) -> None:
@@ -246,14 +251,14 @@ class LiveGraphVerifierTests(unittest.TestCase):
             "pull_request": {},
         })
 
-        def pages(endpoint: str):
+        def pages(endpoint: str, *, budget=None):
             if "state=all" in endpoint:
                 return rows
             if "/comments?" in endpoint:
                 return [{"html_url": self.expected.comment_url, "body": self.comment_body}]
             return []
 
-        def single(endpoint: str, *, allow_404: bool = False):
+        def single(endpoint: str, *, allow_404: bool = False, budget=None):
             if endpoint.endswith("/parent"):
                 return None
             if "/issues/comments/" in endpoint:
@@ -291,6 +296,12 @@ class LiveGraphVerifierTests(unittest.TestCase):
         with patch("publication_live_graph._github_json", return_value=[{}] * 101):
             with self.assertRaisesRegex(LiveGraphError, "100 items per page"):
                 _github_pages("repos/example/repo/issues?per_page=100")
+
+        item_budget = QueryBudget(requests_remaining=10, items_remaining=1)
+        with patch("publication_live_graph._github_json", return_value=[{}]):
+            self.assertEqual([{}], _github_pages("first", budget=item_budget))
+            with self.assertRaisesRegex(LiveGraphError, "total item bound"):
+                _github_pages("second", budget=item_budget)
         with patch("publication_live_graph._github_json", return_value=[{}] * 100):
             with self.assertRaisesRegex(LiveGraphError, "exceeded 100 pages"):
                 _github_pages("repos/example/repo/issues?per_page=100")
@@ -302,6 +313,12 @@ class LiveGraphVerifierTests(unittest.TestCase):
         argv = run.call_args.args[0]
         self.assertEqual("github.com", argv[argv.index("--hostname") + 1])
         self.assertEqual(30, run.call_args.kwargs["timeout"])
+
+        request_budget = QueryBudget(requests_remaining=1, items_remaining=10)
+        with patch("publication_live_graph.subprocess.run", return_value=completed):
+            self.assertEqual({}, _github_json("first", budget=request_budget))
+            with self.assertRaisesRegex(LiveGraphError, "total request bound"):
+                _github_json("second", budget=request_budget)
 
         with patch(
             "publication_live_graph.subprocess.run",

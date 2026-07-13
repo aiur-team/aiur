@@ -24,6 +24,9 @@ from publication_comment import (  # noqa: E402
 from publication_common import Report, valid_trusted_branch_ref  # noqa: E402
 from publication_receipt_authority import (  # noqa: E402
     GITHUB_TIMEOUT_SECONDS,
+    MAX_RECEIPT_FILE_BYTES,
+    ReceiptBlobBudget,
+    _commit_blob,
     _github_json,
     _github_repository_ref_contains,
     load_receipt_authority,
@@ -31,12 +34,14 @@ from publication_receipt_authority import (  # noqa: E402
 from publication_fixtures import Fixture  # noqa: E402
 from publication_materialized_fixture import materialized_pack  # noqa: E402
 from publication_rendering import (  # noqa: E402
+    AUTHORITY_GIT_TIMEOUT_SECONDS,
     approved_link,
     authority_preamble,
     inspect_issue_body,
     reject_legacy_grafts,
     render_approved_pack,
     render_approved_titles,
+    run_authority_git,
 )
 from validate_publication import validate  # noqa: E402
 
@@ -336,6 +341,20 @@ class TrustedRepositoryRefTests(unittest.TestCase):
             ),
         ):
             self.assertIsNone(_github_json("repos/example/repo"))
+
+        with patch(
+            "publication_rendering.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(
+                ["git", "status"], AUTHORITY_GIT_TIMEOUT_SECONDS,
+            ),
+        ) as git_run:
+            result = run_authority_git(
+                ["git", "status"], check=False, capture_output=True,
+            )
+        self.assertEqual(124, result.returncode)
+        self.assertEqual(
+            AUTHORITY_GIT_TIMEOUT_SECONDS, git_run.call_args.kwargs["timeout"],
+        )
 
     def test_graft_audit_covers_worktree_common_dir_and_entry_types(self) -> None:
         with tempfile.TemporaryDirectory() as name:
@@ -805,6 +824,45 @@ class FinalCommentTests(unittest.TestCase):
                 f"receipt commit {name} github_reconciliation must be materialized",
                 report.errors,
             )
+
+        path = "docs/build-order/tickets/BO-001.md"
+        tree = subprocess.CompletedProcess(
+            ["git"], 0,
+            f"100644 blob {'a' * 40}\t{path}\0".encode(), b"",
+        )
+        oversized = subprocess.CompletedProcess(
+            ["git"], 0, str(MAX_RECEIPT_FILE_BYTES + 1), "",
+        )
+        report = Report()
+        with patch(
+            "publication_receipt_authority.run_authority_git",
+            side_effect=[tree, oversized],
+        ) as git_read:
+            blob = _commit_blob(
+                Path("."), "b" * 40, path, "ticket", ReceiptBlobBudget(), report,
+            )
+        self.assertIsNone(blob)
+        self.assertIn("per-file byte bound", "\n".join(report.errors))
+        self.assertEqual(2, git_read.call_count)
+
+        for budget, needle in (
+            (ReceiptBlobBudget(files_remaining=0), "file-count bound"),
+            (ReceiptBlobBudget(bytes_remaining=0), "aggregate byte bound"),
+        ):
+            with self.subTest(bound=needle):
+                report = Report()
+                responses = [
+                    tree,
+                    subprocess.CompletedProcess(["git"], 0, "1", ""),
+                ]
+                with patch(
+                    "publication_receipt_authority.run_authority_git",
+                    side_effect=responses,
+                ):
+                    self.assertIsNone(_commit_blob(
+                        Path("."), "b" * 40, path, "ticket", budget, report,
+                    ))
+                self.assertIn(needle, "\n".join(report.errors))
 
     def test_legacy_graft_cannot_promote_an_orphan_receipt(self) -> None:
         build, manifest = materialized_pack()

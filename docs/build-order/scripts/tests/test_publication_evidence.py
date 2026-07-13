@@ -31,9 +31,10 @@ class PublicationEvidenceTests(unittest.TestCase):
     def test_required_ticket_labels_are_exact(self) -> None:
         invalid_projections = (
             ["model:codex"],
-            ["model:codex-gpt-5.6-terra"],
+            ["model:codex-gpt-5.6-sol"],
+            ["model:codex-gpt-5.6-luna"],
             ["model:claude"],
-            ["model:codex-gpt-5.6-sol", "area:dashboard"],
+            ["model:codex-gpt-5.6-terra", "area:dashboard"],
         )
         for required_labels in invalid_projections:
             with self.subTest(required_labels=required_labels):
@@ -44,18 +45,21 @@ class PublicationEvidenceTests(unittest.TestCase):
                 joined = "\n".join(validate(fixture.build_path).errors)
                 self.assertIn(
                     "required_ticket_labels must equal "
-                    "model:codex-gpt-5.6-sol",
+                    "model:codex-gpt-5.6-terra",
                     joined,
                 )
 
     def test_core_observation_rejects_new_routing_labels(self) -> None:
         def mutate(build, _manifest):
             build["github_reconciliation"]["observed_labels"]["DASH-001"] += [
-                "agent:brand-new", "human:todo",
+                "agent:brand-new", "human:todo", "model:codex-gpt-5.6-sol",
+                "model:codex-gpt-5.6-luna",
             ]
 
         joined = "\n".join(self.report(mutate).errors)
         self.assertIn("agent:brand-new, human:todo", joined)
+        self.assertIn("model:codex-gpt-5.6-luna", joined)
+        self.assertIn("model:codex-gpt-5.6-sol", joined)
 
     def test_body_evidence_partitions_are_exact(self) -> None:
         def mutate(_build, manifest):
