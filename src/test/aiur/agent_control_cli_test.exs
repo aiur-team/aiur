@@ -1153,8 +1153,8 @@ defmodule Aiur.AgentControlCLITest do
           "event" => "alert",
           "name" => "ticket.934.agent.attention.scope-question",
           "topic" => "ticket.934.agent.attention.scope-question",
-          "message" => "Operator decision required",
-          "reason" => "Operator decision required: Should this facade target change?",
+          "message" => "Executor decision required",
+          "reason" => "Executor decision required: Should this facade target change?",
           "severity" => "warning",
           "needs_attention" => true,
           "source_ticket_id" => "934",
@@ -1166,7 +1166,7 @@ defmodule Aiur.AgentControlCLITest do
 
       assert output =~ "ACTIONABLE"
       assert output =~ "#934"
-      assert output =~ "Operator decision required: Should this facade target change?"
+      assert output =~ "Executor decision required: Should this facade target change?"
     end
 
     test "resolved operator decisions leave the actionable section", %{watch_root: root} do
@@ -1179,8 +1179,8 @@ defmodule Aiur.AgentControlCLITest do
         "event" => "alert",
         "name" => "ticket.934.agent.attention.scope-question",
         "topic" => "ticket.934.agent.attention.scope-question",
-        "message" => "Operator decision required",
-        "reason" => "Operator decision required: Should this facade target change?",
+        "message" => "Executor decision required",
+        "reason" => "Executor decision required: Should this facade target change?",
         "severity" => "warning",
         "needs_attention" => true,
         "source_ticket_id" => "934",
@@ -1191,8 +1191,8 @@ defmodule Aiur.AgentControlCLITest do
         "event" => "alert",
         "name" => "ticket.934.agent.attention.scope-question.resolved",
         "topic" => "ticket.934.agent.attention.scope-question.resolved",
-        "message" => "Operator decision updated",
-        "reason" => "Operator decision resolved.",
+        "message" => "Executor decision updated",
+        "reason" => "Executor decision resolved.",
         "severity" => "info",
         "needs_attention" => false,
         "source_ticket_id" => "934",

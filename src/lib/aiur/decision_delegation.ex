@@ -4,7 +4,7 @@ defmodule Aiur.DecisionDelegation do
 
   The untrusted payload supplies the answer and bounded reasoning. The policy
   snapshot is always derived from the current canonical Decision and current
-  operator configuration; callers cannot submit or replace it.
+  Executor configuration; callers cannot submit or replace it.
   """
 
   alias Aiur.{Decision, DecisionAuthority, SecretRedactor}

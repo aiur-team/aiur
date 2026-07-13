@@ -41,14 +41,14 @@ export const ACTIVE = 10;
 export const MAX = 15;
 
 // Take-the-wheel beat (v2 staged narrative). Two separate occurrences:
-// (1) a human steers #321 in an opencode pane — surfaced decision, the operator
+// (1) a human steers #321 in an opencode pane — surfaced decision, the Executor
 // types a reply, the agent acknowledges; #321 does NOT resolve. Then (2) a
 // separate autonomous #318 -> #319 unblock plays AFTER the pane closes.
 // Milestones (loop seconds): #321 enters the decide state at decideStart so the
 // ❗ shows in the list during the pre-roll; the cursor descends from
 // descentStart; the pane is open [open, close); the ❗ alert + question are
 // already in the log on open, then the three options post one-per-second from
-// optStart; the operator types [typeStart, sendAt); the reply lands at replyAt;
+// optStart; the Executor types [typeStart, sendAt); the reply lands at replyAt;
 // #321 flips to brainstorm; the pane closes and the cursor ascends to ascentEnd.
 // The longer pre-roll lets a few more log lines scroll before the segment.
 export const BEAT = {
@@ -135,7 +135,7 @@ export const TICKETS: TicketScript[] = [
     frames: [
       { t: 0, phase: "implement", progress: 45, latest: "scaffolding analytics module" },
       { t: 2, phase: "decide", progress: 55, latest: "needs a decision: analytics library" },
-      // operator picks "brainstorm" at the beat's reply → flips to brainstorm
+      // Executor picks "brainstorm" at the beat's reply → flips to brainstorm
       { t: 22, phase: "brainstorm", progress: 58, latest: "brainstorming analytics options" },
       { t: 34, phase: "brainstorm", progress: 64, latest: "researching TS-friendly options" },
     ],
@@ -188,7 +188,7 @@ export const TICKETS: TicketScript[] = [
 // with t <= 0 are seed history so the log is already full at load. Ambient
 // publish/read traffic runs at a roughly doubled cadence (~2-4s apart) so the
 // left log moves briskly. A few extra lines scroll during the longer pre-roll
-// before the #321 segment. After the operator picks "brainstorm", #321 posts
+// before the #321 segment. After the Executor picks "brainstorm", #321 posts
 // its own brainstorm/research events. The autonomous #318 -> #319 unblock fires
 // after the pane closes (push -> receive -> pull in -> update plan) as the
 // loop's second, separate occurrence.
@@ -244,9 +244,9 @@ export const EVENTS: LogEvent[] = [
 // The deterministic content the opencode pane renders during the human beat.
 // The static history + the ❗ alert and the question head are already in the
 // transcript when the pane opens; the three options post one-per-second from
-// BEAT.optStart; the operator types `typedText` char-by-char across
+// BEAT.optStart; the Executor types `typedText` char-by-char across
 // [BEAT.typeStart, BEAT.sendAt), which then posts as a user block; the agent
-// `reply` lands whole at BEAT.replyAt. #321 never resolves here — the operator
+// `reply` lands whole at BEAT.replyAt. #321 never resolves here — the Executor
 // picks "brainstorm" and the agent goes off to research options.
 export type OcKind = "cmd" | "tool" | "prose";
 export interface OcLine {
@@ -264,7 +264,7 @@ export interface OpencodeScript {
   alertText: string; // ❗ prefix added by the renderer
   questionHead: string; // "How should I proceed?", present on open
   options: OcOption[]; // posted one-after-another from BEAT.optStart
-  typedText: string; // operator types this char-by-char, then it posts
+  typedText: string; // Executor types this char-by-char, then it posts
   reply: string; // agent acknowledgement, shown whole at BEAT.replyAt
 }
 

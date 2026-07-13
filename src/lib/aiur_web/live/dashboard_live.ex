@@ -1,34 +1,67 @@
 defmodule AiurWeb.DashboardLive do
   @moduledoc """
-  Live observability dashboard for Aiur.
+  Phoenix LiveView shell for the Aiur Executor Control Center.
   """
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
-  alias Aiur.{AgentChat, Alerts, DecisionPubSub}
-  alias AiurWeb.{Endpoint, ObservabilityPubSub, Presenter}
+  alias Aiur.{AgentChat, DecisionPubSub}
+  alias AiurWeb.{ControlCenterPresenter, Endpoint, ObservabilityPubSub}
+
+  alias AiurWeb.OperatorControlCenter.{
+    AgentLogModal,
+    DecisionEvents,
+    DecisionInbox,
+    DecisionPath,
+    FleetFilters,
+    FleetTable,
+    History,
+    Overview,
+    PayloadLoader,
+    RecentOutcomes
+  }
+
   @runtime_tick_ms 1_000
-  @payload_reload_debounce_ms 50
+  @decision_filters [:all, :open, :blocking, :undelivered, :supervisor, :resolved, :superseded]
+  @decision_events DecisionEvents.events()
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(params, _session, socket) do
+    connected = connected?(socket)
+
+    if connected do
+      :ok = ObservabilityPubSub.subscribe()
+      :ok = DecisionPubSub.subscribe()
+    end
+
+    payload = PayloadLoader.load(if connected, do: :fresh, else: :cached)
+
     socket =
       socket
-      |> assign(:payload, load_payload())
+      |> assign(:payload, payload)
       |> assign(:now, DateTime.utc_now())
       |> assign(:agent_log_modal, nil)
       |> assign(:drafts, %{})
       |> assign(:chat_errors, %{})
+      |> assign(:decision_actions, %{})
       |> assign(:payload_reload_scheduled?, false)
       |> assign(:writable, dashboard_writable?())
+      |> assign(:decision_filter, :all)
+      |> assign(:fleet_filters, FleetFilters.default())
+      |> assign_selected_decision(params["decision_id"])
+      |> PayloadLoader.mark_loaded()
 
-    if connected?(socket) do
-      :ok = ObservabilityPubSub.subscribe()
-      :ok = DecisionPubSub.subscribe()
-      schedule_runtime_tick()
-    end
+    if connected, do: schedule_runtime_tick()
 
     {:ok, socket}
+  end
+
+  @impl true
+  def handle_params(params, _uri, socket) do
+    {:noreply,
+     socket
+     |> assign(:decision_filter, normalize_filter(params["filter"]))
+     |> assign_selected_decision(params["decision_id"])}
   end
 
   @impl true
@@ -39,83 +72,102 @@ defmodule AiurWeb.DashboardLive do
 
   @impl true
   def handle_info(:observability_updated, socket) do
-    {:noreply, schedule_payload_reload(socket)}
+    {:noreply, PayloadLoader.schedule(socket)}
   end
 
   @impl true
   def handle_info({:decision_changed, _decision_id, _version}, socket) do
-    {:noreply, schedule_payload_reload(socket)}
+    {:noreply, PayloadLoader.schedule(socket)}
+  end
+
+  def handle_info(:decision_metrics_changed, socket) do
+    {:noreply, PayloadLoader.schedule(socket)}
   end
 
   @impl true
   def handle_info(:reload_payload, socket) do
-    {:noreply,
-     socket
-     |> reload_payload()
-     |> assign(:payload_reload_scheduled?, false)}
+    {:noreply, socket |> reload_payload(:cached) |> PayloadLoader.mark_loaded()}
   end
 
   @impl true
+  def handle_event("filter-decisions", %{"filter" => filter}, socket) do
+    filter = normalize_filter(filter)
+    {:noreply, push_patch(socket, to: decision_path(socket.assigns.selected_decision_id, filter))}
+  end
+
+  def handle_event("filter-decisions", _params, socket), do: {:noreply, socket}
+
+  def handle_event("toggle-fleet-filter", %{"filter" => filter}, socket) do
+    {:noreply, update(socket, :fleet_filters, &FleetFilters.toggle(&1, filter))}
+  end
+
+  def handle_event("toggle-fleet-filter", _params, socket), do: {:noreply, socket}
+
+  def handle_event(event, params, socket) when event in @decision_events do
+    handle_writable_event(socket, fn ->
+      {:noreply, DecisionEvents.handle(event, params, socket, &reload_after_action/1)}
+    end)
+  end
+
   def handle_event("show-agent-log", %{"issue" => issue_identifier}, socket) do
-    entry = find_running_entry(socket.assigns.payload, issue_identifier)
-    maybe_emit_chat_open(entry)
-    {:noreply, assign(socket, :agent_log_modal, agent_log_modal(entry))}
+    entry = AgentLogModal.find_running_entry(socket.assigns.payload, issue_identifier)
+    {:noreply, assign(socket, :agent_log_modal, AgentLogModal.build(entry))}
   end
 
-  @impl true
+  def handle_event("show-agent-log", _params, socket), do: {:noreply, socket}
+
   def handle_event("close-agent-log", _params, socket) do
-    maybe_emit_chat_close(socket.assigns.agent_log_modal)
     {:noreply, assign(socket, :agent_log_modal, nil)}
   end
 
-  @impl true
-  def handle_event("composer-change", %{"message" => message}, %{assigns: %{writable: true, agent_log_modal: modal}} = socket)
+  def handle_event(
+        "composer-change",
+        %{"message" => message},
+        %{assigns: %{writable: true, agent_log_modal: modal}} = socket
+      )
       when is_map(modal) do
-    identifier = modal.issue_identifier
+    handle_writable_event(socket, fn ->
+      identifier = modal.issue_identifier
 
-    {:noreply,
-     socket
-     |> assign(:drafts, Map.put(socket.assigns.drafts, identifier, message))
-     |> assign(:chat_errors, Map.delete(socket.assigns.chat_errors, identifier))}
+      {:noreply,
+       socket
+       |> assign(:drafts, Map.put(socket.assigns.drafts, identifier, message))
+       |> assign(:chat_errors, Map.delete(socket.assigns.chat_errors, identifier))}
+    end)
   end
 
   def handle_event("composer-change", _params, socket), do: {:noreply, socket}
 
-  @impl true
-  def handle_event("send-operator-message", %{"message" => message}, %{assigns: %{writable: true, agent_log_modal: modal}} = socket)
+  def handle_event(
+        "send-operator-message",
+        %{"message" => message},
+        %{assigns: %{writable: true, agent_log_modal: modal}} = socket
+      )
       when is_map(modal) do
-    identifier = modal.issue_identifier
-    text = String.trim(message)
-
-    if text == "" do
-      {:noreply, socket}
-    else
-      case AgentChat.send(identifier, text) do
-        {:ok, _request_id} ->
-          {:noreply,
-           socket
-           |> assign(:drafts, Map.delete(socket.assigns.drafts, identifier))
-           |> assign(:chat_errors, Map.delete(socket.assigns.chat_errors, identifier))}
-
-        {:error, reason} ->
-          {:noreply, assign(socket, :chat_errors, Map.put(socket.assigns.chat_errors, identifier, format_chat_error(reason)))}
-      end
-    end
+    handle_writable_event(socket, fn ->
+      {:noreply, send_operator_message(socket, modal.issue_identifier, String.trim(message))}
+    end)
   end
 
   def handle_event("send-operator-message", _params, socket), do: {:noreply, socket}
 
-  @impl true
-  def handle_event("pause-agent", _params, %{assigns: %{writable: true, agent_log_modal: modal}} = socket) when is_map(modal) do
-    identifier = modal.issue_identifier
+  def handle_event(
+        "pause-agent",
+        _params,
+        %{assigns: %{writable: true, agent_log_modal: modal}} = socket
+      )
+      when is_map(modal) do
+    handle_writable_event(socket, fn ->
+      identifier = modal.issue_identifier
 
-    case AgentChat.pause(identifier) do
-      {:ok, _request_id} ->
-        {:noreply, assign(socket, :chat_errors, Map.delete(socket.assigns.chat_errors, identifier))}
+      case AgentChat.pause(identifier) do
+        {:ok, _request_id} ->
+          {:noreply, assign(socket, :chat_errors, Map.delete(socket.assigns.chat_errors, identifier))}
 
-      {:error, reason} ->
-        {:noreply, assign(socket, :chat_errors, Map.put(socket.assigns.chat_errors, identifier, format_chat_error(reason)))}
-    end
+        {:error, reason} ->
+          {:noreply, put_chat_error(socket, identifier, reason)}
+      end
+    end)
   end
 
   def handle_event("pause-agent", _params, socket), do: {:noreply, socket}
@@ -124,793 +176,141 @@ defmodule AiurWeb.DashboardLive do
   def render(assigns) do
     ~H"""
     <section class="dashboard-shell">
-      <header class="hero-card">
-        <div class="hero-grid">
-          <div>
-            <p class="eyebrow">
-              Aiur Observability
-            </p>
-            <h1 class="hero-title">
-              Operations Dashboard
-            </h1>
-            <p class="hero-copy">
-              Current state, retry pressure, token usage, and orchestration health for the active Aiur runtime.
-            </p>
-          </div>
+      <Overview.topbar now={@now} tracker_kind={tracker_kind()} agent_kind={agent_kind()} />
+      <Overview.readonly_banner writable={@writable} />
+      <Overview.decisions_banner decisions={@payload.decisions} />
+      <Overview.tabs
+        live_action={@live_action || :index}
+        decision_count={length(@payload.decisions)}
+        fleet_count={fleet_count(@payload.fleet)}
+      />
+      <Overview.error error={@payload.fleet[:error]} />
 
-          <div class="status-stack">
-            <span class="status-badge status-badge-info">ITS: <%= tracker_kind() %></span>
-            <span class="status-badge status-badge-info">Agent: <%= agent_kind() %></span>
-            <span class="status-badge status-badge-live">
-              <span class="status-badge-dot"></span>
-              Live
-            </span>
-            <span class="status-badge status-badge-offline">
-              <span class="status-badge-dot"></span>
-              Offline
-            </span>
-          </div>
+      <div :if={@live_action in [:decisions, :decision]} class="control-panel">
+        <div :if={@live_action == :decision and is_nil(@selected_decision)} class="error-card" role="alert">
+          <h2>Decision not found</h2>
+          <p>No current decision matches <span class="mono">{@selected_decision_id}</span>.</p>
         </div>
-      </header>
+        <DecisionInbox.decision_inbox
+          decisions={@payload.decisions}
+          selected_decision_id={@selected_decision_id}
+          filter={@decision_filter}
+          now={@now}
+          history={@payload.history}
+          action_states={@decision_actions}
+          writable={@writable}
+          provider_health={@payload.provider_health.decisions}
+        />
+      </div>
 
-      <%= if @payload[:error] do %>
-        <section class="error-card">
-          <h2 class="error-title">
-            Snapshot unavailable
-          </h2>
-          <p class="error-copy">
-            <strong><%= @payload.error.code %>:</strong> <%= @payload.error.message %>
-          </p>
-        </section>
-      <% else %>
-        <section class="metric-grid">
-          <article class="metric-card">
-            <p class="metric-label">Running</p>
-            <p class="metric-value numeric"><%= @payload.counts.running %></p>
-            <p class="metric-detail">Active issue sessions in the current runtime.</p>
-          </article>
+      <div :if={@live_action not in [:decisions, :decision]} class="control-panel">
+        <FleetTable.fleet_table
+          fleet={@payload.fleet}
+          decisions={@payload.decisions}
+          now={@now}
+          filters={@fleet_filters}
+        />
+      </div>
 
-          <article class="metric-card">
-            <p class="metric-label">Retrying</p>
-            <p class="metric-value numeric"><%= @payload.counts.retrying %></p>
-            <p class="metric-detail">Issues waiting for the next retry window.</p>
-          </article>
-
-          <article class="metric-card">
-            <p class="metric-label">Total tokens</p>
-            <p class="metric-value numeric"><%= format_int(@payload.agent_totals.total_tokens) %></p>
-            <p class="metric-detail numeric">
-              In <%= format_int(@payload.agent_totals.input_tokens) %> / Out <%= format_int(@payload.agent_totals.output_tokens) %>
-            </p>
-          </article>
-
-          <article class="metric-card">
-            <p class="metric-label">Runtime</p>
-            <p class="metric-value numeric"><%= format_runtime_seconds(total_runtime_seconds(@payload, @now)) %></p>
-            <p class="metric-detail">Total agent runtime across completed and active sessions.</p>
-          </article>
-        </section>
-
-        <section class="section-card">
-          <div class="section-header">
-            <div>
-              <h2 class="section-title">Rate limits</h2>
-              <p class="section-copy">Latest upstream rate-limit snapshot, when available.</p>
-            </div>
-          </div>
-
-          <pre class="code-panel"><%= pretty_value(@payload.rate_limits) %></pre>
-        </section>
-
-        <section class="section-card">
-          <div class="section-header">
-            <div>
-              <h2 class="section-title">Running sessions</h2>
-              <p class="section-copy">Active issues, last known agent activity, and token usage.</p>
-            </div>
-          </div>
-
-          <%= if @payload.running == [] do %>
-            <p class="empty-state">No active sessions.</p>
-          <% else %>
-            <div class="table-wrap">
-              <table class="data-table data-table-running">
-                <colgroup>
-                  <col style="width: 12rem;" />
-                  <col style="width: 8rem;" />
-                  <col style="width: 9rem;" />
-                  <col style="width: 7.5rem;" />
-                  <col style="width: 8.5rem;" />
-                  <col />
-                  <col style="width: 9rem;" />
-                  <col style="width: 6rem;" />
-                  <col style="width: 10rem;" />
-                </colgroup>
-                <thead>
-                  <tr>
-                    <th>Issue</th>
-                    <th>State</th>
-                    <th>Waiting</th>
-                    <th>Session</th>
-                    <th>Runtime / turns</th>
-                    <th>Agent update</th>
-                    <th>CI / Review</th>
-                    <th>Decisions</th>
-                    <th>Tokens</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    :for={entry <- @payload.running}
-                    class="clickable-row"
-                    phx-click="show-agent-log"
-                    phx-value-issue={entry.issue_identifier}
-                  >
-                    <td>
-                      <div class="issue-stack">
-                        <span class="issue-id"><%= entry.issue_identifier %></span>
-                        <a
-                          class="issue-link"
-                          href={"/api/v1/#{entry.issue_identifier}"}
-                          onclick="event.stopPropagation()"
-                        >JSON details</a>
-                      </div>
-                    </td>
-                    <td>
-                      <span class={state_badge_class(entry.state)}>
-                        <%= entry.state %>
-                      </span>
-                    </td>
-                    <td>
-                      <span class={waiting_reason_badge_class(entry.waiting_reason)}>
-                        <%= format_waiting_reason(entry.waiting_reason) %>
-                      </span>
-                    </td>
-                    <td>
-                      <div class="session-stack">
-                        <%= if entry.session_id do %>
-                          <button
-                            type="button"
-                            class="subtle-button"
-                            data-label="Copy ID"
-                            data-copy={entry.session_id}
-                            onclick="event.stopPropagation(); navigator.clipboard.writeText(this.dataset.copy); this.textContent = 'Copied'; clearTimeout(this._copyTimer); this._copyTimer = setTimeout(() => { this.textContent = this.dataset.label }, 1200);"
-                          >
-                            Copy ID
-                          </button>
-                        <% else %>
-                          <span class="muted">n/a</span>
-                        <% end %>
-                      </div>
-                    </td>
-                    <td class="numeric"><%= format_runtime_and_turns(entry.started_at, entry.turn_count, @now) %></td>
-                    <td>
-                      <div class="detail-stack">
-                        <span
-                          class="event-text"
-                          title={entry.last_message || to_string(entry.last_event || "n/a")}
-                        ><%= entry.last_message || to_string(entry.last_event || "n/a") %></span>
-                        <span class="muted event-meta">
-                          <%= entry.last_event || "n/a" %>
-                          <%= if entry.last_event_at do %>
-                            · <span class="mono numeric"><%= entry.last_event_at %></span>
-                          <% end %>
-                          <%= if age = format_stale_age(entry.stale_for_seconds) do %>
-                            · <span class="numeric"><%= age %></span>
-                          <% end %>
-                        </span>
-                      </div>
-                    </td>
-                    <td class="numeric"><%= format_ci_review(entry.ci, entry.review) %></td>
-                    <td class="numeric">
-                      <%= if entry.open_decision_count > 0 do %>
-                        <span class="state-badge state-badge-warning">❗<%= entry.open_decision_count %></span>
-                      <% else %>
-                        <span class="muted">—</span>
-                      <% end %>
-                    </td>
-                    <td>
-                      <div class="token-stack numeric">
-                        <span>Total: <%= format_int(entry.tokens.total_tokens) %></span>
-                        <span class="muted">In <%= format_int(entry.tokens.input_tokens) %> / Out <%= format_int(entry.tokens.output_tokens) %></span>
-                      </div>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          <% end %>
-        </section>
-
-        <section class="section-card">
-          <div class="section-header">
-            <div>
-              <h2 class="section-title">Queued / waiting</h2>
-              <p class="section-copy">Tracker-active work with no live agent process right now.</p>
-            </div>
-          </div>
-
-          <%= if @payload.idle == [] do %>
-            <p class="empty-state">No queued or waiting issues.</p>
-          <% else %>
-            <div class="table-wrap">
-              <table class="data-table" style="min-width: 620px;">
-                <thead>
-                  <tr>
-                    <th>Issue</th>
-                    <th>State</th>
-                    <th>Waiting</th>
-                    <th>CI / Review</th>
-                    <th>Decisions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr :for={entry <- @payload.idle}>
-                    <td>
-                      <div class="issue-stack">
-                        <span class="issue-id"><%= entry.issue_identifier %></span>
-                        <a class="issue-link" href={"/api/v1/#{entry.issue_identifier}"}>JSON details</a>
-                      </div>
-                    </td>
-                    <td>
-                      <span class={state_badge_class(entry.state)}>
-                        <%= entry.state %>
-                      </span>
-                    </td>
-                    <td>
-                      <span class={waiting_reason_badge_class(entry.waiting_reason)}>
-                        <%= format_waiting_reason(entry.waiting_reason) %>
-                      </span>
-                    </td>
-                    <td class="numeric"><%= format_ci_review(entry.ci, entry.review) %></td>
-                    <td class="numeric">
-                      <%= if entry.open_decision_count > 0 do %>
-                        <span class="state-badge state-badge-warning">❗<%= entry.open_decision_count %></span>
-                      <% else %>
-                        <span class="muted">—</span>
-                      <% end %>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          <% end %>
-        </section>
-
-        <section class="section-card">
-          <div class="section-header">
-            <div>
-              <h2 class="section-title">Retry queue</h2>
-              <p class="section-copy">Issues waiting for the next retry window.</p>
-            </div>
-          </div>
-
-          <%= if @payload.retrying == [] do %>
-            <p class="empty-state">No issues are currently backing off.</p>
-          <% else %>
-            <div class="table-wrap">
-              <table class="data-table" style="min-width: 980px;">
-                <thead>
-                  <tr>
-                    <th>Issue</th>
-                    <th>State</th>
-                    <th>Waiting</th>
-                    <th>Attempt</th>
-                    <th>Due at</th>
-                    <th>CI / Review</th>
-                    <th>Decisions</th>
-                    <th>Error</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr :for={entry <- @payload.retrying}>
-                    <td>
-                      <div class="issue-stack">
-                        <span class="issue-id"><%= entry.issue_identifier %></span>
-                        <a class="issue-link" href={"/api/v1/#{entry.issue_identifier}"}>JSON details</a>
-                      </div>
-                    </td>
-                    <td>
-                      <span class={state_badge_class(entry.state)}>
-                        <%= entry.state || "n/a" %>
-                      </span>
-                    </td>
-                    <td>
-                      <span class={waiting_reason_badge_class(entry.waiting_reason)}>
-                        <%= format_waiting_reason(entry.waiting_reason) %>
-                      </span>
-                    </td>
-                    <td><%= entry.attempt %></td>
-                    <td class="mono"><%= entry.due_at || "n/a" %></td>
-                    <td class="numeric"><%= format_ci_review(entry.ci, entry.review) %></td>
-                    <td class="numeric">
-                      <%= if entry.open_decision_count > 0 do %>
-                        <span class="state-badge state-badge-warning">❗<%= entry.open_decision_count %></span>
-                      <% else %>
-                        <span class="muted">—</span>
-                      <% end %>
-                    </td>
-                    <td><%= entry.error || "n/a" %></td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          <% end %>
-        </section>
-      <% end %>
-
-      <section class="section-card" id="decision-history">
-        <div class="section-header">
+      <section :if={@live_action == :index} class="section-card recent-card" aria-labelledby="recent-title">
+        <header class="section-header">
           <div>
-            <h2 class="section-title">Decision history</h2>
-            <p class="section-copy">Append-only Decision changes with actor identity only where the audit record proves it.</p>
+            <p class="section-eyebrow">Durable outcomes</p>
+            <h2 id="recent-title">Recent</h2>
+            <p>Repository merges and recorded decision actions from durable projections.</p>
           </div>
-        </div>
-
-        <%= if @payload.decision_history.status == :unavailable do %>
-          <p class="empty-state"><%= @payload.decision_history.message %></p>
-        <% else %>
-          <%= if @payload.decision_history.entries == [] do %>
-            <p class="empty-state">No Decision changes have been recorded.</p>
-          <% else %>
-            <div class="table-wrap">
-              <table class="data-table" style="min-width: 980px;">
-                <thead>
-                  <tr>
-                    <th>Changed</th>
-                    <th>Ticket</th>
-                    <th>Change</th>
-                    <th>Actor</th>
-                    <th>Decision</th>
-                    <th>Recorded outcome</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr :for={entry <- @payload.decision_history.entries}>
-                    <td class="mono numeric"><%= entry.changed_at || "n/a" %></td>
-                    <td>
-                      <%= if entry.ticket.url do %>
-                        <a class="issue-link" href={entry.ticket.url} rel="noreferrer">
-                          <%= entry.ticket.identifier || "n/a" %>
-                        </a>
-                      <% else %>
-                        <span><%= entry.ticket.identifier || "n/a" %></span>
-                      <% end %>
-                    </td>
-                    <td>
-                      <div class="detail-stack">
-                        <span class="state-badge"><%= format_label(entry.change) %></span>
-                        <span class="muted mono">v<%= entry.source_version || "?" %></span>
-                      </div>
-                    </td>
-                    <td>
-                      <div class="detail-stack">
-                        <span class={actor_badge_class(entry.actor.type)}><%= entry.actor.label %></span>
-                        <span class="muted"><%= format_label(entry.actor.type) %></span>
-                      </div>
-                    </td>
-                    <td>
-                      <div class="detail-stack">
-                        <span><%= entry.question || "Question unavailable" %></span>
-                        <span class="muted mono"><%= entry.decision_id || "n/a" %></span>
-                      </div>
-                    </td>
-                    <td><%= decision_outcome(entry) %></td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          <% end %>
-        <% end %>
+        </header>
+        <RecentOutcomes.recent_outcomes
+          outcomes={@payload.recent_outcomes}
+          provider_health={@payload.provider_health.recent_outcomes}
+          reconciliation={@payload.recent_outcomes_reconciliation}
+          analytics={@payload.analytics}
+        />
+        <History.history entries={@payload.history} provider_health={@payload.provider_health.history} />
       </section>
 
-      <section class="section-card" id="recent-repository-merges">
-        <div class="section-header">
-          <div>
-            <h2 class="section-title">Recent repository merges</h2>
-            <p class="section-copy">Bounded GitHub merge observations; branch linkage never implies agent or run causality.</p>
-          </div>
-        </div>
-
-        <%= if @payload.recent_merges.reconciliation[:partial?] == true do %>
-          <p class="inline-warning">
-            The GitHub Events window reached its <%= @payload.recent_merges.reconciliation.pages_fetched %>-page cap; older merges may be absent.
-          </p>
-        <% end %>
-
-        <%= if @payload.recent_merges.message do %>
-          <p class="inline-warning"><%= @payload.recent_merges.message %></p>
-        <% end %>
-
-        <%= if @payload.recent_merges.entries == [] do %>
-          <p class="empty-state">No recent repository merges are available.</p>
-        <% else %>
-          <div class="table-wrap">
-            <table class="data-table" style="min-width: 980px;">
-              <thead>
-                <tr>
-                  <th>Merged</th>
-                  <th>Pull request</th>
-                  <th>Head / ticket</th>
-                  <th>Merged by</th>
-                  <th>Observation</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr :for={entry <- @payload.recent_merges.entries}>
-                  <td class="mono numeric"><%= entry.merged_at %></td>
-                  <td>
-                    <div class="detail-stack">
-                      <a class="issue-link" href={entry.url} rel="noreferrer">
-                        #<%= entry.number %> · <%= entry.title || "Untitled pull request" %>
-                      </a>
-                      <span :if={entry.summary} class="muted"><%= entry.summary %></span>
-                    </div>
-                  </td>
-                  <td>
-                    <div class="detail-stack">
-                      <span class="mono"><%= entry.head_ref || "head unavailable" %></span>
-                      <span class="muted">
-                        <%= if entry.ticket_id do %>
-                          Ticket <%= entry.ticket_id %> derived from branch
-                        <% else %>
-                          No ticket attribution
-                        <% end %>
-                      </span>
-                    </div>
-                  </td>
-                  <td><%= entry.merged_by || "Unavailable" %></td>
-                  <td>
-                    <div class="detail-stack">
-                      <span class={merge_provenance_class(entry)}><%= merge_provenance(entry) %></span>
-                      <span :if={entry.observed_run_id} class="muted mono">
-                        Observer run <%= short_id(entry.observed_run_id) %>
-                      </span>
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        <% end %>
-      </section>
-
-      <section class="section-card" id="telemetry-analytics">
-        <div class="section-header">
-          <div>
-            <h2 class="section-title">Telemetry analytics</h2>
-            <p class="section-copy"><%= @payload.analytics.message %></p>
-          </div>
-          <a
-            :if={@payload.analytics[:available?]}
-            class="primary-link"
-            href={@payload.analytics.path}
-          >Open analytics report</a>
-        </div>
-        <p :if={!@payload.analytics[:available?]} class="empty-state">
-          No durable telemetry input is present for this run.
-        </p>
-      </section>
-
-      <%= if @agent_log_modal do %>
-        <div class="modal-backdrop">
-          <section class="modal-panel" phx-click-away="close-agent-log">
-            <div class="modal-header">
-              <div>
-                <p class="eyebrow">Agent log</p>
-                <h2 class="modal-title"><%= @agent_log_modal.issue_identifier %></h2>
-              </div>
-              <div class="modal-actions">
-                <button
-                  type="button"
-                  class="subtle-button live-button"
-                  data-agent-log-live
-                  data-live="true"
-                  aria-pressed="true"
-                >
-                  <span class="live-button-dot"></span>
-                  Live
-                </button>
-                <button type="button" class="subtle-button" phx-click="close-agent-log">Close</button>
-              </div>
-            </div>
-
-            <p class="modal-meta mono"><%= @agent_log_modal.path || "No local log path" %></p>
-
-            <div
-              id={"agent-log-panel-#{@agent_log_modal.issue_identifier}"}
-              class="chat-log-panel"
-              phx-hook="AgentLogPanel"
-            >
-              <div :for={message <- @agent_log_modal.messages} class={log_message_class(message)}>
-                <div class="log-message-header">
-                  <span><%= message.title %></span>
-                  <span class="mono"><%= message.timestamp %></span>
-                </div>
-                <div class="log-message-body"><%= message.body %></div>
-              </div>
-            </div>
-
-            <%= if @writable do %>
-              <form class="agent-chat-composer" phx-change="composer-change" phx-submit="send-operator-message">
-                <%= if error = @chat_errors[@agent_log_modal.issue_identifier] do %>
-                  <p class="agent-chat-error"><%= error %></p>
-                <% end %>
-                <textarea
-                  class="agent-chat-textarea"
-                  name="message"
-                  rows="2"
-                  placeholder="Message agent..."
-                  aria-label="Message agent"
-                  enterkeyhint="send"
-                ><%= @drafts[@agent_log_modal.issue_identifier] || "" %></textarea>
-                <div class="agent-chat-actions">
-                  <button class="agent-chat-pause" type="button" phx-click="pause-agent">Pause</button>
-                  <button class="agent-chat-send" type="submit">Send</button>
-                </div>
-              </form>
-            <% else %>
-              <p class="agent-chat-readonly">Read-only dashboard — use the TUI to message or pause this agent.</p>
-            <% end %>
-          </section>
-        </div>
-      <% end %>
+      <AgentLogModal.agent_log_modal
+        modal={@agent_log_modal}
+        writable={@writable}
+        drafts={@drafts}
+        errors={@chat_errors}
+      />
     </section>
     """
   end
 
-  defp load_payload do
-    Presenter.state_payload(orchestrator(), snapshot_timeout_ms())
-  end
-
-  defp reload_payload(socket) do
-    payload = load_payload()
+  defp reload_payload(socket, mode) do
+    payload = PayloadLoader.load(mode)
 
     socket
     |> assign(:payload, payload)
     |> assign(:now, DateTime.utc_now())
-    |> assign(:agent_log_modal, refresh_agent_log_modal(socket.assigns.agent_log_modal, payload))
+    |> assign(:agent_log_modal, AgentLogModal.refresh(socket.assigns.agent_log_modal, payload))
+    |> assign_selected_decision(socket.assigns.selected_decision_id)
   end
 
-  defp schedule_payload_reload(%{assigns: %{payload_reload_scheduled?: true}} = socket), do: socket
-
-  defp schedule_payload_reload(socket) do
-    Process.send_after(self(), :reload_payload, @payload_reload_debounce_ms)
-    assign(socket, :payload_reload_scheduled?, true)
+  defp reload_after_action(socket) do
+    socket
+    |> reload_payload(:fresh)
+    |> PayloadLoader.mark_loaded()
   end
 
-  defp orchestrator do
-    Endpoint.config(:orchestrator) || Aiur.Orchestrator
-  end
-
-  defp snapshot_timeout_ms do
-    Endpoint.config(:snapshot_timeout_ms) || 15_000
-  end
-
-  # Read-only by default until the dashboard parity pass (#371). Fail closed so
-  # the browser never exposes write controls when config is unresolved.
-  defp dashboard_writable? do
-    Endpoint.config(:dashboard_writable) == true
-  end
-
-  defp completed_runtime_seconds(payload) do
-    payload.agent_totals.seconds_running || 0
-  end
-
-  defp total_runtime_seconds(payload, now) do
-    completed_runtime_seconds(payload) +
-      Enum.reduce(payload.running, 0, fn entry, total ->
-        total + runtime_seconds_from_started_at(entry.started_at, now)
-      end)
-  end
-
-  defp format_runtime_and_turns(started_at, turn_count, now) when is_integer(turn_count) and turn_count > 0 do
-    "#{format_runtime_seconds(runtime_seconds_from_started_at(started_at, now))} / #{turn_count}"
-  end
-
-  defp format_runtime_and_turns(started_at, _turn_count, now),
-    do: format_runtime_seconds(runtime_seconds_from_started_at(started_at, now))
-
-  defp format_runtime_seconds(seconds) when is_number(seconds) do
-    whole_seconds = max(trunc(seconds), 0)
-    mins = div(whole_seconds, 60)
-    secs = rem(whole_seconds, 60)
-    "#{mins}m #{secs}s"
-  end
-
-  defp runtime_seconds_from_started_at(%DateTime{} = started_at, %DateTime{} = now) do
-    DateTime.diff(now, started_at, :second)
-  end
-
-  defp runtime_seconds_from_started_at(started_at, %DateTime{} = now) when is_binary(started_at) do
-    case DateTime.from_iso8601(started_at) do
-      {:ok, parsed, _offset} -> runtime_seconds_from_started_at(parsed, now)
-      _ -> 0
-    end
-  end
-
-  defp runtime_seconds_from_started_at(_started_at, _now), do: 0
-
-  defp format_int(value) when is_integer(value) do
-    value
-    |> Integer.to_string()
-    |> String.reverse()
-    |> String.replace(~r/.{3}(?=.)/, "\\0,")
-    |> String.reverse()
-  end
-
-  defp format_int(_value), do: "n/a"
-
-  defp state_badge_class(state) do
-    base = "state-badge"
-    normalized = state |> to_string() |> String.downcase()
-
-    cond do
-      String.contains?(normalized, ["progress", "running", "active"]) -> "#{base} state-badge-active"
-      String.contains?(normalized, ["blocked", "error", "failed"]) -> "#{base} state-badge-danger"
-      String.contains?(normalized, ["todo", "queued", "pending", "retry"]) -> "#{base} state-badge-warning"
-      true -> base
-    end
-  end
-
-  # Explicit waiting-reason vocabulary (OCC-5) — never "blocked". Reuses the
-  # existing badge palette rather than adding new colors.
-  defp waiting_reason_badge_class(:active), do: "state-badge state-badge-active"
-  defp waiting_reason_badge_class(:unresponsive), do: "state-badge state-badge-danger"
-  defp waiting_reason_badge_class(_reason), do: "state-badge state-badge-warning"
-
-  defp format_waiting_reason(:active), do: "active"
-  defp format_waiting_reason(reason), do: reason |> to_string() |> String.replace("_", " ")
-
-  defp format_stale_age(seconds) when is_integer(seconds) and seconds >= 0 do
-    "#{format_runtime_seconds(seconds)} ago"
-  end
-
-  defp format_stale_age(_seconds), do: nil
-
-  defp format_ci_review(nil, review), do: format_review(review)
-
-  defp format_ci_review(%{decision: decision, pr_number: pr_number}, review) do
-    pr = if pr_number, do: "PR ##{pr_number}", else: "CI"
-    "#{pr} #{decision} · #{format_review(review)}"
-  end
-
-  defp format_review(:awaiting), do: "review awaiting"
-  defp format_review(_review), do: "review not started"
-
-  defp schedule_runtime_tick do
-    Process.send_after(self(), :runtime_tick, @runtime_tick_ms)
-  end
-
-  defp tracker_kind, do: Aiur.Config.tracker_kind()
-  defp agent_kind, do: Aiur.Config.agent_kind()
-
-  defp pretty_value(nil), do: "n/a"
-  defp pretty_value(value), do: inspect(value, pretty: true, limit: :infinity)
-
-  defp format_label(value), do: value |> to_string() |> String.replace("_", " ")
-
-  defp actor_badge_class(:human_operator), do: "state-badge state-badge-active"
-  defp actor_badge_class(:supervising_agent), do: "state-badge state-badge-warning"
-  defp actor_badge_class(:unknown), do: "state-badge state-badge-danger"
-  defp actor_badge_class(_type), do: "state-badge"
-
-  defp decision_outcome(entry) do
-    outcome =
-      entry.choice ||
-        entry.rationale ||
-        entry.dispatch_result ||
-        entry.acknowledgement_result ||
-        "No outcome recorded at this version."
-
-    if is_binary(outcome), do: outcome, else: pretty_value(outcome)
-  end
-
-  defp merge_provenance(%{backfilled?: true, live_observed?: true}),
-    do: "Backfilled + observed live"
-
-  defp merge_provenance(%{live_observed?: true}), do: "Observed live"
-  defp merge_provenance(_entry), do: "Backfilled"
-
-  defp merge_provenance_class(%{live_observed?: true}),
-    do: "state-badge state-badge-active"
-
-  defp merge_provenance_class(_entry), do: "state-badge state-badge-warning"
-
-  defp short_id(id) when is_binary(id) and byte_size(id) > 12, do: String.slice(id, 0, 12)
-  defp short_id(id), do: id
-
-  defp find_running_entry(%{running: running}, issue_identifier) when is_list(running) do
-    Enum.find(running, &(to_string(&1.issue_identifier) == issue_identifier))
-  end
-
-  defp find_running_entry(_payload, _issue_identifier), do: nil
-
-  defp agent_log_modal(nil) do
-    %{
-      issue_identifier: "n/a",
-      path: nil,
-      messages: [
-        %{
-          role: "system",
-          title: "Session",
-          timestamp: "n/a",
-          body: "No running session found for this issue."
-        }
-      ]
-    }
-  end
-
-  defp agent_log_modal(entry) do
-    %{path: path, messages: messages} = read_agent_log(entry)
-
-    %{
-      issue_identifier: entry.issue_identifier,
-      path: path,
-      messages: messages
-    }
-  end
-
-  defp refresh_agent_log_modal(nil, _payload), do: nil
-
-  defp refresh_agent_log_modal(%{issue_identifier: issue_identifier} = modal, payload) do
-    case find_running_entry(payload, to_string(issue_identifier)) do
-      nil -> refresh_agent_log_modal_from_path(modal)
-      entry -> agent_log_modal(entry)
-    end
-  end
-
-  defp refresh_agent_log_modal(modal, _payload), do: modal
-
-  defp refresh_agent_log_modal_from_path(%{path: path} = modal) when is_binary(path) do
-    %{modal | messages: path |> Aiur.AgentLog.read() |> Aiur.AgentLog.parse()}
-  end
-
-  defp refresh_agent_log_modal_from_path(modal), do: modal
-
-  defp agent_log_path(%{workspace_path: workspace_path}) do
-    Aiur.AgentLog.workspace_log_path(workspace_path)
-  end
-
-  defp agent_log_path(_entry), do: nil
-
-  defp read_agent_log(%{workspace_path: workspace_path}) when is_binary(workspace_path) do
-    Aiur.AgentLog.read_workspace(workspace_path)
-  end
-
-  defp read_agent_log(entry) do
-    path = agent_log_path(entry)
-    %{path: path, messages: path |> Aiur.AgentLog.read() |> Aiur.AgentLog.parse()}
-  end
-
-  defp log_message_class(%{role: role}), do: "log-message log-message-#{role}"
-
-  defp format_chat_error(:no_running_agent), do: "Agent is no longer running."
-  defp format_chat_error(:empty_message), do: "Message is empty."
-  defp format_chat_error(:message_too_long), do: "Message is too long."
-  defp format_chat_error(:interrupt_not_supported), do: "Interrupt is not available right now."
-  defp format_chat_error(:timeout), do: "Send timed out."
-  defp format_chat_error(:unavailable), do: "Orchestrator unavailable."
-  defp format_chat_error(reason), do: inspect(reason)
-
-  defp maybe_emit_chat_open(%{identifier: identifier, workspace_path: workspace_path}) do
-    Alerts.emit_system("ticket.#{identifier}.chat.opened",
-      issue: identifier,
-      workspace: workspace_path
-    )
-  end
-
-  defp maybe_emit_chat_open(_entry), do: :ok
-
-  defp maybe_emit_chat_close(%{issue_identifier: identifier, path: path}) do
-    workspace =
-      case path do
-        nil -> nil
-        log_path -> log_path |> Path.dirname() |> Path.dirname()
+  defp assign_selected_decision(socket, decision_id) do
+    selected =
+      case ControlCenterPresenter.find_decision(socket.assigns.payload, decision_id) do
+        {:ok, decision} -> decision
+        :error -> nil
       end
 
-    Alerts.emit_system("ticket.#{identifier}.chat.closed", issue: identifier, workspace: workspace)
+    socket |> assign(:selected_decision_id, decision_id) |> assign(:selected_decision, selected)
   end
 
-  defp maybe_emit_chat_close(_modal), do: :ok
+  defp normalize_filter(filter) when is_atom(filter) and filter in @decision_filters, do: filter
+
+  defp normalize_filter(filter) when is_binary(filter) do
+    Enum.find(@decision_filters, :all, &(Atom.to_string(&1) == filter))
+  end
+
+  defp normalize_filter(_filter), do: :all
+  defp dashboard_writable?, do: Endpoint.config(:dashboard_writable) == true
+
+  defp decision_path(nil, filter), do: DecisionPath.inbox(filter)
+  defp decision_path(decision_id, filter), do: DecisionPath.detail(decision_id, filter)
+
+  defp handle_writable_event(socket, fun) when is_function(fun, 0) do
+    if dashboard_writable?() do
+      fun.()
+    else
+      {:noreply, assign(socket, :writable, false)}
+    end
+  end
+
+  defp tracker_kind, do: to_string(Aiur.Config.tracker_kind())
+  defp agent_kind, do: to_string(Aiur.Config.agent_kind())
+
+  defp fleet_count(fleet) do
+    counts = Map.get(fleet, :counts, %{})
+    Map.get(counts, :running, 0) + Map.get(counts, :retrying, 0) + Map.get(counts, :idle, 0)
+  end
+
+  defp schedule_runtime_tick, do: Process.send_after(self(), :runtime_tick, @runtime_tick_ms)
+
+  defp clear_chat_state(socket, identifier) do
+    socket
+    |> assign(:drafts, Map.delete(socket.assigns.drafts, identifier))
+    |> assign(:chat_errors, Map.delete(socket.assigns.chat_errors, identifier))
+  end
+
+  defp put_chat_error(socket, identifier, reason) do
+    assign(socket, :chat_errors, Map.put(socket.assigns.chat_errors, identifier, AgentLogModal.format_error(reason)))
+  end
+
+  defp send_operator_message(socket, _identifier, ""), do: socket
+
+  defp send_operator_message(socket, identifier, text) do
+    case AgentChat.send(identifier, text) do
+      {:ok, _request_id} -> clear_chat_state(socket, identifier)
+      {:error, reason} -> put_chat_error(socket, identifier, reason)
+    end
+  end
 end

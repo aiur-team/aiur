@@ -34,7 +34,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
   # time excluded via `running_seconds/2`). The duration cap is almost
   # always "I want to check in," not "this work is done" — pausing keeps
   # the agent in the list, holding its slot and its session/turn context,
-  # so the operator can review and resume with one keystroke instead of
+  # so the Executor can review and resume with one keystroke instead of
   # restarting from scratch.
   @doc false
   @spec reconcile_overrunning_agents(State.t()) :: State.t()
@@ -70,7 +70,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
       State.running_seconds(Map.get(running_entry, :started_at), now) > max_seconds
   end
 
-  # Mirror the operator-pause path: queue the cooperative `{:pause_agent}`
+  # Mirror the Executor-pause path: queue the cooperative `{:pause_agent}`
   # control message so the worker parks at its next turn boundary, then
   # flip control status to `:paused`. Stamping `paused_reason` makes the
   # pause attributable to the duration cap (distinct from a manual or
@@ -125,7 +125,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
       # agent (single never-ending codex turn) never reaches one, so it
       # keeps streaming past the pause. Such an entry would otherwise sit
       # `:paused` forever — the duration cap can never re-fire (paused
-      # entries are excluded) and the operator's resume never comes. Once
+      # entries are excluded) and the Executor’s resume never comes. Once
       # it has been wedged past the grace window, force-terminate it. This
       # is the only place a duration cap escalates to a kill; a cooperative
       # park stops the codex stream and is left alone.
@@ -138,7 +138,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
       # interpret deliberate idleness as a stuck codex stream. The
       # auto-resume hook in handle_info({:event, ...}) will reawaken
       # the entry when its blocker pushes; if no push ever arrives, an
-      # operator-driven resume (label flip or chat) is the path
+      # Executor-driven resume (label flip or chat) is the path
       # forward, not a restart that throws away the agent's workpad.
       State.paused_running_entry?(running_entry) ->
         state
@@ -161,7 +161,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
   # that way longer than the grace window (`timeout_ms`, the stall budget).
   # A cooperatively-parked agent stops streaming at its turn boundary, so
   # its `last_codex_timestamp` does not advance past `paused_at` — those
-  # are left to the operator/blocker resume, never killed here.
+  # are left to the Executor/blocker resume, never killed here.
   @doc false
   @spec wedged_overcap_entry?(map(), DateTime.t(), non_neg_integer()) :: boolean()
   def wedged_overcap_entry?(running_entry, now, timeout_ms) when is_map(running_entry) do

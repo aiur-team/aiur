@@ -120,7 +120,7 @@ defmodule Aiur.Claude.Repl.HookTurn do
           {:claude_hook, _id, _event} ->
             await_hook_turn(loop, reset_deadline(loop), acc)
 
-          # An operator message landed mid-turn. The REPL accepts input while the
+          # An Executor message landed mid-turn. The REPL accepts input while the
           # agent works; type it straight in so claude's native queue folds it.
           {:agent_queue_updated, _identifier, _item_id, true} ->
             Logger.info("repl_hook_turn operator_immediate identifier=#{loop.identifier}")

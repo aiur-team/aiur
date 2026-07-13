@@ -216,7 +216,7 @@ defmodule Aiur.AlertsTest do
             String.contains?(log, "\"needs_attention\":true") and
             String.contains?(log, "\"severity\":\"warning\"") and
             String.contains?(log, "\"name\":\"ticket.MT-ALERT-5.agent.unpaused\"") and
-            String.contains?(log, "\"reason\":\"Agent resumed; no operator action is needed.\"") and
+            String.contains?(log, "\"reason\":\"Agent resumed; no Executor action is needed.\"") and
             String.contains?(log, "\"needs_attention\":false")
         else
           false

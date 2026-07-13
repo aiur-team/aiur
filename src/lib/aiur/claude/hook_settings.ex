@@ -5,7 +5,7 @@ defmodule Aiur.Claude.HookSettings do
 
   `claude --settings <file>` ADDS a settings source — it composes with the user's
   own settings/hooks rather than replacing them, so our turn-detection hooks fire
-  alongside whatever the operator already configured.
+  alongside whatever the Executor already configured.
   """
 
   alias Aiur.Config.Paths

@@ -1,6 +1,6 @@
 defmodule Aiur.DecisionAnswer do
   @moduledoc """
-  Immutable, validated operator or supervisor answer to one Decision version.
+  Immutable, validated Executor or supervisor answer to one Decision version.
 
   The caller supplies an idempotency key, but the canonical `action_id`
   is derived under the Decision's scope. This prevents the same token on

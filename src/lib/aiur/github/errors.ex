@@ -6,7 +6,7 @@ defmodule Aiur.GitHub.Errors do
   alias Aiur.GitHub.Transport
 
   @typedoc """
-  The error classification produced by `classify_error/1`. Operators must be
+  The error classification produced by `classify_error/1`. Executors must be
   able to tell these apart to fix flaky GitHub access (#617): a DNS outage and
   an expired token need entirely different remediation.
   """

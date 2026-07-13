@@ -5,7 +5,7 @@ defmodule Aiur.AgentList.EventIntake do
 
   # Cap on the in-memory debug-event ticker buffer. The renderer trims
   # further based on available pane height, but this stops unbounded
-  # growth if the operator leaves --debug on for hours.
+  # growth if the Executor leaves --debug on for hours.
   @debug_event_cap 200
 
   @spec fold(map(), map()) :: map()
@@ -81,7 +81,7 @@ defmodule Aiur.AgentList.EventIntake do
   # Folds `ticket.<id>.agent.progress[.<source>]` publishes into the
   # per-id ProgressTracker sample ring with a source-aware ratchet:
   #
-  #   - `agent.progress.checkin` (operator-driven check-in) ALWAYS
+  #   - `agent.progress.checkin` (Executor-driven check-in) ALWAYS
   #     records — the agent's attested 1–10 estimate trumps prior
   #     phase guesses, even when it lowers the current value.
   #   - `agent.progress.phase` (phase boundary) and the bare
