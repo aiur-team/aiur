@@ -38,6 +38,11 @@ defmodule Aiur.Opencode.ServerTest do
     original_env = Map.new(child_env, fn {name, _value} -> {name, System.get_env(name)} end)
     System.put_env(child_env)
 
+    on_exit(fn ->
+      restore_env(original_env)
+      File.rm_rf(root)
+    end)
+
     slot_index = System.unique_integer([:positive])
 
     {:ok, token} =
@@ -50,11 +55,7 @@ defmodule Aiur.Opencode.ServerTest do
         display_identifier: "99"
       )
 
-    on_exit(fn ->
-      restore_env(original_env)
-      TokenRegistry.delete(token)
-      File.rm_rf(root)
-    end)
+    on_exit(fn -> TokenRegistry.delete(token) end)
 
     {:ok, server} =
       Server.start_link(%{
@@ -84,9 +85,13 @@ defmodule Aiur.Opencode.ServerTest do
       assert {:ok, %Req.Response{status: 200, body: %{"all" => providers}}} =
                Req.get(base_url <> "/provider", params: [directory: ticket_workspace])
 
-      assert Enum.any?(providers, fn provider ->
-               provider["id"] == "aiur" and Map.has_key?(provider["models"], "issue-99")
-             end)
+      assert %{
+               "name" => "Aiur",
+               "options" => %{"baseURL" => "http://127.0.0.1:1/v1"},
+               "models" => models
+             } = Enum.find(providers, &(&1["id"] == "aiur"))
+
+      assert Map.has_key?(models, "issue-99")
     after
       assert :ok = ApiClient.delete_session(base_url, session["id"])
     end
