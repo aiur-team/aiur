@@ -10,7 +10,7 @@
 
 **Depends on:** DASH-003, DASH-014
 
-**Serializes with:** DASH-005, DASH-007, DASH-015, DASH-021, DASH-023, DASH-027, DASH-028, DASH-034 — shared `DashboardLive`/CSS/summary layout
+**Serializes with:** DASH-005, DASH-007, DASH-015, DASH-021, DASH-023, DASH-027, DASH-028, DASH-031, DASH-034 — shared `DashboardLive`/CSS/summary layout
 
 **Predecessor baseline:** resolved — `origin/main` at `9849f32963c2a65367bce565b3f5ede3777c218f`
 

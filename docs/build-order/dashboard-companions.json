@@ -840,6 +840,7 @@
         "DASH-023",
         "DASH-027",
         "DASH-028",
+        "DASH-031",
         "DASH-034"
       ],
       "external_blockers": [],
@@ -1159,7 +1160,7 @@
         "normal-run emission"
       ],
       "safety_surfaces": [
-        "provider payload redaction",
+        "headless provider payload redaction",
         "agent-event ingestion seam"
       ],
       "conflict_exceptions": [],
@@ -1346,6 +1347,7 @@
       ],
       "serializes_with": [
         "DASH-005",
+        "DASH-007",
         "DASH-015",
         "DASH-021",
         "DASH-022",
