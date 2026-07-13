@@ -5,10 +5,11 @@ defmodule AiurWeb.DashboardLive do
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
-  alias Aiur.{AgentChat, Alerts, DecisionPubSub}
+  alias Aiur.{AgentChat, Alerts, DecisionHistory, DecisionPubSub}
   alias AiurWeb.{Endpoint, ObservabilityPubSub, Presenter}
   @runtime_tick_ms 1_000
   @payload_reload_debounce_ms 50
+  @decision_history_limit 50
 
   @impl true
   def mount(_params, _session, socket) do
@@ -660,7 +661,7 @@ defmodule AiurWeb.DashboardLive do
   end
 
   defp load_payload do
-    Presenter.state_payload(orchestrator(), snapshot_timeout_ms())
+    Presenter.state_payload(orchestrator(), snapshot_timeout_ms(), decision_history_fun: fn -> DecisionHistory.list(limit: @decision_history_limit) end)
   end
 
   defp reload_payload(socket) do

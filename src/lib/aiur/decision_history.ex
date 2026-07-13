@@ -3,7 +3,7 @@ defmodule Aiur.DecisionHistory do
   Read-only operator history projected from `Aiur.DecisionStore` records.
 
   The store remains the only source of truth. This module gives dashboard and
-  API consumers one bounded, newest-first shape while preserving uncertainty:
+  API consumers one newest-first shape while preserving uncertainty:
   actor types are used only when a canonical record states them explicitly.
   OCC-1 request records have source-agent metadata but no separate mutation
   actor, so they are identified as ticket-agent activity rather than guessed to
@@ -12,7 +12,6 @@ defmodule Aiur.DecisionHistory do
 
   alias Aiur.{Decision, DecisionEvent, DecisionRevision, DecisionStore}
 
-  @default_limit 50
   @actor_types %{
     "human" => :human_operator,
     "human_operator" => :human_operator,
@@ -53,7 +52,7 @@ defmodule Aiur.DecisionHistory do
     histories
     |> Enum.flat_map(fn {_decision_id, records} -> project_history(records) end)
     |> Enum.sort_by(&sort_key/1, :desc)
-    |> Enum.take(limit(opts))
+    |> take_limit(opts)
   end
 
   @doc "Projects one canonical history record into the operator-facing shape."
@@ -388,10 +387,10 @@ defmodule Aiur.DecisionHistory do
   defp integer(value) when is_integer(value), do: value
   defp integer(_value), do: 0
 
-  defp limit(opts) do
-    case Keyword.get(opts, :limit, @default_limit) do
-      limit when is_integer(limit) and limit >= 0 -> limit
-      _other -> @default_limit
+  defp take_limit(entries, opts) do
+    case Keyword.get(opts, :limit) do
+      limit when is_integer(limit) and limit >= 0 -> Enum.take(entries, limit)
+      _other -> entries
     end
   end
 
