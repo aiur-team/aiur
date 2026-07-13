@@ -266,7 +266,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   # All dispatch preconditions except the global active+paused slot reservation.
   # Polling layers `available_slots > 0` on top of this to honor paused-agent
   # slot holds; manual start paths (e.g., space on a queued ticket) instead
-  # gate on `active < max` so the operator can claim a free slot even when a
+  # gate on `active < max` so the Executor can claim a free slot even when a
   # parallel paused agent is parked in the running map.
   @spec dispatch_candidate?(Issue.t(), State.t()) :: boolean()
   def dispatch_candidate?(%Issue{} = issue, %State{} = state) do

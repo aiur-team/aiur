@@ -649,7 +649,7 @@ defmodule Aiur.AppServerTest do
       assert_received {:app_server_message,
                        %{
                          event: :tool_input_auto_answered,
-                         answer: "This is a non-interactive session. Operator input is unavailable."
+                         answer: "This is a non-interactive session. Executor input is unavailable."
                        }}
     after
       File.rm_rf(test_root)
@@ -745,7 +745,7 @@ defmodule Aiur.AppServerTest do
 
                  payload["id"] == 112 and
                    get_in(payload, ["result", "answers", "options-719", "answers"]) == [
-                     "This is a non-interactive session. Operator input is unavailable."
+                     "This is a non-interactive session. Executor input is unavailable."
                    ]
                else
                  false

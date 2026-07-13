@@ -45,7 +45,9 @@ hand unless something is broken.
 
 ```text
 aiurdev                       # foreground run, local-only bind (full interactive UI)
-aiurdev --bg                  # lean headless background run (one detached tmux lifetime session, no panes/dashboard)
+aiurdev --bg                  # detached headless run (no panes; dashboard remains available)
+aiurdev --bg --no-dashboard   # lean detached run with no panes or dashboard listener
+aiurdev --no-dashboard        # foreground terminal UI without the dashboard listener
 aiurdev --max-agents <n>      # override agent.max_concurrent_agents at launch
 aiurdev stop                  # stop the session (BEAM + tmux)
 aiurdev status                # report the running session
@@ -63,6 +65,13 @@ npm-installed `aiur` accepts the exact same set. The engine injects
 `--host 127.0.0.1` on the run path unless you pass `--host` somewhere in the
 args. Pass `--host` when you want to expose the dashboard over the network
 (e.g. Tailscale, LAN).
+
+Claude Remote Control requires the dashboard server's lifecycle-hook endpoint.
+Aiur therefore rejects `--no-dashboard` when `agent.remote_control` is enabled
+or an `agent.routing` value carries `+remote`; remove `--no-dashboard` or
+disable that Remote Control configuration. Runtime Remote Control activation
+(including `model:remote` tickets and the live `r` promotion) is also refused
+unless the HTTP listener is confirmed bound.
 
 ## Per-issue workspaces
 
@@ -171,14 +180,14 @@ When the user (or any doc) says "manually test", "run aiur and try it",
    markers, `_reasoning_` text, incoming-event rows, outgoing
    aiur-tool-call rows, etc. — whatever the feature was supposed to
    render.
-4. **End-to-end means end-to-end.** Send operator messages through the
+4. **End-to-end means end-to-end.** Send Executor messages through the
    TUI input box (the path a user takes), not via `curl POST
    /api/v1/<id>/messages`. The HTTP API exercises a small subset of the
    delivery path and routinely behaves differently than the TUI input
    path — verifying the API is verifying the API, not the UX.
 5. **Inspecting logs and SSE bridge events is NOT manual testing.**
    Logs prove *that internal events fired*. Manual testing proves
-   *that the operator sees the right thing on screen*. Both are useful;
+   *that the Executor sees the right thing on screen*. Both are useful;
    only the second satisfies "manually tested".
 
 **Do not report a feature as "working", "verified", or "shipped" until
@@ -199,7 +208,7 @@ sufficient. Substituting HTTP or log proxies is never acceptable.
 
 ### Driving the TUI from a non-TTY agent environment
 
-When a non-TTY operator environment needs to drive aiur manually, use a
+When a non-TTY Executor environment needs to drive aiur manually, use a
 wrapper tmux session as the "fake terminal," then `send-keys` and
 `capture-pane` against aiur's own inner tmux socket. This pattern was
 validated live and is the canonical recipe — do not substitute HTTP,
@@ -211,7 +220,7 @@ can mutate the live dogfood backlog. If an agent sees the guard message
 `manual --test runs are blocked inside agent workspaces`, it must stop that
 verification path and report the blocker; it must not retry from `/tmp`, a
 copied harness, a fresh clone, or an alternate wrapper-tmux name. Run this
-recipe only from the operator repo root, then use the socket/session printed
+recipe only from the Executor repo root, then use the socket/session printed
 by that launched instance.
 
 1. **Spawn aiur inside a wrapper tmux on a separate socket.** The
@@ -278,7 +287,7 @@ by that launched instance.
 
    ```bash
    tmux -L "$AIUR_SOCKET" send-keys -t "$AIUR_SESSION:0.1" \
-     "your operator message here"
+     "your Executor message here"
    tmux -L "$AIUR_SOCKET" send-keys -t "$AIUR_SESSION:0.1" Enter
    ```
 
@@ -308,15 +317,17 @@ by that launched instance.
 
 Gotchas worth remembering:
 - `--bg` mode runs the workflow/agents **headlessly** inside the BEAM: it
-  skips the interactive UI tree (no agent-list pane, chat panes, prewarm
-  panes, or dashboard bind unless explicitly requested). The launcher still
+  skips the terminal UI tree (no agent-list pane, chat panes, or prewarm
+  panes) while keeping the dashboard enabled. Add `--no-dashboard` for the
+  lean no-listener background shape; the same flag suppresses only the
+  dashboard in foreground mode. The launcher still
   creates one detached tmux session as the BEAM lifetime holder and crash
   cleanup anchor. Observe it with `aiurdev agents` / `aiurdev status` over
   the control RPC. If that tmux session already exists, `--bg` treats a live
   control plane as "already running" and cleans up stale tmux state before a
   restart. For manual testing that needs the interactive TUI (chat panes),
   use foreground `aiurdev --test` instead.
-- The wrapper-tmux socket name (e.g. `claude-driver`) is the operator's
+- The wrapper-tmux socket name (e.g. `claude-driver`) is the Executor’s
   choice and must NOT collide with the `AIUR_SOCKET` printed by the
   launched instance.
 - `send-keys` accepts both literal strings and tmux key names
@@ -347,8 +358,8 @@ How it works, and why it has to:
   add nothing.
 - **It is read-only and non-intrusive.** Unlike a manual scrollback
   walk, the recorder never sends keys to the panes — it only reads the
-  visible viewport — so the operator's live session is untouched. It
-  starts when the session attaches and is killed the moment the operator
+  visible viewport — so the Executor’s live session is untouched. It
+  starts when the session attaches and is killed the moment the Executor
   detaches.
 
 `cat` a transcript (ANSI intact) or `sed 's/\x1b\[[0-9;?]*[A-Za-z]//g'`

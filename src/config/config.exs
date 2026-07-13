@@ -45,7 +45,7 @@ if config_env() == :test do
   config :aiur, :log_file, Path.join(test_log_root, "aiur.log")
 
   # Same isolation rationale as :log_file above: the always-on DecisionStore
-  # child (OCC-1) must never resolve into a real operator's AIUR_BG_STATE_DIR
+  # child (OCC-1) must never resolve into a real Executor's AIUR_BG_STATE_DIR
   # during tests. Per-test overrides (Application.put_env in a test's own
   # setup) still win.
   config :aiur, :decision_state_dir, Path.join(test_log_root, "decisions")

@@ -21,6 +21,10 @@ defmodule Aiur.Application do
 
   require Logger
 
+  alias Aiur.Config, as: AiurConfig
+  alias Aiur.Config.RoutingValue
+  alias Aiur.GitHub.Config
+
   @impl true
   def start(_type, _args) do
     :ok = Aiur.Boot.mark()
@@ -36,36 +40,74 @@ defmodule Aiur.Application do
     maybe_start_distribution()
     if Application.get_env(:aiur, :resolve_github_token_on_boot, true), do: resolve_github_token()
 
-    headless? = Application.get_env(:aiur, :headless, false)
-    # Headless is authoritative: if both flags somehow end up set (e.g. a
-    # hand-run `aiur --headless` that also injected `--interactive`), the lean
-    # path wins rather than booting a half-built interactive tree.
-    interactive_cli? = Application.get_env(:aiur, :interactive_cli, false) and not headless?
+    no_dashboard? = Application.get_env(:aiur, :no_dashboard, false)
 
-    children =
-      child_specs(
-        interactive_cli?: interactive_cli?,
-        headless?: headless?,
-        dashboard?: dashboard_enabled?(headless?),
-        debug?: debug?
+    with :ok <- validate_dashboard_compatibility(no_dashboard?) do
+      headless? = Application.get_env(:aiur, :headless, false)
+      # Headless is authoritative: if both flags somehow end up set (e.g. a
+      # hand-run `aiur --headless` that also injected `--interactive`), the lean
+      # path wins rather than booting a half-built interactive tree.
+      interactive_cli? = Application.get_env(:aiur, :interactive_cli, false) and not headless?
+
+      children =
+        child_specs(
+          interactive_cli?: interactive_cli?,
+          headless?: headless?,
+          dashboard?: not no_dashboard?,
+          debug?: debug?
+        )
+
+      Supervisor.start_link(
+        children,
+        strategy: :one_for_one,
+        name: Aiur.Supervisor
       )
+    end
+  end
 
-    Supervisor.start_link(
-      children,
-      strategy: :one_for_one,
-      name: Aiur.Supervisor
-    )
+  @doc """
+  Reject a no-dashboard launch when configured Remote Control sessions would
+  lose the HTTP lifecycle-hook endpoint they require.
+
+  The optional inputs keep this check pure in tests; production resolves both
+  values from the active workflow config.
+  """
+  @spec validate_dashboard_compatibility(boolean(), keyword()) :: :ok | {:error, String.t()}
+  def validate_dashboard_compatibility(no_dashboard?, opts \\ [])
+
+  def validate_dashboard_compatibility(false, _opts), do: :ok
+
+  def validate_dashboard_compatibility(true, opts) do
+    remote_control? = Keyword.get_lazy(opts, :remote_control?, &AiurConfig.agent_remote_control?/0)
+    routing = Keyword.get_lazy(opts, :routing, &AiurConfig.agent_routing/0)
+
+    sources =
+      []
+      |> maybe_add_remote_control_source(remote_control?, "agent.remote_control")
+      |> maybe_add_remote_control_source(remote_routing?(routing), "agent.routing +remote")
+
+    case sources do
+      [] ->
+        :ok
+
+      configured_sources ->
+        {:error,
+         "--no-dashboard cannot be used with Claude Remote Control configured by " <>
+           "#{Enum.join(configured_sources, " and ")}; Remote Control lifecycle hooks require " <>
+           "Aiur.HttpServer. Remove --no-dashboard or disable the Remote Control setting."}
+    end
   end
 
   @doc """
   Build the supervision children for the given run shape.
 
-  `--bg`/headless runs (`headless?: true`) skip the work that only ever
-  serves the interactive UI — the web dashboard, the opencode chat-pane
-  machinery, and the whole interactive CLI block (tmux, pane manager,
-  opencode pre-warm, agent-list panes). The agent **backends** that
+  `--bg`/headless runs (`headless?: true`) skip terminal-only work — the
+  opencode chat-pane machinery and the whole interactive CLI block (tmux,
+  pane manager, opencode pre-warm, agent-list panes). Dashboard supervision
+  is independent and remains enabled unless `--no-dashboard` is supplied.
+  The agent **backends** that
   actually run agents (session writers, the opencode bridge, token
-  registry) are kept so a headless node still does real work; an operator
+  registry) are kept so a headless node still does real work; an Executor
   drives it over the control RPC (`status` / `agents` / `message` /
   `pause` / `set max-agents`) instead of attaching to panes.
 
@@ -128,8 +170,8 @@ defmodule Aiur.Application do
       Aiur.Events.LsRemoteTicker,
       Aiur.ProgressCheckin.Worker,
       Aiur.Logs.Retention,
-      # Dashboard: always on interactively; in headless only when the
-      # operator opted in via `--port`/`server.port` (see `dashboard?/1`).
+      # Dashboard supervision is independent of terminal attachment/headless
+      # mode. Aiur.HttpServer retains its own bind and credential guards.
       if(dashboard?, do: AiurWeb.ControlCenterCache),
       if(dashboard?, do: Aiur.HttpServer),
       Aiur.Opencode.TokenRegistry,
@@ -143,26 +185,14 @@ defmodule Aiur.Application do
     |> Kernel.++(cli_children)
   end
 
-  # In headless mode the dashboard is off unless the operator explicitly
-  # asked for it — `--port` (server_port_override) or a non-zero
-  # `server.port` in config. Interactive runs always start it (unchanged).
-  defp dashboard_enabled?(false = _headless?), do: true
-
-  defp dashboard_enabled?(true = _headless?) do
-    dashboard_opted_in?()
-  rescue
-    # Config not resolvable at boot — fail closed (no dashboard in headless).
-    _ -> false
+  defp remote_routing?(routing) when is_map(routing) do
+    Enum.any?(routing, fn {_level, value} -> RoutingValue.routing_remote_flag?(value) end)
   end
 
-  # A usable port is the opt-in signal: a positive `--port` override or a
-  # non-zero `server.port`. Port 0 (the default, and an ephemeral-bind value)
-  # is NOT an opt-in — otherwise `--bg --port 0` would silently bind the
-  # dashboard, defeating the lean-mode "no dashboard bind" guarantee.
-  defp dashboard_opted_in? do
-    port_override = Application.get_env(:aiur, :server_port_override)
-    (is_integer(port_override) and port_override > 0) or Aiur.Config.settings!().server.port > 0
-  end
+  defp remote_routing?(_routing), do: false
+
+  defp maybe_add_remote_control_source(sources, true, source), do: sources ++ [source]
+  defp maybe_add_remote_control_source(sources, false, _source), do: sources
 
   @impl true
   def prep_stop(state) do
@@ -209,7 +239,7 @@ defmodule Aiur.Application do
   # daemon token when configured; otherwise retain the GITHUB_TOKEN-to-keyring
   # compatibility chain. Best-effort: a resolution error must not crash boot.
   defp resolve_github_token do
-    Aiur.GitHub.Config.resolve_token()
+    Config.resolve_token()
     :ok
   rescue
     error ->

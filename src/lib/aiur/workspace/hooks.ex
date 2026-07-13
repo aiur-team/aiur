@@ -57,9 +57,9 @@ defmodule Aiur.Workspace.Hooks do
     Logger.info("Running workspace hook hook=#{hook_name} #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=local")
 
     # Scrub Erlang distribution env before running the hook command.
-    # Without this, the operator's ERL_AFLAGS / RELEASE_NODE /
+    # Without this, the Executor’s ERL_AFLAGS / RELEASE_NODE /
     # RELEASE_COOKIE propagate into the hook, and any `mix` call in
-    # the hook tries to start an Erlang node with the operator's
+    # the hook tries to start an Erlang node with the Executor’s
     # name and fails instantly:
     #   `Protocol 'inet_tcp': the name aiur-orangekid@127.0.0.1
     #    seems to be in use by another Erlang node`

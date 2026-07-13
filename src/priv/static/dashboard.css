@@ -1379,6 +1379,13 @@ textarea:focus-visible,
   font-size: 0.76rem;
 }
 
+.decision-latency-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.55rem;
+}
+
 .link-list {
   align-items: flex-start;
 }
@@ -2178,6 +2185,30 @@ textarea:focus-visible,
   .decision-detail {
     padding-left: 1rem;
     padding-right: 0.85rem;
+  }
+
+  .decision-card,
+  .decision-card-head,
+  .decision-detail,
+  .decision-action,
+  .decision-detail-grid,
+  .detail-block,
+  .link-list {
+    min-width: 0;
+  }
+
+  .lifecycle {
+    gap: 0.35rem 0.25rem;
+  }
+
+  .lifecycle-connector {
+    display: none;
+  }
+
+  .link-list .link-pill,
+  .decision-detail-footer .btn {
+    overflow-wrap: anywhere;
+    white-space: normal;
   }
 
   .metadata-list div {

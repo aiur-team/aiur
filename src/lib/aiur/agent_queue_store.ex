@@ -415,10 +415,10 @@ defmodule Aiur.AgentQueueStore do
       durability: Map.get(delivery, :durability, :durable),
       consume_at: Map.get(delivery, :consume_at, :safe_checkpoint),
       interrupt_requested: Map.get(delivery, :interrupt_requested, false),
-      # `:immediate` is the REPL deliver-now flag (claude-repl pastes operator
+      # `:immediate` is the REPL deliver-now flag (claude-repl pastes Executor
       # messages into the live pane mid-turn). Dropping it here silently
       # downgraded every immediate message to checkpoint delivery, so a
-      # claude-repl agent on a long turn never received operator input.
+      # claude-repl agent on a long turn never received Executor input.
       immediate: Map.get(delivery, :immediate, false),
       fallback: Map.get(delivery, :fallback)
     }

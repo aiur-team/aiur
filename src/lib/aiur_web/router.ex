@@ -29,7 +29,7 @@ defmodule AiurWeb.Router do
   # CSRF defense for the bare REST JSON write endpoints. `Plug.CSRFProtection`
   # is the wrong tool here — it depends on a session-stored token, and the
   # API isn't driven by our own LiveView (curl + 3rd-party scripts are
-  # legitimate callers as long as they come from the operator's machine).
+  # legitimate callers as long as they come from the Executor’s machine).
   # Defense: Origin/Referer must match the dashboard's own origin (or
   # loopback equivalents), AND a custom `X-Aiur-Request: 1` header must
   # be present (browsers attaching this header on a same-origin XHR is
@@ -40,7 +40,7 @@ defmodule AiurWeb.Router do
     plug(:require_custom_header)
   end
 
-  # Read-only gate for the dashboard's agent-write endpoints (operator chat,
+  # Read-only gate for the dashboard's agent-write endpoints (Executor chat,
   # refresh). Disabled by default until a deliberate dashboard parity pass —
   # see issue #371. Re-enable via `observability.dashboard_writable` config.
   # The TUI's pane endpoints and the RC claude-hook are intentionally NOT
@@ -143,21 +143,31 @@ defmodule AiurWeb.Router do
     match(:*, "/*path", ObservabilityApiController, :not_found)
   end
 
-  defp dashboard_basic_auth(conn, _opts) do
+  @doc false
+  @spec dashboard_basic_auth(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
+  def dashboard_basic_auth(conn, opts) do
     username = System.get_env("AIUR_DASHBOARD_USERNAME")
     password = System.get_env("AIUR_DASHBOARD_PASSWORD")
+    auth_required? = Keyword.get_lazy(opts, :required?, &dashboard_auth_required?/0)
 
-    if present?(username) and present?(password) do
-      Plug.BasicAuth.basic_auth(conn, username: username, password: password, realm: "Aiur")
-    else
-      conn
+    cond do
+      present?(username) and present?(password) ->
+        Plug.BasicAuth.basic_auth(conn, username: username, password: password, realm: "Aiur")
+
+      auth_required? ->
+        conn
+        |> Plug.BasicAuth.request_basic_auth(realm: "Aiur")
+        |> Plug.Conn.halt()
+
+      true ->
+        conn
     end
   end
 
   defp present?(value), do: is_binary(value) and String.trim(value) != ""
 
   # Origin/Referer allowlist. Parses exact origins and accepts the configured
-  # dashboard host or loopback equivalents operators typically use.
+  # dashboard host or loopback equivalents Executors typically use.
   defp verify_same_origin(conn, _opts) do
     if origin_allowed?(conn) do
       conn
@@ -186,6 +196,12 @@ defmodule AiurWeb.Router do
 
   defp dashboard_writable? do
     AiurWeb.Endpoint.config(:dashboard_writable) == true
+  rescue
+    _ -> false
+  end
+
+  defp dashboard_auth_required? do
+    AiurWeb.Endpoint.config(:dashboard_auth_required) == true
   rescue
     _ -> false
   end

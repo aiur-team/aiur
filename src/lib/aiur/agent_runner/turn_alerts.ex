@@ -1,9 +1,9 @@
 defmodule Aiur.AgentRunner.TurnAlerts do
   @moduledoc """
-  Emits operator alerts for quota and token-exhaustion turn outcomes.
+  Emits Executor alerts for quota and token-exhaustion turn outcomes.
 
   Ordinary pauses remain silent while recognized exhaustion conditions produce
-  the existing ticket-scoped alerts with their original operator guidance.
+  the existing ticket-scoped alerts with their original Executor guidance.
   """
 
   alias Aiur.{Alerts, Issue}

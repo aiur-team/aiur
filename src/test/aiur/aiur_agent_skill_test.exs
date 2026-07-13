@@ -23,8 +23,8 @@ defmodule Aiur.AiurAgentSkillTest do
     attention-and-resolve.md
     stub-then-fetch.md
   )
-  @codex_exposed_aiur_skills ~w(aiur-agent aiur-monitor aiur-run design-import using-aiur)
-  @claude_operator_only_skills ~w(aiur-loop release)
+  @codex_exposed_aiur_skills ~w(aiur-agent aiur-debug aiur-monitor aiur-run design-import using-aiur)
+  @claude_executor_only_skills ~w(aiur-loop release)
 
   test "Claude backend surface: canonical skill dir exists with a SKILL.md" do
     assert File.dir?(@claude_skill)
@@ -52,7 +52,11 @@ defmodule Aiur.AiurAgentSkillTest do
 
   test "Codex backend surface: every Codex-exposed Aiur skill uses canonical Claude source" do
     for skill <- @codex_exposed_aiur_skills do
-      assert_codex_skill_symlink_resolves_to_claude(skill)
+      if skill == "aiur-debug" do
+        assert_codex_skill_is_tracked_symlink(skill)
+      else
+        assert_codex_skill_symlink_resolves_to_claude(skill)
+      end
     end
   end
 
@@ -66,8 +70,8 @@ defmodule Aiur.AiurAgentSkillTest do
            "issue-worker skills must be a subset of @codex_exposed_aiur_skills"
 
     for skill <- issue_worker do
-      refute skill in @claude_operator_only_skills,
-             "operator-only skill #{skill} must not be installed into issue workers"
+      refute skill in @claude_executor_only_skills,
+             "Executor-only skill #{skill} must not be installed into issue workers"
 
       assert File.dir?(Path.join([@repo_root, ".claude", "skills", skill])),
              "issue-worker skill #{skill} has no canonical .claude/skills/#{skill} dir"
@@ -82,12 +86,12 @@ defmodule Aiur.AiurAgentSkillTest do
       |> Enum.map(fn path -> path |> Path.dirname() |> Path.basename() end)
       |> Enum.sort()
 
-    assert claude_skills == Enum.sort(@codex_exposed_aiur_skills ++ @claude_operator_only_skills)
+    assert claude_skills == Enum.sort(@codex_exposed_aiur_skills ++ @claude_executor_only_skills)
 
-    # These are operator workflows, not shared operating skills injected into
+    # These are Executor workflows, not shared operating skills injected into
     # Codex agents. Keeping them out of `.codex/skills` avoids advertising
     # release/loop authority inside issue workers.
-    for skill <- @claude_operator_only_skills do
+    for skill <- @claude_executor_only_skills do
       assert File.exists?(Path.join([@repo_root, ".claude", "skills", skill, "SKILL.md"]))
       refute File.exists?(Path.join([@repo_root, ".codex", "skills", skill]))
     end
@@ -169,7 +173,7 @@ defmodule Aiur.AiurAgentSkillTest do
     end
   end
 
-  test "operator decision relay covers backend push, RC, and the Decisions log" do
+  test "Executor decision relay covers backend push, RC, and the Decisions log" do
     monitor_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md"))
     run_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
     loop_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-loop/SKILL.md"))
@@ -192,7 +196,7 @@ defmodule Aiur.AiurAgentSkillTest do
     assert loop_skill =~ "Remote Control"
   end
 
-  test "operator loop uses medium autonomy and traces every decision" do
+  test "Executor loop uses medium autonomy and traces every decision" do
     monitor_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md"))
     run_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
     loop_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-loop/SKILL.md"))
@@ -223,7 +227,7 @@ defmodule Aiur.AiurAgentSkillTest do
     assert monitor_skill =~ "every periodic update"
   end
 
-  test "needs-attention relay is an independent wake path for the operator cadence" do
+  test "needs-attention relay is an independent wake path for the Executor cadence" do
     monitor_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md"))
     run_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
     loop_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-loop/SKILL.md"))
@@ -233,7 +237,7 @@ defmodule Aiur.AiurAgentSkillTest do
     loop_skill = one_line(loop_skill)
 
     assert monitor_skill =~ "wake-on-attention"
-    assert monitor_skill =~ "re-invokes the operator"
+    assert monitor_skill =~ "re-invokes the Executor"
     assert monitor_skill =~ "does not wait for the cadence timer"
     assert run_skill =~ "wake-on-attention"
     assert loop_skill =~ "wake-on-attention"
@@ -330,6 +334,21 @@ defmodule Aiur.AiurAgentSkillTest do
 
     assert File.read!(Path.join(codex_skill, "SKILL.md")) ==
              File.read!(Path.join(claude_skill, "SKILL.md"))
+  end
+
+  # Agent sandboxes mount the repository `.codex` catalog read-only from the
+  # turn-start tree, so a newly-added link cannot appear in this process's
+  # working-tree mount. The Git index is the clean-checkout source of truth for
+  # the new entry; normal checkouts materialize this mode-120000 blob as the
+  # same relative link asserted above for established skills.
+  defp assert_codex_skill_is_tracked_symlink(skill) do
+    path = ".codex/skills/#{skill}"
+
+    assert {stage, 0} = System.cmd("git", ["-C", @repo_root, "ls-files", "--stage", path])
+    assert String.starts_with?(stage, "120000 ")
+
+    assert {target, 0} = System.cmd("git", ["-C", @repo_root, "show", ":#{path}"])
+    assert target == "../../.claude/skills/#{skill}"
   end
 
   defp one_line(text), do: String.replace(text, ~r/\s+/, " ")

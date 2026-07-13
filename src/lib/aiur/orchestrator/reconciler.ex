@@ -105,38 +105,47 @@ defmodule Aiur.Orchestrator.Reconciler do
   @spec maybe_reactivate_or_refresh(State.t(), Issue.t()) :: State.t()
   def maybe_reactivate_or_refresh(%State{} = state, %Issue{} = issue) do
     case Map.get(state.running, issue.id) do
-      %{control: %{status: :deactivated}} = running_entry ->
-        # Update the stored issue first so the dispatched agent sees
-        # the freshest label state.
-        new_entry = Map.put(running_entry, :issue, issue)
-        state = %{state | running: Map.put(state.running, issue.id, new_entry)}
+      %{completed_provenance: true} = running_entry ->
+        PauseResume.replace_completed_issue(state, running_entry, issue)
 
-        case Orchestrator.reactivate_issue(state, new_entry) do
-          {{:ok, :reactivated}, next_state} -> next_state
-          {{:error, _reason}, next_state} -> next_state
-        end
+      %{control: %{status: :completed}} = running_entry ->
+        PauseResume.replace_completed_issue(state, running_entry, issue)
+
+      %{control: %{status: :deactivated}} = running_entry ->
+        reactivate_deactivated_issue(state, running_entry, issue)
 
       %{control: %{status: :paused}, paused_reason: pause_reason} = running_entry
       when pause_reason in [:ci_wait, :label_override] ->
-        new_entry = Map.put(running_entry, :issue, issue)
-        state = %{state | running: Map.put(state.running, issue.id, new_entry)}
-
-        state =
-          if pause_reason == :ci_wait,
-            do: Orchestrator.cancel_ci_wait_rewake(state, issue.id),
-            else: state
-
-        case Orchestrator.resume_paused_issue(state, new_entry, false) do
-          {{:ok, :resumed}, next_state} ->
-            next_state
-
-          {{:error, reason}, next_state} ->
-            Logger.info("Paused issue resume deferred: #{State.issue_context(issue)} reason=#{inspect(reason)}")
-            next_state
-        end
+        resume_reactivated_issue(state, running_entry, issue, pause_reason)
 
       _ ->
         refresh_running_issue_state(state, issue)
+    end
+  end
+
+  defp reactivate_deactivated_issue(state, running_entry, issue) do
+    new_entry = Map.put(running_entry, :issue, issue)
+    state = %{state | running: Map.put(state.running, issue.id, new_entry)}
+    {_result, next_state} = Orchestrator.reactivate_issue(state, new_entry)
+    next_state
+  end
+
+  defp resume_reactivated_issue(state, running_entry, issue, pause_reason) do
+    new_entry = Map.put(running_entry, :issue, issue)
+    state = %{state | running: Map.put(state.running, issue.id, new_entry)}
+
+    state =
+      if pause_reason == :ci_wait,
+        do: Orchestrator.cancel_ci_wait_rewake(state, issue.id),
+        else: state
+
+    case Orchestrator.resume_paused_issue(state, new_entry, false) do
+      {{:ok, :resumed}, next_state} ->
+        next_state
+
+      {{:error, reason}, next_state} ->
+        Logger.info("Paused issue resume deferred: #{State.issue_context(issue)} reason=#{inspect(reason)}")
+        next_state
     end
   end
 

@@ -223,7 +223,7 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
     do: "Revision recorded and corrective follow-up queued."
 
   defp revision_notice(%{revision_result: :no_longer_applicable}),
-    do: "Revision recorded; the target is no longer active and operator follow-up is required."
+    do: "Revision recorded; the target is no longer active and Executor follow-up is required."
 
   defp revision_notice(_accepted), do: "Revision recorded; corrective follow-up is pending."
 

@@ -1,6 +1,6 @@
 defmodule Aiur.RecentMerge do
   @moduledoc """
-  Validated, bounded repository-merge fact used by the operator control
+  Validated, bounded repository-merge fact used by the Executor control
   center.
 
   A merge can be backfilled from GitHub's bounded Events API window,

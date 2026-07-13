@@ -6,7 +6,7 @@ defmodule Aiur.LogFile do
   `<logs-root>/log/aiur.log` when `--logs-root` is passed). The handler
   is `:logger_std_h` with `type: :file`, so `tail -F` works directly.
 
-  No rotation. For a developer/operator CLI this is the right call: the
+  No rotation. For a developer/Executor CLI this is the right call: the
   rotation slots produced by `:logger_disk_log_h` made the file hard to
   follow live, and disk fill is a foot-gun to be managed externally if it
   ever becomes a concern.

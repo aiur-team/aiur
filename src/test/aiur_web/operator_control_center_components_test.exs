@@ -7,6 +7,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     DecisionAction,
     DecisionDetail,
     DecisionInbox,
+    DecisionLatency,
     DecisionRevisionAction,
     FleetFilters,
     FleetTable,
@@ -73,7 +74,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
       question: "What should happen after the target became terminal?",
       changed_at: ~U[2026-07-12 13:00:00Z],
       change: :follow_up_required,
-      actor: %{type: :human_operator, id: "operator", label: "Human operator"},
+      actor: %{type: :human_operator, id: "operator", label: "Executor"},
       choice: nil,
       rationale: "The revision could not be dispatched.",
       dispatch_result: :failed,
@@ -86,7 +87,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
 
     html = render_component(&History.history/1, %{entries: [entry], provider_health: :ok})
 
-    assert html =~ "Human operator"
+    assert html =~ "Executor"
     assert html =~ "Follow-up required"
     assert html =~ "dispatch: Failed"
     assert html =~ "revision: No longer applicable"
@@ -249,6 +250,51 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute readonly =~ ~s(phx-submit="answer-decision")
   end
 
+  test "renders canonical OCC-9 latency with accessible labels and honest pending fields" do
+    latency = %{
+      status: :available,
+      snapshot: %{
+        request_to_decision_ms: 250,
+        decision_to_dispatch_ms: 1_500,
+        dispatch_to_delivery_ms: nil,
+        delivery_to_ack_ms: nil,
+        blocked_time_ms: 1_750,
+        reminder_count: 2,
+        attention_count: 3,
+        actor: "human",
+        revised: true
+      }
+    }
+
+    html = render_component(&DecisionLatency.decision_latency/1, %{latency: latency})
+
+    assert html =~ ~s(aria-labelledby="decision-latency-title")
+    assert html =~ "Request to decision"
+    assert html =~ "250 ms"
+    assert html =~ "Decision to dispatch"
+    assert html =~ "1.5 s"
+    assert html =~ "Dispatch to delivery"
+    assert html =~ "Pending"
+    assert html =~ "Blocked time"
+    assert html =~ "2 reminders"
+    assert html =~ "3 attentions"
+    assert html =~ "Human"
+    assert html =~ "Revised"
+  end
+
+  test "distinguishes a missing latency sample from an unavailable provider" do
+    missing = render_component(&DecisionLatency.decision_latency/1, %{latency: %{status: :missing, snapshot: nil}})
+
+    unavailable =
+      render_component(&DecisionLatency.decision_latency/1, %{
+        latency: %{status: :unavailable, snapshot: nil}
+      })
+
+    assert missing =~ "No latency sample has been retained for this decision yet."
+    refute missing =~ "provider is unavailable"
+    assert unavailable =~ "Decision latency provider is unavailable."
+  end
+
   test "renders an append-only revision chain and gates its parent follow-up" do
     original = action_answer(:operator)
 
@@ -305,11 +351,11 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert writable =~ "Hold the rollout"
     assert writable =~ "No longer applicable"
     assert writable =~ "does not claim earlier effects were rolled back"
-    assert writable =~ "Operator follow-up required"
+    assert writable =~ "Executor follow-up required"
     assert writable =~ ~s(phx-submit="revise-decision")
     assert writable =~ ~s(phx-submit="handle-revision-follow-up")
     assert readonly =~ "Original answer · preserved"
-    assert readonly =~ "Operator follow-up required"
+    assert readonly =~ "Executor follow-up required"
     refute readonly =~ ~s(phx-submit="revise-decision")
     refute readonly =~ ~s(phx-submit="handle-revision-follow-up")
   end
