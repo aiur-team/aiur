@@ -11,7 +11,13 @@ defmodule Aiur.DecisionMetricsTest do
 
   setup %{tmp_dir: tmp_dir} do
     path = Path.join(tmp_dir, "decision_latency.ndjson")
-    pid = start_metrics!(path)
+    test_process = self()
+
+    pid =
+      start_metrics!(path,
+        metrics_changed_fun: fn -> send(test_process, {:decision_metrics_changed, self()}) end
+      )
+
     on_exit(fn -> stop_if_alive(pid) end)
     %{path: path, pid: pid}
   end
@@ -63,6 +69,29 @@ defmodule Aiur.DecisionMetricsTest do
     assert snapshot.dispatch_to_delivery_ms == nil
     assert snapshot.delivery_to_ack_ms == nil
     assert snapshot.blocked_time_ms == 0
+  end
+
+  test "returns bounded snapshots and notifies only newly recorded observations", %{pid: pid} do
+    event = request_event(15, true)
+    assert :ok = DecisionMetrics.observe(event, pid)
+    assert_receive {:decision_metrics_changed, ^pid}, 500
+
+    assert %{"dec-42" => snapshot} = DecisionMetrics.snapshots(pid)
+    assert snapshot.decision_id == "dec-42"
+    assert snapshot.requested_at == DateTime.to_iso8601(@requested_at)
+
+    duplicate_results =
+      1..20
+      |> Enum.map(fn _index -> Task.async(fn -> DecisionMetrics.observe(event, pid) end) end)
+      |> Task.await_many()
+
+    assert Enum.uniq(duplicate_results) == [:duplicate]
+    send(self(), :decision_metrics_changed)
+    refute_receive {:decision_metrics_changed, ^pid}, 50
+    assert_receive :decision_metrics_changed
+
+    assert :ignored = DecisionMetrics.observe(%{}, pid)
+    refute_receive {:decision_metrics_changed, ^pid}, 50
   end
 
   test "deduplicates reminders and records actor plus revision without content", %{pid: pid, path: path} do
@@ -201,7 +230,7 @@ defmodule Aiur.DecisionMetricsTest do
     refute snapshot.revised
   end
 
-  defp start_metrics!(path, opts \\ []) do
+  defp start_metrics!(path, opts) do
     defaults = [name: nil, path: path, subscribe?: false, seed?: false, clock: fn -> @observed_at end]
 
     {:ok, pid} =

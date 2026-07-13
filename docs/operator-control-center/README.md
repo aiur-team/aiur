@@ -31,7 +31,90 @@ OCC-0 established the architecture decisions, OCC-1 delivered the durable
 Decision request store, OCC-3 added persist-before-dispatch answer delivery,
 and OCC-8 extended that same audit/outbox with ordered revisions. OCC-7 exposes
 those contracts through a separately authenticated, fail-closed supervisor API.
+The LiveView now drives the human answer and revision boundaries directly and
+renders OCC-6 history/outcomes and OCC-9 latency from their canonical providers.
 Follow the numbered contract docs rather than reconstructing behavior from
-individual implementation tickets. The inbox UI remains gated on its design
-handoff; fleet and metrics tickets build on these contracts independently as
-shown in the decomposition.
+individual implementation tickets.
+
+## Integrated ownership
+
+| Capability | Canonical owner | Dashboard responsibility |
+|---|---|---|
+| Human answer and retry | `Aiur.DecisionStore` + `Aiur.DecisionDispatch` | Submit an operator-attributed command and reload canonical state |
+| Supervisor enrich/decide/revise | `Aiur.DecisionApi` behind supervisor authentication and policy | Render the shared Decision projection; never borrow supervisor authority for human actions |
+| Human revision and follow-up | `Aiur.DecisionStore` OCC-8 revision APIs | Submit an append-only correction and render original/revised actions |
+| History | `Aiur.DecisionHistory` over the Decision audit store | Render provider rows without rebuilding lifecycle events |
+| Recent outcomes | `Aiur.RecentMergeStore` | Render provider rows without polling GitHub |
+| Decision latency | `Aiur.DecisionMetrics` | Bulk-read retained snapshots and render missing/unavailable states explicitly |
+| Fleet state | `Aiur.Orchestrator` snapshot | Render the live provider projection |
+
+`Aiur.DecisionStore` remains the sole Decision writer. Delivery,
+acknowledgement, resolution, history, and latency are consequences of its real
+append-only lifecycle; the LiveView does not synthesize transitions.
+
+## Operator-root acceptance drive
+
+This is the required running-daemon check for the integrated control center.
+Run it from the operator repository root. `--test` is deliberately blocked in
+generated agent issue workspaces because it resets pinned sandbox tickets; do
+not copy the checkout or substitute HTTP calls or log inspection for this
+drive-through.
+
+1. Enable a private writable dashboard in the test configuration:
+
+   ```yaml
+   observability:
+     dashboard_writable: true
+   server:
+     host: 127.0.0.1
+     port: 4000
+   ```
+
+2. Launch the real foreground CLI from the operator checkout:
+
+   ```bash
+   scripts/aiurdev --test --force --allow-remote
+   ```
+
+   A non-TTY driver must use the wrapper/inner-tmux recipe in the repository
+   `AGENTS.md`, then interact with the inner AgentList and chat pane using
+   `tmux send-keys` and `tmux capture-pane`.
+
+3. Open a running agent's chat pane and send an operator message asking it to
+   emit a real `decision.requested` event for its own ticket. Use a reversible
+   `human_required` architecture decision with at least two options so both the
+   authority badge and choice controls are visible. Confirm the chat renders
+   the outgoing tool call rather than merely describing it.
+
+4. Open `http://127.0.0.1:4000/decisions`, select the new inbox row, and copy
+   its `/decisions/<decision-id>` URL. Reload that URL directly to prove the
+   stable deep link resolves. Confirm the detail initially shows the request,
+   open lifecycle, and a real latency state (`Pending` is valid before the
+   corresponding lifecycle edge exists).
+
+5. Answer from the dashboard. Confirm the UI first reports the durable answer
+   as recorded/dispatch-pending, then shows the correlated queue delivery. In
+   the agent chat, observe the actual durable operator-answer message with the
+   same Decision ID, action ID, and request version.
+
+6. Before resolving, use **Revise decision** to record a different answer and
+   reason. Confirm the detail and History preserve the original action and show
+   `Revision 1`; then observe the corrective correlated message in the agent
+   chat. If the target is no longer active, verify the real follow-up-required
+   state instead of expecting a fabricated delivery.
+
+7. Let the target agent emit the exact `decision.acknowledged` and
+   `decision.resolved` events using the correlation fields from the active
+   answer message. Confirm the browser advances through Delivered →
+   Acknowledged → Resolved and that History records the operator, target-agent,
+   dispatch, revision, acknowledgement, and resolution facts.
+
+8. Return to `/` and verify Fleet, Recent outcomes, and Decision history are
+   populated from the running daemon. Reopen the decision and verify Decision
+   latency shows the available request/decision/dispatch/delivery/ack timings,
+   blocked time, actor, and revised marker. Finally switch the configuration
+   back to read-only and confirm all mutation forms disappear while every read
+   panel and deep link remains available.
+
+Stop the run with `scripts/aiurdev stop` and clean up the wrapper tmux server if
+one was used.
