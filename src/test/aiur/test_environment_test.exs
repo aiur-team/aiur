@@ -38,7 +38,7 @@ defmodule Aiur.TestCwdGuard do
     {_module_env, mutation?, nested_modules, async?} = scan_module_body(body, env, locals)
     module_name = Macro.to_string(name)
     modules = if async? and mutation?, do: [module_name | nested_modules], else: nested_modules
-    {env, false, modules}
+    {register_module_alias(env, name), false, modules}
   end
 
   defp scan_expression({kind, _, [_head, body_options]}, env, locals)
@@ -146,7 +146,7 @@ defmodule Aiur.TestCwdGuard do
     end
   end
 
-  defp resolve_alias([:"Elixir" | target], aliases), do: resolve_alias(target, aliases)
+  defp resolve_alias([:"Elixir" | target], _aliases), do: target
 
   defp resolve_alias([first | rest] = target, aliases) do
     case Map.fetch(aliases, first) do
@@ -157,6 +157,14 @@ defmodule Aiur.TestCwdGuard do
 
   defp alias_name(nil, target), do: List.last(target)
   defp alias_name({:__aliases__, _, target}, _resolved_target), do: List.last(target)
+
+  defp register_module_alias(env, {:__aliases__, _, target}) do
+    target = resolve_alias(target, env.aliases)
+    alias_name = List.last(target)
+    %{env | aliases: Map.put(env.aliases, alias_name, [:nested_module | target])}
+  end
+
+  defp register_module_alias(env, _dynamic_name), do: env
 
   defp directive_options([options]) when is_list(options), do: options
   defp directive_options(_options), do: []
@@ -267,6 +275,26 @@ defmodule Aiur.TestEnvironmentTest do
              end
            end
            """) == ["Nested"]
+  end
+
+  test "absolute roots bypass shadows and nested modules introduce aliases" do
+    assert CwdGuard.violations("""
+           defmodule AbsoluteRoots do
+             alias Other, as: File
+             alias Other, as: ExUnit
+             use Elixir.ExUnit.Case, async: true
+             Elixir.File.cd!("tmp")
+           end
+
+           defmodule Outer do
+             use ExUnit.Case, async: true
+
+             defmodule File do
+             end
+
+             File.cd!("nested-module-call")
+           end
+           """) == ["AbsoluteRoots"]
   end
 
   test "skips quoted modules and mutations" do
