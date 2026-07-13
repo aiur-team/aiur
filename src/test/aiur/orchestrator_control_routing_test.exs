@@ -123,6 +123,83 @@ defmodule Aiur.OrchestratorControlRoutingTest do
                )
     end
 
+    test "a real completed child exiting normally parks its identity without a retry" do
+      issue_id = unique_id("down-completed")
+      {:ok, worker} = supervised_worker()
+      monitor_ref = Process.monitor(worker)
+
+      entry =
+        running_entry(issue_id,
+          pid: worker,
+          ref: monitor_ref,
+          worker_host: "worker-a",
+          workspace_path: "/workspace/#{issue_id}",
+          control: %{status: :completed, can_interrupt: true}
+        )
+
+      state =
+        base_state(
+          running: %{issue_id => entry},
+          claimed: MapSet.new([issue_id]),
+          retry_attempts: %{issue_id => %{attempt: 4}}
+        )
+
+      send(worker, :stop)
+      assert_receive {:DOWN, ^monitor_ref, :process, ^worker, :normal}, 1_000
+
+      assert {:noreply, next} =
+               Orchestrator.handle_info(
+                 {:DOWN, monitor_ref, :process, worker, :normal},
+                 state
+               )
+
+      parked = Map.fetch!(next.running, issue_id)
+      assert parked.pid == nil
+      assert parked.ref == nil
+      assert parked.control.status == :completed
+      assert parked.session_id == entry.session_id
+      assert parked.worker_host == "worker-a"
+      assert parked.workspace_path == "/workspace/#{issue_id}"
+      assert MapSet.member?(next.claimed, issue_id)
+      assert MapSet.member?(next.completed, issue_id)
+      refute Map.has_key?(next.retry_attempts, issue_id)
+
+      assert {:noreply, ^next} =
+               Orchestrator.handle_info(
+                 {:DOWN, monitor_ref, :process, worker, :normal},
+                 next
+               )
+    end
+
+    test "a real pre-completion child exiting abnormally schedules a failure retry" do
+      issue_id = unique_id("down-real-crash")
+      {:ok, worker} = supervised_worker()
+      monitor_ref = Process.monitor(worker)
+
+      entry =
+        running_entry(issue_id,
+          pid: worker,
+          ref: monitor_ref,
+          retry_attempt: 1,
+          control: %{status: :working, can_interrupt: true}
+        )
+
+      state = base_state(running: %{issue_id => entry}, claimed: MapSet.new([issue_id]))
+
+      Process.exit(worker, :boom)
+      assert_receive {:DOWN, ^monitor_ref, :process, ^worker, :boom}, 1_000
+
+      assert {:noreply, next} =
+               Orchestrator.handle_info(
+                 {:DOWN, monitor_ref, :process, worker, :boom},
+                 state
+               )
+
+      refute Map.has_key?(next.running, issue_id)
+      assert %{attempt: 2, error: "agent exited: :boom"} = next.retry_attempts[issue_id]
+      cancel_retry_timer(next.retry_attempts[issue_id])
+    end
+
     test "normal exit completes and schedules continuation without teardown" do
       issue_id = unique_id("down-normal")
       {worker, workspace, marker} = live_worker_workspace(issue_id)
@@ -318,6 +395,14 @@ defmodule Aiur.OrchestratorControlRoutingTest do
     end)
 
     {worker, workspace, marker}
+  end
+
+  defp supervised_worker do
+    Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
+      receive do
+        :stop -> :ok
+      end
+    end)
   end
 
   defp cancel_retry_timer(%{timer_ref: timer_ref, retry_token: retry_token}) do

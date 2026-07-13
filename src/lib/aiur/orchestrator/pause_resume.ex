@@ -253,45 +253,121 @@ defmodule Aiur.Orchestrator.PauseResume do
   @doc false
   @spec replace_completed_issue(State.t(), map(), Issue.t()) :: State.t()
   def replace_completed_issue(%State{} = state, running_entry, %Issue{} = issue) do
+    if State.completed_running_entry?(running_entry) do
+      revalidate_completed_replacement(state, running_entry, issue)
+    else
+      state
+    end
+  end
+
+  defp revalidate_completed_replacement(state, running_entry, issue) do
+    case Dispatcher.revalidate_issue_for_dispatch(
+           issue,
+           &Tracker.fetch_issue_states_by_ids/1,
+           DispatchPolicy.terminal_state_set()
+         ) do
+      {:ok, refreshed_issue} ->
+        dispatch_completed_replacement(state, running_entry, refreshed_issue)
+
+      {:skip, %Issue{} = refreshed_issue} ->
+        Reconciler.refresh_running_entry_issue(state, refreshed_issue, running_entry)
+
+      {:skip, :missing} ->
+        state
+
+      {:error, reason} ->
+        Logger.warning("Completed runner replacement skipped; issue refresh failed: #{State.issue_context(issue)} reason=#{inspect(reason)}")
+
+        state
+    end
+  end
+
+  defp dispatch_completed_replacement(state, running_entry, issue) do
     worker_host = Map.get(running_entry, :worker_host)
 
-    cond do
-      not State.completed_running_entry?(running_entry) ->
-        state
-
-      not DispatchPolicy.active_issue_state?(issue.state, DispatchPolicy.active_state_set()) ->
-        state
-
-      State.active_running_count(state.running) >= Slots.max_concurrent_agent_limit(state) ->
-        state
-
-      not DispatchPolicy.state_slots_available?(issue, state) ->
-        state
-
-      not Slots.resume_worker_slot_available?(state, worker_host) ->
-        state
-
-      true ->
-        issue_id = issue.id
-
-        Logger.info("Replacing completed runner: issue_id=#{issue_id} issue_identifier=#{issue.identifier}")
-
-        _ = Aiur.PauseContainment.release_target(issue.identifier || issue.id)
-
-        state
-        |> AgentTeardown.terminate_running_issue(issue_id, false)
-        |> Dispatcher.do_dispatch_issue(issue, nil, worker_host)
+    with true <- Slots.dispatch_slots_available?(issue, state),
+         :ok <- Dispatcher.redispatch_ready?(state, issue, worker_host) do
+      replace_completed_entry(state, running_entry, issue, worker_host)
+    else
+      _declined -> state
     end
+  end
+
+  defp replace_completed_entry(state, running_entry, issue, worker_host) do
+    replace_admitted_completed_entry(
+      state,
+      running_entry,
+      issue,
+      worker_host,
+      &Dispatcher.do_dispatch_issue/4
+    )
+  end
+
+  @doc false
+  @spec replace_admitted_completed_entry(State.t(), map(), Issue.t(), String.t() | nil, function()) ::
+          State.t()
+  def replace_admitted_completed_entry(
+        state,
+        running_entry,
+        issue,
+        worker_host,
+        dispatch_fun
+      )
+      when is_function(dispatch_fun, 4) do
+    issue_id = issue.id
+
+    Logger.info("Replacing completed runner: issue_id=#{issue_id} issue_identifier=#{issue.identifier}")
+
+    _ = Aiur.PauseContainment.release_target(issue.identifier || issue.id)
+
+    next_state =
+      state
+      |> AgentTeardown.terminate_running_issue(issue_id, false)
+      |> dispatch_fun.(issue, nil, worker_host)
+
+    if live_replacement?(next_state, issue_id) do
+      next_state
+    else
+      restore_completed_entry(next_state, running_entry, issue)
+    end
+  end
+
+  defp live_replacement?(state, issue_id) do
+    case Map.get(state.running, issue_id) do
+      %{pid: pid, ref: ref, control: %{status: :working}} ->
+        is_pid(pid) and Process.alive?(pid) and is_reference(ref)
+
+      _ ->
+        false
+    end
+  end
+
+  defp restore_completed_entry(state, running_entry, issue) do
+    issue_id = issue.id
+
+    completed_entry =
+      running_entry
+      |> Map.put(:issue, issue)
+      |> Map.put(:pid, nil)
+      |> Map.put(:ref, nil)
+      |> put_in([:control, :status], :completed)
+
+    %{
+      state
+      | running: Map.put(state.running, issue_id, completed_entry),
+        claimed: MapSet.put(state.claimed, issue_id),
+        retry_attempts: Map.delete(state.retry_attempts, issue_id)
+    }
   end
 
   defp restart_completed_issue(state, running_entry) do
     issue = Map.fetch!(running_entry, :issue)
     next_state = replace_completed_issue(state, running_entry, issue)
 
-    if next_state == state do
-      {{:error, :max_concurrent_agents_reached}, state}
-    else
+    if live_replacement?(next_state, issue.id) do
       {{:ok, :started}, next_state}
+    else
+      {{:error, :redispatch_deferred}, next_state}
     end
   end
 

@@ -2,9 +2,10 @@ defmodule Aiur.OrchestratorStatusTest do
   use Aiur.TestSupport
 
   alias Aiur.Codex.CodingAgent, as: CodexCodingAgent
+  alias Aiur.{AgentQueueStore, Issue}
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Opencode.ActiveTurns
-  alias Aiur.Orchestrator.{OperatorMessages, WorkspaceCleanup}
+  alias Aiur.Orchestrator.{OperatorMessages, PauseResume, State, WorkspaceCleanup}
   alias Aiur.SessionHandle
 
   defmodule StartupCleanupLinearClient do
@@ -2254,16 +2255,25 @@ defmodule Aiur.OrchestratorStatusTest do
   end
 
   test "completed runner releases its slot and an operator message schedules replacement" do
-    write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_active_states: ["in-progress", "rework"]
-    )
-
     orchestrator_name = Module.concat(__MODULE__, :CompletedOperatorMessageOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    freeze_poll_cycle(pid)
     parent = self()
-    old_worker = spawn(fn -> operator_message_probe(parent) end)
+    {:ok, old_worker} = supervised_operator_message_probe(parent)
+    old_ref = Process.monitor(old_worker)
+
+    issue =
+      %Issue{
+        id: "issue-completed",
+        identifier: "MT-COMPLETED",
+        state: "rework",
+        title: "Completed message replacement"
+      }
+
+    release_file = configure_completed_revalidation!([issue])
 
     on_exit(fn ->
+      File.touch(release_file)
       if Process.alive?(pid), do: Process.exit(pid, :normal)
       if Process.alive?(old_worker), do: Process.exit(old_worker, :kill)
     end)
@@ -2272,7 +2282,8 @@ defmodule Aiur.OrchestratorStatusTest do
       entry =
         "issue-completed"
         |> running_entry("MT-COMPLETED", :working, old_worker)
-        |> Map.update!(:issue, &%{&1 | state: "in-progress"})
+        |> Map.put(:ref, old_ref)
+        |> Map.put(:issue, issue)
 
       %{
         state
@@ -2291,31 +2302,62 @@ defmodule Aiur.OrchestratorStatusTest do
 
     assert {:error, :already_inactive} = Orchestrator.pause_agent(orchestrator_name, "MT-COMPLETED")
 
-    assert {:ok, item_id} =
-             Orchestrator.send_operator_message(orchestrator_name, "MT-COMPLETED", %{
-               kind: :text,
-               body: "please address the review"
-             })
+    item_ids =
+      for body <- ["first repair", "second repair", "third repair"] do
+        assert {:ok, item_id} =
+                 Orchestrator.send_operator_message(orchestrator_name, "MT-COMPLETED", %{
+                   kind: :text,
+                   body: body
+                 })
+
+        item_id
+      end
 
     refute Process.alive?(old_worker)
 
     state = :sys.get_state(pid)
-    assert %{body: %{text: "please address the review"}} = state.queue_store.items[item_id]
+    replacement = Map.fetch!(state.running, "issue-completed")
 
-    assert Map.has_key?(state.running, "issue-completed") or
-             Map.has_key?(state.retry_attempts, "issue-completed")
+    assert is_pid(replacement.pid)
+    assert Process.alive?(replacement.pid)
+    assert replacement.pid != old_worker
+    assert is_reference(replacement.ref)
+    assert replacement.ref != old_ref
+    assert replacement.control.status == :working
+    assert state.queue_store.pending_ids_by_target["MT-COMPLETED"] == item_ids
+
+    assert Enum.map(item_ids, &state.queue_store.items[&1].body.text) == [
+             "first repair",
+             "second repair",
+             "third repair"
+           ]
+
+    send(pid, {:DOWN, old_ref, :process, old_worker, :normal})
+    after_stale_down = :sys.get_state(pid)
+
+    assert after_stale_down.running["issue-completed"].pid == replacement.pid
+    assert after_stale_down.running["issue-completed"].ref == replacement.ref
+    refute Map.has_key?(after_stale_down.retry_attempts, "issue-completed")
   end
 
   test "explicit resume replaces a completed runner instead of waking its returned task" do
-    write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_active_states: ["in-progress", "rework"]
-    )
-
     orchestrator_name = Module.concat(__MODULE__, :CompletedResumeOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
-    old_worker = spawn(fn -> operator_message_probe(self()) end)
+    freeze_poll_cycle(pid)
+    {:ok, old_worker} = supervised_operator_message_probe(self())
+    old_ref = Process.monitor(old_worker)
+
+    issue = %Issue{
+      id: "issue-completed-resume",
+      identifier: "MT-COMPLETED-RESUME",
+      state: "rework",
+      title: "Completed explicit resume"
+    }
+
+    release_file = configure_completed_revalidation!([issue])
 
     on_exit(fn ->
+      File.touch(release_file)
       if Process.alive?(pid), do: Process.exit(pid, :normal)
       if Process.alive?(old_worker), do: Process.exit(old_worker, :kill)
     end)
@@ -2324,7 +2366,8 @@ defmodule Aiur.OrchestratorStatusTest do
       entry =
         "issue-completed-resume"
         |> running_entry("MT-COMPLETED-RESUME", :completed, old_worker)
-        |> Map.update!(:issue, &%{&1 | state: "rework"})
+        |> Map.put(:ref, old_ref)
+        |> Map.put(:issue, issue)
 
       %{
         state
@@ -2338,48 +2381,312 @@ defmodule Aiur.OrchestratorStatusTest do
     refute Process.alive?(old_worker)
 
     state = :sys.get_state(pid)
+    replacement = Map.fetch!(state.running, "issue-completed-resume")
+    assert is_pid(replacement.pid)
+    assert Process.alive?(replacement.pid)
+    assert replacement.pid != old_worker
+    assert is_reference(replacement.ref)
+    assert replacement.ref != old_ref
+    refute Map.has_key?(state.retry_attempts, "issue-completed-resume")
+  end
 
-    assert Map.has_key?(state.running, "issue-completed-resume") or
-             Map.has_key?(state.retry_attempts, "issue-completed-resume")
+  test "tracker revalidation retains completed runners and messages for inactive states" do
+    current_issues = [
+      %Issue{id: "inactive-review", identifier: "MT-INACTIVE-REVIEW", state: "human-review", title: "Review"},
+      %Issue{id: "inactive-ci", identifier: "MT-INACTIVE-CI", state: "ci-wait", title: "CI"},
+      %Issue{id: "inactive-done", identifier: "MT-INACTIVE-DONE", state: "done", title: "Done"},
+      %Issue{id: "inactive-paused", identifier: "MT-INACTIVE-PAUSED", state: "rework", title: "Paused", paused: true}
+    ]
+
+    release_file = configure_completed_revalidation!(current_issues)
+
+    completed =
+      Map.new(current_issues, fn current_issue ->
+        {:ok, worker} = supervised_operator_message_probe(self())
+        ref = Process.monitor(worker)
+        cached_issue = %{current_issue | state: "rework", paused: false}
+
+        entry =
+          current_issue.id
+          |> running_entry(current_issue.identifier, :completed, worker)
+          |> Map.put(:ref, ref)
+          |> Map.put(:issue, cached_issue)
+
+        {current_issue.id, {worker, ref, entry}}
+      end)
+
+    on_exit(fn ->
+      File.touch(release_file)
+
+      Enum.each(completed, fn {_issue_id, {worker, _ref, _entry}} ->
+        if Process.alive?(worker), do: Process.exit(worker, :kill)
+      end)
+    end)
+
+    entries = Map.new(completed, fn {issue_id, {_worker, _ref, entry}} -> {issue_id, entry} end)
+
+    initial_state = %State{
+      running: entries,
+      claimed: MapSet.new(Map.keys(entries)),
+      max_concurrent_agents: 4
+    }
+
+    {item_ids, state} =
+      Enum.reduce(current_issues, {%{}, initial_state}, fn issue, {ids, state} ->
+        assert {{:ok, item_id}, next_state} =
+                 OperatorMessages.enqueue_operator_message(
+                   state,
+                   issue.identifier,
+                   "retain #{issue.id}",
+                   %{}
+                 )
+
+        {Map.put(ids, issue.id, item_id), next_state}
+      end)
+
+    Enum.each(current_issues, fn current_issue ->
+      {worker, ref, original_entry} = completed[current_issue.id]
+      retained = Map.fetch!(state.running, current_issue.id)
+
+      assert Process.alive?(worker)
+      assert retained.pid == worker
+      assert retained.ref == ref
+      assert retained.control.status == :completed
+      assert retained.session_id == original_entry.session_id
+      assert retained.worker_host == original_entry.worker_host
+      assert retained.issue.state == current_issue.state
+      assert retained.issue.paused == current_issue.paused
+      assert MapSet.member?(state.claimed, current_issue.id)
+      assert state.queue_store.pending_ids_by_target[current_issue.identifier] == [item_ids[current_issue.id]]
+      refute Map.has_key?(state.retry_attempts, current_issue.id)
+    end)
+  end
+
+  test "failed admitted spawn restores the completed row, claim, identity, and FIFO queue" do
+    issue = %Issue{
+      id: "spawn-failure-completed",
+      identifier: "MT-SPAWN-FAILURE",
+      state: "rework",
+      title: "Retain completed spawn failure"
+    }
+
+    {:ok, old_worker} = supervised_operator_message_probe(self())
+    old_ref = Process.monitor(old_worker)
+
+    on_exit(fn ->
+      if Process.alive?(old_worker), do: Process.exit(old_worker, :kill)
+    end)
+
+    entry =
+      issue.id
+      |> running_entry(issue.identifier, :completed, old_worker, "worker-a")
+      |> Map.put(:ref, old_ref)
+      |> Map.put(:issue, issue)
+      |> Map.put(:session_id, "thread-preserved")
+
+    {queue_store, first} =
+      AgentQueueStore.enqueue(%AgentQueueStore{}, %{
+        target_issue_identifier: issue.identifier,
+        source: :operator,
+        category: :operator_message,
+        event_type: :operator_message,
+        body: %{text: "first"}
+      })
+
+    {queue_store, second} =
+      AgentQueueStore.enqueue(queue_store, %{
+        target_issue_identifier: issue.identifier,
+        source: :operator,
+        category: :operator_message,
+        event_type: :operator_message,
+        body: %{text: "second"}
+      })
+
+    state = %State{
+      running: %{issue.id => entry},
+      claimed: MapSet.new([issue.id]),
+      queue_store: queue_store,
+      max_concurrent_agents: 2
+    }
+
+    spawn_failure = fn torn_state, _issue, _attempt, _worker_host ->
+      %{torn_state | retry_attempts: %{issue.id => %{attempt: 1}}}
+    end
+
+    next =
+      PauseResume.replace_admitted_completed_entry(
+        state,
+        entry,
+        issue,
+        "worker-a",
+        spawn_failure
+      )
+
+    refute Process.alive?(old_worker)
+    restored = Map.fetch!(next.running, issue.id)
+    assert restored.pid == nil
+    assert restored.ref == nil
+    assert restored.control.status == :completed
+    assert restored.session_id == "thread-preserved"
+    assert restored.worker_host == "worker-a"
+    assert MapSet.member?(next.claimed, issue.id)
+    assert next.queue_store.pending_ids_by_target[issue.identifier] == [first.id, second.id]
+    refute Map.has_key?(next.retry_attempts, issue.id)
+  end
+
+  test "state-cap admission retains the completed row and FIFO queue" do
+    issue = completed_rework_issue("state-cap")
+
+    configure_completed_revalidation!([issue],
+      max_concurrent_agents: 3,
+      max_concurrent_agents_by_state: %{"rework" => 1}
+    )
+
+    {state, entry, worker, item_ids} = completed_retention_fixture(issue)
+
+    other =
+      "other-state-cap"
+      |> running_entry("MT-OTHER-STATE-CAP", :working)
+      |> Map.put(:issue, completed_rework_issue("other-state-cap"))
+
+    state = %{state | running: Map.put(state.running, "other-state-cap", other)}
+    next = PauseResume.replace_completed_issue(state, entry, issue)
+
+    assert_completed_preflight_retained(next, entry, worker, item_ids)
+  end
+
+  test "worker-host admission retains the completed row and FIFO queue" do
+    issue = completed_rework_issue("host-cap")
+
+    configure_completed_revalidation!([issue],
+      max_concurrent_agents: 3,
+      worker_ssh_hosts: ["worker-a", "worker-b"],
+      worker_max_concurrent_agents_per_host: 1
+    )
+
+    {state, entry, worker, item_ids} = completed_retention_fixture(issue, "worker-a")
+
+    other =
+      "other-host-cap"
+      |> running_entry("MT-OTHER-HOST-CAP", :working, self(), "worker-a")
+      |> Map.put(:issue, completed_rework_issue("other-host-cap"))
+
+    state = %{state | running: Map.put(state.running, "other-host-cap", other)}
+    next = PauseResume.replace_completed_issue(state, entry, issue)
+
+    assert_completed_preflight_retained(next, entry, worker, item_ids)
+  end
+
+  test "thrash admission retains the completed row and FIFO queue" do
+    issue = completed_rework_issue("thrash")
+    configure_completed_revalidation!([issue], max_concurrent_agents: 3)
+    {state, entry, worker, item_ids} = completed_retention_fixture(issue)
+
+    state = %{
+      state
+      | codex_thrash_budget: %{
+          issue.id => %{
+            window_start_ms: System.monotonic_time(:millisecond),
+            count: 100
+          }
+        }
+    }
+
+    next = PauseResume.replace_completed_issue(state, entry, issue)
+
+    assert_completed_preflight_retained(next, entry, worker, item_ids)
+  end
+
+  test "all-limited model admission retains the completed row and FIFO queue" do
+    issue = %{completed_rework_issue("all-limited") | selected_backend: nil}
+
+    configure_completed_revalidation!([issue],
+      max_concurrent_agents: 3,
+      agent_routing: %{"4" => "claude"}
+    )
+
+    workflow_path = Workflow.workflow_file_path()
+    workflow = File.read!(workflow_path)
+
+    workflow =
+      String.replace(
+        workflow,
+        "  turn_timeout_ms:",
+        "  switch_model_on_ratelimit: [claude]\n  turn_timeout_ms:"
+      )
+
+    File.write!(workflow_path, workflow)
+    WorkflowStore.force_reload()
+
+    File.write!(
+      Path.join(Path.dirname(workflow_path), "model-usage.json"),
+      Jason.encode!(%{
+        "backends" => %{
+          "claude" => %{
+            "limited" => true,
+            "reset_at" => "2999-01-01T00:00:00Z"
+          }
+        }
+      })
+    )
+
+    {state, entry, worker, item_ids} = completed_retention_fixture(issue)
+    next = PauseResume.replace_completed_issue(state, entry, issue)
+
+    assert_completed_preflight_retained(next, entry, worker, item_ids)
   end
 
   test "operator messages rearm multiple completed runners without returned workers holding slots" do
-    write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_active_states: ["in-progress", "rework"]
-    )
-
     orchestrator_name = Module.concat(__MODULE__, :CompletedBatchOperatorMessageOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    freeze_poll_cycle(pid)
     parent = self()
 
     completed =
       for number <- 1..3, into: %{} do
         issue_id = "issue-completed-#{number}"
         identifier = "MT-COMPLETED-#{number}"
-        worker = spawn(fn -> operator_message_probe(parent) end)
+        {:ok, worker} = supervised_operator_message_probe(parent)
+        ref = Process.monitor(worker)
+
+        issue = %Issue{
+          id: issue_id,
+          identifier: identifier,
+          state: "rework",
+          title: "Completed batch #{number}"
+        }
 
         entry =
           issue_id
           |> running_entry(identifier, :completed, worker)
-          |> Map.update!(:issue, &%{&1 | state: "rework"})
+          |> Map.put(:ref, ref)
+          |> Map.put(:issue, issue)
 
-        {issue_id, {identifier, worker, entry}}
+        {issue_id, {identifier, worker, ref, entry}}
       end
 
+    issues = Enum.map(completed, fn {_issue_id, {_identifier, _worker, _ref, entry}} -> entry.issue end)
+    release_file = configure_completed_revalidation!(issues)
+
     on_exit(fn ->
+      File.touch(release_file)
       if Process.alive?(pid), do: Process.exit(pid, :normal)
 
-      Enum.each(completed, fn {_issue_id, {_identifier, worker, _entry}} ->
+      Enum.each(completed, fn {_issue_id, {_identifier, worker, _ref, _entry}} ->
         if Process.alive?(worker), do: Process.exit(worker, :kill)
       end)
     end)
 
     :sys.replace_state(pid, fn state ->
-      entries = Map.new(completed, fn {issue_id, {_identifier, _worker, entry}} -> {issue_id, entry} end)
+      entries =
+        Map.new(completed, fn {issue_id, {_identifier, _worker, _ref, entry}} ->
+          {issue_id, entry}
+        end)
 
       %{
         state
         | session_max_concurrent_agents: 3,
+          effective_concurrent_agents: 1,
           running: entries,
           claimed: MapSet.new(Map.keys(entries))
       }
@@ -2388,7 +2695,7 @@ defmodule Aiur.OrchestratorStatusTest do
     assert %{active: 0, max: 3} = Orchestrator.max_concurrent_agents(orchestrator_name)
 
     item_ids =
-      for {issue_id, {identifier, _worker, _entry}} <- completed, into: %{} do
+      for {issue_id, {identifier, _worker, _ref, _entry}} <- completed, into: %{} do
         assert {:ok, item_id} =
                  GenServer.call(
                    orchestrator_name,
@@ -2401,13 +2708,38 @@ defmodule Aiur.OrchestratorStatusTest do
 
     state = :sys.get_state(pid)
 
-    Enum.each(completed, fn {issue_id, {_identifier, worker, _entry}} ->
-      refute Process.alive?(worker)
+    working_entries =
+      Enum.filter(state.running, fn {_issue_id, entry} ->
+        get_in(entry, [:control, :status]) == :working
+      end)
+
+    completed_entries =
+      Enum.filter(state.running, fn {_issue_id, entry} ->
+        get_in(entry, [:control, :status]) == :completed
+      end)
+
+    assert length(working_entries) == 1
+    assert length(completed_entries) == 2
+    refute Map.keys(state.retry_attempts) |> Enum.any?(&Map.has_key?(completed, &1))
+
+    Enum.each(completed, fn {issue_id, {_identifier, worker, old_ref, old_entry}} ->
       expected_body = "rework #{issue_id}"
       assert %{body: %{text: ^expected_body}} = state.queue_store.items[item_ids[issue_id]]
 
-      assert Map.has_key?(state.running, issue_id) or
-               Map.has_key?(state.retry_attempts, issue_id)
+      entry = Map.fetch!(state.running, issue_id)
+
+      if entry.control.status == :working do
+        refute Process.alive?(worker)
+        assert is_pid(entry.pid) and Process.alive?(entry.pid)
+        assert is_reference(entry.ref)
+        assert entry.ref != old_ref
+      else
+        assert entry.pid == worker
+        assert entry.ref == old_ref
+        assert entry.session_id == old_entry.session_id
+        assert entry.worker_host == old_entry.worker_host
+        assert MapSet.member?(state.claimed, issue_id)
+      end
     end)
   end
 
@@ -2715,5 +3047,125 @@ defmodule Aiur.OrchestratorStatusTest do
         send(parent, message)
         operator_message_probe(parent)
     end
+  end
+
+  defp supervised_operator_message_probe(parent) do
+    Task.Supervisor.start_child(Aiur.TaskSupervisor, fn -> operator_message_probe(parent) end)
+  end
+
+  defp freeze_poll_cycle(pid) do
+    :sys.replace_state(pid, fn state ->
+      if is_reference(state.tick_timer_ref), do: Process.cancel_timer(state.tick_timer_ref)
+
+      %{
+        state
+        | tick_timer_ref: nil,
+          tick_token: make_ref(),
+          next_poll_due_at_ms: nil,
+          poll_check_in_progress: false
+      }
+    end)
+  end
+
+  defp completed_rework_issue(suffix) do
+    %Issue{
+      id: "completed-#{suffix}",
+      identifier: "MT-COMPLETED-#{String.upcase(suffix)}",
+      state: "rework",
+      title: "Completed #{suffix}",
+      selected_backend: "claude"
+    }
+  end
+
+  defp completed_retention_fixture(issue, worker_host \\ nil) do
+    {:ok, worker} = supervised_operator_message_probe(self())
+    worker_ref = Process.monitor(worker)
+
+    on_exit(fn ->
+      if Process.alive?(worker), do: Process.exit(worker, :kill)
+    end)
+
+    entry =
+      issue.id
+      |> running_entry(issue.identifier, :completed, worker, worker_host)
+      |> Map.put(:ref, worker_ref)
+      |> Map.put(:issue, issue)
+      |> Map.put(:session_id, "preserved-#{issue.id}")
+
+    {queue_store, first} =
+      AgentQueueStore.enqueue(%AgentQueueStore{}, %{
+        target_issue_identifier: issue.identifier,
+        source: :operator,
+        category: :operator_message,
+        event_type: :operator_message,
+        body: %{text: "first"}
+      })
+
+    {queue_store, second} =
+      AgentQueueStore.enqueue(queue_store, %{
+        target_issue_identifier: issue.identifier,
+        source: :operator,
+        category: :operator_message,
+        event_type: :operator_message,
+        body: %{text: "second"}
+      })
+
+    state = %State{
+      running: %{issue.id => entry},
+      claimed: MapSet.new([issue.id]),
+      queue_store: queue_store,
+      max_concurrent_agents: 3
+    }
+
+    {state, entry, worker, [first.id, second.id]}
+  end
+
+  defp assert_completed_preflight_retained(state, original_entry, worker, item_ids) do
+    issue = original_entry.issue
+    retained = Map.fetch!(state.running, issue.id)
+
+    assert Process.alive?(worker)
+    assert retained.pid == worker
+    assert retained.ref == original_entry.ref
+    assert retained.control.status == :completed
+    assert retained.session_id == original_entry.session_id
+    assert retained.worker_host == original_entry.worker_host
+    assert MapSet.member?(state.claimed, issue.id)
+    assert state.queue_store.pending_ids_by_target[issue.identifier] == item_ids
+    refute Map.has_key?(state.retry_attempts, issue.id)
+  end
+
+  defp configure_completed_revalidation!(issues, overrides \\ []) do
+    previous_issues = Application.get_env(:aiur, :memory_tracker_issues)
+
+    release_file =
+      Path.join(
+        System.tmp_dir!(),
+        "completed-revalidation-#{System.unique_integer([:positive])}.release"
+      )
+
+    File.rm(release_file)
+
+    config =
+      Keyword.merge(
+        [
+          tracker_kind: "memory",
+          tracker_active_states: ["in-progress", "rework"],
+          tracker_terminal_states: ["done", "cancelled", "canceled"],
+          hook_before_run: "while [ ! -f #{release_file} ]; do sleep 0.01; done"
+        ],
+        overrides
+      )
+
+    write_workflow_file!(Workflow.workflow_file_path(), config)
+
+    Application.put_env(:aiur, :memory_tracker_issues, issues)
+
+    on_exit(fn ->
+      File.touch(release_file)
+      restore_application_env(:memory_tracker_issues, previous_issues)
+    end)
+
+    release_file
   end
 end

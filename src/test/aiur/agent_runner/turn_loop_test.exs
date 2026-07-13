@@ -20,11 +20,43 @@ defmodule Aiur.AgentRunner.TurnLoopTest do
   end
 
   describe "return_completed/2" do
-    test "reports the final runner boundary to the orchestrator" do
+    test "returns the final boundary for publication after outer cleanup" do
       issue = %Aiur.Issue{id: "issue-completed"}
 
-      assert :ok = TurnLoop.return_completed(%{codex_update_recipient: self()}, issue)
-      assert_receive {:worker_control_state, "issue-completed", :completed}
+      assert {:completed, ^issue} =
+               TurnLoop.return_completed(%{codex_update_recipient: self()}, issue)
+
+      refute_receive {:worker_control_state, "issue-completed", :completed}
+    end
+  end
+
+  describe "continue_after_resume/2" do
+    test "returns a completed boundary when max turns were already reached" do
+      issue = %Aiur.Issue{id: "issue-max", identifier: "MT-MAX", state: "In Progress"}
+      refreshed = %{issue | state: "In Progress"}
+
+      context = %{
+        issue: issue,
+        issue_state_fetcher: fn ["issue-max"] -> {:ok, [refreshed]} end,
+        max_turns: 1,
+        turn_number: 1
+      }
+
+      assert {:completed, ^refreshed} = TurnLoop.continue_after_resume(context, %{})
+    end
+
+    test "returns a completed boundary when the refreshed issue is inactive" do
+      issue = %Aiur.Issue{id: "issue-done", identifier: "MT-DONE", state: "In Progress"}
+      refreshed = %{issue | state: "Done"}
+
+      context = %{
+        issue: issue,
+        issue_state_fetcher: fn ["issue-done"] -> {:ok, [refreshed]} end,
+        max_turns: 3,
+        turn_number: 1
+      }
+
+      assert {:completed, ^refreshed} = TurnLoop.continue_after_resume(context, %{})
     end
   end
 end
