@@ -7,13 +7,13 @@ defmodule AiurWeb.OperatorControlCenter.FleetFilters do
   @stuck_reasons [:backing_off, :unresponsive]
   @finished_states ["done", "closed", "cancelled", "canceled"]
 
-  @spec default() :: MapSet.t(atom())
+  @spec default() :: MapSet.t()
   def default, do: MapSet.new(@default_filters)
 
   @spec all() :: [atom()]
   def all, do: @filters
 
-  @spec toggle(MapSet.t(atom()), String.t() | atom()) :: MapSet.t(atom())
+  @spec toggle(MapSet.t(), String.t() | atom()) :: MapSet.t()
   def toggle(filters, filter) do
     case normalize(filter) do
       :all -> toggle_all(filters)
@@ -30,7 +30,7 @@ defmodule AiurWeb.OperatorControlCenter.FleetFilters do
     running ++ retrying ++ idle
   end
 
-  @spec visible_rows(map(), MapSet.t(atom())) :: [map()]
+  @spec visible_rows(map(), MapSet.t()) :: [map()]
   def visible_rows(fleet, filters) do
     Enum.filter(rows(fleet), &MapSet.member?(filters, state(&1)))
   end
