@@ -34,7 +34,7 @@ defmodule Aiur.AgentSkills do
   # The skills the agent prompt routes issue workers to. This is a deliberate
   # subset of the canonical taxonomy in `Aiur.AiurAgentSkillTest`
   # (`@codex_exposed_aiur_skills` / `@claude_operator_only_skills`): operator
-  # skills (aiur-run, aiur-monitor, aiur-loop, release) are excluded because an
+  # skills (aiur-build, aiur-run, aiur-monitor, release) are excluded because an
   # issue worker has no reason to run aiur itself. That test cross-checks this
   # subset, so the two cannot silently drift.
   @issue_worker_skills ~w(using-aiur aiur-agent design-import)

@@ -23,8 +23,8 @@ defmodule Aiur.AiurAgentSkillTest do
     attention-and-resolve.md
     stub-then-fetch.md
   )
-  @codex_exposed_aiur_skills ~w(aiur-agent aiur-monitor aiur-run design-import using-aiur)
-  @claude_operator_only_skills ~w(aiur-loop release)
+  @codex_exposed_aiur_skills ~w(aiur-agent aiur-build aiur-monitor aiur-run design-import using-aiur)
+  @claude_operator_only_skills ~w(release)
 
   test "Claude backend surface: canonical skill dir exists with a SKILL.md" do
     assert File.dir?(@claude_skill)
@@ -84,9 +84,9 @@ defmodule Aiur.AiurAgentSkillTest do
 
     assert claude_skills == Enum.sort(@codex_exposed_aiur_skills ++ @claude_operator_only_skills)
 
-    # These are operator workflows, not shared operating skills injected into
-    # Codex agents. Keeping them out of `.codex/skills` avoids advertising
-    # release/loop authority inside issue workers.
+    # This is a Claude-only operator workflow, not a shared operating skill
+    # injected into Codex agents. Codex-facing operator skills remain excluded
+    # from issue-worker installation by Aiur.AgentSkills.
     for skill <- @claude_operator_only_skills do
       assert File.exists?(Path.join([@repo_root, ".claude", "skills", skill, "SKILL.md"]))
       refute File.exists?(Path.join([@repo_root, ".codex", "skills", skill]))
@@ -171,72 +171,53 @@ defmodule Aiur.AiurAgentSkillTest do
 
   test "operator decision relay covers backend push, RC, and the Decisions log" do
     monitor_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md"))
-    run_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
-    loop_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-loop/SKILL.md"))
+    relay = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/references/alerts-and-decisions.md"))
 
     monitor_skill = one_line(monitor_skill)
-    run_skill = one_line(run_skill)
-    loop_skill = one_line(loop_skill)
+    relay = one_line(relay)
 
-    assert monitor_skill =~ "operator_decision:true"
-    assert monitor_skill =~ "`### Decisions` section before sending notifications"
-    assert monitor_skill =~ "Claude's native **PushNotification**"
-    assert monitor_skill =~ "Codex's device notification"
-    assert monitor_skill =~ "RC notification path"
-    assert monitor_skill =~ "retried on the next re-ask"
-    assert monitor_skill =~ "matching `attention.resolved` event"
-    assert run_skill =~ "operator_decision:true"
-    assert run_skill =~ "not `agent.kind`"
-    assert run_skill =~ "Remote Control URL"
-    assert loop_skill =~ "operator_decision:true"
-    assert loop_skill =~ "Remote Control"
+    assert monitor_skill =~ "alerts-and-decisions.md"
+    assert relay =~ "operator_decision:true"
+    assert relay =~ "Decisions entry"
+    assert relay =~ "Claude native push"
+    assert relay =~ "Codex device notification"
+    assert relay =~ "Remote Control"
+    assert relay =~ "retry them on a later re-ask"
+    assert relay =~ "matching resolution"
   end
 
-  test "operator loop uses medium autonomy and traces every decision" do
+  test "Executor protects a finite feature boundary" do
     monitor_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md"))
     run_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
-    loop_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-loop/SKILL.md"))
+    executor = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/references/executor.md"))
 
     monitor_skill = one_line(monitor_skill)
     run_skill = one_line(run_skill)
-    loop_skill = one_line(loop_skill)
+    executor = one_line(executor)
 
-    assert loop_skill =~ "**MEDIUM autonomy**"
-    refute loop_skill =~ "default to the LESS autonomous option"
-
-    for example <- ["merge ordering", "rework routing", "error recovery", "mechanical scope reads"] do
-      assert loop_skill =~ example
-    end
-
-    for boundary <- ["product behavior", "architecture", "scope cuts", "destructive or irreversible"] do
-      assert loop_skill =~ boundary
-    end
-
-    for skill <- [monitor_skill, run_skill, loop_skill] do
-      assert skill =~ "## Decisions"
-      assert skill =~ "Ticket | Decision | Rationale | Mode"
-      assert skill =~ "auto"
-      assert skill =~ "escalated"
-    end
-
-    assert monitor_skill =~ "every autonomous or escalated decision"
-    assert monitor_skill =~ "every periodic update"
+    assert executor =~ "Protect convergence"
+    assert executor =~ "Contained rework"
+    assert executor =~ "P2/P3 non-blocker"
+    assert executor =~ "creation exceeds completion"
+    assert executor =~ "freeze new ticket creation"
+    assert executor =~ "deferred findings ledger"
+    assert run_skill =~ "prefer contained rework"
+    assert monitor_skill =~ "completed versus created/promoted tickets"
   end
 
   test "needs-attention relay is an independent wake path for the operator cadence" do
     monitor_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md"))
     run_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
-    loop_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-loop/SKILL.md"))
+    relay = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/references/alerts-and-decisions.md"))
 
     monitor_skill = one_line(monitor_skill)
     run_skill = one_line(run_skill)
-    loop_skill = one_line(loop_skill)
+    relay = one_line(relay)
 
-    assert monitor_skill =~ "wake-on-attention"
-    assert monitor_skill =~ "re-invokes the operator"
-    assert monitor_skill =~ "does not wait for the cadence timer"
-    assert run_skill =~ "wake-on-attention"
-    assert loop_skill =~ "wake-on-attention"
+    assert monitor_skill =~ "adds immediacy"
+    assert run_skill =~ "timer and alert path are additive"
+    assert relay =~ "real-time wake path"
+    assert relay =~ "does not replace the recurring status cadence"
   end
 
   test "agent operating guidance scopes local pre-PR verification to affected tests" do

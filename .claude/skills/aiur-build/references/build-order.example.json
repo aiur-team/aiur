@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "build_order_id": "example/repo:operator-dashboard",
+  "ticket_prefix": "BO",
+  "plan_version": 1,
+  "repository": "example/repo",
+  "researched_at_commit": "0123456789abcdef0123456789abcdef01234567",
+  "workstreams": [
+    {"id": "platform", "title": "Platform"},
+    {"id": "integration", "title": "Integration"}
+  ],
+  "github_root": null,
+  "label_projection": {
+    "build_order": "build-order",
+    "workstreams": {
+      "platform": "build-lane:platform",
+      "integration": "build-lane:integration"
+    },
+    "phases": {"1": "phase:1", "2": "phase:2"},
+    "complexities": {"2": "complexity:2", "3": "complexity:3"}
+  },
+  "feature_boundary": {
+    "acceptance_criteria": [
+      "The operator can load a complete planning graph",
+      "The merged feature has explicit acceptance evidence"
+    ],
+    "critical_path_ticket_ids": ["BO-001", "BO-002"],
+    "required_documentation": ["Provider contract and operator guide"],
+    "required_cleanup": [],
+    "end_to_end_proof": ["Merged-base operator workflow"],
+    "completion_condition": "The bounded feature is merged, documented, and proven on current main."
+  },
+  "external_gates": [
+    {
+      "id": "GATE-001",
+      "title": "Approve graph interaction contract",
+      "owner": "Product operator",
+      "resolution_criteria": "Captured design evidence and behavior decisions are approved."
+    }
+  ],
+  "requirements": [
+    {
+      "id": "REQ-001",
+      "summary": "The operator can load a complete planning graph",
+      "disposition": "ticket",
+      "ticket_ids": ["BO-001"],
+      "reason": null
+    },
+    {
+      "id": "REQ-002",
+      "summary": "The merged feature has explicit acceptance evidence",
+      "disposition": "ticket",
+      "ticket_ids": ["BO-002"],
+      "reason": null
+    }
+  ],
+  "tickets": [
+    {
+      "id": "BO-001",
+      "kind": "executable",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "discovered_from": null,
+      "title": "Project the planning graph",
+      "document": "example-tickets/BO-001-project-graph.md",
+      "outcome": "The dashboard receives one validated planning-graph projection.",
+      "scope": ["Define and populate the provider projection"],
+      "non_goals": ["Render the graph or edit dependencies"],
+      "phase_hint": 1,
+      "complexity_points": 3,
+      "complexity_rationale": "Defines one new provider contract",
+      "risk": "medium",
+      "capability_requirements": ["backend"],
+      "workstream": "platform",
+      "requirement_refs": ["REQ-001"],
+      "depends_on": [],
+      "serializes_with": [],
+      "suggested_after": [],
+      "contains": [],
+      "external_gates": ["GATE-001"],
+      "read_surfaces": ["GitHub issues"],
+      "write_surfaces": ["Build Order provider"],
+      "contract_surfaces": ["BuildOrderSnapshot"],
+      "safety_surfaces": ["Dependency truth projection"],
+      "conflict_exceptions": [],
+      "acceptance": {
+        "agent_gate": ["Provider tests cover complete, stale, and failed snapshots"],
+        "at_merge_gate": ["Current-base integration tests pass"],
+        "human_or_e2e": []
+      },
+      "github": null
+    },
+    {
+      "id": "BO-002",
+      "kind": "capstone",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "discovered_from": null,
+      "title": "Prove merged feature acceptance",
+      "document": "example-tickets/BO-002-prove-acceptance.md",
+      "outcome": "The bounded feature has durable merged-base acceptance evidence.",
+      "scope": ["Run the named integration and operator acceptance workflow"],
+      "non_goals": ["Fix deferred reliability or optimization findings"],
+      "phase_hint": 2,
+      "complexity_points": 2,
+      "complexity_rationale": "Runs bounded integration and operator checks",
+      "risk": "medium",
+      "capability_requirements": ["integration"],
+      "workstream": "integration",
+      "requirement_refs": ["REQ-002"],
+      "depends_on": ["BO-001"],
+      "serializes_with": [],
+      "suggested_after": [],
+      "contains": [],
+      "external_gates": [],
+      "read_surfaces": ["BuildOrderSnapshot"],
+      "write_surfaces": ["Acceptance evidence"],
+      "contract_surfaces": ["Feature acceptance"],
+      "safety_surfaces": [],
+      "conflict_exceptions": [],
+      "acceptance": {
+        "agent_gate": ["Acceptance harness passes in the issue workspace"],
+        "at_merge_gate": ["Acceptance harness passes on current main"],
+        "human_or_e2e": ["Operator observes the complete Build Order workflow"]
+      },
+      "github": null
+    }
+  ],
+  "epic_acceptance": {
+    "owner_ticket_id": "BO-002",
+    "evidence": ["Merged-base end-to-end dashboard acceptance"]
+  }
+}
