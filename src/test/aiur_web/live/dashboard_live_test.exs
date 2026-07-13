@@ -24,7 +24,7 @@ defmodule AiurWeb.DashboardLiveTest do
   alias Aiur.Orchestrator.OperatorMessages
   alias Aiur.RecentMerge
   alias Aiur.RecentMergeStore
-  alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, DashboardLive, ObservabilityPubSub, Presenter}
+  alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, DashboardLive, Presenter}
   alias AiurWeb.OperatorControlCenter.{FleetFilters, PayloadLoader}
 
   @endpoint AiurWeb.Endpoint
@@ -375,8 +375,9 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ "Open analytics report"
   end
 
-  test "reloads open dashboards after a coalesced broadcast burst" do
+  test "bounds each payload signal burst across open dashboards" do
     orchestrator_name = Module.concat(__MODULE__, :CountingOrchestratorInstance)
+    test_process = self()
 
     start_supervised!(
       {CountingOrchestrator,
@@ -390,22 +391,29 @@ defmodule AiurWeb.DashboardLiveTest do
        }}
     )
 
-    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 100)
+    reload_timer = fn destination, message, delay_ms ->
+      send(test_process, {:payload_reload_scheduled, destination, message, delay_ms})
+      make_ref()
+    end
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_reload_timer: reload_timer
+    )
 
     {:ok, view, _html} = live(build_conn(), "/")
     {:ok, second_view, _html} = live(build_conn(), "/")
-    baseline_count = CountingOrchestrator.snapshot_count(orchestrator_name)
+    views = [view, second_view]
+    cache = AiurWeb.Endpoint.config(:control_center_cache)
 
-    for version <- 1..25 do
-      ObservabilityPubSub.broadcast_update()
-      DecisionPubSub.broadcast_changed("decision-#{version}", version)
-    end
+    assert_bounded_reload_burst(views, List.duplicate(:observability_updated, 25), cache, orchestrator_name)
 
-    DecisionPubSub.broadcast_metrics_changed()
+    decision_messages =
+      Enum.map(1..25, fn version -> {:decision_changed, "decision-#{version}", version} end)
 
-    assert eventually(fn -> CountingOrchestrator.snapshot_count(orchestrator_name) > baseline_count end, 300)
-    _html = render(view)
-    _html = render(second_view)
+    assert_bounded_reload_burst(views, decision_messages, cache, orchestrator_name)
+    assert_bounded_reload_burst(views, List.duplicate(:decision_metrics_changed, 25), cache, orchestrator_name)
   end
 
   test "cached payload follows a same-name DecisionMetrics replacement" do
@@ -1886,6 +1894,41 @@ defmodule AiurWeb.DashboardLiveTest do
     disabled_config = Keyword.put(endpoint_config, :dashboard_writable, false)
     Application.put_env(:aiur, AiurWeb.Endpoint, disabled_config)
     :ok = AiurWeb.Endpoint.config_change([{AiurWeb.Endpoint, disabled_config}], [])
+  end
+
+  defp assert_bounded_reload_burst(views, messages, cache, orchestrator) do
+    baseline_count = CountingOrchestrator.snapshot_count(orchestrator)
+    expected_pids = views |> Enum.map(& &1.pid) |> MapSet.new()
+
+    for view <- views, message <- messages do
+      send(view.pid, message)
+    end
+
+    Enum.each(views, fn view -> :sys.get_state(view.pid) end)
+
+    scheduled_pids =
+      Enum.map(views, fn _view ->
+        assert_receive {:payload_reload_scheduled, pid, :reload_payload, delay_ms}, 0
+        assert delay_ms in 50..450
+        pid
+      end)
+
+    assert MapSet.new(scheduled_pids) == expected_pids
+    assert length(Enum.uniq(scheduled_pids)) == length(views)
+    refute_receive {:payload_reload_scheduled, _pid, :reload_payload, _delay_ms}, 0
+
+    expire_cached_payloads(cache)
+    Enum.each(views, &reload_view/1)
+
+    assert CountingOrchestrator.snapshot_count(orchestrator) == baseline_count + 1
+  end
+
+  defp expire_cached_payloads(cache) do
+    :sys.replace_state(cache, fn entries ->
+      Map.new(entries, fn {key, entry} ->
+        {key, %{entry | loaded_at_ms: entry.loaded_at_ms - 60_000}}
+      end)
+    end)
   end
 
   defp eventually(fun, attempts \\ 30)

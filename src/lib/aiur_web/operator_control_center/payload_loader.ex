@@ -33,7 +33,7 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
     elapsed_ms = max(now_ms() - last_loaded_at_ms, 0)
     delay_ms = max(@reload_min_interval_ms - elapsed_ms + @reload_debounce_ms, @reload_debounce_ms)
 
-    Process.send_after(self(), :reload_payload, delay_ms)
+    schedule_reload(delay_ms)
     assign(socket, :payload_reload_scheduled?, true)
   end
 
@@ -91,6 +91,13 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
       false -> false
       nil -> ControlCenterCache
       server -> server
+    end
+  end
+
+  defp schedule_reload(delay_ms) do
+    case Endpoint.config(:control_center_reload_timer) do
+      timer when is_function(timer, 3) -> timer.(self(), :reload_payload, delay_ms)
+      _other -> Process.send_after(self(), :reload_payload, delay_ms)
     end
   end
 
