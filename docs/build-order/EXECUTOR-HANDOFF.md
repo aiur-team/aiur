@@ -126,7 +126,9 @@ BO-005 and owns bounded sanitized recent history. BO-018 follows BO-008,
 BO-016, and BO-019 and owns accessible base context. BO-011 follows BO-007 and
 BO-018 and adds Build Order relationships and truthful destination links.
 BO-012 follows BO-003, BO-007, BO-010, and BO-011; BO-013 follows BO-008 and
-BO-012; BO-014 follows BO-008 and BO-013; BO-015 follows BO-006 and BO-014.
+BO-012; BO-014 follows BO-008 and BO-013. BO-020 follows BO-003 and BO-012 and
+serializes with BO-013/BO-014 on the shared Build Order route surface. BO-015
+follows BO-006, BO-014, and BO-020.
 
 If separately authorized companion work is active, honor its companion-owned
 cross-pack serialization: DASH-001 with BO-012, DASH-023 with BO-013/014, and
