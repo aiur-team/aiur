@@ -144,10 +144,17 @@ defmodule AiurWeb.Router do
     username = System.get_env("AIUR_DASHBOARD_USERNAME")
     password = System.get_env("AIUR_DASHBOARD_PASSWORD")
 
-    if present?(username) and present?(password) do
-      Plug.BasicAuth.basic_auth(conn, username: username, password: password, realm: "Aiur")
-    else
-      conn
+    cond do
+      present?(username) and present?(password) ->
+        Plug.BasicAuth.basic_auth(conn, username: username, password: password, realm: "Aiur")
+
+      dashboard_writable?() ->
+        conn
+        |> Plug.BasicAuth.request_basic_auth(realm: "Aiur")
+        |> Plug.Conn.halt()
+
+      true ->
+        conn
     end
   end
 

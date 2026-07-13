@@ -12,11 +12,19 @@ defmodule AiurWeb.RouterAuthTest do
     original_username = System.get_env("AIUR_DASHBOARD_USERNAME")
     original_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
     original_supervisor_token = System.get_env("AIUR_SUPERVISOR_TOKEN")
+    original_endpoint_config = Application.get_env(:aiur, AiurWeb.Endpoint)
 
     on_exit(fn ->
       restore_env("AIUR_DASHBOARD_USERNAME", original_username)
       restore_env("AIUR_DASHBOARD_PASSWORD", original_password)
       restore_env("AIUR_SUPERVISOR_TOKEN", original_supervisor_token)
+
+      if original_endpoint_config do
+        Application.put_env(:aiur, AiurWeb.Endpoint, original_endpoint_config)
+        :ok = AiurWeb.Endpoint.config_change([{AiurWeb.Endpoint, original_endpoint_config}], [])
+      else
+        Application.delete_env(:aiur, AiurWeb.Endpoint)
+      end
     end)
 
     :ok
@@ -38,6 +46,29 @@ defmodule AiurWeb.RouterAuthTest do
     conn = Router.call(conn(:get, "/api/v1/state"), Router.init([]))
 
     assert conn.status == 401
+    assert get_resp_header(conn, "www-authenticate") == ["Basic realm=\"Aiur\""]
+  end
+
+  test "fails closed when writable dashboard credentials disappear after startup" do
+    System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
+
+    endpoint_config = Application.get_env(:aiur, AiurWeb.Endpoint, [])
+    writable_config = Keyword.put(endpoint_config, :dashboard_writable, true)
+    Application.put_env(:aiur, AiurWeb.Endpoint, writable_config)
+    :ok = AiurWeb.Endpoint.config_change([{AiurWeb.Endpoint, writable_config}], [])
+
+    System.delete_env("AIUR_DASHBOARD_PASSWORD")
+
+    conn =
+      :post
+      |> conn("/api/v1/refresh")
+      |> put_req_header("origin", "http://localhost")
+      |> put_req_header("x-aiur-request", "1")
+      |> Router.call(Router.init([]))
+
+    assert conn.status == 401
+    assert conn.halted
     assert get_resp_header(conn, "www-authenticate") == ["Basic realm=\"Aiur\""]
   end
 
