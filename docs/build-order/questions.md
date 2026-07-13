@@ -7,23 +7,21 @@ the planning documents.
 
 ## Questions for Kevin
 
-1. Please send the Build Order brain dump and the high-level draft spec when
-   ready.
-2. Should the first Build Order release support GitHub only, or must its data
+1. Should the first Build Order release support GitHub only, or must its data
    model and UI also work with Linear-backed workflows from day one?
-3. At the end of planning, should I create the GitHub issues themselves, or
+2. At the end of planning, should I create the GitHub issues themselves, or
    stop after producing reviewed ticket documents that are ready to publish?
-4. Should a Build Order be repository-wide, or can one Aiur instance display
+3. Should a Build Order be repository-wide, or can one Aiur instance display
    orders that span multiple repositories/projects?
-5. May users add and edit dependencies from the dashboard in the first
+4. May users add and edit dependencies from the dashboard in the first
    release, or is Build Order initially a read-only projection of GitHub issue
    metadata?
-6. For flat subscription plans, should per-ticket “spend” be a versioned
+5. For flat subscription plans, should per-ticket “spend” be a versioned
    token-price estimate, an allocation of the subscription fee, or unavailable
    while tokens and quota consumption remain visible?
-7. Should “total build” include all recorded usage for member tickets, or only
+6. Should “total build” include all recorded usage for member tickets, or only
    usage observed after each ticket joined the Build Order?
-8. Must v1 totals include direct `claude-repl`/Remote Control usage, or may the
+7. Must v1 totals include direct `claude-repl`/Remote Control usage, or may the
    cards show explicitly incomplete coverage for that transport?
 
 ## Commands or Access Needed
@@ -46,6 +44,8 @@ the planning documents.
 
 ## Resolved
 
+- The opening request is the Build Order brain dump and authoritative product
+  intent. No separate brain-dump document is required before planning.
 - Work may be committed early and often with 3–7 word commit messages and
   pushed regularly.
 - Do not merge any work into `main` while the dashboard agents are active.
