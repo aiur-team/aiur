@@ -111,19 +111,17 @@ defmodule Aiur.Workspace.Materialize do
   end
 
   defp build_and_promote(base, staging, workspace, checkout) do
-    try do
-      with {_out, 0} <- copy_tree(base, staging),
-           :ok <- checkout.(staging),
-           :ok <- promote(staging, workspace) do
-        :ok
-      else
-        other ->
-          Logger.warning("prewarm materialize failed (#{inspect(other)}); preserving existing workspace")
-          {:error, other}
-      end
-    after
-      File.rm_rf(staging)
+    with {_out, 0} <- copy_tree(base, staging),
+         :ok <- checkout.(staging),
+         :ok <- promote(staging, workspace) do
+      :ok
+    else
+      other ->
+        Logger.warning("prewarm materialize failed (#{inspect(other)}); preserving existing workspace")
+        {:error, other}
     end
+  after
+    File.rm_rf(staging)
   end
 
   defp valid_checkout?(path) do
