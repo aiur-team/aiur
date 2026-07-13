@@ -143,9 +143,10 @@ work outpaces completion, promotion freezes until the bounded feature lands.
 ## Publication boundary
 
 Materialize one non-dispatchable root plus all 54 direct native sub-issues.
-Each member receives exactly one `complexity:N`, `model:codex`, one `phase:N`
-and one `build-lane:*`; the root receives only `build-order` from this label
-family.
+Each member receives exactly one `complexity:N`,
+`model:codex-gpt-5.6-sol`, one `phase:N` and one `build-lane:*`; the root
+receives only `build-order` from this label family. Generic `model:codex`,
+Claude model labels, and other Codex variants are invalid for this publication.
 
 Every one of the 56 titles comes from its approved document H1, and every body
 links the real immutable approval commit and carries one schema-2 logical-ID

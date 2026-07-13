@@ -33,7 +33,7 @@ until the branch, draft PR, issues, and handoff all reconcile.
 - Do not merge `build-order-research` or `aiur-executor-skills` to `main`.
 - Do not mutate existing issues #132, #845, #1033, #1034, or #1067. They are
   read-only evidence/disposition references.
-- New executable issues receive exactly one `complexity:N` and `model:codex`.
+- New executable issues receive exactly one `complexity:N` and `model:codex-gpt-5.6-sol`.
   Do not add any `agent:*` label. The skill-delivery issue is human-owned and
   should use `human:todo` only.
 - Do not add `Co-authored-by` or other model attribution to commits.

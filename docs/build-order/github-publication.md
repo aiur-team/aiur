@@ -4,9 +4,10 @@
 > into a single Build Order (DEC-014). All 54 tickets — BO-001..020 and
 > DASH-001..034 — are direct native sub-issues of the one root defined in
 > `build-order.json`; `dashboard-companions.json` was retired and
-> `scripts/validate_publication.py` now validates the single manifest. Read
-> the step list below through that lens: DASH issues are members, not
-> standalone issues, and the graph totals are 56 issues / 107 blocker edges.
+> `scripts/validate_publication.py` now validates the single manifest. The
+> instructions below are written for that consolidated topology: DASH issues
+> are members, not standalone issues, and the graph totals are 56 issues / 107
+> blocker edges.
 
 ## Status
 
@@ -23,33 +24,33 @@ label, implement a ticket, or merge either planning branch.
    Never reopen a closed match or create a replacement identity.
 2. Create or reconcile one non-dispatchable root for
    `its-everdred/aiur:build-order-dashboard` from `root-issue.md`.
-3. Create/reconcile BO-001 through BO-019 from the approved ticket documents.
-4. Add the nineteen BO issues as direct native sub-issues without silently
+3. Create/reconcile BO-001 through BO-020 and DASH-001 through DASH-034 from
+   every `tickets[].document` path in the approved `build-order.json`.
+4. Add all 54 member issues as direct native sub-issues without silently
    replacing an existing parent.
-5. Publish every BO `depends_on` relationship as native `blockedBy`.
-6. Create/reconcile DASH-001 through DASH-025 as standalone issues from
-   `dashboard-companions.json` and their documents.
-7. Publish companion hard prerequisites as native blockers, including
-   cross-scope BO prerequisites, while leaving companions outside the root.
-8. Create/reconcile the separate human-blocked skill-delivery issue from
+5. Publish all 105 manifest `depends_on` relationships as native `blockedBy`,
+   including cross-prefix BO/DASH prerequisites.
+6. Create/reconcile the separate human-blocked skill-delivery issue from
    `skill-delivery.md` and `publication.json`; it references draft PR #1065 and
    is not feature work.
-9. Publish the skill-delivery issue as a native external blocker of BO-004 and
+7. Publish the skill-delivery issue as a native external blocker of BO-004 and
    BO-008 so each independent initial branch requires the exact
    Executor contract before feature dispatch; it remains outside root
    membership and the feature denominator.
-10. Requery full label sets, returned identities, parenthood and every native
-    blocker. Prove the root, skill-delivery issue, and every companion are
-    parentless while all BO tickets have the intended direct root. Populate all
-    three structured receipts with RFC3339 UTC check times and run the
-    canonical plus publication validators.
+8. Requery full label sets, returned identities, parenthood and every native
+   blocker. Prove the root and skill-delivery issue are parentless while all 54
+   members have the intended direct root. Populate the core and auxiliary
+   structured receipts with RFC3339 UTC check times and run the canonical plus
+   publication validators.
 
-The materialized receipt schemas are core v3, companion v2, auxiliary v2, and
-bundle v2. Each owning receipt includes a freshly queried
-`observed_issue_states` map keyed by logical ID. The three maps are disjoint,
-cover exactly all manifest-derived identities (currently 55), and contain only the exact value `OPEN`.
+The materialized receipt schemas are core v3 in `build-order.json` and
+auxiliary v2 in `publication.json`. The core receipt owns the root and all 54
+members; the auxiliary receipt owns skill-delivery evidence and repeats the
+root mapping only to bind the standalone issue and reconciliation comment to
+the same root. Their `observed_issue_states` evidence covers all 56 issue
+identities and contains only the exact value `OPEN`.
 
-All 55 created bodies link to the immutable approved planning commit and carry
+All 56 created bodies link to the immutable approved planning commit and carry
 one canonical `aiur-planning-issue` marker with schema 2, logical ID, plan
 version, and that same commit. Requery each body, parse the marker and link, and
 record its SHA-256; do not trust the submitted body. Record the complete result
@@ -61,13 +62,14 @@ GitHub issue titles are equally authoritative publication content. Derive each
 expected title from the exact H1 of its approved document (without the `# `),
 including the logical-ID prefix and em dash on BO/DASH documents. Record both
 the frozen expected-title map and the freshly queried observed-title map in the
-owning receipt: root plus BO in the core receipt, DASH in the companion
-receipt, and skill delivery in the auxiliary receipt. Both maps must cover all
-the manifest-derived issue count (currently 55) exactly and every observed title must equal its approved H1; a
+owning receipt: root plus all 54 members in the core receipt, and skill delivery
+in the auxiliary receipt. Together the maps must cover all 56 issue identities
+exactly and every observed title must equal its approved H1; a
 body-correct issue with a renamed or truncated title fails reconciliation.
 
-Expected bodies are not receipt-authored hashes. Load the three manifests and
-every referenced document with `git show <APPROVED_SHA>:<path>`. Render BO and
+Expected bodies are not receipt-authored hashes. Load `build-order.json`,
+`publication.json`, and every referenced document with
+`git show <APPROVED_SHA>:<path>`. Render BO and
 DASH bodies as the exact preamble below plus the approved ticket document
 verbatim. Render root and skill bodies from their complete approved templates
 by replacing `<APPROVED_SHA>`. Require exactly one schema-2 marker and exactly
@@ -88,18 +90,18 @@ is the only finalization mutation. The verifier does not trust a caller-authored
 query file or observation object. It derives the complete expected graph and
 exact pending-comment URL from the immutable receipt, queries GitHub itself,
 and performs two complete bounded reads. The two snapshots must be identical
-and must exactly match all 55 mappings, titles, independently rendered body
+and must exactly match all 56 mappings, titles, independently rendered body
 hashes, full label sets, `OPEN` states, unlocked state, all-state marker result
-sets, native parents, subissues, all manifest-derived `blockedBy` edges (currently 102), and the one exact comment.
-The root has exactly nineteen BO children and no parent; each BO has that root
-as parent; DASH and skill issues are parentless; every non-root has no
+sets, native parents, subissues, all 107 `blockedBy` edges, and the one exact
+comment. The root has exactly 54 BO/DASH children and no parent; each member has
+that root as parent; the skill issue is parentless; every non-root has no
 subissues. Closed and PR-shaped marker matches remain visible to the collision
 check. Every GitHub read, including branch/compare authority, pins `github.com`,
 API version `2026-03-10`, finite page/item bounds where applicable, and a
 per-call timeout. It treats its CLI identity arguments as
 assertions, not authority: it derives repository, root identity and URL, plan
-version, and approval from the exact receipt commit, requires all three
-materialized reconciliation receipts, and runs the trusted current validator
+version, and approval from the exact receipt commit, requires both materialized
+reconciliation receipts, and runs the trusted current validator
 against raw regular blobs from that commit before accepting the comment.
 Every authority-bearing Git read disables replacement objects. Because that
 setting does not disable legacy grafts, the verifier rejects any `info/grafts`
@@ -163,18 +165,13 @@ Root:
 - `build-order` only from the planning/routing family;
 - no `model:*`, `complexity:*`, `phase:*`, `build-lane:*` or `agent:*`.
 
-BO-001 through BO-019:
+All 54 members — BO-001 through BO-020 and DASH-001 through DASH-034:
 
 - exactly one `complexity:N`;
-- `model:codex`;
+- `model:codex-gpt-5.6-sol`;
 - exactly one `phase:N`;
-- exactly one `build-lane:documentation|frontend|backend|infrastructure`;
+- exactly one `build-lane:plan-graph|runtime|dashboard-ui|accounting|platform`;
 - no active `agent:*` state.
-
-DASH-001 through DASH-025:
-
-- exactly one `complexity:N` and `model:codex`;
-- no Build Order parent, `phase:N`, `build-lane:*` or active `agent:*` state.
 
 Skill delivery:
 
@@ -182,8 +179,10 @@ Skill delivery:
   Executor;
 - no `agent:*` label and no Build Order membership.
 
-Create missing `build-order`, four `build-lane:*`, and required phase labels
-with Build Order-neutral descriptions. Reuse current complexity/model labels.
+Create missing `build-order`, five `build-lane:*`, required phase labels, and
+the exact `model:codex-gpt-5.6-sol` label with Build Order-neutral
+descriptions. Reuse current complexity labels. Never substitute generic
+`model:codex`, a Claude model label, or a different Codex variant.
 The version-3 core receipt records both the deterministic projected labels and
 the full observed label set so the validator can prove required routing labels
 and wildcard routing-family exclusions, not merely a self-authored manifest.
@@ -206,36 +205,34 @@ live snapshots must equal that frozen full set with no later addition/removal.
 - Native `blockedBy` is the only hard prerequisite truth.
 - The human skill-delivery issue is an external native blocker of BO-004 and
   BO-008; it is neither root membership nor Build Order work.
-- Companion dependencies are real hard prerequisites and are published even
-  though the issues are standalone.
+- All BO/DASH dependencies are real hard prerequisites within the one
+  consolidated member graph.
 - Named external gates stay in issue contracts and are not converted into
   fabricated blocker issues or edges. Every DASH issue remains non-pickable
   until `GATE-OCC-PREDECESSOR-BASELINE` resolves.
 - `serializes_with`, phase and `suggested_after` remain scheduling metadata and
   are not invented blocker edges.
-- GitHub is live truth after publication. `build-order.json` and
-  `dashboard-companions.json` remain approved baselines and receipts.
+- GitHub is live truth after publication. `build-order.json` is the approved
+  member baseline/core receipt and `publication.json` is the auxiliary receipt.
 
 ## Reconciliation receipt
 
 - Approved planning commit: pending final clean reviews
 - Reconciliation commit: pending post-publication write
 - GitHub root: pending
-- BO logical-ID mappings and exact marker-query matches: pending in `build-order.json`
-- Companion mappings and exact marker-query matches: pending in `dashboard-companions.json`
+- Root/member logical-ID mappings and exact marker-query matches: pending in `build-order.json`
 - Membership requery: pending
-- BO dependency requery: pending
-- Companion dependency requery: pending
+- All 105 member dependency requeries: pending
 - Full-label requery: pending
-- Root/skill/companion standalone-parenthood requery: pending
+- Root/skill standalone-parenthood requery: pending
 - Skill-delivery issue: pending
 - Root reconciliation comment unique query match/final state: pending
 - Approval/receipt trusted-branch reachability: pending
-- 55 independently rendered body markers/links/hashes and exact title pairs: pending
+- 56 independently rendered body markers/links/hashes and exact title pairs: pending
 - Exact `OPEN` state and unlocked-state requery for all 56 issues: pending
-- Two identical full live-graph snapshots (19 root members, 105 total blockers): pending
+- Two identical full live-graph snapshots (54 root members, 107 total blockers): pending
 - Canonical validator: pending
-- Companion/publication validator: pending
+- Publication validator: pending
 
 The post-publication commit updates this section with returned URLs/counts, the
 pending root-comment URL, and exact validation output. It does not change

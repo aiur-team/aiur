@@ -161,8 +161,8 @@ native dependencies, current lifecycle, data health, conflicts, and capacity.
 **Status:** accepted
 
 After user review, publish the approved GitHub issues with exactly one
-`complexity:N` and `model:codex` on executable work. Do not apply `agent:todo`,
-start Aiur, or otherwise dispatch a ticket during planning.
+`complexity:N` and `model:codex-gpt-5.6-sol` on executable work. Do not apply
+`agent:todo`, start Aiur, or otherwise dispatch a ticket during planning.
 
 ## DEC-012 — Protect the finite boundary
 
@@ -182,11 +182,12 @@ Planning evidence is pinned to the completed Operator Control Center work on
 the divergent `v2` integration branch. No Build Order ticket may be dispatched
 until a human records the configured branch/SHA that contains the accepted OCC
 baseline and the predecessor dashboard run is complete. That baseline gate
-applies to both Build Order and every standalone dashboard companion. Build
-Order execution is additionally gated on the bounded `/aiur-run` revision from
-PR #1065 commit `f92aa045` (or an explicitly reviewed compatible successor)
-being installed and discoverable. These are external pre-dispatch gates, not
-feature tickets or additions to the completion denominator.
+applies to every member of the consolidated Build Order. Build Order execution
+is additionally gated on the exact final reviewed PR #1065 successor/merge SHA
+being recorded, proven to descend from the minimum multi-prefix ancestry marker
+`27ba3c44`, installed, and discoverable. Neither `27ba3c44` nor the older
+`f92aa045` is independently authorized. These are external pre-dispatch gates,
+not feature tickets or additions to the completion denominator.
 
 ## DEC-014 — Consolidate to a single Build Order
 

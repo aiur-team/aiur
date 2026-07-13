@@ -8,12 +8,13 @@ act as the fallback when an agent cannot finish its last mile. Everything
 below this section is the binding contract; this section is where things
 stand and what must happen, in order, before the first dispatch.
 
-**State right now:** the planning pack is complete, independently reviewed
-(nine lenses; see `09-plan-review-synthesis.md`), reconciled, and validating
-clean — canonical and publication validators both report 0 errors / 0
-warnings and the 102-test publication suite passes. **No GitHub issues have
-been created.** Skills PR #1065 is reconciled with `main`, fully green, and
-MERGEABLE. Draft PR #1064 carries this pack.
+**State right now:** the consolidated planning pack is mechanically complete
+and validating clean — canonical and publication validators both report 0
+errors / 0 warnings, the 115-test canonical suite passes, and the 103-test
+publication suite passes. Final clean semantic review and immutable approval
+remain pending. **No GitHub issues have been created.** Skills PR #1065 is
+in active review rework; its final reviewed successor/merge SHA has not yet
+been recorded. Draft PR #1064 carries this pack.
 
 **Ordered pre-run checklist:**
 
@@ -54,7 +55,7 @@ keep it staffed continuously.
 
 This handoff becomes executable only after the live Build Order root contains a
 uniquely marked `aiur-build-order-reconciliation` comment linking a successful
-immutable post-publication receipt whose exact commit contains all three valid
+immutable post-publication receipt whose exact commit contains both valid
 reconciliations, both external gates below are recorded as resolved, and the
 user separately authorizes a run. Re-run the trusted final-comment verifier;
 neither caller-supplied identity or query JSON, Git object substitution,
@@ -112,10 +113,13 @@ change this run's 54-member denominator or ETA.
      `tickets/` and DASH-001 through DASH-034 under `companion-tickets/`)
    - `docs/build-order/validation-report.md`
    - `docs/build-order/github-publication.md`
-2. Use `/aiur-run`, not the retired `/aiur-loop` workflow. Verify the loaded
-   skill is PR #1065 commit `f92aa045` or an explicitly reviewed compatible
-   successor preserving its finite-boundary, review/rework, circuit-breaker,
-   and publication rules. A matching skill name is insufficient.
+2. Use `/aiur-run`, not the retired `/aiur-loop` workflow. Require the exact
+   final reviewed PR #1065 successor/merge SHA recorded after current rework,
+   prove it descends from the minimum multi-prefix ancestry marker `27ba3c44`,
+   and verify it preserves multi-prefix validation, finite-boundary,
+   review/rework, circuit-breaker, and publication rules. Neither `27ba3c44`
+   nor the older `f92aa045` is independently authorized; a matching skill name
+   is insufficient.
 3. Write a three-to-five-sentence `/goal` stating that you are the Executor,
    the finite acceptance boundary, granted issue/merge authority, critical-path
    priority and terminal condition.
@@ -301,8 +305,9 @@ optimization opportunity is exhausted.
 Draft PR #1065 contains the isolated `/aiur-build` and bounded Executor skill
 rewrite. The operator confirmed on 2026-07-13 that it merges into `main` when
 planning wraps — before Build Order dispatch — and the old wait-for-run
-constraint is lifted. The branch is reconciled with `main` and green; the
-reviewed pin is `f92aa045` with successor commits (main merge + review
-amendments: implementation-pointer, sizing, parallelism, epic-label/icon, and
-plan-context rules) awaiting the operator's confirmation as the new reviewed
-head. Never merge mixed research PR #1064 merely to recover the skill files.
+constraint is lifted. The branch is currently in review rework. Commit
+`27ba3c44` is only the minimum ancestry marker for the `ticket_prefix` array
+required by this consolidated manifest; it is not an independently permitted
+executor baseline. Record and install the final reviewed successor/merge SHA
+before dispatch. Never merge mixed research PR #1064 merely to recover the
+skill files.

@@ -57,7 +57,7 @@
    "4": "complexity:4"
   },
   "required_ticket_labels": [
-   "model:codex"
+   "model:codex-gpt-5.6-sol"
   ],
   "forbidden_labels": [
    "agent:todo",
@@ -122,7 +122,7 @@
    "id": "GATE-002",
    "title": "Install the bounded Executor skill contract",
    "owner": "Product owner",
-   "resolution_criteria": "Before dispatch, the isolated skill revision from PR 1065 commit f92aa045f6766358d7561dadc1133c4d9180d1f3, or an explicitly reviewed compatible successor preserving its finite-boundary and publication contracts, is landed or installed and aiur-build, aiur-run, and aiur-monitor are discoverable."
+   "resolution_criteria": "Before dispatch, the exact final reviewed PR 1065 successor or merge SHA is recorded, proven to descend from the minimum multi-prefix ancestry marker 27ba3c44094d7c7f463f03b811dba52039a23282, landed or installed, and aiur-build, aiur-run, and aiur-monitor are discoverable. Neither 27ba3c44 nor f92aa045 is independently authorized."
   },
   {
    "id": "GATE-003",

@@ -22,7 +22,7 @@
 
 **Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
-**Suggested labels:** `complexity:4`, `model:codex`, `phase:7`, `build-lane:dashboard-ui`; never `agent:todo`
+**Suggested labels:** `complexity:4`, `model:codex-gpt-5.6-sol`, `phase:7`, `build-lane:dashboard-ui`; never `agent:todo`
 
 ## Outcome
 
@@ -151,10 +151,10 @@ performance policy in tests and documented evidence, not magic delays.
 
 ## Sibling boundaries and open gates
 
-BO-015 owns merged real/synthetic proof. Companion responsive shell work may be
-reused but this ticket does not edit its shared CSS. The standalone DASH-023
-companion declares the cross-pack serialization edge for Build Order route
-component CSS and cannot relax these budgets or become part of Build Order
+BO-015 owns merged real/synthetic proof. Sibling responsive shell work may be
+reused but this ticket does not edit its shared CSS. The DASH-023 member
+declares the serialization edge for Build Order route component CSS and cannot
+relax these budgets; like every member, it remains part of Build Order
 completion.
 
 ## Plan context

@@ -20,7 +20,7 @@
 
 **Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
-**Suggested labels:** `complexity:4`, `model:codex`, `phase:8`, `build-lane:accounting`; never `agent:todo`
+**Suggested labels:** `complexity:4`, `model:codex-gpt-5.6-sol`, `phase:8`, `build-lane:accounting`; never `agent:todo`
 
 **Build Order membership:** member of the consolidated Build Order (operator decision 2026-07-13)
 
@@ -130,11 +130,10 @@ subscription boundary.
 
 DASH-030 owns grouped scope and DASH-031 owns usage/cost presentation; both are
 hard predecessors. DASH-015 provider meters are independent. DASH-022 owns
-nonfinancial run summary and serializes on shared layout only. This
-companion declares the cross-pack serialization edges with BO-013 and BO-014
-because all three write Build Order route component CSS. BO-003/012 retain Build
-Order truth; this standalone companion never enters root membership or
-completion.
+nonfinancial run summary and serializes on shared layout only. This member
+declares the serialization edges with BO-013 and BO-014 because all three write
+Build Order route component CSS. BO-003/012 retain Build Order truth; DASH-023
+remains a direct root member and part of completion.
 
 ## Plan context
 

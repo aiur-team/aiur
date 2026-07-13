@@ -22,7 +22,7 @@
 
 **Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
-**Suggested labels:** `complexity:4`, `model:codex`, `phase:6`, `build-lane:dashboard-ui`; never `agent:todo`
+**Suggested labels:** `complexity:4`, `model:codex-gpt-5.6-sol`, `phase:6`, `build-lane:dashboard-ui`; never `agent:todo`
 
 ## Outcome
 
@@ -145,9 +145,9 @@ browser/a11y harness. Keep one interaction state owner per selected root.
 ## Sibling boundaries and open gates
 
 BO-014 owns responsive redraw and measured scale, not interaction semantics.
-The standalone DASH-023 companion declares the cross-pack serialization edge
-for Build Order route component CSS. No companion is a hard prerequisite or may
-redefine these controls.
+The sibling DASH-023 member declares the serialization edge for Build Order
+route component CSS. It is not a hard prerequisite and may not redefine these
+controls.
 
 ## Plan context
 

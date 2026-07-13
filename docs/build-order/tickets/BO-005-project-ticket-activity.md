@@ -22,7 +22,7 @@
 
 **Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
-**Suggested labels:** `complexity:4`, `model:codex`, `phase:3`, `build-lane:runtime`; never `agent:todo`
+**Suggested labels:** `complexity:4`, `model:codex-gpt-5.6-sol`, `phase:3`, `build-lane:runtime`; never `agent:todo`
 
 ## Outcome
 
@@ -58,7 +58,7 @@ idle, waiting reason, backend/model, and latest worker observations.
   identity in every update.
 - Retain bounded event activity for current tracked identities plus bounded
   recently removed identities; make retention/eviction observable. Full
-  current-run membership and terminal-row retention belong to the standalone
+  current-run membership and terminal-row retention belong to the sibling
   DASH-002 catalog, not this event projection.
 - Represent absent, stale, unsupported, unattributed, and invalid observations
   explicitly. Open-ticket progress after restart is unknown until trusted new
@@ -159,11 +159,10 @@ BO-004 owns identity, BO-017 owns envelope/producer propagation, BO-006
 migrates AgentList, BO-019 owns bounded recent history, and BO-007 performs the
 GitHub/Aiur join. BO-003 and BO-016 share only the application supervision tree
 with this ticket and therefore serialize rather than gaining data dependencies.
-Usage companions may reuse identity or serialize on shared event producers, but
-financial observation/storage is outside this ticket.
-DASH-008 declares the cross-pack `serializes_with: BO-005` edge in the companion
-manifest; the joined publication graph derives the reverse edge because the
-standalone core manifest cannot reference an external logical ID.
+Usage members may reuse identity or serialize on shared event producers, but
+financial observation/storage is outside this ticket. DASH-008 and BO-005
+declare their symmetric `serializes_with` edge directly in the consolidated
+manifest.
 
 ## Plan context
 

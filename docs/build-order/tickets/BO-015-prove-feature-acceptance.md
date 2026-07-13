@@ -22,7 +22,7 @@
 
 **Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
-**Suggested labels:** `complexity:4`, `model:codex`, `phase:8`, `build-lane:dashboard-ui`; never `agent:todo`
+**Suggested labels:** `complexity:4`, `model:codex-gpt-5.6-sol`, `phase:8`, `build-lane:dashboard-ui`; never `agent:todo`
 
 ## Outcome
 
@@ -147,7 +147,7 @@ transition.
 ### Agent gate
 
 - Latest canonical planning validator and published GitHub reconciliation pass
-  with exact 54-member parenthood, required labels, `model:codex`, no active
+  with exact 54-member parenthood, required labels, `model:codex-gpt-5.6-sol`, no active
   `agent:todo`, and exact native hard edges.
 - Every focused suite plus the complete repository CI gate passes on the
   current integrated candidate; the acceptance matrix has no missing BOREQ or

@@ -31,6 +31,9 @@ from publication_records import (
 )
 
 
+MODEL_LABEL = "model:codex-gpt-5.6-sol"
+
+
 def validate(build_path: Path, publication_path: Path | None = None) -> Report:
     report = Report()
     build_order = load_json(build_path, "build-order", report)
@@ -114,8 +117,10 @@ def _label_contract(data: dict[str, Any], report: Report) -> None:
         projection.get("forbidden_labels"), "label_projection.forbidden_labels",
         report,
     )
-    if required != ["model:codex"]:
-        report.error("label_projection.required_ticket_labels must equal model:codex")
+    if required != [MODEL_LABEL]:
+        report.error(
+            f"label_projection.required_ticket_labels must equal {MODEL_LABEL}"
+        )
     if set(forbidden) != AGENT_LABELS or len(forbidden) != len(AGENT_LABELS):
         report.error(
             "label_projection.forbidden_labels must exactly match the bounded "

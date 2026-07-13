@@ -29,12 +29,24 @@ class PublicationEvidenceTests(unittest.TestCase):
         return validate(fixture.build_path, fixture.publication_path)
 
     def test_required_ticket_labels_are_exact(self) -> None:
-        build = build_order()
-        build["label_projection"]["required_ticket_labels"].append("area:dashboard")
-        fixture = Fixture(build)
-        self.addCleanup(fixture.close)
-        joined = "\n".join(validate(fixture.build_path).errors)
-        self.assertIn("required_ticket_labels must equal model:codex", joined)
+        invalid_projections = (
+            ["model:codex"],
+            ["model:codex-gpt-5.6-terra"],
+            ["model:claude"],
+            ["model:codex-gpt-5.6-sol", "area:dashboard"],
+        )
+        for required_labels in invalid_projections:
+            with self.subTest(required_labels=required_labels):
+                build = build_order()
+                build["label_projection"]["required_ticket_labels"] = required_labels
+                fixture = Fixture(build)
+                self.addCleanup(fixture.close)
+                joined = "\n".join(validate(fixture.build_path).errors)
+                self.assertIn(
+                    "required_ticket_labels must equal "
+                    "model:codex-gpt-5.6-sol",
+                    joined,
+                )
 
     def test_core_observation_rejects_new_routing_labels(self) -> None:
         def mutate(build, _manifest):

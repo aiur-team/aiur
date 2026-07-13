@@ -90,9 +90,9 @@ recommendations in
   These are the two live sources of truth.
 - Total-build accounting includes all Aiur-retained usage attributable to each
   current member ticket, including usage recorded before membership was added.
-- Reliable `claude-repl`/Claude Remote Control token-and-cost accounting is a
-  required standalone companion ticket in this planning effort; incomplete
-  Remote Control coverage is not the intended finished state.
+- Reliable `claude-repl`/Claude Remote Control token-and-cost accounting is
+  required work in dedicated members of the consolidated Build Order;
+  incomplete Remote Control coverage is not the intended finished state.
 - The opening request is the Build Order brain dump and authoritative product
   intent. No separate brain-dump document is required before planning.
 - Build Order v1 is GitHub-only. Linear parity is separate, human-blocked work
@@ -110,12 +110,13 @@ recommendations in
   determine the final recommendation.
 - After Kevin reviews the ticket documents, materialize the approved root and
   implementation issues in GitHub. Apply one `complexity:N` label and
-  `model:codex` to each executable ticket, but do not apply `agent:todo` or
-  otherwise dispatch work.
-- The authorized materialization set includes the twenty-five standalone dashboard
-  delta/accounting issues and one human-blocked issue preserving the isolated
-  skill PR #1065. The user explicitly asked that these unrelated skill changes
-  not fall through the cracks and delegated the choice of a separate ticket.
+  `model:codex-gpt-5.6-sol` to each executable ticket, but do not apply
+  `agent:todo` or otherwise dispatch work.
+- The authorized materialization set includes all 54 direct root members
+  (BO-001..020 and DASH-001..034) and one parentless human-blocked issue
+  preserving the isolated skill PR #1065. The user explicitly asked that these
+  unrelated skill changes not fall through the cracks and delegated the choice
+  of a separate ticket.
 - Do not comment on, close, relabel, or rewrite existing #132, #845, #1033,
   #1034, or #1067 during publication; the new issue bodies may cite their
   overlap. No additional mutation authority is inferred from permission to

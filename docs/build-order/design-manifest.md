@@ -61,7 +61,8 @@ choosing whichever is easier to implement.
    production library/ownership decision.
 7. The refreshed mock moves navigation into a responsive sidebar, adds a
    Units-only summary, status filters, pause/resume, and richer ticket context.
-   Navigation, Units, controls, and summary work are standalone companions.
+   Navigation, Units, controls, and summary work are dedicated members of the
+   consolidated Build Order.
    Rich all-state ticket context uses separate root-independent detail
    (BO-016), bounded sanitized history (BO-019), and accessible base-context
    (BO-018) capabilities that Units can adopt, plus a Build Order-only

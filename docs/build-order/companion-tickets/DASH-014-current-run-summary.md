@@ -20,7 +20,7 @@
 
 **Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
-**Suggested labels:** `complexity:4`, `model:codex`, `phase:5`, `build-lane:runtime`; never `agent:todo`
+**Suggested labels:** `complexity:4`, `model:codex-gpt-5.6-sol`, `phase:5`, `build-lane:runtime`; never `agent:todo`
 
 **Build Order membership:** member of the consolidated Build Order (operator decision 2026-07-13)
 

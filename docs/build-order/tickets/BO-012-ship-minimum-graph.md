@@ -22,7 +22,7 @@
 
 **Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
-**Suggested labels:** `complexity:4`, `model:codex`, `phase:5`, `build-lane:dashboard-ui`; never `agent:todo`
+**Suggested labels:** `complexity:4`, `model:codex-gpt-5.6-sol`, `phase:5`, `build-lane:dashboard-ui`; never `agent:todo`
 
 ## Outcome
 
@@ -172,10 +172,9 @@ assigns or hooks.
 ## Sibling boundaries and open gates
 
 BO-013 owns advanced interaction/accessibility and BO-014 owns redraw/scale.
-The standalone DASH-001 companion declares the cross-pack serialization edge
-for the shared OCC route/navigation shell. Units, Commands, and usage
-companions are reuse/serialization seams only; none belongs to this hard
-dependency graph.
+The sibling DASH-001 member declares the serialization edge for the shared OCC
+route/navigation shell. Units, Commands, and usage members are
+reuse/serialization seams unless named in this ticket's hard dependencies.
 
 ## Plan context
 

@@ -102,7 +102,7 @@ def build_order() -> dict[str, object]:
         "github_root": None,
         "label_projection": {
             "build_order": "build-order",
-            "required_ticket_labels": ["model:codex"],
+            "required_ticket_labels": ["model:codex-gpt-5.6-sol"],
             "forbidden_labels": list(AGENT_LABELS),
             "workstreams": {"backend": "build-lane:backend"},
             "phases": {"1": "phase:1"},
