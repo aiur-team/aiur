@@ -16,11 +16,15 @@ The reviewed planning authority is commit
 acceptable only after explicit review confirms it preserves the finite feature
 boundary, rework-before-ticket-multiplication rule, backlog-growth circuit
 breaker, privacy policy, and publication validator behavior. The branch head
-now carries two successor candidates awaiting that confirmation: `d4640c03`
+now carries successor candidates awaiting that confirmation: `d4640c03`
 (planning-skill amendments: required implementation pointers, sizing
-calibration, design-for-parallelism rules) and merge commit `ec188e7b`
+calibration, design-for-parallelism rules), merge commit `ec188e7b`
 (reconciles the rewrite with the Executor-rename work on `main@9849f329`;
-skill tests 17/17, compile/validator clean, PR MERGEABLE).
+skill tests 17/17, compile/validator clean, PR MERGEABLE), `d9812101` +
+`d9426f17` (epic-label/icon freedom and the plan-context block requirement),
+and `27ba3c44` (multi-prefix `ticket_prefix` support required by the
+consolidated single-manifest pack; 118/118 validator tests). The vendored
+validator on the planning branch matches `27ba3c44`.
 
 The Build Order planning authority for this issue body is
 [`<APPROVED_SHA>`](https://github.com/its-everdred/aiur/commit/<APPROVED_SHA>).
