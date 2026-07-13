@@ -114,3 +114,16 @@ compatibility behavior, not this contract.
 ## Sibling boundaries and open gates
 
 DASH-027 alone renders this snapshot as a read-only conversation drawer. BO-019 remains the bounded ticket activity/history owner, and BO-018 remains the ticket-context/Logs presenter; neither may consume this transcript as its history source. Messaging, pause/resume, Remote Control navigation, and usage accounting remain with their explicit owners.
+
+## Plan context
+
+Where this ticket fits in the wider Build Order (all paths pinned to the
+approved planning commit linked in this issue's preamble):
+
+- [Pack index and read-first order](https://github.com/its-everdred/aiur/blob/<APPROVED_SHA>/docs/build-order/README.md)
+- [Your implementation pointers](https://github.com/its-everdred/aiur/blob/<APPROVED_SHA>/docs/build-order/08-implementation-pointers.md) — section `DASH-026`
+- [Graph waves, critical path, and parallelism](https://github.com/its-everdred/aiur/blob/<APPROVED_SHA>/docs/build-order/07-graph-parallelism-review.md)
+- [Technical decisions (DEC-*)](https://github.com/its-everdred/aiur/blob/<APPROVED_SHA>/docs/build-order/05-technical-decisions.md)
+- [Requirements](https://github.com/its-everdred/aiur/blob/<APPROVED_SHA>/docs/brainstorms/2026-07-12-build-order-requirements.md)
+- Your issue's native parent is the Build Order root; native `blockedBy`
+  edges are the dependency graph — the root issue renders the full picture.

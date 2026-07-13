@@ -120,3 +120,16 @@ route without making this ticket part of Build Order acceptance. If the
 configured implementation base does not yet contain closed #1034, the shared
 predecessor-baseline gate—not a new feature ticket—must be resolved before
 pickup.
+
+## Plan context
+
+Where this ticket fits in the wider Build Order (all paths pinned to the
+approved planning commit linked in this issue's preamble):
+
+- [Pack index and read-first order](https://github.com/its-everdred/aiur/blob/<APPROVED_SHA>/docs/build-order/README.md)
+- [Your implementation pointers](https://github.com/its-everdred/aiur/blob/<APPROVED_SHA>/docs/build-order/08-implementation-pointers.md) — section `DASH-001`
+- [Graph waves, critical path, and parallelism](https://github.com/its-everdred/aiur/blob/<APPROVED_SHA>/docs/build-order/07-graph-parallelism-review.md)
+- [Technical decisions (DEC-*)](https://github.com/its-everdred/aiur/blob/<APPROVED_SHA>/docs/build-order/05-technical-decisions.md)
+- [Requirements](https://github.com/its-everdred/aiur/blob/<APPROVED_SHA>/docs/brainstorms/2026-07-12-build-order-requirements.md)
+- Your issue's native parent is the Build Order root; native `blockedBy`
+  edges are the dependency graph — the root issue renders the full picture.

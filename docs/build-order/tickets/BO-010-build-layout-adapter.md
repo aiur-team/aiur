@@ -145,3 +145,16 @@ Keep the adapter isolated behind stable DOM data attributes/events for BO-012.
 BO-012 supplies real graph markup and BO-013/014 own interaction and scale
 hardening. Companion shell/CSS work may require merge serialization but does
 not define this adapter or become a prerequisite.
+
+## Plan context
+
+Where this ticket fits in the wider Build Order (all paths pinned to the
+approved planning commit linked in this issue's preamble):
+
+- [Pack index and read-first order](https://github.com/its-everdred/aiur/blob/<APPROVED_SHA>/docs/build-order/README.md)
+- [Your implementation pointers](https://github.com/its-everdred/aiur/blob/<APPROVED_SHA>/docs/build-order/08-implementation-pointers.md) — section `BO-010`
+- [Graph waves, critical path, and parallelism](https://github.com/its-everdred/aiur/blob/<APPROVED_SHA>/docs/build-order/07-graph-parallelism-review.md)
+- [Technical decisions (DEC-*)](https://github.com/its-everdred/aiur/blob/<APPROVED_SHA>/docs/build-order/05-technical-decisions.md)
+- [Requirements](https://github.com/its-everdred/aiur/blob/<APPROVED_SHA>/docs/brainstorms/2026-07-12-build-order-requirements.md)
+- Your issue's native parent is the Build Order root; native `blockedBy`
+  edges are the dependency graph — the root issue renders the full picture.

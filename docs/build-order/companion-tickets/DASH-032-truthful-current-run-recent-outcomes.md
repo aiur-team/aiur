@@ -99,3 +99,16 @@ Compose the shipped `Aiur.RecentMerge`/`RecentMergeStore`, `Aiur.TicketBranch`, 
 ## Sibling boundaries and open gates
 
 DASH-002 owns membership, DASH-014 owns the run window, and `RecentMergeStore` owns durable merge facts. BO-018/019 ticket context/history and DASH-026/027 conversation are unrelated. A separate presentation ticket owns cards and wording but must consume this contract without promoting association to causality.
+
+## Plan context
+
+Where this ticket fits in the wider Build Order (all paths pinned to the
+approved planning commit linked in this issue's preamble):
+
+- [Pack index and read-first order](https://github.com/its-everdred/aiur/blob/<APPROVED_SHA>/docs/build-order/README.md)
+- [Your implementation pointers](https://github.com/its-everdred/aiur/blob/<APPROVED_SHA>/docs/build-order/08-implementation-pointers.md) — section `DASH-032`
+- [Graph waves, critical path, and parallelism](https://github.com/its-everdred/aiur/blob/<APPROVED_SHA>/docs/build-order/07-graph-parallelism-review.md)
+- [Technical decisions (DEC-*)](https://github.com/its-everdred/aiur/blob/<APPROVED_SHA>/docs/build-order/05-technical-decisions.md)
+- [Requirements](https://github.com/its-everdred/aiur/blob/<APPROVED_SHA>/docs/brainstorms/2026-07-12-build-order-requirements.md)
+- Your issue's native parent is the Build Order root; native `blockedBy`
+  edges are the dependency graph — the root issue renders the full picture.

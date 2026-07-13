@@ -165,3 +165,16 @@ activity, while BO-019 owns recent history. These tickets share no data
 contract, but BO-003 serializes with BO-005, BO-016, and BO-019 on application
 supervision changes. A companion shell may reuse provider status components
 later without becoming a dependency.
+
+## Plan context
+
+Where this ticket fits in the wider Build Order (all paths pinned to the
+approved planning commit linked in this issue's preamble):
+
+- [Pack index and read-first order](https://github.com/its-everdred/aiur/blob/<APPROVED_SHA>/docs/build-order/README.md)
+- [Your implementation pointers](https://github.com/its-everdred/aiur/blob/<APPROVED_SHA>/docs/build-order/08-implementation-pointers.md) — section `BO-003`
+- [Graph waves, critical path, and parallelism](https://github.com/its-everdred/aiur/blob/<APPROVED_SHA>/docs/build-order/07-graph-parallelism-review.md)
+- [Technical decisions (DEC-*)](https://github.com/its-everdred/aiur/blob/<APPROVED_SHA>/docs/build-order/05-technical-decisions.md)
+- [Requirements](https://github.com/its-everdred/aiur/blob/<APPROVED_SHA>/docs/brainstorms/2026-07-12-build-order-requirements.md)
+- Your issue's native parent is the Build Order root; native `blockedBy`
+  edges are the dependency graph — the root issue renders the full picture.
