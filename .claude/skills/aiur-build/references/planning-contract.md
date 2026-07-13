@@ -85,11 +85,13 @@ expected number:
 Keep `github_reconciliation` null before publication. After publication it is a
 bounded receipt from a fresh requery: timestamp, root node ID, exact direct
 membership, exact native dependency edges, and the full observed label set for
-the root and tickets. `label_projection.required_ticket_labels` defines static
-routing labels; `forbidden_labels` defines labels that must be absent. The
-validator requires projected labels, rejects projected-family drift and
-forbidden dispatch states, and requires every GitHub mapping; it cannot prove
-the remote query was honestly performed.
+the root and tickets. Receipt schema v2 also records the approved planning
+commit plus parsed logical-ID/approval evidence and a body SHA-256 for every
+issue. `label_projection.required_ticket_labels` defines static routing
+labels; `forbidden_labels` defines labels that must be absent. The validator
+compares deterministic projected labels with full observed labels, rejects
+routing-family drift and forbidden dispatch states, and requires every GitHub
+mapping; it cannot prove the remote query was honestly performed.
 
 ## Ticket document template
 
@@ -192,7 +194,8 @@ The graph validator fails when:
 9. Captured design artifacts do not match their recorded hashes, decisions or
    design evidence are orphaned, or ticket references do not resolve.
 10. Materialized mappings are partial or their reconciliation receipt drifts
-    from membership, dependencies, or projected labels.
+    from membership, dependencies, projected/observed labels, or approved body
+    evidence.
 
 The command validates the canonical graph and referenced ticket/design files;
 it is not a whole-pack verifier. The committed validation report must separately

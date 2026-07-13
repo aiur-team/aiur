@@ -10,15 +10,21 @@ from validation_common import (
     nonempty_string,
     safe_list,
     strict_object,
+    valid_rfc3339_utc,
 )
+from validation_github_evidence import validate_body_evidence
 
 
 RECONCILIATION_KEYS = {
+    "receipt_schema_version",
     "checked_at",
+    "approved_planning_commit",
     "root_node_id",
     "member_ticket_ids",
     "dependency_edges",
     "projected_labels",
+    "observed_labels",
+    "observed_body_evidence",
 }
 DEPENDENCY_KEYS = {"ticket_id", "depends_on"}
 
@@ -39,13 +45,15 @@ def validate_reconciliation(
     receipt = strict_object(value, "github_reconciliation", RECONCILIATION_KEYS, report)
     if receipt is None:
         return
+    if receipt.get("receipt_schema_version") != 2:
+        report.error("github_reconciliation.receipt_schema_version must be integer 2")
     if root is None:
         report.error("github_reconciliation requires github_root")
     missing = sorted(ticket_id for ticket_id, item in ticket_mappings.items() if item is None)
     if missing:
         report.error("github_reconciliation missing ticket mappings: " + ", ".join(missing))
-    if not nonempty_string(receipt.get("checked_at")):
-        report.error("github_reconciliation.checked_at must be a non-empty string")
+    if not valid_rfc3339_utc(receipt.get("checked_at")):
+        report.error("github_reconciliation.checked_at must be an RFC3339 UTC instant")
     root_node_id = receipt.get("root_node_id")
     if not nonempty_string(root_node_id):
         report.error("github_reconciliation.root_node_id must be a non-empty string")
@@ -65,7 +73,13 @@ def validate_reconciliation(
     }
     if actual_edges != expected_edges:
         report.error("github_reconciliation dependencies must exactly match depends_on")
-    _validate_projected_labels(data, by_id, receipt.get("projected_labels"), report)
+    identities = {str(data.get("build_order_id")), *by_id}
+    validate_body_evidence(
+        receipt.get("observed_body_evidence"), identities,
+        receipt.get("approved_planning_commit"), report,
+    )
+    _validate_label_sets(data, by_id, receipt.get("projected_labels"), "projected", report)
+    _validate_label_sets(data, by_id, receipt.get("observed_labels"), "observed", report)
 
 
 def _dependency_edges(value: object, report: Report) -> set[tuple[str, str]]:
@@ -89,14 +103,15 @@ def _dependency_edges(value: object, report: Report) -> set[tuple[str, str]]:
     return found
 
 
-def _validate_projected_labels(
+def _validate_label_sets(
     data: dict[str, Any],
     by_id: dict[str, dict[str, Any]],
     value: object,
+    field: str,
     report: Report,
 ) -> None:
     if not isinstance(value, dict):
-        report.error("github_reconciliation.projected_labels must be an object")
+        report.error(f"github_reconciliation.{field}_labels must be an object")
         return
     projection = data.get("label_projection") if isinstance(data.get("label_projection"), dict) else {}
     root_label = projection.get("build_order")
@@ -124,16 +139,16 @@ def _validate_projected_labels(
                 labels.add(mapping[key])
         expected[ticket_id] = labels
     if set(value) != set(expected):
-        report.error("github_reconciliation.projected_labels keys must match root and tickets")
+        report.error(f"github_reconciliation.{field}_labels keys must match root and tickets")
     for identity, expected_labels in expected.items():
         labels = checked_string_list(
-            value.get(identity), f"github_reconciliation.projected_labels.{identity}", report
+            value.get(identity), f"github_reconciliation.{field}_labels.{identity}", report
         )
         actual = set(labels)
         missing = sorted(expected_labels - actual)
         if missing:
             report.error(
-                f"github_reconciliation projected labels missing for {identity}: "
+                f"github_reconciliation {field} labels missing for {identity}: "
                 + ", ".join(missing)
             )
         forbidden_hits = sorted(actual & forbidden)
@@ -142,22 +157,16 @@ def _validate_projected_labels(
                 f"github_reconciliation forbidden labels present for {identity}: "
                 + ", ".join(forbidden_hits)
             )
-        projected_family = {
-            label
-            for group in ("workstreams", "phases", "complexities")
-            for label in (
-                projection.get(group, {}).values()
-                if isinstance(projection.get(group), dict)
-                else []
-            )
-            if nonempty_string(label)
+        routing_prefixes = ("agent:", "model:", "phase:", "complexity:", "build-lane:")
+        unexpected = {
+            label for label in actual
+            if label.startswith(routing_prefixes) and label not in expected_labels
         }
-        if nonempty_string(root_label):
-            projected_family.add(root_label)
-        projected_family.update(required)
-        unexpected = sorted((actual & projected_family) - expected_labels)
+        if field == "projected":
+            unexpected |= actual - expected_labels
+        unexpected = sorted(unexpected)
         if unexpected:
             report.error(
-                f"github_reconciliation unexpected projected labels for {identity}: "
+                f"github_reconciliation unexpected {field} labels for {identity}: "
                 + ", ".join(unexpected)
             )

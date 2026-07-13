@@ -156,9 +156,9 @@ Only when explicitly authorized:
 2. create/update the Build Order root and implementation issues;
 3. map stable logical IDs to returned repo-qualified issue identities;
 4. publish native membership and dependency relationships;
-5. requery and validate the published graph rather than trusting mutation
-   responses, then record the bounded reconciliation receipt defined by the
-   planning contract;
+5. requery and validate the published graph, full labels, and approved body
+   markers rather than trusting mutation responses, then record the bounded
+   reconciliation receipt defined by the planning contract;
 6. make GitHub canonical for the materialized ticket facts.
 
 Do not assume issue-number adjacency. Keep prose dependency tables as generated

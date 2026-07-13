@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 
@@ -41,6 +42,20 @@ def nonempty_string(value: object) -> bool:
 
 def strict_int(value: object) -> bool:
     return type(value) is int
+
+
+def valid_rfc3339_utc(value: object) -> bool:
+    if not isinstance(value, str) or not re.fullmatch(
+        r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?Z",
+        value,
+        re.ASCII,
+    ):
+        return False
+    try:
+        datetime.fromisoformat(value.removesuffix("Z") + "+00:00")
+    except ValueError:
+        return False
+    return True
 
 
 def strict_object(

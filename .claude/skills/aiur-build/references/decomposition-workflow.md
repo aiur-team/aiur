@@ -187,7 +187,7 @@ This stage requires explicit permission.
 - Create/update tickets from approved contracts.
 - Map logical IDs to returned node IDs and repo-qualified numbers.
 - Publish membership and native issue-dependency edges.
-- Requery every relationship and fail on drift.
+- Requery every relationship and approved body marker; fail on drift.
 - Apply projected and required routing labels, record full observed labels in
   the receipt, and prove every forbidden dispatch/active-state label is absent.
 
