@@ -4,10 +4,12 @@ defmodule Aiur.DogfoodHooksTest do
   @hooks_path Path.expand("../../../.aiur/hooks", __DIR__)
   @config_path Path.expand("../../../.aiur/config", __DIR__)
   @prompt_path Path.expand("../../../.aiur/prompt.md", __DIR__)
+  @contributing_path Path.expand("../../../CONTRIBUTING.md", __DIR__)
 
   @external_resource @hooks_path
   @external_resource @config_path
   @external_resource @prompt_path
+  @external_resource @contributing_path
 
   setup do
     test_root = Path.join(System.tmp_dir!(), "aiur-dogfood-hooks-#{System.unique_integer([:positive])}")
@@ -18,9 +20,10 @@ defmodule Aiur.DogfoodHooksTest do
     {:ok, test_root: test_root, origin: origin, seed: seed}
   end
 
-  test "dogfood config, hooks, and prompt agree on the canonical branch" do
+  test "dogfood config, hooks, and contributor guidance agree on the canonical branch" do
     assert {:ok, config} = YamlElixir.read_from_file(@config_path)
-    assert get_in(config, ["tracker", "base_branch"]) == "main"
+    dogfood_base = get_in(config, ["tracker", "base_branch"])
+    assert dogfood_base == "main"
 
     hooks = dogfood_hooks!()
     assert hooks["after_create"] =~ ~s(base_branch="${THIS_BASE_BRANCH:-main}")
@@ -28,8 +31,12 @@ defmodule Aiur.DogfoodHooksTest do
     refute File.read!(@hooks_path) =~ "origin/v2"
 
     prompt = File.read!(@prompt_path)
-    assert prompt =~ "configured `tracker.base_branch` (`main` in this repository)"
+    assert prompt =~ "configured `tracker.base_branch` (`#{dogfood_base}` in this repository)"
     refute prompt =~ "against `v2`"
+
+    contributing = File.read!(@contributing_path)
+    assert contributing =~ "PRs target the canonical `#{dogfood_base}` branch"
+    refute contributing =~ ~r/PRs target[^\n]*`v2`/
   end
 
   test "checked-in hooks checkout and merge the configured base branch", context do
@@ -85,6 +92,32 @@ defmodule Aiur.DogfoodHooksTest do
 
     assert current_branch!(workspace) == ticket_branch()
     assert File.read!(Path.join(workspace, "README.md")) == "stable one\n"
+  end
+
+  test "before_run preserves a valid linked worktree", context do
+    workspace = Path.join(context.test_root, "linked-worktree")
+
+    git!([
+      "-C",
+      context.seed,
+      "worktree",
+      "add",
+      "--quiet",
+      "-b",
+      ticket_branch(),
+      workspace,
+      configured_base()
+    ])
+
+    git_file = Path.join(workspace, ".git")
+    assert File.regular?(git_file)
+    worktree_link = File.read!(git_file)
+
+    assert_hook_ok!("before_run", workspace, context.origin)
+
+    assert File.regular?(git_file)
+    assert File.read!(git_file) == worktree_link
+    assert current_branch!(workspace) == ticket_branch()
   end
 
   test "before_run preserves tracked WIP on the wrong branch", context do

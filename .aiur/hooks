@@ -38,7 +38,7 @@ after_create: |
 before_run: |
   set -e
   base_branch="${THIS_BASE_BRANCH:-main}"
-  if [ ! -d .git ] || ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     logs_backup=""
     restore_logs() {
       if [ -n "$logs_backup" ] && [ -d "$logs_backup" ]; then
