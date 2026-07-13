@@ -163,6 +163,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
 
   defp answer_label(%{answer: %{custom_response: response}}), do: response
 
+  defp answer_label(_decision), do: "Unavailable"
+
   defp confirmation_required?(decision) do
     Map.get(decision, :reversibility) == :irreversible or Map.get(decision, :kind) == "destructive_op"
   end

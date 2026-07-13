@@ -177,7 +177,11 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   end
 
   defp put_error(socket, decision_id, message) do
-    update_state(socket, decision_id, &(&1 |> Map.put(:error, message) |> Map.delete(:notice)))
+    update_state(
+      socket,
+      decision_id,
+      &(&1 |> Map.put(:error, message) |> Map.delete(:notice) |> Map.delete(:idempotency_key))
+    )
   end
 
   defp put_notice(socket, decision_id, message) do
