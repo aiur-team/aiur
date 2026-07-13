@@ -24,8 +24,11 @@ def example() -> dict[str, Any]:
     return json.loads(EXAMPLE.read_text(encoding="utf-8"))
 
 
-def report_for(data: object):
-    return validate_data(data, REFERENCES)
+def report_for(
+    data: object,
+    approved_body_expectations: dict[str, dict[str, Any]] | None = None,
+):
+    return validate_data(data, REFERENCES, approved_body_expectations)
 
 
 def umbrella(ticket_id: str, document: str, children: list[str]) -> dict[str, Any]:

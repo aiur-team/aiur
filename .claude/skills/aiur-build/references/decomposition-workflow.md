@@ -187,9 +187,16 @@ This stage requires explicit permission.
 - Create/update tickets from approved contracts.
 - Map logical IDs to returned node IDs and repo-qualified numbers.
 - Publish membership and native issue-dependency edges.
-- Requery every relationship and approved body marker; fail on drift.
+- Render every expected body from files loaded with
+  `git show <approved-commit>:<path>`; fail closed if the approved pack, root
+  template, or a ticket document is absent.
+- Requery every relationship and logical-marker search. Require exactly one
+  issue match per logical ID and compare each parsed marker/link/hash record to
+  the independently rendered expected body; fail on missing, wrong, duplicate,
+  or truncated evidence.
 - Apply projected and required routing labels, record full observed labels in
-  the receipt, and prove every forbidden dispatch/active-state label is absent.
+  the receipt, and prove every forbidden dispatch/active-state label and every
+  unprojected `human:*` routing label is absent.
 
 For GitHub, a root issue with native sub-issues is a practical v1 membership
 model. GitHub supports up to 100 direct sub-issues per parent; larger programs

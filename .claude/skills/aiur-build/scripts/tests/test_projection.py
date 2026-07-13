@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import copy
+
 from helpers import ValidatorCase, example, report_for
+from validation_common import Report
+from validation_github_rendering import render_ticket_body, inspect_issue_body
 
 
 def github(repository: str, number: int, node_id: str):
@@ -40,6 +44,18 @@ class ProjectionTests(ValidatorCase):
 
 
 class GithubTests(ValidatorCase):
+    def assert_error(self, data, needle):
+        report = report_for(data, getattr(self, "approved_body_expectations", None))
+        self.assertTrue(
+            any(needle in message for message in report.errors),
+            f"missing {needle!r} in {report.errors}",
+        )
+
+    def assert_clean(self, data):
+        report = report_for(data, getattr(self, "approved_body_expectations", None))
+        self.assertEqual([], report.errors)
+        self.assertEqual([], report.warnings)
+
     def materialized(self):
         data = example()
         data["github_root"] = github("example/repo", 100, "ROOT")
@@ -62,17 +78,29 @@ class GithubTests(ValidatorCase):
                 "BO-001": ["build-lane:platform", "phase:1", "complexity:3", "model:codex"],
                 "BO-002": ["build-lane:integration", "phase:2", "complexity:2", "model:codex"],
             },
-            "observed_body_evidence": {
-                identity: {
-                    "marker_logical_id": identity,
-                    "approved_planning_commit": "b" * 40,
-                    "body_sha256": f"{index:064x}",
-                }
-                for index, identity in enumerate(
-                    ("example/repo:operator-dashboard", "BO-001", "BO-002"), 1
-                )
+            "observed_body_evidence": {},
+            "marker_query_matches": {
+                "example/repo:operator-dashboard": [copy.deepcopy(data["github_root"])],
+                "BO-001": [copy.deepcopy(data["tickets"][0]["github"])],
+                "BO-002": [copy.deepcopy(data["tickets"][1]["github"])],
             },
         }
+        rendered = {}
+        for identity in ("example/repo:operator-dashboard", "BO-001", "BO-002"):
+            report = Report()
+            body = render_ticket_body(
+                f"# {identity}\n", "example/repo", identity, 1, "b" * 40,
+                report, f"test {identity}",
+            )
+            self.assertIsNotNone(body, report.errors)
+            evidence = inspect_issue_body(
+                body, "example/repo", identity, 1, "b" * 40,
+                report, f"test {identity}",
+            )
+            self.assertIsNotNone(evidence, report.errors)
+            rendered[identity] = evidence
+        self.approved_body_expectations = rendered
+        data["github_reconciliation"]["observed_body_evidence"] = copy.deepcopy(rendered)
         return data
 
     def test_valid_same_owner_mapping(self) -> None:
@@ -122,7 +150,10 @@ class GithubTests(ValidatorCase):
         self.assert_error(data, "unexpected observed labels for BO-001")
 
     def test_reconciliation_rejects_unprojected_routing_families(self) -> None:
-        for label in ("agent:queued", "model:claude", "phase:999", "complexity:999"):
+        for label in (
+            "agent:queued", "human:todo", "model:claude", "phase:999",
+            "complexity:999",
+        ):
             data = self.materialized()
             data["github_reconciliation"]["observed_labels"]["BO-001"].append(label)
             self.assert_error(data, "unexpected observed labels for BO-001")
@@ -148,6 +179,28 @@ class GithubTests(ValidatorCase):
         data = self.materialized()
         data["github_reconciliation"]["observed_body_evidence"]["BO-001"]["approved_planning_commit"] = "c" * 40
         self.assert_error(data, "approved_planning_commit must match the receipt")
+        data = self.materialized()
+        data["github_reconciliation"]["observed_body_evidence"]["BO-001"]["body_sha256"] = "0" * 64
+        self.assert_error(data, "must match the independently rendered approved body")
+        data = self.materialized()
+        data["github_reconciliation"]["observed_body_evidence"]["BO-001"]["body_sha256"] = "0" * 63
+        self.assert_error(data, "body_sha256 must be a lowercase SHA-256")
+
+    def test_reconciliation_requires_independent_expectations(self) -> None:
+        data = self.materialized()
+        report = report_for(data)
+        self.assertTrue(any("independently rendered" in item for item in report.errors))
+
+    def test_marker_query_matches_are_unique_and_exact(self) -> None:
+        data = self.materialized()
+        matches = data["github_reconciliation"]["marker_query_matches"]["BO-001"]
+        matches.append(copy.deepcopy(matches[0]))
+        self.assert_error(data, "must contain exactly one issue match")
+        data = self.materialized()
+        data["github_reconciliation"]["marker_query_matches"]["BO-001"][0] = (
+            copy.deepcopy(data["tickets"][1]["github"])
+        )
+        self.assert_error(data, "must equal the returned GitHub mapping")
 
     def test_mapping_identity_must_be_unique(self) -> None:
         data = self.materialized()

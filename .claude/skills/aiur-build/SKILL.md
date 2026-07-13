@@ -136,6 +136,20 @@ python3 <loaded-skill-directory>/scripts/validate_build_order.py \
   docs/build-orders/<slug>/build-order.json
 ```
 
+After GitHub materialization, supply the repository and approved root-body
+template so the validator can derive body expectations with `git show` rather
+than trusting hashes copied into the receipt:
+
+```bash
+python3 <loaded-skill-directory>/scripts/validate_build_order.py \
+  docs/build-orders/<slug>/build-order.json \
+  --repository-root . \
+  --root-document docs/build-orders/<slug>/root-issue.md
+```
+
+Materialized validation fails closed when the approved commit, pack, root
+template, or any ticket document is absent.
+
 Graph validation covers unique IDs, design/decision references, worker-document
 shape, resolved edges, phase contradictions, dispositions, pickability,
 parallel-safety conflicts, capstone ownership, and any GitHub reconciliation
@@ -156,10 +170,17 @@ Only when explicitly authorized:
 2. create/update the Build Order root and implementation issues;
 3. map stable logical IDs to returned repo-qualified issue identities;
 4. publish native membership and dependency relationships;
-5. requery and validate the published graph, full labels, and approved body
-   markers rather than trusting mutation responses, then record the bounded
-   reconciliation receipt defined by the planning contract;
-6. make GitHub canonical for the materialized ticket facts.
+5. generate each ticket body as the exact authority preamble plus its approved
+   ticket document verbatim, and generate the root from its approved full-body
+   template by replacing `<APPROVED_SHA>`;
+6. requery and validate the published graph, full labels, and bodies rather
+   than trusting mutation responses: every body has exactly one schema-2
+   logical-ID/version/approval marker, exactly one approved-commit link, and a
+   SHA-256 equal to the independently rendered approved body; record the full
+   marker-query result set and require exactly one returned issue mapping per
+   logical ID;
+7. record the bounded reconciliation receipt defined by the planning contract;
+8. make GitHub canonical for the materialized ticket facts.
 
 Do not assume issue-number adjacency. Keep prose dependency tables as generated
 human views, not a second source of truth.

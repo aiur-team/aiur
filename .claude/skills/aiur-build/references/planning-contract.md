@@ -26,6 +26,7 @@ docs/build-orders/<slug>/
   deferred-findings.md
   evidence/
   build-order.json
+  root-issue.md              # when GitHub materialization is authorized
   tickets/<ID>-<slug>.md
   validation-report.md
   EXECUTOR-HANDOFF.md
@@ -86,12 +87,25 @@ Keep `github_reconciliation` null before publication. After publication it is a
 bounded receipt from a fresh requery: timestamp, root node ID, exact direct
 membership, exact native dependency edges, and the full observed label set for
 the root and tickets. Receipt schema v2 also records the approved planning
-commit plus parsed logical-ID/approval evidence and a body SHA-256 for every
-issue. `label_projection.required_ticket_labels` defines static routing
-labels; `forbidden_labels` defines labels that must be absent. The validator
-compares deterministic projected labels with full observed labels, rejects
-routing-family drift and forbidden dispatch states, and requires every GitHub
-mapping; it cannot prove the remote query was honestly performed.
+commit, the complete result set of each logical-marker query, and parsed body
+evidence for every issue: marker count, schema, logical ID, plan version,
+approval SHA, approved-link count/link, and body SHA-256.
+
+The observed hash is never self-authorizing. A trusted pack adapter must load
+the root template, `build-order.json`, and every ticket document with
+`git show <approved-commit>:<path>`. It renders tickets as the exact authority
+preamble plus the approved source verbatim and renders the root by replacing
+`<APPROVED_SHA>` in its approved full-body template. The validator compares the
+entire observed evidence record with those independently rendered
+expectations. Missing approved commits, packs, paths, expectations, duplicate
+marker-query matches, or any marker/link/hash drift fail closed.
+
+`label_projection.required_ticket_labels` defines static routing labels;
+`forbidden_labels` defines labels that must be absent. The validator compares
+deterministic projected labels with full observed labels, rejects drift in the
+`agent:`, `human:`, `model:`, `phase:`, `complexity:`, and `build-lane:`
+families plus forbidden dispatch states, and requires every GitHub mapping. It
+cannot prove the remote query was honestly performed.
 
 ## Ticket document template
 
@@ -194,7 +208,8 @@ The graph validator fails when:
 9. Captured design artifacts do not match their recorded hashes, decisions or
    design evidence are orphaned, or ticket references do not resolve.
 10. Materialized mappings are partial or their reconciliation receipt drifts
-    from membership, dependencies, projected/observed labels, or approved body
+    from membership, dependencies, projected/observed labels, exact
+    logical-marker query matches, or independently rendered approved body
     evidence.
 
 The command validates the canonical graph and referenced ticket/design files;

@@ -12,7 +12,10 @@ from validation_common import (
     strict_object,
     valid_rfc3339_utc,
 )
-from validation_github_evidence import validate_body_evidence
+from validation_github_evidence import (
+    validate_body_evidence,
+    validate_marker_query_matches,
+)
 
 
 RECONCILIATION_KEYS = {
@@ -25,6 +28,7 @@ RECONCILIATION_KEYS = {
     "projected_labels",
     "observed_labels",
     "observed_body_evidence",
+    "marker_query_matches",
 }
 DEPENDENCY_KEYS = {"ticket_id", "depends_on"}
 
@@ -35,6 +39,7 @@ def validate_reconciliation(
     root: dict[str, Any] | None,
     ticket_mappings: dict[str, dict[str, Any] | None],
     report: Report,
+    approved_body_expectations: dict[str, dict[str, Any]] | None = None,
 ) -> None:
     value = data.get("github_reconciliation")
     any_mapping = root is not None or any(item is not None for item in ticket_mappings.values())
@@ -76,7 +81,14 @@ def validate_reconciliation(
     identities = {str(data.get("build_order_id")), *by_id}
     validate_body_evidence(
         receipt.get("observed_body_evidence"), identities,
-        receipt.get("approved_planning_commit"), report,
+        receipt.get("approved_planning_commit"), data.get("plan_version"),
+        approved_body_expectations, report,
+    )
+    root_id = str(data.get("build_order_id"))
+    validate_marker_query_matches(
+        receipt.get("marker_query_matches"),
+        {root_id: root, **ticket_mappings},
+        report,
     )
     _validate_label_sets(data, by_id, receipt.get("projected_labels"), "projected", report)
     _validate_label_sets(data, by_id, receipt.get("observed_labels"), "observed", report)
@@ -157,7 +169,10 @@ def _validate_label_sets(
                 f"github_reconciliation forbidden labels present for {identity}: "
                 + ", ".join(forbidden_hits)
             )
-        routing_prefixes = ("agent:", "model:", "phase:", "complexity:", "build-lane:")
+        routing_prefixes = (
+            "agent:", "human:", "model:", "phase:", "complexity:",
+            "build-lane:",
+        )
         unexpected = {
             label for label in actual
             if label.startswith(routing_prefixes) and label not in expected_labels

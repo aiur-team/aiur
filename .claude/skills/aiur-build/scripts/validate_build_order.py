@@ -3,12 +3,14 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
 from typing import Any
 
 from validation_common import Report
+from validation_github_approved import render_approved_build_order, repository_relative
 from validation_github import validate_all_github
 from validation_graph import (
     dependency_closure,
@@ -35,7 +37,10 @@ from validation_records import validate_decisions, validate_design_evidence, val
 from validation_tickets import validate_tickets
 
 
-def validate_data(value: object, base_dir: Path) -> Report:
+def validate_data(
+    value: object, base_dir: Path,
+    approved_body_expectations: dict[str, dict[str, Any]] | None = None,
+) -> Report:
     report = Report()
     if not isinstance(value, dict):
         report.error("top level must be a JSON object")
@@ -60,7 +65,7 @@ def validate_data(value: object, base_dir: Path) -> Report:
     validate_label_coverage(projection, workstreams, by_id, report)
     validate_surface_conflicts(by_id, closure, report)
     validate_epic_acceptance(data, by_id, closure, critical_path, report)
-    validate_all_github(data, by_id, report)
+    validate_all_github(data, by_id, report, approved_body_expectations)
     return report
 
 
@@ -73,13 +78,48 @@ def load(path: Path, report: Report) -> object | None:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 2:
-        print("usage: validate_build_order.py path/to/build-order.json", file=sys.stderr)
-        return 64
-    path = Path(argv[1])
+    parser = argparse.ArgumentParser(
+        prog="validate_build_order.py",
+        description="Validate an aiur-build canonical planning baseline.",
+    )
+    parser.add_argument("path", type=Path)
+    parser.add_argument(
+        "--repository-root", type=Path,
+        help="Git repository containing the immutable approved planning commit",
+    )
+    parser.add_argument(
+        "--root-document",
+        help="repository-relative full-body root issue template at approval",
+    )
+    try:
+        args = parser.parse_args(argv[1:])
+    except SystemExit as exc:
+        return int(exc.code)
+    if (args.repository_root is None) != (args.root_document is None):
+        print(
+            "ERROR: --repository-root and --root-document must be supplied together"
+        )
+        print("validation: 1 error(s), 0 warning(s)")
+        return 1
+    path = args.path
     load_report = Report()
     value = load(path, load_report)
-    report = load_report if value is None else validate_data(value, path.parent)
+    expectations = None
+    if isinstance(value, dict) and args.repository_root is not None:
+        build_path = repository_relative(path, args.repository_root, load_report)
+        receipt = value.get("github_reconciliation")
+        approved = receipt.get("approved_planning_commit") if isinstance(receipt, dict) else None
+        if build_path is not None:
+            expectations = render_approved_build_order(
+                args.repository_root, approved, build_path, args.root_document,
+                value, load_report,
+            )
+    if value is None:
+        report = load_report
+    else:
+        report = validate_data(value, path.parent, expectations)
+        report.errors[:0] = load_report.errors
+        report.warnings[:0] = load_report.warnings
     for message in report.errors:
         print(f"ERROR: {message}")
     for message in report.warnings:

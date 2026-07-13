@@ -46,7 +46,8 @@ def validate_github_mapping(
 
 
 def validate_all_github(
-    data: dict[str, Any], by_id: dict[str, dict[str, Any]], report: Report
+    data: dict[str, Any], by_id: dict[str, dict[str, Any]], report: Report,
+    approved_body_expectations: dict[str, dict[str, Any]] | None = None,
 ) -> None:
     repository = data.get("repository") if isinstance(data.get("repository"), str) else None
     root = validate_github_mapping(
@@ -83,4 +84,7 @@ def validate_all_github(
             report.error(f"{label}.github duplicates node_id used by {node_ids[node_id]}")
         elif nonempty_string(node_id):
             node_ids[node_id] = label
-    validate_reconciliation(data, by_id, root, ticket_mappings, report)
+    validate_reconciliation(
+        data, by_id, root, ticket_mappings, report,
+        approved_body_expectations,
+    )
