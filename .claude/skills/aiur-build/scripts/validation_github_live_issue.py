@@ -134,4 +134,3 @@ def _labels(value: object, logical_id: str, report: Report) -> list[str]:
     if len(labels) != len(set(labels)):
         report.error(f"live GitHub issue {logical_id} has duplicate labels")
     return sorted(labels)
-

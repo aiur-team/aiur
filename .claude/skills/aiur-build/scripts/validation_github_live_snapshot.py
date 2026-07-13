@@ -155,4 +155,3 @@ def _snapshot(
         parents=tuple(sorted(parents.items())),
         dependency_edges=tuple(sorted(edges)),
     )
-

@@ -112,4 +112,3 @@ def _validate_path(
     validated.errors[:0] = report.errors
     validated.warnings[:0] = report.warnings
     return value, validated
-

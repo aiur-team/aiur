@@ -72,4 +72,3 @@ def _compare_receipt(
         blocked == root_id for blocked, _ in snapshot.dependency_edges
     ):
         report.error("live GitHub root must not have native blockers")
-

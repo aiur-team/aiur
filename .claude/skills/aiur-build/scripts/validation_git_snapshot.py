@@ -11,6 +11,7 @@ from validation_common import (
     git_no_replace_env,
     repository_relative_path,
 )
+from validation_git_tree import bounded_tree_records
 
 
 REGULAR_MODES = {b"100644", b"100755"}
@@ -75,16 +76,17 @@ def _entries(
     prefix = _safe_pack_path(pack_path, report)
     if prefix is None:
         return None
-    result = _git(root, "ls-tree", "-r", "-z", commit, "--", prefix)
-    if result.returncode:
-        report.error("receipt commit or planning pack cannot be read")
+    records = bounded_tree_records(
+        root, commit, prefix, MAX_PACK_FILES,
+        GIT_SNAPSHOT_TIMEOUT_SECONDS, report,
+    )
+    if records is None:
         return None
     entries: list[tuple[str, bool]] = []
     seen: set[str] = set()
-    for raw in (item for item in result.stdout.split(b"\0") if item):
-        if len(entries) >= MAX_PACK_FILES:
-            report.error("receipt planning pack exceeds file-count bound")
-            break
+    for raw in records:
+        if not raw:
+            continue
         parsed = _entry(raw, prefix, seen, report)
         if parsed is not None:
             entries.append(parsed)

@@ -109,4 +109,3 @@ def _validate_label_sets(
                 f"github_reconciliation unexpected {field} labels for {identity}: "
                 + ", ".join(unexpected)
             )
-

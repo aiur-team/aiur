@@ -67,4 +67,3 @@ def _parent(
             f"{identity[0]}#{identity[1]}"
         )
     return logical_id
-

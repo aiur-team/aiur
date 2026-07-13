@@ -83,4 +83,3 @@ def _load_github_branch_target(
         report.error("trusted_repository_ref changed while its GitHub target was verified")
         return None
     return target
-

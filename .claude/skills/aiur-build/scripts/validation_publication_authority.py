@@ -31,6 +31,7 @@ MANIFEST_KEYS = {
 ISSUE_URL = re.compile(
     r"^https://github\.com/[^/\s]+/[^/\s]+/issues/[1-9][0-9]*$", re.ASCII,
 )
+GIT_AUTHORITY_TIMEOUT_SECONDS = 30
 
 
 @dataclass(frozen=True)
@@ -159,7 +160,13 @@ def _regular_blob(raw: bytes, path: str) -> bool:
 def _git(
     root: Path, *arguments: str, binary: bool = False,
 ) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        ["git", "-C", str(root), *arguments], check=False,
-        capture_output=True, text=not binary, env=git_no_replace_env(),
-    )
+    command = ["git", "-C", str(root), *arguments]
+    try:
+        return subprocess.run(
+            command, check=False, capture_output=True, text=not binary,
+            env=git_no_replace_env(), timeout=GIT_AUTHORITY_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        empty = b"" if binary else ""
+        error = str(exc).encode() if binary else str(exc)
+        return subprocess.CompletedProcess(command, 124, empty, error)

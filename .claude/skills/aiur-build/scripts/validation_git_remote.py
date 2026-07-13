@@ -128,4 +128,3 @@ def _git_failure(
 ) -> None:
     detail = result.stderr.strip() or f"exit {result.returncode}"
     report.error(f"{message}: {detail}")
-

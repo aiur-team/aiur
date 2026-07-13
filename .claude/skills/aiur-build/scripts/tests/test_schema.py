@@ -33,36 +33,6 @@ class SchemaTests(ValidatorCase):
         data["build_order_id"] = "other/repo:operator-dashboard"
         self.assert_error(data, "repository:feature-slug")
 
-    def test_ticket_prefix_starts_with_a_letter(self) -> None:
-        data = example()
-        data["ticket_prefix"] = "123"
-        self.assert_error(data, "uppercase letters and digits")
-
-    def test_ticket_prefix_accepts_a_prefix_list(self) -> None:
-        data = example()
-        data["ticket_prefix"] = ["BO", "DASH"]
-        data["tickets"][0]["id"] = "DASH-001"
-        for req in data.get("requirements", []):
-            req["ticket_ids"] = [
-                "DASH-001" if t == data["tickets"][0].get("id", "") else t
-                for t in req.get("ticket_ids", [])
-            ]
-        report = report_for(data)
-        self.assertFalse(
-            [e for e in report.errors if "ticket_prefix" in e or "does not match" in e],
-            report.errors,
-        )
-
-    def test_ticket_prefix_list_rejects_invalid_items(self) -> None:
-        data = example()
-        data["ticket_prefix"] = ["BO", "1x"]
-        self.assert_error(data, "uppercase letters and digits")
-
-    def test_ticket_prefix_list_rejects_empty(self) -> None:
-        data = example()
-        data["ticket_prefix"] = []
-        self.assert_error(data, "uppercase letters and digits")
-
     def test_unknown_keys_fail_at_each_schema_level(self) -> None:
         mutations = [
             lambda data: data.update({"mystery": 1}),

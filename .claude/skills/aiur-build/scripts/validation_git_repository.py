@@ -118,4 +118,3 @@ def _git(
         env=git_environment or git_no_replace_env(),
         **kwargs,
     )
-

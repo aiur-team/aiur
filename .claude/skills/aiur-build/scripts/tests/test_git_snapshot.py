@@ -17,6 +17,7 @@ from validation_git_snapshot import (
     _entries,
     materialize_receipt_pack,
 )
+from validation_git_tree import MAX_TREE_ENTRY_BYTES, bounded_tree_records
 
 
 class ReceiptSnapshotBoundsTests(unittest.TestCase):
@@ -25,22 +26,25 @@ class ReceiptSnapshotBoundsTests(unittest.TestCase):
             f"100644 blob {'a' * 40}\tpack/tickets/BO-{index:03}.md".encode()
             for index in range(1, 55)
         ) + b"\0"
-        result = subprocess.CompletedProcess(["git"], 0, raw, b"")
         report = Report()
-        with patch("validation_git_snapshot._git", return_value=result):
+        with patch("validation_git_snapshot.bounded_tree_records", return_value=raw.split(b"\0")[:-1]):
             entries = _entries(Path("."), "a" * 40, "pack", report)
         self.assertEqual(54, len(entries or []))
         self.assertEqual([], report.errors)
 
     def test_tree_entry_count_is_bounded(self) -> None:
-        raw = b"\0".join(
-            f"100644 blob {'a' * 40}\tpack/{index}.md".encode()
-            for index in range(MAX_PACK_FILES + 1)
-        ) + b"\0"
-        result = subprocess.CompletedProcess(["git"], 0, raw, b"")
+        raw = b"100644 blob " + b"a" * 40 + b"\tpack/file.md\0"
+
+        def chunks():
+            yield raw * MAX_PACK_FILES
+            yield raw
+            raise AssertionError("unbounded tree tail was consumed")
+
         report = Report()
-        with patch("validation_git_snapshot._git", return_value=result):
-            entries = _entries(Path("."), "a" * 40, "pack", report)
+        with patch("validation_git_tree._tree_chunks", return_value=chunks()):
+            entries = bounded_tree_records(
+                Path("."), "a" * 40, "pack", MAX_PACK_FILES, 30, report,
+            )
         self.assertEqual(MAX_PACK_FILES, len(entries or []))
         self.assertIn("file-count bound", "\n".join(report.errors))
 
@@ -64,6 +68,19 @@ class ReceiptSnapshotBoundsTests(unittest.TestCase):
             joined = "\n".join(report.errors)
             self.assertIn("file exceeds byte bound", joined)
             write_blob.assert_not_called()
+
+    def test_oversized_tree_record_is_rejected_before_parsing(self) -> None:
+        report = Report()
+        oversized = b"a" * (MAX_TREE_ENTRY_BYTES + 1) + b"\0"
+        with patch(
+            "validation_git_tree._tree_chunks",
+            return_value=iter((oversized,)),
+        ):
+            records = bounded_tree_records(
+                Path("."), "a" * 40, "pack", MAX_PACK_FILES, 30, report,
+            )
+        self.assertIsNone(records)
+        self.assertIn("oversized tree entry", "\n".join(report.errors))
 
     def test_aggregate_blob_bytes_are_bounded(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
