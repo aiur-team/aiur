@@ -95,6 +95,7 @@ defmodule Aiur.AiurDebugSkillTest do
 
   test "provides ten read-only-first recipes with evidence gates and safe recovery" do
     recipes = read("diagnostic-recipes.md")
+    normalized_recipes = String.replace(recipes, ~r/\s+/, " ")
 
     for number <- 1..10 do
       assert recipes =~ ~r/^## #{number}\. /m, "missing recipe #{number}"
@@ -120,9 +121,9 @@ defmodule Aiur.AiurDebugSkillTest do
     assert recipes =~ "An issue-agent sandbox can see only its own namespace"
     assert recipes =~ "operator context or another host-level capability"
     assert recipes =~ "Observation scope (`issue sandbox` or `host/operator`)"
-    assert recipes =~ "Read the current run's debug-only `log/telemetry.ndjson` before live process"
-    assert recipes =~ "Only when telemetry is absent, unavailable, or too coarse, inspect live"
-    assert recipes =~ "remote or unavailable roots are not measured as zero"
+    assert normalized_recipes =~ "Read the current run's debug-only `log/telemetry.ndjson` before live process"
+    assert normalized_recipes =~ "Only when telemetry is absent, unavailable, or too coarse, inspect live"
+    assert normalized_recipes =~ "remote or unavailable roots are not measured as zero"
   end
 
   test "includes all worked examples plus reporting and sanitization" do
