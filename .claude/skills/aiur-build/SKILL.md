@@ -79,7 +79,7 @@ Follow the detailed reference. At a glance:
 5. adversarial verification of load-bearing claims;
 6. `ce-plan` synthesis of implementation units and candidate boundaries;
 7. worker-sized ticket contracts and typed scheduling graph;
-8. mechanical validation plus CE document review;
+8. mechanical validation plus adversarial document review;
 9. optional GitHub materialization and post-publish reconciliation;
 10. durable runtime Executor handoff and stop.
 
@@ -136,28 +136,100 @@ python3 <loaded-skill-directory>/scripts/validate_build_order.py \
   docs/build-orders/<slug>/build-order.json
 ```
 
-Validation must cover unique IDs, resolved references, acyclic hard edges,
-phase contradictions, requirement dispositions, pickability metadata,
-parallel write/contract conflicts, and capstone ownership. Fix errors; explain
-and disposition warnings. Generate human tables and diagrams from the same
-records rather than maintaining competing counts by hand.
+After GitHub materialization, supply the repository and approved root-body
+template so the validator can derive body expectations with `git show` rather
+than trusting hashes copied into the receipt:
 
-Run `ce-doc-review` on requirements, technical decisions, the plan, ticket
-contracts, and handoff using relevant lenses. Planning is complete only after
-two successive relevant review passes add no high-severity or boundary-changing
-finding and all required quality gates pass.
+```bash
+python3 <loaded-skill-directory>/scripts/validate_build_order.py \
+  docs/build-orders/<slug>/build-order.json \
+  --repository-root . \
+  --root-document docs/build-orders/<slug>/root-issue.md
+```
+
+For a live start gate, also pass the exact receipt commit and the explicitly
+trusted repository branch recorded by the publication manifest:
+
+```bash
+python3 <loaded-skill-directory>/scripts/validate_build_order.py \
+  docs/build-orders/<slug>/build-order.json \
+  --repository-root . \
+  --root-document docs/build-orders/<slug>/root-issue.md \
+  --receipt-commit <RECEIPT_SHA>
+```
+
+The validator loads `trusted_repository_ref` from `publication.json` at both
+approval and receipt commits; it does not accept caller-supplied ref authority.
+Receipt-commit mode also requires an authenticated `gh` CLI. It performs two
+fresh read-only GitHub snapshots and requires exact agreement across every
+mapped issue, all-state marker matches, root membership, and native blockers
+before accepting the immutable v3 receipt. Every authority API request pins
+`--hostname github.com`, API version `2026-03-10`, an explicit read method, and
+a finite timeout. Collection uses explicit GETs capped at 100 pages and 10,000
+items per endpoint; it never delegates an unbounded `--paginate --slurp` read.
+
+Materialized validation also freezes the current planning documents: every
+ticket document must remain byte-for-byte equal to its approved source, and the
+current root document may differ from its approved full template only through
+deterministic `<APPROVED_SHA>` substitution. Missing, unreadable, unsafe,
+symlinked, or drifted current sources fail closed; remote body expectations
+still come only from `git show` at the approved commit.
+
+Graph validation covers unique IDs, design/decision references, worker-document
+shape, resolved edges, phase contradictions, dispositions, pickability,
+parallel-safety conflicts, capstone ownership, and any GitHub reconciliation
+receipt. Fix errors; explain and disposition warnings. The separate review
+report records whole-pack gates the command cannot prove. Generate human tables
+and diagrams from the same records rather than maintaining competing counts.
+
+Run `ce-doc-review`, or an equivalent adversarial review when CE is unavailable,
+on requirements, decisions, the plan, ticket contracts, and handoff. Run at
+least one pass; repeat after any high-severity or boundary-changing finding.
+Planning is complete when a relevant pass adds neither and all gates pass.
 
 ## Optional GitHub materialization
 
 Only when explicitly authorized:
 
-1. requery GitHub and deduplicate existing work;
+1. requery GitHub, deduplicate existing work, and freeze every reference-only
+   issue that the user did not authorize for mutation or reuse; treat a closed
+   logical-marker match as a conflict and never reopen it without separate
+   authority;
 2. create/update the Build Order root and implementation issues;
 3. map stable logical IDs to returned repo-qualified issue identities;
 4. publish native membership and dependency relationships;
-5. requery and validate the published graph rather than trusting mutation
-   responses;
-6. make GitHub canonical for the materialized ticket facts.
+5. generate each ticket body as the exact authority preamble plus its approved
+   ticket document verbatim, and generate the root from its approved full-body
+   template by replacing `<APPROVED_SHA>`; disable Git replace refs and reject
+   any legacy `info/grafts` entry in either the worktree Git directory or its
+   shared common directory for every approval and receipt read;
+6. preserve that same post-approval document freeze in the current pack;
+7. requery and validate the published graph, full labels, OPEN issue states,
+   and bodies rather than trusting mutation responses: every body has exactly
+   one schema-2 logical-ID/version/approval marker, exactly one approved-commit
+   link, and a SHA-256 equal to the independently rendered approved body;
+   record the full marker-query result set and require exactly one returned
+   issue mapping per logical ID;
+8. record the bounded reconciliation receipt defined by the planning contract;
+9. make GitHub canonical for the materialized ticket facts;
+10. immediately before publishing a successful live start gate, run
+    receipt-commit validation against the all-OPEN v3 publication snapshot.
+    Derive repository, root, plan version, approval, and root URL from the exact
+    receipt commit; require that commit to contain the complete materialized
+    pack and pass the trusted reconciliation validator before accepting the
+    same-repository commit URL.
+    Anchor the repository outside both receipt and caller data to the configured
+    GitHub origin. Query the exact target of the explicitly trusted
+    `refs/heads/...` repository branch and prove receipt and approval commits
+    are ancestors. Separately prove strict approval-to-receipt order in a fresh
+    graft-free clone of that GitHub branch and through GitHub's compare API;
+    object/API visibility alone is insufficient. Requery the ref after proof
+    and require the same tip. Any graft entry, including a nonregular or
+    uninspectable one, fails closed.
+
+The all-OPEN check is a publication-finalization snapshot, not a perpetual
+invariant. After authorized execution begins, current GitHub lifecycle is live
+truth; do not rerun publication validation to undo legitimate state changes.
 
 Do not assume issue-number adjacency. Keep prose dependency tables as generated
 human views, not a second source of truth.

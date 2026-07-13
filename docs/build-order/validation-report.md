@@ -1,5 +1,9 @@
 # Build Order Planning Validation
 
+> Addendum 2026-07-13: after re-vendoring the skill at `f92aa045`,
+> `validate_build_order.py docs/build-order/build-order.json` reports
+> 0 errors and 0 warnings, and the vendored validator suite passes 115/115.
+
 ## Candidate status
 
 The canonical Build Order, standalone dashboard companions, and publication

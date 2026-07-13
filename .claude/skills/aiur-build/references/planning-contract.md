@@ -26,6 +26,8 @@ docs/build-orders/<slug>/
   deferred-findings.md
   evidence/
   build-order.json
+  publication.json            # when GitHub materialization is authorized
+  root-issue.md              # when GitHub materialization is authorized
   tickets/<ID>-<slug>.md
   validation-report.md
   EXECUTOR-HANDOFF.md
@@ -33,6 +35,9 @@ docs/build-orders/<slug>/
 
 `README.md` is a generated/read-first index and authority map. It must not claim
 that copied status is live.
+
+`publication.json` pins the singular `trusted_repository_ref` as a full
+`refs/heads/...` branch before approval. The receipt must preserve that value.
 
 ## Canonical baseline record
 
@@ -50,6 +55,7 @@ Top-level records are strict:
 - finite feature boundary with acceptance, critical path, documentation,
   cleanup, end-to-end proof, and terminal condition;
 - owned external gates;
+- captured design evidence and explicit accepted/rejected decisions;
 - requirements with exactly one disposition;
 - complete ticket contracts; and
 - capstone-owned epic acceptance evidence.
@@ -60,10 +66,10 @@ requirement references, typed edges, external gates, read/write/contract/safety
 surfaces, structured conflict exceptions, agent/at-merge/human acceptance, and
 optional returned GitHub identity.
 
-Allowed requirement dispositions are `ticket`, `covered`, `deferred`,
-`rejected`, and `satisfied`. `ticket` and `covered` require at least one ticket
-ID. Their `reason` is `null`; other dispositions require a non-empty reason and
-no ticket IDs. Requirement-to-ticket traceability must agree in both directions.
+Allowed requirement dispositions are `ticket`, `deferred`, `rejected`, and
+`satisfied`. `ticket` means one or more tickets own the requirement and requires
+their IDs plus a null reason. Other dispositions require a non-empty reason and
+no ticket IDs. Requirement-to-ticket traceability agrees in both directions.
 
 Allowed ticket kinds are `executable`, `audit`, `gate`, `umbrella`, and
 `capstone`. Every runnable kind needs complexity and acceptance metadata in its
@@ -80,6 +86,83 @@ expected number:
   "url": "https://github.com/owner/repo/issues/1234"
 }
 ```
+
+Keep `github_reconciliation` null before publication. After publication it is a
+bounded receipt from a fresh requery: timestamp, root node ID, exact direct
+membership, exact native dependency edges, and the full observed label set for
+the root and tickets. Receipt schema v3 also records exact `OPEN` observed
+issue states, the approved planning commit, the complete result set of each
+logical-marker query, and parsed body
+evidence for every issue: marker count, schema, logical ID, plan version,
+approval SHA, approved-link count/link, and body SHA-256. It also records exact
+expected and observed issue-title maps for the root and every ticket. Closed
+marker matches stop publication and are never reopened without separate
+authority.
+
+Existing issues explicitly retained as reference-only are a denylist for
+returned root/ticket mappings unless the user separately expands mutation
+authority. If a live reconciliation comment becomes an execution start gate,
+derive repository, root identity and URL, plan version, and approval from the
+exact receipt commit. Its URL must be that repository's exact commit URL, the
+commit must contain the complete materialized pack, and the pack must pass the
+trusted reconciliation validator before the comment is authoritative. Never
+let caller-supplied values or the mere existence of a local commit authorize
+the start gate. Anchor the repository to the trusted configured GitHub origin
+outside both receipt and caller data. Pin one `trusted_repository_ref` in the
+publication manifest as an exact `refs/heads/...` branch. At gate time, query
+that branch's exact target from GitHub and prove the receipt and approval
+commits are ancestors. Prove strict approval-to-receipt ordering separately in
+a fresh graft-free clone of that branch and through GitHub's compare API.
+Base-repository API visibility of a fork-only PR commit, or foreign history
+imported into the local object database, is not authority. Requery the ref after
+proof and require the same target; movement or deletion fails closed. Reject
+any legacy `info/grafts` entry in the worktree Git directory or shared common
+directory; a nonregular or uninspectable entry also fails closed.
+
+Immediately before publishing the successful start gate, run receipt-commit
+validation with authenticated `gh`. The validator performs two fresh bounded
+read-only snapshots and requires them to agree exactly on every mapped issue's
+identity, title, body evidence, full labels, `OPEN` state, all-state marker
+uniqueness, unlocked state, direct root membership, and native blockers. It
+then compares that stable snapshot with the immutable receipt and re-proves
+branch authority.
+Queries pin `github.com` and fail on malformed data or the bounded ceiling of
+100 pages/10,000 items per endpoint. They use explicit per-page GETs, API
+version `2026-03-10`, and finite timeouts rather than an unbounded
+`--paginate --slurp` retrieval.
+
+The observed hash is never self-authorizing. A trusted pack adapter must load
+the root template, `build-order.json`, and every ticket document with
+`git show <approved-commit>:<path>` while disabling Git replace refs and
+rejecting legacy graft entries. It renders tickets as the exact authority
+preamble plus the approved source verbatim and renders the root by replacing
+`<APPROVED_SHA>` in its approved full-body template. The validator compares the
+entire observed evidence record with those independently rendered
+expectations. Missing approved commits, packs, paths, expectations, duplicate
+marker-query matches, or any marker/link/hash drift fail closed.
+
+Approval also freezes the current document sources used during materialization.
+Every current ticket document must remain byte-for-byte equal to its approved
+source. The current root document must equal the approved full template after
+the single deterministic `<APPROVED_SHA>` substitution. Missing, unreadable,
+out-of-repository, symlinked, or drifted current sources fail before receipt
+evidence can authorize publication; `git show` remains the rendering authority.
+
+`label_projection.required_ticket_labels` defines static routing labels;
+`forbidden_labels` defines labels that must be absent. The validator compares
+deterministic projected labels with full observed labels, rejects drift in the
+`agent:`, `human:`, `model:`, `phase:`, `complexity:`, and `build-lane:`
+families plus forbidden dispatch states, and requires every GitHub mapping. It
+also rejects the root-only `build-order` label on every member. Receipt v3
+requires complete expected and observed issue-title maps; both must equal titles
+rendered from approved root/ticket document H1s, and every observed state must
+equal `OPEN`. The double live query, rather than receipt-authored observations,
+authorizes finalization.
+
+This all-OPEN proof is a publication-finalization snapshot. It runs before any
+execution-state mutation and is not a perpetual invariant after authorized work
+begins; later lifecycle changes use current GitHub truth and explicit gate
+evidence.
 
 ## Ticket document template
 
@@ -164,7 +247,7 @@ What adjacent tickets own and any question that blocks pickup.
 
 ## Validation invariants
 
-The pack fails validation when:
+The graph validator fails when:
 
 1. Build Order/version/repository/SHA or stable IDs are absent or duplicated.
 2. Edge or requirement endpoints do not resolve, a self-edge exists, or the
@@ -179,13 +262,18 @@ The pack fails validation when:
    requirement traceability.
 7. An umbrella is counted as runnable work or hides an internal phase program.
 8. No capstone owns feature-level acceptance evidence.
-9. Design hash/import metadata, researched SHA, or required approval commit is
-   absent from the research/validation report.
-10. Generated ticket counts, tables, diagrams, and the canonical record differ.
-11. GitHub mappings or relationships do not requery successfully after
-    materialization.
-12. Planning prose claims live agent/progress state or contradicts the declared
-    source precedence.
+9. Captured design artifacts do not match their recorded hashes, decisions or
+   design evidence are orphaned, or ticket references do not resolve.
+10. Materialized mappings are partial or their reconciliation receipt drifts
+    from membership, dependencies, projected/observed labels, exact
+    logical-marker query matches, or independently rendered approved body
+    evidence, or current ticket/root documents violate the post-approval
+    document freeze.
+
+The command validates the canonical graph and referenced ticket/design files;
+it is not a whole-pack verifier. The committed validation report must separately
+record the approved planning commit, artifact hashes, generated-view/count
+agreement, fresh GitHub requery evidence, and a prose/source-precedence review.
 
 ## Source-state rules
 

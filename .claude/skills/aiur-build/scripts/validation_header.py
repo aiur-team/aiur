@@ -23,13 +23,17 @@ TOP_KEYS = {
     "schema_version", "build_order_id", "ticket_prefix", "plan_version",
     "repository", "researched_at_commit", "workstreams", "github_root",
     "label_projection", "feature_boundary", "external_gates", "requirements",
-    "tickets", "epic_acceptance",
+    "design_evidence", "decisions", "tickets", "epic_acceptance",
+    "github_reconciliation",
 }
 BOUNDARY_KEYS = {
     "acceptance_criteria", "critical_path_ticket_ids", "required_documentation",
     "required_cleanup", "end_to_end_proof", "completion_condition",
 }
-LABEL_KEYS = {"build_order", "workstreams", "phases", "complexities"}
+LABEL_KEYS = {
+    "build_order", "workstreams", "phases", "complexities",
+    "required_ticket_labels", "forbidden_labels",
+}
 
 
 def validate_identity(data: dict[str, Any], report: Report) -> None:
@@ -119,6 +123,21 @@ def validate_label_projection(data: dict[str, Any], report: Report) -> dict[str,
         labels = [value for value in mapping.values() if nonempty_string(value)]
         if len(labels) != len(set(labels)):
             report.error(f"label_projection.{key} contains duplicate labels")
+    required = checked_string_list(
+        projection.get("required_ticket_labels"),
+        "label_projection.required_ticket_labels",
+        report,
+    )
+    forbidden = checked_string_list(
+        projection.get("forbidden_labels"),
+        "label_projection.forbidden_labels",
+        report,
+    )
+    overlap = sorted(set(required) & set(forbidden))
+    if overlap:
+        report.error(
+            "label_projection requires and forbids the same labels: " + ", ".join(overlap)
+        )
     return projection
 
 
@@ -174,11 +193,11 @@ def validate_requirements(data: dict[str, Any], report: Report) -> dict[str, dic
             report.error(f"{req_id}: invalid disposition {disposition!r}")
         ticket_ids = checked_string_list(requirement.get("ticket_ids"), f"{req_id}.ticket_ids", report)
         reason = requirement.get("reason")
-        if isinstance(disposition, str) and disposition in {"ticket", "covered"}:
+        if disposition == "ticket":
             if not ticket_ids:
-                report.error(f"{req_id}: {disposition} disposition requires ticket_ids")
+                report.error(f"{req_id}: ticket disposition requires ticket_ids")
             if reason is not None:
-                report.error(f"{req_id}: {disposition} disposition requires null reason")
+                report.error(f"{req_id}: ticket disposition requires null reason")
         elif isinstance(disposition, str) and disposition in {"deferred", "rejected", "satisfied"}:
             if ticket_ids:
                 report.error(f"{req_id}: {disposition} disposition cannot have ticket_ids")

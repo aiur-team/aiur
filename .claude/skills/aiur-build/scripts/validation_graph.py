@@ -30,7 +30,7 @@ def validate_references(
             if isinstance(gate_id, str) and gate_id not in gates:
                 report.error(f"{ticket_id}: references unknown external gate {gate_id}")
         source = ticket.get("discovered_from")
-        if isinstance(source, str) and TICKET_ID.fullmatch(source):
+        if ticket.get("provenance") == "discovered" and isinstance(source, str):
             if source == ticket_id:
                 report.error(f"{ticket_id}: discovered_from cannot reference itself")
             elif source not in by_id:

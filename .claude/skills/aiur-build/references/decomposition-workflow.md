@@ -127,8 +127,9 @@ Every executable ticket needs:
 - agent gate, at-merge gate, and human/manual evidence owner where relevant;
 - sibling boundaries and unresolved question gates.
 
-Give every requirement/finding exactly one disposition: ticket, covered by,
-deferred with reason, rejected with reason, or already satisfied with evidence.
+Give every requirement/finding exactly one disposition: owned by one or more
+tickets, deferred with reason, rejected with reason, or already satisfied with
+evidence.
 
 Classify execution discoveries in advance: promote only P0/P1 acceptance
 blockers, return contained review findings to rework, and preserve P2/P3 plus
@@ -150,7 +151,7 @@ Edge types:
   merge concurrently because of resource/write/contract conflict;
 - `suggested_after`: advisory ordering only;
 - `contains`: umbrella/hierarchy relation;
-- `external_blocker`: non-ticket gate with an owner;
+- `external_gates`: non-ticket gates with owners;
 - `discovered_from`: provenance for execution-discovered work.
 
 Phase is a presentation/rollout hint. It may aid batching, but it does not make
@@ -181,19 +182,62 @@ and any accepted exceptions.
 
 This stage requires explicit permission.
 
-- Requery and deduplicate against open/closed work.
+- Requery and deduplicate against open/closed work. Stop on a closed canonical
+  marker match; never auto-reopen it.
 - Create or identify the Build Order root issue.
 - Create/update tickets from approved contracts.
 - Map logical IDs to returned node IDs and repo-qualified numbers.
 - Publish membership and native issue-dependency edges.
-- Requery every relationship and fail on drift.
-- Apply complexity, phase, and workflow labels without leaving contradictory
-  active-state labels on terminal issues.
+- Render every expected body from files loaded with
+  `git show <approved-commit>:<path>` with Git replace refs disabled and any
+  legacy `info/grafts` entry rejected in both the worktree Git directory and
+  shared common directory; fail closed if the approved pack, root template, or
+  a ticket document is absent.
+- Freeze the current sources after approval: ticket documents remain
+  byte-for-byte equal to their approved versions, and the root document permits
+  only deterministic `<APPROVED_SHA>` substitution. Reject missing, unreadable,
+  out-of-repository, symlinked, or drifted sources.
+- Requery every relationship and logical-marker search. Require exactly one
+  issue match per logical ID and compare each parsed marker/link/hash record to
+  the independently rendered expected body; fail on missing, wrong, duplicate,
+  or truncated evidence.
+- Record v3 observed state for the root and every member and require exact
+  `OPEN` at publication.
+- Reject any returned mapping that reuses an existing issue recorded as
+  reference-only or otherwise outside the user's mutation authority.
+- If publication exposes a live reconciliation/start-gate comment, derive its
+  repository, root, plan version, approval, and root URL from the exact receipt
+  commit. Require that commit to contain the complete materialized pack and
+  pass the trusted reconciliation validator; resolving an arbitrary local
+  commit or accepting caller-supplied authority is insufficient. Bind the
+  repository to a trusted configured GitHub origin outside the receipt. Record
+  one explicit `trusted_repository_ref` as a full `refs/heads/...` branch in the
+  publication manifest, query its exact target from GitHub at gate time, and
+  prove both receipt and approval commits are ancestors. Prove strict
+  approval-to-receipt order separately in a fresh graft-free clone of that
+  branch and through GitHub's compare API. A fork-only PR commit can be
+  API-visible through the base repository without being authoritative. Requery
+  the ref after proof and require the same target; movement or deletion fails
+  closed. Any present, nonregular, or uninspectable graft entry fails closed.
+- Immediately before the successful gate mutation, run receipt-commit mode
+  with authenticated `gh`; require two identical bounded live snapshots of all
+  mappings, titles, bodies, labels, states, markers, members, and blockers.
+  Pin every API GET to `github.com`, API version `2026-03-10`, and a finite
+  timeout; request no more than 100 explicit pages or 10,000 items per endpoint.
+- Apply projected and required routing labels, record full observed labels in
+  the receipt, and prove every forbidden dispatch/active-state label and every
+  unprojected `human:*` routing label is absent. Keep the `build-order` label on
+  the root only. Record expected and observed issue-title maps, and compare both
+  with titles rendered from approved document H1s.
 
 For GitHub, a root issue with native sub-issues is a practical v1 membership
 model. GitHub supports up to 100 direct sub-issues per parent; larger programs
 need nested workstream umbrellas or a different index. Preserve logical IDs so
 hierarchy changes do not rewrite planning identity.
+
+Treat the all-OPEN proof as publication finalization only. Once authorized
+execution begins, use current GitHub lifecycle and explicit gate evidence; do
+not treat the receipt snapshot as a reason to reverse legitimate state changes.
 
 ## Stage 9: Handoff and stop
 
@@ -221,8 +265,9 @@ Stop here. Execution requires a separate `aiur-run` authorization.
 ### 8–15 tickets
 
 Use one requirements doc, one current-target delta, one technical decision doc,
-one test/rollout plan, three-to-five research tracks, one adversarial pass, and
-one integration capstone.
+one test/rollout plan, three-to-five research tracks, at least one adversarial
+pass (repeat after a high-severity or boundary-changing finding), and one
+integration capstone.
 
 ### 15–40 tickets
 

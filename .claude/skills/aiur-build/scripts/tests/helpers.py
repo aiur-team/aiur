@@ -14,6 +14,7 @@ SCRIPT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPT_DIR))
 
 from validate_build_order import validate_data  # noqa: E402
+from validation_github_approved import ApprovedIssueExpectations  # noqa: E402
 
 
 REFERENCES = SCRIPT_DIR.parent / "references"
@@ -24,8 +25,11 @@ def example() -> dict[str, Any]:
     return json.loads(EXAMPLE.read_text(encoding="utf-8"))
 
 
-def report_for(data: object):
-    return validate_data(data, REFERENCES)
+def report_for(
+    data: object,
+    approved_expectations: ApprovedIssueExpectations | None = None,
+):
+    return validate_data(data, REFERENCES, approved_expectations)
 
 
 def umbrella(ticket_id: str, document: str, children: list[str]) -> dict[str, Any]:
@@ -57,6 +61,8 @@ def umbrella(ticket_id: str, document: str, children: list[str]) -> dict[str, An
         "contract_surfaces": [],
         "safety_surfaces": [],
         "conflict_exceptions": [],
+        "decision_refs": [],
+        "design_evidence_refs": [],
         "acceptance": {"agent_gate": [], "at_merge_gate": [], "human_or_e2e": []},
         "github": None,
     }
@@ -68,7 +74,7 @@ def executable(ticket_id: str = "BO-003") -> dict[str, Any]:
         {
             "id": ticket_id,
             "title": "Add a second graph projection",
-            "document": "example-tickets/BO-003-example-umbrella.md",
+            "document": "example-tickets/BO-003-example-executable.md",
             "outcome": "A second projection is available.",
             "depends_on": ["BO-001"],
             "safety_surfaces": [],

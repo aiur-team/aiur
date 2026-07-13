@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 
 TICKET_ID = re.compile(r"^[A-Z][A-Z0-9]*-[0-9]{3,}[A-Z]?$", re.ASCII)
 REQ_ID = re.compile(r"^[A-Z][A-Z0-9]*-[0-9]{3,}$", re.ASCII)
+DECISION_ID = re.compile(r"^DEC-[0-9]{3,}$", re.ASCII)
+DESIGN_ID = re.compile(r"^DESIGN-[0-9]{3,}$", re.ASCII)
 GATE_ID = re.compile(r"^GATE-[0-9]{3,}$", re.ASCII)
 SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$", re.ASCII)
 REPOSITORY = re.compile(r"^[^/\s]+/[^/\s]+$", re.ASCII)
@@ -16,9 +20,16 @@ SHA = re.compile(r"^[0-9a-fA-F]{40}$", re.ASCII)
 KINDS = {"executable", "audit", "gate", "umbrella", "capstone"}
 RUNNABLE_KINDS = {"executable", "audit", "gate", "capstone"}
 PROVENANCE = {"planned", "discovered"}
-DISPOSITIONS = {"ticket", "covered", "deferred", "rejected", "satisfied"}
+DISPOSITIONS = {"ticket", "deferred", "rejected", "satisfied"}
 EDGE_FIELDS = ("depends_on", "serializes_with", "suggested_after")
 SURFACE_FIELDS = ("write_surfaces", "contract_surfaces", "safety_surfaces")
+
+
+def git_no_replace_env() -> dict[str, str]:
+    """Return an environment that reads named Git objects without substitution."""
+    environment = os.environ.copy()
+    environment["GIT_NO_REPLACE_OBJECTS"] = "1"
+    return environment
 
 
 @dataclass
@@ -39,6 +50,20 @@ def nonempty_string(value: object) -> bool:
 
 def strict_int(value: object) -> bool:
     return type(value) is int
+
+
+def valid_rfc3339_utc(value: object) -> bool:
+    if not isinstance(value, str) or not re.fullmatch(
+        r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?Z",
+        value,
+        re.ASCII,
+    ):
+        return False
+    try:
+        datetime.fromisoformat(value.removesuffix("Z") + "+00:00")
+    except ValueError:
+        return False
+    return True
 
 
 def strict_object(

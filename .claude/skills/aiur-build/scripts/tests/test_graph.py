@@ -71,10 +71,13 @@ class EdgeTests(ValidatorCase):
     def test_discovered_ticket_requires_valid_provenance(self) -> None:
         data = example()
         data["tickets"][0].update(provenance="discovered", discovered_from=None)
-        self.assert_error(data, "requires discovered_from")
+        self.assert_error(data, "requires a ticket ID in discovered_from")
         data = example()
         data["tickets"][0].update(provenance="discovered", discovered_from="BO-999")
         self.assert_error(data, "discovered_from references unknown ticket")
+        data = example()
+        data["tickets"][0].update(provenance="discovered", discovered_from="incident text")
+        self.assert_error(data, "requires a ticket ID")
 
 
 class HierarchyTests(ValidatorCase):

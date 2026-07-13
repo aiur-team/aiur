@@ -10,6 +10,7 @@
     {"id": "integration", "title": "Integration"}
   ],
   "github_root": null,
+  "github_reconciliation": null,
   "label_projection": {
     "build_order": "build-order",
     "workstreams": {
@@ -17,7 +18,9 @@
       "integration": "build-lane:integration"
     },
     "phases": {"1": "phase:1", "2": "phase:2"},
-    "complexities": {"2": "complexity:2", "3": "complexity:3"}
+    "complexities": {"2": "complexity:2", "3": "complexity:3"},
+    "required_ticket_labels": ["model:codex"],
+    "forbidden_labels": ["agent:todo", "agent:in-progress", "agent:rework", "agent:merging"]
   },
   "feature_boundary": {
     "acceptance_criteria": [
@@ -36,6 +39,24 @@
       "title": "Approve graph interaction contract",
       "owner": "Product operator",
       "resolution_criteria": "Captured design evidence and behavior decisions are approved."
+    }
+  ],
+  "design_evidence": [
+    {
+      "id": "DESIGN-001",
+      "source": "https://example.com/design/operator-dashboard",
+      "captured_at": "2026-01-01T00:00:00Z",
+      "artifact": "example-design-evidence.md",
+      "sha256": "c7223b50e92b4a67dc6c05a15b7e5b949f669ff26bde5fca46081b5a093e5a39"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DEC-001",
+      "summary": "Preserve unknown and stale provider states",
+      "status": "accepted",
+      "rationale": "An unavailable provider must not look like an empty unblocked graph.",
+      "design_evidence_refs": ["DESIGN-001"]
     }
   ],
   "requirements": [
@@ -83,6 +104,8 @@
       "contract_surfaces": ["BuildOrderSnapshot"],
       "safety_surfaces": ["Dependency truth projection"],
       "conflict_exceptions": [],
+      "decision_refs": ["DEC-001"],
+      "design_evidence_refs": ["DESIGN-001"],
       "acceptance": {
         "agent_gate": ["Provider tests cover complete, stale, and failed snapshots"],
         "at_merge_gate": ["Current-base integration tests pass"],
@@ -118,6 +141,8 @@
       "contract_surfaces": ["Feature acceptance"],
       "safety_surfaces": [],
       "conflict_exceptions": [],
+      "decision_refs": [],
+      "design_evidence_refs": [],
       "acceptance": {
         "agent_gate": ["Acceptance harness passes in the issue workspace"],
         "at_merge_gate": ["Acceptance harness passes on current main"],
