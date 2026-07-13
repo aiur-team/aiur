@@ -22,7 +22,7 @@
 
 **Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
-**Suggested labels:** `complexity:4`, `model:codex`, `phase:2`, `build-lane:infrastructure`; never `agent:todo`
+**Suggested labels:** `complexity:4`, `model:codex`, `phase:2`, `build-lane:runtime`; never `agent:todo`
 
 ## Outcome
 

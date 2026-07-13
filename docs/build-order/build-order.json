@@ -1,26 +1,33 @@
 {
  "schema_version": 1,
  "build_order_id": "its-everdred/aiur:build-order-dashboard",
- "ticket_prefix": "BO",
+ "ticket_prefix": [
+  "BO",
+  "DASH"
+ ],
  "plan_version": 1,
  "repository": "its-everdred/aiur",
  "researched_at_commit": "9849f32963c2a65367bce565b3f5ede3777c218f",
  "workstreams": [
   {
-   "id": "backend",
-   "title": "Backend"
+   "id": "plan-graph",
+   "title": "Plan graph"
   },
   {
-   "id": "frontend",
-   "title": "Frontend"
+   "id": "runtime",
+   "title": "Runtime"
   },
   {
-   "id": "infrastructure",
-   "title": "Infrastructure"
+   "id": "dashboard-ui",
+   "title": "Dashboard UI"
   },
   {
-   "id": "documentation",
-   "title": "Documentation"
+   "id": "accounting",
+   "title": "Accounting"
+  },
+  {
+   "id": "platform",
+   "title": "Platform"
   }
  ],
  "github_root": null,
@@ -28,10 +35,11 @@
  "label_projection": {
   "build_order": "build-order",
   "workstreams": {
-   "backend": "build-lane:backend",
-   "frontend": "build-lane:frontend",
-   "infrastructure": "build-lane:infrastructure",
-   "documentation": "build-lane:documentation"
+   "plan-graph": "build-lane:plan-graph",
+   "runtime": "build-lane:runtime",
+   "dashboard-ui": "build-lane:dashboard-ui",
+   "accounting": "build-lane:accounting",
+   "platform": "build-lane:platform"
   },
   "phases": {
    "1": "phase:1",
@@ -44,9 +52,9 @@
    "8": "phase:8"
   },
   "complexities": {
+   "2": "complexity:2",
    "3": "complexity:3",
-   "4": "complexity:4",
-   "2": "complexity:2"
+   "4": "complexity:4"
   },
   "required_ticket_labels": [
    "model:codex"
@@ -101,7 +109,7 @@
    "Synthetic cycle invalid degraded and 20 50 100-member browser evidence",
    "Post-merge configured-integration-target smoke preserving Units Commands Analytics and TUI"
   ],
-  "completion_condition": "All 19 Build Order tickets BO-001 through BO-019 are implemented and reviewed, green on the current configured integration branch, merged, documented, cleaned up, and proven after merge; standalone companions and deferred work cannot extend completion."
+  "completion_condition": "All 54 Build Order tickets BO-001 through BO-020 and DASH-001 through DASH-034 are implemented and reviewed, green on the current configured integration branch, merged, documented, cleaned up, and proven after merge; deferred findings and optimizations cannot extend completion."
  },
  "external_gates": [
   {
@@ -115,6 +123,18 @@
    "title": "Install the bounded Executor skill contract",
    "owner": "Product owner",
    "resolution_criteria": "Before dispatch, the isolated skill revision from PR 1065 commit f92aa045f6766358d7561dadc1133c4d9180d1f3, or an explicitly reviewed compatible successor preserving its finite-boundary and publication contracts, is landed or installed and aiur-build, aiur-run, and aiur-monitor are discoverable."
+  },
+  {
+   "id": "GATE-003",
+   "title": "Resolve the Claude telemetry protocol authority",
+   "owner": "human owner with aiur-claude write authority",
+   "resolution_criteria": "Reviewed capability matrix plus either an evidenced secure Aiur-only path or an already-landed pinned compatible aiur-claude revision; missing sibling work requires a separately authorized issue/PR that lands before DASH-019 is pickable"
+  },
+  {
+   "id": "GATE-004",
+   "title": "Resolve the Claude meter protocol authority",
+   "owner": "human owner with aiur-claude write authority",
+   "resolution_criteria": "Reviewed structured meter-source matrix plus either an existing supported source or an already-landed pinned compatible aiur-claude revision; missing sibling work requires a separately authorized issue/PR that lands before DASH-013 is pickable"
   }
  ],
  "design_evidence": [
@@ -211,9 +231,9 @@
   },
   {
    "id": "DEC-009",
-   "summary": "Keep dashboard catch-up and accounting outside Build Order",
+   "summary": "Keep companion ownership boundaries while membership is consolidated",
    "status": "accepted",
-   "rationale": "Standalone presentation and financial work cannot alter the bounded feature terminal condition.",
+   "rationale": "Companion tickets keep their own contract and ownership boundaries; the standalone-membership split is superseded by DEC-014.",
    "design_evidence_refs": [
     "DESIGN-001"
    ]
@@ -247,6 +267,13 @@
    "summary": "Gate execution on the actual OCC integration baseline and bounded Executor skills",
    "status": "accepted",
    "rationale": "The researched main baseline and configured v2 target diverge and the current installed Executor contract predates the bounded rewrite.",
+   "design_evidence_refs": []
+  },
+  {
+   "id": "DEC-014",
+   "summary": "Consolidate to a single Build Order",
+   "status": "accepted",
+   "rationale": "Operator direction 2026-07-13: one GitHub root with every executable ticket as a direct member so agents parallelize across the whole graph; lanes and phases carry separation and the DEC-002 100-member cap still holds at 54.",
    "design_evidence_refs": []
   }
  ],
@@ -424,6 +451,312 @@
     "BO-020"
    ],
    "reason": null
+  },
+  {
+   "id": "DREQ-001",
+   "summary": "Responsive route shell",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-001"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-002",
+   "summary": "Recoverable current-run membership",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-002"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-003",
+   "summary": "Units presentation",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-003"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-004",
+   "summary": "Applied runtime-control protocol",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-004"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-005",
+   "summary": "Applied unit controls",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-005"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-006",
+   "summary": "Complete Decision lookup",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-006"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-007",
+   "summary": "Commands catch-up",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-007"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-008",
+   "summary": "Provider-neutral usage envelope",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-008"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-009",
+   "summary": "Durable attributed usage ledger",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-009"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-010",
+   "summary": "Remote Control usage normalization",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-010"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-011",
+   "summary": "Exact usage pricing",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-011"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-012",
+   "summary": "Provider-meter foundation",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-012"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-013",
+   "summary": "Claude plan-meter parity",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-013"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-014",
+   "summary": "Canonical current-run summary",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-014"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-015",
+   "summary": "Authenticated provider-meter UI",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-015"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-016",
+   "summary": "Units row and filter policy",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-016"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-017",
+   "summary": "Trusted Decision provenance",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-017"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-018",
+   "summary": "Opaque provider-account generation",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-018"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-019",
+   "summary": "Authenticated local telemetry transport",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-019"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-020",
+   "summary": "Codex provider-meter adapter",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-020"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-021",
+   "summary": "Enforced financial-data boundary",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-021"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-022",
+   "summary": "Accessible run-summary UI",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-022"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-023",
+   "summary": "Selected-Build-Order usage integration",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-023"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-024",
+   "summary": "Crash-safe usage aggregate/query projection",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-024"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-025",
+   "summary": "Usage retention and compaction",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-025"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-026",
+   "summary": "Bounded live conversation projection",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-026"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-027",
+   "summary": "Read-only conversation drawer",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-027"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-028",
+   "summary": "Authoritative runtime capacity control",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-028"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-029",
+   "summary": "Headless usage source adapters",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-029"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-030",
+   "summary": "Grouped usage scopes",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-030"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-031",
+   "summary": "Authenticated usage/cost summary UI",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-031"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-032",
+   "summary": "Truthful current-run outcomes",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-032"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-033",
+   "summary": "Existing-dashboard parity capstone",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-033"
+   ],
+   "reason": null
+  },
+  {
+   "id": "DREQ-034",
+   "summary": "Current-run Recent UI",
+   "disposition": "ticket",
+   "ticket_ids": [
+    "DASH-034"
+   ],
+   "reason": null
   }
  ],
  "tickets": [
@@ -452,7 +785,7 @@
     "backend",
     "domain-modeling"
    ],
-   "workstream": "backend",
+   "workstream": "plan-graph",
    "requirement_refs": [
     "BOREQ-001",
     "BOREQ-002",
@@ -530,7 +863,7 @@
     "backend",
     "github-api"
    ],
-   "workstream": "backend",
+   "workstream": "plan-graph",
    "requirement_refs": [
     "BOREQ-001",
     "BOREQ-002",
@@ -606,7 +939,7 @@
     "backend",
     "otp"
    ],
-   "workstream": "backend",
+   "workstream": "plan-graph",
    "requirement_refs": [
     "BOREQ-001",
     "BOREQ-004"
@@ -617,7 +950,15 @@
    "serializes_with": [
     "BO-005",
     "BO-016",
-    "BO-019"
+    "BO-019",
+    "DASH-002",
+    "DASH-009",
+    "DASH-012",
+    "DASH-018",
+    "DASH-019",
+    "DASH-024",
+    "DASH-025",
+    "DASH-026"
    ],
    "suggested_after": [],
    "contains": [],
@@ -684,7 +1025,7 @@
     "backend",
     "domain-modeling"
    ],
-   "workstream": "infrastructure",
+   "workstream": "plan-graph",
    "requirement_refs": [
     "BOREQ-005"
    ],
@@ -754,7 +1095,7 @@
     "backend",
     "events"
    ],
-   "workstream": "infrastructure",
+   "workstream": "runtime",
    "requirement_refs": [
     "BOREQ-005",
     "BOREQ-006"
@@ -827,7 +1168,7 @@
     "backend",
     "otp"
    ],
-   "workstream": "backend",
+   "workstream": "runtime",
    "requirement_refs": [
     "BOREQ-005",
     "BOREQ-006"
@@ -837,7 +1178,16 @@
    ],
    "serializes_with": [
     "BO-003",
-    "BO-016"
+    "BO-016",
+    "DASH-002",
+    "DASH-009",
+    "DASH-012",
+    "DASH-018",
+    "DASH-019",
+    "DASH-024",
+    "DASH-025",
+    "DASH-026",
+    "DASH-029"
    ],
    "suggested_after": [],
    "contains": [],
@@ -905,7 +1255,7 @@
     "frontend",
     "tui"
    ],
-   "workstream": "frontend",
+   "workstream": "runtime",
    "requirement_refs": [
     "BOREQ-006"
    ],
@@ -974,7 +1324,7 @@
     "backend",
     "presentation"
    ],
-   "workstream": "backend",
+   "workstream": "plan-graph",
    "requirement_refs": [
     "BOREQ-003",
     "BOREQ-006",
@@ -1054,7 +1404,7 @@
     "frontend",
     "testing"
    ],
-   "workstream": "infrastructure",
+   "workstream": "platform",
    "requirement_refs": [
     "BOREQ-008",
     "BOREQ-014"
@@ -1129,7 +1479,7 @@
     "frontend",
     "assets"
    ],
-   "workstream": "frontend",
+   "workstream": "platform",
    "requirement_refs": [
     "BOREQ-009"
    ],
@@ -1202,7 +1552,7 @@
     "frontend",
     "browser"
    ],
-   "workstream": "frontend",
+   "workstream": "platform",
    "requirement_refs": [
     "BOREQ-008",
     "BOREQ-009",
@@ -1277,7 +1627,7 @@
     "frontend",
     "security"
    ],
-   "workstream": "frontend",
+   "workstream": "dashboard-ui",
    "requirement_refs": [
     "BOREQ-011"
    ],
@@ -1355,7 +1705,7 @@
     "otp",
     "security"
    ],
-   "workstream": "backend",
+   "workstream": "plan-graph",
    "requirement_refs": [
     "BOREQ-011"
    ],
@@ -1365,7 +1715,15 @@
    "serializes_with": [
     "BO-003",
     "BO-005",
-    "BO-019"
+    "BO-019",
+    "DASH-002",
+    "DASH-009",
+    "DASH-012",
+    "DASH-018",
+    "DASH-019",
+    "DASH-024",
+    "DASH-025",
+    "DASH-026"
    ],
    "suggested_after": [],
    "contains": [],
@@ -1431,7 +1789,7 @@
     "events",
     "security"
    ],
-   "workstream": "backend",
+   "workstream": "plan-graph",
    "requirement_refs": [
     "BOREQ-006",
     "BOREQ-011"
@@ -1441,7 +1799,15 @@
    ],
    "serializes_with": [
     "BO-003",
-    "BO-016"
+    "BO-016",
+    "DASH-002",
+    "DASH-009",
+    "DASH-012",
+    "DASH-018",
+    "DASH-019",
+    "DASH-024",
+    "DASH-025",
+    "DASH-026"
    ],
    "suggested_after": [],
    "contains": [],
@@ -1507,7 +1873,7 @@
     "accessibility",
     "security"
    ],
-   "workstream": "frontend",
+   "workstream": "dashboard-ui",
    "requirement_refs": [
     "BOREQ-011"
    ],
@@ -1584,7 +1950,7 @@
     "frontend",
     "liveview"
    ],
-   "workstream": "frontend",
+   "workstream": "dashboard-ui",
    "requirement_refs": [
     "BOREQ-001",
     "BOREQ-004",
@@ -1601,7 +1967,9 @@
     "BO-010",
     "BO-011"
    ],
-   "serializes_with": [],
+   "serializes_with": [
+    "DASH-001"
+   ],
    "suggested_after": [],
    "contains": [],
    "external_gates": [],
@@ -1675,7 +2043,7 @@
     "frontend",
     "accessibility"
    ],
-   "workstream": "frontend",
+   "workstream": "dashboard-ui",
    "requirement_refs": [
     "BOREQ-011",
     "BOREQ-013",
@@ -1686,7 +2054,8 @@
     "BO-012"
    ],
    "serializes_with": [
-    "BO-020"
+    "BO-020",
+    "DASH-023"
    ],
    "suggested_after": [],
    "contains": [],
@@ -1754,7 +2123,7 @@
     "frontend",
     "performance"
    ],
-   "workstream": "frontend",
+   "workstream": "dashboard-ui",
    "requirement_refs": [
     "BOREQ-008",
     "BOREQ-010",
@@ -1766,7 +2135,8 @@
     "BO-013"
    ],
    "serializes_with": [
-    "BO-020"
+    "BO-020",
+    "DASH-023"
    ],
    "suggested_after": [],
    "contains": [],
@@ -1817,11 +2187,11 @@
    "document": "tickets/BO-015-prove-feature-acceptance.md",
    "outcome": "The bounded feature is current-base green, merged, documented, and proven after merge with the published root plus synthetic failure and scale evidence.",
    "scope": [
-    "Integrate all 18 prerequisite tickets and reconcile the exact 19-member published GitHub graph",
+    "Integrate all 53 prerequisite tickets and reconcile the exact 54-member published GitHub graph",
     "Run full automated, real CLI/TUI/browser, synthetic degradation/scale, documentation, cleanup, and post-merge proof"
    ],
    "non_goals": [
-    "Absorb dashboard companions or deferred reliability work",
+    "Absorb deferred reliability findings or optimizations",
     "Create follow-ups for contained acceptance defects"
    ],
    "phase_hint": 8,
@@ -1832,14 +2202,16 @@
     "integration",
     "documentation"
    ],
-   "workstream": "documentation",
+   "workstream": "dashboard-ui",
    "requirement_refs": [
     "BOREQ-015"
    ],
    "depends_on": [
     "BO-006",
     "BO-014",
-    "BO-020"
+    "BO-020",
+    "DASH-023",
+    "DASH-033"
    ],
    "serializes_with": [],
    "suggested_after": [],
@@ -1863,7 +2235,7 @@
    "conflict_exceptions": [],
    "acceptance": {
     "agent_gate": [
-     "All feature suites CI exact 19-member graph reconciliation configured-repository bounds freshness icons detail history destinations requirement matrix docs and cleanup pass on the current configured integration branch"
+     "All feature suites CI exact 54-member graph reconciliation configured-repository bounds freshness icons detail history destinations requirement matrix docs and cleanup pass on the current configured integration branch"
     ],
     "at_merge_gate": [
      "Current-base focused suites and the repository CI gate pass under current CONTRIBUTING.md"
@@ -1875,7 +2247,8 @@
    "decision_refs": [
     "DEC-008",
     "DEC-011",
-    "DEC-012"
+    "DEC-012",
+    "DEC-014"
    ],
    "design_evidence_refs": [
     "DESIGN-001",
@@ -1907,7 +2280,7 @@
    "capability_requirements": [
     "frontend"
    ],
-   "workstream": "frontend",
+   "workstream": "dashboard-ui",
    "requirement_refs": [
     "BOREQ-016"
    ],
@@ -1954,6 +2327,2902 @@
     "DEC-005",
     "DEC-010"
    ],
+   "design_evidence_refs": [
+    "DESIGN-002"
+   ],
+   "github": null
+  },
+  {
+   "id": "DASH-001",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Ship responsive route-aware shell",
+   "document": "companion-tickets/DASH-001-responsive-route-shell.md",
+   "outcome": "The Executor Control Center has URL-backed desktop and mobile navigation with a truthful per-route header for Units, Commands, the registered Build Order route, and the existing Analytics document, without clipping or client-only tab state.",
+   "scope": [
+    "Define one declarative route registry containing route identity, label, icon, route type, availability, and active-match policy. It must support LiveView navigation and ordinary document links without pretending `/analytics` is a LiveView patch.",
+    "Extract shared shell, navigation, and per-view header components from the current dashboard while preserving the existing route URLs, direct Decision links, back/forward behavior, theme control, live/offline truth, tracker and agent-kind metadata, and read-only/writable status.",
+    "Render a sticky desktop sidebar at wide widths and a bottom navigation at narrow widths. Account for browser safe-area insets and reserve enough content padding that the bottom navigation never obscures facts or actions.",
+    "Provide a stable registration seam for the Build Order route. An unregistered future route is omitted or visibly unavailable; it is never an active broken link.",
+    "Preserve the real Analytics route and authentication behavior. The shell may summarize availability, but it must not replace Analytics with placeholder content."
+   ],
+   "non_goals": [
+    "Implement Build Order content, Units rows or filters, Commands composition, usage cards, unit controls, or Analytics redesign.",
+    "Rename durable Decision or OCC implementation identifiers merely to match user-facing Executor terminology.",
+    "Copy the prototype's client-side tab buttons, hard-coded counts, visual DOM reordering, or fake Analytics page."
+   ],
+   "phase_hint": 2,
+   "complexity_points": 3,
+   "complexity_rationale": "Shared route metadata and responsive navigation across unlike route types",
+   "risk": "medium",
+   "capability_requirements": [
+    "frontend",
+    "accessibility"
+   ],
+   "workstream": "dashboard-ui",
+   "requirement_refs": [
+    "DREQ-001"
+   ],
+   "depends_on": [
+    "BO-008"
+   ],
+   "serializes_with": [
+    "BO-012"
+   ],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "current dashboard routes and auth state",
+    "BO-008 browser harness"
+   ],
+   "write_surfaces": [
+    "OCC route/navigation shell",
+    "shared OCC responsive CSS"
+   ],
+   "contract_surfaces": [
+    "route registry",
+    "responsive shell offsets"
+   ],
+   "safety_surfaces": [
+    "existing route compatibility",
+    "dashboard auth and Analytics preservation"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "Router and LiveView tests cover every current URL, direct Decision links, active-route matching, absent Build Order registration, back/forward, theme, and read-only/writable presentation.",
+     "BO-008 browser and accessibility tests cover 320/390/768/960/desktop widths, 200% text zoom, keyboard and touch navigation, safe-area padding, visible focus, reduced motion, and no horizontal page clipping on the real LiveView route.",
+     "Analytics tests prove the link performs normal document navigation and the real authenticated document still loads."
+    ],
+    "at_merge_gate": [
+     "Rebase on the resolved configured integration target, verify it contains the completed #1034 terminology sweep, reconcile the single shell/CSS owner, and pass router, dashboard, Analytics, asset, accessibility, and full CI gates."
+    ],
+    "human_or_e2e": [
+     "From the Executor repository root, drive the real `scripts/aiurdev --test` dashboard and navigate every destination at desktop and 390px with keyboard and touch emulation; capture that no bottom navigation obscures content."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [
+    "DESIGN-002"
+   ],
+   "github": null
+  },
+  {
+   "id": "DASH-002",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Recover canonical current-run membership",
+   "document": "companion-tickets/DASH-002-current-run-membership.md",
+   "outcome": "Aiur exposes one headless-safe, recoverable membership set containing every typed ticket identity observed in the current run, including terminal members retained until that run ends.",
+   "scope": [
+    "Define membership as every BO-017-qualified ticket identity observed in the active `run_id` as queued, retrying, allocated, running, paused, waiting, replaced, or terminal.",
+    "Retain terminal membership through the end of the current run. A new `run_id` creates a new generation; prior-run members never enter the new set.",
+    "Add one daemon-private, run-qualified append/checkpoint protocol for membership and terminal transitions. Persist an accepted transition before publishing the corresponding generation.",
+    "Rebuild exact same-run membership after only the membership process crashes. Reconcile the rebuilt set against current Orchestrator/tracker observations without treating a temporarily absent row as historical proof that it never belonged.",
+    "Validate checksums/schema/generation at startup. Quarantine a malformed tail or checkpoint, preserve the last validated state where possible, and report degraded or unavailable membership instead of a healthy truncated set.",
+    "Clean obsolete generations only after the active `run_id` is established and the new generation cannot replay them.",
+    "Expose bounded snapshot, lookup, generation, health, freshness, and PubSub change APIs. Publish typed membership/lifecycle-transition facts only; do not construct `UnitsRow` values or filter counts."
+   ],
+   "non_goals": [
+    "Join BO-005 activity, Decision counts, model/effort/progress facts, define Units filters, encode URL state, or render LiveView UI.",
+    "Become a second Orchestrator lifecycle reducer, retain cross-run history, or infer membership from workspace directories, logs, PR text, or bare issue numbers.",
+    "Store titles, issue bodies, prompts, transcripts, provider payloads, credentials, or account identity."
+   ],
+   "phase_hint": 3,
+   "complexity_points": 4,
+   "complexity_rationale": "Crash-safe current-run membership authority, journal recovery, and lifecycle reconciliation",
+   "risk": "high",
+   "capability_requirements": [
+    "backend"
+   ],
+   "workstream": "runtime",
+   "requirement_refs": [
+    "DREQ-002"
+   ],
+   "depends_on": [
+    "BO-017"
+   ],
+   "serializes_with": [
+    "BO-003",
+    "BO-005",
+    "BO-016",
+    "BO-019",
+    "DASH-009",
+    "DASH-012",
+    "DASH-018",
+    "DASH-019",
+    "DASH-024",
+    "DASH-025",
+    "DASH-026"
+   ],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "BO-017 propagated ticket identity",
+    "StatusReport and tracker lifecycle",
+    "current run identity"
+   ],
+   "write_surfaces": [
+    "current-run membership journal/checkpoint",
+    "membership health/generation PubSub"
+   ],
+   "contract_surfaces": [
+    "current-run membership and terminal retention",
+    "membership recovery generation"
+   ],
+   "safety_surfaces": [
+    "run-generation isolation",
+    "owner-only content-free recovery state",
+    "application supervision tree"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "Projection tests cover queue, allocation, retry, pause, wait, replacement, completion, cancellation, typed-identity collision, duplicate/out-of-order observation, terminal retention, and new-run isolation.",
+     "Fault tests kill and restart only the membership process, then prove exact same-run recovery across append/checkpoint races, torn tail, corrupt checksum, write/rename failure, and current-snapshot reconciliation.",
+     "Security tests prove owner-only path containment and absence of titles, bodies, logs, workspaces, provider payloads, credentials, and account facts."
+    ],
+    "at_merge_gate": [
+     "Rebase on BO-017 and the resolved configured integration target; run propagated identity, Orchestrator/StatusReport, run lifecycle, private-state/recovery, packaging, PubSub, and full CI suites."
+    ],
+    "human_or_e2e": [
+     "No separate visual evidence. Using a synthetic current run, restart only the projection and show that queued and terminal membership returns exactly; DASH-003 owns real-dashboard proof after DASH-016."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [],
+   "github": null
+  },
+  {
+   "id": "DASH-003",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Render responsive Units interface",
+   "document": "companion-tickets/DASH-003-units-interface.md",
+   "outcome": "Executors can share, refresh, filter, inspect, and navigate one responsive Units page whose rows and counts exactly implement DASH-016 and whose rich ticket context reuses the accepted Build Order integration rather than a dashboard-only copy.",
+   "scope": [
+    "Render DASH-016's single-select Live/Unfinished/All/None scope and independent Active/Alert/Paused/Stuck/Queued/Finished condition chips. Display predicate counts from the catalog without implying overlapping counts are additive.",
+    "Persist validated scope and conditions in URL parameters. Refresh, copied URLs, and browser back/forward restore the same view. Provide a named reset when a valid selection yields no rows.",
+    "Render one desktop table and narrow card/reflow presentation with typed identity, agent/backend/model/effort/complexity, title and optional lane, latest evidence, progress source/freshness, runtime, waiting/blocking context, open Commands, and safe available actions. Unknown/stale values use explicit text, never fake percentages or placeholder models.",
+    "Consume the accepted BO-018 base ticket-context integration for row inspection and read-only GitHub/Chat/Commands navigation capabilities. Row inspection opens ticket context; a separate named Chat action uses the destination seam later implemented by DASH-027. Preserve the existing running-agent log behavior only as an explicitly temporary compatibility path until DASH-027 lands; never make its local path/raw-payload model part of the new row contract. Do not fetch tracker data during render or bind Build Order-specific relationships.",
+    "Preserve focus and selection across live row updates when the same identity remains visible. Coalesce screen-reader count/status announcements and avoid reorder animation when reduced motion is enabled or focus would move.",
+    "Use explicit named buttons/links for row inspection and actions. A visual row may be hover-highlighted, but a non-focusable clickable `<tr>` is not the interaction contract."
+   ],
+   "non_goals": [
+    "Define catalog membership/predicates, implement pause/resume or capacity writes, ingest usage, redesign Commands, or build the Build Order graph.",
+    "Reimplement BO-018 base ticket context, parse workspace logs during render, or invent completed/progress/model data.",
+    "Copy the prototype's client-side cap behavior, fake remote-control links, 9–12px essential text, or visual-only status encoding."
+   ],
+   "phase_hint": 6,
+   "complexity_points": 3,
+   "complexity_rationale": "URL-backed filter interaction and accessible responsive rendering over a fixed catalog",
+   "risk": "medium",
+   "capability_requirements": [
+    "frontend",
+    "accessibility"
+   ],
+   "workstream": "dashboard-ui",
+   "requirement_refs": [
+    "DREQ-003"
+   ],
+   "depends_on": [
+    "DASH-001",
+    "DASH-016",
+    "BO-018"
+   ],
+   "serializes_with": [
+    "DASH-007",
+    "DASH-021"
+   ],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "DASH-016 Units rows/policy",
+    "BO-018 accessible base ticket context",
+    "URL filter state"
+   ],
+   "write_surfaces": [
+    "OCC DashboardLive composition",
+    "shared OCC responsive CSS",
+    "Units presentation"
+   ],
+   "contract_surfaces": [
+    "Units URL presentation",
+    "Units row action seam"
+   ],
+   "safety_surfaces": [
+    "focus-preserving live updates",
+    "trusted ticket navigation"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "LiveView/component tests cover every scope/chip combination, overlapping counts, URL round trip/back/reset, live insert/update/terminal retention, unknown/stale facts, and provider degradation.",
+     "Browser/a11y tests cover keyboard and touch inspection, named row actions, focus persistence/restoration, coalesced announcements, reduced-motion changes, 44px touch targets, 200% zoom, and 320/390/768/960/desktop reflow.",
+     "Tests prove row/context render performs no GitHub or workspace-log read and does not weaken trusted URL handling."
+    ],
+    "at_merge_gate": [
+     "Merge the resolved configured integration target plus DASH-001/016 and the BO-018 acceptance result, sequence shared `DashboardLive`/CSS ownership, and pass Fleet, ticket-context, Decision-link, accessibility, asset, and full CI gates."
+    ],
+    "human_or_e2e": [
+     "From the Executor repository root, run the real `scripts/aiurdev --test` UI and verify multi-signal, queued, paused, unknown, and terminal rows at desktop and 390px; copy a filtered URL, navigate ticket context with keyboard only, and confirm focus returns to the originating control."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [
+    "DESIGN-002"
+   ],
+   "github": null
+  },
+  {
+   "id": "DASH-004",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Confirm applied unit controls",
+   "document": "companion-tickets/DASH-004-applied-unit-control-protocol.md",
+   "outcome": "Every supported per-unit pause or resume request advances through a correlated requested, accepted, worker-applied or rejected/expired lifecycle, so consumers never mistake an optimistic Orchestrator state change for a worker-confirmed control.",
+   "scope": [
+    "Define a versioned control request containing `request_id`, BO-004 repository-qualified typed issue identity, action (`pause` or `resume`), worker/backend generation, expected authoritative state/version, requester class, and request time. Request IDs are unique per intent and stable across safe retry of that intent.",
+    "Define lifecycle states and events: `requested` when admitted, `accepted` when the authoritative control plane routes it to the expected live worker, `applied` only after that worker reports the correlated state transition, `rejected` with a structured reason, and `expired` after a bounded timeout or generation loss.",
+    "Extend supported worker/backend adapters to return a correlated application result. Capability discovery must distinguish applied-confirmation support, request-only support, and unsupported controls; request-only is never labelled applied.",
+    "Make retries with the same request ID idempotent. A new conflicting intent supersedes an older pending request explicitly; late acknowledgement from an old worker generation cannot change current state.",
+    "Publish normalized control lifecycle events and expose lookup/current-pending state for dashboard and audit consumers. On daemon restart, unresolved requests become expired/unknown rather than applied.",
+    "Preserve pause owner/reason and waiting context independently of the command lifecycle. Successful resume clears only the pause state owned by the resumed control path."
+   ],
+   "non_goals": [
+    "Render dashboard controls, change max-agent capacity, pause all units, mutate tracker labels, reprioritize tickets, cancel work, or redesign scheduling.",
+    "Claim support for a backend that cannot return application evidence. Such a backend exposes request-only or unsupported capability.",
+    "Persist prompts, transcripts, raw worker responses, credentials, or capability URLs in audit events."
+   ],
+   "phase_hint": 2,
+   "complexity_points": 4,
+   "complexity_rationale": "Correlated cross-process command lifecycle across worker backends and races",
+   "risk": "high",
+   "capability_requirements": [
+    "backend"
+   ],
+   "workstream": "runtime",
+   "requirement_refs": [
+    "DREQ-004"
+   ],
+   "depends_on": [
+    "BO-004"
+   ],
+   "serializes_with": [],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "BO-004 canonical configured-repository identity",
+    "Orchestrator unit state",
+    "worker/backend generation and capability"
+   ],
+   "write_surfaces": [
+    "unit-control request/ack protocol",
+    "pending control lifecycle and audit events"
+   ],
+   "contract_surfaces": [
+    "correlated requested/accepted/applied lifecycle",
+    "control capability and rejection taxonomy"
+   ],
+   "safety_surfaces": [
+    "stale-worker isolation",
+    "idempotent control application"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "Protocol tests cover accepted→applied, structured rejection, timeout, worker crash, daemon restart, backend generation replacement, duplicate request/ack, out-of-order ack, superseding intent, concurrent completion, and unsupported/request-only backends.",
+     "Orchestrator tests prove no state is presented as applied before correlated worker evidence and unrelated pause/waiting reasons survive.",
+     "Security tests prove audit payloads contain no raw command transport, credential, workspace, account, or capability data."
+    ],
+    "at_merge_gate": [
+     "Rebase over current worker adapters and run AgentChat, PauseResume, Orchestrator, backend protocol, PubSub/audit, regression, and full CI suites."
+    ],
+    "human_or_e2e": [
+     "From the Executor repository root, drive a real supported worker through pause and resume using the canonical TUI/control surface and capture requested, accepted, and worker-applied states. Also exercise one rejected or expired request without substituting logs for the user-visible state proof."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [],
+   "github": null
+  },
+  {
+   "id": "DASH-005",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Render applied unit controls",
+   "document": "companion-tickets/DASH-005-unit-capacity-controls-ui.md",
+   "outcome": "Authenticated Executors can pause or resume eligible Units from the Units page with correlated pending/application feedback and no client-forged state.",
+   "scope": [
+    "Define and render an eligibility matrix for running, applied-paused, pending-control, queued, retrying, merging, terminal, replaced-generation, request-only, unsupported, and Remote Control units. Recheck capability, writable mode, authentication, identity generation, and current state at invocation.",
+    "Invoke pause/resume only through DASH-004. Render requested, accepted, applied, rejected, expired, superseded, and request-only states with retry guidance; do not change the row's authoritative lifecycle before the corresponding contract state.",
+    "Debounce repeated activation while one request is pending, preserve focus after completion/error, and resolve concurrent row changes truthfully. A changed or terminal row cancels stale UI intent rather than targeting a replacement unit.",
+    "Expose pause owner/reason and request state in accessible text. Keep controls named and reachable at every supported Units breakpoint."
+   ],
+   "non_goals": [
+    "Implement the Units catalog/filter UI, runtime-capacity control, change scheduling policy, mutate tracker labels, add start/cancel/reprioritize, or implement Build Order controls.",
+    "Emulate backend controls in JavaScript or restore prior worker state from browser memory.",
+    "Weaken current Basic Auth, CSRF, same-origin, writable, or capability gates."
+   ],
+   "phase_hint": 7,
+   "complexity_points": 3,
+   "complexity_rationale": "Authenticated command UI over fixed Units and control contracts",
+   "risk": "high",
+   "capability_requirements": [
+    "frontend",
+    "accessibility"
+   ],
+   "workstream": "dashboard-ui",
+   "requirement_refs": [
+    "DREQ-005"
+   ],
+   "depends_on": [
+    "DASH-003",
+    "DASH-004"
+   ],
+   "serializes_with": [
+    "DASH-007",
+    "DASH-015",
+    "DASH-021",
+    "DASH-022",
+    "DASH-027",
+    "DASH-028",
+    "DASH-031",
+    "DASH-034"
+   ],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "DASH-016 Units rows through DASH-003 action seam",
+    "DASH-004 control capabilities/lifecycle",
+    "writable/auth state"
+   ],
+   "write_surfaces": [
+    "LiveView unit-control handlers",
+    "pending/error presentation",
+    "Units control components"
+   ],
+   "contract_surfaces": [
+    "Units pause/resume eligibility",
+    "applied-state presentation"
+   ],
+   "safety_surfaces": [
+    "server-side authorization recheck",
+    "no optimistic worker state"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "LiveView tests cover every eligibility/capability state, writable/auth changes, double activation, request-only mode, timeout/rejection/application, concurrent terminal/generation change, and focus/error recovery.",
+     "Browser/a11y tests cover keyboard/touch, at least 44px targets, explicit names/states/reasons, pending announcements, 200% zoom, and narrow Units layouts."
+    ],
+    "at_merge_gate": [
+     "Rebase on DASH-003/004 and the resolved configured integration target, sequence shared dashboard files, and pass control, auth/write-gate, audit, Units, browser accessibility, and full CI suites."
+    ],
+    "human_or_e2e": [
+     "From the Executor repository root, run the real authenticated writable dashboard, pause and resume one supported unit through worker-applied confirmation, and exercise request-only, unavailable, and concurrent terminal states."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [
+    "DESIGN-002"
+   ],
+   "github": null
+  },
+  {
+   "id": "DASH-006",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Add retained Decision lookup and queries",
+   "document": "companion-tickets/DASH-006-decision-lookup.md",
+   "outcome": "Commands consumers can resolve any retained Decision by stable ID, page and search the complete retained set with bounded payloads, and display canonical open/blocking counts independently of the priority-bounded overview.",
+   "scope": [
+    "Add an on-demand detail provider that calls `DecisionStore.get/2`, then applies the same sanitization, lifecycle, latency, health, and presenter composition as overview rows.",
+    "Define a bounded cursor-based retained-Decision query for Commands `All` with stable audit ordering, validated page size, lifecycle filters, optional bounded ticket/Decision-ID search, and total/partial-result metadata.",
+    "Keep priority-bounded overview, retained page/search, and exact detail as three explicit contracts; none may silently substitute for another.",
+    "Expose canonical counts for open and blocking retained Decisions separately from bounded overview counts, including partial/unavailable health.",
+    "Thread selected ID and page/search inputs through `PayloadLoader` or a dedicated provider without making every browser mount load all retained Decisions.",
+    "Return DASH-017 provenance when present and the existing `supervisor_basis` unchanged; legacy unknown provenance remains a valid query result."
+   ],
+   "non_goals": [
+    "Change Decision schema, capture provenance, alter existing supervisor basis, migrate records, redesign Commands UI, rename the Decision domain, or change lifecycle/authority semantics.",
+    "Load all Decisions into one LiveView payload, add free-form full-text indexing, or expose raw prompts/session/account data.",
+    "Parse model, backend, confidence, question, rationale, or origin display text."
+   ],
+   "phase_hint": 1,
+   "complexity_points": 3,
+   "complexity_rationale": "Bounded direct-detail, cursor query, search, and canonical count contracts over the retained store",
+   "risk": "high",
+   "capability_requirements": [
+    "backend"
+   ],
+   "workstream": "runtime",
+   "requirement_refs": [
+    "DREQ-006"
+   ],
+   "depends_on": [],
+   "serializes_with": [
+    "DASH-017"
+   ],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "Decision retained store/audit",
+    "Decision metrics/presenters"
+   ],
+   "write_surfaces": [
+    "Decision store modules",
+    "Decision lookup/query provider"
+   ],
+   "contract_surfaces": [
+    "exact Decision detail lookup",
+    "bounded retained cursor query and counts"
+   ],
+   "safety_surfaces": [
+    "Decision sanitization",
+    "bounded stable pagination"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "Store/provider tests cover an ID older than the newest 50, missing ID, cursor stability under concurrent inserts, lifecycle/search filters, bounded pages, canonical counts, partial/provider failure, and sanitization parity.",
+     "Property tests cover invalid cursor/page/search inputs, stable ordering, no duplicates across pages, and exact direct lookup independent of overview cache.",
+     "Security tests prove no prompt, raw session, account identity, credential, or untrusted display-derived field crosses the provider boundary."
+    ],
+    "at_merge_gate": [
+     "Rebase on the resolved configured integration target and sequence with DASH-017/active Decision work; run Decision store/API/history/metrics, presenter/cache/LiveView compatibility, security, and full CI suites."
+    ],
+    "human_or_e2e": [
+     "After DASH-007 consumes the contract, open a retained Decision outside the overview window by direct URL and navigate at least two `All` pages without losing filter/search state."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [],
+   "github": null
+  },
+  {
+   "id": "DASH-007",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Align Commands presentation",
+   "document": "companion-tickets/DASH-007-commands-interface.md",
+   "outcome": "The Executor Control Center presents Commands with the refreshed vocabulary, primary filters, provenance, option previews, and confidence while preserving every retained Decision state, stable deep link, and authenticated lifecycle action.",
+   "scope": [
+    "Use Commands and Executor-facing vocabulary in navigation, page title, banner, filters, cards, detail, confirmation, empty/error states, and singular/plural copy. Preserve internal `Decision*` module, persistence, API, event, and historical ticket names.",
+    "Render primary filters `Open`, `Blocking`, `Resolved`, and `All`. `Open` includes human-required recorded Decisions; `Blocking` includes unresolved blocking Decisions; `Resolved` includes resolved Decisions; `All` uses DASH-006's paginated retained query and exposes search. Keep answered-not-delivered, delivery-failed, supervising-decided, acknowledged, superseded, revisions, and follow-up states visible through cards, secondary status controls, detail, or history.",
+    "Drive banner counts from DASH-006 canonical retained counts. If counts are degraded or partial, label them rather than presenting the bounded overview count as global truth.",
+    "Render DASH-017 provider/backend/resolved-model provenance only when present and render the existing integer `supervisor_basis.confidence` unchanged on its `0..100` scale. Render unknown legacy values honestly. Show bounded option previews, selected/supervising-answer indicators, blocking reason, authority, delivery status, and latency without parsing prose.",
+    "Preserve URL-backed filters, cursor/search state where shareable, direct detail routes, browser back/forward, irreversible confirmation, sanitization, optimistic-lock/version conflict handling, retry, revise, follow-up, and dynamic writable/auth gates.",
+    "Preserve complete durable Decision history on a reachable Commands surface before DASH-034 changes the Units Recent region. History keeps provenance, selected answers, revisions, dispatch/acknowledgement, supersession, and stable detail navigation; it is never silently deleted to match the mock."
+   ],
+   "non_goals": [
+    "Rename/migrate the Decision domain, author provenance, alter supervisor-basis confidence, change authority or lifecycle semantics, or copy prototype Defer/Acknowledge/quick-choice actions.",
+    "Make all history unbounded in one render, infer fields from prose, or hide actionable lifecycle states merely to match the four primary filters.",
+    "Change Units, Build Order, usage accounting, or Analytics."
+   ],
+   "phase_hint": 3,
+   "complexity_points": 3,
+   "complexity_rationale": "Accessible vocabulary and composition over fixed durable Decision contracts",
+   "risk": "high",
+   "capability_requirements": [
+    "frontend",
+    "accessibility"
+   ],
+   "workstream": "dashboard-ui",
+   "requirement_refs": [
+    "DREQ-007"
+   ],
+   "depends_on": [
+    "DASH-001",
+    "DASH-006",
+    "DASH-017"
+   ],
+   "serializes_with": [
+    "DASH-003",
+    "DASH-005",
+    "DASH-015",
+    "DASH-021",
+    "DASH-022",
+    "DASH-027",
+    "DASH-028",
+    "DASH-031"
+   ],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "DASH-006 Decision queries",
+    "DASH-017 provenance",
+    "existing supervisor basis and lifecycle"
+   ],
+   "write_surfaces": [
+    "OCC DashboardLive composition",
+    "shared OCC responsive CSS",
+    "Commands presentation"
+   ],
+   "contract_surfaces": [
+    "Commands vocabulary/filter reachability",
+    "unchanged 0..100 supervisor confidence presentation"
+   ],
+   "safety_surfaces": [
+    "Decision action/auth compatibility",
+    "no prose-derived provenance"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "Presenter/LiveView tests cover each primary and secondary lifecycle state, paginated/search `All`, old direct links, complete durable history, canonical/partial counts, blocking banner, pluralization, legacy/canonical provenance, confidence, and every existing write safeguard.",
+     "Browser/a11y tests cover URL/back/search/pagination, keyboard/touch, focus/confirmation, retry/error/version conflict, 200% zoom, 320/390/768/960 widths, read-only and unauthenticated modes.",
+     "Regression tests prove no prototype-only action is dispatchable and no lifecycle state disappears from all reachable surfaces."
+    ],
+    "at_merge_gate": [
+     "Rebase on #1034, DASH-001/006/017, and the resolved configured integration target; sequence Decision/DashboardLive/CSS ownership and pass Decision store/API/history/metrics, auth, accessibility, and full CI suites."
+    ],
+    "human_or_e2e": [
+     "From the Executor repository root, use the real dashboard to open, answer, retry or revise, and revisit representative blocking, delivery-pending/failed, supervising-decided, superseded, and resolved Commands, including a direct link outside the overview window."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [
+    "DESIGN-002"
+   ],
+   "github": null
+  },
+  {
+   "id": "DASH-008",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Define attributed usage envelopes",
+   "document": "companion-tickets/DASH-008-usage-envelope.md",
+   "outcome": "Aiur has one provider-neutral, exactly attributed raw measurement contract whose counter scope, account namespace, occurrence-price partition, delta/ absolute semantics, exact money, and pinned provider/source relationship revision let adapters, DASH-009, and DASH-011 prevent duplicate, overlapping, cross-account, or historically repriced accounting without guessing token relationships.",
+   "scope": [
+    "Define a versioned `UsageEnvelope` with: - stable idempotency key, trusted RFC 3339 UTC `occurred_at`, derived `pricing_effective_date`, and daemon `ingested_at`; - typed run, tracker, repository/project, issue, attempt, session, thread, turn, and request identity where available; - agent family, provider, backend, transport, auth mode, effort, requested model, exact resolved model, and opaque `provider_account_generation`; - `measurement_kind` (`delta` or `absolute`), `counter_scope` (`request`, `turn`, `thread`, or `session`), independent `counter_epoch`, source event ID/sequence, and update kind (`full` or `partial`); - raw token dimensions for input, cached input, cache-creation input, output, and reasoning output, plus provider-reported total and a pinned `token_relationship_revision`; - optional exact-decimal provider-reported cost, currency, cost measurement kind/scope, source/version, and explicit coverage/unknown reasons.",
+    "Consume DASH-018's sole shared `provider_account_generation` for every envelope. Usage normalizers report trusted provider/auth lifecycle evidence through DASH-018 when they own it, but they never mint, rotate, persist, or infer a usage-local generation.",
+    "Keep `provider_account_generation` distinct from `counter_epoch`. An account generation partitions account/tier correlation; a counter epoch partitions resettable cumulative streams and may rotate without claiming the account changed. Neither value may be substituted for the other in identity, checkpoint, grouping, or join keys.",
+    "Define `pricing_effective_date` as the UTC Gregorian date (`YYYY-MM-DD`) whose half-open bucket is `[00:00:00Z, next-day 00:00:00Z)` and contains trusted `occurred_at`. It is a deterministic occurrence partition, not a selected price revision. Missing or untrusted source occurrence time yields explicit unknown pricing coverage; `ingested_at` must never choose this bucket.",
+    "Own a versioned token-relationship registry keyed by `(provider, source, source_version)`. Each token-bearing source revision declares every raw dimension as `additive`, `subset_of:<parent>`, `mutually_exclusive:<group>`, or `unknown`, and independently declares whether a structured provider-reported total is authoritative. Pin the selected registry revision on the envelope so replay, aggregate projection, compaction, and pricing retain the exact interpretation used at ingestion.",
+    "Preserve every raw dimension. When an authoritative provider total is present, use it as canonical total and expose any dimensional discrepancy as coverage/reconciliation evidence. Otherwise derive a total only when all contributing relationships are known: add disjoint dimensions, count a subset through its parent once, and accept at most one nonzero alternative in a mutually exclusive group. Missing, unknown, or contradictory relationships fail closed: an explicitly authoritative provider total may remain canonical with partial dimension coverage, but otherwise the total is unknown, and no dimension-derived pricing input is published.",
+    "Define deterministic idempotency identity requirements over trusted source event identity. Preserve source order, `provider_account_generation`, and independent counter-reset evidence so DASH-009 can reject duplicates, out- of-order values, and unexplained lower absolute values durably.",
+    "Capture provider cost as exact decimal/integer minor units at decode time, before float conversion. A missing or imprecise value is unknown, not zero.",
+    "Define validation, serialization, compatibility, and bounded human-readable rejection/coverage reason contracts. Provider adapters must strip raw payloads after normalization and emit independently of browser/TUI/debug state, but DASH-029 owns that runtime wiring."
+   ],
+   "non_goals": [
+    "Implement Codex/Claude headless adapters, persist envelopes or checkpoints, derive cross-message deltas, calculate estimates, fetch account/quota meters, support Claude REPL/Remote Control, render UI, or replace BO-005's activity projection.",
+    "Infer auth mode/model/ticket identity from prose, workspace basename alone, email/account IDs, or browser state.",
+    "Mint or own a meter-only or usage-only account namespace, derive the opaque account generation from stable account PII, or treat counter reset as account change.",
+    "Apply one global cache/reasoning assumption, silently choose between conflicting mutually exclusive dimensions, treat any provider total as authoritative without a versioned source contract, or coerce missing fields to zero."
+   ],
+   "phase_hint": 3,
+   "complexity_points": 3,
+   "complexity_rationale": "Provider-neutral measurement, relationship, attribution, and exact-money contract",
+   "risk": "high",
+   "capability_requirements": [
+    "backend"
+   ],
+   "workstream": "accounting",
+   "requirement_refs": [
+    "DREQ-008"
+   ],
+   "depends_on": [
+    "BO-017",
+    "DASH-018"
+   ],
+   "serializes_with": [],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "BO-017 trusted run/ticket/attempt/session/backend/model identity",
+    "DASH-018 account-generation contract"
+   ],
+   "write_surfaces": [
+    "UsageEnvelope schema",
+    "token-relationship registry",
+    "validation/serialization/exact-money helpers",
+    "compatibility contract and fixtures"
+   ],
+   "contract_surfaces": [
+    "provider account versus counter-epoch identity",
+    "occurrence-price bucket and measurement semantics",
+    "versioned provider/source token-dimension relationships and provider-total authority",
+    "exact provider-cost representation and attribution/redaction"
+   ],
+   "safety_surfaces": [
+    "exact ticket attribution",
+    "unknown relationship fail-closed coverage",
+    "raw payload/account redaction"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "Schema/property tests cover delta/absolute scopes, duplicates and source identity requirements, counter epoch versus account generation, retry/ attempt/session/model attribution, partial updates, Claude-style additive cache dimensions, Codex-style subsets, mutually exclusive alternatives, provider-total authority/discrepancy, UTC date-boundary buckets, missing occurrence time, and unknown relationships without stateful delta derivation.",
+     "Exact-arithmetic tests prove provider cost survives decoding without float drift; additive, subset, and mutually exclusive fixtures reconcile exactly; and unknown or contradictory relationships never produce a guessed total.",
+     "Attribution/security tests cover DASH-018 shared generation consumption, typed identity collision, missing/unknown generation, forged prose/model fields, account rotation observed through the owner, and complete raw-payload/account/credential redaction."
+    ],
+    "at_merge_gate": [
+     "Rebase on BO-017/DASH-018 and pass envelope schema, relationship registry, exact-money, compatibility-contract, security, and full CI suites. DASH-029 separately sequences shared normalizer work with BO-005."
+    ],
+    "human_or_e2e": [
+     "No separate visual evidence. Review sanitized provider-neutral examples for additive, subset, mutually exclusive, provider-total, exact-money, and unknown cases; DASH-029/010 own real source mappings and DASH-009 owns the resulting durable delta proof."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [],
+   "github": null
+  },
+  {
+   "id": "DASH-009",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Persist canonical usage ledger",
+   "document": "companion-tickets/DASH-009-durable-usage-ledger.md",
+   "outcome": "Aiur durably and idempotently appends DASH-008 measurements, preserves each pinned token-relationship revision unchanged, and derives every accepted raw token/provider-cost counter delta exactly once across retry, out-of-order input, process/daemon restart, and corrupt/torn checkpoint recovery.",
+   "scope": [
+    "Implement one supervised single-writer `UsageLedger` core behind a behavior. Store canonical versioned append-only NDJSON segments beneath Aiur's private daemon state root.",
+    "Persist each accepted DASH-008 envelope, including its source, source version, and pinned `token_relationship_revision`, before publishing its accepted ledger position/generation.",
+    "Maintain the sole durable idempotency and absolute-counter checkpoint keyed by provider, transport, opaque account generation, independent counter epoch, session/thread/turn/request scope, counter kind, model context, monetary basis/currency, and source identity.",
+    "Derive raw token and provider-cost counter deltas inside the writer. Matching absolute counters advance one durable checkpoint; duplicate/older input adds zero; unexplained decrease is a coverage/reset error until a trusted epoch/reset. Source deltas add once by durable event identity. Every emitted delta carries the envelope's relationship revision unchanged; this ticket does not reinterpret dimension relationships or price them.",
+    "Never add overlapping absolute/delta streams unless the pinned source contract declares them independent.",
+    "Make raw append and counter/idempotency checkpoint one replayable acknowledgement protocol. Crash at any boundary and replay must reproduce the same deltas exactly once; resumed cumulative sessions cannot re-add earlier totals.",
+    "On startup, validate checkpoint/schema/checksum and replay subsequent canonical observations with their original source version and relationship revision. Rebuild durable counter/idempotency state from raw segments when safe; quarantine malformed tail/segment with explicit health instead of silently truncating valid history.",
+    "Expose append acknowledgement, ordered replay/scan behavior, accepted derived-delta stream, store generation, raw coverage bounds, and health. DASH-024 is the only aggregate/query subscriber.",
+    "Preserve restrictive permissions/path containment and content-free normalized facts."
+   ],
+   "non_goals": [
+    "Build aggregate/query snapshots, publish grouped totals, rotate/delete/compact segments, apply retention, calculate prices, render UI, add Postgres/Ecto/SQLite, or write per-ticket files.",
+    "Parse logs, accept multiple writers, or acknowledge persistence before canonical append/checkpoint policy succeeds.",
+    "Guarantee retained query coverage; DASH-024/025 own projected and retained coverage."
+   ],
+   "phase_hint": 4,
+   "complexity_points": 4,
+   "complexity_rationale": "Crash-safe single-writer append, idempotency, counter delta, checkpoint, and replay authority",
+   "risk": "high",
+   "capability_requirements": [
+    "backend"
+   ],
+   "workstream": "accounting",
+   "requirement_refs": [
+    "DREQ-009"
+   ],
+   "depends_on": [
+    "DASH-008"
+   ],
+   "serializes_with": [
+    "BO-003",
+    "BO-005",
+    "BO-016",
+    "BO-019",
+    "DASH-002",
+    "DASH-012",
+    "DASH-019",
+    "DASH-026"
+   ],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "DASH-008 UsageEnvelope stream with token-relationship revisions",
+    "private daemon state configuration"
+   ],
+   "write_surfaces": [
+    "usage raw ledger segments",
+    "usage idempotency/counter checkpoints",
+    "relationship-revision-preserving usage derived-delta stream"
+   ],
+   "contract_surfaces": [
+    "durable append/delta/replay acknowledgement",
+    "unchanged source-version and token-relationship evidence"
+   ],
+   "safety_surfaces": [
+    "exactly-once accounting",
+    "no replay-time relationship revision substitution",
+    "raw-ledger crash consistency",
+    "owner-only content-free storage",
+    "application supervision tree"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "Deterministic tests cover absolute-to-delta tokens/cost, source deltas, duplicates, out-of-order/lower-without-reset, trusted epoch reset, account rotation, retry/attempt, resumed sessions, fallback/model changes, and completed tickets.",
+     "Record-codec/replay fixtures vary source version and token-relationship revision and prove both survive append, checkpoint recovery, and derived-delta replay unchanged; the same raw dimensions under two revisions never acquire one another's semantics.",
+     "Crash tests stop after append and counter/idempotency checkpoint boundaries; replay emits every delta exactly once.",
+     "Recovery tests cover missing/corrupt checkpoint, torn tail, bad checksum/schema, malformed segment, process/daemon restart, and safe quarantine.",
+     "Failure injection covers append, flush, rename, directory, disk-full/permission, and publish ordering; no failed path acknowledges success.",
+     "Security tests prove owner-only path containment and absence from issue workspaces/logs."
+    ],
+    "at_merge_gate": [
+     "Rebase on DASH-008 and the resolved configured integration target; run usage normalizer, supervision, durable file/replay, compatibility, packaging/state-directory, security, and full CI suites."
+    ],
+    "human_or_e2e": [
+     "Record synthetic attributed usage, restart the real daemon, replay the same cumulative source, and show identical derived deltas and relationship revisions without exposing account data. Corrupt a synthetic copy and demonstrate visible health/quarantine."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [],
+   "github": null
+  },
+  {
+   "id": "DASH-010",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Normalize Claude Remote usage",
+   "document": "companion-tickets/DASH-010-claude-remote-usage.md",
+   "outcome": "Authenticated Claude REPL and Remote Control `claude_code.api_request` events become exactly attributed DASH-008 usage/provider-cost envelopes with deterministic identity, explicit coverage, and a pinned Claude relationship revision that treats base input, cache creation, and cache read as additive request dimensions.",
+   "scope": [
+    "Define a versioned allowlisted adapter for official structured `claude_code.api_request` events emitted by DASH-019.",
+    "Map authenticated source identity, Claude session ID, event sequence/request ID, model, exact `cost_usd`, input/output/cache token fields, query source, effort, occurrence time, and source version into DASH-008 `UsageEnvelope`.",
+    "For the currently evidenced telemetry revision, map its allowlisted base `input_tokens`, `cache_creation_tokens`, and `cache_read_tokens` attributes to raw base-input, cache-creation-input, and cached-input dimensions. Later source versions require a reviewed mapping and may use different attribute names. Pin the DASH-008 relationship revision that declares those three dimensions disjoint/additive for a request. A derived request total adds each once plus output; a structured provider total wins only if the exact source contract separately declares provider-total authority.",
+    "Use DASH-019's trusted run, repository-qualified ticket, attempt, backend/transport, session, and worker-generation correlation. Reject an event when required correlation is absent or stale; never guess from session ID alone.",
+    "Classify the source as request-scoped delta measurement and preserve raw supported dimensions. Exact monetary decoding must occur before binary float conversion.",
+    "Derive deterministic envelope idempotency identity from official request/event identity plus authenticated producer/session generation. DASH-009 remains the sole durable deduplication owner.",
+    "Cover Claude REPL, Remote Control, reconnect, resume, replacement attempt, and model/effort change. A resumed session retains attribution only when DASH-019 proves continuity.",
+    "Emit bounded content-free coverage events for unsupported source or relationship revisions, missing required identity, ambiguous measurement semantics, and optional-field absence. Never fall back to Codex-style cache subset semantics.",
+    "Ensure HookTurn, transcript, DisplayTailer, StatusLine, and browser state cannot create or alter accounting envelopes."
+   ],
+   "non_goals": [
+    "Implement or configure the local OTel receiver, capability/socket lifecycle, process/session registry, rate limiting, or sibling launch protocol; DASH-019 owns those.",
+    "Persist/deduplicate envelopes, calculate prices, fetch Claude account meters, render UI, or treat Remote Control accounting as optional acceptance.",
+    "Scrape `/usage`, terminal output, transcript, StatusLine, browser storage, credentials, or account pages."
+   ],
+   "phase_hint": 4,
+   "complexity_points": 3,
+   "complexity_rationale": "Versioned Claude request-event mapping and exact trusted attribution onto a fixed envelope contract",
+   "risk": "high",
+   "capability_requirements": [
+    "backend"
+   ],
+   "workstream": "accounting",
+   "requirement_refs": [
+    "DREQ-010"
+   ],
+   "depends_on": [
+    "DASH-008",
+    "DASH-019"
+   ],
+   "serializes_with": [],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "DASH-019 authenticated Claude request events/correlation",
+    "DASH-008 envelope contract"
+   ],
+   "write_surfaces": [
+    "Claude Remote usage adapter",
+    "UsageEnvelope and coverage events"
+   ],
+   "contract_surfaces": [
+    "source-versioned Claude additive request-dimension to envelope mapping"
+   ],
+   "safety_surfaces": [
+    "cross-ticket correlation isolation",
+    "content/account redaction"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "Fixture/property tests cover REPL and Remote Control, retry/replay, session resume, new attempt/generation, model/effort changes, nonzero base-input plus cache-creation plus cache-read dimensions, exact additive request totals, exact decimal cost, missing optional fields, unsupported source/relationship version, and unattributable events. One fixture proves base `100` + cache creation `20` + cache read `30` + output `10` yields `160`, not `110` or `130`.",
+     "Integration tests prove trusted DASH-019 correlation reaches the correct run/ticket/attempt and stale/wrong generation cannot cross ticket boundaries.",
+     "Negative tests prove HookTurn/DisplayTailer/transcript/StatusLine/browser data cannot affect totals and raw disallowed attributes are absent before publication/logging."
+    ],
+    "at_merge_gate": [
+     "Rebase on DASH-008/019 and current Claude lifecycle; run Claude REPL/Remote Control, telemetry-contract, correlation, usage-normalizer, exact-money, redaction, packaging, and full CI suites."
+    ],
+    "human_or_e2e": [
+     "From the Executor repository root, drive one synthetic-safe Claude REPL and one Remote Control request through the real DASH-019 path and show correctly attributed envelopes with stable identity and additive cache dimensions after reconnect, without displaying prompts or account identity."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [],
+   "github": null
+  },
+  {
+   "id": "DASH-011",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Resolve exact usage pricing",
+   "document": "companion-tickets/DASH-011-cost-grouping-projection.md",
+   "outcome": "Aiur resolves normalized usage into exact, reproducible token reconciliation and monetary slices under immutable occurrence-time price and DASH-008 token- relationship revisions. Provider-reported and API-equivalent bases remain distinct, and unknown or contradictory inputs fail closed without inventing a price or token total.",
+   "scope": [
+    "Define exactly two v1 monetary bases: - `provider_reported_estimate` when the provider's structured request event reports an estimated request cost; - `api_equivalent_estimate` derived from observed tokens, exact resolved model, token dimension, and a versioned/effective-dated price table. Unknown basis/model/pricing/currency remains unknown. Do not add fixed-subscription allocation or organization-billing reconciliation in v1.",
+    "Store currency in integer micros or exact decimal. Price input, arithmetic, and output never pass through binary float.",
+    "Define price applicability at the exact DASH-008/DASH-009 UTC `pricing_effective_date` bucket. Within a `(provider, resolved_model, token_dimension, currency)` price series, every revision has an inclusive UTC `effective_date` and an exclusive next-revision date; intervals cannot overlap or leave an ambiguous winner. Select the unique interval containing the observation bucket. Never select by ingestion, compaction, or query time, and never fall back across currency or provider.",
+    "Consume the pinned DASH-008 token-relationship revision as a required pricing and reconciliation dimension. Resolve that exact ID through DASH-008's immutable registry; never infer semantics from the provider, current source version, or current price table when the retained revision is absent. Price additive dimensions independently and add their exact costs. For a `subset_of` relationship, price the child at its own rate and only the parent remainder at the parent rate while counting the parent once in canonical token totals. Price only the one valid observed member of a mutually exclusive group. Thus Claude base input, cache creation, and cache read are three separately priced additive dimensions, while a supported Codex cached-input subset is removed from its parent input slice before the two price components are summed. Preserve output/reasoning distinctions under the same contract.",
+    "Treat provider-total authority as token-total authority, not a substitute for billable dimensions. Preserve and reconcile the provider total, but do not use it to fabricate a dimension-level API-equivalent estimate. Unknown, missing, contradictory, or arithmetically impossible relationships produce explicit partial/unknown API-equivalent coverage, never a guessed estimate or `$0.00`. Existing effective-date and relationship revisions are immutable after acceptance; a correction is a new explicitly versioned revision with a migration/recalculation disposition, never silent historical repricing.",
+    "Emit an immutable per-observation or per-preserved aggregate-slice pricing result containing canonical token reconciliation, provider-reported estimate when present, API-equivalent estimate when fully supported, currency/basis, provider/model/dimension, occurrence-price revision, relationship revision, opaque account generation, exact-generation tier-join key when possible, and explicit coverage/reason fields. DASH-030 groups these slices.",
+    "For subscription auth, attach metadata requiring `*` and an information- popover copy key. It must not be named billed or actual spend. This ticket does not read meter facts or attach a tier.",
+    "Provide deterministic known, partial, unknown-price, unknown-model, unknown/ contradictory relationship, invalid arithmetic, and unsupported-currency results without consulting current time, browser state, or provider I/O."
+   ],
+   "non_goals": [
+    "Ingest/persist/aggregate/query usage, discover run/build membership, fetch provider meters or organization invoices, allocate a flat subscription fee, scrape live pricing pages, render UI, or write totals to GitHub.",
+    "Join plan/tier meter facts, infer an account match from provider/backend alone, or apply one current tier to historical usage spanning account generations.",
+    "Claim OpenAI/Anthropic organization billing data is attributable to an Aiur ticket without a separate reviewed correlation source.",
+    "Reprice historical observations with today's model price or turn unknown cost into `$0.00`."
+   ],
+   "phase_hint": 4,
+   "complexity_points": 3,
+   "complexity_rationale": "Versioned exact pricing and relationship-aware token reconciliation",
+   "risk": "high",
+   "capability_requirements": [
+    "backend"
+   ],
+   "workstream": "accounting",
+   "requirement_refs": [
+    "DREQ-011"
+   ],
+   "depends_on": [
+    "DASH-008"
+   ],
+   "serializes_with": [],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "DASH-008 normalized pricing inputs and immutable relationship registry",
+    "versioned effective-dated price table"
+   ],
+   "write_surfaces": [
+    "exact pricing/token-reconciliation resolver",
+    "immutable price revisions and fixtures"
+   ],
+   "contract_surfaces": [
+    "relationship-aware exact effective-date/currency pricing",
+    "token/provider-total reconciliation",
+    "generation-qualified tier join key"
+   ],
+   "safety_surfaces": [
+    "unknown/contradictory token relationship fail-closed pricing",
+    "no unlike-basis/currency summation"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "Exact-arithmetic/property tests cover each basis, model/token price dimension, UTC effective-date boundaries, price-interval non-overlap/ ambiguity validation, unknown model/auth/price, bases, currencies, and account generations. Dedicated fixtures prove Claude base input + cache creation + cache read are additive in both token and separately priced cost reconciliation, while Codex cached input is a priced subset whose count is not added again to parent input.",
+     "Relationship tests cover valid mutually exclusive alternatives, contradictory alternatives, provider-total authority with matching and mismatching dimensions, absent provider total with safe derivation, and missing/ambiguous/replaced registry revisions. Contradictory/unknown fixtures retain raw token and provider-total evidence but emit no API-equivalent estimate, and an old pinned ID never resolves through current provider/source defaults.",
+     "Join-safety tests prove pricing never crosses provider/currency/model/ relationship revision and the emitted tier key cannot correlate an unknown generation or authorize a provider/backend-only join."
+    ],
+    "at_merge_gate": [
+     "Rebase on DASH-008 and the resolved configured integration target; run relationship, pricing, exact-money, security, regression, and full CI suites. Review price fixtures and policy copy as code/data changes."
+    ],
+    "human_or_e2e": [
+     "Executor reviews synthetic Claude-additive and Codex-subset slices with occurrence-time pricing, exact provider-reported/API-equivalent separation, asterisk metadata, and unknown/mismatched revisions. DASH-030/031 own grouped totals and presentation proof."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [],
+   "github": null
+  },
+  {
+   "id": "DASH-012",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Project canonical provider meters",
+   "document": "companion-tickets/DASH-012-provider-meter-foundation.md",
+   "outcome": "Aiur exposes one provider-neutral, redacted `ProviderMeterSnapshot` projection with account-generation isolation, arbitrary windows/controls, sparse-update semantics, per-field freshness, last-known-good retention, health, and bounded change APIs.",
+   "scope": [
+    "Define a versioned `ProviderMeterSnapshot` keyed by provider, backend, and DASH-018 opaque `provider_account_generation`.",
+    "Include auth mode, optional plan/tier with source/freshness, update kind (`snapshot`, `patch`, or tombstone), observed/ingested times, source/version, projection health, and windows keyed by stable `limit_id`.",
+    "Define each window/control with kind, human name, reported used/remaining percentage or absolute limit, duration, reset time, credit/spend-control facts, source, observed time, expiry, and support/coverage state.",
+    "Preserve arbitrary limit IDs rather than hard-coding session/weekly. Subscription and API-key modes expose only supported facts.",
+    "Define update semantics: a full snapshot is authoritative for one exact account generation and tombstones omitted prior windows; a patch changes only supplied windows; an explicit tombstone removes one; failure never acts as empty.",
+    "Retain per-window last-known-good state with independent freshness/expiry and generation-safe projection health. Never merge values across provider/backend/account generation.",
+    "Expose adapter ingestion, snapshot/lookup, generation, health/freshness, and bounded PubSub change APIs. Provider polling/subscription is daemon-owned, not browser-owned.",
+    "Allow provider adapters to supply only allowlisted numeric/enumerated/plan facts. Reject or strip account/email/org/project/credential/raw payload/capability fields before projection."
+   ],
+   "non_goals": [
+    "Implement Codex or Claude protocol adapters, mutate `ModelAvailability`, attribute ticket usage, calculate spend, join usage to tier, render cards, or call organization billing APIs.",
+    "Fabricate session/weekly/API windows, treat unsupported as zero/unlimited, or let one provider update another.",
+    "Mint or infer account generation; DASH-018 is the sole owner."
+   ],
+   "phase_hint": 2,
+   "complexity_points": 3,
+   "complexity_rationale": "One versioned snapshot/patch/LKG contract with account-generation isolation and health semantics",
+   "risk": "high",
+   "capability_requirements": [
+    "backend"
+   ],
+   "workstream": "accounting",
+   "requirement_refs": [
+    "DREQ-012"
+   ],
+   "depends_on": [
+    "DASH-018"
+   ],
+   "serializes_with": [
+    "BO-003",
+    "BO-005",
+    "BO-016",
+    "BO-019",
+    "DASH-002",
+    "DASH-009",
+    "DASH-019",
+    "DASH-024",
+    "DASH-025",
+    "DASH-026"
+   ],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "DASH-018 account generation",
+    "typed provider adapter updates"
+   ],
+   "write_surfaces": [
+    "provider-meter projection and LKG state",
+    "provider-meter PubSub"
+   ],
+   "contract_surfaces": [
+    "ProviderMeterSnapshot",
+    "snapshot/patch/tombstone and freshness semantics"
+   ],
+   "safety_surfaces": [
+    "account-generation isolation",
+    "provider payload redaction",
+    "application supervision tree"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "Property tests cover arbitrary limit IDs, full-snapshot removal, sparse patch, tombstone, duplicate/out-of-order update, per-window stale/expiry, failure/recovery, unknown generation, account rotation, and provider/backend isolation.",
+     "Mode tests prove unsupported subscription/API facts remain unsupported rather than zero, empty, or unlimited.",
+     "Security tests prove account/email/org/project/credential/raw-response/header/capability/content fields are rejected before state, PubSub, or logging."
+    ],
+    "at_merge_gate": [
+     "Rebase on DASH-018 and the resolved configured integration target; run generation lifecycle, projection/LKG/PubSub, schema/property, redaction, packaging, and full CI suites."
+    ],
+    "human_or_e2e": [
+     "With synthetic fixtures, show independent full and patch updates, stale LKG, account rotation isolation, and subscription/API capability differences without using real account identity."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [],
+   "github": null
+  },
+  {
+   "id": "DASH-013",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Normalize Claude account meters",
+   "document": "companion-tickets/DASH-013-claude-provider-meters.md",
+   "outcome": "Aiur exposes Claude subscription and API-key account facts through DASH-012's provider-meter contract, including real supported session/weekly or API controls, plan tier, freshness, account generation, and honest partial/error states without scraping interactive output.",
+   "scope": [
+    "Resolve `GATE-004` before implementation dispatch by characterizing the installed Claude CLI, Claude Code OTel, and aiur-claude structured account/rate-limit capabilities using official schemas and sanitized fixtures. The receipt must select an existing structured source or name an already-landed pinned compatible sibling revision. Missing sibling capability requires a separately authorized sibling issue/PR that lands before this ticket. Interactive `/usage`, TUI, transcript, StatusLine, browser, and credential scraping are forbidden.",
+    "Implement Claude normalization into DASH-012 `ProviderMeterSnapshot`: provider/backend, opaque account generation, auth mode, actual plan/tier and source, snapshot/patch/tombstone semantics, named limit IDs/windows, used/remaining facts, duration/reset, API credit/rate/spend controls when reported, observed/ingested time, freshness/expiry, and health.",
+    "Support subscription and API-key modes without assuming they expose the same facts. Renderable session/weekly windows require actual structured values; API mode reports only real rate/credit/spend controls.",
+    "Preserve sparse updates, per-window last-known-good state, full-snapshot removals, and account-generation isolation exactly as DASH-012 defines. Report trusted Claude auth/session lifecycle changes through DASH-018 and use its returned generation without persisting raw account identity.",
+    "Implement the Aiur adapter only against the gate-pinned existing protocol. This ticket never implements or tests unlanded sibling changes and never infers sibling write authority.",
+    "Expose partial/temporarily unavailable/error coverage during protocol failure, but final ticket acceptance requires the supported Claude account modes available in the user's configured integration; “all Claude meters unsupported” is not completion.",
+    "Redact email, account/organization/workspace IDs, credentials, API/OAuth material, raw responses, headers, endpoint/capability URLs, and unrelated attributes at the adapter boundary."
+   ],
+   "non_goals": [
+    "Ingest request token/cost usage (DASH-010), calculate ticket/build spend, call browser/private endpoints, scrape interactive output, render UI, or redesign Claude authentication.",
+    "Fabricate session/weekly bars or API controls from token totals, local timers, plan-name guesses, or scheduling availability.",
+    "Mutate a sibling repository; missing sibling work belongs to its own human-authorized issue/PR."
+   ],
+   "phase_hint": 3,
+   "complexity_points": 4,
+   "complexity_rationale": "Claude subscription/API integration against a human-pinned structured protocol",
+   "risk": "high",
+   "capability_requirements": [
+    "backend"
+   ],
+   "workstream": "accounting",
+   "requirement_refs": [
+    "DREQ-013"
+   ],
+   "depends_on": [
+    "DASH-012"
+   ],
+   "serializes_with": [],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [
+    "GATE-004"
+   ],
+   "read_surfaces": [
+    "gate-pinned Claude meter protocol",
+    "DASH-018 account generation",
+    "DASH-012 meter contract"
+   ],
+   "write_surfaces": [
+    "Aiur Claude provider-meter adapter",
+    "Claude lifecycle observations and fixtures"
+   ],
+   "contract_surfaces": [
+    "Claude subscription/API parity on ProviderMeterSnapshot"
+   ],
+   "safety_surfaces": [
+    "pinned sibling compatibility",
+    "no sibling mutation or interactive scraping"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "Fixtures cover Claude subscription and API-key modes, multiple windows/controls, full/patch/tombstone, sparse updates, account-generation changes, reset/freshness/expiry, partial/error/recovery, protocol-version drift, and provider isolation.",
+     "Cross-adapter tests prove no Claude update overwrites Codex and no OTel request-usage event is mistaken for an account meter.",
+     "Security tests prove interactive/raw/account/credential/capability data cannot enter normalized snapshots or logs."
+    ],
+    "at_merge_gate": [
+     "Rebase on DASH-012 and the gate-pinned installed Claude integration. Pass provider-meter, Claude lifecycle/protocol, version compatibility, redaction, packaging, and full Aiur CI suites."
+    ],
+    "human_or_e2e": [
+     "With privacy-safe subscription and API-key accounts or sanctioned synthetic provider fixtures, verify each mode shows only real supported Claude facts, plan tier and resets are correct, account change does not merge data, and unsupported facts are not fabricated."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [],
+   "github": null
+  },
+  {
+   "id": "DASH-014",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Project canonical run summary",
+   "document": "companion-tickets/DASH-014-current-run-summary.md",
+   "outcome": "Aiur exposes one current-run summary with canonical live and remaining counts, complexity-weighted progress and coverage, wall-clock elapsed time, and a conservative formula-versioned ETA that becomes unavailable rather than invented when evidence is insufficient.",
+   "scope": [
+    "Define current-run identity from the active `run_id` and persist/capture a canonical wall-clock `started_at` plus monotonic origin for live elapsed calculation. `elapsed_wall_seconds` is time since run start, including pauses; it is never the sum of agent runtimes.",
+    "Compute `live_count` from DASH-016 `Live`, and `remaining_count` as nonterminal current-run members in `Unfinished`. Report terminal successful, terminal non-work/cancelled, unknown-state, and total member counts separately.",
+    "Define progress weight as validated complexity points `1..5`; a member without complexity uses weight `1` and increments `defaulted_weight_count`. Exclude explicitly cancelled/not-planned non-work outcomes from the denominator and report their excluded weight/count.",
+    "Define per-member progress: successful terminal outcome is `1.0`; known queued/not-started is `0.0`; fresh source-backed runtime progress is clamped to `[0,1]`; stale/missing/contradictory progress is unknown. The denominator includes eligible member weight. Return known weighted numerator, unknown-progress weight, lower-bound progress, and coverage. Emit a single exact percentage only when unknown-progress weight is zero; never treat unknown as zero.",
+    "Define ETA formula version `completed_weight_rate_v1`: after at least two successful terminal members, ten wall-clock minutes, a nonzero eligible denominator, and healthy membership/weight facts, compute completed throughput as successful terminal weight divided by wall elapsed and ETA as remaining eligible weight divided by that throughput. Return formula version, sample/completed weight, denominator generation, observation time, and confidence/availability reason. Do not fold partial runtime progress into throughput.",
+    "Recompute on catalog membership/lifecycle/progress changes and run transition. Membership changes update denominator generation and are visible provenance, not silently rewritten history.",
+    "Expose snapshot, health, freshness, generation, and PubSub update APIs. Preserve prior last-known-good aggregate as stale only within the same run generation."
+   ],
+   "non_goals": [
+    "Aggregate tokens/cost/quota, infer Build Order critical path, forecast from model intuition, use agent-runtime seconds as elapsed, change ticket progress, or render UI.",
+    "Treat phase as a gate, cancelled/not-planned work as successful completion, or hide defaulted/unknown weights and progress.",
+    "Carry a prior run's ETA/progress into a new run generation."
+   ],
+   "phase_hint": 5,
+   "complexity_points": 4,
+   "complexity_rationale": "Weighted progress and ETA semantics over live, stale, and changing run membership",
+   "risk": "high",
+   "capability_requirements": [
+    "backend"
+   ],
+   "workstream": "runtime",
+   "requirement_refs": [
+    "DREQ-014"
+   ],
+   "depends_on": [
+    "DASH-016"
+   ],
+   "serializes_with": [],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "DASH-016 Units rows/predicates",
+    "run start and progress/complexity provenance"
+   ],
+   "write_surfaces": [
+    "current-run summary projection",
+    "run-summary PubSub"
+   ],
+   "contract_surfaces": [
+    "weighted progress/coverage",
+    "wall elapsed and conservative ETA"
+   ],
+   "safety_surfaces": [
+    "unknown-progress preservation",
+    "run-generation isolation"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "Pure tests cover live/remaining/terminal counts, complexity/default weights, cancelled exclusion, known/unknown/stale progress, denominator changes, run transition, clock movement, and exact weighted reconciliation.",
+     "ETA tests cover every precondition, two-completion threshold, zero/changed denominator, pause-inclusive wall time, membership change, provider degradation, and deterministic formula/provenance output.",
+     "Process tests cover PubSub coalescing, last-known-good within one generation, no prior-run leakage, and headless mode."
+    ],
+    "at_merge_gate": [
+     "Rebase on DASH-016 and the resolved configured integration target; run Units catalog, run lifecycle/Boot, progress, clock, projection/PubSub, regression, and full CI suites."
+    ],
+    "human_or_e2e": [
+     "Using a synthetic real run from the Executor repository root, compare wall elapsed with concurrent agent runtime, complete enough weighted tickets to enable ETA, and demonstrate ETA/percentage becoming explicitly unavailable when progress or membership evidence is incomplete."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [],
+   "github": null
+  },
+  {
+   "id": "DASH-015",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Render authenticated provider meters",
+   "document": "companion-tickets/DASH-015-usage-provider-summary-ui.md",
+   "outcome": "Authenticated Executors see responsive Codex and Claude account-meter cards with exact provider/backend/account generation, actual auth mode and plan tier, supported quota/rate/credit windows, reset times, coverage, health, and freshness. All other connections see only DASH-021's content-free locked state.",
+   "scope": [
+    "Consume protected meter facts only through DASH-021 facades. A denied connection renders its content-free `authentication_required` state and never queries, subscribes to, caches, assigns, or receives meter values.",
+    "Render Codex and Claude cards from DASH-020/013 through DASH-012 semantics: exact provider/backend/generation, auth mode, sourced plan/tier, supported subscription windows or API controls, reset timestamps, per-window freshness/health, stale LKG, partial, unsupported, empty-supported, loading, and hard error.",
+    "Show actual plan/tier only from the meter snapshot's exact known provider, backend, and account generation. Unknown, rotated, stale, mixed, or mismatched identity remains explicit and never borrows the current login's tier.",
+    "On mount/reconnect, fetch current protected snapshots after authorization, then subscribe through DASH-021 to daemon-owned meter updates. Coalesce render/screen-reader announcements and isolate one provider failure from the healthy card.",
+    "Reflow every plan, window, limit, reset, coverage disclosure, and provider state at 320/390/768/960/desktop and 200% text zoom, accounting for DASH-003 navigation/safe-area offsets. Use semantic meters and 44px controls."
+   ],
+   "non_goals": [
+    "Render token/cost totals or drill-down, or compute the Aiur live/remaining/ progress/elapsed/ETA summary; DASH-031 and DASH-014/022 own those surfaces.",
+    "Ingest meters, persist usage, apply prices, allocate subscription fees, call billing APIs, or redesign Analytics.",
+    "Fetch providers per browser, correlate tier without exact generation, show fake subscription bars for API accounts, or weaken DASH-021."
+   ],
+   "phase_hint": 7,
+   "complexity_points": 3,
+   "complexity_rationale": "Responsive protected composition across two provider-meter adapters",
+   "risk": "high",
+   "capability_requirements": [
+    "backend",
+    "accessibility"
+   ],
+   "workstream": "accounting",
+   "requirement_refs": [
+    "DREQ-015"
+   ],
+   "depends_on": [
+    "DASH-003",
+    "DASH-013",
+    "DASH-020",
+    "DASH-021"
+   ],
+   "serializes_with": [
+    "DASH-005",
+    "DASH-007",
+    "DASH-022",
+    "DASH-027",
+    "DASH-028",
+    "DASH-031",
+    "DASH-034"
+   ],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "DASH-013 Claude meters",
+    "DASH-020 Codex meters",
+    "DASH-021 protected query/subscription contract",
+    "DASH-003 Units composition"
+   ],
+   "write_surfaces": [
+    "protected provider-meter presenters/components",
+    "authorized subscriptions",
+    "shared OCC responsive CSS"
+   ],
+   "contract_surfaces": [
+    "exact-generation provider-meter cards",
+    "responsive/accessibility/live-update behavior"
+   ],
+   "safety_surfaces": [
+    "financial-data nonleakage",
+    "exact-generation tier composition"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "Presenter/component tests cover exact generation/tier, account rotation, API-key/subscription modes, every provider/window health state, reset/expiry, full/patch/tombstone behavior, and live updates.",
+     "DASH-021 integration tests prove denied mode never invokes protected meter providers or contains account/auth-mode, plan/tier, quota/rate/credit/spend- control, percentage/limit/reset, freshness, LKG, or hidden serialized values.",
+     "Browser/a11y tests cover meter semantics, reset times, disclosures, focus, announcement coalescing, light/dark/reduced motion, 44px targets, 200% zoom, all breakpoints, safe-area offsets, and no clipping."
+    ],
+    "at_merge_gate": [
+     "Rebase all four prerequisites and the resolved configured integration target; sequence shared Units/CSS ownership and pass provider-meter, auth/security, accessibility, performance, and full CI suites."
+    ],
+    "human_or_e2e": [
+     "From the Executor repository root, compare Codex/Claude subscription, API-key, partial/stale, exact-generation, account-switched, unsupported, and locked variants at desktop and 390px/200%. Verify denied rendered source/events contain no protected meter values."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [],
+   "github": null
+  },
+  {
+   "id": "DASH-016",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Project canonical Units rows and policy",
+   "document": "companion-tickets/DASH-016-units-row-policy.md",
+   "outcome": "Aiur exposes provenance-rich `UnitsRow` snapshots plus one pure truth table for Live/Unfinished/All/None scope, overlapping Active/Alert/Paused/Stuck/Queued/Finished conditions, counts, and shareable URL state.",
+   "scope": [
+    "Join DASH-002 membership with current StatusReport/tracker lifecycle, BO-005 activity, canonical tracker issue facts, and Decision counts.",
+    "Expose typed tracker/repository/issue identity, trusted title/URL, lifecycle, waiting/blocking/alert reasons, backend, agent family, requested/resolved model, effort, complexity, optional build lane, progress with source/freshness, latest safe evidence, runtime timestamps, open Command count, and provider health. Missing facts remain unknown.",
+    "Define single-select scope: - `Live`: a worker is allocated or retained by the runtime, including working, alerting, Executor-paused, and stuck units; - `Unfinished`: `Live` plus queued, dependency-waiting, and retry-waiting nonterminal units; - `All`: every DASH-002 current-run member, including terminal rows; - `None`: no rows.",
+    "Define independent overlapping conditions: `Active`, `Alert`, `Paused`, `Stuck`, `Queued`, and `Finished`. Unknown state satisfies none.",
+    "Treat active-tracker `work_state: :completed` plus `waiting_reason: :awaiting_dispatch` as a nonterminal replacement boundary: `Unfinished` and `Queued`, but not `Live`, `Active`, `Paused`, or `Finished`, consuming no active capacity.",
+    "Apply scope first. No selected condition means no refinement; selected conditions OR together. Calculate chip counts over scope before condition refinement so overlap is explicit.",
+    "Define a versioned URL codec with canonical ordering, defaults, invalid-value removal, and a named zero-result reset.",
+    "Expose pure row lookup, predicate, filter, count, and URL encode/decode APIs plus bounded snapshot health/freshness. Render no UI."
+   ],
+   "non_goals": [
+    "Persist membership, reduce activity/lifecycle events, render Units, add controls, fetch usage/meters, or implement Build Order.",
+    "Make counts a partition, turn missing progress into zero, infer model/state from prose, or fetch GitHub/workspace logs during a query.",
+    "Change DASH-002 retention or BO-005 activity semantics."
+   ],
+   "phase_hint": 4,
+   "complexity_points": 3,
+   "complexity_rationale": "One bounded read model with source-aware joins and a shared filter/URL contract",
+   "risk": "high",
+   "capability_requirements": [
+    "frontend"
+   ],
+   "workstream": "dashboard-ui",
+   "requirement_refs": [
+    "DREQ-016"
+   ],
+   "depends_on": [
+    "DASH-002",
+    "BO-005"
+   ],
+   "serializes_with": [],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "DASH-002 membership",
+    "BO-005 activity",
+    "StatusReport/tracker and Decision counts"
+   ],
+   "write_surfaces": [
+    "UnitsRow projection",
+    "Units predicate/count/URL policy"
+   ],
+   "contract_surfaces": [
+    "source-aware Units rows",
+    "scope/condition truth table and URL codec"
+   ],
+   "safety_surfaces": [
+    "source authority preservation",
+    "unknown fact preservation"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "Join tests cover missing/stale/conflicting source facts, typed-identity collisions, terminal retention, retry/fallback, pause/resume, Decision counts, and provider degradation.",
+     "Pure truth-table tests cover every scope and multi-signal combination, including alert+paused, alert+stuck, queued+dependency-waiting, terminal+stale activity, and wholly unknown rows.",
+     "Replacement-boundary tests prove active-tracker `:completed/:awaiting_dispatch` remains queued/unfinished only and consumes zero capacity.",
+     "Property tests prove URL round trips, invalid recovery, count/filter parity, canonical ordering, zero-result reset, and overlapping counts."
+    ],
+    "at_merge_gate": [
+     "Rebase on DASH-002, BO-005, and the resolved configured integration target; run membership, activity, Orchestrator/StatusReport, Decision, presenter compatibility, property, and full CI suites."
+    ],
+    "human_or_e2e": [
+     "No separate visual evidence. DASH-003 owns real-dashboard verification against this truth table."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [
+    "DESIGN-002"
+   ],
+   "github": null
+  },
+  {
+   "id": "DASH-017",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Persist trusted Decision provenance",
+   "document": "companion-tickets/DASH-017-decision-provenance.md",
+   "outcome": "Every new Decision may retain exact trusted agent/backend/model/session provenance while legacy records remain readable with those facts explicitly unknown; the existing integer `supervisor_basis.confidence` contract remains unchanged.",
+   "scope": [
+    "Version Decision provenance to optionally persist agent family, backend, requested model, resolved model, session/attempt identity, source, and captured time.",
+    "Populate provenance only from authoritative runtime/session context at acceptance. Agent payload fields and `originName`, question, rationale, or other prose are never trusted inputs.",
+    "Preserve provenance append-only across answer, revision, delivery, acknowledgement, resolution, and history records with the Decision version that captured it.",
+    "Add one additive migration/replay path. Legacy records have absent/unknown provenance; never guess historical values.",
+    "Preserve the current `DecisionDelegation.basis` and `DecisionAnswer.supervisor_basis` structures unchanged, including integer confidence in `0..100`, policy basis, alternatives, and reversibility fields.",
+    "Expose canonical optional provenance plus the already-existing supervisor basis to DASH-006/007 without introducing another confidence representation."
+   ],
+   "non_goals": [
+    "Add lookup/pagination/search/counts, redesign Commands, change Decision authority/lifecycle, or infer legacy provenance.",
+    "Change confidence type, range, scale, validation, authorship, authority, persistence, or presentation meaning; convert it to `[0,1]`; or add recommendation/decision confidence siblings.",
+    "Accept provenance from agent-authored content, display strings, prompts, transcripts, or untrusted event payloads."
+   ],
+   "phase_hint": 1,
+   "complexity_points": 3,
+   "complexity_rationale": "Additive trusted provenance schema, capture, replay, and legacy migration",
+   "risk": "high",
+   "capability_requirements": [
+    "backend"
+   ],
+   "workstream": "runtime",
+   "requirement_refs": [
+    "DREQ-017"
+   ],
+   "depends_on": [],
+   "serializes_with": [
+    "DASH-006"
+   ],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "trusted runtime/session context",
+    "existing Decision and supervisor-basis records"
+   ],
+   "write_surfaces": [
+    "Decision store modules",
+    "Decision provenance schema/replay migration"
+   ],
+   "contract_surfaces": [
+    "trusted immutable Decision provenance",
+    "unchanged supervisor_basis.confidence integer 0..100"
+   ],
+   "safety_surfaces": [
+    "Decision audit compatibility",
+    "supervisor authority and provenance redaction"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "Schema/replay tests cover trusted backend/model fallback, session/attempt capture, legacy unknowns, forged agent/display fields, revisions, delivery/history, and rollback-compatible reads.",
+     "Regression tests cover confidence `0`, `100`, and representative existing values through delegation, answer, revision, API, store, replay, and history, proving no range/type/key/authority change.",
+     "Security tests prove account/email/org, prompt, transcript, credential, raw session payload, and capability fields cannot enter provenance or logs."
+    ],
+    "at_merge_gate": [
+     "Rebase on the resolved configured integration target and sequence with DASH-006/active Decision work; run Decision schema/store/event/projection/history, delegation/answer/API confidence regressions, migration/replay, security, and full CI suites."
+    ],
+    "human_or_e2e": [
+     "Using synthetic Decisions, show trusted runtime provenance, a legacy record with unknown provenance, and an existing `supervisor_basis.confidence` value rendered unchanged by DASH-007."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [],
+   "github": null
+  },
+  {
+   "id": "DASH-018",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Own provider-account generation identity",
+   "document": "companion-tickets/DASH-018-provider-account-generation.md",
+   "outcome": "Every trusted provider/auth lifecycle exposes one opaque local account generation that usage and meter adapters share, rotate together, and can correlate without retaining or deriving account identity.",
+   "scope": [
+    "Define a versioned `ProviderAccountGeneration` service keyed by provider/backend/auth-process binding rather than ticket or browser.",
+    "Mint an opaque random/non-derivable local generation when a trusted provider-account binding becomes known. Keep it stable only while continuity of that exact binding is known.",
+    "Rotate on login, logout, credential/account replacement, backend binding replacement, or loss of continuity. A quota reset, request retry, process restart with proven binding continuity, or counter reset does not itself assert account change.",
+    "Accept lifecycle observations only from trusted Codex/Claude auth/process owners. Never accept browser, agent payload, display prose, account page, or meter/usage value as identity evidence.",
+    "Expose current lookup, generation-change subscription, source/freshness/health, and test-only injected mint/clock hooks. Usage and meter adapters consume the same returned value.",
+    "Make unknown/unavailable binding explicit. Unknown generation may group tokens but cannot join a meter snapshot or another known generation.",
+    "Persist only the minimum continuity state needed across supported process restarts, if continuity can be proven safely. Loss of proof rotates or becomes unknown rather than reusing a guess."
+   ],
+   "non_goals": [
+    "Normalize usage, fetch account meters, retain tokens/cost, expose raw account IDs, allocate subscription fees, or render UI.",
+    "Reuse `counter_epoch`, quota reset, ledger generation, run ID, session ID, credential hash, email, account, organization, project, or workspace as the account generation.",
+    "Guarantee continuity when a provider protocol supplies no trustworthy lifecycle evidence."
+   ],
+   "phase_hint": 1,
+   "complexity_points": 3,
+   "complexity_rationale": "One privacy-safe lifecycle identity shared across provider usage and meter adapters",
+   "risk": "high",
+   "capability_requirements": [
+    "backend"
+   ],
+   "workstream": "accounting",
+   "requirement_refs": [
+    "DREQ-018"
+   ],
+   "depends_on": [],
+   "serializes_with": [
+    "BO-003",
+    "BO-005",
+    "BO-016",
+    "BO-019",
+    "DASH-002",
+    "DASH-019",
+    "DASH-026"
+   ],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "trusted Codex/Claude auth and process-binding lifecycle"
+   ],
+   "write_surfaces": [
+    "provider-account generation owner/state",
+    "account-generation lifecycle events",
+    "Claude process lifecycle adapters"
+   ],
+   "contract_surfaces": [
+    "shared opaque generation lookup/rotation/health"
+   ],
+   "safety_surfaces": [
+    "non-derivable account identity",
+    "provider/backend isolation",
+    "application supervision tree"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "State-machine/property tests cover initial unknown, trusted bind, stable repeated observation, login/logout/account replacement, credential replacement, process replacement with and without continuity, provider/backend isolation, and duplicate/out-of-order lifecycle events.",
+     "Cross-consumer tests prove DASH-008 and DASH-012 fixtures receive one shared value, quota/counter reset does not rotate it, and account rotation invalidates both consumers together.",
+     "Security tests prove values are non-derivable and no email/account/org/project/credential/hash/raw response/capability data is persisted, logged, published, or exposed."
+    ],
+    "at_merge_gate": [
+     "Rebase on the resolved configured integration target and current Codex/Claude auth lifecycle; run app-server/process lifecycle, credential replacement/logout, state recovery, PubSub, redaction, packaging, and full CI suites."
+    ],
+    "human_or_e2e": [
+     "With synthetic bindings, show usage and meter fixtures sharing a generation, then rotate the binding and prove old usage cannot join the new meter without exposing any account identifier."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [],
+   "github": null
+  },
+  {
+   "id": "DASH-019",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Authenticate Claude telemetry transport",
+   "document": "companion-tickets/DASH-019-claude-telemetry-transport.md",
+   "outcome": "Claude processes owned by Aiur can deliver allowlisted structured telemetry through a local-only, producer-authenticated, resource-bounded receiver whose session correlation proves the current run, ticket, attempt, and worker generation.",
+   "scope": [
+    "Resolve `GATE-003` with a reviewed capability matrix selecting either a secure Aiur-only launch/receiver path or an already-landed pinned compatible `aiur-claude` revision. If sibling work is missing, a human must authorize and land it through a separate sibling issue/PR before this ticket becomes pickable.",
+    "Configure or embed one local-only telemetry receiver for Claude processes Aiur owns. Prefer an owner-only Unix-domain socket.",
+    "If loopback TCP is required, mint an unguessable per-process capability, inject it only at owned process launch, authenticate it before payload decoding/logging, bind it to process/session generation, and revoke it on teardown.",
+    "Maintain a trusted correlation registry established at process/session creation: producer generation, Claude session identity, current `run_id`, BO-004 repository-qualified ticket identity, attempt, backend/transport, and worker generation.",
+    "Define resume/reconnect/replacement semantics. Session ID alone never proves producer or ticket ownership; stale producer/session generations are rejected.",
+    "Accept only the required structured event family/version and allowlisted bounded attributes. Enforce body, attribute count/length, concurrent connection, and per-capability event-rate limits before expensive allocation.",
+    "Suppress authenticated replay floods with a bounded in-memory guard while preserving deterministic event/request identity for DASH-009's later durable deduplication.",
+    "Drop content, prompts/outputs, account/email/org, headers, credentials, environment, endpoint/capability values, and unrelated attributes before any log, error, quarantine, publication, or subscriber delivery.",
+    "Expose health, source-version coverage, bounded rejection classes, and an internal authenticated event/correlation subscription for DASH-010. Do not emit usage envelopes."
+   ],
+   "non_goals": [
+    "Normalize tokens/cost, persist usage, calculate prices, fetch provider meters, render UI, or scrape interactive output.",
+    "Treat loopback, process PID, repository path, session ID, browser state, or account identity as producer authentication.",
+    "Mutate or test unlanded changes in `aiur-claude`, infer sibling authority, or relay arbitrary raw telemetry payloads into Aiur."
+   ],
+   "phase_hint": 2,
+   "complexity_points": 4,
+   "complexity_rationale": "Cross-process local telemetry trust boundary, lifecycle correlation, and resource controls against a pinned protocol",
+   "risk": "high",
+   "capability_requirements": [
+    "backend"
+   ],
+   "workstream": "platform",
+   "requirement_refs": [
+    "DREQ-019"
+   ],
+   "depends_on": [
+    "BO-004"
+   ],
+   "serializes_with": [
+    "BO-003",
+    "BO-005",
+    "BO-016",
+    "BO-019",
+    "DASH-002",
+    "DASH-009",
+    "DASH-012",
+    "DASH-018",
+    "DASH-024",
+    "DASH-025",
+    "DASH-026"
+   ],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [
+    "GATE-003"
+   ],
+   "read_surfaces": [
+    "BO-004 canonical configured-repository identity",
+    "owned Claude process/session lifecycle",
+    "gate-pinned local telemetry protocol"
+   ],
+   "write_surfaces": [
+    "Aiur local telemetry receiver/capability lifecycle",
+    "trusted Claude correlation registry",
+    "Claude process lifecycle adapters"
+   ],
+   "contract_surfaces": [
+    "producer-authenticated bounded local telemetry"
+   ],
+   "safety_surfaces": [
+    "auth-before-decode",
+    "resource bounds and content redaction",
+    "no sibling mutation",
+    "application supervision tree"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "Transport tests cover owner-only socket or authenticated loopback, correct/wrong/missing/stale capability, reconnect, resume, replacement generation, teardown revocation, session-ID spoof, and current ticket correlation.",
+     "Resource tests cover oversize body/attributes, connection/rate exhaustion, malformed encoding, replay flood, slow/partial clients, and recovery without crashing owned Claude workers.",
+     "Redaction/no-egress tests prove forbidden content/account/header/credential/path/capability attributes are removed before diagnostic or subscriber delivery.",
+     "Compatibility fixtures prove Aiur works against the exact already-landed sibling revision named by the gate receipt; this worker changes only Aiur."
+    ],
+    "at_merge_gate": [
+     "Rebase on current Claude lifecycle and the gate-pinned installed protocol; pass Claude REPL/Remote Control, launch/teardown, local receiver, correlation, capability, redaction, packaging, compatibility, and full Aiur CI suites."
+    ],
+    "human_or_e2e": [
+     "From the Executor repository root, launch synthetic-safe Claude REPL and Remote Control processes through the real path, reconnect one session, replace another, and show accepted current correlation plus rejected stale/spoofed producer without exposing capability or content."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [],
+   "github": null
+  },
+  {
+   "id": "DASH-020",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Normalize Codex account meters",
+   "document": "companion-tickets/DASH-020-codex-provider-meter-adapter.md",
+   "outcome": "Structured Codex account/rate-limit data produces generation-scoped DASH-012 snapshots for subscription and API-key modes, while existing scheduling availability remains conservative and cannot masquerade as canonical financial/quota truth.",
+   "scope": [
+    "Consume current structured Codex camelCase account/rate-limit schemas and normalize provider/backend, auth mode, plan/tier and source, arbitrary windows/limit IDs, used/remaining facts, duration/reset, API credit/rate/spend controls, source version, and observation time into DASH-012 updates.",
+    "Report trusted Codex login/logout/credential/account-binding lifecycle through DASH-018 and use the returned generation for every adapter update. Never mint a Codex-local meter generation.",
+    "Correctly classify full snapshots, sparse patches, and explicit removals according to actual protocol semantics; provider failure is not an empty snapshot.",
+    "Support subscription/ChatGPT and API-key modes without fabricating fields absent from the structured source.",
+    "Add sanitized fixtures for installed and compatible protocol versions, including multiple arbitrary limit IDs and unknown new fields.",
+    "Provide a migration/compatibility feed for `ModelAvailability`. Scheduling may consume a conservative subset but cannot overwrite DASH-012 or be queried as the canonical meter.",
+    "Strip account/email/org/project/credential/API/OAuth/raw response/header/endpoint/capability fields before adapter output or logging."
+   ],
+   "non_goals": [
+    "Define provider-meter semantics, attribute usage, calculate spend, render cards, scrape CLI/TUI/browser/credential output, or call organization billing APIs.",
+    "Fabricate session/weekly windows, credits, unlimited quota, or plan tier for API accounts.",
+    "Let `ModelAvailability` become a second meter writer or use quota reset as account rotation."
+   ],
+   "phase_hint": 3,
+   "complexity_points": 3,
+   "complexity_rationale": "Structured Codex protocol integration plus conservative scheduling compatibility",
+   "risk": "high",
+   "capability_requirements": [
+    "backend"
+   ],
+   "workstream": "accounting",
+   "requirement_refs": [
+    "DREQ-020"
+   ],
+   "depends_on": [
+    "DASH-012"
+   ],
+   "serializes_with": [],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "structured Codex account/rate-limit protocol",
+    "DASH-012 meter contract",
+    "DASH-018 lifecycle"
+   ],
+   "write_surfaces": [
+    "Codex meter adapter",
+    "ModelAvailability compatibility feed"
+   ],
+   "contract_surfaces": [
+    "Codex subscription/API meter parity",
+    "conservative scheduling compatibility"
+   ],
+   "safety_surfaces": [
+    "no meter-local identity",
+    "account/raw-response redaction"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "Fixture/property tests cover camelCase normalization, arbitrary/multiple IDs, full removal, sparse patch, tombstone, subscription/API modes, reset/credit fields, unknown fields, protocol drift, failure/recovery, and account rotation.",
+     "Lifecycle tests prove usage and meter consumers receive the same DASH-018 generation and quota/counter reset does not rotate it.",
+     "Compatibility tests preserve conservative scheduling behavior while proving `ModelAvailability` cannot overwrite or impersonate DASH-012.",
+     "Security tests prove forbidden account/credential/raw-response/capability fields are removed before projection/logging."
+    ],
+    "at_merge_gate": [
+     "Rebase on DASH-012 and current Codex protocol work; run provider-meter, shared-generation, account/rate-limit fixture, app-server lifecycle, availability compatibility, redaction, packaging, and full CI suites."
+    ],
+    "human_or_e2e": [
+     "Using synthetic/redacted fixtures or safe local accounts, compare subscription and API-key snapshots, show only supported controls, rotate the account binding, and confirm scheduling compatibility without exposing identity."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [],
+   "github": null
+  },
+  {
+   "id": "DASH-021",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Enforce financial-data authentication",
+   "document": "companion-tickets/DASH-021-financial-data-auth-boundary.md",
+   "outcome": "Usage, token, cost, provider account, plan, quota, rate, credit, and reset facts can cross the web boundary only for a connection under configured and enforced dashboard authentication; every other connection receives a content-free locked contract.",
+   "scope": [
+    "Define one server-side `financial_data_access` decision derived from endpoint authentication configuration and the authenticated connection/session established by trusted plugs/hooks. Browser flags and mount parameters are never authority.",
+    "Classify records by source/context, not field name. Usage/cost/group and provider-meter/account records are protected, including their provider/backend/model dimensions, auth mode, plan/tier, quota/rate/credit/spend controls, percentages/limits, reset times, freshness, health, and retained LKG values.",
+    "Keep nonfinancial runtime execution facts public under existing read-only policy: StatusReport/Units backend, agent family, requested/resolved model, lifecycle, waiting reason, and progress do not become financial merely because protected accounting records use similarly named fields.",
+    "Add protected query facades for usage/grouping and provider-meter snapshots. Denied callers receive a stable content-free `authentication_required` result without invoking the underlying provider.",
+    "Separate protected update delivery from generic dashboard PubSub. Authenticate before subscribing and before delivering/reloading; an unauthorized connection never receives a protected payload.",
+    "Ensure protected financial records never enter denied LiveView assigns, rendered HTML, client events, serialized diffs, connection-scoped caches, logs, telemetry metadata, or generic observability/state APIs, while preserving authorized nonfinancial StatusReport/Units facts.",
+    "Define a content-free locked descriptor and capability state for DASH-015. It may identify that authentication is required but contains no provider, account, usage, plan, quota, reset, freshness, or monetary facts.",
+    "Preserve existing supervisor authentication, CSRF, same-origin, writable/read-only, secure-document, and nonfinancial dashboard behavior. Financial read authorization does not grant mutation authority.",
+    "Define cache keys/eviction so authenticated payloads cannot be reused by an unauthenticated connection or after authentication configuration/generation changes."
+   ],
+   "non_goals": [
+    "Render provider cards, ingest/query provider data directly, change usage/meter semantics, require auth for existing allowed nonfinancial loopback status, or redesign all dashboard authentication.",
+    "Put protected values in a hidden DOM node, redact them only after provider query/subscription, or block nonfinancial Units backend/model by matching field names globally.",
+    "Treat loopback, writable mode, supervisor capability, browser local state, or possession of a route as authenticated financial access."
+   ],
+   "phase_hint": 3,
+   "complexity_points": 3,
+   "complexity_rationale": "Server-side query, subscription, assign, event, and cache boundary for protected accounting facts",
+   "risk": "high",
+   "capability_requirements": [
+    "backend"
+   ],
+   "workstream": "platform",
+   "requirement_refs": [
+    "DREQ-021"
+   ],
+   "depends_on": [
+    "DASH-001"
+   ],
+   "serializes_with": [
+    "DASH-003",
+    "DASH-005",
+    "DASH-007",
+    "DASH-022",
+    "DASH-027",
+    "DASH-028",
+    "DASH-034"
+   ],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "trusted dashboard auth/session/config",
+    "financial provider capability metadata"
+   ],
+   "write_surfaces": [
+    "OCC DashboardLive composition",
+    "financial auth/query/subscription boundary"
+   ],
+   "contract_surfaces": [
+    "record-context-aware protected delivery",
+    "nonfinancial StatusReport/Units fact preservation"
+   ],
+   "safety_surfaces": [
+    "financial-data nonleakage",
+    "unauthenticated runtime backend/model availability"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "Authorization tests cover auth configured/enforced, absent, invalid, connection/config generation change, read-only/writable combinations, supervisor capability, and direct protected-facade calls.",
+     "Nonleakage tests prove denied mode never invokes financial providers and contains none of the sentinel token, cost, group, account, auth-mode, plan/tier, quota/rate/credit, percentage/limit/reset, freshness, or LKG records in HTML, assigns, LiveView diffs/events, subscriptions, caches, logs, telemetry, or generic APIs.",
+     "Units regressions render unauthenticated read-only StatusReport backend, agent family, requested/resolved model, lifecycle, waiting, and progress values, proving they remain visible while identically named dimensions inside financial fixtures remain absent.",
+     "PubSub/cache race tests cover authentication loss/config change, reconnect, stale queued message, cache reuse, and provider update concurrent with disconnect without sleeps.",
+     "Regression tests prove allowed nonfinancial status, Analytics security, CSRF, supervisor auth, and runtime write gates retain their prior behavior."
+    ],
+    "at_merge_gate": [
+     "Rebase on DASH-001 and the resolved configured integration target; run router/auth, LiveView connect, provider loader, PubSub/cache, observability API, Analytics, CSRF/write-gate, security, and full CI suites."
+    ],
+    "human_or_e2e": [
+     "From the Executor repository root, compare authenticated and optional unauthenticated dashboard connections using synthetic protected values. Confirm authenticated queries/subscriptions work and denied rendered source/network events contain only the content-free locked contract."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [],
+   "github": null
+  },
+  {
+   "id": "DASH-022",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Render accessible current-run summary",
+   "document": "companion-tickets/DASH-022-current-run-summary-ui.md",
+   "outcome": "The Units page presents a live, responsive, accessible Aiur current-run summary with truthful counts, weighted progress and coverage, wall elapsed time, and formula-qualified ETA or an explicit unavailable reason.",
+   "scope": [
+    "Render DASH-014 live, remaining, terminal-success, terminal-nonwork, unknown-state, and total counts with explicit scope.",
+    "Render weighted progress denominator, known numerator/lower bound, unknown/defaulted/excluded weight, coverage, and exact percentage only when DASH-014 provides one.",
+    "Render wall-clock elapsed time from DASH-014 and its formula-versioned ETA, sample/provenance/confidence, or exact unavailable reason. Never show summed agent runtime as wall elapsed.",
+    "Read the current snapshot on mount/reconnect and subscribe to daemon-owned DASH-014 updates. Coalesce high-frequency renders and screen-reader announcements.",
+    "Keep DOM and visual order consistent within the Units summary. Reflow at 320/390/768/960/desktop and 200% text zoom with DASH-001 safe-area/navigation offsets inherited through DASH-003.",
+    "Use native/ARIA progress semantics only when values/bounds are known. Unknown progress omits `aria-valuenow` and names coverage/unavailability.",
+    "Preserve a stale same-run last-known-good summary with freshness/health; new-run generation or unavailable facts cannot display the prior run as current."
+   ],
+   "non_goals": [
+    "Render tokens, cost, provider/account, plan/tier, quota/rate/credit/reset facts, subscription disclosures, or usage drill-down; DASH-015 owns those behind DASH-021.",
+    "Compute counts/progress/elapsed/ETA, infer Build Order critical path, mutate runtime state, or fetch providers from the browser.",
+    "Visually reorder protected cards around the summary with CSS in a way that changes assistive-technology order."
+   ],
+   "phase_hint": 7,
+   "complexity_points": 3,
+   "complexity_rationale": "Responsive accessible composition over one fixed nonfinancial run-summary contract",
+   "risk": "medium",
+   "capability_requirements": [
+    "frontend",
+    "accessibility"
+   ],
+   "workstream": "dashboard-ui",
+   "requirement_refs": [
+    "DREQ-022"
+   ],
+   "depends_on": [
+    "DASH-003",
+    "DASH-014"
+   ],
+   "serializes_with": [
+    "DASH-005",
+    "DASH-007",
+    "DASH-015",
+    "DASH-021",
+    "DASH-023",
+    "DASH-027",
+    "DASH-028",
+    "DASH-031",
+    "DASH-034"
+   ],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "DASH-014 nonfinancial run summary",
+    "DASH-003 Units composition"
+   ],
+   "write_surfaces": [
+    "OCC DashboardLive composition",
+    "shared OCC responsive CSS",
+    "shared OCC summary layout"
+   ],
+   "contract_surfaces": [
+    "accessible nonfinancial current-run summary"
+   ],
+   "safety_surfaces": [
+    "unknown progress/ETA preservation",
+    "absence of protected financial facts"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "Presenter/component tests cover every count class, exact/partial/unknown progress, defaulted/excluded weight, elapsed, all ETA preconditions/reasons, stale LKG, generation transition, loading, empty, and hard error.",
+     "LiveView tests cover initial/reconnect snapshot, PubSub update coalescing, focus stability, screen-reader announcement bounds, and absence of protected fields.",
+     "Browser/a11y tests cover semantic progress, reduced motion, light/dark, 200% zoom, 320/390/768/960/desktop, safe-area offsets, and no clipping."
+    ],
+    "at_merge_gate": [
+     "Rebase on DASH-003/014 and sequence with DASH-015/shared summary CSS; run Units, run-summary, LiveView/PubSub, accessibility, browser, asset, performance, and full CI suites."
+    ],
+    "human_or_e2e": [
+     "From the Executor repository root, drive a synthetic real run through the dashboard, enable/disable ETA evidence, change weighted progress, and verify truthful update/reflow at desktop and 390px including optional unauthenticated read-only mode."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [
+    "DESIGN-002"
+   ],
+   "github": null
+  },
+  {
+   "id": "DASH-023",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Integrate selected Build Order usage",
+   "document": "companion-tickets/DASH-023-selected-build-order-usage.md",
+   "outcome": "An authenticated selected Build Order route can show DASH-031 usage/cost summaries scoped to the exact current GitHub member set, updating safely when root selection, membership generation, retained usage, or meter facts change.",
+   "scope": [
+    "Derive the selected root solely from BO-012's canonical `/build-orders/:root_number` URL and validated repository context; browser-local selection is not authority.",
+    "Consume BO-003's complete current selected graph generation and exact repository-qualified member identities. Never infer membership from labels, prose, phase/lane, visible nodes, or issue-number adjacency.",
+    "Call DASH-030 with that explicit current member set and label the result `this build`, retaining basis/currency/account-generation/coverage semantics and the compatible-currency API-equivalent roll-up.",
+    "Include every retained usage observation attributable to a current member, including observations recorded before it joined the Build Order. Exclude a removed/nonmember ticket immediately on the next complete membership generation; there is no joined-at cutoff.",
+    "Treat catalog generation, selected-root generation, complete membership generation, accounting generation, and provider-meter generation independently. Discard stale async/query results after any relevant generation changes.",
+    "Subscribe to BO-003 selected-graph updates and protected DASH-021 accounting/meter changes. Requery bounded snapshots on mount/reconnect, root switch, or complete membership change; coalesce updates without per-browser GitHub polling.",
+    "Render through DASH-031's protected usage/cost component contract on the Build Order route, preserving exact-generation tier annotations, the asterisked compatible-currency API-equivalent total and contributor reconciliation, bounded drill-down, health/freshness, and locked state.",
+    "Define loading, empty-build, no-retained-usage, partial-retention, selected-invalid, stale graph, graph unavailable, accounting unavailable, and membership-changed states without confusing them with zero.",
+    "Preserve URL/share/back/refresh behavior and focus when switching roots or live membership changes."
+   ],
+   "non_goals": [
+    "Add/remove members, edit dependencies/labels/phases/lanes, write totals to GitHub, allocate subscription fees, or define Build Order progress/ETA/readiness.",
+    "Make this companion a member or acceptance dependency of the Build Order root, alter BO-003/012 source truth, or count accounting work in Build Order completion.",
+    "Infer historical membership intervals, include removed tickets, poll GitHub per browser, or bypass DASH-021."
+   ],
+   "phase_hint": 8,
+   "complexity_points": 4,
+   "complexity_rationale": "URL-backed cross-source membership/accounting join with generation-safe live updates",
+   "risk": "high",
+   "capability_requirements": [
+    "backend",
+    "accessibility"
+   ],
+   "workstream": "accounting",
+   "requirement_refs": [
+    "DREQ-023"
+   ],
+   "depends_on": [
+    "BO-003",
+    "BO-012",
+    "DASH-030",
+    "DASH-031",
+    "DASH-021"
+   ],
+   "serializes_with": [
+    "DASH-022",
+    "BO-013",
+    "BO-014"
+   ],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "BO-003 current selected graph/members",
+    "BO-012 URL route state",
+    "DASH-030 explicit-ticket query",
+    "DASH-031 component contract",
+    "DASH-021 protected delivery"
+   ],
+   "write_surfaces": [
+    "selected-build scope adapter",
+    "generation-keyed query/cache/subscriptions",
+    "Build Order usage composition",
+    "Build Order route component CSS"
+   ],
+   "contract_surfaces": [
+    "exact current-member this-build accounting scope",
+    "compatible-currency API-equivalent total/constituent reconciliation",
+    "live generation reconciliation"
+   ],
+   "safety_surfaces": [
+    "GitHub/Aiur read-only boundary",
+    "protected financial delivery",
+    "cross-root stale-result isolation"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "Scope tests prove exact current members, repository/number collision safety, pre-membership inclusion, removed/nonmember exclusion, empty build, no retained usage, partial retention, and run/build cache separation.",
+     "Generation tests cover root switch, membership add/remove, stale graph/query replies, accounting/meter updates, reconnect, provider degradation, and coalesced subscriptions without per-browser GitHub calls.",
+     "LiveView/browser tests cover URL/share/back/refresh, locked/authenticated modes, focus preservation, bounded drill-down, mixed Codex/Claude compatible-currency total and constituent reconciliation, disclosure/tier joins, and explicit non-zero/empty/error states.",
+     "Mutation-negative tests prove no GitHub planning or Aiur runtime action handler is introduced and Build Order acceptance/progress remains unchanged."
+    ],
+    "at_merge_gate": [
+     "Rebase all five prerequisites and the resolved configured integration target; sequence with DASH-022/Build Order shared UI surfaces and pass root/provider, accounting, auth/security, LiveView/browser/accessibility, performance, and full CI suites."
+    ],
+    "human_or_e2e": [
+     "From the Executor repository root, select two roots by URL, add/remove a synthetic member in a mixed Codex/Claude fixture, and show the asterisked compatible-currency build total and every provider/ticket/model/agent constituent updating with pre-membership inclusion/removal exclusion while Units remains `this run` and no planning mutation appears."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [],
+   "github": null
+  },
+  {
+   "id": "DASH-024",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Project durable usage aggregates",
+   "document": "companion-tickets/DASH-024-usage-aggregate-query.md",
+   "outcome": "Aiur maintains crash-safe exact usage aggregates and bounded queries over DASH-009 deltas, preserving every downstream attribution/pricing dimension with explicit health, freshness, generation, and coverage.",
+   "scope": [
+    "Consume only DASH-009 ordered accepted deltas/replay positions; never become a second raw envelope, idempotency, or counter owner.",
+    "Maintain exact aggregate partitions by provider, run, typed ticket, attempt, opaque account generation including unknown, backend, agent family, exact resolved model, auth mode, UTC pricing-effective date, token dimension, `token_relationship_revision` including unknown, monetary basis, and currency.",
+    "Write aggregate/checkpoint snapshots via same-filesystem temporary file, flush, atomic rename, schema/version/checksum, and a source ledger position/generation.",
+    "Recover by validating the latest aggregate checkpoint and replaying DASH-009 deltas after its source position. Missing/corrupt aggregate state rebuilds from the retained DASH-009 raw authority.",
+    "Expose exact bounded snapshot/query primitives by explicit typed run/ticket sets, aggregate generation, health/freshness, raw/projected coverage bounds, and PubSub changes.",
+    "Preserve group-to-total reconciliation and explicit unknown attribution/coverage. Empty, partial, stale, corrupt, and unavailable states remain distinct.",
+    "Supply a stable aggregate/query behavior to DASH-011 and DASH-025; neither consumer reads implementation files directly.",
+    "Document #132 storage/accounting coverage and the future #845 backend seam without mutating those issues."
+   ],
+   "non_goals": [
+    "Append raw envelopes, derive/deduplicate deltas, rotate/delete/compact raw segments, apply retention, calculate price estimates, join meter tiers, or render UI.",
+    "Scan raw files per browser, introduce a database, or merge away any listed grouping dimension.",
+    "Claim retention beyond current DASH-009 raw coverage before DASH-025 lands."
+   ],
+   "phase_hint": 5,
+   "complexity_points": 4,
+   "complexity_rationale": "Crash-safe multidimensional aggregate/checkpoint recovery and bounded query behavior",
+   "risk": "high",
+   "capability_requirements": [
+    "backend"
+   ],
+   "workstream": "accounting",
+   "requirement_refs": [
+    "DREQ-024"
+   ],
+   "depends_on": [
+    "DASH-009"
+   ],
+   "serializes_with": [
+    "BO-003",
+    "BO-005",
+    "BO-016",
+    "BO-019",
+    "DASH-002",
+    "DASH-012",
+    "DASH-019",
+    "DASH-026"
+   ],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "relationship-revision-preserving usage derived-delta stream",
+    "usage raw ledger replay/coverage"
+   ],
+   "write_surfaces": [
+    "token-relationship-revision-partitioned usage aggregate/checkpoint snapshots",
+    "usage aggregate query API"
+   ],
+   "contract_surfaces": [
+    "exact multidimensional usage aggregate/query behavior",
+    "no token-relationship revision merging"
+   ],
+   "safety_surfaces": [
+    "reproducible projection",
+    "exact group reconciliation",
+    "relationship revision isolation",
+    "no raw-store mutation",
+    "application supervision tree"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "Property fixtures vary provider, run, ticket, attempt, backend, agent family, exact model, auth mode, account generation, UTC date, token dimension, token-relationship revision including unknown, basis, and currency and prove exact partition/reconciliation. Identical dimensions under two relationship revisions remain separate groups.",
+     "Crash/recovery tests stop before/after aggregate update/checkpoint/publish and prove deterministic rebuild from DASH-009 without duplicate totals or revision substitution/merging.",
+     "Query tests cover explicit run/ticket sets, typed identity collision, empty/partial/unknown, stale/corrupt/unavailable health, bounded reads, and browser-count-independent work.",
+     "Failure injection covers snapshot write/flush/rename/checksum/schema/source-position mismatches and safe LKG behavior."
+    ],
+    "at_merge_gate": [
+     "Rebase on DASH-009 and the resolved configured integration target; run ledger replay, aggregate/checkpoint/query, exact arithmetic, PubSub, state-directory, security, and full CI suites."
+    ],
+    "human_or_e2e": [
+     "Replay synthetic multi-dimensional usage through a projection restart and show identical totals/groups/coverage without scanning files from the browser."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [],
+   "github": null
+  },
+  {
+   "id": "DASH-025",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Harden usage retention and compaction",
+   "document": "companion-tickets/DASH-025-usage-retention-compaction.md",
+   "outcome": "Aiur bounds raw usage storage through crash-safe rotation, retention, and compaction while every DASH-024 query dimension, exact total, and retained-coverage fact survives deletion unchanged.",
+   "scope": [
+    "Define configurable bounded segment rotation and retention policy with explicit size/time thresholds, minimum retained raw recovery window, and reported coverage.",
+    "Before deleting any raw segment, commit a DASH-024-compatible compacted aggregate block preserving provider, run, typed ticket, attempt, backend, agent family, exact model, auth mode, account generation including unknown, UTC pricing-effective date, token dimension, `token_relationship_revision` including unknown, basis, currency, exact totals, gaps, and earliest/latest covered time.",
+    "Use a versioned manifest/state machine for prepared, aggregate-committed, source-retired, and finalized phases. Flush/atomic rename/checksum every transition needed for crash recovery.",
+    "Make DASH-024 queries combine compacted blocks plus live aggregates without duplicates or gaps and without changing public query semantics.",
+    "Never merge different dates, currencies, bases, generations, models, identities, token dimensions, or token-relationship revisions during compaction.",
+    "Quarantine inconsistent manifests/segments/blocks, preserve the last validated queryable state, and stop destructive progress until safe reconciliation.",
+    "Expose retention policy, earliest/latest raw and aggregate coverage, compaction generation/status/health, and bounded operational evidence.",
+    "Prove rollback/rebuild limits explicitly once raw segments are retired."
+   ],
+   "non_goals": [
+    "Change envelope/delta semantics, pricing, tier joins, UI, or introduce Postgres/Ecto/SQLite.",
+    "Delete source before durable compacted coverage, silently widen/narrow retention, merge dimensions for space savings, or promise indefinite history.",
+    "Add a second aggregate/query API or writer."
+   ],
+   "phase_hint": 6,
+   "complexity_points": 4,
+   "complexity_rationale": "Destructive rotation/retention protocol with dimension-preserving compaction and crash recovery",
+   "risk": "high",
+   "capability_requirements": [
+    "backend"
+   ],
+   "workstream": "accounting",
+   "requirement_refs": [
+    "DREQ-025"
+   ],
+   "depends_on": [
+    "DASH-024"
+   ],
+   "serializes_with": [
+    "BO-003",
+    "BO-005",
+    "BO-016",
+    "BO-019",
+    "DASH-002",
+    "DASH-012",
+    "DASH-019",
+    "DASH-026"
+   ],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "usage raw ledger segments",
+    "token-relationship-revision-partitioned usage aggregate/checkpoint snapshots",
+    "usage aggregate query API"
+   ],
+   "write_surfaces": [
+    "usage compaction manifest",
+    "relationship-revision-preserving usage compacted aggregate blocks",
+    "usage raw segment retirement"
+   ],
+   "contract_surfaces": [
+    "dimension- and token-relationship-revision-preserving compaction",
+    "retained-coverage semantics"
+   ],
+   "safety_surfaces": [
+    "no-delete-before-coverage",
+    "no relationship revision merging",
+    "crash-safe destructive state machine",
+    "exact query equivalence",
+    "application supervision tree"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "Property tests compact fixtures differing in every preserved dimension, including identical token rows under distinct known/unknown relationship revisions, and prove all scoped totals/groups/coverage remain identical and no revisions merge.",
+     "Crash-boundary tests stop at prepared, aggregate write/flush/rename, manifest commit, source delete, and finalize; restart yields exactly one valid result or a safe halted state.",
+     "Retention tests cover size/time thresholds, partial raw windows, multiple generations, repeated compaction, no eligible segments, corrupt blocks/manifests, disk/permission failures, and rollback limits.",
+     "Security tests prove path containment, owner-only permissions, and content-free compacted data."
+    ],
+    "at_merge_gate": [
+     "Rebase on DASH-024 and the resolved configured integration target; run ledger, aggregate/query, rotation/retention, crash/fault, packaging/state-directory, security, performance, and full CI suites."
+    ],
+    "human_or_e2e": [
+     "Compact a synthetic multi-day/multi-account/multi-relationship-revision dataset, restart the daemon, and show byte-bounded raw storage plus identical DASH-024 totals/groups/revisions and explicit retained coverage."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [],
+   "github": null
+  },
+  {
+   "id": "DASH-026",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Project bounded live conversations",
+   "document": "companion-tickets/DASH-026-bounded-live-conversation-projection.md",
+   "outcome": "Aiur exposes a bounded, sanitized, source-aware live conversation snapshot for an exact running unit generation, without exposing local workspace paths, raw event JSON, or filesystem reads as a web contract.",
+   "scope": [
+    "Define a versioned `LiveConversationSnapshot` keyed by BO-017's propagated BO-004 configured-repository identity plus current run, attempt/session, and worker/backend generation. A replacement generation never inherits or appends to the prior conversation.",
+    "Normalize only allowlisted structured runtime conversation events at a trusted ingestion boundary: agent messages, Executor/operator messages, concise system transitions, and explicitly safe tool-result summaries. Preserve stable message/event identity, role, safe title, occurred/observed time, and source generation.",
+    "Compact streaming deltas deterministically, deduplicate retries/replays, and replace a partial message only with its matching completed message. Out-of-order or late events from an older generation cannot mutate the current snapshot.",
+    "Sanitize and bound content before retention: at most 80 display messages, at most 1,600 Unicode characters per body, bounded titles, and a total snapshot byte ceiling. Expose truncation/count metadata rather than silently dropping evidence.",
+    "Drop unknown event kinds and unsafe/unstructured payloads with bounded diagnostic counters. Never render, retain, or return a raw record as a fallback body.",
+    "Distinguish `live`, `ended`, `known_empty`, `stale`, `unavailable`, and `restart_unknown` source states with generation, health, freshness, and observation metadata. A healthy empty conversation requires a healthy authoritative source.",
+    "Publish immutable snapshots and coalesced change notifications for dashboard consumers. Queries are bounded in-memory reads and perform no workspace, log-file, process, or provider I/O.",
+    "Define explicit retention for an ended generation within the active run and bounded eviction thereafter. A daemon restart does not reconstruct a conversation by parsing workspace logs; it reports the truthful restart state."
+   ],
+   "non_goals": [
+    "Render a drawer, send operator messages, pause/resume a unit, discover Remote Control URLs, or expose raw logs/downloads.",
+    "Replace BO-019 ticket activity/history or BO-018 ticket context/Logs with conversation messages, or add conversation content to either contract.",
+    "Make `Aiur.AgentLog` paths, markdown/NDJSON parsing, arbitrary model output, reasoning, command transcripts, or successful command output part of a browser-facing API.",
+    "Persist a cross-run transcript archive or build log search, pagination, export, or analytics."
+   ],
+   "phase_hint": 3,
+   "complexity_points": 3,
+   "complexity_rationale": "New source-aware, bounded, sanitized live conversation contract over runtime event streams",
+   "risk": "high",
+   "capability_requirements": [
+    "backend"
+   ],
+   "workstream": "runtime",
+   "requirement_refs": [
+    "DREQ-026"
+   ],
+   "depends_on": [
+    "BO-017"
+   ],
+   "serializes_with": [
+    "BO-003",
+    "BO-005",
+    "BO-016",
+    "BO-019",
+    "DASH-002",
+    "DASH-009",
+    "DASH-012",
+    "DASH-018",
+    "DASH-019",
+    "DASH-024",
+    "DASH-025"
+   ],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "BO-017 propagated BO-004 identity",
+    "trusted run/attempt/session/worker generation",
+    "allowlisted structured runtime conversation events"
+   ],
+   "write_surfaces": [
+    "live conversation normalizer/projection",
+    "bounded snapshots",
+    "health/freshness/change notifications"
+   ],
+   "contract_surfaces": [
+    "LiveConversationSnapshot",
+    "role/event allowlist and generation isolation",
+    "bounds/redaction and source-state semantics"
+   ],
+   "safety_surfaces": [
+    "structured-event redaction",
+    "application supervision tree"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "Normalizer tests cover every accepted role/kind, streaming delta completion, duplicate/replayed/out-of-order events, two repositories sharing a number, attempt/session replacement, and malformed timestamps/Unicode.",
+     "Boundary tests prove 0/1/80/81 messages, body/title/total-byte limits, deterministic eviction, explicit truncation, subscriber churn, source degradation/recovery, ended generation, projection-only restart, and daemon restart.",
+     "Negative security tests prove unknown records, raw JSON, paths, prompts, reasoning, full command output, credentials, account data, capability URLs, and prior-generation messages cannot enter snapshots or diagnostics.",
+     "Query tests prove snapshot reads perform no filesystem, workspace-log, process, GitHub, or provider I/O."
+    ],
+    "at_merge_gate": [
+     "Rebase on BO-017 and current main, sequence central supervision and shared event/redaction edits with the declared peers, and pass app-server adapter, AgentLog compatibility, PubSub, restart, security, compile/lint/spec, and full CI suites."
+    ],
+    "human_or_e2e": [
+     "None separately; DASH-027 owns real-dashboard evidence for live, empty, ended, stale, and unavailable conversation snapshots."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [],
+   "github": null
+  },
+  {
+   "id": "DASH-027",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Render accessible conversation drawer",
+   "document": "companion-tickets/DASH-027-accessible-conversation-drawer.md",
+   "outcome": "An Executor can open a clearly read-only, responsive, keyboard-accessible conversation drawer from an eligible Units action and follow the exact DASH-026 snapshot without exposing paths, raw payloads, or confusing conversation with ticket context.",
+   "scope": [
+    "Add an explicit, named `Read conversation` action for a Units row whose DASH-026 capability is available. Row activation itself continues to open DASH-003/BO-018 ticket context; a non-focusable clickable `<tr>` is never the drawer trigger.",
+    "Render DASH-026 title/typed ticket identity, normalized agent/model/session metadata when known, live/ended/source state, bounded messages, truncation, health, freshness, and last observation. Unknown optional facts remain labelled unknown.",
+    "Render the conversation as a read-only mirror with semantic role labels, timestamps when known, safe text/tool summaries, non-color system transitions, and an explicit statement that the viewer is not participating.",
+    "Implement a modal side drawer on wide screens and full-width dialog on narrow screens with labelled heading, initial heading/close focus, focus trap, Escape and close-button behavior, background inertness, scroll containment, and deterministic focus return to the exact originating action.",
+    "Subscribe through the dashboard's existing coalesced update path and replace only the selected generation's snapshot. Preserve the reader's position while reviewing older content; auto-follow only when already at the end, with a named jump-to-latest control when new messages arrive.",
+    "Close or transition truthfully when the row leaves scope, the worker generation changes, or the source becomes unavailable. Never silently display a replacement worker's conversation under the old heading.",
+    "Preserve the current separately authorized operator-message/pause path until its owning control work explicitly migrates or removes it; this read-only drawer neither invokes nor embeds those actions."
+   ],
+   "non_goals": [
+    "Read workspace files, call `Aiur.AgentLog.read_workspace/1` during render, display a local path, or render unknown/raw event JSON.",
+    "Send messages, pause/resume agents, change capacity, open unvalidated Remote Control URLs, or account Remote Control/provider usage.",
+    "Render ticket description, progress, dependencies, blocker relationships, or the BO-019 activity/BO-018 Logs timeline.",
+    "Add transcript search, export, unbounded history, or durable browser storage."
+   ],
+   "phase_hint": 7,
+   "complexity_points": 3,
+   "complexity_rationale": "Responsive modal-drawer interaction with live updates, focus restoration, and truthful source states",
+   "risk": "medium",
+   "capability_requirements": [
+    "frontend",
+    "accessibility"
+   ],
+   "workstream": "dashboard-ui",
+   "requirement_refs": [
+    "DREQ-027"
+   ],
+   "depends_on": [
+    "DASH-003",
+    "DASH-026"
+   ],
+   "serializes_with": [
+    "DASH-005",
+    "DASH-007",
+    "DASH-015",
+    "DASH-021",
+    "DASH-022",
+    "DASH-028",
+    "DASH-031",
+    "DASH-034"
+   ],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "DASH-003 Units action/row identity",
+    "DASH-026 snapshots and change notifications",
+    "dashboard auth/read-only state"
+   ],
+   "write_surfaces": [
+    "conversation drawer presenter/component",
+    "explicit Units Chat action",
+    "focus/scroll hook and responsive tokens"
+   ],
+   "contract_surfaces": [
+    "read-only Chat destination",
+    "drawer focus/live-update lifecycle",
+    "no-I/O render boundary"
+   ],
+   "safety_surfaces": [
+    "read-only no-mutation drawer",
+    "path/raw-payload nonleakage"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "Component/LiveView tests cover available, known-empty, live, ended, stale, unavailable, restart-unknown, truncated, generation-replaced, row-filtered, and source-recovered states.",
+     "Browser/a11y tests cover explicit action naming, keyboard/touch open and close, focus entry/trap/Escape/return, background inertness, long-message wrapping, nested scroll, jump-to-latest behavior, reduced motion, forced colors, theme, 200% zoom, and 320/390/768/960/desktop layouts.",
+     "Security tests prove rendering performs no workspace/log/provider read and no path, raw event JSON, prompt/reasoning, credential, account, or unsafe URL reaches the DOM.",
+     "Regression tests prove ordinary row activation still opens ticket context and the drawer exposes no message/pause/capacity event handler."
+    ],
+    "at_merge_gate": [
+     "Rebase on DASH-003/026 and current main, sequence shared dashboard files with the declared UI peers, and pass Units, ticket-context, AgentLog compatibility, LiveView, browser accessibility, security, asset, and full CI gates."
+    ],
+    "human_or_e2e": [
+     "From the Executor repository root, run the real `scripts/aiurdev --test` UI, open the explicit conversation action by keyboard and touch at desktop and 390px, observe live and ended updates without focus/scroll theft, exercise stale/unavailable and generation replacement, and verify close returns focus to the originating row action."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [
+    "DESIGN-002"
+   ],
+   "github": null
+  },
+  {
+   "id": "DASH-028",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Render runtime capacity control",
+   "document": "companion-tickets/DASH-028-authoritative-runtime-capacity-control.md",
+   "outcome": "Authenticated Executors can raise or lower the positive runtime max-agent capacity from Units and see the authoritative active, maximum, session- override, and draining result without browser code pausing workers or claiming that a requested value has already applied.",
+   "scope": [
+    "Render current `active`, `max`, configured/source/session-override, and `draining?` facts returned by the existing Slots/StatusReport contract. If a supported fact is absent, label it unknown rather than deriving it from rendered rows.",
+    "Provide named decrement/increment controls and, where retained by product layout, a validated positive-integer absolute input. The UI minimum is `1`; zero never means global pause.",
+    "Recheck Basic Auth, writable mode, same-origin/CSRF policy, current capacity, and control capability on every invocation. Mount-time authorization is not sufficient.",
+    "Invoke only the Orchestrator-owned adjust/set functions. Disable or debounce repeated activation while pending and reconcile from the returned or next authoritative snapshot, never the requested value alone.",
+    "Render pending, applied/no-op, invalid, timeout, unavailable, stale response, concurrent change, and draining states with bounded accessible copy and safe retry guidance.",
+    "Preserve focus and current value across LiveView updates. Coalesce status announcements and keep controls named, at least 44px, and usable at all Units breakpoints and 200% zoom.",
+    "Preserve the existing precedence and dispatch behavior. Lowering capacity stops new dispatch according to Slots policy and never selects, pauses, resumes, interrupts, or kills an individual unit."
+   ],
+   "non_goals": [
+    "Implement per-unit pause/resume, change Slots precedence/dispatch/worker-host policy, add capacity zero, globally pause the workflow, or persist a browser value across daemon restart.",
+    "Compute authoritative capacity from visible rows, emulate control in JavaScript, mutate tracker labels, or add Build Order controls.",
+    "Add an unauthenticated mutation endpoint or expose configuration secrets."
+   ],
+   "phase_hint": 7,
+   "complexity_points": 2,
+   "complexity_rationale": "Authenticated presentation over an existing authoritative Orchestrator capacity contract",
+   "risk": "medium",
+   "capability_requirements": [
+    "frontend",
+    "accessibility"
+   ],
+   "workstream": "dashboard-ui",
+   "requirement_refs": [
+    "DREQ-028"
+   ],
+   "depends_on": [
+    "DASH-003"
+   ],
+   "serializes_with": [
+    "DASH-005",
+    "DASH-007",
+    "DASH-015",
+    "DASH-021",
+    "DASH-022",
+    "DASH-027",
+    "DASH-031",
+    "DASH-034"
+   ],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "authoritative Slots/StatusReport capacity",
+    "dashboard auth/write state through DASH-003 composition"
+   ],
+   "write_surfaces": [
+    "LiveView capacity handlers/presenter",
+    "pending/error presentation",
+    "responsive components"
+   ],
+   "contract_surfaces": [
+    "positive capacity input",
+    "requested-versus-authoritative result presentation"
+   ],
+   "safety_surfaces": [
+    "no client-side scheduling",
+    "no per-unit pause side effects"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "LiveView tests cover valid increment/decrement/set, minimum `1`, invalid/ overflow input, no-op, double activation, auth/write-mode changes, timeout/ unavailable, concurrent returned/status updates, and focus/error recovery.",
+     "Integration tests prove the displayed applied value comes from Slots, lowering shows authoritative draining, no unit pause/resume action fires, and reconnect restores daemon state rather than browser state.",
+     "Browser/a11y tests cover names, states, pending announcements, keyboard/ touch, 44px targets, 200% zoom, and 320/390/768/960/desktop reflow."
+    ],
+    "at_merge_gate": [
+     "Rebase on DASH-003 and current main, sequence shared dashboard files, and pass Slots, StatusReport, auth/write-gate, Units, browser accessibility, and full CI suites."
+    ],
+    "human_or_e2e": [
+     "From the Executor repository root, run the real authenticated writable dashboard, raise and lower the max-agent setting, observe the authoritative active/max/draining state and queued dispatch behavior, then confirm read-only mode exposes no usable mutation control."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [
+    "DESIGN-002"
+   ],
+   "github": null
+  },
+  {
+   "id": "DASH-029",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Normalize headless usage sources",
+   "document": "companion-tickets/DASH-029-headless-usage-sources.md",
+   "outcome": "Every supported Codex and Claude headless protocol source emits a faithful, exactly attributed DASH-008 `UsageEnvelope` during normal runs, with its true counter scope, source version, account generation, relationship revision, and coverage preserved without transient or browser-owned accounting.",
+   "scope": [
+    "Characterize the exact installed Codex and Claude headless event revisions at pickup with synthetic, redacted fixtures and explicit source-version identifiers.",
+    "Map supported Codex cumulative thread updates, turn completions, cache and reasoning dimensions to DASH-008 without treating overlapping absolute and delta streams as independently additive.",
+    "Map supported Claude headless request/turn completion usage and structured provider-estimated cost to DASH-008, preserving its request scope and exact decimal representation.",
+    "Consume trusted run, repository, ticket, attempt, session, backend, requested model, resolved model, effort, auth-mode, counter-epoch, and DASH-018 account- generation context already ordered by DASH-008's prerequisites. Missing attribution remains missing and cannot be recovered from prose or paths.",
+    "Select only a registry entry whose provider, source, and source version match exactly. Pin that relationship revision on the envelope; unsupported or ambiguous versions emit bounded coverage evidence rather than current-version semantics.",
+    "Preserve provider source event IDs, sequence/order, occurrence time, update kind, measurement kind, counter scope, reset evidence, and raw normalized dimensions. Do not derive a cross-message delta in either adapter.",
+    "Emit during normal headless runs regardless of dashboard clients, TUI mode, or `--debug`; keep existing transient token consumers working through a thin compatibility adapter until their planned migration lands.",
+    "Drop provider payloads after normalization and publish only validated, redacted envelopes or bounded rejection/coverage reasons."
+   ],
+   "non_goals": [
+    "Define the envelope or token-relationship registry, mint account generation, persist observations, derive durable deltas, aggregate, price, compact, query, or render usage.",
+    "Ingest Claude Remote Control/REPL telemetry, own the OTLP transport, or expose provider account meters; DASH-010, DASH-019, and DASH-012/013/020 own those paths.",
+    "Scrape transcripts, interactive output, status lines, workspaces, prompts, provider dashboards, or billing pages."
+   ],
+   "phase_hint": 4,
+   "complexity_points": 3,
+   "complexity_rationale": "Two version-pinned provider adapters over one established envelope contract",
+   "risk": "high",
+   "capability_requirements": [
+    "backend"
+   ],
+   "workstream": "accounting",
+   "requirement_refs": [
+    "DREQ-029"
+   ],
+   "depends_on": [
+    "DASH-008",
+    "BO-017",
+    "DASH-018"
+   ],
+   "serializes_with": [
+    "BO-005"
+   ],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "supported Codex/Claude headless protocol events",
+    "DASH-008 envelope/registry and trusted attribution contracts",
+    "DASH-018 account generation"
+   ],
+   "write_surfaces": [
+    "versioned provider normalizers",
+    "envelope publication",
+    "compatibility projection and redacted fixtures"
+   ],
+   "contract_surfaces": [
+    "exact source-to-envelope mappings",
+    "normal-run emission"
+   ],
+   "safety_surfaces": [
+    "headless provider payload redaction",
+    "agent-event ingestion seam"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "Fixture/property tests cover Codex thread absolutes and turn deltas, Claude request deltas/cost, duplicates, out-of-order records, partial patches, counter reset, account rotation, retry/new attempt, session resume, model/ backend fallback, and source-version drift.",
+     "Relationship tests prove Claude additive cache dimensions and supported Codex subset dimensions pin the exact registry revision; unknown revisions cannot publish a canonical derived total or pricing input.",
+     "Attribution/security tests prove typed repository collisions, missing trusted identity, exact-decimal cost, normal-run emission, compatibility projection, and complete payload/credential/path redaction."
+    ],
+    "at_merge_gate": [
+     "Rebase on DASH-008 and its BO-017/DASH-018 prerequisites, serialize shared normalizer work with BO-005, and pass provider protocol, MessageHandler, transient-token compatibility, security, and full CI suites."
+    ],
+    "human_or_e2e": [
+     "Record sanitized synthetic envelopes from one real Codex and one real Claude headless turn, showing exact source revision, scope, identity, relationship revision, and coverage without exposing raw provider content."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [],
+   "github": null
+  },
+  {
+   "id": "DASH-030",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Project grouped usage scopes",
+   "document": "companion-tickets/DASH-030-grouped-usage-scopes.md",
+   "outcome": "Aiur exposes bounded, exact, scope-labelled token and estimate summaries for a caller-supplied run and/or repository-qualified ticket set, with reconciled provider, ticket, agent-family, backend, model, currency, account-generation, pricing, relationship, and retained-coverage contributors.",
+   "scope": [
+    "Define a bounded query accepting explicit typed run identities and/or exact configured-repository ticket identities. A request declares `this_run`, `explicit_ticket_set`, or their supported intersection; bare issue numbers, visible rows, and labels are never scope authority.",
+    "Return canonical tokens plus separately labelled `provider_reported_estimate`, `api_equivalent_estimate`, and unknown monetary coverage by provider, ticket, agent family, backend, exact resolved model, auth mode, currency, opaque provider-account generation, run, occurrence- price partition/revision, and token-relationship revision.",
+    "Preserve contributor buckets and produce one exact compatible-currency API- equivalent roll-up across providers/account generations for each requested scope. Reconcile every roll-up to provider, generation, ticket, agent, backend, and model constituents without combining unlike bases or currencies.",
+    "Include pricing/model/token/relationship/attribution coverage, unknown contributors, store health, aggregate generation, earliest/latest retained coverage, and deterministic partial/known-empty/unavailable states.",
+    "Include all retained observations for an explicit current-member ticket set, including pre-membership usage, while excluding nonmembers. Membership is supplied by DASH-023 and is never stored or inferred here.",
+    "Emit a generation-qualified tier-join key of `(provider, backend, provider_account_generation)` only for exact known contributor groups. Unknown/mixed groups have no synthetic key; this ticket never reads meters.",
+    "Support bounded pagination/drill-down summaries without scanning raw ledger segments or materializing unbounded browser data. Publish immutable snapshots and changes suitable for DASH-021's protected facade.",
+    "Keep run/build scopes, compatible-currency totals, and contributor totals exactly reproducible across restart, replay, and retained compaction."
+   ],
+   "non_goals": [
+    "Define price tables or token arithmetic, ingest/persist/compact usage, fetch provider meters, join plan tiers, render UI, or discover Build Order roots.",
+    "Allocate subscription fees, call organization billing APIs, merge currencies or monetary bases, infer ticket identity, or treat missing coverage as zero.",
+    "Write usage or membership back to GitHub."
+   ],
+   "phase_hint": 6,
+   "complexity_points": 3,
+   "complexity_rationale": "Bounded multidimensional grouping over established aggregate and pricing contracts",
+   "risk": "high",
+   "capability_requirements": [
+    "backend"
+   ],
+   "workstream": "accounting",
+   "requirement_refs": [
+    "DREQ-030"
+   ],
+   "depends_on": [
+    "DASH-011",
+    "DASH-024"
+   ],
+   "serializes_with": [],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "DASH-024 aggregate/query snapshots",
+    "DASH-011 exact priced/token reconciliation",
+    "caller-supplied typed scopes"
+   ],
+   "write_surfaces": [
+    "grouped usage query/projection",
+    "bounded cursors/snapshots",
+    "change notifications and fixtures"
+   ],
+   "contract_surfaces": [
+    "exact run/ticket scopes",
+    "contributor reconciliation and compatible-currency roll-ups",
+    "exact-generation tier keys"
+   ],
+   "safety_surfaces": [
+    "protected grouped data",
+    "stale-generation isolation"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "Property tests cover run-only, explicit-ticket, intersection, empty, partial, pre-membership, removed/nonmember, typed repository collision, mixed account generations, currencies, bases, revisions, models, and coverage.",
+     "Reconciliation tests prove all compatible-currency roll-ups equal their preserved contributors, provider-reported values remain separate, and unknown/contradictory pricing or relationships cannot become zero.",
+     "Restart/retention tests prove equivalent results before/after replay and compaction, bounded pagination, stale-generation rejection, and no raw-ledger or provider-meter access."
+    ],
+    "at_merge_gate": [
+     "Rebase on DASH-011/024 and run aggregate, pricing, exact-money, scope, retention, security, property, and full CI suites."
+    ],
+    "human_or_e2e": [
+     "Review a synthetic mixed Codex/Claude run and explicit build set. Show one compatible-currency API-equivalent total reconciling to every visible provider/ticket/model/agent contributor while unlike bases/currencies and missing coverage remain separate."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [],
+   "github": null
+  },
+  {
+   "id": "DASH-031",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Render authenticated usage and cost summary",
+   "document": "companion-tickets/DASH-031-usage-cost-summary-ui.md",
+   "outcome": "Authenticated Executors see live token and API-equivalent estimate totals for `this run` or an explicit selected-build scope, reconciled by ticket, provider, agent family, backend, model, currency, and account generation with truthful coverage, exact-generation tier annotations, an asterisk disclosure, and bounded accessible drill-down. Other connections receive no protected values.",
+   "scope": [
+    "Consume usage only through DASH-021's protected snapshot/subscription facade. Denied connections render its value-free `authentication_required` state and never query, subscribe to, cache, assign, emit, serialize, or receive usage, cost, generation, coverage, tier, or drill-down facts.",
+    "Render DASH-030's `this_run` scope by default on Units. Accept an explicit typed member-set scope from DASH-023 for `this build`; never infer scope from labels, visible rows, URL text, or currently active workers.",
+    "Present token and monetary totals plus bounded drill-down by ticket, provider, agent family, backend, exact model, currency, basis, and opaque account generation. Preserve coverage, revisions, retained interval, freshness, health, and unknown contributors.",
+    "Display one exact `api_equivalent_estimate` total per compatible currency and reconcile it visibly to preserved contributors. Keep provider-reported estimates separate; never call either billed or actual spend.",
+    "Mark subscription API-equivalent dollars with `*` and provide a keyboard/ touch accessible information popover explaining the token-price lookup, the estimate basis, and why the user's flat subscription is not allocated.",
+    "Join actual plan/tier annotations from DASH-020/013 only on exact known `(provider, backend, provider_account_generation)`. Unknown, mixed, and mismatched generations remain unjoined; a combined total never receives a synthetic cross-provider tier.",
+    "Surface DASH-010 Remote Control and DASH-029 headless coverage separately so missing/partial source coverage cannot look like zero usage.",
+    "On authorized mount/reconnect, fetch a bounded current snapshot and subscribe to daemon-owned changes. Coalesce rendering/announcements and isolate one scope/provider/query failure from healthy contributors.",
+    "Reflow totals, disclosures, groups, and drill-down at 320/390/768/960/desktop and 200% zoom with semantic meters/tables/lists and 44px controls."
+   ],
+   "non_goals": [
+    "Render provider quota/rate/reset cards or the nonfinancial Aiur run summary; DASH-015 and DASH-022 own those surfaces.",
+    "Ingest, persist, normalize, price, group, retain, or compact usage; fetch providers per browser; allocate subscription fees; or redesign Analytics.",
+    "Combine unlike bases/currencies, guess a tier, expose account identity, or weaken DASH-021's locked state."
+   ],
+   "phase_hint": 7,
+   "complexity_points": 4,
+   "complexity_rationale": "Protected responsive composition, exact reconciliation, live scopes, and bounded drill-down",
+   "risk": "high",
+   "capability_requirements": [
+    "backend",
+    "accessibility"
+   ],
+   "workstream": "accounting",
+   "requirement_refs": [
+    "DREQ-031"
+   ],
+   "depends_on": [
+    "DASH-003",
+    "DASH-010",
+    "DASH-013",
+    "DASH-020",
+    "DASH-021",
+    "DASH-025",
+    "DASH-029",
+    "DASH-030"
+   ],
+   "serializes_with": [
+    "DASH-005",
+    "DASH-007",
+    "DASH-015",
+    "DASH-022",
+    "DASH-027",
+    "DASH-028",
+    "DASH-034"
+   ],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "DASH-030 grouped usage",
+    "DASH-010/029 source coverage",
+    "DASH-013/020 exact-generation meter facts",
+    "DASH-025 retained coverage",
+    "DASH-021 protected delivery"
+   ],
+   "write_surfaces": [
+    "protected accounting presenters/components",
+    "bounded drill-down and popover",
+    "authorized subscriptions and responsive CSS"
+   ],
+   "contract_surfaces": [
+    "authenticated usage/cost summary",
+    "exact tier composition and estimate disclosure",
+    "contributor reconciliation and live scope behavior"
+   ],
+   "safety_surfaces": [
+    "financial-data nonleakage",
+    "generation-safe updates"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "Presenter tests cover run/explicit-build scopes, every basis/currency/ coverage/generation, exact tier join, unknown/mixed/mismatch, provider-source coverage, compatible-total reconciliation, loading/empty/stale/error, and live generation changes.",
+     "Security integration proves denied mode invokes no protected provider and contains no token, dollar, group, account/auth-mode, plan/tier, quota, reset, coverage, freshness, LKG, or serialized hidden values.",
+     "Browser/a11y tests cover keyboard/touch drill-down and popover, focus return, announcement coalescing, light/dark/reduced motion, 44px targets, 200% zoom, all breakpoints, and no clipping."
+    ],
+    "at_merge_gate": [
+     "Rebase all eight prerequisites and pass accounting, source-coverage, retention/compaction, provider-meter, auth/security, accessibility, performance, and full CI suites."
+    ],
+    "human_or_e2e": [
+     "From the Executor repository root, compare subscription, API-key, partial, stale, Remote-Control-inclusive, mixed-generation, and locked fixtures. Verify a mixed Codex/Claude total reconciles, remains asterisked, exposes only exact-generation tiers, and leaks no protected value in denied page source or events."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [],
+   "github": null
+  },
+  {
+   "id": "DASH-032",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Project truthful current-run outcomes",
+   "document": "companion-tickets/DASH-032-truthful-current-run-recent-outcomes.md",
+   "outcome": "Aiur exposes a bounded current-run outcome projection containing only repository merges that can be associated with an exact current-run member through canonical branch/ticket facts and the run window, while stating association evidence without claiming that Aiur caused the merge.",
+   "scope": [
+    "Define a pure, versioned `CurrentRunOutcomeSnapshot` over DASH-002 membership, DASH-014 run identity/window metadata, and the configured repository's `RecentMergeStore` snapshot/reconciliation state.",
+    "Qualify a merge only when all evidence is present: exact configured repository match; canonical `TicketBranch.ticket_id/1` result; unique resolution of that repository/number locator to one DASH-002 member's canonical BO-004 identity; and `merged_at` within the active run window.",
+    "Treat the repository/number from the canonical branch only as a locator into authoritative membership. Missing, ambiguous, legacy-unjoinable, or repository-mismatched membership never becomes an outcome.",
+    "Include bounded safe PR identity/title/summary/URL, merge commit/time, canonical member identity and display number, run generation/window, association basis, merge observation provenance, source health/freshness, and truncation/reconciliation metadata.",
+    "Keep observation and association separate. A backfilled merge may qualify when its canonical facts, member, and merge time match; a live-observed merge does not qualify merely because `observed_run_id` equals the current run.",
+    "Classify excluded candidates by bounded reason counts such as `noncanonical_branch`, `not_current_member`, `outside_run_window`, `repository_mismatch`, `ambiguous_identity`, or `source_unavailable`. Do not expose rejected raw content.",
+    "Sort qualified outcomes deterministically by merge time and canonical PR identity, deduplicate enriched snapshots by merge identity, and cap the current-run list explicitly. Recompute from immutable source snapshots on membership, run, or recent-merge updates; do not create a second merge ledger.",
+    "Distinguish healthy empty, partial reconciliation, stale membership/run facts, source unavailable, and restart/new-run generation. Preserve a same-generation last-known-good result only with visible stale provenance."
+   ],
+   "non_goals": [
+    "Claim that Aiur, an agent, or the current run authored, completed, or caused a PR merge; use `observed_run_id` as causality or membership; or infer linkage from title/body/prose.",
+    "Fetch GitHub, mutate issues/PRs, change `RecentMerge` persistence, redefine DASH-002 membership, redefine DASH-014 run start, or render outcome cards.",
+    "Include Decision history, non-merge events, arbitrary branches, other repositories, cross-run analytics, or usage/spend accounting."
+   ],
+   "phase_hint": 6,
+   "complexity_points": 3,
+   "complexity_rationale": "Source-aware temporal join between current-run membership and canonical repository merge facts",
+   "risk": "high",
+   "capability_requirements": [
+    "backend"
+   ],
+   "workstream": "runtime",
+   "requirement_refs": [
+    "DREQ-032"
+   ],
+   "depends_on": [
+    "DASH-002",
+    "DASH-014"
+   ],
+   "serializes_with": [],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "DASH-002 membership snapshots/lookups",
+    "DASH-014 run identity/window",
+    "RecentMergeStore snapshot/reconciliation",
+    "configured repository and TicketBranch facts"
+   ],
+   "write_surfaces": [
+    "pure current-run outcome projection",
+    "association/exclusion policy",
+    "snapshot schema"
+   ],
+   "contract_surfaces": [
+    "CurrentRunOutcomeSnapshot",
+    "current-run merge qualification",
+    "observation-versus-association semantics"
+   ],
+   "safety_surfaces": [
+    "observation-only provenance semantics",
+    "run-generation isolation",
+    "bounded redacted merge facts"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "Join tests cover canonical/noncanonical branches, exact/mismatched repository, same number in two repositories, unique/ambiguous/missing/legacy membership, before/at/after run start, future merge time, and new-run isolation.",
+     "Provenance tests prove matching and nonmatching `observed_run_id` never changes qualification; live and backfilled versions of the same canonical fact yield the same association result.",
+     "Health tests cover healthy empty, partial GitHub reconciliation, stale/unavailable membership, missing run start, merge-store corruption/unavailability, same-generation recovery, truncation, enrichment/deduplication, and deterministic ordering.",
+     "Negative tests prove PR title/body, merge observer, current directory, workspace path, active row, and bare number alone cannot qualify an outcome or leak into exclusion diagnostics."
+    ],
+    "at_merge_gate": [
+     "Rebase on DASH-002/014 and current main; pass membership/run-window, TicketBranch, RecentMerge/RecentMergeStore replay/reconciliation, identity collision, projection, security, compile/lint/spec, and full CI suites."
+    ],
+    "human_or_e2e": [
+     "None separately; the owning recent-outcomes presentation ticket must show a canonical current-run association, an unrelated live-observed merge excluded, a qualifying backfilled merge, and partial/unavailable source wording without claiming causality."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [],
+   "github": null
+  },
+  {
+   "id": "DASH-033",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Prove existing-dashboard parity",
+   "document": "companion-tickets/DASH-033-dashboard-parity-capstone.md",
+   "outcome": "The shipped Executor Control Center is proven end to end to preserve current operational behavior while meeting the accepted prototype delta for shell, Units, conversations, controls, Commands, run/provider/accounting summaries, Recent outcomes, authentication, accessibility, live convergence, and responsive layouts.",
+   "scope": [
+    "Establish the exact configured integration branch/SHA containing every prerequisite and the resolved predecessor baseline. Reproduce on current main-equivalent code rather than an obsolete prototype or planning branch.",
+    "Run the real dashboard through the repository's canonical CLI/manual-testing path in read-only and authenticated writable modes. Exercise reconnect and daemon-driven updates rather than browser-only fixture mutation.",
+    "Prove responsive route navigation for Units, Commands, Build Order, and the real Analytics destination, including share/back/refresh, safe areas, theme, reduced motion, 320/390/768/960/desktop, and 200% text zoom.",
+    "Prove Units scopes/overlapping chips, terminal membership, unknown/stale facts, ticket context, safe read-only conversation mirror, per-unit controls, authoritative positive capacity changes, and focus preservation under live row updates.",
+    "Prove the complete retained Decision lifecycle still works through Commands: direct old-record lookup, filtering, provenance/confidence, confirmation, dispatch/retry/acknowledgement, revisions, follow-ups, and deep links.",
+    "Prove nonfinancial run summary, provider meter cards, usage/cost accounting, exact-generation tier annotations, Remote/headless coverage, asterisk disclosure, contributor reconciliation, and content-free locked mode.",
+    "Prove `Finished this run` outcomes use the accepted current-run member/merge contract without relabelling the global RecentMerge audit or deleting Decision history.",
+    "Collect bounded screenshots, browser/a11y results, performance/overflow evidence, relevant CI, and a concise documentation/compatibility handoff.",
+    "Route a failed prerequisite acceptance back to that ticket as contained rework. Record nonblocking discoveries in the deferred ledger; do not create an expanding reliability backlog during capstone convergence."
+   ],
+   "non_goals": [
+    "Implement a missing prerequisite, redesign Build Order graph behavior, replace Analytics, create planning mutations, or add a new general reliability program.",
+    "Require pixel-for-pixel prototype parity, copy fake data/client mutations, or declare success from unit tests, logs, HTTP calls, or screenshots alone.",
+    "Keep working until every adjacent bug or optimization is exhausted."
+   ],
+   "phase_hint": 8,
+   "complexity_points": 3,
+   "complexity_rationale": "Integrated real-dashboard proof across independently accepted companion systems",
+   "risk": "high",
+   "capability_requirements": [
+    "frontend",
+    "accessibility"
+   ],
+   "workstream": "dashboard-ui",
+   "requirement_refs": [
+    "DREQ-033"
+   ],
+   "depends_on": [
+    "DASH-001",
+    "DASH-003",
+    "DASH-005",
+    "DASH-007",
+    "DASH-015",
+    "DASH-022",
+    "DASH-027",
+    "DASH-028",
+    "DASH-031",
+    "DASH-034"
+   ],
+   "serializes_with": [],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "all accepted companion contracts",
+    "configured integration SHA",
+    "real dashboard/TUI behavior and CI evidence"
+   ],
+   "write_surfaces": [
+    "bounded integration fixes",
+    "parity checklist and screenshots/evidence",
+    "documentation"
+   ],
+   "contract_surfaces": [
+    "composed dashboard definition of done",
+    "predecessor-behavior preservation"
+   ],
+   "safety_surfaces": [
+    "finite feature boundary",
+    "protected-data nonleakage",
+    "deferred-findings circuit breaker"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "Full component, LiveView, provider, storage, control, Decision, browser, accessibility, security, performance, and repository CI suites pass on the exact configured integration SHA.",
+     "Automated browser matrix covers all named routes, breakpoints, zoom/theme/ motion modes, keyboard/touch/focus paths, reconnect/live updates, auth modes, degraded providers, and absence of page-level overflow.",
+     "A traceable checklist maps every companion requirement to prerequisite proof and composed proof, with no silently waived acceptance item."
+    ],
+    "at_merge_gate": [
+     "Rebase on all ten terminal prerequisites, resolve shared composition only through their published contracts, pass current main CI, and land the documentation/evidence update with no unresolved P0/P1 dashboard blocker."
+    ],
+    "human_or_e2e": [
+     "From the Executor repository root, launch the real CLI as prescribed by `AGENTS.md`; drive the dashboard and TUI like an operator; observe Units, Commands, conversation, controls, summaries, Recent, Analytics, read-only/ locked, live-update, desktop, and 390px behavior."
+    ]
+   },
+   "decision_refs": [],
+   "design_evidence_refs": [
+    "DESIGN-002"
+   ],
+   "github": null
+  },
+  {
+   "id": "DASH-034",
+   "kind": "executable",
+   "provenance": "planned",
+   "introduced_in_plan_version": 1,
+   "discovered_from": null,
+   "title": "Render current-run Recent outcomes",
+   "document": "companion-tickets/DASH-034-current-run-recent-ui.md",
+   "outcome": "The Units page renders a bounded `Recent / Finished this run` region from DASH-032's qualified outcomes with truthful association, freshness, partiality, and source states, while the global repository-merge audit, complete Decision history, and real Analytics destination remain available on their proper surfaces.",
+   "scope": [
+    "Render DASH-032 qualified outcomes only on the accepted Units destination, using safe PR number/title/summary, canonical ticket display identity, merge time, association wording, observation provenance, and source freshness.",
+    "Label the region `Finished this run` only when the entire snapshot has a canonical current-run generation. Describe cards as repository merges associated with current-run member tickets; never claim Aiur/agent authorship or causality.",
+    "Render healthy empty, partial reconciliation, stale membership/run window, merge source unavailable, restart/new-run, and truncated states explicitly. A partial or unavailable result cannot display a confident no-outcomes claim.",
+    "Preserve trusted GitHub PR links and the real authenticated Analytics route. Do not copy the prototype's hard-coded `aiur.team/analytics` destination.",
+    "Preserve the global RecentMerge audit where current product navigation keeps cross-run repository history. Do not destructively filter or relabel its durable store.",
+    "Preserve complete Decision history through DASH-007 Commands composition, including provenance, revisions, dispatch, acknowledgement, and deep links. Removing it from Units is permitted only after that route remains reachable and regression-proven.",
+    "Subscribe through existing dashboard PubSub/coalesced reloads and render only current DASH-032 generation. Preserve focus, scroll, and screen-reader stability as outcomes arrive or are enriched.",
+    "Reflow cards, provenance, safe links, health copy, and empty states at 320/390/768/960/desktop and 200% zoom with 44px interactive targets."
+   ],
+   "non_goals": [
+    "Qualify merges, query GitHub, mutate RecentMerge persistence, infer causality, display arbitrary branches, or create a second current-run outcome store.",
+    "Replace Commands/Decision history, redesign Analytics, show cross-run BI, or add build accounting to outcome cards.",
+    "Copy prototype CI/review/agent claims unless an accepted canonical source is separately present in DASH-032; unknown facts remain absent."
+   ],
+   "phase_hint": 7,
+   "complexity_points": 3,
+   "complexity_rationale": "Responsive current-run outcome presentation with history preservation and degraded-state semantics",
+   "risk": "medium",
+   "capability_requirements": [
+    "frontend",
+    "accessibility"
+   ],
+   "workstream": "dashboard-ui",
+   "requirement_refs": [
+    "DREQ-034"
+   ],
+   "depends_on": [
+    "DASH-003",
+    "DASH-007",
+    "DASH-032"
+   ],
+   "serializes_with": [
+    "DASH-005",
+    "DASH-015",
+    "DASH-021",
+    "DASH-022",
+    "DASH-027",
+    "DASH-028",
+    "DASH-031"
+   ],
+   "suggested_after": [],
+   "contains": [],
+   "external_gates": [],
+   "read_surfaces": [
+    "DASH-003 Units composition",
+    "DASH-007 Commands/Decision-history preservation",
+    "DASH-032 current-run outcome snapshots",
+    "real Analytics route"
+   ],
+   "write_surfaces": [
+    "current-run Recent presenter/component",
+    "DashboardLive composition",
+    "responsive CSS"
+   ],
+   "contract_surfaces": [
+    "Finished this run presentation",
+    "separation of current-run, global merge, and Decision-history scopes"
+   ],
+   "safety_surfaces": [
+    "causality-safe wording",
+    "trusted links",
+    "generation-safe live updates"
+   ],
+   "conflict_exceptions": [],
+   "acceptance": {
+    "agent_gate": [
+     "Presenter/LiveView tests cover qualified live/backfilled outcomes, healthy empty, partial, stale, unavailable, restart/new-run, truncation, enrichment, ordering, unsafe links, and generation changes.",
+     "Regression tests prove `observed_run_id` alone never renders a card, global repository history remains separately reachable, complete Decision history remains reachable through Commands, and Analytics uses the real route.",
+     "Browser/a11y tests cover keyboard/touch links, focus/scroll during live inserts, bounded announcements, safe empty/error copy, light/dark/reduced motion, 44px targets, 200% zoom, and all supported breakpoints."
+    ],
+    "at_merge_gate": [
+     "Rebase on DASH-003/007/032 and current main, sequence shared dashboard files, and pass RecentMerge, Decision history, Commands, Analytics, LiveView, security, browser accessibility, and full CI suites."
+    ],
+    "human_or_e2e": [
+     "From the Executor repository root, run the real dashboard and show a canonical current-run merge, an unrelated live-observed merge excluded, a qualifying backfilled merge, partial/unavailable wording, preserved Commands history, real Analytics navigation, and desktop/390px layouts."
+    ]
+   },
+   "decision_refs": [],
    "design_evidence_refs": [
     "DESIGN-002"
    ],

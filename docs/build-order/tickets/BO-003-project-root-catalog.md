@@ -12,7 +12,7 @@
 
 **Depends on:** BO-002
 
-**Serializes with:** BO-005, BO-016, BO-019
+**Serializes with:** BO-005, BO-016, BO-019, DASH-002, DASH-009, DASH-012, DASH-018, DASH-019, DASH-024, DASH-025, DASH-026 — application supervision tree
 
 **Requirements:** BOREQ-001, BOREQ-004
 
@@ -22,7 +22,7 @@
 
 **Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
-**Suggested labels:** `complexity:4`, `model:codex`, `phase:3`, `build-lane:backend`; never `agent:todo`
+**Suggested labels:** `complexity:4`, `model:codex`, `phase:3`, `build-lane:plan-graph`; never `agent:todo`
 
 ## Outcome
 

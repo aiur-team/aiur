@@ -8,6 +8,8 @@
 
 **Risk:** high
 
+**Phase hint:** 3
+
 **Depends on:** DASH-012
 
 **Serializes with:** none
@@ -16,11 +18,11 @@
 
 **Requirements:** DREQ-020
 
-**Researched at:** `9849f32963c2a65367bce565b3f5ede3777c218f`
+**Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
-**Suggested labels:** `complexity:3`, `model:codex`; never `agent:todo`
+**Suggested labels:** `complexity:3`, `model:codex`, `phase:3`, `build-lane:accounting`; never `agent:todo`
 
-**Build Order membership:** none — standalone dashboard companion
+**Build Order membership:** member of the consolidated Build Order (operator decision 2026-07-13)
 
 ## Outcome
 

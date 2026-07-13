@@ -8,6 +8,8 @@
 
 **Risk:** high
 
+**Phase hint:** 6
+
 **Depends on:** DASH-024
 
 **Serializes with:** BO-003, BO-005, BO-016, BO-019, DASH-002, DASH-012, DASH-019, DASH-026 — application supervision tree; the hard-ordered storage chain owns one destructive seam
@@ -16,11 +18,11 @@
 
 **Requirements:** DREQ-025
 
-**Researched at:** `9849f32963c2a65367bce565b3f5ede3777c218f`
+**Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
-**Suggested labels:** `complexity:4`, `model:codex`; never `agent:todo`
+**Suggested labels:** `complexity:4`, `model:codex`, `phase:6`, `build-lane:accounting`; never `agent:todo`
 
-**Build Order membership:** none — standalone dashboard companion
+**Build Order membership:** member of the consolidated Build Order (operator decision 2026-07-13)
 
 ## Outcome
 

@@ -12,7 +12,7 @@
 
 **Depends on:** BO-008, BO-013
 
-**Serializes with:** BO-020 — shared Build Order route component and CSS
+**Serializes with:** BO-020, DASH-023 — shared Build Order route component and CSS
 
 **Requirements:** BOREQ-008, BOREQ-010, BOREQ-013, BOREQ-014
 
@@ -22,7 +22,7 @@
 
 **Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
-**Suggested labels:** `complexity:4`, `model:codex`, `phase:7`, `build-lane:frontend`; never `agent:todo`
+**Suggested labels:** `complexity:4`, `model:codex`, `phase:7`, `build-lane:dashboard-ui`; never `agent:todo`
 
 ## Outcome
 

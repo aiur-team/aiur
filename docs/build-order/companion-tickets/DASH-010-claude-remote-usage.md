@@ -8,6 +8,8 @@
 
 **Risk:** high
 
+**Phase hint:** 4
+
 **Depends on:** DASH-008, DASH-019
 
 **Serializes with:** none
@@ -16,11 +18,11 @@
 
 **Requirements:** DREQ-010
 
-**Researched at:** `9849f32963c2a65367bce565b3f5ede3777c218f`
+**Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
-**Suggested labels:** `complexity:3`, `model:codex`; never `agent:todo`
+**Suggested labels:** `complexity:3`, `model:codex`, `phase:4`, `build-lane:accounting`; never `agent:todo`
 
-**Build Order membership:** none — standalone dashboard companion
+**Build Order membership:** member of the consolidated Build Order (operator decision 2026-07-13)
 
 ## Outcome
 
@@ -134,7 +136,7 @@ Add a Claude OTel usage adapter beside existing Claude event normalizers. Consum
 
 ## Sibling boundaries and open gates
 
-DASH-019 owns the local transport and `GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY`. DASH-009 owns durability/deduplication, DASH-011 owns pricing/grouping, and DASH-013 owns Claude account meters. This ticket cannot weaken required Remote Control coverage to “unsupported.”
+DASH-019 owns the local transport and `GATE-003`. DASH-009 owns durability/deduplication, DASH-011 owns pricing/grouping, and DASH-013 owns Claude account meters. This ticket cannot weaken required Remote Control coverage to “unsupported.”
 
 ## Plan context
 

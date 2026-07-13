@@ -8,6 +8,8 @@
 
 **Risk:** high
 
+**Phase hint:** 8
+
 **Depends on:** BO-003, BO-012, DASH-030, DASH-031, DASH-021
 
 **Serializes with:** DASH-022, BO-013, BO-014 — summary and Build Order route CSS
@@ -16,11 +18,11 @@
 
 **Requirements:** DREQ-023
 
-**Researched at:** `9849f32963c2a65367bce565b3f5ede3777c218f`
+**Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
-**Suggested labels:** `complexity:4`, `model:codex`; never `agent:todo`
+**Suggested labels:** `complexity:4`, `model:codex`, `phase:8`, `build-lane:accounting`; never `agent:todo`
 
-**Build Order membership:** none — standalone dashboard companion
+**Build Order membership:** member of the consolidated Build Order (operator decision 2026-07-13)
 
 ## Outcome
 

@@ -12,7 +12,7 @@
 
 **Depends on:** BO-003, BO-007, BO-010, BO-011
 
-**Serializes with:** none
+**Serializes with:** DASH-001 — shared OCC route/navigation shell
 
 **Requirements:** BOREQ-001, BOREQ-004, BOREQ-007, BOREQ-009, BOREQ-010, BOREQ-011, BOREQ-012, BOREQ-014
 
@@ -22,7 +22,7 @@
 
 **Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
-**Suggested labels:** `complexity:4`, `model:codex`, `phase:5`, `build-lane:frontend`; never `agent:todo`
+**Suggested labels:** `complexity:4`, `model:codex`, `phase:5`, `build-lane:dashboard-ui`; never `agent:todo`
 
 ## Outcome
 

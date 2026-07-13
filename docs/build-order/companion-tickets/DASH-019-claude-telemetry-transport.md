@@ -8,21 +8,23 @@
 
 **Risk:** high
 
+**Phase hint:** 2
+
 **Depends on:** BO-004
 
 **Serializes with:** BO-003, BO-005, BO-016, BO-019, DASH-002, DASH-009, DASH-012, DASH-018, DASH-024, DASH-025, DASH-026 — application supervision tree; DASH-018 also shares Claude process lifecycle adapters
 
 **Predecessor baseline:** resolved — `origin/main` at `9849f32963c2a65367bce565b3f5ede3777c218f`
 
-**External gate:** `GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY`, owned by a human with `aiur-claude` write authority and resolved before dispatch
+**External gate:** `GATE-003`, owned by a human with `aiur-claude` write authority and resolved before dispatch
 
 **Requirements:** DREQ-019
 
-**Researched at:** `9849f32963c2a65367bce565b3f5ede3777c218f`
+**Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
-**Suggested labels:** `complexity:4`, `model:codex`; never `agent:todo`
+**Suggested labels:** `complexity:4`, `model:codex`, `phase:2`, `build-lane:platform`; never `agent:todo`
 
-**Build Order membership:** none — standalone dashboard companion
+**Build Order membership:** member of the consolidated Build Order (operator decision 2026-07-13)
 
 ## Outcome
 
@@ -36,7 +38,7 @@ correlation; same-number tickets in different repositories must never collide.
 
 ## Scope
 
-- Resolve `GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY` with a reviewed capability matrix selecting either a secure Aiur-only launch/receiver path or an already-landed pinned compatible `aiur-claude` revision. If sibling work is missing, a human must authorize and land it through a separate sibling issue/PR before this ticket becomes pickable.
+- Resolve `GATE-003` with a reviewed capability matrix selecting either a secure Aiur-only launch/receiver path or an already-landed pinned compatible `aiur-claude` revision. If sibling work is missing, a human must authorize and land it through a separate sibling issue/PR before this ticket becomes pickable.
 - Configure or embed one local-only telemetry receiver for Claude processes Aiur owns. Prefer an owner-only Unix-domain socket.
 - If loopback TCP is required, mint an unguessable per-process capability, inject it only at owned process launch, authenticate it before payload decoding/logging, bind it to process/session generation, and revoke it on teardown.
 - Maintain a trusted correlation registry established at process/session
@@ -106,7 +108,7 @@ Extend Claude REPL/Remote Control process/session lifecycle and trusted launch c
 - Writes: Aiur permissioned receiver or authenticated-loopback capability
   lifecycle, Claude process lifecycle adapters, trusted correlation registry,
   allowlisted event stream, health/rejections, fixtures/tests.
-- Contracts: producer-authenticated bounded local telemetry and `GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY` receipt.
+- Contracts: producer-authenticated bounded local telemetry and `GATE-003` receipt.
 - Safety: authenticated bounded content-free transport and the application
   supervision tree.
 

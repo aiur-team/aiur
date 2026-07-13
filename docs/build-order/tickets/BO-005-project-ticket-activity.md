@@ -12,7 +12,7 @@
 
 **Depends on:** BO-017
 
-**Serializes with:** BO-003, BO-016
+**Serializes with:** BO-003, BO-016, DASH-002, DASH-009, DASH-012, DASH-018, DASH-019, DASH-024, DASH-025, DASH-026, DASH-029 — application supervision tree and observation-envelope consumption
 
 **Requirements:** BOREQ-005, BOREQ-006
 
@@ -22,7 +22,7 @@
 
 **Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
-**Suggested labels:** `complexity:4`, `model:codex`, `phase:3`, `build-lane:backend`; never `agent:todo`
+**Suggested labels:** `complexity:4`, `model:codex`, `phase:3`, `build-lane:runtime`; never `agent:todo`
 
 ## Outcome
 

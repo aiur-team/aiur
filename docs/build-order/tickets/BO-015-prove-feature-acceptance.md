@@ -10,19 +10,19 @@
 
 **Phase hint:** 8
 
-**Depends on:** BO-006, BO-014, BO-020
+**Depends on:** BO-006, BO-014, BO-020, DASH-023, DASH-033
 
 **Serializes with:** none
 
 **Requirements:** BOREQ-015
 
-**Decisions:** DEC-008, DEC-011, DEC-012, DEC-013
+**Decisions:** DEC-008, DEC-011, DEC-012, DEC-013, DEC-014
 
 **Design evidence:** DESIGN-001, DESIGN-002
 
 **Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
-**Suggested labels:** `complexity:4`, `model:codex`, `phase:8`, `build-lane:documentation`; never `agent:todo`
+**Suggested labels:** `complexity:4`, `model:codex`, `phase:8`, `build-lane:dashboard-ui`; never `agent:todo`
 
 ## Outcome
 
@@ -42,7 +42,10 @@ to their owning ticket rather than becoming an expanding tail of follow-ups.
 
 The real published root proves GitHub identity, membership, labels, lifecycle,
 and native dependencies. Synthetic fixtures prove boundary and failure states
-that should not be manufactured against live GitHub.
+that should not be manufactured against live GitHub. As the program capstone,
+this ticket proves the consolidated Build Order — all 54 members including the
+dashboard companions (operator decision 2026-07-13) — with DASH-033 remaining
+the in-graph dashboard-parity proof.
 
 ## Scope
 
@@ -53,12 +56,13 @@ that should not be manufactured against live GitHub.
   branch/SHA contains the completed OCC baseline, and the bounded Executor
   skill revision remains the loaded contract. A later branch or skill drift is
   an explicit gate failure, not an inferred success.
-- Integrate all 18 prerequisite tickets (BO-001..014 and BO-016..019), resolve
+- Integrate all 53 prerequisite tickets (BO-001..014, BO-016..020, and
+  DASH-001..034), resolve
   only contained acceptance defects, run the full automated contract/CI matrix,
   and maintain an acceptance matrix mapping every BOREQ to exact automated or
   Executor evidence.
 - Dogfood the real currently published Build Order root through the real GitHub
-  provider: select/deep-link it, verify all 19 member identities/labels/native
+  provider: select/deep-link it, verify all 54 member identities/labels/native
   edges/outcomes, observe real Aiur activity join, open cached context, navigate
   dependencies, follow one safe destination link, and confirm Build Order
   exposes no GitHub or Aiur mutation handler.
@@ -94,9 +98,8 @@ that should not be manufactured against live GitHub.
 
 ## Non-goals
 
-- Add dashboard companion shell/Units/Commands/usage work, Linear,
-  cross-repository/nested orders, GitHub dependency editing, minimap/filtering,
-  or unrelated reliability/optimization work.
+- Add Linear, cross-repository/nested orders, GitHub dependency editing,
+  minimap/filtering, or unrelated reliability/optimization work.
 - Close the root because all children show 100%, because CI alone passes, or
   before post-merge real/synthetic proof is recorded.
 - Create follow-up tickets for contained review/integration findings merely to
@@ -112,14 +115,15 @@ transition.
 
 ## Contract and invariants
 
-- BO-006 and BO-014 are the two terminal prerequisites and transitively cover
-  all 18 prerequisite tickets, including the BO-004→017→005→019→018→011 chain;
+- BO-006, BO-014, BO-020, DASH-023, and DASH-033 are the terminal prerequisites
+  and transitively cover
+  all 53 prerequisite tickets, including the BO-004→017→005→019→018→011 chain;
   GitHub remains live membership/hard-edge truth while the planning pack remains
   the approved boundary/conflict baseline.
 - The feature is complete only after implementation, review, current-configured-
   branch CI, merge, documentation, cleanup, post-merge real CLI/browser proof,
   synthetic boundary proof, and root `COMPLETED` closure.
-- Companions, deferred findings, P2/P3 defects, and optimizations never change
+- Deferred findings, P2/P3 defects, and optimizations never change
   the denominator, ETA, or completion condition.
 - Contained findings return to the owning ticket/rework. Only a genuine
   independent P0/P1 acceptance blocker may be promoted; backlog-growth circuit
@@ -143,7 +147,7 @@ transition.
 ### Agent gate
 
 - Latest canonical planning validator and published GitHub reconciliation pass
-  with exact 19-member parenthood, required labels, `model:codex`, no active
+  with exact 54-member parenthood, required labels, `model:codex`, no active
   `agent:todo`, and exact native hard edges.
 - Every focused suite plus the complete repository CI gate passes on the
   current integrated candidate; the acceptance matrix has no missing BOREQ or
@@ -194,8 +198,9 @@ transition.
 
 ## Sibling boundaries and open gates
 
-All implementation tickets are transitive prerequisites. Dashboard companions,
-Linear parity, and deferred findings remain outside the root and cannot block
+All implementation tickets, including the dashboard companions, are transitive
+prerequisites of this program capstone. Linear parity and deferred findings
+remain outside the root and cannot block
 closure. Publication approval, the root's immutable reconciliation-comment
 link, and both resolved external gates must exist before execution; no issue is
 dispatched by this planning ticket.

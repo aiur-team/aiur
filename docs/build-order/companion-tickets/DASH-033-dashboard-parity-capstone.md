@@ -8,19 +8,21 @@
 
 **Risk:** high
 
+**Phase hint:** 8
+
 **Depends on:** DASH-001, DASH-003, DASH-005, DASH-007, DASH-015, DASH-022, DASH-027, DASH-028, DASH-031, DASH-034
 
-**Serializes with:** BO-015 — shared browser harness, acceptance evidence, and closeout documentation
+**Serializes with:** none — BO-015 now hard-depends on this parity capstone
 
 **Predecessor baseline:** resolved — `origin/main` at `9849f32963c2a65367bce565b3f5ede3777c218f`
 
 **Requirements:** DREQ-033
 
-**Researched at:** `9849f32963c2a65367bce565b3f5ede3777c218f`
+**Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
-**Suggested labels:** `complexity:3`, `model:codex`; never `agent:todo`
+**Suggested labels:** `complexity:3`, `model:codex`, `phase:8`, `build-lane:dashboard-ui`; never `agent:todo`
 
-**Build Order membership:** none — standalone dashboard companion
+**Build Order membership:** member of the consolidated Build Order (operator decision 2026-07-13)
 
 ## Outcome
 

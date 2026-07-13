@@ -8,24 +8,26 @@
 
 **Risk:** high
 
+**Phase hint:** 3
+
 **Depends on:** DASH-012
 
 **Serializes with:** none after the human gate pins an already-landed compatible protocol
 
 **Predecessor baseline:** resolved — `origin/main` at `9849f32963c2a65367bce565b3f5ede3777c218f`
 
-**External gate:** `GATE-CLAUDE-METER-PROTOCOL-AUTHORITY`, owned by a human
+**External gate:** `GATE-004`, owned by a human
 with `aiur-claude` write authority and resolved before implementation as
 either an evidenced existing structured source or an already-landed pinned
 compatible sibling protocol revision
 
 **Requirements:** DREQ-013
 
-**Researched at:** `9849f32963c2a65367bce565b3f5ede3777c218f`
+**Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
-**Suggested labels:** `complexity:4`, `model:codex`; never `agent:todo`
+**Suggested labels:** `complexity:4`, `model:codex`, `phase:3`, `build-lane:accounting`; never `agent:todo`
 
-**Build Order membership:** none — standalone dashboard companion
+**Build Order membership:** member of the consolidated Build Order (operator decision 2026-07-13)
 
 ## Outcome
 
@@ -37,7 +39,7 @@ The refreshed prototype shows Claude session and weekly meters and the user requ
 
 ## Scope
 
-- Resolve `GATE-CLAUDE-METER-PROTOCOL-AUTHORITY` before implementation dispatch by characterizing the installed Claude CLI, Claude Code OTel, and aiur-claude structured account/rate-limit capabilities using official schemas and sanitized fixtures. The receipt must select an existing structured source or name an already-landed pinned compatible sibling revision. Missing sibling capability requires a separately authorized sibling issue/PR that lands before this ticket. Interactive `/usage`, TUI, transcript, StatusLine, browser, and credential scraping are forbidden.
+- Resolve `GATE-004` before implementation dispatch by characterizing the installed Claude CLI, Claude Code OTel, and aiur-claude structured account/rate-limit capabilities using official schemas and sanitized fixtures. The receipt must select an existing structured source or name an already-landed pinned compatible sibling revision. Missing sibling capability requires a separately authorized sibling issue/PR that lands before this ticket. Interactive `/usage`, TUI, transcript, StatusLine, browser, and credential scraping are forbidden.
 - Implement Claude normalization into DASH-012 `ProviderMeterSnapshot`: provider/backend, opaque account generation, auth mode, actual plan/tier and source, snapshot/patch/tombstone semantics, named limit IDs/windows, used/remaining facts, duration/reset, API credit/rate/spend controls when reported, observed/ingested time, freshness/expiry, and health.
 - Support subscription and API-key modes without assuming they expose the same facts. Renderable session/weekly windows require actual structured values; API mode reports only real rate/credit/spend controls.
 - Preserve sparse updates, per-window last-known-good state, full-snapshot removals, and account-generation isolation exactly as DASH-012 defines. Report trusted Claude auth/session lifecycle changes through DASH-018 and use its returned generation without persisting raw account identity.
@@ -61,7 +63,7 @@ Implement against DASH-012's provider-meter contract, DASH-018's generation owne
 - A displayed window/control has structured source evidence, source version, observation time, and coverage. Missing support is never zero usage or unlimited quota.
 - Subscription and API-key presentations are capability-driven. Plan tier is actual structured/configured account fact with provenance, not inferred from usage price.
 - Sparse updates cannot erase unrelated facts; full snapshots and explicit tombstones can. Authentication change cannot inherit prior account last-known-good state.
-- `GATE-CLAUDE-METER-PROTOCOL-AUTHORITY` has a human owner and durable resolution receipt; it cannot be silently dropped or converted into permanent unsupported acceptance.
+- `GATE-004` has a human owner and durable resolution receipt; it cannot be silently dropped or converted into permanent unsupported acceptance.
 
 ## Refreshable implementation notes
 
@@ -96,14 +98,14 @@ Implement against DASH-012's provider-meter contract, DASH-018's generation owne
 
 - Reads: official structured Claude account/rate-limit sources; trusted Claude auth/process lifecycle; DASH-018 account generation.
 - Writes: Aiur Claude provider-meter adapter, DASH-018 lifecycle observations, fixtures/compatibility/redaction tests.
-- Contracts: Claude subscription/API parity on `ProviderMeterSnapshot`; `GATE-CLAUDE-METER-PROTOCOL-AUTHORITY` receipt.
+- Contracts: Claude subscription/API parity on `ProviderMeterSnapshot`; `GATE-004` receipt.
 
 ## Sibling boundaries and open gates
 
 DASH-012 owns the generic meter contract and DASH-018 owns account identity;
 DASH-010 owns Claude request token/cost accounting and does not satisfy quota
 meters. DASH-015 requires both adapters. This ticket is not dispatchable until
-`GATE-CLAUDE-METER-PROTOCOL-AUTHORITY` names an existing source or already-landed
+`GATE-004` names an existing source or already-landed
 pinned sibling revision. Missing sibling work requires a separate authorized
 issue/PR; until it lands, this ticket remains human-blocked rather than complete
 with unsupported coverage.

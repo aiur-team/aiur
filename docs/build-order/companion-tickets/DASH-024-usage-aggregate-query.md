@@ -8,6 +8,8 @@
 
 **Risk:** high
 
+**Phase hint:** 5
+
 **Depends on:** DASH-009
 
 **Serializes with:** BO-003, BO-005, BO-016, BO-019, DASH-002, DASH-012, DASH-019, DASH-026 — application supervision tree; the raw-ledger and compaction owners are hard-ordered
@@ -16,11 +18,11 @@
 
 **Requirements:** DREQ-024
 
-**Researched at:** `9849f32963c2a65367bce565b3f5ede3777c218f`
+**Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
-**Suggested labels:** `complexity:4`, `model:codex`; never `agent:todo`
+**Suggested labels:** `complexity:4`, `model:codex`, `phase:5`, `build-lane:accounting`; never `agent:todo`
 
-**Build Order membership:** none — standalone dashboard companion
+**Build Order membership:** member of the consolidated Build Order (operator decision 2026-07-13)
 
 ## Outcome
 

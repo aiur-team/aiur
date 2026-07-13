@@ -8,6 +8,8 @@
 
 **Risk:** medium
 
+**Phase hint:** 6
+
 **Depends on:** DASH-001, DASH-016, BO-018
 
 **Serializes with:** DASH-007, DASH-021 — shared `DashboardLive` composition
@@ -16,11 +18,11 @@
 
 **Requirements:** DREQ-003
 
-**Researched at:** `9849f32963c2a65367bce565b3f5ede3777c218f`
+**Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
-**Suggested labels:** `complexity:3`, `model:codex`; never `agent:todo`
+**Suggested labels:** `complexity:3`, `model:codex`, `phase:6`, `build-lane:dashboard-ui`; never `agent:todo`
 
-**Build Order membership:** none — standalone dashboard companion
+**Build Order membership:** member of the consolidated Build Order (operator decision 2026-07-13)
 
 ## Outcome
 

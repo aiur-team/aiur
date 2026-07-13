@@ -8,19 +8,21 @@
 
 **Risk:** high
 
+**Phase hint:** 3
+
 **Depends on:** DASH-001, DASH-006, DASH-017
 
-**Serializes with:** DASH-003, DASH-005, DASH-015, DASH-021, DASH-022, DASH-027, DASH-028, DASH-031, DASH-034 — shared `DashboardLive`/CSS
+**Serializes with:** DASH-003, DASH-005, DASH-015, DASH-021, DASH-022, DASH-027, DASH-028, DASH-031 — shared `DashboardLive`/CSS
 
 **Predecessor baseline:** resolved — `origin/main` at `9849f32963c2a65367bce565b3f5ede3777c218f`
 
 **Requirements:** DREQ-007
 
-**Researched at:** `9849f32963c2a65367bce565b3f5ede3777c218f`
+**Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
-**Suggested labels:** `complexity:3`, `model:codex`; never `agent:todo`
+**Suggested labels:** `complexity:3`, `model:codex`, `phase:3`, `build-lane:dashboard-ui`; never `agent:todo`
 
-**Build Order membership:** none — standalone dashboard companion
+**Build Order membership:** member of the consolidated Build Order (operator decision 2026-07-13)
 
 ## Outcome
 
