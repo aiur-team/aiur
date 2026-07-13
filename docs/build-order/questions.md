@@ -7,8 +7,19 @@ the planning documents.
 
 ## Questions for Kevin
 
-None currently. New boundary-changing questions discovered during review will
-be added here and asked one at a time.
+Five decision items from the independent second review — full context and
+recommendations in
+[09-plan-review-synthesis.md](09-plan-review-synthesis.md#questions-for-kevin-decision-ledger):
+
+1. Usage/cost accounting family (17 tickets): keep / cut to design-parity
+   slice (recommended) / drop.
+2. Publication ceremony: keep full receipt machinery or collapse to minimal
+   render+publish + requery-diff + human body review (recommended).
+3. Ratify the merge-candidate list (mutually-serialized pairs; no parallelism
+   cost).
+4. Ratify the structural parallelism changes (per-page LiveViews; BO-012 sans
+   BO-011; DASH-003/BO-018 and DASH-001/BO-008 as contract deps).
+5. Add an executable owner for /aiur-build automation verification.
 
 ## Commands or Access Needed
 
