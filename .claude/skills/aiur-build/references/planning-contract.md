@@ -94,8 +94,12 @@ approval SHA, approved-link count/link, and body SHA-256.
 Existing issues explicitly retained as reference-only are a denylist for
 returned root/ticket mappings unless the user separately expands mutation
 authority. If a live reconciliation comment becomes an execution start gate,
-its receipt URL must be the exact same-repository commit URL and that commit
-must resolve before the comment is accepted as authoritative.
+derive repository, root identity and URL, plan version, and approval from the
+exact receipt commit. Its URL must be that repository's exact commit URL, the
+commit must contain the complete materialized pack, and the pack must pass the
+trusted reconciliation validator before the comment is authoritative. Never
+let caller-supplied values or the mere existence of a local commit authorize
+the start gate.
 
 The observed hash is never self-authorizing. A trusted pack adapter must load
 the root template, `build-order.json`, and every ticket document with

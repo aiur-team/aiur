@@ -187,8 +187,10 @@ Only when explicitly authorized:
    logical ID;
 8. record the bounded reconciliation receipt defined by the planning contract;
 9. make GitHub canonical for the materialized ticket facts;
-10. if a live start-gate comment links the receipt, require the exact
-    same-repository commit URL and resolve that commit before accepting it.
+10. if a live start-gate comment links the receipt, derive repository, root,
+    plan version, approval, and root URL from the exact receipt commit; require
+    that commit to contain the complete materialized pack and pass the trusted
+    reconciliation validator before accepting the same-repository commit URL.
 
 Do not assume issue-number adjacency. Keep prose dependency tables as generated
 human views, not a second source of truth.

@@ -200,9 +200,11 @@ This stage requires explicit permission.
   or truncated evidence.
 - Reject any returned mapping that reuses an existing issue recorded as
   reference-only or otherwise outside the user's mutation authority.
-- If publication exposes a live reconciliation/start-gate comment, require its
-  receipt URL to be the exact repository commit URL and prove that commit
-  resolves before treating the comment as authoritative.
+- If publication exposes a live reconciliation/start-gate comment, derive its
+  repository, root, plan version, approval, and root URL from the exact receipt
+  commit. Require that commit to contain the complete materialized pack and
+  pass the trusted reconciliation validator; resolving an arbitrary local
+  commit or accepting caller-supplied authority is insufficient.
 - Apply projected and required routing labels, record full observed labels in
   the receipt, and prove every forbidden dispatch/active-state label and every
   unprojected `human:*` routing label is absent.
