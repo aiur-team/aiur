@@ -2,7 +2,7 @@
 
 **Imported:** 2026-07-12
 
-**Import commit:** `fc3162f2f56e3b53d825871ce60efcffee9d2a44`
+**Import commit:** `777cbabbd8baa80482f409f23a71e6ece3787dc9`
 
 **Original project:** `https://claude.ai/design/p/5e62b9a9-39c1-4ca2-9a76-6dff123a088c?file=Aiur+Operator+Control+Center.html`
 
@@ -16,7 +16,7 @@ choosing whichever is easier to implement.
 
 | File | SHA-256 |
 |---|---|
-| `prototype/Aiur Operator Control Center.html` | `a5c2a1bfd780a4f7b4656f4ba3765780c4e127dc4ace3d1fe31e0d04b468fe90` |
+| `prototype/Aiur Operator Control Center.html` | `23b527eade8c2fad7d37957c248be709091dfd112bbc6e13c6d76cd092d663a3` |
 | `prototype/feature-constraints.md` | `49e068d4999d62197dbd1d5c0438db21a25cd1b5873fb959a58a7e0388c7829a` |
 | `prototype/README.md` | `f1f6e95194166edc779f0727a7e1a8571c5763a143c27156f105d9e79bea7cd8` |
 | `prototype/assets/aiur-logo.png` | `8a6ed8b69be413ba771bb003d7212ee3635a219e6d2abb7d18f64a40ad23fda0` |
@@ -27,14 +27,20 @@ choosing whichever is easier to implement.
 
 ## Confirmed prototype inventory
 
-- three primary views: Units, Commands, Build Order;
+- responsive sidebar navigation for Units, Commands, Build Order, and an
+  explicitly future Analytics view; it becomes bottom navigation below 960px;
+- a Units-only run summary for Codex/Claude quota, tokens, spend, and an Aiur
+  live/ticket/progress/elapsed/ETA summary;
+- independent fleet scope presets and state chips, max-agent controls, and a
+  per-unit pause/resume affordance;
 - four horizontal lanes: Documentation, Frontend, Backend, Infrastructure;
 - six rendered phases and 31 sample tickets;
 - node cards with logical/ticket ID, complexity, title, status, percentage, and
   progress bar;
 - blocker-to-blocked edges, rendered green/solid when cleared and red/dashed
   when blocking;
-- hover chain highlighting and a ticket detail modal;
+- hover chain highlighting and a ticket detail modal with GitHub navigation
+  plus upstream/downstream dependency links;
 - dark and light theme tokens in the inline stylesheet;
 - an internally scrollable graph canvas on narrow viewports.
 
@@ -53,6 +59,10 @@ choosing whichever is easier to implement.
    clickable `div`s, and hover has no focus/touch equivalent.
 6. The layout and SVG routing are a build-less reliability sketch, not the
    production library/ownership decision.
+7. The refreshed mock moves navigation into a responsive sidebar, adds a
+   Units-only summary, status filters, pause/resume, and richer ticket context.
+   These are companion dashboard requirements, not hidden prerequisites for
+   the Build Order graph.
 
 The two operator-provided screenshots in the planning conversation confirm the
 intended dense desktop hierarchy and lower-phase continuation. They are

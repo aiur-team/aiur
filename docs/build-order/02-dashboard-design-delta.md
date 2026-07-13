@@ -1,7 +1,7 @@
 # Dashboard and Prototype Delta
 
 **Current-code baseline:** `origin/main` at
-`e5f07d02644aba9e22953e644791b055d3279678`
+`3d67b7be722eb649f28088fc8d609dd7b75254c7`
 
 **Design baseline:** [design-manifest.md](design-manifest.md)
 
@@ -23,6 +23,10 @@ The merged Operator Control Center already has:
 - URL-persisted decision filters and deep links;
 - durable decision lifecycle, retries, revisions, confirmation, follow-up, and
   fail-closed writable behavior;
+- a decision overview intentionally bounded to the most recent 50 canonical
+  records, with unresolved/blocking/urgent items ordered ahead of recency;
+- Basic Auth required whenever the dashboard enables mutations, including on
+  loopback; an unconfigured writable dashboard fails closed at startup;
 - a responsive current fleet table and accessible theme/reduced-motion tokens;
 - GitHub native dependency read/write clients and Aiur progress events.
 
@@ -37,14 +41,16 @@ provider-accounting scope.
 
 | Area | Current | Target and constraint |
 |---|---|---|
-| Navigation | Fleet and Decision inbox route links | Full-width Units, Commands, Build Order navigation while preserving URL/back behavior. Build Order route itself remains net-new work. |
-| Top shell | Live/offline, tracker, agent kind, UTC, theme | Live, analytics, theme, and truthful optional ETA/provider summaries. Do not show invented values. |
+| Navigation | One LiveView route composed from Fleet and Decision sections | Responsive sidebar/bottom navigation for Units, Commands, Build Order, and an explicitly unavailable Analytics destination while preserving URL/back behavior. Build Order route itself remains net-new work. |
+| Page identity | One Operations Dashboard hero | Per-view icon/title plus truthful status. Do not duplicate route state in client-only tabs. |
+| Top shell | Live/offline, tracker, agent kind, UTC, theme | Live, theme, and truthful optional ETA/provider summaries. Do not show invented values. |
 | Usage/rate limits | Aggregate tokens and one latest provider-unattributed rate-limit map | Consume the separate usage/accounting projection; do not implement provider ingestion inside Units. |
-| Spend | No durable price/cost source | Consume basis-labelled actual, provider-reported, estimated, fixed, or unknown values from the separate accounting track. |
+| Run summary | Separate generic metric cards | Units-only Codex, Claude, and Aiur summary cards consuming basis-labelled actual, provider-reported, estimated, fixed, or unknown accounting values. |
 | Units data | Ticket/state/waiting/latest/elapsed/decisions/actions | Add real backend/model/effort/complexity/progress/epic-lane data with honest unknowns. Preserve waiting reason. |
-| Filters | Independent Active/Blocked/Paused/Stuck/Finished/Total | Define the exact grouped Live/All toggle truth table; do not copy the mock's surprising “any child selected means clear all” behavior. |
+| Filters | Separate Running, queued/waiting, and retry tables | One Units table with single-select Live/Unfinished/All/None presets plus independently toggleable Active/Alert/Paused/Stuck/Queued/Finished chips; define exact precedence for rows matching multiple signals. |
 | Max agents | No dashboard control; runtime controls exist | Use real max/active/draining state, writable gate, and errors. Never mutate rows to fake a pause. |
-| Row detail | Only running rows open an agent-log modal | A reusable ticket-context component with safe GitHub/chat/command links and honest unavailable states. |
+| Per-unit control | Pause exists in the running-agent modal | Expose real pause/resume in each applicable row with authenticated writable gating, pending/error feedback, and no optimistic state forgery. |
+| Row detail | Only running rows open an agent-log modal | A reusable ticket-context component with safe GitHub/chat/command links, navigable blocker/blocked-ticket chips, and honest unavailable states. |
 | Mobile | Labelled fleet cards | Preserve accessible labels and readable text; the mock's 9–12px density is not acceptance. |
 
 Build Order must not depend on all shell metrics landing. The shared route/tab
@@ -58,9 +64,16 @@ vocabulary and composition, not a storage migration.
 - Rename the tab/banner/card copy to Commands and “unit needs command.”
 - Reorder and relabel canonical filters: Open, Blocking, Answered not delivered,
   Decided by supervising agent, Resolved, Superseded, All.
+- The refreshed mock simplifies visible filters to Open, Blocking, Resolved,
+  and All. Keep other canonical states reachable by detail/history or an
+  explicitly accepted product decision; do not silently hide actionable work.
 - Preserve URL filter state and stable decision detail routes.
 - Add provider/model origin, option previews, supervising/selected-answer chips,
   and recommendation confidence only when canonical fields exist.
+- Use the refreshed “Issue commands” banner wording only when the count and
+  blocking semantics come from the bounded canonical projection. Because that
+  projection retains 50 records, deep links and counts outside the window need
+  on-demand lookup or an explicit partial-results state.
 - Preserve irreversible confirmation, sanitization, retry, writable gating,
   revisions, and follow-ups.
 - Do not copy prototype-only quick choice, Defer, or Acknowledge behavior unless
@@ -87,6 +100,8 @@ graph, interactions, and acceptance do not depend on provider billing.
 ### Route and selection
 
 - third URL-backed dashboard view;
+- responsive shared navigation can land independently; the Build Order ticket
+  must consume the accepted route contract rather than reimplement the shell;
 - selector for multiple active Build Order root issues;
 - selected order survives refresh/share/back navigation;
 - explicit loading, empty, unavailable, stale, invalid, and cyclic states;
@@ -102,6 +117,8 @@ graph, interactions, and acceptance do not depend on provider billing.
 - unknown or stale progress is indeterminate/labelled, never `0%`;
 - deterministic icons from lane/status in v1;
 - shared ticket context opens on click, focus+Enter/Space, or touch selection.
+- ticket context includes safe GitHub navigation and navigable upstream and
+  downstream dependency chips without turning the dashboard into an editor.
 
 ### Edges and graph diagnostics
 

@@ -7,19 +7,17 @@ the planning documents.
 
 ## Questions for Kevin
 
-1. At the end of planning, should I create the GitHub issues themselves, or
-   stop after producing reviewed ticket documents that are ready to publish?
-2. Should a Build Order be repository-wide, or can one Aiur instance display
+1. Should a Build Order be repository-wide, or can one Aiur instance display
    orders that span multiple repositories/projects?
-3. May users add and edit dependencies from the dashboard in the first
+2. May users add and edit dependencies from the dashboard in the first
    release, or is Build Order initially a read-only projection of GitHub issue
    metadata?
-4. For flat subscription plans, should per-ticket “spend” be a versioned
+3. For flat subscription plans, should per-ticket “spend” be a versioned
    token-price estimate, an allocation of the subscription fee, or unavailable
    while tokens and quota consumption remain visible?
-5. Should “total build” include all recorded usage for member tickets, or only
+4. Should “total build” include all recorded usage for member tickets, or only
    usage observed after each ticket joined the Build Order?
-6. Must v1 totals include direct `claude-repl`/Remote Control usage, or may the
+5. Must v1 totals include direct `claude-repl`/Remote Control usage, or may the
    cards show explicitly incomplete coverage for that transport?
 
 ## Commands or Access Needed
@@ -32,8 +30,6 @@ the planning documents.
 - Same configured repository and read-only v1.
 - One root GitHub issue per Build Order, selected from a constant `build-order`
   root label; direct native sub-issues define its members.
-- Stop after reviewed ticket documents unless issue creation is explicitly
-  authorized.
 - Dashboard dependency editing, Linear, cross-repository orders, and more than
   100 direct tickets are follow-on scope.
 - Provider quota/token/spend accounting is a separate companion dashboard
@@ -57,3 +53,7 @@ the planning documents.
 - Roughly ten Build Order implementation tickets is the initial sizing
   hypothesis, not a required count; dependency boundaries and reviewability
   determine the final recommendation.
+- After Kevin reviews the ticket documents, materialize the approved root and
+  implementation issues in GitHub. Apply one `complexity:N` label and
+  `model:codex` to each executable ticket, but do not apply `agent:todo` or
+  otherwise dispatch work.
