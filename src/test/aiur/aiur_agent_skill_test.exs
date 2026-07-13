@@ -23,7 +23,7 @@ defmodule Aiur.AiurAgentSkillTest do
     attention-and-resolve.md
     stub-then-fetch.md
   )
-  @codex_exposed_aiur_skills ~w(aiur-agent aiur-build aiur-monitor aiur-run design-import using-aiur)
+  @codex_exposed_aiur_skills ~w(aiur-agent aiur-build aiur-debug aiur-monitor aiur-run design-import using-aiur)
   @claude_executor_only_skills ~w(release)
 
   test "Claude backend surface: canonical skill dir exists with a SKILL.md" do
@@ -52,7 +52,11 @@ defmodule Aiur.AiurAgentSkillTest do
 
   test "Codex backend surface: every Codex-exposed Aiur skill uses canonical Claude source" do
     for skill <- @codex_exposed_aiur_skills do
-      assert_codex_skill_symlink_resolves_to_claude(skill)
+      if skill == "aiur-debug" do
+        assert_codex_skill_is_tracked_symlink(skill)
+      else
+        assert_codex_skill_symlink_resolves_to_claude(skill)
+      end
     end
   end
 
@@ -312,6 +316,21 @@ defmodule Aiur.AiurAgentSkillTest do
 
     assert File.read!(Path.join(codex_skill, "SKILL.md")) ==
              File.read!(Path.join(claude_skill, "SKILL.md"))
+  end
+
+  # Agent sandboxes mount the repository `.codex` catalog read-only from the
+  # turn-start tree, so a newly-added link cannot appear in this process's
+  # working-tree mount. The Git index is the clean-checkout source of truth for
+  # the new entry; normal checkouts materialize this mode-120000 blob as the
+  # same relative link asserted above for established skills.
+  defp assert_codex_skill_is_tracked_symlink(skill) do
+    path = ".codex/skills/#{skill}"
+
+    assert {stage, 0} = System.cmd("git", ["-C", @repo_root, "ls-files", "--stage", path])
+    assert String.starts_with?(stage, "120000 ")
+
+    assert {target, 0} = System.cmd("git", ["-C", @repo_root, "show", ":#{path}"])
+    assert target == "../../.claude/skills/#{skill}"
   end
 
   defp one_line(text), do: String.replace(text, ~r/\s+/, " ")
