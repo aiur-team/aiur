@@ -3,7 +3,7 @@ defmodule Aiur.DecisionStoreTest do
 
   import ExUnit.CaptureLog
 
-  alias Aiur.{AlertFeed, Boot, DecisionEvent, DecisionLog, DecisionPubSub, DecisionStore}
+  alias Aiur.{AlertFeed, Boot, DecisionEvent, DecisionHistory, DecisionLog, DecisionPubSub, DecisionStore}
   alias Aiur.Events.{Exchange, IdGenerator}
 
   @ticket %{identifier: "979", title: "OCC-1", url: "https://github.com/its-everdred/aiur/issues/979"}
@@ -112,6 +112,53 @@ defmodule Aiur.DecisionStoreTest do
 
       assert {:ok, [%DecisionEvent{type: :requested, data: ^decision}]} =
                DecisionStore.audit_history(decision.decision_id, pid)
+    end
+
+    test "returns a bounded recent audit window with only its projection contexts", %{dir: dir} do
+      pid = start_store!(dir, dispatch_delay_ms: 60_000)
+
+      assert {:ok, %{decision: contextual}} =
+               request(pid, %{
+                 "source_id" => "recent-audit-context",
+                 "question" => "Does a bounded lifecycle event retain its context?",
+                 "blocking" => false,
+                 "options" => [%{"id" => "yes", "label" => "Yes"}]
+               })
+
+      for index <- 1..55 do
+        assert {:ok, _result} =
+                 request(pid, %{
+                   "source_id" => "recent-audit-#{index}",
+                   "question" => "Recent decision #{index}?",
+                   "blocking" => false
+                 })
+      end
+
+      assert %{records: records, contexts: contexts, revisions: %{}} =
+               DecisionStore.recent_audit_history(5, pid)
+
+      assert Enum.map(records, & &1.data.source_id) ==
+               Enum.map(55..51//-1, &"recent-audit-#{&1}")
+
+      assert map_size(contexts) == 5
+      assert %{records: capped} = DecisionStore.recent_audit_history(500, pid)
+      assert length(capped) == 50
+
+      assert {:ok, _answer_result} =
+               answer(pid, contextual.decision_id, %{
+                 "idempotency_key" => "recent-audit-answer",
+                 "expected_version" => contextual.version,
+                 "option_id" => "yes"
+               })
+
+      assert [answered] = DecisionHistory.list(server: pid, limit: 1)
+      assert answered.change == :answered
+      assert answered.question == "Does a bounded lifecycle event retain its context?"
+
+      GenServer.stop(pid)
+      replayed = start_store!(dir, dispatch_delay_ms: 60_000)
+      assert [replayed_answer] = DecisionHistory.list(server: replayed, limit: 1)
+      assert replayed_answer.question == answered.question
     end
 
     test "new request audit records carry the typed envelope and canonical run id", %{dir: dir} do

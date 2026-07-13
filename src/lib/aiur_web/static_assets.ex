@@ -24,6 +24,16 @@ defmodule AiurWeb.StaticAssets do
   }
 
   @spec fetch(String.t()) :: {:ok, String.t(), binary()} | :error
+  def fetch("/aiur-logo.png") do
+    :aiur
+    |> Application.app_dir("priv/static/aiur-logo.png")
+    |> File.read()
+    |> case do
+      {:ok, body} -> {:ok, "image/png", body}
+      {:error, _reason} -> :error
+    end
+  end
+
   def fetch(path) when is_binary(path) do
     case Map.fetch(@assets, path) do
       {:ok, {content_type, body}} -> {:ok, content_type, body}

@@ -42,6 +42,7 @@ defmodule Aiur.ApplicationTest do
       Aiur.AgentList.Input,
       Aiur.LauncherWatchdog,
       Aiur.Opencode.PaneSupervisor,
+      AiurWeb.ControlCenterCache,
       Aiur.HttpServer
     ]
 
@@ -89,9 +90,10 @@ defmodule Aiur.ApplicationTest do
       assert length(headless) < length(interactive)
     end
 
-    test "headless dashboard opt-in starts HttpServer without reviving panes" do
+    test "headless dashboard opt-in starts the shared cache and HttpServer without reviving panes" do
       mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: true))
 
+      assert AiurWeb.ControlCenterCache in mods
       assert Aiur.HttpServer in mods
       refute Aiur.Opencode.PaneSupervisor in mods
       refute Aiur.PaneManager in mods
