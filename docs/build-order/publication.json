@@ -33,6 +33,14 @@
     {
       "blocked_ticket_id": "BO-001",
       "blocker_issue_id": "SKILL-DELIVERY-001"
+    },
+    {
+      "blocked_ticket_id": "BO-004",
+      "blocker_issue_id": "SKILL-DELIVERY-001"
+    },
+    {
+      "blocked_ticket_id": "BO-008",
+      "blocker_issue_id": "SKILL-DELIVERY-001"
     }
   ],
   "read_only_issue_refs": [

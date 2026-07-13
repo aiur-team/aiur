@@ -7,15 +7,15 @@ one GitHub-rooted feature, renders its native dependency graph, overlays
 current Aiur activity without changing planning truth, and remains truthful
 through partial providers, cycles, restart and 100-ticket graphs.
 
-The bounded feature is fifteen tickets (58 points). Fifteen standalone
-dashboard companions (56 points) align the current OCC with the refreshed
+The bounded feature is sixteen tickets (61 points). Twenty-two standalone
+dashboard companions (75 points) align the current OCC with the refreshed
 Units, Commands, controls and usage design, but do not enter the Build Order
 root, critical path, ETA or terminal condition.
 
 ## Baselines
 
 - Repository: `its-everdred/aiur`
-- Researched code: `1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d`
+- Researched code: `9849f32963c2a65367bce565b3f5ede3777c218f`
 - Design HTML SHA-256:
   `23b527eade8c2fad7d37957c248be709091dfd112bbc6e13c6d76cd092d663a3`
 - Design constraints SHA-256:
@@ -37,16 +37,20 @@ bounded Executor skill gate is independent and must also be resolved first.
 ## Architecture
 
 ```text
-GitHub -> BO-002 adapter -> BO-003 catalog/graph/detail LKG ----+--> BO-007 presenter
-                                                               |           |
-Aiur -> BO-004 typed identity -> StatusReport -----------------+           +--> BO-011 context
-                           +--> BO-005 event activity ----------+--------------->|
-                                      |                         |                |
-                                      +--> BO-006 AgentList      |                |
-BO-001 domain -> BO-008 browser harness -> BO-009 worker -> BO-010 DOM/SVG ------+
-        +--------------------------------------------------------------------->|
-                                                                               v
-                                                                         BO-012 route
+GitHub -> BO-002 graph adapter -> BO-003 catalog/graph LKG ----+--> BO-007 presenter
+                                                              |           |
+Aiur -> BO-004 typed identity -> StatusReport ----------------+           +--> BO-011 graph context
+                           +--> BO-005 event activity ---------+                 ^
+                                      |                                          |
+                                      +--> BO-006 AgentList      BO-016 base context
+                                                               ^          ^
+BO-001 domain -> BO-009 worker -> BO-010 DOM/SVG --------------+          |
+                    ^                                                     |
+BO-008 browser harness ---------------------------------------------------+
+                                                               |          |
+                                                               +----------+
+                                                                          v
+                                                                    BO-012 route
                                                                                |
                                                                          BO-013 interaction
                                                                                |
@@ -58,29 +62,32 @@ BO-001 domain -> BO-008 browser harness -> BO-009 worker -> BO-010 DOM/SVG -----
 GitHub owns root/member identity, labels, lifecycle and native blockers. Aiur's
 existing StatusReport owns execution/waiting/backend facts, while BO-005 owns
 progress/stage/latest cross-ticket event activity. BO-007 is a pure join.
-Server DOM owns semantics;
-the browser worker owns only layout geometry. Cards receive bounded summaries;
-selected context reads cached normalized detail rather than fetching per node.
+BO-016 owns root-independent on-demand detail caching and the accessible base
+context; BO-011 adds selected-root relationship semantics. Server DOM owns
+semantics; the browser worker owns only layout geometry. Cards receive bounded
+summaries; selected context reads cached normalized detail rather than fetching
+per node.
 
 ## Build Order ticket graph
 
 | ID | Outcome | Cx | Phase | Lane | Hard prerequisites |
 |---|---|---:|---:|---|---|
 | BO-001 | Strict domain/readiness contract | 3 | 1 | Backend | — |
-| BO-002 | Complete bounded GitHub graph/detail adapter | 4 | 2 | Backend | BO-001 |
-| BO-003 | Atomic catalog/graph/detail LKG | 4 | 3 | Backend | BO-002 |
-| BO-004 | Repository-qualified issue/status/event identity | 4 | 2 | Infrastructure | BO-001 |
+| BO-002 | Complete bounded GitHub graph adapter | 4 | 2 | Backend | BO-001 |
+| BO-003 | Atomic catalog/graph LKG | 4 | 3 | Backend | BO-002 |
+| BO-004 | Repository-qualified issue/status/event identity | 4 | 2 | Infrastructure | — |
 | BO-005 | Shared daemon event activity | 4 | 3 | Backend | BO-004 |
 | BO-006 | AgentList consumes shared activity | 3 | 4 | Frontend | BO-005 |
 | BO-007 | Pure planning/runtime presenter | 4 | 4 | Backend | BO-001, BO-003, BO-005 |
-| BO-008 | Browser/a11y/performance harness | 4 | 1 | Infrastructure | BO-001 |
+| BO-008 | Browser/a11y/performance harness | 4 | 1 | Infrastructure | — |
 | BO-009 | Pinned layout worker/static platform | 4 | 2 | Frontend | BO-001, BO-008 |
 | BO-010 | DOM/SVG layout adapter and fallback | 4 | 3 | Frontend | BO-008, BO-009 |
-| BO-011 | Reusable all-state ticket context | 4 | 4 | Frontend | BO-003, BO-007, BO-008 |
+| BO-011 | Build Order relationship-context adapter | 3 | 4 | Frontend | BO-007, BO-008, BO-016 |
 | BO-012 | Selectable minimum graph route | 4 | 5 | Frontend | BO-003, BO-007, BO-010, BO-011 |
 | BO-013 | Accessible graph interaction | 4 | 6 | Frontend | BO-008, BO-012 |
 | BO-014 | Responsive redraw and bounded scale | 4 | 7 | Frontend | BO-008, BO-013 |
 | BO-015 | Current-base acceptance capstone | 4 | 8 | Documentation | BO-006, BO-014 |
+| BO-016 | Root-independent ticket detail/base context | 4 | 4 | Frontend | BO-004, BO-008 |
 
 BO-003 and BO-005 serialize because both change the application supervision
 surface after different prerequisites. Phase is a display/rollout hint, not a
@@ -89,14 +96,16 @@ wave barrier. Same-phase hard edges are valid.
 ## Parallel execution shape
 
 1. Resolve GATE-001 (integration baseline) and GATE-002 (Executor skill), then
-   start BO-001.
-2. After BO-001, start BO-002, BO-004, and BO-008. BO-009 starts once BO-008 is
-   complete.
-3. BO-003 follows BO-002; BO-005 follows BO-004. Sequence those two on the
-   supervision seam, while BO-010 follows BO-008/009 in parallel.
+   start BO-001, BO-004, and BO-008 in parallel. The skill-delivery issue is a
+   native blocker of all three initial nodes.
+2. BO-002 follows BO-001. BO-005 follows BO-004. BO-009 follows BO-001 and
+   BO-008. BO-016 starts after BO-004 and BO-008, independently of root
+   selection.
+3. BO-003 follows BO-002; sequence BO-003 and BO-005 on the supervision seam,
+   while BO-010 follows BO-008/009 in parallel.
 4. BO-006 follows activity; BO-007 follows activity and the planning
-   projection; BO-011 follows the projection, presenter, and browser harness.
-5. BO-012 joins graph providers, presenter, layout and context.
+   projection; BO-011 adapts BO-016 to BO-007 relationship truth.
+5. BO-012 joins graph providers, presenter, layout and relationship context.
 6. BO-013 owns relationship selection/accessibility and fit/pan/zoom semantics;
    BO-014 owns responsive transform preservation, redraw and measured
    20/50/100 scale.
@@ -150,35 +159,44 @@ and cannot displace the feature path.
 | ID | Outcome | Cx | Hard prerequisites |
 |---|---|---:|---|
 | DASH-001 | Responsive URL-backed route shell | 3 | BO-008 |
-| DASH-002 | Recoverable current-run Units membership/catalog | 4 | BO-005 |
-| DASH-003 | Units filters/table/responsive UI | 3 | DASH-001, DASH-002, BO-011 |
+| DASH-002 | Recoverable current-run membership | 4 | BO-004 |
+| DASH-003 | Units filters/table/responsive UI | 3 | DASH-001, DASH-016, BO-016 |
 | DASH-004 | Applied pause/resume protocol | 4 | — |
-| DASH-005 | Unit and capacity controls UI | 3 | DASH-002, DASH-003, DASH-004 |
-| DASH-006 | Decision lookup/provenance contract | 4 | — |
-| DASH-007 | Commands presentation catch-up | 3 | DASH-001, DASH-006 |
-| DASH-008 | Raw provider-neutral usage measurements | 4 | BO-004 |
+| DASH-005 | Unit and capacity controls UI | 3 | DASH-003, DASH-004 |
+| DASH-006 | Retained Decision lookup/query | 3 | — |
+| DASH-007 | Commands presentation catch-up | 3 | DASH-001, DASH-006, DASH-017 |
+| DASH-008 | Raw provider-neutral usage measurements | 4 | BO-004, DASH-018 |
 | DASH-009 | Durable usage ledger and delta checkpoints | 4 | DASH-008 |
-| DASH-010 | Claude Remote Control usage adapter | 4 | DASH-008; named human protocol gate |
+| DASH-010 | Claude Remote Control usage adapter | 3 | DASH-008, DASH-019 |
 | DASH-011 | Versioned cost/grouping projection | 4 | DASH-009 |
-| DASH-012 | Meter contract and Codex adapter | 4 | DASH-008 |
+| DASH-012 | Provider-meter foundation | 3 | DASH-018 |
 | DASH-013 | Claude subscription/API meter adapter | 4 | DASH-012; named human protocol gate |
-| DASH-014 | Canonical current-run summary | 4 | DASH-002 |
-| DASH-015 | Accessible usage/run summary UI | 4 | DASH-001, DASH-003, DASH-010..014 |
+| DASH-014 | Canonical current-run summary | 4 | DASH-016 |
+| DASH-015 | Authenticated usage/provider UI | 4 | DASH-003, DASH-010, DASH-011, DASH-013, DASH-020, DASH-021 |
+| DASH-016 | Units row/filter/URL policy | 3 | DASH-002, BO-005 |
+| DASH-017 | Trusted Decision provenance/confidence | 3 | — |
+| DASH-018 | Opaque provider-account generation | 3 | — |
+| DASH-019 | Authenticated local Claude telemetry transport | 4 | named human protocol gate |
+| DASH-020 | Codex provider-meter adapter | 3 | DASH-012 |
+| DASH-021 | Enforced financial-data boundary | 3 | DASH-001 |
+| DASH-022 | Accessible nonfinancial run-summary UI | 3 | DASH-003, DASH-014 |
 
 These dependencies publish as native GitHub blockers even though companions
-have no Build Order parent. DASH-008 serializes with BO-005 on event ingestion
-and owns the single opaque, privacy-safe provider-account generation shared by
-usage and meter adapters. DASH-009 preserves occurrence-price date, currency,
-account generation and every grouping dimension through compaction. DASH-011
-exposes those qualified groups; DASH-015 alone joins them to provider tiers by
-an exact known provider/backend/generation match. DASH-001 consumes BO-008's
-shared real-route browser harness, and DASH-012 consumes DASH-008's generation
-contract.
-DASH-001/003/005/007/015 and BO-012..014 touch shared dashboard composition or
-CSS and must be sequenced/rebased. DASH-006 and BO-004 coordinate provenance
-schema boundaries. Companion publication receives complexity and
+have no Build Order parent. DASH-018 owns the single opaque, privacy-safe
+provider-account generation shared by usage and meters. DASH-008 serializes
+with BO-005 on event ingestion and consumes that identity. DASH-009 preserves
+occurrence-price date, currency, account generation and every grouping
+dimension through compaction. DASH-011 exposes those qualified groups;
+DASH-015 alone joins them to DASH-020/013 tier facts by an exact known
+provider/backend/generation match. DASH-001 consumes BO-008's shared real-route
+browser harness. DASH-003 consumes BO-016's root-independent base context;
+BO-011 remains Build Order-specific. DASH-006 and DASH-017 serialize on
+Decision storage while remaining independently acceptable. DASH-019 owns the
+local trust/correlation boundary; DASH-010 only normalizes accepted requests.
+DASH-001/003/005/007/015/022 and BO-012..014 touch shared dashboard composition
+or CSS and must be sequenced/rebased. Companion publication receives complexity and
 `model:codex`, never phase/lane/root membership or `agent:todo`.
-All fifteen companions also carry the non-native
+All twenty-two companions also carry the non-native
 `GATE-OCC-PREDECESSOR-BASELINE`; closed #1034 is accepted evidence within that
 gate rather than an active native blocker.
 

@@ -13,7 +13,7 @@ pending.
 
 - Repository: `its-everdred/aiur`
 - Researched and refreshed `origin/main`:
-  `1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d`
+  `9849f32963c2a65367bce565b3f5ede3777c218f`
 - Initial completed OCC integration baseline:
   `b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5`
 - Configured `v2` snapshot:
@@ -25,15 +25,15 @@ pending.
 - Prototype constraints SHA-256:
   `49e068d4999d62197dbd1d5c0438db21a25cd1b5873fb959a58a7e0388c7829a`
 - Canonical Build Order JSON SHA-256:
-  `2f561c915edae56e947335393285b9c4f62a59c4ed37bf48d7b56c300d3c7a4d`
+  `bc02b3a42431bf1953a6adcdeea9203fdfee6a3347ee338fe7f33346efa71ae2`
 - Companion baseline JSON SHA-256:
-  `3fe30941a87b8929fccbef3c83ce3f107ab3c1700bb86c8b857a896fc5afad17`
+  `c0d78ad9fd66c81d288f085e1c9b27aaa94aab8c548a0ae1bf2154b5d78fe7b9`
 - Publication manifest SHA-256:
-  `31084d00f40826689c95ad00d67377f0f651207763161cacffa52cb1d690acd7`
+  `3e9224af9e8c93fb8d4ecf6a8fb298375f1e62c4e10936cf2937e5597e021efb`
 - Requirements SHA-256:
-  `05fd80e2f98593ff51511d0ddfff2f5ae08e07d00bd7b0ea6484d01e79c1080f`
+  `5b01d66ea6cc7ef3e063e7be0e996840ea7ee976ee93a2a5812ee070be2b2a86`
 - Implementation plan SHA-256:
-  `9a238f919c44f6f872d7d8e8568119cf88801d8834174f32f4cf6e9f52405de4`
+  `78d2eda7aac863cec51ac7de6fda53b9fd05cfa7941727cb48869cf6b25f6237`
 - Latest validator/skill authority: isolated draft PR #1065 at
   `0daf29726fbe8345a79588e14b6f4c556584a57c`
 - Approval commit: pending two clean passes
@@ -45,8 +45,8 @@ route, filter, detail, scrolling, and interaction behavior recorded in
 
 ## Current-state refresh
 
-The 2026-07-13 refresh found no new ticket split or owner transfer. It did add
-two hard graph edges and require these contract updates:
+The 2026-07-13 current-main and final prototype refresh required both contract
+updates and a final ticket-boundary correction:
 
 - Current main's runner `:completed/:awaiting_dispatch` state is a nonterminal
   replacement boundary. DASH-002 and BO-006 now prove that it remains visible,
@@ -60,13 +60,16 @@ two hard graph edges and require these contract updates:
   responsive-artifact, reconnect, trace and performance harness; DASH-001 now
   depends on it rather than inventing a second runner.
 - Usage and provider meters require one privacy-safe opaque account generation
-  rather than independent namespaces. DASH-008 owns that contract and
-  DASH-012 now depends on it. DASH-009 preserves occurrence-price date,
-  currency, generation and every grouping dimension through compaction;
+  rather than independent namespaces. DASH-018 owns that lifecycle,
+  DASH-008 and DASH-012 consume it, and DASH-009 preserves occurrence-price
+  date, currency, generation, and every grouping dimension through compaction.
   DASH-015 alone performs exact-generation tier composition.
 - Main now uses the Executor role vocabulary, while compatibility module and
   event identifiers remain unchanged. Role-facing planning copy was refreshed
   without renaming durable implementation seams.
+- Main's #1076 isolates warmed-slot OpenCode provider configuration from parent
+  overrides. It changes neither provider-meter authority nor attributed usage
+  ingestion, so the provider/accounting ticket graph remains unchanged.
 - Draft PR #1065 now conflicts with current main in the retired-loop,
   `aiur-run`, `aiur-monitor`, skill-discovery, test, and documentation seams.
   GATE-002 therefore remains unresolved and the human delivery issue requires
@@ -79,13 +82,13 @@ two hard graph edges and require these contract updates:
 | Canonical validator | 0 errors, 0 warnings |
 | Companion/publication validator | 0 errors, 0 warnings |
 | Publication regression suite | 37 tests pass |
-| Build Order tickets | 15, 58 complexity points |
-| Standalone companions | 15, 56 complexity points |
-| Planned GitHub materialization | 32 new issues: one root, 30 executable issues, one human issue |
+| Build Order tickets | 16, 61 complexity points |
+| Standalone companions | 22, 75 complexity points |
+| Planned GitHub materialization | 40 new issues: one root, 38 executable issues, one human issue |
 | Logical IDs | Unique across BO, DASH, root, and skill delivery |
 | Hard-edge graph | Acyclic across BO and DASH dependencies |
 | Ticket documents | Paths, complexities, requirement refs, dependencies, and external gates match structured records |
-| Requirements | Bidirectional BOREQ-001..015 plus exact unique DREQ-001..015 coverage |
+| Requirements | Bidirectional BOREQ-001..015 plus exact unique DREQ-001..022 coverage |
 | Capstone | BO-015 transitively covers every BO ticket |
 | Pre-publication policy | No dispatch labels; exact root/skill label denylist; standalone companions |
 | Structured data | JSON parse and Python compile pass |
@@ -122,8 +125,9 @@ This pass was not clean. It found and corrected:
    BO-003 owns bounded cache/LKG, BO-007 owns pure presentation, and BO-011 owns
    demand plus UI.
 4. BO-009 and BO-011 consumed BO-008 infrastructure without hard prerequisites.
-5. BO-008's toolchain/fixture/artifact/performance scope was undersized; it is
-   complexity 4 and the feature total is 58 points.
+5. BO-008's toolchain/fixture/artifact/performance scope was undersized; it was
+   raised to complexity 4, producing the then-current 58-point graph. The final
+   BO-016 split in corrective pass 4 produces the current 61-point graph.
 6. BO-008..014 omitted material reviewer and at-merge proof from the canonical
    records; those gates are now retained.
 7. Acceptance hard-coded `main`; it now resolves and records the configured
@@ -145,13 +149,14 @@ This pass was not clean. It found and corrected:
 4. The GitHub adapter description overstated current dependency support and
    ignored failure/cycle/partial-data boundaries; BO-002 now owns the bounded
    read contract explicitly.
-5. Prototype delta was too large for one catch-up issue. It is decomposed into
-   fifteen standalone Units, control, Commands, usage, meter, and summary
-   contracts with explicit ownership and gates.
-6. Usage delta ownership was ambiguous. DASH-008 emits raw measurements only;
-   DASH-009 solely owns durable counters/deltas/replay; DASH-010 owns secure
-   Remote Control ingestion; DASH-011 owns pricing/grouping; DASH-012/013 own
-   provider meters; DASH-014/015 own summary projection/presentation.
+5. Prototype delta was too large for one catch-up issue. This checkpoint split
+   it into fifteen standalone Units, control, Commands, usage, meter, and
+   summary contracts; corrective pass 4 separated seven more executable
+   boundaries for the current twenty-two-ticket pack.
+6. Usage delta ownership was ambiguous. This checkpoint separated raw
+   measurement, durable ledger, Remote Control, price projection, provider
+   meters, and summary concerns; corrective pass 4 completed the transport,
+   generation, adapter, authorization, and presentation boundaries.
 7. Claude ingestion lacked a safe local authority boundary and account meters
    lacked protocol authority. Auth-before-decode, bounded transport, redaction,
    replay controls, and two named human gates are now required.
@@ -172,14 +177,44 @@ This pass was not clean. It found and corrected:
    consumes it through a hard dependency.
 2. Provider usage and meters could mint incompatible account generations,
    while compaction could erase the occurrence-price date, currency or
-   generation needed for correct historical estimates. DASH-008 owns one
-   privacy-safe shared generation, DASH-012 consumes it, DASH-009 retains all
-   required partitions, and DASH-015 alone joins tier facts exactly.
+   generation needed for correct historical estimates. This pass established
+   one shared generation and complete ledger partitions; corrective pass 4
+   assigned generation lifecycle to DASH-018, with DASH-008 and DASH-012 as
+   consumers and DASH-015 as the sole exact-generation tier join.
 3. Publication policy could self-authorize routing-label drift, accept an
    unresolved approval SHA, omit issue-body evidence, accept an arbitrary root
    comment, skip three collision references, or follow a document symlink out
    of the pack. The pinned and local validators now fail closed on each case,
    with adversarial regression coverage.
+
+### Corrective pass 4 — executable ticket boundaries
+
+This pass was not clean. A final prototype-to-main comparison and independent
+complexity audit found several tickets that still bundled independently
+reviewable backend programs. It corrected:
+
+1. BO-001 had become a false prerequisite for event identity and the browser
+   harness. BO-001, BO-004, and BO-008 are now independent initial nodes, each
+   directly protected by GATE-001 and GATE-002.
+2. Generic repository-qualified issue detail, bounded caching, deep-link base
+   context, and accessibility lacked a reusable owner. BO-016 now owns that
+   foundation; BO-011 is only the Build Order relationship-context adapter.
+3. Current-run recovery and row eligibility were coupled. DASH-002 now owns
+   membership journaling and recovery, while DASH-016 owns Units row
+   projection, lifecycle predicates, counts, and stable ticket URLs.
+4. Commands data retrieval and trust semantics were coupled. DASH-006 now owns
+   lookup, pagination, search, and counts; DASH-017 owns provenance,
+   confidence, migration, and trust presentation contracts.
+5. Provider generation, meter protocol, and provider-specific adapters were
+   coupled. DASH-018 owns generation lifecycle, DASH-012 the provider-neutral
+   contract, and DASH-020/DASH-013 the Codex/Claude adapters.
+6. Claude transport authority and accepted-event normalization were coupled.
+   DASH-019 now owns authenticated bounded local transport and trusted session
+   correlation; DASH-010 translates accepted events to UsageEnvelope.
+7. Financial authorization, nonfinancial run summary, and provider usage UI
+   were one oversized presentation ticket. DASH-021 owns the enforced
+   financial boundary, DASH-022 the accessible current-run summary, and
+   DASH-015 the authenticated usage/provider presentation.
 
 ### Clean pass 1
 
@@ -203,10 +238,10 @@ this planning run and require conflict reconciliation against current main.
 ## Publication reconciliation
 
 Pending explicit final execution of the already authorized publication plan.
-Publication must create/reconcile only the root, BO-001..015, DASH-001..015,
+Publication must create/reconcile only the root, BO-001..016, DASH-001..022,
 and SKILL-DELIVERY-001; it must not mutate read-only #132, #845, #1033, #1034,
 or #1067. It then records returned identities, full observed labels, exact
-native parenthood and blockers, all 32 re-read issue-body markers and hashes,
+native parenthood and blockers, all 40 re-read issue-body markers and hashes,
 structured pending root-comment evidence, and both validator results before
 the same comment is finalized as the last GitHub mutation.
 

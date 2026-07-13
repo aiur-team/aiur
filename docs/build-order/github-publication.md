@@ -12,27 +12,28 @@ label, implement a ticket, or merge either planning branch.
    the existing issues.
 2. Create or reconcile one non-dispatchable root for
    `its-everdred/aiur:build-order-dashboard` from `root-issue.md`.
-3. Create/reconcile BO-001 through BO-015 from the approved ticket documents.
-4. Add the fifteen BO issues as direct native sub-issues without silently
+3. Create/reconcile BO-001 through BO-016 from the approved ticket documents.
+4. Add the sixteen BO issues as direct native sub-issues without silently
    replacing an existing parent.
 5. Publish every BO `depends_on` relationship as native `blockedBy`.
-6. Create/reconcile DASH-001 through DASH-015 as standalone issues from
+6. Create/reconcile DASH-001 through DASH-022 as standalone issues from
    `dashboard-companions.json` and their documents.
 7. Publish companion hard prerequisites as native blockers, including
    cross-scope BO prerequisites, while leaving companions outside the root.
 8. Create/reconcile the separate human-blocked skill-delivery issue from
    `skill-delivery.md` and `publication.json`; it references draft PR #1065 and
    is not feature work.
-9. Publish the skill-delivery issue as a native external blocker of BO-001 so
-   the exact Executor contract must land before feature dispatch; it remains
-   outside root membership and the feature denominator.
+9. Publish the skill-delivery issue as a native external blocker of BO-001,
+   BO-004, and BO-008 so each independent initial branch requires the exact
+   Executor contract before feature dispatch; it remains outside root
+   membership and the feature denominator.
 10. Requery full label sets, returned identities, parenthood and every native
     blocker. Prove the root, skill-delivery issue, and every companion are
     parentless while all BO tickets have the intended direct root. Populate all
     three structured receipts with RFC3339 UTC check times and run the
     canonical plus publication validators.
 
-All 32 created bodies link to the immutable approved planning commit and carry
+All 40 created bodies link to the immutable approved planning commit and carry
 one canonical `aiur-planning-issue` marker with schema 2, logical ID, plan
 version, and that same commit. Requery each body, parse the marker and link, and
 record its SHA-256; do not trust the submitted body. The approval SHA must
@@ -68,7 +69,7 @@ Root:
 - `build-order` only from the planning/routing family;
 - no `model:*`, `complexity:*`, `phase:*`, `build-lane:*` or `agent:*`.
 
-BO-001 through BO-015:
+BO-001 through BO-016:
 
 - exactly one `complexity:N`;
 - `model:codex`;
@@ -76,7 +77,7 @@ BO-001 through BO-015:
 - exactly one `build-lane:documentation|frontend|backend|infrastructure`;
 - no active `agent:*` state.
 
-DASH-001 through DASH-015:
+DASH-001 through DASH-022:
 
 - exactly one `complexity:N` and `model:codex`;
 - no Build Order parent, `phase:N`, `build-lane:*` or active `agent:*` state.
@@ -101,8 +102,8 @@ does not inherit workflow state from a template.
 
 - Native direct parenthood is Build Order membership.
 - Native `blockedBy` is the only hard prerequisite truth.
-- The human skill-delivery issue is an external native blocker of BO-001; it is
-  neither root membership nor Build Order work.
+- The human skill-delivery issue is an external native blocker of BO-001,
+  BO-004, and BO-008; it is neither root membership nor Build Order work.
 - Companion dependencies are real hard prerequisites and are published even
   though the issues are standalone.
 - Named external gates stay in issue contracts and are not converted into
@@ -127,7 +128,7 @@ does not inherit workflow state from a template.
 - Root/skill/companion standalone-parenthood requery: pending
 - Skill-delivery issue: pending
 - Root reconciliation comment URL/final state: pending
-- Approval commit existence and 32 observed body markers/hashes: pending
+- Approval commit existence and 40 observed body markers/hashes: pending
 - Canonical validator: pending
 - Companion/publication validator: pending
 

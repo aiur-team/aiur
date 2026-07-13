@@ -26,7 +26,7 @@ class PublicationBoundaryTests(unittest.TestCase):
         data = companions()
         data["tickets"][-1]["requirement_ref"] = "DREQ-014"
         joined = "\n".join(self.report(data).errors)
-        self.assertIn("requirement coverage missing: DREQ-015", joined)
+        self.assertIn("requirement coverage missing: DREQ-022", joined)
         self.assertIn("requirement references must be unique: DREQ-014", joined)
 
     def test_requires_matching_approval_and_plan_versions(self) -> None:

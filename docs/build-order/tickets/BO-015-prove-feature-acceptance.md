@@ -20,7 +20,7 @@
 
 **Design evidence:** DESIGN-001, DESIGN-002
 
-**Researched at:** 1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d
+**Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
 **Suggested labels:** `complexity:4`, `model:codex`, `phase:8`, `build-lane:documentation`; never `agent:todo`
 
@@ -53,11 +53,12 @@ that should not be manufactured against live GitHub.
   branch/SHA contains the completed OCC baseline, and the bounded Executor
   skill revision remains the loaded contract. A later branch or skill drift is
   an explicit gate failure, not an inferred success.
-- Integrate all transitive BO-001..014 work, resolve only contained acceptance
-  defects, run the full automated contract/CI matrix, and maintain an acceptance
-  matrix mapping every BOREQ to exact automated or Executor evidence.
+- Integrate all 15 prerequisite tickets (BO-001..014 and BO-016), resolve only
+  contained acceptance defects, run the full automated contract/CI matrix, and
+  maintain an acceptance matrix mapping every BOREQ to exact automated or
+  Executor evidence.
 - Dogfood the real currently published Build Order root through the real GitHub
-  provider: select/deep-link it, verify all 15 member identities/labels/native
+  provider: select/deep-link it, verify all 16 member identities/labels/native
   edges/outcomes, observe real Aiur activity join, open cached context, navigate
   dependencies, follow one safe destination link, and confirm Build Order
   exposes no GitHub or Aiur mutation handler.
@@ -103,8 +104,9 @@ transition.
 ## Contract and invariants
 
 - BO-006 and BO-014 are the two terminal prerequisites and transitively cover
-  every implementation ticket; GitHub remains live membership/hard-edge truth
-  while the planning pack remains the approved boundary/conflict baseline.
+  all 15 prerequisite tickets, including BO-016 through BO-011; GitHub remains
+  live membership/hard-edge truth while the planning pack remains the approved
+  boundary/conflict baseline.
 - The feature is complete only after implementation, review, current-configured-
   branch CI, merge, documentation, cleanup, post-merge real CLI/browser proof,
   synthetic boundary proof, and root `COMPLETED` closure.
@@ -132,7 +134,7 @@ transition.
 ### Agent gate
 
 - Latest canonical planning validator and published GitHub reconciliation pass
-  with exact 15-member parenthood, required labels, `model:codex`, no active
+  with exact 16-member parenthood, required labels, `model:codex`, no active
   `agent:todo`, and exact native hard edges.
 - Every focused suite plus the complete repository CI gate passes on the
   current integrated candidate; the acceptance matrix has no missing BOREQ or

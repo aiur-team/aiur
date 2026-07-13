@@ -98,12 +98,14 @@ authorized feature.
 
 **Status:** accepted
 
-Responsive shell, Units catalog/presentation, runtime control protocol/UI,
-Decision provenance/Commands, usage envelope/ledger/Remote Control accounting,
-cost projection, provider meters, run summary and usage UI are fifteen
-companion tickets. They do not enter the Build Order root or terminal condition.
-BO-011 owns reusable ticket context; BO-012 consumes the shared route contract
-when available without waiting for all companion metrics.
+Responsive shell, recoverable Units membership/policy/presentation, runtime
+control protocol/UI, Decision query/provenance/Commands, account identity,
+usage envelope/ledger/Remote Control transport and accounting, cost projection,
+provider-meter foundation/adapters, run summary, financial authorization and
+the two summary surfaces are twenty-two companion tickets. They do not enter
+the Build Order root or terminal condition. BO-016 owns root-independent ticket
+detail/base context; BO-011 adapts it to Build Order relationships; BO-012
+consumes the shared route contract without waiting for companion metrics.
 
 ## DEC-010 — Treat phase as a hint
 

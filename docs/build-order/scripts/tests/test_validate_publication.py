@@ -80,7 +80,9 @@ class PublicationValidationTests(unittest.TestCase):
         joined = "\n".join(validate(fixture.companion_path, fixture.build_path).errors)
         self.assertIn("#132, #845, #1033, #1034, and #1067", joined)
         self.assertIn("forbidden_label_prefixes must equal", joined)
-        self.assertIn("BO-001 blocked by SKILL-DELIVERY-001", joined)
+        self.assertIn(
+            "BO-001, BO-004, and BO-008 blocked by SKILL-DELIVERY-001", joined
+        )
 
     def test_auxiliary_receipt_rejects_agent_labels(self) -> None:
         data, build, manifest = materialized_pack()

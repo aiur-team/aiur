@@ -6,7 +6,7 @@ lifecycle and native hard blockers; Aiur owns current activity and progress.
 
 ## Finite boundary
 
-This root contains BO-001 through BO-015 only. Completion requires all fifteen
+This root contains BO-001 through BO-016 only. Completion requires all sixteen
 issues implemented, reviewed, green on the current configured integration
 branch, merged, documented, cleaned up and proven after merge through the real
 CLI plus authenticated browser workflow. Dashboard companion work, Linear
@@ -31,8 +31,9 @@ issue identities, native membership, blockers, and full labels were re-read.
 
 ## Pre-dispatch gates
 
-Do not dispatch BO-001 until both gates in `build-order.json` are recorded as
-resolved on this root:
+Do not dispatch any member until both gates in `build-order.json` are recorded
+as resolved on this root. BO-001, BO-004, and BO-008 are the independent
+initial nodes:
 
 - the configured integration branch contains the completed OCC predecessor
   baseline and its accepted successors; and
@@ -41,7 +42,8 @@ resolved on this root:
   discoverable.
 
 These are external execution gates, not child tickets and not additions to the
-fifteen-ticket denominator.
+sixteen-ticket denominator. The skill-delivery issue is published as a native
+blocker of all three initial nodes so no branch silently bypasses GATE-002.
 
 ## Closure
 

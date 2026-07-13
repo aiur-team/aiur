@@ -1,7 +1,7 @@
 # Dashboard and Prototype Delta
 
 **Current-code baseline:** `origin/main` at
-`1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d`
+`9849f32963c2a65367bce565b3f5ede3777c218f`
 
 **Design baseline:** [design-manifest.md](design-manifest.md)
 
@@ -10,10 +10,10 @@ substantial Fleet-to-Units redesign, a smaller Decision-to-Commands alignment,
 and the net-new Build Order graph. It is not a CSS-only restyle.
 
 The companion dashboard work is separate from Build Order: responsive shell,
-Units catalog and presentation, applied controls, Commands provenance and
-presentation, and the eight-ticket usage/accounting track in
-`04-usage-accounting.md`. None of the fifteen companion tickets enters the
-Build Order root or feature-completion calculation. The capability-by-capability
+Units membership/policy/presentation, applied controls, Commands query/
+provenance/presentation, and the thirteen-ticket usage/accounting/run-summary
+track in `04-usage-accounting.md`. None of the twenty-two companion tickets
+enters the Build Order root or feature-completion calculation. The capability-by-capability
 proof for this split is [06-prototype-capability-audit.md](06-prototype-capability-audit.md).
 
 ## Current production baseline
@@ -85,8 +85,8 @@ contract rather than polish.
 - Provide explicit accessible names, state, focus, and unavailable reasons.
 
 Build Order must not depend on shell metrics or writable controls landing. The
-shared route contract and ticket-context component are the only likely
-cross-scope seams.
+shared route contract, generic browser harness, typed identity/activity, and
+root-independent ticket-context foundation are the bounded cross-scope seams.
 
 ## Catch-up ticket D: Commands
 
@@ -115,16 +115,21 @@ This catch-up is independent of the Build Order data provider and graph.
 
 ## Companion usage/accounting track
 
-The shell cards require eight independently reviewable outcomes:
+The shell cards require thirteen independently reviewable outcomes:
 
-1. a provider-neutral measurement envelope with trustworthy ticket identity;
-2. a durable attributed file-first ledger;
-3. required Claude Remote Control request accounting;
-4. versioned cost/coverage and grouping projections;
-5. a provider-meter contract plus Codex adapter;
-6. Claude subscription and API-key meter parity;
-7. a canonical current-run progress/elapsed/ETA projection; and
-8. authenticated accessible summary UI.
+1. privacy-safe shared provider-account generation;
+2. a provider-neutral measurement envelope with trustworthy ticket identity;
+3. a durable attributed file-first ledger;
+4. authenticated local telemetry transport and correlation;
+5. required Claude Remote Control request normalization;
+6. versioned cost/coverage and grouping projections;
+7. a provider-meter foundation;
+8. the Codex meter adapter;
+9. Claude subscription and API-key meter parity;
+10. a canonical current-run progress/elapsed/ETA projection;
+11. the enforced financial-data boundary;
+12. accessible nonfinancial run-summary presentation; and
+13. authenticated usage/provider presentation.
 
 See `04-usage-accounting.md` for boundaries and evidence. Build Order may pass
 its selected member IDs to the accounting query, but its own data provider,

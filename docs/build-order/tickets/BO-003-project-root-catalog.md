@@ -20,16 +20,15 @@
 
 **Design evidence:** DESIGN-002
 
-**Researched at:** 1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d
+**Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
 **Suggested labels:** `complexity:4`, `model:codex`, `phase:3`, `build-lane:backend`; never `agent:todo`
 
 ## Outcome
 
 One always-supervised projection supplies a current root catalog, atomic
-last-known-good selected-root snapshots, and bounded on-demand selected-member
-detail snapshots, with coalesced demand, bounded refresh, explicit
-health/freshness, and no partial generation visible to LiveView.
+last-known-good selected-root snapshots, with coalesced demand, bounded refresh,
+explicit health/freshness, and no partial generation visible to LiveView.
 
 ## Context and evidence
 
@@ -44,10 +43,6 @@ polling because requests would scale with browser count and disconnects.
 - Add an always-supervised projection keyed by configured tracker/repository and
   canonical root node ID, with separate catalog and per-selected-root generation
   records.
-- Add a bounded selected-detail cache keyed by repository/root/member identity.
-  Selection requests detail through the projection; concurrent demand
-  coalesces, retained entries are bounded, and detail health/freshness is
-  independent from the body-free graph generation.
 - Coalesce concurrent catalog/selected-root demand, bound in-flight work and
   retained roots, schedule refresh/retry with observable backoff, and publish
   generation changes over the existing process/PubSub conventions.
@@ -86,9 +81,8 @@ polling, or the interactive AgentList process.
 - Each published generation is immutable, monotonically identified, complete,
   and tied to its repository/root identity and provider observation time.
 - A failed attempt changes health metadata, not the content of the LKG.
-- Catalog health, catalog-entry validity, selected-root health, selected-detail
-  health, and member warnings are independent and remain distinguishable to
-  BO-011/012.
+- Catalog health, catalog-entry validity, selected-root health, and member
+  warnings are independent and remain distinguishable to BO-007/012.
 - Unknown or stale dependency data never yields a newly ready ticket.
 - Requests and cache retention are bounded independently of connected browsers.
 
@@ -110,9 +104,6 @@ polling, or the interactive AgentList process.
   bounded eviction, provider restart, and subscriber churn without sleeps.
 - Catalog tests prove malformed-root isolation and selected structural-invalid
   versus stale/unavailable behavior.
-- Detail-cache tests cover selection/coalescing, identity mismatch, bounded
-  eviction, stale/no-LKG failure, root switch, content bounds, and proof that
-  graph refresh never performs per-member detail calls.
 - Generation tests inject a partial/error candidate and prove no member or edge
   from it becomes visible.
 
@@ -138,15 +129,15 @@ polling, or the interactive AgentList process.
 ## Surfaces
 
 - Reads: BO-002 catalog/selected candidate operations; application config.
-- Writes: supervised catalog/graph/detail LKG projection, cache/task children,
-  PubSub topics, and deterministic tests.
+- Writes: supervised catalog/graph LKG projection, cache/task children, PubSub
+  topics, and deterministic tests.
 - Contracts: catalog snapshot; body-free selected-root generation;
-  selected-member detail snapshot; provider health/freshness; demand/refresh
-  API.
+  provider health/freshness; demand/refresh API.
 
 ## Sibling boundaries and open gates
 
-BO-011 consumes selected detail and BO-012 consumes catalog/graph snapshots.
-BO-005 owns only Aiur activity and shares no data contract, but the two tickets
-serialize on supervision changes. A companion shell may reuse provider status
-components later without becoming a dependency.
+BO-007/012 consume catalog/graph snapshots. BO-016 separately owns
+root-independent on-demand ticket detail and its cache. BO-005 owns only Aiur
+activity and shares no data contract, but the two tickets serialize on
+supervision changes. A companion shell may reuse provider status components
+later without becoming a dependency.

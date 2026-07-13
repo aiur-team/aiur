@@ -22,7 +22,7 @@
 
 **Design evidence:** DESIGN-002
 
-**Researched at:** 1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d
+**Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
 **Suggested labels:** `complexity:3`, `model:codex`, `phase:1`, `build-lane:backend`; never `agent:todo`
 
@@ -42,8 +42,11 @@ value; a planning view must expose ambiguity instead. If provider, presenter,
 and browser work invent separate meanings for invalid, blocked, or complete,
 the resulting graph can look ready while its source data is incomplete.
 
-This ticket is the contract gate for every other Build Order implementation
-ticket. It defines semantics and bounded fixtures, not transport or UI.
+This ticket is the contract gate for Build Order graph providers, presentation,
+layout, and routes. The root-independent tracker identity/event work (BO-004),
+browser harness (BO-008), and generic ticket context (BO-016) have their own
+contracts and can proceed without importing this domain. This ticket defines
+graph semantics and bounded domain fixtures, not transport or UI.
 
 It must not be dispatched until the user records both external gates as
 resolved on the live root: the configured integration target contains the
@@ -161,9 +164,11 @@ StatusReport and event joins.
 
 ## Sibling boundaries and open gates
 
-BO-002 owns transport normalization, BO-003 owns supervised generations,
-BO-007 owns the joined view model, and BO-012 owns routes. No companion ticket
-may redefine this domain contract; it may only reuse its identities or schedule
-around the same modules. GATE-001 and GATE-002 are
+BO-002 owns graph transport normalization, BO-003 owns supervised graph
+generations, BO-007 owns the joined view model, and BO-012 owns routes. BO-004,
+BO-008, and BO-016 remain root-independent and must not import Build Order
+relationship assumptions merely to reuse identity, testing, or context seams.
+No companion ticket may redefine this domain contract; it may only reuse its
+identities or schedule around the same modules. GATE-001 and GATE-002 are
 pre-dispatch gates, not feature tickets or additions to the completion
 denominator.

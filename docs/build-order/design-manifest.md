@@ -62,8 +62,9 @@ choosing whichever is easier to implement.
 7. The refreshed mock moves navigation into a responsive sidebar, adds a
    Units-only summary, status filters, pause/resume, and richer ticket context.
    Navigation, Units, controls, and summary work are standalone companions.
-   Rich all-state ticket context is one shared Build Order capability (BO-011)
-   that the later Units presentation adopts rather than duplicates.
+   Rich all-state ticket context uses a root-independent base capability
+   (BO-016) that Units can adopt, plus a Build Order-only relationship adapter
+   (BO-011), rather than one graph-specific component being duplicated.
 8. At a measured 390 by 844 viewport, the fixed bottom navigation occupies the
    lower safe area and pause controls are about 34px square. Production must
    preserve unobscured content and use at least 44px named touch targets rather

@@ -4,7 +4,7 @@
   "ticket_prefix": "BO",
   "plan_version": 1,
   "repository": "its-everdred/aiur",
-  "researched_at_commit": "1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d",
+  "researched_at_commit": "9849f32963c2a65367bce565b3f5ede3777c218f",
   "workstreams": [
     {
       "id": "backend",
@@ -71,15 +71,17 @@
       "GitHub ticket facts and native blockers remain authoritative while Aiur activity stays a separate live overlay",
       "Catalog and selected graphs remain truthful through partial failure invalid roots cycles external blockers and restart",
       "The authenticated read-only graph is keyboard touch pointer and screen-reader usable through 100 members",
-      "Reusable all-state context provides safe cross-surface navigation without a GitHub or Aiur mutation handler"
+      "A root-independent repository-qualified ticket-detail cache and accessible base context are adapted to Build Order relationships without a GitHub or Aiur mutation handler"
     ],
-      "critical_path_ticket_ids": [
-        "BO-001",
-        "BO-002",
+    "critical_path_ticket_ids": [
+      "BO-001",
+      "BO-002",
       "BO-003",
       "BO-004",
       "BO-005",
       "BO-007",
+      "BO-008",
+      "BO-016",
       "BO-011",
       "BO-012",
       "BO-013",
@@ -100,7 +102,7 @@
       "Synthetic cycle invalid degraded and 20 50 100-member browser evidence",
       "Post-merge configured-integration-target smoke preserving Units Commands Analytics and TUI"
     ],
-    "completion_condition": "BO-001 through BO-015 are implemented and reviewed, green on the current configured integration branch, merged, documented, cleaned up, and proven after merge; standalone companions and deferred work cannot extend completion."
+    "completion_condition": "All 16 Build Order tickets BO-001 through BO-016 are implemented and reviewed, green on the current configured integration branch, merged, documented, cleaned up, and proven after merge; standalone companions and deferred work cannot extend completion."
   },
   "external_gates": [
     {
@@ -360,9 +362,10 @@
     },
     {
       "id": "BOREQ-011",
-      "summary": "Provide reusable cached all-state ticket context",
+      "summary": "Provide reusable root-independent cached ticket context plus Build Order relationship adaptation",
       "disposition": "ticket",
       "ticket_ids": [
+        "BO-016",
         "BO-011",
         "BO-012",
         "BO-013"
@@ -494,12 +497,12 @@
       "provenance": "planned",
       "introduced_in_plan_version": 1,
       "discovered_from": null,
-      "title": "Complete GitHub graph and detail adapter",
+      "title": "Fetch complete GitHub planning graph",
       "document": "tickets/BO-002-fetch-github-graph.md",
-      "outcome": "Aiur can fetch a bounded complete root catalog, body-free selected GitHub graph, and on-demand selected-member detail without turning partial failure into missing blockers.",
+      "outcome": "Aiur can fetch a bounded complete root catalog and body-free selected GitHub graph without turning partial failure into missing blockers.",
       "scope": [
         "Fetch paginated roots, body-free direct members, metadata, state reasons, and dependencies",
-        "Fetch bounded selected-member detail only on demand and return complete candidates or structured preserving failures"
+        "Return complete graph candidates or structured preserving failures with bounded provider calls"
       ],
       "non_goals": [
         "Own refresh scheduling or LiveView",
@@ -537,7 +540,6 @@
       ],
       "contract_surfaces": [
         "complete body-free GitHub graph candidate",
-        "bounded selected-member detail",
         "provider failure taxonomy"
       ],
       "safety_surfaces": [
@@ -573,10 +575,10 @@
       "discovered_from": null,
       "title": "Project atomic planning caches and LKG",
       "document": "tickets/BO-003-project-root-catalog.md",
-      "outcome": "One supervised projection publishes independent root-catalog, selected-graph, and on-demand selected-detail last-known-good generations with health and freshness.",
+      "outcome": "One supervised projection publishes independent root-catalog and selected-graph last-known-good generations with health and freshness.",
       "scope": [
         "Coalesce bounded refresh and atomically swap complete generations",
-        "Keep catalog, graph, selected detail, stale LKG, and unavailable states distinct without graph-wide body hydration"
+        "Keep catalog and selected-graph stale LKG and unavailable states distinct without graph-wide body hydration"
       ],
       "non_goals": [
         "Persist LKG across daemon restart",
@@ -614,8 +616,7 @@
       ],
       "contract_surfaces": [
         "catalog snapshot and health",
-        "selected graph LKG snapshot",
-        "selected-member detail snapshot"
+        "selected graph LKG snapshot"
       ],
       "safety_surfaces": [
         "provider health semantics",
@@ -624,7 +625,7 @@
       "conflict_exceptions": [],
       "acceptance": {
         "agent_gate": [
-          "Projection tests cover freshness, coalescing, stale LKG, invalid roots, restart, one-bad-root isolation, bounded detail demand, and no graph-wide body hydration"
+          "Projection tests cover freshness, coalescing, stale LKG, invalid roots, restart, one-bad-root isolation, and no graph-wide body hydration"
         ],
         "at_merge_gate": [
           "Current-base focused suites and the repository CI gate pass under current CONTRIBUTING.md"
@@ -670,16 +671,16 @@
       "requirement_refs": [
         "BOREQ-005"
       ],
-      "depends_on": [
-        "BO-001"
-      ],
+      "depends_on": [],
       "serializes_with": [],
       "suggested_after": [],
       "contains": [],
-      "external_gates": [],
+      "external_gates": [
+        "GATE-001",
+        "GATE-002"
+      ],
       "read_surfaces": [
-        "tracker issue normalization StatusReport and event producers",
-        "BO-001 identity contract"
+        "tracker issue normalization StatusReport and event producers"
       ],
       "write_surfaces": [
         "typed tracker identity and identity-bearing StatusReport",
@@ -706,7 +707,8 @@
       },
       "decision_refs": [
         "DEC-001",
-        "DEC-006"
+        "DEC-006",
+        "DEC-013"
       ],
       "design_evidence_refs": [
         "DESIGN-002"
@@ -868,7 +870,7 @@
       "discovered_from": null,
       "title": "Join planning and runtime state",
       "document": "tickets/BO-007-join-planning-runtime.md",
-      "outcome": "A pure presenter joins complete GitHub orchestrator-status and event-activity snapshots into truthful bounded cards edges groups context and diagnostics.",
+      "outcome": "A pure presenter joins complete GitHub orchestrator-status and event-activity snapshots into truthful bounded cards edges groups selected-node relationships and diagnostics.",
       "scope": [
         "Compute edge/readiness states, SCCs, reverse adjacency, groups, and counts",
         "Preserve source, health, freshness, unknowns, and body-free card summaries"
@@ -902,7 +904,7 @@
       "external_gates": [],
       "read_surfaces": [
         "BO-001 graph records",
-        "BO-003 selected-detail snapshots",
+        "BO-003 catalog and selected-graph snapshots",
         "BO-004 identity-bearing StatusReport snapshots",
         "BO-005 activity snapshots"
       ],
@@ -969,15 +971,15 @@
         "BOREQ-008",
         "BOREQ-014"
       ],
-      "depends_on": [
-        "BO-001"
-      ],
+      "depends_on": [],
       "serializes_with": [],
       "suggested_after": [],
       "contains": [],
-      "external_gates": [],
+      "external_gates": [
+        "GATE-001",
+        "GATE-002"
+      ],
       "read_surfaces": [
-        "BO-001 domain fixtures and vocabulary",
         "current LiveView test and asset seams",
         "shipped Playwright plus synthetic Phoenix documentation-capture precedent",
         "captured prototype behavior"
@@ -1005,7 +1007,8 @@
         ]
       },
       "decision_refs": [
-        "DEC-007"
+        "DEC-007",
+        "DEC-013"
       ],
       "design_evidence_refs": [
         "DESIGN-001",
@@ -1167,20 +1170,20 @@
       "provenance": "planned",
       "introduced_in_plan_version": 1,
       "discovered_from": null,
-      "title": "Build reusable all-state ticket context",
+      "title": "Adapt ticket context to Build Order",
       "document": "tickets/BO-011-build-ticket-context.md",
-      "outcome": "Operators can open accessible on-demand cached context for every ticket state with safe dependency and cross-surface navigation and no Build Order mutation handler.",
+      "outcome": "Build Order adapts the reusable ticket context with truthful adjacency, edge diagnostics, root-scoped selection focus, and a read-only graph policy.",
       "scope": [
-        "Demand and render bounded cached selected detail, upstream/downstream chips, partial states, and safe links",
-        "Preserve focus lifecycle and keep all GitHub and Aiur mutations outside Build Order"
+        "Compose BO-016 base context with BO-007 upstream downstream and edge diagnostics",
+        "Own root-scoped selection focus and enforce the Build Order read-only graph policy"
       ],
       "non_goals": [
-        "Fetch GitHub per card, edit planning data, or invoke Aiur runtime actions",
-        "Duplicate a Units-only modal or its control protocol"
+        "Own ticket-detail provider caching or the accessible base context component",
+        "Edit planning data invoke Aiur runtime actions or duplicate a Units control protocol"
       ],
       "phase_hint": 4,
-      "complexity_points": 4,
-      "complexity_rationale": "Shared cached context, dependency navigation, focus lifecycle, and safe cross-surface navigation",
+      "complexity_points": 3,
+      "complexity_rationale": "Bounded Build Order relationship adapter and root-scoped focus policy over established contracts",
       "risk": "high",
       "capability_requirements": [
         "frontend",
@@ -1191,26 +1194,26 @@
         "BOREQ-011"
       ],
       "depends_on": [
-        "BO-003",
         "BO-007",
-        "BO-008"
+        "BO-008",
+        "BO-016"
       ],
       "serializes_with": [],
       "suggested_after": [],
       "contains": [],
       "external_gates": [],
       "read_surfaces": [
-        "BO-003 selected-detail snapshots",
-        "BO-007 selected-node context model",
-        "safe GitHub, chat, Commands, and control route capabilities"
+        "BO-007 selected-node relationship model",
+        "BO-016 repository-qualified base ticket context",
+        "BO-008 browser and accessibility harness"
       ],
       "write_surfaces": [
-        "reusable TicketContext component",
-        "context provider and focus/security tests"
+        "Build Order TicketContext adapter",
+        "root-scoped selection focus and graph-policy tests"
       ],
       "contract_surfaces": [
-        "all-state ticket context",
-        "safe cross-surface navigation boundary"
+        "Build Order relationship context adapter",
+        "root-scoped selection and read-only graph policy"
       ],
       "safety_surfaces": [
         "ticket context no-mutation boundary"
@@ -1218,16 +1221,96 @@
       "conflict_exceptions": [],
       "acceptance": {
         "agent_gate": [
-          "Component tests cover every state, selected-detail demand, safe links, dependency replacement, partial data, focus, and absence of mutation handlers"
+          "Adapter tests cover every edge state, upstream and downstream diagnostics, root changes, focus restoration, safe links, and absence of mutation handlers"
         ],
         "at_merge_gate": [
-          "Shared context, selected-detail, route-link, auth, accessibility, browser, and repository CI gates pass on the configured integration branch"
+          "Build Order presenter, base context, route-link, auth, accessibility, browser, and repository CI gates pass on the configured integration branch"
         ],
         "human_or_e2e": [
           "Reviewer inspects running, completed, invalid, and external tickets by keyboard, follows both dependency directions, and follows one safe destination link"
         ]
       },
       "decision_refs": [
+        "DEC-008",
+        "DEC-009"
+      ],
+      "design_evidence_refs": [
+        "DESIGN-001"
+      ],
+      "github": null
+    },
+    {
+      "id": "BO-016",
+      "kind": "executable",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "discovered_from": null,
+      "title": "Build repository-qualified ticket context",
+      "document": "tickets/BO-016-build-ticket-detail-context.md",
+      "outcome": "Any trusted repository-qualified GitHub issue can be loaded on demand into a bounded health-aware cache and rendered in an accessible read-only base context independent of Build Order roots or relationships.",
+      "scope": [
+        "Fetch and cache bounded sanitized ticket detail by BO-004 repository-qualified identity with coalesced demand and explicit health",
+        "Render an accessible base context for all ticket states and safe navigation without Build Order relationships or mutation handlers"
+      ],
+      "non_goals": [
+        "Assume Build Order root membership adjacency dependency or edge semantics",
+        "Expose GitHub or Aiur mutations or hydrate every graph member"
+      ],
+      "phase_hint": 4,
+      "complexity_points": 4,
+      "complexity_rationale": "Repository-qualified provider, supervised cache, and reusable accessible context boundary",
+      "risk": "high",
+      "capability_requirements": [
+        "frontend",
+        "backend",
+        "accessibility",
+        "security"
+      ],
+      "workstream": "frontend",
+      "requirement_refs": [
+        "BOREQ-011"
+      ],
+      "depends_on": [
+        "BO-004",
+        "BO-008"
+      ],
+      "serializes_with": [],
+      "suggested_after": [],
+      "contains": [],
+      "external_gates": [],
+      "read_surfaces": [
+        "BO-004 repository-qualified tracker identity",
+        "GitHub issue-detail transport and auth conventions",
+        "BO-008 browser and accessibility harness",
+        "safe dashboard route capabilities"
+      ],
+      "write_surfaces": [
+        "repository-qualified ticket-detail adapter and cache",
+        "accessible base TicketContext component and tests"
+      ],
+      "contract_surfaces": [
+        "on-demand ticket-detail snapshot and health",
+        "root-independent accessible base ticket context",
+        "no-mutation ticket-context boundary"
+      ],
+      "safety_surfaces": [
+        "ticket-detail privacy and no-mutation boundary"
+      ],
+      "conflict_exceptions": [],
+      "acceptance": {
+        "agent_gate": [
+          "Provider cache and component tests cover repository identity collisions, coalescing, freshness, partial failure, bounded redaction, every ticket state, accessibility, safe links, and no relationship or mutation assumptions"
+        ],
+        "at_merge_gate": [
+          "Provider, cache, component, auth, security, accessibility, browser, and repository CI gates pass on the configured integration branch"
+        ],
+        "human_or_e2e": [
+          "Reviewer opens repository-qualified running completed unavailable and invalid tickets by keyboard and confirms the base context exposes no Build Order relationship or mutation controls"
+        ]
+      },
+      "decision_refs": [
+        "DEC-001",
+        "DEC-005",
         "DEC-008",
         "DEC-009"
       ],
@@ -1485,7 +1568,7 @@
       "document": "tickets/BO-015-prove-feature-acceptance.md",
       "outcome": "The bounded feature is current-base green, merged, documented, and proven after merge with the published root plus synthetic failure and scale evidence.",
       "scope": [
-        "Integrate all Build Order work and reconcile the published GitHub graph",
+        "Integrate all 15 prerequisite tickets and reconcile the exact 16-member published GitHub graph",
         "Run full automated, real CLI/TUI/browser, synthetic degradation/scale, documentation, cleanup, and post-merge proof"
       ],
       "non_goals": [
@@ -1530,7 +1613,7 @@
       "conflict_exceptions": [],
       "acceptance": {
         "agent_gate": [
-          "All feature suites, CI, graph reconciliation, requirement matrix, docs, and cleanup pass on the current configured integration branch"
+          "All feature suites, CI, exact 16-member graph reconciliation, requirement matrix, docs, and cleanup pass on the current configured integration branch"
         ],
         "at_merge_gate": [
           "Current-base focused suites and the repository CI gate pass under current CONTRIBUTING.md"

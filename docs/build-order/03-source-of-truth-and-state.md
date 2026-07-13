@@ -241,7 +241,8 @@ Dashboard LiveView ------------ selected root + canvas interaction state
 - one ticket in multiple Build Orders;
 - more than 100 direct members or nested workstream visualization;
 - webhook-only consistency;
-- pricing/spend estimation;
+- pricing/spend estimation inside the bounded Build Order feature (the
+  standalone companion program owns it);
 - treating planning conflict edges as GitHub dependency edges unless they are a
   true semantic serialization prerequisite.
 

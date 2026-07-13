@@ -10,7 +10,7 @@ from publication_common import Report, strict_object
 
 EVIDENCE_KEYS = {"marker_logical_id", "approved_planning_commit", "body_sha256"}
 BODY_SHA = re.compile(r"^[0-9a-f]{64}$", re.ASCII)
-EXPECTED_BODY_COUNT = 32
+EXPECTED_BODY_COUNT = 40
 
 
 def validate_all_body_evidence(

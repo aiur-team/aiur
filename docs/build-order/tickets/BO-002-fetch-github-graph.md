@@ -1,4 +1,4 @@
-# BO-002 — Complete GitHub graph and detail adapter
+# BO-002 — Fetch complete GitHub planning graph
 
 **Kind:** executable
 
@@ -20,16 +20,16 @@
 
 **Design evidence:** DESIGN-002
 
-**Researched at:** 1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d
+**Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
 **Suggested labels:** `complexity:4`, `model:codex`, `phase:2`, `build-lane:backend`; never `agent:todo`
 
 ## Outcome
 
-Aiur can fetch a bounded root catalog, one complete selected Build Order
-candidate, and one on-demand selected-member detail from GitHub, preserving
-native identity, membership, labels, lifecycle outcomes, dependency endpoints,
-pagination, and partial failures without publishing incomplete data as valid.
+Aiur can fetch a bounded root catalog and one complete body-free selected Build
+Order candidate from GitHub, preserving native identity, membership, labels,
+lifecycle outcomes, dependency endpoints, pagination, and partial failures
+without publishing incomplete data as valid.
 
 ## Context and evidence
 
@@ -48,10 +48,6 @@ budgets at the 100-member bound.
   direct members, identity/database IDs, bounded card title/metadata, labels,
   state and state reason, parent, timestamps, and native dependency
   connections. Root/member graph payloads remain body-free.
-- Add a separately bounded selected-member detail operation keyed by canonical
-  repository/root/member identity. It returns the sanitized description and
-  detail-only facts only after explicit selection; it is never called once per
-  member during graph hydration.
 - Use bounded GraphQL reads where they preserve complete connection/error
   semantics; use paginated REST fallbacks only through the existing transport
   and with equivalent failure preservation.
@@ -73,8 +69,9 @@ budgets at the 100-member bound.
 
 ## Non-goals
 
-- Supervise refresh cadence, retain last-known-good graph/detail generations,
-  broadcast PubSub updates, join Aiur activity, or render UI.
+- Supervise refresh cadence, retain last-known-good graph generations,
+  broadcast PubSub updates, join Aiur activity, fetch selected-ticket detail,
+  or render UI.
 - Mutate sub-issues, labels, issue state, or dependencies.
 - Reuse a per-member N+1 hydration path or silently treat a failed connection
   as `[]`.
@@ -87,9 +84,9 @@ ordinary tracker polling and `Aiur.GitHub.IssueDependencies` mutation logic.
 
 ## Contract and invariants
 
-- Success means the entire requested catalog page set, selected-root generation,
-  or selected-member detail is complete and bounded. Partial success is an
-  error with evidence, never a smaller successful result.
+- Success means the entire requested catalog page set or selected-root
+  generation is complete and bounded. Partial success is an error with
+  evidence, never a smaller successful result.
 - Dependency direction normalizes to blocker → blocked while preserving both
   upstream and downstream source connections for reconciliation.
 - Internal identities resolve by repository plus node ID. A number, title, or
@@ -114,9 +111,6 @@ ordinary tracker polling and `Aiur.GitHub.IssueDependencies` mutation logic.
 - Fixtures cover 0/1/100 members, multiple catalog roots, malformed root among
   valid siblings, direct-child enforcement, duplicate identities, external
   blockers, `COMPLETED`/`NOT_PLANNED`, every planning-label warning, and cycles.
-- Selected-detail tests prove no graph-wide body hydration, exact canonical
-  identity checks, bounded/sanitized content, independent failures, and no body
-  leakage into member/card candidates.
 - Pagination tests fail closed on page two errors, count drift, partial GraphQL
   data, malformed cursors, missing endpoints, and 101 members.
 - Call-bound tests prove no browser-count or per-node N+1 behavior and retain
@@ -148,11 +142,12 @@ ordinary tracker polling and `Aiur.GitHub.IssueDependencies` mutation logic.
 - Reads: GitHub GraphQL/REST through the existing transport; BO-001 contracts.
 - Writes: GitHub Build Order read adapter, normalization fixtures, and tests.
 - Contracts: complete root-catalog candidate; complete body-free selected-root
-  candidate; bounded selected-member detail; provider failure taxonomy.
+  candidate; provider failure taxonomy.
 
 ## Sibling boundaries and open gates
 
-BO-003 alone owns refresh/cache/LKG behavior for catalog, graph, and selected
-detail. BO-011/012 consume BO-003 snapshots, not this adapter. Companion
+BO-003 alone owns refresh/cache/LKG behavior for catalog and graph. BO-016 owns
+root-independent on-demand ticket detail and its cache; BO-011/012 consume
+their respective established contracts, not this adapter directly. Companion
 dashboard work neither blocks nor extends this provider and may only serialize
 if it changes the shared GitHub transport.

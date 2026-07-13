@@ -57,9 +57,15 @@ def validate_auxiliary(
     edges = parse_edges(
         manifest.get("external_blocker_relations"), "external_blocker_relations", report
     )
-    expected_edge = {("BO-001", skill_id)} if isinstance(skill_id, str) else set()
+    expected_edge = (
+        {(ticket_id, skill_id) for ticket_id in ("BO-001", "BO-004", "BO-008")}
+        if isinstance(skill_id, str) else set()
+    )
     if edges != expected_edge:
-        report.error("publication must declare BO-001 blocked by SKILL-DELIVERY-001")
+        report.error(
+            "publication must declare BO-001, BO-004, and BO-008 blocked by "
+            "SKILL-DELIVERY-001"
+        )
     _read_only_refs(manifest.get("read_only_issue_refs"), repository, report)
     validate_auxiliary_receipt(
         manifest, root.get("logical_id") if root else None, skill_id,

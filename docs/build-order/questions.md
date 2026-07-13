@@ -69,7 +69,7 @@ be added here and asked one at a time.
   implementation issues in GitHub. Apply one `complexity:N` label and
   `model:codex` to each executable ticket, but do not apply `agent:todo` or
   otherwise dispatch work.
-- The authorized materialization set includes the fifteen standalone dashboard
+- The authorized materialization set includes the twenty-two standalone dashboard
   delta/accounting issues and one human-blocked issue preserving the isolated
   skill PR #1065. The user explicitly asked that these unrelated skill changes
   not fall through the cracks and delegated the choice of a separate ticket.

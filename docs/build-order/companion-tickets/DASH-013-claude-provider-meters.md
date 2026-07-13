@@ -20,7 +20,7 @@ protocol revision
 
 **Requirements:** DREQ-013
 
-**Researched at:** `1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d`
+**Researched at:** `9849f32963c2a65367bce565b3f5ede3777c218f`
 
 **Suggested labels:** `complexity:4`, `model:codex`; never `agent:todo`
 
@@ -39,7 +39,7 @@ The refreshed prototype shows Claude session and weekly meters and the user requ
 - Resolve `GATE-CLAUDE-METER-PROTOCOL-AUTHORITY` before implementation dispatch by characterizing the installed Claude CLI, Claude Code OTel, and aiur-claude structured account/rate-limit capabilities using official schemas and sanitized fixtures. The human-owned receipt must select an existing structured source or authorize the minimal sibling protocol/revision. Interactive `/usage`, TUI, transcript, StatusLine, browser, and credential scraping are forbidden.
 - Implement Claude normalization into DASH-012 `ProviderMeterSnapshot`: provider/backend, opaque account generation, auth mode, actual plan/tier and source, snapshot/patch/tombstone semantics, named limit IDs/windows, used/remaining facts, duration/reset, API credit/rate/spend controls when reported, observed/ingested time, freshness/expiry, and health.
 - Support subscription and API-key modes without assuming they expose the same facts. Renderable session/weekly windows require actual structured values; API mode reports only real rate/credit/spend controls.
-- Preserve sparse updates, per-window last-known-good state, full-snapshot removals, and account-generation isolation exactly as DASH-012 defines. A Claude auth/session change starts a new opaque generation without persisting raw account identity.
+- Preserve sparse updates, per-window last-known-good state, full-snapshot removals, and account-generation isolation exactly as DASH-012 defines. Report trusted Claude auth/session lifecycle changes through DASH-018 and use its returned generation without persisting raw account identity.
 - If the gate determines that Aiur alone cannot expose required meter facts, implement only the minimal typed `aiur-claude` adapter/protocol authorized by its receipt. Include version negotiation and synthetic fixtures in both repositories; no worker infers sibling write authority from this ticket.
 - Expose partial/temporarily unavailable/error coverage during protocol failure, but final ticket acceptance requires the supported Claude account modes available in the user's configured integration; “all Claude meters unsupported” is not completion.
 - Redact email, account/organization/workspace IDs, credentials, API/OAuth material, raw responses, headers, endpoint/capability URLs, and unrelated attributes at the adapter boundary.
@@ -52,7 +52,7 @@ The refreshed prototype shows Claude session and weekly meters and the user requ
 
 ## Existing owner and reuse target
 
-Implement against DASH-012's provider-meter contract and the current Claude/aiur-claude account/auth lifecycle. Reuse official structured monitoring/protocol sources, version negotiation, local-only transport, and trusted generation context.
+Implement against DASH-012's provider-meter contract, DASH-018's generation owner, and the current Claude/aiur-claude account/auth lifecycle. Reuse official structured monitoring/protocol sources, version negotiation, local-only transport, and trusted generation context.
 
 ## Contract and invariants
 
@@ -93,14 +93,15 @@ Implement against DASH-012's provider-meter contract and the current Claude/aiur
 
 ## Surfaces
 
-- Reads: official structured Claude account/rate-limit sources; trusted Claude auth/process generation.
-- Writes: Claude provider-meter adapter, optional authorized aiur-claude protocol, fixtures/compatibility/redaction tests.
+- Reads: official structured Claude account/rate-limit sources; trusted Claude auth/process lifecycle; DASH-018 account generation.
+- Writes: Claude provider-meter adapter, DASH-018 lifecycle observations, optional authorized aiur-claude protocol, fixtures/compatibility/redaction tests.
 - Contracts: Claude subscription/API parity on `ProviderMeterSnapshot`; `GATE-CLAUDE-METER-PROTOCOL-AUTHORITY` receipt.
 
 ## Sibling boundaries and open gates
 
+DASH-012 owns the generic meter contract and DASH-018 owns account identity;
 DASH-010 owns Claude request token/cost accounting and does not satisfy quota
-meters. DASH-015 requires both tickets. This ticket is not dispatchable until
+meters. DASH-015 requires both adapters. This ticket is not dispatchable until
 `GATE-CLAUDE-METER-PROTOCOL-AUTHORITY` is resolved; if sibling authority is
 unavailable, it remains human-blocked rather than complete with universal
 unsupported coverage.

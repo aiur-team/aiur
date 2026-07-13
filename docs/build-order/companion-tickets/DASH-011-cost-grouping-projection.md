@@ -16,7 +16,7 @@
 
 **Requirements:** DREQ-011
 
-**Researched at:** `1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d`
+**Researched at:** `9849f32963c2a65367bce565b3f5ede3777c218f`
 
 **Suggested labels:** `complexity:4`, `model:codex`; never `agent:todo`
 
@@ -51,7 +51,7 @@ The user requires spend and tokens per ticket, agent type, model, and total buil
 - Preserve cached input, cache-creation input, and output/reasoning pricing distinctions without double counting token subsets. Existing effective-date rows are immutable after acceptance; a correction is a new explicitly versioned table revision with a migration/recalculation disposition, never silent historical repricing.
 - Expose a query over an explicit typed ticket set and/or run set returning tokens and monetary totals by basis, plus groups by provider, ticket, agent family, backend, resolved model, auth mode, opaque `provider_account_generation`, currency, and run. Include occurrence-price bucket/revision coverage, unknown contributors, pricing/model coverage, ledger health, and earliest/latest retained coverage.
 - Define Build Order scope as the caller-supplied current GitHub member set. Include every retained observation for those identities, including pre-membership usage; exclude unrelated tickets and do not infer membership from labels/prose.
-- For subscription auth, return API-equivalent estimate metadata requiring `*`, information-popover copy key, and a generation-qualified tier join key of `(provider, backend, provider_account_generation)`. This ticket does not ingest or join meter data. DASH-015 may attach actual tier only from DASH-012/013 facts with that exact known generation; missing, unknown, or mixed generations require an unjoined `unknown`/`mixed` tier state. It must not be named billed or actual spend. For mixed bases, currencies, or account generations, return separate buckets; never produce a combined dollar total across unlike identities.
+- For subscription auth, return API-equivalent estimate metadata requiring `*`, information-popover copy key, and a generation-qualified tier join key of `(provider, backend, provider_account_generation)`. This ticket does not ingest or join meter data. DASH-015 may attach actual tier only from DASH-020/013 facts with that exact known generation; missing, unknown, or mixed generations require an unjoined `unknown`/`mixed` tier state. It must not be named billed or actual spend. For mixed bases, currencies, or account generations, return separate buckets; never produce a combined dollar total across unlike identities.
 - Provide deterministic empty, partial, stale/corrupt-ledger, unknown-price, unknown-model, mixed-currency, and partial-retention results.
 
 ## Non-goals
@@ -130,8 +130,9 @@ Build a pure query/projection over DASH-009's `UsageLedger` behavior with a vers
 ## Sibling boundaries and open gates
 
 DASH-010 supplies required Remote Control observations but does not block
-developing this projection against fixtures. DASH-012/013 own actual account
-tier and quota facts; DASH-011 deliberately does not depend on or join them.
+developing this projection against fixtures. DASH-012 owns the meter contract,
+and DASH-020/013 own actual Codex/Claude account facts; DASH-011 deliberately
+does not depend on or join them.
 DASH-015 is the sole composition owner that may join usage groups to tier facts,
 and only by provider, backend, and the exact known opaque generation. It must
 keep bases/currencies/generations separate and apply the subscription estimate

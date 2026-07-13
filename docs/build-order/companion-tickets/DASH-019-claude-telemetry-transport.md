@@ -1,0 +1,101 @@
+# DASH-019 — Authenticate Claude telemetry transport
+
+**Kind:** executable
+
+**Provenance:** planned in plan v1 after companion-boundary review
+
+**Complexity:** 4 — Cross-process local telemetry trust boundary, lifecycle correlation, resource controls, and possible sibling protocol revision
+
+**Risk:** high
+
+**Depends on:** none
+
+**Serializes with:** Claude REPL/Remote Control launch, local receiver, session registry, and aiur-claude protocol changes
+
+**External gates:** `GATE-OCC-PREDECESSOR-BASELINE`; and `GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY`, owned by a human with `aiur-claude` write authority and resolved before dispatch
+
+**Requirements:** DREQ-019
+
+**Researched at:** `9849f32963c2a65367bce565b3f5ede3777c218f`
+
+**Suggested labels:** `complexity:4`, `model:codex`; never `agent:todo`
+
+**Build Order membership:** none — standalone dashboard companion
+
+## Outcome
+
+Claude processes owned by Aiur can deliver allowlisted structured telemetry through a local-only, producer-authenticated, resource-bounded receiver whose session correlation proves the current run, ticket, attempt, and worker generation.
+
+## Context and evidence
+
+Claude Code exposes official OpenTelemetry monitoring events, but loopback binding or possession of a Claude session ID does not authenticate a producer. Remote Control bypasses the existing headless `MessageHandler`, and an exporter may retry or reconnect. Transport security, launch authority, and trusted correlation form one cross-process boundary; DASH-010 separately maps accepted events into usage envelopes.
+
+## Scope
+
+- Resolve `GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY` with a reviewed capability matrix selecting either a secure Aiur-only launch/receiver path or an explicitly authorized minimal compatible `aiur-claude` protocol revision.
+- Configure or embed one local-only telemetry receiver for Claude processes Aiur owns. Prefer an owner-only Unix-domain socket.
+- If loopback TCP is required, mint an unguessable per-process capability, inject it only at owned process launch, authenticate it before payload decoding/logging, bind it to process/session generation, and revoke it on teardown.
+- Maintain a trusted correlation registry established at process/session creation: producer generation, Claude session identity, current `run_id`, repository-qualified ticket, attempt, backend/transport, and worker generation.
+- Define resume/reconnect/replacement semantics. Session ID alone never proves producer or ticket ownership; stale producer/session generations are rejected.
+- Accept only the required structured event family/version and allowlisted bounded attributes. Enforce body, attribute count/length, concurrent connection, and per-capability event-rate limits before expensive allocation.
+- Suppress authenticated replay floods with a bounded in-memory guard while preserving deterministic event/request identity for DASH-009's later durable deduplication.
+- Drop content, prompts/outputs, account/email/org, headers, credentials, environment, endpoint/capability values, and unrelated attributes before any log, error, quarantine, publication, or subscriber delivery.
+- Expose health, source-version coverage, bounded rejection classes, and an internal authenticated event/correlation subscription for DASH-010. Do not emit usage envelopes.
+
+## Non-goals
+
+- Normalize tokens/cost, persist usage, calculate prices, fetch provider meters, render UI, or scrape interactive output.
+- Treat loopback, process PID, repository path, session ID, browser state, or account identity as producer authentication.
+- Mutate `aiur-claude` without the explicit gate receipt or relay arbitrary raw telemetry payloads into Aiur.
+
+## Existing owner and reuse target
+
+Extend Claude REPL/Remote Control process/session lifecycle and trusted launch configuration in Aiur. Reuse existing supervised local-server, permissioned-socket, capability, lifecycle teardown, version negotiation, and redaction patterns. If authorized, keep any sibling change a narrow typed launch/configuration contract with compatibility fixtures.
+
+## Contract and invariants
+
+- Every delivered event is tied to an authenticated current producer generation and trusted current run/ticket/attempt/session correlation.
+- Local-only binding is necessary but not sufficient. Authentication happens before payload decode or logging.
+- Capabilities are unguessable, per-process, short-lived, never logged/persisted into usage, and revoked on teardown/replacement.
+- Resource limits apply before expensive decode. Reject/replay paths retain only bounded reason classes, never raw bodies.
+- No third-party telemetry export is enabled by default; Aiur's receiver is content-free and least privilege.
+
+## Refreshable implementation notes
+
+- Refresh official Claude monitoring transport/version behavior and installed aiur-claude launch capabilities at pickup; pin sanitized fixtures in the gate receipt.
+- Prefer a small generic receiver boundary plus Claude lifecycle adapter, without creating a general-purpose unauthenticated OTLP collector.
+- Use injected clocks/capability minting and deterministic connection fixtures; never `Process.sleep` in lifecycle/rate tests.
+
+## Acceptance and verification
+
+### Agent gate
+
+- Transport tests cover owner-only socket or authenticated loopback, correct/wrong/missing/stale capability, reconnect, resume, replacement generation, teardown revocation, session-ID spoof, and current ticket correlation.
+- Resource tests cover oversize body/attributes, connection/rate exhaustion, malformed encoding, replay flood, slow/partial clients, and recovery without crashing owned Claude workers.
+- Redaction/no-egress tests prove forbidden content/account/header/credential/path/capability attributes are removed before diagnostic or subscriber delivery.
+- If sibling work is authorized, version negotiation and synthetic compatibility fixtures pass in both repositories at pinned revisions.
+
+### At-merge gate
+
+- Rebase on current Claude lifecycle and the gate-approved protocol; pass Claude REPL/Remote Control, launch/teardown, local receiver, correlation, capability, redaction, packaging, and full CI suites, plus authorized sibling compatibility gates.
+
+### Human/manual evidence
+
+- From the Executor repository root, launch synthetic-safe Claude REPL and Remote Control processes through the real path, reconnect one session, replace another, and show accepted current correlation plus rejected stale/spoofed producer without exposing capability or content.
+
+## Failure, security, migration, and accessibility cases
+
+- Receiver unavailable, auth failure, malformed/oversized/rate-limited input, unsupported version, or stale correlation produces bounded health/rejection evidence and never forwards a raw event as trusted.
+- Secrets and content are removed before logs, bug reports, quarantine, PubSub, or adapter delivery. Use synthetic values in all committed evidence.
+- Version transport/configuration/correlation contracts. Older unsupported launch paths remain visibly uncovered, not heuristically accepted.
+- No direct UI. Health and rejection classes are concise and suitable for downstream accessible diagnostics.
+
+## Surfaces
+
+- Reads: owned Claude launch/session lifecycle and official local telemetry transport.
+- Writes: permissioned receiver or authenticated-loopback capability lifecycle, trusted correlation registry, allowlisted event stream, health/rejections, fixtures/tests, optional authorized sibling protocol.
+- Contracts: producer-authenticated bounded local telemetry and `GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY` receipt.
+
+## Sibling boundaries and open gates
+
+DASH-010 alone converts delivered events into DASH-008 envelopes. This ticket is not dispatchable until its human gate resolves; inability to obtain authority cannot be reclassified as completed unsupported Remote Control accounting.

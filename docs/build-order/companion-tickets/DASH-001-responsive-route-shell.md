@@ -16,7 +16,7 @@
 
 **Requirements:** DREQ-001
 
-**Researched at:** `1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d`
+**Researched at:** `9849f32963c2a65367bce565b3f5ede3777c218f`
 
 **Suggested labels:** `complexity:3`, `model:codex`; never `agent:todo`
 
@@ -112,8 +112,9 @@ artifacts; this ticket may add shell scenarios but must not fork the harness.
 
 BO-008 is a hard predecessor only for the shared Phoenix/LiveView browser
 harness; DASH-001 remains a standalone dashboard companion and is not part of
-Build Order acceptance. DASH-003, DASH-005, DASH-007, and DASH-015 consume this
-shell but own their content. Build Order registers its route without making
+Build Order acceptance. DASH-003, DASH-005, DASH-007, DASH-021, DASH-022, and
+DASH-015 consume this shell directly or transitively but own their content.
+Build Order registers its route without making
 this ticket part of Build Order acceptance. If the configured implementation
 base does not yet contain closed #1034, the shared predecessor-baseline
 gate—not a new feature ticket—must be resolved before pickup.

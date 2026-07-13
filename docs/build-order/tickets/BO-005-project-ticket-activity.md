@@ -20,7 +20,7 @@
 
 **Design evidence:** DESIGN-001, DESIGN-002
 
-**Researched at:** 1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d
+**Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
 **Suggested labels:** `complexity:4`, `model:codex`, `phase:3`, `build-lane:backend`; never `agent:todo`
 

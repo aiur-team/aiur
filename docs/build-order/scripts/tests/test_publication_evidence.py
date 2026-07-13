@@ -65,7 +65,7 @@ class PublicationEvidenceTests(unittest.TestCase):
 
                 self.assertIn(expected, "\n".join(self.report(mutate).errors))
 
-    def test_all_32_body_hashes_must_be_unique(self) -> None:
+    def test_all_40_body_hashes_must_be_unique(self) -> None:
         def mutate(data, build, _manifest):
             core = build["github_reconciliation"]["observed_body_evidence"]["BO-001"]
             data["github_reconciliation"]["observed_body_evidence"]["DASH-001"][
@@ -75,7 +75,7 @@ class PublicationEvidenceTests(unittest.TestCase):
         joined = "\n".join(self.report(mutate).errors)
         self.assertIn("observed body SHA-256 for DASH-001 duplicates BO-001", joined)
 
-    def test_materialization_requires_exactly_32_bodies(self) -> None:
+    def test_materialization_requires_exactly_40_bodies(self) -> None:
         def mutate(_data, build, _manifest):
             build["tickets"] = build["tickets"][:-1]
             receipt = build["github_reconciliation"]
@@ -84,7 +84,7 @@ class PublicationEvidenceTests(unittest.TestCase):
                 del receipt[field]["BO-015"]
 
         joined = "\n".join(self.report(mutate).errors)
-        self.assertIn("materialization must contain exactly 32 issue bodies", joined)
+        self.assertIn("materialization must contain exactly 40 issue bodies", joined)
 
     def test_comment_receipt_is_exact_and_pending(self) -> None:
         mutations = {

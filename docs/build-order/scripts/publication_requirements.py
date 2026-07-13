@@ -7,8 +7,8 @@ from typing import Any
 from publication_common import Report
 
 
-EXPECTED_REQUIREMENTS = {f"DREQ-{number:03d}" for number in range(1, 16)}
-EXPECTED_TICKETS = {f"DASH-{number:03d}" for number in range(1, 16)}
+EXPECTED_REQUIREMENTS = {f"DREQ-{number:03d}" for number in range(1, 23)}
+EXPECTED_TICKETS = {f"DASH-{number:03d}" for number in range(1, 23)}
 
 
 def validate_requirement_coverage(

@@ -10,17 +10,19 @@
 
 **Phase hint:** 2
 
-**Depends on:** BO-001
+**Depends on:** none
 
 **Serializes with:** none
 
+**External gates:** GATE-001 (integration baseline), GATE-002 (Executor skill)
+
 **Requirements:** BOREQ-005
 
-**Decisions:** DEC-001, DEC-006
+**Decisions:** DEC-001, DEC-006, DEC-013
 
 **Design evidence:** DESIGN-002
 
-**Researched at:** 1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d
+**Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
 **Suggested labels:** `complexity:4`, `model:codex`, `phase:2`, `build-lane:infrastructure`; never `agent:todo`
 
@@ -48,6 +50,11 @@ identity even though it already owns execution, waiting, backend/model, and
 latest-worker status. This ticket retains that existing ownership while making
 its records joinable, and establishes trustworthy event identity before BO-005
 extracts only the event-derived UI fold.
+
+This general tracker/runtime contract does not depend on Build Order domain
+records and may proceed in parallel with BO-001 after both external gates are
+resolved. It must not be dispatched against the stale configured integration
+target or an unbounded Executor skill contract.
 
 ## Scope
 
@@ -183,3 +190,5 @@ BO-005 alone owns the event-activity projection and BO-006 owns AgentList
 migration. StatusReport retains orchestrator lifecycle ownership.
 Usage/accounting companions may reuse the identity/envelope, but are neither
 hard prerequisites nor permission to widen this ticket into financial storage.
+GATE-001 and GATE-002 are direct pre-dispatch gates for this root-independent
+contract, not hidden dependencies on BO-001.

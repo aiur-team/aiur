@@ -27,7 +27,7 @@ gate, not unfinished Build Order implementation.
 - Wait until the active dashboard Executor confirms its run is complete.
 - Review draft PR #1065 at its current isolated head and reconcile its
   conflicting `aiur-run`/`aiur-monitor`/loop changes with the Executor
-  terminology and documentation now on `origin/main` at `1e0cfba3`, then
+  terminology and documentation now on `origin/main` at `9849f329`, then
   refresh it against the
   configured integration branch without dropping the bounded contracts.
 - Run the skill validator, focused skill discovery/installation tests and the
@@ -45,11 +45,12 @@ gate, not unfinished Build Order implementation.
 
 ## Build Order gate
 
-This issue is published as an external native blocker of BO-001. It remains
-outside Build Order membership, points, ETA, and completion. Closing it means
-the reviewed revision (or a proven compatible successor) is landed or installed
-and all three skills are discoverable for both supported worker backends; merely
-closing PR #1065 without those checks does not resolve the gate.
+This issue is published as an external native blocker of BO-001, BO-004, and
+BO-008—the three independent initial branches. It remains outside Build Order
+membership, points, ETA, and completion. Closing it means the reviewed revision
+(or a proven compatible successor) is landed or installed and all three skills
+are discoverable for both supported worker backends; merely closing PR #1065
+without those checks does not resolve the gate.
 
 ## Labels
 

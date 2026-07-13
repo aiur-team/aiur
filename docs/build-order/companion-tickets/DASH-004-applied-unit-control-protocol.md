@@ -16,7 +16,7 @@
 
 **Requirements:** DREQ-004
 
-**Researched at:** `1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d`
+**Researched at:** `9849f32963c2a65367bce565b3f5ede3777c218f`
 
 **Suggested labels:** `complexity:4`, `model:codex`; never `agent:todo`
 

@@ -14,13 +14,13 @@ does not queue work. Until then, do not run Aiur, implement tickets, or add
 - Build Order: `its-everdred/aiur:build-order-dashboard`
 - Plan version: 1
 - Repository: `its-everdred/aiur`
-- Researched commit: `1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d`
+- Researched commit: `9849f32963c2a65367bce565b3f5ede3777c218f`
 - Approved planning commit: pending final clean review
 - GitHub root: resolve live by the hidden Build Order root marker; do not trust
   a copied pending number
 
-Deliver the fifteen-ticket authenticated, GitHub-planning-read-only Build Order
-feature. GitHub owns current plan facts; Aiur owns runtime facts. The fifteen
+Deliver the sixteen-ticket authenticated, GitHub-planning-read-only Build Order
+feature. GitHub owns current plan facts; Aiur owns runtime facts. The twenty-two
 dashboard companions, Linear #1067, skill-delivery work and deferred findings
 are separate tracks and cannot change this run's denominator or ETA.
 
@@ -32,7 +32,8 @@ are separate tracks and cannot change this run's denominator or ETA.
    - `docs/build-order/05-technical-decisions.md`
    - `docs/build-order/build-order.json`
    - `docs/build-order/tickets/BO-001-define-domain-contract.md` through
-     `docs/build-order/tickets/BO-015-prove-feature-acceptance.md`
+     `docs/build-order/tickets/BO-015-prove-feature-acceptance.md`, plus
+     `docs/build-order/tickets/BO-016-build-ticket-detail-context.md`
    - `docs/build-order/validation-report.md`
    - `docs/build-order/github-publication.md`
 2. Use `/aiur-run`, not the retired `/aiur-loop` workflow. Verify the loaded
@@ -61,8 +62,9 @@ are separate tracks and cannot change this run's denominator or ETA.
   `/aiur-build`, `/aiur-run`, and `/aiur-monitor` are discoverable. The separate
   human skill-delivery issue remains outside the Build Order denominator.
 
-Both gates block BO-001. Because BO-008 depends on BO-001, they transitively
-gate every Build Order implementation ticket.
+Both gates block every Build Order implementation ticket. BO-001, BO-004, and
+BO-008 are the independent initial nodes, and the human skill-delivery issue is
+a native blocker of all three so GATE-002 cannot be bypassed by another branch.
 
 ## Authority map
 
@@ -80,14 +82,15 @@ Aiur progress, including 100%, never clears a GitHub blocker.
 
 ## Initial graph and capacity
 
-After both external gates resolve, BO-001 is the sole initial ticket. BO-002,
-BO-004, and BO-008 follow BO-001. BO-003 follows BO-002; BO-005 follows BO-004,
-and those two serialize on the application-supervision seam. BO-009 follows
+After both external gates resolve, start BO-001, BO-004, and BO-008 in
+parallel. BO-002 follows BO-001; BO-003 follows BO-002; BO-005 follows BO-004;
+BO-003 and BO-005 serialize on the application-supervision seam. BO-009 follows
 BO-001 and BO-008; BO-010 follows BO-008 and BO-009. BO-006 follows BO-005.
-BO-007 follows BO-001, BO-003, and BO-005. BO-011 follows BO-003, BO-007, and
-BO-008. BO-012 follows BO-003, BO-007, BO-010, and BO-011; BO-013 follows
-BO-008 and BO-012; BO-014 follows BO-008 and BO-013; BO-015 follows BO-006 and
-BO-014.
+BO-007 follows BO-001, BO-003, and BO-005. BO-016 follows BO-004 and BO-008 and
+owns root-independent ticket detail/base context. BO-011 follows BO-007,
+BO-008, and BO-016 and adds Build Order relationships. BO-012 follows BO-003,
+BO-007, BO-010, and BO-011; BO-013 follows BO-008 and BO-012; BO-014 follows
+BO-008 and BO-013; BO-015 follows BO-006 and BO-014.
 
 Derive current readiness from GitHub native blockers, ticket lifecycle,
 declared serialization and real capacity. Phase is only a rollout/display hint.
@@ -127,7 +130,7 @@ irrelevant source context.
 
 ## Terminal condition
 
-Stop only when BO-001 through BO-015 are implemented, reviewed, green on the
+Stop only when BO-001 through BO-016 are implemented, reviewed, green on the
 current configured integration branch, merged, documented, cleaned up and
 proven after merge.
 

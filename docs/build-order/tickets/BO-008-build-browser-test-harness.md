@@ -10,17 +10,19 @@
 
 **Phase hint:** 1
 
-**Depends on:** BO-001
+**Depends on:** none
 
 **Serializes with:** none
 
+**External gates:** GATE-001 (integration baseline), GATE-002 (Executor skill)
+
 **Requirements:** BOREQ-008, BOREQ-014
 
-**Decisions:** DEC-007
+**Decisions:** DEC-007, DEC-013
 
 **Design evidence:** DESIGN-001, DESIGN-002
 
-**Researched at:** 1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d
+**Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
 **Suggested labels:** `complexity:4`, `model:codex`, `phase:1`, `build-lane:infrastructure`; never `agent:todo`
 
@@ -28,9 +30,9 @@
 
 The repository has CI-runnable, deterministic browser infrastructure for real
 LiveView interaction, automated accessibility checks, responsive screenshots,
-and performance measurements, plus reusable 20/50/100/cycle/invalid/degraded
-Build Order fixtures built from BO-001's accepted domain contract that later UI
-tickets must use.
+and performance measurements, plus reusable bounded graph-scenario generators
+and neutral fixture primitives that later Build Order UI tickets can bind to the
+accepted domain contract.
 
 ## Context and evidence
 
@@ -44,6 +46,11 @@ reconnect, trace-on-failure, or performance budgets. Deferring that reusable
 layer to the capstone would make each UI ticket invent a different proxy and
 leave interaction/performance/a11y failures unowned.
 
+The harness and neutral fixtures do not require Build Order domain records, so
+this ticket may proceed in parallel with BO-001 after GATE-001 and GATE-002 are
+resolved. Downstream tickets own binding the harness to production Build Order
+records and semantics.
+
 ## Scope
 
 - Generalize the shipped Playwright/Phoenix capture precedent into a pinned
@@ -54,11 +61,10 @@ leave interaction/performance/a11y failures unowned.
   failure artifacts, timeouts, and environment detection with no fixed host,
   machine path, or shared global state.
 - Add fixture builders for valid 0/1/20/50/100-member graphs, multi-root
-  catalogs, every edge/readiness state, cycles/self-loops, external/missing
-  endpoints, malformed root among valid roots, selected structural-invalid,
-  member metadata warnings, stale LKG, unavailable providers, and activity
-  updates. Reuse BO-001's exact records, enums, identities, and bounded fixture
-  vocabulary rather than defining a browser-only copy.
+  catalogs, DAGs, cycles/self-loops, external/missing endpoints, invalid and
+  degraded payloads, and live updates through a neutral deterministic fixture
+  schema. The harness must accept downstream domain adapters rather than
+  defining Build Order edge, readiness, provider, or identity semantics.
 - Provide reusable browser helpers for authenticated/read-only and writable
   modes, viewport/theme/reduced-motion, keyboard/touch/pointer input, focus,
   zoom/pan, LiveView reconnect, and worker readiness.
@@ -73,6 +79,8 @@ leave interaction/performance/a11y failures unowned.
 - Implement graph production UI, choose layout geometry, declare final
   performance budgets, run Aiur agents, or replace the real CLI proof in
   BO-015.
+- Define Build Order domain records, readiness policy, provider health, or the
+  production mapping from neutral fixtures into BO-001 contracts.
 - Test against the prototype's client-only sample code or depend on network
   CDNs/provider accounts.
 - Make screenshots the only accessibility or behavior assertion.
@@ -114,8 +122,8 @@ reuse existing Basic Auth/config injection.
 - A sample fixture LiveView proves navigation, JS hook/worker execution,
   pointer/keyboard/touch, focus, theme, reduced motion, reconnect, screenshot,
   automated a11y, and performance measurement paths.
-- Fixture tests assert exact node/edge/root/diagnostic counts and identities at
-  every size/state, including one malformed root beside valid catalog entries.
+- Fixture tests assert exact node/edge/root counts and deterministic identities
+  for every neutral size/scenario without claiming product semantics.
 - Failure-injection tests prove teardown, timeout, trace/screenshot, port
   isolation, and sensitive-data scrubbing.
 
@@ -152,7 +160,9 @@ reuse existing Basic Auth/config injection.
 
 ## Sibling boundaries and open gates
 
-BO-001 defines the domain fixtures this harness renders. BO-010, BO-013,
-BO-014, and BO-015 consume the harness. Production layout and graph behavior
-remain owned by those tickets. Companion dashboard tickets may reuse the
-infrastructure but must serialize only on shared test configuration.
+BO-001 and downstream UI tickets own production domain adapters and product
+semantics; BO-010, BO-013, BO-014, and BO-015 consume the harness. Production
+layout and graph behavior remain owned by those tickets. Companion dashboard
+tickets may reuse the infrastructure but must serialize only on shared test
+configuration. GATE-001 and GATE-002 are direct pre-dispatch gates, not hidden
+dependencies on BO-001.

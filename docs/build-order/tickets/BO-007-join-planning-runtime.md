@@ -20,7 +20,7 @@
 
 **Design evidence:** DESIGN-001, DESIGN-002
 
-**Researched at:** 1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d
+**Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
 **Suggested labels:** `complexity:4`, `model:codex`, `phase:4`, `build-lane:backend`; never `agent:todo`
 
@@ -54,9 +54,9 @@ and reverse adjacency before layout or ticket context can consume it.
 - Produce deterministic lane/phase groups with Unassigned/Unphased fallbacks,
   node summaries, accessible edge/status text, root/catalog health, and counts
   that use the same policies as visible nodes.
-- Produce a body-free card model and a selected-ticket context model from
-  normalized cached graph, selected-detail, and activity snapshots. Full
-  descriptions and safe destination links remain out of the graph-card payload.
+- Produce a body-free card model and selected-node relationship model from the
+  normalized cached graph and activity snapshots. Full descriptions, generic
+  ticket detail, and safe destination links remain outside this presenter.
 - Preserve member metadata warnings as renderable diagnostics and distinguish
   selected structural-invalid from stale LKG, provider unavailable, and empty
   valid graphs.
@@ -85,8 +85,8 @@ BO-005 event-activity snapshots directly.
   an SCC; edge and member status remain distinct.
 - A missing StatusReport or activity match changes only the corresponding
   execution or activity subrecord to unknown.
-- Cards remain body-free and bounded; selected context uses BO-003's
-  already-cached detail values rather than render-time provider reads.
+- Cards and selected-node relationship values remain body-free and bounded;
+  BO-016 separately owns on-demand generic ticket detail and its cache.
 
 ## Refreshable implementation notes
 
@@ -130,16 +130,18 @@ BO-005 event-activity snapshots directly.
 
 ## Surfaces
 
-- Reads: BO-001 planning snapshots, BO-003 selected-detail contract fixtures,
+- Reads: BO-001 planning records, BO-003 catalog/selected-graph snapshots,
   BO-004-identified StatusReport snapshots, and BO-005 TicketActivity
   snapshots.
 - Writes: pure BuildOrderPresenter policies, joined view/context models,
   adjacency/SCC helpers, and tests.
-- Contracts: BuildOrderViewModel; card/context input; edge/readiness and
-  diagnostic precedence.
+- Contracts: BuildOrderViewModel; body-free card and selected-node relationship
+  input; edge/readiness and diagnostic precedence.
 
 ## Sibling boundaries and open gates
 
-BO-011 owns context UI, BO-012 owns routing/minimum rendering, and layout
-tickets consume geometry-only inputs. Companion Units may reuse the context or
-activity models, but does not change this graph join or hard dependencies.
+BO-016 owns generic ticket detail/cache and accessible base context; BO-011
+adapts that context to this ticket's adjacency/diagnostics; BO-012 owns
+routing/minimum rendering; and layout tickets consume geometry-only inputs.
+Companion Units may reuse the generic context or activity models, but does not
+change this graph join or hard dependencies.

@@ -26,7 +26,7 @@ def build_order() -> dict[str, object]:
             "complexity_points": 3,
             "github": None,
         }
-        for number in range(1, 16)
+        for number in range(1, 17)
     ]
     return {
         "plan_version": 1,
@@ -82,7 +82,7 @@ def companions() -> dict[str, object]:
             "external_gate_ids": [],
             "github": None,
         }
-        for number in range(3, 16)
+        for number in range(3, 23)
     )
     return {
         "schema_version": 1,
@@ -139,7 +139,11 @@ def publication() -> dict[str, object]:
             "forbidden_label_prefixes": prefixes,
         },
         "external_blocker_relations": [
-            {"blocked_ticket_id": "BO-001", "blocker_issue_id": "SKILL-DELIVERY-001"}
+            {
+                "blocked_ticket_id": ticket_id,
+                "blocker_issue_id": "SKILL-DELIVERY-001",
+            }
+            for ticket_id in ("BO-001", "BO-004", "BO-008")
         ],
         "read_only_issue_refs": [
             "example/repo#132",

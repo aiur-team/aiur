@@ -1,165 +1,178 @@
-# BO-011 — Build reusable all-state ticket context
+# BO-011 — Adapt ticket context to Build Order
 
 **Kind:** executable
 
 **Provenance:** planned in plan v1
 
-**Complexity:** 4 — Shared cached context, dependency navigation, focus lifecycle, and safe cross-surface navigation
+**Complexity:** 3 — Bounded Build Order relationship adapter and root-scoped focus policy over established contracts
 
 **Risk:** high
 
 **Phase hint:** 4
 
-**Depends on:** BO-003, BO-007, BO-008
+**Depends on:** BO-007, BO-008, BO-016
 
 **Serializes with:** none
 
 **Requirements:** BOREQ-011
 
-**Decisions:** DEC-008, DEC-009
+**Decisions:** DEC-003, DEC-008, DEC-009
 
-**Design evidence:** DESIGN-001
+**Design evidence:** DESIGN-001, DESIGN-002
 
-**Researched at:** 1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d
+**Researched at:** 9849f32963c2a65367bce565b3f5ede3777c218f
 
-**Suggested labels:** `complexity:4`, `model:codex`, `phase:4`, `build-lane:frontend`; never `agent:todo`
+**Suggested labels:** `complexity:3`, `model:codex`, `phase:4`, `build-lane:frontend`; never `agent:todo`
 
 ## Outcome
 
-Operators can open one reusable, accessible context surface for running,
-queued, paused, completed, invalid, external, or unavailable tickets using only
-cached normalized snapshots, navigate both dependency directions, and follow
-safe links into existing GitHub, chat, Commands, or control surfaces without
-invoking a mutating action from Build Order.
+Build Order composes BO-016's repository-qualified base ticket context with
+BO-007's truthful adjacency and edge diagnostics, so an Executor can inspect
+and navigate one root-scoped selection with deterministic focus while the graph
+remains strictly read-only.
 
 ## Context and evidence
 
-The current agent-log modal is optimized for running entries and may perform
-lookups inappropriate for every graph card. Build Order cards must remain
-body-free and bounded at 100 members, while selected context needs richer
-description, dependency, provider, runtime evidence, and safe destination state. The prototype
-hard-codes repository links and drops external/missing endpoints.
+BO-016 deliberately provides ticket detail, caching, safe links, and an
+accessible base component without knowing that a ticket belongs to a Build
+Order. BO-007 separately owns graph relationships, edge states, readiness, and
+diagnostics. Combining those concerns in either owner would make a reusable
+ticket context depend on a root graph or would let the web layer recompute
+planning truth.
 
-Read-only v1 forbids GitHub planning mutations and keeps mutating Aiur actions
-out of Build Order. Existing chat, Commands, and Units/control surfaces retain
-their own contracts; this context may navigate to them without claiming their
-actions or acknowledgements.
+The prototype hard-codes repository links and drops external or missing
+endpoints. It also treats selection and hover as client-only state. This ticket
+is the narrow Build Order adapter: it owns relationship presentation,
+root-scoped selection/focus, and enforcement of the feature's read-only graph
+policy, but it does not fetch or cache ticket detail and does not own the base
+context component.
 
 ## Scope
 
-- Define a pure context presenter and reusable component over BO-007's selected
-  cached context, BO-003 selected-detail snapshot, upstream/downstream
-  adjacency, provider health, activity, and safe destination capabilities.
-  Opening/rendering performs no provider, filesystem, or process lookup.
-- Keep graph cards body-free; render full title/description and richer facts
-  only for the selected cached context, with bounded text and explicit
-  missing/partial/stale states.
-- Show canonical safe GitHub navigation, lifecycle, complexity/phase/lane,
-  edge/readiness state, progress provenance, latest safe evidence, and both
-  `Blocked by` and `Blocking` groups including external/missing/cyclic/
-  terminal-unsatisfied diagnostics.
-- Support in-context replacement navigation among cached endpoints with stable
-  history/back behavior, heading focus on replacement, and focus restoration to
-  the originating card when closed.
-- Request selected detail through BO-003's bounded demand API on selection and
-  render its loading/available/partial/stale/unavailable states. Root/member
-  changes invalidate stale selection generations; no direct provider call or
-  all-member body hydration occurs.
-- Render only validated safe links to GitHub and existing chat, Commands, or
-  control routes when their destination capability exists. Navigation is not
-  evidence that an action succeeded.
-- Expose no handler for GitHub membership, label, phase, lane, lifecycle, or
-  dependency mutations.
+- Define a pure Build Order context adapter over BO-007's selected-node,
+  upstream/downstream adjacency, edge-state, readiness, provider, activity, and
+  diagnostic values plus BO-016's repository-qualified base-context snapshot.
+  Rendering performs no provider, filesystem, log, clock, or process lookup.
+- Open BO-016's base context using the exact selected member identity. Preserve
+  its loading, available, stale, unavailable, bounded-content, safe-link, and
+  all-state semantics without copying its provider/cache policy into LiveView.
+- Add named `Blocked by` and `Blocking` relationship sections with direction,
+  edge state, readiness impact, and external/missing/cyclic/
+  terminal-unsatisfied diagnostics exactly as supplied by BO-007.
+- Support relationship replacement navigation only when an endpoint has a
+  trusted repository-qualified identity. Missing endpoints remain diagnostic;
+  external endpoints never become members of the selected root implicitly.
+- Key selection to canonical root, graph generation, and ticket identity.
+  Clear or reconcile it deterministically on root/generation change, focus the
+  replacement heading after relationship navigation, and restore focus to the
+  originating graph card when context closes.
+- Preserve validated safe GitHub and existing destination links exposed by
+  BO-016. Navigation is not evidence that a destination action succeeded.
+- Enforce the Build Order read-only policy at the adapter boundary: expose no
+  event handler for GitHub membership, labels, phase, lane, lifecycle, or
+  dependencies and no handler for chat, Decisions, pause/resume, capacity, or
+  any other Aiur mutation.
 
 ## Non-goals
 
-- Fetch a missing issue/body directly from LiveView or synchronously during
-  render, own provider/activity caches, edit GitHub planning state, or replace
-  the full interactive chat surface.
-- Put issue bodies or mutation payloads into every card/worker/layout message.
-- Send chat/commands, answer/retry/revise Decisions, pause/resume a unit, change
-  capacity, or expose any other mutating handler from Build Order v1.
+- Fetch GitHub ticket detail, own provider scheduling/LKG/cache state, sanitize
+  issue bodies, or implement the reusable accessible base context component.
+- Recompute adjacency, SCCs, edge/readiness policy, activity joins, or provider
+  health outside BO-007.
+- Own catalog/root URLs, the graph route, card rendering, pan/zoom, or final
+  interaction hardening.
+- Add Build Order relationship assumptions or mutation controls to BO-016.
 
 ## Existing owner and reuse target
 
-Extract reusable presentation/navigation seams alongside current Operator
-Control Center detail/agent-log components. Reuse read-only `Aiur.AgentLog`,
-safe chat/Decision route links, dashboard authentication, and trusted GitHub
-URL policy without copying mutation handlers.
+Compose BO-016's base `TicketContext` contract with BO-007's bounded
+`BuildOrderViewModel` relationship values. Reuse current dashboard dialog/focus
+and route-link conventions through those contracts; do not fork the generic
+provider/cache/component or the graph presenter.
 
 ## Contract and invariants
 
-- Context render accepts normalized cached data only and performs no network,
-  filesystem, log, or process call.
-- Cards remain body-free; selected context content is bounded and never enters
-  BO-010's geometry worker.
-- Relationship direction, edge state, and member readiness are separate named
-  fields and use BO-007 truth unchanged.
-- GitHub/planning behavior is read-only. Safe route availability is based on
-  normalized destination capability and checked again by the destination
-  surface. This component has no mutation event handler.
-- Dialog labelling, focus trap, Escape/close, replacement navigation, and origin
-  focus restoration are deterministic across LiveView patches.
+- The adapter accepts normalized cached inputs only. BO-016 is the sole owner
+  of selected-ticket provider demand, detail health, content bounds, and cache.
+- Relationship direction, edge state, readiness, and diagnostics are passed
+  through from BO-007 unchanged; the component cannot clear or reclassify an
+  edge.
+- A selected root member and the base-context snapshot must share the exact
+  repository-qualified identity. Bare numbers, titles, topics, and local paths
+  never join them.
+- Context replacement never mutates root membership. An external endpoint may
+  be inspected only as a separately qualified ticket; a missing endpoint stays
+  unavailable and diagnostic.
+- Selection/focus state is scoped to root plus generation. Stale provider
+  completion, LiveView patch, reconnect, or root switch cannot reopen or apply
+  context for the previous root.
+- Build Order behavior remains read-only. Safe destination availability is a
+  normalized capability checked again by the destination; this adapter has no
+  mutation event handler.
 
 ## Refreshable implementation notes
 
-- Refresh current dashboard detail/action components and the latest authenticated
-  mutation safeguards on the configured integration branch before extracting.
-- Use BO-003's selected-detail demand/cache contract exactly; do not widen the
-  body-free graph payload or add a second cache in LiveView.
-- Keep destination links small and typed; do not duplicate scheduler,
-  Decision, control, or agent-chat state.
+- Refresh BO-007 and BO-016 public shapes plus current dashboard dialog/focus
+  helpers on the configured integration branch before naming the adapter.
+- Prefer a small pure adapter and root-scoped selection reducer; BO-012 should
+  wire them rather than recreate relationship/focus policy in LiveView assigns.
+- Exercise the composition through BO-008's real-browser harness. Do not add a
+  browser-only cache or widen graph-card/worker payloads with issue bodies.
 
 ## Acceptance and verification
 
 ### Agent gate
 
-- Presenter/component tests cover every member lifecycle, invalid/external/
-  missing endpoint, all five edge states, partial/stale providers, body-free
-  cards, bounded selected content, safe/unsafe links, and destination capability
-  combinations.
-- BO-008 browser tests cover mouse, Enter/Space, touch, focus trap, Escape,
-  dependency replacement/back, LiveView patch, focus move/restore, and
-  screen-reader relationship/status text.
-- Selection tests cover coalesced detail demand, loading/stale/unavailable
-  detail, root/member generation changes, and no all-member body hydration.
-- Security tests prove safe destination links and the absence of GitHub,
-  Decision, chat, pause/resume, capacity, or other mutation handlers.
+- Pure/component tests cover both relationship directions, all five edge
+  states, external/missing/cyclic/terminal-unsatisfied endpoints, metadata
+  warnings, every BO-016 detail-health state, and exact identity matching.
+- Selection tests cover root and generation changes, removed members, delayed
+  stale detail completion, relationship replacement/back, LiveView reconnect,
+  heading focus, Escape/close, and origin focus restoration.
+- Integration tests prove detail demand remains coalesced in BO-016, opening
+  context never hydrates every graph member, and BO-007 relationship values are
+  neither recomputed nor rewritten.
+- Security tests prove only validated safe links render and no GitHub,
+  Decision, chat, pause/resume, capacity, or other mutation handler exists.
 
 ### At-merge gate
 
-- Shared component, existing detail/log/chat/route-link, auth/security,
-  accessibility, compile/lint/spec, and full CI pass on the current configured
-  integration branch.
-- Any Units companion adopting context reuses this contract and serializes on
-  shared components instead of forking it.
+- Build Order presenter, base context/provider, route-link, auth/security,
+  accessibility, browser, compile/lint/spec, and full repository CI pass on the
+  current configured integration branch.
+- BO-012 consumes this adapter rather than duplicating relationship, selection,
+  focus, or read-only policy.
 
 ### Human/manual evidence
 
-- Reviewer uses keyboard only to inspect a running, completed, invalid, and
-  external ticket; follows both dependency directions; and follows one safe
-  destination link. BO-015 owns final proof.
+- Reviewer uses keyboard only to open a running, completed, invalid, and
+  external ticket; follows both relationship directions; changes roots while
+  context is open; closes it; and confirms focus and safe navigation behavior.
+  BO-015 owns final integrated proof.
 
 ## Failure, security, migration, and accessibility cases
 
-- Validate safe GitHub links; sanitize descriptions; redact local paths,
-  credentials, capability URLs, raw logs, provider errors, and account data.
-- Do not change existing runtime action contracts; no stored-data migration is
-  introduced.
-- Use semantic dialog/headings/lists/buttons, named pending/error states,
-  minimum touch targets, non-color status, and deterministic focus restoration.
+- Treat identity mismatch and stale generations as unavailable selection, not
+  permission to guess. Never render raw provider errors, unsafe URLs, local
+  paths, credentials, capability URLs, account data, or unbounded content.
+- No stored-data migration is introduced; root-scoped selection is disposable.
+- Use semantic relationship headings/lists/buttons, non-color edge status,
+  deterministic heading/origin focus, minimum touch targets, and concise named
+  loading/error states across LiveView patches.
 
 ## Surfaces
 
-- Reads: BO-003 selected-detail snapshots; BO-007 selected cached context and
-  adjacency; safe destination capabilities; existing auth state.
-- Writes: reusable context presenter/components, selected-detail demand,
-  navigation/focus state, safe destination links, and tests.
-- Contracts: body-free card versus on-demand selected-context boundary;
-  dependency navigation; safe cross-surface destination model.
+- Reads: BO-007 selected-node relationship model; BO-016 repository-qualified
+  base ticket context; BO-008 browser/accessibility harness.
+- Writes: Build Order TicketContext adapter; root-scoped selection/focus and
+  read-only graph-policy tests.
+- Contracts: Build Order relationship context adapter; root/generation-scoped
+  selection and focus; no-mutation graph boundary.
 
 ## Sibling boundaries and open gates
 
-BO-003 owns selected-detail caching, BO-007 owns normalized truth, and BO-012
-wires card selection. A Units companion may reuse this component but must
-serialize shared UI edits and owns any action extension through DASH-004/005.
+BO-016 owns provider/cache/base context, BO-007 owns graph truth, and BO-012
+wires the route. BO-013 hardens canvas-wide interaction while preserving this
+adapter's context focus and read-only policy. A Units companion may reuse
+BO-016, but must not import this Build Order relationship adapter or add action
+controls through it.

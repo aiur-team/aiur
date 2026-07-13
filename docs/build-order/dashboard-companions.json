@@ -2,7 +2,7 @@
   "schema_version": 1,
   "plan_version": 1,
   "repository": "its-everdred/aiur",
-  "researched_at_commit": "1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d",
+  "researched_at_commit": "9849f32963c2a65367bce565b3f5ede3777c218f",
   "approved_planning_commit": null,
   "required_labels": ["model:codex"],
   "forbidden_labels": [
@@ -43,20 +43,18 @@
       "document": "companion-tickets/DASH-001-responsive-route-shell.md",
       "requirement_ref": "DREQ-001",
       "complexity_points": 3,
-      "depends_on": [
-        "BO-008"
-      ],
+      "depends_on": ["BO-008"],
       "external_blockers": [],
       "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
       "github": null
     },
     {
       "id": "DASH-002",
-      "title": "Project canonical current-run Units",
-      "document": "companion-tickets/DASH-002-current-run-units-catalog.md",
+      "title": "Recover canonical current-run membership",
+      "document": "companion-tickets/DASH-002-current-run-membership.md",
       "requirement_ref": "DREQ-002",
       "complexity_points": 4,
-      "depends_on": ["BO-005"],
+      "depends_on": ["BO-004"],
       "external_blockers": [],
       "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
       "github": null
@@ -67,7 +65,7 @@
       "document": "companion-tickets/DASH-003-units-interface.md",
       "requirement_ref": "DREQ-003",
       "complexity_points": 3,
-      "depends_on": ["DASH-001", "DASH-002", "BO-011"],
+      "depends_on": ["DASH-001", "DASH-016", "BO-016"],
       "external_blockers": [],
       "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
       "github": null
@@ -89,17 +87,17 @@
       "document": "companion-tickets/DASH-005-unit-capacity-controls-ui.md",
       "requirement_ref": "DREQ-005",
       "complexity_points": 3,
-      "depends_on": ["DASH-002", "DASH-003", "DASH-004"],
+      "depends_on": ["DASH-003", "DASH-004"],
       "external_blockers": [],
       "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
       "github": null
     },
     {
       "id": "DASH-006",
-      "title": "Add Decision lookup and provenance",
-      "document": "companion-tickets/DASH-006-decision-lookup-provenance.md",
+      "title": "Add retained Decision lookup and queries",
+      "document": "companion-tickets/DASH-006-decision-lookup.md",
       "requirement_ref": "DREQ-006",
-      "complexity_points": 4,
+      "complexity_points": 3,
       "depends_on": [],
       "external_blockers": [],
       "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
@@ -111,7 +109,7 @@
       "document": "companion-tickets/DASH-007-commands-interface.md",
       "requirement_ref": "DREQ-007",
       "complexity_points": 3,
-      "depends_on": ["DASH-001", "DASH-006"],
+      "depends_on": ["DASH-001", "DASH-006", "DASH-017"],
       "external_blockers": [],
       "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
       "github": null
@@ -122,7 +120,7 @@
       "document": "companion-tickets/DASH-008-usage-envelope.md",
       "requirement_ref": "DREQ-008",
       "complexity_points": 4,
-      "depends_on": ["BO-004"],
+      "depends_on": ["BO-004", "DASH-018"],
       "external_blockers": [],
       "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
       "github": null
@@ -140,16 +138,13 @@
     },
     {
       "id": "DASH-010",
-      "title": "Account Claude Remote usage",
+      "title": "Normalize Claude Remote usage",
       "document": "companion-tickets/DASH-010-claude-remote-usage.md",
       "requirement_ref": "DREQ-010",
-      "complexity_points": 4,
-      "depends_on": ["DASH-008"],
+      "complexity_points": 3,
+      "depends_on": ["DASH-008", "DASH-019"],
       "external_blockers": [],
-      "external_gate_ids": [
-        "GATE-OCC-PREDECESSOR-BASELINE",
-        "GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY"
-      ],
+      "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
       "github": null
     },
     {
@@ -165,13 +160,11 @@
     },
     {
       "id": "DASH-012",
-      "title": "Normalize Codex account meters",
-      "document": "companion-tickets/DASH-012-codex-provider-meters.md",
+      "title": "Project canonical provider meters",
+      "document": "companion-tickets/DASH-012-provider-meter-foundation.md",
       "requirement_ref": "DREQ-012",
-      "complexity_points": 4,
-      "depends_on": [
-        "DASH-008"
-      ],
+      "complexity_points": 3,
+      "depends_on": ["DASH-018"],
       "external_blockers": [],
       "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
       "github": null
@@ -196,26 +189,98 @@
       "document": "companion-tickets/DASH-014-current-run-summary.md",
       "requirement_ref": "DREQ-014",
       "complexity_points": 4,
-      "depends_on": ["DASH-002"],
+      "depends_on": ["DASH-016"],
       "external_blockers": [],
       "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
       "github": null
     },
     {
       "id": "DASH-015",
-      "title": "Render accessible usage and run summary",
-      "document": "companion-tickets/DASH-015-usage-run-summary-ui.md",
+      "title": "Render authenticated usage and provider summary",
+      "document": "companion-tickets/DASH-015-usage-provider-summary-ui.md",
       "requirement_ref": "DREQ-015",
       "complexity_points": 4,
-      "depends_on": [
-        "DASH-001",
-        "DASH-003",
-        "DASH-010",
-        "DASH-011",
-        "DASH-012",
-        "DASH-013",
-        "DASH-014"
+      "depends_on": ["DASH-003", "DASH-010", "DASH-011", "DASH-013", "DASH-020", "DASH-021"],
+      "external_blockers": [],
+      "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
+      "github": null
+    },
+    {
+      "id": "DASH-016",
+      "title": "Project canonical Units rows and policy",
+      "document": "companion-tickets/DASH-016-units-row-policy.md",
+      "requirement_ref": "DREQ-016",
+      "complexity_points": 3,
+      "depends_on": ["DASH-002", "BO-005"],
+      "external_blockers": [],
+      "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
+      "github": null
+    },
+    {
+      "id": "DASH-017",
+      "title": "Persist trusted Decision provenance",
+      "document": "companion-tickets/DASH-017-decision-provenance.md",
+      "requirement_ref": "DREQ-017",
+      "complexity_points": 3,
+      "depends_on": [],
+      "external_blockers": [],
+      "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
+      "github": null
+    },
+    {
+      "id": "DASH-018",
+      "title": "Own provider-account generation identity",
+      "document": "companion-tickets/DASH-018-provider-account-generation.md",
+      "requirement_ref": "DREQ-018",
+      "complexity_points": 3,
+      "depends_on": [],
+      "external_blockers": [],
+      "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
+      "github": null
+    },
+    {
+      "id": "DASH-019",
+      "title": "Authenticate Claude telemetry transport",
+      "document": "companion-tickets/DASH-019-claude-telemetry-transport.md",
+      "requirement_ref": "DREQ-019",
+      "complexity_points": 4,
+      "depends_on": [],
+      "external_blockers": [],
+      "external_gate_ids": [
+        "GATE-OCC-PREDECESSOR-BASELINE",
+        "GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY"
       ],
+      "github": null
+    },
+    {
+      "id": "DASH-020",
+      "title": "Normalize Codex account meters",
+      "document": "companion-tickets/DASH-020-codex-provider-meter-adapter.md",
+      "requirement_ref": "DREQ-020",
+      "complexity_points": 3,
+      "depends_on": ["DASH-012"],
+      "external_blockers": [],
+      "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
+      "github": null
+    },
+    {
+      "id": "DASH-021",
+      "title": "Enforce financial-data authentication",
+      "document": "companion-tickets/DASH-021-financial-data-auth-boundary.md",
+      "requirement_ref": "DREQ-021",
+      "complexity_points": 3,
+      "depends_on": ["DASH-001"],
+      "external_blockers": [],
+      "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
+      "github": null
+    },
+    {
+      "id": "DASH-022",
+      "title": "Render accessible current-run summary",
+      "document": "companion-tickets/DASH-022-current-run-summary-ui.md",
+      "requirement_ref": "DREQ-022",
+      "complexity_points": 3,
+      "depends_on": ["DASH-003", "DASH-014"],
       "external_blockers": [],
       "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
       "github": null

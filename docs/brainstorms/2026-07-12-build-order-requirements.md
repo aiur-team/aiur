@@ -13,9 +13,10 @@ identity, current membership, ticket facts, lifecycle, planning metadata and
 native blockers. Aiur contributes current activity, progress and event evidence
 without being allowed to clear a GitHub dependency.
 
-The Build Order implementation is fifteen tickets. Fifteen standalone dashboard
-companions align Units, Commands, controls and usage/accounting with the
-refreshed prototype; they are not Build Order members or completion blockers.
+The Build Order implementation is sixteen tickets. Twenty-two standalone
+dashboard companions align Units, Commands, controls and usage/accounting with
+the refreshed prototype; they are not Build Order members or completion
+blockers.
 The split follows independently testable backend/protocol/browser boundaries,
 not the opening ten-ticket estimate.
 
@@ -97,12 +98,13 @@ not the opening ten-ticket estimate.
   compute lane/phase-constrained coordinates and routed SVG edges off the main
   thread, discard stale generations, redraw after LiveView/font/theme/resize
   changes, and preserve a deterministic readable fallback.
-- **BOREQ-011 — Reusable all-state ticket context.** Load bounded detail from
-  cached providers only after selection. Show canonical GitHub navigation,
-  upstream/downstream chips, cached runtime evidence, safe navigation into
-  existing chat/Commands surfaces and partial/error states with correct focus
-  trap/replacement/restoration. Build Order itself exposes no mutating runtime
-  action in v1.
+- **BOREQ-011 — Reusable all-state ticket context.** Provide a root-independent,
+  repository-qualified, bounded on-demand detail/cache and accessible base
+  context for any typed ticket, then adapt it to selected Build Order
+  upstream/downstream relationships, diagnostics, and read-only navigation.
+  Cached runtime evidence, safe links into existing chat/Commands surfaces,
+  partial/error states and focus trap/replacement/restoration remain explicit.
+  Build Order itself exposes no mutating runtime action in v1.
 - **BOREQ-012 — URL-backed minimum graph.** `/build-orders` and selected-root
   routes survive share/back/refresh and render loading, empty, unavailable,
   stale, invalid and cyclic states. Cards expose source-backed identity, title,
@@ -129,12 +131,11 @@ These become standalone issues and do not belong to the Build Order root.
   Order and existing Analytics navigation; desktop/sidebar and mobile/bottom
   layouts, safe areas, theme, live status and `aria-current`; sequence after
   #1034 terminology work.
-- **DREQ-002 — Canonical Units catalog.** Define current-run membership,
-  terminal retention and a truth table for lifecycle scope
-  Live/Unfinished/All/None plus overlapping Active/Alert/Paused/Stuck/Queued/
-  Finished conditions; preserve provenance and waiting reasons. Rebuild the
-  same-run membership/terminal set after a catalog-process crash without
-  turning the event-activity projection into a lifecycle owner.
+- **DREQ-002 — Recoverable current-run membership.** Journal and project every
+  typed ticket identity observed in the active run, retain terminal membership
+  through that run, and rebuild the exact same-run set after a projection crash
+  without turning event activity into a lifecycle owner or retaining prior-run
+  history.
 - **DREQ-003 — Units presentation.** URL/count/zero-result filter behavior,
   exact backend/model/effort/complexity/lane/progress with unknowns, responsive
   table/cards and adoption of shared all-state ticket context.
@@ -144,16 +145,16 @@ These become standalone issues and do not belong to the Build Order root.
 - **DREQ-005 — Unit and capacity controls.** Authenticated capability-gated
   pause/resume and positive-integer max-agent UI waits for authoritative state,
   handles concurrency/timeouts/errors and uses named 44px controls.
-- **DREQ-006 — Decision lookup and provenance.** Direct old-record lookup,
-  bounded pagination/search, canonical source backend/model/confidence capture
-  and migration. Never parse display prose or transient running-agent state.
+- **DREQ-006 — Complete Decision lookup.** Direct old-record lookup, bounded
+  cursor pagination/search and complete retained counts remain separate from
+  the priority overview and preserve sanitization/provider failure semantics.
 - **DREQ-007 — Commands catch-up.** Apply current Commands vocabulary/cards/
   filters while preserving every Decision lifecycle, deep link, confirmation,
   retry, revision, follow-up, sanitization and partial-history state.
-- **DREQ-008 — Provider-neutral usage envelope.** Normalize raw delta/absolute
+- **DREQ-008 — Provider-neutral usage envelope.** Consume the shared opaque
+  provider-account generation and normalize raw delta/absolute
   measurements with trusted occurrence time, UTC occurrence-price date, scope,
-  independent counter epoch, one privacy-safe opaque provider-account
-  generation shared with meter adapters, source identity, full/partial
+  independent counter epoch, source identity, full/partial
   coverage, non-overlapping token semantics, currency and exact decimal
   provider cost. Do not derive cross-message deltas in an ephemeral producer.
 - **DREQ-009 — Durable attributed usage ledger.** Single-writer append-only
@@ -163,23 +164,20 @@ These become standalone issues and do not belong to the Build Order root.
   through compaction. The writer alone derives deltas from absolute counters
   using durable checkpoints. It supersedes #132's storage/accounting portion
   and deliberately defers #845's database/BI program.
-- **DREQ-010 — Remote Control accounting.** Ingest supported structured Claude
-  Code request telemetry locally, correlate session to run/ticket/attempt,
-  authenticate the local producer with a permissioned socket or per-process
-  capability, bound/rate-limit/deduplicate/reject replay, and redact before
-  logging. The ticket cannot finish with `claude-repl` coverage unsupported and
-  cannot dispatch before its human-owned protocol-authority gate resolves.
+- **DREQ-010 — Remote Control usage normalization.** Convert authenticated,
+  correlated Claude Code request telemetry into exact provider-neutral usage
+  envelopes without scraping interactive output. The required Remote Control
+  path cannot finish with `claude-repl` coverage unsupported.
 - **DREQ-011 — Versioned cost/grouping projection.** Report tokens and
   separately labelled provider/API-equivalent estimate bases by run/build,
   ticket, agent family, backend, exact model, currency and opaque account
   generation with occurrence-time pricing revision, coverage and earliest
   retained time; never sum unlike bases, currencies or generations. Meter
   joining remains a presentation-composition responsibility.
-- **DREQ-012 — Meter contract and Codex adapter.** Consuming DREQ-008's shared
-  opaque provider-account generation, define full snapshot versus sparse patch,
-  tombstone/expiry and per-window freshness for subscription/API-key plan tier,
-  quota/rate/credit values; extend structured Codex integration without
-  deriving a second meter-only account identity.
+- **DREQ-012 — Provider-meter foundation.** Consuming the shared opaque
+  provider-account generation, define full snapshot versus sparse patch,
+  tombstone/expiry, per-window freshness/LKG and subscription/API-key
+  plan/quota/rate/credit coverage without embedding either provider adapter.
 - **DREQ-013 — Claude plan-meter parity.** Provide structured Claude
   subscription and API-key account meters without interactive-output or
   credential scraping; protocol unavailability is an explicit external gate,
@@ -188,14 +186,41 @@ These become standalone issues and do not belong to the Build Order root.
 - **DREQ-014 — Canonical current-run summary.** Define live/remaining universe,
   complexity-weighted progress with unknown denominator, wall-clock elapsed and
   evidence-based ETA with provenance/confidence/freshness.
-- **DREQ-015 — Authenticated usage/run UI.** Compose live provider/run cards and
-  ticket/model/backend/agent breakdowns from cached snapshots. Join usage to an
+- **DREQ-015 — Authenticated usage/provider UI.** Compose live provider cards
+  and ticket/model/backend/agent breakdowns from cached snapshots. Join usage to an
   actual plan tier only by provider, backend and exact known opaque account
   generation; render unknown, mixed and mismatch states explicitly. Show
   estimate asterisks/popovers, scope/basis/currency/coverage/freshness and
-  accessible meter semantics, and lock every usage/account-meter fact—including
-  plan, auth mode, quota/rate/credit windows, percentages and resets—when
-  unauthenticated.
+  accessible meter semantics, consuming DREQ-021 so no usage/account-meter fact
+  is available to an unauthenticated connection.
+- **DREQ-016 — Units row and filter policy.** Join recoverable membership with
+  canonical lifecycle and event activity into provenance-rich rows; define
+  Live/Unfinished/All/None scope plus overlapping Active/Alert/Paused/Stuck/
+  Queued/Finished predicates, counts and a versioned URL codec as pure APIs.
+- **DREQ-017 — Trusted Decision provenance.** Version and migrate optional
+  backend/requested-model/resolved-model/session/attempt provenance plus
+  actor-scoped exact supervising confidence from trusted runtime and supervisor
+  paths; legacy and human-authored unknowns remain unknown.
+- **DREQ-018 — Opaque provider-account generation.** One trusted provider/auth
+  lifecycle owner mints a random, non-derivable generation shared by usage and
+  meter adapters, rotates it on account-binding changes or lost continuity, and
+  keeps it distinct from resettable counter epochs and quota resets.
+- **DREQ-019 — Authenticated local telemetry transport.** Provide a bounded,
+  permissioned local OTLP receiver and trusted Claude session-to-run/ticket/
+  attempt correlation with replay/rate controls, redaction-before-logging and a
+  human-owned protocol-authority gate for any required sibling change.
+- **DREQ-020 — Codex provider-meter adapter.** Normalize supported structured
+  Codex subscription/API-key account, plan, limit, reset, credit and spend facts
+  into DREQ-012, keep `ModelAvailability` a conservative compatibility consumer,
+  and expose no account identity or fabricated window.
+- **DREQ-021 — Enforced financial-data boundary.** Only an authenticated,
+  enforced dashboard connection may query, subscribe to, cache, assign, emit or
+  render usage, cost or provider-account facts; unlocked local mode receives a
+  value-free named locked state while nonfinancial run facts remain available.
+- **DREQ-022 — Accessible run-summary UI.** Render DREQ-014 live/remaining/
+  terminal counts, weighted progress coverage, wall elapsed and evidence-based
+  ETA independently of usage/provider availability, with truthful unavailable
+  states, responsive semantics and pushed updates.
 
 ## Acceptance examples
 

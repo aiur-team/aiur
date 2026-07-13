@@ -8,7 +8,7 @@
 
 **Risk:** high
 
-**Depends on:** DASH-001, DASH-006
+**Depends on:** DASH-001, DASH-006, DASH-017
 
 **Serializes with:** active Executor terminology, DashboardLive, Decision component, and shared CSS branches
 
@@ -16,7 +16,7 @@
 
 **Requirements:** DREQ-007
 
-**Researched at:** `1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d`
+**Researched at:** `9849f32963c2a65367bce565b3f5ede3777c218f`
 
 **Suggested labels:** `complexity:3`, `model:codex`; never `agent:todo`
 
@@ -28,14 +28,14 @@ The Executor Control Center presents Commands with the refreshed vocabulary, pri
 
 ## Context and evidence
 
-Current main has a durable, integrated Decision inbox/detail/history with answer, retry, revise, follow-up, acknowledgement, resolution, supervisor, and latency behavior. The prototype simplifies entry to Open/Blocking/Resolved/All and improves card hierarchy, but it hides secondary states, parses display prose for model identity, and contains fake quick actions. DASH-006 supplies exact lookup, pagination, counts, and trusted optional provenance needed to align presentation without regressing the domain.
+Current main has a durable, integrated Decision inbox/detail/history with answer, retry, revise, follow-up, acknowledgement, resolution, supervisor, and latency behavior. The prototype simplifies entry to Open/Blocking/Resolved/All and improves card hierarchy, but it hides secondary states, parses display prose for model identity, and contains fake quick actions. DASH-006 supplies exact lookup, pagination, and counts; DASH-017 supplies trusted optional provenance and confidence.
 
 ## Scope
 
 - Use Commands and Executor-facing vocabulary in navigation, page title, banner, filters, cards, detail, confirmation, empty/error states, and singular/plural copy. Preserve internal `Decision*` module, persistence, API, event, and historical ticket names.
 - Render primary filters `Open`, `Blocking`, `Resolved`, and `All`. `Open` includes human-required recorded Decisions; `Blocking` includes unresolved blocking Decisions; `Resolved` includes resolved Decisions; `All` uses DASH-006's paginated retained query and exposes search. Keep answered-not-delivered, delivery-failed, supervising-decided, acknowledged, superseded, revisions, and follow-up states visible through cards, secondary status controls, detail, or history.
 - Drive banner counts from DASH-006 canonical retained counts. If counts are degraded or partial, label them rather than presenting the bounded overview count as global truth.
-- Render trusted provider/backend/resolved-model provenance and supervising confidence only when present. Render unknown legacy values honestly. Show bounded option previews, selected/supervising-answer indicators, blocking reason, authority, delivery status, and latency without parsing prose.
+- Render DASH-017 provider/backend/resolved-model provenance and supervising confidence only when present. Render unknown legacy values honestly. Show bounded option previews, selected/supervising-answer indicators, blocking reason, authority, delivery status, and latency without parsing prose.
 - Preserve URL-backed filters, cursor/search state where shareable, direct detail routes, browser back/forward, irreversible confirmation, sanitization, optimistic-lock/version conflict handling, retry, revise, follow-up, and dynamic writable/auth gates.
 
 ## Non-goals
@@ -46,14 +46,14 @@ Current main has a durable, integrated Decision inbox/detail/history with answer
 
 ## Existing owner and reuse target
 
-Extend current `DashboardLive`, `DecisionInbox`, `DecisionCard`, `DecisionDetail`, `DecisionHistory`, `DecisionPresenter`, and route helpers. Consume DASH-001 shell and DASH-006 providers while preserving current Decision action APIs.
+Extend current `DashboardLive`, `DecisionInbox`, `DecisionCard`, `DecisionDetail`, `DecisionHistory`, `DecisionPresenter`, and route helpers. Consume DASH-001 shell, DASH-006 providers, and DASH-017 canonical fields while preserving current Decision action APIs.
 
 ## Contract and invariants
 
 - Commands is presentation vocabulary; canonical Decision identities, states, ordering, and write contracts remain authoritative.
 - Every retained lifecycle state is reachable and named. Primary-filter simplicity cannot turn answered-pending, failed, superseded, or follow-up work into invisible state.
 - Counts declare scope and health. Direct lookup never depends on the newest-50 overview window.
-- Provenance/confidence displays only DASH-006 canonical values; unknown is omitted or labelled, never reconstructed.
+- Provenance/confidence displays only DASH-017 canonical values; unknown is omitted or labelled, never reconstructed.
 - Mutation behavior remains confirmed where required, versioned, sanitized, authenticated, fail closed, and reconciled from the durable store.
 
 ## Refreshable implementation notes
@@ -72,7 +72,7 @@ Extend current `DashboardLive`, `DecisionInbox`, `DecisionCard`, `DecisionDetail
 
 ### At-merge gate
 
-- Rebase on #1034, DASH-001/006, and the resolved configured integration target; sequence Decision/DashboardLive/CSS ownership and pass Decision store/API/history/metrics, auth, accessibility, and full CI suites.
+- Rebase on #1034, DASH-001/006/017, and the resolved configured integration target; sequence Decision/DashboardLive/CSS ownership and pass Decision store/API/history/metrics, auth, accessibility, and full CI suites.
 
 ### Human/manual evidence
 
@@ -87,10 +87,10 @@ Extend current `DashboardLive`, `DecisionInbox`, `DecisionCard`, `DecisionDetail
 
 ## Surfaces
 
-- Reads: DASH-006 overview/page/search/detail/count/provenance contracts; current Decision lifecycle/action state.
+- Reads: DASH-006 overview/page/search/detail/count contracts; DASH-017 provenance/confidence; current Decision lifecycle/action state.
 - Writes: Commands presenters/components/routes copy, URL interaction, CSS, browser/component tests.
 - Contracts: Commands vocabulary, filter/state reachability, banner/count presentation.
 
 ## Sibling boundaries and open gates
 
-DASH-001 owns navigation shell and DASH-006 owns all new durable/query facts. This ticket must not absorb new Decision actions or become an excuse to rewrite the integrated OCC lifecycle.
+DASH-001 owns navigation shell, DASH-006 owns retained queries, and DASH-017 owns durable provenance/confidence. This ticket must not absorb new Decision actions or become an excuse to rewrite the integrated OCC lifecycle.

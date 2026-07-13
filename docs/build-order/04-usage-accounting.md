@@ -2,17 +2,23 @@
 
 ## Decision
 
-Usage/accounting is a standalone Operator Control Center program, not Build
-Order behavior. Eight companion tickets own it:
+Usage/accounting and the adjacent run-summary surface are a standalone Executor
+Control Center program, not Build Order behavior. Thirteen companion tickets
+own it:
 
-1. provider-neutral usage envelope and current transport normalization;
-2. durable attributed usage ledger;
-3. Claude REPL/Remote Control request accounting;
-4. versioned cost and grouping projection;
-5. provider-meter contract plus Codex adapter;
-6. Claude subscription and API-key meter adapter;
-7. canonical current-run summary projection; and
-8. authenticated accessible summary UI.
+1. privacy-safe provider-account generation;
+2. provider-neutral usage envelope and headless normalization;
+3. durable attributed usage ledger;
+4. authenticated local telemetry transport and correlation;
+5. Claude REPL/Remote Control envelope normalization;
+6. versioned cost and grouping projection;
+7. the provider-meter foundation;
+8. the Codex meter adapter;
+9. the Claude subscription and API-key meter adapter;
+10. the canonical current-run summary projection;
+11. the enforced financial-data boundary;
+12. the accessible nonfinancial run-summary UI; and
+13. the authenticated usage/provider UI.
 
 GitHub supplies current Build Order membership and ticket metadata. Aiur owns
 retained usage and current run facts. A selected order can pass its current
@@ -41,8 +47,9 @@ Existing work must be reconciled rather than duplicated:
 ## Measurement envelope
 
 Normalize each provider message into a raw measurement before persistence.
-DASH-008 owns this content-free protocol boundary; it does not derive or retain
-cross-message deltas. The minimum versioned envelope is:
+DASH-008 owns this content-free protocol boundary and consumes DASH-018's
+account generation; it does not derive or retain cross-message deltas. The
+minimum versioned envelope is:
 
 ```text
 schema_version, idempotency_key
@@ -60,8 +67,9 @@ provider_cost_decimal, provider_cost_currency, completeness: full | partial
 source, source_version
 ```
 
-`provider_account_generation` is one privacy-safe opaque value minted by a
-trusted provider/auth lifecycle owner and shared by usage and meter adapters.
+`provider_account_generation` is one privacy-safe opaque value minted by the
+DASH-018 trusted provider/auth lifecycle owner and shared by usage and meter
+adapters.
 It rotates when the authenticated account binding changes or continuity is
 lost, contains no derivable account identity, and is distinct from the
 resettable `counter_epoch`. Unknown generation remains uncorrelated.
@@ -91,10 +99,10 @@ Current `claude-repl` turn/display events do not carry tokens or cost. Claude
 Code's supported OpenTelemetry event stream now provides a structured
 `claude_code.api_request` event with session ID, monotonic event sequence,
 model, estimated USD cost, input/output/cache token fields, request ID,
-query source and effort. DASH-010 must evaluate and implement a local-only OTLP
-ingress path, correlate `session.id` to Aiur run/ticket/attempt identity, and
-emit deterministic request/event idempotency identity for DASH-009's durable
-deduplication.
+query source and effort. DASH-019 owns the authenticated local-only OTLP ingress
+and trusted `session.id` to Aiur run/ticket/attempt correlation. DASH-010 maps
+that accepted event into DASH-008 without acquiring a second receiver,
+correlation registry, or replay authority.
 
 This is preferable to scraping `/usage`, transcript output or the status line.
 The status-line token totals describe the current context rather than
@@ -107,8 +115,8 @@ boundary before persistence. If the local OTLP endpoint requires a sibling
 `aiur-claude` launch-protocol change, that external change is an explicit gate;
 the Aiur ticket cannot finish with Remote Control marked unsupported.
 
-The local telemetry receiver is also a trust boundary, not merely a loopback
-port. Prefer an owner-only Unix-domain socket. A loopback TCP receiver requires
+The DASH-019 local telemetry receiver is also a trust boundary, not merely a
+loopback port. Prefer an owner-only Unix-domain socket. A loopback TCP receiver requires
 an unguessable per-process capability minted by Aiur, authenticated before
 payload decoding or logging, bound to the process/session generation, and
 revoked at teardown. Both forms enforce bounded bodies, attributes,
@@ -187,7 +195,7 @@ observed_at, source, source_version
 
 A full snapshot tombstones absent prior windows; a sparse patch changes only
 named windows. Each window has independent freshness/expiry. Authentication
-changes rotate DASH-008's shared opaque account generation so stale data from a
+changes rotate DASH-018's shared opaque account generation so stale data from a
 prior login cannot merge into the new account, while raw account identity is
 discarded. Meter adapters consume that generation; they do not derive a second
 meter-local namespace or conflate quota resets with account changes.
@@ -238,19 +246,24 @@ updates.
 
 | Ticket | Owns | Does not own |
 |---|---|---|
-| DASH-008 | Raw envelope, shared privacy-safe account-generation owner, transport classification and exact attribution inputs | cross-message delta derivation, durability, pricing, UI |
+| DASH-018 | Shared privacy-safe provider-account-generation lifecycle and identity | usage normalization, meters, pricing, UI |
+| DASH-008 | Raw envelope, headless transport classification and exact attribution inputs | account-generation ownership, cross-message delta derivation, durability, pricing, UI |
 | DASH-009 | File-first durable ledger, absolute-counter checkpoints/delta derivation and lossless dimension-preserving projections | provider adapters, pricing, UI |
-| DASH-010 | Claude REPL/Remote Control OTel usage and cost adapter | Claude account quotas, summary UI |
+| DASH-019 | Authenticated bounded local telemetry transport, replay controls and trusted session correlation | usage-envelope mapping, provider meters, UI |
+| DASH-010 | Claude REPL/Remote Control event-to-envelope adapter | local transport/correlation, Claude account quotas, summary UI |
 | DASH-011 | Occurrence-time versioned API-equivalent pricing and generation/currency-qualified grouped usage query | provider account meters, ingestion, tier joining, UI |
-| DASH-012 | Meter snapshot/patch contract and Codex adapter consuming the shared account generation | Claude adapter, ticket usage ledger |
+| DASH-012 | Provider-meter snapshot/patch/LKG contract consuming the shared account generation | either provider adapter, ticket usage ledger |
+| DASH-020 | Structured Codex meter adapter and scheduling compatibility | Claude adapter, meter foundation, ticket usage ledger |
 | DASH-013 | Claude subscription and API-key meter parity | Remote Control request accounting |
 | DASH-014 | Canonical current-run count/progress/elapsed/ETA | usage pricing or provider quotas |
-| DASH-015 | Authenticated responsive cards, exact-generation usage/tier composition, meters and drill-down | provider I/O or ledger scanning |
+| DASH-021 | Enforced server-side financial query/subscription/data boundary | financial projection or UI composition |
+| DASH-022 | Accessible nonfinancial run-summary presentation | usage/provider cards or financial access policy |
+| DASH-015 | Authenticated responsive usage/provider cards, exact-generation tier composition, meters and drill-down | run-summary presentation, provider I/O or ledger scanning |
 
 ## Security and accessibility
 
-- Token/cost history and all account-meter facts and APIs require authenticated
-  Executor mode. This includes plan/tier, auth mode, quota/rate/credit windows,
+- DASH-021 requires token/cost history and all account-meter facts and APIs to
+  use authenticated Executor mode. This includes plan/tier, auth mode, quota/rate/credit windows,
   percentages, limits and reset times. Optional unauthenticated local dashboard
   mode renders a locked state with none of those values in HTML, assigns,
   client events or generic APIs.
@@ -269,7 +282,7 @@ There are no remaining product-choice gates for this track: subscription
 estimates, current-member/all-retained scope, read-only GitHub planning, and
 required Remote Control accounting are accepted in `questions.md`. Two named
 human-owned protocol gates remain: `GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY` for
-DASH-010 and `GATE-CLAUDE-METER-PROTOCOL-AUTHORITY` for DASH-013. Each must be
+DASH-019 and `GATE-CLAUDE-METER-PROTOCOL-AUTHORITY` for DASH-013. Each must be
 resolved either with evidence that the Aiur-only path satisfies the contract or
 with explicit authority and a compatible sibling revision. Provider protocol
 availability can block an adapter ticket, but cannot silently weaken its

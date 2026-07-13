@@ -13,8 +13,8 @@ state, progress estimates, workflow phase, recent activity, and event evidence
 without copying those facts back into a second planning database.
 
 The opening ten-ticket estimate was deliberately treated as a hypothesis. The
-final prototype/current-code audit found fifteen independently reviewable Build
-Order boundaries and fifteen standalone dashboard companions. The companions
+final prototype/current-code audit found sixteen independently reviewable Build
+Order boundaries and twenty-two standalone dashboard companions. The companions
 do not belong to the Build Order root or its completion math. The increase is
 mostly hidden protocol, durable-data, browser-harness, and control-lifecycle
 work that should not be buried in nominal frontend tickets.
@@ -22,7 +22,7 @@ work that should not be buried in nominal frontend tickets.
 ## Current Dashboard Baseline
 
 As of `origin/main` at
-`1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d`, the Executor Control Center
+`9849f32963c2a65367bce565b3f5ede3777c218f`, the Executor Control Center
 integration and documentation closeout are merged. `src/lib/aiur_web/router.ex`
 exposes Units at `/`, the Decision inbox/detail at `/decisions` and
 `/decisions/:id`, and the separate controller-backed analytics report at
@@ -40,6 +40,11 @@ The closeout also adds a Playwright screenshot command that launches a
 synthetic Phoenix/LiveView fixture. It is a concrete browser-tooling precedent,
 not yet the shared authenticated interaction/accessibility/performance harness
 required by BO-008.
+
+The final baseline update, #1076, isolates each warmed slot's OpenCode provider
+configuration from parent-environment overrides. That improves execution
+reliability but does not add provider-meter, usage-accounting, or dashboard
+contracts, so it changes no ticket boundary in this pack.
 
 ## What PR #971 Demonstrates
 
@@ -220,5 +225,5 @@ keeps GitHub planning facts visible while runtime cells degrade to unknown.
 ## Remaining Planning Work
 
 - Run two successive clean adversarial reviews and the canonical validator.
-- Materialize the reviewed root, fifteen members, and fifteen standalone
+- Materialize the reviewed root, sixteen members, and twenty-two standalone
   companions without dispatching them; then requery and record the receipt.

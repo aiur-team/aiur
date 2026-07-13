@@ -8,7 +8,7 @@
 
 **Risk:** high
 
-**Depends on:** DASH-002, DASH-003, DASH-004
+**Depends on:** DASH-003, DASH-004
 
 **Serializes with:** DASH-003 and other Units/DashboardLive/shared CSS branches
 
@@ -16,7 +16,7 @@
 
 **Requirements:** DREQ-005
 
-**Researched at:** `1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d`
+**Researched at:** `9849f32963c2a65367bce565b3f5ede3777c218f`
 
 **Suggested labels:** `complexity:3`, `model:codex`; never `agent:todo`
 
@@ -72,7 +72,7 @@ Extend DASH-003's Units action seam, consume DASH-004 control lifecycle, and reu
 
 ### At-merge gate
 
-- Rebase on DASH-002/003/004 and the resolved configured integration target, sequence shared dashboard files, and pass control, slot, auth/write-gate, audit, Units, browser accessibility, and full CI suites.
+- Rebase on DASH-003/004 and the resolved configured integration target, sequence shared dashboard files, and pass control, slot, auth/write-gate, audit, Units, browser accessibility, and full CI suites.
 
 ### Human/manual evidence
 
@@ -87,10 +87,10 @@ Extend DASH-003's Units action seam, consume DASH-004 control lifecycle, and reu
 
 ## Surfaces
 
-- Reads: DASH-002 Units rows, DASH-004 capabilities/lifecycle, writable/auth state, authoritative slot capacity.
+- Reads: DASH-016 Units rows through DASH-003's action seam, DASH-004 capabilities/lifecycle, writable/auth state, authoritative slot capacity.
 - Writes: LiveView control handlers, pending/error presentation, capacity requests, components and tests.
 - Contracts: Units action eligibility/presentation and positive capacity input.
 
 ## Sibling boundaries and open gates
 
-DASH-002 owns row truth, DASH-003 owns filters/layout, and DASH-004 owns control application. This ticket adds no Build Order mutation and must not turn visual controls into a new scheduler.
+DASH-016 owns row truth, DASH-003 owns filters/layout, and DASH-004 owns control application. This ticket adds no Build Order mutation and must not turn visual controls into a new scheduler.
