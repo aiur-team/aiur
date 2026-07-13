@@ -90,11 +90,14 @@ expected number:
 Keep `github_reconciliation` null before publication. After publication it is a
 bounded receipt from a fresh requery: timestamp, root node ID, exact direct
 membership, exact native dependency edges, and the full observed label set for
-the root and tickets. Receipt schema v2 also records the approved planning
-commit, the complete result set of each logical-marker query, and parsed body
+the root and tickets. Receipt schema v3 also records exact `OPEN` observed
+issue states, the approved planning commit, the complete result set of each
+logical-marker query, and parsed body
 evidence for every issue: marker count, schema, logical ID, plan version,
 approval SHA, approved-link count/link, and body SHA-256. It also records exact
-expected and observed issue-title maps for the root and every ticket.
+expected and observed issue-title maps for the root and every ticket. Closed
+marker matches stop publication and are never reopened without separate
+authority.
 
 Existing issues explicitly retained as reference-only are a denylist for
 returned root/ticket mappings unless the user separately expands mutation
@@ -112,6 +115,16 @@ commits are ancestors, with approval preceding receipt. Base-repository API
 visibility of a fork-only PR commit, or foreign history imported into the local
 object database, is not authority. Requery the ref after proof and require the
 same target; movement or deletion fails closed.
+
+Immediately before publishing the successful start gate, run receipt-commit
+validation with authenticated `gh`. The validator performs two fresh bounded
+read-only snapshots and requires them to agree exactly on every mapped issue's
+identity, title, body evidence, full labels, `OPEN` state, all-state marker
+uniqueness, unlocked state, direct root membership, and native blockers. It
+then compares that stable snapshot with the immutable receipt and re-proves
+branch authority.
+Queries pin `github.com`, fully paginate, and fail on malformed data or the
+bounded ceiling of 100 pages/10,000 items per endpoint.
 
 The observed hash is never self-authorizing. A trusted pack adapter must load
 the root template, `build-order.json`, and every ticket document with
@@ -135,10 +148,16 @@ evidence can authorize publication; `git show` remains the rendering authority.
 deterministic projected labels with full observed labels, rejects drift in the
 `agent:`, `human:`, `model:`, `phase:`, `complexity:`, and `build-lane:`
 families plus forbidden dispatch states, and requires every GitHub mapping. It
-also rejects the root-only `build-order` label on every member. Receipt v2
+also rejects the root-only `build-order` label on every member. Receipt v3
 requires complete expected and observed issue-title maps; both must equal titles
-rendered from approved root/ticket document H1s. It cannot prove the remote
-query was honestly performed.
+rendered from approved root/ticket document H1s, and every observed state must
+equal `OPEN`. The double live query, rather than receipt-authored observations,
+authorizes finalization.
+
+This all-OPEN proof is a publication-finalization snapshot. It runs before any
+execution-state mutation and is not a perpetual invariant after authorized work
+begins; later lifecycle changes use current GitHub truth and explicit gate
+evidence.
 
 ## Ticket document template
 

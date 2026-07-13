@@ -182,7 +182,8 @@ and any accepted exceptions.
 
 This stage requires explicit permission.
 
-- Requery and deduplicate against open/closed work.
+- Requery and deduplicate against open/closed work. Stop on a closed canonical
+  marker match; never auto-reopen it.
 - Create or identify the Build Order root issue.
 - Create/update tickets from approved contracts.
 - Map logical IDs to returned node IDs and repo-qualified numbers.
@@ -199,6 +200,8 @@ This stage requires explicit permission.
   issue match per logical ID and compare each parsed marker/link/hash record to
   the independently rendered expected body; fail on missing, wrong, duplicate,
   or truncated evidence.
+- Record v3 observed state for the root and every member and require exact
+  `OPEN` at publication.
 - Reject any returned mapping that reuses an existing issue recorded as
   reference-only or otherwise outside the user's mutation authority.
 - If publication exposes a live reconciliation/start-gate comment, derive its
@@ -213,6 +216,9 @@ This stage requires explicit permission.
   receipt. A fork-only PR commit can be API-visible through the base repository
   without being authoritative. Requery the ref after proof and require the same
   target; movement or deletion fails closed.
+- Immediately before the successful gate mutation, run receipt-commit mode
+  with authenticated `gh`; require two identical bounded live snapshots of all
+  mappings, titles, bodies, labels, states, markers, members, and blockers.
 - Apply projected and required routing labels, record full observed labels in
   the receipt, and prove every forbidden dispatch/active-state label and every
   unprojected `human:*` routing label is absent. Keep the `build-order` label on
@@ -223,6 +229,10 @@ For GitHub, a root issue with native sub-issues is a practical v1 membership
 model. GitHub supports up to 100 direct sub-issues per parent; larger programs
 need nested workstream umbrellas or a different index. Preserve logical IDs so
 hierarchy changes do not rewrite planning identity.
+
+Treat the all-OPEN proof as publication finalization only. Once authorized
+execution begins, use current GitHub lifecycle and explicit gate evidence; do
+not treat the receipt snapshot as a reason to reverse legitimate state changes.
 
 ## Stage 9: Handoff and stop
 

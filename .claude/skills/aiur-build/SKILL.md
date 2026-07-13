@@ -160,6 +160,10 @@ python3 <loaded-skill-directory>/scripts/validate_build_order.py \
 
 The validator loads `trusted_repository_ref` from `publication.json` at both
 approval and receipt commits; it does not accept caller-supplied ref authority.
+Receipt-commit mode also requires an authenticated `gh` CLI. It performs two
+fresh read-only GitHub snapshots and requires exact agreement across every
+mapped issue, all-state marker matches, root membership, and native blockers
+before accepting the immutable v3 receipt.
 
 Materialized validation also freezes the current planning documents: every
 ticket document must remain byte-for-byte equal to its approved source, and the
@@ -185,7 +189,9 @@ Planning is complete when a relevant pass adds neither and all gates pass.
 Only when explicitly authorized:
 
 1. requery GitHub, deduplicate existing work, and freeze every reference-only
-   issue that the user did not authorize for mutation or reuse;
+   issue that the user did not authorize for mutation or reuse; treat a closed
+   logical-marker match as a conflict and never reopen it without separate
+   authority;
 2. create/update the Build Order root and implementation issues;
 3. map stable logical IDs to returned repo-qualified issue identities;
 4. publish native membership and dependency relationships;
@@ -194,23 +200,29 @@ Only when explicitly authorized:
    template by replacing `<APPROVED_SHA>`; disable Git replace/graft object
    substitution for every approval and receipt read;
 6. preserve that same post-approval document freeze in the current pack;
-7. requery and validate the published graph, full labels, and bodies rather
-   than trusting mutation responses: every body has exactly one schema-2
-   logical-ID/version/approval marker, exactly one approved-commit link, and a
-   SHA-256 equal to the independently rendered approved body; record the full
-   marker-query result set and require exactly one returned issue mapping per
-   logical ID;
+7. requery and validate the published graph, full labels, OPEN issue states,
+   and bodies rather than trusting mutation responses: every body has exactly
+   one schema-2 logical-ID/version/approval marker, exactly one approved-commit
+   link, and a SHA-256 equal to the independently rendered approved body;
+   record the full marker-query result set and require exactly one returned
+   issue mapping per logical ID;
 8. record the bounded reconciliation receipt defined by the planning contract;
 9. make GitHub canonical for the materialized ticket facts;
-10. if a live start-gate comment links the receipt, derive repository, root,
-    plan version, approval, and root URL from the exact receipt commit; require
-    that commit to contain the complete materialized pack and pass the trusted
-    reconciliation validator before accepting the same-repository commit URL.
+10. immediately before publishing a successful live start gate, run
+    receipt-commit validation against the all-OPEN v3 publication snapshot.
+    Derive repository, root, plan version, approval, and root URL from the exact
+    receipt commit; require that commit to contain the complete materialized
+    pack and pass the trusted reconciliation validator before accepting the
+    same-repository commit URL.
     Anchor the repository outside both receipt and caller data to the configured
     GitHub origin. Query the exact target of the explicitly trusted
     `refs/heads/...` repository branch and prove receipt and approval commits
     are ancestors, with approval also preceding receipt; object/API visibility
     alone is insufficient. Requery the ref after proof and require the same tip.
+
+The all-OPEN check is a publication-finalization snapshot, not a perpetual
+invariant. After authorized execution begins, current GitHub lifecycle is live
+truth; do not rerun publication validation to undo legitimate state changes.
 
 Do not assume issue-number adjacency. Keep prose dependency tables as generated
 human views, not a second source of truth.

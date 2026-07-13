@@ -30,6 +30,7 @@ RECONCILIATION_KEYS = {
     "observed_labels",
     "expected_issue_titles",
     "observed_issue_titles",
+    "observed_issue_states",
     "observed_body_evidence",
     "marker_query_matches",
 }
@@ -53,8 +54,8 @@ def validate_reconciliation(
     receipt = strict_object(value, "github_reconciliation", RECONCILIATION_KEYS, report)
     if receipt is None:
         return
-    if receipt.get("receipt_schema_version") != 2:
-        report.error("github_reconciliation.receipt_schema_version must be integer 2")
+    if receipt.get("receipt_schema_version") != 3:
+        report.error("github_reconciliation.receipt_schema_version must be integer 3")
     if root is None:
         report.error("github_reconciliation requires github_root")
     missing = sorted(ticket_id for ticket_id, item in ticket_mappings.items() if item is None)
@@ -94,6 +95,9 @@ def validate_reconciliation(
         identities,
         approved_expectations.titles if approved_expectations is not None else None,
         report,
+    )
+    _validate_issue_states(
+        receipt.get("observed_issue_states"), identities, report,
     )
     root_id = str(data.get("build_order_id"))
     validate_marker_query_matches(
@@ -140,6 +144,25 @@ def _validate_issue_titles(
                 )
 
 
+def _validate_issue_states(
+    value: object,
+    identities: set[str],
+    report: Report,
+) -> None:
+    label = "github_reconciliation.observed_issue_states"
+    if not isinstance(value, dict):
+        report.error(f"{label} must be an object")
+        return
+    if set(value) != identities:
+        report.error(f"{label} keys must match root and tickets")
+    for identity in sorted(identities):
+        state = value.get(identity)
+        if state != "OPEN":
+            report.error(
+                f"{label}.{identity} must equal OPEN at publication"
+            )
+
+
 def _dependency_edges(value: object, report: Report) -> set[tuple[str, str]]:
     found: set[tuple[str, str]] = set()
     if not isinstance(value, list):
@@ -172,6 +195,7 @@ def _validate_label_sets(
         report.error(f"github_reconciliation.{field}_labels must be an object")
         return
     projection = data.get("label_projection") if isinstance(data.get("label_projection"), dict) else {}
+    root_id = data.get("build_order_id")
     root_label = projection.get("build_order")
     required = set(
         label
@@ -181,9 +205,11 @@ def _validate_label_sets(
     forbidden = set(
         label for label in projection.get("forbidden_labels", []) if nonempty_string(label)
     )
-    expected: dict[str, set[str]] = {
-        "github_root": {root_label} if nonempty_string(root_label) else set()
-    }
+    expected: dict[str, set[str]] = {}
+    if nonempty_string(root_id):
+        expected[str(root_id)] = (
+            {root_label} if nonempty_string(root_label) else set()
+        )
     for ticket_id, ticket in by_id.items():
         labels: set[str] = set(required)
         selectors = (
@@ -215,7 +241,7 @@ def _validate_label_sets(
                 f"github_reconciliation forbidden labels present for {identity}: "
                 + ", ".join(forbidden_hits)
             )
-        if identity != "github_root" and nonempty_string(root_label) and root_label in actual:
+        if identity != root_id and nonempty_string(root_label) and root_label in actual:
             report.error(
                 f"github_reconciliation root-only label present for {identity}: {root_label}"
             )

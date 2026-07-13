@@ -19,6 +19,7 @@ from validation_github_approved import (
     repository_relative,
 )
 from validation_github import validate_all_github
+from validation_github_live import GhApiReader, validate_live_github_receipt
 from validation_graph import (
     dependency_closure,
     validate_boundary_refs,
@@ -144,6 +145,21 @@ def _validate_receipt(
                 receipt_commit,
                 validated,
             )
+            if not validated.errors:
+                validate_live_github_receipt(
+                    value, validated, GhApiReader(repository_root.resolve()),
+                )
+            if not validated.errors:
+                # Re-prove branch authority after the bounded live read so a
+                # concurrent ref revocation cannot hide behind the first check.
+                validate_publication_commit_authority(
+                    repository_root,
+                    value.get("repository"),
+                    publication_path,
+                    approved,
+                    receipt_commit,
+                    validated,
+                )
         return validated
 
 

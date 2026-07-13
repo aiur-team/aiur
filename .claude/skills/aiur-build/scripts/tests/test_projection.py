@@ -66,19 +66,19 @@ class GithubTests(ValidatorCase):
         data["tickets"][0]["github"] = github("example/repo", 101, "ONE")
         data["tickets"][1]["github"] = github("example/other", 102, "TWO")
         data["github_reconciliation"] = {
-            "receipt_schema_version": 2,
+            "receipt_schema_version": 3,
             "checked_at": "2026-01-01T00:00:00Z",
             "approved_planning_commit": "b" * 40,
             "root_node_id": "ROOT",
             "member_ticket_ids": ["BO-001", "BO-002"],
             "dependency_edges": [{"ticket_id": "BO-002", "depends_on": "BO-001"}],
             "observed_labels": {
-                "github_root": ["build-order"],
+                "example/repo:operator-dashboard": ["build-order"],
                 "BO-001": ["build-lane:platform", "phase:1", "complexity:3", "model:codex"],
                 "BO-002": ["build-lane:integration", "phase:2", "complexity:2", "model:codex"],
             },
             "projected_labels": {
-                "github_root": ["build-order"],
+                "example/repo:operator-dashboard": ["build-order"],
                 "BO-001": ["build-lane:platform", "phase:1", "complexity:3", "model:codex"],
                 "BO-002": ["build-lane:integration", "phase:2", "complexity:2", "model:codex"],
             },
@@ -91,6 +91,11 @@ class GithubTests(ValidatorCase):
                 "example/repo:operator-dashboard": "example/repo:operator-dashboard",
                 "BO-001": "BO-001",
                 "BO-002": "BO-002",
+            },
+            "observed_issue_states": {
+                "example/repo:operator-dashboard": "OPEN",
+                "BO-001": "OPEN",
+                "BO-002": "OPEN",
             },
             "observed_body_evidence": {},
             "marker_query_matches": {
@@ -174,6 +179,19 @@ class GithubTests(ValidatorCase):
         data = self.materialized()
         del data["github_reconciliation"]["observed_issue_titles"]["BO-001"]
         self.assert_error(data, "observed_issue_titles keys must match root and tickets")
+
+    def test_reconciliation_requires_open_issue_states(self) -> None:
+        data = self.materialized()
+        data["github_reconciliation"]["observed_issue_states"]["BO-001"] = "CLOSED"
+        self.assert_error(data, "BO-001 must equal OPEN at publication")
+        data = self.materialized()
+        del data["github_reconciliation"]["observed_issue_states"]["BO-001"]
+        self.assert_error(data, "observed_issue_states keys must match root and tickets")
+
+    def test_reconciliation_requires_v3_receipt(self) -> None:
+        data = self.materialized()
+        data["github_reconciliation"]["receipt_schema_version"] = 2
+        self.assert_error(data, "receipt_schema_version must be integer 3")
 
     def test_reconciliation_allows_unrelated_labels_but_rejects_family_drift(self) -> None:
         data = self.materialized()
