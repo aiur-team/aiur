@@ -4,6 +4,7 @@ defmodule Aiur.AgentControlCLITest do
   import ExUnit.CaptureIO
 
   alias Aiur.{AgentControlCLI, BuildGate}
+  alias Aiur.GitHub.RateBudget
 
   defp capture_todo(ids, opts) do
     parent = self()
@@ -752,21 +753,21 @@ defmodule Aiur.AgentControlCLITest do
 
     test "reports when the GitHub rate budget paces polling", %{orchestrator: pid} do
       now = System.system_time(:second)
-      original_budget = :sys.get_state(Aiur.GitHub.RateBudget)
-      original_published_budget = :ets.lookup(Aiur.GitHub.RateBudget, :observation)
-      :sys.replace_state(Aiur.GitHub.RateBudget, fn _ -> nil end)
-      :ets.delete(Aiur.GitHub.RateBudget, :observation)
+      original_budget = :sys.get_state(RateBudget)
+      original_published_budget = :ets.lookup(RateBudget, :observation)
+      :sys.replace_state(RateBudget, fn _ -> nil end)
+      :ets.delete(RateBudget, :observation)
 
       on_exit(fn ->
-        :sys.replace_state(Aiur.GitHub.RateBudget, fn _ -> original_budget end)
+        :sys.replace_state(RateBudget, fn _ -> original_budget end)
 
         case original_published_budget do
-          [] -> :ets.delete(Aiur.GitHub.RateBudget, :observation)
-          [entry] -> :ets.insert(Aiur.GitHub.RateBudget, entry)
+          [] -> :ets.delete(RateBudget, :observation)
+          [entry] -> :ets.insert(RateBudget, entry)
         end
       end)
 
-      Aiur.GitHub.RateBudget.observe_response(%{
+      RateBudget.observe_response(%{
         headers: %{
           "x-ratelimit-limit" => "5000",
           "x-ratelimit-remaining" => "0",
@@ -775,7 +776,7 @@ defmodule Aiur.AgentControlCLITest do
         }
       })
 
-      :sys.get_state(Aiur.GitHub.RateBudget)
+      :sys.get_state(RateBudget)
 
       :sys.replace_state(pid, fn state ->
         %{state | poll_interval_ms: 1_000, next_poll_due_at_ms: System.monotonic_time(:millisecond) + 1_001_000}

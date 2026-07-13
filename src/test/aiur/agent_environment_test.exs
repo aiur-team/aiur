@@ -76,6 +76,21 @@ defmodule Aiur.AgentEnvironmentTest do
     assert output == "AIUR_AGENT_WORKSPACE=/work/aiur/697\nAIUR_DEBUG=1\n"
   end
 
+  test "scrub_shell_command clears the daemon GitHub token but preserves the agent token" do
+    command =
+      AgentEnvironment.scrub_shell_command("env | grep -E '^(AIUR_GITHUB_TOKEN|GITHUB_TOKEN)=' | sort")
+
+    {output, 0} =
+      System.cmd("bash", ["-lc", command],
+        env: [
+          {"AIUR_GITHUB_TOKEN", "daemon-secret"},
+          {"GITHUB_TOKEN", "agent-token"}
+        ]
+      )
+
+    assert output == "GITHUB_TOKEN=agent-token\n"
+  end
+
   test "scrub_shell_command preserves caller exec choice" do
     refute AgentEnvironment.scrub_shell_command("codex app-server") =~ "; exec codex"
     assert AgentEnvironment.scrub_shell_command("codex app-server", exec: true) =~ "; exec codex app-server"
@@ -147,6 +162,40 @@ defmodule Aiur.AgentEnvironmentTest do
                List.keyfind(env, ~c"AIUR_AGENT_WORKSPACE", 0)
 
       refute List.keyfind(env, ~c"AIUR_DEBUG", 0)
+    end
+
+    test "unsets the daemon GitHub token while preserving the agent token" do
+      env = AgentEnvironment.workspace_env("/work/aiur/678")
+
+      assert {~c"AIUR_GITHUB_TOKEN", false} =
+               List.keyfind(env, ~c"AIUR_GITHUB_TOKEN", 0)
+
+      refute List.keyfind(env, ~c"GITHUB_TOKEN", 0)
+    end
+
+    test "removes the daemon GitHub token from a running Port child" do
+      executable = System.find_executable("bash")
+
+      env =
+        [
+          {~c"AIUR_GITHUB_TOKEN", ~c"daemon-secret"},
+          {~c"GITHUB_TOKEN", ~c"agent-token"}
+        ] ++ AgentEnvironment.workspace_env("/work/aiur/678")
+
+      port =
+        Port.open(
+          {:spawn_executable, String.to_charlist(executable)},
+          [
+            :binary,
+            :exit_status,
+            args: [~c"-lc", ~c"printf '%s:%s\n' \"${AIUR_GITHUB_TOKEN-unset}\" \"${GITHUB_TOKEN-unset}\""],
+            env: env,
+            line: 1_024
+          ]
+        )
+
+      assert_receive {^port, {:data, {:eol, "unset:agent-token"}}}, 1_000
+      assert_receive {^port, {:exit_status, 0}}, 1_000
     end
 
     test "returns an empty list for a non-binary path so callers can splat safely" do

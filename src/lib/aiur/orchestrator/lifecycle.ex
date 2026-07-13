@@ -62,6 +62,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
       poll_check_in_progress: false,
       tick_timer_ref: nil,
       tick_token: nil,
+      tick_budget_protected: false,
       initial_dispatch_cycle: true,
       ci_lifecycle:
         CIApprovalStore.load()
@@ -112,7 +113,8 @@ defmodule Aiur.Orchestrator.Lifecycle do
       | poll_check_in_progress: true,
         next_poll_due_at_ms: nil,
         tick_timer_ref: nil,
-        tick_token: nil
+        tick_token: nil,
+        tick_budget_protected: false
     }
 
     StatusReport.notify_dashboard(state)
@@ -124,9 +126,22 @@ defmodule Aiur.Orchestrator.Lifecycle do
   def request_refresh(%State{} = state, opts \\ []) do
     now_ms = System.monotonic_time(:millisecond)
     budget_delay_fun = Keyword.get(opts, :budget_delay_fun, &RateBudget.delay_ms/0)
+    budget_delay_ms = budget_delay_fun.()
     already_due? = is_integer(state.next_poll_due_at_ms) and state.next_poll_due_at_ms <= now_ms
-    coalesced = state.poll_check_in_progress == true or already_due?
-    state = if coalesced, do: state, else: schedule_tick(state, budget_delay_fun.())
+
+    protected_timer? =
+      budget_delay_ms > 0 and state.tick_budget_protected == true and
+        is_reference(state.tick_timer_ref)
+
+    coalesced = state.poll_check_in_progress == true or already_due? or protected_timer?
+
+    state =
+      if coalesced do
+        state
+      else
+        state = schedule_tick(state, budget_delay_ms)
+        %{state | tick_budget_protected: budget_delay_ms > 0}
+      end
 
     {:reply,
      %{
@@ -150,6 +165,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
       state
       | tick_timer_ref: timer_ref,
         tick_token: tick_token,
+        tick_budget_protected: false,
         next_poll_due_at_ms: System.monotonic_time(:millisecond) + delay_ms
     }
   end

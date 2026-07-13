@@ -15,6 +15,7 @@ defmodule Aiur.AgentEnvironment do
   @erlang_distribution_env_names ~w(ERL_AFLAGS RELEASE_NODE RELEASE_COOKIE AIUR_RELEASE_NODE AIUR_INSTANCE_KEY AIUR_REPO_ROOT)
   @aiur_distribution_env_pattern ~r/\AAIUR(?:_.*)?_(?:NODE_NAME|COOKIE)\z/
   @parent_log_env_names ~w(AIUR_LOGS_ROOT AIUR_AGENT_IR_LOGS_PARENT)
+  @daemon_secret_env_names ~w(AIUR_GITHUB_TOKEN)
   @scheduler_option ~r/(^|\s)\+S\s+\d+(?::\d+)?/
 
   @spec erlang_distribution_env_name?(String.t()) :: boolean()
@@ -31,7 +32,7 @@ defmodule Aiur.AgentEnvironment do
   @spec scrub_shell_prefix() :: String.t()
   def scrub_shell_prefix do
     "unset ERL_AFLAGS RELEASE_NODE RELEASE_COOKIE AIUR_RELEASE_NODE AIUR_INSTANCE_KEY AIUR_REPO_ROOT " <>
-      "AIUR_LOGS_ROOT AIUR_AGENT_IR_LOGS_PARENT; " <>
+      "AIUR_LOGS_ROOT AIUR_AGENT_IR_LOGS_PARENT AIUR_GITHUB_TOKEN; " <>
       "for aiur_env_name in $(env | sed 's/=.*//'); do " <>
       "case \"$aiur_env_name\" in " <>
       "AIUR_NODE_NAME|AIUR_*_NODE_NAME|AIUR_COOKIE|AIUR_*_COOKIE) unset \"$aiur_env_name\" ;; " <>
@@ -58,8 +59,8 @@ defmodule Aiur.AgentEnvironment do
     hex = Path.join(workspace, ".aiur-hex")
     mix = Path.join(workspace, ".aiur-mix")
 
-    unset_parent_logs =
-      Enum.map(@parent_log_env_names, fn name ->
+    unset_parent_env =
+      Enum.map(@parent_log_env_names ++ @daemon_secret_env_names, fn name ->
         {String.to_charlist(name), false}
       end)
 
@@ -87,7 +88,7 @@ defmodule Aiur.AgentEnvironment do
           {String.to_charlist(name), String.to_charlist(value)}
         end)
 
-    unset_parent_logs ++ workspace_env
+    unset_parent_env ++ workspace_env
   end
 
   def workspace_env(_), do: []
