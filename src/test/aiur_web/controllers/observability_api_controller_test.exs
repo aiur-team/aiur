@@ -29,6 +29,14 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
   # Endpoint table even after restoring the application environment.
   setup do
     endpoint_config = Application.get_env(:aiur, AiurWeb.Endpoint, [])
+    missing = make_ref()
+
+    runtime_auth_required =
+      if Process.whereis(AiurWeb.Endpoint) do
+        AiurWeb.Endpoint.config(:dashboard_auth_required, missing)
+      else
+        missing
+      end
 
     test_config =
       Keyword.merge(endpoint_config,
@@ -47,17 +55,18 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
 
     on_exit(fn ->
       Application.put_env(:aiur, AiurWeb.Endpoint, endpoint_config)
-      restore_runtime_config(:dashboard_auth_required, endpoint_config)
+      restore_runtime_config(:dashboard_auth_required, runtime_auth_required, missing)
     end)
 
     :ok
   end
 
-  defp restore_runtime_config(key, endpoint_config) do
+  defp restore_runtime_config(key, previous_value, missing) do
     if Process.whereis(AiurWeb.Endpoint) do
-      case Keyword.fetch(endpoint_config, key) do
-        {:ok, value} -> AiurWeb.Endpoint.config_change([{key, value}], [])
-        :error -> AiurWeb.Endpoint.config_change([], [key])
+      if previous_value == missing do
+        AiurWeb.Endpoint.config_change([], [key])
+      else
+        AiurWeb.Endpoint.config_change([{key, previous_value}], [])
       end
     end
   end
