@@ -1,5 +1,173 @@
+defmodule Aiur.TestCwdGuard do
+  @file_cwd_functions MapSet.new(cd: 1, cd: 2, cd!: 1, cd!: 2)
+
+  def violations(source) do
+    source
+    |> Code.string_to_quoted!()
+    |> scan_scope(new_env(), MapSet.new())
+    |> elem(2)
+  end
+
+  defp scan_scope({:__block__, _, expressions}, env, locals) do
+    Enum.reduce(expressions, {env, false, []}, fn expression, {env, mutation?, modules} ->
+      {env, expression_mutation?, expression_modules} = scan_expression(expression, env, locals)
+      {env, mutation? or expression_mutation?, modules ++ expression_modules}
+    end)
+  end
+
+  defp scan_scope(expression, env, locals), do: scan_expression(expression, env, locals)
+
+  defp scan_expression({:quote, _, _}, env, _locals), do: {env, false, []}
+
+  defp scan_expression({:alias, _, [{:__aliases__, _, target} | options]}, env, _locals) do
+    target = resolve_alias(target, env.aliases)
+    options = directive_options(options)
+    alias_name = options |> Keyword.get(:as) |> alias_name(target)
+    {%{env | aliases: Map.put(env.aliases, alias_name, target)}, false, []}
+  end
+
+  defp scan_expression({:import, _, [{:__aliases__, _, target} | options]}, env, _locals) do
+    target = resolve_alias(target, env.aliases)
+    options = directive_options(options)
+    imports = if target == [:File], do: imported_file_functions(options), else: env.imports
+    {%{env | imports: imports}, false, []}
+  end
+
+  defp scan_expression({:defmodule, _, [name, [do: body]]}, env, _locals) do
+    locals = local_definitions(body)
+    {_module_env, mutation?, nested_modules, async?} = scan_module_body(body, env, locals)
+    module_name = Macro.to_string(name)
+    modules = if async? and mutation?, do: [module_name | nested_modules], else: nested_modules
+    {env, false, modules}
+  end
+
+  defp scan_expression({kind, _, [_head, body_options]}, env, locals)
+       when kind in [:def, :defp, :defmacro, :defmacrop] and is_list(body_options) do
+    {_function_env, mutation?, modules} = scan_scope(Keyword.get(body_options, :do), env, locals)
+    {env, mutation?, modules}
+  end
+
+  defp scan_expression(expression, env, locals) do
+    mutation? = cwd_mutation?(expression, env, locals)
+    {_child_env, child_mutation?, modules} = scan_children(expression, env, locals)
+    {env, mutation? or child_mutation?, modules}
+  end
+
+  defp scan_module_body(body, inherited_env, locals) do
+    expressions = if match?({:__block__, _, _}, body), do: elem(body, 2), else: [body]
+
+    Enum.reduce(expressions, {inherited_env, false, [], false}, fn expression, {env, mutation?, modules, async?} ->
+      expression_async? = async_exunit_use?(expression, env)
+      {env, expression_mutation?, expression_modules} = scan_expression(expression, env, locals)
+
+      {
+        env,
+        mutation? or expression_mutation?,
+        modules ++ expression_modules,
+        async? or expression_async?
+      }
+    end)
+  end
+
+  defp scan_children(expression, env, locals) when is_list(expression) do
+    Enum.reduce(expression, {env, false, []}, fn child, {_env, mutation?, modules} ->
+      {_child_env, child_mutation?, child_modules} = scan_scope(child, env, locals)
+      {env, mutation? or child_mutation?, modules ++ child_modules}
+    end)
+  end
+
+  defp scan_children(expression, env, locals) when is_tuple(expression) do
+    expression
+    |> Tuple.to_list()
+    |> scan_children(env, locals)
+  end
+
+  defp scan_children(_expression, env, _locals), do: {env, false, []}
+
+  defp cwd_mutation?({{:., _, [{:__aliases__, _, target}, function]}, _, args}, env, _locals)
+       when function in [:cd, :cd!] and is_list(args) do
+    resolve_alias(target, env.aliases) == [:File] and {function, length(args)} in @file_cwd_functions
+  end
+
+  defp cwd_mutation?({{:., _, [:file, :set_cwd]}, _, [_path]}, _env, _locals), do: true
+
+  defp cwd_mutation?({function, _, args}, env, locals)
+       when function in [:cd, :cd!] and is_list(args) do
+    signature = {function, length(args)}
+    signature in env.imports and signature not in locals
+  end
+
+  defp cwd_mutation?(_expression, _env, _locals), do: false
+
+  defp async_exunit_use?({:use, _, [{:__aliases__, _, target}, options]}, env) do
+    resolve_alias(target, env.aliases) == [:ExUnit, :Case] and Keyword.get(options, :async) == true
+  end
+
+  defp async_exunit_use?(_expression, _env), do: false
+
+  defp local_definitions(body) do
+    body
+    |> direct_expressions()
+    |> Enum.reduce(MapSet.new(), fn
+      {kind, _, [head | _]}, definitions when kind in [:def, :defp, :defmacro, :defmacrop] ->
+        add_definition(definitions, head)
+
+      _expression, definitions ->
+        definitions
+    end)
+  end
+
+  defp add_definition(definitions, {:when, _, [head | _guards]}), do: add_definition(definitions, head)
+
+  defp add_definition(definitions, {name, _, args}) when is_atom(name) and is_list(args) do
+    maximum_arity = length(args)
+    default_count = Enum.count(args, &match?({:\\, _, _}, &1))
+
+    Enum.reduce((maximum_arity - default_count)..maximum_arity, definitions, fn arity, definitions ->
+      MapSet.put(definitions, {name, arity})
+    end)
+  end
+
+  defp add_definition(definitions, _head), do: definitions
+
+  defp direct_expressions({:__block__, _, expressions}), do: expressions
+  defp direct_expressions(expression), do: [expression]
+
+  defp imported_file_functions(options) do
+    imports =
+      case Keyword.get(options, :only) do
+        nil -> @file_cwd_functions
+        functions -> MapSet.intersection(@file_cwd_functions, MapSet.new(functions))
+      end
+
+    case Keyword.get(options, :except) do
+      nil -> imports
+      functions -> MapSet.difference(imports, MapSet.new(functions))
+    end
+  end
+
+  defp resolve_alias([:"Elixir" | target], aliases), do: resolve_alias(target, aliases)
+
+  defp resolve_alias([first | rest] = target, aliases) do
+    case Map.fetch(aliases, first) do
+      {:ok, resolved} -> resolved ++ rest
+      :error -> target
+    end
+  end
+
+  defp alias_name(nil, target), do: List.last(target)
+  defp alias_name({:__aliases__, _, target}, _resolved_target), do: List.last(target)
+
+  defp directive_options([options]) when is_list(options), do: options
+  defp directive_options(_options), do: []
+
+  defp new_env, do: %{aliases: %{}, imports: MapSet.new()}
+end
+
 defmodule Aiur.TestEnvironmentTest do
   use ExUnit.Case, async: false
+
+  alias Aiur.TestCwdGuard, as: CwdGuard
 
   @sanitized_env_vars [
     "TMUX",
@@ -35,161 +203,115 @@ defmodule Aiur.TestEnvironmentTest do
       |> Enum.flat_map(fn path ->
         path
         |> File.read!()
-        |> cwd_violations()
+        |> CwdGuard.violations()
         |> Enum.map(&"#{path}:#{&1}")
       end)
 
     assert violations == [], "cwd-changing calls cannot run in async tests: #{inspect(violations)}"
   end
 
-  test "detects direct and indirect cwd mutations in async modules" do
-    assert cwd_violations("""
-           defmodule AsyncDirect do
-             use ExUnit.Case, async: true
-             File.cd("tmp")
+  test "detects qualified aliases and imports" do
+    assert CwdGuard.violations("""
+           defmodule Qualified do
+             use Elixir.ExUnit.Case, async: true
+             alias Elixir.File, as: F
+             F.cd!("tmp")
            end
 
-           defmodule AsyncDirectBang do
+           defmodule Imported do
+             use Elixir.ExUnit.Case, async: true
+             import Elixir.File, only: [cd!: 1]
+             cd!("tmp")
+           end
+           """) == ["Qualified", "Imported"]
+  end
+
+  test "honors import filters and local definitions" do
+    assert CwdGuard.violations("""
+           defmodule OnlyRead do
              use ExUnit.Case, async: true
+             import File, only: [read!: 1]
+             cd!("local")
+           end
+
+           defmodule ExceptCwd do
+             use ExUnit.Case, async: true
+             import File, except: [cd: 1, cd!: 1]
+             cd("local")
+             cd!("local")
+           end
+
+           defmodule LocalDefinition do
+             use ExUnit.Case, async: true
+             import File
+             defp cd!(path), do: path
+             cd!("local")
+           end
+           """) == []
+  end
+
+  test "resolves aliases in lexical order and inherits them in nested modules" do
+    assert CwdGuard.violations("""
+           defmodule Shadowed do
+             use ExUnit.Case, async: true
+             alias Other, as: File
+             File.cd!("not-file")
+           end
+
+           defmodule Outer do
+             alias Elixir.File, as: F
+
+             defmodule Nested do
+               use ExUnit.Case, async: true
+               F.cd!("tmp")
+             end
+           end
+           """) == ["Nested"]
+  end
+
+  test "skips quoted modules and mutations" do
+    assert CwdGuard.violations("""
+           quote do
+             defmodule Generated do
+               use ExUnit.Case, async: true
+               File.cd!("tmp")
+             end
+           end
+
+           defmodule Live do
+             use ExUnit.Case, async: true
+             quote do: File.cd!("tmp")
+           end
+           """) == []
+  end
+
+  test "detects direct calls and Erlang cwd mutations" do
+    assert CwdGuard.violations("""
+           defmodule Direct do
+             use ExUnit.Case, async: true
+             File.cd("tmp")
              File.cd!("tmp")
            end
 
-           defmodule AsyncAlias do
-             use ExUnit.Case, async: true
-             alias File, as: F
-             F.cd("tmp")
-           end
-
-           defmodule AsyncImport do
-             use ExUnit.Case, async: true
-             import File
-             cd!("tmp")
-           end
-
-           defmodule AsyncErlang do
+           defmodule Erlang do
              use ExUnit.Case, async: true
              :file.set_cwd(~c"tmp")
            end
-           """) == ["AsyncDirect", "AsyncDirectBang", "AsyncAlias", "AsyncImport", "AsyncErlang"]
+           """) == ["Direct", "Erlang"]
   end
 
-  test "allows synchronous mutations and ignores non-code references" do
-    assert cwd_violations(~S"""
-           defmodule SyncMutation do
+  test "allows synchronous calls and ignores comments and strings" do
+    assert CwdGuard.violations(~S"""
+           defmodule Synchronous do
              use ExUnit.Case, async: false
              File.cd!("tmp")
            end
 
-           defmodule AsyncReferences do
+           defmodule References do
              use ExUnit.Case, async: true
              # File.cd!("tmp")
              @example "File.cd!(\"tmp\")"
            end
            """) == []
-  end
-
-  test "classifies cwd mutations per module" do
-    assert cwd_violations("""
-           defmodule AsyncClean do
-             use ExUnit.Case, async: true
-           end
-
-           defmodule SyncMutation do
-             use ExUnit.Case, async: false
-             File.cd!("tmp")
-
-             defmodule NestedAsyncClean do
-               use ExUnit.Case, async: true
-             end
-           end
-           """) == []
-  end
-
-  defp cwd_violations(source) do
-    ast = Code.string_to_quoted!(source)
-
-    {_ast, modules} =
-      Macro.prewalk(ast, [], fn
-        {:defmodule, _, [name, [do: body]]} = node, modules ->
-          {node, [{Macro.to_string(name), body} | modules]}
-
-        node, modules ->
-          {node, modules}
-      end)
-
-    modules
-    |> Enum.reverse()
-    |> Enum.filter(fn {_name, body} ->
-      body = without_nested_modules(body)
-      async_test?(body) and changes_working_directory?(body)
-    end)
-    |> Enum.map(&elem(&1, 0))
-  end
-
-  defp async_test?(ast) do
-    {_ast, found?} =
-      Macro.prewalk(ast, false, fn
-        {:use, _, [{:__aliases__, _, [:ExUnit, :Case]}, options]} = node, found? ->
-          {node, found? or Keyword.get(options, :async) == true}
-
-        node, found? ->
-          {node, found?}
-      end)
-
-    found?
-  end
-
-  defp changes_working_directory?(ast) do
-    file_aliases = file_aliases(ast)
-    imports_file? = imports_file?(ast)
-
-    {_ast, found?} =
-      Macro.prewalk(ast, false, fn
-        {{:., _, [{:__aliases__, _, alias_name}, function]}, _, _args} = node, found?
-        when function in [:cd, :cd!] ->
-          {node, found? or List.last(alias_name) in file_aliases}
-
-        {{:., _, [:file, :set_cwd]}, _, _args} = node, _found? ->
-          {node, true}
-
-        {function, _, args} = node, _found? when imports_file? and function in [:cd, :cd!] and is_list(args) ->
-          {node, true}
-
-        node, found? ->
-          {node, found?}
-      end)
-
-    found?
-  end
-
-  defp without_nested_modules(ast) do
-    Macro.prewalk(ast, fn
-      {:defmodule, _, _} -> nil
-      node -> node
-    end)
-  end
-
-  defp file_aliases(ast) do
-    {_ast, aliases} =
-      Macro.prewalk(ast, MapSet.new([:File]), fn
-        {:alias, _, [{:__aliases__, _, [:File]}, options]} = node, aliases ->
-          alias_name = options |> Keyword.get(:as, {:__aliases__, [], [:File]}) |> elem(2) |> List.last()
-          {node, MapSet.put(aliases, alias_name)}
-
-        node, aliases ->
-          {node, aliases}
-      end)
-
-    aliases
-  end
-
-  defp imports_file?(ast) do
-    {_ast, imported?} =
-      Macro.prewalk(ast, false, fn
-        {:import, _, [{:__aliases__, _, [:File]} | _]} = node, _imported? -> {node, true}
-        node, imported? -> {node, imported?}
-      end)
-
-    imported?
   end
 end
