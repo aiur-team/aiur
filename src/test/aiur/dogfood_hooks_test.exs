@@ -62,6 +62,20 @@ defmodule Aiur.DogfoodHooksTest do
     assert File.read!(log_path) == "prior agent transcript\n"
   end
 
+  test "before_run reports reconstruction failure and restores logs", context do
+    workspace = Path.join(context.test_root, "failed-reconstruction")
+    log_path = Path.join([workspace, "logs", "agent.md"])
+    File.mkdir_p!(Path.dirname(log_path))
+    File.write!(log_path, "prior agent transcript\n")
+
+    missing_origin = Path.join(context.test_root, "missing-origin.git")
+    {output, status} = run_hook("before_run", workspace, missing_origin)
+
+    refute status == 0, output
+    refute File.dir?(Path.join(workspace, ".git"))
+    assert File.read!(log_path) == "prior agent transcript\n"
+  end
+
   test "before_run refuses to overwrite tracked WIP", context do
     workspace = Path.join(context.test_root, "dirty-workspace")
     File.mkdir_p!(workspace)
