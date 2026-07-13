@@ -10,7 +10,7 @@
 
 **Depends on:** BO-004
 
-**Serializes with:** BO-003, BO-005, BO-016, BO-019, DASH-002, DASH-009, DASH-012, DASH-018, DASH-024, DASH-025 — application supervision tree; DASH-018 also shares Claude process lifecycle adapters
+**Serializes with:** BO-003, BO-005, BO-016, BO-019, DASH-002, DASH-009, DASH-012, DASH-018, DASH-024, DASH-025, DASH-026 — application supervision tree; DASH-018 also shares Claude process lifecycle adapters
 
 **External gates:** `GATE-OCC-PREDECESSOR-BASELINE`; and `GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY`, owned by a human with `aiur-claude` write authority and resolved before dispatch
 

@@ -10,7 +10,7 @@
 
 **Depends on:** DASH-003, DASH-010, DASH-013, DASH-020, DASH-021, DASH-025, DASH-029, DASH-030
 
-**Serializes with:** DASH-005, DASH-007, DASH-015, DASH-022, DASH-027, DASH-028, DASH-032 — shared dashboard composition and responsive CSS
+**Serializes with:** DASH-005, DASH-007, DASH-015, DASH-022, DASH-027, DASH-028, DASH-034 — shared dashboard composition and responsive CSS
 
 **Predecessor baseline:** resolved — `origin/main` at `9849f32963c2a65367bce565b3f5ede3777c218f`
 
@@ -158,6 +158,6 @@ vocabulary through the provider adapters, and DASH-021 protected delivery.
 ## Sibling boundaries and open gates
 
 DASH-015 owns provider-meter cards and DASH-022 owns nonfinancial run status.
-DASH-023 supplies selected membership; this component does not discover or
-mutate Build Orders. Provider authority gates remain owned by DASH-013/019 and
+DASH-023 later integrates selected Build Order membership on top of this
+summary; this ticket ships without any Build Order scope. Provider authority gates remain owned by DASH-013/019 and
 flow transitively through their dependent source paths.

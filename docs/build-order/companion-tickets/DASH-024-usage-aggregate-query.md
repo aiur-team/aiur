@@ -10,7 +10,7 @@
 
 **Depends on:** DASH-009
 
-**Serializes with:** BO-003, BO-005, BO-016, BO-019, DASH-002, DASH-012, DASH-019 — application supervision tree; the raw-ledger and compaction owners are hard-ordered
+**Serializes with:** BO-003, BO-005, BO-016, BO-019, DASH-002, DASH-012, DASH-019, DASH-026 — application supervision tree; the raw-ledger and compaction owners are hard-ordered
 
 **External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
 

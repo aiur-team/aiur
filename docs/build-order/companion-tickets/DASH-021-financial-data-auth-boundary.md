@@ -10,7 +10,7 @@
 
 **Depends on:** DASH-001
 
-**Serializes with:** DASH-003, DASH-005, DASH-007, DASH-022 — shared `DashboardLive`/auth composition
+**Serializes with:** DASH-003, DASH-005, DASH-007, DASH-022, DASH-027, DASH-028, DASH-034 — shared `DashboardLive`/auth composition
 
 **External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
 

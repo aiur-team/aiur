@@ -10,7 +10,7 @@
 
 **Depends on:** DASH-003, DASH-014
 
-**Serializes with:** DASH-005, DASH-007, DASH-015, DASH-021, DASH-023 — shared `DashboardLive`/CSS/summary layout
+**Serializes with:** DASH-005, DASH-007, DASH-015, DASH-021, DASH-023, DASH-027, DASH-028, DASH-034 — shared `DashboardLive`/CSS/summary layout
 
 **External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
 

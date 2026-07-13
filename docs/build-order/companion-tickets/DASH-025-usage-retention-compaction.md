@@ -10,7 +10,7 @@
 
 **Depends on:** DASH-024
 
-**Serializes with:** BO-003, BO-005, BO-016, BO-019, DASH-002, DASH-012, DASH-019 — application supervision tree; the hard-ordered storage chain owns one destructive seam
+**Serializes with:** BO-003, BO-005, BO-016, BO-019, DASH-002, DASH-012, DASH-019, DASH-026 — application supervision tree; the hard-ordered storage chain owns one destructive seam
 
 **External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
 

@@ -10,7 +10,7 @@
 
 **Depends on:** DASH-018
 
-**Serializes with:** BO-003, BO-005, BO-016, BO-019, DASH-002, DASH-009, DASH-019, DASH-024, DASH-025 — application supervision tree
+**Serializes with:** BO-003, BO-005, BO-016, BO-019, DASH-002, DASH-009, DASH-019, DASH-024, DASH-025, DASH-026 — application supervision tree
 
 **External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
 
