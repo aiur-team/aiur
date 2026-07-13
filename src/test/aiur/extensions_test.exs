@@ -1058,6 +1058,20 @@ defmodule Aiur.ExtensionsTest do
   end
 
   test "http server serves embedded assets, accepts form posts, and rejects invalid hosts" do
+    previous_username = System.get_env("AIUR_DASHBOARD_USERNAME")
+    previous_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
+    previous_endpoint_config = Application.get_env(:aiur, AiurWeb.Endpoint)
+    System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
+
+    on_exit(fn ->
+      restore_env("AIUR_DASHBOARD_USERNAME", previous_username)
+      restore_env("AIUR_DASHBOARD_PASSWORD", previous_password)
+      restore_endpoint_config(previous_endpoint_config)
+    end)
+
+    authorization = {"authorization", "Basic " <> Base.encode64("operator:secret")}
+
     spec = HttpServer.child_spec(port: 0)
     assert spec.id == HttpServer
     assert spec.start == {HttpServer, :start_link, [[port: 0]]}
@@ -1090,21 +1104,25 @@ defmodule Aiur.ExtensionsTest do
     port = wait_for_bound_port()
     assert port == HttpServer.bound_port()
 
-    response = Req.get!("http://127.0.0.1:#{port}/api/v1/state")
+    unauthenticated_response = Req.get!("http://127.0.0.1:#{port}/api/v1/state")
+    assert unauthenticated_response.status == 401
+
+    response = Req.get!("http://127.0.0.1:#{port}/api/v1/state", headers: [authorization])
     assert response.status == 200
     assert response.body["counts"] == %{"running" => 1, "retrying" => 1, "idle" => 0}
 
-    dashboard_css = Req.get!("http://127.0.0.1:#{port}/dashboard.css")
+    dashboard_css = Req.get!("http://127.0.0.1:#{port}/dashboard.css", headers: [authorization])
     assert dashboard_css.status == 200
     assert dashboard_css.body =~ ":root {"
 
-    phoenix_js = Req.get!("http://127.0.0.1:#{port}/vendor/phoenix/phoenix.js")
+    phoenix_js = Req.get!("http://127.0.0.1:#{port}/vendor/phoenix/phoenix.js", headers: [authorization])
     assert phoenix_js.status == 200
     assert phoenix_js.body =~ "var Phoenix = (() => {"
 
     refresh_response =
       Req.post!("http://127.0.0.1:#{port}/api/v1/refresh",
         headers: [
+          authorization,
           {"content-type", "application/x-www-form-urlencoded"},
           {"origin", "http://127.0.0.1:#{port}"},
           {"x-aiur-request", "1"}
@@ -1117,11 +1135,18 @@ defmodule Aiur.ExtensionsTest do
 
     method_not_allowed_response =
       Req.post!("http://127.0.0.1:#{port}/api/v1/state",
-        headers: [{"content-type", "application/x-www-form-urlencoded"}],
+        headers: [authorization, {"content-type", "application/x-www-form-urlencoded"}],
         body: ""
       )
 
     assert method_not_allowed_response.status == 405
+
+    System.delete_env("AIUR_DASHBOARD_PASSWORD")
+
+    credential_loss_response =
+      Req.get!("http://127.0.0.1:#{port}/api/v1/state", headers: [authorization])
+
+    assert credential_loss_response.status == 401
     assert method_not_allowed_response.body["error"]["code"] == "method_not_allowed"
 
     assert {:error, _reason} = HttpServer.start_link(host: "bad host", port: 0)
@@ -1155,13 +1180,17 @@ defmodule Aiur.ExtensionsTest do
       |> Keyword.merge(
         server: false,
         secret_key_base: String.duplicate("s", 64),
-        dashboard_writable: true
+        dashboard_writable: true,
+        dashboard_auth_required: false
       )
       |> Keyword.merge(overrides)
 
     Application.put_env(:aiur, AiurWeb.Endpoint, endpoint_config)
     start_supervised!({AiurWeb.Endpoint, []})
   end
+
+  defp restore_endpoint_config(nil), do: Application.delete_env(:aiur, AiurWeb.Endpoint)
+  defp restore_endpoint_config(config), do: Application.put_env(:aiur, AiurWeb.Endpoint, config)
 
   defp static_snapshot(opts \\ []) do
     workspace_path = Keyword.get(opts, :workspace_path)
