@@ -24,7 +24,7 @@ def render_approved_build_order(
     current: dict[str, Any],
     report: Report,
 ) -> dict[str, dict[str, Any]] | None:
-    """Render root and ticket bodies solely from ``git show`` at approval."""
+    """Render approved bodies and enforce the current document freeze."""
     root = repository_root.resolve()
     if not _exact_commit(root, approved, report):
         return None
@@ -62,6 +62,7 @@ def render_approved_build_order(
         report.error("approved build-order ticket IDs must match the materialized pack")
         return None
     expectations: dict[str, dict[str, Any]] = {}
+    documents_frozen = True
     root_source = _git_show(root, approved, root_path, "approved root document", report)
     if root_source is not None:
         body = render_template_body(
@@ -69,6 +70,9 @@ def render_approved_build_order(
             "approved root document",
         )
         if body is not None:
+            documents_frozen &= _current_matches(
+                root, root_path, body, "current root document", report,
+            )
             evidence = inspect_issue_body(
                 body, repository, root_id, plan_version, approved, report,
                 "approved root body",
@@ -86,6 +90,9 @@ def render_approved_build_order(
         source = _git_show(root, approved, source_path, f"approved {ticket_id} document", report)
         if source is None:
             continue
+        documents_frozen &= _current_matches(
+            root, source_path, source, f"current {ticket_id} document", report,
+        )
         body = render_ticket_body(
             source, repository, ticket_id, plan_version, approved, report,
             f"approved {ticket_id} body",
@@ -102,7 +109,7 @@ def render_approved_build_order(
     if set(expectations) != expected_ids:
         report.error("approved body rendering must exactly cover root and tickets")
         return None
-    return expectations
+    return expectations if documents_frozen else None
 
 
 def repository_relative(path: Path, repository_root: Path, report: Report) -> str | None:
@@ -138,10 +145,57 @@ def _safe_path(value: object, label: str, report: Report) -> str | None:
         report.error(f"{label} must be a non-empty repository-relative path")
         return None
     path = PurePosixPath(value)
-    if path.is_absolute() or ".." in path.parts or "." in path.parts:
+    normalized = path.as_posix()
+    if (
+        path.is_absolute()
+        or ".." in path.parts
+        or normalized == "."
+        or normalized != value
+        or "\x00" in value
+    ):
         report.error(f"{label} must be a safe repository-relative path")
         return None
-    return path.as_posix()
+    return normalized
+
+
+def _current_matches(
+    root: Path, path: str, expected: str, label: str, report: Report,
+) -> bool:
+    source = _read_current(root, path, label, report)
+    if source is None:
+        return False
+    if source != expected.encode("utf-8"):
+        report.error(f"{label} must exactly match its approved source")
+        return False
+    return True
+
+
+def _read_current(root: Path, path: str, label: str, report: Report) -> bytes | None:
+    candidate = root
+    for part in PurePosixPath(path).parts:
+        candidate /= part
+        if candidate.is_symlink():
+            report.error(f"{label} must not be a symlink")
+            return None
+    try:
+        resolved = candidate.resolve(strict=True)
+        resolved.relative_to(root)
+    except FileNotFoundError:
+        report.error(f"{label} is absent from the current planning pack at {path}")
+        return None
+    except (OSError, ValueError) as exc:
+        report.error(f"{label} must resolve within the current repository: {exc}")
+        return None
+    if not resolved.is_file():
+        report.error(f"{label} must be a regular file at {path}")
+        return None
+    try:
+        source = resolved.read_bytes()
+        source.decode("utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        report.error(f"{label} must be readable UTF-8: {exc}")
+        return None
+    return source
 
 
 def _exact_commit(root: Path, approved: object, report: Report) -> bool:

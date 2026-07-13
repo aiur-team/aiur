@@ -147,8 +147,12 @@ python3 <loaded-skill-directory>/scripts/validate_build_order.py \
   --root-document docs/build-orders/<slug>/root-issue.md
 ```
 
-Materialized validation fails closed when the approved commit, pack, root
-template, or any ticket document is absent.
+Materialized validation also freezes the current planning documents: every
+ticket document must remain byte-for-byte equal to its approved source, and the
+current root document may differ from its approved full template only through
+deterministic `<APPROVED_SHA>` substitution. Missing, unreadable, unsafe,
+symlinked, or drifted current sources fail closed; remote body expectations
+still come only from `git show` at the approved commit.
 
 Graph validation covers unique IDs, design/decision references, worker-document
 shape, resolved edges, phase contradictions, dispositions, pickability,
@@ -173,14 +177,15 @@ Only when explicitly authorized:
 5. generate each ticket body as the exact authority preamble plus its approved
    ticket document verbatim, and generate the root from its approved full-body
    template by replacing `<APPROVED_SHA>`;
-6. requery and validate the published graph, full labels, and bodies rather
+6. preserve that same post-approval document freeze in the current pack;
+7. requery and validate the published graph, full labels, and bodies rather
    than trusting mutation responses: every body has exactly one schema-2
    logical-ID/version/approval marker, exactly one approved-commit link, and a
    SHA-256 equal to the independently rendered approved body; record the full
    marker-query result set and require exactly one returned issue mapping per
    logical ID;
-7. record the bounded reconciliation receipt defined by the planning contract;
-8. make GitHub canonical for the materialized ticket facts.
+8. record the bounded reconciliation receipt defined by the planning contract;
+9. make GitHub canonical for the materialized ticket facts.
 
 Do not assume issue-number adjacency. Keep prose dependency tables as generated
 human views, not a second source of truth.

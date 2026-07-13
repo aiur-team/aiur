@@ -70,6 +70,8 @@ class ApprovedCommitTests(unittest.TestCase):
         subprocess.run(["git", "-C", str(self.root), "config", "user.name", "Test"], check=True)
         pack = self.root / "pack"
         (pack / "tickets").mkdir(parents=True)
+        self.ticket_document = pack / "tickets/BO-001.md"
+        self.root_document = pack / "root.md"
         self.current = {
             "repository": REPOSITORY,
             "plan_version": 1,
@@ -77,31 +79,97 @@ class ApprovedCommitTests(unittest.TestCase):
             "tickets": [{"id": "BO-001", "document": "tickets/BO-001.md"}],
         }
         (pack / "build-order.json").write_text(json.dumps(self.current), encoding="utf-8")
-        (pack / "tickets/BO-001.md").write_text("# BO-001\n", encoding="utf-8")
-        (pack / "root.md").write_text(
+        self.ticket_document.write_text("# BO-001\n", encoding="utf-8")
+        self.root_template = (
             "# Root\n\n"
             "[`<APPROVED_SHA>`](https://github.com/example/repo/commit/<APPROVED_SHA>)\n\n"
             "<!-- aiur-planning-issue\n"
             '{"schema":2,"logical_id":"example/repo:root","plan_version":1,'
             '"approved_planning_commit":"<APPROVED_SHA>"}\n'
-            "-->\n",
-            encoding="utf-8",
+            "-->\n"
         )
+        self.root_document.write_text(self.root_template, encoding="utf-8")
         subprocess.run(["git", "-C", str(self.root), "add", "pack"], check=True)
         subprocess.run(["git", "-C", str(self.root), "commit", "-qm", "approved"], check=True)
         self.sha = subprocess.run(
             ["git", "-C", str(self.root), "rev-parse", "HEAD"],
             check=True, capture_output=True, text=True,
         ).stdout.strip()
+        self.root_document.write_text(
+            self.root_template.replace("<APPROVED_SHA>", self.sha), encoding="utf-8",
+        )
 
-    def test_loads_every_source_with_git_show(self) -> None:
+    def render(self, root_document: str = "pack/root.md"):
         report = Report()
         expected = render_approved_build_order(
-            self.root, self.sha, "pack/build-order.json", "pack/root.md",
+            self.root, self.sha, "pack/build-order.json", root_document,
             self.current, report,
         )
+        return expected, report
+
+    def test_loads_approved_sources_and_allows_root_substitution(self) -> None:
+        expected, report = self.render()
         self.assertEqual([], report.errors)
         self.assertEqual({ROOT_ID, "BO-001"}, set(expected))
+
+    def test_rejects_current_ticket_document_drift(self) -> None:
+        self.ticket_document.write_text("# BO-001 drifted\n", encoding="utf-8")
+        expected, report = self.render()
+        self.assertIsNone(expected)
+        self.assertIn(
+            "current BO-001 document must exactly match its approved source",
+            "\n".join(report.errors),
+        )
+
+    def test_rejects_current_root_document_drift(self) -> None:
+        self.root_document.write_text("# Root drifted\n", encoding="utf-8")
+        expected, report = self.render()
+        self.assertIsNone(expected)
+        self.assertIn(
+            "current root document must exactly match its approved source",
+            "\n".join(report.errors),
+        )
+
+    def test_missing_current_documents_fail_closed(self) -> None:
+        for path, label in (
+            (self.ticket_document, "current BO-001 document is absent"),
+            (self.root_document, "current root document is absent"),
+        ):
+            with self.subTest(path=path):
+                source = path.read_bytes()
+                path.unlink()
+                try:
+                    expected, report = self.render()
+                    self.assertIsNone(expected)
+                    self.assertIn(label, "\n".join(report.errors))
+                finally:
+                    path.write_bytes(source)
+
+    def test_rejects_unsafe_and_symlinked_current_paths(self) -> None:
+        for path in ("../root.md", "./pack/root.md", "pack/../root.md", "/tmp/root.md", "."):
+            with self.subTest(path=path):
+                expected, report = self.render(path)
+                self.assertIsNone(expected)
+                self.assertIn(
+                    "must be a safe repository-relative path", "\n".join(report.errors),
+                )
+
+        source = self.ticket_document.read_bytes()
+        self.ticket_document.unlink()
+        self.ticket_document.symlink_to(self.root_document)
+        try:
+            expected, report = self.render()
+            self.assertIsNone(expected)
+            self.assertIn("current BO-001 document must not be a symlink", "\n".join(report.errors))
+        finally:
+            self.ticket_document.unlink()
+            self.ticket_document.write_bytes(source)
+
+    def test_rejects_unreadable_current_document(self) -> None:
+        self.ticket_document.write_bytes(b"\xff")
+        expected, report = self.render()
+        self.assertIsNone(expected)
+        self.assertIn("current BO-001 document must be readable UTF-8", "\n".join(report.errors))
 
     def test_missing_approved_pack_and_document_fail_closed(self) -> None:
         report = Report()

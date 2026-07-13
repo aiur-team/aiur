@@ -100,6 +100,13 @@ entire observed evidence record with those independently rendered
 expectations. Missing approved commits, packs, paths, expectations, duplicate
 marker-query matches, or any marker/link/hash drift fail closed.
 
+Approval also freezes the current document sources used during materialization.
+Every current ticket document must remain byte-for-byte equal to its approved
+source. The current root document must equal the approved full template after
+the single deterministic `<APPROVED_SHA>` substitution. Missing, unreadable,
+out-of-repository, symlinked, or drifted current sources fail before receipt
+evidence can authorize publication; `git show` remains the rendering authority.
+
 `label_projection.required_ticket_labels` defines static routing labels;
 `forbidden_labels` defines labels that must be absent. The validator compares
 deterministic projected labels with full observed labels, rejects drift in the
@@ -210,7 +217,8 @@ The graph validator fails when:
 10. Materialized mappings are partial or their reconciliation receipt drifts
     from membership, dependencies, projected/observed labels, exact
     logical-marker query matches, or independently rendered approved body
-    evidence.
+    evidence, or current ticket/root documents violate the post-approval
+    document freeze.
 
 The command validates the canonical graph and referenced ticket/design files;
 it is not a whole-pack verifier. The committed validation report must separately

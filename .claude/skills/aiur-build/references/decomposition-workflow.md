@@ -190,6 +190,10 @@ This stage requires explicit permission.
 - Render every expected body from files loaded with
   `git show <approved-commit>:<path>`; fail closed if the approved pack, root
   template, or a ticket document is absent.
+- Freeze the current sources after approval: ticket documents remain
+  byte-for-byte equal to their approved versions, and the root document permits
+  only deterministic `<APPROVED_SHA>` substitution. Reject missing, unreadable,
+  out-of-repository, symlinked, or drifted sources.
 - Requery every relationship and logical-marker search. Require exactly one
   issue match per logical ID and compare each parsed marker/link/hash record to
   the independently rendered expected body; fail on missing, wrong, duplicate,
