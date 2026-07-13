@@ -14,6 +14,7 @@ from publication_paths import resolved_document
 
 DASH_ID = re.compile(r"^DASH-[0-9]{3,}$", re.ASCII)
 BO_ID = re.compile(r"^BO-[0-9]{3,}[A-Z]?$", re.ASCII)
+TICKET_ID = re.compile(r"^[A-Z][A-Z0-9]*-[0-9]{3,}[A-Z]?$", re.ASCII)
 REQ_ID = re.compile(r"^DREQ-[0-9]{3,}$", re.ASCII)
 REPOSITORY = re.compile(r"^[^/\s]+/[^/\s]+$", re.ASCII)
 EXTERNAL_BLOCKER = re.compile(r"^[^/#\s]+/[^/#\s]+#[1-9][0-9]*$", re.ASCII)
@@ -187,13 +188,17 @@ def validate_document(ticket: dict[str, Any], base: Path, report: Report) -> Non
     complexity = ticket.get("complexity_points")
     if not re.search(rf"(?m)^\*\*Complexity:\*\*\s+{complexity}(?:\s|$)", text):
         report.error(f"{ticket_id}.document complexity must match JSON")
-    requirement = re.escape(str(ticket.get("requirement_ref")))
-    if not re.search(rf"(?m)^\*\*Requirements:\*\*.*\b{requirement}\b", text):
-        report.error(f"{ticket_id}.document requirement must match JSON")
-    if not re.search(r"(?m)^\*\*Build Order membership:\*\*\s+none\b", text):
-        report.error(f"{ticket_id}.document must declare no Build Order membership")
+    for requirement in safe_string_list(ticket.get("requirement_refs")):
+        if not re.search(
+            rf"(?m)^\*\*Requirements:\*\*.*\b{re.escape(requirement)}\b", text
+        ):
+            report.error(f"{ticket_id}.document requirement must match JSON")
+    if re.search(r"(?m)^\*\*Build Order membership:\*\*\s+none\b", text):
+        report.error(
+            f"{ticket_id}.document must not declare standalone Build Order membership"
+        )
     _document_dependencies(ticket, text, report)
-    for gate_id in safe_string_list(ticket.get("external_gate_ids")):
+    for gate_id in safe_string_list(ticket.get("external_gates")):
         if gate_id not in text:
             report.error(f"{ticket_id}.document missing external gate {gate_id}")
 
@@ -209,6 +214,5 @@ def _document_dependencies(
     raw = match.group(1).strip()
     observed = set() if raw == "none" else {item.strip() for item in raw.split(",")}
     expected = set(safe_string_list(ticket.get("depends_on")))
-    expected |= set(safe_string_list(ticket.get("external_blockers")))
     if observed != expected:
         report.error(f"{ticket_id}.document dependencies must match JSON")

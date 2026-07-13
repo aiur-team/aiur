@@ -35,12 +35,12 @@ RECEIPT = "b" * 40
 
 class LiveGraphVerifierTests(unittest.TestCase):
     def setUp(self) -> None:
-        companions, build, publication = materialized_pack()
+        build, publication = materialized_pack()
         self.authority = ReceiptAuthority(
             repository="example/repo",
             root_id="example/repo:build-order-dashboard",
             plan_version=1,
-            approved_commit=companions["approved_planning_commit"],
+            approved_commit=publication["approved_planning_commit"],
             root_issue_url=build["github_root"]["url"],
             root_comment_url=publication["github_reconciliation"][
                 "root_reconciliation_comment_matches"
@@ -48,7 +48,6 @@ class LiveGraphVerifierTests(unittest.TestCase):
             trusted_repository_ref="refs/heads/build-order-research",
             receipt_manifests={
                 "build-order.json": build,
-                "dashboard-companions.json": companions,
                 "publication.json": publication,
             },
         )
@@ -134,7 +133,7 @@ class LiveGraphVerifierTests(unittest.TestCase):
         root_id = self.authority.root_id
         for members in (
             self.snapshot["issues"][root_id]["subissues"][:-1],
-            (*self.snapshot["issues"][root_id]["subissues"], "DASH-001"),
+            (*self.snapshot["issues"][root_id]["subissues"], "SKILL-DELIVERY-001"),
         ):
             with self.subTest(members=len(members)):
                 snapshot = copy.deepcopy(self.snapshot)

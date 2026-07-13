@@ -104,13 +104,12 @@ class IssueRenderingTests(unittest.TestCase):
         fixture = Fixture(*materialized_pack())
         self.addCleanup(fixture.close)
         build = json.loads(fixture.build_path.read_text(encoding="utf-8"))
-        companions = json.loads(fixture.companion_path.read_text(encoding="utf-8"))
         publication = json.loads(fixture.publication_path.read_text(encoding="utf-8"))
         report = Report()
         expected = render_approved_pack(
-            build, companions, publication, fixture.build_path,
-            fixture.companion_path, fixture.base / "missing-publication.json",
-            companions["approved_planning_commit"], report,
+            build, publication, fixture.build_path,
+            fixture.base / "missing-publication.json",
+            publication["approved_planning_commit"], report,
         )
         self.assertIsNone(expected)
         self.assertIn("absent from approved commit", "\n".join(report.errors))
@@ -119,17 +118,14 @@ class IssueRenderingTests(unittest.TestCase):
         fixture = Fixture(*materialized_pack())
         self.addCleanup(fixture.close)
         build = json.loads(fixture.build_path.read_text(encoding="utf-8"))
-        companions = json.loads(
-            fixture.companion_path.read_text(encoding="utf-8")
-        )
         publication = json.loads(
             fixture.publication_path.read_text(encoding="utf-8")
         )
         report = Report()
         titles = render_approved_titles(
-            build, companions, publication, fixture.build_path,
-            fixture.companion_path, fixture.publication_path,
-            companions["approved_planning_commit"], report,
+            build, publication, fixture.build_path,
+            fixture.publication_path,
+            publication["approved_planning_commit"], report,
         )
         self.assertEqual([], report.errors)
         assert titles is not None
@@ -143,14 +139,13 @@ class IssueRenderingTests(unittest.TestCase):
         fixture = Fixture(*materialized_pack())
         self.addCleanup(fixture.close)
         build = json.loads(fixture.build_path.read_text(encoding="utf-8"))
-        companions = json.loads(fixture.companion_path.read_text(encoding="utf-8"))
         publication = json.loads(fixture.publication_path.read_text(encoding="utf-8"))
         build["tickets"][0]["depends_on"] = ["BO-999"]
         report = Report()
         expected = render_approved_pack(
-            build, companions, publication, fixture.build_path,
-            fixture.companion_path, fixture.publication_path,
-            companions["approved_planning_commit"], report,
+            build, publication, fixture.build_path,
+            fixture.publication_path,
+            publication["approved_planning_commit"], report,
         )
         self.assertIsNone(expected)
         self.assertIn(
@@ -168,9 +163,7 @@ class IssueRenderingTests(unittest.TestCase):
         fixture.publication_path.write_text(
             json.dumps(publication), encoding="utf-8"
         )
-        report = validate(
-            fixture.companion_path, fixture.build_path, fixture.publication_path
-        )
+        report = validate(fixture.build_path, fixture.publication_path)
         self.assertIn(
             "materialized publication planning fields must equal the approved commit",
             report.errors,
@@ -186,10 +179,7 @@ class IssueRenderingTests(unittest.TestCase):
                 self.addCleanup(fixture.close)
                 path = fixture.base / relative
                 path.write_bytes(path.read_bytes() + b"\npost-approval scope drift\n")
-                report = validate(
-                    fixture.companion_path, fixture.build_path,
-                    fixture.publication_path,
-                )
+                report = validate(fixture.build_path, fixture.publication_path)
                 self.assertIn(
                     f"current {logical_id} document must equal the approved source byte-for-byte",
                     report.errors,
@@ -205,10 +195,7 @@ class IssueRenderingTests(unittest.TestCase):
                 self.addCleanup(fixture.close)
                 path = fixture.base / relative
                 path.write_bytes(path.read_bytes() + b"\npost-approval scope drift\n")
-                report = validate(
-                    fixture.companion_path, fixture.build_path,
-                    fixture.publication_path,
-                )
+                report = validate(fixture.build_path, fixture.publication_path)
                 self.assertTrue(any(
                     "must equal the approved template after approval substitution" in error
                     for error in report.errors
@@ -217,19 +204,17 @@ class IssueRenderingTests(unittest.TestCase):
     def test_current_templates_require_approval_substitution(self) -> None:
         fixture = Fixture(*materialized_pack())
         self.addCleanup(fixture.close)
-        companions = json.loads(
-            fixture.companion_path.read_text(encoding="utf-8")
+        publication = json.loads(
+            fixture.publication_path.read_text(encoding="utf-8")
         )
-        approved = companions["approved_planning_commit"]
+        approved = publication["approved_planning_commit"]
         for relative in ("root-issue.md", "skill-delivery.md"):
             path = fixture.base / relative
             path.write_text(
                 path.read_text(encoding="utf-8").replace("<APPROVED_SHA>", approved),
                 encoding="utf-8",
             )
-        report = validate(
-            fixture.companion_path, fixture.build_path, fixture.publication_path
-        )
+        report = validate(fixture.build_path, fixture.publication_path)
         self.assertEqual([], report.errors)
         self.assertEqual([], report.warnings)
 
@@ -238,9 +223,7 @@ class IssueRenderingTests(unittest.TestCase):
             root.read_text(encoding="utf-8").replace(approved, "<APPROVED_SHA>"),
             encoding="utf-8",
         )
-        report = validate(
-            fixture.companion_path, fixture.build_path, fixture.publication_path
-        )
+        report = validate(fixture.build_path, fixture.publication_path)
         self.assertTrue(any(
             "must equal the approved template after approval substitution" in error
             for error in report.errors
@@ -254,9 +237,7 @@ class IssueRenderingTests(unittest.TestCase):
         target.write_bytes(document.read_bytes())
         document.unlink()
         document.symlink_to(target.name)
-        report = validate(
-            fixture.companion_path, fixture.build_path, fixture.publication_path
-        )
+        report = validate(fixture.build_path, fixture.publication_path)
         self.assertTrue(any(
             "current DASH-001 document must be a regular non-symlink file" in error
             for error in report.errors
@@ -419,25 +400,22 @@ class FinalCommentTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        data, build, manifest = materialized_pack()
+        build, manifest = materialized_pack()
         cls.fixture = Fixture(
-            data, build, manifest, pack_prefix="docs/build-order"
+            build, manifest, pack_prefix="docs/build-order"
         )
         cls.receipt = cls.fixture.commit_materialized()
         materialized_build = json.loads(
             cls.fixture.build_path.read_text(encoding="utf-8")
         )
-        materialized_companions = json.loads(
-            cls.fixture.companion_path.read_text(encoding="utf-8")
-        )
-        cls.repository = materialized_companions["repository"]
-        cls.root_id = materialized_build["build_order_id"]
-        cls.plan_version = materialized_companions["plan_version"]
-        cls.approved = materialized_companions["approved_planning_commit"]
-        cls.root_url = materialized_build["github_root"]["url"]
         materialized_publication = json.loads(
             cls.fixture.publication_path.read_text(encoding="utf-8")
         )
+        cls.repository = materialized_build["repository"]
+        cls.root_id = materialized_build["build_order_id"]
+        cls.plan_version = materialized_build["plan_version"]
+        cls.approved = materialized_publication["approved_planning_commit"]
+        cls.root_url = materialized_build["github_root"]["url"]
         cls.root_comment_url = materialized_publication["github_reconciliation"][
             "root_reconciliation_comment_matches"
         ][0]["url"]
@@ -629,31 +607,31 @@ class FinalCommentTests(unittest.TestCase):
         ))
 
     def test_receipt_with_nonexistent_approval_is_rejected(self) -> None:
-        data, build, manifest = materialized_pack()
+        build, manifest = materialized_pack()
         fixture = Fixture(
-            data, build, manifest, pack_prefix="docs/build-order"
+            build, manifest, pack_prefix="docs/build-order"
         )
         self.addCleanup(fixture.close)
         missing = "0" * 40
-        for path in (fixture.companion_path, fixture.publication_path):
-            value = json.loads(path.read_text(encoding="utf-8"))
-            value["approved_planning_commit"] = missing
-            path.write_text(json.dumps(value), encoding="utf-8")
+        path = fixture.publication_path
+        value = json.loads(path.read_text(encoding="utf-8"))
+        value["approved_planning_commit"] = missing
+        path.write_text(json.dumps(value), encoding="utf-8")
         receipt = fixture.commit_materialized()
         materialized_build = json.loads(
             fixture.build_path.read_text(encoding="utf-8")
         )
-        repository = data["repository"]
+        repository = build["repository"]
         root_url = materialized_build["github_root"]["url"]
         receipt_url = f"https://github.com/{repository}/commit/{receipt}"
         body = render_successful_comment(
-            materialized_build["build_order_id"], data["plan_version"], missing,
+            materialized_build["build_order_id"], build["plan_version"], missing,
             repository, receipt, receipt_url,
         )
         report = Report()
         with patch("publication_comment.verify_live_graph", return_value=True):
             validate_final_comment_matches(
-                materialized_build["build_order_id"], data["plan_version"], missing,
+                materialized_build["build_order_id"], build["plan_version"], missing,
                 receipt, receipt_url, root_url, repository, report,
                 repository_anchor=fixture.build_path,
                 remote_ref_contains=self.remote_ref_contains,
@@ -664,13 +642,13 @@ class FinalCommentTests(unittest.TestCase):
         ))
 
     def test_foreign_materialized_receipt_cannot_override_origin(self) -> None:
-        data, build, manifest = materialized_pack()
-        data, build, manifest = (
+        build, manifest = materialized_pack()
+        build, manifest = (
             replace_repository(item, "example/repo", "attacker/fork")
-            for item in (data, build, manifest)
+            for item in (build, manifest)
         )
         fixture = Fixture(
-            data, build, manifest, pack_prefix="docs/build-order"
+            build, manifest, pack_prefix="docs/build-order"
         )
         self.addCleanup(fixture.close)
         receipt = fixture.commit_materialized()
@@ -684,13 +662,13 @@ class FinalCommentTests(unittest.TestCase):
         materialized_build = json.loads(
             fixture.build_path.read_text(encoding="utf-8")
         )
-        materialized_companions = json.loads(
-            fixture.companion_path.read_text(encoding="utf-8")
+        materialized_publication = json.loads(
+            fixture.publication_path.read_text(encoding="utf-8")
         )
-        repository = materialized_companions["repository"]
+        repository = materialized_build["repository"]
         root_id = materialized_build["build_order_id"]
-        plan_version = materialized_companions["plan_version"]
-        approved = materialized_companions["approved_planning_commit"]
+        plan_version = materialized_build["plan_version"]
+        approved = materialized_publication["approved_planning_commit"]
         root_url = materialized_build["github_root"]["url"]
         receipt_url = f"https://github.com/{repository}/commit/{receipt}"
         body = render_successful_comment(
@@ -768,9 +746,9 @@ class FinalCommentTests(unittest.TestCase):
         )
 
     def test_replace_ref_cannot_promote_unmaterialized_commit(self) -> None:
-        data, build, manifest = materialized_pack()
+        build, manifest = materialized_pack()
         fixture = Fixture(
-            data, build, manifest, pack_prefix="docs/build-order"
+            build, manifest, pack_prefix="docs/build-order"
         )
         self.addCleanup(fixture.close)
         receipt = fixture.commit_materialized()
@@ -786,12 +764,9 @@ class FinalCommentTests(unittest.TestCase):
         materialized_build = json.loads(
             fixture.build_path.read_text(encoding="utf-8")
         )
-        materialized_companions = json.loads(
-            fixture.companion_path.read_text(encoding="utf-8")
-        )
-        repository = materialized_companions["repository"]
+        repository = materialized_build["repository"]
         root_id = materialized_build["build_order_id"]
-        plan_version = materialized_companions["plan_version"]
+        plan_version = materialized_build["plan_version"]
         root_url = materialized_build["github_root"]["url"]
         receipt_url = (
             f"https://github.com/{repository}/commit/{unmaterialized}"
@@ -825,18 +800,16 @@ class FinalCommentTests(unittest.TestCase):
             [{"url": self.root_url + "#issuecomment-123", "body": body}],
             receipt=receipt, receipt_url=receipt_url,
         )
-        for name in (
-            "build-order.json", "dashboard-companions.json", "publication.json",
-        ):
+        for name in ("build-order.json", "publication.json"):
             self.assertIn(
                 f"receipt commit {name} github_reconciliation must be materialized",
                 report.errors,
             )
 
     def test_legacy_graft_cannot_promote_an_orphan_receipt(self) -> None:
-        data, build, manifest = materialized_pack()
+        build, manifest = materialized_pack()
         fixture = Fixture(
-            data, build, manifest, pack_prefix="docs/build-order"
+            build, manifest, pack_prefix="docs/build-order"
         )
         self.addCleanup(fixture.close)
         receipt = fixture.commit_materialized()
@@ -865,9 +838,9 @@ class FinalCommentTests(unittest.TestCase):
         ))
 
     def test_graft_introduced_during_remote_proof_is_rejected(self) -> None:
-        data, build, manifest = materialized_pack()
+        build, manifest = materialized_pack()
         fixture = Fixture(
-            data, build, manifest, pack_prefix="docs/build-order"
+            build, manifest, pack_prefix="docs/build-order"
         )
         self.addCleanup(fixture.close)
         receipt = fixture.commit_materialized()

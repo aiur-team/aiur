@@ -10,7 +10,7 @@ SCRIPT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from publication_fixtures import Fixture, companions, github, publication  # noqa: E402
+from publication_fixtures import Fixture, build_order, github, publication  # noqa: E402
 from publication_materialized_fixture import (  # noqa: E402
     ROOT_ID,
     SKILL_ID,
@@ -21,34 +21,32 @@ from validate_publication import validate  # noqa: E402
 
 class PublicationEvidenceTests(unittest.TestCase):
     def report(self, mutate=None):
-        data, build, manifest = materialized_pack()
+        build, manifest = materialized_pack()
         if mutate is not None:
-            mutate(data, build, manifest)
-        fixture = Fixture(data, build, manifest)
+            mutate(build, manifest)
+        fixture = Fixture(build, manifest)
         self.addCleanup(fixture.close)
-        return validate(
-            fixture.companion_path, fixture.build_path, fixture.publication_path
-        )
+        return validate(fixture.build_path, fixture.publication_path)
 
-    def test_companion_required_labels_are_exact(self) -> None:
-        data = companions()
-        data["required_labels"].append("area:dashboard")
-        fixture = Fixture(data)
+    def test_required_ticket_labels_are_exact(self) -> None:
+        build = build_order()
+        build["label_projection"]["required_ticket_labels"].append("area:dashboard")
+        fixture = Fixture(build)
         self.addCleanup(fixture.close)
-        joined = "\n".join(validate(fixture.companion_path, fixture.build_path).errors)
-        self.assertIn("required_labels must equal model:codex", joined)
+        joined = "\n".join(validate(fixture.build_path).errors)
+        self.assertIn("required_ticket_labels must equal model:codex", joined)
 
-    def test_companion_observation_rejects_new_routing_labels(self) -> None:
-        def mutate(data, _build, _manifest):
-            data["github_reconciliation"]["observed_labels"]["DASH-001"] += [
-                "agent:brand-new", "human:todo", "phase:4",
+    def test_core_observation_rejects_new_routing_labels(self) -> None:
+        def mutate(build, _manifest):
+            build["github_reconciliation"]["observed_labels"]["DASH-001"] += [
+                "agent:brand-new", "human:todo",
             ]
 
         joined = "\n".join(self.report(mutate).errors)
-        self.assertIn("agent:brand-new, human:todo, phase:4", joined)
+        self.assertIn("agent:brand-new, human:todo", joined)
 
     def test_body_evidence_partitions_are_exact(self) -> None:
-        def mutate(_data, _build, manifest):
+        def mutate(_build, manifest):
             evidence = manifest["github_reconciliation"]["observed_body_evidence"]
             evidence["example/repo:build-order-dashboard"] = next(iter(evidence.values()))
 
@@ -56,7 +54,7 @@ class PublicationEvidenceTests(unittest.TestCase):
         self.assertIn("publication receipt.observed_body_evidence keys must match its owned issues", joined)
 
     def test_title_evidence_partitions_are_exact(self) -> None:
-        def mutate(_data, _build, manifest):
+        def mutate(_build, manifest):
             titles = manifest["github_reconciliation"]["observed_issue_titles"]
             titles[ROOT_ID] = "Wrong partition"
 
@@ -79,8 +77,8 @@ class PublicationEvidenceTests(unittest.TestCase):
         )
         for field, expected in mutations:
             with self.subTest(field=field):
-                def mutate(data, _build, _manifest, field=field):
-                    data["github_reconciliation"][field]["DASH-001"] = (
+                def mutate(build, _manifest, field=field):
+                    build["github_reconciliation"][field]["DASH-001"] = (
                         "First companion"
                     )
 
@@ -99,26 +97,24 @@ class PublicationEvidenceTests(unittest.TestCase):
         }
         for key, (value, expected) in mutations.items():
             with self.subTest(key=key):
-                def mutate(data, _build, _manifest, key=key, value=value):
-                    evidence = data["github_reconciliation"]["observed_body_evidence"]
+                def mutate(build, _manifest, key=key, value=value):
+                    evidence = build["github_reconciliation"]["observed_body_evidence"]
                     evidence["DASH-001"][key] = value
 
                 self.assertIn(expected, "\n".join(self.report(mutate).errors))
 
     def test_all_body_hashes_must_be_unique(self) -> None:
-        def mutate(data, build, _manifest):
-            core = build["github_reconciliation"]["observed_body_evidence"]["BO-001"]
-            core["body_sha256"] = "0" * 64
-            data["github_reconciliation"]["observed_body_evidence"]["DASH-001"][
-                "body_sha256"
-            ] = "0" * 64
+        def mutate(build, _manifest):
+            evidence = build["github_reconciliation"]["observed_body_evidence"]
+            evidence["BO-001"]["body_sha256"] = "0" * 64
+            evidence["DASH-001"]["body_sha256"] = "0" * 64
 
         joined = "\n".join(self.report(mutate).errors)
         self.assertIn("observed body SHA-256 for DASH-001 duplicates BO-001", joined)
 
     def test_arbitrary_and_truncated_body_hashes_fail(self) -> None:
-        def arbitrary(data, _build, _manifest):
-            data["github_reconciliation"]["observed_body_evidence"]["DASH-001"][
+        def arbitrary(build, _manifest):
+            build["github_reconciliation"]["observed_body_evidence"]["DASH-001"][
                 "body_sha256"
             ] = "0" * 64
 
@@ -127,8 +123,8 @@ class PublicationEvidenceTests(unittest.TestCase):
             "\n".join(self.report(arbitrary).errors),
         )
 
-        def truncated(data, _build, _manifest):
-            data["github_reconciliation"]["observed_body_evidence"]["DASH-001"][
+        def truncated(build, _manifest):
+            build["github_reconciliation"]["observed_body_evidence"]["DASH-001"][
                 "body_sha256"
             ] = "0" * 63
 
@@ -138,7 +134,7 @@ class PublicationEvidenceTests(unittest.TestCase):
         )
 
     def test_materialization_body_coverage_is_derived_from_manifests(self) -> None:
-        def mutate(_data, build, _manifest):
+        def mutate(build, _manifest):
             removed = build["tickets"].pop()["id"]
             receipt = build["github_reconciliation"]
             receipt["member_ticket_ids"].remove(removed)
@@ -155,13 +151,13 @@ class PublicationEvidenceTests(unittest.TestCase):
 
     def test_all_receipt_state_partitions_are_exactly_open(self) -> None:
         mutations = (
-            ("core", lambda _data, build, _manifest: build[
+            ("core", lambda build, _manifest: build[
                 "github_reconciliation"
             ]["observed_issue_states"].__setitem__("BO-001", "CLOSED")),
-            ("dash", lambda data, _build, _manifest: data[
+            ("member", lambda build, _manifest: build[
                 "github_reconciliation"
             ]["observed_issue_states"].pop("DASH-001")),
-            ("skill", lambda _data, _build, manifest: manifest[
+            ("skill", lambda _build, manifest: manifest[
                 "github_reconciliation"
             ]["observed_issue_states"].__setitem__(SKILL_ID, "closed")),
         )
@@ -172,16 +168,8 @@ class PublicationEvidenceTests(unittest.TestCase):
                     "must equal OPEN" in joined or "keys must match its owned issues" in joined
                 )
 
-    def test_companion_and_auxiliary_receipt_versions_are_bumped(self) -> None:
-        def companion(data, _build, _manifest):
-            data["github_reconciliation"]["receipt_schema_version"] = 1
-
-        self.assertIn(
-            "receipt_schema_version must be integer 2",
-            "\n".join(self.report(companion).errors),
-        )
-
-        def auxiliary(_data, _build, manifest):
+    def test_auxiliary_receipt_version_is_bumped(self) -> None:
+        def auxiliary(_build, manifest):
             manifest["github_reconciliation"]["receipt_schema_version"] = 1
 
         self.assertIn(
@@ -198,31 +186,31 @@ class PublicationEvidenceTests(unittest.TestCase):
         }
         for key, (value, expected) in mutations.items():
             with self.subTest(key=key):
-                def mutate(_data, _build, manifest, key=key, value=value):
+                def mutate(_build, manifest, key=key, value=value):
                     comment = manifest["github_reconciliation"]["root_reconciliation_comment_matches"][0]
                     comment[key] = value
 
                 self.assertIn(expected, "\n".join(self.report(mutate).errors))
 
     def test_issue_marker_queries_require_one_exact_mapping(self) -> None:
-        def duplicate(data, _build, _manifest):
-            matches = data["github_reconciliation"]["marker_query_matches"]["DASH-001"]
+        def duplicate(build, _manifest):
+            matches = build["github_reconciliation"]["marker_query_matches"]["DASH-001"]
             matches.append(dict(matches[0]))
 
         self.assertIn(
             "must contain exactly one issue match", "\n".join(self.report(duplicate).errors)
         )
 
-        def wrong(data, _build, _manifest):
-            matches = data["github_reconciliation"]["marker_query_matches"]["DASH-001"]
-            matches[0] = dict(data["tickets"][1]["github"])
+        def wrong(build, _manifest):
+            matches = build["github_reconciliation"]["marker_query_matches"]["DASH-001"]
+            matches[0] = dict(build["tickets"][0]["github"])
 
         self.assertIn(
             "must equal the returned GitHub mapping", "\n".join(self.report(wrong).errors)
         )
 
     def test_comment_marker_query_requires_one_match(self) -> None:
-        def mutate(_data, _build, manifest):
+        def mutate(_build, manifest):
             matches = manifest["github_reconciliation"]["root_reconciliation_comment_matches"]
             matches.append(dict(matches[0]))
 
@@ -235,13 +223,13 @@ class PublicationEvidenceTests(unittest.TestCase):
         manifest["read_only_issue_refs"].append("example/repo#999")
         fixture = Fixture(publication_data=manifest)
         self.addCleanup(fixture.close)
-        joined = "\n".join(validate(fixture.companion_path, fixture.build_path).errors)
+        joined = "\n".join(validate(fixture.build_path, fixture.publication_path).errors)
         self.assertIn("#132, #845, #1033, #1034, and #1067", joined)
 
     def test_read_only_issue_cannot_be_reused_by_any_publication_class(self) -> None:
         for issue_class in ("root", "bo", "dash", "skill"):
             with self.subTest(issue_class=issue_class):
-                data, build, manifest = materialized_pack()
+                build, manifest = materialized_pack()
                 mapping = github(132, f"PROTECTED_{issue_class.upper()}_NODE")
                 logical_id = ""
                 if issue_class == "root":
@@ -257,16 +245,11 @@ class PublicationEvidenceTests(unittest.TestCase):
                     manifest["github_reconciliation"][
                         "root_reconciliation_comment_matches"
                     ][0]["url"] = mapping["url"] + "#issuecomment-987"
-                elif issue_class == "bo":
-                    logical_id = "BO-001"
-                    build["tickets"][0]["github"] = dict(mapping)
+                elif issue_class in {"bo", "dash"}:
+                    tickets = {item["id"]: item for item in build["tickets"]}
+                    logical_id = "BO-001" if issue_class == "bo" else "DASH-001"
+                    tickets[logical_id]["github"] = dict(mapping)
                     build["github_reconciliation"]["marker_query_matches"][logical_id] = [
-                        dict(mapping)
-                    ]
-                elif issue_class == "dash":
-                    logical_id = "DASH-001"
-                    data["tickets"][0]["github"] = dict(mapping)
-                    data["github_reconciliation"]["marker_query_matches"][logical_id] = [
                         dict(mapping)
                     ]
                 else:
@@ -277,11 +260,10 @@ class PublicationEvidenceTests(unittest.TestCase):
                     manifest["github_reconciliation"]["marker_query_matches"][SKILL_ID] = [
                         dict(mapping)
                     ]
-                fixture = Fixture(data, build, manifest)
+                fixture = Fixture(build, manifest)
                 self.addCleanup(fixture.close)
                 joined = "\n".join(validate(
-                    fixture.companion_path, fixture.build_path,
-                    fixture.publication_path,
+                    fixture.build_path, fixture.publication_path,
                 ).errors)
                 self.assertIn(
                     f"publication mapping {logical_id} reuses protected read-only issue "
@@ -290,12 +272,11 @@ class PublicationEvidenceTests(unittest.TestCase):
                 )
 
     def test_staged_approval_must_resolve_before_materialization(self) -> None:
-        data, manifest = companions(), publication()
-        data["approved_planning_commit"] = "0" * 40
+        manifest = publication()
         manifest["approved_planning_commit"] = "0" * 40
-        fixture = Fixture(data, publication_data=manifest)
+        fixture = Fixture(publication_data=manifest)
         self.addCleanup(fixture.close)
-        joined = "\n".join(validate(fixture.companion_path, fixture.build_path).errors)
+        joined = "\n".join(validate(fixture.build_path, fixture.publication_path).errors)
         self.assertIn("must resolve to an exact commit in this repository", joined)
 
     def test_document_symlinks_cannot_escape_pack(self) -> None:
@@ -311,7 +292,7 @@ class PublicationEvidenceTests(unittest.TestCase):
         root_path = fixture.base / "root-issue.md"
         root_path.unlink()
         root_path.symlink_to(target)
-        joined = "\n".join(validate(fixture.companion_path, fixture.build_path).errors)
+        joined = "\n".join(validate(fixture.build_path, fixture.publication_path).errors)
         self.assertIn("DASH-001.document does not resolve within", joined)
         self.assertIn("root_issue.document does not resolve within", joined)
 

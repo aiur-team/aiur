@@ -16,6 +16,7 @@ from publication_common import (
     valid_trusted_branch_ref,
 )
 from publication_auxiliary_receipt import parse_edges, validate_auxiliary_receipt
+from publication_core_receipt import validate_commit_reference
 from publication_paths import resolved_document
 
 
@@ -36,16 +37,13 @@ ROOT_FORBIDDEN_PREFIXES = FORBIDDEN_PREFIXES | {"human:"}
 
 def validate_auxiliary(
     data: dict[str, Any], base: Path, build_data: dict[str, Any],
-    core_mappings: dict[str, Any], repository: str, companion_plan_version: object,
-    companion_approved: object, companion_materialized: bool, report: Report,
+    core_mappings: dict[str, Any], repository: str,
+    pack_materialized: bool, report: Report,
 ) -> None:
     manifest = strict_object(data, "publication", TOP_KEYS, report)
     if manifest is None:
         return
-    _header(
-        manifest, repository, build_data.get("plan_version"),
-        companion_plan_version, companion_approved, report,
-    )
+    _header(manifest, base, repository, build_data.get("plan_version"), report)
     root_id = build_data.get("build_order_id")
     if not nonempty_string(root_id):
         report.error("build-order.build_order_id must be a non-empty string")
@@ -80,22 +78,22 @@ def validate_auxiliary(
     validate_auxiliary_receipt(
         manifest, root.get("logical_id") if root else None, skill_id,
         edges, core_mappings, repository,
-        companion_approved, companion_materialized, read_only, report,
+        pack_materialized, read_only, report,
     )
 
 
 def _header(
-    data: dict[str, Any], repository: str, build_plan_version: object,
-    companion_plan_version: object, companion_approved: object, report: Report,
+    data: dict[str, Any], base: Path, repository: str,
+    build_plan_version: object, report: Report,
 ) -> None:
     if type(data.get("schema_version")) is not int or data["schema_version"] != 1:
         report.error("publication.schema_version must be integer 1")
     if type(data.get("plan_version")) is not int or data["plan_version"] < 1:
         report.error("publication.plan_version must be a positive integer")
-    elif data["plan_version"] != build_plan_version or data["plan_version"] != companion_plan_version:
-        report.error("publication, Build Order, and companion plan versions must match")
+    elif data["plan_version"] != build_plan_version:
+        report.error("publication and Build Order plan versions must match")
     if data.get("repository") != repository:
-        report.error("publication.repository must match dashboard companions")
+        report.error("publication.repository must match the Build Order manifest")
     if not valid_trusted_branch_ref(data.get("trusted_repository_ref")):
         report.error(
             "publication.trusted_repository_ref must be an exact refs/heads/... "
@@ -104,8 +102,10 @@ def _header(
     approved = data.get("approved_planning_commit")
     if approved is not None and (not isinstance(approved, str) or not SHA.fullmatch(approved)):
         report.error("publication.approved_planning_commit must be null or a Git SHA")
-    if approved != companion_approved:
-        report.error("publication and companion approved planning commits must match")
+    elif approved is not None:
+        validate_commit_reference(
+            approved, "approved_planning_commit", base / "publication.json", report
+        )
 
 
 def _issue(

@@ -9,7 +9,7 @@ from publication_fixture_io import (
     EXPECTED_COMMENT_SHA,
     FIXTURE_APPROVED,
 )
-from publication_fixtures import build_order, companions, github, publication
+from publication_fixtures import build_order, github, publication
 
 
 APPROVED = FIXTURE_APPROVED
@@ -34,19 +34,17 @@ def body_evidence(ids: list[str]) -> dict[str, dict[str, object]]:
     }
 
 
-def materialized_pack() -> tuple[dict, dict, dict]:
-    data, build, manifest = companions(), build_order(), publication()
-    data["approved_planning_commit"] = APPROVED
+def materialized_pack() -> tuple[dict, dict]:
+    build, manifest = build_order(), publication()
     manifest["approved_planning_commit"] = APPROVED
     build["github_root"] = github(901, "ROOT_NODE")
     for index, ticket in enumerate(build["tickets"]):
-        ticket["github"] = github(88_003 + index * 37, f"BO_NODE_{index}")
-    for index, ticket in enumerate(data["tickets"]):
-        ticket["github"] = github(701 + index * 19, f"DASH_NODE_{index}")
-    bo_ids = [ticket["id"] for ticket in build["tickets"]]
-    bo_labels = {
+        ticket["github"] = github(88_003 + index * 37, f"NODE_{index}")
+    ticket_ids = [ticket["id"] for ticket in build["tickets"]]
+    ticket_labels = {
         ticket["id"]: [
-            "model:codex", "build-lane:backend", "phase:1", "complexity:3",
+            "model:codex", "build-lane:backend", "phase:1",
+            f"complexity:{ticket['complexity_points']}",
         ]
         for ticket in build["tickets"]
     }
@@ -62,18 +60,18 @@ def materialized_pack() -> tuple[dict, dict, dict]:
         "checked_at": "2026-07-13T00:00:00Z",
         "approved_planning_commit": APPROVED,
         "root_node_id": "ROOT_NODE",
-        "member_ticket_ids": bo_ids,
+        "member_ticket_ids": ticket_ids,
         "dependency_edges": [
             {"ticket_id": ticket["id"], "depends_on": dependency}
             for ticket in build["tickets"] for dependency in ticket["depends_on"]
         ],
         "projected_labels": {
-            ROOT_ID: ["build-order"], **copy.deepcopy(bo_labels),
+            ROOT_ID: ["build-order"], **copy.deepcopy(ticket_labels),
         },
         "observed_labels": {
-            ROOT_ID: ["build-order"], **copy.deepcopy(bo_labels),
+            ROOT_ID: ["build-order"], **copy.deepcopy(ticket_labels),
         },
-        "observed_body_evidence": body_evidence([ROOT_ID, *bo_ids]),
+        "observed_body_evidence": body_evidence([ROOT_ID, *ticket_ids]),
         "expected_issue_titles": {
             ROOT_ID: "Test root",
             **{
@@ -88,37 +86,8 @@ def materialized_pack() -> tuple[dict, dict, dict]:
                 for ticket in build["tickets"]
             },
         },
-        "observed_issue_states": {key: "OPEN" for key in [ROOT_ID, *bo_ids]},
+        "observed_issue_states": {key: "OPEN" for key in [ROOT_ID, *ticket_ids]},
         "marker_query_matches": core_mappings,
-    }
-    dash_ids = [ticket["id"] for ticket in data["tickets"]]
-    data["github_reconciliation"] = {
-        "receipt_schema_version": 2,
-        "checked_at": "2026-07-13T00:00:00Z",
-        "dependency_edges": [
-            {"ticket_id": ticket["id"], "depends_on": dependency}
-            for ticket in data["tickets"]
-            for dependency in ticket["depends_on"] + ticket["external_blockers"]
-        ],
-        "observed_labels": {
-            ticket["id"]: ["model:codex", f"complexity:{ticket['complexity_points']}"]
-            for ticket in data["tickets"]
-        },
-        "observed_parent_issues": {ticket["id"]: None for ticket in data["tickets"]},
-        "observed_body_evidence": body_evidence(dash_ids),
-        "expected_issue_titles": {
-            ticket["id"]: f"{ticket['id']} — {ticket['title']}"
-            for ticket in data["tickets"]
-        },
-        "observed_issue_titles": {
-            ticket["id"]: f"{ticket['id']} — {ticket['title']}"
-            for ticket in data["tickets"]
-        },
-        "observed_issue_states": {key: "OPEN" for key in dash_ids},
-        "marker_query_matches": {
-            ticket["id"]: [copy.deepcopy(ticket["github"])]
-            for ticket in data["tickets"]
-        },
     }
     root_comment_url = "https://github.com/example/repo/issues/901#issuecomment-987"
     manifest["github_reconciliation"] = {
@@ -154,4 +123,4 @@ def materialized_pack() -> tuple[dict, dict, dict]:
             "body_sha256": EXPECTED_COMMENT_SHA,
         }],
     }
-    return data, build, manifest
+    return build, manifest

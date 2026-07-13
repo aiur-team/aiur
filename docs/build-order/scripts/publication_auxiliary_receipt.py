@@ -37,13 +37,12 @@ def validate_auxiliary_receipt(
     expected_edges: set[tuple[str, str]],
     core: dict[str, Any],
     repository: str,
-    companion_approved: object,
-    companion_materialized: bool,
+    pack_materialized: bool,
     read_only: set[tuple[str, int]],
     report: Report,
 ) -> None:
     value = data.get("github_reconciliation")
-    materialized = companion_materialized or value is not None
+    materialized = pack_materialized or value is not None
     if not materialized:
         return
     if value is None:
@@ -86,8 +85,6 @@ def validate_auxiliary_receipt(
     approved = data.get("approved_planning_commit")
     if not isinstance(approved, str) or not SHA.fullmatch(approved):
         report.error("publication receipt requires approved_planning_commit")
-    if approved != companion_approved:
-        report.error("publication receipt approved commit must match companions")
 
 
 def parse_edges(

@@ -22,7 +22,6 @@ from publication_rendering import (
 PACK_ROOT = PurePosixPath("docs/build-order")
 MANIFEST_NAMES = (
     "build-order.json",
-    "dashboard-companions.json",
     "publication.json",
 )
 REGULAR_MODES = {b"100644", b"100755"}
@@ -189,10 +188,8 @@ def _document_references(
     manifests: dict[str, dict[str, Any]],
 ) -> list[tuple[str, object]]:
     references: list[tuple[str, object]] = []
-    for manifest_name in ("build-order.json", "dashboard-companions.json"):
-        tickets = manifests[manifest_name].get("tickets")
-        if not isinstance(tickets, list):
-            continue
+    tickets = manifests["build-order.json"].get("tickets")
+    if isinstance(tickets, list):
         for index, ticket in enumerate(tickets):
             if isinstance(ticket, dict):
                 ticket_id = ticket.get("id", index)
@@ -323,7 +320,6 @@ def _validate_with_trusted_code(root: Path, report: Report) -> None:
 
     pack = root.joinpath(*PACK_ROOT.parts)
     result = validate(
-        pack / "dashboard-companions.json",
         pack / "build-order.json",
         pack / "publication.json",
     )
@@ -338,13 +334,12 @@ def _derive_authority(
     trusted_repository: str, report: Report,
 ) -> ReceiptAuthority | None:
     build = manifests["build-order.json"]
-    companions = manifests["dashboard-companions.json"]
-    repository = companions.get("repository")
-    root_id = build.get("build_order_id")
-    plan_version = companions.get("plan_version")
-    approved = companions.get("approved_planning_commit")
-    github_root = build.get("github_root")
     publication = manifests["publication.json"]
+    repository = build.get("repository")
+    root_id = build.get("build_order_id")
+    plan_version = build.get("plan_version")
+    approved = publication.get("approved_planning_commit")
+    github_root = build.get("github_root")
     root_url = github_root.get("url") if isinstance(github_root, dict) else None
     root_number = (
         github_root.get("number") if isinstance(github_root, dict) else None

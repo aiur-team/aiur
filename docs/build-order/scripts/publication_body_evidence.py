@@ -9,26 +9,22 @@ from publication_rendering import BODY_SHA, EVIDENCE_KEYS
 
 
 def validate_all_body_evidence(
-    build: dict[str, Any], companions: dict[str, Any], publication: dict[str, Any],
+    build: dict[str, Any], publication: dict[str, Any],
     mappings: dict[str, dict[str, Any] | None],
     expected: dict[str, dict[str, Any]] | None,
     materialized: bool, report: Report,
 ) -> None:
     if not materialized:
         return
-    approved = companions.get("approved_planning_commit")
-    plan_version = companions.get("plan_version")
-    receipts = (
-        _receipt(build, "Build Order", report),
-        _receipt(companions, "companion", report),
-        _receipt(publication, "publication", report),
-    )
-    core_receipt, dash_receipt, auxiliary_receipt = receipts
+    approved = publication.get("approved_planning_commit")
+    plan_version = build.get("plan_version")
+    core_receipt = _receipt(build, "Build Order", report)
+    auxiliary_receipt = _receipt(publication, "publication", report)
     core_approved = core_receipt.get("approved_planning_commit")
     if core_approved != approved:
-        report.error("Build Order receipt approved commit must match companions")
-    core_ids, dash_ids, skill_ids = _partitions(build, companions, publication)
-    all_ids = core_ids | dash_ids | skill_ids
+        report.error("Build Order receipt approved commit must match publication")
+    core_ids, skill_ids = _partitions(build, publication)
+    all_ids = core_ids | skill_ids
     if expected is None:
         report.error("materialized publication requires approved body expectations")
         expected = {}
@@ -38,10 +34,6 @@ def validate_all_body_evidence(
     _merge_evidence(
         evidence, core_receipt.get("observed_body_evidence"), core_ids,
         core_approved, plan_version, expected, "Build Order receipt", report,
-    )
-    _merge_evidence(
-        evidence, dash_receipt.get("observed_body_evidence"), dash_ids,
-        approved, plan_version, expected, "companion receipt", report,
     )
     _merge_evidence(
         evidence, auxiliary_receipt.get("observed_body_evidence"), skill_ids,
@@ -55,11 +47,6 @@ def validate_all_body_evidence(
     _validate_query_matches(
         core_receipt.get("marker_query_matches"), core_mappings,
         "Build Order receipt", report,
-    )
-    _validate_query_matches(
-        dash_receipt.get("marker_query_matches"),
-        {identity: mappings.get(identity) for identity in dash_ids},
-        "companion receipt", report,
     )
     auxiliary_mappings = auxiliary_receipt.get("issue_mappings")
     skill_mappings = {
@@ -75,23 +62,23 @@ def validate_all_body_evidence(
 
 
 def _partitions(
-    build: dict[str, Any], companions: dict[str, Any], publication: dict[str, Any],
-) -> tuple[set[str], set[str], set[str]]:
-    core_ids = _ticket_ids(build, "BO")
+    build: dict[str, Any], publication: dict[str, Any],
+) -> tuple[set[str], set[str]]:
+    core_ids = _ticket_ids(build)
     root_id = build.get("build_order_id")
     if isinstance(root_id, str):
         core_ids.add(root_id)
     skill = publication.get("skill_issue")
     skill_id = skill.get("logical_id") if isinstance(skill, dict) else None
     skill_ids = {skill_id} if isinstance(skill_id, str) else set()
-    return core_ids, _ticket_ids(companions, "DASH"), skill_ids
+    return core_ids, skill_ids
 
 
 def _validate_coverage(
     evidence: dict[str, str], expected: set[str], report: Report,
 ) -> None:
     if set(evidence) != expected:
-        report.error("combined body evidence must exactly cover root, BO, DASH, and skill issues")
+        report.error("combined body evidence must exactly cover root, ticket, and skill issues")
     owners: dict[str, str] = {}
     for identity, body_sha in evidence.items():
         if body_sha in owners:
@@ -108,14 +95,13 @@ def _receipt(data: dict[str, Any], label: str, report: Report) -> dict[str, Any]
     return value
 
 
-def _ticket_ids(data: dict[str, Any], prefix: str) -> set[str]:
+def _ticket_ids(data: dict[str, Any]) -> set[str]:
     tickets = data.get("tickets")
     if not isinstance(tickets, list):
         return set()
     return {
         item["id"] for item in tickets
         if isinstance(item, dict) and isinstance(item.get("id"), str)
-        and item["id"].startswith(f"{prefix}-")
     }
 
 

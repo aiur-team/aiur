@@ -39,9 +39,9 @@ PAGE_SIZE = 100
 MAX_ITEMS = MAX_PAGES * PAGE_SIZE
 GITHUB_TIMEOUT_SECONDS = 30
 # The expected issue and blockedBy-edge totals are not constants: they are
-# derived from the two validated receipt manifests (all BO and DASH tickets
-# plus the root and skill issue; every depends_on/external blocker edge plus
-# the publication external blocker relations).
+# derived from the validated receipt manifests (every consolidated Build Order
+# ticket plus the root and skill issue; every depends_on edge plus the
+# publication external blocker relations).
 
 
 class LiveGraphError(RuntimeError):
@@ -94,35 +94,29 @@ def verify_live_graph(
 def _expected_graph(authority: ReceiptAuthority) -> ExpectedGraph:
     manifests = authority.receipt_manifests
     build = manifests.get("build-order.json")
-    companions = manifests.get("dashboard-companions.json")
     publication = manifests.get("publication.json")
-    if not all(isinstance(item, dict) for item in (build, companions, publication)):
+    if not all(isinstance(item, dict) for item in (build, publication)):
         raise LiveGraphError("validated receipt manifests are unavailable")
     assert isinstance(build, dict)
-    assert isinstance(companions, dict)
     assert isinstance(publication, dict)
     root_id = authority.root_id
-    build_tickets = _tickets(build, "BO")
-    dash_tickets = _tickets(companions, "DASH")
+    tickets = _tickets(build)
     publication_receipt = _receipt(publication, "publication")
     skill = publication.get("skill_issue")
     skill_id = skill.get("logical_id") if isinstance(skill, dict) else None
     if not isinstance(skill_id, str):
         raise LiveGraphError("validated receipt skill identity is unavailable")
-    if not build_tickets or not dash_tickets:
-        raise LiveGraphError("validated receipt manifests contain no tickets")
-    expected_issue_count = len(build_tickets) + len(dash_tickets) + 2
+    if not tickets:
+        raise LiveGraphError("validated receipt manifest contains no tickets")
+    expected_issue_count = len(tickets) + 2
 
     core_receipt = _receipt(build, "Build Order")
-    dash_receipt = _receipt(companions, "companion")
     auxiliary_mappings = publication_receipt.get("issue_mappings")
     if not isinstance(auxiliary_mappings, dict):
         raise LiveGraphError("validated publication receipt mappings are unavailable")
     mappings: dict[str, dict[str, Any]] = {}
     mappings[root_id] = _mapping(build.get("github_root"), root_id)
-    for logical_id, ticket in build_tickets.items():
-        mappings[logical_id] = _mapping(ticket.get("github"), logical_id)
-    for logical_id, ticket in dash_tickets.items():
+    for logical_id, ticket in tickets.items():
         mappings[logical_id] = _mapping(ticket.get("github"), logical_id)
     mappings[skill_id] = _mapping(auxiliary_mappings.get(skill_id), skill_id)
     if auxiliary_mappings.get(root_id) != mappings[root_id]:
@@ -137,32 +131,25 @@ def _expected_graph(authority: ReceiptAuthority) -> ExpectedGraph:
         raise LiveGraphError("validated receipt contains duplicate issue identities")
 
     titles = _partitioned_field(
-        root_id, skill_id, build_tickets, dash_tickets,
-        core_receipt, dash_receipt, publication_receipt,
+        root_id, skill_id, tickets, core_receipt, publication_receipt,
         "observed_issue_titles",
     )
     states = _partitioned_field(
-        root_id, skill_id, build_tickets, dash_tickets,
-        core_receipt, dash_receipt, publication_receipt,
+        root_id, skill_id, tickets, core_receipt, publication_receipt,
         "observed_issue_states",
     )
     body_evidence = _partitioned_field(
-        root_id, skill_id, build_tickets, dash_tickets,
-        core_receipt, dash_receipt, publication_receipt,
+        root_id, skill_id, tickets, core_receipt, publication_receipt,
         "observed_body_evidence",
     )
     marker_matches = _partitioned_field(
-        root_id, skill_id, build_tickets, dash_tickets,
-        core_receipt, dash_receipt, publication_receipt,
+        root_id, skill_id, tickets, core_receipt, publication_receipt,
         "marker_query_matches",
     )
     labels = _labels(
-        root_id, skill_id, build_tickets, dash_tickets,
-        core_receipt, dash_receipt, publication_receipt,
+        root_id, skill_id, tickets, core_receipt, publication_receipt,
     )
-    blockers = _blockers(
-        root_id, skill_id, build_tickets, dash_tickets, publication
-    )
+    blockers = _blockers(root_id, skill_id, tickets, publication)
 
     issues: dict[str, ExpectedIssue] = {}
     for logical_id in sorted(mappings):
@@ -176,8 +163,8 @@ def _expected_graph(authority: ReceiptAuthority) -> ExpectedGraph:
         body_sha = evidence.get("body_sha256") if isinstance(evidence, dict) else None
         if not isinstance(body_sha, str):
             raise LiveGraphError(f"{logical_id} receipt body evidence is unavailable")
-        parent = root_id if logical_id in build_tickets else None
-        subissues = tuple(sorted(build_tickets)) if logical_id == root_id else ()
+        parent = root_id if logical_id in tickets else None
+        subissues = tuple(sorted(tickets)) if logical_id == root_id else ()
         issues[logical_id] = ExpectedIssue(
             mapping=mappings[logical_id],
             title=title,
@@ -420,16 +407,14 @@ def _compare_snapshot(
 
 def _partitioned_field(
     root_id: str, skill_id: str,
-    build_tickets: dict[str, dict[str, Any]],
-    dash_tickets: dict[str, dict[str, Any]],
-    core: dict[str, Any], dash: dict[str, Any], auxiliary: dict[str, Any],
+    tickets: dict[str, dict[str, Any]],
+    core: dict[str, Any], auxiliary: dict[str, Any],
     field: str,
 ) -> dict[str, Any]:
-    expected_total = len({root_id, skill_id}) + len(build_tickets) + len(dash_tickets)
+    expected_total = len({root_id, skill_id}) + len(tickets)
     result: dict[str, Any] = {}
     for receipt, identities, label in (
-        (core, {root_id, *build_tickets}, "Build Order"),
-        (dash, set(dash_tickets), "companion"),
+        (core, {root_id, *tickets}, "Build Order"),
         (auxiliary, {skill_id}, "publication"),
     ):
         value = receipt.get(field)
@@ -445,29 +430,24 @@ def _partitioned_field(
 
 def _labels(
     root_id: str, skill_id: str,
-    build_tickets: dict[str, dict[str, Any]],
-    dash_tickets: dict[str, dict[str, Any]],
-    core: dict[str, Any], dash: dict[str, Any], auxiliary: dict[str, Any],
+    tickets: dict[str, dict[str, Any]],
+    core: dict[str, Any], auxiliary: dict[str, Any],
 ) -> dict[str, tuple[str, ...]]:
     core_labels = core.get("observed_labels")
-    dash_labels = dash.get("observed_labels")
     auxiliary_labels = auxiliary.get("observed_labels")
     if not all(isinstance(item, dict) for item in (
-        core_labels, dash_labels, auxiliary_labels,
+        core_labels, auxiliary_labels,
     )):
         raise LiveGraphError("validated receipt observed labels are unavailable")
     assert isinstance(core_labels, dict)
-    assert isinstance(dash_labels, dict)
     assert isinstance(auxiliary_labels, dict)
     if auxiliary_labels.get(root_id) != core_labels.get(root_id):
         raise LiveGraphError("publication and core root full-label observations disagree")
     result = {root_id: _label_tuple(core_labels.get(root_id), root_id)}
-    for logical_id in build_tickets:
+    for logical_id in tickets:
         result[logical_id] = _label_tuple(core_labels.get(logical_id), logical_id)
-    for logical_id in dash_tickets:
-        result[logical_id] = _label_tuple(dash_labels.get(logical_id), logical_id)
     result[skill_id] = _label_tuple(auxiliary_labels.get(skill_id), skill_id)
-    expected_total = len({root_id, skill_id}) + len(build_tickets) + len(dash_tickets)
+    expected_total = len({root_id, skill_id}) + len(tickets)
     if len(result) != expected_total:
         raise LiveGraphError(
             f"validated receipt labels do not cover {expected_total} issues"
@@ -477,19 +457,11 @@ def _labels(
 
 def _blockers(
     root_id: str, skill_id: str,
-    build_tickets: dict[str, dict[str, Any]],
-    dash_tickets: dict[str, dict[str, Any]], publication: dict[str, Any],
+    tickets: dict[str, dict[str, Any]], publication: dict[str, Any],
 ) -> dict[str, tuple[str, ...]]:
-    result = {logical_id: () for logical_id in (
-        root_id, skill_id, *build_tickets, *dash_tickets,
-    )}
-    for logical_id, ticket in build_tickets.items():
+    result = {logical_id: () for logical_id in (root_id, skill_id, *tickets)}
+    for logical_id, ticket in tickets.items():
         result[logical_id] = _string_tuple(ticket.get("depends_on"), logical_id)
-    for logical_id, ticket in dash_tickets.items():
-        result[logical_id] = tuple(sorted((
-            *_string_tuple(ticket.get("depends_on"), logical_id),
-            *_string_tuple(ticket.get("external_blockers"), logical_id),
-        )))
     external = publication.get("external_blocker_relations")
     if not isinstance(external, list):
         raise LiveGraphError("validated publication external blockers are unavailable")
@@ -505,17 +477,16 @@ def _blockers(
     return {key: tuple(sorted(value)) for key, value in mutable.items()}
 
 
-def _tickets(data: dict[str, Any], prefix: str) -> dict[str, dict[str, Any]]:
+def _tickets(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
     values = data.get("tickets")
     if not isinstance(values, list):
-        raise LiveGraphError(f"validated {prefix} tickets are unavailable")
+        raise LiveGraphError("validated manifest tickets are unavailable")
     result = {
         item["id"]: item for item in values
         if isinstance(item, dict) and isinstance(item.get("id"), str)
-        and item["id"].startswith(f"{prefix}-")
     }
     if len(result) != len(values):
-        raise LiveGraphError(f"validated {prefix} ticket identities are ambiguous")
+        raise LiveGraphError("validated manifest ticket identities are ambiguous")
     return result
 
 

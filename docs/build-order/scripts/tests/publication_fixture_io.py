@@ -16,21 +16,20 @@ EXPECTED_COMMENT_SHA = "<EXPECTED_COMMENT_SHA256>"
 
 class FixtureBase:
     def __init__(
-        self, companion: dict[str, object], build: dict[str, object],
+        self, build: dict[str, object],
         publication_data: dict[str, object], pack_prefix: str = ".",
     ) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.base = Path(self.temp.name)
         self.pack = self.base / pack_prefix
         self.pack.mkdir(parents=True, exist_ok=True)
-        self.companion_path = self.pack / "dashboard-companions.json"
         self.build_path = self.pack / "build-order.json"
         self.publication_path = self.pack / "publication.json"
         self.approved_commit: str | None = None
         self.github_repository = str(
             publication_data.get("repository", "example/repo")
         )
-        values = copy.deepcopy((companion, build, publication_data))
+        values = copy.deepcopy((build, publication_data))
         if self._needs_git(*values):
             source = self._approved_source(*values)
             self._write(*source)
@@ -43,8 +42,7 @@ class FixtureBase:
         self._write(*values)
 
     def _write(
-        self, companion: dict[str, object], build: dict[str, object],
-        publication_data: dict[str, object],
+        self, build: dict[str, object], publication_data: dict[str, object],
     ) -> None:
         (self.base / "tickets").mkdir(exist_ok=True)
         for ticket in build.get("tickets", []):
@@ -55,16 +53,7 @@ class FixtureBase:
                 continue
             path = self.pack / document
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(
-                f"# {ticket['id']} — {ticket.get('title')}\n", encoding="utf-8"
-            )
-        for ticket in companion.get("tickets", []):
-            if not isinstance(ticket, dict) or not isinstance(ticket.get("id"), str):
-                continue
-            path = self.pack / str(ticket.get("document"))
-            path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(_ticket_text(ticket), encoding="utf-8")
-        self.companion_path.write_text(json.dumps(companion), encoding="utf-8")
         self.build_path.write_text(json.dumps(build), encoding="utf-8")
         self.publication_path.write_text(json.dumps(publication_data), encoding="utf-8")
         repository = publication_data.get("repository", "example/repo")
@@ -86,27 +75,22 @@ class FixtureBase:
             path.write_text(text, encoding="utf-8")
 
     def _approved_source(
-        self, companion: dict[str, object], build: dict[str, object],
-        publication_data: dict[str, object],
-    ) -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
-        companion, build, publication_data = copy.deepcopy(
-            (companion, build, publication_data)
-        )
-        companion["approved_planning_commit"] = None
+        self, build: dict[str, object], publication_data: dict[str, object],
+    ) -> tuple[dict[str, object], dict[str, object]]:
+        build, publication_data = copy.deepcopy((build, publication_data))
         publication_data["approved_planning_commit"] = None
-        for value in (companion, build, publication_data):
+        for value in (build, publication_data):
             value["github_reconciliation"] = None
         build["github_root"] = None
-        for value in (companion, build):
-            tickets = value.get("tickets")
-            if isinstance(tickets, list):
-                for ticket in tickets:
-                    if isinstance(ticket, dict) and "github" in ticket:
-                        ticket["github"] = None
-        return companion, build, publication_data
+        tickets = build.get("tickets")
+        if isinstance(tickets, list):
+            for ticket in tickets:
+                if isinstance(ticket, dict) and "github" in ticket:
+                    ticket["github"] = None
+        return build, publication_data
 
     def _fill_expected_receipts(
-        self, companion: dict[str, object], build: dict[str, object],
+        self, build: dict[str, object],
         publication_data: dict[str, object], approved: str,
     ) -> None:
         from publication_common import Report
@@ -115,11 +99,11 @@ class FixtureBase:
 
         report = Report()
         expected = render_approved_pack(
-            build, companion, publication_data, self.build_path,
-            self.companion_path, self.publication_path, approved, report,
+            build, publication_data, self.build_path,
+            self.publication_path, approved, report,
         )
         if expected is not None:
-            for value in (build, companion, publication_data):
+            for value in (build, publication_data):
                 receipt = value.get("github_reconciliation")
                 evidence = receipt.get("observed_body_evidence") if isinstance(receipt, dict) else None
                 if not isinstance(evidence, dict):
@@ -231,16 +215,20 @@ def _template_text(
 
 
 def _ticket_text(ticket: dict[str, object]) -> str:
-    dependencies = ticket.get("depends_on", []) + ticket.get("external_blockers", [])
+    dependencies = ticket.get("depends_on", [])
     dependency_text = ", ".join(dependencies) if dependencies else "none"
-    gates = ticket.get("external_gate_ids", [])
+    gates = ticket.get("external_gates", [])
     gate_text = f"**External gates:** {', '.join(gates)}\n\n" if gates else ""
+    requirements = ticket.get("requirement_refs", [])
+    requirement_text = (
+        f"**Requirements:** {', '.join(requirements)}\n\n" if requirements else ""
+    )
     return (
         f"# {ticket['id']} — {ticket.get('title')}\n\n"
         "**Kind:** executable\n\n"
         f"**Complexity:** {ticket.get('complexity_points')} — Test\n\n"
         f"**Depends on:** {dependency_text}\n\n"
         f"{gate_text}"
-        f"**Requirements:** {ticket.get('requirement_ref')}\n\n"
-        "**Build Order membership:** none — standalone dashboard companion\n"
+        f"{requirement_text}"
+        "**Build Order membership:** member of the consolidated Build Order\n"
     )

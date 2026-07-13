@@ -12,26 +12,25 @@ OBSERVED_FIELD = "observed_issue_titles"
 
 
 def validate_all_title_evidence(
-    build: dict[str, Any], companions: dict[str, Any], publication: dict[str, Any],
+    build: dict[str, Any], publication: dict[str, Any],
     independently_rendered: dict[str, str] | None,
     materialized: bool, report: Report,
 ) -> None:
     if not materialized:
         return
-    core_ids, dash_ids, skill_ids = _partitions(build, companions, publication)
-    all_ids = core_ids | dash_ids | skill_ids
+    core_ids, skill_ids = _partitions(build, publication)
+    all_ids = core_ids | skill_ids
     if independently_rendered is None:
         report.error("materialized publication requires approved title expectations")
         independently_rendered = {}
     elif set(independently_rendered) != all_ids:
         report.error(
-            "approved title expectations must exactly cover root, BO, DASH, and skill issues"
+            "approved title expectations must exactly cover root, ticket, and skill issues"
         )
 
     validated: set[str] = set()
     for data, identities, label in (
         (build, core_ids, "Build Order receipt"),
-        (companions, dash_ids, "companion receipt"),
         (publication, skill_ids, "publication receipt"),
     ):
         receipt = data.get("github_reconciliation")
@@ -64,7 +63,7 @@ def validate_all_title_evidence(
                 validated.add(identity)
     if validated != all_ids:
         report.error(
-            "combined exact title evidence must cover root, BO, DASH, and skill issues"
+            "combined exact title evidence must cover root, ticket, and skill issues"
         )
 
 
@@ -90,24 +89,23 @@ def _title_map(
 
 
 def _partitions(
-    build: dict[str, Any], companions: dict[str, Any], publication: dict[str, Any],
-) -> tuple[set[str], set[str], set[str]]:
-    core_ids = _ticket_ids(build, "BO")
+    build: dict[str, Any], publication: dict[str, Any],
+) -> tuple[set[str], set[str]]:
+    core_ids = _ticket_ids(build)
     root_id = build.get("build_order_id")
     if isinstance(root_id, str):
         core_ids.add(root_id)
     skill = publication.get("skill_issue")
     skill_id = skill.get("logical_id") if isinstance(skill, dict) else None
     skill_ids = {skill_id} if isinstance(skill_id, str) else set()
-    return core_ids, _ticket_ids(companions, "DASH"), skill_ids
+    return core_ids, skill_ids
 
 
-def _ticket_ids(data: dict[str, Any], prefix: str) -> set[str]:
+def _ticket_ids(data: dict[str, Any]) -> set[str]:
     tickets = data.get("tickets")
     if not isinstance(tickets, list):
         return set()
     return {
         ticket["id"] for ticket in tickets
         if isinstance(ticket, dict) and isinstance(ticket.get("id"), str)
-        and ticket["id"].startswith(f"{prefix}-")
     }

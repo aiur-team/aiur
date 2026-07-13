@@ -5,6 +5,20 @@ from publication_fixture_io import FixtureBase
 
 SHA = "a" * 40
 REPOSITORY = "example/repo"
+AGENT_LABELS = [
+    "agent:todo",
+    "agent:in-progress",
+    "agent:human-review",
+    "agent:rework",
+    "agent:merging",
+    "agent:paused",
+    "agent:done",
+    "agent:ci-wait",
+    "agent:error",
+    "agent:canceled",
+    "agent:cancelled",
+    "agent:watch",
+]
 
 
 def github(number: int, node: str) -> dict[str, object]:
@@ -16,92 +30,67 @@ def github(number: int, node: str) -> dict[str, object]:
     }
 
 
-def build_order() -> dict[str, object]:
-    tickets = [
-        {
-            "id": f"BO-{number:03d}",
-            "title": f"Build Order ticket {number}",
-            "document": f"tickets/BO-{number:03d}.md",
-            "depends_on": ["BO-001"] if number == 2 else [],
-            "workstream": "backend",
-            "phase_hint": 1,
-            "complexity_points": 3,
-            "github": None,
-        }
-        for number in range(1, 20)
-    ]
+def _ticket(
+    ticket_id: str,
+    title: str,
+    *,
+    complexity: int = 3,
+    depends_on: list[str] | None = None,
+    serializes_with: list[str] | None = None,
+    external_gates: list[str] | None = None,
+    requirement_refs: list[str] | None = None,
+) -> dict[str, object]:
     return {
-        "plan_version": 1,
-        "repository": REPOSITORY,
-        "build_order_id": "example/repo:build-order-dashboard",
-        "github_root": None,
-        "label_projection": {
-            "build_order": "build-order",
-            "required_ticket_labels": ["model:codex"],
-            "forbidden_labels": [],
-            "workstreams": {"backend": "build-lane:backend"},
-            "phases": {"1": "phase:1"},
-            "complexities": {"3": "complexity:3"},
-        },
-        "tickets": tickets,
+        "id": ticket_id,
+        "title": title,
+        "document": f"tickets/{ticket_id}.md",
+        "workstream": "backend",
+        "phase_hint": 1,
+        "complexity_points": complexity,
+        "requirement_refs": requirement_refs or [],
+        "depends_on": depends_on or [],
+        "serializes_with": serializes_with or [],
+        "external_gates": external_gates or [],
+        "read_surfaces": [],
+        "write_surfaces": [],
+        "contract_surfaces": [],
+        "safety_surfaces": [],
+        "conflict_exceptions": [],
+        "github": None,
     }
 
 
-def companions() -> dict[str, object]:
+def build_order() -> dict[str, object]:
     tickets = [
-        {
-            "id": "DASH-001",
-            "title": "First companion",
-            "document": "tickets/DASH-001.md",
-            "requirement_ref": "DREQ-001",
-            "complexity_points": 2,
-            "depends_on": ["BO-001"],
-            "serializes_with": [],
-            "external_blockers": ["outside/repo#93"],
-            "external_gate_ids": [],
-            "read_surfaces": [],
-            "write_surfaces": [],
-            "contract_surfaces": [],
-            "safety_surfaces": [],
-            "conflict_exceptions": [],
-            "github": None,
-        },
-        {
-            "id": "DASH-002",
-            "title": "Second companion",
-            "document": "tickets/DASH-002.md",
-            "requirement_ref": "DREQ-002",
-            "complexity_points": 4,
-            "depends_on": ["DASH-001"],
-            "serializes_with": [],
-            "external_blockers": [],
-            "external_gate_ids": ["GATE-HUMAN-AUTHORITY"],
-            "read_surfaces": [],
-            "write_surfaces": [],
-            "contract_surfaces": [],
-            "safety_surfaces": [],
-            "conflict_exceptions": [],
-            "github": None,
-        },
+        _ticket(
+            f"BO-{number:03d}",
+            f"Build Order ticket {number}",
+            depends_on=["BO-001"] if number == 2 else [],
+        )
+        for number in range(1, 20)
     ]
+    tickets.append(_ticket(
+        "DASH-001",
+        "First companion",
+        complexity=2,
+        depends_on=["BO-001"],
+        requirement_refs=["DREQ-001"],
+    ))
+    tickets.append(_ticket(
+        "DASH-002",
+        "Second companion",
+        complexity=4,
+        depends_on=["DASH-001"],
+        external_gates=["GATE-HUMAN-AUTHORITY"],
+        requirement_refs=["DREQ-002"],
+    ))
     tickets.extend(
-        {
-            "id": f"DASH-{number:03d}",
-            "title": f"Companion {number}",
-            "document": f"tickets/DASH-{number:03d}.md",
-            "requirement_ref": f"DREQ-{number:03d}",
-            "complexity_points": 2,
-            "depends_on": [],
-            "serializes_with": [],
-            "external_blockers": [],
-            "external_gate_ids": [],
-            "read_surfaces": [],
-            "write_surfaces": [],
-            "contract_surfaces": [],
-            "safety_surfaces": [],
-            "conflict_exceptions": [],
-            "github": None,
-        }
+        _ticket(
+            f"DASH-{number:03d}",
+            f"Companion {number}",
+            complexity=2,
+            requirement_refs=[f"DREQ-{number:03d}"],
+        )
         for number in range(3, 26)
     )
     return {
@@ -109,25 +98,20 @@ def companions() -> dict[str, object]:
         "plan_version": 1,
         "repository": REPOSITORY,
         "researched_at_commit": SHA,
-        "approved_planning_commit": None,
-        "required_labels": ["model:codex"],
-        "forbidden_labels": [
-            "agent:todo",
-            "agent:in-progress",
-            "agent:human-review",
-            "agent:rework",
-            "agent:merging",
-            "agent:paused",
-            "agent:done",
-            "agent:ci-wait",
-            "agent:error",
-            "agent:canceled",
-            "agent:cancelled",
-            "agent:watch",
-        ],
+        "build_order_id": "example/repo:build-order-dashboard",
+        "github_root": None,
+        "label_projection": {
+            "build_order": "build-order",
+            "required_ticket_labels": ["model:codex"],
+            "forbidden_labels": list(AGENT_LABELS),
+            "workstreams": {"backend": "build-lane:backend"},
+            "phases": {"1": "phase:1"},
+            "complexities": {"2": "complexity:2", "3": "complexity:3", "4": "complexity:4"},
+        },
         "external_gates": [
             {
                 "id": "GATE-HUMAN-AUTHORITY",
+                "title": "Grant human authority",
                 "owner": "operator",
                 "resolution_criteria": "operator grants authority",
             }
@@ -180,12 +164,11 @@ def publication() -> dict[str, object]:
 class Fixture(FixtureBase):
     def __init__(
         self,
-        companion: dict[str, object] | None = None,
         build: dict[str, object] | None = None,
         publication_data: dict[str, object] | None = None,
         pack_prefix: str = ".",
     ) -> None:
         super().__init__(
-            companion or companions(), build or build_order(),
+            build or build_order(),
             publication_data or publication(), pack_prefix,
         )

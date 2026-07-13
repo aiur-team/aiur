@@ -1,4 +1,4 @@
-"""Validate combined Build Order/dashboard parallel-write surfaces."""
+"""Validate consolidated Build Order parallel-write surfaces."""
 
 from __future__ import annotations
 
@@ -18,12 +18,10 @@ SURFACE_FIELDS = ("write_surfaces", "contract_surfaces", "safety_surfaces")
 
 
 def validate_surface_conflicts(
-    build: dict[str, dict[str, Any]],
-    dash: dict[str, dict[str, Any]],
+    tickets: dict[str, dict[str, Any]],
     dependencies: dict[str, set[str]],
     report: Report,
 ) -> None:
-    tickets = {**build, **dash}
     closure = _dependency_closure(set(tickets), dependencies)
     exceptions = _conflict_exceptions(tickets, report)
     ids = sorted(tickets)
