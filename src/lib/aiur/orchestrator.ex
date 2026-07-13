@@ -169,6 +169,10 @@ defmodule Aiur.Orchestrator do
   defdelegate read_load(hard_threshold, target), to: DispatchPolicy
 
   @doc false
+  @spec read_cpu(number() | nil) :: Aiur.SystemCpu.snapshot() | :unavailable
+  defdelegate read_cpu(target), to: DispatchPolicy
+
+  @doc false
   @spec read_memory(integer() | nil) :: non_neg_integer() | :unavailable
   defdelegate read_memory(threshold), to: DispatchPolicy
 
