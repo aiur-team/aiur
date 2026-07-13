@@ -4875,7 +4875,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert get_in(next.running, [issue_id, :control, :status]) == :working
     end
 
-    test "running blockee (not paused) is unchanged", %{
+    test "unblock before pause is retained then consumed exactly once", %{
       identifier: identifier,
       fake_pid: fake_pid
     } do
@@ -4907,6 +4907,54 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       next = PushRouting.apply_agent_unblocked(state, "99")
       assert get_in(next.running, [issue_id, :control, :status]) == :working
+      assert get_in(next.running, [issue_id, :pending_auto_resume, :blocker_identifier]) == "99"
+
+      paused = put_in(next.running[issue_id].control.status, :paused)
+      resumed = PushRouting.reconcile_pending_auto_resumes(paused)
+
+      assert get_in(resumed.running, [issue_id, :control, :status]) == :working
+      refute Map.has_key?(resumed.running[issue_id], :pending_auto_resume)
+
+      assert PushRouting.reconcile_pending_auto_resumes(resumed) == resumed
+      assert PushRouting.apply_agent_unblocked(resumed, "99") == resumed
+    end
+
+    test "provisional unblocked payloads never resume or stamp readiness", %{
+      identifier: identifier,
+      fake_pid: fake_pid
+    } do
+      :ok = SubscriptionStore.add_subscription(identifier, "ticket.99.agent.unblocked", "blocker:auto")
+
+      issue_id = "issue-provisional-unblock"
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: fake_pid,
+            ref: nil,
+            identifier: identifier,
+            issue: %Issue{id: issue_id, state: "in-progress", identifier: identifier},
+            started_at: DateTime.utc_now(),
+            control: %{status: :paused}
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{},
+        max_concurrent_agents: 6
+      }
+
+      events = [
+        %{topic: "ticket.99.agent.unblocked", payload: %{temporary_stub: true}},
+        %{topic: "ticket.99.agent.unblocked", payload: %{"temporary_stub" => true}},
+        %{"payload" => %{"temporary_stub" => true}, topic: "ticket.99.agent.unblocked"}
+      ]
+
+      for event <- events do
+        next = EventTopics.route(state, event)
+        assert get_in(next.running, [issue_id, :control, :status]) == :paused
+        refute Map.has_key?(next.running[issue_id], :pending_auto_resume)
+      end
     end
 
     test "paused blockee NOT subscribed to this blocker stays paused", %{

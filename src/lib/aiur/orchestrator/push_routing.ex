@@ -24,7 +24,7 @@ defmodule Aiur.Orchestrator.PushRouting do
   def apply_agent_unblocked(%State{} = state, blocker_identifier)
       when is_binary(blocker_identifier) do
     topic = "ticket." <> blocker_identifier <> ".agent.unblocked"
-    maybe_resume_blockees_on_unblocked(state, blocker_identifier, topic)
+    maybe_resume_blockees_on_unblocked(state, blocker_identifier, topic, topic)
   end
 
   @spec maybe_pause_on_request(State.t(), String.t() | integer()) :: State.t()
@@ -93,14 +93,13 @@ defmodule Aiur.Orchestrator.PushRouting do
     end
   end
 
-  @spec maybe_resume_blockees_on_unblocked(State.t(), String.t() | integer(), String.t()) :: State.t()
-  def maybe_resume_blockees_on_unblocked(%State{} = state, blocker_identifier, topic) do
+  @spec maybe_resume_blockees_on_unblocked(State.t(), String.t() | integer(), String.t(), String.t()) :: State.t()
+  def maybe_resume_blockees_on_unblocked(%State{} = state, blocker_identifier, topic, unblock_key) do
     Enum.reduce(state.running, state, fn {_issue_id, entry}, acc ->
       cond do
         not is_map(entry) -> acc
-        not State.paused_running_entry?(entry) -> acc
         State.deactivated_running_entry?(entry) -> acc
-        true -> maybe_resume_for_topic(acc, entry, blocker_identifier, topic)
+        true -> maybe_record_or_resume_for_topic(acc, entry, blocker_identifier, topic, unblock_key)
       end
     end)
   end
@@ -126,7 +125,7 @@ defmodule Aiur.Orchestrator.PushRouting do
     end
   end
 
-  defp maybe_resume_for_topic(state, entry, blocker_identifier, topic) do
+  defp maybe_record_or_resume_for_topic(state, entry, blocker_identifier, topic, unblock_key) do
     identifier = Map.get(entry, :identifier)
 
     cond do
@@ -136,8 +135,15 @@ defmodule Aiur.Orchestrator.PushRouting do
       identifier == blocker_identifier ->
         state
 
+      consumed_unblock?(entry, unblock_key) ->
+        state
+
       subscribed_to_topic?(identifier, topic) ->
-        attempt_auto_resume(state, entry, identifier, blocker_identifier, topic)
+        if State.paused_running_entry?(entry) do
+          attempt_auto_resume(state, entry, identifier, blocker_identifier, topic, unblock_key)
+        else
+          stamp_pending_auto_resume(state, identifier, blocker_identifier, topic, unblock_key)
+        end
 
       true ->
         state
@@ -150,19 +156,19 @@ defmodule Aiur.Orchestrator.PushRouting do
   # operators can see
   # the cap is blocking the resume, and stamp a hint on the entry so a
   # future reconcile tick (when a slot opens up) can drain the queue.
-  defp attempt_auto_resume(state, entry, identifier, blocker_identifier, topic) do
+  defp attempt_auto_resume(state, entry, identifier, blocker_identifier, topic, unblock_key) do
     Logger.info("Auto-resume on blocker unblocked: blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}")
 
     # operator?: false — an automated blocker resume must preserve a
     # duration-capped agent's cumulative overrun (no fresh budget).
     case Orchestrator.resume_paused_issue(state, entry, false) do
       {{:ok, :resumed}, next_state} ->
-        next_state
+        mark_unblock_consumed(next_state, identifier, unblock_key)
 
       {{:error, :max_concurrent_agents_reached}, next_state} ->
         Logger.warning("Auto-resume deferred (cap full): blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}; entry remains paused with pending_auto_resume hint")
 
-        stamp_pending_auto_resume(next_state, identifier, blocker_identifier, topic)
+        stamp_pending_auto_resume(next_state, identifier, blocker_identifier, topic, unblock_key)
 
       {{:error, reason}, next_state} ->
         Logger.warning("Auto-resume failed: blockee=#{identifier} blocker=#{blocker_identifier} reason=#{inspect(reason)}")
@@ -175,7 +181,7 @@ defmodule Aiur.Orchestrator.PushRouting do
   # future tick (reconcile_pending_auto_resumes/1) can retry once a
   # slot opens up. Without this the cap-full case loses the unblock
   # signal and the blockee stays paused forever.
-  defp stamp_pending_auto_resume(state, identifier, blocker_identifier, topic) do
+  defp stamp_pending_auto_resume(state, identifier, blocker_identifier, topic, unblock_key) do
     case State.find_running_by_identifier(state.running, identifier) do
       running_entry when is_map(running_entry) ->
         issue_id = get_in(running_entry, [:issue, Access.key(:id)])
@@ -183,6 +189,7 @@ defmodule Aiur.Orchestrator.PushRouting do
         hint = %{
           blocker_identifier: blocker_identifier,
           topic: topic,
+          unblock_key: unblock_key,
           stamped_at: DateTime.utc_now()
         }
 
@@ -219,13 +226,13 @@ defmodule Aiur.Orchestrator.PushRouting do
 
   defp maybe_drain_pending_auto_resume(state, entry, hint) do
     cond do
-      not State.paused_running_entry?(entry) ->
-        # Already resumed by another path (operator chat, label flip);
-        # clear the stale hint.
-        clear_pending_auto_resume(state, entry)
-
       State.deactivated_running_entry?(entry) ->
         clear_pending_auto_resume(state, entry)
+
+      not State.paused_running_entry?(entry) ->
+        # The readiness event may arrive between subscription and the worker's
+        # pause confirmation. Keep it durable until that transition completes.
+        state
 
       true ->
         identifier = Map.get(entry, :identifier)
@@ -238,7 +245,9 @@ defmodule Aiur.Orchestrator.PushRouting do
           {{:ok, :resumed}, next_state} ->
             Logger.info("Auto-resume drained: blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}")
 
-            clear_pending_auto_resume(next_state, entry)
+            next_state
+            |> mark_unblock_consumed(identifier, Map.get(hint, :unblock_key, topic))
+            |> clear_pending_auto_resume(entry)
 
           {{:error, _reason}, next_state} ->
             # Cap still full or another error — keep the hint for the
@@ -254,6 +263,25 @@ defmodule Aiur.Orchestrator.PushRouting do
     case Map.get(state.running, issue_id) do
       running_entry when is_map(running_entry) ->
         updated = Map.delete(running_entry, :pending_auto_resume)
+        %{state | running: Map.put(state.running, issue_id, updated)}
+
+      _ ->
+        state
+    end
+  end
+
+  defp consumed_unblock?(entry, unblock_key) do
+    entry
+    |> Map.get(:consumed_unblocks, MapSet.new())
+    |> MapSet.member?(unblock_key)
+  end
+
+  defp mark_unblock_consumed(state, identifier, unblock_key) do
+    case State.find_running_by_identifier(state.running, identifier) do
+      running_entry when is_map(running_entry) ->
+        issue_id = get_in(running_entry, [:issue, Access.key(:id)])
+        consumed = Map.get(running_entry, :consumed_unblocks, MapSet.new())
+        updated = Map.put(running_entry, :consumed_unblocks, MapSet.put(consumed, unblock_key))
         %{state | running: Map.put(state.running, issue_id, updated)}
 
       _ ->
