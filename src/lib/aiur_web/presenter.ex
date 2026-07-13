@@ -3,32 +3,162 @@ defmodule AiurWeb.Presenter do
   Shared projections for the observability API and dashboard.
   """
 
-  alias Aiur.{Config, Orchestrator}
+  alias Aiur.{Config, DecisionHistory, Orchestrator, RecentMerge, RecentMergeStore, RunTelemetry}
 
-  @spec state_payload(GenServer.name(), timeout()) :: map()
-  def state_payload(orchestrator, snapshot_timeout_ms) do
+  @recent_merge_limit 50
+
+  @spec state_payload(GenServer.name(), timeout(), keyword()) :: map()
+  def state_payload(orchestrator, snapshot_timeout_ms, opts \\ []) do
     generated_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
+    orchestrator
+    |> orchestrator_payload(snapshot_timeout_ms)
+    |> Map.put(:generated_at, generated_at)
+    |> Map.merge(auxiliary_payload(opts))
+  end
+
+  defp orchestrator_payload(orchestrator, snapshot_timeout_ms) do
     case Orchestrator.snapshot(orchestrator, snapshot_timeout_ms) do
       %{} = snapshot ->
+        idle = Map.get(snapshot, :idle, [])
+
         %{
-          generated_at: generated_at,
           counts: %{
             running: length(snapshot.running),
-            retrying: length(snapshot.retrying)
+            retrying: length(snapshot.retrying),
+            idle: length(idle)
           },
           running: Enum.map(snapshot.running, &running_entry_payload/1),
           retrying: Enum.map(snapshot.retrying, &retry_entry_payload/1),
+          idle: Enum.map(idle, &idle_entry_payload/1),
           agent_totals: snapshot.agent_totals,
           rate_limits: snapshot.rate_limits
         }
 
       :timeout ->
-        %{generated_at: generated_at, error: %{code: "snapshot_timeout", message: "Snapshot timed out"}}
+        %{error: %{code: "snapshot_timeout", message: "Snapshot timed out"}}
 
       :unavailable ->
-        %{generated_at: generated_at, error: %{code: "snapshot_unavailable", message: "Snapshot unavailable"}}
+        %{error: %{code: "snapshot_unavailable", message: "Snapshot unavailable"}}
     end
+  end
+
+  defp auxiliary_payload(opts) do
+    %{
+      decision_history: decision_history_payload(opts),
+      recent_merges: recent_merges_payload(opts),
+      analytics: analytics_payload(opts)
+    }
+  end
+
+  defp decision_history_payload(opts) do
+    provider = Keyword.get(opts, :decision_history_fun, fn -> DecisionHistory.list() end)
+
+    case safe_call(provider) do
+      {:ok, entries} when is_list(entries) ->
+        %{status: :available, entries: entries, message: nil}
+
+      _other ->
+        %{
+          status: :unavailable,
+          entries: [],
+          message: "Decision history is temporarily unavailable."
+        }
+    end
+  end
+
+  defp recent_merges_payload(opts) do
+    provider = Keyword.get(opts, :recent_merge_snapshot_fun, fn -> RecentMergeStore.snapshot() end)
+
+    case safe_call(provider) do
+      {:ok, %{merges: merges, health: health, reconciliation: reconciliation}}
+      when is_list(merges) and is_map(reconciliation) ->
+        %{
+          status: if(health == :writable, do: :available, else: :degraded),
+          entries:
+            merges
+            |> Enum.map(&recent_merge_payload/1)
+            |> Enum.reject(&is_nil/1)
+            |> Enum.take(@recent_merge_limit),
+          health: health,
+          reconciliation: reconciliation,
+          message: recent_merge_message(health)
+        }
+
+      _other ->
+        %{
+          status: :unavailable,
+          entries: [],
+          health: :unavailable,
+          reconciliation: %{status: :unknown, partial?: nil, pages_fetched: 0},
+          message: "Recent repository merges are temporarily unavailable."
+        }
+    end
+  end
+
+  defp recent_merge_payload(%RecentMerge{} = merge) do
+    %{
+      id: merge.id,
+      repository: merge.repository,
+      number: merge.number,
+      title: merge.title,
+      summary: merge.summary,
+      url: merge.url,
+      head_ref: merge.head_ref,
+      head_sha: merge.head_sha,
+      merge_commit_sha: merge.merge_commit_sha,
+      ticket_id: merge.ticket_id,
+      merged_by: merge.merged_by,
+      merged_at: DateTime.to_iso8601(merge.merged_at),
+      observation_source: merge.observation_source,
+      backfilled?: merge.backfilled?,
+      live_observed?: merge.live_observed?,
+      observed_run_id: merge.observed_run_id
+    }
+  end
+
+  defp recent_merge_payload(_merge), do: nil
+
+  defp recent_merge_message(:writable), do: nil
+
+  defp recent_merge_message(_health) do
+    "The durable merge audit is degraded; showing its last validated prefix."
+  end
+
+  defp analytics_payload(opts) do
+    provider = Keyword.get(opts, :telemetry_file_fun, &RunTelemetry.telemetry_file/0)
+
+    case safe_call(provider) do
+      {:ok, path} when is_binary(path) ->
+        if File.regular?(path) do
+          %{
+            available?: true,
+            path: "/analytics",
+            message: "Open the separate durable telemetry report."
+          }
+        else
+          analytics_unavailable()
+        end
+
+      _other ->
+        analytics_unavailable()
+    end
+  end
+
+  defp analytics_unavailable do
+    %{
+      available?: false,
+      path: nil,
+      message: "Telemetry analytics are available after a debug telemetry run."
+    }
+  end
+
+  defp safe_call(fun) when is_function(fun, 0) do
+    {:ok, fun.()}
+  rescue
+    _error -> :error
+  catch
+    :exit, _reason -> :error
   end
 
   @spec issue_payload(String.t(), GenServer.name(), timeout()) :: {:ok, map()} | {:error, :issue_not_found}
@@ -37,11 +167,12 @@ defmodule AiurWeb.Presenter do
       %{} = snapshot ->
         running = Enum.find(snapshot.running, &(&1.identifier == issue_identifier))
         retry = Enum.find(snapshot.retrying, &(&1.identifier == issue_identifier))
+        idle = Enum.find(Map.get(snapshot, :idle, []), &(&1.identifier == issue_identifier))
 
-        if is_nil(running) and is_nil(retry) do
+        if is_nil(running) and is_nil(retry) and is_nil(idle) do
           {:error, :issue_not_found}
         else
-          {:ok, issue_payload_body(issue_identifier, running, retry)}
+          {:ok, issue_payload_body(issue_identifier, running, retry, idle)}
         end
 
       _ ->
@@ -60,11 +191,11 @@ defmodule AiurWeb.Presenter do
     end
   end
 
-  defp issue_payload_body(issue_identifier, running, retry) do
+  defp issue_payload_body(issue_identifier, running, retry, idle) do
     %{
       issue_identifier: issue_identifier,
-      issue_id: issue_id_from_entries(running, retry),
-      status: issue_status(running, retry),
+      issue_id: issue_id_from_entries(running, retry, idle),
+      status: issue_status(running, retry, idle),
       workspace: %{
         path: workspace_path(issue_identifier, running, retry),
         host: workspace_host(running, retry)
@@ -73,47 +204,84 @@ defmodule AiurWeb.Presenter do
         restart_count: restart_count(retry),
         current_retry_attempt: retry_attempt(retry)
       },
-      running: running && running_issue_payload(running),
-      retry: retry && retry_issue_payload(retry),
-      capabilities: running && Map.get(running, :control),
+      running: optional_running_payload(running),
+      retry: optional_retry_payload(retry),
+      capabilities: issue_capabilities(running),
       queue: %{
-        depth: (running && Map.get(running, :queue_depth)) || 0
+        depth: issue_queue_depth(running, idle)
       },
       logs: %{
         codex_session_logs: []
       },
-      recent_events: (running && recent_events_payload(running)) || [],
-      last_error: retry && retry.error,
+      recent_events: optional_recent_events(running),
+      last_error: retry_error(retry),
       tracked: %{}
     }
+    |> maybe_put_idle_payload(idle)
   end
 
-  defp issue_id_from_entries(running, retry),
-    do: (running && running.issue_id) || (retry && retry.issue_id)
+  defp issue_id_from_entries(running, retry, idle),
+    do: (running && running.issue_id) || (retry && retry.issue_id) || (idle && idle.issue_id)
 
   defp restart_count(retry), do: max(retry_attempt(retry) - 1, 0)
   defp retry_attempt(nil), do: 0
   defp retry_attempt(retry), do: retry.attempt || 0
 
-  defp issue_status(_running, nil), do: "running"
-  defp issue_status(nil, _retry), do: "retrying"
-  defp issue_status(_running, _retry), do: "running"
+  defp issue_status(running, _retry, _idle) when is_map(running), do: "running"
+  defp issue_status(_running, retry, _idle) when is_map(retry), do: "retrying"
+  defp issue_status(_running, _retry, idle) when is_map(idle), do: "idle"
+
+  defp optional_running_payload(nil), do: nil
+  defp optional_running_payload(running), do: running_issue_payload(running)
+
+  defp optional_retry_payload(nil), do: nil
+  defp optional_retry_payload(retry), do: retry_issue_payload(retry)
+
+  defp issue_capabilities(nil), do: nil
+  defp issue_capabilities(running), do: Map.get(running, :control)
+
+  defp issue_queue_depth(running, _idle) when is_map(running),
+    do: Map.get(running, :queue_depth, 0)
+
+  defp issue_queue_depth(nil, idle) when is_map(idle), do: Map.get(idle, :queue_depth, 0)
+  defp issue_queue_depth(nil, nil), do: 0
+
+  defp optional_recent_events(nil), do: []
+  defp optional_recent_events(running), do: recent_events_payload(running)
+
+  defp retry_error(nil), do: nil
+  defp retry_error(retry), do: retry.error
+
+  defp maybe_put_idle_payload(payload, nil), do: payload
+  defp maybe_put_idle_payload(payload, idle), do: Map.put(payload, :idle, idle_entry_payload(idle))
 
   defp running_entry_payload(entry) do
     %{
       issue_id: entry.issue_id,
       issue_identifier: entry.identifier,
       state: entry.state,
+      tag: Map.get(entry, :tag),
+      title: Map.get(entry, :title),
+      url: Map.get(entry, :url),
       worker_host: Map.get(entry, :worker_host),
       workspace_path: Map.get(entry, :workspace_path),
       session_id: entry.session_id,
       turn_count: Map.get(entry, :turn_count, 0),
+      runtime_seconds: Map.get(entry, :runtime_seconds, 0),
+      work_state: Map.get(entry, :work_state, :working),
+      pause_reason: Map.get(entry, :pause_reason),
+      tracker_paused: Map.get(entry, :tracker_paused, false),
       last_event: entry.last_codex_event,
       last_message: summarize_message(entry.last_codex_message),
       queue_depth: Map.get(entry, :queue_depth, 0),
       capabilities: Map.get(entry, :control),
       started_at: iso8601(entry.started_at),
       last_event_at: iso8601(entry.last_codex_timestamp),
+      stale_for_seconds: Map.get(entry, :stale_for_seconds),
+      waiting_reason: Map.get(entry, :waiting_reason, :active),
+      open_decision_count: Map.get(entry, :open_decision_count, 0),
+      ci: ci_payload(Map.get(entry, :ci_result)),
+      review: review_status(entry.state),
       tokens: %{
         input_tokens: entry.agent_input_tokens,
         output_tokens: entry.agent_output_tokens,
@@ -130,8 +298,66 @@ defmodule AiurWeb.Presenter do
       due_at: due_at_iso8601(entry.due_in_ms),
       error: entry.error,
       worker_host: Map.get(entry, :worker_host),
-      workspace_path: Map.get(entry, :workspace_path)
+      workspace_path: Map.get(entry, :workspace_path),
+      state: Map.get(entry, :state),
+      tag: Map.get(entry, :tag),
+      title: Map.get(entry, :title),
+      url: Map.get(entry, :url),
+      runtime_seconds: 0,
+      work_state: :retrying,
+      tracker_paused: false,
+      waiting_reason: Map.get(entry, :waiting_reason, :backing_off),
+      open_decision_count: Map.get(entry, :open_decision_count, 0),
+      ci: ci_payload(Map.get(entry, :ci_result)),
+      review: review_status(Map.get(entry, :state))
     }
+  end
+
+  defp idle_entry_payload(entry) do
+    %{
+      issue_id: entry.issue_id,
+      issue_identifier: entry.identifier,
+      state: entry.state,
+      tag: Map.get(entry, :tag),
+      title: Map.get(entry, :title),
+      url: Map.get(entry, :url),
+      runtime_seconds: 0,
+      work_state: idle_work_state(entry),
+      tracker_paused: Map.get(entry, :tracker_paused, false),
+      queue_depth: Map.get(entry, :queue_depth, 0),
+      waiting_reason: Map.get(entry, :waiting_reason, :active),
+      open_decision_count: Map.get(entry, :open_decision_count, 0),
+      ci: ci_payload(Map.get(entry, :ci_result)),
+      review: review_status(entry.state)
+    }
+  end
+
+  # CI/PR data comes from the existing GithubCIPoller poll cadence in
+  # `Aiur.Orchestrator.CiLifecycle`, cached by ticket identifier — this never
+  # triggers a GitHub call of its own and is available for idle rows too
+  # (a ticket can keep cycling through ci-wait polls after its agent's turn
+  # ends). `nil` until a ticket has actually entered CI polling (ci-wait /
+  # human-review).
+  defp ci_payload(nil), do: nil
+
+  defp ci_payload(%{} = result) do
+    %{
+      decision: Map.get(result, :decision),
+      pr_number: Map.get(result, :pr_number),
+      head_sha: Map.get(result, :head_sha)
+    }
+  end
+
+  # Review status is derived from tracker state only. The unresolved-thread
+  # detail behind `human-review` remains a one-shot check performed by
+  # `Aiur.GitHub.HumanReviewGate` at the transition moment, not a cached
+  # per-row poll target — surfacing it live per row would mean a new GitHub
+  # call on every dashboard refresh, duplicating that existing check.
+  defp review_status("human-review"), do: :awaiting
+  defp review_status(_state), do: :not_started
+
+  defp idle_work_state(entry) do
+    if Map.get(entry, :tracker_paused, false), do: :paused, else: :idle
   end
 
   defp running_issue_payload(running) do
@@ -147,6 +373,11 @@ defmodule AiurWeb.Presenter do
       last_event: running.last_codex_event,
       last_message: summarize_message(running.last_codex_message),
       last_event_at: iso8601(running.last_codex_timestamp),
+      stale_for_seconds: Map.get(running, :stale_for_seconds),
+      waiting_reason: Map.get(running, :waiting_reason, :active),
+      open_decision_count: Map.get(running, :open_decision_count, 0),
+      ci: ci_payload(Map.get(running, :ci_result)),
+      review: review_status(running.state),
       tokens: %{
         input_tokens: running.agent_input_tokens,
         output_tokens: running.agent_output_tokens,
@@ -161,7 +392,12 @@ defmodule AiurWeb.Presenter do
       due_at: due_at_iso8601(retry.due_in_ms),
       error: retry.error,
       worker_host: Map.get(retry, :worker_host),
-      workspace_path: Map.get(retry, :workspace_path)
+      workspace_path: Map.get(retry, :workspace_path),
+      state: Map.get(retry, :state),
+      waiting_reason: Map.get(retry, :waiting_reason, :backing_off),
+      open_decision_count: Map.get(retry, :open_decision_count, 0),
+      ci: ci_payload(Map.get(retry, :ci_result)),
+      review: review_status(Map.get(retry, :state))
     }
   end
 

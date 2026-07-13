@@ -42,6 +42,7 @@ defmodule Aiur.ApplicationTest do
       Aiur.AgentList.Input,
       Aiur.LauncherWatchdog,
       Aiur.Opencode.PaneSupervisor,
+      AiurWeb.ControlCenterCache,
       Aiur.HttpServer
     ]
 
@@ -52,7 +53,10 @@ defmodule Aiur.ApplicationTest do
       Aiur.ProcessReaper,
       Aiur.PauseContainment,
       Aiur.AgentResourceGuard,
+      Aiur.DecisionMetrics.Writer,
+      Aiur.DecisionMetrics,
       Aiur.GitHub.CodeOwners,
+      Aiur.RecentMergeStore,
       Aiur.Opencode.SessionSupervisor,
       Aiur.Opencode.BridgeSupervisor,
       Aiur.Opencode.TokenRegistry
@@ -86,9 +90,10 @@ defmodule Aiur.ApplicationTest do
       assert length(headless) < length(interactive)
     end
 
-    test "headless dashboard opt-in starts HttpServer without reviving panes" do
+    test "headless dashboard opt-in starts the shared cache and HttpServer without reviving panes" do
       mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: true))
 
+      assert AiurWeb.ControlCenterCache in mods
       assert Aiur.HttpServer in mods
       refute Aiur.Opencode.PaneSupervisor in mods
       refute Aiur.PaneManager in mods
@@ -120,6 +125,35 @@ defmodule Aiur.ApplicationTest do
         tracked_set = Enum.find_index(mods, &(&1 == Aiur.Orchestrator.TrackedSet))
         orchestrator = Enum.find_index(mods, &(&1 == Aiur.Orchestrator))
         assert tracked_set < orchestrator, "TrackedSet must precede Orchestrator for #{inspect(opts)}"
+      end
+    end
+
+    test "Decision metrics starts after the durable Decision service in both shapes" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        decision_store = Enum.find_index(mods, &(&1 == Aiur.DecisionStore))
+        metrics_writer = Enum.find_index(mods, &(&1 == Aiur.DecisionMetrics.Writer))
+        decision_metrics = Enum.find_index(mods, &(&1 == Aiur.DecisionMetrics))
+
+        assert decision_store < metrics_writer, "DecisionStore must precede metrics for #{inspect(opts)}"
+        assert metrics_writer < decision_metrics, "metrics writer must precede collector for #{inspect(opts)}"
+      end
+    end
+
+    test "recent merge persistence starts before the GitHub-polling orchestrator" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        merge_store = Enum.find_index(mods, &(&1 == Aiur.RecentMergeStore))
+        orchestrator = Enum.find_index(mods, &(&1 == Aiur.Orchestrator))
+
+        assert merge_store < orchestrator,
+               "RecentMergeStore must precede Orchestrator for #{inspect(opts)}"
       end
     end
 

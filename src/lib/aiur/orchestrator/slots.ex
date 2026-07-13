@@ -203,13 +203,15 @@ defmodule Aiur.Orchestrator.Slots do
     }
   end
 
-  # Paused agents keep their slot reserved: a deliberate pause should not
-  # free capacity for the polling loop to auto-claim the next agent:todo
-  # ticket. Resuming a paused agent reuses the held slot via
-  # `resume_paused_issue/2`, which bypasses this check.
+  # Deliberate/operator pauses keep their slot reserved so the polling loop
+  # cannot auto-claim replacement work. CI-wait is the exception: the daemon
+  # owns that wait, so the parked runner releases normal dispatch capacity.
   @spec available_slots(State.t()) :: non_neg_integer()
   def available_slots(%State{} = state) do
-    used = State.active_running_count(state.running) + State.paused_running_count(state.running)
+    used =
+      State.active_running_count(state.running) +
+        State.reserved_paused_running_count(state.running)
+
     max(effective_concurrent_agent_limit(state) - used, 0)
   end
 

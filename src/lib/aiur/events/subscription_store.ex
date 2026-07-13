@@ -40,7 +40,9 @@ defmodule Aiur.Events.SubscriptionStore do
 
   Registered as `{:via, Registry, {Aiur.Events.SubscriptionStoreRegistry,
   identifier}}`. The supervisor is a DynamicSupervisor — `attach/1` is
-  idempotent and starts a writer on first call.
+  idempotent and starts a writer on first call. The Registry value mirrors
+  the durable `open_attentions` count so orchestrator snapshots can read it
+  directly from Registry's ETS table without calling this GenServer.
 
   ## Lifecycle
 
@@ -111,10 +113,16 @@ defmodule Aiur.Events.SubscriptionStore do
   """
   @spec stop(String.t()) :: :ok
   def stop(identifier) when is_binary(identifier) do
-    case Registry.lookup(@registry, identifier) do
+    case registry_lookup(identifier) do
       [{pid, _}] -> GenServer.stop(pid, :normal)
       [] -> :ok
     end
+  end
+
+  defp registry_lookup(identifier) do
+    Registry.lookup(@registry, identifier)
+  rescue
+    ArgumentError -> []
   end
 
   @doc """
@@ -179,6 +187,24 @@ defmodule Aiur.Events.SubscriptionStore do
     end
   end
 
+  @doc """
+  Open-attention count for one ticket — shared by the CLI agent-list `❗N`
+  badge and the OCC-5 fleet-state row. This is a direct Registry ETS lookup,
+  never a synchronous call to the per-ticket store, so it is safe on the
+  orchestrator snapshot path. A missing, torn-down, or restarting store reads
+  as `0`; `init/1` restores the durable count before `attach/1` returns.
+  """
+  @spec open_attention_count(String.t()) :: non_neg_integer()
+  def open_attention_count(identifier) when is_binary(identifier) do
+    case registry_lookup(identifier) do
+      [{pid, count}] when is_integer(count) and count >= 0 ->
+        if Process.alive?(pid), do: count, else: 0
+
+      _ ->
+        0
+    end
+  end
+
   @doc false
   # Provided so tests can stub the enqueue call without invoking the
   # full orchestrator. Default behaviour: route to Aiur.Orchestrator.
@@ -206,6 +232,7 @@ defmodule Aiur.Events.SubscriptionStore do
     # the binding registration silently drops the event.
     state = load_persisted(state)
     state = register_existing_bindings(state)
+    :ok = publish_open_attention_count(state)
 
     {:ok, state}
   end
@@ -284,6 +311,7 @@ defmodule Aiur.Events.SubscriptionStore do
     else
       new_state = %{state | open_attentions: state.open_attentions ++ [slug]}
       :ok = persist(new_state)
+      :ok = publish_open_attention_count(new_state)
       {:reply, :ok, new_state}
     end
   end
@@ -292,6 +320,7 @@ defmodule Aiur.Events.SubscriptionStore do
     if slug in state.open_attentions do
       new_state = %{state | open_attentions: Enum.reject(state.open_attentions, &(&1 == slug))}
       :ok = persist(new_state)
+      :ok = publish_open_attention_count(new_state)
       {:reply, :ok, new_state}
     else
       {:reply, :ok, state}
@@ -438,6 +467,11 @@ defmodule Aiur.Events.SubscriptionStore do
     _ -> :ok
   catch
     :exit, _ -> :ok
+  end
+
+  defp publish_open_attention_count(state) do
+    _ = Registry.update_value(@registry, state.identifier, fn _current -> length(state.open_attentions) end)
+    :ok
   end
 
   defp to_snapshot(state) do

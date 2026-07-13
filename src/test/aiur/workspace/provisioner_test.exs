@@ -4,6 +4,22 @@ defmodule Aiur.Workspace.ProvisionerTest do
   alias Aiur.Workflow
   alias Aiur.Workspace.Provisioner
 
+  test "remote workers receive the bundled agent skill install script" do
+    parent = self()
+
+    runner = fn host, script, timeout ->
+      send(parent, {:remote_install, host, script, timeout})
+      {:ok, {"", 0}}
+    end
+
+    assert :ok = Provisioner.maybe_install_agent_skills("/remote/workspace", "worker-1", runner)
+    assert_received {:remote_install, "worker-1", script, timeout}
+    assert is_integer(timeout) and timeout > 0
+    assert script =~ ".claude/skills/design-import"
+    assert script =~ "agents/openai.yaml"
+    assert script =~ ".codex/skills/design-import"
+  end
+
   test "parse_remote_workspace_output/1 with valid marker line returns ok tuple" do
     noise = "some\npreamble\n"
     marker_line = "__AIUR_WORKSPACE__\t1\t/resolved/path\n"

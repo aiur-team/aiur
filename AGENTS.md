@@ -52,6 +52,7 @@ aiurdev status                # report the running session
 aiurdev agents                # one line per agent: state + current activity (headless dashboard equivalent)
 aiurdev set max-agents <n>    # change the concurrent-agent cap at runtime (no config edit)
 aiurdev pause | resume        # pause / resume the workflow
+aiurdev --todo <ids...> [--only] # queue tickets; optionally dequeue all other pending tickets
 aiurdev init                  # scaffold .aiur/ (or migrate a legacy .aiurconfig)
 aiurdev build                 # force-rebuild the local release (shim-only)
 aiurdev --host …              # opt out of the local-only --host injection

@@ -48,4 +48,8 @@ defmodule Aiur.FsTest do
     assert :ok = Fs.atomic_write(path, "second")
     assert File.read!(path) == "second"
   end
+
+  test "sync_filesystem/0 succeeds" do
+    assert :ok = Fs.sync_filesystem()
+  end
 end

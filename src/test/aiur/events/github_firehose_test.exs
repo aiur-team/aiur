@@ -125,6 +125,106 @@ defmodule Aiur.Events.GithubFirehoseTest do
       assert_receive {:event, %{topic: "ticket.7.pr.merged"}}, 500
     end
 
+    test "startup reconciliation persists a pre-boot non-ticket merge from a later bounded page" do
+      page_1 = ignored_events("startup-burst", 30)
+
+      page_2 = [
+        pr_merged_event("historical-merge", "release/2026-07", 812, "historical-head", created_at: "2026-07-12T16:00:00Z")
+      ]
+
+      parent = self()
+
+      stub = fn req ->
+        page = request_page(req)
+        send(parent, {:events_page_requested, page})
+        body = if page == "1", do: page_1, else: page_2
+        {:ok, %{status: 200, headers: [{"ETag", ~s("startup-etag")}], body: body}}
+      end
+
+      persist = fn merge ->
+        send(parent, {:recent_merge_persisted, merge})
+        {:ok, %{status: :accepted, merge: merge}}
+      end
+
+      boot_time = ~U[2026-07-12 18:00:00Z] |> DateTime.to_unix()
+
+      assert {:ok, %{count: 0, pages_fetched: 2, partial_window?: false}} =
+               GithubFirehose.poll(
+                 request_fun: stub,
+                 recent_merge_fun: persist,
+                 boot_time: boot_time,
+                 run_id: "current-run"
+               )
+
+      assert_receive {:recent_merge_persisted,
+                      %Aiur.RecentMerge{
+                        number: 812,
+                        ticket_id: nil,
+                        backfilled?: true,
+                        live_observed?: false,
+                        observed_run_id: nil
+                      }},
+                     500
+
+      assert_receive {:events_page_requested, "1"}
+      assert_receive {:events_page_requested, "2"}
+    end
+
+    test "a durable merge-store failure holds the poll cursor but preserves ticket merge publication" do
+      :ok = Exchange.subscribe("ticket.77.pr.merged")
+
+      event =
+        pr_merged_event("live-merge", "aiur/77-reconcile-outcomes", 8_177, "live-head", created_at: "2026-07-12T18:00:00Z")
+
+      stub = fn _ ->
+        {:ok,
+         %{
+           status: 200,
+           headers: [{"ETag", ~s("failed-persist-etag")}],
+           body: [event, ignored_event("last-seen")]
+         }}
+      end
+
+      persist = fn _merge -> {:error, {:append_failed, :disk_full}} end
+      boot_time = ~U[2026-07-12 17:00:00Z] |> DateTime.to_unix()
+
+      assert {:error, {:recent_merge_persistence, {:append_failed, :disk_full}, %{etag: ~s("failed-persist-etag"), last_event_id: "live-merge"}}} =
+               GithubFirehose.poll(
+                 request_fun: stub,
+                 recent_merge_fun: persist,
+                 last_event_id: "last-seen",
+                 boot_time: boot_time,
+                 run_id: "current-run"
+               )
+
+      assert_receive {:event, %{topic: "ticket.77.pr.merged", pr: %{"number" => 8_177}}}, 500
+    end
+
+    test "a saturated reconciliation cap is disclosed instead of fetching an unbounded window" do
+      parent = self()
+
+      stub = fn req ->
+        page = request_page(req)
+        send(parent, {:events_page_requested, String.to_integer(page)})
+        {:ok, %{status: 200, headers: [{"ETag", ~s("saturated-etag")}], body: ignored_events("p#{page}", 30)}}
+      end
+
+      mark_reconciliation = fn partial?, pages ->
+        send(parent, {:reconciliation_marked, partial?, pages})
+        :ok
+      end
+
+      assert {:ok, %{pages_fetched: 5, partial_window?: true}} =
+               GithubFirehose.poll(
+                 request_fun: stub,
+                 recent_merge_reconciliation_fun: mark_reconciliation
+               )
+
+      assert_receive {:reconciliation_marked, true, 5}
+      assert Enum.map(1..5, fn _ -> receive do: ({:events_page_requested, page} -> page) end) == [1, 2, 3, 4, 5]
+      refute_receive {:events_page_requested, 6}, 100
+    end
+
     test "merged PR events bypass the tracked filter for human-review tickets" do
       Publisher.set_tracked_fn(fn n -> to_string(n) != "7" end)
       :ok = Exchange.subscribe("ticket.7.pr.merged")
@@ -409,6 +509,30 @@ defmodule Aiur.Events.GithubFirehoseTest do
         "pull_request" => %{
           "number" => pr_number,
           "head" => %{"ref" => "aiur/#{ticket_id}", "sha" => head_sha}
+        }
+      }
+    }
+  end
+
+  defp pr_merged_event(id, head_ref, pr_number, head_sha, opts) do
+    %{
+      "id" => id,
+      "type" => "PullRequestEvent",
+      "created_at" => Keyword.fetch!(opts, :created_at),
+      "actor" => %{"login" => "merger"},
+      "repo" => %{"name" => "owner/repo"},
+      "payload" => %{
+        "action" => "closed",
+        "pull_request" => %{
+          "number" => pr_number,
+          "title" => "Merged PR #{pr_number}",
+          "body" => "Bounded summary",
+          "html_url" => "https://github.com/owner/repo/pull/#{pr_number}",
+          "merged" => true,
+          "merged_at" => Keyword.fetch!(opts, :created_at),
+          "merge_commit_sha" => "merge-#{pr_number}",
+          "head" => %{"ref" => head_ref, "sha" => head_sha},
+          "merged_by" => %{"login" => "merger"}
         }
       }
     }

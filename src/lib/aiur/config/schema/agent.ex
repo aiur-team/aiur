@@ -100,6 +100,13 @@ defmodule Aiur.Config.Schema.Agent do
     field(:max_concurrent_agents_by_state, :map, default: %{})
     field(:routing, :map, default: %{})
     field(:switch_model_on_ratelimit, {:array, :string}, default: [])
+    # Automatic codex -> claude reroute for an ALREADY-RUNNING codex agent that
+    # hits usage_limit_exhausted, reverted at a safe boundary once
+    # ModelAvailability confirms codex recovery
+    # (Aiur.Orchestrator.RateLimitFallback). Default on, unlike
+    # switch_model_on_ratelimit above (opt-in, applies only to a new claim).
+    # "" disables it.
+    field(:rate_limit_fallback, :string, default: "claude")
     field(:complexity_prompts, :map, default: %{})
     # Backend-agnostic turn/stall timeouts (promoted from codex; claude-repl
     # already reads these via Config.agent_turn_timeout_ms/0).
@@ -108,6 +115,9 @@ defmodule Aiur.Config.Schema.Agent do
     # Safety checkpoint: pause an agent that has been actively running this
     # many minutes (paused/blocked time excluded). 0 disables it.
     field(:max_agent_duration_minutes, :integer, default: 60)
+    # A CI-wait pause releases its dispatch slot. If no terminal CI event is
+    # observed in this window, wake the agent for one recovery check.
+    field(:ci_wait_rewake_minutes, :integer, default: 5)
     # Per-scheduler 1-min load ceiling for the dispatch load gate (#465).
     # Enabled by default so high-concurrency runs have protection without
     # extra operator knowledge; explicit YAML null disables it.
@@ -148,10 +158,12 @@ defmodule Aiur.Config.Schema.Agent do
         :max_concurrent_agents_by_state,
         :routing,
         :switch_model_on_ratelimit,
+        :rate_limit_fallback,
         :complexity_prompts,
         :turn_timeout_ms,
         :stall_timeout_ms,
         :max_agent_duration_minutes,
+        :ci_wait_rewake_minutes,
         :max_load_average,
         :target_load_average,
         :load_ramp_step,
@@ -171,6 +183,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:turn_timeout_ms, greater_than: 0)
     |> validate_number(:stall_timeout_ms, greater_than_or_equal_to: 0)
     |> validate_number(:max_agent_duration_minutes, greater_than_or_equal_to: 0)
+    |> validate_number(:ci_wait_rewake_minutes, greater_than: 0)
     |> validate_number(:max_load_average, greater_than: 0)
     |> validate_number(:target_load_average, greater_than: 0)
     |> validate_number(:load_ramp_step, greater_than: 0)
@@ -189,6 +202,11 @@ defmodule Aiur.Config.Schema.Agent do
         Enum.all?(backends, &(&1 in known)) -> []
         true -> [switch_model_on_ratelimit: "contains an unknown backend; known backends: #{inspect(known)}"]
       end
+    end)
+    |> validate_change(:rate_limit_fallback, fn :rate_limit_fallback, backend ->
+      if backend in ["", "claude"],
+        do: [],
+        else: [rate_limit_fallback: "must be \"claude\" or \"\" to disable"]
     end)
     |> update_change(:complexity_prompts, &AgentValidation.normalize_complexity_prompts/1)
     |> AgentValidation.validate_complexity_prompts(:complexity_prompts)

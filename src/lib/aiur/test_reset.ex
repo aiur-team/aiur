@@ -36,6 +36,7 @@ defmodule Aiur.TestReset do
   require Logger
 
   alias Aiur.Config.Paths
+  alias Aiur.GitHub.Labels
   alias Aiur.{JsonStore, TicketBranch}
 
   @tickets_file ".aiur-test-tickets.json"
@@ -767,11 +768,12 @@ defmodule Aiur.TestReset do
   """
   @spec reset_labels_command_args(integer() | String.t()) :: [[String.t()]]
   def reset_labels_command_args(id) do
-    agent_labels =
-      "agent:todo,agent:in-progress,agent:ci-wait,agent:human-review,agent:rework,agent:merging,agent:done,agent:error,agent:cancelled,agent:canceled,agent:paused"
+    reset_labels =
+      Labels.state_labels("agent") ++
+        Labels.paused_labels("agent") ++ Labels.required_rate_limit_fallback_labels("agent")
 
     [
-      ["issue", "edit", to_string(id), "--remove-label", agent_labels],
+      ["issue", "edit", to_string(id), "--remove-label", Enum.join(reset_labels, ",")],
       ["issue", "edit", to_string(id), "--add-label", "agent:todo"]
     ]
   end

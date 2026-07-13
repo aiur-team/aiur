@@ -9,16 +9,17 @@ defmodule Aiur.Init.Labels do
   alias Aiur.Init.Format
   alias Aiur.Init.Questions
 
-  # Workflow-state label prefix used by the orchestrator.
-  @label_prefix "agent"
+  @default_label_prefix "agent"
   @config_file_name ".aiur/config"
 
   @spec setup_labels(Aiur.Init.io(), Aiur.Init.deps(), map(), [String.t()]) :: :ok | :error
   def setup_labels(io, deps, %{kind: "github"} = tracker, agents) do
     kinds = Questions.agent_kinds(agents)
     existing = fetch_existing_labels(deps, tracker)
+    required = required_labels(Map.get(tracker, :label_prefix, @default_label_prefix))
 
-    with :ok <- create_lifecycle_labels(io, deps, tracker, existing),
+    with :ok <- create_required_labels(io, deps, tracker, existing, required),
+         existing = Enum.uniq(existing ++ required),
          :ok <- maybe_create_complexity_labels(io, deps, tracker, existing),
          :ok <- maybe_create_model_labels(io, deps, tracker, existing, kinds) do
       maybe_create_remote_label(io, deps, tracker, existing, kinds)
@@ -36,22 +37,24 @@ defmodule Aiur.Init.Labels do
     end
   end
 
-  # Stage 1 — the required lifecycle (`agent:*`) labels the orchestrator reads.
-  defp create_lifecycle_labels(io, deps, tracker, existing) do
-    labels = Labels.state_labels(@label_prefix)
-
+  # Stage 1 — labels required for workflow state and the default rate-limit fallback.
+  defp create_required_labels(io, deps, tracker, existing, labels) do
     case labels -- existing do
       [] ->
-        io.puts.(label_status_line("Lifecycle agent tags"))
+        io.puts.(label_status_line("Required agent tags"))
         :ok
 
       missing ->
         io.puts.("\nAiur uses ticket labels to route agents. Next we'll use your GITHUB_TOKEN to create the following labels in the repo:")
         print_label_list(io, labels)
-        Format.print_hint(io, "These lifecycle ticket labels are required.")
+        Format.print_hint(io, "These workflow and automatic-fallback labels are required.")
         io.input.("Press Enter to create them", "", nil)
         create_labels_request(io, deps, tracker, labels, missing)
     end
+  end
+
+  defp required_labels(prefix) do
+    Labels.state_labels(prefix) ++ Labels.required_rate_limit_fallback_labels(prefix)
   end
 
   # Stage 2 — optional complexity labels.

@@ -23,7 +23,7 @@ defmodule Aiur.AiurAgentSkillTest do
     attention-and-resolve.md
     stub-then-fetch.md
   )
-  @codex_exposed_aiur_skills ~w(aiur-agent aiur-monitor aiur-run using-aiur)
+  @codex_exposed_aiur_skills ~w(aiur-agent aiur-monitor aiur-run design-import using-aiur)
   @claude_operator_only_skills ~w(aiur-loop release)
 
   test "Claude backend surface: canonical skill dir exists with a SKILL.md" do
@@ -276,6 +276,45 @@ defmodule Aiur.AiurAgentSkillTest do
     assert repo_prompt =~ "authoritative full lint and full test suite through `make ci`"
     assert repo_prompt =~ "Do not gate PR-opening on a clean full-suite `mix test` run"
     assert repo_prompt =~ "Fix failures in this scoped gate"
+  end
+
+  test "agent workflow hands final PR CI to ci-wait without a polling turn" do
+    dev_loop = one_line(File.read!(Path.join(@repo_root, ".claude/skills/using-aiur/dev-loop.md")))
+    turn_workflow = one_line(File.read!(Path.join(@repo_root, ".claude/skills/using-aiur/turn-workflow.md")))
+    monitor = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md")))
+    repo_prompt = one_line(File.read!(Path.join(@repo_root, ".aiur/prompt.md")))
+    example_prompt = one_line(File.read!(Path.join(@repo_root, ".aiur/examples/prompt.md.example")))
+
+    for source <- [dev_loop, turn_workflow, repo_prompt, example_prompt] do
+      assert source =~ "agent:ci-wait"
+      assert source =~ "Do not loop"
+    end
+
+    assert dev_loop =~ "keep the PR as a draft"
+    assert dev_loop =~ "trust the delivered result without re-polling"
+    assert dev_loop =~ "delivered failed-check names and excerpt"
+    assert dev_loop =~ "run `gh pr checks` exactly once"
+    assert dev_loop =~ "emit the required 100% progress sample"
+    assert monitor =~ "Aiur.Events.GithubCiPoller"
+    assert monitor =~ "expected, non-actionable idle state"
+    assert monitor =~ "Do not keep or wake a worker turn just to poll `gh pr checks`"
+  end
+
+  test "CI-wait fallback config is documented but is not an init question" do
+    config_reference =
+      File.read!(Path.join(@repo_root, "website/docs-app/reference/configuration.md"))
+
+    assert config_reference =~ "`agent.ci_wait_rewake_minutes`"
+    assert config_reference =~ "| 5 |"
+    assert config_reference =~ "positive integer"
+
+    init_source =
+      @repo_root
+      |> Path.join("src/lib/aiur/init/**/*.ex")
+      |> Path.wildcard()
+      |> Enum.map_join("\n", &File.read!/1)
+
+    refute init_source =~ "ci_wait_rewake_minutes"
   end
 
   defp assert_codex_skill_symlink_resolves_to_claude(skill) do

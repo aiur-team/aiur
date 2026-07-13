@@ -32,7 +32,7 @@ defmodule Aiur.Orchestrator.PrAnchoredTest do
       max_concurrent_agents: nil,
       session_max_concurrent_agents: nil,
       effective_concurrent_agents: nil,
-      load_envelope_last_decrease_ms: nil,
+      load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil},
       next_poll_due_at_ms: nil,
       poll_check_in_progress: nil,
       tick_timer_ref: nil,

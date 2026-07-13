@@ -25,13 +25,13 @@ defmodule Aiur.RunTelemetry do
     :ok
   end
 
-  @doc false
+  @doc "Delegates to `Aiur.Boot.run_id/0` so telemetry never reports a stale id after a test reboot."
   @spec boot_id() :: String.t()
-  def boot_id, do: boot_state().id
+  def boot_id, do: Aiur.Boot.run_id()
 
-  @doc false
+  @doc "Delegates to `Aiur.Boot.started_at/0`."
   @spec boot_started_at() :: DateTime.t()
-  def boot_started_at, do: boot_state().started_at
+  def boot_started_at, do: Aiur.Boot.started_at()
 
   @doc false
   @spec next_sequence() :: pos_integer()
@@ -106,10 +106,6 @@ defmodule Aiur.RunTelemetry do
   end
 
   defp new_boot_state do
-    %{
-      id: 12 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false),
-      started_at: DateTime.utc_now(),
-      sequence_counter: :atomics.new(1, signed: false)
-    }
+    %{sequence_counter: :atomics.new(1, signed: false)}
   end
 end

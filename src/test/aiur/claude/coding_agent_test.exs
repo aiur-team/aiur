@@ -1,6 +1,7 @@
 defmodule Aiur.Claude.CodingAgentWorkspaceTest do
   use Aiur.TestSupport
 
+  alias Aiur.AgentRunner.ToolExecutor
   alias Aiur.Claude.CodingAgent, as: ClaudeAgent
   alias Aiur.Codex.DynamicTool
   alias Aiur.CodingAgent
@@ -127,6 +128,40 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
     assert get_in(response_frame, ["result", "output"]) == ~s({"ok":true})
   end
 
+  @tag :tmp_dir
+  test "oversized tool calls spill through the Claude adapter", %{tmp_dir: tmp_dir} do
+    workspace = Path.join(tmp_dir, "agent-1")
+    File.mkdir_p!(workspace)
+    {_output, 0} = System.cmd("git", ["init", "-q"], cd: workspace)
+    frames = Path.join(workspace, "frames.jsonl")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_kind: "claude",
+      workspace_root: tmp_dir,
+      command: fake_app_server_with_tool_call(frames)
+    )
+
+    issue = %{id: 1, identifier: "test:large-tool", title: "large-tool"}
+    output = String.duplicate("x", 110 * 1024)
+    tool_executor = fn _tool, _arguments -> %{"success" => true, "output" => output} end
+
+    assert {:ok, session} = ClaudeAgent.start_session(workspace)
+    assert {:ok, %{result: :turn_completed}} = ClaudeAgent.run_turn(session, "emit progress", issue, tool_executor: tool_executor)
+    ClaudeAgent.stop_session(session)
+
+    response_frame =
+      frames
+      |> File.read!()
+      |> String.split("\n", trim: true)
+      |> Enum.map(&Jason.decode!/1)
+      |> Enum.find(&(Map.get(&1, "id") == 101))
+
+    assert [path] =
+             Regex.run(~r/saved as JSON to (.+)\. Read the file/, get_in(response_frame, ["result", "output"]), capture: :all_but_first)
+
+    assert Jason.decode!(File.read!(path))["output"] == output
+  end
+
   test "tool call failures and unsupported calls are reported" do
     root = Path.join(System.tmp_dir!(), "aiur_claude_tool_errors_#{System.unique_integer([:positive])}")
     workspace = Path.join(root, "agent-1")
@@ -151,7 +186,7 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
     on_message = fn message -> send(test_pid, {:agent_message, message}) end
 
     tool_executor = fn tool, arguments ->
-      send(test_pid, {:tool_called, tool, arguments})
+      send(test_pid, {:tool_called, tool, arguments, ToolExecutor.invocation_id()})
       %{"success" => false, "error" => "not available"}
     end
 
@@ -165,8 +200,8 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
 
     ClaudeAgent.stop_session(session)
 
-    assert_received {:tool_called, "emit_alert", %{"name" => "phase.work.start", "message" => "starting"}}
-    assert_received {:tool_called, nil, %{}}
+    assert_received {:tool_called, "emit_alert", %{"name" => "phase.work.start", "message" => "starting"}, 101}
+    assert_received {:tool_called, nil, %{}, 102}
     assert_received {:agent_message, %{event: :tool_call_failed, payload: %{"params" => %{"tool" => "emit_alert"}}}}
     assert_received {:agent_message, %{event: :unsupported_tool_call, payload: %{"params" => %{}}}}
 

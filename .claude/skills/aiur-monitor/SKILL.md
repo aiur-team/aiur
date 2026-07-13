@@ -15,6 +15,12 @@ same aiur agent-status playbook.
 
 ## Procedure
 
+`agent:ci-wait` is an expected, non-actionable idle state: the central
+`Aiur.Events.GithubCiPoller` owns continuous CI polling while the issue worker is
+paused and its dispatch slot is released. Do not keep or wake a worker turn just
+to poll `gh pr checks`; terminal CI events or the configured fallback timer wake
+the worker with the next action.
+
 ### 1. Compile the board
 
 ```bash

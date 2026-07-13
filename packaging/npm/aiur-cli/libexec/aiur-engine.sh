@@ -236,16 +236,35 @@ release_dir=""
 vsn_dir=""
 release_bin=""
 
+control_release_retry() {
+  [ -n "${AIUR_CONTROL_RELEASE_RETRY_SIGNAL:-}" ] && : >"$AIUR_CONTROL_RELEASE_RETRY_SIGNAL"
+  return 75
+}
+
 resolve_release() {
   release_dir="${AIUR_RELEASE_DIR:-}"
   [ -n "$release_dir" ] || die "AIUR_RELEASE_DIR is not set; the engine must be invoked via the aiur or aiurdev wrapper"
-  [ -d "$release_dir" ] || die "AIUR_RELEASE_DIR does not exist: $release_dir"
+  if [ ! -d "$release_dir" ]; then
+    # aiurdev uses EX_TEMPFAIL to wait out an in-place dev rebuild and retry
+    # exactly once. Product launches keep the existing fatal diagnostics.
+    if [ "${AIUR_CONTROL_RELEASE_RETRYABLE:-0}" = "1" ]; then
+      control_release_retry
+      return $?
+    fi
+    die "AIUR_RELEASE_DIR does not exist: $release_dir"
+  fi
 
   local release_vsn
-  release_vsn="$(cut -d' ' -f2 "$release_dir/releases/start_erl.data")"
+  release_vsn="$(cut -d' ' -f2 "$release_dir/releases/start_erl.data" 2>/dev/null || true)"
   vsn_dir="$release_dir/releases/$release_vsn"
   release_bin="$release_dir/bin/aiur"
-  [ -x "$vsn_dir/elixir" ] || die "release elixir launcher not found at $vsn_dir/elixir"
+  if [ -z "$release_vsn" ] || [ ! -x "$release_bin" ] || [ ! -x "$vsn_dir/elixir" ]; then
+    if [ "${AIUR_CONTROL_RELEASE_RETRYABLE:-0}" = "1" ]; then
+      control_release_retry
+      return $?
+    fi
+    die "release elixir launcher not found at $vsn_dir/elixir"
+  fi
 }
 
 # --- argv round-trip (System.argv is empty under `elixir --eval`) -------------
@@ -302,6 +321,7 @@ Usage: aiur [--interactive] [--max-agents <n>] [--logs-root <path>] [--port <por
        aiur set max-agents <n>   change the concurrent-agent cap at runtime
        aiur pause <ids|--all> | resume <ids|--all>
        aiur message <id> <text>  send operator text to a running agent
+       aiur --todo <ids...> [--only]  queue tickets; optionally dequeue all other pending tickets
        aiur cleanup-stale [--dry-run]  list/reap stale manual-smoke leftovers
        aiur --version
 EOF
@@ -330,6 +350,18 @@ run_init() {
   write_argv "$@"
   export AIUR_ARGV_FILE="$argv_file"
   exec "${release_cmd[@]}"
+}
+
+# --- one-shot: --todo (distribution-free, no daemon/tmux) --------------------
+
+run_todo() {
+  if ! validate_todo_args "$@"; then
+    echo "aiur: --todo expects one or more numeric issue IDs, optionally followed by --only" >&2
+    exit 64
+  fi
+
+  load_dotenv
+  run_init "$@"
 }
 
 # --- interactive / background run -------------------------------------------
@@ -1556,7 +1588,7 @@ run_release_rpc_with_timeout() {
 # `__AIUR_CONTROL_EXIT__:<code>` marker we translate into the process exit code.
 run_control_rpc() {
   local expression="$1"
-  resolve_release
+  resolve_release || return $?
   prepare_distribution || die "distribution setup failed; cannot contact aiur"
   resolve_control_identity_from_records
   if [ "${AIUR_CONTROL_ADOPTED_RECORD:-0}" -eq 1 ]; then
@@ -1571,6 +1603,12 @@ run_control_rpc() {
   status=$?
   output="$AIUR_CONTROL_RPC_OUTPUT"
   set -e
+
+  if [ "$status" -ne 0 ] && [ "${AIUR_CONTROL_RELEASE_RETRYABLE:-0}" = "1" ] && \
+    { [ ! -x "$release_bin" ] || [ ! -x "$vsn_dir/elixir" ] || [ ! -r "$release_dir/releases/start_erl.data" ]; }; then
+    control_release_retry
+    return $?
+  fi
 
   if [ "${AIUR_CONTROL_RPC_TIMED_OUT:-0}" -eq 1 ]; then
     [ -n "$output" ] && printf '%s\n' "$output" >&2
@@ -1668,6 +1706,31 @@ parse_issue_targets() {
   done
 
   [ "${#parsed_targets[@]}" -gt 0 ]
+}
+
+validate_todo_args() {
+  local saw_todo=0 raw part parts target_count=0
+
+  for raw in "$@"; do
+    case "$raw" in
+      --todo)
+        [ "$saw_todo" -eq 0 ] || return 1
+        saw_todo=1
+        ;;
+      --only) ;;
+      -*) return 1 ;;
+      *)
+        IFS=',' read -ra parts <<<"$raw"
+        for part in "${parts[@]}"; do
+          part="$(trim "$part")"
+          if [ -z "$part" ] || [[ ! "$part" =~ ^[0-9]+$ ]]; then return 1; fi
+          target_count=$((target_count + 1))
+        done
+        ;;
+    esac
+  done
+
+  [ "$saw_todo" -eq 1 ] && [ "$target_count" -gt 0 ]
 }
 
 cmd_status() {
@@ -2055,6 +2118,13 @@ aiur_engine_main() {
       ;;
     --version)
       run_version "$@"
+      ;;
+    --todo)
+      run_todo "$@"
+      ;;
+    --only)
+      echo "aiur: --only is valid only with --todo" >&2
+      exit 64
       ;;
     init)
       run_init "$@"

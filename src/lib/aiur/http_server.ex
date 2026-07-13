@@ -5,7 +5,7 @@ defmodule Aiur.HttpServer do
 
   require Logger
 
-  alias Aiur.{Config, Orchestrator}
+  alias Aiur.{Config, DecisionApi, DecisionStore, Orchestrator}
   alias AiurWeb.Endpoint
 
   @secret_key_bytes 48
@@ -28,9 +28,12 @@ defmodule Aiur.HttpServer do
         orchestrator = Keyword.get(opts, :orchestrator, Orchestrator)
         snapshot_timeout_ms = Keyword.get(opts, :snapshot_timeout_ms, 15_000)
         dashboard_writable = Keyword.get(opts, :dashboard_writable, dashboard_writable?())
+        decision_api = Keyword.get(opts, :decision_api, DecisionApi)
+        decision_store = Keyword.get(opts, :decision_store, DecisionStore)
+        decision_policy = Keyword.get(opts, :decision_policy)
 
         with {:ok, ip} <- parse_host(host),
-             :ok <- guard_credentials_for_non_loopback(ip, host),
+             :ok <- guard_dashboard_credentials(ip, host, dashboard_writable),
              :ok <- guard_port_available(ip, port, host) do
           endpoint_opts = [
             server: true,
@@ -39,6 +42,10 @@ defmodule Aiur.HttpServer do
             orchestrator: orchestrator,
             snapshot_timeout_ms: snapshot_timeout_ms,
             dashboard_writable: dashboard_writable,
+            dashboard_auth_required: dashboard_writable or not loopback?(ip),
+            decision_api: decision_api,
+            decision_store: decision_store,
+            decision_policy: decision_policy,
             secret_key_base: secret_key_base()
           ]
 
@@ -50,7 +57,7 @@ defmodule Aiur.HttpServer do
           Application.put_env(:aiur, Endpoint, endpoint_config)
           Endpoint.start_link()
         else
-          :credentials_missing_for_non_loopback -> :ignore
+          :dashboard_credentials_missing -> :ignore
           :port_in_use -> :ignore
           other -> other
         end
@@ -72,19 +79,25 @@ defmodule Aiur.HttpServer do
     :exit, _reason -> nil
   end
 
-  # Refuse to bind on non-loopback when basic-auth credentials are
-  # missing. The dashboard exposes write endpoints (chat, pause,
-  # refresh); without auth, every device on the LAN/tailnet can POST.
-  # Returns `:ok` to proceed, or the sentinel
-  # `:credentials_missing_for_non_loopback` to short-circuit to
-  # `:ignore`. The Logger.error log line is the operator's only signal,
-  # so it must include the resolved host + env-var names + remediation.
-  defp guard_credentials_for_non_loopback(ip, host_input) do
+  # Require basic-auth credentials for writable dashboards on every host, and
+  # for read-only dashboards exposed beyond loopback. Returns `:ok` to proceed,
+  # or a sentinel that disables the dashboard after logging remediation.
+  defp guard_dashboard_credentials(ip, host_input, dashboard_writable) do
     cond do
-      loopback?(ip) ->
+      basic_auth_configured?() ->
         :ok
 
-      basic_auth_configured?() ->
+      dashboard_writable ->
+        Logger.error(
+          "Aiur dashboard refusing to start with observability.dashboard_writable enabled " <>
+            "without basic-auth credentials.\n" <>
+            "Set both AIUR_DASHBOARD_USERNAME and AIUR_DASHBOARD_PASSWORD env vars, " <>
+            "or disable observability.dashboard_writable."
+        )
+
+        :dashboard_credentials_missing
+
+      loopback?(ip) ->
         :ok
 
       true ->
@@ -95,7 +108,7 @@ defmodule Aiur.HttpServer do
             "or re-run with --host 127.0.0.1 (loopback bind is unauthenticated by design)."
         )
 
-        :credentials_missing_for_non_loopback
+        :dashboard_credentials_missing
     end
   end
 

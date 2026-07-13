@@ -160,6 +160,7 @@ on your `PATH`:
 | `aiurdev status` | Show active agents and their running/paused/idle state |
 | `aiurdev pause <id...>` / `pause --all` | Cooperatively pause agents by issue ID |
 | `aiurdev resume <id...>` / `resume --all` | Resume paused agents by issue ID |
+| `aiurdev --todo <id...> [--only]` | Queue GitHub tickets; with `--only`, dequeue all other pending tickets |
 | `aiurdev init [--force]` | Scaffold `.aiurconfig` in the current repo |
 | `aiurdev build` | Force-rebuild the local release (dev shim only) |
 
@@ -168,6 +169,13 @@ and `stop`) reuse the existing dev release when it is complete, even if sources
 are newer. They control the already-running node, so a stale-source rebuild would
 not update that session. Run/start paths and explicit `aiurdev build` still
 rebuild when needed.
+
+`--todo` is a standalone GitHub operation and does not require a running Aiur
+session. It derives labels from the current config. `--only` removes the queue
+label from other pending tickets but leaves in-progress work untouched.
+Concurrent `--only` invocations are not coordinated across processes; running
+two overlapping `aiurdev --todo ... --only` commands can drop each other's
+tickets, so avoid running them at the same time.
 
 If a control command times out while the daemon is still live, the host may be
 scheduler-saturated. Run `aiurdev stop` to interrupt that session and its workers,
@@ -229,8 +237,35 @@ instead of hard-coded socket names.
 When `server.port` (or CLI `--port`) is set, Aiur exposes:
 
 - LiveView dashboard at `/` — active agents, logs, read-only per-agent log modal
+  plus append-only Decision history and the 50 newest recent repository merges
 - JSON API under `/api/v1/*` for operational debugging (read endpoints; agent-write
   endpoints are disabled unless `observability.dashboard_writable` is set)
+- Read-only telemetry analytics at `/analytics` when the current run has a
+  `telemetry.ndjson` input; this route uses the same dashboard basic auth,
+  reducer, and self-contained renderer as the CLI artifact and is served with
+  `Cache-Control: no-store`
+
+### Supervisor Decision API
+
+The machine Decision API under `/api/v1/decisions` uses a dedicated bearer
+credential, not dashboard Basic Auth. Set `AIUR_SUPERVISOR_TOKEN` to at least 32
+random bearer-safe bytes. Keep the dashboard on loopback/private tunneling or
+terminate HTTPS before using the credential remotely.
+
+Supervisor answers and revisions are disabled until their Decision kinds are
+explicitly delegated:
+
+```yaml
+decisions:
+  supervisor_allowed_kinds: [architecture]
+  supervisor_allow_non_reversible: false
+```
+
+`human_required` remains absolute. Mutating enrich/decide/revise requests also
+require `observability.dashboard_writable: true`, an exact dashboard/loopback
+`Origin`, and `X-Aiur-Request: 1`. See the
+[OCC-7 supervisor Decision API contract](../docs/operator-control-center/06-occ-7-supervisor-decision-api-contract.md)
+for routes, payloads, retry semantics, and audit guarantees.
 
 ## Debug run telemetry
 
@@ -277,6 +312,12 @@ JavaScript inlined. It can be opened directly or served locally by any backend a
 makes no view-time network requests. Run
 `scripts/aiur-telemetry-dashboard --help` for the complete option list.
 
+While Aiur is running with its browser dashboard enabled, `/analytics` renders
+the current canonical `telemetry.ndjson` through that same reducer and renderer.
+The Operations Dashboard links to it only when the input exists; debug-off runs
+instead show an explicit analytics-unavailable state. The route accepts no input
+path parameter and is never browser-cacheable.
+
 ## Configuration notes
 
 - Path values support `~` for the home directory and `$VAR` for environment substitution.
@@ -301,10 +342,22 @@ makes no view-time network requests. Run
   failures. The Claude transports currently expose no equivalent authenticated
   account-usage endpoint, so they participate when a runtime limit is reported.
   Unknown reset times expire after one hour rather than excluding a backend
-  forever; a later successful refresh restores normal priority.
+  forever for new dispatches. The running-agent fallback does not treat that
+  estimate alone as recovery; it waits for a positive Codex observation or a
+  real reported reset time.
 - When every eligible fallback backend is limited, Aiur leaves the ticket
   unclaimed and emits one visible pause/retry alert until availability changes;
   it does not busy-loop dispatch attempts.
+- `agent.rate_limit_fallback` (default `claude`) automatically reroutes an
+  **already-running** codex agent to the headless Claude backend when it pauses on
+  `usage_limit_exhausted`, and reverts it back to codex at a safe turn boundary
+  after a positive recovery observation or a real reported reset. Unlike
+  `switch_model_on_ratelimit` above (opt-in, new claims only), this is
+  default-on and acts on a running agent. Set it to `""` to disable. After
+  upgrading an existing GitHub workflow, run `aiur init` once to provision the
+  marker and `model:claude` labels used by the automatic switch. Headless Claude
+  currently runs on the orchestrator host, so Aiur leaves Codex agents on SSH
+  worker workspaces parked instead of moving them to an unrunnable backend.
 - `agent.target_load_average` enables the adaptive dispatch envelope (default `1.0`
   per scheduler): capacity grows by `agent.load_ramp_step` below the target and
   halves after high samples, no more often than `agent.load_cooldown_seconds`.

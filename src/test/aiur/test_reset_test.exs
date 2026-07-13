@@ -434,7 +434,7 @@ defmodule Aiur.TestResetTest do
       assert Enum.at(add_argv, add_idx + 1) == "agent:todo"
     end
 
-    test "stripped label set covers every known agent:* state" do
+    test "stripped label set covers workflow and automatic fallback labels" do
       [remove_argv, _add_argv] = TestReset.reset_labels_command_args(99)
 
       idx = Enum.find_index(remove_argv, &(&1 == "--remove-label"))
@@ -443,7 +443,8 @@ defmodule Aiur.TestResetTest do
 
       # Every label the orchestrator can transition an issue into must
       # be cleared so reset always lands on a clean agent:todo.
-      for required <- ~w(agent:todo agent:in-progress agent:ci-wait agent:human-review agent:rework agent:merging agent:done agent:error agent:cancelled agent:canceled agent:paused) do
+      for required <-
+            ~w(agent:todo agent:in-progress agent:ci-wait agent:human-review agent:rework agent:merging agent:done agent:error agent:cancelled agent:canceled agent:paused agent:rate-limit-fallback model:claude) do
         assert required in labels, "remove set missing #{required}"
       end
     end

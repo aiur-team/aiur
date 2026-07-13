@@ -26,8 +26,11 @@ defmodule Aiur.GitHub.LabelsTest do
 
       assert "agent:watch" in labels
       assert "agent:paused" in labels
+      assert "agent:rate-limit-fallback" in labels
       refute "agent:watch" in Labels.state_labels("agent")
       refute "agent:paused" in Labels.state_labels("agent")
+      refute "agent:rate-limit-fallback" in Labels.state_labels("agent")
+      assert Labels.marker_suffix?("rate-limit-fallback")
     end
 
     test "only the chosen backends seed model labels" do
@@ -92,6 +95,7 @@ defmodule Aiur.GitHub.LabelsTest do
       assert Labels.describe("complexity:3") == "story-point complexity 3"
       assert Labels.describe("agent:watch") == "aiur watches this PR for comments"
       assert Labels.describe("agent:paused") == "suppress aiur work while preserving state"
+      assert Labels.describe("agent:rate-limit-fallback") == "tracks automatic usage-limit fallback"
     end
   end
 

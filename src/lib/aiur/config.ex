@@ -89,6 +89,24 @@ defmodule Aiur.Config do
   def switch_model_on_ratelimit, do: settings!().agent.switch_model_on_ratelimit || []
 
   @doc """
+  The headless Claude backend used by the automatic codex usage-limit fallback
+  (`Aiur.Orchestrator.RateLimitFallback`) when an already-running codex agent
+  hits `usage_limit_exhausted`, or `nil` when disabled
+  (`agent.rate_limit_fallback: ""`). The only enabled value is `"claude"`.
+  Unlike
+  `switch_model_on_ratelimit/0` (opt-in, only ever applies to a new claim),
+  this is default-on and reroutes a running local agent, reverting at a safe
+  turn boundary once `Aiur.ModelAvailability` confirms codex recovery.
+  """
+  @spec rate_limit_fallback_backend() :: String.t() | nil
+  def rate_limit_fallback_backend do
+    case settings!().agent.rate_limit_fallback do
+      backend when is_binary(backend) and backend != "" -> backend
+      _ -> nil
+    end
+  end
+
+  @doc """
   Setting #2: whether dispatched agents attach a `claude remote-control`
   session. Orthogonal to `agent_kind/0` and only meaningful for an
   RC-capable backend. The default lives in `Config.Schema` so flipping to
@@ -313,6 +331,12 @@ defmodule Aiur.Config do
     settings!().agent.max_agent_duration_minutes
   end
 
+  @doc "Minutes before a CI-wait agent is re-woken for one recovery check."
+  @spec ci_wait_rewake_minutes() :: pos_integer()
+  def ci_wait_rewake_minutes do
+    settings!().agent.ci_wait_rewake_minutes
+  end
+
   @doc """
   Maximum known synthetic load-generator descendants allowed per agent process
   tree. `nil` in config derives from available schedulers; `0` disables the
@@ -423,6 +447,19 @@ defmodule Aiur.Config do
   @spec dashboard_writable?() :: boolean()
   def dashboard_writable? do
     settings!().observability.dashboard_writable
+  end
+
+  @spec supervisor_decision_policy() :: %{
+          allowed_kinds: [String.t()],
+          allow_non_reversible: boolean()
+        }
+  def supervisor_decision_policy do
+    decisions = settings!().decisions
+
+    %{
+      allowed_kinds: decisions.supervisor_allowed_kinds,
+      allow_non_reversible: decisions.supervisor_allow_non_reversible
+    }
   end
 
   @spec observability_refresh_ms() :: pos_integer()
