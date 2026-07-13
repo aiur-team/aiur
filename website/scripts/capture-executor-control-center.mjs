@@ -174,9 +174,14 @@ async function waitUntilReady(fixture) {
 
 async function assertSyntheticPage(page) {
   const html = await page.content();
+  const visibleText = await page.locator("body").innerText();
 
   if (!syntheticMarkerPresent(html)) {
     throw new Error(`Refusing to capture ${page.url()}: synthetic fixture markers are missing`);
+  }
+
+  if (visibleText.includes("Human operator")) {
+    throw new Error(`Refusing to capture ${page.url()}: legacy human role copy is visible`);
   }
 }
 

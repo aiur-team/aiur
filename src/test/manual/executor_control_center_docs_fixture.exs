@@ -264,7 +264,7 @@ defmodule Aiur.Docs.ControlCenterFixture do
         question: "Approve the staged retry policy?",
         changed_at: DateTime.add(now(), -520, :second),
         event_kind: :answered,
-        actor: %{type: :human_operator, id: "example-operator", label: "Human operator"},
+        actor: %{type: :human_operator, id: "example-operator", label: "Executor"},
         choice: "Morning window",
         rationale: "Synthetic rationale for the docs.",
         dispatch_result: :queued
