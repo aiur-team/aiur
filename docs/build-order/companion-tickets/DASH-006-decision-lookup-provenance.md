@@ -12,9 +12,11 @@
 
 **Serializes with:** Decision schema/store/API/presenter and active Decision lifecycle changes
 
+**External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
+
 **Requirements:** DREQ-006
 
-**Researched at:** `b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5`
+**Researched at:** `16d6033d8824c8cb53ac09e2129f69af751be8c4`
 
 **Suggested labels:** `complexity:4`, `model:codex`; never `agent:todo`
 
@@ -70,11 +72,11 @@ Extend `Aiur.Decision`, `DecisionValidation`, `DecisionStore`, `DecisionApi`, `D
 
 ### At-merge gate
 
-- Rebase on current main and active Decision work; run Decision schema/store/API/history/metrics, presenter/cache/LiveView compatibility, migration/replay, security, and full CI suites.
+- Rebase on the resolved configured integration target and active Decision work; run Decision schema/store/API/history/metrics, presenter/cache/LiveView compatibility, migration/replay, security, and full CI suites.
 
 ### Human/manual evidence
 
-- From the operator repository root, open a retained Decision older than the overview window by direct URL, navigate at least two `All` pages, and verify trusted and legacy-unknown provenance/confidence render distinctly once DASH-007 consumes the contract.
+- From the Executor repository root, open a retained Decision older than the overview window by direct URL, navigate at least two `All` pages, and verify trusted and legacy-unknown provenance/confidence render distinctly once DASH-007 consumes the contract.
 
 ## Failure, security, migration, and accessibility cases
 

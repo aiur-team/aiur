@@ -8,13 +8,15 @@
 
 **Risk:** medium
 
-**Depends on:** GitHub #1034 (Executor terminology sweep)
+**Depends on:** none
 
 **Serializes with:** active dashboard shell, navigation, and shared CSS branches
 
+**External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
+
 **Requirements:** DREQ-001
 
-**Researched at:** `b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5`
+**Researched at:** `16d6033d8824c8cb53ac09e2129f69af751be8c4`
 
 **Suggested labels:** `complexity:3`, `model:codex`; never `agent:todo`
 
@@ -26,7 +28,13 @@ The Executor Control Center has URL-backed desktop and mobile navigation with a 
 
 ## Context and evidence
 
-Current main exposes LiveView routes at `/`, `/decisions`, and `/decisions/:decision_id`, plus a controller-backed secure Analytics document at `/analytics`. The refreshed prototype demonstrates a desktop sidebar and mobile bottom navigation but treats Analytics as a fake client panel and clips navigation at narrow widths. GitHub #1034 owns the user-facing Operator-to-Executor rename; this ticket must consume that terminology rather than reintroduce old copy.
+Current main exposes LiveView routes at `/`, `/decisions`, and
+`/decisions/:decision_id`, plus a controller-backed secure Analytics document
+at `/analytics`. The refreshed prototype demonstrates a desktop sidebar and
+mobile bottom navigation but treats Analytics as a fake client panel and clips
+navigation at narrow widths. GitHub #1034 completed the user-facing
+Operator-to-Executor rename on current main; this ticket consumes that landed
+terminology and the resolved integration baseline rather than reopening it.
 
 ## Scope
 
@@ -44,7 +52,7 @@ Current main exposes LiveView routes at `/`, `/decisions`, and `/decisions/:deci
 
 ## Existing owner and reuse target
 
-Extend `AiurWeb.DashboardLive`, `AiurWeb.Layouts`, `AiurWeb.Router`, the current dashboard asset pipeline, and `TelemetryDashboardController`. Reuse the authentication and writable/read-only contracts established on current main.
+Extend `AiurWeb.DashboardLive`, `AiurWeb.Layouts`, `AiurWeb.Router`, the current dashboard asset pipeline, and `TelemetryDashboardController`. Reuse the authentication and writable/read-only contracts established on the resolved configured integration target.
 
 ## Contract and invariants
 
@@ -56,7 +64,9 @@ Extend `AiurWeb.DashboardLive`, `AiurWeb.Layouts`, `AiurWeb.Router`, the current
 
 ## Refreshable implementation notes
 
-- Refresh GitHub #1034 and any open dashboard PRs at pickup; merge or rebase the accepted Executor terminology before editing shared copy.
+- Refresh current dashboard PRs at pickup and confirm the resolved integration
+  target contains #1034's accepted Executor terminology before editing shared
+  copy.
 - Likely extract HEEx components and route metadata rather than expanding the already-large `DashboardLive.render/1`.
 - Use CSS logical properties and `env(safe-area-inset-bottom)` where supported. Test long localized labels rather than sizing navigation around the current English strings.
 
@@ -70,11 +80,13 @@ Extend `AiurWeb.DashboardLive`, `AiurWeb.Layouts`, `AiurWeb.Router`, the current
 
 ### At-merge gate
 
-- Rebase on the completed #1034 terminology sweep and current main, reconcile the single shell/CSS owner, and pass router, dashboard, Analytics, asset, accessibility, and full CI gates.
+- Rebase on the resolved configured integration target, verify it contains the
+  completed #1034 terminology sweep, reconcile the single shell/CSS owner, and
+  pass router, dashboard, Analytics, asset, accessibility, and full CI gates.
 
 ### Human/manual evidence
 
-- From the operator repository root, drive the real `scripts/aiurdev --test` dashboard and navigate every destination at desktop and 390px with keyboard and touch emulation; capture that no bottom navigation obscures content.
+- From the Executor repository root, drive the real `scripts/aiurdev --test` dashboard and navigate every destination at desktop and 390px with keyboard and touch emulation; capture that no bottom navigation obscures content.
 
 ## Failure, security, migration, and accessibility cases
 
@@ -91,4 +103,8 @@ Extend `AiurWeb.DashboardLive`, `AiurWeb.Layouts`, `AiurWeb.Router`, the current
 
 ## Sibling boundaries and open gates
 
-DASH-003, DASH-005, DASH-007, and DASH-015 consume this shell but own their content. Build Order registers its route without making this ticket part of Build Order acceptance. Pickup is blocked until #1034's user-facing terminology decision is available on the implementation base.
+DASH-003, DASH-005, DASH-007, and DASH-015 consume this shell but own their
+content. Build Order registers its route without making this ticket part of
+Build Order acceptance. If the configured implementation base does not yet
+contain closed #1034, the shared predecessor-baseline gate—not a new feature
+ticket—must be resolved before pickup.

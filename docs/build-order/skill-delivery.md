@@ -7,6 +7,12 @@ isolated skill-only draft PR #1065 so `/aiur-build`, the consolidated bounded
 `/aiur-run` Executor role, `/aiur-monitor` wording, `/aiur-loop` retirement and
 publication validation are not lost with the research branch.
 
+The reviewed planning authority is commit
+`fb89a300075abb235e5b5c0330c8aab9c0d35c4d`. A later compatible successor is
+acceptable only after explicit review confirms it preserves the finite feature
+boundary, rework-before-ticket-multiplication rule, backlog-growth circuit
+breaker, privacy policy, and publication validator behavior.
+
 ## Why human-blocked
 
 The active dashboard run still consumes the old skill contracts. Landing the
@@ -16,8 +22,10 @@ gate, not unfinished Build Order implementation.
 ## Scope
 
 - Wait until the active dashboard Executor confirms its run is complete.
-- Review draft PR #1065 at its current isolated head and refresh it against the
-  configured integration branch.
+- Review draft PR #1065 at its current isolated head and reconcile its
+  conflicting `aiur-run`/`aiur-monitor`/loop changes with the Executor
+  terminology now on `origin/main` at `16d6033d`, then refresh it against the
+  configured integration branch without dropping the bounded contracts.
 - Run the skill validator, focused skill discovery/installation tests and the
   repository CI gate required at pickup.
 - Land only the isolated skill PR under current merge authority; do not merge
@@ -30,6 +38,14 @@ gate, not unfinished Build Order implementation.
 - Implement or dispatch Build Order.
 - Change the currently active Executor's instructions before its run ends.
 - Recreate the changes manually from the research branch.
+
+## Build Order gate
+
+This issue is published as an external native blocker of BO-001. It remains
+outside Build Order membership, points, ETA, and completion. Closing it means
+the reviewed revision (or a proven compatible successor) is landed or installed
+and all three skills are discoverable for both supported worker backends; merely
+closing PR #1065 without those checks does not resolve the gate.
 
 ## Labels
 

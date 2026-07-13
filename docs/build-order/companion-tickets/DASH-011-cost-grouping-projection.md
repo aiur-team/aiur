@@ -12,9 +12,11 @@
 
 **Serializes with:** usage query, pricing revision, and accounting projection changes
 
+**External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
+
 **Requirements:** DREQ-011
 
-**Researched at:** `b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5`
+**Researched at:** `16d6033d8824c8cb53ac09e2129f69af751be8c4`
 
 **Suggested labels:** `complexity:4`, `model:codex`; never `agent:todo`
 
@@ -26,7 +28,7 @@ Aiur returns exact-arithmetic, scope-labelled token and dollar totals by run/bui
 
 ## Context and evidence
 
-The operator requires spend and tokens per ticket, agent type, model, and total build. Subscription use is not a per-ticket invoice: the accepted policy is a versioned API-equivalent estimate with an asterisk/explanation and the actual account tier shown separately. A selected Build Order includes all retained usage attributable to its current GitHub member tickets, including usage recorded before membership; there is no joined-at cutoff. Provider-reported request cost and estimates cannot be silently added into one unlabeled spend value.
+The user requires spend and tokens per ticket, agent type, model, and total build. Subscription use is not a per-ticket invoice: the accepted policy is a versioned API-equivalent estimate with an asterisk/explanation and the actual account tier shown separately. A selected Build Order includes all retained usage attributable to its current GitHub member tickets, including usage recorded before membership; there is no joined-at cutoff. Provider-reported request cost and estimates cannot be silently added into one unlabeled spend value.
 
 ## Scope
 
@@ -75,16 +77,16 @@ Build a pure query/projection over DASH-009's `UsageLedger` behavior with a vers
 
 ### At-merge gate
 
-- Rebase on DASH-009/current main; run ledger/replay, pricing/query, exact-money, membership identity, security, regression, and full CI suites. Review price fixtures and policy copy as code/data changes.
+- Rebase on DASH-009 and the resolved configured integration target; run ledger/replay, pricing/query, exact-money, membership identity, security, regression, and full CI suites. Review price fixtures and policy copy as code/data changes.
 
 ### Human/manual evidence
 
-- Operator reviews a synthetic subscription example showing an API-equivalent estimate separately from a provider-reported estimate, verifies the `*`/explanation/tier requirement, and confirms unlike bases are not summed.
+- Executor reviews a synthetic subscription example showing an API-equivalent estimate separately from a provider-reported estimate, verifies the `*`/explanation/tier requirement, and confirms unlike bases are not summed.
 
 ## Failure, security, migration, and accessibility cases
 
 - Missing pricing/model/auth or degraded ledger produces partial/unknown with a reason; it never fails open to a monetary zero.
-- Treat grouped financial/operator facts as sensitive. Do not log query rows, account identity, credentials, or raw provider events.
+- Treat grouped financial/Executor facts as sensitive. Do not log query rows, account identity, credentials, or raw provider events.
 - Version price tables and output schema. Replay/query migration preserves historical basis/revision semantics.
 - No direct UI; all basis, scope, coverage, and unknown reason fields have human-readable labels for DASH-015.
 

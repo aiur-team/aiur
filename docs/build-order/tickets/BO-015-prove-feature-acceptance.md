@@ -16,11 +16,11 @@
 
 **Requirements:** BOREQ-015
 
-**Decisions:** DEC-008, DEC-011, DEC-012
+**Decisions:** DEC-008, DEC-011, DEC-012, DEC-013
 
 **Design evidence:** DESIGN-001, DESIGN-002
 
-**Researched at:** b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5
+**Researched at:** 16d6033d8824c8cb53ac09e2129f69af751be8c4
 
 **Suggested labels:** `complexity:4`, `model:codex`, `phase:8`, `build-lane:documentation`; never `agent:todo`
 
@@ -36,7 +36,7 @@ root issue with state reason `COMPLETED`.
 
 Parallel provider, event, activity, TUI, presenter, browser-harness, layout,
 context, route, interaction, and performance PRs can each pass locally without
-forming a trustworthy operator workflow. The prior OCC run showed why a
+forming a trustworthy Executor workflow. The prior OCC run showed why a
 capstone must exist from the start and why contained integration defects return
 to their owning ticket rather than becoming an expanding tail of follow-ups.
 
@@ -49,19 +49,23 @@ that should not be manufactured against live GitHub.
 - Requery repository instructions, the current configured integration branch,
   active dashboard work, the approved plan commit, published root membership,
   ticket mappings/labels, and every native hard dependency before integration.
+- Reconfirm the live root records both external gates as resolved: the named
+  branch/SHA contains the completed OCC baseline, and the bounded Executor
+  skill revision remains the loaded contract. A later branch or skill drift is
+  an explicit gate failure, not an inferred success.
 - Integrate all transitive BO-001..014 work, resolve only contained acceptance
   defects, run the full automated contract/CI matrix, and maintain an acceptance
-  matrix mapping every BOREQ to exact automated or operator evidence.
+  matrix mapping every BOREQ to exact automated or Executor evidence.
 - Dogfood the real currently published Build Order root through the real GitHub
   provider: select/deep-link it, verify all 15 member identities/labels/native
   edges/outcomes, observe real Aiur activity join, open cached context, navigate
-  dependencies, and exercise one authorized runtime action without any GitHub
-  planning mutation.
+  dependencies, follow one safe destination link, and confirm Build Order
+  exposes no GitHub or Aiur mutation handler.
 - Use BO-008's synthetic 20/50/100, cycle/self-loop, external/missing,
   malformed-catalog-root, selected structural-invalid, member-warning, stale
   LKG, unavailable-provider, unknown-activity, and fallback fixtures for full
   browser/accessibility/performance proof.
-- From the operator repository root, launch and drive the actual CLI/TUI exactly
+- From the Executor repository root, launch and drive the actual CLI/TUI exactly
   as required by `AGENTS.md`, open a running agent chat pane, send/observe the
   expected user-visible flow, and inspect the authenticated dashboard route.
   Do not substitute direct HTTP calls, logs, or an issue-workspace bypass.
@@ -69,7 +73,7 @@ that should not be manufactured against live GitHub.
   pan/zoom/fit, light/dark/forced-colors/reduced-motion, 200% text zoom,
   320/390/768/960/desktop, redraw/reconnect, packaged assets, and recorded
   20/50/100 budgets.
-- Write the operator route/interaction guide, GitHub root/member/metadata/
+- Write the Executor route/interaction guide, GitHub root/member/metadata/
   native-dependency authoring guide, provider health/freshness/troubleshooting
   guide, acceptance evidence index, and bounded cleanup record. Remove temporary
   fixtures/compatibility code only where their ticket contract requires it.
@@ -92,7 +96,7 @@ that should not be manufactured against live GitHub.
 
 Own feature-level acceptance across all merged Build Order modules, current
 dashboard routes/assets, published GitHub root, documentation, and the real
-operator-root CLI workflow. The Executor/acceptance owner performs proof that an
+Executor-root CLI workflow. The Executor/acceptance owner performs proof that an
 issue-workspace agent is prohibited from running and owns the final root state
 transition.
 
@@ -117,7 +121,7 @@ transition.
 - Never hardcode `main` or another merge target; resolve and record the current
   configured integration branch/policy at pickup and again before post-merge
   proof.
-- Prepare the operator-root manual checklist before merge so required auth,
+- Prepare the Executor-root manual checklist before merge so required auth,
   synthetic modes, screenshots, and cleanup can run without issue-workspace
   workarounds.
 - Keep capstone code changes narrowly integrative; route systemic non-blockers
@@ -148,7 +152,7 @@ transition.
 
 ### Human/manual evidence
 
-- Executor records the canonical operator-root real CLI/TUI plus authenticated
+- Executor records the canonical Executor-root real CLI/TUI plus authenticated
   browser workflow, real published-root dogfood, keyboard/touch/theme/motion/
   zoom evidence, and representative 100-member/degraded synthetic evidence.
 - Acceptance owner records the evidence link and closes the root with state
@@ -171,7 +175,7 @@ transition.
 - Reads: every merged Build Order contract; approved planning baseline and
   published GitHub root; current configured integration policy; real Aiur
   CLI/TUI/dashboard; BO-008 fixtures/evidence.
-- Writes: bounded integration fixes, acceptance matrix/evidence, operator and
+- Writes: bounded integration fixes, acceptance matrix/evidence, Executor and
   provider documentation, cleanup record, deferred findings, and final GitHub
   root state transition.
 - Contracts: finite feature terminal condition; post-merge acceptance sequence;
@@ -181,5 +185,6 @@ transition.
 
 All implementation tickets are transitive prerequisites. Dashboard companions,
 Linear parity, and deferred findings remain outside the root and cannot block
-closure. Publication approval and a successful GitHub reconciliation receipt
-must exist before execution; no issue is dispatched by this planning ticket.
+closure. Publication approval, the root's immutable reconciliation-comment
+link, and both resolved external gates must exist before execution; no issue is
+dispatched by this planning ticket.

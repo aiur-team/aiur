@@ -20,16 +20,17 @@
 
 **Design evidence:** DESIGN-002
 
-**Researched at:** b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5
+**Researched at:** 16d6033d8824c8cb53ac09e2129f69af751be8c4
 
 **Suggested labels:** `complexity:3`, `model:codex`, `phase:4`, `build-lane:frontend`; never `agent:todo`
 
 ## Outcome
 
-The interactive AgentList renders progress, active stage, and latest activity
-from BO-005's shared projection with no duplicate activity fold, while
-selection, live sorting, pane activation, waiting reasons, and existing TUI
-behavior remain intact.
+The interactive AgentList renders progress, active stage, and latest
+cross-ticket activity from BO-005's shared projection with no duplicate event
+fold, while it continues consuming orchestrator status for lifecycle/waiting/
+backend facts and preserves selection, live sorting, pane activation, and
+existing TUI behavior.
 
 ## Context and evidence
 
@@ -40,17 +41,22 @@ can use characterization tests to prove user-visible TUI parity.
 
 ## Scope
 
-- Replace AgentList-owned activity accumulation with BO-005 snapshot and PubSub
-  consumption, keyed by trusted tracker identity.
+- Replace AgentList-owned progress/stage/latest-event accumulation with BO-005
+  snapshot and PubSub consumption, keyed by trusted tracker identity.
 - Preserve current selected-row identity through live resorting, running/warming
   behavior, pane activation, explicit waiting reasons, latest evidence,
   progress/stage rendering, and headless absence.
+- Preserve current main's `⏹️` completed-runner marker and replacement-wait
+  behavior: an active tracker ticket at `:completed/:awaiting_dispatch` remains
+  visible, consumes no active capacity or AgentList worker slot, and must not
+  render as tracker-terminal completion.
 - Reconcile initial snapshot with updates without mount/subscribe races,
   duplicate application, or stale state overwriting a newer generation.
 - Remove or narrow old AgentList activity state, subscriptions, reducers, and
   pruning only after equivalent behavior is proven through the shared owner.
-- Keep presentation-only row state local; document which fields now come from
-  TicketActivity and which remain AgentList-owned.
+- Keep presentation-only row state local; document which fields come from
+  TicketActivity, which come from StatusReport/agent summaries, and which
+  remain AgentList-owned.
 - Preserve unknown/stale activity honestly instead of substituting prior UI
   defaults such as zero progress or generic idle.
 
@@ -70,8 +76,9 @@ and renderer contracts that do not own activity.
 
 ## Contract and invariants
 
-- BO-005 is the sole activity-state owner after cutover; AgentList derives rows
-  and presentation from its typed snapshot.
+- BO-005 is the sole owner of progress/stage/latest cross-ticket event state
+  after cutover. StatusReport remains the lifecycle/waiting/backend owner;
+  AgentList combines those typed snapshots only for presentation.
 - Selection follows canonical row identity, not transient index, across live
   resorting and roster changes.
 - Subscription-before-snapshot or equivalent generation-safe loading prevents
@@ -93,8 +100,12 @@ and renderer contracts that do not own activity.
 ### Agent gate
 
 - Characterization covers selected-row preservation, live resorting, warm-up to
-  running transitions, pane open eligibility, waiting reasons, progress/stage,
-  latest evidence, retry, completion, unknown/stale, and projection restart.
+  running transitions, pane open eligibility, existing StatusReport waiting
+  reasons, progress/stage, latest evidence, retry, completion, unknown/stale,
+  and projection restart.
+- Characterization proves the `⏹️` completed-runner row keeps its
+  replacement-wait reason, zero-active/zero-slot accounting, visibility, and
+  transition to a replacement worker without becoming `Finished`.
 - Tests prove only one activity update is applied, lost-subscription windows are
   closed, and AgentList restart does not reset shared state.
 - Removed modules/subscriptions have no remaining call sites or duplicate event
@@ -126,8 +137,8 @@ and renderer contracts that do not own activity.
 - Reads: BO-005 snapshots/PubSub; current AgentList roster/selection state.
 - Writes: AgentList consumer adapter, subscriptions, row derivation, deletion
   of duplicate activity ownership, and characterization tests.
-- Contracts: sole activity owner; generation-safe AgentList consumption;
-  preserved TUI behavior.
+- Contracts: sole event-activity owner plus existing StatusReport ownership;
+  generation-safe AgentList consumption; preserved TUI behavior.
 
 ## Sibling boundaries and open gates
 

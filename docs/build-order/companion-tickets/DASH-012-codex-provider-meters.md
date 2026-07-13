@@ -12,9 +12,11 @@
 
 **Serializes with:** Codex account/rate-limit protocol and `ModelAvailability` integration changes
 
+**External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
+
 **Requirements:** DREQ-012
 
-**Researched at:** `b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5`
+**Researched at:** `16d6033d8824c8cb53ac09e2129f69af751be8c4`
 
 **Suggested labels:** `complexity:4`, `model:codex`; never `agent:todo`
 

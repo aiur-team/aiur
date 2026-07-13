@@ -10,7 +10,7 @@
 
 **Phase hint:** 2
 
-**Depends on:** BO-001
+**Depends on:** BO-001, BO-008
 
 **Serializes with:** none
 
@@ -20,7 +20,7 @@
 
 **Design evidence:** DESIGN-001, DESIGN-002
 
-**Researched at:** b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5
+**Researched at:** 16d6033d8824c8cb53ac09e2129f69af751be8c4
 
 **Suggested labels:** `complexity:4`, `model:codex`, `phase:2`, `build-lane:frontend`; never `agent:todo`
 

@@ -12,9 +12,11 @@
 
 **Serializes with:** DASH-005 and other Units/DashboardLive/shared CSS branches
 
+**External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
+
 **Requirements:** DREQ-003
 
-**Researched at:** `b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5`
+**Researched at:** `16d6033d8824c8cb53ac09e2129f69af751be8c4`
 
 **Suggested labels:** `complexity:3`, `model:codex`; never `agent:todo`
 
@@ -71,11 +73,11 @@ Extend the current Fleet table/filter/presenter components under `AiurWeb.Operat
 
 ### At-merge gate
 
-- Merge current main plus DASH-001/002 and the BO-011 acceptance result, sequence shared `DashboardLive`/CSS ownership, and pass Fleet, ticket-context, Decision-link, accessibility, asset, and full CI gates.
+- Merge the resolved configured integration target plus DASH-001/002 and the BO-011 acceptance result, sequence shared `DashboardLive`/CSS ownership, and pass Fleet, ticket-context, Decision-link, accessibility, asset, and full CI gates.
 
 ### Human/manual evidence
 
-- From the operator repository root, run the real `scripts/aiurdev --test` UI and verify multi-signal, queued, paused, unknown, and terminal rows at desktop and 390px; copy a filtered URL, navigate ticket context with keyboard only, and confirm focus returns to the originating control.
+- From the Executor repository root, run the real `scripts/aiurdev --test` UI and verify multi-signal, queued, paused, unknown, and terminal rows at desktop and 390px; copy a filtered URL, navigate ticket context with keyboard only, and confirm focus returns to the originating control.
 
 ## Failure, security, migration, and accessibility cases
 

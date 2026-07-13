@@ -2,14 +2,39 @@
   "schema_version": 1,
   "plan_version": 1,
   "repository": "its-everdred/aiur",
-  "researched_at_commit": "b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5",
+  "researched_at_commit": "16d6033d8824c8cb53ac09e2129f69af751be8c4",
   "approved_planning_commit": null,
   "required_labels": ["model:codex"],
   "forbidden_labels": [
     "agent:todo",
     "agent:in-progress",
+    "agent:human-review",
     "agent:rework",
-    "agent:merging"
+    "agent:merging",
+    "agent:paused",
+    "agent:done",
+    "agent:ci-wait",
+    "agent:error",
+    "agent:canceled",
+    "agent:cancelled",
+    "agent:watch"
+  ],
+  "external_gates": [
+    {
+      "id": "GATE-OCC-PREDECESSOR-BASELINE",
+      "owner": "product owner and current OCC Executor",
+      "resolution_criteria": "The bounded predecessor dashboard run is complete and the configured implementation branch contains closed #1034 plus every accepted OCC successor; record the resolved branch and SHA before dispatching any DASH ticket"
+    },
+    {
+      "id": "GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY",
+      "owner": "human owner with aiur-claude write authority",
+      "resolution_criteria": "Reviewed capability matrix plus either an evidenced secure Aiur-only launch/receiver path or explicit authority and a compatible sibling protocol revision"
+    },
+    {
+      "id": "GATE-CLAUDE-METER-PROTOCOL-AUTHORITY",
+      "owner": "human owner with aiur-claude write authority",
+      "resolution_criteria": "Reviewed structured meter-source matrix plus either an existing supported source or explicit authority and a compatible sibling protocol revision"
+    }
   ],
   "tickets": [
     {
@@ -19,7 +44,8 @@
       "requirement_ref": "DREQ-001",
       "complexity_points": 3,
       "depends_on": [],
-      "external_blockers": ["its-everdred/aiur#1034"],
+      "external_blockers": [],
+      "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
       "github": null
     },
     {
@@ -30,6 +56,7 @@
       "complexity_points": 4,
       "depends_on": ["BO-005"],
       "external_blockers": [],
+      "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
       "github": null
     },
     {
@@ -40,6 +67,7 @@
       "complexity_points": 3,
       "depends_on": ["DASH-001", "DASH-002", "BO-011"],
       "external_blockers": [],
+      "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
       "github": null
     },
     {
@@ -50,6 +78,7 @@
       "complexity_points": 4,
       "depends_on": [],
       "external_blockers": [],
+      "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
       "github": null
     },
     {
@@ -60,6 +89,7 @@
       "complexity_points": 3,
       "depends_on": ["DASH-002", "DASH-003", "DASH-004"],
       "external_blockers": [],
+      "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
       "github": null
     },
     {
@@ -70,6 +100,7 @@
       "complexity_points": 4,
       "depends_on": [],
       "external_blockers": [],
+      "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
       "github": null
     },
     {
@@ -80,6 +111,7 @@
       "complexity_points": 3,
       "depends_on": ["DASH-001", "DASH-006"],
       "external_blockers": [],
+      "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
       "github": null
     },
     {
@@ -90,6 +122,7 @@
       "complexity_points": 4,
       "depends_on": ["BO-004"],
       "external_blockers": [],
+      "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
       "github": null
     },
     {
@@ -100,6 +133,7 @@
       "complexity_points": 4,
       "depends_on": ["DASH-008"],
       "external_blockers": [],
+      "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
       "github": null
     },
     {
@@ -110,6 +144,10 @@
       "complexity_points": 4,
       "depends_on": ["DASH-008"],
       "external_blockers": [],
+      "external_gate_ids": [
+        "GATE-OCC-PREDECESSOR-BASELINE",
+        "GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY"
+      ],
       "github": null
     },
     {
@@ -120,6 +158,7 @@
       "complexity_points": 4,
       "depends_on": ["DASH-009"],
       "external_blockers": [],
+      "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
       "github": null
     },
     {
@@ -130,6 +169,7 @@
       "complexity_points": 4,
       "depends_on": [],
       "external_blockers": [],
+      "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
       "github": null
     },
     {
@@ -140,6 +180,10 @@
       "complexity_points": 4,
       "depends_on": ["DASH-012"],
       "external_blockers": [],
+      "external_gate_ids": [
+        "GATE-OCC-PREDECESSOR-BASELINE",
+        "GATE-CLAUDE-METER-PROTOCOL-AUTHORITY"
+      ],
       "github": null
     },
     {
@@ -150,6 +194,7 @@
       "complexity_points": 4,
       "depends_on": ["DASH-002"],
       "external_blockers": [],
+      "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
       "github": null
     },
     {
@@ -168,6 +213,7 @@
         "DASH-014"
       ],
       "external_blockers": [],
+      "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
       "github": null
     }
   ],

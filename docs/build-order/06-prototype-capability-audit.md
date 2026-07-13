@@ -1,7 +1,7 @@
 # Prototype Capability Audit
 
 **Production baseline:** `origin/main` at
-`b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5`
+`16d6033d8824c8cb53ac09e2129f69af751be8c4`
 
 **Prototype evidence:** the versioned files and hashes in
 [design-manifest.md](design-manifest.md)
@@ -64,14 +64,14 @@ new shell work sequences after #1034 and owns its own future documentation.
 |---|---|---|---|
 | Responsive Units/Commands/Build Order/Analytics navigation | Real routes, authentication, theme and Analytics report | Shared route metadata, desktop/sidebar and mobile/bottom navigation, safe-area/reflow behavior | DASH-001 |
 | Live/Unfinished/All/None plus overlapping state chips | One Fleet table with basic filter params | Current-run unit universe, terminal retention, canonical predicates, exact truth table, URL/count semantics | DASH-002, DASH-003 |
-| Finished/queued/non-running Units | Current running/retrying/idle snapshots | Bounded all-state current-run catalog and honest missing/stale activity | DASH-002 |
-| Backend, exact model, effort, complexity, lane and progress | Facts split across tracker/runtime paths | Typed joined projection with provenance and unknown states | BO-004, BO-005, DASH-002 |
-| Rich row/ticket dialog | Running-only agent-log dialog | All-state cached ticket context, safe dependency navigation and capability-gated runtime actions | BO-011, adopted by DASH-003 |
+| Finished/queued/non-running Units | Current running/retrying/idle snapshots | Recoverable same-run membership journal, terminal retention, and honest missing/stale activity | DASH-002 |
+| Backend, exact model, effort, complexity, lane and progress | StatusReport owns lifecycle/backend facts; AgentList owns event progress | Common typed identity, preserved StatusReport ownership, extracted event activity, and joined Units projection | BO-004, BO-005, DASH-002 |
+| Rich row/ticket dialog | Running-only agent-log dialog | All-state on-demand cached ticket context, safe dependency and cross-surface navigation, no Build Order mutation handlers | BO-003, BO-011, adopted by DASH-003 |
 | Per-unit pause/resume toggle | Pause/resume request functions and capability checks | Correlated request, accepted, worker-applied/rejected/expired acknowledgement and conflict recovery | DASH-004, DASH-005 |
 | Max-agents stepper | Positive-integer runtime capacity setter | Authenticated UI reconciliation and stale/error handling; zero remains invalid | DASH-005 |
 | Commands cards and filters | Durable Decision state machine, direct lookup, revisions and delivery | Provenance schema, complete lookup/search semantics and presentation catch-up without lifecycle loss | DASH-006, DASH-007 |
-| Per-ticket/model/backend tokens | Transient Codex/Claude token folds | Provider-neutral measurement envelope and durable attributed ledger | DASH-008, DASH-009 |
-| Claude Remote Control tokens/cost | Remote Control turn/session identity only | Structured request-level usage ingest and correlation; required coverage, not an unsupported terminal state | DASH-010 |
+| Per-ticket/model/backend tokens | Transient Codex/Claude token folds | Raw provider-neutral measurements plus durable single-writer delta checkpoints and attributed ledger | DASH-008, DASH-009 |
+| Claude Remote Control tokens/cost | Remote Control turn/session identity only | Authenticated, bounded structured request ingest and correlation behind a human-owned protocol gate; required coverage, not an unsupported terminal state | DASH-010 |
 | Dollar values by ticket/model/build | Some provider cost and token counters | Versioned API-equivalent pricing, exact basis buckets, coverage and selected-member grouping | DASH-011 |
 | Codex session/weekly meter and plan | Structured Codex account/rate-limit protocol | Account-generation-aware LKG projection and product-plan semantics | DASH-012 |
 | Claude session/weekly/API plan meter | No complete stable Aiur projection | Structured Claude subscription and API-key adapter; no interactive-output scraping | DASH-013 |
@@ -107,10 +107,9 @@ or browser-local mutations as a source of truth.
 
 ## Boundary decisions from the audit
 
-1. Build Order remains read-only for GitHub planning mutations. Existing Aiur
-   runtime actions in shared ticket context remain independently governed by
-   authenticated writable mode, capability checks, confirmation and applied
-   acknowledgement; read-only does not mean deleting those established paths.
+1. Build Order remains read-only for GitHub planning and Aiur runtime
+   mutations. Shared context may link to existing chat, Commands, and control
+   surfaces without deleting or duplicating those independently governed paths.
 2. GitHub is live truth for order identity, current membership, ticket facts,
    lifecycle and hard blockers. Aiur is live truth for current activity and
    retained usage. The planning JSON is an approved baseline, not the live
@@ -129,9 +128,10 @@ or browser-local mutations as a source of truth.
    atomic checkpoint/aggregate projections. A new application database is not
    introduced for this bounded local-first feature. The behavior boundary
    leaves a future Postgres/multi-controller adapter possible.
-7. Financial/token history never leaks through the dashboard's optional
-   unauthenticated local mode. Without authenticated operator mode, these
-   values and drill-down APIs render a locked/unavailable state.
+7. Usage and account-meter facts never leak through the dashboard's optional
+   unauthenticated local mode. Without authenticated Executor mode, tokens,
+   costs, plan/auth mode, quota/rate/credit windows, percentages, resets, and
+   drill-down APIs render a locked state and are absent from assigns/events.
 
 ## Adjacent existing work
 
@@ -149,7 +149,9 @@ or browser-local mutations as a source of truth.
 
 ## Publication implication
 
-Publish one Build Order root with fifteen direct member issues, plus fifteen
-standalone dashboard companions. Companion dependencies are real native
-blockers even though companions are not root members. No issue receives
-`agent:todo` during planning.
+Publish one Build Order root with fifteen direct member issues, fifteen
+standalone dashboard companions, and one human-blocked skill-delivery issue.
+Companion dependencies are real native blockers even though companions are not
+root members. Every companion is held by the predecessor-baseline gate, and
+named sibling-protocol gates remain non-dispatchable until a human records
+their resolution. No issue receives an `agent:*` label during planning.

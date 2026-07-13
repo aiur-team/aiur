@@ -21,7 +21,7 @@ authority.
 Discover root issues by one `build-order` label and use their direct native
 sub-issues as members. Canonical identity is the GitHub node ID. V1 is limited
 to the configured repository, direct children, one parent, and 100 members.
-The operator may expand this only by resolving the recorded product gate before
+The user may expand this only by resolving the recorded product gate before
 issue dispatch.
 
 ## DEC-003 — Use native blockedBy only
@@ -53,9 +53,13 @@ last-known-good snapshot or report unavailable. LiveView never polls GitHub.
 
 **Status:** accepted
 
-Move the reusable activity fold out of the interactive AgentList into an
-always-supervised typed-identity projection. TUI and dashboard consume it.
-Restart without replay yields unknown progress rather than zero.
+Add repository-qualified identity to normalized issues and existing
+orchestrator StatusReport records; StatusReport remains the owner of execution,
+waiting, backend/model, and worker-lifecycle state. Move only the reusable
+progress, active-stage, and latest cross-ticket event fold out of interactive
+AgentList into an always-supervised typed-identity projection. TUI and dashboard
+join the two typed snapshots. Restart without replay yields unknown progress
+rather than zero and never creates a second lifecycle owner.
 
 ## DEC-007 — Use an isolated layout-only engine
 
@@ -64,7 +68,9 @@ Restart without replay yields unknown progress rather than zero.
 Keep cards as accessible DOM and edges as SVG. Begin with pinned, vendored
 ELK.js layered layout behind one LiveView hook/adapter and run it in a Web
 Worker at scale. The adapter owns lane/phase constraints, layout inputs,
-redraw, fit/pan/zoom, and a deterministic failure fallback; ELK does not own
+geometry application, a transform seam, redraw, and deterministic failure
+fallback. BO-013 exclusively owns fit/pan/zoom interaction policy and controls;
+BO-014 owns responsive preservation and measured hardening. ELK does not own
 product state or rendering.
 
 This choice follows ELK's documented strength for directed layered graphs,
@@ -80,10 +86,12 @@ the adapter contract.
 **Status:** accepted for the v1 planning baseline
 
 Build Order does not mutate GitHub planning data. It inherits dashboard
-authentication and safe URL rules. Reusable ticket context may retain existing
-Aiur runtime actions only behind their established writable-mode, capability,
-confirmation and applied-acknowledgement contracts. Dependency editing is a
-separately authorized feature.
+authentication and safe URL rules and invokes no mutating Aiur runtime action
+in v1. It may link into existing chat, Commands, and control surfaces.
+Companion components may adopt the reusable context and add actions only
+through their separately owned capability, confirmation, and
+applied-acknowledgement contracts. Dependency editing is a separately
+authorized feature.
 
 ## DEC-009 — Keep companion dashboard work separate
 
@@ -107,7 +115,7 @@ native dependencies, current lifecycle, data health, conflicts, and capacity.
 
 **Status:** accepted
 
-After operator review, publish the approved GitHub issues with exactly one
+After user review, publish the approved GitHub issues with exactly one
 `complexity:N` and `model:codex` on executable work. Do not apply `agent:todo`,
 start Aiur, or otherwise dispatch a ticket during planning.
 
@@ -119,6 +127,21 @@ During later execution, P0/P1 acceptance blockers may be promoted, contained
 review findings return to their existing ticket, and non-blocking defects or
 optimizations go to the deferred ledger. Freeze promotion when created or
 promoted work outpaces completed critical-path work.
+
+## DEC-013 — Gate execution on the real baseline
+
+**Status:** accepted
+
+Planning evidence is pinned to the completed Operator Control Center work on
+`main`, while the current repository config and contribution policy still name
+the divergent `v2` integration branch. No Build Order ticket may be dispatched
+until a human records the configured branch/SHA that contains the accepted OCC
+baseline and the predecessor dashboard run is complete. That baseline gate
+applies to both Build Order and every standalone dashboard companion. Build
+Order execution is additionally gated on the bounded `/aiur-run` revision from
+PR #1065 commit `fb89a300` (or an explicitly reviewed compatible successor)
+being installed and discoverable. These are external pre-dispatch gates, not
+feature tickets or additions to the completion denominator.
 
 ## Rejected alternatives
 

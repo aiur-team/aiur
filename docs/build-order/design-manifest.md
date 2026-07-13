@@ -7,7 +7,7 @@
 **Original project:** `https://claude.ai/design/p/5e62b9a9-39c1-4ca2-9a76-6dff123a088c?file=Aiur+Operator+Control+Center.html`
 
 The prototype is a versioned visual and interaction reference, not executable
-product requirements. When it conflicts with explicit operator decisions or
+product requirements. When it conflicts with explicit user decisions or
 the accepted requirements, those decisions win. When the HTML and its companion
 constraints disagree, the discrepancy must be resolved rather than silently
 choosing whichever is easier to implement.
@@ -69,7 +69,7 @@ choosing whichever is easier to implement.
    preserve unobscured content and use at least 44px named touch targets rather
    than copying this density.
 
-The two operator-provided screenshots in the planning conversation confirm the
+The two user-provided screenshots in the planning conversation confirm the
 intended dense desktop hierarchy and lower-phase continuation. They are
 supplementary references; the committed prototype above is the durable artifact.
 The full browser and current-code inventory is recorded in

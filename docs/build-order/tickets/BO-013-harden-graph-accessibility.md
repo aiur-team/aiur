@@ -20,7 +20,7 @@
 
 **Design evidence:** DESIGN-001, DESIGN-002
 
-**Researched at:** b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5
+**Researched at:** 16d6033d8824c8cb53ac09e2129f69af751be8c4
 
 **Suggested labels:** `complexity:4`, `model:codex`, `phase:6`, `build-lane:frontend`; never `agent:todo`
 
@@ -56,8 +56,8 @@ layout falls back.
 - Add accessible graph/selection/dependency summaries and live announcements
   that are concise and coalesced, not one announcement per moving node/update.
 - Preserve BO-011 context focus trap, replacement navigation, close restoration,
-  runtime-action gates, and safe external links across canvas interaction and
-  LiveView patches.
+  no-mutation boundary, and safe destination links across canvas interaction
+  and LiveView patches.
 - Honor live reduced-motion and forced-colors/high-contrast preferences; disable
   nonessential animated transitions without disabling interaction.
 
@@ -107,7 +107,7 @@ browser/a11y harness. Keep one interaction state owner per selected root.
   tab/read order, focus visibility/trap/restore, concise announcements,
   non-color states, reduced motion, forced colors, theme, and 200% text zoom.
 - Tests prove hover/focus/touch parity and that no interaction invokes a GitHub
-  planning mutation or bypasses BO-011 runtime-action gates.
+  planning or Aiur runtime mutation.
 
 ### At-merge gate
 

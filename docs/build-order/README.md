@@ -7,11 +7,13 @@ contracts. It does not implement Build Order, launch Aiur, or dispatch work.
 
 - Plan version: 1
 - Build Order ID: `its-everdred/aiur:build-order-dashboard`
-- Researched code: `b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5`
-- Build Order: 15 executable/capstone tickets, 57 points
+- Researched code: `16d6033d8824c8cb53ac09e2129f69af751be8c4`
+- Build Order: 15 executable/capstone tickets, 58 points
 - Standalone dashboard companions: 15 tickets, 56 points
 - GitHub materialization: pending final validation/reconciliation
 - Dispatch: prohibited in this planning run; never add `agent:todo`
+- Execution gates: unresolved integration baseline and bounded Executor skill
+  installation; see `build-order.json`
 - Merge: do not merge this planning branch or the isolated skill branch while
   the current dashboard run is active
 
@@ -30,10 +32,12 @@ provider meters and run-summary semantics into independently verifiable work.
 4. [Technical decisions](05-technical-decisions.md)
 5. [Implementation plan](../plans/2026-07-12-005-feat-build-order-dashboard-plan.md)
 6. [Canonical Build Order baseline](build-order.json) and [member tickets](tickets/)
-7. [Standalone companion index](dashboard-companions.md)
-8. [Validation report](validation-report.md)
-9. [Publication receipt](github-publication.md)
-10. [Executor handoff](EXECUTOR-HANDOFF.md)
+7. [Standalone companion index](dashboard-companions.md) and
+   [companion baseline](dashboard-companions.json)
+8. [Auxiliary publication manifest](publication.json)
+9. [Validation report](validation-report.md)
+10. [Publication receipt](github-publication.md)
+11. [Executor handoff](EXECUTOR-HANDOFF.md)
 
 Supporting context: [research spike](00-research-spike.md),
 [decomposition patterns](01-decomposition-patterns.md),
@@ -43,18 +47,22 @@ Supporting context: [research spike](00-research-spike.md),
 
 ```mermaid
 graph TD
-  B1[BO-001 Domain] --> B2[BO-002 GitHub adapter]
-  B2 --> B3[BO-003 Catalog and LKG]
+  B1[BO-001 Domain] --> B2[BO-002 GitHub graph/detail adapter]
+  B2 --> B3[BO-003 Planning caches and LKG]
   B1 --> B4[BO-004 Typed event identity]
-  B4 --> B5[BO-005 Activity projection]
+  B4 --> B5[BO-005 Event activity projection]
   B5 --> B6[BO-006 AgentList migration]
   B1 --> B7[BO-007 Pure presenter]
+  B3 --> B7
   B5 --> B7
-  B8[BO-008 Browser harness]
+  B1 --> B8[BO-008 Browser harness]
   B1 --> B9[BO-009 Layout assets/worker]
+  B8 --> B9
   B8 --> B10[BO-010 DOM/SVG adapter]
   B9 --> B10
-  B7 --> B11[BO-011 Ticket context]
+  B3 --> B11[BO-011 Ticket context]
+  B7 --> B11
+  B8 --> B11
   B3 --> B12[BO-012 Minimum graph]
   B7 --> B12
   B10 --> B12
@@ -72,9 +80,14 @@ dependencies, ticket state, declared serialization conflicts and current
 capacity determine readiness. BO-003 and BO-005 serialize on the supervision
 tree even after their different hard prerequisites land.
 
+BO-001 is the sole initial implementation node and is not ready until both
+external gates are recorded as resolved. The current configured `v2` target
+does not contain the researched OCC baseline, and the bounded Executor skills
+remain isolated in PR #1065; neither condition may be inferred away.
+
 ## Authority
 
-1. Current explicit operator decisions.
+1. Current explicit user decisions.
 2. Captured/versioned design evidence.
 3. Accepted requirements and technical decisions.
 4. GitHub for materialized identity, membership, ticket facts, labels,
@@ -109,6 +122,11 @@ and one `build-lane:*`; the root receives only `build-order` from this label
 family. Materialize the fifteen companions separately with complexity and
 `model:codex`, no Build Order parent/phase/lane, and their real native blockers.
 
-After publication, requery node IDs, membership, hard relationships and labels.
-Validation must prove that no created/updated issue has `agent:todo` or another
-active dispatch state.
+After publication, requery node IDs, membership, hard relationships, full
+labels, and parenthood. Run both the isolated `/aiur-build` canonical validator
+and `scripts/validate_publication.py`. The canonical validator owns the BO
+membership/label/dependency receipt; the publication validator proves exact
+companion coverage, standalone root/skill/companion parenthood, observed
+labels, companion and external-skill blocker edges, approval identity, and the
+root reconciliation comment. No newly published issue may have any `agent:*`
+state.

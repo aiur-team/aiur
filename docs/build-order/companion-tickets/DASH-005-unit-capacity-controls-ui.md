@@ -12,9 +12,11 @@
 
 **Serializes with:** DASH-003 and other Units/DashboardLive/shared CSS branches
 
+**External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
+
 **Requirements:** DREQ-005
 
-**Researched at:** `b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5`
+**Researched at:** `16d6033d8824c8cb53ac09e2129f69af751be8c4`
 
 **Suggested labels:** `complexity:3`, `model:codex`; never `agent:todo`
 
@@ -70,11 +72,11 @@ Extend DASH-003's Units action seam, consume DASH-004 control lifecycle, and reu
 
 ### At-merge gate
 
-- Rebase on DASH-002/003/004 and current main, sequence shared dashboard files, and pass control, slot, auth/write-gate, audit, Units, browser accessibility, and full CI suites.
+- Rebase on DASH-002/003/004 and the resolved configured integration target, sequence shared dashboard files, and pass control, slot, auth/write-gate, audit, Units, browser accessibility, and full CI suites.
 
 ### Human/manual evidence
 
-- From the operator repository root, run the real authenticated writable dashboard, pause and resume one supported unit through worker-applied confirmation, exercise an unavailable control, then raise and lower the max-agent setting and observe authoritative draining/cap state.
+- From the Executor repository root, run the real authenticated writable dashboard, pause and resume one supported unit through worker-applied confirmation, exercise an unavailable control, then raise and lower the max-agent setting and observe authoritative draining/cap state.
 
 ## Failure, security, migration, and accessibility cases
 

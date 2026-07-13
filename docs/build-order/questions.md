@@ -1,6 +1,6 @@
 # Build Order Questions and Commands
 
-This is the durable inbox for questions and operator actions during the Build
+This is the durable inbox for questions and user/Executor actions during the Build
 Order research and planning spike. Answers can be written directly below each
 question or sent in chat; resolved items will be moved to the decision log in
 the planning documents.
@@ -12,8 +12,11 @@ be added here and asked one at a time.
 
 ## Commands or Access Needed
 
-- None currently. The Claude Design project is committed under
-  `docs/build-order/prototype/` and recorded in `design-manifest.md`.
+- Before any later dispatch, the user and runtime Executor must resolve the
+  integration-baseline and installed-skill gates recorded in
+  `build-order.json`. They do not block planning publication.
+- The Claude Design project is committed under `docs/build-order/prototype/`
+  and recorded in `design-manifest.md`; no design access is pending.
 
 ## Accepted Planning Baseline
 
@@ -64,3 +67,10 @@ be added here and asked one at a time.
   implementation issues in GitHub. Apply one `complexity:N` label and
   `model:codex` to each executable ticket, but do not apply `agent:todo` or
   otherwise dispatch work.
+- The authorized materialization set includes the fifteen standalone dashboard
+  delta/accounting issues and one human-blocked issue preserving the isolated
+  skill PR #1065. The user explicitly asked that these unrelated skill changes
+  not fall through the cracks and delegated the choice of a separate ticket.
+- Do not comment on, close, relabel, or rewrite existing #132 or #845 during
+  publication; the new DASH issue bodies may cite their overlap. No additional
+  mutation authority is inferred from permission to create the approved set.

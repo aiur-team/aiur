@@ -20,16 +20,18 @@
 
 **Design evidence:** DESIGN-001, DESIGN-002
 
-**Researched at:** b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5
+**Researched at:** 16d6033d8824c8cb53ac09e2129f69af751be8c4
 
 **Suggested labels:** `complexity:4`, `model:codex`, `phase:3`, `build-lane:backend`; never `agent:todo`
 
 ## Outcome
 
 One always-supervised, headless-safe projection owns normalized per-ticket Aiur
-activity and publishes typed snapshots that AgentList, Build Order, and future
+event activity—progress, active agent stage, and latest safe cross-ticket
+evidence—and publishes typed snapshots that AgentList, Build Order, and future
 read-only consumers can share without parsing logs or depending on a TUI
-process.
+process. Existing orchestrator StatusReport remains the owner of execution,
+waiting, backend/model, and worker-lifecycle state.
 
 ## Context and evidence
 
@@ -37,23 +39,26 @@ Progress, active CE stage, and latest activity are currently folded inside the
 interactive AgentList lifecycle and pruned with its visible roster. Background
 runs and dashboard-only consumers cannot treat that UI process as canonical.
 BO-004 supplies trustworthy identity; this ticket supplies state ownership and
-ordering semantics.
+ordering semantics for those event-derived fields. It deliberately extends,
+rather than duplicates, StatusReport, which already reports running, retrying,
+idle, waiting reason, backend/model, and latest worker observations.
 
 ## Scope
 
 - Add an always-supervised projection keyed only by BO-004's trusted
   repository-qualified tracker identity.
-- Fold typed execution state, explicit waiting reason, active agent stage,
-  progress value/source/time, latest safe evidence, backend/model/effort where
-  authoritative, run/attempt/session provenance, and observed time.
+- Fold active agent stage, progress value/source/time, latest safe cross-ticket
+  evidence, run/attempt/session provenance where present, and observed time.
 - Define per-field ordering/idempotency rules for duplicate, late, cross-attempt,
   reset, completion, retry, and provider-restart observations. Do not let one
   older event roll back an independently newer field.
 - Expose bounded snapshot/query and PubSub generation APIs suitable for
   AgentList and LiveView. Publish after state is applied and preserve typed
   identity in every update.
-- Retain active/queued/retrying/paused and bounded recently completed activity
-  needed by selected Build Order members; make retention/eviction observable.
+- Retain bounded event activity for current tracked identities plus bounded
+  recently removed identities; make retention/eviction observable. Full
+  current-run membership and terminal-row retention belong to the standalone
+  DASH-002 catalog, not this event projection.
 - Represent absent, stale, unsupported, unattributed, and invalid observations
   explicitly. Open-ticket progress after restart is unknown until trusted new
   evidence arrives; it is not `0%`.
@@ -62,8 +67,9 @@ ordering semantics.
 
 ## Non-goals
 
-- Fetch GitHub, decide dependency satisfaction/readiness, store financial usage,
-  parse workspace logs in LiveView, or render TUI/dashboard state.
+- Fetch GitHub, decide dependency satisfaction/readiness, own execution/
+  waiting/backend lifecycle already supplied by StatusReport, store financial
+  usage, parse workspace logs in LiveView, or render TUI/dashboard state.
 - Migrate AgentList consumers in this ticket; BO-006 owns the cutover and old
   ownership removal.
 - Infer repository identity from an event topic, issue number, current run, or
@@ -71,10 +77,11 @@ ordering semantics.
 
 ## Existing owner and reuse target
 
-Extract the pure activity fold from current AgentList event-intake/state modules
-and reuse existing event/PubSub, waiting-reason, run, backend, and progress
-vocabulary. The new projection becomes the state owner; AgentList remains a
-consumer until BO-006 completes.
+Extract the progress/stage/latest-event fold from current AgentList event-intake
+and state modules and reuse existing event/PubSub and progress vocabulary. The
+new projection becomes the owner of those event-derived fields; StatusReport
+continues owning orchestrator status, and AgentList remains a consumer of both
+until BO-006 completes.
 
 ## Contract and invariants
 
@@ -83,6 +90,9 @@ consumer until BO-006 completes.
 - Planned rollout phase and active agent/CE stage remain separate fields.
 - Progress is an observation with source, observed time, and freshness; it
   never changes GitHub lifecycle or any edge state.
+- Execution, queue/retry/paused state, waiting reason, backend/model/effort, and
+  latest worker status are read from BO-004-identified StatusReport snapshots,
+  not mirrored into this projection.
 - Missing/stale activity is unknown. A GitHub outcome may later render a card
   complete, but this projection never fabricates that outcome.
 - Projection restart, eviction, and provider failure remain visible and cannot
@@ -101,11 +111,14 @@ consumer until BO-006 completes.
 
 ### Agent gate
 
-- Reducer tests cover duplicates, out-of-order per-field updates, retries,
-  attempts, fallback/backend changes, stage start/end, progress reset,
-  completion, restart, stale/unknown, unattributed events, and eviction.
+- Reducer tests cover duplicates, out-of-order per-field updates, attempts,
+  stage start/end, progress reset, completion observations, restart,
+  stale/unknown, unattributed events, and eviction.
 - Two-repository/same-number tests prove no cross-talk; headless-supervision tests
   prove the projection works when AgentList is absent.
+- Contract tests prove execution/waiting/backend fields are not copied or
+  independently folded and that consumers can join the separately owned
+  StatusReport and event-activity snapshots by BO-004 identity.
 - Existing AgentList characterization tests remain green before consumer
   migration and snapshot/PubSub tests contain no sleep-based races.
 
@@ -131,16 +144,15 @@ consumer until BO-006 completes.
 
 ## Surfaces
 
-- Reads: BO-004 normalized event envelopes; current pure AgentList reducers and
-  runtime vocabulary.
+- Reads: BO-004 normalized event envelopes and current pure AgentList
+  progress/stage/latest-event reducers.
 - Writes: supervised TicketActivity projection, reducer/query/PubSub APIs,
   retention policy, and tests.
-- Contracts: TicketActivity snapshot/update; field ordering and freshness;
-  headless/restart semantics.
+- Contracts: event-derived TicketActivity snapshot/update; field ordering and
+  freshness; headless/restart semantics; non-ownership of StatusReport fields.
 
 ## Sibling boundaries and open gates
 
 BO-006 migrates AgentList and removes duplicate ownership. BO-007 performs the
 GitHub/Aiur join. Usage companions may reuse identity or serialize on shared
 event producers, but financial observation/storage is outside this ticket.
-

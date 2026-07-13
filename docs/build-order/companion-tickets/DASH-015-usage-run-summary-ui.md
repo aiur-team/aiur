@@ -12,9 +12,11 @@
 
 **Serializes with:** Units summary, DashboardLive, shell/shared CSS, and dashboard authentication changes
 
+**External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
+
 **Requirements:** DREQ-015
 
-**Researched at:** `b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5`
+**Researched at:** `16d6033d8824c8cb53ac09e2129f69af751be8c4`
 
 **Suggested labels:** `complexity:4`, `model:codex`; never `agent:todo`
 
@@ -22,7 +24,7 @@
 
 ## Outcome
 
-The Units page renders authenticated, responsive Aiur, Codex, and Claude summary cards with truthful current-run status, tokens, comparable cost bases, plan/quota facts, retained coverage, freshness, and accessible drill-down—without exposing financial values on an unauthenticated dashboard.
+The Units page renders authenticated, responsive Aiur, Codex, and Claude summary cards with truthful current-run status, tokens, comparable cost bases, plan/quota facts, retained coverage, freshness, and accessible drill-down—without exposing usage or account/meter values on an unauthenticated dashboard.
 
 ## Context and evidence
 
@@ -34,14 +36,14 @@ The refreshed prototype adds Units-only Codex/Claude usage cards and an Aiur sum
 - Render Codex and Claude provider cards from DASH-012/013: actual plan/tier with source/freshness, auth mode, supported subscription windows or API-key controls, reset timestamps, per-window health, stale last-known-good, partial, unsupported field, loading, empty-supported, and hard-error states. Do not fetch providers from LiveView/browser render.
 - Render DASH-011 current-run token and cost groups, including totals and accessible drill-down by ticket, agent family, backend, and exact model. Preserve total tokens alongside provider split. A reusable query/component input may accept an explicit typed Build Order member set, but Units defaults to and labels `this run`; it never infers `this build`.
 - Display `provider_reported_estimate` and `api_equivalent_estimate` in separate labelled buckets and never sum them. For subscription usage, show the API-equivalent dollar value with `*`, the actual plan tier, and an information popover explaining that it is an estimate rather than billed spend. Unknown cost is not `$0.00`.
-- Enforce the financial-data boundary server-side: token/cost/group rows are queried and rendered only when dashboard authentication is configured and enforced for the connection. Otherwise render a locked “authentication required” state with no numeric financial values in HTML, assigns, client events, or generic state APIs. Existing nonfinancial local read-only dashboard facts may remain available.
-- Subscribe to daemon-owned summary/meter/ledger updates and coalesce render/screen-reader announcements. Keep independent provider failures isolated; one unavailable card does not erase healthy run or other-provider facts.
+- Enforce the account-data boundary server-side: usage tokens/cost/groups and every provider-meter/account fact are queried and rendered only when dashboard authentication is configured and enforced for the connection. Protected meter facts include provider/backend, auth mode, plan/tier, quota/rate/credit/spend-control windows, percentages/limits, reset times, freshness and retained last-known-good values. Otherwise render a locked “authentication required” state with none of those facts in HTML, assigns, client events, caches keyed for an unauthenticated connection, or generic state APIs. Existing nonfinancial local read-only run facts may remain available.
+- Authenticated connections subscribe to daemon-owned meter/ledger and run-summary updates; locked connections subscribe only to the nonfinancial run summary and never receive protected payloads. Coalesce render/screen-reader announcements. Keep independent provider failures isolated; one unavailable card does not erase healthy run or other-provider facts.
 - Reflow every fact, control, reset, disclosure, and drill-down at 320/390/768/960/desktop and 200% text zoom, accounting for DASH-001 safe-area/navigation offsets. Use native/ARIA meter/progress semantics and at least 44px interactive targets.
 
 ## Non-goals
 
 - Ingest usage/meters, persist ledger data, apply prices, compute run progress/ETA, allocate subscription fees, call provider billing APIs, redesign Analytics, or make this companion work part of Build Order completion.
-- Fetch providers per browser, combine unlike cost bases, show fake session/weekly bars for API accounts, or leak financial values before authentication.
+- Fetch providers per browser, combine unlike cost bases, show fake session/weekly bars for API accounts, or leak usage/account/meter values before authentication.
 - Copy prototype static values, CSS-only visual reordering, inaccessible meter divs, or an unbounded table into the summary.
 
 ## Existing owner and reuse target
@@ -52,7 +54,7 @@ Add shared OCC summary presenters/components to DASH-003's Units page and DASH-0
 
 - Every number names scope, source/basis, coverage, and freshness where relevant. `this run` and explicit `this build` are never interchangeable.
 - Unlike cost bases are separate. Subscription estimates always carry `*`, actual tier, and explanatory popover; no UI copy calls them billed/actual spend.
-- Financial/token values cross the web boundary only for an authenticated connection under enforced dashboard auth. Locked mode contains no hidden values.
+- Usage and all account/meter values cross the web boundary only for an authenticated connection under enforced dashboard auth. Locked mode contains no hidden plan, auth-mode, quota, rate, credit, reset, token, group or monetary values.
 - Unknown, unsupported field, partial, stale last-known-good, error, empty, and zero are distinct states.
 - DOM and visual order match. Meter/progress names, values, bounds, resets, coverage, and unavailable reasons are programmatically exposed; live announcements are coalesced.
 
@@ -67,21 +69,21 @@ Add shared OCC summary presenters/components to DASH-003's Units page and DASH-0
 ### Agent gate
 
 - Presenter/component tests cover current-run and explicit-build input, every cost basis/coverage, subscription `*`/tier/popover, API-key versus subscription cards, all meter health states, RC inclusion, run progress/ETA unavailable states, grouping reconciliation, and live updates.
-- Auth tests prove unauthenticated/unenforced mode contains no token, dollar, group, plan-sensitive, or hidden serialized values; authenticated mode preserves existing CSRF/write behavior.
+- Auth tests prove unauthenticated/unenforced mode never queries or contains token, dollar, group, provider account/auth-mode, plan/tier, quota/rate/credit/spend-control, percentage/limit/reset, freshness, last-known-good, or hidden serialized values in HTML, assigns, events, cache entries or generic APIs; authenticated mode preserves existing CSRF/write behavior.
 - Browser/a11y tests cover DOM order, native/ARIA meter semantics, reset times, keyboard/touch drill-down/popover, focus restore, announcement coalescing, light/dark/reduced motion, 44px targets, 200% zoom, 320/390/768/960/desktop, safe-area offsets, and no clipping.
 
 ### At-merge gate
 
-- Rebase all seven prerequisites and current main, sequence shared Units/shell/CSS/auth ownership, and pass accounting/meter/run-summary, provider isolation, dashboard auth/security, accessibility, performance, and full CI suites.
+- Rebase all seven prerequisites and the resolved configured integration target, sequence shared Units/shell/CSS/auth ownership, and pass accounting/meter/run-summary, provider isolation, dashboard auth/security, accessibility, performance, and full CI suites.
 
 ### Human/manual evidence
 
-- From the operator repository root, run the real dashboard and compare subscription, API-key, partial/stale, and Remote Control-inclusive variants. Verify grouped totals, estimate disclosure/tier, run progress/elapsed/ETA provenance, 390px/200% layout, and that disabling enforced auth produces a locked card with no values in rendered source.
+- From the Executor repository root, run the real dashboard and compare subscription, API-key, partial/stale, and Remote Control-inclusive variants. Verify grouped totals, estimate disclosure/tier, run progress/elapsed/ETA provenance, 390px/200% layout, and that disabling enforced auth produces a locked card with no values in rendered source.
 
 ## Failure, security, migration, and accessibility cases
 
 - Each provider/query failure degrades only its region and preserves safe last-known-good facts with timestamps. No failure resets usage/quota/progress to zero or unlimited.
-- Financial/token/group/plan data requires enforced dashboard authentication and never enters generic unauthenticated APIs, logs, prompts, bug reports, or agent-visible state. Use only synthetic values in tests/evidence.
+- Usage and all account/meter data require enforced dashboard authentication and never enter generic unauthenticated APIs, connection assigns/events/caches, logs, prompts, bug reports, or agent-visible state. This includes plan/auth mode, quota/rate/credit windows, percentages/limits and reset times as well as token/group/cost data. Use only synthetic values in tests/evidence.
 - No stored-data migration; prerequisite schema migrations own compatibility.
 - All metrics, statuses, scopes, bases, coverage, errors, disclosures, and drill-downs are named, non-color-dependent, keyboard/touch reachable, and screen-reader bounded.
 

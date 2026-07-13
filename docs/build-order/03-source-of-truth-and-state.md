@@ -12,9 +12,9 @@ authorities:
 
 The presentation layer derives readiness, reverse edges, warnings, layout
 groups, and summaries. It does not mutate GitHub planning data or parse
-workspace logs. Shared ticket context may expose existing Aiur runtime actions
-only through their independent authenticated writable/capability/confirmation
-contracts.
+workspace logs. Shared ticket context may link to existing chat, Commands, and
+control surfaces, but Build Order v1 exposes no mutating Aiur runtime handler;
+those destination surfaces retain their independent contracts.
 
 ## GitHub identity and membership
 
@@ -125,8 +125,10 @@ blocker. Detect cycles even if GitHub normally rejects cycle-creating writes.
 
 ## Dedicated GitHub graph projection
 
-Do not build this view on PR #1012's per-issue `blocked_by` hydration. That path
-is appropriate as a dispatch bridge but unsafe for a 100-node graph because it:
+The landed ordinary issue path has no complete dependency-graph hydration. Do
+not build this view on the in-flight PR #1012 per-issue `blocked_by` work
+either. That proposed path is appropriate as a dispatch bridge but unsafe for a
+100-node planning graph because it:
 
 - performs N dependency requests and can exceed ordinary REST budgets;
 - does not paginate beyond the dependency endpoint's default page;
@@ -165,19 +167,30 @@ Progress, active CE phase, and latest event currently live inside the interactiv
 AgentList process and are pruned with its visible roster. Headless runs and the
 dashboard cannot safely depend on that UI-owned state.
 
-First extend the ticket-scoped lifecycle/event envelope so repository-qualified
-identity is present or resolved from a frozen tracked-issue snapshot at the
-trusted ingestion boundary. Never infer it from a bare event topic or display
-name. Then extract the fold into an always-supervised
-`TicketActivityProjection` consumed by AgentList and dashboard. Key it by that
-typed identity, never a bare issue number. Per ticket retain:
+First add a typed tracker identity to normalized issues. For GitHub it retains
+the configured owner/repository and provider node ID already present on
+ordinary issue responses; the display number remains a locator and the legacy
+dispatch key remains unchanged. Propagate that identity through orchestrator
+StatusReport, which already owns execution lifecycle, waiting reason,
+backend/model, and latest-worker facts. A missing legacy node ID is unjoinable,
+not permission to fall back to the current directory or a bare number.
 
-- execution state and explicit waiting reason;
-- latest event/evidence and observed time;
+Next extend the ticket-scoped event envelope so the same identity is present or
+resolved from a frozen tracked-issue snapshot at trusted ingestion. Never infer
+it from a bare event topic or display name. Extract only the event-derived
+AgentList fold into an always-supervised `TicketActivityProjection` consumed by
+AgentList and dashboard. Key it by that typed identity. Per ticket retain:
+
+- latest safe cross-ticket event/evidence and observed time;
 - progress value, source, observed time, and staleness;
 - active agent stage (`brainstorm`, `plan`, `work`, `review`), explicitly not
-  the planned rollout phase;
-- provider health/availability.
+  the planned rollout phase; and
+- projection health/availability.
+
+Do not copy execution, queue/retry/paused state, waiting reason, backend/model,
+or latest worker status into this projection. Those remain StatusReport facts.
+The standalone DASH-002 catalog owns full-current-run membership and terminal
+retention; a bounded event projection is not a run ledger.
 
 In-memory v1 state is acceptable if restart behavior is honest: after restart,
 active progress is unknown until replay or a new event. A GitHub issue closed
@@ -190,8 +203,10 @@ The GitHub snapshot contains root identity/acceptance, node IDs and mutable
 locators, member metadata/state, dependency edges/external refs, cycle/data
 quality, generation, and provider health.
 
-The Aiur snapshot contains activity keyed by typed tracker identity plus its own
-observed time/health.
+The Aiur side contains two immutable inputs keyed by the same typed tracker
+identity: an orchestrator StatusReport snapshot for execution/waiting/provider
+facts and a TicketActivity snapshot for progress/stage/cross-ticket evidence.
+Each retains its own observation time and health.
 
 A pure presenter joins them into cards and edges with:
 
@@ -210,7 +225,9 @@ GitHub GraphQL / paginated REST
 BuildOrderGitHubProjection ---- complete generation + last-known-good cache
         | PubSub
         v
-BuildOrderPresenter <---------- TicketActivityProjection <----- Aiur events
+BuildOrderPresenter <---------- StatusReport <---------------- Orchestrator
+        ^
+        +---------------------- TicketActivityProjection <---- Aiur events
         |
         v
 Dashboard LiveView ------------ selected root + canvas interaction state

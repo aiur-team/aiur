@@ -4,13 +4,13 @@
 
 **Provenance:** planned in plan v1
 
-**Complexity:** 3 — New deterministic browser, accessibility, and performance test infrastructure
+**Complexity:** 4 — Cohesive but cross-cutting browser toolchain, deterministic fixtures, accessibility, artifact, and performance infrastructure
 
 **Risk:** medium
 
 **Phase hint:** 1
 
-**Depends on:** none
+**Depends on:** BO-001
 
 **Serializes with:** none
 
@@ -20,23 +20,27 @@
 
 **Design evidence:** DESIGN-001, DESIGN-002
 
-**Researched at:** b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5
+**Researched at:** 16d6033d8824c8cb53ac09e2129f69af751be8c4
 
-**Suggested labels:** `complexity:3`, `model:codex`, `phase:1`, `build-lane:infrastructure`; never `agent:todo`
+**Suggested labels:** `complexity:4`, `model:codex`, `phase:1`, `build-lane:infrastructure`; never `agent:todo`
 
 ## Outcome
 
 The repository has CI-runnable, deterministic browser infrastructure for real
 LiveView interaction, automated accessibility checks, responsive screenshots,
 and performance measurements, plus reusable 20/50/100/cycle/invalid/degraded
-Build Order fixtures that later UI tickets must use.
+Build Order fixtures built from BO-001's accepted domain contract that later UI
+tickets must use.
 
 ## Context and evidence
 
-The current suite has rich LiveView/component coverage but no committed browser
-runner that can prove pointer, keyboard, focus, worker timing, responsive
-redraw, reduced motion, or accessible dialogs. Deferring infrastructure to the
-capstone would make each UI ticket invent a different proxy and leave
+The current suite has rich LiveView/component coverage but no committed
+LiveView browser runner that can prove pointer, keyboard, focus, worker timing,
+responsive redraw, reduced motion, or accessible dialogs. The static
+`website/` now has a Vite/Playwright harness and path-scoped CI that can inform
+toolchain and artifact conventions, but it does not exercise Phoenix,
+LiveView, Basic Auth, or the real dashboard route. Deferring infrastructure to
+the capstone would make each UI ticket invent a different proxy and leave
 performance/a11y failures unowned.
 
 ## Scope
@@ -51,7 +55,8 @@ performance/a11y failures unowned.
   catalogs, every edge/readiness state, cycles/self-loops, external/missing
   endpoints, malformed root among valid roots, selected structural-invalid,
   member metadata warnings, stale LKG, unavailable providers, and activity
-  updates.
+  updates. Reuse BO-001's exact records, enums, identities, and bounded fixture
+  vocabulary rather than defining a browser-only copy.
 - Provide reusable browser helpers for authenticated/read-only and writable
   modes, viewport/theme/reduced-motion, keyboard/touch/pointer input, focus,
   zoom/pan, LiveView reconnect, and worker readiness.
@@ -143,6 +148,7 @@ production assets and reuse existing Basic Auth/config injection.
 
 ## Sibling boundaries and open gates
 
-BO-010, BO-013, BO-014, and BO-015 consume this harness. Production layout and
-graph behavior remain owned by those tickets. Companion dashboard tickets may
-reuse the infrastructure but must serialize only on shared test configuration.
+BO-001 defines the domain fixtures this harness renders. BO-010, BO-013,
+BO-014, and BO-015 consume the harness. Production layout and graph behavior
+remain owned by those tickets. Companion dashboard tickets may reuse the
+infrastructure but must serialize only on shared test configuration.

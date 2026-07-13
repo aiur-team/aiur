@@ -1,7 +1,7 @@
 # Dashboard and Prototype Delta
 
 **Current-code baseline:** `origin/main` at
-`b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5`
+`16d6033d8824c8cb53ac09e2129f69af751be8c4`
 
 **Design baseline:** [design-manifest.md](design-manifest.md)
 
@@ -87,7 +87,7 @@ cross-scope seams.
 
 ## Catch-up ticket D: Commands
 
-Keep the Decision domain and persistence names. “Commands” is operator-facing
+Keep the Decision domain and persistence names. “Commands” is Executor-facing
 vocabulary and composition, not a storage migration.
 
 - Rename the tab/banner/card copy to Commands and “unit needs command.”

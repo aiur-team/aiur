@@ -7,7 +7,7 @@ topic: build-order-dashboard
 
 ## Summary
 
-Build Order gives an operator a truthful, selectable dependency view of one
+Build Order gives an Executor a truthful, selectable dependency view of one
 bounded feature while Aiur executes it. GitHub remains authoritative for order
 identity, current membership, ticket facts, lifecycle, planning metadata and
 native blockers. Aiur contributes current activity, progress and event evidence
@@ -23,9 +23,9 @@ not the opening ten-ticket estimate.
 
 - V1 reads only the configured GitHub repository and one direct-child order at
   a time, up to 100 members.
-- Build Order does not mutate GitHub planning data. Existing Aiur runtime
-  actions remain governed by their own authenticated writable/capability and
-  acknowledgement contracts.
+- Build Order does not mutate GitHub planning data or invoke mutating Aiur
+  runtime actions. Existing actions remain governed by their own authenticated
+  destination surfaces and acknowledgement contracts.
 - GitHub and the active Aiur instance are the two live truth sources. Browser
   reconnect reads current cached snapshots and receives PubSub/LiveView pushes;
   GitHub polling remains daemon-owned and bounded.
@@ -37,6 +37,10 @@ not the opening ten-ticket estimate.
 - Claude REPL/Remote Control accounting is required standalone work, not an
   accepted unsupported state.
 - Linear parity remains separate human-blocked issue #1067.
+- No implementation dispatch begins until the configured integration branch is
+  proven to contain the completed OCC baseline and the bounded Executor skill
+  revision from PR #1065 commit `fb89a300` (or a reviewed compatible successor)
+  is installed. These gates do not enter the feature denominator.
 
 ## Build Order requirements
 
@@ -68,16 +72,19 @@ not the opening ten-ticket estimate.
   or resolve a repository-qualified tracker identity at a trusted boundary.
   Bare issue topics, display names and transient agent prose cannot be join
   keys.
-- **BOREQ-006 — Shared activity projection.** A daemon-owned projection, not
-  interactive AgentList state, retains running, queued, retrying, paused,
-  completed, progress, stage, waiting and latest evidence with source/time and
-  honest restart unknowns. AgentList migrates to the same contract.
+- **BOREQ-006 — Shared typed runtime inputs.** Existing daemon-owned
+  StatusReport remains canonical for running, queued, retrying, paused,
+  waiting, backend/model and worker lifecycle. A separate daemon-owned
+  projection, not interactive AgentList state, retains progress, active stage,
+  and latest safe cross-ticket evidence with source/time and honest restart
+  unknowns. Both use the same trusted identity; AgentList migrates only its
+  duplicate event-derived fold.
 - **BOREQ-007 — Pure planning/runtime join.** Compose immutable GitHub and Aiur
   snapshots without provider I/O, log parsing or guessed defaults. Planned
   phase, dependency readiness, GitHub outcome, execution state, agent stage and
   progress remain distinct fields.
 
-### Browser and operator experience
+### Browser and Executor experience
 
 - **BOREQ-008 — Real browser test infrastructure.** Establish deterministic
   LiveView/browser accessibility, interaction and performance fixtures before
@@ -92,8 +99,10 @@ not the opening ten-ticket estimate.
   changes, and preserve a deterministic readable fallback.
 - **BOREQ-011 — Reusable all-state ticket context.** Load bounded detail from
   cached providers only after selection. Show canonical GitHub navigation,
-  upstream/downstream chips, available chat/command/runtime actions and
-  partial/error states with correct focus trap/replacement/restoration.
+  upstream/downstream chips, cached runtime evidence, safe navigation into
+  existing chat/Commands surfaces and partial/error states with correct focus
+  trap/replacement/restoration. Build Order itself exposes no mutating runtime
+  action in v1.
 - **BOREQ-012 — URL-backed minimum graph.** `/build-orders` and selected-root
   routes survive share/back/refresh and render loading, empty, unavailable,
   stale, invalid and cyclic states. Cards expose source-backed identity, title,
@@ -122,7 +131,9 @@ These become standalone issues and do not belong to the Build Order root.
 - **DREQ-002 — Canonical Units catalog.** Define current-run membership,
   terminal retention and a truth table for lifecycle scope
   Live/Unfinished/All/None plus overlapping Active/Alert/Paused/Stuck/Queued/
-  Finished conditions; preserve provenance and waiting reasons.
+  Finished conditions; preserve provenance and waiting reasons. Rebuild the
+  same-run membership/terminal set after a catalog-process crash without
+  turning the event-activity projection into a lifecycle owner.
 - **DREQ-003 — Units presentation.** URL/count/zero-result filter behavior,
   exact backend/model/effort/complexity/lane/progress with unknowns, responsive
   table/cards and adoption of shared all-state ticket context.
@@ -138,19 +149,22 @@ These become standalone issues and do not belong to the Build Order root.
 - **DREQ-007 — Commands catch-up.** Apply current Commands vocabulary/cards/
   filters while preserving every Decision lifecycle, deep link, confirmation,
   retry, revision, follow-up, sanitization and partial-history state.
-- **DREQ-008 — Provider-neutral usage envelope.** Normalize delta/absolute
-  counters with time, scope, epoch/generation, source identity, raw absolute,
-  derived delta, full/partial coverage, non-overlapping token semantics and
-  exact decimal provider cost.
+- **DREQ-008 — Provider-neutral usage envelope.** Normalize raw delta/absolute
+  measurements with time, scope, epoch/generation, source identity,
+  full/partial coverage, non-overlapping token semantics and exact decimal
+  provider cost. Do not derive cross-message deltas in an ephemeral producer.
 - **DREQ-009 — Durable attributed usage ledger.** Single-writer append-only
   NDJSON authority plus crash-safe checkpoints/aggregates survives restart,
   retry, fallback and completion while preserving grouping/coverage through
-  compaction. It supersedes #132's storage/accounting portion and deliberately
-  defers #845's database/BI program.
+  compaction. The writer alone derives deltas from absolute counters using
+  durable checkpoints. It supersedes #132's storage/accounting portion and
+  deliberately defers #845's database/BI program.
 - **DREQ-010 — Remote Control accounting.** Ingest supported structured Claude
   Code request telemetry locally, correlate session to run/ticket/attempt,
-  deduplicate and redact identity/content. The ticket cannot finish with
-  `claude-repl` coverage unsupported.
+  authenticate the local producer with a permissioned socket or per-process
+  capability, bound/rate-limit/deduplicate/reject replay, and redact before
+  logging. The ticket cannot finish with `claude-repl` coverage unsupported and
+  cannot dispatch before its human-owned protocol-authority gate resolves.
 - **DREQ-011 — Versioned cost/grouping projection.** Report tokens and
   separately labelled provider/API-equivalent estimate bases by run/build,
   ticket, agent family, backend and model with pricing revision, coverage and
@@ -162,14 +176,17 @@ These become standalone issues and do not belong to the Build Order root.
 - **DREQ-013 — Claude plan-meter parity.** Provide structured Claude
   subscription and API-key account meters without interactive-output or
   credential scraping; protocol unavailability is an explicit external gate,
-  not fabricated session/weekly bars.
+  not fabricated session/weekly bars. The human-owned source/authority gate
+  resolves before worker dispatch.
 - **DREQ-014 — Canonical current-run summary.** Define live/remaining universe,
   complexity-weighted progress with unknown denominator, wall-clock elapsed and
   evidence-based ETA with provenance/confidence/freshness.
 - **DREQ-015 — Authenticated usage/run UI.** Compose live provider/run cards and
   ticket/model/backend/agent breakdowns from cached snapshots. Show estimate
   asterisks/popovers, actual tier, scope/basis/coverage/freshness, accessible
-  meter semantics and locked financial values when unauthenticated.
+  meter semantics and lock every usage/account-meter fact—including plan,
+  auth mode, quota/rate/credit windows, percentages and resets—when
+  unauthenticated.
 
 ## Acceptance examples
 

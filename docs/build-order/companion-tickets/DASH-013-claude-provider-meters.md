@@ -12,11 +12,15 @@
 
 **Serializes with:** Claude account/auth protocol and aiur-claude adapter changes
 
-**External gate:** sibling `aiur-claude` or upstream protocol changes require explicit human repository/write authorization when no existing structured Claude meter source is available
+**External gates:** `GATE-OCC-PREDECESSOR-BASELINE`; and
+`GATE-CLAUDE-METER-PROTOCOL-AUTHORITY`, owned by a human with `aiur-claude`
+write authority and resolved before implementation as either an evidenced
+existing structured source or an explicitly authorized compatible sibling
+protocol revision
 
 **Requirements:** DREQ-013
 
-**Researched at:** `b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5`
+**Researched at:** `16d6033d8824c8cb53ac09e2129f69af751be8c4`
 
 **Suggested labels:** `complexity:4`, `model:codex`; never `agent:todo`
 
@@ -28,16 +32,16 @@ Aiur exposes Claude subscription and API-key account facts through DASH-012's pr
 
 ## Context and evidence
 
-The refreshed prototype shows Claude session and weekly meters and the operator requires both subscription and API-token modes. Current headless/Remote Control paths expose request usage/cost but do not yet establish a complete structured account-quota projection. This ticket is a required adapter outcome: when the installed protocol lacks a needed structured source, the missing aiur-claude/upstream seam becomes an explicit human-authorized external gate rather than an “unsupported is finished” shortcut.
+The refreshed prototype shows Claude session and weekly meters and the user requires both subscription and API-token modes. Current headless/Remote Control paths expose request usage/cost but do not yet establish a complete structured account-quota projection. This ticket is a required adapter outcome: when the installed protocol lacks a needed structured source, the missing aiur-claude/upstream seam becomes an explicit human-authorized external gate rather than an “unsupported is finished” shortcut.
 
 ## Scope
 
-- At pickup, characterize the installed Claude CLI, Claude Code OTel, and aiur-claude structured account/rate-limit capabilities using official schemas and sanitized fixtures. Select only a structured supported source; interactive `/usage`, TUI, transcript, StatusLine, browser, and credential scraping are forbidden.
+- Resolve `GATE-CLAUDE-METER-PROTOCOL-AUTHORITY` before implementation dispatch by characterizing the installed Claude CLI, Claude Code OTel, and aiur-claude structured account/rate-limit capabilities using official schemas and sanitized fixtures. The human-owned receipt must select an existing structured source or authorize the minimal sibling protocol/revision. Interactive `/usage`, TUI, transcript, StatusLine, browser, and credential scraping are forbidden.
 - Implement Claude normalization into DASH-012 `ProviderMeterSnapshot`: provider/backend, opaque account generation, auth mode, actual plan/tier and source, snapshot/patch/tombstone semantics, named limit IDs/windows, used/remaining facts, duration/reset, API credit/rate/spend controls when reported, observed/ingested time, freshness/expiry, and health.
 - Support subscription and API-key modes without assuming they expose the same facts. Renderable session/weekly windows require actual structured values; API mode reports only real rate/credit/spend controls.
 - Preserve sparse updates, per-window last-known-good state, full-snapshot removals, and account-generation isolation exactly as DASH-012 defines. A Claude auth/session change starts a new opaque generation without persisting raw account identity.
-- If the structured protocol cannot expose required meter facts from Aiur alone, define and implement the minimal typed aiur-claude adapter/protocol after explicit human authorization. Include version negotiation and synthetic fixtures in both repositories.
-- Expose partial/temporarily unavailable/error coverage during protocol failure, but final ticket acceptance requires the supported Claude account modes available in the operator's configured integration; “all Claude meters unsupported” is not completion.
+- If the gate determines that Aiur alone cannot expose required meter facts, implement only the minimal typed `aiur-claude` adapter/protocol authorized by its receipt. Include version negotiation and synthetic fixtures in both repositories; no worker infers sibling write authority from this ticket.
+- Expose partial/temporarily unavailable/error coverage during protocol failure, but final ticket acceptance requires the supported Claude account modes available in the user's configured integration; “all Claude meters unsupported” is not completion.
 - Redact email, account/organization/workspace IDs, credentials, API/OAuth material, raw responses, headers, endpoint/capability URLs, and unrelated attributes at the adapter boundary.
 
 ## Non-goals
@@ -56,11 +60,11 @@ Implement against DASH-012's provider-meter contract and the current Claude/aiur
 - A displayed window/control has structured source evidence, source version, observation time, and coverage. Missing support is never zero usage or unlimited quota.
 - Subscription and API-key presentations are capability-driven. Plan tier is actual structured/configured account fact with provenance, not inferred from usage price.
 - Sparse updates cannot erase unrelated facts; full snapshots and explicit tombstones can. Authentication change cannot inherit prior account last-known-good state.
-- External protocol work is a named gate with human owner; it cannot be silently dropped or converted into permanent unsupported acceptance.
+- `GATE-CLAUDE-METER-PROTOCOL-AUTHORITY` has a human owner and durable resolution receipt; it cannot be silently dropped or converted into permanent unsupported acceptance.
 
 ## Refreshable implementation notes
 
-- Refresh official Claude monitoring and installed aiur-claude schemas at pickup. Keep a source-capability matrix in the ticket workpad and fixtures, then implement the selected reviewed path.
+- Refresh official Claude monitoring and the gate-approved aiur-claude schemas at pickup. Keep the approved source-capability matrix in the ticket workpad and fixtures, then implement only the selected reviewed path.
 - Prefer adding a narrow typed method/event to aiur-claude over relaying arbitrary raw account payloads.
 - Keep provider polling/subscription daemon-owned and shared; no browser-specific fetch or credential access.
 
@@ -91,8 +95,12 @@ Implement against DASH-012's provider-meter contract and the current Claude/aiur
 
 - Reads: official structured Claude account/rate-limit sources; trusted Claude auth/process generation.
 - Writes: Claude provider-meter adapter, optional authorized aiur-claude protocol, fixtures/compatibility/redaction tests.
-- Contracts: Claude subscription/API parity on `ProviderMeterSnapshot`; external protocol gate.
+- Contracts: Claude subscription/API parity on `ProviderMeterSnapshot`; `GATE-CLAUDE-METER-PROTOCOL-AUTHORITY` receipt.
 
 ## Sibling boundaries and open gates
 
-DASH-010 owns Claude request token/cost accounting and does not satisfy quota meters. DASH-015 requires both tickets. If sibling authority is unavailable, this ticket is human-blocked rather than complete with universal unsupported coverage.
+DASH-010 owns Claude request token/cost accounting and does not satisfy quota
+meters. DASH-015 requires both tickets. This ticket is not dispatchable until
+`GATE-CLAUDE-METER-PROTOCOL-AUTHORITY` is resolved; if sibling authority is
+unavailable, it remains human-blocked rather than complete with universal
+unsupported coverage.

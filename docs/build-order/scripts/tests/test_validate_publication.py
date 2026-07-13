@@ -1,0 +1,167 @@
+from __future__ import annotations
+
+import subprocess
+import sys
+import unittest
+from pathlib import Path
+
+
+SCRIPT_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SCRIPT_DIR))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from publication_fixtures import (  # noqa: E402
+    Fixture,
+    build_order,
+    companions,
+    github,
+    publication,
+)
+from publication_materialized_fixture import materialized_pack  # noqa: E402
+from validate_publication import validate  # noqa: E402
+
+
+class PublicationValidationTests(unittest.TestCase):
+    def test_valid_prepublication_graph(self) -> None:
+        fixture = Fixture()
+        self.addCleanup(fixture.close)
+        report = validate(fixture.companion_path, fixture.build_path)
+        self.assertEqual([], report.errors)
+        self.assertEqual([], report.warnings)
+
+    def test_requires_every_active_and_paused_agent_label(self) -> None:
+        data = companions()
+        data["forbidden_labels"] = ["agent:todo"]
+        fixture = Fixture(data)
+        self.addCleanup(fixture.close)
+        report = validate(fixture.companion_path, fixture.build_path)
+        self.assertTrue(any("forbidden_labels missing agent states" in error for error in report.errors))
+
+    def test_rejects_bad_schema_complexity_document_and_external_blocker(self) -> None:
+        data = companions()
+        ticket = data["tickets"][0]
+        ticket["complexity_points"] = 6
+        ticket["document"] = "missing.md"
+        ticket["external_blockers"] = ["#12"]
+        fixture = Fixture(data)
+        self.addCleanup(fixture.close)
+        (fixture.base / "missing.md").unlink()
+        report = validate(fixture.companion_path, fixture.build_path)
+        joined = "\n".join(report.errors)
+        self.assertIn("complexity_points must be integer 1..5", joined)
+        self.assertIn("document does not resolve", joined)
+        self.assertIn("external_blockers has invalid identity", joined)
+
+    def test_rejects_unresolved_dependencies_and_combined_cycles(self) -> None:
+        data = companions()
+        data["tickets"][0]["depends_on"] = ["MISSING-999", "DASH-002"]
+        fixture = Fixture(data)
+        self.addCleanup(fixture.close)
+        report = validate(fixture.companion_path, fixture.build_path)
+        joined = "\n".join(report.errors)
+        self.assertIn("depends on unknown ticket MISSING-999", joined)
+        self.assertIn("combined hard dependency graph has a cycle", joined)
+
+    def test_resolves_named_external_gates(self) -> None:
+        data = companions()
+        data["external_gates"] = []
+        fixture = Fixture(data)
+        self.addCleanup(fixture.close)
+        report = validate(fixture.companion_path, fixture.build_path)
+        self.assertTrue(any("GATE-HUMAN-AUTHORITY" in error for error in report.errors))
+
+    def test_validates_auxiliary_manifest_contract(self) -> None:
+        manifest = publication()
+        manifest["read_only_issue_refs"] = ["example/repo#132"]
+        manifest["skill_issue"]["forbidden_label_prefixes"] = []
+        manifest["external_blocker_relations"] = []
+        fixture = Fixture(publication_data=manifest)
+        self.addCleanup(fixture.close)
+        joined = "\n".join(validate(fixture.companion_path, fixture.build_path).errors)
+        self.assertIn("issues #132 and #845", joined)
+        self.assertIn("forbidden_label_prefixes must equal", joined)
+        self.assertIn("BO-001 blocked by SKILL-DELIVERY-001", joined)
+
+    def test_auxiliary_receipt_rejects_agent_labels(self) -> None:
+        manifest = publication()
+        build = build_order()
+        manifest["approved_planning_commit"] = "b" * 40
+        build["github_root"] = github(901, "ROOT_NODE")
+        build["tickets"][0]["github"] = github(17, "BO_NODE")
+        manifest["github_reconciliation"] = {
+            "checked_at": "2026-07-13T00:00:00Z",
+            "issue_mappings": {
+                "example/repo:build-order-dashboard": github(901, "ROOT_NODE"),
+                "SKILL-DELIVERY-001": github(4, "SKILL_NODE"),
+            },
+            "external_blocker_relations": manifest["external_blocker_relations"],
+            "observed_labels": {
+                "example/repo:build-order-dashboard": ["build-order"],
+                "SKILL-DELIVERY-001": ["human:todo", "agent:paused"],
+            },
+        }
+        fixture = Fixture(build=build, publication_data=manifest)
+        self.addCleanup(fixture.close)
+        joined = "\n".join(validate(fixture.companion_path, fixture.build_path).errors)
+        self.assertIn("forbidden labels present for SKILL-DELIVERY-001", joined)
+        self.assertNotIn("number", joined)
+
+    def test_materialization_is_complete_and_identity_unique(self) -> None:
+        data = companions()
+        data["tickets"][0]["github"] = github(701, "DASH_NODE_1")
+        fixture = Fixture(data)
+        self.addCleanup(fixture.close)
+        report = validate(fixture.companion_path, fixture.build_path)
+        joined = "\n".join(report.errors)
+        self.assertIn("require all DASH mappings", joined)
+        self.assertIn("require referenced BO mappings", joined)
+        self.assertIn("require approved_planning_commit", joined)
+        self.assertIn("require github_reconciliation", joined)
+
+    def test_reconciliation_accepts_nonadjacent_github_numbers(self) -> None:
+        data, build, manifest = materialized_pack()
+        fixture = Fixture(data, build, manifest)
+        self.addCleanup(fixture.close)
+        report = validate(fixture.companion_path, fixture.build_path)
+        self.assertEqual([], report.errors)
+
+    def test_reconciliation_requires_exact_edges_and_full_observed_labels(self) -> None:
+        data = companions()
+        build = build_order()
+        data["approved_planning_commit"] = "b" * 40
+        data["tickets"][0]["github"] = github(11, "DASH_NODE_1")
+        data["tickets"][1]["github"] = github(29, "DASH_NODE_2")
+        build["tickets"][0]["github"] = github(47, "BO_NODE_1")
+        data["github_reconciliation"] = {
+            "checked_at": "now",
+            "dependency_edges": [],
+            "observed_labels": {
+                "DASH-001": ["model:codex", "complexity:3", "agent:paused"],
+                "DASH-002": ["model:codex"],
+            },
+        }
+        fixture = Fixture(data, build)
+        self.addCleanup(fixture.close)
+        report = validate(fixture.companion_path, fixture.build_path)
+        joined = "\n".join(report.errors)
+        self.assertIn("dependencies must exactly match", joined)
+        self.assertIn("forbidden labels present for DASH-001", joined)
+        self.assertIn("labels missing for DASH-002", joined)
+
+    def test_cli_has_stable_counts_and_nonzero_errors(self) -> None:
+        data = companions()
+        data["forbidden_labels"].remove("agent:paused")
+        fixture = Fixture(data)
+        self.addCleanup(fixture.close)
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT_DIR / "validate_publication.py"), str(fixture.companion_path), str(fixture.build_path)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(1, result.returncode)
+        self.assertEqual("validation: 1 error(s), 0 warning(s)", result.stdout.splitlines()[-1])
+
+
+if __name__ == "__main__":
+    unittest.main()

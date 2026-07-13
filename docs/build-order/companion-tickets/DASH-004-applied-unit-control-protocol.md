@@ -12,9 +12,11 @@
 
 **Serializes with:** AgentChat, Orchestrator pause/resume, worker-control protocol, and backend adapter changes
 
+**External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
+
 **Requirements:** DREQ-004
 
-**Researched at:** `b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5`
+**Researched at:** `16d6033d8824c8cb53ac09e2129f69af751be8c4`
 
 **Suggested labels:** `complexity:4`, `model:codex`; never `agent:todo`
 
@@ -51,13 +53,17 @@ Extend `Aiur.AgentChat`, `Aiur.Orchestrator.PauseResume`, worker control message
 
 - `accepted` means routed, not applied. Only a matching request ID plus worker/backend generation can produce `applied`.
 - Duplicate requests and duplicate/out-of-order acknowledgements are idempotent. A stale generation can never apply control to a replacement worker.
-- Tracker, worker, operator-pause, capacity-draining, and dependency-waiting states remain separate; one control result cannot erase an unrelated reason.
+- Tracker, worker, requester-owned pause, capacity-draining, and dependency-waiting states remain separate; one control result cannot erase an unrelated reason.
 - Structured rejection includes a stable class such as `not_found`, `not_eligible`, `unsupported`, `stale_generation`, `worker_unavailable`, `already_in_state`, or `control_failed`, plus a redacted human explanation.
 - Protocol failure leaves the authoritative worker state unchanged or unknown and produces observable health; it never forges success to keep UI moving.
 
 ## Refreshable implementation notes
 
 - Characterize each active backend's real pause/resume acknowledgement path at pickup, including Codex, Claude headless, and Claude Remote Control. Record request-only capability where true.
+- Characterize current main's `completed_provenance` transitions at pickup,
+  including completed-to-working replacement, completed-to-deactivated, and
+  completed-to-paused/replacement races; do not mistake the runner boundary
+  for a terminal tracker outcome.
 - Prefer extending existing control envelopes and PubSub topics over creating a parallel dashboard RPC.
 - Keep pending-control state bounded per unit and expire it with injected clocks/timers so race tests are deterministic.
 
@@ -75,7 +81,7 @@ Extend `Aiur.AgentChat`, `Aiur.Orchestrator.PauseResume`, worker control message
 
 ### Human/manual evidence
 
-- From the operator repository root, drive a real supported worker through pause and resume using the canonical TUI/control surface and capture requested, accepted, and worker-applied states. Also exercise one rejected or expired request without substituting logs for the user-visible state proof.
+- From the Executor repository root, drive a real supported worker through pause and resume using the canonical TUI/control surface and capture requested, accepted, and worker-applied states. Also exercise one rejected or expired request without substituting logs for the user-visible state proof.
 
 ## Failure, security, migration, and accessibility cases
 

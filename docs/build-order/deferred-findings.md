@@ -62,7 +62,7 @@ critical-path capacity, or prevent completion.
 - Affected component: graph interaction and performance
 - Why non-blocking: pan/zoom/fit, selection, diagnostics, and 100-node proof are
   sufficient v1 navigation.
-- Future disposition: Test real operator pain before adding controls.
+- Future disposition: Test real Executor pain before adding controls.
 
 ## DF-007 — Opencode accounting surface
 

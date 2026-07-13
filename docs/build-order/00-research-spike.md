@@ -22,7 +22,7 @@ work that should not be buried in nominal frontend tickets.
 ## Current Dashboard Baseline
 
 As of `origin/main` at
-`b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5`, the Operator Control Center
+`16d6033d8824c8cb53ac09e2129f69af751be8c4`, the Operator Control Center
 integration capstone is merged. `src/lib/aiur_web/router.ex` exposes Units at
 `/`, the Decision inbox/detail at `/decisions` and `/decisions/:id`, and the
 separate controller-backed analytics report at `/analytics`.

@@ -2,10 +2,11 @@
 
 ## Start gate
 
-This handoff becomes executable only after
-`docs/build-order/github-publication.md` contains a successful reconciliation
-receipt and the operator separately authorizes a run. Planning publication does
-not queue work. Until then, do not run Aiur, implement tickets or add
+This handoff becomes executable only after the live Build Order root contains a
+uniquely marked `aiur-build-order-reconciliation` comment linking a successful
+immutable post-publication receipt, both external gates below are recorded as
+resolved, and the user separately authorizes a run. Planning publication
+does not queue work. Until then, do not run Aiur, implement tickets, or add
 `agent:todo`.
 
 ## Identity and objective
@@ -13,9 +14,10 @@ not queue work. Until then, do not run Aiur, implement tickets or add
 - Build Order: `its-everdred/aiur:build-order-dashboard`
 - Plan version: 1
 - Repository: `its-everdred/aiur`
-- Researched commit: `b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5`
+- Researched commit: `16d6033d8824c8cb53ac09e2129f69af751be8c4`
 - Approved planning commit: pending final clean review
-- GitHub root: pending materialization
+- GitHub root: resolve live by the hidden Build Order root marker; do not trust
+  a copied pending number
 
 Deliver the fifteen-ticket authenticated, GitHub-planning-read-only Build Order
 feature. GitHub owns current plan facts; Aiur owns runtime facts. The fifteen
@@ -33,15 +35,34 @@ are separate tracks and cannot change this run's denominator or ETA.
      `docs/build-order/tickets/BO-015-prove-feature-acceptance.md`
    - `docs/build-order/validation-report.md`
    - `docs/build-order/github-publication.md`
-2. Use `/aiur-run`, not the retired `/aiur-loop` workflow.
+2. Use `/aiur-run`, not the retired `/aiur-loop` workflow. Verify the loaded
+   skill is PR #1065 commit `fb89a300` or an explicitly reviewed compatible
+   successor preserving its finite-boundary, review/rework, circuit-breaker,
+   and publication rules. A matching skill name is insufficient.
 3. Write a three-to-five-sentence `/goal` stating that you are the Executor,
    the finite acceptance boundary, granted issue/merge authority, critical-path
    priority and terminal condition.
 4. Requery repository instructions, configured integration branch, the GitHub
    root/members/blockers/full labels, active PRs, CI and Aiur status. Never use
    the planning JSON as fresher live GitHub truth.
-5. Queue only approved BO members under explicit operator authority. Companion
-   issues remain inactive unless separately authorized.
+5. Queue only approved BO members under explicit user authority. Companion
+   issues remain inactive unless separately authorized and their shared
+   `GATE-OCC-PREDECESSOR-BASELINE` plus any ticket-specific provider gate is
+   resolved.
+
+## External pre-dispatch gates
+
+- **GATE-001 — integration baseline:** the predecessor OCC run is complete and the
+  configured `tracker.base_branch` contains the researched OCC baseline plus
+  accepted successors. At planning time `.aiur/config` and `CONTRIBUTING.md`
+  named divergent `v2` commit `3bbc064a`; record the resolved branch and SHA on
+  the live root. Do not silently implement against that stale snapshot.
+- **GATE-002 — Executor skill:** the bounded skill revision above is installed and
+  `/aiur-build`, `/aiur-run`, and `/aiur-monitor` are discoverable. The separate
+  human skill-delivery issue remains outside the Build Order denominator.
+
+Both gates block BO-001. Because BO-008 depends on BO-001, they transitively
+gate every Build Order implementation ticket.
 
 ## Authority map
 
@@ -59,12 +80,14 @@ Aiur progress, including 100%, never clears a GitHub blocker.
 
 ## Initial graph and capacity
 
-BO-001 and BO-008 can begin together. After BO-001, BO-002, BO-004 and BO-009
-are independent. BO-003 follows BO-002; BO-005 follows BO-004, and those two
-serialize on the application supervision seam. BO-010 follows BO-008/009;
-BO-006/007 follow activity; BO-011 follows the presenter; BO-012 joins graph,
-presenter, layout and context; BO-013/014 harden interaction and scale; BO-015
-integrates and proves the feature.
+After both external gates resolve, BO-001 is the sole initial ticket. BO-002,
+BO-004, and BO-008 follow BO-001. BO-003 follows BO-002; BO-005 follows BO-004,
+and those two serialize on the application-supervision seam. BO-009 follows
+BO-001 and BO-008; BO-010 follows BO-008 and BO-009. BO-006 follows BO-005.
+BO-007 follows BO-001, BO-003, and BO-005. BO-011 follows BO-003, BO-007, and
+BO-008. BO-012 follows BO-003, BO-007, BO-010, and BO-011; BO-013 follows
+BO-008 and BO-012; BO-014 follows BO-008 and BO-013; BO-015 follows BO-006 and
+BO-014.
 
 Derive current readiness from GitHub native blockers, ticket lifecycle,
 declared serialization and real capacity. Phase is only a rollout/display hint.
@@ -83,7 +106,7 @@ activate companions or deferred findings to keep slots busy.
   promotion exceeds completion, freeze further promotion until the original
   feature lands.
 - Keep branches current, CI green and shared-write work sequenced. Merge only
-  under the operator's current authority and repository policy.
+  under the user's current authority and repository policy.
 
 Report two tracks separately: bounded Build Order critical path/count/ETA, and
 reliability/optimization findings as active only when separately authorized or
@@ -98,7 +121,7 @@ only when an Aiur defect or hard operational failure makes that the economical
 backstop.
 
 With debug authorization, file a sanitized Aiur issue for a reproducible Aiur
-failure. Without it, ask the operator first. Always remove credentials, tokens,
+failure. Without it, ask the user first. Always remove credentials, tokens,
 private content, account identifiers, environment values, local paths/hosts and
 irrelevant source context.
 
@@ -110,7 +133,7 @@ proven after merge.
 
 BO-015 owns the acceptance matrix, real published-root dogfood, synthetic
 cycle/invalid/degraded/20/50/100 fixtures and post-merge smoke. The Executor
-runs the canonical real CLI/TUI flow from the operator repository root because
+runs the canonical real CLI/TUI flow from the Executor repository root because
 issue workspaces cannot bypass the `--test` guard. Proof also covers the
 authenticated browser, selection/deep links, LKG degradation, live activity,
 context/dependency navigation, keyboard/touch/pan/zoom, light/dark/reduced

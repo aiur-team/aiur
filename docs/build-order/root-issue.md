@@ -24,6 +24,25 @@ GitHub becomes authoritative for live membership and blockers after
 publication. The linked commit preserves reviewed intent and scheduling
 metadata.
 
+The current root must also contain one `aiur-build-order-reconciliation`
+comment linking the immutable post-publication reconciliation commit. That
+comment, not a pending field in the approved planning commit, proves returned
+issue identities, native membership, blockers, and full labels were re-read.
+
+## Pre-dispatch gates
+
+Do not dispatch BO-001 until both gates in `build-order.json` are recorded as
+resolved on this root:
+
+- the configured integration branch contains the completed OCC predecessor
+  baseline and its accepted successors; and
+- PR #1065 commit `fb89a300` or an explicitly reviewed compatible successor is
+  installed and `/aiur-build`, `/aiur-run`, and `/aiur-monitor` are
+  discoverable.
+
+These are external execution gates, not child tickets and not additions to the
+fifteen-ticket denominator.
+
 ## Closure
 
 BO-015 owns the acceptance matrix and post-merge proof. The Executor closes

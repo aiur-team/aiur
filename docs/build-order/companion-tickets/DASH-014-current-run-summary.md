@@ -12,9 +12,11 @@
 
 **Serializes with:** run lifecycle, Units summary, and progress/ETA projection changes
 
+**External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
+
 **Requirements:** DREQ-014
 
-**Researched at:** `b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5`
+**Researched at:** `16d6033d8824c8cb53ac09e2129f69af751be8c4`
 
 **Suggested labels:** `complexity:4`, `model:codex`; never `agent:todo`
 
@@ -72,11 +74,11 @@ Build a pure projection over DASH-002's catalog plus `Aiur.Boot` run identity/st
 
 ### At-merge gate
 
-- Rebase on DASH-002/current main; run Units catalog, run lifecycle/Boot, progress, clock, projection/PubSub, regression, and full CI suites.
+- Rebase on DASH-002 and the resolved configured integration target; run Units catalog, run lifecycle/Boot, progress, clock, projection/PubSub, regression, and full CI suites.
 
 ### Human/manual evidence
 
-- Using a synthetic real run from the operator repository root, compare wall elapsed with concurrent agent runtime, complete enough weighted tickets to enable ETA, and demonstrate ETA/percentage becoming explicitly unavailable when progress or membership evidence is incomplete.
+- Using a synthetic real run from the Executor repository root, compare wall elapsed with concurrent agent runtime, complete enough weighted tickets to enable ETA, and demonstrate ETA/percentage becoming explicitly unavailable when progress or membership evidence is incomplete.
 
 ## Failure, security, migration, and accessibility cases
 

@@ -40,8 +40,9 @@ Existing work must be reconciled rather than duplicated:
 
 ## Measurement envelope
 
-Normalize each provider message before persistence. The minimum versioned
-envelope is:
+Normalize each provider message into a raw measurement before persistence.
+DASH-008 owns this content-free protocol boundary; it does not derive or retain
+cross-message deltas. The minimum versioned envelope is:
 
 ```text
 schema_version, idempotency_key
@@ -53,16 +54,18 @@ source_event_id, source_sequence
 run_id, tracker/repository/ticket identity, attempt_id
 session_id, turn_id, request_id
 agent_family, backend, requested_model, resolved_model, effort, auth_mode
-raw_absolute_usage, derived_delta_usage
-input, cached_input, cache_creation_input, output, reasoning_output, total
+raw_input, raw_cached_input, raw_cache_creation_input, raw_output
+raw_reasoning_output, provider_reported_total
 provider_cost_decimal, provider_cost_currency, completeness: full | partial
 source, source_version
 ```
 
-An absolute counter is converted to a delta only within the same provider,
-account generation, epoch, scope and counter key. Duplicate or out-of-order
-events add no usage. A provider reset, new session/turn, retry attempt or model
-fallback cannot inherit the prior checkpoint accidentally.
+The DASH-009 single writer converts an absolute token or cost counter to a delta
+only within the same provider, account generation, epoch, scope and counter key,
+using its durable replayable checkpoint. Duplicate or out-of-order events add no
+usage. A provider reset, new session/turn, retry attempt or model fallback cannot
+inherit the prior checkpoint accidentally. DASH-008 classifies and preserves raw
+source semantics; it never keeps a second ephemeral delta authority.
 
 Token dimensions overlap. Cached input is normally a subset of input, and
 reasoning output is normally a subset of output. Preserve each dimension for
@@ -78,7 +81,8 @@ Code's supported OpenTelemetry event stream now provides a structured
 model, estimated USD cost, input/output/cache token fields, request ID,
 query source and effort. DASH-010 must evaluate and implement a local-only OTLP
 ingress path, correlate `session.id` to Aiur run/ticket/attempt identity, and
-deduplicate at request/event identity.
+emit deterministic request/event idempotency identity for DASH-009's durable
+deduplication.
 
 This is preferable to scraping `/usage`, transcript output or the status line.
 The status-line token totals describe the current context rather than
@@ -90,6 +94,14 @@ organization, host paths and any other unnecessary identity at the ingress
 boundary before persistence. If the local OTLP endpoint requires a sibling
 `aiur-claude` launch-protocol change, that external change is an explicit gate;
 the Aiur ticket cannot finish with Remote Control marked unsupported.
+
+The local telemetry receiver is also a trust boundary, not merely a loopback
+port. Prefer an owner-only Unix-domain socket. A loopback TCP receiver requires
+an unguessable per-process capability minted by Aiur, authenticated before
+payload decoding or logging, bound to the process/session generation, and
+revoked at teardown. Both forms enforce bounded bodies, attributes,
+connections and event rates; reject replay floods and redact before any error,
+quarantine or diagnostic output.
 
 Sources:
 
@@ -201,8 +213,8 @@ reads current GitHub/Aiur snapshots, then continues with pushed updates.
 
 | Ticket | Owns | Does not own |
 |---|---|---|
-| DASH-008 | Envelope, transport normalization and exact attribution inputs | durability, pricing, UI |
-| DASH-009 | File-first durable ledger/checkpoints/projections | provider adapters, pricing, UI |
+| DASH-008 | Raw envelope, transport classification and exact attribution inputs | cross-message delta derivation, durability, pricing, UI |
+| DASH-009 | File-first durable ledger, absolute-counter checkpoints/delta derivation and projections | provider adapters, pricing, UI |
 | DASH-010 | Claude REPL/Remote Control OTel usage and cost adapter | Claude account quotas, summary UI |
 | DASH-011 | Versioned API-equivalent pricing and grouped usage query | provider account meters, ingestion, UI |
 | DASH-012 | Meter snapshot/patch contract and Codex adapter | Claude adapter, ticket usage ledger |
@@ -212,9 +224,11 @@ reads current GitHub/Aiur snapshots, then continues with pushed updates.
 
 ## Security and accessibility
 
-- Numeric token/cost history and its APIs require authenticated operator mode.
-  Optional unauthenticated local dashboard mode renders a locked state with no
-  financial/token values.
+- Token/cost history and all account-meter facts and APIs require authenticated
+  Executor mode. This includes plan/tier, auth mode, quota/rate/credit windows,
+  percentages, limits and reset times. Optional unauthenticated local dashboard
+  mode renders a locked state with none of those values in HTML, assigns,
+  client events or generic APIs.
 - Never persist prompts, transcripts, output, credentials, email/account/org
   identity, capability URLs, raw environment values or provider bodies.
 - Keep the ledger outside agent workspaces with restrictive permissions. Do not
@@ -226,8 +240,12 @@ reads current GitHub/Aiur snapshots, then continues with pushed updates.
 
 ## Resolved product decisions
 
-There are no remaining product gates for this track: subscription estimates,
-current-member/all-retained scope, read-only GitHub planning, and required
-Remote Control accounting are accepted in `questions.md`. Provider protocol
+There are no remaining product-choice gates for this track: subscription
+estimates, current-member/all-retained scope, read-only GitHub planning, and
+required Remote Control accounting are accepted in `questions.md`. Two named
+human-owned protocol gates remain: `GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY` for
+DASH-010 and `GATE-CLAUDE-METER-PROTOCOL-AUTHORITY` for DASH-013. Each must be
+resolved either with evidence that the Aiur-only path satisfies the contract or
+with explicit authority and a compatible sibling revision. Provider protocol
 availability can block an adapter ticket, but cannot silently weaken its
-acceptance criteria.
+acceptance criteria or be treated as an executable worker's implicit authority.

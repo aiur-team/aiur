@@ -10,7 +10,7 @@
 
 **Phase hint:** 4
 
-**Depends on:** BO-001, BO-005
+**Depends on:** BO-001, BO-003, BO-005
 
 **Serializes with:** none
 
@@ -20,15 +20,16 @@
 
 **Design evidence:** DESIGN-001, DESIGN-002
 
-**Researched at:** b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5
+**Researched at:** 16d6033d8824c8cb53ac09e2129f69af751be8c4
 
 **Suggested labels:** `complexity:4`, `model:codex`, `phase:4`, `build-lane:backend`; never `agent:todo`
 
 ## Outcome
 
-A pure presenter joins one complete GitHub planning snapshot with one typed Aiur
-activity snapshot into bounded root, node, edge, group, diagnostic, context, and
-summary models without I/O or guessed defaults.
+A pure presenter joins one complete GitHub planning snapshot with one typed
+orchestrator status snapshot and one typed event-activity snapshot into bounded
+root, node, edge, group, diagnostic, context, and summary models without I/O or
+guessed defaults.
 
 ## Context and evidence
 
@@ -39,9 +40,9 @@ and reverse adjacency before layout or ticket context can consume it.
 
 ## Scope
 
-- Join members to activity only by exact trusted repository-qualified tracker
-  identity. Retain separate `plan` and `activity` subrecords plus provenance,
-  health, and observation times.
+- Join members to orchestrator status and event activity only by exact trusted
+  repository-qualified tracker identity. Retain separate `plan`, `execution`,
+  and `activity` subrecords plus provenance, health, and observation times.
 - Compute directed adjacency, reverse adjacency, self-loops/strongly connected
   components, external/missing references, and bounded graph diagnostics.
 - Classify edges exactly as `cleared`, `blocking`, `terminal_unsatisfied`,
@@ -54,8 +55,8 @@ and reverse adjacency before layout or ticket context can consume it.
   node summaries, accessible edge/status text, root/catalog health, and counts
   that use the same policies as visible nodes.
 - Produce a body-free card model and a selected-ticket context model from
-  normalized cached snapshots. Full descriptions and safe action capabilities
-  remain out of the graph-card payload.
+  normalized cached graph, selected-detail, and activity snapshots. Full
+  descriptions and safe destination links remain out of the graph-card payload.
 - Preserve member metadata warnings as renderable diagnostics and distinguish
   selected structural-invalid from stale LKG, provider unavailable, and empty
   valid graphs.
@@ -71,7 +72,8 @@ and reverse adjacency before layout or ticket context can consume it.
 
 Reuse pure presentation conventions in `AiurWeb.ControlCenterPresenter` where
 they fit, but keep Build Order graph/state policy in a bounded pure module.
-Consume BO-001 domain records and BO-005 activity snapshots directly.
+Consume BO-001 domain records, BO-004-identified StatusReport snapshots, and
+BO-005 event-activity snapshots directly.
 
 ## Contract and invariants
 
@@ -81,9 +83,10 @@ Consume BO-001 domain records and BO-005 activity snapshots directly.
   terminal-unsatisfied. Missing/stale dependencies remain unknown.
 - Cyclic classification wins over every lesser readiness state for members in
   an SCC; edge and member status remain distinct.
-- A missing activity match changes only the activity subrecord to unknown.
-- Cards remain body-free and bounded; selected context uses already-cached
-  normalized values rather than render-time provider reads.
+- A missing StatusReport or activity match changes only the corresponding
+  execution or activity subrecord to unknown.
+- Cards remain body-free and bounded; selected context uses BO-003's
+  already-cached detail values rather than render-time provider reads.
 
 ## Refreshable implementation notes
 
@@ -91,8 +94,8 @@ Consume BO-001 domain records and BO-005 activity snapshots directly.
   deterministic ordering independent of map iteration.
 - Separate policy modules from web components so BO-011/012 can consume the
   same values and tests can exhaust state combinations.
-- Keep context action capabilities as supplied normalized facts; invocation
-  and confirmation remain owned by the existing runtime action boundary.
+- Keep safe destination capabilities as supplied normalized facts. Build Order
+  invokes no mutating runtime action; companions own their action protocols.
 
 ## Acceptance and verification
 
@@ -127,7 +130,9 @@ Consume BO-001 domain records and BO-005 activity snapshots directly.
 
 ## Surfaces
 
-- Reads: BO-001 planning snapshots; BO-005 TicketActivity snapshots.
+- Reads: BO-001 planning snapshots, BO-003 selected-detail contract fixtures,
+  BO-004-identified StatusReport snapshots, and BO-005 TicketActivity
+  snapshots.
 - Writes: pure BuildOrderPresenter policies, joined view/context models,
   adjacency/SCC helpers, and tests.
 - Contracts: BuildOrderViewModel; card/context input; edge/readiness and

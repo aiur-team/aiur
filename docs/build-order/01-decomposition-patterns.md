@@ -51,7 +51,7 @@ intake and identity
 | Ticket docs were thin export stubs | Research was deferred to lower-context worker agents | Finish the stable ticket contract before materialization. |
 | Implementation notes were treated as permanent contracts | Paths and line numbers decayed as main moved | Separate stable behavior from refreshable notes tied to a SHA. |
 | Integration/capstone was added late | Locally correct slices did not form a working feature | Add a merged-base acceptance capstone on day one. |
-| All children closed meant “feature done” | Final operator outcome lacked proof | Track root acceptance and capstone evidence independently. |
+| All children closed meant “feature done” | Final Executor outcome lacked proof | Track root acceptance and capstone evidence independently. |
 | Execution-discovered work rewrote the original plan | Intent and scope growth became impossible to audit | Version the graph and mark `planned` versus `discovered`. |
 | Review and monitoring created work faster than agents completed it | A finite feature became an open-ended reliability program and its percentage/ETA lost meaning | Classify every finding; return contained work to rework, defer P2/P3/optimizations, and freeze promotion when creation exceeds completion. |
 
@@ -66,7 +66,7 @@ agent-versus-at-merge verification, write/contract surface analysis, and the
 need to validate the documents with code rather than trusting hand-maintained
 indices.
 
-PR #971 contributes an operator-centered PRD, brownfield reuse audit, versioned
+PR #971 contributes an Executor-centered PRD, brownfield reuse audit, versioned
 design delta, one-way foundation contracts, and a realistic warning: ten
 parallel tickets still needed a later integration ticket because no one owned
 the composed flow.

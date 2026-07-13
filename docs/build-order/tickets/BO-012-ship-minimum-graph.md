@@ -20,7 +20,7 @@
 
 **Design evidence:** DESIGN-001, DESIGN-002
 
-**Researched at:** b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5
+**Researched at:** 16d6033d8824c8cb53ac09e2129f69af751be8c4
 
 **Suggested labels:** `complexity:4`, `model:codex`, `phase:5`, `build-lane:frontend`; never `agent:todo`
 
@@ -35,7 +35,7 @@ and LiveView updates.
 ## Context and evidence
 
 This is the smallest useful vertical slice. Provider, activity, presenter,
-layout, and context contracts are only valuable once an operator can select a
+layout, and context contracts are only valuable once an Executor can select a
 real root and understand its graph. The prototype's client-only tab state and
 sample objects cannot be carried into production.
 
@@ -61,9 +61,9 @@ sample objects cannot be carried into production.
   seam, preserving existing Units, Commands/Decisions, Analytics, Basic Auth,
   theme, live/offline, writable/read-only, and back/refresh behavior.
 - Keep GitHub planning state read-only: no membership, dependency, label, phase,
-  lane, issue-state, or root-state mutation handler. Preserve existing Aiur
-  runtime actions only inside BO-011's capability/auth/writable/confirmation
-  gates.
+  lane, issue-state, or root-state mutation handler. Expose no Aiur runtime
+  mutation handler; BO-011 may render only safe links into existing destination
+  surfaces.
 
 ## Non-goals
 
@@ -88,11 +88,12 @@ assigns or hooks.
   and browser back/forward without mixing graphs.
 - Catalog provider failure, per-entry invalidity, selected structural-invalid,
   selected stale/unavailable, and member metadata warnings are distinct
-  operator states.
+  Executor states.
 - Cards and accessible edge/dependency summaries are meaningful before layout
   completes and in fallback. The worker owns geometry only.
-- Build Order never mutates GitHub/planning state. Existing Aiur runtime actions
-  remain separately authorized and cannot change readiness truth.
+- Build Order never mutates GitHub/planning state or invokes an Aiur runtime
+  mutation. Destination surfaces remain separately authorized and cannot change
+  readiness truth.
 - Every visible count/filter/diagnostic derives from the same BO-007 view model.
 
 ## Refreshable implementation notes
@@ -131,12 +132,12 @@ assigns or hooks.
 
 - Reviewer selects valid and invalid roots by URL, refreshes/navigates back,
   opens dependency context, and confirms stale/invalid/warning distinctions and
-  existing runtime action gating. BO-015 owns final real-root proof.
+  safe destination navigation. BO-015 owns final real-root proof.
 
 ## Failure, security, migration, and accessibility cases
 
-- Inherit Basic Auth, safe URL, CSRF/write separation, redaction, CSP, and
-  fail-closed runtime-action boundaries; never render raw provider errors.
+- Inherit Basic Auth, safe URL, CSRF/write separation, redaction, CSP, and the
+  explicit no-mutation boundary; never render raw provider errors.
 - Preserve existing route URLs and explicit redirects; no persisted data
   migration is introduced.
 - Use semantic headings/navigation/cards/dialog triggers, accessible status and

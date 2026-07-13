@@ -14,13 +14,15 @@
 
 **Serializes with:** none
 
+**External gates:** GATE-001 (integration baseline), GATE-002 (Executor skill)
+
 **Requirements:** BOREQ-001, BOREQ-002, BOREQ-003
 
-**Decisions:** DEC-001, DEC-002, DEC-003, DEC-004, DEC-010
+**Decisions:** DEC-001, DEC-002, DEC-003, DEC-004, DEC-010, DEC-013
 
 **Design evidence:** DESIGN-002
 
-**Researched at:** b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5
+**Researched at:** 16d6033d8824c8cb53ac09e2129f69af751be8c4
 
 **Suggested labels:** `complexity:3`, `model:codex`, `phase:1`, `build-lane:backend`; never `agent:todo`
 
@@ -42,6 +44,12 @@ the resulting graph can look ready while its source data is incomplete.
 
 This ticket is the contract gate for every other Build Order implementation
 ticket. It defines semantics and bounded fixtures, not transport or UI.
+
+It must not be dispatched until the user records both external gates as
+resolved on the live root: the configured integration target contains the
+completed Operator Control Center baseline used by this plan, and the bounded
+Executor skill revision from PR #1065 commit `fb89a300` (or an explicitly
+reviewed compatible successor) is installed and discoverable.
 
 ## Scope
 
@@ -80,8 +88,10 @@ ticket. It defines semantics and bounded fixtures, not transport or UI.
 
 Reuse GitHub identity/state/label vocabulary around `Aiur.Issue`,
 `Aiur.GitHub.IssueState`, and `Aiur.GitHub.Labels`, while keeping Build Order
-records in a bounded namespace. Reuse existing structured-error conventions;
-do not expand the general dispatch record merely to serve this page.
+records in a bounded namespace. Reuse existing structured-error conventions.
+Do not add graph/catalog/presentation fields to the general dispatch record;
+BO-004 separately owns the cross-consumer typed tracker identity needed by
+StatusReport and event joins.
 
 ## Contract and invariants
 
@@ -130,7 +140,7 @@ do not expand the general dispatch record merely to serve this page.
 
 ### Human/manual evidence
 
-- None separately; BO-015 owns integrated operator evidence.
+- None separately; BO-015 owns integrated Executor evidence.
 
 ## Failure, security, migration, and accessibility cases
 
@@ -154,4 +164,6 @@ do not expand the general dispatch record merely to serve this page.
 BO-002 owns transport normalization, BO-003 owns supervised generations,
 BO-007 owns the joined view model, and BO-012 owns routes. No companion ticket
 may redefine this domain contract; it may only reuse its identities or schedule
-around the same modules.
+around the same modules. GATE-001 and GATE-002 are
+pre-dispatch gates, not feature tickets or additions to the completion
+denominator.

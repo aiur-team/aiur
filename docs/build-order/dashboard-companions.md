@@ -6,7 +6,7 @@ requirements or ETA inputs of the Build Order root.
 
 | ID | Outcome | Cx | Hard prerequisites |
 |---|---|---:|---|
-| [DASH-001](companion-tickets/DASH-001-responsive-route-shell.md) | Responsive route-aware shell | 3 | sequence after #1034 |
+| [DASH-001](companion-tickets/DASH-001-responsive-route-shell.md) | Responsive route-aware shell | 3 | — |
 | [DASH-002](companion-tickets/DASH-002-current-run-units-catalog.md) | Canonical current-run Units catalog | 4 | BO-005 |
 | [DASH-003](companion-tickets/DASH-003-units-interface.md) | Responsive Units filters/table | 3 | DASH-001, DASH-002, BO-011 |
 | [DASH-004](companion-tickets/DASH-004-applied-unit-control-protocol.md) | Worker-applied pause/resume protocol | 4 | — |
@@ -15,10 +15,10 @@ requirements or ETA inputs of the Build Order root.
 | [DASH-007](companion-tickets/DASH-007-commands-interface.md) | Commands presentation catch-up | 3 | DASH-001, DASH-006 |
 | [DASH-008](companion-tickets/DASH-008-usage-envelope.md) | Provider-neutral usage envelope | 4 | BO-004 |
 | [DASH-009](companion-tickets/DASH-009-durable-usage-ledger.md) | Durable attributed usage ledger | 4 | DASH-008 |
-| [DASH-010](companion-tickets/DASH-010-claude-remote-usage.md) | Required Claude Remote accounting | 4 | DASH-008; sibling gate if required |
+| [DASH-010](companion-tickets/DASH-010-claude-remote-usage.md) | Required Claude Remote accounting | 4 | DASH-008; `GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY` |
 | [DASH-011](companion-tickets/DASH-011-cost-grouping-projection.md) | Versioned cost/grouping projection | 4 | DASH-009 |
 | [DASH-012](companion-tickets/DASH-012-codex-provider-meters.md) | Meter contract and Codex adapter | 4 | — |
-| [DASH-013](companion-tickets/DASH-013-claude-provider-meters.md) | Claude subscription/API meter parity | 4 | DASH-012; sibling gate if required |
+| [DASH-013](companion-tickets/DASH-013-claude-provider-meters.md) | Claude subscription/API meter parity | 4 | DASH-012; `GATE-CLAUDE-METER-PROTOCOL-AUTHORITY` |
 | [DASH-014](companion-tickets/DASH-014-current-run-summary.md) | Canonical current-run summary | 4 | DASH-002 |
 | [DASH-015](companion-tickets/DASH-015-usage-run-summary-ui.md) | Authenticated usage/run summary UI | 4 | DASH-001, DASH-003, DASH-010..014 |
 
@@ -44,7 +44,13 @@ The complete evidence matrix is
 
 ## Scheduling and shared surfaces
 
-- DASH-001 follows #1034 and owns shared route/navigation/CSS metadata.
+- Every companion is non-pickable until
+  `GATE-OCC-PREDECESSOR-BASELINE` records that the bounded predecessor run is
+  complete and the configured implementation branch contains its accepted
+  successors. Publication is allowed before resolution because it adds no
+  dispatch label.
+- DASH-001 owns shared route/navigation/CSS metadata. Closed #1034 is accepted
+  predecessor evidence, not a new native blocker.
 - DASH-002 and DASH-008 consume BO typed activity/identity contracts; DASH-008
   serializes with BO-005's event migration.
 - DASH-003 consumes BO-011 ticket context rather than building a second modal.
@@ -52,8 +58,23 @@ The complete evidence matrix is
   and must be sequenced or rebased.
 - DASH-006 and runtime identity producers coordinate schema provenance; exact
   backend/model values are never parsed from display text.
-- DASH-010/013 may require separately authorized sibling changes. Their Aiur
-  issues remain incomplete while a required external contract is blocked.
+- DASH-010/013 are not dispatchable until their named human-owned protocol gate
+  has a resolution receipt. Their Aiur issues remain incomplete while a required
+  external contract is blocked.
+
+## External gates
+
+These gates record predecessor, authority, and protocol evidence without
+creating or implying sibling issues. The human owner may resolve a provider
+gate as `aiur_only` when reviewed fixtures prove no sibling change is needed,
+or as `sibling_authorized` with the approved minimal contract and compatible
+revision. Until all gates referenced by a ticket resolve, it is not pickable.
+
+| Gate | Human owner | Resolution receipt |
+|---|---|---|
+| `GATE-OCC-PREDECESSOR-BASELINE` | Product owner and current OCC Executor | Bounded predecessor run is complete; configured implementation branch and SHA contain closed #1034 plus all accepted OCC successors |
+| `GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY` | Human owner with `aiur-claude` write authority | Reviewed Claude/Aiur capability matrix plus either the secure Aiur-only launch/receiver path or explicit authority and compatible sibling protocol revision |
+| `GATE-CLAUDE-METER-PROTOCOL-AUTHORITY` | Human owner with `aiur-claude` write authority | Reviewed structured meter-source matrix plus either the existing supported source or explicit authority and compatible sibling protocol revision |
 
 ## Existing-work disposition
 

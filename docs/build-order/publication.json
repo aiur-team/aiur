@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "plan_version": 1,
+  "repository": "its-everdred/aiur",
+  "approved_planning_commit": null,
+  "root_issue": {
+    "logical_id": "its-everdred/aiur:build-order-dashboard",
+    "document": "root-issue.md",
+    "required_labels": ["build-order"],
+    "forbidden_labels": [],
+    "forbidden_label_prefixes": [
+      "agent:",
+      "model:",
+      "complexity:",
+      "phase:",
+      "build-lane:"
+    ]
+  },
+  "skill_issue": {
+    "logical_id": "SKILL-DELIVERY-001",
+    "document": "skill-delivery.md",
+    "required_labels": ["human:todo"],
+    "forbidden_labels": ["build-order"],
+    "forbidden_label_prefixes": [
+      "agent:",
+      "model:",
+      "complexity:",
+      "phase:",
+      "build-lane:"
+    ]
+  },
+  "external_blocker_relations": [
+    {
+      "blocked_ticket_id": "BO-001",
+      "blocker_issue_id": "SKILL-DELIVERY-001"
+    }
+  ],
+  "read_only_issue_refs": [
+    "its-everdred/aiur#132",
+    "its-everdred/aiur#845"
+  ],
+  "github_reconciliation": null
+}
