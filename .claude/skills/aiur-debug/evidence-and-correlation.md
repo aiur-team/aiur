@@ -51,10 +51,11 @@ evidence and belongs after classification, not initial triage.
 | Startup output | configured run root `log/boot.out.log`; foreground wrapper capture; `erl_crash.dump`; reported temporary startup/pid/workspace-root artifacts while present | launcher command path, boot output, crash marker/dump, registered child IDs | application supervision stayed healthy after boot |
 | Runtime application log | configured session logs root `log/aiur.log`, only when debug is enabled | timestamped Aiur/OTP lifecycle and errors for that run | UI rendering, tracker truth, or provider intent by itself |
 | Historical/rotated runtime logs | sibling `aiur.log*` files in older run roots or externally rotated archives | older evidence when its run identity/time matches | that Aiur currently performs internal rotation; current `Aiur.LogFile` does not |
-| Per-ticket stdout log | configured log directory's repository/ticket-prefixed log from `Aiur.IssueLog` | per-ticket child stdout/stderr even without debug | structured event completeness |
-| Workspace event stream | `<workspace>/logs/agent.ndjson` | durable one-record-per-agent-event stream, IDs, raw notifications, usage/rate limits, crash reason when recorded | what a human saw in a TUI pane |
+| Per-ticket transcript/event log | configured log directory's repository/ticket-prefixed log from `Aiur.IssueLog` | transcript and alert stream projected to the OpenCode pane, plus recorded Aiur event markers, even without debug | complete raw child stdout/stderr, every provider/Aiur event, process resource use, or what rendered without matching pane evidence |
+| Workspace transcript/event projection | `<workspace>/logs/agent.ndjson` with the human-readable `<workspace>/logs/agent.md` projection | agent transcript, alert, and Aiur-event records passed to `Aiur.AgentEventLog`, including usage/rate-limit or crash reasons when recorded | complete raw child stdout/stderr, events never passed to the writer, host process state, or what a human saw in a TUI pane |
 | Workspace transcript | `<workspace>/logs/agent.md` | human-readable projection and resume/workpad-adjacent chronology | complete structured fields when projection omits them |
 | Debug chat recording | run log root `log/record/chat.<ticket>.ansi` under `--debug` foreground recording | stitched rendered OpenCode chat viewport over time | hidden state outside the pane or events that never rendered |
+| Debug run telemetry | configured run root `log/telemetry.ndjson`, beside `log/aiur.log`; written only when debug is enabled | append-only, boot/sequence-keyed daemon restarts, sanitized lifecycle boundaries, external anchors, and periodic mutually exclusive daemon/ticket/operator process-tree samples with resource warnings | prompts, command text/output, raw child stdout/stderr, unsampled spikes, remote-worker resources, or correct ticket attribution when roots/fields are unavailable |
 | tmux | socket/session from launcher/instance record; `tmux -L "$SOCKET" list-panes -a`, `capture-pane` | actual session/pane existence, pane PID/title, rendered bytes | BEAM control state or tracker truth |
 | BEAM/control RPC | `scripts/aiurdev status`, `agents`, `watch --full`; node from identity/record | whether the targeted control plane answers and its in-memory snapshot | that a stale tmux pane or external tracker agrees |
 | Tracker issue | `gh issue view "$TICKET" --json labels,comments,state,url` plus dependency APIs when relevant | current labels/comments/state returned by GitHub | what a prior poll observed or whether delivery reached an agent |
@@ -74,6 +75,14 @@ rg -n --glob 'aiur.log*' '<ticket|session|event|error>' "$LOGS_ROOT"
 
 Keep the run-root/instance join in the result; a matching line in an older
 archive does not describe the current run merely because the ticket matches.
+
+For debug telemetry, join records by `boot_id`, `sequence`, `timestamp`, actor,
+ticket, and lifecycle `attempt_id`/`operation_id` where present. Check
+`availability`, `unavailable_reason`, `partial_fields`, `root_pids`, and warning
+records before trusting an aggregate. Samples are derived from the daemon's
+visible `/proc` namespace and registered process roots: an unavailable or
+remote actor is not a zero, and a sampled ticket aggregate does not identify an
+exact command without the matching lifecycle/provider IDs.
 
 ## Reading ANSI chat recordings
 

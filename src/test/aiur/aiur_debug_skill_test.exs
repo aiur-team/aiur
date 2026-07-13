@@ -54,8 +54,10 @@ defmodule Aiur.AiurDebugSkillTest do
           "Operator checkout",
           "Runtime application log",
           "Historical/rotated runtime logs",
-          "Workspace event stream",
+          "Per-ticket transcript/event log",
+          "Workspace transcript/event projection",
           "Debug chat recording",
+          "Debug run telemetry",
           "BEAM/control RPC",
           "Native blockers/parents",
           "Provider lifecycle",
@@ -82,6 +84,11 @@ defmodule Aiur.AiurDebugSkillTest do
     assert evidence =~ "Millisecond ordering across hosts is not guaranteed"
     assert evidence =~ "current `Aiur.LogFile` does not"
     assert evidence =~ "--glob 'aiur.log*'"
+    assert evidence =~ "`log/telemetry.ndjson`"
+    assert evidence =~ "append-only, boot/sequence-keyed"
+    assert evidence =~ "sanitized lifecycle boundaries"
+    assert evidence =~ "complete raw child stdout/stderr"
+    refute evidence =~ "per-ticket child stdout/stderr"
     assert evidence =~ "Process evidence is namespace-scoped"
     assert evidence =~ "absence in a sandbox-local `ps` is not counter-evidence"
   end
@@ -113,6 +120,9 @@ defmodule Aiur.AiurDebugSkillTest do
     assert recipes =~ "An issue-agent sandbox can see only its own namespace"
     assert recipes =~ "operator context or another host-level capability"
     assert recipes =~ "Observation scope (`issue sandbox` or `host/operator`)"
+    assert recipes =~ "Read the current run's debug-only `log/telemetry.ndjson` before live process"
+    assert recipes =~ "Only when telemetry is absent, unavailable, or too coarse, inspect live"
+    assert recipes =~ "remote or unavailable roots are not measured as zero"
   end
 
   test "includes all worked examples plus reporting and sanitization" do

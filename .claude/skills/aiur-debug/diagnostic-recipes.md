@@ -185,11 +185,29 @@ context—avoid both when an ordinary merge/push suffices.
 
 **Read-only first**
 
-Correlate command lines to thread/turn/item IDs and worker generations. Inspect
-the fleet `Aiur.BuildGate` status/owner PID/PGID, workspace lock files, parent
-process trees, per-process and system CPU, memory, file descriptors, load gate,
-prewarm state, and external children. Use scoped `ps`, `pgrep`, `lsof`, `/proc`,
-and `scripts/aiurdev agents`; do not start load generators.
+Read the current run's debug-only `log/telemetry.ndjson` before live process
+sampling. Filter `resource`, `warning`, and `lifecycle` records for the matching
+`boot_id`, UTC window, ticket/actor, attempt, and operation. Inspect sampled
+CPU, RSS, I/O, process count, file descriptors/headroom, availability,
+unavailable reasons, partial fields, root PIDs, lifecycle command class, and
+resource-sampler warnings.
+
+```bash
+rg -n '"kind":"(resource|warning|lifecycle)"' "$LOGS_ROOT/log/telemetry.ndjson"
+```
+
+Telemetry is append-only and sanitized: it does not contain raw commands or
+output, it can miss spikes between samples, and remote or unavailable roots are
+not measured as zero. Its ticket trees come from registered process roots in
+the daemon's visible process namespace, so require lifecycle/provider IDs
+before attributing a sampled aggregate to an exact tool call.
+
+Then correlate command lines to thread/turn/item IDs and worker generations.
+Inspect the fleet `Aiur.BuildGate` status/owner PID/PGID and workspace lock
+files. Only when telemetry is absent, unavailable, or too coarse, inspect live
+parent process trees, per-process and system CPU, memory, file descriptors,
+load gate, prewarm state, and external children. Use scoped `ps`, `pgrep`,
+`lsof`, `/proc`, and `scripts/aiurdev agents`; do not start load generators.
 
 Record the process observation scope.
 An issue-agent sandbox can see only its own namespace and may hide sibling host
@@ -200,6 +218,8 @@ operator context or another host-level capability.
 **Evidence needed**
 
 - Distinct or identical tool-call IDs for each command.
+- Telemetry `boot_id`/sequence/time window, actor availability, root PIDs,
+  partial fields, warnings, and matching lifecycle attempt/operation IDs.
 - Build-gate queue/owner and whether the owner PID/process group is alive.
 - Lock path/owner, command cwd, and workspace.
 - CPU headroom/load/memory/FD measurements over a short interval.
