@@ -3,6 +3,8 @@ defmodule Aiur.Opencode.SlotPolicyTest do
 
   alias Aiur.Opencode.{Slot, SlotPolicy, SlotRegistry, SlotSupervisor}
 
+  @registry_cleanup_timeout 2_000
+
   # SlotPolicy interacts with SlotSupervisor and the real PubSub. The
   # unit-test goal here is to verify the lazy-expansion + bump logic
   # via PubSub messages and the public API without spinning up real
@@ -190,6 +192,52 @@ defmodule Aiur.Opencode.SlotPolicyTest do
     end
   end
 
+  describe "stop_registered_slots/0" do
+    test "waits for Registry to remove dead slot keys" do
+      {:ok, slot} = FakeSlot.start_link(1)
+      Process.unlink(slot)
+
+      partitions = registry_partitions()
+      assert partitions != []
+
+      Enum.each(partitions, &:sys.suspend/1)
+      on_exit(fn -> Enum.each(partitions, &:sys.resume/1) end)
+
+      test_pid = self()
+
+      spawn(fn ->
+        Process.sleep(100)
+        send(test_pid, :registry_cleanup_released)
+        Enum.each(partitions, &:sys.resume/1)
+      end)
+
+      stop_registered_slots()
+
+      assert_received :registry_cleanup_released
+      assert Registry.lookup(SlotRegistry.registry_name(), 1) == []
+    end
+
+    test "fails when Registry does not remove dead slot keys before the timeout" do
+      {:ok, slot} = FakeSlot.start_link(1)
+      Process.unlink(slot)
+
+      partitions = registry_partitions()
+      assert partitions != []
+
+      Enum.each(partitions, &:sys.suspend/1)
+
+      try do
+        assert_raise ExUnit.AssertionError,
+                     ~r/slot registry did not clear within 25ms: 1 entries remain/,
+                     fn -> stop_registered_slots(25) end
+
+        assert Registry.lookup(SlotRegistry.registry_name(), 1) != []
+      after
+        Enum.each(partitions, &:sys.resume/1)
+      end
+    end
+  end
+
   defp start_policy!(name, pubsub, opts) do
     opts =
       opts
@@ -213,7 +261,13 @@ defmodule Aiur.Opencode.SlotPolicyTest do
     |> Enum.sort()
   end
 
-  defp stop_registered_slots do
+  defp registry_partitions do
+    SlotRegistry.registry_name()
+    |> Supervisor.which_children()
+    |> Enum.map(fn {_id, pid, :worker, [Registry.Partition]} -> pid end)
+  end
+
+  defp stop_registered_slots(timeout \\ @registry_cleanup_timeout) do
     for {_index, pid} <- SlotRegistry.all(), Process.alive?(pid) do
       ref = Process.monitor(pid)
       Process.exit(pid, :kill)
@@ -225,16 +279,23 @@ defmodule Aiur.Opencode.SlotPolicyTest do
       end
     end
 
-    # The Registry processes :DOWN messages async — wait until entries are gone
-    # so the next test's FakeSlot.init doesn't see stale registrations.
-    Enum.reduce_while(1..40, :ok, fn _, _ ->
-      if SlotRegistry.all() == [],
-        do: {:halt, :ok},
-        else:
-          (
-            Process.sleep(5)
-            {:cont, :ok}
-          )
-    end)
+    deadline = System.monotonic_time(:millisecond) + timeout
+    wait_for_registry_cleanup(deadline, timeout)
+  end
+
+  defp wait_for_registry_cleanup(deadline, timeout) do
+    remaining = Registry.count(SlotRegistry.registry_name())
+
+    cond do
+      remaining == 0 ->
+        :ok
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        flunk("slot registry did not clear within #{timeout}ms: #{remaining} entries remain")
+
+      true ->
+        Process.sleep(10)
+        wait_for_registry_cleanup(deadline, timeout)
+    end
   end
 end
