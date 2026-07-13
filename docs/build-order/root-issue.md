@@ -6,7 +6,7 @@ lifecycle and native hard blockers; Aiur owns current activity and progress.
 
 ## Finite boundary
 
-This root contains BO-001 through BO-019 only. Completion requires all nineteen
+This root contains BO-001 through BO-020 only. Completion requires all twenty
 issues implemented, reviewed, green on the current configured integration
 branch, merged, documented, cleaned up and proven after merge through the real
 CLI plus authenticated browser workflow. Dashboard companion work, Linear
@@ -44,7 +44,7 @@ BO-001 depends on BO-004 and inherits both gates:
   discoverable.
 
 These are external execution gates, not child tickets and not additions to the
-nineteen-ticket denominator. The skill-delivery issue is published as a native
+twenty-ticket denominator. The skill-delivery issue is published as a native
 blocker of both initial nodes so no branch silently bypasses GATE-002.
 
 ## Closure

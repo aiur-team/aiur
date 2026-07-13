@@ -224,8 +224,8 @@ live snapshots must equal that frozen full set with no later addition/removal.
 - Root reconciliation comment unique query match/final state: pending
 - Approval/receipt trusted-branch reachability: pending
 - 55 independently rendered body markers/links/hashes and exact title pairs: pending
-- Exact `OPEN` state and unlocked-state requery for all 55 issues: pending
-- Two identical full live-graph snapshots (19 root members, 102 total blockers): pending
+- Exact `OPEN` state and unlocked-state requery for all 56 issues: pending
+- Two identical full live-graph snapshots (19 root members, 105 total blockers): pending
 - Canonical validator: pending
 - Companion/publication validator: pending
 

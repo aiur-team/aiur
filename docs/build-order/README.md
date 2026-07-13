@@ -17,8 +17,8 @@ contracts. It does not implement Build Order, launch Aiur, or dispatch work.
 - Researched code: `9849f32963c2a65367bce565b3f5ede3777c218f`
 - Build Order: 19 executable/capstone tickets, 71 points
 - Standalone dashboard companions: 34 tickets, 111 points
-- GitHub graph: 55 issues including the root and the skill-delivery issue,
-  102 native blocker edges
+- GitHub graph: 56 issues including the root and the skill-delivery issue,
+  105 native blocker edges
 - GitHub materialization: mechanically valid; two clean semantic passes and
   final reconciliation remain pending
 - Dispatch: prohibited in this planning run; never add `agent:todo`
@@ -125,7 +125,7 @@ pixel-perfect or architectural mandate.
 
 ## Finite boundary
 
-Build Order finishes only when BO-001 through BO-019 are implemented, reviewed,
+Build Order finishes only when BO-001 through BO-020 are implemented, reviewed,
 green on the current configured integration branch, merged, documented,
 cleaned up and proven after merge through the real CLI plus authenticated
 browser workflow. BO-015 owns the acceptance matrix and root closure.
@@ -139,7 +139,7 @@ work outpaces completion, promotion freezes until the bounded feature lands.
 
 ## Publication boundary
 
-Materialize one non-dispatchable root plus nineteen direct native sub-issues.
+Materialize one non-dispatchable root plus twenty direct native sub-issues.
 Each member receives exactly one `complexity:N`, `model:codex`, one `phase:N`
 and one `build-lane:*`; the root receives only `build-order` from this label
 family. Materialize the thirty-four companions separately with complexity and
@@ -163,7 +163,7 @@ The immutable materialization uses core receipt v3, companion/auxiliary receipt
 v2, and bundle v2. The final verifier derives its expected graph only from that
 validated receipt and reads GitHub twice with finite bounds. Both complete
 snapshots must be identical and exactly cover 55 open, unlocked issues, the
-nineteen root members, 102 native blockers, all logical-marker matches including
+twenty root members, 105 native blockers, all logical-marker matches including
 closed and PR-shaped collisions, and the exact pending/successful comment. Run
 it before and after the one pending-to-successful comment edit.
 

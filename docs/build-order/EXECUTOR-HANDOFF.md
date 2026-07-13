@@ -21,9 +21,9 @@ Planning publication does not queue work. Until then, do not run Aiur,
 implement tickets, or add `agent:todo`.
 
 The immutable receipt and final verifier attest the publication-finalization
-snapshot: all 55 issues are open and unlocked, have their receipt-bound
-titles/bodies/full labels, the root has exactly nineteen BO children, every
-non-root has no children, and all 102 blockers are exact. Run that full verifier
+snapshot: all 56 issues are open and unlocked, have their receipt-bound
+titles/bodies/full labels, the root has exactly twenty BO children, every
+non-root has no children, and all 105 blockers are exact. Run that full verifier
 immediately before the first execution mutation. Once the authorized run
 begins, later lifecycle changes are legitimate runtime truth and do not rewrite
 the receipt: gate resolution may update live issues, the skill-delivery issue
@@ -43,7 +43,7 @@ historical OPEN receipt as though it were a fresh publication snapshot.
 - GitHub root: resolve live by the hidden Build Order root marker; do not trust
   a copied pending number
 
-Deliver the nineteen-ticket authenticated, GitHub-planning-read-only Build Order
+Deliver the twenty-ticket authenticated, GitHub-planning-read-only Build Order
 feature. GitHub owns current plan facts; Aiur owns runtime facts. The thirty-four
 dashboard companions, Linear #1067, skill-delivery work and deferred findings
 are separate tracks and cannot change this run's denominator or ETA.
@@ -56,7 +56,7 @@ are separate tracks and cannot change this run's denominator or ETA.
    - `docs/build-order/05-technical-decisions.md`
    - `docs/build-order/build-order.json`
    - every `tickets[].document` path in
-     `docs/build-order/build-order.json` (BO-001 through BO-019)
+     `docs/build-order/build-order.json` (BO-001 through BO-020)
    - `docs/build-order/validation-report.md`
    - `docs/build-order/github-publication.md`
 2. Use `/aiur-run`, not the retired `/aiur-loop` workflow. Verify the loaded
@@ -175,7 +175,7 @@ irrelevant source context.
 
 ## Terminal condition
 
-Stop only when BO-001 through BO-019 are implemented, reviewed, green on the
+Stop only when BO-001 through BO-020 are implemented, reviewed, green on the
 current configured integration branch, merged, documented, cleaned up and
 proven after merge.
 

@@ -12,7 +12,7 @@
 
 **Depends on:** BO-008, BO-013
 
-**Serializes with:** none
+**Serializes with:** BO-020 — shared Build Order route component and CSS
 
 **Requirements:** BOREQ-008, BOREQ-010, BOREQ-013, BOREQ-014
 

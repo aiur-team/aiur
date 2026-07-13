@@ -227,7 +227,7 @@ Existing provisional re-scopes:
 Under the current draft this is provisionally **34 tickets / 111 points** for
 the dashboard companion pack. Do not publish that number until the manifest is
 updated and the dependency/serialization graph is recalculated. The current
-draft appears to have roughly 70 companion blocker edges and roughly 102 total
+draft appears to have roughly 70 companion blocker edges and roughly 105 total
 publication blocker edges, but those are deliberately marked provisional.
 
 ## Highest-value successor review

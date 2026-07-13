@@ -96,7 +96,7 @@ element here is exactly the implementation-pointer layer, now added.
 7. Reword DASH-031's sibling prose so it cannot be read as depending on
    DASH-023.
 8. Update counts/prose in README.md, dashboard-companions.md (34 rows / 111
-   points), EXECUTOR-HANDOFF.md (55 issues / 102 blockers if the set stands),
+   points), EXECUTOR-HANDOFF.md (56 issues / 105 blockers if the set stands),
    and banner validation-report.md as stale pending re-run.
 9. Derive `EXPECTED_ISSUES`/`EXPECTED_BLOCKED_BY_EDGES` in
    `scripts/publication_live_graph.py` from the manifests instead of literals.
