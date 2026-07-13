@@ -106,8 +106,10 @@ implementation nodes; no BO node is ready until both external gates are
 recorded as resolved on the live root, and DASH-013/019 additionally wait on
 their named Claude-protocol gates (GATE-004/GATE-003). The integration baseline is resolved — `origin/main` at
 `9849f32963c2a65367bce565b3f5ede3777c218f` contains the completed OCC
-predecessor — while the bounded Executor skills remain isolated in PR #1065;
-the skill gate may not be inferred away.
+predecessor. The bounded Executor skills were reviewed at
+`6447f9c193d2322d63f54a58b9c54e0a72d3e98f` and squash-merged to `main` as
+`ed1846c4bc76d4657095da57951a0dbf3e914c3d`; GATE-002 still requires those
+commits and landed-skill discovery to be recorded on the live root.
 
 ## Authority
 

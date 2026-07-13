@@ -21,7 +21,7 @@ defmodule Aiur.Events.Sanitizer do
        time.
     4. **CODEOWNERS trust flag** — `author_trusted?` boolean added to
        the payload based on `Aiur.GitHub.CodeOwners.allowed?/1`. Events
-       from non-CODEOWNERS authors stay visible to the operator (log +
+       from non-CODEOWNERS authors stay visible to the Executor (log +
        dashboard) but the agent-digest renderer skips them.
     5. **`<external-content>` wrapper** — applied at render time
        (see `Aiur.AgentRunner.render_events_digest/2`); not part of

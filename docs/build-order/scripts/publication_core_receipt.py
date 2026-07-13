@@ -13,15 +13,26 @@ from publication_common import SHA, Report
 from publication_rendering import exact_commit, repository_root, run_authority_git
 
 
-PINNED_SKILL_COMMIT = "f92aa045f6766358d7561dadc1133c4d9180d1f3"
+PINNED_SKILL_COMMIT = "6447f9c193d2322d63f54a58b9c54e0a72d3e98f"
 SKILL_ROOT = ".claude/skills/aiur-build/scripts"
 PINNED_MODULES = (
     "validation_common.py",
+    "validation_git_approved_source.py",
+    "validation_git_bounded.py",
+    "validation_github_api.py",
     "validation_github_evidence.py",
     "validation_github_approved.py",
+    "validation_github_labels.py",
     "validation_github_receipt.py",
     "validation_github_rendering.py",
     "validation_github_live.py",
+    "validation_github_live_issue.py",
+    "validation_github_live_models.py",
+    "validation_github_live_receipt.py",
+    "validation_github_live_relationships.py",
+    "validation_github_live_snapshot.py",
+    "validation_github_reader.py",
+    "validation_publication_authority.py",
 )
 ADAPTER = """\
 import json

@@ -147,7 +147,7 @@ defmodule Aiur.Init.Labels do
     end)
   end
 
-  # When the token can't create labels (e.g. missing scope), hand the operator
+  # When the token can't create labels (e.g. missing scope), hand the Executor
   # a copy-paste command to create them, then ask them to re-run to confirm.
   defp emit_gh_label_fallback(io, tracker, labels, message) do
     repo = tracker[:repo] || "<owner/name>"

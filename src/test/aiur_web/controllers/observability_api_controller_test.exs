@@ -5,6 +5,7 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
   import Plug.Test
 
   alias Aiur.Claude.HookEvents
+  alias Aiur.DecisionStore
 
   # api_write endpoints require a loopback Origin + the X-Aiur-Request header.
   defp hook_conn(identifier, payload) do
@@ -22,22 +23,52 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
   # under full-suite ordering the endpoint's config ETS table can be gone by
   # the time these tests run, and Endpoint.call/2 raises on the missing table.
   # Stand up a throwaway endpoint (server: false, no port bind) whenever none
-  # is running, so Endpoint.call/2 always has its config table.
+  # is running, so Endpoint.call/2 always has its config table. When one is
+  # already running, reset both its live config and the application config: a
+  # prior writable HttpServer test may have left auth required in the shared
+  # Endpoint table even after restoring the application environment.
   setup do
-    if is_nil(Process.whereis(AiurWeb.Endpoint)) do
-      endpoint_config = Application.get_env(:aiur, AiurWeb.Endpoint, [])
+    endpoint_config = Application.get_env(:aiur, AiurWeb.Endpoint, [])
+    missing = make_ref()
 
-      Application.put_env(
-        :aiur,
-        AiurWeb.Endpoint,
-        Keyword.merge(endpoint_config, server: false, secret_key_base: String.duplicate("s", 64))
+    runtime_auth_required =
+      if Process.whereis(AiurWeb.Endpoint) do
+        AiurWeb.Endpoint.config(:dashboard_auth_required, missing)
+      else
+        missing
+      end
+
+    test_config =
+      Keyword.merge(endpoint_config,
+        server: false,
+        secret_key_base: String.duplicate("s", 64),
+        dashboard_auth_required: false
       )
 
+    Application.put_env(:aiur, AiurWeb.Endpoint, test_config)
+
+    if is_nil(Process.whereis(AiurWeb.Endpoint)) do
       start_supervised!({AiurWeb.Endpoint, []})
-      on_exit(fn -> Application.put_env(:aiur, AiurWeb.Endpoint, endpoint_config) end)
+    else
+      AiurWeb.Endpoint.config_change([dashboard_auth_required: false], [])
     end
 
+    on_exit(fn ->
+      Application.put_env(:aiur, AiurWeb.Endpoint, endpoint_config)
+      restore_runtime_config(:dashboard_auth_required, runtime_auth_required, missing)
+    end)
+
     :ok
+  end
+
+  defp restore_runtime_config(key, previous_value, missing) do
+    if Process.whereis(AiurWeb.Endpoint) do
+      if previous_value == missing do
+        AiurWeb.Endpoint.config_change([], [key])
+      else
+        AiurWeb.Endpoint.config_change([{key, previous_value}], [])
+      end
+    end
   end
 
   describe "POST /api/v1/:id/claude-hook" do
@@ -73,5 +104,47 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
 
       assert conn.status == 403
     end
+  end
+
+  test "GET /api/v1/state returns the full decision history by default" do
+    install_decision_history!(51)
+
+    conn = call(conn(:get, "/api/v1/state"))
+
+    assert conn.status == 200
+    assert conn.resp_body |> Jason.decode!() |> get_in(["decision_history", "entries"]) |> length() == 51
+  end
+
+  defp install_decision_history!(count) do
+    original_state = :sys.get_state(DecisionStore)
+
+    on_exit(fn -> restore_decision_store(original_state) end)
+
+    :sys.replace_state(DecisionStore, fn state ->
+      Map.put(state, :audit_history, decision_histories(count))
+    end)
+  end
+
+  defp restore_decision_store(original_state) do
+    case Process.whereis(DecisionStore) do
+      nil -> :ok
+      _pid -> :sys.replace_state(DecisionStore, fn _state -> original_state end)
+    end
+  end
+
+  defp decision_histories(count) do
+    %{
+      "dec-observability" =>
+        Enum.map(1..count, fn version ->
+          %{
+            decision_id: "dec-observability",
+            version: version,
+            ticket: %{identifier: "1051", title: "Decision history", url: nil},
+            source: %{agent_id: "agent-1", session_id: "session-1", event_id: nil},
+            question: "Decision version #{version}?",
+            created_at: DateTime.add(~U[2026-07-12 12:00:00Z], version, :second)
+          }
+        end)
+    }
   end
 end

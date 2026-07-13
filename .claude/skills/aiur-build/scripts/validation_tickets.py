@@ -34,8 +34,6 @@ TICKET_KEYS = {
 }
 ACCEPTANCE_KEYS = {"agent_gate", "at_merge_gate", "human_or_e2e"}
 EXCEPTION_KEYS = {"ticket_id", "surfaces", "reason"}
-POINTERS_DOCUMENT = "08-implementation-pointers.md"
-POINTER_HEADING = re.compile(r"^### (?P<ticket>[A-Z][A-Z0-9]*-[0-9]{3,}[A-Z]?)\s*$", re.MULTILINE)
 
 
 def validate_acceptance(ticket_id: str, value: object, runnable: bool, report: Report) -> None:
@@ -164,52 +162,3 @@ def validate_tickets(
         by_id[ticket_id] = ticket
         validate_ticket_fields(ticket_id, ticket, data, base_dir, report)
     return by_id
-
-
-def validate_implementation_pointers(
-    by_id: dict[str, dict[str, Any]], base_dir: Path, report: Report,
-) -> None:
-    """Require exactly one implementation-pointer heading per manifest ticket."""
-    path = base_dir / POINTERS_DOCUMENT
-    required = any(
-        _document_links_pointer_map(ticket, base_dir) for ticket in by_id.values()
-    )
-    if not required and not path.exists() and not path.is_symlink():
-        return
-    if path.is_symlink() or not path.exists():
-        report.error(f"{POINTERS_DOCUMENT} must be a regular non-symlink file")
-        return
-    if not path.is_file():
-        report.error(f"{POINTERS_DOCUMENT} must be a regular non-symlink file")
-        return
-    try:
-        body = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeError) as exc:
-        report.error(f"cannot read {POINTERS_DOCUMENT}: {exc}")
-        return
-    headings = [match.group("ticket") for match in POINTER_HEADING.finditer(body)]
-    counts = {ticket_id: headings.count(ticket_id) for ticket_id in set(headings)}
-    for ticket_id in sorted(by_id):
-        count = counts.get(ticket_id, 0)
-        if count != 1:
-            report.error(
-                f"{POINTERS_DOCUMENT} must contain exactly one ### {ticket_id} "
-                f"section; found {count}"
-            )
-    for ticket_id in sorted(set(headings) - set(by_id)):
-        report.error(
-            f"{POINTERS_DOCUMENT} contains unknown ticket section {ticket_id}"
-        )
-
-
-def _document_links_pointer_map(ticket: dict[str, Any], base_dir: Path) -> bool:
-    relative = ticket.get("document")
-    if not isinstance(relative, str):
-        return False
-    path = Path(relative)
-    if path.is_absolute() or ".." in path.parts:
-        return False
-    try:
-        return POINTERS_DOCUMENT in (base_dir / path).read_text(encoding="utf-8")
-    except (OSError, UnicodeError):
-        return False

@@ -40,10 +40,11 @@ BO-001 depends on BO-004 and inherits both gates:
 
 - the configured integration branch contains the completed OCC predecessor
   baseline and its accepted successors; and
-- the exact final reviewed PR #1065 successor/merge SHA is recorded, proven to
-  descend from the minimum multi-prefix ancestry marker `27ba3c44`, installed,
-  and `/aiur-build`, `/aiur-run`, and `/aiur-monitor` are discoverable. Neither
-  `27ba3c44` nor the older `f92aa045` is independently authorized.
+- the final reviewed PR #1065 source head
+  `6447f9c193d2322d63f54a58b9c54e0a72d3e98f` and its squash-merged `main`
+  commit `ed1846c4bc76d4657095da57951a0dbf3e914c3d` are recorded, and
+  `/aiur-build`, `/aiur-run`, and `/aiur-monitor` are discoverable from that
+  landed authority.
 
 These are external execution gates, not child tickets and not additions to the
 54-member denominator. The skill-delivery issue is published as a native

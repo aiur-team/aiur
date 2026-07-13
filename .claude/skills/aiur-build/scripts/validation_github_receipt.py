@@ -17,6 +17,8 @@ from validation_github_evidence import (
     validate_marker_query_matches,
 )
 from validation_github_approved import ApprovedIssueExpectations
+from validation_github_labels import _validate_label_sets
+from validation_publication_authority import PublicationAuthority
 
 
 RECONCILIATION_KEYS = {
@@ -44,6 +46,7 @@ def validate_reconciliation(
     ticket_mappings: dict[str, dict[str, Any] | None],
     report: Report,
     approved_expectations: ApprovedIssueExpectations | None = None,
+    publication_authority: PublicationAuthority | None = None,
 ) -> None:
     value = data.get("github_reconciliation")
     any_mapping = root is not None or any(item is not None for item in ticket_mappings.values())
@@ -105,8 +108,18 @@ def validate_reconciliation(
         {root_id: root, **ticket_mappings},
         report,
     )
-    _validate_label_sets(data, by_id, receipt.get("projected_labels"), "projected", report)
-    _validate_label_sets(data, by_id, receipt.get("observed_labels"), "observed", report)
+    lifecycle_prefix = (
+        publication_authority.tracker_lifecycle_label_prefix
+        if publication_authority is not None else "agent"
+    )
+    _validate_label_sets(
+        data, by_id, receipt.get("projected_labels"), "projected",
+        lifecycle_prefix, report,
+    )
+    _validate_label_sets(
+        data, by_id, receipt.get("observed_labels"), "observed",
+        lifecycle_prefix, report,
+    )
 
 
 def _validate_issue_titles(
@@ -182,82 +195,3 @@ def _dependency_edges(value: object, report: Report) -> set[tuple[str, str]]:
             report.error(f"github_reconciliation contains duplicate dependency {ticket_id}->{dependency}")
         found.add(pair)
     return found
-
-
-def _validate_label_sets(
-    data: dict[str, Any],
-    by_id: dict[str, dict[str, Any]],
-    value: object,
-    field: str,
-    report: Report,
-) -> None:
-    if not isinstance(value, dict):
-        report.error(f"github_reconciliation.{field}_labels must be an object")
-        return
-    projection = data.get("label_projection") if isinstance(data.get("label_projection"), dict) else {}
-    root_id = data.get("build_order_id")
-    root_label = projection.get("build_order")
-    required = set(
-        label
-        for label in projection.get("required_ticket_labels", [])
-        if nonempty_string(label)
-    )
-    forbidden = set(
-        label for label in projection.get("forbidden_labels", []) if nonempty_string(label)
-    )
-    expected: dict[str, set[str]] = {}
-    if nonempty_string(root_id):
-        expected[str(root_id)] = (
-            {root_label} if nonempty_string(root_label) else set()
-        )
-    for ticket_id, ticket in by_id.items():
-        labels: set[str] = set(required)
-        selectors = (
-            ("workstreams", ticket.get("workstream")),
-            ("phases", str(ticket.get("phase_hint"))),
-            ("complexities", str(ticket.get("complexity_points"))),
-        )
-        for group, key in selectors:
-            mapping = projection.get(group)
-            if isinstance(mapping, dict) and key in mapping and nonempty_string(mapping[key]):
-                labels.add(mapping[key])
-        expected[ticket_id] = labels
-    if set(value) != set(expected):
-        report.error(f"github_reconciliation.{field}_labels keys must match root and tickets")
-    for identity, expected_labels in expected.items():
-        labels = checked_string_list(
-            value.get(identity), f"github_reconciliation.{field}_labels.{identity}", report
-        )
-        actual = set(labels)
-        missing = sorted(expected_labels - actual)
-        if missing:
-            report.error(
-                f"github_reconciliation {field} labels missing for {identity}: "
-                + ", ".join(missing)
-            )
-        forbidden_hits = sorted(actual & forbidden)
-        if forbidden_hits:
-            report.error(
-                f"github_reconciliation forbidden labels present for {identity}: "
-                + ", ".join(forbidden_hits)
-            )
-        if identity != root_id and nonempty_string(root_label) and root_label in actual:
-            report.error(
-                f"github_reconciliation root-only label present for {identity}: {root_label}"
-            )
-        routing_prefixes = (
-            "agent:", "human:", "model:", "phase:", "complexity:",
-            "build-lane:",
-        )
-        unexpected = {
-            label for label in actual
-            if label.startswith(routing_prefixes) and label not in expected_labels
-        }
-        if field == "projected":
-            unexpected |= actual - expected_labels
-        unexpected = sorted(unexpected)
-        if unexpected:
-            report.error(
-                f"github_reconciliation unexpected {field} labels for {identity}: "
-                + ", ".join(unexpected)
-            )

@@ -31,8 +31,9 @@ label, implement a ticket, or merge either planning branch.
 5. Publish all 105 manifest `depends_on` relationships as native `blockedBy`,
    including cross-prefix BO/DASH prerequisites.
 6. Create/reconcile the separate human-blocked skill-delivery issue from
-   `skill-delivery.md` and `publication.json`; it references draft PR #1065 and
-   is not feature work.
+   `skill-delivery.md` and `publication.json`; it records reviewed PR #1065
+   source head `6447f9c193d2322d63f54a58b9c54e0a72d3e98f` and squash merge
+   `ed1846c4bc76d4657095da57951a0dbf3e914c3d` and is not feature work.
 7. Publish the skill-delivery issue as a native external blocker of BO-004 and
    BO-008 so each independent initial branch requires the exact
    Executor contract before feature dispatch; it remains outside root

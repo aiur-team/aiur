@@ -12,4 +12,10 @@ defmodule Aiur.DecisionPubSubTest do
   test "broadcast_changed/2 is a no-op (never raises) without a subscriber" do
     assert :ok = DecisionPubSub.broadcast_changed("dec_2", 1)
   end
+
+  test "broadcast_metrics_changed/0 round-trips through the decision refresh topic" do
+    assert :ok = DecisionPubSub.subscribe()
+    assert :ok = DecisionPubSub.broadcast_metrics_changed()
+    assert_receive :decision_metrics_changed, 500
+  end
 end

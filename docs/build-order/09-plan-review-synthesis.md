@@ -10,7 +10,7 @@ The 54-member decomposition is coherent and mechanically reproducible: one
 root owns every member, 105 internal dependencies are acyclic and resolved,
 and two external skill blockers produce the exact 107-relation publication
 graph across 56 issues. The accounting family remains in scope, Analytics
-remains excluded, and all member documents use the exact Sol routing label.
+remains excluded, and all member documents use the exact Terra routing label.
 
 Worker readiness is covered by `08-implementation-pointers.md`, which now has
 exactly one grounded section for every manifest member, including BO-020. The
@@ -19,10 +19,11 @@ supplies that pointer map. `07-graph-parallelism-review.md` is the active
 54-member wave and serialization analysis.
 
 The planning pack may proceed through final immutable review once its local
-validators and suites are clean. Execution remains blocked by GATE-002:
-PR #1065 must be finally reviewed, merged, and recorded by its exact successor
-or merge SHA. `27ba3c44` is only the minimum multi-prefix ancestry marker; it
-does not authorize execution, and neither does the current draft head.
+validators and suites are clean. PR #1065 was finally reviewed at source head
+`6447f9c193d2322d63f54a58b9c54e0a72d3e98f` and squash-merged to `main` as
+`ed1846c4bc76d4657095da57951a0dbf3e914c3d`. Execution still requires GATE-002
+to record those exact commits on the live root and confirm the three landed
+Executor skills are discoverable.
 
 ## Contract reconciliation
 
@@ -56,8 +57,9 @@ does not authorize execution, and neither does the current draft head.
 
 ## Remaining operator/start-gate decisions
 
-- Resolve and merge PR #1065, then record its exact final SHA and prove it
-  descends from `27ba3c44` before dispatch.
+- Record reviewed source head `6447f9c193d2322d63f54a58b9c54e0a72d3e98f`
+  and merged-main commit `ed1846c4bc76d4657095da57951a0dbf3e914c3d` on
+  the live root, then confirm the three landed skills before dispatch.
 - Decide the publication ceremony scope, any ticket-merge candidates, and any
   structural-parallelism changes before approving a changed receipt. Until
   explicitly adopted, none alters this graph.

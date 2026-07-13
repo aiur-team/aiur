@@ -10,11 +10,12 @@ stand and what must happen, in order, before the first dispatch.
 
 **State right now:** the consolidated planning pack is mechanically complete
 and validating clean — canonical and publication validators both report 0
-errors / 0 warnings, the 115-test canonical suite passes, and the 103-test
+errors / 0 warnings, the 134-test canonical suite passes, and the 103-test
 publication suite passes. Final clean semantic review and immutable approval
-remain pending. **No GitHub issues have been created.** Skills PR #1065 is
-in active review rework; its final reviewed successor/merge SHA has not yet
-been recorded. Draft PR #1064 carries this pack.
+remain pending. **No GitHub issues have been created.** Skills PR #1065 was
+reviewed at `6447f9c193d2322d63f54a58b9c54e0a72d3e98f` and squash-merged to
+`main` as `ed1846c4bc76d4657095da57951a0dbf3e914c3d`. Draft PR #1064 carries
+this pack.
 
 **Ordered pre-run checklist:**
 
@@ -26,10 +27,10 @@ been recorded. Draft PR #1064 carries this pack.
    accounting family is included in the consolidated graph". Still pending:
    the publication-ceremony scope, merge candidates, structural parallelism
    changes, and an /aiur-build verification owner.
-2. **Merge PR #1065 into `main` first** (operator-approved 2026-07-13; the
-   old wait-for-run constraint is lifted). The skills must be on `main`
-   before Build Order work is dispatched. Verify `/aiur-build`, `/aiur-run`,
-   `/aiur-monitor` are discoverable afterward (GATE-002).
+2. **Record the landed PR #1065 authority**: reviewed source head
+   `6447f9c193d2322d63f54a58b9c54e0a72d3e98f` and squash-merged `main` commit
+   `ed1846c4bc76d4657095da57951a0dbf3e914c3d`. Verify `/aiur-build`,
+   `/aiur-run`, and `/aiur-monitor` are discoverable afterward (GATE-002).
 3. **Finalize and publish** the issue graph per `github-publication.md` at
    whatever ceremony scope the operator chose. Every issue body carries the
    full ticket contract plus a "Plan context" block linking back to this
@@ -113,13 +114,12 @@ change this run's 54-member denominator or ETA.
      `tickets/` and DASH-001 through DASH-034 under `companion-tickets/`)
    - `docs/build-order/validation-report.md`
    - `docs/build-order/github-publication.md`
-2. Use `/aiur-run`, not the retired `/aiur-loop` workflow. Require the exact
-   final reviewed PR #1065 successor/merge SHA recorded after current rework,
-   prove it descends from the minimum multi-prefix ancestry marker `27ba3c44`,
-   and verify it preserves multi-prefix validation, finite-boundary,
-   review/rework, circuit-breaker, and publication rules. Neither `27ba3c44`
-   nor the older `f92aa045` is independently authorized; a matching skill name
-   is insufficient.
+2. Use `/aiur-run`, not the retired `/aiur-loop` workflow. Require reviewed
+   PR #1065 source head `6447f9c193d2322d63f54a58b9c54e0a72d3e98f` and
+   squash-merged `main` commit `ed1846c4bc76d4657095da57951a0dbf3e914c3d`
+   to be recorded, and verify the landed skills preserve multi-prefix
+   validation, finite-boundary, review/rework, circuit-breaker, and publication
+   rules. A matching skill name without the recorded authority is insufficient.
 3. Write a three-to-five-sentence `/goal` stating that you are the Executor,
    the finite acceptance boundary, granted issue/merge authority, critical-path
    priority and terminal condition.
@@ -141,9 +141,11 @@ change this run's 54-member denominator or ETA.
   `9849f32963c2a65367bce565b3f5ede3777c218f` contains closed #1034 plus every
   accepted OCC successor. Record that resolved branch and SHA on the live
   root; do not silently implement against any earlier snapshot.
-- **GATE-002 — Executor skill:** the bounded skill revision above is installed and
-  `/aiur-build`, `/aiur-run`, and `/aiur-monitor` are discoverable. The separate
-  human skill-delivery issue remains outside the Build Order denominator.
+- **GATE-002 — Executor skill:** record reviewed source head
+  `6447f9c193d2322d63f54a58b9c54e0a72d3e98f` and landed `main` commit
+  `ed1846c4bc76d4657095da57951a0dbf3e914c3d`, then confirm `/aiur-build`,
+  `/aiur-run`, and `/aiur-monitor` are discoverable. The separate human
+  skill-delivery issue remains outside the Build Order denominator.
 
 GATE-002 still blocks every Build Order implementation ticket; GATE-001 is
 resolved but its branch and SHA must be recorded on the live root. BO-004 and
@@ -302,12 +304,9 @@ optimization opportunity is exhausted.
 
 ## Adjacent delivery that must not be lost
 
-Draft PR #1065 contains the isolated `/aiur-build` and bounded Executor skill
-rewrite. The operator confirmed on 2026-07-13 that it merges into `main` when
-planning wraps — before Build Order dispatch — and the old wait-for-run
-constraint is lifted. The branch is currently in review rework. Commit
-`27ba3c44` is only the minimum ancestry marker for the `ticket_prefix` array
-required by this consolidated manifest; it is not an independently permitted
-executor baseline. Record and install the final reviewed successor/merge SHA
-before dispatch. Never merge mixed research PR #1064 merely to recover the
-skill files.
+PR #1065 delivered the isolated `/aiur-build` and bounded Executor skill
+rewrite. Its final reviewed source head is
+`6447f9c193d2322d63f54a58b9c54e0a72d3e98f`; it was squash-merged to `main`
+as `ed1846c4bc76d4657095da57951a0dbf3e914c3d`. Record both commits and verify
+the landed skills before dispatch. Never merge mixed research PR #1064 merely
+to recover skill files already present on `main`.

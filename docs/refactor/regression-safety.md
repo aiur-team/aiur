@@ -41,7 +41,7 @@ later phases merges until this is in.
   ingestion pipeline, the engine/control-plane contract, workspace lifecycle,
   opencode slot lifecycle, agent_runner drain/resume, reap scoping, sandbox
   guards, renderer state threading, init/config resolution, alerts paths.
-- **Self-hosting rule:** modules the aiur-loop itself depends on
+- **Self-hosting rule:** modules the `aiur-run` Executor workflow depends on
   (orchestrator, agent_runner, github client/tracker, pane/tmux, engine
   scripts) get characterization coverage **before** any ticket touching them
   is scheduled — a runtime regression there degrades the fleet executing the

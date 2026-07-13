@@ -25,6 +25,9 @@ defmodule Aiur.Claude.ReplAgentTest do
     send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n#{body}%error 1 1 0\n"})
   end
 
+  defp available_hook_settings(true, identifier) when is_binary(identifier),
+    do: "/tmp/aiur-test-hooks-#{identifier}.json"
+
   test "start_session spawns the REPL, awaits readiness, and returns a session", %{tmux: tmux} do
     # Normalize up front: start_session stores the expanded path, and on macOS
     # System.tmp_dir!/0 carries a trailing slash that Path.expand strips.
@@ -182,6 +185,8 @@ defmodule Aiur.Claude.ReplAgentTest do
         ReplAgent.start_session(ws,
           tmux: tmux,
           remote_control: true,
+          identifier: "rc-resume",
+          hook_settings_fun: &available_hook_settings/2,
           rc_name: "aiur-rc-resume",
           window_name: "aiur-rc-resume",
           projects_dir: projects_dir,
@@ -218,6 +223,8 @@ defmodule Aiur.Claude.ReplAgentTest do
         ReplAgent.start_session(ws,
           tmux: tmux,
           remote_control: true,
+          identifier: "rc-command",
+          hook_settings_fun: &available_hook_settings/2,
           rc_name: "aiur-rc-test",
           window_name: "aiur-rc-test",
           projects_dir: "/nonexistent-projects-dir"
@@ -258,6 +265,8 @@ defmodule Aiur.Claude.ReplAgentTest do
         ReplAgent.start_session(ws,
           tmux: tmux,
           remote_control: true,
+          identifier: "rc-harvest",
+          hook_settings_fun: &available_hook_settings/2,
           rc_name: "aiur-rc-test",
           window_name: "aiur-rc-test",
           projects_dir: "/nonexistent-projects-dir"
@@ -307,6 +316,8 @@ defmodule Aiur.Claude.ReplAgentTest do
         ReplAgent.start_session(ws,
           tmux: tmux,
           remote_control: true,
+          identifier: "rc-unavailable",
+          hook_settings_fun: &available_hook_settings/2,
           rc_name: "aiur-rc-test",
           window_name: "aiur-rc-test",
           # 0ms budget: the first banner-less capture exhausts it, so RC is

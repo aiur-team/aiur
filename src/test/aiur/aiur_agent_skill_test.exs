@@ -23,8 +23,8 @@ defmodule Aiur.AiurAgentSkillTest do
     attention-and-resolve.md
     stub-then-fetch.md
   )
-  @codex_exposed_aiur_skills ~w(aiur-agent aiur-build aiur-monitor aiur-run using-aiur)
-  @claude_operator_only_skills ~w(release)
+  @codex_exposed_aiur_skills ~w(aiur-agent aiur-build aiur-debug aiur-monitor aiur-run design-import using-aiur)
+  @claude_executor_only_skills ~w(release)
 
   test "Claude backend surface: canonical skill dir exists with a SKILL.md" do
     assert File.dir?(@claude_skill)
@@ -52,7 +52,11 @@ defmodule Aiur.AiurAgentSkillTest do
 
   test "Codex backend surface: every Codex-exposed Aiur skill uses canonical Claude source" do
     for skill <- @codex_exposed_aiur_skills do
-      assert_codex_skill_symlink_resolves_to_claude(skill)
+      if skill == "aiur-debug" do
+        assert_codex_skill_is_tracked_symlink(skill)
+      else
+        assert_codex_skill_symlink_resolves_to_claude(skill)
+      end
     end
   end
 
@@ -66,8 +70,8 @@ defmodule Aiur.AiurAgentSkillTest do
            "issue-worker skills must be a subset of @codex_exposed_aiur_skills"
 
     for skill <- issue_worker do
-      refute skill in @claude_operator_only_skills,
-             "operator-only skill #{skill} must not be installed into issue workers"
+      refute skill in @claude_executor_only_skills,
+             "Executor-only skill #{skill} must not be installed into issue workers"
 
       assert File.dir?(Path.join([@repo_root, ".claude", "skills", skill])),
              "issue-worker skill #{skill} has no canonical .claude/skills/#{skill} dir"
@@ -82,12 +86,12 @@ defmodule Aiur.AiurAgentSkillTest do
       |> Enum.map(fn path -> path |> Path.dirname() |> Path.basename() end)
       |> Enum.sort()
 
-    assert claude_skills == Enum.sort(@codex_exposed_aiur_skills ++ @claude_operator_only_skills)
+    assert claude_skills == Enum.sort(@codex_exposed_aiur_skills ++ @claude_executor_only_skills)
 
-    # This is a Claude-only operator workflow, not a shared operating skill
-    # injected into Codex agents. Codex-facing operator skills remain excluded
+    # This is a Claude-only Executor workflow, not a shared operating skill
+    # injected into Codex agents. Codex-facing Executor skills remain excluded
     # from issue-worker installation by Aiur.AgentSkills.
-    for skill <- @claude_operator_only_skills do
+    for skill <- @claude_executor_only_skills do
       assert File.exists?(Path.join([@repo_root, ".claude", "skills", skill, "SKILL.md"]))
       refute File.exists?(Path.join([@repo_root, ".codex", "skills", skill]))
     end
@@ -169,7 +173,7 @@ defmodule Aiur.AiurAgentSkillTest do
     end
   end
 
-  test "operator decision relay covers backend push, RC, and the Decisions log" do
+  test "Executor decision relay covers backend push, RC, and the Decisions log" do
     monitor_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md"))
     relay = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/references/alerts-and-decisions.md"))
 
@@ -205,7 +209,7 @@ defmodule Aiur.AiurAgentSkillTest do
     assert monitor_skill =~ "completed versus created/promoted tickets"
   end
 
-  test "needs-attention relay is an independent wake path for the operator cadence" do
+  test "needs-attention relay is an independent wake path for the Executor cadence" do
     monitor_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md"))
     run_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
     relay = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/references/alerts-and-decisions.md"))
@@ -214,7 +218,8 @@ defmodule Aiur.AiurAgentSkillTest do
     run_skill = one_line(run_skill)
     relay = one_line(relay)
 
-    assert monitor_skill =~ "adds immediacy"
+    assert monitor_skill =~ "streams new local-workspace alert records"
+    assert monitor_skill =~ "workspace-less alerts remain visible"
     assert run_skill =~ "timer and alert path are additive"
     assert relay =~ "real-time wake path"
     assert relay =~ "does not replace the recurring status cadence"
@@ -311,6 +316,21 @@ defmodule Aiur.AiurAgentSkillTest do
 
     assert File.read!(Path.join(codex_skill, "SKILL.md")) ==
              File.read!(Path.join(claude_skill, "SKILL.md"))
+  end
+
+  # Agent sandboxes mount the repository `.codex` catalog read-only from the
+  # turn-start tree, so a newly-added link cannot appear in this process's
+  # working-tree mount. The Git index is the clean-checkout source of truth for
+  # the new entry; normal checkouts materialize this mode-120000 blob as the
+  # same relative link asserted above for established skills.
+  defp assert_codex_skill_is_tracked_symlink(skill) do
+    path = ".codex/skills/#{skill}"
+
+    assert {stage, 0} = System.cmd("git", ["-C", @repo_root, "ls-files", "--stage", path])
+    assert String.starts_with?(stage, "120000 ")
+
+    assert {target, 0} = System.cmd("git", ["-C", @repo_root, "show", ":#{path}"])
+    assert target == "../../.claude/skills/#{skill}"
   end
 
   defp one_line(text), do: String.replace(text, ~r/\s+/, " ")

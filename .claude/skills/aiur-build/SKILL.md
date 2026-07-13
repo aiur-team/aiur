@@ -74,7 +74,7 @@ Follow the detailed reference. At a glance:
 
 1. intake, identity, scope, and questions;
 2. current repository, design, tracker, and prior-art grounding;
-3. requirements brainstorm without premature ticketing;
+3. requirements brainstorm and sizing calibration without premature ticketing;
 4. cumulative evidence and explicit decisions;
 5. adversarial verification of load-bearing claims;
 6. `ce-plan` synthesis of implementation units and candidate boundaries;
@@ -95,6 +95,13 @@ review/acceptance boundary, and a PR that can leave the repository green. Split
 work with multiple independently shippable outcomes, bounded contexts, public
 contracts, or internal phase programs. Merge observations that share one root
 cause, owner/write seam, and verification boundary.
+
+Every executable ticket carries concrete implementation pointers — exact
+files, module and function names, patterns to copy, one worked data shape —
+verified against the researched commit and marked refreshable. Abstract
+constraint prose alone is not worker-ready for low-tier models, and a named
+reuse target that does not exist at the researched commit is a
+review-blocking defect.
 
 Complexity points measure size and uncertainty only:
 
@@ -117,6 +124,14 @@ turn useful observations into an open-ended feature backlog.
 Use hard `depends_on` only for semantic start/merge prerequisites. Represent
 resource or merge conflicts as `serializes_with`, advisory order as
 `suggested_after`, hierarchy as `contains`, and external constraints as gates.
+
+Design the graph for parallel execution, not just correctness: compute the
+wave profile and critical path before approval; dissolve same-wave
+serialization cliques by re-partitioning write surfaces (one module per
+page/section mounted by a shared shell beats many tickets composing one
+file); prefer reviewed-contract dependencies over proven-implementation
+dependencies where an explicitly temporary path is specified; and mark the
+top fan-out spine for first-slot staffing in the Executor handoff.
 Treat phase as a rollout/presentation hint, not a global barrier. Readiness is
 derived from hard dependencies, conflicts, current state, and capacity.
 
@@ -158,15 +173,20 @@ python3 <loaded-skill-directory>/scripts/validate_build_order.py \
   --receipt-commit <RECEIPT_SHA>
 ```
 
-The validator loads `trusted_repository_ref` from `publication.json` at both
-approval and receipt commits; it does not accept caller-supplied ref authority.
+The validator loads the complete immutable authority from `publication.json` at
+both approval and receipt commits: trusted ref, canonical root path, mutation
+repositories, reference-only issue URLs, and tracker lifecycle-label prefix. It
+does not accept caller-supplied authority, and `--root-document` must equal the
+frozen root path.
 Receipt-commit mode also requires an authenticated `gh` CLI. It performs two
 fresh read-only GitHub snapshots and requires exact agreement across every
 mapped issue, all-state marker matches, root membership, and native blockers
 before accepting the immutable v3 receipt. Every authority API request pins
 `--hostname github.com`, API version `2026-03-10`, an explicit read method, and
 a finite timeout. Collection uses explicit GETs capped at 100 pages and 10,000
-items per endpoint; it never delegates an unbounded `--paginate --slurp` read.
+items per endpoint plus one shared budget across both snapshots; it never
+delegates an unbounded `--paginate --slurp` read. Receipt extraction also has
+file-count, per-file, aggregate-byte, and Git-operation timeout bounds.
 
 Materialized validation also freezes the current planning documents: every
 ticket document must remain byte-for-byte equal to its approved source, and the
@@ -195,6 +215,9 @@ Only when explicitly authorized:
    issue that the user did not authorize for mutation or reuse; treat a closed
    logical-marker match as a conflict and never reopen it without separate
    authority;
+   record the trusted ref, canonical root path, mutation repositories,
+   reference-only URLs, and actual tracker lifecycle-label prefix in the
+   immutable publication manifest;
 2. create/update the Build Order root and implementation issues;
 3. map stable logical IDs to returned repo-qualified issue identities;
 4. publish native membership and dependency relationships;

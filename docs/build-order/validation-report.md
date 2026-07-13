@@ -39,7 +39,7 @@ the reviewed 40-character commit SHA.
 | Ticket documents | All 54 manifest paths resolve and agree with structured records |
 | Hard-edge graph | 105 internal edges; acyclic; all references resolve |
 | Publication graph | 56 identities, 54 root members, 107 blockers |
-| Model projection | Exact Sol label on all members; generic/Claude/other variants rejected |
+| Model projection | Exact Terra label on all members; generic/Claude/other variants rejected |
 | Whitespace | `git diff --check` clean |
 
 The validation commands are:
@@ -67,13 +67,12 @@ publication inputs.
 
 ## Skill authority
 
-Execution requires the exact final reviewed PR #1065 successor/merge SHA to be
-recorded after current review rework and proven to descend from minimum
-multi-prefix ancestry marker
-`27ba3c44094d7c7f463f03b811dba52039a23282`. Neither `27ba3c44` nor the older
-`f92aa045` revision is independently authorized. The publication receipt
-adapter intentionally continues to reuse the narrower core v3 receipt modules
-from `f92aa045`; that pin is not authorization to load the old executor skill.
+Execution requires the final reviewed PR #1065 source head
+`6447f9c193d2322d63f54a58b9c54e0a72d3e98f` and its squash-merged `main`
+commit `ed1846c4bc76d4657095da57951a0dbf3e914c3d` to be recorded on the live
+root. The publication receipt adapter pins the reviewed source head's core v3
+receipt modules; GATE-002 additionally confirms `/aiur-build`, `/aiur-run`, and
+`/aiur-monitor` are discoverable from the landed merge.
 
 ## Publication reconciliation
 

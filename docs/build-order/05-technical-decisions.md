@@ -183,11 +183,12 @@ the divergent `v2` integration branch. No Build Order ticket may be dispatched
 until a human records the configured branch/SHA that contains the accepted OCC
 baseline and the predecessor dashboard run is complete. That baseline gate
 applies to every member of the consolidated Build Order. Build Order execution
-is additionally gated on the exact final reviewed PR #1065 successor/merge SHA
-being recorded, proven to descend from the minimum multi-prefix ancestry marker
-`27ba3c44`, installed, and discoverable. Neither `27ba3c44` nor the older
-`f92aa045` is independently authorized. These are external pre-dispatch gates,
-not feature tickets or additions to the completion denominator.
+is additionally gated on recording the final reviewed PR #1065 source head
+`6447f9c193d2322d63f54a58b9c54e0a72d3e98f` and its squash-merged `main`
+commit `ed1846c4bc76d4657095da57951a0dbf3e914c3d`, then confirming the landed
+`/aiur-build`, `/aiur-run`, and `/aiur-monitor` skills are discoverable. These
+are external pre-dispatch gates, not feature tickets or additions to the
+completion denominator.
 
 ## DEC-014 — Consolidate to a single Build Order
 

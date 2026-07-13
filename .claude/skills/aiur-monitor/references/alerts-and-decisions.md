@@ -1,7 +1,10 @@
 # Alert and Decision Relay
 
 `aiurdev watch` is the periodic floor. `scripts/watch-alerts.sh` is an optional
-real-time wake path for hosts that can supervise a persistent process.
+real-time wake path for local-workspace alerts on hosts that can supervise a
+persistent process. Remote-worker and workspace-less alerts live in Aiur's
+central feed and remain cadence-bound to `aiurdev watch`; do not claim that this
+script provides immediate delivery for them.
 
 ## Arm once
 
@@ -14,11 +17,11 @@ AIUR_ALERT_NEEDS_ATTENTION=1 \
 ```
 
 Consume each JSON line once and relay `#<ticket> · <name> · <reason>` to the
-operator. Do not restart the process on every cadence tick; its in-memory cursor
+Executor. Do not restart the process on every cadence tick; its in-memory cursor
 deduplicates ordinary events. Stop it when the Aiur run ends.
 
 The watcher skips ordinary history at startup but replays the latest unresolved
-operator decision so a monitor restart cannot hide it. A later matching
+Executor decision so a monitor restart cannot hide it. A later matching
 `attention.resolved` event closes that decision.
 
 ## Decisions ledger
@@ -52,5 +55,6 @@ The relay sends structured alert JSON on stdin and reports each surface as
 sent, failed, or unconfigured. Never place secrets in adapter command strings
 or log output.
 
-The real-time stream does not replace the recurring status cadence. An alert
-wakes the Executor immediately; the next scheduled board still runs on time.
+The real-time stream does not replace the recurring status cadence. A streamed
+local alert wakes the Executor immediately; central-feed alerts arrive on the
+next board, and the next scheduled board still runs on time either way.

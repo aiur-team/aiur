@@ -11,7 +11,10 @@ defmodule Aiur.Orchestrator.State do
           max_concurrent_agents: integer() | nil,
           session_max_concurrent_agents: integer() | nil,
           effective_concurrent_agents: integer() | nil,
-          load_envelope_last_decrease_ms: integer() | nil,
+          load_envelope_state: %{
+            last_decrease_ms: integer() | nil,
+            cpu_snapshot: Aiur.SystemCpu.snapshot() | nil
+          },
           next_poll_due_at_ms: integer() | nil,
           poll_check_in_progress: boolean() | nil,
           tick_timer_ref: reference() | nil,
@@ -50,12 +53,12 @@ defmodule Aiur.Orchestrator.State do
     :max_concurrent_agents,
     :session_max_concurrent_agents,
     :effective_concurrent_agents,
-    :load_envelope_last_decrease_ms,
     :next_poll_due_at_ms,
     :poll_check_in_progress,
     :tick_timer_ref,
     :tick_token,
     :initial_dispatch_cycle,
+    load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil},
     queue_store: AgentQueueStore.new(),
     last_polled_issues: %{},
     ci_lifecycle: %{approved_heads: %{}, test_failure_heads: %{}, poll_cache: %{}, rewakes: %{}},
@@ -194,7 +197,8 @@ defmodule Aiur.Orchestrator.State do
 
   @spec active_running_entry?(term()) :: boolean()
   def active_running_entry?(entry) when is_map(entry) do
-    not (paused_running_entry?(entry) or deactivated_running_entry?(entry))
+    not (completed_running_entry?(entry) or paused_running_entry?(entry) or
+           deactivated_running_entry?(entry))
   end
 
   def active_running_entry?(_entry), do: false
@@ -212,6 +216,20 @@ defmodule Aiur.Orchestrator.State do
   end
 
   def sleeping_running_entry?(_entry), do: false
+
+  @spec completed_running_entry?(term()) :: boolean()
+  def completed_running_entry?(entry) when is_map(entry) do
+    get_in(entry, [:control, :status]) == :completed
+  end
+
+  def completed_running_entry?(_entry), do: false
+
+  @spec completed_provenance?(term()) :: boolean()
+  def completed_provenance?(entry) when is_map(entry) do
+    completed_running_entry?(entry) or Map.get(entry, :completed_provenance) == true
+  end
+
+  def completed_provenance?(_entry), do: false
 
   @spec deactivated_running_entry?(term()) :: boolean()
   def deactivated_running_entry?(entry) when is_map(entry) do
@@ -261,7 +279,7 @@ defmodule Aiur.Orchestrator.State do
   def shift_started_at_by_pause_if(entry, _previous, _now), do: entry
 
   # A duration-capped pause is owned by `reset_duration_clock_if_capped/4`
-  # (operator resume -> fresh budget, automated resume -> preserve overrun),
+  # (Executor resume -> fresh budget, automated resume -> preserve overrun),
   # so the thaw must only un-freeze the pause clock (clear `paused_at`) and
   # must NOT credit the paused interval back into `started_at`. Crediting it
   # would advance `started_at` toward now and silently reset the overrun on

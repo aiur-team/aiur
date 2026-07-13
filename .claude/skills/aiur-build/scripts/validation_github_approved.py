@@ -3,18 +3,22 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from validation_common import SHA, Report, git_no_replace_env
+from validation_common import (
+    Report,
+    repository_relative_path,
+    resolve_regular_file,
+)
 from validation_github_rendering import (
     inspect_issue_body,
     render_template_body,
     render_ticket_body,
 )
+from validation_git_approved_source import approved_text, exact_approved_commit
 
 
 @dataclass(frozen=True)
@@ -33,13 +37,17 @@ def render_approved_build_order(
 ) -> ApprovedIssueExpectations | None:
     """Render approved bodies and enforce the current document freeze."""
     root = repository_root.resolve()
-    if not _exact_commit(root, approved, report):
+    if not exact_approved_commit(root, approved, report):
         return None
-    build_path = _safe_path(build_order_path, "approved build-order path", report)
-    root_path = _safe_path(root_document_path, "approved root document path", report)
+    build_path = repository_relative_path(
+        build_order_path, "approved build-order path", report,
+    )
+    root_path = repository_relative_path(
+        root_document_path, "approved root document path", report,
+    )
     if build_path is None or root_path is None or not isinstance(approved, str):
         return None
-    raw = _git_show(root, approved, build_path, "approved build-order", report)
+    raw = approved_text(root, approved, build_path, "approved build-order", report)
     if raw is None:
         return None
     try:
@@ -71,7 +79,7 @@ def render_approved_build_order(
     expectations: dict[str, dict[str, Any]] = {}
     titles: dict[str, str] = {}
     documents_frozen = True
-    root_source = _git_show(root, approved, root_path, "approved root document", report)
+    root_source = approved_text(root, approved, root_path, "approved root document", report)
     if root_source is not None:
         title = _document_title(root_source, "approved root document", report)
         if title is not None:
@@ -94,11 +102,15 @@ def render_approved_build_order(
     for ticket_id in sorted(approved_tickets):
         ticket = approved_tickets[ticket_id]
         document = ticket.get("document")
-        relative = _safe_path(document, f"approved {ticket_id}.document", report)
+        relative = repository_relative_path(
+            document, f"approved {ticket_id}.document", report,
+        )
         if relative is None:
             continue
         source_path = str(pack_dir / PurePosixPath(relative))
-        source = _git_show(root, approved, source_path, f"approved {ticket_id} document", report)
+        source = approved_text(
+            root, approved, source_path, f"approved {ticket_id} document", report,
+        )
         if source is None:
             continue
         title = _document_title(source, f"approved {ticket_id} document", report)
@@ -127,14 +139,6 @@ def render_approved_build_order(
         report.error("approved title rendering must exactly cover root and tickets")
         return None
     return ApprovedIssueExpectations(expectations, titles) if documents_frozen else None
-
-
-def repository_relative(path: Path, repository_root: Path, report: Report) -> str | None:
-    try:
-        return path.resolve().relative_to(repository_root.resolve()).as_posix()
-    except ValueError:
-        report.error("build-order path must resolve within the approved repository")
-        return None
 
 
 def _tickets(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -166,24 +170,6 @@ def _document_title(source: str, label: str, report: Report) -> str | None:
     return first_line[2:].strip()
 
 
-def _safe_path(value: object, label: str, report: Report) -> str | None:
-    if not isinstance(value, str) or not value:
-        report.error(f"{label} must be a non-empty repository-relative path")
-        return None
-    path = PurePosixPath(value)
-    normalized = path.as_posix()
-    if (
-        path.is_absolute()
-        or ".." in path.parts
-        or normalized == "."
-        or normalized != value
-        or "\x00" in value
-    ):
-        report.error(f"{label} must be a safe repository-relative path")
-        return None
-    return normalized
-
-
 def _current_matches(
     root: Path, path: str, expected: str, label: str, report: Report,
 ) -> bool:
@@ -197,23 +183,12 @@ def _current_matches(
 
 
 def _read_current(root: Path, path: str, label: str, report: Report) -> bytes | None:
-    candidate = root
-    for part in PurePosixPath(path).parts:
-        candidate /= part
-        if candidate.is_symlink():
-            report.error(f"{label} must not be a symlink")
-            return None
-    try:
-        resolved = candidate.resolve(strict=True)
-        resolved.relative_to(root)
-    except FileNotFoundError:
-        report.error(f"{label} is absent from the current planning pack at {path}")
+    candidate = root.joinpath(*PurePosixPath(path).parts)
+    if not candidate.exists():
+        report.error(f"{label} is absent")
         return None
-    except (OSError, ValueError) as exc:
-        report.error(f"{label} must resolve within the current repository: {exc}")
-        return None
-    if not resolved.is_file():
-        report.error(f"{label} must be a regular file at {path}")
+    resolved = resolve_regular_file(root, path, label, report)
+    if resolved is None:
         return None
     try:
         source = resolved.read_bytes()
@@ -222,34 +197,3 @@ def _read_current(root: Path, path: str, label: str, report: Report) -> bytes | 
         report.error(f"{label} must be readable UTF-8: {exc}")
         return None
     return source
-
-
-def _exact_commit(root: Path, approved: object, report: Report) -> bool:
-    if not isinstance(approved, str) or not SHA.fullmatch(approved):
-        report.error("approved planning commit must be a 40-character Git SHA")
-        return False
-    result = subprocess.run(
-        ["git", "-C", str(root), "rev-parse", "--verify", f"{approved}^{{commit}}"],
-        check=False, capture_output=True, text=True, env=git_no_replace_env(),
-    )
-    if result.returncode or result.stdout.strip().lower() != approved.lower():
-        report.error("approved planning commit must resolve to an exact commit")
-        return False
-    return True
-
-
-def _git_show(
-    root: Path, approved: str, path: str, label: str, report: Report,
-) -> str | None:
-    result = subprocess.run(
-        ["git", "-C", str(root), "show", f"{approved}:{path}"],
-        check=False, capture_output=True, env=git_no_replace_env(),
-    )
-    if result.returncode:
-        report.error(f"{label} is absent from approved commit at {path}")
-        return None
-    try:
-        return result.stdout.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        report.error(f"{label} must be UTF-8: {exc}")
-        return None

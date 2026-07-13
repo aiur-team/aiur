@@ -61,7 +61,7 @@ defmodule Aiur.Claude.Transcript do
   `assistant` record carries a content *array* (text / thinking / tool_use
   blocks), so this returns a list of events, one per renderable block.
 
-  A bare user prompt string (the operator's own typed message, which the
+  A bare user prompt string (the Executor’s own typed message, which the
   harness writes with `message.content` as a plain string) maps to a
   single `:user` event so replayed history shows messages from both
   surfaces. A `queued_command` `attachment` is a Claude Remote Control
@@ -93,7 +93,7 @@ defmodule Aiur.Claude.Transcript do
 
   def extract_disk_record(_record, _fallback_turn_id), do: []
 
-  # A user record is either the operator's typed prompt (`content` is a
+  # A user record is either the Executor’s typed prompt (`content` is a
   # bare string -> a `:user` event) or a batch of `tool_result` blocks
   # (`content` is a list -> tool events), never both.
   defp extract_user_record(record, fallback_turn_id) do

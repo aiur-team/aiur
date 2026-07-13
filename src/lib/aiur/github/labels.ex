@@ -7,7 +7,7 @@ defmodule Aiur.GitHub.Labels do
     * **state** — `<prefix>:<state>` for every agent lifecycle state the
       orchestrator sets and reads.
     * **model** — `Aiur.CodingAgent.override_labels/1` for the backends the
-      operator chose, so an issue can be pinned to a specific agent/model.
+      Executor chose, so an issue can be pinned to a specific agent/model.
     * **complexity** — `complexity:1`..`complexity:5`, routed to an agent via
       `agent.routing`.
 
@@ -27,7 +27,7 @@ defmodule Aiur.GitHub.Labels do
   # Marker labels. NOT lifecycle states — the orchestrator never treats these as
   # dispatch states. Kept out of `@state_suffixes` so they never enter the state
   # machine, but created by `label_set/2` so `aiur init` seeds them and the
-  # operator can apply them.
+  # Executor can apply them.
   @watch_suffix "watch"
   @paused_suffix "paused"
   @rate_limit_fallback_suffix "rate-limit-fallback"

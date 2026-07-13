@@ -51,9 +51,10 @@ until the branch, draft PR, issues, and handoff all reconcile.
 
 - Planning: `build-order-research`, draft PR
   [#1064](https://github.com/its-everdred/aiur/pull/1064).
-- Reusable skills: `aiur-executor-skills`, draft PR
-  [#1065](https://github.com/its-everdred/aiur/pull/1065), exact reviewed head
-  `f92aa045f6766358d7561dadc1133c4d9180d1f3`.
+- Reusable skills: PR
+  [#1065](https://github.com/its-everdred/aiur/pull/1065), final reviewed source
+  head `6447f9c193d2322d63f54a58b9c54e0a72d3e98f`, squash-merged to `main` as
+  `ed1846c4bc76d4657095da57951a0dbf3e914c3d`.
 - Current shipped dashboard baseline: `origin/main` at
   `9849f32963c2a65367bce565b3f5ede3777c218f`.
 - Last fully pushed planning checkpoint before the new dashboard re-audit:
@@ -61,9 +62,9 @@ until the branch, draft PR, issues, and handoff all reconcile.
 - This document and the provisional dashboard-ticket edits are in the commit
   containing this handoff.
 
-The PR bodies are stale and must be refreshed after the final immutable pack is
-known. PR #1065 remains a separate human-controlled delivery path; reference it
-from the skill issue instead of merging it during planning.
+PR #1064's body must be refreshed after the final immutable pack is known. PR
+#1065 is now a landed authority reference for the skill issue; it is no longer
+a pending delivery path.
 
 ## Read this first
 
@@ -163,11 +164,11 @@ the companion/publication validator reported zero errors/warnings. Those
 results predate the provisional 26–34 ticket edits and are not a final green
 claim.
 
-The isolated skill successor at `f92aa045...` passed 115 Python tests, 41
-repository skill/discovery tests, canonical validation with zero errors/
-warnings, pycompile, diff-check, and live clean-clone/GitHub ancestry smoke
-checks. The planning pack still contains references to the older skill SHA and
-must be repinned everywhere.
+The final reviewed skill source at
+`6447f9c193d2322d63f54a58b9c54e0a72d3e98f` passed 134 Python tests, focused
+repository skill checks, canonical validation with zero errors/warnings,
+diff-check, and clean-clone/GitHub authority review. It was squash-merged to
+`main` as `ed1846c4bc76d4657095da57951a0dbf3e914c3d`.
 
 ## Why the dashboard delta was reopened
 
@@ -282,8 +283,9 @@ internally consistent. At minimum, the successor must update:
 - every affected ticket's dependencies/serialization/sibling wording;
 - publication counts, expected rendered issues, blocker edges, fixtures, and
   tests;
-- evidence hashes and all references to the isolated skill SHA;
-- PR #1064/#1065 bodies after the immutable result is known.
+- evidence hashes and all references to the reviewed source and merged skill
+  authority;
+- PR #1064 body after the immutable result is known.
 
 Most unchanged DASH ticket Markdown still says the OCC predecessor gate is
 active. The user has now confirmed the dashboard shipped at the audited main
@@ -306,15 +308,13 @@ Known draft-specific checks:
 - `questions.md` contains the safe credential-rotation/access note and should
   be retained or resolved without ever recording the credential.
 
-## Skill pin and publication work still required
+## Skill pin and publication authority
 
-Replace every old isolated-skill pin
-`afd9828c61005a84ee316e3b2c995c0122b896ff` with the reviewed successor
-`f92aa045f6766358d7561dadc1133c4d9180d1f3` where the contract requires an
-exact pin. This includes the planning docs, `build-order.json`, publication
-receipt code, validation report, and the temporary publisher at
-`/tmp/aiur_publish_build_order.py` if that helper is retained. Re-run the
-isolated successor's canonical validator, not the older checked-out schema.
+Pin receipt validation to reviewed source head
+`6447f9c193d2322d63f54a58b9c54e0a72d3e98f` and record its landed `main`
+commit `ed1846c4bc76d4657095da57951a0dbf3e914c3d` in the planning docs,
+`build-order.json`, publication receipt code, validation report, and any
+retained publisher. Re-run the reviewed source's canonical validator.
 
 No GitHub issues have been created. The temporary publisher has not performed a
 GitHub mutation. Before publication:

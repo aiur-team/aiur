@@ -16,15 +16,15 @@ Aiur has two skill families: driver skills under `.claude/skills/`, and skills p
 
 [aiur-monitor](../../.claude/skills/aiur-monitor/SKILL.md) compiles a one-glance status board from `aiurdev watch`. It triggers on “aiur status” or “iarc status”.
 
-[release](../../.claude/skills/release/SKILL.md) is the operator playbook for cutting a new npm release by bumping `src/mix.exs`, tagging, and creating a GitHub release. It triggers on `/release` or “release a new version”.
+[release](../../.claude/skills/release/SKILL.md) is the Executor playbook for cutting a new npm release by bumping `src/mix.exs`, tagging, and creating a GitHub release. It triggers on `/release` or “release a new version”.
 
 ## Skills in agent workspaces
 
-After a workspace is populated, `Aiur.AgentSkills.install/1` ([`agent_skills.ex`](../../src/lib/aiur/agent_skills.ex)) writes the **using-aiur** and **aiur-agent** driver skills into `<workspace>/.claude/skills/` and mirrors them into `<workspace>/.codex/skills/` via relative symlinks, so agents on any repository can load them; see the [Driver skills](#driver-skills) section.
+After a workspace is populated, `Aiur.AgentSkills.install/1` ([`agent_skills.ex`](../../src/lib/aiur/agent_skills.ex)) writes **using-aiur**, **aiur-agent**, and **design-import** into `<workspace>/.claude/skills/` and mirrors them into `<workspace>/.codex/skills/` via relative symlinks, so agents on any repository can load them; see the [Driver skills](#driver-skills) section.
 
 ### Codex-native git-workflow skills
 
-[commit](../../.codex/skills/commit/SKILL.md) provides the Codex-native conventional-commit flow: read session intent, confirm scope before staging, use a `type(scope)` subject, and add the Codex co-author trailer. It triggers when a commit is requested.
+[commit](../../.codex/skills/commit/SKILL.md) provides the Codex-native conventional-commit flow: read session intent, confirm scope before staging, use a `type(scope)` subject, and avoid model-attribution trailers. It triggers when a commit is requested.
 
 [push](../../.codex/skills/push/SKILL.md) safely pushes changes and creates or updates a pull request against the PR template. It triggers when publishing changes is requested and distinguishes sync failures, which go to pull, from authentication failures.
 
@@ -38,4 +38,4 @@ After a workspace is populated, `Aiur.AgentSkills.install/1` ([`agent_skills.ex`
 
 ### Compound-engineering skills
 
-These are operator-provided CE skills invoked by the complexity router; they are not bundled into workspaces by Aiur. The routing rules are in [complexity-routing.md](../../.claude/skills/using-aiur/complexity-routing.md), which references **ce-work**, **ce-code-review**, **ce-plan**, **ce-brainstorm**, and **ce-doc-review**. These skills ship with the operator’s environment, so this page does not link to per-skill files in this repository.
+These are Executor-provided CE skills invoked by the complexity router; they are not bundled into workspaces by Aiur. The routing rules are in [complexity-routing.md](../../.claude/skills/using-aiur/complexity-routing.md), which references **ce-work**, **ce-code-review**, **ce-plan**, **ce-brainstorm**, and **ce-doc-review**. These skills ship with the Executor’s environment, so this page does not link to per-skill files in this repository.

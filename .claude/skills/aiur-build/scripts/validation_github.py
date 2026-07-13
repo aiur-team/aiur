@@ -7,6 +7,7 @@ from typing import Any
 from validation_common import REPOSITORY, Report, nonempty_string, strict_int, strict_object
 from validation_github_approved import ApprovedIssueExpectations
 from validation_github_receipt import validate_reconciliation
+from validation_publication_authority import PublicationAuthority
 
 
 GITHUB_KEYS = {"repository", "number", "node_id", "url"}
@@ -49,6 +50,7 @@ def validate_github_mapping(
 def validate_all_github(
     data: dict[str, Any], by_id: dict[str, dict[str, Any]], report: Report,
     approved_expectations: ApprovedIssueExpectations | None = None,
+    publication_authority: PublicationAuthority | None = None,
 ) -> None:
     repository = data.get("repository") if isinstance(data.get("repository"), str) else None
     root = validate_github_mapping(
@@ -85,7 +87,28 @@ def validate_all_github(
             report.error(f"{label}.github duplicates node_id used by {node_ids[node_id]}")
         elif nonempty_string(node_id):
             node_ids[node_id] = label
+    _validate_mutation_authority(mappings, publication_authority, report)
     validate_reconciliation(
         data, by_id, root, ticket_mappings, report,
-        approved_expectations,
+        approved_expectations, publication_authority,
     )
+
+
+def _validate_mutation_authority(
+    mappings: list[tuple[str, dict[str, Any] | None]],
+    authority: PublicationAuthority | None,
+    report: Report,
+) -> None:
+    if authority is None:
+        return
+    allowed = {item.casefold() for item in authority.mutation_repositories}
+    reference_only = {item.casefold() for item in authority.reference_only_issue_urls}
+    for label, mapping in mappings:
+        if mapping is None:
+            continue
+        repository = mapping.get("repository")
+        url = mapping.get("url")
+        if not isinstance(repository, str) or repository.casefold() not in allowed:
+            report.error(f"{label}.github is outside immutable mutation authority")
+        if isinstance(url, str) and url.casefold() in reference_only:
+            report.error(f"{label}.github maps a reference-only issue")

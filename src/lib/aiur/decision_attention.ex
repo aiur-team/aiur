@@ -1,6 +1,6 @@
 defmodule Aiur.DecisionAttention do
   @moduledoc """
-  Turns open agent attentions into durable operator-decision alerts.
+  Turns open agent attentions into durable Executor-decision alerts.
 
   Agent events are ephemeral exchange messages, while `aiurdev watch` and the
   real-time alert relay read structured alert entries. This registry bridges
@@ -398,18 +398,18 @@ defmodule Aiur.DecisionAttention do
       issue: attention.issue,
       workspace: attention.workspace,
       worker_host: attention.worker_host,
-      reason: "Operator decision required: #{attention.question}",
+      reason: "Executor decision required: #{attention.question}",
       needs_attention: true,
       severity: "warning"
     )
   end
 
   defp emit_resolution_alert(attention) do
-    Alerts.emit_custom(resolution_topic(attention), "Operator decision updated",
+    Alerts.emit_custom(resolution_topic(attention), "Executor decision updated",
       issue: attention.issue,
       workspace: attention.workspace,
       worker_host: attention.worker_host,
-      reason: "Operator decision resolved.",
+      reason: "Executor decision resolved.",
       needs_attention: false,
       severity: "info"
     )

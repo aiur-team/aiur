@@ -4,7 +4,7 @@ defmodule Aiur.ModelAvailability do
 
   The ledger is deliberately a plain JSON file beside the active workflow
   configuration (`model-usage.json`). It is both restart-safe and easy for an
-  operator to inspect without querying a running node. Providers may report a
+  Executor to inspect without querying a running node. Providers may report a
   subset of the hourly, weekly, and monthly windows; unknown windows never
   make a backend unavailable.
   """

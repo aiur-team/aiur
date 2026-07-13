@@ -12,7 +12,7 @@ policy live in the
 [Executor reference](../aiur-run/references/executor.md); do not duplicate or
 override that authority here.
 
-`iarc` is an operator alias for `aiur`; IAR and AYR are common spellings.
+`iarc` is an Executor alias for `aiur`; IAR and AYR are common spellings.
 
 ## One-shot status
 
@@ -57,9 +57,10 @@ Rules:
 - use `watch --full` again after a daemon restart or when the delta baseline is
   uncertain.
 
-The optional `scripts/watch-alerts.sh` streams new workspace alert records for
-hosts that can supervise a persistent process. It adds immediacy but never
-replaces the server-side board or recurring cadence. Read
+The optional `scripts/watch-alerts.sh` streams new local-workspace alert records
+for hosts that can supervise a persistent process. Remote-worker and
+workspace-less alerts remain visible through the server-side board's central
+feed, so the script never replaces the recurring cadence. Read
 [Alert and decision relay](references/alerts-and-decisions.md) before arming it.
 
 ## Respond to actionable state
@@ -71,8 +72,10 @@ ladder:
 1. inspect the ticket/PR, alert, workpad, and relevant logs;
 2. message the worker with `scripts/aiurdev message <id> <text>`;
 3. correct authoritative queue/dependency state only within granted authority;
-4. pause/resume the ticket; stop and relaunch the run when process delivery is
-   broken because there is no per-worker restart control;
+   in a GitHub workflow, use the `agent:paused` tracker overlay to shelve an
+   undispatched ticket;
+4. pause/resume an existing worker; stop and relaunch the run when process
+   delivery is broken because there is no per-worker restart control;
 5. route a sanitized Aiur bug under the debug/consent policy;
 6. backstop the affected ticket/lane when recovery is exhausted, takeover is
    the best option, and self-fix is allowed.

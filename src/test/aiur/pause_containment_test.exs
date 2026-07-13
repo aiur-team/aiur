@@ -81,8 +81,18 @@ defmodule Aiur.PauseContainmentTest do
   end
 
   test "releases an armed canonical identifier from its issue-number target" do
+    parent = self()
     name = Module.concat(__MODULE__, "ReleaseTarget#{System.unique_integer([:positive])}")
-    {:ok, _pid} = PauseContainment.start_link(name: name, grace_ms: 60_000)
+
+    {:ok, _pid} =
+      PauseContainment.start_link(
+        name: name,
+        grace_ms: 60_000,
+        reap_fun: fn group ->
+          send(parent, {:unexpected_reap, group})
+          {:ok, :reaped}
+        end
+      )
 
     assert {:ok, handle} = PauseContainment.register(name, "repo#890", 325, 325)
     assert {:ok, ^handle} = PauseContainment.arm(name, "repo#890")
@@ -90,6 +100,12 @@ defmodule Aiur.PauseContainmentTest do
 
     assert :ok = PauseContainment.release_target(name, "890")
     refute PauseContainment.paused?(name, handle)
+
+    # A cooperative-pause deadline may already be in the GenServer mailbox
+    # when a completed runner is replaced. Releasing the target must make that
+    # stale generation harmless as well as canceling its timer.
+    send(name, {:fallback, "repo#890", handle.generation})
+    refute_receive {:unexpected_reap, 325}, 30
   end
 
   test "a stuck reap does not block arming a sibling agent" do

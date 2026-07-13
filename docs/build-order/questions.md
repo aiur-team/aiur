@@ -40,8 +40,9 @@ recommendations in
   breakdowns ship on the real Build Order page — added as BO-020 (validated,
   0 errors) with BO-015 capstone coverage; after consolidation the root holds
   54 members, 56 issues / 107 blocker edges at publication.
-- **Skill delivery = merge PR #1065** when planning wraps (constraint on the
-  prior run is gone); branch reconciled with main and green.
+- **Skill delivery landed:** PR #1065 was reviewed at
+  `6447f9c193d2322d63f54a58b9c54e0a72d3e98f` and squash-merged to `main` as
+  `ed1846c4bc76d4657095da57951a0dbf3e914c3d`.
 
 ## Commands or Access Needed
 
@@ -114,9 +115,10 @@ recommendations in
   `agent:todo` or otherwise dispatch work.
 - The authorized materialization set includes all 54 direct root members
   (BO-001..020 and DASH-001..034) and one parentless human-blocked issue
-  preserving the isolated skill PR #1065. The user explicitly asked that these
-  unrelated skill changes not fall through the cracks and delegated the choice
-  of a separate ticket.
+  recording reviewed PR #1065 source head
+  `6447f9c193d2322d63f54a58b9c54e0a72d3e98f` and squash merge
+  `ed1846c4bc76d4657095da57951a0dbf3e914c3d`. The user explicitly delegated
+  the separate skill-delivery record.
 - Do not comment on, close, relabel, or rewrite existing #132, #845, #1033,
   #1034, or #1067 during publication; the new issue bodies may cite their
   overlap. No additional mutation authority is inferred from permission to

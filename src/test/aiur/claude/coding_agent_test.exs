@@ -128,6 +128,40 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
     assert get_in(response_frame, ["result", "output"]) == ~s({"ok":true})
   end
 
+  @tag :tmp_dir
+  test "oversized tool calls spill through the Claude adapter", %{tmp_dir: tmp_dir} do
+    workspace = Path.join(tmp_dir, "agent-1")
+    File.mkdir_p!(workspace)
+    {_output, 0} = System.cmd("git", ["init", "-q"], cd: workspace)
+    frames = Path.join(workspace, "frames.jsonl")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_kind: "claude",
+      workspace_root: tmp_dir,
+      command: fake_app_server_with_tool_call(frames)
+    )
+
+    issue = %{id: 1, identifier: "test:large-tool", title: "large-tool"}
+    output = String.duplicate("x", 110 * 1024)
+    tool_executor = fn _tool, _arguments -> %{"success" => true, "output" => output} end
+
+    assert {:ok, session} = ClaudeAgent.start_session(workspace)
+    assert {:ok, %{result: :turn_completed}} = ClaudeAgent.run_turn(session, "emit progress", issue, tool_executor: tool_executor)
+    ClaudeAgent.stop_session(session)
+
+    response_frame =
+      frames
+      |> File.read!()
+      |> String.split("\n", trim: true)
+      |> Enum.map(&Jason.decode!/1)
+      |> Enum.find(&(Map.get(&1, "id") == 101))
+
+    assert [path] =
+             Regex.run(~r/saved as JSON to (.+)\. Read the file/, get_in(response_frame, ["result", "output"]), capture: :all_but_first)
+
+    assert Jason.decode!(File.read!(path))["output"] == output
+  end
+
   test "tool call failures and unsupported calls are reported" do
     root = Path.join(System.tmp_dir!(), "aiur_claude_tool_errors_#{System.unique_integer([:positive])}")
     workspace = Path.join(root, "agent-1")

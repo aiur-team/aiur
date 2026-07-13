@@ -70,7 +70,14 @@ Use `ce-brainstorm` when available after brownfield/design grounding. Capture:
 - invariants, constraints, non-goals, and failure behavior;
 - smallest useful end-to-end slice;
 - resolved decisions and rejected alternatives;
-- open questions whose answers change architecture or ticket boundaries.
+- open questions whose answers change architecture or ticket boundaries;
+- the user's rough estimate of how many tickets/components the work should
+  break into, plus any phasing or parallelism expectations.
+
+Treat the user's estimate as calibration, not a cap. The planner usually ends
+up knowing the scope best; growing or shrinking the decomposition is expected.
+The final pack must surface the delta from that starting estimate with
+per-boundary justification the user can skim.
 
 Do not choose implementation tickets yet. An unanswered material question must
 become an owned gate, not a silent assumption.
@@ -90,8 +97,16 @@ Record:
 - agent-runnable, at-merge, and human/manual acceptance evidence;
 - known conflicts with in-flight work.
 
-Implementation paths and line numbers are refreshable notes tied to
-`researched_at_commit`; they are not the durable contract.
+Implementation paths, module and function names, and data shapes are
+refreshable notes tied to `researched_at_commit`, distinct from the durable
+contract — but they are required ticket content, not optional color. Low-tier
+worker models fail on abstract constraint prose alone: every executable
+ticket must name the exact files to read and extend, the existing patterns to
+copy, and the data shapes it produces or consumes, verified against the
+researched commit, so a worker can start within minutes instead of re-deriving
+the research. Verify every named reuse target actually exists at the
+researched commit; a phantom target (a module, pipeline, or helper the pack
+assumed) is a review-blocking defect.
 
 ## Stage 4: Synthesis and adversarial review
 
@@ -120,7 +135,18 @@ Every executable ticket needs:
 - problem/context and requirement/decision references;
 - exact scope and explicit non-goals;
 - existing owner/reuse target;
-- stable contract/invariants and refreshable implementation notes;
+- stable contract/invariants and a required implementation-pointers section
+  (exact files to create/modify with full paths, module and function names,
+  one worked example fixture or data shape, verified reuse targets), marked
+  refreshable against `researched_at_commit`;
+- for each producer/consumer contract pair, one concrete interface sketch
+  (message JSON or struct typespec) in the producer ticket, quoted verbatim by
+  consumers — cheap models copy well and reconcile badly;
+- a plan-context navigation block linking the pack index, the graph/wave
+  analysis, the decisions registry, and the ticket's implementation-pointers
+  section, pinned to the approved planning commit (published issue bodies
+  carry the ticket document verbatim, so workers navigate from their issue
+  back to the whole plan);
 - complexity rationale, separate risk, and capability needs;
 - typed dependencies/conflicts and likely read/write/contract surfaces;
 - error, security, migration, and accessibility concerns where relevant;
@@ -158,9 +184,48 @@ Phase is a presentation/rollout hint. It may aid batching, but it does not make
 every earlier phase ticket a blocker. Derive readiness from hard dependencies,
 conflicts, tracker state, and available capacity.
 
+Epic/lane labels are the planner's choice, not a fixed vocabulary. The
+prototype's docs/frontend/backend/infra set is an example — choose lanes that
+partition THIS feature's work into legible ownership columns (for example
+plan-graph / runtime / dashboard-ui / accounting / platform), keep the set
+small (3–6), fold a one-ticket lane into its nearest neighbor, and record the
+chosen labels in the pack's label projection. Assign each epic (and, where it
+adds signal, each ticket) an icon key from the dashboard's controlled
+line-art icon library (`BO_ICONS` in the vendored design prototype — keys
+like `flow`, `gauge`, `components`, `chart`, `pipeline`, `database`,
+`shield`, `book`) so rendering never needs a model call and falls back to a
+generic glyph for unknown keys. Prefer a single Build Order containing every
+ticket in the program over sibling packs: one graph maximizes how many agents
+can work at once, and separation belongs in lanes and phases, not in
+membership — split membership only when a track genuinely must not gate or be
+gated by the feature's completion.
+
 Analyze write surfaces and public contracts, not just file paths. Two tickets
 editing different modules may still conflict on a route, schema, event topic,
 API, generated asset, or acceptance fixture.
+
+Design for parallelism; do not merely document its absence:
+
+- After drafting the graph, compute its wave profile (longest-path levels),
+  critical path, and which `serializes_with` pairs land in the same wave.
+  Publish the wave table in the pack; same-wave serializations are the real
+  parallelism losses.
+- A serialization clique — three or more same-wave tickets pairwise
+  serialized on one write surface — is a design smell, not a scheduling fact.
+  Restructure ownership so write surfaces are disjoint: one module per
+  page/section mounted by a shared shell beats many tickets composing one
+  module. Modularity, reusability, and parallelism improve together.
+- Prefer contract dependencies over implementation dependencies: a consumer
+  may start against a reviewed interface seam while the provider's
+  implementation lands, when an explicitly temporary path is specified.
+  Reserve hard `depends_on` for cases where consuming the unproven contract
+  would create a second incompatible implementation.
+- Keep integration capstones off the enrichment critical path: ship the
+  minimum end-to-end slice with named, stubbed seams and integrate
+  enrichments as parallel follow-ups.
+- Identify the top fan-out tickets (the spine) and mark them for first-slot
+  staffing in the Executor handoff; a stall there starves more of the fleet
+  than any other ticket.
 
 ## Stage 7: Mechanical and semantic validation
 
@@ -205,6 +270,10 @@ This stage requires explicit permission.
   `OPEN` at publication.
 - Reject any returned mapping that reuses an existing issue recorded as
   reference-only or otherwise outside the user's mutation authority.
+- Freeze that authority in `publication.json`: the trusted branch, canonical
+  root path, allowed mutation repositories, reference-only issue URLs, and
+  actual tracker lifecycle-label prefix must be identical at approval and
+  receipt.
 - If publication exposes a live reconciliation/start-gate comment, derive its
   repository, root, plan version, approval, and root URL from the exact receipt
   commit. Require that commit to contain the complete materialized pack and
@@ -223,9 +292,13 @@ This stage requires explicit permission.
   with authenticated `gh`; require two identical bounded live snapshots of all
   mappings, titles, bodies, labels, states, markers, members, and blockers.
   Pin every API GET to `github.com`, API version `2026-03-10`, and a finite
-  timeout; request no more than 100 explicit pages or 10,000 items per endpoint.
+  timeout; request no more than 100 explicit pages or 10,000 items per endpoint,
+  and share the global request/item budget across both snapshots.
+- Bound receipt extraction by file count, per-file bytes, aggregate bytes, and
+  Git operation time; apply the common repository-path sanitizer throughout.
 - Apply projected and required routing labels, record full observed labels in
-  the receipt, and prove every forbidden dispatch/active-state label and every
+  the receipt, and case-insensitively prove every forbidden dispatch/active-state
+  label under the manifest-declared tracker prefix and every
   unprojected `human:*` routing label is absent. Keep the `build-order` label on
   the root only. Record expected and observed issue-title maps, and compare both
   with titles rendered from approved document H1s.

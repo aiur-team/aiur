@@ -5,8 +5,10 @@ defmodule Aiur.AgentSkills do
 
   The per-turn agent prompt (`shared-agent-instructions.md`) routes every agent
   to the `using-aiur` operating manual and the `/aiur-agent` cross-ticket event
-  skill. Those skills ship in aiur's own tree under `.claude/skills/`, but an
-  agent's workspace is a checkout of the *target* repo, which has no copy — so
+  skill, while `/aiur-debug` is the shared diagnosis overlay available when a
+  run or ticket fails. Those skills ship in aiur's own tree under
+  `.claude/skills/`, but an agent's workspace is a checkout of the *target*
+  repo, which has no copy — so
   without this, agents on non-aiur repos full-disk `find /` for a skill the
   prompt tells them to load (#689).
 
@@ -29,13 +31,15 @@ defmodule Aiur.AgentSkills do
 
   require Logger
 
+  alias Aiur.Workspace.Remote
+
   # The skills the agent prompt routes issue workers to. This is a deliberate
   # subset of the canonical taxonomy in `Aiur.AiurAgentSkillTest`
-  # (`@codex_exposed_aiur_skills` / `@claude_operator_only_skills`): operator
+  # (`@codex_exposed_aiur_skills` / `@claude_executor_only_skills`): Executor
   # skills (aiur-build, aiur-run, aiur-monitor, release) are excluded because an
   # issue worker has no reason to run aiur itself. That test cross-checks this
   # subset, so the two cannot silently drift.
-  @issue_worker_skills ~w(using-aiur aiur-agent)
+  @issue_worker_skills ~w(using-aiur aiur-agent aiur-debug design-import)
 
   @claude_skills_dir ".claude/skills"
   @codex_skills_dir ".codex/skills"
@@ -63,6 +67,17 @@ defmodule Aiur.AgentSkills do
   @spec issue_worker_skills() :: [String.t()]
   def issue_worker_skills, do: @issue_worker_skills
 
+  @doc false
+  @spec remote_install_script(Path.t()) :: String.t()
+  def remote_install_script(workspace) when is_binary(workspace) do
+    [
+      "set -eu",
+      Remote.remote_shell_assign("workspace", workspace),
+      Enum.map_join(@issue_worker_skills, "\n", &remote_skill_script/1)
+    ]
+    |> Enum.join("\n")
+  end
+
   @doc """
   Install the bundled issue-worker skills into `workspace`.
 
@@ -83,6 +98,49 @@ defmodule Aiur.AgentSkills do
   defp install_skill(workspace, skill) do
     install_claude_skill(workspace, skill)
     link_codex_skill(workspace, skill)
+  end
+
+  defp remote_skill_script(skill) do
+    files = skill_files(skill)
+
+    writes =
+      Enum.map_join(files, "\n", fn {relative_path, content} ->
+        encoded = Base.encode64(content)
+        relative_dir = Path.dirname(relative_path)
+
+        [
+          if(relative_dir == ".", do: nil, else: "mkdir -p \"$tmp/#{relative_dir}\""),
+          "printf '%s' '#{encoded}' | base64 -d > \"$tmp/#{relative_path}\""
+        ]
+        |> Enum.reject(&is_nil/1)
+        |> Enum.join("\n")
+      end)
+
+    [
+      "dest=\"$workspace/.claude/skills/#{skill}\"",
+      "if [ ! -e \"$dest\" ] && [ ! -L \"$dest\" ]; then",
+      "  mkdir -p \"$(dirname \"$dest\")\"",
+      "  tmp=\"$dest.tmp.$$\"",
+      "  rm -rf \"$tmp\"",
+      "  trap 'rm -rf \"$tmp\"' EXIT",
+      "  mkdir -p \"$tmp\"",
+      indent_script(writes, "  "),
+      "  mv \"$tmp\" \"$dest\"",
+      "  trap - EXIT",
+      "fi",
+      "link=\"$workspace/.codex/skills/#{skill}\"",
+      "if [ ! -e \"$link\" ] && [ ! -L \"$link\" ]; then",
+      "  mkdir -p \"$(dirname \"$link\")\"",
+      "  ln -s \"../../.claude/skills/#{skill}\" \"$link\"",
+      "fi"
+    ]
+    |> Enum.join("\n")
+  end
+
+  defp indent_script(script, prefix) do
+    script
+    |> String.split("\n")
+    |> Enum.map_join("\n", &(prefix <> &1))
   end
 
   # Write the embedded skill files into the workspace unless the target repo

@@ -122,7 +122,7 @@
    "id": "GATE-002",
    "title": "Install the bounded Executor skill contract",
    "owner": "Product owner",
-   "resolution_criteria": "Before dispatch, the exact final reviewed PR 1065 successor or merge SHA is recorded, proven to descend from the minimum multi-prefix ancestry marker 27ba3c44094d7c7f463f03b811dba52039a23282, landed or installed, and aiur-build, aiur-run, and aiur-monitor are discoverable. Neither 27ba3c44 nor f92aa045 is independently authorized."
+   "resolution_criteria": "Before dispatch, record the final reviewed PR 1065 source head 6447f9c193d2322d63f54a58b9c54e0a72d3e98f and its squash-merged main commit ed1846c4bc76d4657095da57951a0dbf3e914c3d, then confirm aiur-build, aiur-run, and aiur-monitor are discoverable from that landed authority."
   },
   {
    "id": "GATE-003",
