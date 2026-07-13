@@ -1055,6 +1055,56 @@ defmodule AiurWeb.DashboardLiveTest do
     refute filtered_html =~ human.question
   end
 
+  test "keeps the mounted dashboard decision history bounded" do
+    orchestrator_name = Module.concat(__MODULE__, :BoundedHistoryOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :BoundedHistoryDecisionStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 507}}}
+      end)
+
+    start_counting_orchestrator(orchestrator_name)
+    install_decision_history!(store, 51)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/")
+
+    rows = view |> render() |> Floki.parse_document!() |> Floki.find(".history-list .history-item")
+    assert length(rows) == 50
+  end
+
+  defp install_decision_history!(store, count) do
+    :sys.replace_state(store, fn state ->
+      histories = decision_histories(count)
+
+      state
+      |> Map.put(:audit_history, histories)
+      |> Map.put(:recent_audit, histories |> Map.values() |> List.flatten() |> Enum.reverse())
+    end)
+  end
+
+  defp decision_histories(count) do
+    %{
+      "dec-dashboard" =>
+        Enum.map(1..count, fn version ->
+          %{
+            decision_id: "dec-dashboard",
+            version: version,
+            ticket: %{identifier: "1051", title: "Decision history", url: nil},
+            source: %{agent_id: "agent-1", session_id: "session-1", event_id: nil},
+            question: "Decision version #{version}?",
+            created_at: DateTime.add(~U[2026-07-12 12:00:00Z], version, :second)
+          }
+        end)
+    }
+  end
+
   defp start_test_endpoint(overrides) do
     previous = Application.get_env(:aiur, AiurWeb.Endpoint)
     cache = start_supervised!({ControlCenterCache, name: nil})
