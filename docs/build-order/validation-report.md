@@ -35,7 +35,7 @@ pending.
 - Implementation plan SHA-256:
   `3c871032a4e1f0000173779464a2509d316b29df560c4f39e708b863b9056e45`
 - Latest validator/skill authority: isolated draft PR #1065 at
-  `afd9828c61005a84ee316e3b2c995c0122b896ff`
+  `f92aa045f6766358d7561dadc1133c4d9180d1f3`
 - Approval commit: pending two clean passes
 
 The design hashes match [the manifest](design-manifest.md). The prototype was
@@ -396,7 +396,7 @@ fail-closed gaps without changing any issue boundary:
    member issues because it rejected only dynamic routing-family drift. The
    successor pinned skill contract rejects that label on every BO member and
    carries an adversarial regression while preserving `build-order` on the root.
-   The planning pack and gates now pin successor `afd9828c`.
+   The planning pack and gates now pin successor `f92aa045`.
 
 ### Corrective pass 12 — mixed-provider API-equivalent totals
 
@@ -505,10 +505,10 @@ Pending a second review of the unchanged candidate after clean pass 1.
 
 ## Skill verification
 
-At isolated skill commit `afd9828c61005a84ee316e3b2c995c0122b896ff`:
+At isolated skill commit `f92aa045f6766358d7561dadc1133c4d9180d1f3`:
 
-- 104 Python `aiur-build` validator tests pass;
-- 28 repository skill/discovery tests pass;
+- 115 Python `aiur-build` validator tests pass;
+- 41 repository skill/discovery tests pass;
 - the canonical example validates with zero errors and warnings; and
 - `aiur-build`, `aiur-run`, and `aiur-monitor` pass structure validation.
 

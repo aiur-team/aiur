@@ -60,7 +60,7 @@ are separate tracks and cannot change this run's denominator or ETA.
    - `docs/build-order/validation-report.md`
    - `docs/build-order/github-publication.md`
 2. Use `/aiur-run`, not the retired `/aiur-loop` workflow. Verify the loaded
-   skill is PR #1065 commit `afd9828c` or an explicitly reviewed compatible
+   skill is PR #1065 commit `f92aa045` or an explicitly reviewed compatible
    successor preserving its finite-boundary, review/rework, circuit-breaker,
    and publication rules. A matching skill name is insufficient.
 3. Write a three-to-five-sentence `/goal` stating that you are the Executor,
