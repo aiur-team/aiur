@@ -76,6 +76,28 @@ defmodule Aiur.DogfoodHooksTest do
     assert File.read!(log_path) == "prior agent transcript\n"
   end
 
+  test "before_run recovers a clean partial clone onto the ticket branch", context do
+    workspace = Path.join(context.test_root, "partial-clone")
+    git!(["clone", "--quiet", context.origin, workspace])
+
+    assert current_branch!(workspace) == "main"
+    assert_hook_ok!("before_run", workspace, context.origin)
+
+    assert current_branch!(workspace) == ticket_branch()
+    assert File.read!(Path.join(workspace, "README.md")) == "stable one\n"
+  end
+
+  test "before_run preserves tracked WIP on the wrong branch", context do
+    workspace = Path.join(context.test_root, "dirty-partial-clone")
+    git!(["clone", "--quiet", context.origin, workspace])
+    File.write!(Path.join(workspace, "README.md"), "agent WIP\n")
+
+    assert {output, 65} = run_hook("before_run", workspace, context.origin)
+    assert output =~ "origin/#{configured_base()}"
+    assert current_branch!(workspace) == "main"
+    assert File.read!(Path.join(workspace, "README.md")) == "agent WIP\n"
+  end
+
   test "before_run refuses to overwrite tracked WIP", context do
     workspace = Path.join(context.test_root, "dirty-workspace")
     File.mkdir_p!(workspace)

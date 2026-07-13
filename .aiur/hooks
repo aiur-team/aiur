@@ -64,7 +64,7 @@ before_run: |
     restore_logs
     trap - 0
   else
-    git fetch origin "$base_branch"
+    git fetch origin
     if ! git diff --quiet -- . ':(exclude).aiur-hex' ':(exclude)logs' ||
        ! git diff --cached --quiet -- . ':(exclude).aiur-hex' ':(exclude)logs'; then
       # Tracked changes are present. Signal the refusal with exit 65.
@@ -76,6 +76,16 @@ before_run: |
       echo "Refusing to refresh workspace from origin/$base_branch because tracked source changes are present." >&2
       echo "Leaving uncommitted work in place; skipping the origin/$base_branch refresh for this run." >&2
       exit 65
+    fi
+    current_branch="$(git branch --show-current)"
+    if [ "$current_branch" != "$AIUR_TICKET_BRANCH" ]; then
+      if git show-ref --verify --quiet "refs/heads/$AIUR_TICKET_BRANCH"; then
+        git checkout "$AIUR_TICKET_BRANCH"
+      elif git show-ref --verify --quiet "refs/remotes/origin/$AIUR_TICKET_BRANCH"; then
+        git checkout -B "$AIUR_TICKET_BRANCH" "origin/$AIUR_TICKET_BRANCH"
+      else
+        git checkout -B "$AIUR_TICKET_BRANCH" "origin/$base_branch"
+      fi
     fi
     git merge --no-edit "origin/$base_branch"
   fi
