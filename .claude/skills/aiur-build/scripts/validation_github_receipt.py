@@ -16,6 +16,7 @@ from validation_github_evidence import (
     validate_body_evidence,
     validate_marker_query_matches,
 )
+from validation_github_approved import ApprovedIssueExpectations
 
 
 RECONCILIATION_KEYS = {
@@ -27,6 +28,8 @@ RECONCILIATION_KEYS = {
     "dependency_edges",
     "projected_labels",
     "observed_labels",
+    "expected_issue_titles",
+    "observed_issue_titles",
     "observed_body_evidence",
     "marker_query_matches",
 }
@@ -39,7 +42,7 @@ def validate_reconciliation(
     root: dict[str, Any] | None,
     ticket_mappings: dict[str, dict[str, Any] | None],
     report: Report,
-    approved_body_expectations: dict[str, dict[str, Any]] | None = None,
+    approved_expectations: ApprovedIssueExpectations | None = None,
 ) -> None:
     value = data.get("github_reconciliation")
     any_mapping = root is not None or any(item is not None for item in ticket_mappings.values())
@@ -82,7 +85,15 @@ def validate_reconciliation(
     validate_body_evidence(
         receipt.get("observed_body_evidence"), identities,
         receipt.get("approved_planning_commit"), data.get("plan_version"),
-        approved_body_expectations, report,
+        approved_expectations.bodies if approved_expectations is not None else None,
+        report,
+    )
+    _validate_issue_titles(
+        receipt.get("expected_issue_titles"),
+        receipt.get("observed_issue_titles"),
+        identities,
+        approved_expectations.titles if approved_expectations is not None else None,
+        report,
     )
     root_id = str(data.get("build_order_id"))
     validate_marker_query_matches(
@@ -92,6 +103,41 @@ def validate_reconciliation(
     )
     _validate_label_sets(data, by_id, receipt.get("projected_labels"), "projected", report)
     _validate_label_sets(data, by_id, receipt.get("observed_labels"), "observed", report)
+
+
+def _validate_issue_titles(
+    expected_value: object,
+    observed_value: object,
+    identities: set[str],
+    approved: dict[str, str] | None,
+    report: Report,
+) -> None:
+    if approved is None:
+        report.error(
+            "materialized GitHub receipt requires independently rendered "
+            "approved title expectations"
+        )
+    elif set(approved) != identities:
+        report.error("approved title expectations keys must match root and tickets")
+    maps = (
+        ("expected_issue_titles", expected_value),
+        ("observed_issue_titles", observed_value),
+    )
+    for field, value in maps:
+        label = f"github_reconciliation.{field}"
+        if not isinstance(value, dict):
+            report.error(f"{label} must be an object")
+            continue
+        if set(value) != identities:
+            report.error(f"{label} keys must match root and tickets")
+        for identity in sorted(identities):
+            title = value.get(identity)
+            if not nonempty_string(title):
+                report.error(f"{label}.{identity} must be a non-empty string")
+            elif approved is not None and title != approved.get(identity):
+                report.error(
+                    f"{label}.{identity} must match the independently rendered approved title"
+                )
 
 
 def _dependency_edges(value: object, report: Report) -> set[tuple[str, str]]:
@@ -168,6 +214,10 @@ def _validate_label_sets(
             report.error(
                 f"github_reconciliation forbidden labels present for {identity}: "
                 + ", ".join(forbidden_hits)
+            )
+        if identity != "github_root" and nonempty_string(root_label) and root_label in actual:
+            report.error(
+                f"github_reconciliation root-only label present for {identity}: {root_label}"
             )
         routing_prefixes = (
             "agent:", "human:", "model:", "phase:", "complexity:",

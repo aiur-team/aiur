@@ -110,7 +110,11 @@ class ApprovedCommitTests(unittest.TestCase):
     def test_loads_approved_sources_and_allows_root_substitution(self) -> None:
         expected, report = self.render()
         self.assertEqual([], report.errors)
-        self.assertEqual({ROOT_ID, "BO-001"}, set(expected))
+        self.assertEqual({ROOT_ID, "BO-001"}, set(expected.bodies))
+        self.assertEqual(
+            {ROOT_ID: "Root", "BO-001": "BO-001"},
+            expected.titles,
+        )
 
     def test_rejects_current_ticket_document_drift(self) -> None:
         self.ticket_document.write_text("# BO-001 drifted\n", encoding="utf-8")
@@ -184,6 +188,24 @@ class ApprovedCommitTests(unittest.TestCase):
             self.current, report,
         ))
         self.assertIn("approved root document is absent", "\n".join(report.errors))
+
+    def test_approved_documents_require_issue_title_h1(self) -> None:
+        self.ticket_document.write_text("No H1\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(self.root), "add", "pack"], check=True)
+        subprocess.run(["git", "-C", str(self.root), "commit", "-qm", "bad title"], check=True)
+        bad_sha = subprocess.run(
+            ["git", "-C", str(self.root), "rev-parse", "HEAD"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        report = Report()
+        self.assertIsNone(render_approved_build_order(
+            self.root, bad_sha, "pack/build-order.json", "pack/root.md",
+            self.current, report,
+        ))
+        self.assertIn(
+            "must start with one non-empty H1 issue title",
+            "\n".join(report.errors),
+        )
 
     def test_rejects_post_approval_planning_drift(self) -> None:
         changed = json.loads(json.dumps(self.current))

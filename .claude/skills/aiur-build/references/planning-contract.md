@@ -26,6 +26,7 @@ docs/build-orders/<slug>/
   deferred-findings.md
   evidence/
   build-order.json
+  publication.json            # when GitHub materialization is authorized
   root-issue.md              # when GitHub materialization is authorized
   tickets/<ID>-<slug>.md
   validation-report.md
@@ -34,6 +35,9 @@ docs/build-orders/<slug>/
 
 `README.md` is a generated/read-first index and authority map. It must not claim
 that copied status is live.
+
+`publication.json` pins the singular `trusted_repository_ref` as a full
+`refs/heads/...` branch before approval. The receipt must preserve that value.
 
 ## Canonical baseline record
 
@@ -89,7 +93,8 @@ membership, exact native dependency edges, and the full observed label set for
 the root and tickets. Receipt schema v2 also records the approved planning
 commit, the complete result set of each logical-marker query, and parsed body
 evidence for every issue: marker count, schema, logical ID, plan version,
-approval SHA, approved-link count/link, and body SHA-256.
+approval SHA, approved-link count/link, and body SHA-256. It also records exact
+expected and observed issue-title maps for the root and every ticket.
 
 Existing issues explicitly retained as reference-only are a denylist for
 returned root/ticket mappings unless the user separately expands mutation
@@ -100,9 +105,13 @@ commit must contain the complete materialized pack, and the pack must pass the
 trusted reconciliation validator before the comment is authoritative. Never
 let caller-supplied values or the mere existence of a local commit authorize
 the start gate. Anchor the repository to the trusted configured GitHub origin
-outside both receipt and caller data, and prove the receipt and approval commits
-exist remotely in that repository. A foreign history imported into the local
-object database is not authority.
+outside both receipt and caller data. Pin one `trusted_repository_ref` in the
+publication manifest as an exact `refs/heads/...` branch. At gate time, query
+that branch's exact target from GitHub and prove the receipt and approval
+commits are ancestors, with approval preceding receipt. Base-repository API
+visibility of a fork-only PR commit, or foreign history imported into the local
+object database, is not authority. Requery the ref after proof and require the
+same target; movement or deletion fails closed.
 
 The observed hash is never self-authorizing. A trusted pack adapter must load
 the root template, `build-order.json`, and every ticket document with
@@ -126,7 +135,10 @@ evidence can authorize publication; `git show` remains the rendering authority.
 deterministic projected labels with full observed labels, rejects drift in the
 `agent:`, `human:`, `model:`, `phase:`, `complexity:`, and `build-lane:`
 families plus forbidden dispatch states, and requires every GitHub mapping. It
-cannot prove the remote query was honestly performed.
+also rejects the root-only `build-order` label on every member. Receipt v2
+requires complete expected and observed issue-title maps; both must equal titles
+rendered from approved root/ticket document H1s. It cannot prove the remote
+query was honestly performed.
 
 ## Ticket document template
 

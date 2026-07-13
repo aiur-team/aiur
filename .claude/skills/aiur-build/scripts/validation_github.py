@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from validation_common import REPOSITORY, Report, nonempty_string, strict_int, strict_object
+from validation_github_approved import ApprovedIssueExpectations
 from validation_github_receipt import validate_reconciliation
 
 
@@ -47,7 +48,7 @@ def validate_github_mapping(
 
 def validate_all_github(
     data: dict[str, Any], by_id: dict[str, dict[str, Any]], report: Report,
-    approved_body_expectations: dict[str, dict[str, Any]] | None = None,
+    approved_expectations: ApprovedIssueExpectations | None = None,
 ) -> None:
     repository = data.get("repository") if isinstance(data.get("repository"), str) else None
     root = validate_github_mapping(
@@ -86,5 +87,5 @@ def validate_all_github(
             node_ids[node_id] = label
     validate_reconciliation(
         data, by_id, root, ticket_mappings, report,
-        approved_body_expectations,
+        approved_expectations,
     )

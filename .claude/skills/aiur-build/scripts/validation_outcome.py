@@ -33,6 +33,10 @@ def validate_label_coverage(
     all_labels: list[str] = []
     if nonempty_string(projection.get("build_order")):
         all_labels.append(projection["build_order"])
+    all_labels.extend(
+        label for label in safe_list(projection, "required_ticket_labels")
+        if nonempty_string(label)
+    )
     for key, expected_keys in expected.items():
         mapping = projection.get(key)
         if not isinstance(mapping, dict):

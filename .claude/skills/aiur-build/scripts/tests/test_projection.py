@@ -6,6 +6,7 @@ import copy
 
 from helpers import ValidatorCase, example, report_for
 from validation_common import Report
+from validation_github_approved import ApprovedIssueExpectations
 from validation_github_rendering import render_ticket_body, inspect_issue_body
 
 
@@ -40,6 +41,9 @@ class ProjectionTests(ValidatorCase):
     def test_labels_cannot_be_reused(self) -> None:
         data = example()
         data["label_projection"]["phases"]["1"] = data["label_projection"]["build_order"]
+        self.assert_error(data, "reuses a label")
+        data = example()
+        data["label_projection"]["required_ticket_labels"].append("build-order")
         self.assert_error(data, "reuses a label")
 
 
@@ -78,6 +82,16 @@ class GithubTests(ValidatorCase):
                 "BO-001": ["build-lane:platform", "phase:1", "complexity:3", "model:codex"],
                 "BO-002": ["build-lane:integration", "phase:2", "complexity:2", "model:codex"],
             },
+            "expected_issue_titles": {
+                "example/repo:operator-dashboard": "example/repo:operator-dashboard",
+                "BO-001": "BO-001",
+                "BO-002": "BO-002",
+            },
+            "observed_issue_titles": {
+                "example/repo:operator-dashboard": "example/repo:operator-dashboard",
+                "BO-001": "BO-001",
+                "BO-002": "BO-002",
+            },
             "observed_body_evidence": {},
             "marker_query_matches": {
                 "example/repo:operator-dashboard": [copy.deepcopy(data["github_root"])],
@@ -99,7 +113,10 @@ class GithubTests(ValidatorCase):
             )
             self.assertIsNotNone(evidence, report.errors)
             rendered[identity] = evidence
-        self.approved_body_expectations = rendered
+        self.approved_body_expectations = ApprovedIssueExpectations(
+            bodies=rendered,
+            titles={identity: identity for identity in rendered},
+        )
         data["github_reconciliation"]["observed_body_evidence"] = copy.deepcopy(rendered)
         return data
 
@@ -140,6 +157,23 @@ class GithubTests(ValidatorCase):
         data = self.materialized()
         data["github_reconciliation"]["observed_labels"]["BO-001"].append("agent:todo")
         self.assert_error(data, "forbidden labels present for BO-001")
+
+    def test_reconciliation_rejects_root_only_label_on_members(self) -> None:
+        for field in ("projected_labels", "observed_labels"):
+            data = self.materialized()
+            data["github_reconciliation"][field]["BO-001"].append("build-order")
+            self.assert_error(data, "root-only label present for BO-001")
+
+    def test_reconciliation_titles_match_approved_documents(self) -> None:
+        for field in ("expected_issue_titles", "observed_issue_titles"):
+            data = self.materialized()
+            data["github_reconciliation"][field]["BO-001"] = "Drifted title"
+            self.assert_error(data, "must match the independently rendered approved title")
+
+    def test_reconciliation_requires_complete_title_maps(self) -> None:
+        data = self.materialized()
+        del data["github_reconciliation"]["observed_issue_titles"]["BO-001"]
+        self.assert_error(data, "observed_issue_titles keys must match root and tickets")
 
     def test_reconciliation_allows_unrelated_labels_but_rejects_family_drift(self) -> None:
         data = self.materialized()

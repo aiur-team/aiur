@@ -147,6 +147,20 @@ python3 <loaded-skill-directory>/scripts/validate_build_order.py \
   --root-document docs/build-orders/<slug>/root-issue.md
 ```
 
+For a live start gate, also pass the exact receipt commit and the explicitly
+trusted repository branch recorded by the publication manifest:
+
+```bash
+python3 <loaded-skill-directory>/scripts/validate_build_order.py \
+  docs/build-orders/<slug>/build-order.json \
+  --repository-root . \
+  --root-document docs/build-orders/<slug>/root-issue.md \
+  --receipt-commit <RECEIPT_SHA>
+```
+
+The validator loads `trusted_repository_ref` from `publication.json` at both
+approval and receipt commits; it does not accept caller-supplied ref authority.
+
 Materialized validation also freezes the current planning documents: every
 ticket document must remain byte-for-byte equal to its approved source, and the
 current root document may differ from its approved full template only through
@@ -192,9 +206,11 @@ Only when explicitly authorized:
     plan version, approval, and root URL from the exact receipt commit; require
     that commit to contain the complete materialized pack and pass the trusted
     reconciliation validator before accepting the same-repository commit URL.
-    Anchor the repository outside both receipt and caller data to the trusted
-    configured GitHub origin, and prove receipt and approval commits exist
-    remotely there.
+    Anchor the repository outside both receipt and caller data to the configured
+    GitHub origin. Query the exact target of the explicitly trusted
+    `refs/heads/...` repository branch and prove receipt and approval commits
+    are ancestors, with approval also preceding receipt; object/API visibility
+    alone is insufficient. Requery the ref after proof and require the same tip.
 
 Do not assume issue-number adjacency. Keep prose dependency tables as generated
 human views, not a second source of truth.

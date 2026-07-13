@@ -6,11 +6,18 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from pathlib import Path
+import tempfile
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from validation_common import Report
-from validation_github_approved import render_approved_build_order, repository_relative
+from validation_git_authority import validate_publication_commit_authority
+from validation_git_snapshot import materialize_receipt_pack
+from validation_github_approved import (
+    ApprovedIssueExpectations,
+    render_approved_build_order,
+    repository_relative,
+)
 from validation_github import validate_all_github
 from validation_graph import (
     dependency_closure,
@@ -39,7 +46,7 @@ from validation_tickets import validate_tickets
 
 def validate_data(
     value: object, base_dir: Path,
-    approved_body_expectations: dict[str, dict[str, Any]] | None = None,
+    approved_expectations: ApprovedIssueExpectations | None = None,
 ) -> Report:
     report = Report()
     if not isinstance(value, dict):
@@ -65,7 +72,7 @@ def validate_data(
     validate_label_coverage(projection, workstreams, by_id, report)
     validate_surface_conflicts(by_id, closure, report)
     validate_epic_acceptance(data, by_id, closure, critical_path, report)
-    validate_all_github(data, by_id, report, approved_body_expectations)
+    validate_all_github(data, by_id, report, approved_expectations)
     return report
 
 
@@ -75,6 +82,78 @@ def load(path: Path, report: Report) -> object | None:
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         report.error(f"cannot read valid JSON: {exc}")
         return None
+
+
+def _validate_path(
+    path: Path,
+    repository_root: Path | None,
+    root_document: str | None,
+    report: Report,
+) -> tuple[object | None, Report]:
+    value = load(path, report)
+    expectations = None
+    if isinstance(value, dict) and repository_root is not None and root_document is not None:
+        build_path = repository_relative(path, repository_root, report)
+        receipt = value.get("github_reconciliation")
+        approved = receipt.get("approved_planning_commit") if isinstance(receipt, dict) else None
+        if build_path is not None:
+            expectations = render_approved_build_order(
+                repository_root, approved, build_path, root_document, value, report,
+            )
+    if value is None:
+        return value, report
+    validated = validate_data(value, path.parent, expectations)
+    validated.errors[:0] = report.errors
+    validated.warnings[:0] = report.warnings
+    return value, validated
+
+
+def _validate_receipt(
+    path: Path,
+    repository_root: Path,
+    root_document: str,
+    receipt_commit: str,
+) -> Report:
+    report = Report()
+    build_path = repository_relative(path, repository_root, report)
+    if build_path is None:
+        return report
+    pack_path = str(PurePosixPath(build_path).parent)
+    with tempfile.TemporaryDirectory() as directory:
+        snapshot = Path(directory) / "receipt"
+        if not materialize_receipt_pack(
+            repository_root, receipt_commit, pack_path, snapshot, report,
+        ):
+            return report
+        receipt_path = snapshot.joinpath(*PurePosixPath(build_path).parts)
+        value, validated = _validate_path(
+            receipt_path, snapshot, root_document, report,
+        )
+        if isinstance(value, dict):
+            receipt = value.get("github_reconciliation")
+            approved = (
+                receipt.get("approved_planning_commit")
+                if isinstance(receipt, dict) else None
+            )
+            publication_path = str(PurePosixPath(build_path).parent / "publication.json")
+            validate_publication_commit_authority(
+                repository_root,
+                value.get("repository"),
+                publication_path,
+                approved,
+                receipt_commit,
+                validated,
+            )
+        return validated
+
+
+def _print_report(report: Report) -> int:
+    for message in report.errors:
+        print(f"ERROR: {message}")
+    for message in report.warnings:
+        print(f"WARN: {message}")
+    print(f"validation: {len(report.errors)} error(s), {len(report.warnings)} warning(s)")
+    return 1 if report.errors else 0
 
 
 def main(argv: list[str]) -> int:
@@ -91,6 +170,10 @@ def main(argv: list[str]) -> int:
         "--root-document",
         help="repository-relative full-body root issue template at approval",
     )
+    parser.add_argument(
+        "--receipt-commit",
+        help="exact post-publication receipt commit linked by the start gate",
+    )
     try:
         args = parser.parse_args(argv[1:])
     except SystemExit as exc:
@@ -101,31 +184,22 @@ def main(argv: list[str]) -> int:
         )
         print("validation: 1 error(s), 0 warning(s)")
         return 1
-    path = args.path
-    load_report = Report()
-    value = load(path, load_report)
-    expectations = None
-    if isinstance(value, dict) and args.repository_root is not None:
-        build_path = repository_relative(path, args.repository_root, load_report)
-        receipt = value.get("github_reconciliation")
-        approved = receipt.get("approved_planning_commit") if isinstance(receipt, dict) else None
-        if build_path is not None:
-            expectations = render_approved_build_order(
-                args.repository_root, approved, build_path, args.root_document,
-                value, load_report,
-            )
-    if value is None:
-        report = load_report
-    else:
-        report = validate_data(value, path.parent, expectations)
-        report.errors[:0] = load_report.errors
-        report.warnings[:0] = load_report.warnings
-    for message in report.errors:
-        print(f"ERROR: {message}")
-    for message in report.warnings:
-        print(f"WARN: {message}")
-    print(f"validation: {len(report.errors)} error(s), {len(report.warnings)} warning(s)")
-    return 1 if report.errors else 0
+    if args.receipt_commit is not None and args.repository_root is None:
+        print("ERROR: receipt validation requires --repository-root and --root-document")
+        print("validation: 1 error(s), 0 warning(s)")
+        return 1
+    if args.receipt_commit is not None:
+        assert args.repository_root is not None and args.root_document is not None
+        return _print_report(_validate_receipt(
+            args.path,
+            args.repository_root,
+            args.root_document,
+            args.receipt_commit,
+        ))
+    _, report = _validate_path(
+        args.path, args.repository_root, args.root_document, Report(),
+    )
+    return _print_report(report)
 
 
 if __name__ == "__main__":

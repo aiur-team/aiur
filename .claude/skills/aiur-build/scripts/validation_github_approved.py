@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 from copy import deepcopy
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -16,6 +17,12 @@ from validation_github_rendering import (
 )
 
 
+@dataclass(frozen=True)
+class ApprovedIssueExpectations:
+    bodies: dict[str, dict[str, Any]]
+    titles: dict[str, str]
+
+
 def render_approved_build_order(
     repository_root: Path,
     approved: object,
@@ -23,7 +30,7 @@ def render_approved_build_order(
     root_document_path: str,
     current: dict[str, Any],
     report: Report,
-) -> dict[str, dict[str, Any]] | None:
+) -> ApprovedIssueExpectations | None:
     """Render approved bodies and enforce the current document freeze."""
     root = repository_root.resolve()
     if not _exact_commit(root, approved, report):
@@ -62,9 +69,13 @@ def render_approved_build_order(
         report.error("approved build-order ticket IDs must match the materialized pack")
         return None
     expectations: dict[str, dict[str, Any]] = {}
+    titles: dict[str, str] = {}
     documents_frozen = True
     root_source = _git_show(root, approved, root_path, "approved root document", report)
     if root_source is not None:
+        title = _document_title(root_source, "approved root document", report)
+        if title is not None:
+            titles[root_id] = title
         body = render_template_body(
             root_source, repository, root_id, plan_version, approved, report,
             "approved root document",
@@ -90,6 +101,9 @@ def render_approved_build_order(
         source = _git_show(root, approved, source_path, f"approved {ticket_id} document", report)
         if source is None:
             continue
+        title = _document_title(source, f"approved {ticket_id} document", report)
+        if title is not None:
+            titles[ticket_id] = title
         documents_frozen &= _current_matches(
             root, source_path, source, f"current {ticket_id} document", report,
         )
@@ -109,7 +123,10 @@ def render_approved_build_order(
     if set(expectations) != expected_ids:
         report.error("approved body rendering must exactly cover root and tickets")
         return None
-    return expectations if documents_frozen else None
+    if set(titles) != expected_ids:
+        report.error("approved title rendering must exactly cover root and tickets")
+        return None
+    return ApprovedIssueExpectations(expectations, titles) if documents_frozen else None
 
 
 def repository_relative(path: Path, repository_root: Path, report: Report) -> str | None:
@@ -138,6 +155,15 @@ def _frozen_planning_fields(data: dict[str, Any]) -> dict[str, Any]:
         if isinstance(ticket, dict):
             ticket.pop("github", None)
     return frozen
+
+
+def _document_title(source: str, label: str, report: Report) -> str | None:
+    lines = source.splitlines()
+    first_line = lines[0] if lines else ""
+    if not first_line.startswith("# ") or not first_line[2:].strip():
+        report.error(f"{label} must start with one non-empty H1 issue title")
+        return None
+    return first_line[2:].strip()
 
 
 def _safe_path(value: object, label: str, report: Report) -> str | None:

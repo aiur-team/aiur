@@ -206,11 +206,18 @@ This stage requires explicit permission.
   commit. Require that commit to contain the complete materialized pack and
   pass the trusted reconciliation validator; resolving an arbitrary local
   commit or accepting caller-supplied authority is insufficient. Bind the
-  repository to a trusted configured GitHub origin outside the receipt and
-  prove both receipt and approval commits exist remotely in that repository.
+  repository to a trusted configured GitHub origin outside the receipt. Record
+  one explicit `trusted_repository_ref` as a full `refs/heads/...` branch in the
+  publication manifest, query its exact target from GitHub at gate time, and
+  prove both receipt and approval commits are ancestors, with approval preceding
+  receipt. A fork-only PR commit can be API-visible through the base repository
+  without being authoritative. Requery the ref after proof and require the same
+  target; movement or deletion fails closed.
 - Apply projected and required routing labels, record full observed labels in
   the receipt, and prove every forbidden dispatch/active-state label and every
-  unprojected `human:*` routing label is absent.
+  unprojected `human:*` routing label is absent. Keep the `build-order` label on
+  the root only. Record expected and observed issue-title maps, and compare both
+  with titles rendered from approved document H1s.
 
 For GitHub, a root issue with native sub-issues is a practical v1 membership
 model. GitHub supports up to 100 direct sub-issues per parent; larger programs

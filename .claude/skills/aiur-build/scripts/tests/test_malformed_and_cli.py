@@ -59,9 +59,12 @@ class MalformedSweepTests(ValidatorCase):
 
 
 class CliTests(ValidatorCase):
-    def run_cli(self, path: Path):
+    def run_cli(self, path: Path, *arguments: str):
         return subprocess.run(
-            ["python3", str(SCRIPT_DIR / "validate_build_order.py"), str(path)],
+            [
+                "python3", str(SCRIPT_DIR / "validate_build_order.py"), str(path),
+                *arguments,
+            ],
             check=False,
             capture_output=True,
             text=True,
@@ -83,6 +86,11 @@ class CliTests(ValidatorCase):
             result = self.run_cli(invalid)
             self.assertEqual(1, result.returncode)
             self.assertIn("top level must be", result.stdout)
+
+    def test_cli_requires_materialized_context_for_start_gate(self) -> None:
+        result = self.run_cli(EXAMPLE, "--receipt-commit", "a" * 40)
+        self.assertEqual(1, result.returncode)
+        self.assertIn("receipt validation requires", result.stdout)
 
 
 if __name__ == "__main__":
