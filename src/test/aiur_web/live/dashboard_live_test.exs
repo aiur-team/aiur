@@ -8,6 +8,7 @@ defmodule AiurWeb.DashboardLiveTest do
   alias Aiur.Orchestrator
   alias Aiur.RecentMerge
   alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, DashboardLive, ObservabilityPubSub, Presenter}
+  alias AiurWeb.OperatorControlCenter.FleetFilters
 
   @endpoint AiurWeb.Endpoint
 
@@ -119,7 +120,7 @@ defmodule AiurWeb.DashboardLiveTest do
       writable: false,
       live_action: Keyword.get(opts, :live_action, :index),
       decision_filter: :all,
-      fleet_filters: AiurWeb.OperatorControlCenter.FleetFilters.default(),
+      fleet_filters: FleetFilters.default(),
       selected_decision_id: selected_decision_id,
       selected_decision: selected_decision
     }
