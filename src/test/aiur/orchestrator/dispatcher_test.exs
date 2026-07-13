@@ -3,21 +3,66 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
   import ExUnit.CaptureLog
 
-  alias Aiur.Orchestrator.Dispatcher
-  alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, State}
 
   setup do
     previous_meminfo = Application.get_env(:aiur, :meminfo_source_override)
     previous_loadavg = Application.get_env(:aiur, :loadavg_source_override)
     previous_fd_sample = Application.get_env(:aiur, :file_descriptor_sample_override)
+    previous_proc_stat = Application.get_env(:aiur, :proc_stat_source_override)
 
     on_exit(fn ->
       restore_app_env(:meminfo_source_override, previous_meminfo)
       restore_app_env(:loadavg_source_override, previous_loadavg)
       restore_app_env(:file_descriptor_sample_override, previous_fd_sample)
+      restore_app_env(:proc_stat_source_override, previous_proc_stat)
     end)
 
     :ok
+  end
+
+  describe "CPU headroom recovery integration" do
+    test "a second CPU sample re-ramps and consumes restored slots in the same poll" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        max_concurrent_agents: 8,
+        target_load_average: 1.0,
+        load_ramp_step: 1
+      )
+
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
+      Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
+
+      {:ok, samples} =
+        Agent.start_link(fn ->
+          [
+            "cpu 100 0 100 800 0 0 0 0 0 0\nprocs_running 1\n",
+            "cpu 120 0 120 960 0 0 0 0 0 0\nprocs_running 1\n"
+          ]
+        end)
+
+      Application.put_env(:aiur, :proc_stat_source_override, fn ->
+        Agent.get_and_update(samples, fn [sample | rest] -> {{:ok, sample}, rest} end)
+      end)
+
+      running = Map.new(1..4, fn index -> {"active-#{index}", running_entry("active-#{index}")} end)
+      queued = Enum.map(1..4, &issue("queued-#{&1}"))
+
+      state = %State{
+        max_concurrent_agents: 8,
+        effective_concurrent_agents: 4,
+        load_envelope_state: %{last_decrease_ms: 1_000, cpu_snapshot: nil},
+        running: running
+      }
+
+      first = Dispatcher.maybe_choose_under_load(state, queued, &consume_available_slots/2)
+      assert first.effective_concurrent_agents == 5
+      assert map_size(first.running) == 5
+
+      second = Dispatcher.maybe_choose_under_load(first, queued, &consume_available_slots/2)
+      assert second.effective_concurrent_agents == 8
+      assert map_size(second.running) == 8
+      assert second.load_envelope_state.last_decrease_ms == nil
+    end
   end
 
   describe "memory admission" do
@@ -199,6 +244,22 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
   defp restore_app_env(key, nil), do: Application.delete_env(:aiur, key)
   defp restore_app_env(key, value), do: Application.put_env(:aiur, key, value)
+
+  defp consume_available_slots(state, issues) do
+    Enum.reduce(issues, state, fn issue, acc ->
+      if DispatchPolicy.should_dispatch_issue?(issue, acc) do
+        %{acc | running: Map.put(acc.running, issue.id, running_entry(issue.id))}
+      else
+        acc
+      end
+    end)
+  end
+
+  defp issue(id), do: %Issue{id: id, identifier: "repo##{id}", title: id, state: "todo"}
+
+  defp running_entry(id) do
+    %{issue: issue(id), control: %{status: :working}, worker_host: nil}
+  end
 
   describe "revalidate_issue_for_dispatch/3" do
     test "returns :ok when issue is found and passes the retry candidate check" do
