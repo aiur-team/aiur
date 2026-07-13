@@ -88,6 +88,36 @@ defmodule Aiur.AiurAlertWatchSkillTest do
     |> Enum.map(&Jason.decode!/1)
   end
 
+  defp install_poll_probe(home) do
+    marker = Path.join(home, "polls")
+    sleep = Path.join(home, "bin/sleep")
+    File.mkdir_p!(Path.dirname(sleep))
+    File.write!(sleep, "#!/bin/sh\nprintf 'x\\n' >> \"$AIUR_ALERT_POLL_MARKER\"\nexec /bin/sleep \"$@\"\n")
+    File.chmod!(sleep, 0o755)
+    marker
+  end
+
+  defp await_poll(marker, count, timeout_ms \\ 5_000) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    await_poll_until(marker, count, deadline)
+  end
+
+  defp await_poll_until(marker, count, deadline) do
+    polls = if File.exists?(marker), do: marker |> File.read!() |> String.split("\n", trim: true) |> length(), else: 0
+
+    cond do
+      polls >= count ->
+        :ok
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        flunk("watcher did not reach poll #{count}")
+
+      true ->
+        Process.sleep(10)
+        await_poll_until(marker, count, deadline)
+    end
+  end
+
   test "cold start skips history — relays nothing already present", %{home: home} do
     config = build_fixture(home)
     assert run(config, home) |> alert_lines() == []
@@ -264,6 +294,7 @@ defmodule Aiur.AiurAlertWatchSkillTest do
     File.mkdir_p!(bin)
     File.write!(recorder, "#!/bin/sh\ncat >> \"$AIUR_NOTIFY_LOG\"\n")
     File.chmod!(recorder, 0o755)
+    poll_marker = install_poll_probe(home)
     started_at = System.monotonic_time(:millisecond)
 
     fresh =
@@ -273,7 +304,7 @@ defmodule Aiur.AiurAlertWatchSkillTest do
     # skipped), the append lands during the poll, a later scan streams it once.
     appender =
       Task.async(fn ->
-        Process.sleep(500)
+        await_poll(poll_marker, 1)
         File.write!(ndjson, fresh <> "\n", [:append])
       end)
 
@@ -283,6 +314,7 @@ defmodule Aiur.AiurAlertWatchSkillTest do
         poll: 1,
         extra_env: [
           {"AIUR_NOTIFY_LOG", notification_log},
+          {"AIUR_ALERT_POLL_MARKER", poll_marker},
           {"AIUR_OPERATOR_SURFACES", "codex"},
           {"AIUR_ALERT_NOTIFY_CODEX_COMMAND", "record-wake-notification"}
         ]
@@ -313,6 +345,7 @@ defmodule Aiur.AiurAlertWatchSkillTest do
     ndjson: ndjson
   } do
     config = build_fixture(home)
+    poll_marker = install_poll_probe(home)
 
     # A real append flushes `json <> "\n"` in one write, but a scan can still land
     # on a half-written prefix: bytes present, line not yet newline-terminated.
@@ -327,13 +360,13 @@ defmodule Aiur.AiurAlertWatchSkillTest do
 
     appender =
       Task.async(fn ->
-        Process.sleep(300)
+        await_poll(poll_marker, 1)
         File.write!(ndjson, head, [:append])
-        Process.sleep(1200)
+        await_poll(poll_marker, 2)
         File.write!(ndjson, tail, [:append])
       end)
 
-    out = run(config, home, iters: 4, poll: 1)
+    out = run(config, home, iters: 4, poll: 1, extra_env: [{"AIUR_ALERT_POLL_MARKER", poll_marker}])
     Task.await(appender)
 
     names = out |> alert_lines() |> Enum.map(& &1["name"])
