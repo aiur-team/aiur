@@ -39,7 +39,7 @@ BO-001 depends on BO-004 and inherits both gates:
 
 - the configured integration branch contains the completed OCC predecessor
   baseline and its accepted successors; and
-- PR #1065 commit `26af4fc1` or an explicitly reviewed compatible successor is
+- PR #1065 commit `6bead211` or an explicitly reviewed compatible successor is
   installed and `/aiur-build`, `/aiur-run`, and `/aiur-monitor` are
   discoverable.
 

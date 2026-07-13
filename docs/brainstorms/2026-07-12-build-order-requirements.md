@@ -40,7 +40,7 @@ not the opening ten-ticket estimate.
 - Linear parity remains separate human-blocked issue #1067.
 - No implementation dispatch begins until the configured integration branch is
   proven to contain the completed OCC baseline and the bounded Executor skill
-  revision from PR #1065 commit `26af4fc1` (or a reviewed compatible successor)
+  revision from PR #1065 commit `6bead211` (or a reviewed compatible successor)
   is installed. These gates do not enter the feature denominator.
 
 ## Build Order requirements

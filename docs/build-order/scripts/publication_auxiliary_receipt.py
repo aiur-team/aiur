@@ -22,6 +22,7 @@ RECEIPT_KEYS = {
     "checked_at", "issue_mappings", "external_blocker_relations",
     "observed_labels", "observed_parent_issues",
     "observed_body_evidence", "marker_query_matches",
+    "expected_issue_titles", "observed_issue_titles",
     "root_reconciliation_comment_matches",
 }
 EDGE_KEYS = {"blocked_ticket_id", "blocker_issue_id"}

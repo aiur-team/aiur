@@ -53,6 +53,14 @@ class PublicationBoundaryTests(unittest.TestCase):
         self.assertIn("root_issue.forbidden_label_prefixes must equal", joined)
         self.assertIn("skill_issue.forbidden_labels must equal build-order", joined)
 
+    def test_trusted_repository_ref_must_be_an_exact_branch_ref(self) -> None:
+        manifest = publication()
+        manifest["trusted_repository_ref"] = "refs/pull/1064/head"
+        joined = "\n".join(self.report(manifest=manifest).errors)
+        self.assertIn(
+            "trusted_repository_ref must be an exact refs/heads/...", joined
+        )
+
     def test_proves_companions_have_no_parent(self) -> None:
         data, build, manifest = materialized_pack()
         data["github_reconciliation"]["observed_parent_issues"]["DASH-001"] = (

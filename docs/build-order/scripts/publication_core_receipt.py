@@ -13,11 +13,12 @@ from publication_common import SHA, Report
 from publication_rendering import exact_commit, repository_root, run_authority_git
 
 
-PINNED_SKILL_COMMIT = "26af4fc158e8f00688aaa27cbc02bc1a905023fe"
+PINNED_SKILL_COMMIT = "6bead211250ad84a21f564070d7a7a0fbb51658e"
 SKILL_ROOT = ".claude/skills/aiur-build/scripts"
 PINNED_MODULES = (
     "validation_common.py",
     "validation_github_evidence.py",
+    "validation_github_approved.py",
     "validation_github_receipt.py",
     "validation_github_rendering.py",
 )
@@ -26,10 +27,14 @@ import json
 import sys
 from pathlib import Path
 from validation_common import Report
+from validation_github_approved import ApprovedIssueExpectations
 from validation_github_receipt import validate_reconciliation
 
 data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-expected = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+raw_expected = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+expected = ApprovedIssueExpectations(
+    bodies=raw_expected["bodies"], titles=raw_expected["titles"]
+)
 tickets = data.get("tickets") if isinstance(data.get("tickets"), list) else []
 by_id = {
     item.get("id"): item for item in tickets
@@ -70,7 +75,8 @@ def validate_commit_reference(
 
 def validate_core_receipt(
     build_path: Path, materialized: bool,
-    expected_bodies: dict[str, dict[str, Any]] | None, report: Report,
+    expected_bodies: dict[str, dict[str, Any]] | None,
+    expected_titles: dict[str, str] | None, report: Report,
 ) -> None:
     if not materialized:
         return
@@ -91,13 +97,22 @@ def validate_core_receipt(
     if set(core_expected) != core_ids:
         report.error("pinned Build Order receipt requires approved body expectations")
         return
-    result = _run_pinned(root, build_path, core_expected, report)
+    core_titles = {
+        key: value for key, value in (expected_titles or {}).items()
+        if key in core_ids
+    }
+    if set(core_titles) != core_ids:
+        report.error("pinned Build Order receipt requires approved title expectations")
+        return
+    result = _run_pinned(
+        root, build_path, {"bodies": core_expected, "titles": core_titles}, report
+    )
     if result is not None:
         _apply_result(result, report)
 
 
 def _run_pinned(
-    root: Path, build_path: Path, expected: dict[str, dict[str, Any]], report: Report,
+    root: Path, build_path: Path, expected: dict[str, Any], report: Report,
 ) -> subprocess.CompletedProcess[str] | None:
     with tempfile.TemporaryDirectory() as name:
         base = Path(name)

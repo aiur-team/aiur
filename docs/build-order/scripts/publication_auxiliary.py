@@ -13,6 +13,7 @@ from publication_common import (
     nonempty_string,
     strict_object,
     string_list,
+    valid_trusted_branch_ref,
 )
 from publication_auxiliary_receipt import parse_edges, validate_auxiliary_receipt
 from publication_paths import resolved_document
@@ -20,6 +21,7 @@ from publication_paths import resolved_document
 
 TOP_KEYS = {
     "schema_version", "plan_version", "repository", "approved_planning_commit",
+    "trusted_repository_ref",
     "root_issue", "skill_issue", "external_blocker_relations",
     "read_only_issue_refs", "github_reconciliation",
 }
@@ -94,6 +96,11 @@ def _header(
         report.error("publication, Build Order, and companion plan versions must match")
     if data.get("repository") != repository:
         report.error("publication.repository must match dashboard companions")
+    if not valid_trusted_branch_ref(data.get("trusted_repository_ref")):
+        report.error(
+            "publication.trusted_repository_ref must be an exact refs/heads/... "
+            "repository-owned branch ref"
+        )
     approved = data.get("approved_planning_commit")
     if approved is not None and (not isinstance(approved, str) or not SHA.fullmatch(approved)):
         report.error("publication.approved_planning_commit must be null or a Git SHA")
@@ -122,7 +129,9 @@ def _issue(
     return issue
 
 
-def _document(base: Path, value: str, logical_id: object, label: str, report: Report) -> None:
+def _document(
+    base: Path, value: str, logical_id: object, label: str, report: Report,
+) -> None:
     path = resolved_document(base, value, f"{label}.document", report)
     if path is None:
         return
@@ -131,8 +140,11 @@ def _document(base: Path, value: str, logical_id: object, label: str, report: Re
     except (OSError, UnicodeError) as exc:
         report.error(f"{label}.document cannot be read: {exc}")
         return
-    if not text.startswith("# ") or str(logical_id) not in text:
-        report.error(f"{label}.document must contain its logical ID and a heading")
+    lines = text.splitlines()
+    if not lines or not lines[0].startswith("# ") or str(logical_id) not in text:
+        report.error(
+            f"{label}.document must contain its logical ID and a title heading"
+        )
 
 
 def _policy(

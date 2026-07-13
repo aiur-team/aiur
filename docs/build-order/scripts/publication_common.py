@@ -19,6 +19,10 @@ REPOSITORY = re.compile(r"^[^/\s]+/[^/\s]+$", re.ASCII)
 EXTERNAL_BLOCKER = re.compile(r"^[^/#\s]+/[^/#\s]+#[1-9][0-9]*$", re.ASCII)
 GATE_ID = re.compile(r"^GATE-[A-Z0-9]+(?:-[A-Z0-9]+)*$", re.ASCII)
 SHA = re.compile(r"^[0-9a-fA-F]{40}$", re.ASCII)
+TRUSTED_BRANCH_REF = re.compile(
+    r"^refs/heads/[A-Za-z0-9](?:[A-Za-z0-9._/-]*[A-Za-z0-9_-])?$",
+    re.ASCII,
+)
 AGENT_LABELS = {
     "agent:todo",
     "agent:in-progress",
@@ -54,6 +58,29 @@ class Report:
 
 def nonempty_string(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip())
+
+
+def valid_issue_title(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and value == value.strip()
+        and 0 < len(value) <= 256
+        and not any(character in value for character in ("\x00", "\r", "\n"))
+    )
+
+
+def valid_trusted_branch_ref(value: object) -> bool:
+    if not isinstance(value, str) or not TRUSTED_BRANCH_REF.fullmatch(value):
+        return False
+    branch = value.removeprefix("refs/heads/")
+    return not (
+        ".." in branch
+        or "@{" in branch
+        or "//" in branch
+        or branch.endswith((".", "/", ".lock"))
+        or branch.startswith("/")
+        or "\\" in branch
+    )
 
 
 def valid_rfc3339_utc(value: object) -> bool:
@@ -152,8 +179,11 @@ def validate_document(ticket: dict[str, Any], base: Path, report: Report) -> Non
     except (OSError, UnicodeError) as exc:
         report.error(f"{ticket_id}.document cannot be read: {exc}")
         return
-    if not text.startswith(f"# {ticket_id} "):
-        report.error(f"{ticket_id}.document heading must begin with '# {ticket_id}'")
+    expected_heading = f"# {ticket_id} — {ticket.get('title')}"
+    if not text.splitlines() or text.splitlines()[0] != expected_heading:
+        report.error(
+            f"{ticket_id}.document heading must equal {expected_heading!r}"
+        )
     complexity = ticket.get("complexity_points")
     if not re.search(rf"(?m)^\*\*Complexity:\*\*\s+{complexity}(?:\s|$)", text):
         report.error(f"{ticket_id}.document complexity must match JSON")

@@ -134,13 +134,22 @@ and one `build-lane:*`; the root receives only `build-order` from this label
 family. Materialize the twenty-five companions separately with complexity and
 `model:codex`, no Build Order parent/phase/lane, and their real native blockers.
 
-Every one of the 46 bodies links the real immutable approval commit and carries
-one schema-2 logical-ID marker. After publication, requery node IDs, bodies,
+Every one of the 46 titles comes from its approved document H1, and every body
+links the real immutable approval commit and carries one schema-2 logical-ID
+marker. After publication, requery node IDs, exact titles, bodies,
 membership, hard relationships, full labels, parenthood, and the uniquely
 marked pending reconciliation comment. Run both the isolated `/aiur-build`
 canonical validator and `scripts/validate_publication.py`. The canonical
 validator owns the BO membership/label/dependency receipt; the publication
 validator proves exact companion coverage, standalone root/skill/companion
-parenthood, observed labels, body markers/hashes, companion and external-skill
+parenthood, observed labels, expected-versus-observed exact titles, body
+markers/hashes, companion and external-skill
 blocker edges, approval identity, and structured pending-comment evidence. No
 newly published issue may have any `agent:*` state.
+
+The immutable receipt also freezes
+`trusted_repository_ref=refs/heads/build-order-research`. Final verification
+fetches the exact receipt-recorded comment directly from GitHub and requires
+approval plus receipt to remain ancestors of an unchanged tip of that branch.
+Branch deletion or a force-push that removes either commit revokes the start
+gate; no other ref is an implicit fallback.

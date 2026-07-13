@@ -3,6 +3,7 @@
   "plan_version": 1,
   "repository": "its-everdred/aiur",
   "approved_planning_commit": null,
+  "trusted_repository_ref": "refs/heads/build-order-research",
   "root_issue": {
     "logical_id": "its-everdred/aiur:build-order-dashboard",
     "document": "root-issue.md",

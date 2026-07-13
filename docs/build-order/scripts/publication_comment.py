@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Callable
@@ -108,18 +109,14 @@ def validate_pending_comment_matches(
 
 
 def validate_final_comment_matches(
-    value: object, root_id: str, plan_version: int, approved: str,
-    receipt_commit: str, receipt_url: str, root_issue_url: str,
+    root_id: str, plan_version: int, approved: str, receipt_commit: str,
+    receipt_url: str, root_issue_url: str,
     repository: str, report: Report, repository_anchor: Path | None = None,
-    remote_commit_exists: Callable[[str, str], bool] | None = None,
+    remote_ref_contains: Callable[[str, str, tuple[str, ...]], bool] | None = None,
+    live_comment_query: Callable[[str, str], object] | None = None,
 ) -> None:
-    """Verify exact live query results without mutating GitHub."""
+    """Verify the receipt-bound live comment without mutating GitHub."""
     label = "final reconciliation comment query"
-    if not isinstance(value, list):
-        report.error(f"{label} must be an array")
-        return
-    if len(value) != 1:
-        report.error(f"{label} must contain exactly one comment match")
     if not isinstance(approved, str) or not SHA.fullmatch(approved):
         report.error("approved planning commit must be a 40-character Git SHA")
     if type(plan_version) is not int or plan_version < 1:
@@ -137,10 +134,21 @@ def validate_final_comment_matches(
 
     authority = load_receipt_authority(
         receipt_commit, repository_anchor or Path(__file__), report,
-        remote_commit_exists,
+        remote_ref_contains,
     )
     if authority is None:
         return
+    try:
+        value = (live_comment_query or _github_live_comment)(
+            authority.repository, authority.root_comment_url
+        )
+    except Exception:
+        value = None
+    if not isinstance(value, list):
+        report.error(f"{label} must be a live GitHub result array")
+        return
+    if len(value) != 1:
+        report.error(f"{label} must contain exactly one comment match")
     authority_values = (
         ("root_id", root_id, authority.root_id),
         ("plan_version", plan_version, authority.plan_version),
@@ -166,9 +174,12 @@ def validate_final_comment_matches(
         url, body = item.get("url"), item.get("body")
         if (
             not isinstance(url, str)
-            or not _comment_url(authority.root_issue_url).fullmatch(url)
+            or url != authority.root_comment_url
         ):
-            report.error("final reconciliation comment URL must point to the mapped root issue")
+            report.error(
+                "final reconciliation comment URL must equal the exact pending "
+                "comment URL recorded in the immutable receipt"
+            )
         if body != expected_body:
             report.error(
                 "final reconciliation comment body must equal the canonical successful receipt"
@@ -263,23 +274,59 @@ def _comment_url(root_url: str) -> re.Pattern[str]:
     return re.compile(re.escape(root_url) + r"#issuecomment-[1-9][0-9]*$")
 
 
+def _github_live_comment(repository: str, expected_url: str) -> object | None:
+    match = re.fullmatch(
+        rf"https://github\.com/{re.escape(repository)}/issues/[1-9][0-9]*"
+        r"#issuecomment-([1-9][0-9]*)",
+        expected_url,
+    )
+    if match is None:
+        return None
+    try:
+        result = subprocess.run(
+            [
+                "gh", "api",
+                "-H", "Accept: application/vnd.github+json",
+                "-H", "X-GitHub-Api-Version: 2026-03-10",
+                f"repos/{repository}/issues/comments/{match.group(1)}",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return None
+    if result.returncode:
+        return None
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+    if (
+        not isinstance(payload, dict)
+        or payload.get("html_url") != expected_url
+        or not isinstance(payload.get("body"), str)
+    ):
+        return None
+    return [{"url": payload["html_url"], "body": payload["body"]}]
+
+
 def main(argv: list[str]) -> int:
-    if len(argv) != 9:
+    if len(argv) != 8:
         print(
-            "usage: publication_comment.py query.json ROOT_ID PLAN_VERSION "
+            "usage: publication_comment.py ROOT_ID PLAN_VERSION "
             "APPROVED_SHA RECEIPT_SHA RECEIPT_URL ROOT_ISSUE_URL REPOSITORY",
             file=sys.stderr,
         )
         return 64
     try:
-        value = json.loads(Path(argv[1]).read_text(encoding="utf-8"))
-        plan_version = int(argv[3])
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
-        print(f"ERROR: cannot read final comment query: {exc}")
+        plan_version = int(argv[2])
+    except ValueError as exc:
+        print(f"ERROR: invalid plan version: {exc}")
         return 1
     report = Report()
     validate_final_comment_matches(
-        value, argv[2], plan_version, argv[4], argv[5], argv[6], argv[7], argv[8],
+        argv[1], plan_version, argv[3], argv[4], argv[5], argv[6], argv[7],
         report,
     )
     for message in sorted(report.errors):

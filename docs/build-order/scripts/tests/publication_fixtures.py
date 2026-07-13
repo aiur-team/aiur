@@ -20,6 +20,7 @@ def build_order() -> dict[str, object]:
     tickets = [
         {
             "id": f"BO-{number:03d}",
+            "title": f"Build Order ticket {number}",
             "document": f"tickets/BO-{number:03d}.md",
             "depends_on": ["BO-001"] if number == 2 else [],
             "workstream": "backend",
@@ -143,6 +144,7 @@ def publication() -> dict[str, object]:
         "plan_version": 1,
         "repository": REPOSITORY,
         "approved_planning_commit": None,
+        "trusted_repository_ref": "refs/heads/build-order-research",
         "root_issue": {
             "logical_id": "example/repo:build-order-dashboard",
             "document": "root-issue.md",

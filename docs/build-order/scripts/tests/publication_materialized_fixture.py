@@ -74,6 +74,20 @@ def materialized_pack() -> tuple[dict, dict, dict]:
             "github_root": ["build-order"], **copy.deepcopy(bo_labels),
         },
         "observed_body_evidence": body_evidence([ROOT_ID, *bo_ids]),
+        "expected_issue_titles": {
+            ROOT_ID: "Test root",
+            **{
+                ticket["id"]: f"{ticket['id']} — {ticket['title']}"
+                for ticket in build["tickets"]
+            },
+        },
+        "observed_issue_titles": {
+            ROOT_ID: "Test root",
+            **{
+                ticket["id"]: f"{ticket['id']} — {ticket['title']}"
+                for ticket in build["tickets"]
+            },
+        },
         "marker_query_matches": core_mappings,
     }
     dash_ids = [ticket["id"] for ticket in data["tickets"]]
@@ -90,6 +104,14 @@ def materialized_pack() -> tuple[dict, dict, dict]:
         },
         "observed_parent_issues": {ticket["id"]: None for ticket in data["tickets"]},
         "observed_body_evidence": body_evidence(dash_ids),
+        "expected_issue_titles": {
+            ticket["id"]: f"{ticket['id']} — {ticket['title']}"
+            for ticket in data["tickets"]
+        },
+        "observed_issue_titles": {
+            ticket["id"]: f"{ticket['id']} — {ticket['title']}"
+            for ticket in data["tickets"]
+        },
         "marker_query_matches": {
             ticket["id"]: [copy.deepcopy(ticket["github"])]
             for ticket in data["tickets"]
@@ -106,6 +128,12 @@ def materialized_pack() -> tuple[dict, dict, dict]:
         "observed_labels": {ROOT_ID: ["build-order"], SKILL_ID: ["human:todo"]},
         "observed_parent_issues": {ROOT_ID: None, SKILL_ID: None},
         "observed_body_evidence": body_evidence([SKILL_ID]),
+        "expected_issue_titles": {
+            SKILL_ID: "Test skill",
+        },
+        "observed_issue_titles": {
+            SKILL_ID: "Test skill",
+        },
         "marker_query_matches": {SKILL_ID: [github(4, "SKILL_NODE")]},
         "root_reconciliation_comment_matches": [{
             "marker_count": 1,

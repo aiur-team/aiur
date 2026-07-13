@@ -18,6 +18,7 @@ from publication_common import (
     strict_int,
     strict_object,
     string_list,
+    valid_issue_title,
     validate_document,
 )
 from publication_conflicts import validate_surface_conflicts
@@ -55,6 +56,8 @@ def build_tickets(
             report.error(f"duplicate logical ID {ticket_id}")
         else:
             found[ticket_id] = ticket
+        if not valid_issue_title(ticket.get("title")):
+            report.error(f"{ticket_id}.title must be a trimmed single-line GitHub issue title")
         string_list(ticket.get("depends_on"), f"{ticket_id}.depends_on", report)
     return found
 
@@ -114,8 +117,8 @@ def dash_tickets(
 def _ticket_fields(
     ticket_id: str, ticket: dict[str, Any], base: Path, gates: set[str], report: Report
 ) -> None:
-    if not nonempty_string(ticket.get("title")):
-        report.error(f"{ticket_id}.title must be a non-empty string")
+    if not valid_issue_title(ticket.get("title")):
+        report.error(f"{ticket_id}.title must be a trimmed single-line GitHub issue title")
     requirement = ticket.get("requirement_ref")
     if not isinstance(requirement, str) or not REQ_ID.fullmatch(requirement):
         report.error(f"{ticket_id}.requirement_ref must look like DREQ-001")

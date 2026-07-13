@@ -41,6 +41,15 @@ set of each logical-marker query and require exactly one returned issue mapping
 per logical ID. The approval SHA must resolve to a real commit in this
 repository before the first issue mutation.
 
+GitHub issue titles are equally authoritative publication content. Derive each
+expected title from the exact H1 of its approved document (without the `# `),
+including the logical-ID prefix and em dash on BO/DASH documents. Record both
+the frozen expected-title map and the freshly queried observed-title map in the
+owning receipt: root plus BO in the core receipt, DASH in the companion
+receipt, and skill delivery in the auxiliary receipt. Both maps must cover all
+46 issues exactly and every observed title must equal its approved H1; a
+body-correct issue with a renamed or truncated title fails reconciliation.
+
 Expected bodies are not receipt-authored hashes. Load the three manifests and
 every referenced document with `git show <APPROVED_SHA>:<path>`. Render BO and
 DASH bodies as the exact preamble below plus the approved ticket document
@@ -55,29 +64,37 @@ Once the root exists, create one uniquely marked
 `pending`. Requery the marker search and require exactly one comment match;
 record its URL, parsed pending marker, and canonical body SHA-256. After all
 relationships requery successfully, commit and push that receipt, then edit the
-same comment to the canonical `successful` body with the exact immutable
-receipt commit and link. Requery the final live comment and run the read-only
-`scripts/publication_comment.py` verifier; the final comment edit is the last
-publication mutation. The verifier treats its CLI identity arguments as
+same comment URL to the canonical `successful` body with the exact immutable
+receipt commit and link. Run the read-only `scripts/publication_comment.py`
+verifier; the final comment edit is the last publication mutation. The verifier
+does not trust a caller-authored query file: it derives the exact pending
+comment URL from the immutable receipt and fetches that comment ID directly
+from GitHub. It treats its CLI identity arguments as
 assertions, not authority: it derives repository, root identity and URL, plan
 version, and approval from the exact receipt commit, requires all three
 materialized reconciliation receipts, and runs the trusted current validator
 against raw regular blobs from that commit before accepting the comment. Every
 authority-bearing Git read disables replace/graft object substitution. The
-repository is anchored to the configured GitHub `origin`, and both approval and
-receipt commits must exist remotely there; imported foreign object history and
-the mere existence of a local commit cannot authorize execution. This two-commit
+repository is anchored to the configured GitHub `origin`. The approved pack
+freezes `trusted_repository_ref` as
+`refs/heads/build-order-research`. GitHub must return that exact branch ref and
+an unchanged commit tip around the compare reads; both approval and receipt
+must be ancestors of that tip, and the receipt must descend from approval in
+the no-substitution local graph. Imported foreign object history and the mere
+existence of a local or API-visible commit cannot authorize execution. Branch
+fast-forwards are valid. Deleting the branch or force-pushing either authority
+commit out of its history revokes the start gate and fails closed, even when a
+commit URL or `refs/pull/*` still resolves; never fall back silently to `main`.
+This two-commit
 authority preserves reviewed scope while giving the immutable handoff a live
 route to the eventual receipt. A conflicting marker, parent, receipt comment,
 or existing identity stops publication for reconciliation; never use a
 replacement-parent mutation as a shortcut.
 
-Save the final read-only marker-query response as a JSON array of exact
-`{"url": ..., "body": ...}` comment objects, then verify the one live match:
+Verify the receipt-bound live comment directly:
 
 ```bash
 python3 docs/build-order/scripts/publication_comment.py \
-  final-comment-query.json \
   its-everdred/aiur:build-order-dashboard 1 \
   <APPROVED_SHA> <RECEIPT_SHA> <RECEIPT_URL> \
   https://github.com/its-everdred/aiur/issues/<ROOT_NUMBER> \
@@ -163,7 +180,8 @@ may acquire any other `human:*` label.
 - Root/skill/companion standalone-parenthood requery: pending
 - Skill-delivery issue: pending
 - Root reconciliation comment unique query match/final state: pending
-- Approval commit existence and 46 independently rendered body markers/links/hashes: pending
+- Approval/receipt trusted-branch reachability: pending
+- 46 independently rendered body markers/links/hashes and exact title pairs: pending
 - Canonical validator: pending
 - Companion/publication validator: pending
 

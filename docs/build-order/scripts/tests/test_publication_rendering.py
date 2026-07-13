@@ -7,6 +7,7 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
@@ -14,11 +15,15 @@ sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from publication_comment import (  # noqa: E402
+    _github_live_comment,
     render_pending_comment,
     render_successful_comment,
     validate_final_comment_matches,
 )
-from publication_common import Report  # noqa: E402
+from publication_common import Report, valid_trusted_branch_ref  # noqa: E402
+from publication_receipt_authority import (  # noqa: E402
+    _github_repository_ref_contains,
+)
 from publication_fixtures import Fixture  # noqa: E402
 from publication_materialized_fixture import materialized_pack  # noqa: E402
 from publication_rendering import (  # noqa: E402
@@ -26,6 +31,7 @@ from publication_rendering import (  # noqa: E402
     authority_preamble,
     inspect_issue_body,
     render_approved_pack,
+    render_approved_titles,
 )
 from validate_publication import validate  # noqa: E402
 
@@ -33,6 +39,21 @@ from validate_publication import validate  # noqa: E402
 REPOSITORY = "example/repo"
 ROOT_ID = "example/repo:build-order-dashboard"
 APPROVED = "a" * 40
+
+
+def ref_payload(ref: str, target: str) -> dict[str, object]:
+    return {"ref": ref, "object": {"type": "commit", "sha": target}}
+
+
+def compare_payload(base: str, head: str, *, valid: bool = True) -> dict[str, object]:
+    identical = base == head
+    return {
+        "base_commit": {"sha": base},
+        "merge_base_commit": {"sha": base if valid else "0" * 40},
+        "status": "identical" if identical else "ahead",
+        "ahead_by": 0 if identical else 1,
+        "behind_by": 0,
+    }
 
 
 def replace_repository(value, old: str, new: str):
@@ -89,6 +110,30 @@ class IssueRenderingTests(unittest.TestCase):
         self.assertIsNone(expected)
         self.assertIn("absent from approved commit", "\n".join(report.errors))
 
+    def test_titles_are_derived_from_exact_approved_document_h1s(self) -> None:
+        fixture = Fixture(*materialized_pack())
+        self.addCleanup(fixture.close)
+        build = json.loads(fixture.build_path.read_text(encoding="utf-8"))
+        companions = json.loads(
+            fixture.companion_path.read_text(encoding="utf-8")
+        )
+        publication = json.loads(
+            fixture.publication_path.read_text(encoding="utf-8")
+        )
+        report = Report()
+        titles = render_approved_titles(
+            build, companions, publication, fixture.build_path,
+            fixture.companion_path, fixture.publication_path,
+            companions["approved_planning_commit"], report,
+        )
+        self.assertEqual([], report.errors)
+        assert titles is not None
+        self.assertEqual("Test root", titles[ROOT_ID])
+        self.assertEqual("BO-001 — Build Order ticket 1", titles["BO-001"])
+        self.assertEqual("DASH-001 — First companion", titles["DASH-001"])
+        self.assertEqual("Test skill", titles["SKILL-DELIVERY-001"])
+        self.assertEqual(46, len(titles))
+
     def test_post_approval_planning_drift_fails_closed(self) -> None:
         fixture = Fixture(*materialized_pack())
         self.addCleanup(fixture.close)
@@ -106,6 +151,24 @@ class IssueRenderingTests(unittest.TestCase):
         self.assertIn(
             "planning fields must equal the approved commit",
             "\n".join(report.errors),
+        )
+
+    def test_post_approval_trusted_ref_drift_fails_closed(self) -> None:
+        fixture = Fixture(*materialized_pack())
+        self.addCleanup(fixture.close)
+        publication = json.loads(
+            fixture.publication_path.read_text(encoding="utf-8")
+        )
+        publication["trusted_repository_ref"] = "refs/heads/other"
+        fixture.publication_path.write_text(
+            json.dumps(publication), encoding="utf-8"
+        )
+        report = validate(
+            fixture.companion_path, fixture.build_path, fixture.publication_path
+        )
+        self.assertIn(
+            "materialized publication planning fields must equal the approved commit",
+            report.errors,
         )
 
     def test_post_approval_ticket_document_drift_fails_closed(self) -> None:
@@ -195,9 +258,95 @@ class IssueRenderingTests(unittest.TestCase):
         ))
 
 
+class TrustedRepositoryRefTests(unittest.TestCase):
+    def test_only_exact_repository_branch_refs_are_accepted(self) -> None:
+        self.assertTrue(valid_trusted_branch_ref("refs/heads/build-order-research"))
+        for value in (
+            "build-order-research", "refs/pull/1/head", "refs/tags/receipt",
+            "refs/remotes/origin/main", "refs/heads/../main",
+            "refs/heads/a..b", "refs/heads/a.lock", "refs/heads/a@{1}",
+        ):
+            with self.subTest(value=value):
+                self.assertFalse(valid_trusted_branch_ref(value))
+
+    @patch("publication_receipt_authority._github_json")
+    def test_tip_and_ancestor_are_bound_to_one_unchanged_ref(self, query) -> None:
+        trusted_ref = "refs/heads/build-order-research"
+        approved, receipt = "a" * 40, "b" * 40
+        query.side_effect = [
+            ref_payload(trusted_ref, receipt),
+            compare_payload(receipt, receipt),
+            compare_payload(approved, receipt),
+            ref_payload(trusted_ref, receipt),
+        ]
+        self.assertTrue(_github_repository_ref_contains(
+            REPOSITORY, trusted_ref, (receipt, approved)
+        ))
+
+    @patch("publication_receipt_authority._github_json")
+    def test_diverged_commit_is_rejected_even_when_object_visible(self, query) -> None:
+        trusted_ref = "refs/heads/trunk"
+        target, foreign = "c" * 40, "d" * 40
+        query.side_effect = [
+            ref_payload(trusted_ref, target),
+            compare_payload(foreign, target, valid=False),
+            ref_payload(trusted_ref, target),
+        ]
+        self.assertFalse(_github_repository_ref_contains(
+            REPOSITORY, trusted_ref, (foreign,)
+        ))
+
+    @patch("publication_receipt_authority._github_json")
+    def test_ref_change_or_deletion_during_query_fails_closed(self, query) -> None:
+        trusted_ref = "refs/heads/build-order-research"
+        target = "e" * 40
+        for final in (ref_payload(trusted_ref, "f" * 40), None):
+            with self.subTest(final=final):
+                query.reset_mock(side_effect=True)
+                query.side_effect = [
+                    ref_payload(trusted_ref, target),
+                    compare_payload(target, target),
+                    final,
+                ]
+                self.assertFalse(_github_repository_ref_contains(
+                    REPOSITORY, trusted_ref, (target,)
+                ))
+
+
+class LiveCommentQueryTests(unittest.TestCase):
+    @patch("publication_comment.subprocess.run")
+    def test_fetches_exact_receipt_comment_id(self, run) -> None:
+        url = "https://github.com/example/repo/issues/901#issuecomment-987"
+        run.return_value = subprocess.CompletedProcess(
+            [], 0, json.dumps({"html_url": url, "body": "receipt"}), "",
+        )
+        self.assertEqual(
+            [{"url": url, "body": "receipt"}],
+            _github_live_comment(REPOSITORY, url),
+        )
+        self.assertEqual(
+            "repos/example/repo/issues/comments/987", run.call_args.args[0][-1]
+        )
+
+    @patch("publication_comment.subprocess.run")
+    def test_rejects_mismatched_response_url(self, run) -> None:
+        url = "https://github.com/example/repo/issues/901#issuecomment-987"
+        run.return_value = subprocess.CompletedProcess(
+            [], 0,
+            json.dumps({
+                "html_url": "https://github.com/example/repo/issues/901#issuecomment-999",
+                "body": "receipt",
+            }),
+            "",
+        )
+        self.assertIsNone(_github_live_comment(REPOSITORY, url))
+
+
 class FinalCommentTests(unittest.TestCase):
     @staticmethod
-    def remote_commit_exists(_repository: str, _commit: str) -> bool:
+    def remote_ref_contains(
+        _repository: str, _trusted_ref: str, _commits: tuple[str, ...],
+    ) -> bool:
         return True
 
     @classmethod
@@ -218,6 +367,12 @@ class FinalCommentTests(unittest.TestCase):
         cls.plan_version = materialized_companions["plan_version"]
         cls.approved = materialized_companions["approved_planning_commit"]
         cls.root_url = materialized_build["github_root"]["url"]
+        materialized_publication = json.loads(
+            cls.fixture.publication_path.read_text(encoding="utf-8")
+        )
+        cls.root_comment_url = materialized_publication["github_reconciliation"][
+            "root_reconciliation_comment_matches"
+        ][0]["url"]
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -227,7 +382,7 @@ class FinalCommentTests(unittest.TestCase):
         receipt_url = (
             f"https://github.com/{self.repository}/commit/{self.receipt}"
         )
-        comment_url = self.root_url + "#issuecomment-123"
+        comment_url = self.root_comment_url
         body = render_successful_comment(
             self.root_id, self.plan_version, self.approved, self.repository,
             self.receipt, receipt_url,
@@ -237,12 +392,14 @@ class FinalCommentTests(unittest.TestCase):
     def report(
         self, matches, receipt=None, receipt_url=None, root_id=None,
         plan_version=None, approved=None, root_url=None, repository=None,
-        repository_anchor=None, remote_commit_exists=None,
+        repository_anchor=None, remote_ref_contains=None, live_comment_query=None,
     ):
         baseline_receipt, baseline_url, _, _, _ = self.values()
         report = Report()
+        query = live_comment_query or (
+            lambda _repository, _comment_url: matches
+        )
         validate_final_comment_matches(
-            matches,
             self.root_id if root_id is None else root_id,
             self.plan_version if plan_version is None else plan_version,
             self.approved if approved is None else approved,
@@ -252,15 +409,40 @@ class FinalCommentTests(unittest.TestCase):
             self.repository if repository is None else repository,
             report,
             repository_anchor=repository_anchor or self.fixture.build_path,
-            remote_commit_exists=(
-                remote_commit_exists or self.remote_commit_exists
+            remote_ref_contains=(
+                remote_ref_contains or self.remote_ref_contains
             ),
+            live_comment_query=query,
         )
         return report
 
     def test_exact_successful_comment_is_clean(self) -> None:
         _, _, _, url, body = self.values()
         self.assertEqual([], self.report([{"url": url, "body": body}]).errors)
+
+    def test_production_query_uses_exact_receipt_comment_url(self) -> None:
+        _, _, _, url, body = self.values()
+        calls: list[tuple[str, str]] = []
+
+        def live_comment_query(repository: str, comment_url: str) -> object:
+            calls.append((repository, comment_url))
+            return [{"url": comment_url, "body": body}]
+
+        report = self.report(
+            None, live_comment_query=live_comment_query,
+        )
+        self.assertEqual([], report.errors)
+        self.assertEqual([(self.repository, url)], calls)
+
+    def test_other_comment_on_same_root_cannot_replace_pending_comment(self) -> None:
+        _, _, _, url, body = self.values()
+        wrong_url = url.rsplit("-", 1)[0] + "-999"
+        self.assertIn(
+            "must equal the exact pending comment URL recorded in the immutable receipt",
+            "\n".join(
+                self.report([{"url": wrong_url, "body": body}]).errors
+            ),
+        )
 
     def test_duplicate_comment_matches_fail(self) -> None:
         _, _, _, url, body = self.values()
@@ -383,11 +565,13 @@ class FinalCommentTests(unittest.TestCase):
         )
         report = Report()
         validate_final_comment_matches(
-            [{"url": root_url + "#issuecomment-123", "body": body}],
             materialized_build["build_order_id"], data["plan_version"], missing,
             receipt, receipt_url, root_url, repository, report,
             repository_anchor=fixture.build_path,
-            remote_commit_exists=self.remote_commit_exists,
+            remote_ref_contains=self.remote_ref_contains,
+            live_comment_query=lambda _repository, _url: [
+                {"url": root_url + "#issuecomment-123", "body": body}
+            ],
         )
         self.assertTrue(any(
             "approved_planning_commit must resolve to an exact commit" in error
@@ -429,11 +613,13 @@ class FinalCommentTests(unittest.TestCase):
         )
         report = Report()
         validate_final_comment_matches(
-            [{"url": root_url + "#issuecomment-123", "body": body}],
             root_id, plan_version, approved, receipt, receipt_url,
             root_url, repository, report,
             repository_anchor=fixture.build_path,
-            remote_commit_exists=self.remote_commit_exists,
+            remote_ref_contains=self.remote_ref_contains,
+            live_comment_query=lambda _repository, _url: [
+                {"url": root_url + "#issuecomment-123", "body": body}
+            ],
         )
         self.assertIn(
             "validated receipt repository must equal configured GitHub origin "
@@ -441,28 +627,34 @@ class FinalCommentTests(unittest.TestCase):
             report.errors,
         )
 
-    def test_receipt_and_approval_must_exist_in_origin(self) -> None:
+    def test_receipt_and_approval_must_remain_on_trusted_branch(self) -> None:
         _, _, _, comment_url, body = self.values()
-        checked: list[tuple[str, str]] = []
+        checked: list[tuple[str, str, tuple[str, ...]]] = []
 
-        def remote_commit_exists(repository: str, commit: str) -> bool:
-            checked.append((repository, commit))
-            return commit != self.approved
+        def remote_ref_contains(
+            repository: str, trusted_ref: str, commits: tuple[str, ...],
+        ) -> bool:
+            checked.append((repository, trusted_ref, commits))
+            return False
 
         report = self.report(
             [{"url": comment_url, "body": body}],
-            remote_commit_exists=remote_commit_exists,
+            remote_ref_contains=remote_ref_contains,
         )
         self.assertEqual(
             [
-                (self.repository, self.receipt),
-                (self.repository, self.approved),
+                (
+                    self.repository,
+                    "refs/heads/build-order-research",
+                    (self.receipt, self.approved),
+                ),
             ],
             checked,
         )
         self.assertIn(
-            "approved_planning_commit must exist in configured GitHub repository "
-            f"{self.repository}",
+            "receipt_commit and approved_planning_commit must remain ancestors "
+            "of configured GitHub repository branch "
+            f"{self.repository}:refs/heads/build-order-research",
             report.errors,
         )
 
@@ -501,11 +693,13 @@ class FinalCommentTests(unittest.TestCase):
         )
         report = Report()
         validate_final_comment_matches(
-            [{"url": root_url + "#issuecomment-123", "body": body}],
             root_id, plan_version, unmaterialized, unmaterialized,
             receipt_url, root_url, repository, report,
             repository_anchor=fixture.build_path,
-            remote_commit_exists=self.remote_commit_exists,
+            remote_ref_contains=self.remote_ref_contains,
+            live_comment_query=lambda _repository, _url: [
+                {"url": root_url + "#issuecomment-123", "body": body}
+            ],
         )
         self.assertIn(
             "receipt commit build-order.json github_reconciliation must be materialized",
@@ -531,6 +725,36 @@ class FinalCommentTests(unittest.TestCase):
                 f"receipt commit {name} github_reconciliation must be materialized",
                 report.errors,
             )
+
+    def test_receipt_commit_must_descend_from_approval(self) -> None:
+        tree = subprocess.run(
+            [
+                "git", "-C", str(self.fixture.base), "rev-parse",
+                f"{self.receipt}^{{tree}}",
+            ],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        orphan = subprocess.run(
+            [
+                "git", "-C", str(self.fixture.base), "commit-tree", tree,
+                "-m", "orphan receipt",
+            ],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        receipt_url = f"https://github.com/{self.repository}/commit/{orphan}"
+        body = render_successful_comment(
+            self.root_id, self.plan_version, self.approved, self.repository,
+            orphan, receipt_url,
+        )
+        report = self.report(
+            [{"url": self.root_comment_url, "body": body}],
+            receipt=orphan, receipt_url=receipt_url,
+        )
+        self.assertIn(
+            "receipt_commit must descend from approved_planning_commit in the "
+            "no-substitution repository graph",
+            report.errors,
+        )
 
 
 if __name__ == "__main__":

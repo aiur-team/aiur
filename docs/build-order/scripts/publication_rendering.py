@@ -11,7 +11,7 @@ from copy import deepcopy
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from publication_common import SHA, Report, strict_object
+from publication_common import SHA, Report, strict_object, valid_issue_title
 
 
 MARKER_NAME = "aiur-planning-issue"
@@ -219,6 +219,150 @@ def render_approved_pack(
         report.error("approved body rendering must exactly cover root, BO, DASH, and skill issues")
         return None
     return expectations
+
+
+def render_approved_titles(
+    build: dict[str, Any], companions: dict[str, Any], publication: dict[str, Any],
+    build_path: Path, companion_path: Path, publication_path: Path,
+    approved: object, report: Report,
+) -> dict[str, str] | None:
+    """Derive every exact issue title from the immutable approval commit."""
+    root = repository_root(build_path, report)
+    if root is None or not exact_commit(
+        root, approved, "approved_planning_commit", report
+    ):
+        return None
+    if not isinstance(approved, str):
+        return None
+    relative_paths = [
+        repository_relative(path, root, report)
+        for path in (build_path, companion_path, publication_path)
+    ]
+    if any(path is None for path in relative_paths):
+        return None
+    approved_build = _approved_json(
+        root, approved, relative_paths[0], "build-order", report
+    )
+    approved_companions = _approved_json(
+        root, approved, relative_paths[1], "dashboard-companions", report
+    )
+    approved_publication = _approved_json(
+        root, approved, relative_paths[2], "publication", report
+    )
+    if any(value is None for value in (
+        approved_build, approved_companions, approved_publication,
+    )):
+        return None
+    assert approved_build is not None
+    assert approved_companions is not None
+    assert approved_publication is not None
+    for label, approved_pack, current_pack, family in (
+        ("build-order", approved_build, build, "build"),
+        ("companion", approved_companions, companions, "companion"),
+        ("publication", approved_publication, publication, "publication"),
+    ):
+        if _frozen_planning_fields(
+            approved_pack, family
+        ) != _frozen_planning_fields(current_pack, family):
+            report.error(
+                f"materialized {label} planning fields must equal the approved commit"
+            )
+            return None
+
+    titles: dict[str, str] = {}
+    _approved_ticket_titles(
+        titles, root, approved, PurePosixPath(relative_paths[0]).parent,
+        approved_build, "BO", report,
+    )
+    _approved_ticket_titles(
+        titles, root, approved, PurePosixPath(relative_paths[1]).parent,
+        approved_companions, "DASH", report,
+    )
+    for key in ("root_issue", "skill_issue"):
+        issue = approved_publication.get(key)
+        label = f"approved publication {key}"
+        if not isinstance(issue, dict):
+            report.error(f"{label} must be an object")
+            continue
+        _approved_document_title(
+            titles, root, approved, PurePosixPath(relative_paths[2]).parent,
+            issue.get("logical_id"), issue.get("document"), None, label, report,
+        )
+
+    current_ids = {
+        *(_tickets(build)), *(_tickets(companions)), build.get("build_order_id"),
+    }
+    skill = publication.get("skill_issue")
+    if isinstance(skill, dict):
+        current_ids.add(skill.get("logical_id"))
+    if None in current_ids or set(titles) != current_ids:
+        report.error(
+            "approved title rendering must exactly cover root, BO, DASH, and skill issues"
+        )
+        return None
+    return titles
+
+
+def _approved_ticket_titles(
+    output: dict[str, str], root: Path, approved: str, pack_dir: PurePosixPath,
+    data: dict[str, Any], family: str, report: Report,
+) -> None:
+    tickets = data.get("tickets")
+    if not isinstance(tickets, list):
+        report.error(f"approved {family} tickets must be an array")
+        return
+    for index, ticket in enumerate(tickets):
+        label = f"approved {family} tickets[{index}]"
+        if not isinstance(ticket, dict):
+            report.error(f"{label} must be an object")
+            continue
+        logical_id = ticket.get("id")
+        manifest_title = ticket.get("title")
+        expected = (
+            f"{logical_id} — {manifest_title}"
+            if isinstance(logical_id, str) and valid_issue_title(manifest_title)
+            else None
+        )
+        _approved_document_title(
+            output, root, approved, pack_dir, logical_id,
+            ticket.get("document"), expected, label, report,
+        )
+
+
+def _approved_document_title(
+    output: dict[str, str], root: Path, approved: str, pack_dir: PurePosixPath,
+    logical_id: object, document: object, expected: str | None, label: str,
+    report: Report,
+) -> None:
+    if not isinstance(logical_id, str) or not logical_id:
+        report.error(f"{label} logical ID must be a non-empty string")
+        return
+    if logical_id in output:
+        report.error(f"approved title rendering duplicates logical ID {logical_id}")
+        return
+    safe_document = _safe_path(document, f"{label}.document", report)
+    if safe_document is None:
+        return
+    source = _git_show(
+        root, approved, str(pack_dir / PurePosixPath(safe_document)),
+        f"{label} document", report,
+    )
+    if source is None:
+        return
+    lines = source.splitlines()
+    title = lines[0].removeprefix("# ") if lines and lines[0].startswith("# ") else None
+    if not valid_issue_title(title):
+        report.error(
+            f"{label} approved document H1 must be a valid GitHub issue title"
+        )
+        return
+    if expected is not None and title != expected:
+        report.error(
+            f"{label} approved document H1 must equal '# {expected}'"
+        )
+        return
+    assert isinstance(title, str)
+    output[logical_id] = title
 
 
 def repository_root(path: Path, report: Report) -> Path | None:

@@ -55,7 +55,9 @@ class FixtureBase:
                 continue
             path = self.pack / document
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(f"# {ticket['id']} — Test\n", encoding="utf-8")
+            path.write_text(
+                f"# {ticket['id']} — {ticket.get('title')}\n", encoding="utf-8"
+            )
         for ticket in companion.get("tickets", []):
             if not isinstance(ticket, dict) or not isinstance(ticket.get("id"), str):
                 continue
@@ -71,7 +73,8 @@ class FixtureBase:
             issue = publication_data.get(key)
             if not isinstance(issue, dict):
                 continue
-            logical_id, document = issue.get("logical_id"), issue.get("document")
+            logical_id = issue.get("logical_id")
+            document = issue.get("document")
             if not isinstance(logical_id, str) or not isinstance(document, str):
                 continue
             path = self.pack / document
@@ -233,7 +236,7 @@ def _ticket_text(ticket: dict[str, object]) -> str:
     gates = ticket.get("external_gate_ids", [])
     gate_text = f"**External gates:** {', '.join(gates)}\n\n" if gates else ""
     return (
-        f"# {ticket['id']} — Test\n\n"
+        f"# {ticket['id']} — {ticket.get('title')}\n\n"
         "**Kind:** executable\n\n"
         f"**Complexity:** {ticket.get('complexity_points')} — Test\n\n"
         f"**Depends on:** {dependency_text}\n\n"

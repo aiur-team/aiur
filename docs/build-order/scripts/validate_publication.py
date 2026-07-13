@@ -22,6 +22,8 @@ from publication_body_evidence import validate_all_body_evidence
 from publication_core_receipt import validate_commit_reference, validate_core_receipt
 from publication_receipt import validate_receipt
 from publication_rendering import render_approved_pack
+from publication_rendering import render_approved_titles
+from publication_title_evidence import validate_all_title_evidence
 from publication_records import (
     build_tickets,
     dash_tickets,
@@ -79,15 +81,25 @@ def validate(
         materialized, report,
     )
     expected_bodies = None
+    expected_titles = None
     if materialized:
         expected_bodies = render_approved_pack(
             build_order, data, publication, build_path, companion_path,
             publication_path, data.get("approved_planning_commit"), report,
         )
-    validate_core_receipt(build_path, materialized, expected_bodies, report)
+        expected_titles = render_approved_titles(
+            build_order, data, publication, build_path, companion_path,
+            publication_path, data.get("approved_planning_commit"), report,
+        )
+    validate_core_receipt(
+        build_path, materialized, expected_bodies, expected_titles, report
+    )
     validate_all_body_evidence(
         build_order, data, publication, mappings, expected_bodies,
         materialized, report,
+    )
+    validate_all_title_evidence(
+        build_order, data, publication, expected_titles, materialized, report,
     )
     return report
 

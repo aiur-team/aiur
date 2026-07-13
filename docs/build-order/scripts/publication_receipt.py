@@ -20,6 +20,7 @@ from publication_labels import validate_routing_labels
 RECEIPT_KEYS = {
     "checked_at", "dependency_edges", "observed_labels", "observed_parent_issues",
     "observed_body_evidence",
+    "expected_issue_titles", "observed_issue_titles",
     "marker_query_matches",
 }
 EDGE_KEYS = {"ticket_id", "depends_on"}

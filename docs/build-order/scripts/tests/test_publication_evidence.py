@@ -55,6 +55,37 @@ class PublicationEvidenceTests(unittest.TestCase):
         joined = "\n".join(self.report(mutate).errors)
         self.assertIn("publication receipt.observed_body_evidence keys must match its owned issues", joined)
 
+    def test_title_evidence_partitions_are_exact(self) -> None:
+        def mutate(_data, _build, manifest):
+            titles = manifest["github_reconciliation"]["observed_issue_titles"]
+            titles[ROOT_ID] = "Wrong partition"
+
+        joined = "\n".join(self.report(mutate).errors)
+        self.assertIn(
+            "publication receipt.observed_issue_titles keys must match its owned issues",
+            joined,
+        )
+
+    def test_expected_and_observed_titles_match_approved_h1_exactly(self) -> None:
+        mutations = (
+            (
+                "expected_issue_titles",
+                "must match the independently rendered approved title",
+            ),
+            (
+                "observed_issue_titles",
+                "must exactly match the independently rendered approved title",
+            ),
+        )
+        for field, expected in mutations:
+            with self.subTest(field=field):
+                def mutate(data, _build, _manifest, field=field):
+                    data["github_reconciliation"][field]["DASH-001"] = (
+                        "First companion"
+                    )
+
+                self.assertIn(expected, "\n".join(self.report(mutate).errors))
+
     def test_body_markers_and_hashes_are_bound(self) -> None:
         mutations = {
             "marker_count": (2, "marker_count must equal 1"),
@@ -111,7 +142,10 @@ class PublicationEvidenceTests(unittest.TestCase):
             removed = build["tickets"].pop()["id"]
             receipt = build["github_reconciliation"]
             receipt["member_ticket_ids"].remove(removed)
-            for field in ("projected_labels", "observed_labels", "observed_body_evidence"):
+            for field in (
+                "projected_labels", "observed_labels", "observed_body_evidence",
+                "expected_issue_titles", "observed_issue_titles",
+            ):
                 del receipt[field][removed]
             del receipt["marker_query_matches"][removed]
 

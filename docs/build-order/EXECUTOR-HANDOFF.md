@@ -7,10 +7,13 @@ uniquely marked `aiur-build-order-reconciliation` comment linking a successful
 immutable post-publication receipt whose exact commit contains all three valid
 reconciliations, both external gates below are recorded as resolved, and the
 user separately authorizes a run. Re-run the trusted final-comment verifier;
-neither caller-supplied identity, Git object substitution, imported foreign
-history, nor a merely local commit is a start gate. The verifier anchors the
-repository to the configured GitHub origin and proves both named commits exist
-there.
+neither caller-supplied identity or query JSON, Git object substitution,
+imported foreign history, nor a merely local/API-visible commit is a start
+gate. The verifier anchors the repository to the configured GitHub origin,
+fetches the exact receipt-recorded comment ID, and proves approval plus receipt
+remain ancestors of the unchanged tip of the frozen
+`refs/heads/build-order-research` branch. Deletion or a force-push that removes
+either commit revokes this gate; never substitute `main`, a pull ref, or a tag.
 Planning publication does not queue work. Until then, do not run Aiur,
 implement tickets, or add `agent:todo`.
 
@@ -41,7 +44,7 @@ are separate tracks and cannot change this run's denominator or ETA.
    - `docs/build-order/validation-report.md`
    - `docs/build-order/github-publication.md`
 2. Use `/aiur-run`, not the retired `/aiur-loop` workflow. Verify the loaded
-   skill is PR #1065 commit `26af4fc1` or an explicitly reviewed compatible
+   skill is PR #1065 commit `6bead211` or an explicitly reviewed compatible
    successor preserving its finite-boundary, review/rework, circuit-breaker,
    and publication rules. A matching skill name is insufficient.
 3. Write a three-to-five-sentence `/goal` stating that you are the Executor,

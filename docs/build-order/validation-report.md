@@ -25,17 +25,17 @@ pending.
 - Prototype constraints SHA-256:
   `49e068d4999d62197dbd1d5c0438db21a25cd1b5873fb959a58a7e0388c7829a`
 - Canonical Build Order JSON SHA-256:
-  `86b7f8ba6e423d209e6aa9902f3e7e4e86ca9f3698002e34ba0e64c3ff92e70a`
+  `905e75b5d420ef66a664425d6447946534987edac60373bba918eac12f0d24d0`
 - Companion baseline JSON SHA-256:
   `dc641ee49a5a00dd49312123e864d627bfce2d2377a90d1900990693e9fb7ac9`
 - Publication manifest SHA-256:
-  `0ffd8d82eadf3525bab29ea555931319d94f11f02ee184534b4b6cb1bf6a86ba`
+  `0e0b836d69bb6aec9b432cb3ba3d2e61a2a305eccf86fcca5dfccdf6f6819b9f`
 - Requirements SHA-256:
-  `5119db4e38edb5d9f223b47c1f18a50e20052d5ca0f924592c7ffceca8716432`
+  `a9b2156a55f1ee5540ce879414c8a004f1db4b43d5fb0aac07c3c8b5d2461ace`
 - Implementation plan SHA-256:
   `53313576913e30f52e10a9cafd1e46fc037dc1353163d1f41d426c5043bdc295`
 - Latest validator/skill authority: isolated draft PR #1065 at
-  `26af4fc158e8f00688aaa27cbc02bc1a905023fe`
+  `6bead211250ad84a21f564070d7a7a0fbb51658e`
 - Approval commit: pending two clean passes
 
 The design hashes match [the manifest](design-manifest.md). The prototype was
@@ -81,7 +81,7 @@ updates and a final ticket-boundary correction:
 |---|---|
 | Canonical validator | 0 errors, 0 warnings |
 | Companion/publication validator | 0 errors, 0 warnings |
-| Publication regression suite | 66 tests pass |
+| Publication regression suite | 80 tests pass |
 | Build Order tickets | 19, 71 complexity points |
 | Standalone companions | 25, 87 complexity points |
 | Planned GitHub materialization | 46 new issues: one root, 44 executable issues, one human issue |
@@ -107,10 +107,12 @@ The canonical validator owns the BO receipt, membership, label, and dependency
 proof. The local publication validator owns the all-or-nothing cross-pack
 contract: companion mappings and blockers, exact observed labels, parentless
 root/skill/companions, approval/version consistency, RFC3339 requery times,
-independently rendered approved bodies, exact logical-marker query matches, and
-the unique root reconciliation comment. The read-only final-comment verifier
-also requires the successful live body to name the exact receipt commit and
-link. Both validators are mandatory after materialization.
+independently rendered approved bodies and titles, exact logical-marker query
+matches, and the unique root reconciliation comment. The read-only
+final-comment verifier fetches the receipt-recorded comment ID itself and
+requires its successful live body to name the exact receipt commit/link while
+both authority commits remain reachable from the frozen repository branch.
+Both validators are mandatory after materialization.
 
 ## Semantic review log
 
@@ -339,7 +341,8 @@ found two remaining authorization gaps:
    that validated snapshot, and treats CLI values only as equality assertions.
 2. The requirements still permitted an obsolete PR #1065 revision that
    predated approved-document freezing and protected receipt handling. Every
-   gate and handoff now pins skill commit `26af4fc1`, whose reusable contract
+   gate and handoff at that checkpoint pinned the then-current isolated skill
+   revision, whose reusable contract
    also requires a fully validated materialized receipt commit rather than
    mere commit existence.
 
@@ -360,12 +363,39 @@ receipt still trusted Git object and repository identity too early:
    match it, and read-only verifies both approval and receipt commits exist in
    that remote repository. A fully materialized foreign-receipt fixture now
    fails even when its comment and caller values agree.
-3. The reusable skill authority is superseded by `26af4fc1`, which carries the
+3. At that checkpoint the reusable skill authority was superseded by a
+   no-substitution revision carrying the
    same no-substitution and trusted-origin/remote rules plus its own approved
    source regression. A malicious authorized same-repository publisher remains
    outside this receipt threat model; preventing that actor from fabricating
    observations would require independent API attestation or protected
    signatures.
+
+### Corrective pass 11 — exact publication identity and revocation
+
+This pass was not clean. Independent publication review found four remaining
+fail-closed gaps without changing any issue boundary:
+
+1. Receipts proved canonical bodies but not exact GitHub titles. Every expected
+   title is now derived from its approved document H1, including BO/DASH logical
+   prefixes, and each receipt records separately frozen expected and freshly
+   observed title maps. Combined coverage must equal all 46 issues exactly.
+2. Final verification accepted a caller-provided query array and any comment
+   URL on the mapped root. The immutable receipt now supplies the one exact
+   pending-comment URL, and the production verifier fetches that comment ID
+   directly from GitHub before validating its canonical successful body.
+3. GitHub's commit endpoint can expose fork/pull or otherwise unreferenced
+   objects. The approved manifest now freezes the generic
+   `trusted_repository_ref` to `refs/heads/build-order-research`; verification
+   resolves and re-reads that exact branch tip, proves both commits are
+   ancestors through strict compare invariants, and proves receipt descends
+   from approval locally with replacement objects disabled. Branch deletion or
+   a force-push that removes either commit intentionally revokes the start gate.
+4. The reusable core receipt accepted the root-only `build-order` label on BO
+   member issues because it rejected only dynamic routing-family drift. The
+   successor pinned skill contract rejects that label on every BO member and
+   carries an adversarial regression while preserving `build-order` on the root.
+   The planning pack and gates now pin successor `6bead211`.
 
 ### Clean pass 1
 
@@ -377,9 +407,10 @@ Pending a second review of the unchanged candidate after clean pass 1.
 
 ## Skill verification
 
-At isolated skill commit `26af4fc158e8f00688aaa27cbc02bc1a905023fe`:
+At isolated skill commit `6bead211250ad84a21f564070d7a7a0fbb51658e`:
 
-- 70 adversarial `aiur-build` validator tests pass;
+- 85 Python `aiur-build` validator tests pass;
+- 28 repository skill/discovery tests pass;
 - the canonical example validates with zero errors and warnings; and
 - `aiur-build`, `aiur-run`, and `aiur-monitor` pass structure validation.
 
