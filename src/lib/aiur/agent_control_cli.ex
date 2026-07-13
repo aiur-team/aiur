@@ -42,8 +42,9 @@ defmodule Aiur.AgentControlCLI do
   @spec agents() :: :ok
   def agents do
     case Orchestrator.snapshot(Orchestrator, 10_000) do
-      %{running: running} when is_list(running) ->
+      %{running: running} = snapshot when is_list(running) ->
         print_agents_table(running)
+        print_polling_throttle(Map.get(snapshot, :polling))
         exit_marker(0)
 
       error when error in [:timeout, :unavailable] ->
@@ -620,6 +621,23 @@ defmodule Aiur.AgentControlCLI do
       ])
     end)
   end
+
+  defp print_polling_throttle(%{
+         throttle: %{
+           reason: :github_rate_budget,
+           delay_ms: delay_ms,
+           reset_in_ms: reset_in_ms,
+           remaining: remaining,
+           limit: limit
+         }
+       }) do
+    IO.puts(
+      "aiur: GitHub polling paced by rate budget " <>
+        "(remaining=#{remaining}/#{limit}, delay_ms=#{delay_ms}, reset_in_ms=#{reset_in_ms})"
+    )
+  end
+
+  defp print_polling_throttle(_polling), do: :ok
 
   defp agent_activity(agent) do
     case Map.get(agent, :work_state, :working) do

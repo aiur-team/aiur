@@ -750,6 +750,38 @@ defmodule Aiur.AgentControlCLITest do
       assert output =~ "__AIUR_CONTROL_EXIT__:0"
     end
 
+    test "reports when the GitHub rate budget paces polling", %{orchestrator: pid} do
+      now = System.system_time(:second)
+      original_budget = :sys.get_state(Aiur.GitHub.RateBudget)
+      :sys.replace_state(Aiur.GitHub.RateBudget, fn _ -> nil end)
+
+      on_exit(fn ->
+        :sys.replace_state(Aiur.GitHub.RateBudget, fn _ -> original_budget end)
+      end)
+
+      Aiur.GitHub.RateBudget.observe_response(%{
+        headers: %{
+          "x-ratelimit-limit" => "5000",
+          "x-ratelimit-remaining" => "0",
+          "x-ratelimit-reset" => Integer.to_string(now + 1_000),
+          "x-ratelimit-resource" => "core"
+        }
+      })
+
+      :sys.get_state(Aiur.GitHub.RateBudget)
+
+      :sys.replace_state(pid, fn state ->
+        %{state | poll_interval_ms: 1_000, next_poll_due_at_ms: System.monotonic_time(:millisecond) + 1_001_000}
+      end)
+
+      output = capture_io(fn -> AgentControlCLI.agents() end)
+
+      assert output =~ "aiur: GitHub polling paced by rate budget"
+      assert output =~ "remaining=0/5000"
+      assert output =~ "reset_in_ms="
+      refute output =~ "test-gh-token"
+    end
+
     test "shows label override as the pause reason", %{orchestrator: pid} do
       paused =
         "issue-46"

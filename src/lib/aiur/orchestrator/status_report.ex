@@ -6,12 +6,14 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   alias Aiur.{AgentEvents, AgentPubSub, CodingAgent, Config, Issue}
   alias Aiur.Events.SubscriptionStore
+  alias Aiur.GitHub.RateBudget
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.Lifecycle
   alias Aiur.Orchestrator.OperatorMessages, as: OM
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.TrackerHealth
   alias Aiur.Orchestrator.WaitingReason
   alias AiurWeb.ObservabilityPubSub
 
@@ -78,12 +80,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   @spec poll_status(State.t()) :: {:reply, map(), State.t()}
   def poll_status(%State{} = state) do
     now_ms = System.monotonic_time(:millisecond)
-
-    {:reply,
-     %{
-       checking?: state.poll_check_in_progress == true,
-       next_poll_in_ms: next_poll_in_ms(state.next_poll_due_at_ms, now_ms)
-     }, state}
+    {:reply, polling_status(state, now_ms: now_ms), state}
   end
 
   @spec list_active_identifiers(State.t()) :: {:reply, [String.t()], State.t()}
@@ -130,13 +127,30 @@ defmodule Aiur.Orchestrator.StatusReport do
        idle: idle,
        agent_totals: state.agent_totals,
        rate_limits: Map.get(state, :agent_rate_limits),
-       polling: %{
-         checking?: state.poll_check_in_progress == true,
-         next_poll_in_ms: next_poll_in_ms(state.next_poll_due_at_ms, now_ms),
-         poll_interval_ms: state.poll_interval_ms
-       }
+       polling: polling_status(state, now_ms: now_ms, include_interval?: true)
      }, state}
   end
+
+  @doc false
+  @spec polling_status(State.t(), keyword()) :: map()
+  def polling_status(%State{} = state, opts \\ []) do
+    now_ms = Keyword.get_lazy(opts, :now_ms, fn -> System.monotonic_time(:millisecond) end)
+    budget_status_fun = Keyword.get(opts, :budget_status_fun, &RateBudget.status/0)
+    baseline_delay_ms = max(state.poll_interval_ms, TrackerHealth.github_next_poll_delay_ms(state) || 0)
+
+    %{
+      checking?: state.poll_check_in_progress == true,
+      next_poll_in_ms: next_poll_in_ms(state.next_poll_due_at_ms, now_ms),
+      throttle: active_budget_throttle(budget_status_fun.(), baseline_delay_ms)
+    }
+    |> maybe_put_poll_interval(state, Keyword.get(opts, :include_interval?, false))
+  end
+
+  defp maybe_put_poll_interval(status, state, true), do: Map.put(status, :poll_interval_ms, state.poll_interval_ms)
+  defp maybe_put_poll_interval(status, _state, false), do: status
+
+  defp active_budget_throttle(%{delay_ms: delay_ms} = status, baseline_delay_ms) when delay_ms > baseline_delay_ms, do: status
+  defp active_budget_throttle(_status, _baseline_delay_ms), do: nil
 
   defp running_snapshot(%State{} = state, {issue_id, metadata}, now, stall_timeout_seconds) do
     capabilities = OM.issue_control_capabilities(state, metadata.identifier)

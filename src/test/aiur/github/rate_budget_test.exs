@@ -104,16 +104,41 @@ defmodule Aiur.GitHub.RateBudgetTest do
     assert RateBudget.delay_ms(server: name, now_seconds: now) > 0
   end
 
-  test "a new observation recovers after the wall clock moves backward" do
+  test "a fresh response recovers through parsing and scheduling after the wall clock moves backward" do
     name = Module.concat(__MODULE__, "Budget#{System.unique_integer([:positive])}")
     start_supervised!({RateBudget, name: name})
-    now = System.system_time(:second)
+    state = %State{poll_interval_ms: 10_000, github_poll_delays: %{}}
 
-    observe(name, 5_000, 0, now + 3_000)
-    assert RateBudget.delay_ms(server: name, now_seconds: now - 500) > 0
+    RateBudget.observe_response(%{headers: headers(5_000, 0, 4_700)}, name, now_seconds: 1_000, monotonic_ms: 10_000)
+    :sys.get_state(name)
 
-    observe(name, 5_000, 5_000, now + 500)
-    assert RateBudget.delay_ms(server: name, now_seconds: now - 500) == 0
+    assert TrackerHealth.next_poll_delay_ms(state,
+             budget_delay_fun: fn -> RateBudget.delay_ms(server: name, now_seconds: 699, monotonic_ms: 10_001) end
+           ) > 10_000
+
+    RateBudget.observe_response(%{headers: headers(5_000, 5_000, 4_600)}, name, now_seconds: 699, monotonic_ms: 10_001)
+    :sys.get_state(name)
+
+    assert 10_000 ==
+             TrackerHealth.next_poll_delay_ms(state,
+               budget_delay_fun: fn -> RateBudget.delay_ms(server: name, now_seconds: 699, monotonic_ms: 10_001) end
+             )
+  end
+
+  test "reports non-secret pacing detail while the budget is throttled" do
+    name = Module.concat(__MODULE__, "Budget#{System.unique_integer([:positive])}")
+    start_supervised!({RateBudget, name: name})
+
+    RateBudget.observe_response(%{headers: headers(5_000, 0, 2_000)}, name, now_seconds: 1_000, monotonic_ms: 10_000)
+    :sys.get_state(name)
+
+    assert %{
+             reason: :github_rate_budget,
+             delay_ms: 1_001_000,
+             reset_in_ms: 1_000_000,
+             remaining: 0,
+             limit: 5_000
+           } = RateBudget.status(server: name, now_seconds: 1_000, monotonic_ms: 10_000)
   end
 
   test "expired observations clear and a missing process degrades to zero" do

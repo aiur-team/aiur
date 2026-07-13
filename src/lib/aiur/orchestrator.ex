@@ -437,11 +437,11 @@ defmodule Aiur.Orchestrator do
   def list_running_active_identifiers(server \\ __MODULE__, timeout \\ 1_000),
     do: StatusReport.list_running_active_identifiers_api(server, timeout)
 
-  @spec poll_status() :: %{checking?: boolean(), next_poll_in_ms: integer() | nil} | :unavailable
+  @spec poll_status() :: %{checking?: boolean(), next_poll_in_ms: integer() | nil, throttle: map() | nil} | :unavailable
   def poll_status, do: StatusReport.poll_status_api()
 
   @spec poll_status(GenServer.server(), timeout()) ::
-          %{checking?: boolean(), next_poll_in_ms: integer() | nil} | :unavailable
+          %{checking?: boolean(), next_poll_in_ms: integer() | nil, throttle: map() | nil} | :unavailable
   def poll_status(server, timeout), do: StatusReport.poll_status_api(server, timeout)
   @spec status() :: [map()] | :timeout | :unavailable
   def status, do: StatusReport.status_api()
