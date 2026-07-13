@@ -159,9 +159,9 @@ Use existing GitHub fields directly:
 
 Do not infer an authoritative phase solely from graph depth. The UI may show a
 derived topological layer as a diagnostic, but `phase:N` is the planned rollout
-source. Validation must reject a dependent whose phase is not later than its
-open blocker and flag concurrent tickets with overlapping declared file or
-contract surfaces.
+source. Validation must reject a dependent whose phase is earlier than its
+blocker, allow same-phase hard edges because phase is a grouping hint, and flag
+concurrent tickets with overlapping declared file or contract surfaces.
 
 ## Recommended Aiur Runtime Overlay
 

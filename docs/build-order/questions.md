@@ -34,7 +34,8 @@ the planning documents.
   100 direct tickets are follow-on scope.
 - Provider quota/token/spend accounting is a separate companion dashboard
   track, not Build Order membership or acceptance work. Research recommends
-  three pickable tickets: durable ledger, account meters, and shared UI.
+  four pickable tickets: durable observations, cost/aggregation projection,
+  account meters, and shared UI.
 
 ## Resolved
 

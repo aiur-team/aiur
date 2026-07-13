@@ -3,12 +3,13 @@
 ## Decision
 
 The Codex/Claude usage cards are shared Operator Control Center work, not Build
-Order behavior. Implement them as three companion tickets outside the Build
+Order behavior. Implement them as four companion tickets outside the Build
 Order root:
 
-1. durable attributed usage and cost ledger;
-2. subscription/API provider account meters; and
-3. shared dashboard summary UI.
+1. durable attributed usage observations;
+2. cost, coverage, and grouping projections;
+3. subscription/API provider account meters; and
+4. shared dashboard summary UI.
 
 A selected Build Order may supply a set of member ticket IDs to the accounting
 query. The accounting store remains Aiur-owned and does not write totals to
@@ -170,20 +171,33 @@ Units page, the caller may select the current Aiur run. UI copy must distinguish
 
 ## Companion ticket boundaries
 
-### DASH-USAGE-1 — Persist attributed usage and cost
+### DASH-USAGE-1 — Persist attributed usage observations
 
-**Complexity:** 5
+**Complexity:** 4
 
-Own the provider-neutral durable record, idempotency/checkpoints, exact cost
-bases, attribution dimensions, aggregation query, retention/compaction, health,
+Own the provider-neutral durable record, idempotency/checkpoints, raw
+provider-reported cost, attribution dimensions, retention/compaction, health,
 and source redaction. Include Claude REPL coverage or an explicit incomplete
-state. No provider quota fetching or dashboard cards.
+state. No versioned pricing, aggregation query, provider quota fetching, or
+dashboard cards.
 
 Acceptance includes restart/resume, retries, fallback, duplicates/out-of-order
-events, completed tickets, unrelated-ticket exclusion, exact micros/pricing
-revision, unknown coverage, corruption, and credential redaction.
+events, completed tickets, corruption, and credential redaction.
 
-### DASH-USAGE-2 — Ingest provider account meters
+### DASH-USAGE-2 — Project cost and aggregations
+
+**Complexity:** 4
+
+Own exact cost basis, pricing revisions, unknown/partial coverage, the grouped
+query by build/run, ticket, backend, agent family, and model, plus unrelated
+ticket exclusion. It consumes durable observations and does not ingest quota or
+render cards.
+
+Acceptance includes exact micros, mixed bases, unknown models/auth, cached and
+reasoning token dimensions, historical price stability, membership filters,
+completed tickets, and corrupted/unavailable store health.
+
+### DASH-USAGE-3 — Ingest provider account meters
 
 **Complexity:** 4, or 5 with a cross-repository Claude adapter prerequisite.
 
@@ -196,14 +210,15 @@ Acceptance includes current Codex camelCase fixtures, multiple limit IDs,
 unsupported Claude state, stale/error behavior, and current availability-ledger
 migration.
 
-### DASH-USAGE-3 — Render shared OCC usage summary
+### DASH-USAGE-4 — Render shared OCC usage summary
 
 **Complexity:** 3
 
-Own the shared Codex/Claude/total cards, scope labels, supported quota windows,
-cost basis/coverage, live updates, degraded states, responsive/accessibility
-behavior, and drill-down/grouping presentation. Consume the first two tickets;
-do not fetch providers per browser render.
+Own the shared Codex/Claude/Aiur summary cards, scope labels, total build/run
+tokens, supported quota windows, cost basis/coverage, progress/ETA provenance,
+live updates, degraded states, responsive/accessibility behavior, and
+drill-down/grouping presentation. Consume the first three tickets; do not fetch
+providers per browser render.
 
 ## Security and privacy
 

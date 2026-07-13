@@ -9,9 +9,10 @@ The prototype combines four scopes: a richer shared shell/read model, a
 substantial Fleet-to-Units redesign, a smaller Decision-to-Commands alignment,
 and the net-new Build Order graph. It is not a CSS-only restyle.
 
-The companion dashboard work is separate from Build Order: Units, Commands,
-and the three-ticket usage/accounting track in `04-usage-accounting.md`. None of
-those tickets enters the Build Order root or feature-completion calculation.
+The companion dashboard work is separate from Build Order: responsive shell,
+Units read model, unit/capacity controls, Commands, and the four-ticket
+usage/accounting track in `04-usage-accounting.md`. None of those tickets enters
+the Build Order root or feature-completion calculation.
 
 ## Current production baseline
 
@@ -34,29 +35,53 @@ It does not have a Build Order route, an all-state ticket catalog, a shared
 runtime progress projection, a general ticket-detail component, provider-split
 accounting/rate limits, or a maintained graph-layout integration.
 
-## Catch-up ticket A: shared shell and Units
+## Catch-up ticket A: responsive shell
 
-This should be one bounded ticket unless detailed planning exposes separate
-provider-accounting scope.
+This ticket owns URL-backed navigation, per-view headers, shared responsive
+layout, and preservation of existing Analytics. It does not own Units data,
+controls, usage cards, Commands composition, or the Build Order page.
 
 | Area | Current | Target and constraint |
 |---|---|---|
-| Navigation | One LiveView route composed from Fleet and Decision sections | Responsive sidebar/bottom navigation for Units, Commands, Build Order, and an explicitly unavailable Analytics destination while preserving URL/back behavior. Build Order route itself remains net-new work. |
+| Navigation | One LiveView route composed from Fleet and Decision sections | Responsive sidebar/bottom navigation for Units, Commands, Build Order, and the existing authenticated Analytics route while preserving URL/back behavior. Build Order route itself remains net-new work. |
 | Page identity | One Operations Dashboard hero | Per-view icon/title plus truthful status. Do not duplicate route state in client-only tabs. |
 | Top shell | Live/offline, tracker, agent kind, UTC, theme | Live, theme, and truthful optional ETA/provider summaries. Do not show invented values. |
-| Usage/rate limits | Aggregate tokens and one latest provider-unattributed rate-limit map | Consume the separate usage/accounting projection; do not implement provider ingestion inside Units. |
-| Run summary | Separate generic metric cards | Units-only Codex, Claude, and Aiur summary cards consuming basis-labelled actual, provider-reported, estimated, fixed, or unknown accounting values. |
+
+The production shell must preserve real analytics and operational metadata that
+the mock removes. At 320, 390, 768, and 960 pixels, every navigation item and
+theme/status affordance remains reachable without page-level clipping.
+
+## Catch-up ticket B: Units read model and filters
+
+| Area | Current | Target and constraint |
+|---|---|---|
 | Units data | Ticket/state/waiting/latest/elapsed/decisions/actions | Add real backend/model/effort/complexity/progress/epic-lane data with honest unknowns. Preserve waiting reason. |
 | Filters | Separate Running, queued/waiting, and retry tables | One Units table with single-select Live/Unfinished/All/None presets plus independently toggleable Active/Alert/Paused/Stuck/Queued/Finished chips; define exact precedence for rows matching multiple signals. |
-| Max agents | No dashboard control; runtime controls exist | Use real max/active/draining state, writable gate, and errors. Never mutate rows to fake a pause. |
-| Per-unit control | Pause exists in the running-agent modal | Expose real pause/resume in each applicable row with authenticated writable gating, pending/error feedback, and no optimistic state forgery. |
 | Row detail | Only running rows open an agent-log modal | A reusable ticket-context component with safe GitHub/chat/command links, navigable blocker/blocked-ticket chips, and honest unavailable states. |
 | Mobile | Labelled fleet cards | Preserve accessible labels and readable text; the mock's 9–12px density is not acceptance. |
 
-Build Order must not depend on all shell metrics landing. The shared route/tab
-contract and ticket-context component are the only likely cross-scope seams.
+Rows matching multiple signals need an accepted truth table; the mock's
+Finished > Alert > Paused > Stuck > Queued > Active bucket order misclassifies
+some blocked units. Filter counts, selected state, zero-result reset, URL
+persistence, focus, announcements, and reduced-motion behavior are part of the
+contract rather than polish.
 
-## Catch-up ticket B: Commands
+## Catch-up ticket C: unit and capacity controls
+
+- Reuse the current `AgentChat`/control-plane capabilities for per-unit
+  pause/resume and the runtime max-agent control for capacity changes.
+- Define eligible states, read-only/auth gating, pending/idempotency,
+  authoritative PubSub confirmation, double-click/concurrent-state handling,
+  timeouts/errors, and worker-slot/capacity failures.
+- Preserve pause and waiting reasons; never mutate a row or cap locally and
+  present that as success.
+- Provide explicit accessible names, state, focus, and unavailable reasons.
+
+Build Order must not depend on shell metrics or writable controls landing. The
+shared route contract and ticket-context component are the only likely
+cross-scope seams.
+
+## Catch-up ticket D: Commands
 
 Keep the Decision domain and persistence names. “Commands” is operator-facing
 vocabulary and composition, not a storage migration.
@@ -83,12 +108,13 @@ This catch-up is independent of the Build Order data provider and graph.
 
 ## Companion usage/accounting track
 
-The shell cards require three independently reviewable outcomes:
+The shell cards require four independently reviewable outcomes:
 
-1. a durable token/cost ledger attributed by ticket, run, backend, agent family,
-   and exact model;
-2. provider account-meter ingestion for subscription and API-key modes; and
-3. shared OCC summary cards with honest scope, cost basis, coverage, staleness,
+1. durable idempotent usage observations attributed by ticket, run, backend,
+   agent family, and exact model;
+2. cost/coverage and grouping projections over those observations;
+3. provider account-meter ingestion for subscription and API-key modes; and
+4. shared OCC summary cards with honest scope, cost basis, coverage, staleness,
    and unavailable states.
 
 See `04-usage-accounting.md` for boundaries and evidence. Build Order may pass
