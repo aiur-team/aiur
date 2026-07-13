@@ -36,6 +36,7 @@ def validate_auxiliary_receipt(
     repository: str,
     companion_approved: object,
     companion_materialized: bool,
+    read_only: set[tuple[str, int]],
     report: Report,
 ) -> None:
     value = data.get("github_reconciliation")
@@ -60,6 +61,7 @@ def validate_auxiliary_receipt(
     combined = {key: value for key, value in core.items() if key != "github_root"}
     combined.update(mappings)
     _unique_mappings(combined, report)
+    _reject_read_only_mappings(combined, read_only, report)
     observed = parse_edges(
         receipt.get("external_blocker_relations"), "publication receipt edges", report
     )
@@ -151,6 +153,20 @@ def _unique_mappings(mappings: dict[str, Any], report: Report) -> None:
         if node in nodes:
             report.error(f"publication mapping {label} duplicates node_id from {nodes[node]}")
         nodes[node] = label
+
+
+def _reject_read_only_mappings(
+    mappings: dict[str, Any], read_only: set[tuple[str, int]], report: Report,
+) -> None:
+    for logical_id, mapping in mappings.items():
+        if not isinstance(mapping, dict):
+            continue
+        identity = (mapping.get("repository"), mapping.get("number"))
+        if identity in read_only:
+            report.error(
+                f"publication mapping {logical_id} reuses protected read-only "
+                f"issue {identity[0]}#{identity[1]}"
+            )
 
 
 def _observed_labels(

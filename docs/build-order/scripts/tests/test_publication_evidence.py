@@ -10,8 +10,12 @@ SCRIPT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from publication_fixtures import Fixture, companions, publication  # noqa: E402
-from publication_materialized_fixture import materialized_pack  # noqa: E402
+from publication_fixtures import Fixture, companions, github, publication  # noqa: E402
+from publication_materialized_fixture import (  # noqa: E402
+    ROOT_ID,
+    SKILL_ID,
+    materialized_pack,
+)
 from validate_publication import validate  # noqa: E402
 
 
@@ -162,6 +166,57 @@ class PublicationEvidenceTests(unittest.TestCase):
         self.addCleanup(fixture.close)
         joined = "\n".join(validate(fixture.companion_path, fixture.build_path).errors)
         self.assertIn("#132, #845, #1033, #1034, and #1067", joined)
+
+    def test_read_only_issue_cannot_be_reused_by_any_publication_class(self) -> None:
+        for issue_class in ("root", "bo", "dash", "skill"):
+            with self.subTest(issue_class=issue_class):
+                data, build, manifest = materialized_pack()
+                mapping = github(132, f"PROTECTED_{issue_class.upper()}_NODE")
+                logical_id = ""
+                if issue_class == "root":
+                    logical_id = ROOT_ID
+                    build["github_root"] = dict(mapping)
+                    build["github_reconciliation"]["root_node_id"] = mapping["node_id"]
+                    build["github_reconciliation"]["marker_query_matches"][ROOT_ID] = [
+                        dict(mapping)
+                    ]
+                    manifest["github_reconciliation"]["issue_mappings"][ROOT_ID] = dict(
+                        mapping
+                    )
+                    manifest["github_reconciliation"][
+                        "root_reconciliation_comment_matches"
+                    ][0]["url"] = mapping["url"] + "#issuecomment-987"
+                elif issue_class == "bo":
+                    logical_id = "BO-001"
+                    build["tickets"][0]["github"] = dict(mapping)
+                    build["github_reconciliation"]["marker_query_matches"][logical_id] = [
+                        dict(mapping)
+                    ]
+                elif issue_class == "dash":
+                    logical_id = "DASH-001"
+                    data["tickets"][0]["github"] = dict(mapping)
+                    data["github_reconciliation"]["marker_query_matches"][logical_id] = [
+                        dict(mapping)
+                    ]
+                else:
+                    logical_id = SKILL_ID
+                    manifest["github_reconciliation"]["issue_mappings"][SKILL_ID] = dict(
+                        mapping
+                    )
+                    manifest["github_reconciliation"]["marker_query_matches"][SKILL_ID] = [
+                        dict(mapping)
+                    ]
+                fixture = Fixture(data, build, manifest)
+                self.addCleanup(fixture.close)
+                joined = "\n".join(validate(
+                    fixture.companion_path, fixture.build_path,
+                    fixture.publication_path,
+                ).errors)
+                self.assertIn(
+                    f"publication mapping {logical_id} reuses protected read-only issue "
+                    "example/repo#132",
+                    joined,
+                )
 
     def test_staged_approval_must_resolve_before_materialization(self) -> None:
         data, manifest = companions(), publication()

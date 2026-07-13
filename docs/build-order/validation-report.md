@@ -25,17 +25,17 @@ pending.
 - Prototype constraints SHA-256:
   `49e068d4999d62197dbd1d5c0438db21a25cd1b5873fb959a58a7e0388c7829a`
 - Canonical Build Order JSON SHA-256:
-  `aadc54d9a1a1614107174e9ba8c719e75e0c06d36c5e044385b83324433f79ef`
+  `b820c856e4c65488f5a135c0d892d7964f25cea2fd86af7f382ffa063863fedc`
 - Companion baseline JSON SHA-256:
-  `4aa23836eb7ba07c36167878929365a3f61e56f937cb399f2570e36d14429095`
+  `dc641ee49a5a00dd49312123e864d627bfce2d2377a90d1900990693e9fb7ac9`
 - Publication manifest SHA-256:
   `0ffd8d82eadf3525bab29ea555931319d94f11f02ee184534b4b6cb1bf6a86ba`
 - Requirements SHA-256:
   `bf75997f1c32b4032d88186f4891fb0249598699ba7ae284fb8ad1ec27c20789`
 - Implementation plan SHA-256:
-  `a3478093c73cd3366cab04dc23e5dc18ec406278d74668ede8ff61c4f3c64857`
+  `53313576913e30f52e10a9cafd1e46fc037dc1353163d1f41d426c5043bdc295`
 - Latest validator/skill authority: isolated draft PR #1065 at
-  `0bb9ec025efb1cabb56b3450f96abebdb6a86baf`
+  `311ffa17866b50731b521114cc6fe2f610a03a11`
 - Approval commit: pending two clean passes
 
 The design hashes match [the manifest](design-manifest.md). The prototype was
@@ -81,7 +81,7 @@ updates and a final ticket-boundary correction:
 |---|---|
 | Canonical validator | 0 errors, 0 warnings |
 | Companion/publication validator | 0 errors, 0 warnings |
-| Publication regression suite | 52 tests pass |
+| Publication regression suite | 59 tests pass |
 | Build Order tickets | 19, 71 complexity points |
 | Standalone companions | 25, 87 complexity points |
 | Planned GitHub materialization | 46 new issues: one root, 44 executable issues, one human issue |
@@ -297,6 +297,33 @@ product scope, but did find missing scheduling truth:
    lifecycle. They now share an explicit lifecycle-adapter surface and
    serialize while preserving account-generation versus telemetry ownership.
 
+### Corrective pass 8 — supervision and publication safety
+
+This pass was not clean. Independent dashboard and publication reviewers found
+no new product capability, but did find execution and fail-closed gaps:
+
+1. DASH-002/009/012/018/019/024/025 also introduce long-lived children through
+   the central application supervision tree. Their manifest now declares every
+   independently ready cross-pack pair against BO-003/005/016/019 and every
+   symmetric same-pack pair; existing hard dependencies order the remainder.
+2. Human scheduling tables omitted the accepted BO-004 prerequisites for
+   DASH-004 and DASH-019. Both generated views now agree with the canonical
+   graph and ticket headers.
+3. DASH-007 incorrectly assigned additive Decision migration to DASH-006.
+   DASH-017 remains the sole provenance schema/replay/legacy-migration owner;
+   DASH-007 owns presentation only.
+4. Approval froze structured planning fields but not the current worker
+   documents. Materialized validation now requires BO/DASH documents to equal
+   their approved sources byte-for-byte and root/skill documents to equal the
+   deterministic approved-template substitution.
+5. Protected read-only issues could be reused as returned mappings. Every
+   materialized root, BO, DASH, and skill identity is now checked against the
+   exact read-only reference set before a receipt can validate.
+6. The successful reconciliation comment accepted a shaped but nonexistent
+   receipt SHA and foreign URL. Final verification now requires an exact
+   repository commit link whose SHA resolves locally before the comment can be
+   the durable start gate.
+
 ### Clean pass 1
 
 Pending review of an immutable checkpoint.
@@ -307,9 +334,9 @@ Pending a second review of the unchanged candidate after clean pass 1.
 
 ## Skill verification
 
-At isolated skill commit `0bb9ec025efb1cabb56b3450f96abebdb6a86baf`:
+At isolated skill commit `311ffa17866b50731b521114cc6fe2f610a03a11`:
 
-- 64 adversarial `aiur-build` validator tests pass;
+- 69 adversarial `aiur-build` validator tests pass;
 - the canonical example validates with zero errors and warnings; and
 - `aiur-build`, `aiur-run`, and `aiur-monitor` pass structure validation.
 

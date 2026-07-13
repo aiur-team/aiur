@@ -72,11 +72,13 @@ def validate_auxiliary(
             "publication must declare BO-004 and BO-008 blocked by "
             "SKILL-DELIVERY-001"
         )
-    _read_only_refs(manifest.get("read_only_issue_refs"), repository, report)
+    read_only = _read_only_refs(
+        manifest.get("read_only_issue_refs"), repository, report
+    )
     validate_auxiliary_receipt(
         manifest, root.get("logical_id") if root else None, skill_id,
         edges, core_mappings, repository,
-        companion_approved, companion_materialized, report,
+        companion_approved, companion_materialized, read_only, report,
     )
 
 
@@ -155,7 +157,9 @@ def _policy(
         )
 
 
-def _read_only_refs(value: object, repository: str, report: Report) -> None:
+def _read_only_refs(
+    value: object, repository: str, report: Report,
+) -> set[tuple[str, int]]:
     refs = set(string_list(value, "read_only_issue_refs", report))
     expected = {
         f"{repository}#{number}" for number in (132, 845, 1033, 1034, 1067)
@@ -165,3 +169,8 @@ def _read_only_refs(value: object, repository: str, report: Report) -> None:
     for ref in refs:
         if not EXTERNAL_BLOCKER.fullmatch(ref):
             report.error(f"read_only_issue_refs has invalid identity {ref}")
+    return {
+        (ref.rsplit("#", 1)[0], int(ref.rsplit("#", 1)[1]))
+        for ref in refs
+        if EXTERNAL_BLOCKER.fullmatch(ref)
+    }

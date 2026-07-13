@@ -86,7 +86,10 @@ Phase is presentation and rollout guidance, not a barrier. Native GitHub hard
 dependencies, ticket state, declared serialization conflicts and current
 capacity determine readiness. BO-003, BO-005, BO-016, and BO-019 serialize on
 the application-supervision tree wherever hard dependencies do not already
-order them.
+order them. When the separately authorized companion pack runs, DASH-002,
+DASH-009, DASH-012, DASH-018, DASH-019, DASH-024, and DASH-025 declare the
+remaining cross-pack and same-pack serialization pairs on that same central
+bootstrap surface.
 
 BO-004 and BO-008 are the independent initial implementation nodes;
 none is ready until both external gates are recorded as resolved. The current

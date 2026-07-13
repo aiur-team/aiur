@@ -11,7 +11,12 @@ from pathlib import Path
 from typing import Any
 
 from publication_common import SHA, Report, strict_object
-from publication_rendering import BODY_SHA, approved_link
+from publication_rendering import (
+    BODY_SHA,
+    approved_link,
+    exact_commit,
+    repository_root,
+)
 
 
 COMMENT_MARKER = "aiur-build-order-reconciliation"
@@ -107,7 +112,7 @@ def validate_pending_comment_matches(
 def validate_final_comment_matches(
     value: object, root_id: str, plan_version: int, approved: str,
     receipt_commit: str, receipt_url: str, root_issue_url: str,
-    repository: str, report: Report,
+    repository: str, report: Report, repository_anchor: Path | None = None,
 ) -> None:
     """Verify exact live query results without mutating GitHub."""
     label = "final reconciliation comment query"
@@ -120,10 +125,18 @@ def validate_final_comment_matches(
         report.error("approved planning commit must be a 40-character Git SHA")
     if type(plan_version) is not int or plan_version < 1:
         report.error("plan_version must be a positive integer")
-    if not isinstance(receipt_commit, str) or not SHA.fullmatch(receipt_commit):
+    receipt_is_sha = isinstance(receipt_commit, str) and bool(
+        SHA.fullmatch(receipt_commit)
+    )
+    if not receipt_is_sha:
         report.error("receipt_commit must be a 40-character Git SHA")
-    if not isinstance(receipt_url, str) or receipt_commit not in receipt_url:
-        report.error("receipt_url must contain the exact receipt_commit")
+    else:
+        root = repository_root(repository_anchor or Path(__file__), report)
+        if root is not None:
+            exact_commit(root, receipt_commit, "receipt_commit", report)
+    expected_receipt_url = approved_link(repository, receipt_commit)
+    if receipt_url != expected_receipt_url:
+        report.error(f"receipt_url must equal {expected_receipt_url}")
     expected_body = render_successful_comment(
         root_id, plan_version, approved, repository, receipt_commit, receipt_url
     )

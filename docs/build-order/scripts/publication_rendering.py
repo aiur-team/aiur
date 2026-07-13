@@ -185,19 +185,23 @@ def render_approved_pack(
     expectations: dict[str, dict[str, Any]] = {}
     _render_template(
         expectations, root, approved, PurePosixPath(relative_paths[2]).parent,
-        approved_root, root_id, repository, plan_version, "approved root", report,
+        approved_root, publication.get("root_issue"), publication_path.parent,
+        root_id, repository, plan_version, "approved root", report,
     )
     _render_template(
         expectations, root, approved, PurePosixPath(relative_paths[2]).parent,
-        approved_skill, skill_id, repository, plan_version, "approved skill", report,
+        approved_skill, publication.get("skill_issue"), publication_path.parent,
+        skill_id, repository, plan_version, "approved skill", report,
     )
     _render_tickets(
         expectations, root, approved, PurePosixPath(relative_paths[0]).parent,
-        approved_bo, repository, plan_version, "BO", report,
+        approved_bo, current_bo, build_path.parent,
+        repository, plan_version, "BO", report,
     )
     _render_tickets(
         expectations, root, approved, PurePosixPath(relative_paths[1]).parent,
-        approved_dash, repository, plan_version, "DASH", report,
+        approved_dash, current_dash, companion_path.parent,
+        repository, plan_version, "DASH", report,
     )
     expected_ids = {root_id, skill_id, *current_bo, *current_dash}
     if set(expectations) != expected_ids:
@@ -258,6 +262,7 @@ def _approved_json(
 def _render_tickets(
     output: dict[str, dict[str, Any]], root: Path, approved: str,
     pack_dir: PurePosixPath, tickets: dict[str, dict[str, Any]],
+    current_tickets: dict[str, dict[str, Any]], current_base: Path,
     repository: str, plan_version: int, family: str, report: Report,
 ) -> None:
     for logical_id in sorted(tickets):
@@ -271,6 +276,20 @@ def _render_tickets(
         )
         if source is None:
             continue
+        current_ticket = current_tickets.get(logical_id)
+        current_document = (
+            current_ticket.get("document") if isinstance(current_ticket, dict) else None
+        )
+        current_source = _current_document_bytes(
+            current_base, current_document, f"current {logical_id} document", report
+        )
+        if current_source is None:
+            continue
+        if current_source != source.encode("utf-8"):
+            report.error(
+                f"current {logical_id} document must equal the approved source byte-for-byte"
+            )
+            continue
         body = authority_preamble(repository, logical_id, plan_version, approved) + source
         evidence = inspect_issue_body(
             body, repository, logical_id, plan_version, approved,
@@ -282,7 +301,8 @@ def _render_tickets(
 
 def _render_template(
     output: dict[str, dict[str, Any]], root: Path, approved: str,
-    pack_dir: PurePosixPath, issue: object, logical_id: str,
+    pack_dir: PurePosixPath, issue: object,
+    current_issue: object, current_base: Path, logical_id: str,
     repository: str, plan_version: int, label: str, report: Report,
 ) -> None:
     if not isinstance(issue, dict):
@@ -300,6 +320,19 @@ def _render_template(
         report.error(f"{label} document must contain <APPROVED_SHA>")
         return
     body = template.replace("<APPROVED_SHA>", approved)
+    current_document = (
+        current_issue.get("document") if isinstance(current_issue, dict) else None
+    )
+    current_source = _current_document_bytes(
+        current_base, current_document, f"current {label} document", report
+    )
+    if current_source is None:
+        return
+    if current_source != body.encode("utf-8"):
+        report.error(
+            f"current {label} document must equal the approved template after approval substitution"
+        )
+        return
     evidence = inspect_issue_body(
         body, repository, logical_id, plan_version, approved,
         report, f"{label} body",
@@ -348,15 +381,61 @@ def _safe_path(value: object, label: str, report: Report) -> str | None:
         report.error(f"{label} must be a non-empty repository-relative path")
         return None
     path = PurePosixPath(value)
-    if path.is_absolute() or ".." in path.parts or "." in path.parts:
+    normalized = path.as_posix()
+    if (
+        path.is_absolute()
+        or ".." in path.parts
+        or normalized == "."
+        or normalized != value
+        or "\x00" in value
+    ):
         report.error(f"{label} must be a safe repository-relative path")
         return None
-    return path.as_posix()
+    return normalized
+
+
+def _current_document_bytes(
+    base: Path, value: object, label: str, report: Report,
+) -> bytes | None:
+    relative = _safe_path(value, label, report)
+    if relative is None:
+        return None
+    candidate = base.joinpath(*PurePosixPath(relative).parts)
+    try:
+        resolved_base = base.resolve(strict=True)
+        cursor = base
+        for part in PurePosixPath(relative).parts:
+            cursor /= part
+            if cursor.is_symlink():
+                report.error(f"{label} must be a regular non-symlink file")
+                return None
+        resolved = candidate.resolve(strict=True)
+    except OSError as exc:
+        report.error(f"{label} does not resolve: {exc}")
+        return None
+    if not resolved.is_relative_to(resolved_base) or not resolved.is_file():
+        report.error(f"{label} must resolve within its planning pack")
+        return None
+    try:
+        return resolved.read_bytes()
+    except OSError as exc:
+        report.error(f"{label} cannot be read: {exc}")
+        return None
 
 
 def _git_show(
     root: Path, approved: str, path: str, label: str, report: Report,
 ) -> str | None:
+    entry = subprocess.run(
+        ["git", "-C", str(root), "ls-tree", "-z", approved, "--", path],
+        check=False, capture_output=True,
+    )
+    if entry.returncode or not entry.stdout:
+        report.error(f"{label} is absent from approved commit at {path}")
+        return None
+    if not _regular_tree_entry(entry.stdout, path):
+        report.error(f"{label} must be a regular non-symlink file at {path}")
+        return None
     result = subprocess.run(
         ["git", "-C", str(root), "show", f"{approved}:{path}"],
         check=False, capture_output=True,
@@ -369,3 +448,21 @@ def _git_show(
     except UnicodeDecodeError as exc:
         report.error(f"{label} must be UTF-8: {exc}")
         return None
+
+
+def _regular_tree_entry(raw: bytes, path: str) -> bool:
+    entries = [item for item in raw.split(b"\0") if item]
+    if len(entries) != 1 or b"\t" not in entries[0]:
+        return False
+    metadata, name = entries[0].split(b"\t", 1)
+    fields = metadata.split()
+    try:
+        decoded_name = name.decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    return (
+        len(fields) == 3
+        and fields[0] in {b"100644", b"100755"}
+        and fields[1] == b"blob"
+        and decoded_name == path
+    )

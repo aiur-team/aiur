@@ -169,7 +169,7 @@ and cannot displace the feature path.
 | DASH-001 | Responsive URL-backed route shell | 3 | BO-008 |
 | DASH-002 | Recoverable current-run membership | 4 | BO-017 |
 | DASH-003 | Units filters/table/responsive UI | 3 | DASH-001, DASH-016, BO-018 |
-| DASH-004 | Applied pause/resume protocol | 4 | — |
+| DASH-004 | Applied pause/resume protocol | 4 | BO-004 |
 | DASH-005 | Unit and capacity controls UI | 3 | DASH-003, DASH-004 |
 | DASH-006 | Retained Decision lookup/query | 3 | — |
 | DASH-007 | Commands presentation catch-up | 3 | DASH-001, DASH-006, DASH-017 |
@@ -184,7 +184,7 @@ and cannot displace the feature path.
 | DASH-016 | Units row/filter/URL policy | 3 | DASH-002, BO-005 |
 | DASH-017 | Trusted Decision provenance/confidence | 3 | — |
 | DASH-018 | Opaque provider-account generation | 3 | — |
-| DASH-019 | Authenticated local Claude telemetry transport | 4 | named human protocol gate |
+| DASH-019 | Authenticated local Claude telemetry transport | 4 | BO-004; named human protocol gate |
 | DASH-020 | Codex provider-meter adapter | 3 | DASH-012 |
 | DASH-021 | Enforced financial-data boundary | 3 | DASH-001 |
 | DASH-022 | Accessible nonfinancial run-summary UI | 3 | DASH-003, DASH-014 |
@@ -208,6 +208,10 @@ Decision storage while remaining independently acceptable. DASH-019 owns the
 local trust/correlation boundary; it and DASH-004 depend on BO-004 identity,
 and DASH-018/019 serialize on the Claude lifecycle adapter. DASH-010 only
 normalizes accepted requests.
+DASH-002/009/012/018/019/024/025 and BO-003/005/016/019 introduce long-lived
+services through the central application supervision tree. The companion graph
+therefore declares every independently ready same-pack and cross-pack
+serialization pair; existing hard dependencies order the remaining pairs.
 DASH-023 alone maps the selected root's current membership generation into
 retained usage scope without entering Build Order completion and serializes
 with BO-013/014 on Build Order route component work.

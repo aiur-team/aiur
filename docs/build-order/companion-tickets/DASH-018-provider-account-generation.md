@@ -10,7 +10,7 @@
 
 **Depends on:** none
 
-**Serializes with:** DASH-019 — shared Claude process lifecycle adapters
+**Serializes with:** BO-003, BO-005, BO-016, BO-019, DASH-002, DASH-019 — application supervision tree; DASH-019 also shares Claude process lifecycle adapters
 
 **External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
 
@@ -63,6 +63,8 @@ Extend trusted Codex app-server and Claude/aiur-claude authentication/process li
 - Characterize installed Codex and Claude auth/process lifecycle events at pickup and record which transitions prove continuity versus force rotation/unknown.
 - Keep lifecycle adapters thin; centralize generation minting, validation, storage, and change publication in one module family under repository size limits.
 - Prefer in-memory state when daemon lifetime already breaks continuity; persist only when an existing trusted binding token can prove safe restoration without retaining PII or credentials.
+- Reconcile the central application supervision tree with every declared
+  serialization peer before either overlapping branch executes or merges.
 
 ## Acceptance and verification
 
@@ -93,6 +95,8 @@ Extend trusted Codex app-server and Claude/aiur-claude authentication/process li
 - Writes: opaque generation owner/state, Claude process lifecycle adapters,
   change events, tests.
 - Contracts: shared provider-account-generation lookup, rotation, health, and privacy semantics.
+- Safety: non-derivable provider/account isolation and the application
+  supervision tree.
 
 ## Sibling boundaries and open gates
 
@@ -100,6 +104,7 @@ DASH-008 consumes this identity for usage envelopes. DASH-012 consumes it for
 generic meter snapshots, while DASH-020 and DASH-013 report provider lifecycle
 changes through the trusted owner. DASH-018 serializes with DASH-019 because
 both write Claude process lifecycle adapters; this ticket owns account
-generation while DASH-019 owns authenticated telemetry transport. DASH-011
+generation while DASH-019 owns authenticated telemetry transport. Other
+declared peers share only the central application supervision tree. DASH-011
 groups but never joins meters; DASH-015 performs the only exact-generation
 usage/tier composition.

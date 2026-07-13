@@ -10,7 +10,7 @@
 
 **Depends on:** DASH-008
 
-**Serializes with:** none — aggregate/query and compaction consumers are hard-ordered
+**Serializes with:** BO-003, BO-005, BO-016, BO-019, DASH-002, DASH-012, DASH-019 — application supervision tree; aggregate/query and compaction consumers are hard-ordered
 
 **External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
 
@@ -66,6 +66,8 @@ Add one daemon-owned writer using existing private-state, atomic/checksummed fil
 - Reuse proven atomic/private-state helpers if present; otherwise keep a dedicated adapter with injected fault points.
 - Define flush/fsync batching from measured frequency without weakening persist-before-publish acknowledgement.
 - Keep writer, record codec, counter policy, checkpoint, replay, and health modules separately testable under repository size limits.
+- Reconcile the central application supervision tree with every declared
+  serialization peer before either overlapping branch executes or merges.
 
 ## Acceptance and verification
 
@@ -97,8 +99,13 @@ Add one daemon-owned writer using existing private-state, atomic/checksummed fil
 - Reads: DASH-008 `UsageEnvelope` stream and private state configuration.
 - Writes: canonical append-only segments, idempotency/counter checkpoints, ordered derived-delta stream, health/generation.
 - Contracts: sole durable append/delta/replay acknowledgement behavior.
-- Safety: exactly-once accounting, crash consistency, owner-only content-free storage.
+- Safety: exactly-once accounting, crash consistency, owner-only content-free
+  storage, and the application supervision tree.
 
 ## Sibling boundaries and open gates
 
-DASH-024 alone builds aggregate/query state from this raw authority. DASH-025 later owns rotation/retention/compaction. DASH-011 cannot read raw files directly. #132/#845 remain separately dispositioned and cannot create a competing writer.
+DASH-024 alone builds aggregate/query state from this raw authority. DASH-025
+later owns rotation/retention/compaction. The declared serialization peers
+share only the central application supervision tree. DASH-011 cannot read raw
+files directly. #132/#845 remain separately dispositioned and cannot create a
+competing writer.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -26,6 +27,7 @@ from publication_rendering import (  # noqa: E402
     inspect_issue_body,
     render_approved_pack,
 )
+from validate_publication import validate  # noqa: E402
 
 
 REPOSITORY = "example/repo"
@@ -93,10 +95,99 @@ class IssueRenderingTests(unittest.TestCase):
             "\n".join(report.errors),
         )
 
+    def test_post_approval_ticket_document_drift_fails_closed(self) -> None:
+        for relative, logical_id in (
+            ("tickets/BO-001.md", "BO-001"),
+            ("tickets/DASH-001.md", "DASH-001"),
+        ):
+            with self.subTest(logical_id=logical_id):
+                fixture = Fixture(*materialized_pack())
+                self.addCleanup(fixture.close)
+                path = fixture.base / relative
+                path.write_bytes(path.read_bytes() + b"\npost-approval scope drift\n")
+                report = validate(
+                    fixture.companion_path, fixture.build_path,
+                    fixture.publication_path,
+                )
+                self.assertIn(
+                    f"current {logical_id} document must equal the approved source byte-for-byte",
+                    report.errors,
+                )
+
+    def test_post_approval_root_and_skill_document_drift_fails_closed(self) -> None:
+        for relative, label in (
+            ("root-issue.md", "root"),
+            ("skill-delivery.md", "skill"),
+        ):
+            with self.subTest(label=label):
+                fixture = Fixture(*materialized_pack())
+                self.addCleanup(fixture.close)
+                path = fixture.base / relative
+                path.write_bytes(path.read_bytes() + b"\npost-approval scope drift\n")
+                report = validate(
+                    fixture.companion_path, fixture.build_path,
+                    fixture.publication_path,
+                )
+                self.assertTrue(any(
+                    "must equal the approved template after approval substitution" in error
+                    for error in report.errors
+                ))
+
+    def test_current_templates_require_approval_substitution(self) -> None:
+        fixture = Fixture(*materialized_pack())
+        self.addCleanup(fixture.close)
+        companions = json.loads(
+            fixture.companion_path.read_text(encoding="utf-8")
+        )
+        approved = companions["approved_planning_commit"]
+        for relative in ("root-issue.md", "skill-delivery.md"):
+            path = fixture.base / relative
+            path.write_text(
+                path.read_text(encoding="utf-8").replace("<APPROVED_SHA>", approved),
+                encoding="utf-8",
+            )
+        report = validate(
+            fixture.companion_path, fixture.build_path, fixture.publication_path
+        )
+        self.assertEqual([], report.errors)
+        self.assertEqual([], report.warnings)
+
+        root = fixture.base / "root-issue.md"
+        root.write_text(
+            root.read_text(encoding="utf-8").replace(approved, "<APPROVED_SHA>"),
+            encoding="utf-8",
+        )
+        report = validate(
+            fixture.companion_path, fixture.build_path, fixture.publication_path
+        )
+        self.assertTrue(any(
+            "must equal the approved template after approval substitution" in error
+            for error in report.errors
+        ))
+
+    def test_materialized_current_document_symlink_fails_closed(self) -> None:
+        fixture = Fixture(*materialized_pack())
+        self.addCleanup(fixture.close)
+        document = fixture.base / "tickets/DASH-001.md"
+        target = fixture.base / "tickets/DASH-001-copy.md"
+        target.write_bytes(document.read_bytes())
+        document.unlink()
+        document.symlink_to(target.name)
+        report = validate(
+            fixture.companion_path, fixture.build_path, fixture.publication_path
+        )
+        self.assertTrue(any(
+            "current DASH-001 document must be a regular non-symlink file" in error
+            for error in report.errors
+        ))
+
 
 class FinalCommentTests(unittest.TestCase):
     def values(self):
-        receipt = "b" * 40
+        receipt = subprocess.run(
+            ["git", "-C", str(SCRIPT_DIR), "rev-parse", "HEAD"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
         receipt_url = f"https://github.com/{REPOSITORY}/commit/{receipt}"
         root_url = f"https://github.com/{REPOSITORY}/issues/901"
         comment_url = root_url + "#issuecomment-123"
@@ -143,6 +234,43 @@ class FinalCommentTests(unittest.TestCase):
             "exactly one aiur-build-order-reconciliation marker",
             "\n".join(self.report([{"url": url, "body": body + marker}]).errors),
         )
+
+    def test_nonexistent_receipt_commit_fails_final_verification(self) -> None:
+        missing = "0" * 40
+        receipt_url = f"https://github.com/{REPOSITORY}/commit/{missing}"
+        _, _, root_url, comment_url, _ = self.values()
+        body = render_successful_comment(
+            ROOT_ID, 1, APPROVED, REPOSITORY, missing, receipt_url
+        )
+        report = Report()
+        validate_final_comment_matches(
+            [{"url": comment_url, "body": body}], ROOT_ID, 1, APPROVED,
+            missing, receipt_url, root_url, REPOSITORY, report,
+        )
+        self.assertIn(
+            "receipt_commit must resolve to an exact commit in this repository",
+            report.errors,
+        )
+
+    def test_foreign_or_malformed_receipt_url_fails_final_verification(self) -> None:
+        receipt, canonical_url, root_url, comment_url, _ = self.values()
+        urls = (
+            f"https://evil.example/receipts/{receipt}",
+            canonical_url + "?not-the-commit-object",
+        )
+        for receipt_url in urls:
+            with self.subTest(receipt_url=receipt_url):
+                body = render_successful_comment(
+                    ROOT_ID, 1, APPROVED, REPOSITORY, receipt, receipt_url
+                )
+                report = Report()
+                validate_final_comment_matches(
+                    [{"url": comment_url, "body": body}], ROOT_ID, 1,
+                    APPROVED, receipt, receipt_url, root_url, REPOSITORY, report,
+                )
+                self.assertIn(
+                    f"receipt_url must equal {canonical_url}", report.errors
+                )
 
 
 if __name__ == "__main__":

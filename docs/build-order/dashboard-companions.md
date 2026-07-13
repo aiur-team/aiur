@@ -10,7 +10,7 @@ completion requirements, or ETA inputs of the Build Order root.
 | [DASH-002](companion-tickets/DASH-002-current-run-membership.md) | Recoverable current-run membership | 4 | BO-017 |
 | [DASH-016](companion-tickets/DASH-016-units-row-policy.md) | Canonical Units rows, predicates, counts, and URL policy | 3 | DASH-002, BO-005 |
 | [DASH-003](companion-tickets/DASH-003-units-interface.md) | Responsive Units filters/table | 3 | DASH-001, DASH-016, BO-018 |
-| [DASH-004](companion-tickets/DASH-004-applied-unit-control-protocol.md) | Worker-applied pause/resume protocol | 4 | — |
+| [DASH-004](companion-tickets/DASH-004-applied-unit-control-protocol.md) | Worker-applied pause/resume protocol | 4 | BO-004 |
 | [DASH-005](companion-tickets/DASH-005-unit-capacity-controls-ui.md) | Unit and positive-capacity controls | 3 | DASH-003, DASH-004 |
 | [DASH-006](companion-tickets/DASH-006-decision-lookup.md) | Retained Decision lookup/query contract | 3 | — |
 | [DASH-017](companion-tickets/DASH-017-decision-provenance.md) | Trusted Decision provenance; unchanged supervisor confidence | 3 | — |
@@ -21,7 +21,7 @@ completion requirements, or ETA inputs of the Build Order root.
 | [DASH-024](companion-tickets/DASH-024-usage-aggregate-query.md) | Crash-safe usage aggregate/query projection | 4 | DASH-009 |
 | [DASH-025](companion-tickets/DASH-025-usage-retention-compaction.md) | Rotation/retention/compaction hardening | 4 | DASH-024 |
 | [DASH-011](companion-tickets/DASH-011-cost-grouping-projection.md) | Versioned cost/grouping projection | 4 | DASH-024 |
-| [DASH-019](companion-tickets/DASH-019-claude-telemetry-transport.md) | Authenticated bounded Claude telemetry transport | 4 | `GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY` |
+| [DASH-019](companion-tickets/DASH-019-claude-telemetry-transport.md) | Authenticated bounded Claude telemetry transport | 4 | BO-004; `GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY` |
 | [DASH-010](companion-tickets/DASH-010-claude-remote-usage.md) | Required Claude Remote usage adapter | 3 | DASH-008, DASH-019 |
 | [DASH-012](companion-tickets/DASH-012-provider-meter-foundation.md) | Provider-meter snapshot/LKG foundation | 3 | DASH-018 |
 | [DASH-020](companion-tickets/DASH-020-codex-provider-meter-adapter.md) | Codex meter and scheduling adapter | 3 | DASH-012 |
@@ -87,6 +87,12 @@ The complete evidence matrix is
   serializes with BO-012, and DASH-023 serializes with BO-013/014 while its
   dependency already orders it after BO-012. DASH-015/023 are hard-ordered;
   DASH-022 serializes with each on the shared summary layout.
+- BO-003/005/016/019 and DASH-002/009/012/018/019/024/025 all add long-lived
+  children through the current central application supervision tree. The
+  companion manifest declares every independently ready cross-pack edge and
+  every symmetric same-pack edge; existing hard dependencies order the
+  remainder. This is a merge/execution mutex, not a data dependency or root
+  membership relation.
 - DASH-006 and DASH-017 `serialize_with` each other on Decision store/schema
   files. DASH-006 owns read/query behavior; DASH-017 owns durable trusted
   fields and migration.

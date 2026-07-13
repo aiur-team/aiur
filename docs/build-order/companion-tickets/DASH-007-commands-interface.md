@@ -82,7 +82,8 @@ Extend current `DashboardLive`, `DecisionInbox`, `DecisionCard`, `DecisionDetail
 
 - Provider failure preserves healthy sections, marks partial counts/pages/detail, and never hides a known blocking Command as an empty healthy state.
 - Preserve sanitization, Basic/supervisor auth, CSRF, writable, version-conflict, trusted-link, and secret-redaction behavior.
-- No persistence-name migration; DASH-006 owns any additive schema migration.
+- This presentation ticket introduces no persistence-name or additive schema
+  migration; DASH-017 owns provenance schema, replay, and legacy migration.
 - Filters, status, urgency, confirmation, errors, option previews, and confidence remain keyboard/touch reachable and non-color-dependent.
 
 ## Surfaces

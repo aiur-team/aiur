@@ -36,7 +36,7 @@ are separate tracks and cannot change this run's denominator or ETA.
    - `docs/build-order/validation-report.md`
    - `docs/build-order/github-publication.md`
 2. Use `/aiur-run`, not the retired `/aiur-loop` workflow. Verify the loaded
-   skill is PR #1065 commit `0bb9ec02` or an explicitly reviewed compatible
+   skill is PR #1065 commit `311ffa17` or an explicitly reviewed compatible
    successor preserving its finite-boundary, review/rework, circuit-breaker,
    and publication rules. A matching skill name is insufficient.
 3. Write a three-to-five-sentence `/goal` stating that you are the Executor,
@@ -99,7 +99,11 @@ BO-012; BO-014 follows BO-008 and BO-013; BO-015 follows BO-006 and BO-014.
 If separately authorized companion work is active, honor its companion-owned
 cross-pack serialization: DASH-001 with BO-012, DASH-023 with BO-013/014, and
 DASH-008 with BO-005. DASH-018/019 serialize on the Claude process-lifecycle
-adapter. DASH-004/019 depend on BO-004's configured-repository identity.
+adapter. DASH-004/019 depend on BO-004's configured-repository identity. The
+seven supervised companion services—DASH-002/009/012/018/019/024/025—also
+declare every independently ready same-pack and cross-pack serialization pair
+against BO-003/005/016/019 on the central application supervision tree. Hard
+dependencies already order the omitted pairs.
 
 Derive current readiness from GitHub native blockers, ticket lifecycle,
 declared serialization and real capacity. Phase is only a rollout/display hint.

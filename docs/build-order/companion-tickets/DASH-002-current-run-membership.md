@@ -10,7 +10,7 @@
 
 **Depends on:** BO-017
 
-**Serializes with:** none
+**Serializes with:** BO-003, BO-005, BO-016, BO-019, DASH-009, DASH-012, DASH-018, DASH-019, DASH-024, DASH-025 — application supervision tree
 
 **External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
 
@@ -63,6 +63,8 @@ Build a supervised projection over BO-017 propagated identity, `Aiur.Boot.run_id
 - Refresh BO-017's final propagated identity fields and current StatusReport lifecycle values at pickup; add a compatibility adapter rather than duplicating its owner.
 - Keep recovery records content-free and bounded. Prefer one owner process plus pure transition/replay modules so crash cases remain deterministic.
 - Characterize daemon restart versus supervised projection restart: `run_id` changes on the former and remains stable on the latter.
+- Reconcile the central application supervision tree with every declared
+  serialization peer before either overlapping branch executes or merges.
 
 ## Acceptance and verification
 
@@ -92,7 +94,13 @@ Build a supervised projection over BO-017 propagated identity, `Aiur.Boot.run_id
 - Reads: BO-017 propagated identity, current `run_id`, StatusReport/tracker lifecycle observations, same-run recovery state.
 - Writes: membership journal/checkpoint, supervised membership projection, health/generation PubSub, tests.
 - Contracts: current-run membership/terminal retention, recovery generation, snapshot/lookup/health APIs.
+- Safety: run-generation isolation, owner-only recovery state, and the
+  application supervision tree.
 
 ## Sibling boundaries and open gates
 
-DASH-016 alone joins membership to BO-005 activity and owns `UnitsRow`, predicates, counts, and URL policy. DASH-014 consumes DASH-016 rather than redefining membership. This ticket never makes companion work part of Build Order acceptance.
+DASH-016 alone joins membership to BO-005 activity and owns `UnitsRow`,
+predicates, counts, and URL policy. DASH-014 consumes DASH-016 rather than
+redefining membership. The declared serialization peers share only the central
+application supervision tree; none gains a data dependency or Build Order
+membership from that merge-safety constraint.

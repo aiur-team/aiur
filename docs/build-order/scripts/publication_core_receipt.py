@@ -13,7 +13,7 @@ from publication_common import SHA, Report
 from publication_rendering import exact_commit, repository_root
 
 
-PINNED_SKILL_COMMIT = "0bb9ec025efb1cabb56b3450f96abebdb6a86baf"
+PINNED_SKILL_COMMIT = "311ffa17866b50731b521114cc6fe2f610a03a11"
 SKILL_ROOT = ".claude/skills/aiur-build/scripts"
 PINNED_MODULES = (
     "validation_common.py",

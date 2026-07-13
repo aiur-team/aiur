@@ -10,7 +10,7 @@
 
 **Depends on:** DASH-018
 
-**Serializes with:** none
+**Serializes with:** BO-003, BO-005, BO-016, BO-019, DASH-002, DASH-009, DASH-019, DASH-024, DASH-025 — application supervision tree
 
 **External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
 
@@ -64,6 +64,8 @@ Add a dedicated provider-meter behavior/projection using DASH-018 identity and e
 - Refresh current health/PubSub/LKG conventions at pickup and keep adapter input as a strict typed boundary.
 - Model arbitrary windows and controls first; use 300-minute/10,080-minute examples only as fixtures.
 - Keep pure update/reconciliation policy separate from the supervised store so full/patch/tombstone properties are deterministic.
+- Reconcile the central application supervision tree with every declared
+  serialization peer before either overlapping branch executes or merges.
 
 ## Acceptance and verification
 
@@ -93,7 +95,13 @@ Add a dedicated provider-meter behavior/projection using DASH-018 identity and e
 - Reads: DASH-018 provider-account generation and typed adapter updates.
 - Writes: provider-meter schema/behavior/projection, LKG/health/PubSub, tests.
 - Contracts: `ProviderMeterSnapshot`, update/tombstone semantics, per-window freshness and account isolation.
+- Safety: account-generation isolation, provider redaction, and the application
+  supervision tree.
 
 ## Sibling boundaries and open gates
 
-DASH-020 implements Codex and scheduling compatibility; DASH-013 implements Claude behind its human gate. DASH-021 protects query/subscription access, and DASH-015 performs the only exact-generation usage/tier composition.
+DASH-020 implements Codex and scheduling compatibility; DASH-013 implements
+Claude behind its human gate. DASH-021 protects query/subscription access, and
+DASH-015 performs the only exact-generation usage/tier composition. The
+declared serialization peers share only the central application supervision
+tree and gain no provider-meter dependency.

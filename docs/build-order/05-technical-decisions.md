@@ -158,7 +158,7 @@ until a human records the configured branch/SHA that contains the accepted OCC
 baseline and the predecessor dashboard run is complete. That baseline gate
 applies to both Build Order and every standalone dashboard companion. Build
 Order execution is additionally gated on the bounded `/aiur-run` revision from
-PR #1065 commit `0bb9ec02` (or an explicitly reviewed compatible successor)
+PR #1065 commit `311ffa17` (or an explicitly reviewed compatible successor)
 being installed and discoverable. These are external pre-dispatch gates, not
 feature tickets or additions to the completion denominator.
 

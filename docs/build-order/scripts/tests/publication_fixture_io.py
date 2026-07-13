@@ -31,6 +31,7 @@ class FixtureBase:
             self._init_git()
             approved = self._head()
             values = tuple(_replace_approval(item, approved) for item in values)
+            self._write(*values)
             self._fill_expected_receipts(*values, approved)
         self._write(*values)
 
@@ -68,10 +69,11 @@ class FixtureBase:
                 continue
             path = self.base / document
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(
-                _template_text(title, logical_id, repository, plan_version),
-                encoding="utf-8",
-            )
+            text = _template_text(title, logical_id, repository, plan_version)
+            approved = publication_data.get("approved_planning_commit")
+            if isinstance(approved, str):
+                text = text.replace("<APPROVED_SHA>", approved)
+            path.write_text(text, encoding="utf-8")
 
     def _approved_source(
         self, companion: dict[str, object], build: dict[str, object],

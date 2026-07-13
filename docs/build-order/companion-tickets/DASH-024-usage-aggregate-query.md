@@ -10,7 +10,7 @@
 
 **Depends on:** DASH-009
 
-**Serializes with:** none — the raw-ledger and compaction owners are hard-ordered
+**Serializes with:** BO-003, BO-005, BO-016, BO-019, DASH-002, DASH-012, DASH-019 — application supervision tree; the raw-ledger and compaction owners are hard-ordered
 
 **External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
 
@@ -64,6 +64,8 @@ Add a supervised projection/query implementation beside DASH-009's behavior, usi
 - Refresh DASH-009's final replay/position behavior at pickup and consume it through the public seam only.
 - Use exact integer/decimal arithmetic and property fixtures spanning every dimension.
 - Keep projection state, checkpoint codec, replay, query policy, and PubSub modules bounded and independently tested.
+- Reconcile the central application supervision tree with every declared
+  serialization peer before either overlapping branch executes or merges.
 
 ## Acceptance and verification
 
@@ -94,8 +96,13 @@ Add a supervised projection/query implementation beside DASH-009's behavior, usi
 - Reads: DASH-009 ordered delta/replay behavior and source coverage.
 - Writes: aggregate/checkpoint snapshots, bounded query projection, health/freshness/generation PubSub.
 - Contracts: exact multidimensional usage aggregate/query behavior.
-- Safety: reproducible projection, exact reconciliation, no raw-store mutation.
+- Safety: reproducible projection, exact reconciliation, no raw-store mutation,
+  and the application supervision tree.
 
 ## Sibling boundaries and open gates
 
-DASH-011 applies pricing/grouping policy through this query seam. DASH-025 hardens retained coverage and compaction without changing query semantics. DASH-015 waits for DASH-025 before presenting retained totals as production-ready.
+DASH-011 applies pricing/grouping policy through this query seam. DASH-025
+hardens retained coverage and compaction without changing query semantics.
+Declared serialization peers share only the central application supervision
+tree. DASH-015 waits for DASH-025 before presenting retained totals as
+production-ready.

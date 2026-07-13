@@ -10,7 +10,7 @@
 
 **Depends on:** DASH-024
 
-**Serializes with:** none — hard-ordered storage chain owns one destructive seam
+**Serializes with:** BO-003, BO-005, BO-016, BO-019, DASH-002, DASH-012, DASH-019 — application supervision tree; the hard-ordered storage chain owns one destructive seam
 
 **External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
 
@@ -64,6 +64,8 @@ Extend DASH-009 segment and DASH-024 aggregate behaviors through one supervised 
 - Refresh final DASH-009 segment identity and DASH-024 aggregate position/block formats at pickup; use public seams rather than reaching into modules.
 - Keep policy, manifest state machine, block codec, coordinator, and reconciliation modules independently testable.
 - Choose defaults from measured event frequency/storage size, but make correctness independent of the chosen thresholds.
+- Reconcile the central application supervision tree with every declared
+  serialization peer before either overlapping branch executes or merges.
 
 ## Acceptance and verification
 
@@ -94,8 +96,12 @@ Extend DASH-009 segment and DASH-024 aggregate behaviors through one supervised 
 - Reads: DASH-009 segment ranges and DASH-024 aggregate/query/checkpoint behavior.
 - Writes: rotation/retention policy, compacted aggregate blocks, destructive-phase manifest, segment retirement, health/coverage.
 - Contracts: dimension-preserving compaction and retained-coverage semantics.
-- Safety: no-delete-before-coverage, crash-safe destructive state machine, exact query equivalence.
+- Safety: no-delete-before-coverage, crash-safe destructive state machine,
+  exact query equivalence, and the application supervision tree.
 
 ## Sibling boundaries and open gates
 
-DASH-009 remains raw/delta authority and DASH-024 remains aggregate/query owner. DASH-011 pricing semantics do not change. DASH-015 depends on this hardening before presenting retained usage as production-ready.
+DASH-009 remains raw/delta authority and DASH-024 remains aggregate/query owner.
+Declared serialization peers share only the central application supervision
+tree. DASH-011 pricing semantics do not change. DASH-015 depends on this
+hardening before presenting retained usage as production-ready.

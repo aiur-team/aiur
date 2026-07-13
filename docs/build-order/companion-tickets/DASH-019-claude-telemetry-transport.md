@@ -10,7 +10,7 @@
 
 **Depends on:** BO-004
 
-**Serializes with:** DASH-018 — shared Claude process lifecycle adapters
+**Serializes with:** BO-003, BO-005, BO-016, BO-019, DASH-002, DASH-009, DASH-012, DASH-018, DASH-024, DASH-025 — application supervision tree; DASH-018 also shares Claude process lifecycle adapters
 
 **External gates:** `GATE-OCC-PREDECESSOR-BASELINE`; and `GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY`, owned by a human with `aiur-claude` write authority and resolved before dispatch
 
@@ -70,6 +70,8 @@ Extend Claude REPL/Remote Control process/session lifecycle and trusted launch c
 - Refresh official Claude monitoring transport/version behavior and installed aiur-claude launch capabilities at pickup; pin sanitized fixtures in the gate receipt.
 - Prefer a small generic receiver boundary plus Claude lifecycle adapter, without creating a general-purpose unauthenticated OTLP collector.
 - Use injected clocks/capability minting and deterministic connection fixtures; never `Process.sleep` in lifecycle/rate tests.
+- Reconcile the central application supervision tree with every declared
+  serialization peer before either overlapping branch executes or merges.
 
 ## Acceptance and verification
 
@@ -103,14 +105,17 @@ Extend Claude REPL/Remote Control process/session lifecycle and trusted launch c
   lifecycle, Claude process lifecycle adapters, trusted correlation registry,
   allowlisted event stream, health/rejections, fixtures/tests.
 - Contracts: producer-authenticated bounded local telemetry and `GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY` receipt.
+- Safety: authenticated bounded content-free transport and the application
+  supervision tree.
 
 ## Sibling boundaries and open gates
 
 DASH-010 alone converts delivered events into DASH-008 envelopes. BO-004 owns
 repository-qualified identity. DASH-019 serializes with DASH-018 because both
 write Claude process lifecycle adapters; this ticket owns telemetry transport,
-not account-generation identity. This ticket is not dispatchable until its
-human gate names an Aiur-only path or already-landed pinned compatible sibling
+not account-generation identity. Other declared peers share only the central
+application supervision tree. This ticket is not dispatchable until its human
+gate names an Aiur-only path or already-landed pinned compatible sibling
 revision. Missing sibling capability requires a separate human-authorized
 sibling issue/PR and cannot be implemented here or reclassified as unsupported
 completion.
