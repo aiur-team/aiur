@@ -12,7 +12,13 @@ defmodule AiurWeb.PresenterTest do
       pid: self(),
       ref: make_ref(),
       identifier: identifier,
-      issue: %Issue{id: issue_id, identifier: identifier, state: issue_state, title: "Row #{identifier}"},
+      issue: %Issue{
+        id: issue_id,
+        identifier: identifier,
+        state: issue_state,
+        title: "Row #{identifier}",
+        url: "https://example.test/issues/#{identifier}"
+      },
       worker_host: nil,
       control: %{can_interrupt: true, safe_checkpoints: [:notification], status: status},
       session_id: "thread-#{identifier}",
@@ -68,6 +74,11 @@ defmodule AiurWeb.PresenterTest do
 
     assert [running_row] = payload.running
     assert running_row.issue_identifier == "MT-700"
+    assert running_row.title == "Row MT-700"
+    assert running_row.url == "https://example.test/issues/MT-700"
+    assert running_row.work_state == :paused
+    assert running_row.tracker_paused == false
+    assert is_integer(running_row.runtime_seconds)
     assert running_row.waiting_reason == :waiting_for_ci
     assert running_row.ci == %{decision: :pending, pr_number: 55, head_sha: "abc123"}
     assert running_row.review == :not_started
@@ -213,22 +224,6 @@ defmodule AiurWeb.PresenterTest do
 
     assert length(payload.recent_merges.entries) == 50
     assert Enum.map(payload.recent_merges.entries, & &1.number) == Enum.to_list(1..50)
-  end
-
-  test "the decision history projection stays bounded" do
-    decisions = Enum.map(1..10_000, &%{decision_id: "dec-#{&1}"})
-
-    payload =
-      Presenter.state_payload(Module.concat(__MODULE__, :MissingBoundedDecisionOrchestrator), 5,
-        decision_history_fun: fn -> decisions end,
-        recent_merge_snapshot_fun: fn ->
-          %{merges: [], health: :writable, reconciliation: %{status: :complete, partial?: false, pages_fetched: 1}}
-        end,
-        telemetry_file_fun: fn -> "/definitely/missing/telemetry.ndjson" end
-      )
-
-    assert length(payload.decision_history.entries) == 50
-    assert Enum.map(payload.decision_history.entries, & &1.decision_id) == Enum.map(1..50, &"dec-#{&1}")
   end
 
   defp merged_event do

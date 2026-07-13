@@ -3,7 +3,7 @@ defmodule Aiur.DecisionStoreTest do
 
   import ExUnit.CaptureLog
 
-  alias Aiur.{AlertFeed, Boot, DecisionEvent, DecisionLog, DecisionPubSub, DecisionStore}
+  alias Aiur.{AlertFeed, Boot, DecisionEvent, DecisionHistory, DecisionLog, DecisionPubSub, DecisionStore}
   alias Aiur.Events.{Exchange, IdGenerator}
 
   @ticket %{identifier: "979", title: "OCC-1", url: "https://github.com/its-everdred/aiur/issues/979"}
@@ -38,17 +38,31 @@ defmodule Aiur.DecisionStoreTest do
 
   test "recent audit reads stay bounded with 10k stored decisions", %{dir: dir} do
     pid = start_store!(dir)
-    records = Enum.map(1..10_000, &%{decision_id: "dec-#{&1}"})
+
+    assert {:ok, %{decision: decision}} = request(pid, %{"question" => "Bound this history?", "blocking" => false})
+    %{audit_history: audit_history} = :sys.get_state(pid)
+    [event] = Map.fetch!(audit_history, decision.decision_id)
+
+    records =
+      Enum.map(1..10_000, fn index ->
+        decision_id = "dec-#{index}"
+        %{event | decision_id: decision_id, data: %{event.data | decision_id: decision_id}}
+      end)
 
     :sys.replace_state(pid, fn state ->
-      %{state | audit_history: Map.new(records, &{&1.decision_id, [&1]}), recent_audit: Enum.take(records, -50)}
+      %{
+        state
+        | audit_history: Map.new(records, &{&1.decision_id, [&1]}),
+          current: Map.new(records, &{&1.decision_id, &1.data}),
+          recent_audit: records |> Enum.reverse() |> Enum.take(50)
+      }
     end)
 
-    histories = DecisionStore.recent_audit_history(pid)
+    recent = DecisionStore.recent_audit_history(10_000, pid)
 
-    assert map_size(histories) == 50
-    assert Map.has_key?(histories, "dec-9951")
-    assert Map.has_key?(histories, "dec-10000")
+    assert length(recent.records) == 50
+    assert Enum.map(recent.records, & &1.decision_id) == Enum.map(10_000..9_951//-1, &"dec-#{&1}")
+    assert map_size(recent.contexts) == 50
     assert map_size(:sys.get_state(pid).audit_history) == 10_000
   end
 
@@ -128,6 +142,53 @@ defmodule Aiur.DecisionStoreTest do
 
       assert {:ok, [%DecisionEvent{type: :requested, data: ^decision}]} =
                DecisionStore.audit_history(decision.decision_id, pid)
+    end
+
+    test "returns a bounded recent audit window with only its projection contexts", %{dir: dir} do
+      pid = start_store!(dir, dispatch_delay_ms: 60_000)
+
+      assert {:ok, %{decision: contextual}} =
+               request(pid, %{
+                 "source_id" => "recent-audit-context",
+                 "question" => "Does a bounded lifecycle event retain its context?",
+                 "blocking" => false,
+                 "options" => [%{"id" => "yes", "label" => "Yes"}]
+               })
+
+      for index <- 1..55 do
+        assert {:ok, _result} =
+                 request(pid, %{
+                   "source_id" => "recent-audit-#{index}",
+                   "question" => "Recent decision #{index}?",
+                   "blocking" => false
+                 })
+      end
+
+      assert %{records: records, contexts: contexts, revisions: %{}} =
+               DecisionStore.recent_audit_history(5, pid)
+
+      assert Enum.map(records, & &1.data.source_id) ==
+               Enum.map(55..51//-1, &"recent-audit-#{&1}")
+
+      assert map_size(contexts) == 5
+      assert %{records: capped} = DecisionStore.recent_audit_history(500, pid)
+      assert length(capped) == 50
+
+      assert {:ok, _answer_result} =
+               answer(pid, contextual.decision_id, %{
+                 "idempotency_key" => "recent-audit-answer",
+                 "expected_version" => contextual.version,
+                 "option_id" => "yes"
+               })
+
+      assert [answered] = DecisionHistory.list(server: pid, limit: 1)
+      assert answered.change == :answered
+      assert answered.question == "Does a bounded lifecycle event retain its context?"
+
+      GenServer.stop(pid)
+      replayed = start_store!(dir, dispatch_delay_ms: 60_000)
+      assert [replayed_answer] = DecisionHistory.list(server: replayed, limit: 1)
+      assert replayed_answer.question == answered.question
     end
 
     test "new request audit records carry the typed envelope and canonical run id", %{dir: dir} do
