@@ -21,6 +21,10 @@ the planning documents.
 6. For flat subscription plans, should per-ticket “spend” be a versioned
    token-price estimate, an allocation of the subscription fee, or unavailable
    while tokens and quota consumption remain visible?
+7. Should “total build” include all recorded usage for member tickets, or only
+   usage observed after each ticket joined the Build Order?
+8. Must v1 totals include direct `claude-repl`/Remote Control usage, or may the
+   cards show explicitly incomplete coverage for that transport?
 
 ## Commands or Access Needed
 
@@ -37,7 +41,8 @@ the planning documents.
 - Dashboard dependency editing, Linear, cross-repository orders, and more than
   100 direct tickets are follow-on scope.
 - Provider quota/token/spend accounting is a separate companion dashboard
-  ticket, not a Build Order member or acceptance dependency.
+  track, not Build Order membership or acceptance work. Research recommends
+  three pickable tickets: durable ledger, account meters, and shared UI.
 
 ## Resolved
 

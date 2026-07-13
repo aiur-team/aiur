@@ -9,6 +9,10 @@ The prototype combines four scopes: a richer shared shell/read model, a
 substantial Fleet-to-Units redesign, a smaller Decision-to-Commands alignment,
 and the net-new Build Order graph. It is not a CSS-only restyle.
 
+The companion dashboard work is separate from Build Order: Units, Commands,
+and the three-ticket usage/accounting track in `04-usage-accounting.md`. None of
+those tickets enters the Build Order root or feature-completion calculation.
+
 ## Current production baseline
 
 The merged Operator Control Center already has:
@@ -35,8 +39,8 @@ provider-accounting scope.
 |---|---|---|
 | Navigation | Fleet and Decision inbox route links | Full-width Units, Commands, Build Order navigation while preserving URL/back behavior. Build Order route itself remains net-new work. |
 | Top shell | Live/offline, tracker, agent kind, UTC, theme | Live, analytics, theme, and truthful optional ETA/provider summaries. Do not show invented values. |
-| Usage/rate limits | Aggregate tokens and one latest provider-unattributed rate-limit map | Provider-keyed, observed-at data is required before per-provider cards can be canonical. |
-| Spend | No price/version source | Defer, or show an explicitly configured/versioned estimate. Never copy mock constants. |
+| Usage/rate limits | Aggregate tokens and one latest provider-unattributed rate-limit map | Consume the separate usage/accounting projection; do not implement provider ingestion inside Units. |
+| Spend | No durable price/cost source | Consume basis-labelled actual, provider-reported, estimated, fixed, or unknown values from the separate accounting track. |
 | Units data | Ticket/state/waiting/latest/elapsed/decisions/actions | Add real backend/model/effort/complexity/progress/epic-lane data with honest unknowns. Preserve waiting reason. |
 | Filters | Independent Active/Blocked/Paused/Stuck/Finished/Total | Define the exact grouped Live/All toggle truth table; do not copy the mock's surprising “any child selected means clear all” behavior. |
 | Max agents | No dashboard control; runtime controls exist | Use real max/active/draining state, writable gate, and errors. Never mutate rows to fake a pause. |
@@ -63,6 +67,20 @@ vocabulary and composition, not a storage migration.
   a real command contract is separately accepted.
 
 This catch-up is independent of the Build Order data provider and graph.
+
+## Companion usage/accounting track
+
+The shell cards require three independently reviewable outcomes:
+
+1. a durable token/cost ledger attributed by ticket, run, backend, agent family,
+   and exact model;
+2. provider account-meter ingestion for subscription and API-key modes; and
+3. shared OCC summary cards with honest scope, cost basis, coverage, staleness,
+   and unavailable states.
+
+See `04-usage-accounting.md` for boundaries and evidence. Build Order may pass
+its selected member IDs to the accounting query, but its own data provider,
+graph, interactions, and acceptance do not depend on provider billing.
 
 ## Build Order behavior inventory
 

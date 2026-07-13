@@ -11,10 +11,10 @@
   ],
   "github_root": null,
   "label_projection": {
-    "build_order": "build-order:operator-dashboard",
+    "build_order": "build-order",
     "workstreams": {
-      "platform": "epic:platform",
-      "integration": "epic:integration"
+      "platform": "build-lane:platform",
+      "integration": "build-lane:integration"
     },
     "phases": {"1": "phase:1", "2": "phase:2"},
     "complexities": {"2": "complexity:2", "3": "complexity:3"}

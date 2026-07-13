@@ -12,9 +12,11 @@ their metadata, and their dependency edges. Aiur contributes live execution
 state, progress estimates, workflow phase, recent activity, and event evidence
 without copying those facts back into a second planning database.
 
-The initial implementation size hypothesis is roughly ten Build Order tickets,
-plus two independent existing-page catch-up tickets. The final count follows
-independently reviewable dependency boundaries, not a quota.
+The initial implementation size hypothesis is ten Build Order tickets. Separate
+dashboard companion work currently comprises Units, Commands, and three
+usage/accounting tickets. Those tickets do not belong to the Build Order root
+or its completion math. Final counts follow independently reviewable dependency
+boundaries, not a quota.
 
 ## Current Dashboard Baseline
 

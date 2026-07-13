@@ -37,55 +37,33 @@ that copied status is live.
 ## Canonical baseline record
 
 `build-order.json` uses standard JSON so the bundled validator needs no external
-parser. Minimum shape:
+parser. The complete canonical example is
+[`build-order.example.json`](build-order.example.json); it is validated by the
+skill's regression suite.
 
-```json
-{
-  "schema_version": 1,
-  "build_order_id": "owner/repo:feature-slug",
-  "plan_version": 1,
-  "repository": "owner/repo",
-  "researched_at_commit": "40-character-git-sha",
-  "requirements": [
-    {
-      "id": "REQ-001",
-      "summary": "Operator can select one Build Order",
-      "disposition": "ticket",
-      "ticket_ids": ["BO-004"]
-    }
-  ],
-  "tickets": [
-    {
-      "id": "BO-004",
-      "kind": "executable",
-      "provenance": "planned",
-      "introduced_in_plan_version": 1,
-      "title": "Render selectable Build Orders",
-      "phase_hint": 2,
-      "complexity_points": 3,
-      "complexity_rationale": "New presenter and interactive selector",
-      "risk": "medium",
-      "capability_requirements": ["frontend"],
-      "requirement_refs": ["REQ-001"],
-      "depends_on": [],
-      "serializes_with": [],
-      "suggested_after": [],
-      "read_surfaces": ["GitHub Build Order snapshot"],
-      "write_surfaces": ["dashboard Build Order components"],
-      "contract_surfaces": ["BuildOrderPresenter view model"],
-      "github": null
-    }
-  ],
-  "epic_acceptance": {
-    "owner_ticket_id": "BO-010",
-    "evidence": ["Merged-base end-to-end dashboard acceptance"]
-  }
-}
-```
+Top-level records are strict:
+
+- schema, repository-scoped Build Order ID, ticket prefix, plan version,
+  repository, and researched commit;
+- controlled workstreams and deterministic GitHub label projection;
+- optional returned GitHub root identity after materialization;
+- finite feature boundary with acceptance, critical path, documentation,
+  cleanup, end-to-end proof, and terminal condition;
+- owned external gates;
+- requirements with exactly one disposition;
+- complete ticket contracts; and
+- capstone-owned epic acceptance evidence.
+
+Each ticket record includes document path, observable outcome, scope, non-goals,
+kind/provenance/version, workstream/phase/complexity/risk/capabilities,
+requirement references, typed edges, external gates, read/write/contract/safety
+surfaces, structured conflict exceptions, agent/at-merge/human acceptance, and
+optional returned GitHub identity.
 
 Allowed requirement dispositions are `ticket`, `covered`, `deferred`,
 `rejected`, and `satisfied`. `ticket` and `covered` require at least one ticket
-ID. Other dispositions require a non-empty `reason`.
+ID. Their `reason` is `null`; other dispositions require a non-empty reason and
+no ticket IDs. Requirement-to-ticket traceability must agree in both directions.
 
 Allowed ticket kinds are `executable`, `audit`, `gate`, `umbrella`, and
 `capstone`. Every runnable kind needs complexity and acceptance metadata in its
@@ -191,10 +169,11 @@ The pack fails validation when:
 1. Build Order/version/repository/SHA or stable IDs are absent or duplicated.
 2. Edge or requirement endpoints do not resolve, a self-edge exists, or the
    hard prerequisite graph has a cycle.
-3. A dependent has an earlier/equal phase hint than its prerequisite without a
-   documented exception.
-4. Independently ready tickets overlap write/contract surfaces without hard
-   ordering or `serializes_with`.
+3. A dependent has an earlier phase hint than its prerequisite. Same-phase hard
+   dependencies are valid because phase is a grouping hint, not readiness.
+4. Independently ready tickets overlap declared safety surfaces without hard
+   ordering, `serializes_with`, or a structured approved exception. Other
+   surface overlap remains a warning that must be dispositioned.
 5. A requirement lacks exactly one valid disposition.
 6. A runnable node lacks complexity/rationale, provenance/version, risk, or
    requirement traceability.
