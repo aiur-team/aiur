@@ -4,7 +4,20 @@ defmodule AiurWeb.DashboardLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
-  alias Aiur.{Decision, DecisionApi, DecisionDispatch, DecisionEvent, DecisionMetrics, DecisionPubSub, DecisionStore, Issue}
+  alias Aiur.{
+    Decision,
+    DecisionApi,
+    DecisionDispatch,
+    DecisionEvent,
+    DecisionHistory,
+    DecisionMetrics,
+    DecisionPubSub,
+    DecisionStore,
+    Issue
+  }
+
+  alias Aiur.Events.Exchange
+
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.OperatorMessages
   alias Aiur.RecentMerge
@@ -966,6 +979,199 @@ defmodule AiurWeb.DashboardLiveTest do
            end) == [:requested, :answer_recorded, :dispatch_queued, :delivered, :acknowledged, :resolved]
   end
 
+  test "human dashboard revision traverses the corrective queue and lifecycle projections" do
+    orchestrator_name = Module.concat(__MODULE__, :RevisionCapstoneOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :RevisionCapstoneDecisionStore)
+    metrics_name = Module.concat(__MODULE__, :RevisionCapstoneDecisionMetrics)
+
+    orchestrator = start_queue_orchestrator(orchestrator_name, "987")
+
+    issue_fetcher = fn ["987"] ->
+      {:ok,
+       [
+         %Issue{
+           id: "987",
+           identifier: "987",
+           state: "in-progress",
+           title: "Operator Control Center"
+         }
+       ]}
+    end
+
+    store =
+      start_decision_store(
+        decision_store_name,
+        dispatch_via(orchestrator, issue_fetcher: issue_fetcher),
+        dispatch_delay_ms: 0
+      )
+
+    metrics = start_dashboard_metrics(metrics_name, store)
+    assert :ok = DecisionPubSub.subscribe()
+    assert :ok = Exchange.subscribe("ticket.987.agent.decision.revision-recorded")
+    decision = request_queue_decision(store, "dashboard-revision-capstone", "987")
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      decision_metrics: metrics,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    path = "/decisions/#{decision.decision_id}"
+    {:ok, view, _html} = live(build_conn(), path)
+
+    _html =
+      render_submit(view, "answer-decision", %{
+        "decision_id" => decision.decision_id,
+        "answer" => %{
+          "choice" => "option:ship",
+          "rationale" => "Initial production evidence supports shipping"
+        }
+      })
+
+    assert_receive {:agent_queue_updated, "987", original_queue_id, _delivery}, 2_000
+
+    assert {:ok, %{id: ^original_queue_id} = original_item} =
+             OperatorMessages.claim_next_queue_item(orchestrator, "987")
+
+    assert {:ok, original_queued} = DecisionStore.get(decision.decision_id, store)
+    original_action_id = original_queued.active_action_id
+    assert original_item.action_id == original_action_id
+    assert original_item.correlation.decision_id == decision.decision_id
+    assert {:ok, :accepted} = DecisionStore.record_delivery(original_item, store)
+
+    lifecycle_opts = [
+      ticket_identifier: "987",
+      actor: %{kind: :agent, id: "ticket-agent"},
+      source: %{
+        agent_id: "codex",
+        session_id: "revision-capstone-session",
+        invocation_id: "revision-capstone-lifecycle"
+      }
+    ]
+
+    original_lifecycle = %{
+      "decision_id" => decision.decision_id,
+      "action_id" => original_action_id,
+      "expected_version" => decision.version,
+      "detail" => "Original direction applied"
+    }
+
+    assert {:ok, %{status: :accepted, decision_status: :acknowledged}} =
+             DecisionStore.agent_lifecycle(:acknowledged, original_lifecycle, lifecycle_opts, store)
+
+    assert {:ok, %{status: :accepted, decision_status: :resolved}} =
+             DecisionStore.agent_lifecycle(:resolved, original_lifecycle, lifecycle_opts, store)
+
+    assert {:ok, _initial_metrics} = DecisionMetrics.snapshot(decision.decision_id, metrics)
+    drain_metrics_notifications()
+    assert reload_view(view) =~ "Resolved"
+
+    revision_html =
+      render_submit(view, "revise-decision", %{
+        "decision_id" => decision.decision_id,
+        "revision" => %{
+          "choice" => "custom",
+          "custom_response" => "Hold deployment until the incident closes",
+          "reason" => "New production evidence invalidated the original direction"
+        }
+      })
+
+    assert revision_html =~ "Revision recorded"
+    assert revision_html =~ "Original answer · preserved"
+    assert revision_html =~ "Hold deployment until the incident closes"
+    assert_receive {:event, revision_metric_event}, 2_000
+    normalized_metric_event = Aiur.DecisionMetrics.Event.normalize(revision_metric_event, DateTime.utc_now())
+
+    assert match?({:ok, _fact}, normalized_metric_event),
+           "revision event was not metric-compatible: #{inspect(revision_metric_event)}"
+
+    assert_receive :decision_metrics_changed, 2_000
+    assert_receive {:agent_queue_updated, "987", revision_queue_id, _delivery}, 2_000
+
+    assert {:ok, %{id: ^revision_queue_id} = revision_item} =
+             OperatorMessages.claim_next_queue_item(orchestrator, "987")
+
+    assert {:ok, revision_queued} = DecisionStore.get(decision.decision_id, store)
+    revised_answer = Decision.active_answer(revision_queued)
+
+    assert revision_queued.revision_sequence == 1
+    assert revision_queued.revision_result == :dispatched
+    assert revision_queued.active_action_id == revised_answer.action_id
+    assert revision_queued.active_action_id != original_action_id
+    assert is_nil(revision_queued.acknowledgement)
+    assert is_nil(revision_queued.resolution)
+    assert revision_item.action_id == revised_answer.action_id
+    assert revision_item.correlation.decision_id == decision.decision_id
+    assert revision_item.correlation.decision_version == decision.version
+    assert revision_item.correlation.prior_action_id == original_action_id
+    assert revision_item.correlation.revision_sequence == 1
+    assert revision_item.correlation.actor.kind == :operator
+    assert revision_item.body.text =~ "corrective, append-only direction"
+    assert {:ok, :accepted} = DecisionStore.record_delivery(revision_item, store)
+
+    revised_lifecycle = %{
+      "decision_id" => decision.decision_id,
+      "action_id" => revised_answer.action_id,
+      "expected_version" => revised_answer.decision_version,
+      "detail" => "Corrective direction applied"
+    }
+
+    assert {:ok, %{status: :accepted, decision_status: :acknowledged}} =
+             DecisionStore.agent_lifecycle(:acknowledged, revised_lifecycle, lifecycle_opts, store)
+
+    assert {:ok, %{status: :accepted, decision_status: :resolved}} =
+             DecisionStore.agent_lifecycle(:resolved, revised_lifecycle, lifecycle_opts, store)
+
+    assert {:ok, metrics_snapshot} = DecisionMetrics.snapshot(decision.decision_id, metrics)
+    assert metrics_snapshot.revised
+    assert metrics_snapshot.actor == "human"
+
+    history = DecisionHistory.list(server: store, limit: 100)
+
+    revised_history =
+      Enum.find(history, fn entry ->
+        entry.action_id == revised_answer.action_id and entry.revision_result == :dispatched
+      end)
+
+    assert revised_history.change == :revised
+    assert revised_history.prior_action_id == original_action_id
+    assert revised_history.revision_sequence == 1
+    assert revised_history.choice == "Hold deployment until the incident closes"
+    assert revised_history.actor.type == :human_operator
+
+    assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, store)
+
+    assert Enum.map(audit, fn
+             %Decision{} -> :requested
+             %DecisionEvent{type: type} -> type
+           end) == [
+             :requested,
+             :answer_recorded,
+             :dispatch_queued,
+             :delivered,
+             :acknowledged,
+             :resolved,
+             :revision_recorded,
+             :revision_dispatched,
+             :delivered,
+             :acknowledged,
+             :resolved
+           ]
+
+    detail_html = reload_view(view)
+    assert detail_html =~ "Resolved"
+    assert detail_html =~ "Revision 1"
+    assert detail_html =~ "Revised"
+    assert detail_html =~ "Human"
+
+    root_html = render_patch(view, "/")
+    assert root_html =~ "Decision history"
+    assert root_html =~ "Hold deployment until the incident closes"
+  end
+
   test "supervisor API mutations converge on LiveView without weakening human-required authority" do
     orchestrator_name = Module.concat(__MODULE__, :SupervisorCapstoneOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :SupervisorCapstoneDecisionStore)
@@ -1199,8 +1405,9 @@ defmodule AiurWeb.DashboardLiveTest do
     end
   end
 
-  defp dispatch_via(orchestrator) do
+  defp dispatch_via(orchestrator, dispatcher_opts \\ []) do
     fn decision, opts ->
+      opts = Keyword.merge(opts, dispatcher_opts)
       DecisionDispatch.dispatch(decision, Keyword.put(opts, :operator_messages, orchestrator))
     end
   end
@@ -1401,6 +1608,14 @@ defmodule AiurWeb.DashboardLiveTest do
     send(view.pid, :reload_payload)
     :sys.get_state(view.pid)
     render(view)
+  end
+
+  defp drain_metrics_notifications do
+    receive do
+      :decision_metrics_changed -> drain_metrics_notifications()
+    after
+      0 -> :ok
+    end
   end
 
   defp history_entry(id, actor_type, actor_label, question) do
