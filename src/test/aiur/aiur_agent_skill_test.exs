@@ -148,6 +148,9 @@ defmodule Aiur.AiurAgentSkillTest do
     assert stub_doc =~ "Required: emit `unblocked` again"
     assert stub_doc =~ "commit and push the dependency before emitting readiness"
     assert stub_doc =~ "same validated `ref` and `sha`"
+    assert stub_doc =~ "matching validated branch-push"
+    assert stub_doc =~ "local pause generation"
+    assert stub_doc =~ ~s|reason: "dependency", blocker_identifier: "N"|
     assert stub_doc =~ "publish the integrated commit before announcing readiness"
     assert stub_doc =~ "When you produce a dependency"
     assert stub_doc =~ "responsible for the readiness signal"

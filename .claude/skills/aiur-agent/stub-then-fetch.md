@@ -25,7 +25,9 @@ entire ticket impossible.
 
 The blocker must commit and push the dependency before emitting readiness. Its
 final `unblocked` payload must carry the same validated `ref` and `sha` as that
-push, so readiness and the exact code to consume arrive atomically. You'll get a
+push. Aiur accepts it as readiness only after a matching validated branch-push
+event has been observed, so readiness and the exact code to consume agree.
+You'll get a
 `ticket.N.agent.unblocked` event through the mid-turn checkpoint
 drain. That explicit signal says the dependency is ready to consume. A
 `ticket.N.branch.push` may arrive earlier, but it is only an inspect-and-stack
@@ -56,15 +58,21 @@ Some blockers can't be reasonably stubbed — schema migrations that need to lan
    `payload: {stubbable: false, reason: "..."}`. Treat the call as
    fire-and-forget: enqueue it once and continue without waiting, polling, or
    retrying.
-3. Stop working on the dependent code only. Pick up unrelated or preparatory work on the same ticket.
-4. When `ticket.N.agent.unblocked` arrives, return to the blocked work.
+3. Emit `pause.request` with
+   `payload: {reason: "dependency", blocker_identifier: "N"}`. Aiur assigns a
+   local pause generation and binds any retained readiness to that exact
+   dependency pause; unrelated operator, label, CI, or duration pauses cannot
+   consume it.
+4. Stop working on the dependent code only. Pick up unrelated or preparatory work on the same ticket.
+5. When the corroborated `ticket.N.agent.unblocked` arrives, return to the blocked work.
 
 ## When you produce a dependency
 
 If another ticket has declared yours as a blocker, you are responsible for the
 readiness signal even when your ticket has no dependency of its own. Commit and
 push the promised API first, then emit exactly one final `unblocked` carrying
-that pushed `ref` and `sha`. A branch push alone is never a readiness signal.
+that pushed `ref` and `sha`. A branch push alone is never a readiness signal,
+and an unblock whose metadata does not match the observed push is ignored.
 
 ## What NOT to do
 

@@ -4838,6 +4838,48 @@ defmodule Aiur.OrchestratorDeactivateTest do
       end
     end
 
+    defp blocker_ref, do: "refs/heads/aiur/99-dependency"
+    defp blocker_sha, do: String.duplicate("a", 40)
+
+    defp blocker_pause_fields do
+      %{paused_reason: :blocker_dependency, blocker_pause_generation: 1, blocker_pause: %{blocker_identifier: "99", generation: 1}}
+    end
+
+    test "dependency pause requests establish a blocker-specific generation", %{
+      identifier: identifier,
+      fake_pid: fake_pid
+    } do
+      issue_id = "issue-dependency-pause"
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: fake_pid,
+            ref: nil,
+            identifier: identifier,
+            issue: %Issue{id: issue_id, state: "in-progress", identifier: identifier},
+            started_at: DateTime.utc_now(),
+            control: %{status: :working}
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        max_concurrent_agents: 6
+      }
+
+      paused =
+        PushRouting.maybe_pause_on_request(state, identifier, %{
+          payload: %{reason: "dependency", blocker_identifier: "99"}
+        })
+
+      assert get_in(paused.running, [issue_id, :control, :status]) == :paused
+      assert get_in(paused.running, [issue_id, :paused_reason]) == :blocker_dependency
+      assert get_in(paused.running, [issue_id, :blocker_pause]) == %{blocker_identifier: "99", generation: 1}
+
+      generic = PushRouting.maybe_pause_on_request(state, identifier, %{})
+      assert get_in(generic.running, [issue_id, :paused_reason]) == :agent_pause_request
+      refute Map.has_key?(generic.running[issue_id], :blocker_pause)
+    end
+
     test "parked blockee ignores branch push then consumes explicit unblocked and resumes", %{
       identifier: identifier,
       fake_pid: fake_pid
@@ -4853,14 +4895,16 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       state = %Orchestrator.State{
         running: %{
-          issue_id => %{
-            pid: fake_pid,
-            ref: nil,
-            identifier: identifier,
-            issue: %Issue{id: issue_id, state: "in-progress", identifier: identifier},
-            started_at: DateTime.utc_now(),
-            control: %{status: :paused}
-          }
+          issue_id =>
+            %{
+              pid: fake_pid,
+              ref: nil,
+              identifier: identifier,
+              issue: %Issue{id: issue_id, state: "in-progress", identifier: identifier},
+              started_at: DateTime.utc_now(),
+              control: %{status: :paused}
+            }
+            |> Map.merge(blocker_pause_fields())
         },
         claimed: MapSet.new([issue_id]),
         codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
@@ -4868,10 +4912,10 @@ defmodule Aiur.OrchestratorDeactivateTest do
         max_concurrent_agents: 6
       }
 
-      after_push = EventTopics.route(state, %{topic: "ticket.99.branch.push"})
+      after_push = EventTopics.route(state, %{topic: "ticket.99.branch.push", ref: blocker_ref(), sha: blocker_sha()})
       assert get_in(after_push.running, [issue_id, :control, :status]) == :paused
 
-      next = EventTopics.route(after_push, %{topic: "ticket.99.agent.unblocked"})
+      next = EventTopics.route(after_push, %{topic: "ticket.99.agent.unblocked", payload: %{ref: blocker_ref(), sha: blocker_sha()}})
       assert get_in(next.running, [issue_id, :control, :status]) == :working
     end
 
@@ -4890,19 +4934,22 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       state = %Orchestrator.State{
         running: %{
-          issue_id => %{
-            pid: fake_pid,
-            ref: nil,
-            identifier: identifier,
-            issue: %Issue{id: issue_id, state: "in-progress", identifier: identifier},
-            started_at: DateTime.utc_now(),
-            control: %{status: :working}
-          }
+          issue_id =>
+            %{
+              pid: fake_pid,
+              ref: nil,
+              identifier: identifier,
+              issue: %Issue{id: issue_id, state: "in-progress", identifier: identifier},
+              started_at: DateTime.utc_now(),
+              control: %{status: :working}
+            }
+            |> Map.merge(blocker_pause_fields())
         },
         claimed: MapSet.new([issue_id]),
         codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
         retry_attempts: %{},
-        max_concurrent_agents: 6
+        max_concurrent_agents: 6,
+        blocker_branch_pushes: %{"99" => %{ref: blocker_ref(), sha: blocker_sha()}}
       }
 
       next = PushRouting.apply_agent_unblocked(state, "99")
@@ -4917,6 +4964,109 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       assert PushRouting.reconcile_pending_auto_resumes(resumed) == resumed
       assert PushRouting.apply_agent_unblocked(resumed, "99") == resumed
+    end
+
+    test "final unblock requires canonical ref and SHA corroborated by branch push", %{
+      identifier: identifier,
+      fake_pid: fake_pid
+    } do
+      :ok = SubscriptionStore.add_subscription(identifier, "ticket.99.agent.unblocked", "blocker:auto")
+      issue_id = "issue-corroborated-unblock"
+
+      entry =
+        %{
+          pid: fake_pid,
+          ref: nil,
+          identifier: identifier,
+          issue: %Issue{id: issue_id, state: "in-progress", identifier: identifier},
+          started_at: DateTime.utc_now(),
+          control: %{status: :paused}
+        }
+        |> Map.merge(blocker_pause_fields())
+
+      state = %Orchestrator.State{running: %{issue_id => entry}, claimed: MapSet.new([issue_id]), max_concurrent_agents: 6}
+
+      invalid_payloads = [
+        %{},
+        %{ref: blocker_ref()},
+        %{sha: blocker_sha()},
+        %{ref: 123, sha: blocker_sha()},
+        %{ref: blocker_ref(), sha: 123},
+        %{ref: "aiur/99-dependency", sha: blocker_sha()},
+        %{ref: blocker_ref(), sha: "short"}
+      ]
+
+      for payload <- invalid_payloads do
+        next = EventTopics.route(state, %{topic: "ticket.99.agent.unblocked", payload: payload})
+        assert get_in(next.running, [issue_id, :control, :status]) == :paused
+      end
+
+      unblock = %{topic: "ticket.99.agent.unblocked", payload: %{ref: blocker_ref(), sha: blocker_sha()}}
+      assert get_in(EventTopics.route(state, unblock).running, [issue_id, :control, :status]) == :paused
+
+      pushed = EventTopics.route(state, %{topic: "ticket.99.branch.push", ref: blocker_ref(), sha: blocker_sha()})
+
+      mismatches = [
+        %{ref: "refs/heads/aiur/99-other", sha: blocker_sha()},
+        %{ref: blocker_ref(), sha: String.duplicate("b", 40)}
+      ]
+
+      for payload <- mismatches do
+        next = EventTopics.route(pushed, %{topic: "ticket.99.agent.unblocked", payload: payload})
+        assert get_in(next.running, [issue_id, :control, :status]) == :paused
+      end
+
+      resumed = EventTopics.route(pushed, unblock)
+      assert get_in(resumed.running, [issue_id, :control, :status]) == :working
+    end
+
+    test "retained readiness only drains its matching blocker-pause generation", %{
+      identifier: identifier,
+      fake_pid: fake_pid
+    } do
+      :ok = SubscriptionStore.add_subscription(identifier, "ticket.99.agent.unblocked", "blocker:auto")
+      issue_id = "issue-pause-generation"
+
+      entry =
+        %{
+          pid: fake_pid,
+          ref: nil,
+          identifier: identifier,
+          issue: %Issue{id: issue_id, state: "in-progress", identifier: identifier},
+          started_at: DateTime.utc_now(),
+          control: %{status: :working}
+        }
+        |> Map.merge(blocker_pause_fields())
+
+      state = %Orchestrator.State{
+        running: %{issue_id => entry},
+        claimed: MapSet.new([issue_id]),
+        max_concurrent_agents: 6,
+        blocker_branch_pushes: %{"99" => %{ref: blocker_ref(), sha: blocker_sha()}}
+      }
+
+      ready = PushRouting.apply_agent_unblocked(state, "99")
+      assert get_in(ready.running, [issue_id, :pending_auto_resume, :pause_generation]) == 1
+
+      for reason <- [:operator_pause, :label_override, :max_agent_duration, :ci_wait] do
+        unrelated =
+          ready
+          |> put_in([Access.key(:running), issue_id, :control, :status], :paused)
+          |> put_in([Access.key(:running), issue_id, :paused_reason], reason)
+
+        reconciled = PushRouting.reconcile_pending_auto_resumes(unrelated)
+        assert get_in(reconciled.running, [issue_id, :control, :status]) == :paused
+        refute Map.has_key?(reconciled.running[issue_id], :pending_auto_resume)
+      end
+
+      next_generation =
+        ready
+        |> put_in([Access.key(:running), issue_id, :control, :status], :paused)
+        |> put_in([Access.key(:running), issue_id, :blocker_pause, :generation], 2)
+
+      reconciled = PushRouting.reconcile_pending_auto_resumes(next_generation)
+      assert get_in(reconciled.running, [issue_id, :control, :status]) == :paused
+      refute Map.has_key?(reconciled.running[issue_id], :pending_auto_resume)
     end
 
     test "provisional unblocked payloads never resume or stamp readiness", %{
@@ -5014,21 +5164,24 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       state = %Orchestrator.State{
         running: %{
-          issue_id => %{
-            pid: fake_pid,
-            ref: nil,
-            identifier: identifier,
-            issue: %Issue{id: issue_id, state: "in-progress", identifier: identifier},
-            started_at: stale_at,
-            last_codex_timestamp: stale_at,
-            control: %{status: :paused},
-            paused_at: stale_at
-          }
+          issue_id =>
+            %{
+              pid: fake_pid,
+              ref: nil,
+              identifier: identifier,
+              issue: %Issue{id: issue_id, state: "in-progress", identifier: identifier},
+              started_at: stale_at,
+              last_codex_timestamp: stale_at,
+              control: %{status: :paused},
+              paused_at: stale_at
+            }
+            |> Map.merge(blocker_pause_fields())
         },
         claimed: MapSet.new([issue_id]),
         codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
         retry_attempts: %{},
-        max_concurrent_agents: 6
+        max_concurrent_agents: 6,
+        blocker_branch_pushes: %{"99" => %{ref: blocker_ref(), sha: blocker_sha()}}
       }
 
       before_ms = System.monotonic_time(:millisecond)

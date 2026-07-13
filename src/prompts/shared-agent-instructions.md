@@ -45,8 +45,11 @@ work ordering, so they're worth stating up front:
   retrying.
 - **Producers push before unblocking.** If another ticket declared yours as a
   blocker, commit and push the promised API, then emit one final `unblocked`
-  carrying that validated `ref` and `sha`. Provisional events with
-  `temporary_stub: true` never resume consumers.
+  carrying that validated `ref` and `sha`. Aiur corroborates both against the
+  observed branch push before resuming. Provisional or mismatched events never
+  resume consumers. Non-stubbable dependency pauses must use `pause.request`
+  with `payload: {reason: "dependency", blocker_identifier: "N"}` so retained
+  readiness is scoped to that pause generation.
 - **Escalate operator decisions before pausing.** When a scope, acceptance, or
   other operator choice is the only remaining blocker, emit
   `attention.operator-decision` with the concrete question before

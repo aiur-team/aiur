@@ -45,7 +45,8 @@ defmodule Aiur.Orchestrator.State do
           github_comment_issue_updated_at: map(),
           github_command_scan_since: String.t() | nil,
           github_connectivity: map(),
-          github_poll_delays: map()
+          github_poll_delays: map(),
+          blocker_branch_pushes: map()
         }
 
   defstruct [
@@ -79,7 +80,8 @@ defmodule Aiur.Orchestrator.State do
     github_comment_issue_updated_at: %{},
     github_command_scan_since: nil,
     github_connectivity: %{},
-    github_poll_delays: %{}
+    github_poll_delays: %{},
+    blocker_branch_pushes: %{}
   ]
 
   @spec handle_worker_runtime_info(t(), String.t(), map()) :: {:noreply, t()}

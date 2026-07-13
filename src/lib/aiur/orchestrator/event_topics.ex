@@ -25,18 +25,24 @@ defmodule Aiur.Orchestrator.EventTopics do
   defp route_classified(state, {:ci_passed, identifier}, _event),
     do: CiLifecycle.maybe_resume_for_ci_terminal(state, identifier, :passed)
 
-  defp route_classified(state, {:pause_request, identifier}, _event),
-    do: PushRouting.maybe_pause_on_request(state, identifier)
+  defp route_classified(state, {:pause_request, identifier}, event),
+    do: PushRouting.maybe_pause_on_request(state, identifier, event)
 
   defp route_classified(state, {:agent_unblocked, blocker_identifier}, %{topic: topic} = event) do
-    if provisional_unblock?(event) do
-      state
-    else
-      PushRouting.maybe_resume_blockees_on_unblocked(state, blocker_identifier, topic, unblock_key(event, topic))
+    cond do
+      provisional_unblock?(event) ->
+        state
+
+      metadata = PushRouting.corroborated_unblock_metadata(state, blocker_identifier, event) ->
+        PushRouting.maybe_resume_blockees_on_unblocked(state, blocker_identifier, topic, metadata)
+
+      true ->
+        state
     end
   end
 
-  defp route_classified(state, {:branch_push, _blocker_identifier}, _event), do: state
+  defp route_classified(state, {:branch_push, blocker_identifier}, event),
+    do: PushRouting.record_blocker_branch_push(state, blocker_identifier, event)
 
   defp route_classified(state, {:system_branch_push, branch}, event),
     do: PushRouting.maybe_notify_agents_on_default_branch_push(state, branch, event)
@@ -46,12 +52,6 @@ defmodule Aiur.Orchestrator.EventTopics do
   defp provisional_unblock?(event) do
     payload = Map.get(event, :payload) || Map.get(event, "payload") || %{}
     Map.get(payload, :temporary_stub) == true or Map.get(payload, "temporary_stub") == true
-  end
-
-  defp unblock_key(event, topic) do
-    payload = Map.get(event, :payload) || Map.get(event, "payload") || %{}
-    sha = Map.get(payload, :sha) || Map.get(payload, "sha")
-    if is_binary(sha) and sha != "", do: topic <> ":" <> sha, else: topic
   end
 
   @spec parse_pr_review_comment_topic(String.t()) :: {:ok, String.t()} | :nomatch
