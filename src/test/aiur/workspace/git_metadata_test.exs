@@ -31,12 +31,23 @@ defmodule Aiur.Workspace.GitMetadataTest do
     assert :ok = GitMetadata.ensure_agent_logs_excluded(repo)
 
     assert File.read!(gitignore) == "tracked-ignore/\n"
-    assert File.read!(exclude) == "# existing local exclude\nlogs/\n"
+    assert File.read!(exclude) == "# existing local exclude\nlogs/\n.aiur-runtime/\n"
 
     File.mkdir_p!(Path.join(repo, "logs"))
     File.write!(Path.join([repo, "logs", "agent.md"]), "agent log\n")
 
     assert String.trim(git!(["-C", repo, "status", "--short", "--", "logs"])) == ""
+  end
+
+  test "ensure_tool_results_excluded makes runtime artifacts locally ignored", %{tmp: tmp} do
+    repo = init_repo!(Path.join(tmp, "repo"))
+    artifact = Path.join([repo, ".aiur-runtime", "tool-results", "result.json"])
+
+    assert :ok = GitMetadata.ensure_tool_results_excluded(repo)
+    File.mkdir_p!(Path.dirname(artifact))
+    File.write!(artifact, "{}")
+
+    assert {_output, 0} = System.cmd("git", ["-C", repo, "check-ignore", "-q", artifact])
   end
 
   test "ensure_git_metadata_writable removes a readable ticket remote-ref lock", %{tmp: tmp} do

@@ -30,41 +30,68 @@ defmodule Aiur.AppServer.MessagesTest do
            ] == "kept"
   end
 
-  test "normalize_tool_result/2 spills successful output over 100 KiB", %{tmp_dir: tmp_dir} do
+  test "normalize_tool_result/2 spills the complete successful frame over 100 KiB", %{tmp_dir: tmp_dir} do
+    {_output, 0} = System.cmd("git", ["init", "-q"], cd: tmp_dir)
     output = String.duplicate("x", 100 * 1024 + 1)
+    original = %{"success" => true, "output" => output, "contentItems" => [%{"text" => output}], "metadata" => %{"kind" => "design"}}
 
-    result =
-      Messages.normalize_tool_result(
-        %{"success" => true, "output" => output, "contentItems" => [%{"text" => output}]},
-        tmp_dir
-      )
+    result = Messages.normalize_tool_result(original, %{workspace: tmp_dir, response_id: 77})
 
     assert result["success"]
     assert result["output"] == hd(result["contentItems"])["text"]
-    assert [path] = Regex.run(~r/saved to (.+)\. Read the file/, result["output"], capture: :all_but_first)
+    assert [path] = Regex.run(~r/saved as JSON to (.+)\. Read the file/, result["output"], capture: :all_but_first)
     assert String.starts_with?(path, Path.expand(tmp_dir))
-    assert File.read!(path) == output
+    assert Jason.decode!(File.read!(path)) == original
+
+    assert {_, 0} = System.cmd("git", ["check-ignore", "-q", path], cd: tmp_dir)
+    assert private_mode?(Path.join(tmp_dir, ".aiur-runtime"), 0o700)
+    assert private_mode?(Path.dirname(path), 0o700)
+    assert private_mode?(path, 0o600)
+    assert Path.wildcard(Path.join(Path.dirname(path), ".*.tmp")) == []
   end
 
-  test "normalize_tool_result/2 keeps boundary-sized and failed output inline", %{tmp_dir: tmp_dir} do
-    boundary = String.duplicate("x", 100 * 1024)
-    failed = %{"success" => false, "output" => boundary <> "x"}
+  test "normalize_tool_result/2 measures duplicated content and envelope overhead", %{tmp_dir: tmp_dir} do
+    {_output, 0} = System.cmd("git", ["init", "-q"], cd: tmp_dir)
+    output = String.duplicate("x", 90 * 1024)
+    content = String.duplicate("y", 20 * 1024)
+    original = %{"success" => true, "output" => output, "contentItems" => [%{"type" => "inputText", "text" => content}]}
 
-    assert Messages.normalize_tool_result(%{"success" => true, "output" => boundary}, tmp_dir)["output"] == boundary
-    assert Messages.normalize_tool_result(failed, tmp_dir) == failed
+    result = Messages.normalize_tool_result(original, %{workspace: tmp_dir, response_id: "long-response-id"})
+
+    assert result != original
+    assert result["output"] =~ "saved as JSON"
   end
 
-  test "normalize_tool_result/2 bounds the response when spilling fails", %{tmp_dir: tmp_dir} do
-    blocked_workspace = Path.join(tmp_dir, "not-a-directory")
-    File.write!(blocked_workspace, "file")
-    output = String.duplicate("x", 100 * 1024 + 1)
+  test "normalize_tool_result/2 keeps small and failed results unchanged", %{tmp_dir: tmp_dir} do
+    small = %{"success" => true, "output" => "ok", "contentItems" => [%{"text" => "ok"}]}
+    failed = %{"success" => false, "output" => String.duplicate("x", 110 * 1024)}
 
-    result = Messages.normalize_tool_result(%{"success" => true, "output" => output}, blocked_workspace)
+    assert Messages.normalize_tool_result(small, %{workspace: tmp_dir, response_id: 1}) == small
+    assert Messages.normalize_tool_result(failed, %{workspace: tmp_dir, response_id: 2}) == failed
+  end
 
-    refute result["success"]
-    assert result["output"] =~ "could not be saved"
-    assert byte_size(result["output"]) < 1024
-    refute result["output"] =~ output
+  test "normalize_tool_result/2 rejects a runtime-directory symlink escape", %{tmp_dir: tmp_dir} do
+    outside = Path.join(System.tmp_dir!(), "outside-spill-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(outside)
+    on_exit(fn -> File.rm_rf!(outside) end)
+    File.ln_s!(outside, Path.join(tmp_dir, ".aiur-runtime"))
+    original = %{"success" => true, "output" => String.duplicate("x", 110 * 1024)}
+
+    assert Messages.normalize_tool_result(original, %{workspace: tmp_dir, response_id: 3}) == original
+    assert File.ls!(outside) == []
+  end
+
+  test "normalize_tool_result/2 rejects a results-directory symlink escape", %{tmp_dir: tmp_dir} do
+    runtime = Path.join(tmp_dir, ".aiur-runtime")
+    outside = Path.join(System.tmp_dir!(), "outside-results-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(runtime)
+    File.mkdir_p!(outside)
+    on_exit(fn -> File.rm_rf!(outside) end)
+    File.ln_s!(outside, Path.join(runtime, "tool-results"))
+    original = %{"success" => true, "output" => String.duplicate("x", 110 * 1024)}
+
+    assert Messages.normalize_tool_result(original, %{workspace: tmp_dir, response_id: 4}) == original
+    assert File.ls!(outside) == []
   end
 
   test "tool call helpers normalize blank names and missing arguments" do
@@ -84,5 +111,10 @@ defmodule Aiur.AppServer.MessagesTest do
     assert frame["params"]["clientInfo"]["name"] == "aiur-orchestrator"
     assert is_binary(frame["params"]["clientInfo"]["version"])
     assert Messages.initialized_frame() == %{"method" => "initialized", "params" => %{}}
+  end
+
+  defp private_mode?(path, expected) do
+    {:ok, %File.Stat{mode: mode}} = File.stat(path)
+    Bitwise.band(mode, 0o777) == expected
   end
 end

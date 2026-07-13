@@ -3,6 +3,7 @@ defmodule Aiur.Workspace.GitMetadata do
   alias Aiur.{Config, PathSafety}
   alias Aiur.Workspace.{Checkout, Remote}
   @agent_logs_exclusion "logs/"
+  @tool_results_exclusion ".aiur-runtime/"
   @type worker_host :: String.t() | nil
 
   @doc false
@@ -13,7 +14,7 @@ defmodule Aiur.Workspace.GitMetadata do
     case local_git_metadata_dir(workspace) do
       {:ok, git_dir} ->
         with :ok <- ensure_git_dir_inside_workspace(git_dir, workspace),
-             :ok <- append_agent_logs_exclusion(Path.join([git_dir, "info", "exclude"])) do
+             :ok <- append_exclusions(Path.join([git_dir, "info", "exclude"]), [@agent_logs_exclusion, @tool_results_exclusion]) do
           :ok
         else
           {:error, reason} -> {:error, {:workspace_git_metadata_unwritable, workspace, reason}}
@@ -32,6 +33,26 @@ defmodule Aiur.Workspace.GitMetadata do
   def ensure_agent_logs_excluded(workspace, worker_host)
       when is_binary(workspace) and is_binary(worker_host),
       do: :ok
+
+  @doc false
+  @spec ensure_tool_results_excluded(Path.t()) :: :ok | {:error, term()}
+  def ensure_tool_results_excluded(workspace) when is_binary(workspace) do
+    case local_git_metadata_dir(workspace) do
+      {:ok, git_dir} ->
+        with :ok <- ensure_git_dir_inside_workspace(git_dir, workspace),
+             :ok <- append_exclusions(Path.join([git_dir, "info", "exclude"]), [@tool_results_exclusion]) do
+          :ok
+        else
+          {:error, reason} -> {:error, {:workspace_git_metadata_unwritable, workspace, reason}}
+        end
+
+      :not_git ->
+        :ok
+
+      {:error, reason} ->
+        {:error, {:workspace_git_metadata_unwritable, workspace, reason}}
+    end
+  end
 
   @spec ensure_git_metadata_writable(Path.t(), worker_host()) :: :ok | {:error, term()}
   def ensure_git_metadata_writable(workspace, worker_host \\ nil)
@@ -108,19 +129,18 @@ defmodule Aiur.Workspace.GitMetadata do
     end
   end
 
-  defp append_agent_logs_exclusion(path) do
+  defp append_exclusions(path, exclusions) do
     with {:ok, contents} <- read_optional_file(path) do
-      maybe_append_agent_logs_exclusion(path, contents)
+      missing = Enum.reject(exclusions, &exclusion_present?(contents, &1))
+      write_exclusions(path, contents, missing)
     end
   end
 
-  defp maybe_append_agent_logs_exclusion(path, contents) do
-    if exclusion_present?(contents), do: :ok, else: write_agent_logs_exclusion(path, contents)
-  end
+  defp write_exclusions(_path, _contents, []), do: :ok
 
-  defp write_agent_logs_exclusion(path, contents) do
+  defp write_exclusions(path, contents, exclusions) do
     with :ok <- File.mkdir_p(Path.dirname(path)) do
-      File.write(path, exclusion_suffix(contents), [:append])
+      File.write(path, exclusion_suffix(contents, exclusions), [:append])
     end
   end
 
@@ -132,17 +152,17 @@ defmodule Aiur.Workspace.GitMetadata do
     end
   end
 
-  defp exclusion_present?(contents) do
+  defp exclusion_present?(contents, exclusion) do
     contents
     |> String.split("\n")
-    |> Enum.any?(&(String.trim(&1) == @agent_logs_exclusion))
+    |> Enum.any?(&(String.trim(&1) == exclusion))
   end
 
-  defp exclusion_suffix(""), do: @agent_logs_exclusion <> "\n"
+  defp exclusion_suffix("", exclusions), do: Enum.join(exclusions, "\n") <> "\n"
 
-  defp exclusion_suffix(contents) do
+  defp exclusion_suffix(contents, exclusions) do
     separator = if String.ends_with?(contents, "\n"), do: "", else: "\n"
-    separator <> @agent_logs_exclusion <> "\n"
+    separator <> Enum.join(exclusions, "\n") <> "\n"
   end
 
   defp probe_lock_files(paths) do

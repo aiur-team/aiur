@@ -33,7 +33,9 @@ overflow.
 ## Recovery rules
 
 - If an Aiur dynamic-tool result says it was saved under
-  `.aiur/tool-results/`, use that path and continue; do not repeat the call.
+  `.aiur-runtime/tool-results/`, use that path and continue; do not repeat the
+  call. Aiur installs a repository-local Git exclusion for this owner-only
+  runtime directory.
 - If a direct MCP call already overflowed, stop using that thread for inline
   reads. Run the disk-first Claude session from the same workspace; a manual
   agent restart is not required.

@@ -287,7 +287,7 @@ defmodule Aiur.Claude.CodingAgent do
     result =
       state.tool_executor
       |> ToolExecutor.execute(tool_name, arguments, Messages.tool_call_id(params, id))
-      |> Messages.normalize_tool_result(session.workspace)
+      |> Messages.normalize_tool_result(%{workspace: session.workspace, response_id: id})
 
     send_frame(session.port, %{
       "id" => id,

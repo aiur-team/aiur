@@ -91,6 +91,7 @@ defmodule Aiur.Codex.TurnLoopTest do
 
     @tag :tmp_dir
     test "auto-approved tool calls spill oversized results into the session workspace", %{tmp_dir: tmp_dir} do
+      {_output, 0} = System.cmd("git", ["init", "-q"], cd: tmp_dir)
       port = open_cat_port()
       output = String.duplicate("x", 100 * 1024 + 1)
       payload = %{"method" => "item/tool/call", "id" => 78, "params" => %{"tool" => "aiur.echo", "arguments" => %{}}}
@@ -101,8 +102,23 @@ defmodule Aiur.Codex.TurnLoopTest do
 
       frame = read_one_frame(port)
       assert get_in(frame, ["result", "success"])
-      assert [path] = Regex.run(~r/saved to (.+)\. Read the file/, get_in(frame, ["result", "output"]), capture: :all_but_first)
-      assert File.read!(path) == output
+      assert [path] = Regex.run(~r/saved as JSON to (.+)\. Read the file/, get_in(frame, ["result", "output"]), capture: :all_but_first)
+      assert Jason.decode!(File.read!(path))["output"] == output
+      close_port(port)
+    end
+
+    test "ordinary event metadata does not expose the workspace" do
+      port = open_cat_port()
+      payload = %{"method" => "session/configured", "params" => %{}}
+      test_pid = self()
+      state = %{base_state() | on_message: fn message -> send(test_pid, {:full_event, message}) end}
+
+      assert {:continue, _state} =
+               TurnLoop.handle_method(%{port: port, workspace: "/secret/workspace"}, state, payload, Jason.encode!(payload), payload["method"])
+
+      assert_received {:full_event, message}
+      refute Map.has_key?(message, :workspace)
+      refute Map.has_key?(message, "workspace")
       close_port(port)
     end
 

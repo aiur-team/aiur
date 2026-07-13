@@ -26,7 +26,7 @@ Keep large MCP/dynamic-tool payloads out of the Codex inline result channel by w
 ## Key Technical Decisions
 
 - Spill after the tool executor builds its standard response but before the JSON-RPC reply is sent, preserving all tool implementations and covering every MCP/dynamic tool uniformly.
-- Store the complete normalized output below `.aiur/tool-results/` in the issue workspace. Return an absolute path because the agent may read it from any current subdirectory.
+- Store the complete normalized result below the Git-excluded, owner-only `.aiur-runtime/tool-results/` directory in the issue workspace. Return an absolute path because the agent may read it from any current subdirectory.
 - If persistence fails, return a short failed result instead of falling back to the oversized inline payload, preventing the original overflow loop.
 
 ## Implementation Units

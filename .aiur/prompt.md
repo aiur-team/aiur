@@ -45,7 +45,7 @@ Load the `design-import` skill before a frontend/design skill imports a design
 artifact that may exceed 100 KiB. It uses an authenticated writable
 `claude --print` session to fetch the artifact directly into a ticket-local
 directory, verify it, and inspect it from disk in bounded chunks. If a tool
-result reports that Aiur spilled its output to `.aiur/tool-results/`, continue
+result reports that Aiur spilled its output to `.aiur-runtime/tool-results/`, continue
 from that file path instead of retrying the tool call. This disk-first path is
 the recovery path for large HTML design exports and does not require restarting
 the agent thread.
