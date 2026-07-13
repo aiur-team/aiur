@@ -69,7 +69,8 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
 
   defp headless_os_pid(_session), do: nil
   @doc false
-  @spec run_session(Path.t(), Issue.t(), pid() | nil, keyword(), worker_host()) :: :ok | {:error, term()}
+  @spec run_session(Path.t(), Issue.t(), pid() | nil, keyword(), worker_host()) ::
+          :ok | {:completed, Issue.t()} | {:error, term()}
   def run_session(workspace, issue, codex_update_recipient, opts, worker_host) do
     max_turns = Keyword.get(opts, :max_turns, Config.settings!().agent.max_turns)
     issue_state_fetcher = Keyword.get(opts, :issue_state_fetcher, &Tracker.fetch_issue_states_by_ids/1)

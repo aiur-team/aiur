@@ -1845,7 +1845,6 @@ defmodule Aiur.CoreTest do
       workspace_root = Path.join(test_root, "workspaces")
       codex_binary = Path.join(test_root, "fake-codex")
       trace_file = Path.join(test_root, "codex.trace")
-
       File.mkdir_p!(template_repo)
       File.write!(Path.join(template_repo, "README.md"), "# test")
       System.cmd("git", ["-C", template_repo, "init", "-b", "main"])
@@ -2821,6 +2820,9 @@ defmodule Aiur.CoreTest do
       workspace_root = Path.join(test_root, "workspaces")
       codex_binary = Path.join(test_root, "fake-codex")
       trace_file = Path.join(test_root, "codex.trace")
+      after_run_started = Path.join(test_root, "after-run.started")
+      after_run_release = Path.join(test_root, "after-run.release")
+      after_run_done = Path.join(test_root, "after-run.done")
 
       File.mkdir_p!(template_repo)
       File.write!(Path.join(template_repo, "README.md"), "# test")
@@ -2868,6 +2870,7 @@ defmodule Aiur.CoreTest do
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
         hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
+        hook_after_run: "touch #{after_run_started}; while [ ! -f #{after_run_release} ]; do sleep 0.01; done; touch #{after_run_done}",
         codex_command: "#{codex_binary} app-server",
         max_turns: 2
       )
@@ -2895,7 +2898,21 @@ defmodule Aiur.CoreTest do
         labels: []
       }
 
-      assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+      test_pid = self()
+
+      task =
+        Task.async(fn ->
+          AgentRunner.run(issue, test_pid, issue_state_fetcher: state_fetcher)
+        end)
+
+      assert wait_for_path(after_run_started, 15_000)
+      refute_receive {:worker_control_state, "issue-max-turns", :completed}, 100
+
+      File.touch!(after_run_release)
+
+      assert_receive {:worker_control_state, "issue-max-turns", :completed}, 2_000
+      assert File.exists?(after_run_done)
+      assert :ok = Task.await(task, 2_000)
 
       trace = File.read!(trace_file)
       assert length(String.split(trace, "RUN", trim: true)) == 1
@@ -2903,6 +2920,25 @@ defmodule Aiur.CoreTest do
     after
       System.delete_env("SYMP_TEST_CODEx_TRACE")
       File.rm_rf(test_root)
+    end
+  end
+
+  defp wait_for_path(path, timeout_ms) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    do_wait_for_path(path, deadline)
+  end
+
+  defp do_wait_for_path(path, deadline) do
+    cond do
+      File.exists?(path) ->
+        true
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        false
+
+      true ->
+        Process.sleep(5)
+        do_wait_for_path(path, deadline)
     end
   end
 

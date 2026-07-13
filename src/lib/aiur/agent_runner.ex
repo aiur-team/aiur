@@ -124,9 +124,20 @@ defmodule Aiur.AgentRunner do
       {:before_run_failed, status, output, reason} ->
         pause_for_before_run_failure(workspace, issue, codex_update_recipient, worker_host, status, output, reason)
 
+      {:completed, %Issue{} = completed_issue} ->
+        publish_completed_boundary(codex_update_recipient, completed_issue)
+
       other ->
         other
     end
+  end
+
+  defp publish_completed_boundary(codex_update_recipient, issue) do
+    # This runs only after the mandatory after_run hook above has returned.
+    # A pause request can race the final turn boundary, so release its
+    # containment generation before the completed entry becomes replaceable.
+    _ = Aiur.PauseContainment.release_target(issue.identifier || issue.id)
+    MessageHandler.send_control_state(codex_update_recipient, issue, :completed)
   end
 
   defp record_workspace_setup_end(issue, opts, outcome, reason) do
