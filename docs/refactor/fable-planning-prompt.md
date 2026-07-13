@@ -5,7 +5,7 @@ repository. You will **not implement the refactor.** Your entire output is:
 
 1. Upfront brainstorming / planning documentation, and
 2. A backlog of **30–60 self-contained, issue-ready ticket documents** that *less
-   capable agents* will execute later via the aiur-loop.
+   capable agents* will execute later through the `aiur-run` Executor workflow.
 
 Do all the hard thinking now so their execution is mechanical, parallelizable, and
 low-risk. Deliver everything as a single PR.
@@ -27,8 +27,8 @@ dropping a single feature.**
 
 1. **No feature is removed.** Every capability — however small — survives. This is
    the top risk; a regression here is failure.
-2. **The repo is never left broken.** aiur runs *its own* refactor: the aiur-loop
-   executes these tickets on this codebase. After **every single ticket**, the repo
+2. **The repo is never left broken.** aiur runs *its own* refactor: an Executor
+   uses `aiur-run` to execute these tickets on this codebase. After **every single ticket**, the repo
    must build and the test suite must be green.
 3. **Behavior-preserving.** Refactors change structure, not behavior. Tie every
    risky change to the Phase-1 characterization-test tripwire (below).
@@ -85,8 +85,8 @@ ground truth; confirm it against the code and correct it in your inventory.
     `orchestrator.ex`, `pane_manager.ex`, `tmux.ex`, LiveView under
     `src/lib/aiur_web/live/`
   - Two kinds of skills: **(a)** skills for agents/users *driving* aiur →
-    `.claude/skills/` (aiur-loop, aiur-run, aiur-monitor, using-aiur, aiur-agent,
-    release); **(b)** skills installed into workspaces for agents *run by* aiur
+    `.claude/skills/` (aiur-build, aiur-run, aiur-monitor, design-import,
+    using-aiur, aiur-agent, release); **(b)** skills installed into workspaces for agents *run by* aiur
     (compound-engineering skills symlinked in at boot). These bloat new-agent context
     if unmanaged — the refactor should make them modular and lean so freshly-spun
     agents aren't flooded with fluff, while retaining essentials like repo pre-warm.
@@ -95,19 +95,20 @@ ground truth; confirm it against the code and correct it in your inventory.
   `agent_list/renderer.ex` ~2,100, `codex/coding_agent.ex` ~2,000,
   `pane_manager.ex` ~1,840. Re-measure and produce the full list yourself.
 - **Docs site:** `website/` — a custom Vite/TS app on Netlify (no docs framework yet).
-- **Ticket ingestion (how your tickets get executed):** the aiur-loop polls the
-  tracker for GitHub issues labeled `agent:todo` and works them through
+- **Ticket ingestion (how your tickets get executed):** the Executor launches
+  Aiur through `aiur-run`; Aiur polls the tracker for GitHub issues labeled
+  `agent:todo` and works them through
   `agent:in-progress → agent:human-review / agent:rework → agent:merging →
   agent:done`. An optional `complexity:N` label routes hard tickets to stronger
   models; keep your tickets **low-complexity** so lesser agents suffice. Review
-  `.claude/skills/aiur-loop/` and `.claude/skills/using-aiur/` yourself to confirm
+  `.claude/skills/aiur-run/` and `.claude/skills/using-aiur/` yourself to confirm
   the exact conventions before finalizing ticket shape.
 
 ---
 
 ## Research you must do first (in this order)
 
-1. **Read the aiur-loop + using-aiur skills** to lock the ticket/label conventions
+1. **Read the aiur-run + using-aiur skills** to lock the ticket/label conventions
    your backlog must match.
 2. **Build the authoritative feature/behavior inventory** from the code and tests —
    every feature, flag, config option, skill, event, alert, and CLI command. This is
