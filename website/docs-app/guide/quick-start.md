@@ -24,6 +24,8 @@ Add `agent:todo` to the issues you want worked.
 
 The bare `aiur` command discovers `.aiur/config` and starts a foreground run. `aiur run` is the explicit-verb equivalent.
 
+The launch output prints the private dashboard URL. Open it to see the fleet and decision inbox; the default loopback, read-only mode needs no credentials. Set `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD` before enabling writes or binding beyond loopback. Continue with the [Executor Control Center](/guide/executor-control-center) guide.
+
 ## Core subcommands
 
 | Command | What it does |
@@ -36,3 +38,8 @@ The bare `aiur` command discovers `.aiur/config` and starts a foreground run. `a
 | `aiur resume <ids…>` / `aiur resume --all` | Resume paused agents by issue id. |
 | `aiur stop` | Stop this instance's session (BEAM + tmux). |
 | `aiur --max-agents <n>` | Override the concurrent-agent cap at launch. |
+| `aiur set max-agents <n>` | Change the concurrent-agent cap while the run is active. |
+| `aiur message <id> "<text>"` | Send an Executor message through the agent’s native queue. |
+| `aiur --todo <ids…> [--only]` | Queue selected tickets; `--only` dequeues other pending tickets. |
+
+See [CLI and control commands](/reference/cli) for the complete operational surface.

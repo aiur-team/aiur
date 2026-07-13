@@ -5,17 +5,23 @@ Control Center (OCC)** — extending Aiur's existing LiveView dashboard into a
 decision inbox, fleet-state view, and history control surface for a human
 Executor overseeing the fleet.
 
+The directory and `OCC-*` ticket identifiers preserve the historical Operator
+Control Center wave name; shipped UI and current prose use Executor
+terminology.
+
 ## Layout
 
 | File | What it is | Owner |
 |---|---|---|
-| `00-prd.md` | The feature scope / PRD (the source of truth for what OCC is) | Executor’s doc |
+| `00-prd.md` | The feature scope / PRD (the source of truth for what OCC is) | Executor's doc |
 | `01-brainstorm-and-decomposition.md` | CE-brainstorm grounding, the scoping decisions, and the ticket breakdown | this session |
 | `02-occ-0-audit-and-design-decisions.md` | Accepted architecture audit and cross-ticket design decisions | OCC-0 |
 | `03-occ-1-decision-contract.md` | Durable request schema/store handoff | OCC-1 |
+| `04-occ-2-attention-adapter.md` | Legacy attention-to-Decision compatibility boundary | OCC-2 |
 | `04-occ-3-answer-delivery-contract.md` | Answer, dispatch, transport, and agent acknowledgement handoff | OCC-3 |
 | `05-occ-8-decision-revision-contract.md` | Append-only revision, corrective dispatch, and blocking follow-up handoff | OCC-8 |
 | `06-occ-7-supervisor-decision-api-contract.md` | Supervisor auth, policy, machine routes, and sibling delegation handoff | OCC-7 |
+| `EXECUTOR-HANDOFF.md` | Shipped ownership, security, documentation, and acceptance handoff | docs closeout |
 | `claude-design-prompt.md` | Ready-to-send prompt → Claude builds a self-contained HTML mock with example data | design handoff |
 
 ## Decisions locked (from the brainstorm)
@@ -30,7 +36,7 @@ Executor overseeing the fleet.
 OCC-0 established the architecture decisions, OCC-1 delivered the durable
 Decision request store, OCC-3 added persist-before-dispatch answer delivery,
 and OCC-8 extended that same audit/outbox with ordered revisions. OCC-7 exposes
-those contracts through a separately authenticated, fail-closed supervisor API.
+those contracts through a separately authenticated, fail-closed supervising-Executor API.
 The LiveView now drives the human answer and revision boundaries directly and
 renders OCC-6 history/outcomes and OCC-9 latency from their canonical providers.
 Follow the numbered contract docs rather than reconstructing behavior from

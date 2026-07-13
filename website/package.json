@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "assert": "tsx scripts/assert-sim.ts",
     "shot": "tsx scripts/shot.ts",
+    "shot:control-center": "node scripts/capture-executor-control-center.mjs",
     "test:brand": "playwright test"
   },
   "devDependencies": {

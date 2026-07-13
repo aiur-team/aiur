@@ -289,6 +289,24 @@ body {
   color: var(--aiur-muted);
 }
 
+.vp-doc picture,
+.vp-doc picture img {
+  display: block;
+  width: 100%;
+}
+
+.vp-doc picture img,
+.vp-doc .occ-mobile-shot {
+  border: 1px solid var(--aiur-line);
+  border-radius: 11px;
+  box-shadow: 0 22px 50px -38px rgba(0, 0, 0, 0.55);
+}
+
+.vp-doc .occ-mobile-shot {
+  display: block;
+  width: min(100%, 390px);
+  margin: 24px auto 40px;
+}
 .VPDocFooter {
   border-top-color: var(--aiur-line);
 }
