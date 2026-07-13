@@ -2,34 +2,43 @@
 
 ## Outcome
 
-After the current dashboard Executor finishes, a human reviews and lands the
-isolated skill-only draft PR #1065 so `/aiur-build`, the consolidated bounded
-`/aiur-run` Executor role, `/aiur-monitor` wording, `/aiur-loop` retirement and
-publication validation are not lost with the research branch.
+A human reviews and merges the isolated skill-only draft PR #1065 into `main`
+so `/aiur-build`, the consolidated bounded `/aiur-run` Executor role,
+`/aiur-monitor` wording, `/aiur-loop` retirement and publication validation
+are not lost with the research branch. The user confirmed on 2026-07-13 that
+the prior sequencing constraint (an active dashboard run consuming the old
+skill contracts) no longer applies and that merging PR #1065 is the accepted
+delivery path: the skills land on `main` before Build Order work is
+dispatched, and agents are then pointed at documents on `main`.
 
 The reviewed planning authority is commit
 `f92aa045f6766358d7561dadc1133c4d9180d1f3`. A later compatible successor is
 acceptable only after explicit review confirms it preserves the finite feature
 boundary, rework-before-ticket-multiplication rule, backlog-growth circuit
-breaker, privacy policy, and publication validator behavior.
+breaker, privacy policy, and publication validator behavior. The branch head
+now carries two successor candidates awaiting that confirmation: `d4640c03`
+(planning-skill amendments: required implementation pointers, sizing
+calibration, design-for-parallelism rules) and merge commit `ec188e7b`
+(reconciles the rewrite with the Executor-rename work on `main@9849f329`;
+skill tests 17/17, compile/validator clean, PR MERGEABLE).
 
 The Build Order planning authority for this issue body is
 [`<APPROVED_SHA>`](https://github.com/its-everdred/aiur/commit/<APPROVED_SHA>).
 
 ## Why human-blocked
 
-The active dashboard run still consumes the old skill contracts. Landing the
-rewrite mid-run could change its operating instructions. This is a sequencing
-gate, not unfinished Build Order implementation.
+Only the final review-and-merge remains human-owned: confirming the successor
+head preserves the bounded contracts, then merging under current merge
+authority. The original sequencing constraint (an active run consuming the old
+contracts) was lifted by the user on 2026-07-13.
 
 ## Scope
 
-- Wait until the active dashboard Executor confirms its run is complete.
-- Review draft PR #1065 at its current isolated head and reconcile its
-  conflicting `aiur-run`/`aiur-monitor`/loop changes with the Executor
-  terminology and documentation now on `origin/main` at `9849f329`, then
-  refresh it against the
-  configured integration branch without dropping the bounded contracts.
+- Reconciliation with `main` is DONE: merge commit `ec188e7b` folded the
+  Executor-rename work from `origin/main@9849f329` into the rewrite; the PR is
+  MERGEABLE with skill tests, compile, and validator green.
+- Review the successor head (amendments `d4640c03` + merge `ec188e7b`) against
+  the bounded contracts above.
 - Run the skill validator, focused skill discovery/installation tests and the
   repository CI gate required at pickup.
 - Land only the isolated skill PR under current merge authority; do not merge

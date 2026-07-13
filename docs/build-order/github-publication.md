@@ -39,9 +39,9 @@ label, implement a ticket, or merge either planning branch.
 The materialized receipt schemas are core v3, companion v2, auxiliary v2, and
 bundle v2. Each owning receipt includes a freshly queried
 `observed_issue_states` map keyed by logical ID. The three maps are disjoint,
-cover exactly all 46 identities, and contain only the exact value `OPEN`.
+cover exactly all manifest-derived identities (currently 55), and contain only the exact value `OPEN`.
 
-All 46 created bodies link to the immutable approved planning commit and carry
+All 55 created bodies link to the immutable approved planning commit and carry
 one canonical `aiur-planning-issue` marker with schema 2, logical ID, plan
 version, and that same commit. Requery each body, parse the marker and link, and
 record its SHA-256; do not trust the submitted body. Record the complete result
@@ -55,7 +55,7 @@ including the logical-ID prefix and em dash on BO/DASH documents. Record both
 the frozen expected-title map and the freshly queried observed-title map in the
 owning receipt: root plus BO in the core receipt, DASH in the companion
 receipt, and skill delivery in the auxiliary receipt. Both maps must cover all
-46 issues exactly and every observed title must equal its approved H1; a
+the manifest-derived issue count (currently 55) exactly and every observed title must equal its approved H1; a
 body-correct issue with a renamed or truncated title fails reconciliation.
 
 Expected bodies are not receipt-authored hashes. Load the three manifests and
@@ -80,9 +80,9 @@ is the only finalization mutation. The verifier does not trust a caller-authored
 query file or observation object. It derives the complete expected graph and
 exact pending-comment URL from the immutable receipt, queries GitHub itself,
 and performs two complete bounded reads. The two snapshots must be identical
-and must exactly match all 46 mappings, titles, independently rendered body
+and must exactly match all 55 mappings, titles, independently rendered body
 hashes, full label sets, `OPEN` states, unlocked state, all-state marker result
-sets, native parents, subissues, 73 `blockedBy` edges, and the one exact comment.
+sets, native parents, subissues, all manifest-derived `blockedBy` edges (currently 102), and the one exact comment.
 The root has exactly nineteen BO children and no parent; each BO has that root
 as parent; DASH and skill issues are parentless; every non-root has no
 subissues. Closed and PR-shaped marker matches remain visible to the collision
@@ -223,9 +223,9 @@ live snapshots must equal that frozen full set with no later addition/removal.
 - Skill-delivery issue: pending
 - Root reconciliation comment unique query match/final state: pending
 - Approval/receipt trusted-branch reachability: pending
-- 46 independently rendered body markers/links/hashes and exact title pairs: pending
-- Exact `OPEN` state and unlocked-state requery for all 46 issues: pending
-- Two identical full live-graph snapshots (19 members, 73 blockers): pending
+- 55 independently rendered body markers/links/hashes and exact title pairs: pending
+- Exact `OPEN` state and unlocked-state requery for all 55 issues: pending
+- Two identical full live-graph snapshots (19 root members, 102 total blockers): pending
 - Canonical validator: pending
 - Companion/publication validator: pending
 
