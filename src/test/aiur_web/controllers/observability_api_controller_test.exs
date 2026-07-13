@@ -23,22 +23,52 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
   # under full-suite ordering the endpoint's config ETS table can be gone by
   # the time these tests run, and Endpoint.call/2 raises on the missing table.
   # Stand up a throwaway endpoint (server: false, no port bind) whenever none
-  # is running, so Endpoint.call/2 always has its config table.
+  # is running, so Endpoint.call/2 always has its config table. When one is
+  # already running, reset both its live config and the application config: a
+  # prior writable HttpServer test may have left auth required in the shared
+  # Endpoint table even after restoring the application environment.
   setup do
-    if is_nil(Process.whereis(AiurWeb.Endpoint)) do
-      endpoint_config = Application.get_env(:aiur, AiurWeb.Endpoint, [])
+    endpoint_config = Application.get_env(:aiur, AiurWeb.Endpoint, [])
+    missing = make_ref()
 
-      Application.put_env(
-        :aiur,
-        AiurWeb.Endpoint,
-        Keyword.merge(endpoint_config, server: false, secret_key_base: String.duplicate("s", 64))
+    runtime_auth_required =
+      if Process.whereis(AiurWeb.Endpoint) do
+        AiurWeb.Endpoint.config(:dashboard_auth_required, missing)
+      else
+        missing
+      end
+
+    test_config =
+      Keyword.merge(endpoint_config,
+        server: false,
+        secret_key_base: String.duplicate("s", 64),
+        dashboard_auth_required: false
       )
 
+    Application.put_env(:aiur, AiurWeb.Endpoint, test_config)
+
+    if is_nil(Process.whereis(AiurWeb.Endpoint)) do
       start_supervised!({AiurWeb.Endpoint, []})
-      on_exit(fn -> Application.put_env(:aiur, AiurWeb.Endpoint, endpoint_config) end)
+    else
+      AiurWeb.Endpoint.config_change([dashboard_auth_required: false], [])
     end
 
+    on_exit(fn ->
+      Application.put_env(:aiur, AiurWeb.Endpoint, endpoint_config)
+      restore_runtime_config(:dashboard_auth_required, runtime_auth_required, missing)
+    end)
+
     :ok
+  end
+
+  defp restore_runtime_config(key, previous_value, missing) do
+    if Process.whereis(AiurWeb.Endpoint) do
+      if previous_value == missing do
+        AiurWeb.Endpoint.config_change([], [key])
+      else
+        AiurWeb.Endpoint.config_change([{key, previous_value}], [])
+      end
+    end
   end
 
   describe "POST /api/v1/:id/claude-hook" do
