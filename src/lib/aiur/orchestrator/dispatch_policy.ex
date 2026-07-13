@@ -6,6 +6,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   alias Aiur.{Config, Issue, SystemCpu, SystemFileDescriptors, SystemLoad, SystemMemory}
   alias Aiur.Orchestrator.{Slots, State}
 
+  @cpu_headroom_ramp_max 3
   @fd_headroom_percent 10
 
   @doc false
@@ -168,7 +169,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   defp adjust_load_envelope(effective, last_decrease_ms, load, %{schedulers: schedulers} = options) do
     if options.queued_work? and clear_cpu_headroom?(options.cpu_headroom, schedulers) do
-      {options.static_limit, last_decrease_ms}
+      {fast_ramp_limit(effective, options.static_limit), last_decrease_ms}
     else
       adjust_load_envelope_without_headroom(effective, last_decrease_ms, load, options)
     end
@@ -205,6 +206,10 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
        do: true
 
   defp clear_cpu_headroom?(_headroom, _schedulers), do: false
+
+  defp fast_ramp_limit(effective, static_limit) do
+    min(static_limit, min(effective * 2, effective + @cpu_headroom_ramp_max))
+  end
 
   defp next_cpu_snapshot(_previous, %{total: _total, idle: _idle, runnable: _runnable} = current), do: current
   defp next_cpu_snapshot(previous, _current), do: previous

@@ -147,10 +147,12 @@ defmodule Aiur.OrchestratorLoadGateTest do
       assert {5, nil} = Orchestrator.load_envelope(3, nil, 12.0, envelope_options(ramp_step: 2, now_ms: 2_000))
     end
 
-    test "restores the static cap under clear CPU headroom when work is queued" do
-      options = envelope_options(cpu_headroom: %{idle_percent: 75.0, runnable: 3}, queued_work?: true)
+    test "re-ramps from backoff within two polls without dispatching more than three new slots per poll" do
+      options = envelope_options(static_limit: 8, cpu_headroom: %{idle_percent: 75.0, runnable: 3}, queued_work?: true)
 
-      assert {10, 1_000} = Orchestrator.load_envelope(3, 1_000, 13.0, options)
+      assert {4, 1_000} = Orchestrator.load_envelope(8, nil, 13.0, %{options | cpu_headroom: :unavailable, now_ms: 1_000})
+      assert {7, 1_000} = Orchestrator.load_envelope(4, 1_000, 13.0, options)
+      assert {8, 1_000} = Orchestrator.load_envelope(7, 1_000, 13.0, options)
     end
 
     test "keeps additive recovery without demand, clear idle headroom, or low runnable pressure" do

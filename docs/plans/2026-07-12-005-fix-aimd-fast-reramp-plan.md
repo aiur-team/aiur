@@ -18,7 +18,7 @@ The current envelope uses the same lagging one-minute load sample for both safet
 ## Assumptions
 
 - Linux `/proc/stat` delta samples are the portable local source for real CPU idle percentage, while its `procs_running` field supplies an instantaneous queue-pressure guard.
-- A clearly idle host can safely restore the envelope directly to the configured/session cap because the unchanged hard gate, memory gate, file-descriptor gate, build staggering, and future multiplicative decreases remain independent protections.
+- A clearly idle host can safely recover with bounded multiplicative steps because the unchanged hard gate, memory gate, file-descriptor gate, build staggering, and future multiplicative decreases remain independent protections.
 - Existing issue polling already auto-dispatches every eligible queued ticket up to available slots, so no manual-pause override or separate resume path should be introduced.
 
 ## Requirements
@@ -56,7 +56,7 @@ The current envelope uses the same lagging one-minute load sample for both safet
 
 - Add a small `Aiur.SystemCpu` sampler that parses cumulative CPU counters and runnable count, leaving delta calculation in a pure helper so tests do not depend on live host timing.
 - Store the prior cumulative CPU sample in orchestrator state. The first sample seeds history; the next poll can calculate idle percentage, satisfying the one-to-two-cycle recovery target.
-- Treat fast recovery as an additional low-load branch only. If headroom is absent or unavailable, retain today's additive increase and all existing high-load behavior.
+- Treat fast recovery as a bounded multiplicative branch. If headroom is absent or unavailable, retain today's additive increase and all existing high-load behavior.
 - Pass whether dispatchable queued work exists into the envelope update so idle telemetry alone never expands capacity without demand.
 
 ## Implementation Units
@@ -100,7 +100,7 @@ The current envelope uses the same lagging one-minute load sample for both safet
 - Test: `src/test/aiur/orchestrator_load_gate_test.exs`
 - Test: `src/test/aiur/orchestrator/dispatcher_test.exs`
 
-**Approach:** Sample real CPU beside existing resource samples. On the below-target recovery branch, jump to the static/session cap only when demand exists, idle percentage is clearly high, and runnable pressure remains below scheduler capacity. Otherwise use the configured additive step exactly as today. Let the existing issue reduction consume all resulting slots in the same poll.
+**Approach:** Sample real CPU beside existing resource samples. When demand exists, idle percentage is clearly high, and runnable pressure remains below scheduler capacity, grow multiplicatively while capping each poll to three new slots. Otherwise use the configured additive step exactly as today. Let the existing issue reduction consume all resulting slots in the same poll.
 
 **Patterns to follow:** Pure `load_envelope/4` decisions, `update_load_envelope/5`, and `choose_issues/2` slot re-evaluation after each dispatch.
 
