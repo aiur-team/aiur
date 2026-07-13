@@ -136,7 +136,15 @@ def validate_tickets(
         return {}
     by_id: dict[str, dict[str, Any]] = {}
     prefix = data.get("ticket_prefix")
-    expected = re.compile(rf"^{re.escape(prefix)}-[0-9]{{3,}}[A-Z]?$", re.ASCII) if isinstance(prefix, str) else None
+    prefixes = prefix if isinstance(prefix, list) else [prefix]
+    expected = (
+        re.compile(
+            "^(?:" + "|".join(re.escape(item) for item in prefixes) + ")-[0-9]{3,}[A-Z]?$",
+            re.ASCII,
+        )
+        if prefixes and all(isinstance(item, str) and item for item in prefixes)
+        else None
+    )
     for index, value in enumerate(values):
         label = f"tickets[{index}]"
         ticket = strict_object(value, label, TICKET_KEYS, report)
