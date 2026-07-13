@@ -4,13 +4,14 @@ defmodule AiurWeb.ControlCenterPresenter do
   providers. A failed optional provider degrades only its own surface.
   """
 
-  alias Aiur.{Decision, DecisionStore}
+  alias Aiur.{Decision, DecisionMetrics, DecisionStore}
   alias AiurWeb.OperatorControlCenter.DecisionPresenter
   alias AiurWeb.Presenter
 
   @spec state_payload(GenServer.name(), timeout(), keyword()) :: map()
   def state_payload(orchestrator, snapshot_timeout_ms, opts \\ []) do
     decision_store = Keyword.get(opts, :decision_store, DecisionStore)
+    decision_metrics = Keyword.get(opts, :decision_metrics, DecisionMetrics)
     recent_merge_store = Keyword.get(opts, :recent_merge_store, Aiur.RecentMergeStore)
 
     presenter_opts = [
@@ -29,25 +30,34 @@ defmodule AiurWeb.ControlCenterPresenter do
 
     decisions_fun = Keyword.get(opts, :decisions_fun, fn -> DecisionStore.list(decision_store) end)
 
+    decision_metrics_fun =
+      Keyword.get(opts, :decision_metrics_fun, fn -> DecisionMetrics.snapshots(decision_metrics) end)
+
     {fleet, fleet_health} = safe_read(fleet_fun, unavailable_fleet(), &is_map/1)
     {decisions, decisions_health} = safe_read(decisions_fun, [], &is_list/1)
+    {decision_latency, decision_latency_health} = safe_read(decision_metrics_fun, %{}, &is_map/1)
     {history, history_health} = history_read(fleet, opts)
     {recent_merges, recent_outcomes_health} = recent_merges_read(fleet, opts)
 
     fleet
-    |> compose(decisions, history, recent_merges)
+    |> compose(decisions, history, recent_merges, decision_latency, decision_latency_health)
     |> Map.put(:provider_health, %{
       fleet: fleet_health,
       decisions: decisions_health,
+      decision_latency: decision_latency_health,
       history: history_health,
       recent_outcomes: recent_outcomes_health
     })
   end
 
   @spec compose(map(), [Decision.t()], [map()], map()) :: map()
-  def compose(fleet, decisions, history, recent_merges)
-      when is_map(fleet) and is_list(decisions) and is_list(history) and is_map(recent_merges) do
-    decision_rows = DecisionPresenter.rows(decisions)
+  @spec compose(map(), [Decision.t()], [map()], map(), map(), term()) :: map()
+  def compose(fleet, decisions, history, recent_merges, decision_latency \\ %{}, decision_latency_health \\ :ok)
+
+  def compose(fleet, decisions, history, recent_merges, decision_latency, decision_latency_health)
+      when is_map(fleet) and is_list(decisions) and is_list(history) and is_map(recent_merges) and
+             is_map(decision_latency) do
+    decision_rows = decisions |> DecisionPresenter.rows() |> attach_latency(decision_latency, decision_latency_health)
     recent_outcomes = normalize_recent_outcomes(recent_merges)
 
     %{
@@ -60,7 +70,7 @@ defmodule AiurWeb.ControlCenterPresenter do
       recent_outcomes_reconciliation: Map.get(recent_merges, :reconciliation),
       analytics: analytics(Map.get(fleet, :analytics)),
       overview: overview(fleet, decision_rows, recent_outcomes),
-      provider_health: %{fleet: :ok, decisions: :ok, history: :ok, recent_outcomes: :ok}
+      provider_health: %{fleet: :ok, decisions: :ok, decision_latency: decision_latency_health, history: :ok, recent_outcomes: :ok}
     }
   end
 
@@ -83,6 +93,19 @@ defmodule AiurWeb.ControlCenterPresenter do
       queued_or_retrying: Map.get(counts, :idle, 0) + Map.get(counts, :retrying, 0),
       recent_repository_merges: length(recent_outcomes)
     }
+  end
+
+  defp attach_latency(decisions, snapshots, :ok) do
+    Enum.map(decisions, fn decision ->
+      case Map.get(snapshots, decision.decision_id) do
+        snapshot when is_map(snapshot) -> Map.put(decision, :latency, %{status: :available, snapshot: snapshot})
+        _missing -> Map.put(decision, :latency, %{status: :missing, snapshot: nil})
+      end
+    end)
+  end
+
+  defp attach_latency(decisions, _snapshots, health) do
+    Enum.map(decisions, &Map.put(&1, :latency, %{status: health, snapshot: nil}))
   end
 
   defp history_row(entry) do

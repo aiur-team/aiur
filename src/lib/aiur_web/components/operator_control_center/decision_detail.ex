@@ -3,7 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
 
   use Phoenix.Component
 
-  alias AiurWeb.OperatorControlCenter.{DecisionAction, DecisionPath, DecisionRevisionAction, LifecycleComponents}
+  alias AiurWeb.OperatorControlCenter.{DecisionAction, DecisionLatency, DecisionPath, DecisionRevisionAction, LifecycleComponents}
 
   attr(:decision, :map, required: true)
   attr(:history, :list, default: [])
@@ -78,6 +78,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
               <div><dt>Recorded</dt><dd class="mono">{format_datetime(@decision.created_at)}</dd></div>
             </dl>
           </.detail_block>
+
+          <DecisionLatency.decision_latency latency={Map.get(@decision, :latency, %{status: :missing, snapshot: nil})} />
 
           <.detail_block title="Links & artifacts">
             <div class="link-list">

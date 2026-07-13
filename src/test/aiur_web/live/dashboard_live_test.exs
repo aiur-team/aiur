@@ -4,9 +4,11 @@ defmodule AiurWeb.DashboardLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
-  alias Aiur.{Decision, DecisionEvent, DecisionPubSub, DecisionStore, Issue}
+  alias Aiur.{Decision, DecisionApi, DecisionDispatch, DecisionEvent, DecisionMetrics, DecisionPubSub, DecisionStore, Issue}
   alias Aiur.Orchestrator
+  alias Aiur.Orchestrator.OperatorMessages
   alias Aiur.RecentMerge
+  alias Aiur.RecentMergeStore
   alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, DashboardLive, ObservabilityPubSub, Presenter}
   alias AiurWeb.OperatorControlCenter.FleetFilters
 
@@ -33,6 +35,31 @@ defmodule AiurWeb.DashboardLiveTest do
 
     def handle_call(:snapshot_count, _from, state) do
       {:reply, state.snapshot_count, state}
+    end
+  end
+
+  defmodule QueueOrchestrator do
+    use GenServer
+
+    alias Aiur.Orchestrator.OperatorMessages
+    alias Aiur.Orchestrator.StatusReport
+
+    def start_link(opts) do
+      GenServer.start_link(__MODULE__, opts, name: Keyword.fetch!(opts, :name))
+    end
+
+    @impl true
+    def init(opts), do: {:ok, Keyword.fetch!(opts, :state)}
+
+    @impl true
+    def handle_call(:snapshot, _from, state), do: StatusReport.snapshot(state)
+
+    def handle_call({:send_correlated_operator_message, issue_identifier, payload}, _from, state) do
+      OperatorMessages.send_correlated_operator_message_call(state, issue_identifier, payload)
+    end
+
+    def handle_call({:claim_next_queue_item, issue_identifier}, _from, state) do
+      OperatorMessages.claim_next_queue_item_call(state, issue_identifier)
     end
   end
 
@@ -359,6 +386,9 @@ defmodule AiurWeb.DashboardLiveTest do
 
     DecisionPubSub.broadcast_changed("decision-only", 26)
     assert eventually(fn -> CountingOrchestrator.snapshot_count(orchestrator_name) == initial_count + 2 end, 100)
+
+    DecisionPubSub.broadcast_metrics_changed()
+    assert eventually(fn -> CountingOrchestrator.snapshot_count(orchestrator_name) == initial_count + 3 end, 100)
   end
 
   test "persists a decision filter in the URL while opening and closing a card" do
@@ -441,6 +471,14 @@ defmodule AiurWeb.DashboardLiveTest do
     {:ok, view, html} = live(build_conn(), "/decisions/#{decision.decision_id}")
     assert html =~ "Answer this decision"
     assert html =~ ~s(phx-submit="answer-decision")
+
+    draft_html =
+      render_change(view, "decision-action-change", %{
+        "decision_id" => decision.decision_id,
+        "answer" => %{"choice" => "custom", "custom_response" => "Draft answer"}
+      })
+
+    assert draft_html =~ "Draft answer"
 
     params = %{
       "decision_id" => decision.decision_id,
@@ -636,6 +674,9 @@ defmodule AiurWeb.DashboardLiveTest do
       }
     }
 
+    assert render_change(view, "decision-revision-change", revision_params) =~
+             "Hold deployment until the incident closes"
+
     html = render_submit(view, "revise-decision", revision_params)
     assert html =~ "Confirm that you understand this revised direction"
 
@@ -812,6 +853,208 @@ defmodule AiurWeb.DashboardLiveTest do
     assert opts[:actor].kind == :operator
   end
 
+  test "human dashboard answer traverses the real queue and target lifecycle" do
+    orchestrator_name = Module.concat(__MODULE__, :CapstoneOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :CapstoneDecisionStore)
+    metrics_name = Module.concat(__MODULE__, :CapstoneDecisionMetrics)
+    recent_merge_store_name = Module.concat(__MODULE__, :CapstoneRecentMergeStore)
+
+    orchestrator = start_queue_orchestrator(orchestrator_name, "987")
+
+    store = start_decision_store(decision_store_name, dispatch_via(orchestrator), dispatch_delay_ms: 0)
+
+    metrics = start_dashboard_metrics(metrics_name, store)
+    recent_merges = start_recent_merge_store(recent_merge_store_name)
+    decision = request_queue_decision(store, "dashboard-capstone", "987")
+    assert :ok = DecisionPubSub.subscribe()
+
+    assert {:ok, merge} =
+             RecentMerge.from_github_event(merged_event(),
+               live?: true,
+               run_id: "capstone-run",
+               now: ~U[2026-07-12 18:01:00Z]
+             )
+
+    assert {:ok, %{status: :accepted}} = RecentMergeStore.upsert(merge, recent_merges)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      decision_metrics: metrics,
+      recent_merge_store: recent_merge_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    path = "/decisions/#{decision.decision_id}"
+    {:ok, view, html} = live(build_conn(), path)
+    assert html =~ "Answer this decision"
+    assert html =~ "Decision latency"
+
+    _html =
+      render_submit(view, "answer-decision", %{
+        "decision_id" => decision.decision_id,
+        "answer" => %{"choice" => "option:ship", "rationale" => "The integrated checks are green"}
+      })
+
+    assert_receive {:decision_changed, decision_id, 1}, 2_000
+    assert decision_id == decision.decision_id
+    assert_receive {:decision_changed, ^decision_id, 1}, 2_000
+    assert {:ok, queued} = DecisionStore.get(decision.decision_id, store)
+    assert queued.delivery_status == :queued
+    assert queued.decision_status == :decided
+    assert_receive {:agent_queue_updated, "987", queue_item_id, _delivery}, 2_000
+
+    assert {:ok, %{id: ^queue_item_id} = item} =
+             OperatorMessages.claim_next_queue_item(orchestrator, "987")
+
+    assert item.correlation.decision_id == decision.decision_id
+    assert item.action_id == queued.answer.action_id
+    assert {:ok, :accepted} = DecisionStore.record_delivery(item, store)
+    assert reload_view(view) =~ "Delivered"
+
+    lifecycle_payload = %{
+      "decision_id" => decision.decision_id,
+      "action_id" => item.action_id,
+      "expected_version" => decision.version,
+      "detail" => "Answer observed and applied"
+    }
+
+    lifecycle_opts = [
+      ticket_identifier: "987",
+      actor: %{kind: :agent, id: "ticket-agent"},
+      source: %{agent_id: "codex", session_id: "capstone-session", invocation_id: "capstone-ack"}
+    ]
+
+    assert {:ok, %{status: :accepted, decision_status: :acknowledged}} =
+             DecisionStore.agent_lifecycle(:acknowledged, lifecycle_payload, lifecycle_opts, store)
+
+    assert reload_view(view) =~ "Acknowledged"
+
+    assert {:ok, %{status: :accepted, decision_status: :resolved}} =
+             DecisionStore.agent_lifecycle(
+               :resolved,
+               Map.put(lifecycle_payload, "detail", "Work completed"),
+               lifecycle_opts,
+               store
+             )
+
+    resolved_html = reload_view(view)
+    assert resolved_html =~ "Resolved"
+    assert resolved_html =~ "Human"
+    refute render(view) =~ "Decision not found"
+
+    root_html = render_patch(view, "/")
+    assert root_html =~ "987"
+    assert root_html =~ "Recent repository merges"
+    assert root_html =~ "Repository merge"
+    assert root_html =~ "Decision history"
+    assert root_html =~ "dashboard"
+
+    detail_html = render_patch(view, path)
+    assert detail_html =~ decision.decision_id
+    assert detail_html =~ "Decision latency"
+    assert detail_html =~ "Request to decision"
+    refute detail_html =~ "Decision not found"
+
+    assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, store)
+
+    assert Enum.map(audit, fn
+             %Decision{} -> :requested
+             %DecisionEvent{type: type} -> type
+           end) == [:requested, :answer_recorded, :dispatch_queued, :delivered, :acknowledged, :resolved]
+  end
+
+  test "supervisor API mutations converge on LiveView without weakening human-required authority" do
+    orchestrator_name = Module.concat(__MODULE__, :SupervisorCapstoneOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :SupervisorCapstoneDecisionStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: System.unique_integer([:positive])}}}
+      end)
+
+    start_counting_orchestrator(orchestrator_name)
+
+    human = request_api_decision(store, "human-required", :human_required)
+    delegated = request_api_decision(store, "supervisor-allowed", :supervisor_allowed)
+    api_opts = supervisor_api_opts(store)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    {:ok, view, human_html} = live(build_conn(), "/decisions/#{human.decision_id}")
+    assert human_html =~ "Human required"
+
+    assert {:error, {:delegation_forbidden, %{reasons: [:human_required]}}} =
+             DecisionApi.decide(human.decision_id, supervisor_decision_payload(1), api_opts)
+
+    assert {:ok, current_human} = DecisionStore.get(human.decision_id, store)
+    assert current_human.decision_status == :open
+    assert is_nil(current_human.answer)
+
+    delegated_path = "/decisions/#{delegated.decision_id}"
+    delegated_html = render_patch(view, delegated_path)
+    assert delegated_html =~ "Supervisor allowed"
+
+    assert {:ok, %{"status" => "accepted", "decision" => enriched}} =
+             DecisionApi.enrich(
+               delegated.decision_id,
+               %{
+                 "expected_version" => 1,
+                 "context" => %{"short_summary" => "Supervisor-enriched canonical context"}
+               },
+               api_opts
+             )
+
+    assert enriched["version"] == 2
+    assert reload_view(view) =~ "Supervisor-enriched canonical context"
+
+    assert {:ok, decided} =
+             DecisionApi.decide(
+               delegated.decision_id,
+               supervisor_decision_payload(2),
+               api_opts
+             )
+
+    action_id = decided["action"]["action_id"]
+    assert decided["action"]["actor"] == %{"kind" => "supervisor", "id" => "supervising-agent"}
+    assert reload_view(view) =~ "Use the canonical path"
+
+    assert {:ok, revised} =
+             DecisionApi.revise(
+               delegated.decision_id,
+               supervisor_revision_payload(action_id, 2),
+               api_opts
+             )
+
+    assert revised["action"]["answer"]["actor"] == %{
+             "kind" => "supervisor",
+             "id" => "supervising-agent"
+           }
+
+    detail_html = reload_view(view)
+    assert detail_html =~ "Use the corrected path"
+    assert detail_html =~ "Original answer · preserved"
+    assert detail_html =~ "Revision 1"
+    refute detail_html =~ "Decision not found"
+
+    _root_html = render_patch(view, "/")
+    root_html = reload_view(view)
+    assert root_html =~ "Decision history"
+    assert root_html =~ "supervising-agent"
+
+    filtered_html = render_patch(view, "/decisions?filter=supervisor")
+    assert filtered_html =~ delegated.question
+    refute filtered_html =~ human.question
+  end
+
   defp start_test_endpoint(overrides) do
     previous = Application.get_env(:aiur, AiurWeb.Endpoint)
     cache = start_supervised!({ControlCenterCache, name: nil})
@@ -851,6 +1094,156 @@ defmodule AiurWeb.DashboardLiveTest do
          rate_limits: nil
        }}
     )
+  end
+
+  defp start_queue_orchestrator(name, identifier) do
+    parent = self()
+    worker_pid = spawn(fn -> worker_probe(parent) end)
+    issue_id = "issue-#{identifier}"
+
+    state = %Aiur.Orchestrator.State{
+      poll_interval_ms: 5_000,
+      max_concurrent_agents: 1,
+      effective_concurrent_agents: 1,
+      poll_check_in_progress: false,
+      running: %{issue_id => running_entry(issue_id, identifier, worker_pid)},
+      agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0}
+    }
+
+    start_supervised!({QueueOrchestrator, name: name, state: state})
+
+    on_exit(fn ->
+      send(worker_pid, :stop)
+    end)
+
+    name
+  end
+
+  defp running_entry(issue_id, identifier, worker_pid) do
+    %{
+      pid: worker_pid,
+      ref: make_ref(),
+      identifier: identifier,
+      issue: %Issue{id: issue_id, identifier: identifier, state: "in-progress", title: "OCC integration"},
+      control: %{can_interrupt: true, safe_checkpoints: [:notification], status: :working},
+      session_id: "thread-#{identifier}",
+      codex_app_server_pid: nil,
+      agent_input_tokens: 0,
+      agent_output_tokens: 0,
+      agent_total_tokens: 0,
+      last_codex_timestamp: DateTime.utc_now(),
+      last_codex_message: nil,
+      last_codex_event: nil,
+      started_at: DateTime.utc_now()
+    }
+  end
+
+  defp worker_probe(parent) do
+    receive do
+      :stop ->
+        :ok
+
+      message ->
+        send(parent, message)
+        worker_probe(parent)
+    end
+  end
+
+  defp dispatch_via(orchestrator) do
+    fn decision, opts ->
+      DecisionDispatch.dispatch(decision, Keyword.put(opts, :operator_messages, orchestrator))
+    end
+  end
+
+  defp start_dashboard_metrics(name, decision_store) do
+    dir = Path.join(System.tmp_dir!(), "aiur-dashboard-metrics-#{System.unique_integer([:positive])}")
+    path = Path.join(dir, "decision-latency.ndjson")
+    on_exit(fn -> File.rm_rf!(dir) end)
+
+    start_supervised!({DecisionMetrics, name: name, path: path, subscribe?: true, seed?: false, decision_store: decision_store})
+  end
+
+  defp start_recent_merge_store(name) do
+    dir = Path.join(System.tmp_dir!(), "aiur-dashboard-merges-#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm_rf!(dir) end)
+
+    start_supervised!({RecentMergeStore, name: name, state_dir: dir, filesystem_sync_fun: fn -> :ok end})
+  end
+
+  defp request_api_decision(store, source_id, authority) do
+    assert {:ok, %{decision: decision}} =
+             DecisionStore.request(
+               %{
+                 "source_id" => source_id,
+                 "question" => "Choose #{source_id}?",
+                 "blocking" => true,
+                 "kind" => "architecture",
+                 "authority" => Atom.to_string(authority),
+                 "reversibility" => "reversible"
+               },
+               [
+                 ticket: %{identifier: "AIUR-984", title: "Supervisor decision API", url: nil},
+                 source: %{agent_id: "agent-984", session_id: "session-984", event_id: "event-#{source_id}"}
+               ],
+               store
+             )
+
+    decision
+  end
+
+  defp request_queue_decision(store, source_id, identifier) do
+    assert {:ok, %{decision: decision}} =
+             DecisionStore.request(
+               %{
+                 "source_id" => source_id,
+                 "question" => "Should the dashboard ship this change?",
+                 "blocking" => true,
+                 "urgency" => "critical",
+                 "reversibility" => "reversible",
+                 "options" => [%{"id" => "ship", "label" => "Ship it"}]
+               },
+               [
+                 ticket: %{identifier: identifier, title: "Operator Control Center", url: nil},
+                 source: %{agent_id: "agent-987", session_id: "session-987", event_id: "event-#{source_id}"}
+               ],
+               store
+             )
+
+    decision
+  end
+
+  defp supervisor_api_opts(store) do
+    [
+      store: store,
+      policy: %{allowed_kinds: ["architecture"], allow_non_reversible: false},
+      actor: %{kind: :supervisor, id: "supervising-agent"}
+    ]
+  end
+
+  defp supervisor_decision_payload(expected_version) do
+    %{
+      "idempotency_key" => "dashboard-supervisor-decision",
+      "expected_version" => expected_version,
+      "custom_response" => "Use the canonical path",
+      "rationale" => "It preserves one append-only lifecycle.",
+      "confidence" => 91,
+      "alternatives_considered" => ["Wait for more evidence"],
+      "reversibility_belief" => "reversible"
+    }
+  end
+
+  defp supervisor_revision_payload(action_id, expected_version) do
+    %{
+      "expected_version" => expected_version,
+      "expected_action_id" => action_id,
+      "expected_revision_sequence" => 0,
+      "idempotency_key" => "dashboard-supervisor-revision",
+      "custom_response" => "Use the corrected path",
+      "rationale" => "New production evidence",
+      "confidence" => 88,
+      "alternatives_considered" => ["Keep the original direction"],
+      "reversibility_belief" => "reversible"
+    }
   end
 
   defp start_decision_store(name, dispatcher, opts \\ []) do
@@ -953,6 +1346,12 @@ defmodule AiurWeb.DashboardLiveTest do
   end
 
   defp eventually(_fun, 0), do: false
+
+  defp reload_view(view) do
+    send(view.pid, :reload_payload)
+    :sys.get_state(view.pid)
+    render(view)
+  end
 
   defp history_entry(id, actor_type, actor_label, question) do
     %{

@@ -1,7 +1,7 @@
 defmodule Aiur.DecisionMetricsTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.DecisionMetrics
+  alias Aiur.{DecisionMetrics, DecisionPubSub}
   alias Aiur.DecisionStore
   alias Aiur.Events.Exchange
 
@@ -63,6 +63,24 @@ defmodule Aiur.DecisionMetricsTest do
     assert snapshot.dispatch_to_delivery_ms == nil
     assert snapshot.delivery_to_ack_ms == nil
     assert snapshot.blocked_time_ms == 0
+  end
+
+  test "returns bounded snapshots and broadcasts only newly recorded observations", %{pid: pid} do
+    assert :ok = DecisionPubSub.subscribe()
+
+    event = request_event(15, true)
+    assert :ok = DecisionMetrics.observe(event, pid)
+    assert_receive :decision_metrics_changed, 500
+
+    assert %{"dec-42" => snapshot} = DecisionMetrics.snapshots(pid)
+    assert snapshot.decision_id == "dec-42"
+    assert snapshot.requested_at == DateTime.to_iso8601(@requested_at)
+
+    assert :duplicate = DecisionMetrics.observe(event, pid)
+    refute_receive :decision_metrics_changed, 50
+
+    assert :ignored = DecisionMetrics.observe(%{}, pid)
+    refute_receive :decision_metrics_changed, 50
   end
 
   test "deduplicates reminders and records actor plus revision without content", %{pid: pid, path: path} do

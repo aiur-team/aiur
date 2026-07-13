@@ -50,9 +50,10 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
     :exit, _reason -> load_uncached(providers)
   end
 
-  defp load_uncached({orchestrator, decision_store, recent_merge_store, snapshot_timeout_ms}) do
+  defp load_uncached({orchestrator, decision_store, decision_metrics, recent_merge_store, snapshot_timeout_ms}) do
     ControlCenterPresenter.state_payload(orchestrator, snapshot_timeout_ms,
       decision_store: decision_store,
+      decision_metrics: decision_metrics,
       recent_merge_store: recent_merge_store
     )
   end
@@ -61,6 +62,7 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
     {
       Endpoint.config(:orchestrator) || Aiur.Orchestrator,
       Endpoint.config(:decision_store) || Aiur.DecisionStore,
+      Endpoint.config(:decision_metrics) || Aiur.DecisionMetrics,
       Endpoint.config(:recent_merge_store) || Aiur.RecentMergeStore,
       Endpoint.config(:snapshot_timeout_ms) || 15_000
     }

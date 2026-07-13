@@ -55,7 +55,8 @@ defmodule AiurWeb.ControlCenterPresenterTest do
         history_fun: fn -> raise "history unavailable" end,
         recent_merges_fun: fn ->
           %{merges: [], health: :ready, reconciliation: %{status: :complete, partial?: false}}
-        end
+        end,
+        decision_metrics_fun: fn -> exit(:decision_metrics_down) end
       )
 
     assert payload.decisions == []
@@ -64,7 +65,49 @@ defmodule AiurWeb.ControlCenterPresenterTest do
     assert payload.provider_health.decisions == :unavailable
     assert payload.provider_health.history == :unavailable
     assert payload.provider_health.recent_outcomes == :ok
+    assert payload.provider_health.decision_latency == :unavailable
     assert payload.fleet.running != []
+  end
+
+  test "associates canonical latency by exact decision id and distinguishes missing samples" do
+    decisions = [
+      decision("dec-with-latency", blocking: true, urgency: :critical),
+      decision("dec-without-latency", blocking: false, urgency: :normal)
+    ]
+
+    latency = %{
+      "dec-with-latency" => %{
+        decision_id: "dec-with-latency",
+        request_to_decision_ms: 1_000,
+        decision_to_dispatch_ms: 250,
+        dispatch_to_delivery_ms: 500,
+        delivery_to_ack_ms: 125,
+        blocked_time_ms: 1_875,
+        reminder_count: 1,
+        attention_count: 2,
+        actor: "human",
+        revised: false
+      },
+      "dec-unrelated" => %{decision_id: "dec-unrelated", blocked_time_ms: 9_999}
+    }
+
+    payload =
+      ControlCenterPresenter.state_payload(:unused, 10,
+        fleet_fun: fn -> fleet_payload() end,
+        decisions_fun: fn -> decisions end,
+        history_fun: fn -> [] end,
+        recent_merges_fun: fn ->
+          %{merges: [], health: :ready, reconciliation: %{status: :complete, partial?: false}}
+        end,
+        decision_metrics_fun: fn -> latency end
+      )
+
+    assert [with_latency, without_latency] = payload.decisions
+    assert with_latency.decision_id == "dec-with-latency"
+    assert with_latency.latency == %{status: :available, snapshot: latency["dec-with-latency"]}
+    assert without_latency.decision_id == "dec-without-latency"
+    assert without_latency.latency == %{status: :missing, snapshot: nil}
+    assert payload.provider_health.decision_latency == :ok
   end
 
   test "normalizes the stable OCC-6 history and recent-outcomes contracts without inferring causality" do

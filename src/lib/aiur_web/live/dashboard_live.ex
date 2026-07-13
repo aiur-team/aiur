@@ -77,6 +77,10 @@ defmodule AiurWeb.DashboardLive do
     {:noreply, PayloadLoader.schedule(socket)}
   end
 
+  def handle_info(:decision_metrics_changed, socket) do
+    {:noreply, PayloadLoader.schedule(socket)}
+  end
+
   @impl true
   def handle_info(:reload_payload, socket) do
     {:noreply, socket |> reload_payload(:cached) |> PayloadLoader.mark_loaded()}
