@@ -138,8 +138,10 @@ authorized option, and self-fix authority exists; other lanes may keep moving.
 For Aiur crashes, leaked processes, missed comments, dispatch failures, or
 broken controls, follow the reference's sanitization and consent policy:
 
-- debug run: file a sanitized Aiur bug automatically;
-- non-debug run: prepare the sanitized draft and ask before filing.
+- with separately recorded external issue mutation authority: check for
+  duplicates, then file or comment with sanitized evidence;
+- without that authority: prepare the sanitized draft and ask before filing or
+  commenting.
 
 Always remove secrets and privacy-sensitive context, regardless of debug mode.
 

@@ -13,7 +13,13 @@ defmodule Aiur.AiurRunAuthoritySkillTest do
     assert executor =~ "`--debug` controls evidence capture only"
     assert executor =~ "never grants\nauthority to create or comment"
     assert executor =~ "requires separate, explicit\nauthority recorded"
-    refute executor =~ "standing consent"
+
+    for source <- [skill, executor] do
+      refute source =~ "standing consent"
+      refute source =~ "debug run:"
+      refute source =~ "non-debug run:"
+      refute source =~ "file a sanitized Aiur bug automatically"
+    end
   end
 
   defp read(path), do: File.read!(Path.join(@repo_root, path))

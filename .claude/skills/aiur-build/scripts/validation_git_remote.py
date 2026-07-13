@@ -7,10 +7,12 @@ import tempfile
 from pathlib import Path
 
 from validation_common import Report, git_no_replace_env
+from validation_git_bounded import run_bounded_git
 from validation_git_repository import _exact_commit, _git, _reject_legacy_grafts
 
 
 GIT_AUTHORITY_TIMEOUT_SECONDS = 180
+GIT_CLEAN_OUTPUT_BYTES = 64 * 1024
 
 
 def _clean_clone_proves_ancestor(
@@ -29,11 +31,8 @@ def _clean_clone_proves_ancestor(
             clone = Path(raw) / "authority.git"
             clean_environment = _clean_git_env()
             initialized = _run_clean_git(
-                [
-                    "git", "init", "--bare", "--quiet", "--template=",
-                    str(clone),
-                ],
                 root,
+                "init", "--bare", "--quiet", "--template=", str(clone),
             )
             if initialized.returncode:
                 _git_failure(
@@ -43,12 +42,9 @@ def _clean_clone_proves_ancestor(
                 )
                 return None
             fetched = _run_clean_git(
-                [
-                    "git", "-C", str(clone), "fetch", "--quiet", "--no-tags",
-                    "--force", "--filter=blob:none", _github_clone_url(repository),
-                    f"{trusted_ref}:refs/heads/publication-authority",
-                ],
-                root,
+                clone, "fetch", "--quiet", "--no-tags", "--force",
+                "--filter=blob:none", _github_clone_url(repository),
+                f"{trusted_ref}:refs/heads/publication-authority",
             )
             if fetched.returncode:
                 _git_failure(
@@ -93,16 +89,13 @@ def _github_clone_url(repository: str) -> str:
 
 
 def _run_clean_git(
-    arguments: list[str], cwd: Path,
+    root: Path, *arguments: str,
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        arguments,
-        cwd=cwd,
-        check=False,
-        capture_output=True,
-        text=True,
-        env=_clean_git_env(),
-        timeout=GIT_AUTHORITY_TIMEOUT_SECONDS,
+    return run_bounded_git(
+        root, *arguments, environment=_clean_git_env(), text=True,
+        timeout_seconds=GIT_AUTHORITY_TIMEOUT_SECONDS,
+        stdout_limit=GIT_CLEAN_OUTPUT_BYTES,
+        stderr_limit=GIT_CLEAN_OUTPUT_BYTES,
     )
 
 

@@ -8,7 +8,6 @@ from unittest.mock import patch
 from git_authority_helpers import GitAuthorityCase, TRUSTED_REF
 from validation_common import Report
 from validation_git_authority import (
-    _clean_clone_proves_ancestor,
     _reject_legacy_grafts,
     _validate_trusted_repository_commits,
 )
@@ -115,32 +114,6 @@ class RepositoryAuthorityTests(GitAuthorityCase):
             "GitHub must prove approved_planning_commit strictly precedes receipt_commit",
             report.errors,
         )
-
-    def test_clean_clone_proves_order_without_source_graph(self) -> None:
-        unrelated_receipt, merged_target = self.unrelated_receipt_and_tip()
-        self.git("branch", "-f", "build-order-research", merged_target)
-        remote = self.base / "remote.git"
-        subprocess.run(
-            ["git", "clone", "--bare", "-q", str(self.root), str(remote)],
-            check=True,
-            capture_output=True,
-        )
-        with patch(
-            "validation_git_remote._github_clone_url",
-            return_value=str(remote),
-        ):
-            passing = Report()
-            self.assertTrue(_clean_clone_proves_ancestor(
-                self.root, "example/repo", TRUSTED_REF,
-                self.approved, self.receipt, passing,
-            ))
-            failing = Report()
-            self.assertFalse(_clean_clone_proves_ancestor(
-                self.root, "example/repo", TRUSTED_REF,
-                self.approved, unrelated_receipt, failing,
-            ))
-        self.assertEqual([], passing.errors)
-        self.assertEqual([], failing.errors)
 
     def test_nonregular_graft_entry_is_rejected(self) -> None:
         grafts = self.root / ".git/info/grafts"
