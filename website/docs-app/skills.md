@@ -24,7 +24,7 @@ After a workspace is populated, `Aiur.AgentSkills.install/1` ([`agent_skills.ex`
 
 ### Codex-native git-workflow skills
 
-[commit](../../.codex/skills/commit/SKILL.md) provides the Codex-native conventional-commit flow: read session intent, confirm scope before staging, use a `type(scope)` subject, and add the Codex co-author trailer. It triggers when a commit is requested.
+[commit](../../.codex/skills/commit/SKILL.md) provides the Codex-native conventional-commit flow: read session intent, confirm scope before staging, use a `type(scope)` subject, and avoid model-attribution trailers. It triggers when a commit is requested.
 
 [push](../../.codex/skills/push/SKILL.md) safely pushes changes and creates or updates a pull request against the PR template. It triggers when publishing changes is requested and distinguishes sync failures, which go to pull, from authentication failures.
 
