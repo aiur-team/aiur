@@ -113,11 +113,20 @@ defmodule ScriptsAiurdevTest do
   # `mise exec -- mix aiur.test.reset` runs without a real toolchain.
   defp fake_mise do
     path = Path.join(System.tmp_dir!(), "aiurdev-mise-#{System.unique_integer([:positive])}")
+    opencode_dir = path <> ".opencode"
 
     File.write!(
       path,
       ~S"""
       #!/usr/bin/env bash
+      if [ "${1:-}" = "where" ]; then
+        mkdir -p "${0}.opencode"
+        printf '%s\\n' '#!/usr/bin/env bash' > "${0}.opencode/opencode"
+        chmod +x "${0}.opencode/opencode"
+        echo "${0}.opencode"
+        exit 0
+      fi
+
       echo "MISE: $*"
       echo "MISE_AIUR_AGENT_IR_SANDBOX: ${AIUR_AGENT_IR_SANDBOX:-}"
       echo "MISE_AIUR_BG_STATE_DIR: ${AIUR_BG_STATE_DIR:-}"
@@ -160,7 +169,12 @@ defmodule ScriptsAiurdevTest do
     )
 
     File.chmod!(path, 0o755)
-    on_exit(fn -> File.rm!(path) end)
+
+    on_exit(fn ->
+      File.rm(path)
+      File.rm_rf(opencode_dir)
+    end)
+
     path
   end
 

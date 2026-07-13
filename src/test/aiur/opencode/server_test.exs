@@ -2,6 +2,7 @@ defmodule Aiur.Opencode.ServerTest do
   use ExUnit.Case, async: false
 
   alias Aiur.Opencode.{ApiClient, Server, TokenRegistry, WorkspaceSetup}
+  alias Exqlite.Basic
 
   test "ticket-directory prompt resolves the slot provider and persists" do
     root = Path.join(System.tmp_dir!(), "aiur-opencode-server-test-#{System.unique_integer([:positive, :monotonic])}")
@@ -93,12 +94,47 @@ defmodule Aiur.Opencode.ServerTest do
 
       assert Map.has_key?(models, "issue-99")
 
-      # This goes through OpenCode's real SessionPrompt persistence path. A
-      # legacy server selected through PATH attempts to write session_message
-      # without its required seq and returns the production failure this guards.
-      assert {:ok, _} = ApiClient.post_message(base_url, session["id"], %{parts: [%{type: "text", text: "operator regression prompt"}]})
+      # SessionPrompt persists the user message before it waits for the model
+      # stream. Keep that production request in flight and inspect the real
+      # schema rather than waiting for our intentionally unavailable bridge.
+      prompt_task =
+        Task.async(fn ->
+          ApiClient.post_message(base_url, session["id"], %{parts: [%{type: "text", text: "operator regression prompt"}]})
+        end)
+
+      assert seq = await_session_message_seq(Path.join([xdg_data_home, "opencode", "opencode.db"]), session["id"])
+      assert is_integer(seq) and seq >= 0
+
+      Task.shutdown(prompt_task, :brutal_kill)
     after
       assert :ok = ApiClient.delete_session(base_url, session["id"])
+    end
+  end
+
+  defp await_session_message_seq(db_path, session_id, attempts \\ 40)
+
+  defp await_session_message_seq(_db_path, _session_id, 0), do: flunk("SessionPrompt did not persist session_message.seq")
+
+  defp await_session_message_seq(db_path, session_id, attempts) do
+    seq =
+      with {:ok, conn} <- Basic.open(db_path) do
+        try do
+          case Basic.rows(Basic.exec(conn, "SELECT seq FROM session_message WHERE session_id = ? ORDER BY seq DESC LIMIT 1", [session_id])) do
+            {:ok, [[seq]], _} when is_integer(seq) -> seq
+            _ -> nil
+          end
+        after
+          Basic.close(conn)
+        end
+      else
+        _ -> nil
+      end
+
+    if is_integer(seq) do
+      seq
+    else
+      Process.sleep(50)
+      await_session_message_seq(db_path, session_id, attempts - 1)
     end
   end
 

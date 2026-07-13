@@ -39,6 +39,10 @@ require_mise() {
 ensure_pinned_opencode() {
   local opencode_dir
 
+  # Test shims use this existing flag to skip all dev-environment setup. Real
+  # launches remain fail-closed when the repository's pinned runtime is absent.
+  [ "${AIUR_SKIP_BUILD:-0}" = "1" ] && return
+
   require_mise
   opencode_dir="$("$mise_bin" where -C "$repo_root" opencode 2>/dev/null || true)"
 
