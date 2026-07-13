@@ -875,6 +875,7 @@ defmodule AiurWeb.DashboardLiveTest do
         server: false,
         secret_key_base: String.duplicate("s", 64),
         dashboard_writable: false,
+        dashboard_auth_required: false,
         control_center_cache: cache
       )
       |> Keyword.merge(overrides)
