@@ -12,7 +12,7 @@
 
 **Serializes with:** DASH-007, DASH-021 — shared `DashboardLive` composition
 
-**External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
+**Predecessor baseline:** resolved — `origin/main` at `9849f32963c2a65367bce565b3f5ede3777c218f`
 
 **Requirements:** DREQ-003
 
@@ -35,7 +35,14 @@ Current main already renders one Fleet table with waiting reasons, Decisions, sa
 - Render DASH-016's single-select Live/Unfinished/All/None scope and independent Active/Alert/Paused/Stuck/Queued/Finished condition chips. Display predicate counts from the catalog without implying overlapping counts are additive.
 - Persist validated scope and conditions in URL parameters. Refresh, copied URLs, and browser back/forward restore the same view. Provide a named reset when a valid selection yields no rows.
 - Render one desktop table and narrow card/reflow presentation with typed identity, agent/backend/model/effort/complexity, title and optional lane, latest evidence, progress source/freshness, runtime, waiting/blocking context, open Commands, and safe available actions. Unknown/stale values use explicit text, never fake percentages or placeholder models.
-- Consume the accepted BO-018 base ticket-context integration for row inspection and read-only GitHub/Chat/Commands navigation capabilities. Preserve the existing running-agent log behavior until the shared context is available; do not fetch tracker data during render or bind Build Order-specific relationships.
+- Consume the accepted BO-018 base ticket-context integration for row
+  inspection and read-only GitHub/Chat/Commands navigation capabilities. Row
+  inspection opens ticket context; a separate named Chat action uses the
+  destination seam later implemented by DASH-027. Preserve the existing
+  running-agent log behavior only as an explicitly temporary compatibility
+  path until DASH-027 lands; never make its local path/raw-payload model part of
+  the new row contract. Do not fetch tracker data during render or bind Build
+  Order-specific relationships.
 - Preserve focus and selection across live row updates when the same identity remains visible. Coalesce screen-reader count/status announcements and avoid reorder animation when reduced motion is enabled or focus would move.
 - Use explicit named buttons/links for row inspection and actions. A visual row may be hover-highlighted, but a non-focusable clickable `<tr>` is not the interaction contract.
 
@@ -94,4 +101,11 @@ Extend the current Fleet table/filter/presenter components under `AiurWeb.Operat
 
 ## Sibling boundaries and open gates
 
-DASH-005 owns all writes and may add controls only through this row/action seam. DASH-022 owns the nonfinancial run summary and DASH-015 owns protected usage/provider cards. This ticket does not start until BO-018 has proven the reusable accessible base-context integration, preventing a second incompatible modal contract. It does not depend on BO-011's Build Order-specific context composition.
+DASH-005/028 own writes and may add unit/capacity controls only through this
+row/action seam. DASH-027 owns the safe read-only conversation destination;
+this ticket only exposes its named action capability. DASH-022 owns the
+nonfinancial run summary, DASH-015 owns provider-meter cards, and DASH-031 owns
+protected usage/cost. This ticket does not start until BO-018 has proven the
+reusable accessible base-context integration, preventing a second incompatible
+modal contract. It does not depend on BO-011's Build Order-specific context
+composition.

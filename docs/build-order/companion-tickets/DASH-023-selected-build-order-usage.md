@@ -8,11 +8,11 @@
 
 **Risk:** high
 
-**Depends on:** BO-003, BO-012, DASH-011, DASH-015, DASH-021
+**Depends on:** BO-003, BO-012, DASH-030, DASH-031, DASH-021
 
 **Serializes with:** DASH-022, BO-013, BO-014 — summary and Build Order route CSS
 
-**External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
+**Predecessor baseline:** resolved — `origin/main` at `9849f32963c2a65367bce565b3f5ede3777c218f`
 
 **Requirements:** DREQ-023
 
@@ -24,21 +24,33 @@
 
 ## Outcome
 
-An authenticated selected Build Order route can show DASH-015 usage/provider summaries scoped to the exact current GitHub member set, updating safely when root selection, membership generation, retained usage, or meter facts change.
+An authenticated selected Build Order route can show DASH-031 usage/cost
+summaries scoped to the exact current GitHub member set, updating safely when
+root selection, membership generation, retained usage, or meter facts change.
 
 ## Context and evidence
 
-Units correctly defaults accounting to `this run`, while the user also requires tokens and estimates for a total build and its tickets/models/agents. BO-003 owns current GitHub root/member truth and BO-012 owns URL-backed selected-root presentation. DASH-011 already accepts an explicit repository-qualified ticket set. This ticket owns only the live selected-scope integration and never writes membership or changes Build Order completion.
+Units correctly defaults accounting to `this run`, while the user also requires
+tokens and estimates for a total build and its tickets/models/agents. BO-003
+owns current GitHub root/member truth, BO-012 owns URL-backed selected-root
+presentation, and DASH-030 accepts an explicit repository-qualified ticket set.
+This ticket owns only the live selected-scope integration and never writes
+membership or changes Build Order completion.
 
 ## Scope
 
 - Derive the selected root solely from BO-012's canonical `/build-orders/:root_number` URL and validated repository context; browser-local selection is not authority.
 - Consume BO-003's complete current selected graph generation and exact repository-qualified member identities. Never infer membership from labels, prose, phase/lane, visible nodes, or issue-number adjacency.
-- Call DASH-011 with that explicit current member set and label the result `this build`, retaining basis/currency/account-generation/coverage semantics and the compatible-currency API-equivalent roll-up.
+- Call DASH-030 with that explicit current member set and label the result `this
+  build`, retaining basis/currency/account-generation/coverage semantics and
+  the compatible-currency API-equivalent roll-up.
 - Include every retained usage observation attributable to a current member, including observations recorded before it joined the Build Order. Exclude a removed/nonmember ticket immediately on the next complete membership generation; there is no joined-at cutoff.
 - Treat catalog generation, selected-root generation, complete membership generation, accounting generation, and provider-meter generation independently. Discard stale async/query results after any relevant generation changes.
 - Subscribe to BO-003 selected-graph updates and protected DASH-021 accounting/meter changes. Requery bounded snapshots on mount/reconnect, root switch, or complete membership change; coalesce updates without per-browser GitHub polling.
-- Render through DASH-015's protected usage/provider component contract on the Build Order route, preserving exact-generation tier joins, the asterisked compatible-currency API-equivalent total and contributor reconciliation, bounded drill-down, health/freshness, and locked state.
+- Render through DASH-031's protected usage/cost component contract on the
+  Build Order route, preserving exact-generation tier annotations, the
+  asterisked compatible-currency API-equivalent total and contributor
+  reconciliation, bounded drill-down, health/freshness, and locked state.
 - Define loading, empty-build, no-retained-usage, partial-retention, selected-invalid, stale graph, graph unavailable, accounting unavailable, and membership-changed states without confusing them with zero.
 - Preserve URL/share/back/refresh behavior and focus when switching roots or live membership changes.
 
@@ -50,7 +62,10 @@ Units correctly defaults accounting to `this run`, while the user also requires 
 
 ## Existing owner and reuse target
 
-Extend BO-012's selected-route composition with a thin generation-safe scope adapter. Consume BO-003 selected graph/member identities, DASH-011 explicit-ticket-set query, DASH-015 components, and DASH-021 protected query/subscription boundary.
+Extend BO-012's selected-route composition with a thin generation-safe scope
+adapter. Consume BO-003 selected graph/member identities, DASH-030 explicit-
+ticket-set query, DASH-031 components, and DASH-021 protected query/
+subscription boundary.
 
 ## Contract and invariants
 
@@ -67,7 +82,8 @@ Extend BO-012's selected-route composition with a thin generation-safe scope ada
 
 ## Refreshable implementation notes
 
-- Refresh BO-003/012 generation and route contracts plus DASH-011/015/021 APIs at pickup; adapt through public seams.
+- Refresh BO-003/012 generation and route contracts plus DASH-030/031/021 APIs
+  at pickup; adapt through public seams.
 - Keep the scope adapter and generation key pure; LiveView handlers should validate URL/generation, request bounded cached data, and render normalized state.
 - Coordinate the shared summary container/CSS with DASH-022 and Build Order route work; serialize rather than duplicate components.
 
@@ -97,7 +113,9 @@ Extend BO-012's selected-route composition with a thin generation-safe scope ada
 
 ## Surfaces
 
-- Reads: BO-003 current selected graph/members, BO-012 URL route state, DASH-011 explicit-ticket query, DASH-015 component contract, DASH-021 protected delivery.
+- Reads: BO-003 current selected graph/members, BO-012 URL route state,
+  DASH-030 explicit-ticket query, DASH-031 component contract, and DASH-021
+  protected delivery.
 - Writes: selected-build scope adapter, generation-keyed
   query/cache/subscriptions, Build Order usage composition, Build Order route
   component CSS, and tests.
@@ -108,8 +126,9 @@ Extend BO-012's selected-route composition with a thin generation-safe scope ada
 
 ## Sibling boundaries and open gates
 
-DASH-015 owns provider/usage presentation and is a hard predecessor. DASH-022
-owns nonfinancial run summary and serializes on shared layout only. This
+DASH-030 owns grouped scope and DASH-031 owns usage/cost presentation; both are
+hard predecessors. DASH-015 provider meters are independent. DASH-022 owns
+nonfinancial run summary and serializes on shared layout only. This
 companion declares the cross-pack serialization edges with BO-013 and BO-014
 because all three write Build Order route component CSS. BO-003/012 retain Build
 Order truth; this standalone companion never enters root membership or

@@ -10,9 +10,9 @@
 
 **Depends on:** DASH-001, DASH-006, DASH-017
 
-**Serializes with:** DASH-003, DASH-005, DASH-015, DASH-021, DASH-022 — shared `DashboardLive`/CSS
+**Serializes with:** DASH-003, DASH-005, DASH-015, DASH-021, DASH-022, DASH-027, DASH-028, DASH-031, DASH-034 — shared `DashboardLive`/CSS
 
-**External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
+**Predecessor baseline:** resolved — `origin/main` at `9849f32963c2a65367bce565b3f5ede3777c218f`
 
 **Requirements:** DREQ-007
 
@@ -37,6 +37,10 @@ Current main has a durable, integrated Decision inbox/detail/history with answer
 - Drive banner counts from DASH-006 canonical retained counts. If counts are degraded or partial, label them rather than presenting the bounded overview count as global truth.
 - Render DASH-017 provider/backend/resolved-model provenance only when present and render the existing integer `supervisor_basis.confidence` unchanged on its `0..100` scale. Render unknown legacy values honestly. Show bounded option previews, selected/supervising-answer indicators, blocking reason, authority, delivery status, and latency without parsing prose.
 - Preserve URL-backed filters, cursor/search state where shareable, direct detail routes, browser back/forward, irreversible confirmation, sanitization, optimistic-lock/version conflict handling, retry, revise, follow-up, and dynamic writable/auth gates.
+- Preserve complete durable Decision history on a reachable Commands surface
+  before DASH-034 changes the Units Recent region. History keeps provenance,
+  selected answers, revisions, dispatch/acknowledgement, supersession, and
+  stable detail navigation; it is never silently deleted to match the mock.
 
 ## Non-goals
 
@@ -66,7 +70,10 @@ Extend current `DashboardLive`, `DecisionInbox`, `DecisionCard`, `DecisionDetail
 
 ### Agent gate
 
-- Presenter/LiveView tests cover each primary and secondary lifecycle state, paginated/search `All`, old direct links, canonical/partial counts, blocking banner, pluralization, legacy/canonical provenance, confidence, and every existing write safeguard.
+- Presenter/LiveView tests cover each primary and secondary lifecycle state,
+  paginated/search `All`, old direct links, complete durable history,
+  canonical/partial counts, blocking banner, pluralization, legacy/canonical
+  provenance, confidence, and every existing write safeguard.
 - Browser/a11y tests cover URL/back/search/pagination, keyboard/touch, focus/confirmation, retry/error/version conflict, 200% zoom, 320/390/768/960 widths, read-only and unauthenticated modes.
 - Regression tests prove no prototype-only action is dispatchable and no lifecycle state disappears from all reachable surfaces.
 
@@ -94,4 +101,8 @@ Extend current `DashboardLive`, `DecisionInbox`, `DecisionCard`, `DecisionDetail
 
 ## Sibling boundaries and open gates
 
-DASH-001 owns navigation shell, DASH-006 owns retained queries, and DASH-017 owns durable provenance without changing existing confidence. This ticket must not absorb new Decision actions or become an excuse to rewrite the integrated OCC lifecycle.
+DASH-001 owns navigation shell, DASH-006 owns retained queries, and DASH-017
+owns durable provenance without changing existing confidence. DASH-034 may
+change Units Recent only after this Commands history remains reachable. This
+ticket must not absorb new Decision actions or become an excuse to rewrite the
+integrated OCC lifecycle.

@@ -1,40 +1,42 @@
-# DASH-011 — Project cost and usage groups
+# DASH-011 — Resolve exact usage pricing
 
 **Kind:** executable
 
 **Provenance:** planned in plan v1 after cost-policy decisions and adversarial review
 
-**Complexity:** 4 — Versioned exact pricing and multi-dimensional retained-coverage queries
+**Complexity:** 3 — Versioned exact pricing and relationship-aware token reconciliation
 
 **Risk:** high
 
-**Depends on:** DASH-024
+**Depends on:** DASH-008
 
 **Serializes with:** none
 
-**External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
+**Predecessor baseline:** resolved — `origin/main` at `9849f32963c2a65367bce565b3f5ede3777c218f`
 
 **Requirements:** DREQ-011
 
 **Researched at:** `9849f32963c2a65367bce565b3f5ede3777c218f`
 
-**Suggested labels:** `complexity:4`, `model:codex`; never `agent:todo`
+**Suggested labels:** `complexity:3`, `model:codex`; never `agent:todo`
 
 **Build Order membership:** none — standalone dashboard companion
 
 ## Outcome
 
-Aiur returns exact-arithmetic, scope-labelled token and dollar totals by
-run/build, ticket, agent family, backend, resolved model, currency, and opaque
-provider-account generation, plus a compatible-currency API-equivalent total
-across providers and account generations. Provider-reported and versioned
-API-equivalent bases remain distinct, and every token total and price follows
-the pinned DASH-008 provider/source relationship revision, with explicit
-retained coverage and unknowns.
+Aiur resolves normalized usage into exact, reproducible token reconciliation
+and monetary slices under immutable occurrence-time price and DASH-008 token-
+relationship revisions. Provider-reported and API-equivalent bases remain
+distinct, and unknown or contradictory inputs fail closed without inventing a
+price or token total.
 
 ## Context and evidence
 
-The user requires spend and tokens per ticket, agent type, model, and total build. Subscription use is not a per-ticket invoice: the accepted policy is a versioned API-equivalent estimate with an asterisk/explanation and the actual account tier shown separately. A selected Build Order includes all retained usage attributable to its current GitHub member tickets, including usage recorded before membership; there is no joined-at cutoff. Provider-reported request cost and estimates cannot be silently added into one unlabeled spend value.
+The user requires spend and tokens per ticket, agent type, model, and total
+build. Subscription use is not a per-ticket invoice, so the accepted monetary
+policy is a reproducible API-equivalent estimate. Pricing policy and
+multidimensional grouping are separate review boundaries: this ticket owns the
+former, while DASH-030 owns run/build/ticket grouping and reconciliation.
 
 ## Scope
 
@@ -42,7 +44,8 @@ The user requires spend and tokens per ticket, agent type, model, and total buil
   - `provider_reported_estimate` when the provider's structured request event reports an estimated request cost;
   - `api_equivalent_estimate` derived from observed tokens, exact resolved model, token dimension, and a versioned/effective-dated price table.
   Unknown basis/model/pricing/currency remains unknown. Do not add fixed-subscription allocation or organization-billing reconciliation in v1.
-- Store/query currency in integer micros or exact decimal. Price input, arithmetic, and output never pass through binary float.
+- Store currency in integer micros or exact decimal. Price input, arithmetic,
+  and output never pass through binary float.
 - Define price applicability at the exact DASH-008/DASH-009 UTC
   `pricing_effective_date` bucket. Within a `(provider, resolved_model,
   token_dimension, currency)` price series, every revision has an inclusive UTC
@@ -71,23 +74,24 @@ The user requires spend and tokens per ticket, agent type, model, and total buil
   or `$0.00`. Existing effective-date and relationship revisions are immutable
   after acceptance; a correction is a new explicitly versioned revision with
   a migration/recalculation disposition, never silent historical repricing.
-- Expose a query over an explicit typed ticket set and/or run set returning tokens and monetary totals by basis, plus groups by provider, ticket, agent family, backend, resolved model, auth mode, opaque `provider_account_generation`, currency, and run. Include occurrence-price bucket/revision coverage, unknown contributors, pricing/model coverage, ledger health, and earliest/latest retained coverage.
-- Define Build Order scope as the caller-supplied current GitHub member set. Include every retained observation for those identities, including pre-membership usage; exclude unrelated tickets and do not infer membership from labels/prose.
-- Preserve provider/account generation buckets for attribution and tier
-  correlation, then expose one exact `api_equivalent_estimate` roll-up per
-  compatible currency across those buckets. The roll-up must reconcile to its
-  provider, account-generation, ticket, agent-family, backend and model
-  contributors and must retain partial/pricing coverage. Never mix currencies
-  or `provider_reported_estimate` with `api_equivalent_estimate`; provider-
-  reported values stay separately labelled.
-- For subscription auth, return API-equivalent estimate metadata requiring `*`, information-popover copy key, and a generation-qualified tier join key of `(provider, backend, provider_account_generation)`. This ticket does not ingest or join meter data. DASH-015 may attach actual tier only from DASH-020/013 facts with that exact known generation; missing, unknown, or mixed generations require an unjoined `unknown`/`mixed` tier state. It must not be named billed or actual spend. A multi-generation roll-up carries contributor tier states, not one synthetic tier.
-- Provide deterministic empty, partial, stale/corrupt-ledger, unknown-price,
-  unknown-model, unknown/contradictory token-relationship, mixed-currency, and
-  partial-retention results.
+- Emit an immutable per-observation or per-preserved aggregate-slice pricing
+  result containing canonical token reconciliation, provider-reported estimate
+  when present, API-equivalent estimate when fully supported, currency/basis,
+  provider/model/dimension, occurrence-price revision, relationship revision,
+  opaque account generation, exact-generation tier-join key when possible,
+  and explicit coverage/reason fields. DASH-030 groups these slices.
+- For subscription auth, attach metadata requiring `*` and an information-
+  popover copy key. It must not be named billed or actual spend. This ticket
+  does not read meter facts or attach a tier.
+- Provide deterministic known, partial, unknown-price, unknown-model, unknown/
+  contradictory relationship, invalid arithmetic, and unsupported-currency
+  results without consulting current time, browser state, or provider I/O.
 
 ## Non-goals
 
-- Ingest/persist usage, fetch provider meters or organization invoices, allocate a flat subscription fee, scrape live pricing pages, render UI, or write totals to GitHub.
+- Ingest/persist/aggregate/query usage, discover run/build membership, fetch
+  provider meters or organization invoices, allocate a flat subscription fee,
+  scrape live pricing pages, render UI, or write totals to GitHub.
 - Join plan/tier meter facts, infer an account match from provider/backend alone,
   or apply one current tier to historical usage spanning account generations.
 - Claim OpenAI/Anthropic organization billing data is attributable to an Aiur ticket without a separate reviewed correlation source.
@@ -95,25 +99,24 @@ The user requires spend and tokens per ticket, agent type, model, and total buil
 
 ## Existing owner and reuse target
 
-Build a pure pricing/grouping layer over DASH-024's aggregate/query behavior,
-resolve its pinned revision IDs through DASH-008's immutable versioned
-relationship registry, and use a versioned checked-in/configured price table
-with exact-money helpers. Keep all financial policy outside LiveView.
+Build a pure pricing/token-reconciliation library over DASH-008's immutable
+relationship registry and a versioned checked-in/configured price table with
+exact-money helpers. DASH-030 invokes it over DASH-024's preserved aggregate
+slices. Keep all financial policy outside LiveView.
 
 ## Contract and invariants
 
-- Every monetary result carries currency, basis, scope, pricing revision/effective date where applicable, model/token coverage, and retained coverage.
-- Unlike bases and currencies are never arithmetically combined. Provider and
-  account generation remain exact contributor dimensions, while compatible-
-  currency API-equivalent contributors are deliberately summed into the
-  comparable run/build estimate. Unknown contributors remain in token totals
-  and make monetary coverage partial/unknown.
+- Every result carries currency, basis, pricing revision/effective date where
+  applicable, token-relationship revision, provider/model/dimension, opaque
+  account generation, and token/pricing coverage.
+- Unlike bases and currencies are never arithmetically combined. This ticket
+  prices one preserved slice; DASH-030 alone produces contributor groups and
+  compatible-currency roll-ups.
 - `provider_reported_estimate` is accepted only from a DASH-008/010 source that declares structured estimated request cost; it is not inferred from a subscription fee.
-- Current-build membership is caller-supplied current GitHub identity. The query includes all retained observations for each current member, with no membership-time cutoff.
 - Historical pricing joins require exact provider, resolved model, token
   dimension, token-relationship revision, currency, and UTC occurrence-price
   interval. Tier correlation is not a pricing join and is exposed only as an
-  exact opaque-generation key for DASH-015; this projection never reads meter
+  exact opaque-generation key for DASH-031; this resolver never reads meter
   snapshots.
 - A retained relationship ID must resolve to exactly one immutable DASH-008
   registry entry. Missing, ambiguous, or replaced semantics remain unknown and
@@ -122,7 +125,9 @@ with exact-money helpers. Keep all financial policy outside LiveView.
   but distinct: additive dimensions count and price separately; subset
   dimensions count through the parent but price the child and parent remainder
   separately; provider-total authority cannot conceal a dimension mismatch.
-- Group sums reconcile exactly to their matching basis/scope/currency/account-generation buckets, and every compatible-currency API-equivalent roll-up reconciles exactly to all of its provider/generation/ticket/agent/backend/model contributors; unrelated identities cannot enter through bare-number collisions.
+- Each resolved slice reconciles its canonical token dimensions, provider total,
+  and priced components exactly. Group/roll-up reconciliation is DASH-030's
+  contract.
 
 ## Refreshable implementation notes
 
@@ -133,17 +138,17 @@ with exact-money helpers. Keep all financial policy outside LiveView.
 - Keep the DASH-008 token-relationship revision beside every pricing input and
   contributor. Never infer a historical relationship from the provider's
   current schema or price table.
-- Reconcile #132 as covered/superseded for per-ticket estimate semantics; its TUI-specific rendering remains outside this ticket.
+- Reconcile #132 as covered/superseded for price semantics; its grouped query
+  and TUI-specific rendering remain outside this ticket.
 
 ## Acceptance and verification
 
 ### Agent gate
 
 - Exact-arithmetic/property tests cover each basis, model/token price
-  dimension, UTC effective-date boundaries, price-interval
-  non-overlap/ambiguity validation, unknown model/auth/price, mixed
-  bases/currencies/account generations, completed and unrelated tickets, and
-  bucket/roll-up reconciliation. Dedicated fixtures prove Claude base input +
+  dimension, UTC effective-date boundaries, price-interval non-overlap/
+  ambiguity validation, unknown model/auth/price, bases, currencies, and
+  account generations. Dedicated fixtures prove Claude base input +
   cache creation + cache read are additive in both token and separately priced
   cost reconciliation, while Codex cached input is a priced subset whose count
   is not added again to parent input.
@@ -154,62 +159,55 @@ with exact-money helpers. Keep all financial policy outside LiveView.
   retain raw token and provider-total evidence but emit no API-equivalent
   estimate, and an old pinned ID never resolves through current provider/source
   defaults.
-- Join-safety tests prove pricing never crosses provider or currency, grouped
-  contributor output never merges known/unknown or different account
-  generations, the compatible API-equivalent roll-up sums only same-currency
-  contributors, and the emitted tier key cannot correlate an unknown/mixed
+- Join-safety tests prove pricing never crosses provider/currency/model/
+  relationship revision and the emitted tier key cannot correlate an unknown
   generation or authorize a provider/backend-only join.
-- Scope tests prove current-member pre-membership usage is included, removed/nonmember usage is excluded, bare issue numbers cannot collide, and run versus build labels remain distinct.
-- Ledger failure/retention tests cover empty, partial, corrupt/unavailable health and earliest/latest coverage without converting gaps to zero.
 
 ### At-merge gate
 
-- Rebase on DASH-024 and the resolved configured integration target; run aggregate/query, pricing, exact-money, membership identity, security, regression, and full CI suites. Review price fixtures and policy copy as code/data changes.
+- Rebase on DASH-008 and the resolved configured integration target; run
+  relationship, pricing, exact-money, security, regression, and full CI suites.
+  Review price fixtures and policy copy as code/data changes.
 
 ### Human/manual evidence
 
-- Executor reviews a synthetic mixed Codex/Claude subscription example showing
-  one asterisked compatible-currency API-equivalent run/build estimate that
-  reconciles to both provider/generation groups, separately labelled provider-
-  reported estimates, and exact-generation-only tier annotations. Confirm
-  unlike bases/currencies are not summed and generations are not tier-
-  correlated.
+- Executor reviews synthetic Claude-additive and Codex-subset slices with
+  occurrence-time pricing, exact provider-reported/API-equivalent separation,
+  asterisk metadata, and unknown/mismatched revisions. DASH-030/031 own grouped
+  totals and presentation proof.
 
 ## Failure, security, migration, and accessibility cases
 
-- Missing pricing/model/auth or degraded ledger produces partial/unknown with a reason; it never fails open to a monetary zero.
-- Treat grouped financial/Executor facts as sensitive. Do not log query rows, account identity, credentials, or raw provider events.
-- Version price tables and output schema. Replay/query migration preserves
+- Missing pricing/model/auth/relationship data produces partial/unknown with a
+  reason; it never fails open to a monetary zero.
+- Treat pricing inputs/results as sensitive. Do not log account identity,
+  credentials, or raw provider events.
+- Version price tables and output schema. Downstream replay/query migration preserves
   historical basis/revision, token-relationship revision, currency,
   occurrence-price partition, and opaque account-generation semantics.
-- No direct UI; all basis, scope, coverage, and unknown reason fields have human-readable labels for DASH-015.
+- No direct UI; all basis, coverage, and unknown reason fields have human-
+  readable labels for DASH-030/031.
 
 ## Surfaces
 
-- Reads: DASH-024 aggregate/query behavior with retained occurrence-price,
-  token-relationship, currency, and opaque account-generation partitions;
-  DASH-008's immutable provider/source/source-version token-relationship
-  registry behind each pinned revision ID; versioned price table; explicit
-  typed run/ticket membership sets. It does not read raw usage files or
-  provider meters.
-- Writes: cost/usage grouping projection and query API, pricing revisions/fixtures, tests.
+- Reads: DASH-008 normalized pricing inputs and immutable provider/source/
+  source-version relationship registry; versioned price table. It does not
+  read raw usage files, aggregate stores, scopes, or provider meters.
+- Writes: exact pricing/token-reconciliation resolver, immutable price
+  revisions/fixtures, and tests.
 - Contracts: relationship-aware exact effective-date/currency pricing and
-  token/provider-total reconciliation, generation-qualified tier join key,
-  compatible-currency API-equivalent roll-up with preserved contributors,
-  exact grouped summary, current-build retained-membership semantics.
+  token/provider-total reconciliation, and generation-qualified tier join key.
 
 ## Sibling boundaries and open gates
 
-DASH-009 owns raw append/replay and DASH-024 owns the aggregate query consumed
-here. The transitive DASH-011 → DASH-024 → DASH-009 → DASH-008 dependency chain
-orders the immutable relationship registry before pricing, so a redundant
-direct edge is unnecessary; this ticket reads the public DASH-008 registry
-contract, never raw envelopes. DASH-010 supplies required Remote Control
-observations but does not block developing this projection against fixtures.
+DASH-008 owns the immutable relationship registry consumed here. DASH-009/024
+own persistence and raw aggregate queries; DASH-030 combines DASH-024 slices
+with this resolver into scoped groups. DASH-010/029 supply observations but do
+not block developing pricing against fixtures.
 DASH-012 owns the meter contract, and DASH-020/013 own actual Codex/Claude
 account facts; DASH-011 deliberately does not depend on or join them.
-DASH-015 is the sole composition owner that may join usage groups to tier facts,
+DASH-031 is the sole composition owner that may join usage groups to tier facts,
 and only by provider, backend, and the exact known opaque generation. It must
 keep bases/currencies separate, preserve generation contributor groups, and
-apply the subscription estimate disclosure exactly to the compatible API-
-equivalent total and its constituents.
+apply the subscription estimate disclosure exactly to the DASH-030 compatible
+API-equivalent total and its constituents.

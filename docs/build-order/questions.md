@@ -12,6 +12,11 @@ be added here and asked one at a time.
 
 ## Commands or Access Needed
 
+- Rotate the dashboard Basic Auth credential pasted into chat. It will not be
+  copied into commands or tracked files. The supplied screenshots and audited
+  `origin/main` source are sufficient for the current delta pass; if later
+  authenticated browser evidence is required, provide a fresh credential via
+  a local `chmod 600` file path rather than chat.
 - Before any later dispatch, the user and runtime Executor must resolve the
   integration-baseline and installed-skill gates recorded in
   `build-order.json`. They do not block planning publication.

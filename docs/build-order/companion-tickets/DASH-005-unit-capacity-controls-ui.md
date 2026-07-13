@@ -1,4 +1,4 @@
-# DASH-005 — Render unit and capacity controls
+# DASH-005 — Render applied unit controls
 
 **Kind:** executable
 
@@ -10,9 +10,9 @@
 
 **Depends on:** DASH-003, DASH-004
 
-**Serializes with:** DASH-007, DASH-015, DASH-021, DASH-022 — shared `DashboardLive`/CSS
+**Serializes with:** DASH-007, DASH-015, DASH-021, DASH-022, DASH-027, DASH-028, DASH-031, DASH-034 — shared `DashboardLive`/CSS
 
-**External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
+**Predecessor baseline:** resolved — `origin/main` at `9849f32963c2a65367bce565b3f5ede3777c218f`
 
 **Requirements:** DREQ-005
 
@@ -24,41 +24,51 @@
 
 ## Outcome
 
-Authenticated Executors can pause or resume eligible Units and set a positive max-agent capacity from the Units page, with correlated pending/application feedback, authoritative capacity reconciliation, and no client-forged state.
+Authenticated Executors can pause or resume eligible Units from the Units page
+with correlated pending/application feedback and no client-forged state.
 
 ## Context and evidence
 
-DASH-004 supplies the missing worker-applied lifecycle for unit controls. Current main also exposes `Aiur.Orchestrator.Slots.set_max_concurrent_agents/1`, whose accepted domain is positive integers and whose lowering behavior drains rather than kills workers. The prototype permits zero, pauses arbitrary rows locally, and restores them from browser memory; none of those behaviors can be copied.
+DASH-004 supplies the missing worker-applied lifecycle for unit controls. The
+prototype pauses arbitrary rows locally and restores them from browser memory;
+that behavior cannot be copied. Runtime capacity has a different owner and
+failure model and is isolated in DASH-028.
 
 ## Scope
 
 - Define and render an eligibility matrix for running, applied-paused, pending-control, queued, retrying, merging, terminal, replaced-generation, request-only, unsupported, and Remote Control units. Recheck capability, writable mode, authentication, identity generation, and current state at invocation.
 - Invoke pause/resume only through DASH-004. Render requested, accepted, applied, rejected, expired, superseded, and request-only states with retry guidance; do not change the row's authoritative lifecycle before the corresponding contract state.
-- Invoke capacity changes through `Aiur.Orchestrator.Slots.set_max_concurrent_agents/1` and reconcile the returned/current authoritative maximum and draining state. The UI minimum is `1`; zero is invalid. Global pause remains the existing workflow control, not a hidden `max agents = 0` behavior.
 - Debounce repeated activation while one request is pending, preserve focus after completion/error, and resolve concurrent row changes truthfully. A changed or terminal row cancels stale UI intent rather than targeting a replacement unit.
-- Expose pause owner/reason, request state, and capacity draining/failure in accessible text. Keep controls named and reachable at every supported Units breakpoint.
+- Expose pause owner/reason and request state in accessible text. Keep controls
+  named and reachable at every supported Units breakpoint.
 
 ## Non-goals
 
-- Implement the Units catalog/filter UI, change scheduling policy, kill workers to satisfy a lower cap, mutate tracker labels, add start/cancel/reprioritize, or implement Build Order controls.
-- Emulate backend controls in JavaScript, restore prior worker state from browser memory, or make zero a valid cap.
+- Implement the Units catalog/filter UI, runtime-capacity control, change
+  scheduling policy, mutate tracker labels, add start/cancel/reprioritize, or
+  implement Build Order controls.
+- Emulate backend controls in JavaScript or restore prior worker state from
+  browser memory.
 - Weaken current Basic Auth, CSRF, same-origin, writable, or capability gates.
 
 ## Existing owner and reuse target
 
-Extend DASH-003's Units action seam, consume DASH-004 control lifecycle, and reuse `Aiur.Orchestrator.Slots.set_max_concurrent_agents/1`, endpoint writable state, current authentication pipelines, and existing error normalization.
+Extend DASH-003's Units action seam, consume DASH-004 control lifecycle, and
+reuse endpoint writable state, current authentication pipelines, and existing
+error normalization.
 
 ## Contract and invariants
 
 - Invocation rechecks server-side authorization, writable mode, typed identity/generation, eligibility, and capability; mount-time state is insufficient.
-- A unit control displays applied only from DASH-004 evidence. A capacity control displays the authoritative returned/snapshot value, never the requested value alone.
-- Max agents is a positive integer. Lowering the cap preserves draining semantics and never chooses/pauses individual units in browser code.
+- A unit control displays applied only from DASH-004 evidence, never from the
+  requested value or a client-local row mutation.
 - Duplicate activation is idempotent or disabled while pending. Concurrent completion/generation change wins over stale intent.
 - Read-only, unauthenticated, unsupported, and request-only states are visibly distinct and cannot masquerade as enabled applied controls.
 
 ## Refreshable implementation notes
 
-- Refresh final DASH-004 capability names and the current slot API response at pickup. The correct runtime function is `set_max_concurrent_agents`, not `set_max_agents` on `Slots`.
+- Refresh final DASH-004 capability names and current AgentChat/control seams at
+  pickup.
 - Keep LiveView handlers thin: validate event shape, recheck server state, call the owner, and render normalized result.
 - Reuse the current AgentLog control copy/error patterns where compatible, but remove any optimistic-success behavior.
 
@@ -67,30 +77,40 @@ Extend DASH-003's Units action seam, consume DASH-004 control lifecycle, and reu
 ### Agent gate
 
 - LiveView tests cover every eligibility/capability state, writable/auth changes, double activation, request-only mode, timeout/rejection/application, concurrent terminal/generation change, and focus/error recovery.
-- Capacity tests cover valid raise/lower, invalid zero/non-integer/out-of-range input, draining, slot failure, stale snapshot, and authoritative reconciliation.
 - Browser/a11y tests cover keyboard/touch, at least 44px targets, explicit names/states/reasons, pending announcements, 200% zoom, and narrow Units layouts.
 
 ### At-merge gate
 
-- Rebase on DASH-003/004 and the resolved configured integration target, sequence shared dashboard files, and pass control, slot, auth/write-gate, audit, Units, browser accessibility, and full CI suites.
+- Rebase on DASH-003/004 and the resolved configured integration target,
+  sequence shared dashboard files, and pass control, auth/write-gate, audit,
+  Units, browser accessibility, and full CI suites.
 
 ### Human/manual evidence
 
-- From the Executor repository root, run the real authenticated writable dashboard, pause and resume one supported unit through worker-applied confirmation, exercise an unavailable control, then raise and lower the max-agent setting and observe authoritative draining/cap state.
+- From the Executor repository root, run the real authenticated writable
+  dashboard, pause and resume one supported unit through worker-applied
+  confirmation, and exercise request-only, unavailable, and concurrent terminal
+  states.
 
 ## Failure, security, migration, and accessibility cases
 
-- Network/control/provider failure leaves the last authoritative state visible with a named error and safe retry; it never changes row or cap locally.
+- Network/control/provider failure leaves the last authoritative state visible
+  with a named error and safe retry; it never changes the row locally.
 - Preserve Basic Auth, CSRF, same-origin, writable, and control authorization. Redact request internals from browser errors and logs.
 - No tracker or stored-data migration.
 - Controls expose name, current state, pending state, reason, focus, target size, and non-color feedback.
 
 ## Surfaces
 
-- Reads: DASH-016 Units rows through DASH-003's action seam, DASH-004 capabilities/lifecycle, writable/auth state, authoritative slot capacity.
-- Writes: LiveView control handlers, pending/error presentation, capacity requests, components and tests.
-- Contracts: Units action eligibility/presentation and positive capacity input.
+- Reads: DASH-016 Units rows through DASH-003's action seam, DASH-004
+  capabilities/lifecycle, and writable/auth state.
+- Writes: LiveView unit-control handlers, pending/error presentation,
+  components, and tests.
+- Contracts: Units pause/resume eligibility and applied-state presentation.
 
 ## Sibling boundaries and open gates
 
-DASH-016 owns row truth, DASH-003 owns filters/layout, and DASH-004 owns control application. This ticket adds no Build Order mutation and must not turn visual controls into a new scheduler.
+DASH-016 owns row truth, DASH-003 owns filters/layout, DASH-004 owns control
+application, and DASH-028 alone owns runtime capacity presentation. This ticket
+adds no Build Order mutation and must not turn visual controls into a new
+scheduler.

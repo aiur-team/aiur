@@ -1,5 +1,11 @@
 # Build Order Planning Pack
 
+> **Successor note (2026-07-13):** the shipped-dashboard delta was reopened
+> after new production screenshots/source evidence. Read
+> [PLANNING-HANDOFF.md](PLANNING-HANDOFF.md) before using the counts or
+> publication instructions below; the provisional DASH-026..034 split has not
+> yet been propagated through every manifest or validator.
+
 Read this file first. This branch contains reviewed planning evidence and issue
 contracts. It does not implement Build Order, launch Aiur, or dispatch work.
 

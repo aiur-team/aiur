@@ -1,40 +1,44 @@
-# DASH-008 — Normalize attributed usage envelopes
+# DASH-008 — Define attributed usage envelopes
 
 **Kind:** executable
 
 **Provenance:** planned in plan v1 after usage/accounting adversarial review
 
-**Complexity:** 4 — Cross-provider measurement semantics and exact attribution at protocol boundaries
+**Complexity:** 3 — Provider-neutral measurement, relationship, attribution, and exact-money contract
 
 **Risk:** high
 
 **Depends on:** BO-017, DASH-018
 
-**Serializes with:** BO-005 — shared agent event ingestion/normalization seam
+**Serializes with:** none
 
-**External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
+**Predecessor baseline:** resolved — `origin/main` at `9849f32963c2a65367bce565b3f5ede3777c218f`
 
 **Requirements:** DREQ-008
 
 **Researched at:** `9849f32963c2a65367bce565b3f5ede3777c218f`
 
-**Suggested labels:** `complexity:4`, `model:codex`; never `agent:todo`
+**Suggested labels:** `complexity:3`, `model:codex`; never `agent:todo`
 
 **Build Order membership:** none — standalone dashboard companion
 
 ## Outcome
 
-Every supported Codex and Claude headless usage source emits one
-provider-neutral, exactly attributed raw measurement envelope whose counter
-scope, account namespace, occurrence-price partition, and delta/absolute
-semantics, plus a pinned provider/source token-relationship revision, give the
-DASH-009 single writer and DASH-011 pricing projection everything needed to
-prevent duplicate, overlapping, cross-account, or historically repriced
-accounting without inventing how token dimensions relate.
+Aiur has one provider-neutral, exactly attributed raw measurement contract
+whose counter scope, account namespace, occurrence-price partition, delta/
+absolute semantics, exact money, and pinned provider/source relationship
+revision let adapters, DASH-009, and DASH-011 prevent duplicate, overlapping,
+cross-account, or historically repriced accounting without guessing token
+relationships.
 
 ## Context and evidence
 
-Current `Aiur.Orchestrator.TokenAccounting` is transient, while `Aiur.TokenUsage.canonicalize/1` zero-fills missing dimensions and omits cache/reasoning detail. Codex can expose cumulative thread updates and turn usage in the same session; Claude completion data has different per-request semantics and may already include provider-reported cost. Treating every map as the same cumulative counter can double count. BO-017 propagates trusted repository-qualified identity, and this ticket serializes with BO-005 rather than adding a competing fold during migration.
+Current `Aiur.Orchestrator.TokenAccounting` is transient, while
+`Aiur.TokenUsage.canonicalize/1` zero-fills missing dimensions and omits cache/
+reasoning detail. Codex and Claude sources have different counter and cache
+semantics, so adapters need an immutable common contract before DASH-029 maps
+their versioned events. BO-017 and DASH-018 supply the trusted identity and
+account-generation contracts consumed here.
 
 ## Scope
 
@@ -78,14 +82,22 @@ Current `Aiur.Orchestrator.TokenAccounting` is transient, while `Aiur.TokenUsage
   relationships fail closed: an explicitly authoritative provider total may
   remain canonical with partial dimension coverage, but otherwise the total is
   unknown, and no dimension-derived pricing input is published.
-- Normalize existing Codex and Claude headless protocol events before transient accounting loss. Classify each source event as absolute or delta at its true scope and preserve the raw source counters unchanged. Do not derive a cross-message delta here.
-- Generate deterministic idempotency identity from trusted source event identity. Preserve source order, `provider_account_generation`, and independent counter-reset evidence so DASH-009 can reject duplicates, out-of-order values and an unexplained lower absolute value durably.
+- Define deterministic idempotency identity requirements over trusted source
+  event identity. Preserve source order, `provider_account_generation`, and
+  independent counter-reset evidence so DASH-009 can reject duplicates, out-
+  of-order values, and unexplained lower absolute values durably.
 - Capture provider cost as exact decimal/integer minor units at decode time, before float conversion. A missing or imprecise value is unknown, not zero.
-- Emit normalized envelopes unconditionally for normal runs, independent of browser count, interactive TUI presence, or `--debug`. Strip raw payloads after normalization.
+- Define validation, serialization, compatibility, and bounded human-readable
+  rejection/coverage reason contracts. Provider adapters must strip raw
+  payloads after normalization and emit independently of browser/TUI/debug
+  state, but DASH-029 owns that runtime wiring.
 
 ## Non-goals
 
-- Persist envelopes or counter checkpoints, derive cross-message deltas, calculate versioned estimates, fetch account/quota meters, support Claude REPL/Remote Control, render UI, or replace BO-005's activity projection.
+- Implement Codex/Claude headless adapters, persist envelopes or checkpoints,
+  derive cross-message deltas, calculate estimates, fetch account/quota meters,
+  support Claude REPL/Remote Control, render UI, or replace BO-005's activity
+  projection.
 - Infer auth mode/model/ticket identity from prose, workspace basename alone, email/account IDs, or browser state.
 - Mint or own a meter-only or usage-only account namespace, derive the opaque
   account generation from stable account PII, or treat counter reset as account
@@ -97,7 +109,11 @@ Current `Aiur.Orchestrator.TokenAccounting` is transient, while `Aiur.TokenUsage
 
 ## Existing owner and reuse target
 
-Extend the normalized event path around Codex/Claude event normalizers, `AgentRunner.MessageHandler`, BO-017's propagated identity contract, `Aiur.Boot.run_id/0`, trusted worker/session metadata, and DASH-018's provider-account-generation lookup. Keep lifecycle reporting at trusted adapter boundaries without duplicating DASH-018's owner.
+Define the `UsageEnvelope`, token-relationship registry, validation, exact-money
+decode helpers, and compatibility behavior around BO-017's propagated identity,
+`Aiur.Boot.run_id/0`, trusted worker/session metadata, and DASH-018's account-
+generation lookup. Keep provider event methods and lifecycle wiring in
+DASH-029/010.
 
 ## Contract and invariants
 
@@ -121,26 +137,26 @@ Extend the normalized event path around Codex/Claude event normalizers, `AgentRu
 
 ## Refreshable implementation notes
 
-- Capture fixtures from the installed Codex and Claude headless protocol versions at pickup; protocol drift is expected. Record each event method and its measured scope alongside fixtures.
+- Use provider-neutral synthetic fixtures plus explicit registry examples.
+  DASH-029/010 capture installed protocol fixtures and bind exact source
+  versions at pickup.
 - Read the opaque generation through DASH-018's trusted runtime contract; never
   copy a raw account identifier into the normalized schema or mint a local value
   to make the later join convenient.
-- Preserve compatibility for existing transient token consumers through an adapter while directing durable consumers to `UsageEnvelope`.
+- Define the compatibility projection required by existing transient token
+  consumers; DASH-029 wires it at provider boundaries.
 - Use Decimal or integer micros/minor units at JSON decode/normalization; do not decode monetary values through a float first.
 
 ## Acceptance and verification
 
 ### Agent gate
 
-- Fixture/property tests cover faithful classification of Codex cumulative
-  thread updates plus turn completion, Claude request deltas, duplicates,
-  out-of-order events, counter reset/new epoch without account rotation,
-  account rotation without counter collision, retry/new attempt, session
-  resume, backend/model fallback, partial updates, Claude-style additive cache
-  dimensions, Codex-style cache subsets, mutually exclusive alternatives,
+- Schema/property tests cover delta/absolute scopes, duplicates and source
+  identity requirements, counter epoch versus account generation, retry/
+  attempt/session/model attribution, partial updates, Claude-style additive
+  cache dimensions, Codex-style subsets, mutually exclusive alternatives,
   provider-total authority/discrepancy, UTC date-boundary buckets, missing
-  occurrence time, and unknown relationships/fields without stateful delta
-  derivation.
+  occurrence time, and unknown relationships without stateful delta derivation.
 - Exact-arithmetic tests prove provider cost survives decoding without float
   drift; additive, subset, and mutually exclusive fixtures reconcile exactly;
   and unknown or contradictory relationships never produce a guessed total.
@@ -148,14 +164,16 @@ Extend the normalized event path around Codex/Claude event normalizers, `AgentRu
 
 ### At-merge gate
 
-- Rebase on BO-017 and serialize with BO-005/current protocol work; run Codex/Claude normalizer, MessageHandler, activity/token compatibility, protocol fixture, security, and full CI suites.
+- Rebase on BO-017/DASH-018 and pass envelope schema, relationship registry,
+  exact-money, compatibility-contract, security, and full CI suites. DASH-029
+  separately sequences shared normalizer work with BO-005.
 
 ### Human/manual evidence
 
-- No separate visual evidence. Record sanitized synthetic raw envelopes from
-  one real Codex and one real Claude headless turn and show their source scope,
-  identity, measurement classification, and pinned token-relationship
-  revision; DASH-009 owns the resulting delta proof.
+- No separate visual evidence. Review sanitized provider-neutral examples for
+  additive, subset, mutually exclusive, provider-total, exact-money, and
+  unknown cases; DASH-029/010 own real source mappings and DASH-009 owns the
+  resulting durable delta proof.
 
 ## Failure, security, migration, and accessibility cases
 
@@ -168,8 +186,11 @@ Extend the normalized event path around Codex/Claude event normalizers, `AgentRu
 
 ## Surfaces
 
-- Reads: normalized Codex/Claude headless protocol events; trusted run/ticket/attempt/session/backend/model context; DASH-018 account generation.
-- Writes: raw `UsageEnvelope` schema/normalizers, trusted lifecycle observations to DASH-018, event publication, fixtures and tests.
+- Reads: BO-017 trusted run/ticket/attempt/session/backend/model identity and
+  DASH-018 account-generation contract.
+- Writes: `UsageEnvelope` schema, token-relationship registry, validation/
+  serialization/exact-money helpers, compatibility contract, fixtures, and
+  tests.
 - Contracts: provider account versus counter-epoch identity, occurrence-price
   bucket, measurement semantics, versioned provider/source token-dimension
   relationships and provider-total authority, exact provider-cost
@@ -177,9 +198,10 @@ Extend the normalized event path around Codex/Claude event normalizers, `AgentRu
 
 ## Sibling boundaries and open gates
 
-DASH-018 owns the sole `provider_account_generation` namespace. DASH-009 owns
-durable counter checkpoints, delta derivation, deduplication and ledger;
-DASH-010 owns Claude REPL/Remote Control event normalization; DASH-011 owns
-estimates/grouping; DASH-012 owns the meter contract. BO-017 owns propagated
-identity while StatusReport remains runtime activity truth, and accounting never becomes a Build Order completion
-dependency.
+DASH-018 owns the sole `provider_account_generation` namespace. DASH-029 owns
+Codex/Claude headless source mappings and BO-005 serialization; DASH-009 owns
+durable counter checkpoints, delta derivation, deduplication, and ledger;
+DASH-010 owns Claude REPL/Remote Control mapping; DASH-011 owns pricing;
+DASH-030 owns grouping; and DASH-012 owns meters. BO-017 owns propagated
+identity while StatusReport remains runtime activity truth. Accounting never
+becomes a Build Order completion dependency.
