@@ -85,6 +85,15 @@ defmodule Aiur.DecisionHistoryTest do
     refute entry.revised?
   end
 
+  test "returns the full history by default" do
+    histories = %{
+      "dec_1" => Enum.map(1..51, &record(%{version: &1}))
+    }
+
+    assert DecisionHistory.list(history_fun: fn -> histories end) |> length() == 51
+    assert DecisionHistory.list(history_fun: fn -> histories end, limit: 50) |> length() == 50
+  end
+
   test "lists only the bounded provider window and isolates malformed records" do
     parent = self()
 

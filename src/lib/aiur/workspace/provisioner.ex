@@ -15,11 +15,30 @@ defmodule Aiur.Workspace.Provisioner do
   # Install aiur's bundled agent-operating skills (`using-aiur`, `/aiur-agent`)
   # into the freshly populated workspace so the agent can load the skills the
   # per-turn prompt routes it to instead of full-disk-searching (#689). Local
-  # worker only — a remote worker materializes on another host where these local
-  # file writes wouldn't land. Idempotent, so reuse + re-dispatch are safe.
+  # Remote workers receive the same embedded files through one idempotent SSH
+  # script, so prompt-referenced skills resolve on either execution host.
   @spec maybe_install_agent_skills(Path.t(), String.t() | nil) :: :ok
   def maybe_install_agent_skills(workspace, nil), do: Aiur.AgentSkills.install(workspace)
-  def maybe_install_agent_skills(_workspace, worker_host) when is_binary(worker_host), do: :ok
+
+  def maybe_install_agent_skills(workspace, worker_host) when is_binary(worker_host) do
+    maybe_install_agent_skills(workspace, worker_host, &Remote.run_remote_command/3)
+  end
+
+  @doc false
+  @spec maybe_install_agent_skills(Path.t(), String.t(), (String.t(), String.t(), pos_integer() -> term())) :: :ok
+  def maybe_install_agent_skills(workspace, worker_host, runner)
+      when is_binary(workspace) and is_binary(worker_host) and is_function(runner, 3) do
+    script = Aiur.AgentSkills.remote_install_script(workspace)
+
+    case runner.(worker_host, script, Config.settings!().hooks.timeout_ms) do
+      {:ok, {_output, 0}} ->
+        :ok
+
+      result ->
+        Logger.warning("remote agent skill install failed worker_host=#{worker_host} result=#{inspect(result)}")
+        :ok
+    end
+  end
 
   @type worker_host :: String.t() | nil
 
