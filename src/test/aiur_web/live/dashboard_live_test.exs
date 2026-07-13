@@ -16,6 +16,7 @@ defmodule AiurWeb.DashboardLiveTest do
     Issue
   }
 
+  alias Aiur.DecisionMetrics.Canonical, as: DecisionMetricsCanonical
   alias Aiur.DecisionMetrics.Event, as: DecisionMetricsEvent
   alias Aiur.Events.Exchange
 
@@ -394,24 +395,25 @@ defmodule AiurWeb.DashboardLiveTest do
     {:ok, view, _html} = live(build_conn(), "/")
     initial_count = CountingOrchestrator.snapshot_count(orchestrator_name)
     {:ok, second_view, _html} = live(build_conn(), "/")
-    assert CountingOrchestrator.snapshot_count(orchestrator_name) == initial_count
+    connected_count = CountingOrchestrator.snapshot_count(orchestrator_name)
+    assert connected_count == initial_count + 1
 
     for version <- 1..25 do
       ObservabilityPubSub.broadcast_update()
       DecisionPubSub.broadcast_changed("decision-#{version}", version)
     end
 
-    assert eventually(fn -> CountingOrchestrator.snapshot_count(orchestrator_name) == initial_count + 1 end, 100)
+    assert eventually(fn -> CountingOrchestrator.snapshot_count(orchestrator_name) == connected_count + 1 end, 100)
     Process.sleep(100)
     _html = render(view)
     _html = render(second_view)
-    assert CountingOrchestrator.snapshot_count(orchestrator_name) == initial_count + 1
+    assert CountingOrchestrator.snapshot_count(orchestrator_name) == connected_count + 1
 
     DecisionPubSub.broadcast_changed("decision-only", 26)
-    assert eventually(fn -> CountingOrchestrator.snapshot_count(orchestrator_name) == initial_count + 2 end, 100)
+    assert eventually(fn -> CountingOrchestrator.snapshot_count(orchestrator_name) == connected_count + 2 end, 100)
 
     DecisionPubSub.broadcast_metrics_changed()
-    assert eventually(fn -> CountingOrchestrator.snapshot_count(orchestrator_name) == initial_count + 3 end, 100)
+    assert eventually(fn -> CountingOrchestrator.snapshot_count(orchestrator_name) == connected_count + 3 end, 100)
   end
 
   test "cached payload follows a same-name DecisionMetrics replacement" do
@@ -479,6 +481,21 @@ defmodule AiurWeb.DashboardLiveTest do
 
     assert restarted_latency.requested_at == DateTime.to_iso8601(requested_at)
     assert restarted_latency.request_to_decision_ms == nil
+
+    final_metrics =
+      Enum.reduce(1..12, new_metrics, fn _restart, current_metrics ->
+        GenServer.stop(current_metrics)
+        replacement = restart_metrics.()
+        assert :ok = DecisionMetrics.observe(request_event, replacement)
+
+        replacement_payload = PayloadLoader.load(:cached)
+        assert payload_latency(replacement_payload, decision.decision_id).request_to_decision_ms == nil
+        replacement
+      end)
+
+    assert GenServer.whereis(metrics_name) == final_metrics
+    assert map_size(:sys.get_state(cache)) == 8
+    drain_metrics_notifications()
   end
 
   test "persists a decision filter in the URL while opening and closing a card" do
@@ -1338,6 +1355,82 @@ defmodule AiurWeb.DashboardLiveTest do
     assert latency_text =~ "0 attentions"
     assert latency_text =~ "Human"
     assert latency_text =~ "Revised"
+  end
+
+  test "connected mount catches one metrics seed hint released between handshake mounts" do
+    orchestrator_name = Module.concat(__MODULE__, :HandshakeOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :HandshakeDecisionStore)
+    metrics_name = Module.concat(__MODULE__, :HandshakeDecisionMetrics)
+    requested_at = ~U[2026-07-12 12:00:00.000Z]
+
+    start_counting_orchestrator(orchestrator_name)
+
+    store =
+      start_decision_store(
+        decision_store_name,
+        fn _decision, _opts -> {:ok, %{status: :accepted, item: %{id: 509}}} end,
+        dispatch_delay_ms: 60_000
+      )
+
+    decision = request_queue_decision(store, "handshake-metrics", "987", now: requested_at)
+
+    assert {:ok, %{status: :accepted}} =
+             DecisionStore.answer(
+               decision.decision_id,
+               %{
+                 "idempotency_key" => "handshake-metrics-answer",
+                 "expected_version" => decision.version,
+                 "option_id" => "ship"
+               },
+               [actor: %{kind: :operator, id: "operator"}, now: DateTime.add(requested_at, 2, :second)],
+               store
+             )
+
+    test_process = self()
+
+    seed_fun = fn decision_store, limit ->
+      send(test_process, {:metrics_seed_waiting, self()})
+
+      receive do
+        :release_metrics_seed -> DecisionMetricsCanonical.snapshot(decision_store, limit)
+      end
+    end
+
+    metrics =
+      start_dashboard_metrics(metrics_name, store,
+        subscribe?: false,
+        seed?: true,
+        seed_fun: seed_fun
+      )
+
+    assert_receive {:metrics_seed_waiting, seed_process}, 2_000
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      decision_metrics: metrics_name
+    )
+
+    path = "/decisions/#{decision.decision_id}"
+    conn = get(build_conn(), path)
+    disconnected_html = html_response(conn, 200)
+
+    assert disconnected_html =~ "Recorded answer"
+    assert disconnected_html =~ "No latency sample has been retained for this decision yet."
+    assert :ok = DecisionPubSub.subscribe()
+
+    send(seed_process, :release_metrics_seed)
+    assert :ok = DecisionMetrics.await_seed(metrics)
+    assert_receive :decision_metrics_changed, 2_000
+    refute_receive :decision_metrics_changed, 50
+
+    {:ok, _view, connected_html} = live(conn)
+    latency_text = connected_html |> Floki.parse_document!() |> Floki.find(".decision-latency") |> Floki.text()
+
+    refute connected_html =~ "No latency sample has been retained for this decision yet."
+    assert latency_text =~ "2.0 s"
+    assert latency_text =~ "Human"
   end
 
   test "supervisor API mutations converge on LiveView without weakening human-required authority" do

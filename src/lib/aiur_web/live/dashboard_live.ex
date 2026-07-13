@@ -27,7 +27,14 @@ defmodule AiurWeb.DashboardLive do
 
   @impl true
   def mount(params, _session, socket) do
-    payload = PayloadLoader.load()
+    connected = connected?(socket)
+
+    if connected do
+      :ok = ObservabilityPubSub.subscribe()
+      :ok = DecisionPubSub.subscribe()
+    end
+
+    payload = PayloadLoader.load(if connected, do: :fresh, else: :cached)
 
     socket =
       socket
@@ -44,11 +51,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign_selected_decision(params["decision_id"])
       |> PayloadLoader.mark_loaded()
 
-    if connected?(socket) do
-      :ok = ObservabilityPubSub.subscribe()
-      :ok = DecisionPubSub.subscribe()
-      schedule_runtime_tick()
-    end
+    if connected, do: schedule_runtime_tick()
 
     {:ok, socket}
   end
