@@ -3,6 +3,17 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
 
   use Phoenix.Component
 
+  alias AiurWeb.OperatorControlCenter.FleetFilters
+
+  @fleet_stats [
+    {:running, "Active", "good"},
+    {:blocked, "Blocked", "block"},
+    {:paused, "Paused", "attn"},
+    {:stuck, "Stuck", "attn"},
+    {:finished, "Finished", "good"},
+    {:all, "Total", "faint"}
+  ]
+
   attr(:now, :any, required: true)
   attr(:tracker_kind, :string, required: true)
   attr(:agent_kind, :string, required: true)
@@ -67,24 +78,32 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
     """
   end
 
-  attr(:overview, :map, required: true)
+  attr(:fleet, :map, required: true)
+  attr(:filters, :any, required: true)
 
-  @spec overview(map()) :: Phoenix.LiveView.Rendered.t()
-  def overview(assigns) do
+  @spec fleet_overview(map()) :: Phoenix.LiveView.Rendered.t()
+  def fleet_overview(assigns) do
+    assigns =
+      assigns
+      |> assign(:counts, FleetFilters.counts(assigns.fleet))
+      |> assign(:stats, @fleet_stats)
+      |> assign(:all_active, MapSet.equal?(assigns.filters, MapSet.new(FleetFilters.all())))
+
     ~H"""
-    <section class="overview-strip" aria-label="Run overview">
-      <.stat href="/decisions" tone={if @overview.blocking_decisions > 0, do: "block", else: "good"} value={@overview.blocking_decisions} label="Blocking decisions" />
-      <span class="stat-divider"></span>
-      <.stat href="/" tone="good" value={@overview.running} label="Running" />
-      <span class="stat-divider"></span>
-      <.stat href="/" tone={if @overview.queued_or_retrying > 0, do: "attn", else: "good"} value={@overview.queued_or_retrying} label="Queued / retrying" />
-      <span class="stat-divider"></span>
-      <.stat
-        href="#recent-outcomes"
-        tone="good"
-        value={@overview.recent_repository_merges}
-        label="Recent repo merges"
-      />
+    <section class="overview-strip" aria-label="Fleet filters">
+      <button
+        :for={{key, label, tone} <- @stats}
+        type="button"
+        class={["stat", active?(@filters, key, @all_active) && "is-active"]}
+        data-tone={tone}
+        phx-click="toggle-fleet-filter"
+        phx-value-filter={key}
+        aria-pressed={to_string(active?(@filters, key, @all_active))}
+      >
+        <span class="stat-dot"></span>
+        <strong class="stat-value num">{@counts[key]}</strong>
+        <span class="stat-label">{label}</span>
+      </button>
     </section>
     """
   end
@@ -119,21 +138,6 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
     """
   end
 
-  attr(:href, :string, required: true)
-  attr(:tone, :string, required: true)
-  attr(:value, :integer, required: true)
-  attr(:label, :string, required: true)
-
-  defp stat(assigns) do
-    ~H"""
-    <a class="stat" data-tone={@tone} href={@href}>
-      <span class="stat-dot"></span>
-      <strong class="stat-value num">{@value}</strong>
-      <span class="stat-label">{@label}</span>
-    </a>
-    """
-  end
-
   defp banner_title(1, _open), do: "1 decision is blocking an agent"
   defp banner_title(blocking, _open) when blocking > 1, do: "#{blocking} decisions are blocking agents"
   defp banner_title(_blocking, 1), do: "1 decision is awaiting you"
@@ -143,6 +147,9 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
     do: "#{open} awaiting input in total · answer the blocking decision first"
 
   defp banner_detail(_blocking, _open), do: "Nothing is blocking · answer at your pace to keep agents moving"
+
+  defp active?(_filters, :all, all_active), do: all_active
+  defp active?(filters, key, _all_active), do: MapSet.member?(filters, key)
 
   defp clock_value(%DateTime{} = now), do: Calendar.strftime(now, "%H:%M:%S")
   defp clock_value(_now), do: "--:--:--"

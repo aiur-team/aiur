@@ -119,6 +119,7 @@ defmodule AiurWeb.DashboardLiveTest do
       writable: false,
       live_action: Keyword.get(opts, :live_action, :index),
       decision_filter: :all,
+      fleet_filters: AiurWeb.OperatorControlCenter.FleetFilters.default(),
       selected_decision_id: selected_decision_id,
       selected_decision: selected_decision
     }
@@ -262,6 +263,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert inbox_html =~ ~s(src="/aiur-logo.png")
     assert inbox_html =~ ~s(href="/decisions/dec-safe-link")
     assert inbox_html =~ "Decision inbox"
+    refute inbox_html =~ ~s(id="recent-title")
     assert detail_html =~ "Recorded"
     assert detail_html =~ "Dispatch pending"
     assert detail_html =~ "The agent remains paused."
@@ -303,7 +305,6 @@ defmodule AiurWeb.DashboardLiveTest do
     html = render_payload(payload)
 
     assert html =~ "Snapshot unavailable"
-    assert html =~ "Recent repo merges"
     refute html =~ "Merged this run"
     refute html =~ "from the current run"
     assert html =~ "Decision history"
@@ -406,6 +407,7 @@ defmodule AiurWeb.DashboardLiveTest do
     {:ok, view, _html} = live(build_conn(), "/decisions")
 
     assert render_hook(view, "filter-decisions", %{}) =~ "Decision inbox"
+    assert render_hook(view, "toggle-fleet-filter", %{}) =~ "Decision inbox"
     assert render_hook(view, "show-agent-log", %{}) =~ "Decision inbox"
     assert Process.alive?(view.pid)
   end

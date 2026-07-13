@@ -410,13 +410,22 @@ textarea:focus-visible,
   flex: 1 1 auto;
   gap: 0.5rem;
   padding: 0.4rem 0.8rem;
+  border: 0;
   border-radius: 999px;
+  background: transparent;
   color: var(--fg);
+  cursor: pointer;
+  font: inherit;
   transition: background 0.16s ease;
 }
 
 .stat:hover {
   background: var(--pill-bg);
+}
+
+.stat.is-active {
+  background: var(--surface-3);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
 }
 
 .stat-dot {
@@ -556,6 +565,10 @@ textarea:focus-visible,
   gap: 0.4rem;
   flex-wrap: wrap;
   margin-top: 0.95rem;
+}
+
+.decision-inbox > .filter-row {
+  margin-top: 0;
 }
 
 .filter-chip {

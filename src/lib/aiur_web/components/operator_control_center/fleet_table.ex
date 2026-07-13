@@ -3,28 +3,28 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
 
   use Phoenix.Component
 
+  alias AiurWeb.OperatorControlCenter.{FleetFilters, Overview}
+
   attr(:fleet, :map, required: true)
   attr(:decisions, :list, default: [])
   attr(:now, :any, required: true)
+  attr(:filters, :any, default: FleetFilters.default())
 
   @spec fleet_table(map()) :: Phoenix.LiveView.Rendered.t()
   def fleet_table(assigns) do
     assigns =
       assigns
-      |> assign(:rows, fleet_rows(assigns.fleet))
+      |> assign(:rows, FleetFilters.visible_rows(assigns.fleet, assigns.filters))
+      |> assign(:total_rows, length(FleetFilters.rows(assigns.fleet)))
       |> assign(:decision_links, decision_links(assigns.decisions))
 
     ~H"""
     <section class="section-card fleet-card" aria-labelledby="fleet-title">
-      <header class="section-header">
-        <div>
-          <p class="section-eyebrow">Live orchestration</p>
-          <h2 id="fleet-title">Fleet state</h2>
-          <p>Every tracker-active ticket in the current projection, with its real waiting reason, latest activity, and controls.</p>
-        </div>
-      </header>
+      <h2 id="fleet-title" class="sr-only">Fleet state</h2>
+      <Overview.fleet_overview fleet={@fleet} filters={@filters} />
 
-      <div :if={@rows == []} class="empty-state">No tracker-active tickets are in the fleet projection.</div>
+      <div :if={@total_rows == 0} class="empty-state">No tracker-active tickets are in the fleet projection.</div>
+      <div :if={@total_rows > 0 and @rows == []} class="empty-state">No units match the selected fleet filters.</div>
       <div :if={@rows != []} class="table-wrap">
         <table class="fleet-table">
           <thead>
@@ -89,9 +89,9 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
                     onclick="event.stopPropagation()"
                   >⌁</button>
                   <a
-                    :if={trusted_url(row.url)}
+                    :if={trusted_url(row[:url])}
                     class="fleet-action"
-                    href={trusted_url(row.url)}
+                    href={trusted_url(row[:url])}
                     target="_blank"
                     rel="noopener noreferrer"
                     title="Open tracker ticket"
@@ -106,13 +106,6 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
       </div>
     </section>
     """
-  end
-
-  defp fleet_rows(fleet) do
-    running = Enum.map(Map.get(fleet, :running, []), &Map.put(&1, :bucket, :running))
-    retrying = Enum.map(Map.get(fleet, :retrying, []), &Map.put(&1, :bucket, :retrying))
-    idle = Enum.map(Map.get(fleet, :idle, []), &Map.put(&1, :bucket, :idle))
-    running ++ retrying ++ idle
   end
 
   defp decision_links(decisions) do

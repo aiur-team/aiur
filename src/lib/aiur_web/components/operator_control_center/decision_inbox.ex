@@ -36,13 +36,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
 
     ~H"""
     <section class="section-card decision-inbox" aria-labelledby="decision-inbox-title">
-      <header class="section-header">
-        <div>
-          <p class="section-eyebrow">Human-in-the-loop</p>
-          <h2 id="decision-inbox-title">Decision inbox</h2>
-          <p>Durable decisions sorted blocking-first, then urgency and age. Open a card for its full recorded context and lifecycle.</p>
-        </div>
-      </header>
+      <h2 id="decision-inbox-title" class="sr-only">Decision inbox</h2>
 
       <div class="filter-row" aria-label="Decision filters">
         <.filter_button

@@ -931,7 +931,7 @@ defmodule Aiur.ExtensionsTest do
       |> element("tr[phx-value-issue=\"MT-HTTP\"]")
       |> render_click()
 
-    assert log_html =~ "Agent log"
+    assert log_html =~ "Logs"
     assert log_html =~ "MT-HTTP"
     assert log_html =~ "data-agent-log-live"
     assert log_html =~ "Live"

@@ -14,6 +14,7 @@ defmodule AiurWeb.DashboardLive do
     DecisionInbox,
     DecisionPath,
     FleetTable,
+    FleetFilters,
     History,
     Overview,
     PayloadLoader,
@@ -39,6 +40,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:payload_reload_scheduled?, false)
       |> assign(:writable, dashboard_writable?())
       |> assign(:decision_filter, :all)
+      |> assign(:fleet_filters, FleetFilters.default())
       |> assign_selected_decision(params["decision_id"])
       |> PayloadLoader.mark_loaded()
 
@@ -87,6 +89,12 @@ defmodule AiurWeb.DashboardLive do
   end
 
   def handle_event("filter-decisions", _params, socket), do: {:noreply, socket}
+
+  def handle_event("toggle-fleet-filter", %{"filter" => filter}, socket) do
+    {:noreply, update(socket, :fleet_filters, &FleetFilters.toggle(&1, filter))}
+  end
+
+  def handle_event("toggle-fleet-filter", _params, socket), do: {:noreply, socket}
 
   def handle_event(event, params, socket) when event in @decision_events do
     handle_writable_event(socket, fn ->
@@ -164,7 +172,6 @@ defmodule AiurWeb.DashboardLive do
       <Overview.topbar now={@now} tracker_kind={tracker_kind()} agent_kind={agent_kind()} />
       <Overview.readonly_banner writable={@writable} />
       <Overview.decisions_banner decisions={@payload.decisions} />
-      <Overview.overview overview={@payload.overview} />
       <Overview.tabs
         live_action={@live_action || :index}
         decision_count={length(@payload.decisions)}
@@ -190,10 +197,15 @@ defmodule AiurWeb.DashboardLive do
       </div>
 
       <div :if={@live_action not in [:decisions, :decision]} class="control-panel">
-        <FleetTable.fleet_table fleet={@payload.fleet} decisions={@payload.decisions} now={@now} />
+        <FleetTable.fleet_table
+          fleet={@payload.fleet}
+          decisions={@payload.decisions}
+          now={@now}
+          filters={@fleet_filters}
+        />
       </div>
 
-      <section class="section-card recent-card" aria-labelledby="recent-title">
+      <section :if={@live_action == :index} class="section-card recent-card" aria-labelledby="recent-title">
         <header class="section-header">
           <div>
             <p class="section-eyebrow">Durable outcomes</p>

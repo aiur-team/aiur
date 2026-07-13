@@ -8,6 +8,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     DecisionDetail,
     DecisionInbox,
     DecisionRevisionAction,
+    FleetFilters,
     FleetTable,
     History,
     LifecycleComponents,
@@ -129,6 +130,47 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ ~s(data-label="Decisions")
   end
 
+  test "filters real fleet states cumulatively with the latest responsive overview" do
+    fleet = %{
+      running: [
+        fleet_row("AIUR-1", :active),
+        fleet_row("AIUR-2", :waiting_for_human),
+        fleet_row("AIUR-3", :paused)
+      ],
+      retrying: [fleet_row("AIUR-4", :backing_off)],
+      idle: [fleet_row("AIUR-5", :active, state: "done")]
+    }
+
+    default_html =
+      render_component(&FleetTable.fleet_table/1, %{
+        fleet: fleet,
+        decisions: [],
+        now: ~U[2026-07-12 13:00:00Z]
+      })
+
+    assert default_html =~ "AIUR-1"
+    assert default_html =~ "AIUR-2"
+    assert default_html =~ "AIUR-3"
+    assert default_html =~ "AIUR-4"
+    refute default_html =~ "AIUR-5"
+    assert default_html =~ ~s(phx-value-filter="finished")
+    assert default_html =~ ~s(aria-label="Fleet filters")
+
+    filters = FleetFilters.default() |> FleetFilters.toggle(:running) |> FleetFilters.toggle(:finished)
+
+    filtered_html =
+      render_component(&FleetTable.fleet_table/1, %{
+        fleet: fleet,
+        decisions: [],
+        now: ~U[2026-07-12 13:00:00Z],
+        filters: filters
+      })
+
+    refute filtered_html =~ "AIUR-1"
+    assert filtered_html =~ "AIUR-2"
+    assert filtered_html =~ "AIUR-5"
+  end
+
   test "decision banner targets an open decision and hides when none await input" do
     answered = %{decision_id: "dec-answered", blocking: true, lifecycle: :resolved}
     open = %{decision_id: "dec-open", blocking: false, lifecycle: :recorded}
@@ -139,6 +181,21 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ ~s(href="/decisions/dec-open")
     refute html =~ ~s(href="/decisions/dec-answered")
     refute empty_html =~ "decisions-banner"
+  end
+
+  defp fleet_row(identifier, waiting_reason, attrs \\ []) do
+    Map.merge(
+      %{
+        issue_identifier: identifier,
+        title: "Ticket #{identifier}",
+        state: "in-progress",
+        work_state: :working,
+        waiting_reason: waiting_reason,
+        runtime_seconds: 60,
+        open_decision_count: 0
+      },
+      Map.new(attrs)
+    )
   end
 
   test "distinguishes degraded decision history from an unavailable provider" do

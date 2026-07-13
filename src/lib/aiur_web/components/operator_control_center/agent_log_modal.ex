@@ -15,7 +15,7 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModal do
       <section class="modal-panel agent-log-modal" role="dialog" aria-modal="true" aria-labelledby="agent-log-title" phx-click-away="close-agent-log">
         <header class="modal-header">
           <div>
-            <p class="section-eyebrow">Agent log</p>
+            <p class="section-eyebrow">Logs</p>
             <h2 id="agent-log-title">{@modal.issue_identifier}</h2>
           </div>
           <div class="modal-actions">
