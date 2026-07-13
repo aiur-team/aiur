@@ -21,7 +21,6 @@ defmodule AiurWeb.RouterAuthTest do
 
       if original_endpoint_config do
         Application.put_env(:aiur, AiurWeb.Endpoint, original_endpoint_config)
-        :ok = AiurWeb.Endpoint.config_change([{AiurWeb.Endpoint, original_endpoint_config}], [])
       else
         Application.delete_env(:aiur, AiurWeb.Endpoint)
       end
@@ -56,7 +55,6 @@ defmodule AiurWeb.RouterAuthTest do
     endpoint_config = Application.get_env(:aiur, AiurWeb.Endpoint, [])
     writable_config = Keyword.put(endpoint_config, :dashboard_writable, true)
     Application.put_env(:aiur, AiurWeb.Endpoint, writable_config)
-    :ok = AiurWeb.Endpoint.config_change([{AiurWeb.Endpoint, writable_config}], [])
 
     System.delete_env("AIUR_DASHBOARD_PASSWORD")
 

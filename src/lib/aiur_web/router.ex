@@ -189,7 +189,12 @@ defmodule AiurWeb.Router do
   end
 
   defp dashboard_writable? do
-    AiurWeb.Endpoint.config(:dashboard_writable) == true
+    endpoint_config = Application.get_env(:aiur, AiurWeb.Endpoint, [])
+
+    case Keyword.fetch(endpoint_config, :dashboard_writable) do
+      {:ok, value} -> value == true
+      :error -> AiurWeb.Endpoint.config(:dashboard_writable) == true
+    end
   rescue
     _ -> false
   end
