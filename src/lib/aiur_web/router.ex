@@ -10,6 +10,10 @@ defmodule AiurWeb.Router do
     plug(:dashboard_basic_auth)
   end
 
+  pipeline :supervisor_auth do
+    plug(AiurWeb.SupervisorAuth)
+  end
+
   pipeline :browser do
     plug(:fetch_session)
     plug(:fetch_live_flash)
@@ -45,10 +49,45 @@ defmodule AiurWeb.Router do
     plug(:require_dashboard_writable)
   end
 
+  # Supervisor Decision mutations retain the dashboard's existing write
+  # defenses in addition to their dedicated machine credential. Keep these
+  # specific routes before `/api/v1/:issue_identifier` so `decisions` cannot
+  # be interpreted as an issue identifier.
+  scope "/", AiurWeb do
+    pipe_through([:supervisor_auth, :api_write, :require_writable])
+
+    post("/api/v1/decisions/:decision_id/enrich", DecisionApiController, :enrich)
+    post("/api/v1/decisions/:decision_id/decide", DecisionApiController, :decide)
+    post("/api/v1/decisions/:decision_id/revise", DecisionApiController, :revise)
+  end
+
+  # Read operations require the same supervisor identity but remain available
+  # while the dashboard is observe-only and need no browser mutation headers.
+  scope "/", AiurWeb do
+    pipe_through(:supervisor_auth)
+
+    get("/api/v1/decisions", DecisionApiController, :index)
+    get("/api/v1/decisions/:decision_id", DecisionApiController, :show)
+  end
+
+  # Authenticated method/shape catches keep unsupported Decision requests from
+  # falling through into the dashboard Basic-Auth issue API.
+  scope "/", AiurWeb do
+    pipe_through(:supervisor_auth)
+
+    match(:*, "/api/v1/decisions", DecisionApiController, :method_not_allowed)
+    match(:*, "/api/v1/decisions/:decision_id/enrich", DecisionApiController, :method_not_allowed)
+    match(:*, "/api/v1/decisions/:decision_id/decide", DecisionApiController, :method_not_allowed)
+    match(:*, "/api/v1/decisions/:decision_id/revise", DecisionApiController, :method_not_allowed)
+    match(:*, "/api/v1/decisions/:decision_id", DecisionApiController, :method_not_allowed)
+    match(:*, "/api/v1/decisions/:decision_id/*path", DecisionApiController, :not_found)
+  end
+
   scope "/", AiurWeb do
     pipe_through(:dashboard_auth)
 
     get("/dashboard.css", StaticAssetController, :dashboard_css)
+    get("/aiur-logo.png", StaticAssetController, :aiur_logo)
     get("/vendor/phoenix_html/phoenix_html.js", StaticAssetController, :phoenix_html_js)
     get("/vendor/phoenix/phoenix.js", StaticAssetController, :phoenix_js)
     get("/vendor/phoenix_live_view/phoenix_live_view.js", StaticAssetController, :phoenix_live_view_js)
@@ -58,6 +97,8 @@ defmodule AiurWeb.Router do
     pipe_through([:dashboard_auth, :browser])
 
     live("/", DashboardLive, :index)
+    live("/decisions", DashboardLive, :decisions)
+    live("/decisions/:decision_id", DashboardLive, :decision)
   end
 
   scope "/", AiurWeb do
@@ -115,9 +156,8 @@ defmodule AiurWeb.Router do
 
   defp present?(value), do: is_binary(value) and String.trim(value) != ""
 
-  # Origin/Referer allowlist. Accepts requests whose `Origin` (preferred)
-  # or `Referer` (fallback for older browsers) starts with the dashboard's
-  # own URL, or the loopback equivalents that operators typically use.
+  # Origin/Referer allowlist. Parses exact origins and accepts the configured
+  # dashboard host or loopback equivalents operators typically use.
   defp verify_same_origin(conn, _opts) do
     if origin_allowed?(conn) do
       conn
@@ -152,7 +192,7 @@ defmodule AiurWeb.Router do
 
   defp require_custom_header(conn, _opts) do
     case Plug.Conn.get_req_header(conn, "x-aiur-request") do
-      ["1" | _] ->
+      ["1"] ->
         conn
 
       _ ->
@@ -165,32 +205,103 @@ defmodule AiurWeb.Router do
 
   defp origin_allowed?(conn) do
     case Plug.Conn.get_req_header(conn, "origin") do
-      [origin | _] ->
-        origin_matches_allowlist?(origin)
+      [origin] ->
+        origin_matches_allowlist?(origin, conn, false)
 
       [] ->
         case Plug.Conn.get_req_header(conn, "referer") do
-          [referer | _] -> origin_matches_allowlist?(referer)
+          [referer] -> origin_matches_allowlist?(referer, conn, true)
           [] -> false
+          _ambiguous -> false
         end
+
+      _ambiguous ->
+        false
     end
   end
 
-  defp origin_matches_allowlist?(value) when is_binary(value) do
-    allowed_origins()
-    |> Enum.any?(fn allowed -> String.starts_with?(value, allowed) end)
+  defp origin_matches_allowlist?(value, conn, allow_path?) when is_binary(value) do
+    case parse_web_origin(value, allow_path?) do
+      {:ok, origin} -> origin in allowed_origins(conn)
+      :error -> false
+    end
   end
 
-  defp allowed_origins do
-    own = safe_endpoint_url()
-    base = ["http://127.0.0.1", "http://localhost", "https://127.0.0.1", "https://localhost"]
+  defp allowed_origins(conn) do
+    endpoint_origin = safe_endpoint_origin()
 
-    if is_binary(own), do: [own | base], else: base
+    [trusted_request_origin(conn, endpoint_origin), endpoint_origin, {"http", "localhost", 80}, {"https", "localhost", 443}]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.flat_map(&expand_loopback_aliases/1)
+    |> Enum.uniq()
   end
 
-  defp safe_endpoint_url do
+  defp trusted_request_origin(conn, endpoint_origin) do
+    case request_origin(conn) do
+      {_scheme, host, _port} = origin ->
+        if loopback_host?(host) or same_endpoint_host?(origin, endpoint_origin), do: origin
+
+      nil ->
+        nil
+    end
+  end
+
+  defp same_endpoint_host?({scheme, host, _port}, {scheme, host, _endpoint_port}), do: true
+  defp same_endpoint_host?(_request_origin, _endpoint_origin), do: false
+
+  defp request_origin(%Plug.Conn{scheme: scheme, host: host, port: port})
+       when scheme in [:http, :https] and is_binary(host) and is_integer(port) do
+    {Atom.to_string(scheme), String.downcase(host), port}
+  end
+
+  defp request_origin(_conn), do: nil
+
+  defp safe_endpoint_origin do
     AiurWeb.Endpoint.url()
+    |> parse_web_origin(false)
+    |> case do
+      {:ok, origin} -> origin
+      :error -> nil
+    end
   rescue
     _ -> nil
   end
+
+  defp parse_web_origin(value, allow_path?) do
+    uri = URI.parse(value)
+
+    with scheme when scheme in ["http", "https"] <- normalize_scheme(uri.scheme),
+         host when is_binary(host) and host != "" <- normalize_host(uri.host),
+         true <- is_nil(uri.userinfo),
+         true <- allow_path? or uri.path in [nil, ""],
+         true <- allow_path? or is_nil(uri.query),
+         true <- is_nil(uri.fragment),
+         port when is_integer(port) and port in 1..65_535 <- effective_port(uri, scheme) do
+      {:ok, {scheme, host, port}}
+    else
+      _invalid -> :error
+    end
+  rescue
+    _invalid -> :error
+  end
+
+  defp normalize_scheme(scheme) when is_binary(scheme), do: String.downcase(scheme)
+  defp normalize_scheme(_scheme), do: nil
+
+  defp normalize_host(host) when is_binary(host), do: String.downcase(host)
+  defp normalize_host(_host), do: nil
+
+  defp effective_port(%URI{port: port}, _scheme) when is_integer(port), do: port
+  defp effective_port(%URI{}, "http"), do: 80
+  defp effective_port(%URI{}, "https"), do: 443
+
+  defp expand_loopback_aliases({scheme, host, port} = origin) do
+    if loopback_host?(host) do
+      Enum.map(["localhost", "127.0.0.1", "::1"], &{scheme, &1, port})
+    else
+      [origin]
+    end
+  end
+
+  defp loopback_host?(host), do: host in ["localhost", "127.0.0.1", "::1"]
 end

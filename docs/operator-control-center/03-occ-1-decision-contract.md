@@ -4,7 +4,11 @@
 
 **Source:** [`docs/operator-control-center/02-occ-0-audit-and-design-decisions.md`](./02-occ-0-audit-and-design-decisions.md) (accepted foundation), amended per a foundation-review comment on #979 (owner, 2026-07-12).
 
-This is the schema/storage handoff for OCC-2 through OCC-9. It documents what OCC-1 delivered and the compatible schema extension added by OCC-2; it does not claim answer dispatch, delivery correlation, acknowledgement, or canonical resolution exist yet — those are OCC-3.
+This is the schema/storage handoff for OCC-2 through OCC-9. It documents the
+OCC-1 foundation and the compatible attention adapter added by OCC-2. OCC-3
+now extends that foundation with answers, delivery correlation, and explicit
+agent acknowledgement; see
+[`04-occ-3-answer-delivery-contract.md`](./04-occ-3-answer-delivery-contract.md).
 
 ## Delivered capabilities
 
@@ -18,8 +22,8 @@ This is the schema/storage handoff for OCC-2 through OCC-9. It documents what OC
 
 ## Not yet delivered (owned by later tickets)
 
-- Operator answers, revisions, acknowledgement/resolution lifecycle (OCC-3, OCC-8).
-- Durable dispatch/outbox correlation with `Aiur.Orchestrator.OperatorMessages` (OCC-3).
+- Revisions and follow-up answer semantics (OCC-8). OCC-3 answers are
+  immutable.
 - LiveView, REST, and dashboard surfaces (OCC-4, OCC-7).
 - Fleet/outcomes and latency metrics (OCC-5, OCC-6, OCC-9).
 
@@ -63,7 +67,11 @@ This is the schema/storage handoff for OCC-2 through OCC-9. It documents what OC
 
 Both files live beneath `Aiur.Config.Paths.decision_state_dir/0`: an owner-only (`0700`) directory rooted at `AIUR_BG_STATE_DIR`, keyed by the sanitized `AIUR_INSTANCE_KEY` (already a truncated sha256 of the launcher-resolved project root) and the sanitized tracker project identity. Resolution fails closed — refusing to start rather than silently sharing state — when `AIUR_INSTANCE_KEY` is explicitly empty or the project identity is unavailable; the resolved path is also canonicalized and asserted to stay under the configured root, rejecting a `.`/`..` escape without touching the shared, byte-pinned `Aiur.Config.Paths.sanitize/1` used by four other subsystems.
 
-- `decisions.ndjson` — canonical, append-only, newline-terminated JSON records (owner-only `0600`). Each accepted mutation appends the full Decision snapshot at its version plus its reserved `event_id`.
+- `decisions.ndjson` — canonical, append-only, newline-terminated JSON records
+  (owner-only `0600`). OCC-1 request versions and OCC-3 lifecycle facts use
+  typed, hashed envelopes with reserved event IDs. OCC-8 adds revision and
+  blocking-follow-up facts to that same envelope; it does not create another
+  log or rewrite an accepted answer.
 - `decisions.json` — atomically-replaced current-state projection (via `Aiur.JsonStore`, then explicitly chmod'd owner-only `0600` by `Aiur.DecisionStore` — `JsonStore` itself is a shared primitive with no permission opinion, since its other callers don't need owner-only), rebuildable from the audit stream at any time.
 
 During `Aiur.DecisionStore` initialization, the directory and audit file are created and hardened before any request can run. If either entry is new, `Aiur.Fs.sync_filesystem/0` is called exactly once so the directory entries are durable — a file's own fsync never syncs its parent directory, and the BEAM has no way to open a directory as a file descriptor to fsync one directly (`:file.open/2` returns `:eisdir` for every mode), so this shells out to POSIX `sync(1)` as a startup-only global barrier rather than a first-request or per-append cost.
@@ -91,11 +99,17 @@ A request targets `decision_id` at an explicit or implied `version` (defaults to
 
 `Aiur.Boot` mints one opaque `run_id` per BEAM-lifetime run (`mark/0`, idempotent) and every accepted audit record carries it. `Aiur.RunTelemetry.boot_id/0` delegates to `Aiur.Boot.run_id/0` directly (rather than caching its own copy), and `Aiur.Boot.remark/0` (test-only) mints a fresh `run_id` together with the clock reset, so a test simulating a reboot within one VM never observes a stale id from either reader.
 
-## Notification (scope note)
+## Request notification (scope note)
 
 After successful audit append and projection replacement, the store publishes the persisted event through `Aiur.Events.Publisher.publish_persisted/4` (under the durably-reserved `event_id` from `Aiur.Events.IdGenerator.reserve_durable_id/1`, skipping the contamination/dedup filters meant for best-effort external sources) and broadcasts on `Aiur.DecisionPubSub`. `Aiur.Events.Publisher.publish/3` rejects direct publication of any `decision.requested`-family topic outright, so no other call site can bypass durability.
 
-This ticket implements notification as **best-effort, attempted once synchronously** right after persistence succeeds — not a fully persisted pending-notification index with bounded-backoff retry across restarts. The durable audit record and projection are unaffected either way; a missed live notification is recoverable because every consumer is expected to re-read `Aiur.DecisionStore` on mount/reconnect rather than trust the broadcast alone. A full settlement-record mechanic (recording notification completion as its own audit event, so a restart can resume an *specific* unsettled notification with its original `event_id`) is deferred — the schema has room to add it without a breaking change.
+The OCC-1 `requested` notification is **best-effort, attempted once
+synchronously** right after persistence succeeds. The durable audit record and
+projection are unaffected either way; every consumer must re-read
+`Aiur.DecisionStore` on mount/reconnect rather than trust the broadcast alone.
+OCC-3 adds a separate persisted answer outbox and settlement records; its
+restart contract is documented in the OCC-3 handoff. OCC-8 reuses that outbox
+for corrective actions and documents the extension in the OCC-8 handoff.
 
 ## Agent ingress
 

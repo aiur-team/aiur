@@ -163,12 +163,32 @@ defmodule Aiur.AlertFeed do
   defp resolve_attention_alerts(alerts) do
     Enum.reduce(alerts, [], fn alert, active_alerts ->
       case resolved_attention_key(alert) do
-        nil -> [alert | active_alerts]
+        nil -> collapse_repeated_attention(alert, active_alerts)
         key -> [alert | Enum.reject(active_alerts, &(attention_alert_key(&1) == key))]
       end
     end)
     |> Enum.reverse()
   end
+
+  defp collapse_repeated_attention(%{"needs_attention" => true} = alert, active_alerts) do
+    case attention_alert_key(alert) do
+      nil ->
+        [alert | active_alerts]
+
+      key ->
+        {previous, remaining} = Enum.split_with(active_alerts, &(attention_alert_key(&1) == key))
+
+        first_opened_at =
+          previous
+          |> List.first(%{})
+          |> Map.get("timestamp")
+
+        collapsed = Map.put(alert, "timestamp", first_opened_at || Map.get(alert, "timestamp"))
+        [collapsed | remaining]
+    end
+  end
+
+  defp collapse_repeated_attention(alert, active_alerts), do: [alert | active_alerts]
 
   defp resolved_attention_key(%{"topic" => "ticket." <> rest, "needs_attention" => false}) do
     case String.split(rest, ".agent.attention.", parts: 2) do

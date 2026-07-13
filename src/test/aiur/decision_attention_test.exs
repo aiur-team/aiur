@@ -163,6 +163,32 @@ defmodule Aiur.DecisionAttentionTest do
     assert SubscriptionStore.snapshot(identifier) == :not_found
   end
 
+  test "projects an already-persisted parent follow-up without creating a child Decision" do
+    identifier = "DECISION-PARENT-#{System.unique_integer([:positive])}"
+    issue = %Issue{identifier: identifier, title: "Parent-owned follow-up"}
+    test_pid = self()
+
+    {_pid, name} =
+      start_attention(
+        decision_projector: fn _payload, _opts -> send(test_pid, :unexpected_projection) end,
+        alert_emitter: fn attention -> send(test_pid, {:decision_alert, attention}) end
+      )
+
+    assert :ok =
+             DecisionAttention.open_persisted(
+               name,
+               issue,
+               nil,
+               nil,
+               "decision-revision-parent",
+               "What should happen next?"
+             )
+
+    refute_receive :unexpected_projection
+    assert_receive {:decision_alert, %{slug: "decision-revision-parent"}}
+    assert SubscriptionStore.snapshot(identifier).open_attentions == ["decision-revision-parent"]
+  end
+
   test "startup imports active attentions without emitting an immediate duplicate alert" do
     identifier = "DECISION-IMPORT-#{System.unique_integer([:positive])}"
     test_pid = self()

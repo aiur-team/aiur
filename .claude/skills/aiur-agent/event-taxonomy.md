@@ -21,7 +21,9 @@ These are the names you can pass to `emit_event(name, ...)`. Anything else is re
 | Name | When to emit | Topic published |
 |------|--------------|-----------------|
 | `progress.<slug>` | Hit a milestone within your ticket (`progress.brainstorm-end`, `progress.tests-green`) | `ticket.<id>.agent.progress.<slug>` |
-| `decision.<slug>` | Made an architectural choice worth broadcasting (`decision.use-amqp-matcher`) | `ticket.<id>.agent.decision.<slug>` |
+| `decision.<slug>` | Made an architectural choice worth broadcasting (`decision.use-amqp-matcher`). The exact lifecycle names below are reserved. | `ticket.<id>.agent.decision.<slug>` |
+| `decision.acknowledged` | You received a durable operator answer and are beginning to apply it. Copy its `decision_id`, `action_id`, and request `expected_version` exactly. | `ticket.<id>.agent.decision.acknowledged` |
+| `decision.resolved` | You finished the work governed by that answer. Use the same exact correlation after acknowledgement. | `ticket.<id>.agent.decision.resolved` |
 | `blocked` | A specific integration point is non-stubbably blocked after `aiur_declare_blocker`; keep unrelated prep moving | `ticket.<id>.agent.blocked` |
 | `unblocked` | You're no longer blocked (real or stubbed-then-fetch) | `ticket.<id>.agent.unblocked` |
 | `attention.<slug>` | Need the operator to answer something (opens ❗ in the agent list) | `ticket.<id>.agent.attention.<slug>` |
@@ -56,6 +58,11 @@ These you can subscribe to, but they're emitted by Aiur, not by you.
 - Don't emit `issue.commented` — that's read from the firehose with CODEOWNERS filtering applied.
 
 Emit events for things only **you** know: architectural decisions, milestones inside your turn that aren't visible as git activity, and operator-facing attentions.
+
+The acknowledgement and resolution names are different from ordinary
+architectural broadcasts: Aiur persists them in the Decision audit before
+publishing. They are ticket-scoped, reject stale/wrong correlation, and are
+idempotent when an agent turn is replayed.
 
 ## Custom event quota
 

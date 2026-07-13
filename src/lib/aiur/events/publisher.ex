@@ -50,6 +50,7 @@ defmodule Aiur.Events.Publisher do
   # of ETS state per dedupe key.
   @default_ttl_ms 3_600_000
   @sweep_interval_ms 60_000
+  @durable_decision_names ["decision.requested", "decision.acknowledged", "decision.resolved"]
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -89,7 +90,7 @@ defmodule Aiur.Events.Publisher do
     actor = Keyword.get(opts, :actor)
 
     cond do
-      decision_requested_topic?(topic) ->
+      durable_decision_topic?(topic) ->
         {:error, :decision_requires_durable_publish}
 
       bot_self_loop?(actor) ->
@@ -132,13 +133,13 @@ defmodule Aiur.Events.Publisher do
     {:ok, id, subscribers}
   end
 
-  # `decision.requested` must only ever reach Exchange through
+  # Reserved Decision lifecycle names must only ever reach Exchange through
   # `Aiur.DecisionStore`'s persist-before-notify path (via
   # `publish_persisted/4`) — direct `publish/3` calls bypass durability
   # entirely, so every call site is rejected here regardless of the
   # ticket-namespace prefix a caller builds the topic with.
-  defp decision_requested_topic?(topic) do
-    topic == "decision.requested" or String.ends_with?(topic, ".decision.requested")
+  defp durable_decision_topic?(topic) do
+    Enum.any?(@durable_decision_names, &(topic == &1 or String.ends_with?(topic, ".#{&1}")))
   end
 
   defp record_emit_marker(topic, event, opts) do

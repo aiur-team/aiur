@@ -50,8 +50,8 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       executor =
         ToolExecutor.build(issue, nil, nil, %{},
-          coordination_enqueuer: fn operation ->
-            send(test_pid, {:enqueued, operation})
+          coordination_enqueuer: fn key, operation ->
+            send(test_pid, {:enqueued, key, operation})
             :pending
           end
         )
@@ -60,7 +60,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       assert response["success"] == true
       assert Jason.decode!(response["output"])["result"] == "pending"
-      assert_receive {:enqueued, operation}
+      assert_receive {:enqueued, {:dependency, "1031", 999}, operation}
       assert is_function(operation, 0)
     end
 
@@ -85,9 +85,89 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert {:ok, response} = Task.yield(call, 100)
       assert response["success"] == true
       assert Jason.decode!(response["output"])["result"] == "pending"
+      assert_receive {:subscribed, "1031", 999}, 200
       assert_receive {:dependency_started, worker}, 200
       send(worker, :release)
-      assert_receive {:subscribed, "1031", 999}, 200
+    end
+
+    test "declare and unblock use the same ordered dependency key" do
+      issue = %Issue{identifier: "1031"}
+      test_pid = self()
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{},
+          coordination_enqueuer: fn key, operation ->
+            send(test_pid, {:enqueued, key, operation})
+            :pending
+          end
+        )
+
+      assert executor.("aiur_declare_blocker", %{"issue_number" => 999})["success"]
+      assert executor.("aiur_unblock", %{"issue_number" => 999})["success"]
+      assert_receive {:enqueued, key, _declare}
+      assert_receive {:enqueued, ^key, _unblock}
+    end
+
+    test "does not report pending when coordination admission fails" do
+      issue = %Issue{identifier: "1031"}
+
+      for reason <- [:coordination_overloaded, :coordination_unavailable] do
+        executor =
+          ToolExecutor.build(issue, nil, nil, %{}, coordination_enqueuer: fn _key, _operation -> {:error, reason} end)
+
+        response = executor.("aiur_declare_blocker", %{"issue_number" => 999})
+        assert response["success"] == false
+        assert Jason.decode!(response["output"])["error"]["reason"] =~ Atom.to_string(reason)
+      end
+    end
+
+    test "subscription is established before a declaration that times out" do
+      issue = %Issue{identifier: "1031"}
+      name = Module.concat(__MODULE__, "Timeout#{System.unique_integer([:positive])}")
+      start_supervised!({Aiur.CoordinationTasks, name: name, operation_timeout_ms: 20})
+      test_pid = self()
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{},
+          coordination_enqueuer: fn key, operation -> Aiur.CoordinationTasks.enqueue(key, operation, name) end,
+          blocker_subscriber: fn _current, _blocker -> send(test_pid, :subscribed) end,
+          dependency_declarer: fn _current, _blocker ->
+            send(test_pid, :dependency_landed)
+            Process.sleep(:infinity)
+          end
+        )
+
+      assert executor.("aiur_declare_blocker", %{"issue_number" => 999})["success"]
+      assert_receive :subscribed
+      assert_receive :dependency_landed
+      Process.sleep(30)
+      assert Process.alive?(Process.whereis(name))
+    end
+
+    test "stalled declare followed by unblock finishes unblocked" do
+      issue = %Issue{identifier: "1031"}
+      name = Module.concat(__MODULE__, "MutationOrder#{System.unique_integer([:positive])}")
+      start_supervised!({Aiur.CoordinationTasks, name: name})
+      {:ok, state} = Agent.start_link(fn -> :initial end)
+      test_pid = self()
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{},
+          coordination_enqueuer: fn key, operation -> Aiur.CoordinationTasks.enqueue(key, operation, name) end,
+          blocker_subscriber: fn _current, _blocker -> :ok end,
+          dependency_declarer: fn _current, _blocker ->
+            send(test_pid, {:declare_started, self()})
+            receive do: (:release -> Agent.update(state, fn _ -> :declared end))
+          end,
+          dependency_unblocker: fn _current, _blocker -> Agent.update(state, fn _ -> :unblocked end) end
+        )
+
+      assert executor.("aiur_declare_blocker", %{"issue_number" => 999})["success"]
+      assert_receive {:declare_started, worker}
+      assert executor.("aiur_unblock", %{"issue_number" => 999})["success"]
+      assert Agent.get(state, & &1) == :initial
+      send(worker, :release)
+      assert_eventually(fn -> Agent.get(state, & &1) == :unblocked end)
     end
   end
 
@@ -604,23 +684,21 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert error["reason"] == "no_issue_identifier"
     end
 
-    test "a generic event name that only collides with the decision.requested topic suffix fails cleanly, not with a crash" do
-      # "custom.decision.requested" is allowlisted by the emit_event tool's
-      # generic `custom.<slug>` pattern and does NOT match this module's
-      # literal "decision.requested" special case, so it takes the generic
-      # Publisher.publish/3 path — which now rejects any topic ending in
-      # ".decision.requested" (Aiur.Events.Publisher's decision-durability
-      # guard). That must surface as a normal tool failure, not an unhandled
-      # CaseClauseError.
+    test "generic lookalikes of reserved Decision names fail cleanly, not with a crash" do
       identifier = "TE-decision-collision-#{System.unique_integer([:positive])}"
       issue = %Issue{identifier: identifier}
       executor = ToolExecutor.build(issue, nil, nil)
 
-      response =
-        executor.("emit_event", %{"name" => "custom.decision.requested", "message" => "Q?", "payload" => %{}})
+      for name <- [
+            "custom.decision.requested",
+            "custom.decision.acknowledged",
+            "custom.decision.resolved"
+          ] do
+        response = executor.("emit_event", %{"name" => name, "message" => "Q?", "payload" => %{}})
 
-      assert response["success"] == false
-      assert Jason.decode!(response["output"])["error"]["reason"] =~ "decision_requires_durable_publish"
+        assert response["success"] == false
+        assert Jason.decode!(response["output"])["error"]["reason"] =~ "decision_requires_durable_publish"
+      end
     end
 
     test "a DecisionStore call timeout becomes a tool failure instead of exiting the agent turn" do
@@ -646,6 +724,121 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert response["success"] == false
       assert Jason.decode!(response["output"])["error"]["reason"] =~ "timeout"
       assert Process.alive?(self())
+    end
+  end
+
+  describe "decision lifecycle events route through Aiur.DecisionStore" do
+    test "exact acknowledgement carries trusted ticket/session/invocation context" do
+      identifier = "TE-decision-ack-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      parent = self()
+
+      recorder = fn type, payload, opts ->
+        send(parent, {:lifecycle_recorded, type, payload, opts})
+
+        {:ok,
+         %{
+           decision_id: payload["decision_id"],
+           version: 3,
+           answered_version: payload["expected_version"],
+           action_id: payload["action_id"],
+           status: :accepted,
+           decision_status: type
+         }}
+      end
+
+      executor =
+        ToolExecutor.build(
+          issue,
+          nil,
+          nil,
+          %{backend: "codex", thread_id: "thread-ack"},
+          decision_lifecycle_recorder: recorder
+        )
+
+      response =
+        ToolExecutor.execute(
+          executor,
+          "emit_event",
+          %{
+            "name" => "decision.acknowledged",
+            "message" => "Applying it",
+            "payload" => %{
+              "decision_id" => "dec_123",
+              "action_id" => "act_123",
+              "expected_version" => 2,
+              "actor" => %{"kind" => "operator", "id" => "attacker"}
+            }
+          },
+          "call-ack-1"
+        )
+
+      assert response["success"] == true
+      result = Jason.decode!(response["output"])["result"]
+      assert result["status"] == "accepted"
+      assert result["decision_status"] == "acknowledged"
+
+      assert_receive {:lifecycle_recorded, :acknowledged, payload, opts}
+      assert payload["detail"] == "Applying it"
+      assert opts[:ticket_identifier] == identifier
+      assert opts[:actor].kind == :agent
+      assert opts[:actor].id == "ticket-agent"
+      refute opts[:actor].id =~ "attacker"
+      assert opts[:source] == %{agent_id: "codex", session_id: "thread-ack", invocation_id: "call-ack-1"}
+    end
+
+    test "exact resolution is reserved while a generic decision slug stays generic" do
+      identifier = "TE-decision-resolve-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      parent = self()
+
+      recorder = fn type, payload, _opts ->
+        send(parent, {:resolved_through_store, type})
+
+        {:ok,
+         %{
+           decision_id: payload["decision_id"],
+           version: 1,
+           answered_version: 1,
+           action_id: payload["action_id"],
+           status: :duplicate,
+           decision_status: :resolved
+         }}
+      end
+
+      executor = ToolExecutor.build(issue, nil, nil, %{}, decision_lifecycle_recorder: recorder)
+
+      resolution =
+        executor.("emit_event", %{
+          "name" => "decision.resolved",
+          "message" => "Done",
+          "payload" => %{"decision_id" => "dec_1", "action_id" => "act_1", "expected_version" => 1}
+        })
+
+      assert resolution["success"] == true
+      assert_receive {:resolved_through_store, :resolved}
+
+      generic = executor.("emit_event", %{"name" => "decision.use-something", "message" => "ordinary"})
+      assert generic["success"] == true
+      refute_receive {:resolved_through_store, _}
+    end
+
+    test "lifecycle rejection is returned as a normal tool failure" do
+      issue = %Issue{identifier: "TE-decision-lifecycle-reject"}
+      recorder = fn _type, _payload, _opts -> {:error, {:conflict, :wrong_action}} end
+      executor = ToolExecutor.build(issue, nil, nil, %{}, decision_lifecycle_recorder: recorder)
+
+      response =
+        executor.("emit_event", %{
+          "name" => "decision.acknowledged",
+          "message" => "Applying",
+          "payload" => %{"decision_id" => "dec_1", "action_id" => "act_wrong", "expected_version" => 1}
+        })
+
+      assert response["success"] == false
+      error = Jason.decode!(response["output"])["error"]
+      assert error["message"] =~ "lifecycle"
+      assert error["reason"] =~ "wrong_action"
     end
   end
 
