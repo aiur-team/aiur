@@ -77,6 +77,7 @@ defmodule Aiur.DecisionMetrics do
         attention_index: %{},
         clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
         decision_store: Keyword.get(opts, :decision_store, DecisionStore),
+        metrics_changed_fun: Keyword.get(opts, :metrics_changed_fun, &DecisionPubSub.broadcast_metrics_changed/0),
         writer: writer,
         owned_writer?: owned_writer?,
         seed_status: seed_status,
@@ -91,7 +92,7 @@ defmodule Aiur.DecisionMetrics do
   @impl true
   def handle_call({:observe, event}, _from, state) do
     {reply, next_state} = Collector.record(event, state)
-    broadcast_if_recorded(reply)
+    notify_if_recorded(reply, next_state.metrics_changed_fun)
     {:reply, reply, next_state}
   end
 
@@ -127,13 +128,13 @@ defmodule Aiur.DecisionMetrics do
   @impl true
   def handle_info({:event, event}, state) when is_map(event) do
     {reply, next_state} = Collector.record(event, state)
-    broadcast_if_recorded(reply)
+    notify_if_recorded(reply, next_state.metrics_changed_fun)
     {:noreply, next_state}
   end
 
   def handle_info({:canonical_seed, %{events: events, attention_index: index}}, state) do
     next_state = events |> Collector.seed(index, state) |> finish_seed(:complete)
-    if events != [], do: DecisionPubSub.broadcast_metrics_changed()
+    if events != [], do: next_state.metrics_changed_fun.()
     {:noreply, next_state}
   end
 
@@ -168,6 +169,6 @@ defmodule Aiur.DecisionMetrics do
     :exit, reason -> {:error, {:writer_exit, reason}}
   end
 
-  defp broadcast_if_recorded(:ok), do: DecisionPubSub.broadcast_metrics_changed()
-  defp broadcast_if_recorded(_result), do: :ok
+  defp notify_if_recorded(:ok, metrics_changed_fun), do: metrics_changed_fun.()
+  defp notify_if_recorded(_result, _metrics_changed_fun), do: :ok
 end
