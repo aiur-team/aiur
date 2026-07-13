@@ -13,7 +13,7 @@ identity, current membership, ticket facts, lifecycle, planning metadata and
 native blockers. Aiur contributes current activity, progress and event evidence
 without being allowed to clear a GitHub dependency.
 
-The Build Order implementation is nineteen tickets. Twenty-five standalone
+The Build Order implementation is nineteen tickets. Thirty-four standalone
 dashboard companions align Units, Commands, controls and usage/accounting with
 the refreshed prototype; they are not Build Order members or completion
 blockers.
@@ -149,28 +149,32 @@ These become standalone issues and do not belong to the Build Order root.
   history.
 - **DREQ-003 — Units presentation.** URL/count/zero-result filter behavior,
   exact backend/model/effort/complexity/lane/progress with unknowns, responsive
-  table/cards and adoption of shared all-state ticket context.
+  table/cards and adoption of shared all-state ticket context. Row activation
+  opens ticket context only; the named Chat conversation destination is owned
+  by DREQ-027 and runtime capacity control by DREQ-028.
 - **DREQ-004 — Applied runtime-control protocol.** Pause/resume uses correlated
   request, accepted, worker-applied/rejected/expired facts with idempotency,
   conflict and audit semantics. Request acceptance is not worker confirmation.
-- **DREQ-005 — Unit and capacity controls.** Authenticated capability-gated
-  pause/resume and positive-integer max-agent UI waits for authoritative state,
-  handles concurrency/timeouts/errors and uses named 44px controls.
+- **DREQ-005 — Applied unit controls.** Authenticated capability-gated
+  pause/resume UI waits for authoritative worker-applied state, handles
+  concurrency/timeouts/errors and uses named 44px controls. Positive-integer
+  max-agent capacity UI is DREQ-028.
 - **DREQ-006 — Complete Decision lookup.** Direct old-record lookup, bounded
   cursor pagination/search and complete retained counts remain separate from
   the priority overview and preserve sanitization/provider failure semantics.
 - **DREQ-007 — Commands catch-up.** Apply current Commands vocabulary/cards/
   filters while preserving every Decision lifecycle, deep link, confirmation,
   retry, revision, follow-up, sanitization and partial-history state.
-- **DREQ-008 — Provider-neutral usage envelope.** Consume the shared opaque
-  provider-account generation and normalize raw delta/absolute
-  measurements with trusted occurrence time, UTC occurrence-price date, scope,
-  independent counter epoch, source identity, full/partial
-  coverage, currency and exact decimal provider cost. Own a versioned
-  per-provider/source contract that classifies token dimensions as additive,
-  subset, mutually exclusive, or unknown and declares provider-total
-  authority. Unknown or contradictory relationships fail closed. Do not derive
-  cross-message deltas in an ephemeral producer.
+- **DREQ-008 — Provider-neutral usage envelope.** Define the provider-neutral
+  `UsageEnvelope` schema and registry, consuming the shared opaque
+  provider-account generation: raw delta/absolute measurements carry trusted
+  occurrence time, UTC occurrence-price date, scope, independent counter
+  epoch, source identity, full/partial coverage, currency and exact decimal
+  provider cost. Own a versioned per-provider/source registry that classifies
+  token dimensions as additive, subset, mutually exclusive, or unknown and
+  declares provider-total authority. Unknown or contradictory relationships
+  fail closed, and no ephemeral producer derives cross-message deltas. The
+  Codex/Claude headless source adapters are DREQ-029.
 - **DREQ-009 — Durable attributed usage ledger.** A single-writer append-only
   NDJSON authority plus crash-safe absolute-counter checkpoints survives
   restart, retry, fallback and completion. The writer alone derives deltas from
@@ -185,21 +189,16 @@ These become standalone issues and do not belong to the Build Order root.
   cache-creation input, and cache-read input as separate additive request
   dimensions under the exact supported source version. The required Remote
   Control path cannot finish with `claude-repl` coverage unsupported.
-- **DREQ-011 — Versioned cost/grouping projection.** Consume the crash-safe
-  aggregate/query projection and report tokens and
-  separately labelled provider/API-equivalent estimate bases by run/build,
-  ticket, agent family, backend, exact model, currency and opaque account
-  generation with occurrence-time pricing revision, token-relationship
-  revision, coverage and earliest retained time. Price and reconcile each
-  billable dimension according to the DASH-008 relationship contract: additive
-  dimensions contribute separately, subset dimensions replace the matching
-  parent slice rather than double count it, and unknown/contradictory
-  relationships produce unknown API-equivalent coverage. Preserve contributor
-  groups by provider/account generation, but also produce one exact
-  cross-provider/cross-generation
-  `api_equivalent_estimate` roll-up for each compatible currency. Never mix
-  currencies or provider-reported and API-equivalent bases. Meter joining
-  remains a presentation-composition responsibility.
+- **DREQ-011 — Exact usage pricing.** Resolve exact versioned effective-dated
+  token prices and reconcile each billable dimension according to the DREQ-008
+  relationship contract: additive dimensions contribute separately, subset
+  dimensions replace the matching parent slice rather than double count it,
+  and unknown/contradictory relationships produce unknown API-equivalent
+  coverage. Use exact decimal/currency arithmetic, never mix currencies or
+  provider-reported and API-equivalent bases, and expose a
+  generation-qualified tier join key without joining meter data. Run/ticket/
+  build grouping and roll-ups are DREQ-030; meter joining remains a
+  presentation-composition responsibility.
 - **DREQ-012 — Provider-meter foundation.** Consuming the shared opaque
   provider-account generation, define full snapshot versus sparse patch,
   tombstone/expiry, per-window freshness/LKG and subscription/API-key
@@ -212,15 +211,13 @@ These become standalone issues and do not belong to the Build Order root.
 - **DREQ-014 — Canonical current-run summary.** Define live/remaining universe,
   complexity-weighted progress with unknown denominator, wall-clock elapsed and
   evidence-based ETA with provenance/confidence/freshness.
-- **DREQ-015 — Authenticated usage/provider UI.** Compose live provider cards
-  and ticket/model/backend/agent breakdowns from cached snapshots. Join usage to an
-  actual plan tier only by provider, backend and exact known opaque account
-  generation; render unknown, mixed and mismatch states explicitly. Show
-  asterisked API-equivalent totals across compatible provider/account
-  generations alongside their preserved contributor groups, with popovers,
-  scope/basis/currency/coverage/freshness and accessible meter semantics.
-  Consume DREQ-021 so no usage/account-meter fact is available to an
-  unauthenticated connection.
+- **DREQ-015 — Authenticated provider-meter UI.** Compose live Codex and
+  Claude provider-meter cards from cached snapshots with plan/quota/rate/reset
+  facts, per-window freshness/LKG states and accessible meter semantics;
+  render unknown, mixed and mismatch account-generation states explicitly.
+  Consume DREQ-021 so no account-meter fact is available to an
+  unauthenticated connection. The usage/cost summary, breakdowns and
+  drill-down are DREQ-031.
 - **DREQ-016 — Units row and filter policy.** Join recoverable membership with
   canonical lifecycle and event activity into provenance-rich rows; define
   Live/Unfinished/All/None scope plus overlapping Active/Alert/Paused/Stuck/
@@ -252,11 +249,13 @@ These become standalone issues and do not belong to the Build Order root.
   states, responsive semantics and pushed updates.
 - **DREQ-023 — Selected-Build-Order usage integration.** Join the URL-selected
   root's current GitHub member identities to retained Aiur usage without
-  creating a second membership store. On membership-generation changes, push
-  recomputed totals that include retained pre-membership observations for
-  current members, exclude removed members, preserve coverage/health, and
-  reconcile the compatible-currency API-equivalent build total to its
-  provider, account-generation, ticket, model and agent-family contributors.
+  creating a second membership store, supplying the member set as an explicit
+  typed scope to the DREQ-030 grouped query and composing on the DREQ-031
+  summary contract. On membership-generation changes, push recomputed totals
+  that include retained pre-membership observations for current members,
+  exclude removed members, preserve coverage/health, and reconcile the
+  compatible-currency API-equivalent build total to its provider,
+  account-generation, ticket, model and agent-family contributors.
 - **DREQ-024 — Crash-safe usage aggregate/query projection.** Project the
   append-only ledger into bounded, atomically published grouping snapshots and
   exact caller-supplied run/ticket queries. Preserve every pricing, currency,
@@ -269,6 +268,88 @@ These become standalone issues and do not belong to the Build Order root.
   behavior, including exact separation of known/unknown token-relationship
   revisions. Crash recovery, corruption quarantine and deterministic proof are
   part of this storage lifecycle.
+- **DREQ-026 — Bounded live conversation projection.** Project allowlisted
+  structured runtime conversation events into a versioned, bounded, sanitized
+  `LiveConversationSnapshot` keyed by exact configured-repository identity
+  plus run/attempt/session/worker generation. Only allowlisted normalized
+  fields enter a snapshot — raw JSON, prompts, reasoning, credentials,
+  capability URLs and local paths are forbidden — and bounds/redaction apply
+  before retention. Live, ended, known-empty, stale, unavailable and
+  restart-unknown source states stay distinct, and snapshot queries perform no
+  workspace, log-file, process or provider I/O.
+- **DREQ-027 — Read-only conversation drawer.** Provide an explicit named
+  `Read conversation` Units action that opens a responsive,
+  keyboard-accessible, read-only drawer over the exact DREQ-026 snapshot with
+  focus trap, Escape/close behavior and deterministic focus return. The drawer
+  contains no message, pause, capacity or mutation handler; ticket context and
+  conversation remain separate destinations, and rendering performs no
+  filesystem, log, process, GitHub or provider read. Generation identity is
+  pinned while open, so a replacement worker's conversation never silently
+  appears under the old heading.
+- **DREQ-028 — Authoritative runtime capacity control.** Render and mutate
+  positive-integer max-agent capacity only through the existing authoritative
+  Orchestrator Slots contract, with named controls that recheck auth/writable
+  state on every invocation. The Orchestrator-returned snapshot alone proves
+  application — a requested value or dashboard-local row count never does —
+  and lowering capacity drains dispatch without pausing, resuming or killing
+  any individual unit. Pending, applied, invalid, unavailable,
+  concurrent-change and draining states remain visibly and programmatically
+  distinct.
+- **DREQ-029 — Headless usage source adapters.** Normalize every supported
+  Codex and Claude headless protocol source into exactly attributed DREQ-008
+  usage envelopes during normal runs, preserving true counter scope, source
+  version, account generation and pinned token-relationship revision. Each
+  accepted source event produces at most one raw envelope identity; a source
+  revision never falls forward to a newer mapping, and unknown version, scope,
+  model, generation or attribution stays explicit rather than becoming zero or
+  a guess. Emission is daemon-owned and independent of dashboard clients, TUI
+  mode or debug telemetry, and provider payloads are dropped after
+  normalization.
+- **DREQ-030 — Grouped usage scopes.** Expose bounded, exact, scope-labelled
+  token and estimate summaries for caller-supplied `this_run` and/or explicit
+  configured-repository ticket-set scopes over the DREQ-024 aggregates and
+  DREQ-011 pricing. Every value preserves scope, basis, currency, generation,
+  pricing/relationship revisions, attribution coverage and retained interval;
+  roll-up arithmetic is exact, reconciles in both directions and never
+  combines unlike bases or currencies. Tier-join keys exist only for exact
+  known provider/backend/account generations, and the projection never
+  discovers, retains or mutates Build Order membership.
+- **DREQ-031 — Authenticated usage/cost summary UI.** Render live token and
+  API-equivalent estimate totals for `this run` or an explicit selected-build
+  scope, reconciled by ticket, provider, agent family, backend, model,
+  currency and account generation with truthful coverage and bounded
+  accessible drill-down. Subscription estimates always carry `*` with an
+  accessible explanation, tier annotations join only on exact known
+  generations, and unlike bases/currencies remain separate with unknown cost
+  never shown as `$0.00`. All delivery flows through the DREQ-021 protected
+  facade so denied connections receive no protected value anywhere, including
+  hidden DOM, assigns, events or caches.
+- **DREQ-032 — Truthful current-run outcomes.** Project a bounded current-run
+  outcome snapshot containing only repository merges associated with an exact
+  current-run member through canonical branch-derived ticket locators, unique
+  membership resolution and merge time inside the canonical run window.
+  `observed_run_id` is observation provenance only — never a join key or
+  causality evidence — and backfilled and live-observed facts use identical
+  qualification rules. Partial or unavailable sources never produce a
+  confidently complete empty list, and a new run generation cannot inherit
+  prior outcomes.
+- **DREQ-033 — Existing-dashboard parity capstone.** Prove the composed
+  Executor Control Center end to end — shell, Units, conversations, controls,
+  Commands, run/provider/accounting summaries, Recent outcomes,
+  authentication, accessibility and responsive layouts — on one exact
+  configured integration SHA with real CLI/browser operator-visible evidence.
+  Failed prerequisite acceptance routes back to the owning ticket as contained
+  rework and nonblocking discoveries go to the deferred ledger; current
+  Fleet/Decision/Recent/Analytics behavior is preserved or explicitly replaced
+  by an accepted tested contract.
+- **DREQ-034 — Current-run Recent UI.** Render the `Finished this run` region
+  from DREQ-032 qualified outcomes only, describing cards as repository merges
+  associated with current-run member tickets without claiming Aiur or agent
+  authorship or causality. Presentation never recomputes membership, window
+  qualification or branch linkage, and the global RecentMerge audit, complete
+  Decision history and real Analytics destination remain available on their
+  proper surfaces. Healthy-empty, partial, stale, unavailable, restart/new-run
+  and truncated states render explicitly.
 
 ## Acceptance examples
 
