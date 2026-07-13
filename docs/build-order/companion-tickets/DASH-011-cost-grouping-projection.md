@@ -26,8 +26,9 @@
 
 Aiur returns exact-arithmetic, scope-labelled token and dollar totals by
 run/build, ticket, agent family, backend, resolved model, currency, and opaque
-provider-account generation using separately comparable provider-reported or
-versioned API-equivalent estimate bases, with explicit retained coverage and
+provider-account generation, plus a compatible-currency API-equivalent total
+across providers and account generations. Provider-reported and versioned
+API-equivalent bases remain distinct, with explicit retained coverage and
 unknowns.
 
 ## Context and evidence
@@ -51,7 +52,14 @@ The user requires spend and tokens per ticket, agent type, model, and total buil
 - Preserve cached input, cache-creation input, and output/reasoning pricing distinctions without double counting token subsets. Existing effective-date rows are immutable after acceptance; a correction is a new explicitly versioned table revision with a migration/recalculation disposition, never silent historical repricing.
 - Expose a query over an explicit typed ticket set and/or run set returning tokens and monetary totals by basis, plus groups by provider, ticket, agent family, backend, resolved model, auth mode, opaque `provider_account_generation`, currency, and run. Include occurrence-price bucket/revision coverage, unknown contributors, pricing/model coverage, ledger health, and earliest/latest retained coverage.
 - Define Build Order scope as the caller-supplied current GitHub member set. Include every retained observation for those identities, including pre-membership usage; exclude unrelated tickets and do not infer membership from labels/prose.
-- For subscription auth, return API-equivalent estimate metadata requiring `*`, information-popover copy key, and a generation-qualified tier join key of `(provider, backend, provider_account_generation)`. This ticket does not ingest or join meter data. DASH-015 may attach actual tier only from DASH-020/013 facts with that exact known generation; missing, unknown, or mixed generations require an unjoined `unknown`/`mixed` tier state. It must not be named billed or actual spend. For mixed bases, currencies, or account generations, return separate buckets; never produce a combined dollar total across unlike identities.
+- Preserve provider/account generation buckets for attribution and tier
+  correlation, then expose one exact `api_equivalent_estimate` roll-up per
+  compatible currency across those buckets. The roll-up must reconcile to its
+  provider, account-generation, ticket, agent-family, backend and model
+  contributors and must retain partial/pricing coverage. Never mix currencies
+  or `provider_reported_estimate` with `api_equivalent_estimate`; provider-
+  reported values stay separately labelled.
+- For subscription auth, return API-equivalent estimate metadata requiring `*`, information-popover copy key, and a generation-qualified tier join key of `(provider, backend, provider_account_generation)`. This ticket does not ingest or join meter data. DASH-015 may attach actual tier only from DASH-020/013 facts with that exact known generation; missing, unknown, or mixed generations require an unjoined `unknown`/`mixed` tier state. It must not be named billed or actual spend. A multi-generation roll-up carries contributor tier states, not one synthetic tier.
 - Provide deterministic empty, partial, stale/corrupt-ledger, unknown-price, unknown-model, mixed-currency, and partial-retention results.
 
 ## Non-goals
@@ -69,16 +77,18 @@ Build a pure pricing/grouping layer over DASH-024's aggregate/query behavior wit
 ## Contract and invariants
 
 - Every monetary result carries currency, basis, scope, pricing revision/effective date where applicable, model/token coverage, and retained coverage.
-- Unlike bases, currencies, and provider-account generations are never
-  arithmetically combined. Unknown contributors remain in token totals and make
-  monetary coverage partial/unknown.
+- Unlike bases and currencies are never arithmetically combined. Provider and
+  account generation remain exact contributor dimensions, while compatible-
+  currency API-equivalent contributors are deliberately summed into the
+  comparable run/build estimate. Unknown contributors remain in token totals
+  and make monetary coverage partial/unknown.
 - `provider_reported_estimate` is accepted only from a DASH-008/010 source that declares structured estimated request cost; it is not inferred from a subscription fee.
 - Current-build membership is caller-supplied current GitHub identity. The query includes all retained observations for each current member, with no membership-time cutoff.
 - Historical pricing joins require exact provider, resolved model, token
   dimension, currency, and UTC occurrence-price interval. Tier correlation is
   not a pricing join and is exposed only as an exact opaque-generation key for
   DASH-015; this projection never reads meter snapshots.
-- Group sums reconcile exactly to their matching basis/scope/currency/account-generation total; unrelated identities cannot enter through bare-number collisions.
+- Group sums reconcile exactly to their matching basis/scope/currency/account-generation buckets, and every compatible-currency API-equivalent roll-up reconciles exactly to all of its provider/generation/ticket/agent/backend/model contributors; unrelated identities cannot enter through bare-number collisions.
 
 ## Refreshable implementation notes
 
@@ -92,11 +102,12 @@ Build a pure pricing/grouping layer over DASH-024's aggregate/query behavior wit
 
 ### Agent gate
 
-- Exact-arithmetic/property tests cover each basis, model/token price dimension, cache/reasoning subsets, UTC effective-date boundaries, non-overlap/ambiguity validation, unknown model/auth/price, mixed bases/currencies/account generations, completed and unrelated tickets, and group-to-total reconciliation.
+- Exact-arithmetic/property tests cover each basis, model/token price dimension, cache/reasoning subsets, UTC effective-date boundaries, non-overlap/ambiguity validation, unknown model/auth/price, mixed bases/currencies/account generations, completed and unrelated tickets, and bucket/roll-up reconciliation.
 - Join-safety tests prove pricing never crosses provider or currency, grouped
-  output never merges known/unknown or different account generations, and the
-  emitted tier key cannot correlate an unknown/mixed generation or authorize a
-  provider/backend-only join.
+  contributor output never merges known/unknown or different account
+  generations, the compatible API-equivalent roll-up sums only same-currency
+  contributors, and the emitted tier key cannot correlate an unknown/mixed
+  generation or authorize a provider/backend-only join.
 - Scope tests prove current-member pre-membership usage is included, removed/nonmember usage is excluded, bare issue numbers cannot collide, and run versus build labels remain distinct.
 - Ledger failure/retention tests cover empty, partial, corrupt/unavailable health and earliest/latest coverage without converting gaps to zero.
 
@@ -106,7 +117,12 @@ Build a pure pricing/grouping layer over DASH-024's aggregate/query behavior wit
 
 ### Human/manual evidence
 
-- Executor reviews a synthetic subscription example showing an API-equivalent estimate separately from a provider-reported estimate, verifies the `*`/explanation/tier requirement, and confirms unlike bases, currencies, and account generations are not summed or tier-correlated.
+- Executor reviews a synthetic mixed Codex/Claude subscription example showing
+  one asterisked compatible-currency API-equivalent run/build estimate that
+  reconciles to both provider/generation groups, separately labelled provider-
+  reported estimates, and exact-generation-only tier annotations. Confirm
+  unlike bases/currencies are not summed and generations are not tier-
+  correlated.
 
 ## Failure, security, migration, and accessibility cases
 
@@ -124,8 +140,9 @@ Build a pure pricing/grouping layer over DASH-024's aggregate/query behavior wit
   explicit typed run/ticket membership sets. It does not read provider meters.
 - Writes: cost/usage grouping projection and query API, pricing revisions/fixtures, tests.
 - Contracts: exact effective-date/currency pricing, generation-qualified tier
-  join key, comparable cost bases, exact grouped summary, current-build
-  retained-membership semantics.
+  join key, compatible-currency API-equivalent roll-up with preserved
+  contributors, exact grouped summary, current-build retained-membership
+  semantics.
 
 ## Sibling boundaries and open gates
 
@@ -136,5 +153,6 @@ and DASH-020/013 own actual Codex/Claude account facts; DASH-011 deliberately
 does not depend on or join them.
 DASH-015 is the sole composition owner that may join usage groups to tier facts,
 and only by provider, backend, and the exact known opaque generation. It must
-keep bases/currencies/generations separate and apply the subscription estimate
-disclosure exactly.
+keep bases/currencies separate, preserve generation contributor groups, and
+apply the subscription estimate disclosure exactly to the compatible API-
+equivalent total and its constituents.

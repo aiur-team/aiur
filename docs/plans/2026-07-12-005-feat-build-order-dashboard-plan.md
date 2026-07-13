@@ -199,6 +199,9 @@ with BO-005 on event ingestion and consumes BO-017 identity. DASH-009 owns the
 append/checkpoint authority, DASH-024 owns bounded aggregate/query snapshots,
 and DASH-025 owns destructive rotation/retention/compaction while preserving
 every grouping dimension. DASH-011 prices those qualified groups;
+DASH-011 also reconciles compatible-currency API-equivalent contributors into
+one cross-provider/cross-generation run or build estimate while preserving the
+groups and never mixing bases or currencies.
 DASH-015 alone joins them to DASH-020/013 tier facts by an exact known
 provider/backend/generation match. DASH-001 consumes BO-008's shared real-route
 browser harness and serializes with BO-012 on route/navigation registration.

@@ -125,7 +125,8 @@ reviewable outcomes:
 5. dimension-preserving retention and compaction;
 6. authenticated local telemetry transport and correlation;
 7. required Claude Remote Control request normalization;
-8. versioned cost/coverage and grouping projections;
+8. versioned cost/coverage and grouping projections with a compatible-currency
+   cross-provider API-equivalent run/build total and preserved contributors;
 9. a provider-meter foundation;
 10. the Codex meter adapter;
 11. Claude subscription and API-key meter parity;

@@ -34,11 +34,11 @@ Units correctly defaults accounting to `this run`, while the user also requires 
 
 - Derive the selected root solely from BO-012's canonical `/build-orders/:root_number` URL and validated repository context; browser-local selection is not authority.
 - Consume BO-003's complete current selected graph generation and exact repository-qualified member identities. Never infer membership from labels, prose, phase/lane, visible nodes, or issue-number adjacency.
-- Call DASH-011 with that explicit current member set and label the result `this build`, retaining basis/currency/account-generation/coverage semantics.
+- Call DASH-011 with that explicit current member set and label the result `this build`, retaining basis/currency/account-generation/coverage semantics and the compatible-currency API-equivalent roll-up.
 - Include every retained usage observation attributable to a current member, including observations recorded before it joined the Build Order. Exclude a removed/nonmember ticket immediately on the next complete membership generation; there is no joined-at cutoff.
 - Treat catalog generation, selected-root generation, complete membership generation, accounting generation, and provider-meter generation independently. Discard stale async/query results after any relevant generation changes.
 - Subscribe to BO-003 selected-graph updates and protected DASH-021 accounting/meter changes. Requery bounded snapshots on mount/reconnect, root switch, or complete membership change; coalesce updates without per-browser GitHub polling.
-- Render through DASH-015's protected usage/provider component contract on the Build Order route, preserving exact-generation tier joins, `*` estimate disclosure, bounded drill-down, health/freshness, and locked state.
+- Render through DASH-015's protected usage/provider component contract on the Build Order route, preserving exact-generation tier joins, the asterisked compatible-currency API-equivalent total and contributor reconciliation, bounded drill-down, health/freshness, and locked state.
 - Define loading, empty-build, no-retained-usage, partial-retention, selected-invalid, stale graph, graph unavailable, accounting unavailable, and membership-changed states without confusing them with zero.
 - Preserve URL/share/back/refresh behavior and focus when switching roots or live membership changes.
 
@@ -59,6 +59,10 @@ Extend BO-012's selected-route composition with a thin generation-safe scope ada
 - Current members include all retained pre-membership usage; removed/nonmembers are excluded. Missing retained coverage remains explicit.
 - A result is renderable only when selected root/member and accounting generations match the request; stale responses cannot cross root or membership changes.
 - `this run` and `this build` remain distinct labelled scopes and never share a cache key accidentally.
+- A selected-build API-equivalent total is emitted only per compatible currency
+  and reconciles exactly to preserved provider/account-generation, ticket,
+  agent-family, backend and model contributors. Provider-reported estimates
+  and exact-generation tier facts never enter that arithmetic.
 - Read-only integration cannot mutate GitHub or Aiur runtime and cannot affect Build Order membership, progress, readiness, critical path, ETA, or acceptance.
 
 ## Refreshable implementation notes
@@ -73,7 +77,7 @@ Extend BO-012's selected-route composition with a thin generation-safe scope ada
 
 - Scope tests prove exact current members, repository/number collision safety, pre-membership inclusion, removed/nonmember exclusion, empty build, no retained usage, partial retention, and run/build cache separation.
 - Generation tests cover root switch, membership add/remove, stale graph/query replies, accounting/meter updates, reconnect, provider degradation, and coalesced subscriptions without per-browser GitHub calls.
-- LiveView/browser tests cover URL/share/back/refresh, locked/authenticated modes, focus preservation, bounded drill-down, disclosure/tier joins, and explicit non-zero/empty/error states.
+- LiveView/browser tests cover URL/share/back/refresh, locked/authenticated modes, focus preservation, bounded drill-down, mixed Codex/Claude compatible-currency total and constituent reconciliation, disclosure/tier joins, and explicit non-zero/empty/error states.
 - Mutation-negative tests prove no GitHub planning or Aiur runtime action handler is introduced and Build Order acceptance/progress remains unchanged.
 
 ### At-merge gate
@@ -82,7 +86,7 @@ Extend BO-012's selected-route composition with a thin generation-safe scope ada
 
 ### Human/manual evidence
 
-- From the Executor repository root, select two roots by URL, add/remove a synthetic member in the provider fixture, and show current-member totals updating with pre-membership inclusion/removal exclusion while Units remains `this run` and no planning mutation appears.
+- From the Executor repository root, select two roots by URL, add/remove a synthetic member in a mixed Codex/Claude fixture, and show the asterisked compatible-currency build total and every provider/ticket/model/agent constituent updating with pre-membership inclusion/removal exclusion while Units remains `this run` and no planning mutation appears.
 
 ## Failure, security, migration, and accessibility cases
 
@@ -97,7 +101,9 @@ Extend BO-012's selected-route composition with a thin generation-safe scope ada
 - Writes: selected-build scope adapter, generation-keyed
   query/cache/subscriptions, Build Order usage composition, Build Order route
   component CSS, and tests.
-- Contracts: exact current-member `this build` accounting scope and live generation reconciliation.
+- Contracts: exact current-member `this build` accounting scope, compatible-
+  currency API-equivalent total/constituent reconciliation, and live generation
+  reconciliation.
 - Safety: GitHub/Aiur read-only boundary, protected financial delivery, cross-root stale-result isolation.
 
 ## Sibling boundaries and open gates

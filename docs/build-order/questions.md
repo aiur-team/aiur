@@ -43,6 +43,10 @@ be added here and asked one at a time.
   actual subscription tier only when usage and meter facts share an exact known
   provider/backend/account generation; do not present the estimate as billed
   spend or guess a tier for unknown, mixed, or mismatched generations.
+- A run/build may show one asterisked API-equivalent total across Codex, Claude,
+  and multiple account generations when the currency is compatible. Preserve
+  every provider/account-generation contributor and its exact tier join;
+  never mix currencies or provider-reported and API-equivalent bases.
 - Each render/reconnect joins current GitHub Build Order membership with data
   from the active Aiur instance and receives live push updates where available.
   These are the two live sources of truth.

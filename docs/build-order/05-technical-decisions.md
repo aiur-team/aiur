@@ -123,6 +123,12 @@ detail, BO-019 owns bounded sanitized recent history, BO-018 owns the accessible
 base context, and BO-011 adapts it to Build Order relationships. BO-012 consumes
 the shared route contract without waiting for companion metrics.
 
+The companion cost contract preserves provider/account-generation groups for
+attribution and exact tier joins, while producing one same-currency
+`api_equivalent_estimate` run/build roll-up across those groups. It never mixes
+currencies or provider-reported and API-equivalent bases, and a combined total
+never receives a synthetic plan tier.
+
 ## DEC-010 — Treat phase as a hint
 
 **Status:** accepted

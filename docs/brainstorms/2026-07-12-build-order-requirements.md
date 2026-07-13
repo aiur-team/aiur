@@ -33,6 +33,9 @@ not the opening ten-ticket estimate.
 - Flat-subscription dollars are versioned API-equivalent estimates, marked `*`
   with an accessible explanation and actual plan tier. They are not billed
   spend.
+- A compatible-currency API-equivalent run/build total may span Codex, Claude
+  and multiple account generations, but must preserve every contributor and
+  never synthesize a cross-generation tier or mix monetary bases.
 - Build totals include every retained Aiur observation for current member
   tickets, including observations from before membership.
 - Claude REPL/Remote Control accounting is required standalone work, not an
@@ -180,8 +183,11 @@ These become standalone issues and do not belong to the Build Order root.
   separately labelled provider/API-equivalent estimate bases by run/build,
   ticket, agent family, backend, exact model, currency and opaque account
   generation with occurrence-time pricing revision, coverage and earliest
-  retained time; never sum unlike bases, currencies or generations. Meter
-  joining remains a presentation-composition responsibility.
+  retained time. Preserve contributor groups by provider/account generation,
+  but also produce one exact cross-provider/cross-generation
+  `api_equivalent_estimate` roll-up for each compatible currency. Never mix
+  currencies or provider-reported and API-equivalent bases. Meter joining
+  remains a presentation-composition responsibility.
 - **DREQ-012 — Provider-meter foundation.** Consuming the shared opaque
   provider-account generation, define full snapshot versus sparse patch,
   tombstone/expiry, per-window freshness/LKG and subscription/API-key
@@ -198,9 +204,11 @@ These become standalone issues and do not belong to the Build Order root.
   and ticket/model/backend/agent breakdowns from cached snapshots. Join usage to an
   actual plan tier only by provider, backend and exact known opaque account
   generation; render unknown, mixed and mismatch states explicitly. Show
-  estimate asterisks/popovers, scope/basis/currency/coverage/freshness and
-  accessible meter semantics, consuming DREQ-021 so no usage/account-meter fact
-  is available to an unauthenticated connection.
+  asterisked API-equivalent totals across compatible provider/account
+  generations alongside their preserved contributor groups, with popovers,
+  scope/basis/currency/coverage/freshness and accessible meter semantics.
+  Consume DREQ-021 so no usage/account-meter fact is available to an
+  unauthenticated connection.
 - **DREQ-016 — Units row and filter policy.** Join recoverable membership with
   canonical lifecycle and event activity into provenance-rich rows; define
   Live/Unfinished/All/None scope plus overlapping Active/Alert/Paused/Stuck/
@@ -234,7 +242,9 @@ These become standalone issues and do not belong to the Build Order root.
   root's current GitHub member identities to retained Aiur usage without
   creating a second membership store. On membership-generation changes, push
   recomputed totals that include retained pre-membership observations for
-  current members, exclude removed members, and preserve coverage/health.
+  current members, exclude removed members, preserve coverage/health, and
+  reconcile the compatible-currency API-equivalent build total to its
+  provider, account-generation, ticket, model and agent-family contributors.
 - **DREQ-024 — Crash-safe usage aggregate/query projection.** Project the
   append-only ledger into bounded, atomically published grouping snapshots and
   exact caller-supplied run/ticket queries. Preserve every pricing, currency,

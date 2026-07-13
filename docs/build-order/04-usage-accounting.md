@@ -168,20 +168,27 @@ V1 produces only bases supported by actual inputs:
 - `unknown`.
 
 Do not invent metered actual, subscription allocation or fixed-fee attribution.
-Do not add different bases, currencies or account generations into one dollar
-total. Group and display each basis separately with coverage, currency,
-occurrence-price date and immutable pricing revision. Unknown model, auth mode,
-currency, occurrence time or token coverage produces unknown/partial cost,
-never `$0.00`.
+Do not add different bases or currencies into one dollar total. Preserve
+provider and account generation as contributor dimensions, but produce one
+exact `api_equivalent_estimate` roll-up across providers and generations for
+each compatible currency so a mixed Codex/Claude run or build has the requested
+comparable estimate. Provider-reported estimates remain separate from that
+roll-up and from each other when their semantics are not comparable. Every
+roll-up retains its contributor groups, coverage, occurrence-price partitions
+and immutable pricing revisions. Unknown model, auth mode, currency, occurrence
+time or token coverage produces partial/unknown coverage, never `$0.00`.
 
 For flat subscriptions, per-ticket/build dollars are API-equivalent estimates,
 marked with an asterisk. An information popover explains that the value is not
 billed spend. The actual subscription tier may appear beside that estimate only
 when usage and meter facts have an exact known provider, backend and
 `provider_account_generation` match. Unknown, mixed and mismatched generations
-stay explicit rather than borrowing the current login's tier. Provider-reported
-estimates are also labelled as estimates; authoritative API billing may
-reconcile an account total but cannot infer Aiur ticket identity.
+stay explicit rather than borrowing the current login's tier. A combined
+API-equivalent estimate can include multiple provider/account generations, but
+its tier annotations remain attached only to exact-generation contributor
+groups; there is no synthetic cross-provider tier. Provider-reported estimates
+are also labelled as estimates; authoritative API billing may reconcile an
+account total but cannot infer Aiur ticket identity.
 
 For a Build Order, totals include all retained Aiur usage attributable to each
 current member ticket, including observations recorded before that ticket was
@@ -222,6 +229,8 @@ The accounting projection supports exact caller-supplied scope:
 ```text
 usage_summary(ticket_ids, run_ids) ->
   totals_by_basis,
+  compatible_currency_api_equivalent_totals,
+  by_provider,
   by_ticket,
   by_agent_family,
   by_backend,

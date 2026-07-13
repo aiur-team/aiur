@@ -24,7 +24,12 @@
 
 ## Outcome
 
-Authenticated Executors see responsive Codex and Claude usage/provider cards with tokens, separately comparable estimate bases, actual generation-matched plan/quota facts, retained coverage, freshness, and bounded drill-down; all other connections see only DASH-021's content-free locked state.
+Authenticated Executors see responsive Codex and Claude usage/provider cards
+with tokens, one asterisked compatible-currency API-equivalent run/build total,
+preserved provider/account-generation contributors, separately comparable
+estimate bases, actual generation-matched plan/quota facts, retained coverage,
+freshness, and bounded drill-down; all other connections see only DASH-021's
+content-free locked state.
 
 ## Context and evidence
 
@@ -37,7 +42,10 @@ The refreshed prototype shows static Codex/Claude meters and a `$50.47` total th
 - Render DASH-011 current-run tokens and monetary groups with totals and bounded drill-down by ticket, agent family, backend, exact model, currency, basis, and opaque provider-account generation. Preserve total tokens and provider split.
 - Allow an explicit typed Build Order member set as a reusable query/component scope, but Units defaults to and labels `this run`; never infer `this build` from labels, render state, or currently visible rows.
 - Join usage to actual tier only on exact known provider, backend, and `provider_account_generation`. Unknown generation yields tier `unknown`; multi-generation group yields `mixed`; known mismatch is visibly unjoined. Never fall back to provider/backend/current login/render order.
-- Display `provider_reported_estimate` and `api_equivalent_estimate` in separate basis/currency/generation buckets. Never sum unlike buckets or call either billed/actual spend.
+- Display one `api_equivalent_estimate` total per compatible currency across
+  provider/account-generation contributors, alongside the preserved buckets
+  and exact reconciliation. Keep `provider_reported_estimate` in a separate
+  basis; never mix bases/currencies or call either billed/actual spend.
 - For subscription usage, show API-equivalent dollars with `*` and an accessible information popover explaining the estimate. Show actual tier beside it only after the exact-generation join.
 - Surface DASH-010 Remote Control coverage within Claude usage and distinguish missing/partial coverage from zero.
 - On mount/reconnect, fetch current protected snapshots after authorization, then subscribe through DASH-021 to daemon-owned ledger/meter updates. Coalesce render and screen-reader announcements; isolate one provider/query failure from healthy regions.
@@ -47,7 +55,10 @@ The refreshed prototype shows static Codex/Claude meters and a `$50.47` total th
 
 - Render or compute the Aiur live/remaining/progress/elapsed/ETA summary; DASH-014/022 own it.
 - Ingest usage/meters, persist ledger data, apply prices, allocate subscription fees, call billing APIs, or redesign Analytics.
-- Fetch providers per browser, combine unlike bases/currencies/generations, correlate tier without exact generation, show fake subscription bars for API accounts, or weaken DASH-021.
+- Fetch providers per browser, combine unlike bases/currencies, erase provider/
+  generation contributors from a compatible API-equivalent roll-up, correlate
+  tier without exact generation, show fake subscription bars for API accounts,
+  or weaken DASH-021.
 
 ## Existing owner and reuse target
 
@@ -56,7 +67,9 @@ Add protected provider/usage presenters and components to DASH-003's Units page 
 ## Contract and invariants
 
 - Every value names scope, source/basis, coverage, currency/generation, health, and freshness where relevant. `this run` and explicit `this build` are never interchangeable.
-- Unlike bases, currencies, and account generations remain separate. Unknown cost is not `$0.00`.
+- Unlike bases and currencies remain separate. Account generations remain
+  visible contributor/tier boundaries even when compatible API-equivalent
+  estimates are summed. Unknown cost is not `$0.00`.
 - Subscription API-equivalent estimates always carry `*` and explanatory popover. Actual tier appears only for exact provider/backend/known-generation match; unknown, mixed, and mismatch are explicit.
 - Protected facts enter the connection only through DASH-021 authorization. Locked mode contains no hidden protected values.
 - Unsupported, partial, stale, error, empty, unknown, mixed, mismatch, zero, and healthy values are distinct.
@@ -72,8 +85,8 @@ Add protected provider/usage presenters and components to DASH-003's Units page 
 
 ### Agent gate
 
-- Presenter/component tests cover current-run and explicit-build scope, every cost basis/currency/coverage/generation, exact tier match, unknown/mixed/mismatch, API-key/subscription modes, all meter health states, Remote Control coverage, grouping reconciliation, and live updates.
-- Join tests prove provider/backend-only matches fail closed, current tier cannot attach to historical usage from another generation, and mixed/unknown groups expose no constituent tier.
+- Presenter/component tests cover current-run and explicit-build scope, every cost basis/currency/coverage/generation, exact tier match, unknown/mixed/mismatch, API-key/subscription modes, all meter health states, Remote Control coverage, compatible API-equivalent total reconciliation, grouping reconciliation, and live updates.
+- Join tests prove provider/backend-only matches fail closed, current tier cannot attach to historical usage from another generation, and a mixed/unknown roll-up exposes no synthetic tier while exact-generation contributor groups may expose only their own matched tier.
 - DASH-021 integration tests prove denied mode never invokes protected providers or contains token, dollar, group, account/auth-mode, plan/tier, quota/rate/credit/spend-control, percentage/limit/reset, freshness, LKG, or serialized hidden values.
 - Browser/a11y tests cover meter semantics, reset times, keyboard/touch drill-down/popover, focus restore, announcement coalescing, light/dark/reduced motion, 44px targets, 200% zoom, all breakpoints, safe-area offsets, and no clipping.
 
@@ -83,7 +96,7 @@ Add protected provider/usage presenters and components to DASH-003's Units page 
 
 ### Human/manual evidence
 
-- From the Executor repository root, compare subscription, API-key, partial/stale, Remote Control-inclusive, exact-generation, account-switched, mixed-generation, and locked variants. Verify totals/disclosures/tier joins, 390px/200% layout, and absence of protected values in denied rendered source/events.
+- From the Executor repository root, compare subscription, API-key, partial/stale, Remote Control-inclusive, exact-generation, account-switched, mixed-generation, and locked variants. Verify a mixed Codex/Claude compatible-currency API-equivalent total reconciles to all visible constituents, remains asterisked, never gains a synthetic tier, and preserves disclosures/tier joins, 390px/200% layout, and absence of protected values in denied rendered source/events.
 
 ## Failure, security, migration, and accessibility cases
 

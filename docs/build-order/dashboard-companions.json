@@ -109,8 +109,8 @@
       "depends_on": ["DASH-024"], "serializes_with": [], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
       "read_surfaces": ["usage aggregate query API", "versioned effective-dated price table", "explicit typed ticket/run scopes"],
       "write_surfaces": ["cost/usage grouping projection", "pricing revisions and fixtures"],
-      "contract_surfaces": ["exact basis/currency/generation grouping", "explicit run/build accounting query"],
-      "safety_surfaces": ["no unlike-basis summation", "no provider/backend-only tier join"], "conflict_exceptions": [], "github": null
+      "contract_surfaces": ["exact basis/currency/generation grouping", "compatible-currency API-equivalent run/build roll-up", "explicit run/build accounting query"],
+      "safety_surfaces": ["no unlike-basis/currency summation", "preserved provider/account-generation contributors", "no provider/backend-only tier join"], "conflict_exceptions": [], "github": null
     },
     {
       "id": "DASH-012", "title": "Project canonical provider meters", "document": "companion-tickets/DASH-012-provider-meter-foundation.md", "requirement_ref": "DREQ-012", "complexity_points": 3,
@@ -141,8 +141,8 @@
       "depends_on": ["DASH-003", "DASH-010", "DASH-011", "DASH-013", "DASH-020", "DASH-021", "DASH-025"], "serializes_with": ["DASH-005", "DASH-007", "DASH-022"], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
       "read_surfaces": ["protected grouped usage/estimates", "Codex/Claude meters", "DASH-021 protected delivery", "DASH-025 retained coverage"],
       "write_surfaces": ["OCC DashboardLive composition", "shared OCC responsive CSS", "shared OCC summary layout", "protected usage/provider components"],
-      "contract_surfaces": ["authenticated usage/provider summary", "exact-generation tier composition and estimate disclosure"],
-      "safety_surfaces": ["financial-data nonleakage", "no unlike-basis/currency/generation summation"], "conflict_exceptions": [], "github": null
+      "contract_surfaces": ["authenticated usage/provider summary", "compatible-currency API-equivalent total reconciliation", "exact-generation tier composition and estimate disclosure"],
+      "safety_surfaces": ["financial-data nonleakage", "no unlike-basis/currency summation", "preserved provider/account-generation contributors"], "conflict_exceptions": [], "github": null
     },
     {
       "id": "DASH-016", "title": "Project canonical Units rows and policy", "document": "companion-tickets/DASH-016-units-row-policy.md", "requirement_ref": "DREQ-016", "complexity_points": 3,
@@ -205,7 +205,7 @@
       "depends_on": ["BO-003", "BO-012", "DASH-011", "DASH-015", "DASH-021"], "serializes_with": ["DASH-022", "BO-013", "BO-014"], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
       "read_surfaces": ["BO-003 current selected members", "BO-012 URL selection", "DASH-011 explicit-ticket query", "DASH-021 protected delivery"],
       "write_surfaces": ["Build Order LiveView composition", "Build Order route component CSS", "shared OCC summary layout", "selected-build accounting scope"],
-      "contract_surfaces": ["exact current-member this-build usage integration", "membership/accounting generation reconciliation"],
+      "contract_surfaces": ["exact current-member this-build usage integration", "compatible-currency API-equivalent build-total reconciliation", "membership/accounting generation reconciliation"],
       "safety_surfaces": ["GitHub/Aiur read-only boundary", "cross-root stale-result isolation", "pre-membership inclusion/removal exclusion"], "conflict_exceptions": [], "github": null
     },
     {
