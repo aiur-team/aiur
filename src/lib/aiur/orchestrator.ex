@@ -43,6 +43,13 @@ defmodule Aiur.Orchestrator do
       when is_reference(tick_token),
       do: Lifecycle.handle_tick(state)
 
+  def handle_info(
+        {:tick, {:budget_protected, tick_token} = protected_token},
+        %{tick_token: protected_token} = state
+      )
+      when is_reference(tick_token),
+      do: Lifecycle.handle_tick(state)
+
   def handle_info({:tick, _tick_token}, state), do: {:noreply, state}
 
   def handle_info(:tick, state), do: Lifecycle.handle_tick(state)

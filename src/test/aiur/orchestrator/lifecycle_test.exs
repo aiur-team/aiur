@@ -1,6 +1,7 @@
 defmodule Aiur.Orchestrator.LifecycleTest do
   use Aiur.TestSupport
 
+  alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{Lifecycle, State, TrackedSet}
 
   test "schedule_tick replaces the timer with a new token" do
@@ -31,6 +32,24 @@ defmodule Aiur.Orchestrator.LifecycleTest do
     assert is_nil(next.tick_timer_ref)
     assert is_nil(next.tick_token)
     assert is_nil(next.next_poll_due_at_ms)
+    assert_receive :run_poll_cycle, 2_000
+  end
+
+  test "orchestrator accepts a protected tick token" do
+    token = make_ref()
+
+    state = %State{
+      tick_timer_ref: make_ref(),
+      tick_token: {:budget_protected, token},
+      next_poll_due_at_ms: System.monotonic_time(:millisecond),
+      poll_check_in_progress: false
+    }
+
+    assert {:noreply, next} =
+             Orchestrator.handle_info({:tick, {:budget_protected, token}}, state)
+
+    assert next.poll_check_in_progress
+    assert is_nil(next.tick_token)
     assert_receive :run_poll_cycle, 2_000
   end
 
@@ -66,7 +85,8 @@ defmodule Aiur.Orchestrator.LifecycleTest do
 
     assert refreshed.next_poll_due_at_ms > System.monotonic_time(:millisecond) + 4_000
     refute refreshed.tick_timer_ref == old_timer
-    assert refreshed.tick_budget_protected
+    assert {:budget_protected, protected_token} = refreshed.tick_token
+    assert is_reference(protected_token)
 
     assert {:reply, %{queued: true, coalesced: true}, coalesced} =
              Lifecycle.request_refresh(refreshed, budget_delay_fun: fn -> 5_000 end)

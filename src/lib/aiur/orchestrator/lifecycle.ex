@@ -62,7 +62,6 @@ defmodule Aiur.Orchestrator.Lifecycle do
       poll_check_in_progress: false,
       tick_timer_ref: nil,
       tick_token: nil,
-      tick_budget_protected: false,
       initial_dispatch_cycle: true,
       ci_lifecycle:
         CIApprovalStore.load()
@@ -113,8 +112,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
       | poll_check_in_progress: true,
         next_poll_due_at_ms: nil,
         tick_timer_ref: nil,
-        tick_token: nil,
-        tick_budget_protected: false
+        tick_token: nil
     }
 
     StatusReport.notify_dashboard(state)
@@ -130,7 +128,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     already_due? = is_integer(state.next_poll_due_at_ms) and state.next_poll_due_at_ms <= now_ms
 
     protected_timer? =
-      budget_delay_ms > 0 and state.tick_budget_protected == true and
+      budget_delay_ms > 0 and budget_protected?(state.tick_token) and
         is_reference(state.tick_timer_ref)
 
     coalesced = state.poll_check_in_progress == true or already_due? or protected_timer?
@@ -139,8 +137,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
       if coalesced do
         state
       else
-        state = schedule_tick(state, budget_delay_ms)
-        %{state | tick_budget_protected: budget_delay_ms > 0}
+        schedule_tick(state, budget_delay_ms, budget_delay_ms > 0)
       end
 
     {:reply,
@@ -154,21 +151,30 @@ defmodule Aiur.Orchestrator.Lifecycle do
 
   @spec schedule_tick(State.t(), non_neg_integer()) :: State.t()
   def schedule_tick(%State{} = state, delay_ms) when is_integer(delay_ms) and delay_ms >= 0 do
+    schedule_tick(state, delay_ms, false)
+  end
+
+  defp schedule_tick(%State{} = state, delay_ms, budget_protected?) do
     if is_reference(state.tick_timer_ref) do
       Process.cancel_timer(state.tick_timer_ref)
     end
 
-    tick_token = make_ref()
+    tick_token = tick_token(budget_protected?)
     timer_ref = Process.send_after(self(), {:tick, tick_token}, delay_ms)
 
     %{
       state
       | tick_timer_ref: timer_ref,
         tick_token: tick_token,
-        tick_budget_protected: false,
         next_poll_due_at_ms: System.monotonic_time(:millisecond) + delay_ms
     }
   end
+
+  defp tick_token(true), do: {:budget_protected, make_ref()}
+  defp tick_token(false), do: make_ref()
+
+  defp budget_protected?({:budget_protected, token}), do: is_reference(token)
+  defp budget_protected?(_token), do: false
 
   @spec schedule_poll_cycle_start() :: :ok
   def schedule_poll_cycle_start do
