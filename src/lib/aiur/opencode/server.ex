@@ -30,6 +30,9 @@ defmodule Aiur.Opencode.Server do
         :binary,
         :exit_status,
         cd: workspace,
+        # Session requests use ticket workspaces as their directory. Keep the
+        # slot's provider config in scope for those directory-scoped requests.
+        env: [{~c"OPENCODE_CONFIG_DIR", String.to_charlist(workspace)}],
         args: ["-c", command]
       ])
 
