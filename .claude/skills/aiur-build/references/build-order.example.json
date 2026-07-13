@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "build_order_id": "example/repo:operator-dashboard",
+  "plan_version": 1,
+  "repository": "example/repo",
+  "researched_at_commit": "0123456789abcdef0123456789abcdef01234567",
+  "requirements": [
+    {
+      "id": "REQ-001",
+      "summary": "The operator can load a complete planning graph",
+      "disposition": "ticket",
+      "ticket_ids": ["BO-001"]
+    },
+    {
+      "id": "REQ-002",
+      "summary": "The merged feature has explicit acceptance evidence",
+      "disposition": "ticket",
+      "ticket_ids": ["BO-002"]
+    }
+  ],
+  "tickets": [
+    {
+      "id": "BO-001",
+      "kind": "executable",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "title": "Project the planning graph",
+      "phase_hint": 1,
+      "complexity_points": 3,
+      "complexity_rationale": "Defines one new provider contract",
+      "risk": "medium",
+      "capability_requirements": ["backend"],
+      "requirement_refs": ["REQ-001"],
+      "depends_on": [],
+      "serializes_with": [],
+      "suggested_after": [],
+      "read_surfaces": ["GitHub issues"],
+      "write_surfaces": ["Build Order provider"],
+      "contract_surfaces": ["BuildOrderSnapshot"],
+      "github": null
+    },
+    {
+      "id": "BO-002",
+      "kind": "capstone",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "title": "Prove merged feature acceptance",
+      "phase_hint": 2,
+      "complexity_points": 2,
+      "complexity_rationale": "Runs bounded integration and operator checks",
+      "risk": "medium",
+      "capability_requirements": ["integration"],
+      "requirement_refs": ["REQ-002"],
+      "depends_on": ["BO-001"],
+      "serializes_with": [],
+      "suggested_after": [],
+      "read_surfaces": ["BuildOrderSnapshot"],
+      "write_surfaces": ["acceptance evidence"],
+      "contract_surfaces": ["feature acceptance"],
+      "github": null
+    }
+  ],
+  "epic_acceptance": {
+    "owner_ticket_id": "BO-002",
+    "evidence": [
+      "Merged-base end-to-end acceptance"
+    ]
+  }
+}
