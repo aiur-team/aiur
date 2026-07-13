@@ -40,7 +40,12 @@ def validate_identity(data: dict[str, Any], report: Report) -> None:
     if not nonempty_string(build_order_id):
         report.error("build_order_id must be a non-empty string")
     prefix = data.get("ticket_prefix")
-    if not isinstance(prefix, str) or not prefix.isalnum() or not prefix.isupper():
+    if (
+        not isinstance(prefix, str)
+        or not prefix.isalnum()
+        or not prefix.isupper()
+        or not prefix[0].isalpha()
+    ):
         report.error("ticket_prefix must contain only uppercase letters and digits")
     version = data.get("plan_version")
     if not strict_int(version) or version < 1:

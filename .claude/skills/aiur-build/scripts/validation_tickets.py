@@ -84,6 +84,13 @@ def validate_document(ticket_id: str, value: object, base_dir: Path, report: Rep
         report.error(f"{ticket_id}.document must stay within the planning pack")
         return
     path = base_dir / document
+    try:
+        if not path.resolve().is_relative_to(base_dir.resolve()):
+            report.error(f"{ticket_id}.document must stay within the planning pack")
+            return
+    except OSError as exc:
+        report.error(f"{ticket_id}.document cannot be resolved: {exc}")
+        return
     if not path.is_file():
         report.error(f"{ticket_id}.document does not exist: {value}")
         return
