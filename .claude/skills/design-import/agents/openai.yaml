@@ -1,0 +1,4 @@
+interface:
+  display_name: "Design Import"
+  short_description: "Import large design artifacts without overflow"
+  default_prompt: "Use $design-import to fetch this design into the workspace and inspect it safely."
