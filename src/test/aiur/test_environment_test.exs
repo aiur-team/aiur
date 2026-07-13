@@ -28,4 +28,42 @@ defmodule Aiur.TestEnvironmentTest do
 
     assert File.read!(probe) == "ok"
   end
+
+  test "tests that change the global working directory are synchronous" do
+    violations =
+      Path.wildcard(Path.expand("../**/*_test.exs", __DIR__))
+      |> Enum.filter(fn path ->
+        ast = path |> File.read!() |> Code.string_to_quoted!()
+        async_test?(ast) and changes_working_directory?(ast)
+      end)
+
+    assert violations == [], "File.cd/File.cd! cannot run in async tests: #{inspect(violations)}"
+  end
+
+  defp async_test?(ast) do
+    {_ast, found?} =
+      Macro.prewalk(ast, false, fn
+        {:use, _, [{:__aliases__, _, [:ExUnit, :Case]}, options]} = node, found? ->
+          {node, found? or Keyword.get(options, :async) == true}
+
+        node, found? ->
+          {node, found?}
+      end)
+
+    found?
+  end
+
+  defp changes_working_directory?(ast) do
+    {_ast, found?} =
+      Macro.prewalk(ast, false, fn
+        {{:., _, [{:__aliases__, _, [:File]}, function]}, _, _args} = node, _found?
+        when function in [:cd, :cd!] ->
+          {node, true}
+
+        node, found? ->
+          {node, found?}
+      end)
+
+    found?
+  end
 end
