@@ -10,11 +10,11 @@ Aiur has two skill families: driver skills under `.claude/skills/`, and skills p
 
 [aiur-agent](../../.claude/skills/aiur-agent/SKILL.md) routes cross-ticket events, including `emit_event`, subscriptions, blockers, and attention open/close. An agent loads it before emitting or subscribing to events.
 
-[aiur-run](../../.claude/skills/aiur-run/SKILL.md) is the operator playbook for launching and babysitting a detached `--bg` dogfood run. It triggers on “run aiur”, “run IAR”, or “iarc run”.
+[aiur-build](../../.claude/skills/aiur-build/SKILL.md) researches and decomposes a feature into requirements, ticket contracts, a validated graph, and an Executor handoff. It stops before implementation or an Aiur run.
+
+[aiur-run](../../.claude/skills/aiur-run/SKILL.md) is the Executor playbook for launching and operating a bounded Aiur run through its accepted outcome. It triggers on “run aiur”, “run IAR”, “iarc run”, or the legacy phrase “run the aiur loop”.
 
 [aiur-monitor](../../.claude/skills/aiur-monitor/SKILL.md) compiles a one-glance status board from `aiurdev watch`. It triggers on “aiur status” or “iarc status”.
-
-[aiur-loop](../../.claude/skills/aiur-loop/SKILL.md) runs a sustained improve-this-repository loop covering launch, monitoring, curation, review, and merge. It triggers on “run the aiur loop” or “improve this repo with aiur”.
 
 [release](../../.claude/skills/release/SKILL.md) is the operator playbook for cutting a new npm release by bumping `src/mix.exs`, tagging, and creating a GitHub release. It triggers on `/release` or “release a new version”.
 

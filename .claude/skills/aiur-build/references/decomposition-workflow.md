@@ -4,6 +4,20 @@ This workflow combines the strongest patterns from large feature, refactor, and
 audit planning runs while avoiding their recurring failure: treating a draft PR
 or hand-written handoff as a live ticket database.
 
+## Contents
+
+- Stage 0: Intake, identity, and boundary
+- Stage 1: Research plan and grounding
+- Stage 2: Requirements brainstorm
+- Stage 3: Evidence and decisions
+- Stage 4: Synthesis and adversarial review
+- Stage 5: Plan and ticket synthesis
+- Stage 6: Graph and scheduling
+- Stage 7: Mechanical and semantic validation
+- Stage 8: GitHub materialization
+- Stage 9: Handoff and stop
+- Scaling the workflow
+
 ## Stage 0: Intake, identity, and boundary
 
 - Preserve the user's request verbatim or link to its durable source.
@@ -13,26 +27,15 @@ or hand-written handoff as a live ticket database.
 - Create the planning branch and `questions-or-commands.md`.
 - State source precedence and mutation authority.
 - Record the researched repository SHA and relevant open PR/issue snapshot.
+- Pin feature acceptance, critical path, required documentation/cleanup,
+  required end-to-end proof, and the later run's terminal condition.
+- Create a deferred-findings ledger before execution begins.
 
 Good Build Order identity is stable before GitHub numbers exist. Prefer a
 repository-scoped slug such as `owner/repo:feature-name`, plus an immutable root
 issue node ID after materialization.
 
-## Stage 1: Requirements brainstorm
-
-Use `ce-brainstorm` when available. Capture:
-
-- actors and operator workflows;
-- requirement IDs and concrete acceptance examples;
-- invariants, constraints, non-goals, and failure behavior;
-- smallest useful end-to-end slice;
-- resolved decisions and rejected alternatives;
-- open questions whose answers change architecture or ticket boundaries.
-
-Do not choose implementation tickets yet. An unanswered material question must
-become an owned gate, not a silent assumption.
-
-## Stage 2: Research plan and grounding
+## Stage 1: Research plan and grounding
 
 Choose evidence tracks by risk. Typical tracks are:
 
@@ -57,6 +60,20 @@ Confidence and freshness
 Contradiction or open question
 Suggested requirement/decision impact
 ```
+
+## Stage 2: Requirements brainstorm
+
+Use `ce-brainstorm` when available after brownfield/design grounding. Capture:
+
+- actors and operator workflows;
+- requirement IDs and concrete acceptance examples;
+- invariants, constraints, non-goals, and failure behavior;
+- smallest useful end-to-end slice;
+- resolved decisions and rejected alternatives;
+- open questions whose answers change architecture or ticket boundaries.
+
+Do not choose implementation tickets yet. An unanswered material question must
+become an owned gate, not a silent assumption.
 
 ## Stage 3: Evidence and decisions
 
@@ -91,10 +108,11 @@ Stop adding research tracks when two successive relevant passes produce no new
 high-severity or boundary-changing fact. Do not use a fixed number of agents as
 a proxy for confidence.
 
-## Stage 5: Ticket synthesis
+## Stage 5: Plan and ticket synthesis
 
-Group requirements/findings by independently reviewable implementation outcome
-and change seam.
+Use `ce-plan` to synthesize implementation units, contracts, and verification
+from the accepted requirements and evidence. Then group requirements/findings
+by independently reviewable implementation outcome and change seam.
 
 Every executable ticket needs:
 
@@ -111,6 +129,10 @@ Every executable ticket needs:
 
 Give every requirement/finding exactly one disposition: ticket, covered by,
 deferred with reason, rejected with reason, or already satisfied with evidence.
+
+Classify execution discoveries in advance: promote only P0/P1 acceptance
+blockers, return contained review findings to rework, and preserve P2/P3 plus
+optimizations in the deferred ledger. The active feature graph is finite.
 
 Add an audit/ADR gate when the owning architecture is uncertain. Add the
 merged-base integration/feature-acceptance capstone before execution, not after
@@ -185,6 +207,8 @@ Write a durable Executor handoff with:
 - readiness, capacity, review, merge, verification, incident, privacy, and bug
   policies;
 - unresolved human gates and capstone owner.
+- finite feature boundary, deferred-findings ledger, and the rule that freezes
+  new ticket creation when created/promoted work outpaces completions.
 
 Do not freeze PR verdicts, live agents, CPU values, current blockers, or progress
 percentages into the handoff as durable truth. The runtime Executor re-queries

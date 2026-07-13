@@ -1,6 +1,6 @@
 ---
 name: aiur-run
-description: "Launch and operate an Aiur run end to end as its Executor: establish authority, preflight and launch, maximize safe parallelism, monitor and recover agents, coordinate PR review/rework, apply merge policy, and handle Aiur defects. Use for 'run aiur', 'run IAR/AYR', 'start the dogfood loop', 'execute this Build Order', or a goal that asks an agent to keep Aiur working until a terminal outcome."
+description: "Launch and operate an Aiur run end to end as its Executor: establish authority, protect a finite acceptance boundary, launch and monitor, maximize safe critical-path parallelism, recover agents, coordinate PR review/rework, apply merge policy, and handle Aiur defects. Use for 'run aiur', 'run IAR/AYR', 'iarc run', 'run the aiur loop', '/aiur-loop', 'improve this repo with aiur', 'execute this Build Order', or a persistent Aiur goal."
 ---
 
 # Run Aiur as the Executor
@@ -10,8 +10,8 @@ It replaces the former `aiur-loop` workflow. Read the canonical
 [Executor role](references/executor.md) before acting, then use `aiur-monitor`
 for status reads and the recurring observation loop.
 
-`iarc`, IAR, and AYR are operator aliases or common spellings for Aiur in this
-repository. Treat their run requests as this workflow.
+`iarc` is an operator alias for `aiur`; IAR and AYR are common spellings. Treat
+their run requests as this workflow.
 
 ## 1. Establish the run contract
 
@@ -19,6 +19,10 @@ Identify the working repository and read its `AGENTS.md`, `CONTRIBUTING.md`,
 Aiur config, and Executor handoff. Record the authority envelope from the
 Executor reference: scope, issue creation, review/comment, merge, self-fix,
 concurrency, cadence, debug mode, and terminal condition.
+
+The handoff must identify the finite feature boundary, critical path, required
+documentation/cleanup, required end-to-end proof, and deferred-findings ledger.
+If those are absent, establish them before launch.
 
 Ask only for a material permission that is neither stated nor safely
 discoverable. Never infer merge, destructive-change, or external issue-creation
@@ -30,12 +34,23 @@ status table in the planning branch.
 
 ## 2. Preflight
 
+Set `AIUR_CMD=scripts/aiurdev` in an Aiur development checkout and
+`AIUR_CMD=aiur` in a consumer repository. The examples below use the local shim.
+
 From the repository root:
 
 1. confirm auth, config discovery, tracker state slugs, workspace hooks, and the
    base branch required by the repository;
 2. run `scripts/aiurdev status` and resolve an existing session deliberately;
-3. inspect the scoped queue and native blockers before dispatch;
+3. inspect the scoped queue and native blockers before dispatch; if explicit
+   IDs are in scope, queue them separately before launch:
+
+   ```bash
+   scripts/aiurdev --todo <ids...> [--only]
+   ```
+
+   `--only` dequeues all other pending tickets and therefore requires explicit
+   scope authority;
 4. choose a conservative starting cap and the recorded maximum;
 5. build with `scripts/aiurdev build` when the local release needs an explicit
    clean checkpoint; ordinary launches already rebuild stale sources.
@@ -54,12 +69,16 @@ scripts/aiurdev --bg --debug --max-agents <n>
 ```
 
 Include `--debug` only when authorized. Its incident-reporting consequence is
-defined in the Executor reference. Pass `--todo <ids...> [--only]` when the
-scope is an explicit ticket set.
+defined in the Executor reference. Do not combine the separate `--todo` command
+with launch options.
 
 Verify `status`, then use a full monitor snapshot to confirm the orchestrator,
 queue, alerts, and first dispatch. Background mode is intentionally headless;
 observe it through the control commands, not TUI panes.
+
+Before increasing the session ceiling, verify the configured repo prewarm is
+ready or intentionally disabled. A prewarm error can fall back to cold workspace
+builds; reduce concurrency before that fan-out.
 
 ## 4. Arm monitoring immediately
 
@@ -87,25 +106,30 @@ agent-completion events as the only wake-up mechanism.
 On every observation:
 
 - act on the `ACTIONABLE` section before routine scheduling;
-- keep all dependency-ready, conflict-free lanes occupied;
-- ramp with `scripts/aiurdev set max-agents <n>` while the machine and review
-  pipeline have headroom, and reduce the cap on resource or quality pressure;
+- keep dependency-ready, conflict-free critical-path lanes occupied;
+- let default-on AIMD govern effective slots under the session ceiling; use
+  `scripts/aiurdev set max-agents <n>` to raise that ceiling deliberately or to
+  lower it for resource/review pressure AIMD does not capture;
+- classify discoveries before ticket creation, prefer contained rework, and
+  freeze creation when promoted/created tickets outpace completions;
+- keep feature critical-path counts/ETA separate from the deferred reliability
+  and optimization ledger;
 - follow the recovery ladder for stale, looping, or feedback-blind agents;
 - treat `ci-wait` as an automatic gate unless evidence shows the poller failed;
 - use `scripts/aiurdev message <id> <text>`, `pause`, and `resume` as the least
   invasive controls;
 - preserve decisions and incidents in the durable handoff/workpad.
 
-As PRs become ready, run the parallel review/rework loop defined in the
-Executor reference. Verify that review comments reach the owning worker through
-the event path. Merge only under the recorded policy and protect typed
-dependency/conflict ordering.
+As PRs become ready, reserve capacity for the required parallel review/rework
+loop defined in the Executor reference. Verify that review comments reach the
+owning worker through the event path. Merge only under the recorded policy and
+protect typed dependency/conflict ordering.
 
 ## 6. Backstop and defects
 
-Prioritize unblocking Aiur workers. Take over a ticket or patch Aiur directly
-only when the recovery ladder is exhausted, progress is otherwise impossible,
-and self-fix authority exists.
+Prioritize unblocking Aiur workers. Take over an affected ticket/lane or patch
+Aiur directly only when its recovery ladder is exhausted, takeover is the best
+authorized option, and self-fix authority exists; other lanes may keep moving.
 
 For Aiur crashes, leaked processes, missed comments, dispatch failures, or
 broken controls, follow the reference's sanitization and consent policy:

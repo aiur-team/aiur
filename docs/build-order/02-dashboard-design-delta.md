@@ -1,7 +1,8 @@
 # Dashboard and Prototype Delta
 
 **Current-code baseline:** `origin/main` at
-`e5f07d02644aba9e22953e644791b055d3279678`  
+`e5f07d02644aba9e22953e644791b055d3279678`
+
 **Design baseline:** [design-manifest.md](design-manifest.md)
 
 The prototype combines four scopes: a richer shared shell/read model, a

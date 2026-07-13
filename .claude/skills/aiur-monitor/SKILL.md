@@ -1,6 +1,6 @@
 ---
 name: aiur-monitor
-description: "Inspect and monitor a running Aiur session using its server-side status board and alert feed. Use for 'aiur status', 'aiur monitor', 'how are the agents doing', 'what is stuck', 'tail the agents', or as the observation/recovery component of aiur-run. It does not launch Aiur."
+description: "Inspect and monitor a running Aiur session using its server-side status board and alert feed. Use for 'aiur status', 'IAR status', 'iarc status', 'AYR monitor', 'how are the agents doing', 'what is stuck', 'tail the agents', or as the observation/recovery component of aiur-run. It does not launch Aiur."
 ---
 
 # Monitor an Aiur Run
@@ -12,7 +12,7 @@ policy live in the
 [Executor reference](../aiur-run/references/executor.md); do not duplicate or
 override that authority here.
 
-`iarc`, IAR, and AYR are operator aliases or common spellings for Aiur.
+`iarc` is an operator alias for `aiur`; IAR and AYR are common spellings.
 
 ## One-shot status
 
@@ -59,7 +59,8 @@ Rules:
 
 The optional `scripts/watch-alerts.sh` streams new workspace alert records for
 hosts that can supervise a persistent process. It adds immediacy but never
-replaces the server-side board or the recurring cadence.
+replaces the server-side board or recurring cadence. Read
+[Alert and decision relay](references/alerts-and-decisions.md) before arming it.
 
 ## Respond to actionable state
 
@@ -70,19 +71,26 @@ ladder:
 1. inspect the ticket/PR, alert, workpad, and relevant logs;
 2. message the worker with `scripts/aiurdev message <id> <text>`;
 3. correct authoritative queue/dependency state only within granted authority;
-4. pause/resume or restart when process delivery is broken;
+4. pause/resume the ticket; stop and relaunch the run when process delivery is
+   broken because there is no per-worker restart control;
 5. route a sanitized Aiur bug under the debug/consent policy;
-6. backstop the work only when the fleet cannot recover and self-fix is allowed.
+6. backstop the affected ticket/lane when recovery is exhausted, takeover is
+   the best option, and self-fix is allowed.
 
-`ci-wait` is normally an automatic gate owned by the central poller, not an
-instruction to keep an agent alive polling GitHub. A PR-ready ticket does
-require the Executor's configured parallel review/rework flow.
+`agent:ci-wait` is an expected, non-actionable idle state. The central
+`Aiur.Events.GithubCiPoller` owns continuous CI polling while the worker is
+paused and its slot is released. Do not keep or wake a worker turn just to poll
+`gh pr checks`; a terminal event or configured fallback wakes the next action.
+A PR-ready ticket does require the Executor's configured parallel review/rework
+flow.
 
 ## Capacity signal
 
 The board shows fleet activity, not all host pressure. While the agent is the
 Executor, combine it with bounded checks of CPU, memory, file descriptors,
-provider throttling, and review backlog. Raise or lower concurrency with:
+provider throttling, and review backlog. `set max-agents` changes the session
+safety ceiling; default-on AIMD controls effective slots below it. Change the
+ceiling with:
 
 ```bash
 scripts/aiurdev set max-agents <n>
@@ -96,6 +104,17 @@ tickets should not consume capacity merely to fill the board.
 Lead with the outcome and urgent action, then include the Aiur board in a
 fenced block. Add only evidence-backed interpretation: capacity change,
 recovery action, review state, or an unresolved decision.
+
+For a bounded feature run, also report two independent tracks:
+
+1. feature critical path, remaining active ticket count, acceptance gaps, and
+   ETA when source-backed;
+2. reliability/optimization findings, separated into active, deferred, and
+   post-feature counts.
+
+At each interval report completed versus created/promoted tickets. If creation
+exceeds completion, surface that the mandatory creation freeze is active.
+Deferred findings never inflate feature remaining count or ETA.
 
 If a Build Order planning pack exists, link its stable IDs and acceptance
 owner, but query GitHub and Aiur for current facts. Never require a

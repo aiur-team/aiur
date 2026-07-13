@@ -5,10 +5,21 @@ the run's agreed terminal condition. A human who launches Aiur is the Executor
 and may use an agent with `aiur-monitor` as an assistant. When an agent is told
 to use `aiur-run`, that agent is the Executor.
 
-This role owns the system of work. It does not replace the Planning Executor
-that used `aiur-build` to define requirements, ticket contracts, and the Build
-Order. At runtime, GitHub owns ticket facts and Aiur owns agent activity,
-progress, alerts, and events; planning documents preserve approved intent.
+This role owns the system of work. It receives the requirements, ticket
+contracts, and Build Order from the Feature Planner that used `aiur-build`. At
+runtime, GitHub owns ticket facts and Aiur owns agent activity, progress,
+alerts, and events; planning documents preserve approved intent.
+
+## Contents
+
+- Establish the authority envelope
+- Protect convergence
+- Core responsibilities
+- Capacity policy
+- Recovery ladder
+- Pull-request review loop
+- Aiur bug-report policy
+- Decisions and handoff
 
 ## Establish the authority envelope
 
@@ -27,6 +38,38 @@ Default to reversible operational actions within the stated scope. Escalate
 product changes, architecture changes, scope cuts, destructive actions, and
 anything outside the recorded authority. Never infer merge or issue-creation
 authority.
+
+## Protect convergence
+
+Before launch, pin the feature acceptance criteria, critical path, required
+documentation/cleanup, end-to-end proof, and explicit terminal condition. The
+Executor optimizes convergence on that boundary. Agent utilization is
+secondary.
+
+Classify every discovered finding before creating work:
+
+- **P0/P1 feature blocker:** directly blocks required behavior, CI/merge,
+  daemon operation, or mandatory proof; it may join the active scope.
+- **Contained rework:** belongs to an existing ticket's acceptance; return that
+  ticket to rework instead of multiplying tickets.
+- **P2/P3 non-blocker:** preserve it in the deferred findings ledger; do not
+  create or dispatch an individual feature-run ticket.
+- **Optimization:** preserve evidence for a separately authorized run.
+
+“Worth fixing” and “we know how” do not expand the active boundary. Each
+deferred entry keeps description, severity, evidence/reproduction, affected
+ticket/component, why acceptance is not blocked, and suggested disposition.
+
+At the reporting interval, compare completed tickets with created/promoted
+tickets. If creation exceeds completion, freeze new ticket creation. Continue
+recording non-blocking findings in the deferred ledger until the bounded
+feature is accepted or the human explicitly resets the circuit breaker.
+
+Report the feature critical path/count/ETA separately from deferred reliability
+and optimization work. Deferred work does not alter feature remaining count or
+ETA, consume critical-path capacity, or prevent feature completion. A nearly
+finished reliability PR may land when economical, but it cannot displace the
+critical path.
 
 ## Core responsibilities
 
@@ -47,10 +90,16 @@ The Executor continuously:
 
 ## Capacity policy
 
-The objective is useful throughput, not the highest agent count.
+The objective is progress against the bounded outcome, not the highest agent
+or ticket count.
 
-- Start conservatively, then raise the cap with
-  `aiurdev set max-agents <n>` while ready work and host headroom remain.
+- Treat `set max-agents` as the session safety ceiling. When
+  `agent.target_load_average` is enabled, let Aiur's AIMD controller adjust the
+  effective slots beneath that ceiling; raise the ceiling deliberately only
+  when ready critical-path work and host/review headroom remain.
+- Manually ramp the ceiling as the primary controller only when AIMD is
+  disabled. Lower it for pressure, provider throttling, or review backlog that
+  load average does not capture.
 - Lower the cap when CPU saturation, memory pressure, file-descriptor errors,
   repeated build contention, provider throttling, or declining review quality
   appears.
@@ -69,11 +118,11 @@ ticket it will not pick up:
 2. send a concise, ticket-specific message with `aiurdev message <id> <text>`;
 3. correct labels, dependency state, or queue state only when the authoritative
    source proves it is wrong and the authority envelope permits it;
-4. pause/resume or restart the affected worker/run when delivery or process
-   state is broken;
+4. pause/resume the ticket; when process state is broken, stop and relaunch the
+   run because there is no per-worker restart control;
 5. route a reproducible Aiur defect under the bug policy below;
-6. take over the ticket or apply a small Aiur fix only when the fleet cannot
-   make progress and self-fix authority was granted.
+6. take over the affected ticket/lane when it remains blocked after recovery,
+   takeover is the best option, and self-fix authority was granted.
 
 Prefer restoring workers over doing their work. The Executor is a backstop,
 not the default implementation lane.
@@ -82,17 +131,21 @@ not the default implementation lane.
 
 When a pull request reaches review-ready state:
 
-1. launch multiple independent background reviewers when capacity permits;
+1. reserve or rebalance capacity for multiple independent background reviewers;
 2. use `ce-code-review` when Compound Engineering is available, adding the
    relevant security, data, frontend, backend, or design lens for the change;
-3. reconcile duplicates and contradictions into actionable findings;
-4. comment findings on the tracker/PR surface configured for the workflow;
+3. reconcile duplicates and contradictions, classifying each finding under the
+   convergence policy before routing it;
+4. return contained findings to the existing ticket as rework; create a new
+   ticket only for an independent P0/P1 feature blocker;
 5. confirm the event bus or tracker transition wakes the owning agent and that
    it acknowledges the rework;
 6. rerun targeted review after fixes, then apply the recorded merge policy.
 
-Do not equate green CI with feature acceptance. The integration/capstone owner
-must still produce the evidence named by the planning handoff.
+If tooling or an explicit resource limit prevents parallel review, record the
+degraded review and compensate before merge. Do not equate green CI with
+feature acceptance. The integration/capstone owner must still produce the
+evidence named by the planning handoff.
 
 ## Aiur bug-report policy
 
@@ -111,14 +164,17 @@ Always:
 - link the runtime incident to the source ticket without copying private
   ticket content.
 
-If the run was launched with `--debug`, the agent Executor is authorized to
-open a sanitized Aiur bug ticket automatically. Debug never waives the privacy
-and secret-removal rules; it only permits retaining non-sensitive technical
-detail that helps reproduction.
+When a human requests a run with `--debug`, that is narrow standing consent for
+the agent Executor—not the CLI flag itself—to open sanitized Aiur-defect tickets
+in Aiur's tracker after checking for duplicates. This authority is independent
+of permission to create product tickets. Debug never waives privacy and
+secret-removal rules; it only permits retaining non-sensitive technical detail
+that helps reproduction.
 
-Without `--debug`, prepare a sanitized bug draft and ask the human Executor for
-permission before opening it. Diagnostic reads and the draft do not require
-that permission.
+Without `--debug`, prepare a sanitized bug draft and ask the human controlling
+the run before creating or commenting on an issue. Diagnostic reads and the
+draft do not require that permission. Link only public/safe source tickets;
+otherwise keep an opaque local correlation in the handoff.
 
 ## Decisions and handoff
 
@@ -134,6 +190,7 @@ A resumable handoff contains:
 - unresolved decisions, incidents, and sanitized bug links;
 - integration/acceptance owner and remaining evidence;
 - the last deliberate capacity setting and why.
+- the deferred findings ledger and ticket-creation circuit-breaker state.
 
 The run is terminal only when the agreed scope and feature-level acceptance are
 satisfied, or the human explicitly stops it. A quiet board, one empty poll, or

@@ -41,7 +41,7 @@ defmodule Aiur.AgentSkillsTest do
   test "does not install operator-only skills into issue-worker workspaces", %{workspace: ws} do
     assert :ok = AgentSkills.install(ws)
 
-    for skill <- ~w(aiur-run aiur-monitor aiur-loop release) do
+    for skill <- ~w(aiur-build aiur-run aiur-monitor release) do
       refute File.exists?(Path.join([ws, ".claude", "skills", skill])),
              "operator-only skill #{skill} should not be materialized into an issue worker"
     end

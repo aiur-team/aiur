@@ -4,6 +4,14 @@ The planning pack preserves approved intent and evidence. After materialization,
 GitHub owns current ticket facts; during execution, Aiur owns current runtime
 facts.
 
+## Contents
+
+- Recommended artifact tree
+- Canonical baseline record
+- Ticket document template
+- Validation invariants
+- Source-state rules
+
 ## Recommended artifact tree
 
 ```text
@@ -15,6 +23,7 @@ docs/build-orders/<slug>/
   02-current-target-delta.md
   03-technical-decisions.md
   04-test-and-rollout.md
+  deferred-findings.md
   evidence/
   build-order.json
   tickets/<ID>-<slug>.md
@@ -99,14 +108,22 @@ expected number:
 ```markdown
 # BO-004 — Render selectable Build Orders
 
-**Kind:** executable  
-**Provenance:** planned in plan v1  
-**Complexity:** 3 — New presenter and interactive selector  
-**Risk:** medium  
-**Phase hint:** 2  
-**Depends on:** BO-002  
-**Serializes with:** none  
-**Requirements:** REQ-001, REQ-004  
+**Kind:** executable
+
+**Provenance:** planned in plan v1
+
+**Complexity:** 3 — New presenter and interactive selector
+
+**Risk:** medium
+
+**Phase hint:** 2
+
+**Depends on:** BO-002
+
+**Serializes with:** none
+
+**Requirements:** REQ-001, REQ-004
+
 **Researched at:** <commit>
 
 ## Outcome

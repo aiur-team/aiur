@@ -1,7 +1,9 @@
 # Build Order Design Manifest
 
-**Imported:** 2026-07-12  
-**Import commit:** `fc3162f2f56e3b53d825871ce60efcffee9d2a44`  
+**Imported:** 2026-07-12
+
+**Import commit:** `fc3162f2f56e3b53d825871ce60efcffee9d2a44`
+
 **Original project:** `https://claude.ai/design/p/5e62b9a9-39c1-4ca2-9a76-6dff123a088c?file=Aiur+Operator+Control+Center.html`
 
 The prototype is a versioned visual and interaction reference, not executable

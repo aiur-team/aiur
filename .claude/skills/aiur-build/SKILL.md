@@ -5,9 +5,10 @@ description: "Research and decompose a large feature into a durable, reviewable 
 
 # Build an Aiur Planning Pack
 
-Act as the **Planning Executor**: build the system of understanding that a later
-runtime Executor can execute. Do not implement tickets, run Aiur, review live
-implementation PRs, or merge product work under this skill.
+Act as the **Feature Planner**: build the system of understanding that a later
+Executor can execute. Reserve “Executor” for the human or agent operating
+`aiur-run`. Do not implement tickets, run Aiur, review live implementation PRs,
+or merge product work under this skill.
 
 Read [the decomposition workflow](references/decomposition-workflow.md) before
 starting. Read [the planning contract](references/planning-contract.md) before
@@ -26,9 +27,10 @@ Compound Engineering is strongly recommended:
   phase.
 
 Check the available skills before beginning. If CE is absent, tell the user it
-is recommended and walk them through `/ce-setup`. Continue with equivalent
-manual research only if they decline or installation is unavailable. Read each
-selected skill's complete instructions before using it.
+is recommended and walk them through `/ce-setup` in Claude or the corresponding
+`$ce-setup`/installer flow in Codex. Continue with equivalent manual research
+only if they decline or installation is unavailable. Read each selected skill's
+complete instructions before using it.
 
 ## Start durably
 
@@ -45,6 +47,10 @@ selected skill's complete instructions before using it.
    the planning-only boundary. Never infer permission to create issues or merge.
 6. Allocate a stable `build_order_id`, logical ticket prefix, and `plan_version`
    before tickets receive GitHub numbers.
+7. Pin the finite feature boundary: acceptance criteria, critical path,
+   documentation/cleanup, end-to-end proof, and the condition that ends the
+   later run. Create an empty deferred-findings ledger so discoveries can be
+   preserved without expanding active scope.
 
 Commit and push small coherent checkpoints when authorized. Planning branches
 preserve intent and evidence; they are not live fleet databases.
@@ -67,12 +73,12 @@ Never copy GitHub/Aiur state into prose and continue presenting it as current.
 Follow the detailed reference. At a glance:
 
 1. intake, identity, scope, and questions;
-2. requirements brainstorm without premature ticketing;
-3. current repository, design, tracker, and prior-art grounding;
+2. current repository, design, tracker, and prior-art grounding;
+3. requirements brainstorm without premature ticketing;
 4. cumulative evidence and explicit decisions;
 5. adversarial verification of load-bearing claims;
-6. worker-sized ticket synthesis with full requirement disposition;
-7. typed graph, phase hints, complexity, write/contract conflict analysis;
+6. `ce-plan` synthesis of implementation units and candidate boundaries;
+7. worker-sized ticket contracts and typed scheduling graph;
 8. mechanical validation plus CE document review;
 9. optional GitHub materialization and post-publish reconciliation;
 10. durable runtime Executor handoff and stop.
@@ -80,7 +86,7 @@ Follow the detailed reference. At a glance:
 Use parallel researchers for independent evidence tracks, not for fragmented
 writing of one authoritative document. Give each researcher a bounded question,
 shared evidence format, current repository SHA, and instruction not to edit the
-same files. The Planning Executor must reconcile contradictions.
+same files. The Feature Planner must reconcile contradictions.
 
 ## Ticket boundary rule
 
@@ -101,6 +107,11 @@ Complexity points measure size and uncertainty only:
 Track risk and capability needs separately. A ticket with its own multi-phase
 plan is usually an umbrella, not an executable complexity-5 ticket.
 
+Define discovery policy before handoff: P0/P1 acceptance blockers may be
+promoted, contained review findings return to the owning ticket, and P2/P3 or
+optimization findings stay in the deferred ledger. The later Executor must not
+turn useful observations into an open-ended feature backlog.
+
 ## Model the graph correctly
 
 Use hard `depends_on` only for semantic start/merge prerequisites. Represent
@@ -116,10 +127,12 @@ discovered ticket provenance as `plan_version` evolves.
 ## Validate before approval
 
 Write the canonical planning baseline as `build-order.json` using the planning
-contract, then run:
+contract and [validated example](references/build-order.example.json). Resolve
+the loaded skill directory, then run its validator. Common repo-local paths are
+`.claude/skills/aiur-build` and `.codex/skills/aiur-build`:
 
 ```bash
-python3 .claude/skills/aiur-build/scripts/validate_build_order.py \
+python3 <loaded-skill-directory>/scripts/validate_build_order.py \
   docs/build-orders/<slug>/build-order.json
 ```
 
@@ -153,7 +166,8 @@ human views, not a second source of truth.
 
 The handoff identifies the Build Order/version, approved planning commit,
 GitHub selector, source precedence, decisions/contracts, unresolved human
-gates, integration/acceptance owner, runtime terminal condition, and queries
+gates, integration/acceptance owner, finite feature boundary, deferred-findings
+ledger, backlog-growth circuit breaker, runtime terminal condition, and queries
 for fresh state. It tells the next agent to use `aiur-run` and to write a
 three-to-five-sentence goal summarizing its Executor role and authority.
 

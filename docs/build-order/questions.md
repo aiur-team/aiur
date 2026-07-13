@@ -18,6 +18,9 @@ the planning documents.
 5. May users add and edit dependencies from the dashboard in the first
    release, or is Build Order initially a read-only projection of GitHub issue
    metadata?
+6. For flat subscription plans, should per-ticket “spend” be a versioned
+   token-price estimate, an allocation of the subscription fee, or unavailable
+   while tokens and quota consumption remain visible?
 
 ## Commands or Access Needed
 
@@ -33,6 +36,8 @@ the planning documents.
   authorized.
 - Dashboard dependency editing, Linear, cross-repository orders, and more than
   100 direct tickets are follow-on scope.
+- Provider quota/token/spend accounting is a separate companion dashboard
+  ticket, not a Build Order member or acceptance dependency.
 
 ## Resolved
 
