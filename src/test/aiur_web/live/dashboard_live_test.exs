@@ -16,6 +16,7 @@ defmodule AiurWeb.DashboardLiveTest do
     Issue
   }
 
+  alias Aiur.DecisionMetrics.Event, as: DecisionMetricsEvent
   alias Aiur.Events.Exchange
 
   alias Aiur.Orchestrator
@@ -23,7 +24,7 @@ defmodule AiurWeb.DashboardLiveTest do
   alias Aiur.RecentMerge
   alias Aiur.RecentMergeStore
   alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, DashboardLive, ObservabilityPubSub, Presenter}
-  alias AiurWeb.OperatorControlCenter.FleetFilters
+  alias AiurWeb.OperatorControlCenter.{FleetFilters, PayloadLoader}
 
   @endpoint AiurWeb.Endpoint
 
@@ -38,12 +39,19 @@ defmodule AiurWeb.DashboardLiveTest do
 
     @impl true
     def init(opts) do
-      {:ok, %{snapshot: Keyword.fetch!(opts, :snapshot), snapshot_count: 0}}
+      {:ok,
+       %{
+         snapshot: Keyword.fetch!(opts, :snapshot),
+         snapshot_count: 0,
+         report: Keyword.get(opts, :report)
+       }}
     end
 
     @impl true
     def handle_call(:snapshot, _from, state) do
-      {:reply, state.snapshot, %{state | snapshot_count: state.snapshot_count + 1}}
+      snapshot_count = state.snapshot_count + 1
+      if is_pid(state.report), do: send(state.report, {:dashboard_payload_loaded, self(), snapshot_count})
+      {:reply, state.snapshot, %{state | snapshot_count: snapshot_count}}
     end
 
     def handle_call(:snapshot_count, _from, state) do
@@ -404,6 +412,73 @@ defmodule AiurWeb.DashboardLiveTest do
 
     DecisionPubSub.broadcast_metrics_changed()
     assert eventually(fn -> CountingOrchestrator.snapshot_count(orchestrator_name) == initial_count + 3 end, 100)
+  end
+
+  test "cached payload follows a same-name DecisionMetrics replacement" do
+    orchestrator_name = Module.concat(__MODULE__, :RestartCacheOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :RestartCacheDecisionStore)
+    metrics_name = Module.concat(__MODULE__, :RestartCacheDecisionMetrics)
+    requested_at = ~U[2026-07-12 12:00:00.000Z]
+
+    start_counting_orchestrator(orchestrator_name)
+
+    store =
+      start_decision_store(
+        decision_store_name,
+        fn _decision, _opts -> {:ok, %{status: :accepted, item: %{id: 507}}} end,
+        dispatch_delay_ms: 60_000
+      )
+
+    assert :ok = Exchange.subscribe("ticket.987.agent.decision.#")
+    assert :ok = DecisionPubSub.subscribe()
+    decision = request_queue_decision(store, "restart-cache", "987", now: requested_at)
+    assert_receive {:event, %{topic: "ticket.987.agent.decision.requested"} = request_event}, 2_000
+
+    assert {:ok, %{status: :accepted}} =
+             DecisionStore.answer(
+               decision.decision_id,
+               %{
+                 "idempotency_key" => "restart-cache-answer",
+                 "expected_version" => decision.version,
+                 "option_id" => "ship"
+               },
+               [actor: %{kind: :operator, id: "operator"}, now: DateTime.add(requested_at, 2, :second)],
+               store
+             )
+
+    assert_receive {:event, %{topic: "ticket.987.agent.decision.answered"} = answer_event}, 2_000
+    {old_metrics, restart_metrics} = start_restartable_dashboard_metrics(metrics_name, store)
+    assert :ok = DecisionMetrics.observe(request_event, old_metrics)
+    assert :ok = DecisionMetrics.observe(answer_event, old_metrics)
+    drain_metrics_notifications()
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      decision_metrics: metrics_name
+    )
+
+    old_payload = PayloadLoader.load(:fresh)
+    assert payload_latency(old_payload, decision.decision_id).request_to_decision_ms == 2_000
+
+    GenServer.stop(old_metrics)
+    new_metrics = restart_metrics.()
+    refute new_metrics == old_metrics
+
+    assert :ok = DecisionMetrics.observe(request_event, new_metrics)
+    assert_receive :decision_metrics_changed, 2_000
+
+    cache = AiurWeb.Endpoint.config(:control_center_cache)
+    touch_cached_payloads(cache)
+    assert map_size(:sys.get_state(cache)) == 1
+    assert cached_payloads_fresh?(cache, 400)
+
+    restarted_payload = PayloadLoader.load(:cached)
+    restarted_latency = payload_latency(restarted_payload, decision.decision_id)
+
+    assert restarted_latency.requested_at == DateTime.to_iso8601(requested_at)
+    assert restarted_latency.request_to_decision_ms == nil
   end
 
   test "persists a decision filter in the URL while opening and closing a card" do
@@ -1085,7 +1160,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert revision_html =~ "Original answer · preserved"
     assert revision_html =~ "Hold deployment until the incident closes"
     assert_receive {:event, revision_metric_event}, 2_000
-    normalized_metric_event = Aiur.DecisionMetrics.Event.normalize(revision_metric_event, DateTime.utc_now())
+    normalized_metric_event = DecisionMetricsEvent.normalize(revision_metric_event, DateTime.utc_now())
 
     assert match?({:ok, _fact}, normalized_metric_event),
            "revision event was not metric-compatible: #{inspect(revision_metric_event)}"
@@ -1172,6 +1247,97 @@ defmodule AiurWeb.DashboardLiveTest do
     root_html = render_patch(view, "/")
     assert root_html =~ "Decision history"
     assert root_html =~ "Hold deployment until the incident closes"
+  end
+
+  test "connected cached dashboard converges from store-first revision to concrete metrics" do
+    orchestrator_name = Module.concat(__MODULE__, :MetricsConvergenceOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :MetricsConvergenceDecisionStore)
+    metrics_name = Module.concat(__MODULE__, :MetricsConvergenceDecisionMetrics)
+    requested_at = ~U[2026-07-12 12:00:00.000Z]
+
+    start_counting_orchestrator(orchestrator_name, report: self())
+    orchestrator = GenServer.whereis(orchestrator_name)
+
+    store =
+      start_decision_store(
+        decision_store_name,
+        fn _decision, _opts -> {:ok, %{status: :accepted, item: %{id: 508}}} end,
+        dispatch_delay_ms: 60_000
+      )
+
+    metrics = start_dashboard_metrics(metrics_name, store, subscribe?: false)
+    assert :ok = Exchange.subscribe("ticket.987.agent.decision.#")
+    decision = request_queue_decision(store, "metrics-convergence", "987", now: requested_at)
+    assert_receive {:event, %{topic: "ticket.987.agent.decision.requested"} = request_event}, 2_000
+
+    assert {:ok, %{status: :accepted, action: original}} =
+             DecisionStore.answer(
+               decision.decision_id,
+               %{
+                 "idempotency_key" => "metrics-convergence-answer",
+                 "expected_version" => decision.version,
+                 "option_id" => "ship"
+               },
+               [actor: %{kind: :operator, id: "operator"}, now: DateTime.add(requested_at, 2, :second)],
+               store
+             )
+
+    assert_receive {:event, %{topic: "ticket.987.agent.decision.answered"} = answer_event}, 2_000
+
+    assert {:ok, %{status: :accepted}} =
+             DecisionStore.revise(
+               decision.decision_id,
+               %{
+                 "idempotency_key" => "metrics-convergence-revision",
+                 "expected_version" => decision.version,
+                 "expected_action_id" => original.action_id,
+                 "expected_revision_sequence" => 0,
+                 "custom_response" => "Hold the cached rollout",
+                 "rationale" => "New production evidence"
+               },
+               [actor: %{kind: :operator, id: "operator"}, now: DateTime.add(requested_at, 3, :second)],
+               store
+             )
+
+    assert_receive {:event, %{topic: "ticket.987.agent.decision.revision-recorded"} = revision_event}, 2_000
+    assert DecisionMetrics.snapshots(metrics) == %{}
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      decision_metrics: metrics_name,
+      dashboard_writable: true
+    )
+
+    assert is_pid(AiurWeb.Endpoint.config(:control_center_cache))
+
+    path = "/decisions/#{decision.decision_id}"
+    {:ok, view, initial_html} = live(build_conn(), path)
+
+    assert initial_html =~ "Hold the cached rollout"
+    assert initial_html =~ "Revision 1"
+    assert initial_html =~ "No latency sample has been retained for this decision yet."
+    assert_receive {:dashboard_payload_loaded, ^orchestrator, _count}, 2_000
+    drain_dashboard_payload_notifications(orchestrator)
+    assert :ok = DecisionPubSub.subscribe()
+
+    for event <- [request_event, answer_event, revision_event] do
+      assert :ok = DecisionMetrics.observe(event, metrics)
+      assert_receive :decision_metrics_changed, 2_000
+    end
+
+    assert_receive {:dashboard_payload_loaded, ^orchestrator, _count}, 2_000
+    converged_html = render(view)
+    latency_text = converged_html |> Floki.parse_document!() |> Floki.find(".decision-latency") |> Floki.text()
+
+    refute converged_html =~ "No latency sample has been retained for this decision yet."
+    assert latency_text =~ "2.0 s"
+    assert latency_text =~ "3.0 s"
+    assert latency_text =~ "0 reminders"
+    assert latency_text =~ "0 attentions"
+    assert latency_text =~ "Human"
+    assert latency_text =~ "Revised"
   end
 
   test "supervisor API mutations converge on LiveView without weakening human-required authority" do
@@ -1341,10 +1507,11 @@ defmodule AiurWeb.DashboardLiveTest do
     start_supervised!({AiurWeb.Endpoint, []})
   end
 
-  defp start_counting_orchestrator(name) do
+  defp start_counting_orchestrator(name, opts \\ []) do
     start_supervised!(
       {CountingOrchestrator,
        name: name,
+       report: Keyword.get(opts, :report),
        snapshot: %{
          running: [],
          retrying: [],
@@ -1415,12 +1582,51 @@ defmodule AiurWeb.DashboardLiveTest do
     end
   end
 
-  defp start_dashboard_metrics(name, decision_store) do
+  defp start_dashboard_metrics(name, decision_store, opts \\ []) do
     dir = Path.join(System.tmp_dir!(), "aiur-dashboard-metrics-#{System.unique_integer([:positive])}")
     path = Path.join(dir, "decision-latency.ndjson")
     on_exit(fn -> File.rm_rf!(dir) end)
 
-    start_supervised!({DecisionMetrics, name: name, path: path, subscribe?: true, seed?: false, decision_store: decision_store})
+    metrics_opts =
+      Keyword.merge(
+        [name: name, path: path, subscribe?: true, seed?: false, decision_store: decision_store],
+        opts
+      )
+
+    start_supervised!({DecisionMetrics, metrics_opts})
+  end
+
+  defp start_restartable_dashboard_metrics(name, decision_store) do
+    dir = Path.join(System.tmp_dir!(), "aiur-dashboard-metrics-restart-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+
+    restart = fn ->
+      path = Path.join(dir, "decision-latency-#{System.unique_integer([:positive])}.ndjson")
+
+      {:ok, metrics} =
+        DecisionMetrics.start_link(
+          name: name,
+          path: path,
+          subscribe?: false,
+          seed?: false,
+          decision_store: decision_store
+        )
+
+      metrics
+    end
+
+    metrics = restart.()
+
+    on_exit(fn ->
+      case GenServer.whereis(name) do
+        nil -> :ok
+        pid -> GenServer.stop(pid)
+      end
+
+      File.rm_rf!(dir)
+    end)
+
+    {metrics, restart}
   end
 
   defp start_recent_merge_store(name) do
@@ -1451,7 +1657,7 @@ defmodule AiurWeb.DashboardLiveTest do
     decision
   end
 
-  defp request_queue_decision(store, source_id, identifier) do
+  defp request_queue_decision(store, source_id, identifier, opts \\ []) do
     assert {:ok, %{decision: decision}} =
              DecisionStore.request(
                %{
@@ -1462,10 +1668,13 @@ defmodule AiurWeb.DashboardLiveTest do
                  "reversibility" => "reversible",
                  "options" => [%{"id" => "ship", "label" => "Ship it"}]
                },
-               [
-                 ticket: %{identifier: identifier, title: "Operator Control Center", url: nil},
-                 source: %{agent_id: "agent-987", session_id: "session-987", event_id: "event-#{source_id}"}
-               ],
+               Keyword.merge(
+                 [
+                   ticket: %{identifier: identifier, title: "Operator Control Center", url: nil},
+                   source: %{agent_id: "agent-987", session_id: "session-987", event_id: "event-#{source_id}"}
+                 ],
+                 opts
+               ),
                store
              )
 
@@ -1619,6 +1828,38 @@ defmodule AiurWeb.DashboardLiveTest do
     after
       0 -> :ok
     end
+  end
+
+  defp drain_dashboard_payload_notifications(orchestrator) do
+    receive do
+      {:dashboard_payload_loaded, ^orchestrator, _count} ->
+        drain_dashboard_payload_notifications(orchestrator)
+    after
+      0 -> :ok
+    end
+  end
+
+  defp payload_latency(payload, decision_id) do
+    payload.decisions
+    |> Enum.find(&(&1.decision_id == decision_id))
+    |> get_in([:latency, :snapshot])
+  end
+
+  defp touch_cached_payloads(cache) do
+    loaded_at_ms = System.monotonic_time(:millisecond)
+
+    :sys.replace_state(cache, fn entries ->
+      Map.new(entries, fn {key, entry} -> {key, %{entry | loaded_at_ms: loaded_at_ms}} end)
+    end)
+  end
+
+  defp cached_payloads_fresh?(cache, max_age_ms) do
+    now_ms = System.monotonic_time(:millisecond)
+
+    cache
+    |> :sys.get_state()
+    |> Map.values()
+    |> Enum.all?(&(now_ms - &1.loaded_at_ms < max_age_ms))
   end
 
   defp history_entry(id, actor_type, actor_label, question) do

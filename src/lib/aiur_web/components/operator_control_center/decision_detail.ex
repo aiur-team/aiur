@@ -3,7 +3,13 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
 
   use Phoenix.Component
 
-  alias AiurWeb.OperatorControlCenter.{DecisionAction, DecisionLatency, DecisionPath, DecisionRevisionAction, LifecycleComponents}
+  alias AiurWeb.OperatorControlCenter.{
+    DecisionAction,
+    DecisionLatency,
+    DecisionPath,
+    DecisionRevisionAction,
+    LifecycleComponents
+  }
 
   attr(:decision, :map, required: true)
   attr(:history, :list, default: [])

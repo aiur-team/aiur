@@ -42,7 +42,7 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
 
     ControlCenterCache.fetch(
       server,
-      providers,
+      cache_key(providers),
       max_age_ms,
       fn -> load_uncached(providers) end
     )
@@ -66,6 +66,24 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
       Endpoint.config(:recent_merge_store) || Aiur.RecentMergeStore,
       Endpoint.config(:snapshot_timeout_ms) || 15_000
     }
+  end
+
+  defp cache_key({orchestrator, decision_store, decision_metrics, recent_merge_store, snapshot_timeout_ms}) do
+    {
+      provider_identity(orchestrator),
+      provider_identity(decision_store),
+      provider_identity(decision_metrics),
+      provider_identity(recent_merge_store),
+      snapshot_timeout_ms
+    }
+  end
+
+  defp provider_identity(server) do
+    {server, GenServer.whereis(server) || :unavailable}
+  rescue
+    _error -> {server, :unavailable}
+  catch
+    :exit, _reason -> {server, :unavailable}
   end
 
   defp cache_server do

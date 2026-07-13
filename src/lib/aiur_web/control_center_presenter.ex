@@ -72,7 +72,13 @@ defmodule AiurWeb.ControlCenterPresenter do
       recent_outcomes_reconciliation: Map.get(recent_merges, :reconciliation),
       analytics: analytics(Map.get(fleet, :analytics)),
       overview: overview(fleet, decision_rows, recent_outcomes),
-      provider_health: %{fleet: :ok, decisions: :ok, decision_latency: decision_latency_health, history: :ok, recent_outcomes: :ok}
+      provider_health: %{
+        fleet: :ok,
+        decisions: :ok,
+        decision_latency: decision_latency_health,
+        history: :ok,
+        recent_outcomes: :ok
+      }
     }
   end
 
