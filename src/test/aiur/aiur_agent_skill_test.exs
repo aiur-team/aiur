@@ -24,7 +24,7 @@ defmodule Aiur.AiurAgentSkillTest do
     stub-then-fetch.md
   )
   @codex_exposed_aiur_skills ~w(aiur-agent aiur-build aiur-monitor aiur-run design-import using-aiur)
-  @claude_operator_only_skills ~w(release)
+  @claude_executor_only_skills ~w(release)
 
   test "Claude backend surface: canonical skill dir exists with a SKILL.md" do
     assert File.dir?(@claude_skill)
@@ -66,8 +66,8 @@ defmodule Aiur.AiurAgentSkillTest do
            "issue-worker skills must be a subset of @codex_exposed_aiur_skills"
 
     for skill <- issue_worker do
-      refute skill in @claude_operator_only_skills,
-             "operator-only skill #{skill} must not be installed into issue workers"
+      refute skill in @claude_executor_only_skills,
+             "Executor-only skill #{skill} must not be installed into issue workers"
 
       assert File.dir?(Path.join([@repo_root, ".claude", "skills", skill])),
              "issue-worker skill #{skill} has no canonical .claude/skills/#{skill} dir"
@@ -82,12 +82,12 @@ defmodule Aiur.AiurAgentSkillTest do
       |> Enum.map(fn path -> path |> Path.dirname() |> Path.basename() end)
       |> Enum.sort()
 
-    assert claude_skills == Enum.sort(@codex_exposed_aiur_skills ++ @claude_operator_only_skills)
+    assert claude_skills == Enum.sort(@codex_exposed_aiur_skills ++ @claude_executor_only_skills)
 
-    # This is a Claude-only operator workflow, not a shared operating skill
-    # injected into Codex agents. Codex-facing operator skills remain excluded
+    # This is a Claude-only Executor workflow, not a shared operating skill
+    # injected into Codex agents. Codex-facing Executor skills remain excluded
     # from issue-worker installation by Aiur.AgentSkills.
-    for skill <- @claude_operator_only_skills do
+    for skill <- @claude_executor_only_skills do
       assert File.exists?(Path.join([@repo_root, ".claude", "skills", skill, "SKILL.md"]))
       refute File.exists?(Path.join([@repo_root, ".codex", "skills", skill]))
     end
@@ -169,7 +169,7 @@ defmodule Aiur.AiurAgentSkillTest do
     end
   end
 
-  test "operator decision relay covers backend push, RC, and the Decisions log" do
+  test "Executor decision relay covers backend push, RC, and the Decisions log" do
     monitor_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md"))
     relay = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/references/alerts-and-decisions.md"))
 
@@ -205,7 +205,7 @@ defmodule Aiur.AiurAgentSkillTest do
     assert monitor_skill =~ "completed versus created/promoted tickets"
   end
 
-  test "needs-attention relay is an independent wake path for the operator cadence" do
+  test "needs-attention relay is an independent wake path for the Executor cadence" do
     monitor_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md"))
     run_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
     relay = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/references/alerts-and-decisions.md"))

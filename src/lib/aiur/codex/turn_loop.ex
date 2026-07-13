@@ -139,7 +139,7 @@ defmodule Aiur.Codex.TurnLoop do
   end
 
   # Surface error-class notifications at info level with the full payload
-  # so the operator log shows the actual codex failure (API rate limit,
+  # so the Executor log shows the actual codex failure (API rate limit,
   # auth error, bwrap sandbox refusal, etc.) instead of an opaque
   # `Codex notification: "error"` line that requires combing through
   # 1000s of lines of debug-tier `Ignoring message while waiting for

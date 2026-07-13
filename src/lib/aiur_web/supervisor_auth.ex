@@ -3,7 +3,7 @@ defmodule AiurWeb.SupervisorAuth do
   Dedicated bearer authentication boundary for the Decision API.
 
   The secret is read from `AIUR_SUPERVISOR_TOKEN` on every request so an
-  operator can rotate it without restarting Aiur. Successful authentication
+  Executor can rotate it without restarting Aiur. Successful authentication
   assigns one fixed supervising-agent identity; request content is never used
   to derive that actor.
   """

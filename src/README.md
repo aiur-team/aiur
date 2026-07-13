@@ -33,7 +33,7 @@ image seeds the workspace only; agents and opencode still run on the host.
 
 Aiur ships with a multi-pane CLI that shows every active agent at a glance, lets you open
 any agent in an opencode-backed chat pane, and send messages directly into a running
-session. A LiveView dashboard at `/` mirrors this surface read-only for browser-based operators;
+session. A LiveView dashboard at `/` mirrors this surface read-only for browser-based Executors;
 messaging and pausing agents stays in the CLI until a dashboard parity pass (set
 `observability.dashboard_writable: true` to re-enable the browser write controls early).
 
@@ -124,10 +124,10 @@ Discovery precedence: `./.aiur/config` → `./.aiurconfig` → `~/.aiur/config` 
 - **Trackers**: `linear`, `github`, `memory`
 - **Agents**: `codex`, `claude`
 
-For GitHub trackers, `github.trusted_accounts` can name operator accounts whose
+For GitHub trackers, `github.trusted_accounts` can name Executor accounts whose
 comments should reach agent event digests even when CODEOWNERS team expansion is
 unavailable. Keep it separate from `github.bot_account`: bot-account authors are
-filtered as self-loops, while trusted accounts are allowed human operators.
+filtered as self-loops, while trusted accounts are allowed human Executors.
 
 Copy one of the starter pairs (config + prompt template) and edit it for your project:
 
@@ -228,7 +228,7 @@ be open before launch. If a pinned issue is closed, reset removes any detected
 labeling, and aborts with instructions to reopen the ticket or update
 `.aiur-test-tickets.json`. These manual test modes are blocked inside agent
 issue workspaces because they mutate pinned GitHub sandbox tickets; run them
-from the operator repo root or a dedicated isolated harness. Foreground startup
+from the Executor repo root or a dedicated isolated harness. Foreground startup
 prints the resolved tmux socket/session, which non-TTY drivers should use
 instead of hard-coded socket names.
 
@@ -271,7 +271,7 @@ for routes, payloads, retry semantics, and audit guarantees.
 
 `aiur --debug` (or config-level `debug: true`) starts daemon-owned run telemetry.
 The daemon continuously records resource samples for itself, locally attributable
-ticket process trees, and the operator process when it can be identified. It also
+ticket process trees, and the Executor process when it can be identified. It also
 records sanitized ticket lifecycle boundaries such as dispatch, workspace setup,
 implementation, build/test, PR/review, pause/resume, and rework. Debug-off runs do
 not start the telemetry writer or sampler and do not scan procfs or create a
@@ -335,7 +335,7 @@ path parameter and is never browser-cacheable.
   claims: a running agent stays on the backend it started with.
 - Aiur records rate-limit observations in `model-usage.json` next to the active
   workflow config. Each backend entry contains any reported `hourly`, `weekly`,
-  and `monthly` `{used, limit, reset_at}` windows plus `observed_at`; operators
+  and `monthly` `{used, limit, reset_at}` windows plus `observed_at`; Executors
   can inspect or remove this file while Aiur is stopped. Codex refreshes its
   authenticated account windows with `account/rateLimits/read` when a Codex
   session starts and also records streaming updates and runtime usage-limit

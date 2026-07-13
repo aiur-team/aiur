@@ -119,7 +119,7 @@ defmodule Aiur.HttpServer do
   # and the whole BEAM goes down on startup (#442). Probe the bind first and
   # degrade to no-dashboard (`:ignore`) instead: the node keeps running agents,
   # only this instance's dashboard is unavailable. The `Logger.warning` line is
-  # the operator's only signal, so it names the port + remediation.
+  # the Executor’s only signal, so it names the port + remediation.
   #
   # Port 0 is ephemeral (the OS assigns a free port), so it never collides —
   # skip the probe. The probe mirrors Bandit's bind (`reuseaddr: true`) so a
@@ -156,7 +156,7 @@ defmodule Aiur.HttpServer do
   defp loopback?(@loopback_v6), do: true
   defp loopback?(_), do: false
 
-  # Read-only unless the operator opted into dashboard writes. Fail closed if
+  # Read-only unless the Executor opted into dashboard writes. Fail closed if
   # config can't be resolved — an observe-only dashboard is the safe default.
   defp dashboard_writable? do
     Config.dashboard_writable?()

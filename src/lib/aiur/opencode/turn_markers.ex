@@ -100,7 +100,7 @@ defmodule Aiur.Opencode.TurnMarkers do
 
   @doc """
   Post an exact marker id to one writer. Also used to re-post a marker
-  that opencode coalesced behind newer operator text, where the routed
+  that opencode coalesced behind newer Executor text, where the routed
   request consumed the batch without opening its stream.
 
   A `{:transport, :timeout}` is DELIVERY, not failure: opencode holds the

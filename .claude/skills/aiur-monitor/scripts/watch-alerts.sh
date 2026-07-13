@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
 # Stream NEW aiur ALERT events out of every active agent's structured NDJSON log,
-# one JSON line per alert, as they fire — so the operator agent running aiur can
+# one JSON line per alert, as they fire — so the Executor agent running aiur can
 # post the "why" in chat in near real time instead of waiting for the 5-minute
 # status tick. This is the immediacy half of the alert relay; `aiurdev watch`'s
 # ACTIONABLE section is the periodic floor/backstop.
 #
 # Unlike a one-shot board snapshot, this is LONG-LIVED: it keeps
-# running and prints each new alert as it lands. Drive it from the operator
+# running and prints each new alert as it lands. Drive it from the Executor
 # agent's harness as a streaming background watch (the Monitor tool) so every
 # printed line becomes one in-chat notification. It never drives the status
 # cadence (which stays armed through the host's recurring mechanism), so it does
@@ -31,7 +31,7 @@
 #    "operator_decision":false}
 #
 # `operator_decision:true` marks the canonical `attention.operator-decision`
-# topic so the operator relay can distinguish an unanswered scope or acceptance
+# topic so the Executor relay can distinguish an unanswered scope or acceptance
 # question from a routine pause and fan it out to the active surfaces.
 #
 # New alerts are detected by tracking, per feed file, the count of alert lines
@@ -39,7 +39,7 @@
 # cursor, so no cross-run state collisions and nothing to grow unbounded). At
 # startup each existing file is baselined to its current count (routine history
 # is skipped — it is covered by the `aiurdev watch` tick). The one exception is
-# the latest unresolved operator-decision attention, which is replayed so a
+# the latest unresolved Executor decision attention, which is replayed so a
 # watcher restart cannot hide an unanswered question.
 #
 # Tune with env vars:
@@ -122,6 +122,13 @@ json_string_field() {
   encoded="$(printf '%s' "$line" | sed -nE 's/.*"'"$key"'":"(([^"\\]|\\.)*)".*/\1/p')"
   [ -n "$encoded" ] || return 0
   printf '%s' "$encoded"
+}
+
+# Keep persisted NDJSON byte-for-byte compatible while presenting legacy
+# decision copy with the current role name on every relay/notification surface.
+normalize_legacy_role_line() {
+  printf '%s' "$1" |
+    sed -E 's/("(reason|message)"[[:space:]]*:[[:space:]]*")Operator decision /\1Executor decision /g'
 }
 
 # Per-file alert-line-count cursors, kept as parallel indexed arrays so this
@@ -252,7 +259,8 @@ replay_open_decisions() {
 # needs_attention-only Phase-2 filter. Mirrors the alert feed's field handling
 # (kept in sync deliberately) and adds the timestamp.
 emit_alert_line() {
-  local line="$1" agent="$2"
+  local line agent="$2"
+  line="$(normalize_legacy_role_line "$1")"
   local ts msg name reason severity need src_ticket tkt operator_decision decision_state decision_key notification_results
 
   if [ "$have_jq" -eq 1 ]; then

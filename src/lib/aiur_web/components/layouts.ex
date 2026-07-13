@@ -16,7 +16,7 @@ defmodule AiurWeb.Layouts do
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="csrf-token" content={@csrf_token} />
-        <title>Aiur Operator Control Center</title>
+        <title>Aiur Executor Control Center</title>
         <script>
           (function () {
             try {

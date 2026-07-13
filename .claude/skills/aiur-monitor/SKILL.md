@@ -12,7 +12,7 @@ policy live in the
 [Executor reference](../aiur-run/references/executor.md); do not duplicate or
 override that authority here.
 
-`iarc` is an operator alias for `aiur`; IAR and AYR are common spellings.
+`iarc` is an Executor alias for `aiur`; IAR and AYR are common spellings.
 
 ## One-shot status
 

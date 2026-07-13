@@ -53,7 +53,7 @@ before_run: |
       # recreates the stale leftover clean; a live/resumed agent's uncommitted
       # WIP is left untouched and the origin/v2 refresh is skipped
       # non-fatally so the agent keeps working (#653). The text below is
-      # operator-facing only. Do NOT treat this as a hard failure.
+      # Executor-facing only. Do NOT treat this as a hard failure.
       echo "Refusing to refresh workspace from origin/v2 because tracked source changes are present." >&2
       echo "Leaving uncommitted work in place; skipping the origin/v2 refresh for this run." >&2
       exit 65

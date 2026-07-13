@@ -2,7 +2,7 @@ defmodule Aiur.IssueContext do
   @moduledoc """
   Builds a compact, human-readable summary of an issue for the
   opencode pane's "intro" system message. The pane renders this once
-  at open time so the operator knows what the agent is working on
+  at open time so the Executor knows what the agent is working on
   without having to switch to GitHub/Linear.
 
   Source of truth for issue details varies by tracker. We probe the

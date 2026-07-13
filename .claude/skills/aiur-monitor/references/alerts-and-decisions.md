@@ -17,11 +17,11 @@ AIUR_ALERT_NEEDS_ATTENTION=1 \
 ```
 
 Consume each JSON line once and relay `#<ticket> · <name> · <reason>` to the
-operator. Do not restart the process on every cadence tick; its in-memory cursor
+Executor. Do not restart the process on every cadence tick; its in-memory cursor
 deduplicates ordinary events. Stop it when the Aiur run ends.
 
 The watcher skips ordinary history at startup but replays the latest unresolved
-operator decision so a monitor restart cannot hide it. A later matching
+Executor decision so a monitor restart cannot hide it. A later matching
 `attention.resolved` event closes that decision.
 
 ## Decisions ledger

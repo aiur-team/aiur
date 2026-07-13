@@ -10,7 +10,7 @@ It replaces the former `aiur-loop` workflow. Read the canonical
 [Executor role](references/executor.md) before acting, then use `aiur-monitor`
 for status reads and the recurring observation loop.
 
-`iarc` is an operator alias for `aiur`; IAR and AYR are common spellings. Treat
+`iarc` is an Executor alias for `aiur`; IAR and AYR are common spellings. Treat
 their run requests as this workflow.
 
 ## 1. Establish the run contract

@@ -64,7 +64,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
   # add the durable `model:remote` label, stop the current agent, and
   # re-dispatch the same issue. The re-dispatch resolves `claude-repl` + forced
   # RC (the alias from `CodingAgent`) and resumes the transcript by cwd, so the
-  # operator gets a persistent REPL with RC attached on the same conversation.
+  # Executor gets a persistent REPL with RC attached on the same conversation.
   defp promote_to_remote(state, running_entry) do
     issue = Map.get(running_entry, :issue)
     workspace = Map.get(running_entry, :workspace_path)

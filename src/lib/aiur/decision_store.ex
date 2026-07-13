@@ -14,7 +14,7 @@ defmodule Aiur.DecisionStore do
   projection, and repairs `decisions.json` if it doesn't already match.
   Interior corruption puts the store into a read-only mode: existing
   reads keep serving the validated prefix, every mutation is rejected,
-  and one operator alert is emitted — never silently skipped.
+  and one Executor alert is emitted — never silently skipped.
 
   Version/dedup rules for a request against `decision_id`'s current
   state:
@@ -111,7 +111,7 @@ defmodule Aiur.DecisionStore do
   end
 
   @doc """
-  Durably accepts one operator answer before scheduling its correlated
+  Durably accepts one Executor answer before scheduling its correlated
   delivery. `opts[:actor]` is trusted runtime identity; actor fields in the
   payload are ignored.
   """

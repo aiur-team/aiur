@@ -14,7 +14,7 @@ When you're working on an Aiur ticket and another ticket might need a signal fro
 | Understand what events are and why they exist | `overview.md` |
 | Know which event names are allowed and what they mean | `event-taxonomy.md` |
 | Emit an event or subscribe to a topic pattern | `emit-and-subscribe.md` |
-| Open / close an operator attention | `attention-and-resolve.md` |
+| Open / close an Executor attention | `attention-and-resolve.md` |
 | Unblock yourself temporarily with a stub | `stub-then-fetch.md` |
 
 ## Quick reference
