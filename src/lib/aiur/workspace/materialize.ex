@@ -141,17 +141,21 @@ defmodule Aiur.Workspace.Materialize do
   defp replace_existing(staging, workspace) do
     with_reserved_sibling(workspace, "replaced", &random_token/0, fn backup ->
       with :ok <- File.rename(workspace, backup) do
-        case File.rename(staging, workspace) do
-          :ok ->
-            File.rm_rf(backup)
-            :ok
-
-          {:error, reason} ->
-            restore_result = File.rename(backup, workspace)
-            {:error, {:workspace_promotion_failed, reason, restore_result}}
-        end
+        promote_replacement(staging, workspace, backup)
       end
     end)
+  end
+
+  defp promote_replacement(staging, workspace, backup) do
+    case File.rename(staging, workspace) do
+      :ok ->
+        File.rm_rf(backup)
+        :ok
+
+      {:error, reason} ->
+        restore_result = File.rename(backup, workspace)
+        {:error, {:workspace_promotion_failed, reason, restore_result}}
+    end
   end
 
   defp sibling_path(workspace, purpose, token),

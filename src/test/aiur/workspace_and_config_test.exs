@@ -564,7 +564,8 @@ defmodule Aiur.WorkspaceAndConfigTest do
         labels: ["agent:todo"]
       }
 
-      assert {:error, {:workspace_replacement_preserved, ^workspace, {:materialize_failed, _reason}}} = Workspace.run_before_run_hook(workspace, issue)
+      assert {:error, {:workspace_replacement_preserved, ^workspace, {:materialize_failed, _reason}}} =
+               Workspace.run_before_run_hook(workspace, issue)
 
       assert File.read!(Path.join(workspace, "README.md")) == "dirty\n"
       assert File.dir?(Path.join(workspace, ".git"))
