@@ -33,6 +33,23 @@ require_mise() {
   fi
 }
 
+# The release inherits this script's environment. Put the version pinned by
+# this repository ahead of any globally-installed opencode so the server and
+# its SQLite migrations use the schema Aiur has validated.
+ensure_pinned_opencode() {
+  local opencode_dir
+
+  require_mise
+  opencode_dir="$("$mise_bin" where -C "$repo_root" opencode 2>/dev/null || true)"
+
+  if [ -z "$opencode_dir" ] || [ ! -x "$opencode_dir/opencode" ]; then
+    echo "❌ pinned opencode is unavailable; run mise install in $repo_root" >&2
+    exit 64
+  fi
+
+  export PATH="$opencode_dir:$PATH"
+}
+
 elixir_deps_ready() {
   local deps_dir="$elixir_dir/deps" dep
   [ -d "$elixir_dir/_build" ] && [ -d "$deps_dir" ] || return 1
@@ -338,7 +355,7 @@ if [ -n "$agent_workspace_marker" ] && { [ "$test_single" -eq 1 ] || [ "$test3_m
   echo "   workspace marker: $agent_workspace_marker" >&2
   echo "   This path resets pinned GitHub sandbox tickets and can mutate the live dogfood backlog." >&2
   echo "   Agents must stop here: do not retry from a copied /tmp harness, clone, or alternate checkout." >&2
-  echo "   Operator-root manual test runs remain allowed outside agent turns." >&2
+  echo "   Executor-root manual test runs remain allowed outside agent turns." >&2
   exit 64
 fi
 
@@ -419,6 +436,7 @@ if [ "$test3_mode" -eq 1 ]; then
 fi
 
 export AIUR_RELEASE_DIR="$release_dir"
+ensure_pinned_opencode
 
 # ── Processor optimization: cap schedulers on agent-spawned Elixir BEAMs ──
 # Every agent pre-PR gate command (`mix compile`, `mix test`, `mix credo`)
