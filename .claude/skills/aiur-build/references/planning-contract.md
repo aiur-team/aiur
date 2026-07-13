@@ -91,6 +91,12 @@ commit, the complete result set of each logical-marker query, and parsed body
 evidence for every issue: marker count, schema, logical ID, plan version,
 approval SHA, approved-link count/link, and body SHA-256.
 
+Existing issues explicitly retained as reference-only are a denylist for
+returned root/ticket mappings unless the user separately expands mutation
+authority. If a live reconciliation comment becomes an execution start gate,
+its receipt URL must be the exact same-repository commit URL and that commit
+must resolve before the comment is accepted as authoritative.
+
 The observed hash is never self-authorizing. A trusted pack adapter must load
 the root template, `build-order.json`, and every ticket document with
 `git show <approved-commit>:<path>`. It renders tickets as the exact authority

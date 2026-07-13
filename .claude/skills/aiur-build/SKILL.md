@@ -170,7 +170,8 @@ Planning is complete when a relevant pass adds neither and all gates pass.
 
 Only when explicitly authorized:
 
-1. requery GitHub and deduplicate existing work;
+1. requery GitHub, deduplicate existing work, and freeze every reference-only
+   issue that the user did not authorize for mutation or reuse;
 2. create/update the Build Order root and implementation issues;
 3. map stable logical IDs to returned repo-qualified issue identities;
 4. publish native membership and dependency relationships;
@@ -185,7 +186,9 @@ Only when explicitly authorized:
    marker-query result set and require exactly one returned issue mapping per
    logical ID;
 8. record the bounded reconciliation receipt defined by the planning contract;
-9. make GitHub canonical for the materialized ticket facts.
+9. make GitHub canonical for the materialized ticket facts;
+10. if a live start-gate comment links the receipt, require the exact
+    same-repository commit URL and resolve that commit before accepting it.
 
 Do not assume issue-number adjacency. Keep prose dependency tables as generated
 human views, not a second source of truth.
