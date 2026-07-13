@@ -6,8 +6,9 @@
 
 This is the application-service and agent-handoff contract for OCC-4, OCC-7,
 and OCC-8. OCC-3 accepts an immutable answer, persists it before dispatch,
-delivers it through the existing Executor-message queue, and correlates every
-transport and agent lifecycle fact back to that answer.
+delivers it through the legacy `operator-message` queue owned by
+`Aiur.Orchestrator.OperatorMessages`, and correlates every transport and agent
+lifecycle fact back to that answer.
 
 ## Public service boundary
 

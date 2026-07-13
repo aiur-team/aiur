@@ -153,7 +153,7 @@ defmodule Aiur.Orchestrator.PushRouting do
   defp attempt_auto_resume(state, entry, identifier, blocker_identifier, topic) do
     Logger.info("Auto-resume on blocker push: blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}")
 
-    # Executor?: false — an automated blocker resume must preserve a
+    # operator?: false — an automated blocker resume must preserve a
     # duration-capped agent's cumulative overrun (no fresh budget).
     case Orchestrator.resume_paused_issue(state, entry, false) do
       {{:ok, :resumed}, next_state} ->
@@ -232,7 +232,7 @@ defmodule Aiur.Orchestrator.PushRouting do
         blocker_identifier = Map.get(hint, :blocker_identifier)
         topic = Map.get(hint, :topic)
 
-        # Executor?: false — same automated path as attempt_auto_resume,
+        # operator?: false — same automated path as attempt_auto_resume,
         # just deferred until a slot opened; preserve the duration overrun.
         case Orchestrator.resume_paused_issue(state, entry, false) do
           {{:ok, :resumed}, next_state} ->

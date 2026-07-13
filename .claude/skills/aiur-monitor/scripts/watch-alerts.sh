@@ -123,6 +123,13 @@ json_string_field() {
   printf '%s' "$encoded"
 }
 
+# Keep persisted NDJSON byte-for-byte compatible while presenting legacy
+# decision copy with the current role name on every relay/notification surface.
+normalize_legacy_role_line() {
+  printf '%s' "$1" |
+    sed -E 's/("(reason|message)"[[:space:]]*:[[:space:]]*")Operator decision /\1Executor decision /g'
+}
+
 # Per-file alert-line-count cursors, kept as parallel indexed arrays so this
 # stays portable to the bash 3.2 that ships on macOS (no associative arrays).
 seen_paths=()
@@ -251,7 +258,8 @@ replay_open_decisions() {
 # needs_attention-only Phase-2 filter. Mirrors the alert feed's field handling
 # (kept in sync deliberately) and adds the timestamp.
 emit_alert_line() {
-  local line="$1" agent="$2"
+  local line agent="$2"
+  line="$(normalize_legacy_role_line "$1")"
   local ts msg name reason severity need src_ticket tkt operator_decision decision_state decision_key notification_results
 
   if [ "$have_jq" -eq 1 ]; then

@@ -1,7 +1,7 @@
 ---
 title: "refactor: Rename the aiur-driver role to Executor"
 type: refactor
-status: active
+status: completed
 date: 2026-07-12
 ---
 

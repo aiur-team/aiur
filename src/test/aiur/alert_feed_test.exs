@@ -92,6 +92,25 @@ defmodule Aiur.AlertFeedTest do
            }
   end
 
+  test "normalizes legacy persisted decision copy at the presentation boundary", %{root: root} do
+    project_root = Path.join(root, "its-everdred/aiur")
+    log = Path.join(project_root, "42/logs/agent.ndjson")
+    File.mkdir_p!(Path.dirname(log))
+
+    File.write!(log, """
+    {"event":"alert","timestamp":"2026-07-12T01:00:00Z","topic":"ticket.42.agent.attention.scope-question","message":"Operator decision required: Which scope owns this?","reason":"Operator decision required: Which scope owns this?","severity":"warning","needs_attention":true,"source_ticket_id":"42"}
+    """)
+
+    assert [alert] = AlertFeed.list(roots: [project_root], log_roots: [])
+    assert alert["message"] == "Executor decision required: Which scope owns this?"
+    assert alert["reason"] == "Executor decision required: Which scope owns this?"
+
+    assert [%{question: "Which scope owns this?"}] =
+             AlertFeed.list_decision_attentions(roots: [project_root], log_roots: [])
+
+    assert File.read!(log) =~ "Operator decision required: Which scope owns this?"
+  end
+
   test "a malformed alert timestamp becomes nil provenance", %{root: root} do
     log = Path.join(root, "42/logs/agent.ndjson")
     File.mkdir_p!(Path.dirname(log))

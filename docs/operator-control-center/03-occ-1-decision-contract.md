@@ -114,8 +114,9 @@ for corrective actions and documents the extension in the OCC-8 handoff.
 ## Agent ingress
 
 Structured `decision.requested` calls route through `Aiur.DecisionStore`.
-OCC-2 also preflights `attention.<slug>` and Executor-decision-marked
-`blocked`/`pause.request` calls through `Aiur.DecisionAttention`, which attempts
+OCC-2 also preflights `attention.<slug>` and `blocked`/`pause.request` calls
+whose payload reason is the stable `operator_decision` value through
+`Aiur.DecisionAttention`, which attempts
 to persist a minimal Decision before retaining their existing generic Publisher
 behavior. Successful projection precedes the alert/reminder side effects. A
 projection rejection is logged and suppresses those derived side effects, but

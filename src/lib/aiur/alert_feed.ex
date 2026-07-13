@@ -139,7 +139,12 @@ defmodule Aiur.AlertFeed do
 
   defp normalize_alert(alert, agent) do
     topic = string_field(alert, "topic") || string_field(alert, "name") || ""
-    reason = string_field(alert, "reason") || string_field(alert, "message") || last_topic_segment(topic)
+
+    reason =
+      normalize_legacy_role_copy(string_field(alert, "reason") || string_field(alert, "message") || last_topic_segment(topic))
+
+    message = normalize_legacy_role_copy(string_field(alert, "message") || reason)
+
     needs_attention = Map.get(alert, "needs_attention") == true
     source_ticket_id = string_field(alert, "source_ticket_id") || parse_ticket(topic) || agent
 
@@ -151,7 +156,7 @@ defmodule Aiur.AlertFeed do
       "topic" => topic,
       "name" => topic,
       "reason" => reason,
-      "message" => string_field(alert, "message") || reason,
+      "message" => message,
       "severity" => string_field(alert, "severity") || default_severity(needs_attention),
       "needs_attention" => needs_attention
     }
@@ -233,6 +238,11 @@ defmodule Aiur.AlertFeed do
 
   defp default_severity(true), do: "warning"
   defp default_severity(false), do: "info"
+
+  # Persisted alerts keep their original bytes for audit/replay compatibility;
+  # only the presentation projection adopts the current role terminology.
+  defp normalize_legacy_role_copy("Operator decision " <> rest), do: "Executor decision " <> rest
+  defp normalize_legacy_role_copy(value), do: value
 
   defp reduce_decision_attention(alert, attentions) do
     case to_decision_attention(alert) do
