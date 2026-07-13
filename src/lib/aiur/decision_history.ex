@@ -12,6 +12,7 @@ defmodule Aiur.DecisionHistory do
 
   alias Aiur.{Decision, DecisionEvent, DecisionRevision, DecisionStore}
 
+  @default_limit 50
   @actor_types %{
     "human" => :human_operator,
     "human_operator" => :human_operator,
@@ -40,10 +41,19 @@ defmodule Aiur.DecisionHistory do
   @spec list(keyword()) :: [map()]
   def list(opts \\ []) when is_list(opts) do
     server = Keyword.get(opts, :server, DecisionStore)
-    history_fun = Keyword.get(opts, :history_fun, fn -> DecisionStore.all_audit_history(server) end)
 
-    history_fun.()
-    |> from_histories(opts)
+    cond do
+      history_fun = Keyword.get(opts, :history_fun) ->
+        history_fun.() |> from_histories(opts)
+
+      Keyword.has_key?(opts, :limit) or Keyword.has_key?(opts, :recent_history_fun) ->
+        default_recent_fun = fn -> DecisionStore.recent_audit_history(limit(opts), server) end
+        recent_fun = Keyword.get(opts, :recent_history_fun, default_recent_fun)
+        recent_fun.() |> from_recent_audit(opts)
+
+      true ->
+        DecisionStore.all_audit_history(server) |> from_histories(opts)
+    end
   end
 
   @doc "Projects an already-read Decision history map without another store call."
@@ -53,6 +63,27 @@ defmodule Aiur.DecisionHistory do
     |> Enum.flat_map(fn {_decision_id, records} -> project_history(records) end)
     |> Enum.sort_by(&sort_key/1, :desc)
     |> take_limit(opts)
+  end
+
+  @doc "Projects the DecisionStore's bounded audit window without reading the full audit map."
+  @spec from_recent_audit(map(), keyword()) :: [map()]
+  def from_recent_audit(recent, opts \\ []) when is_map(recent) and is_list(opts) do
+    records = Map.get(recent, :records, [])
+    contexts = Map.get(recent, :contexts, %{})
+    revisions = Map.get(recent, :revisions, %{})
+
+    records
+    |> Enum.flat_map(fn record ->
+      decision_id = record_decision_id(record)
+      decision_contexts = Map.get(contexts, decision_id, %{})
+      decision_revisions = Map.get(revisions, decision_id, %{})
+
+      isolated_projection(fn ->
+        project_history_record(record, decision_contexts, decision_revisions)
+      end)
+    end)
+    |> Enum.sort_by(&sort_key/1, :desc)
+    |> Enum.take(limit(opts))
   end
 
   @doc "Projects one canonical history record into the operator-facing shape."
@@ -92,11 +123,16 @@ defmodule Aiur.DecisionHistory do
     }
   end
 
-  defp project_history(records) do
+  defp project_history(records) when is_list(records) do
     contexts = request_contexts(records)
     revisions = revision_contexts(records)
-    Enum.map(records, &project_history_record(&1, contexts, revisions))
+
+    Enum.flat_map(records, fn record ->
+      isolated_projection(fn -> project_history_record(record, contexts, revisions) end)
+    end)
   end
+
+  defp project_history(_records), do: []
 
   defp project_history_record(%DecisionEvent{type: :requested, data: %Decision{} = decision}, _contexts, _revisions),
     do: project_record(decision)
@@ -206,6 +242,19 @@ defmodule Aiur.DecisionHistory do
 
   defp latest_context(contexts) when map_size(contexts) == 0, do: nil
   defp latest_context(contexts), do: contexts |> Map.values() |> Enum.max_by(& &1.version)
+
+  defp isolated_projection(fun) do
+    [fun.()]
+  rescue
+    _error -> []
+  catch
+    _kind, _reason -> []
+  end
+
+  defp record_decision_id(%DecisionEvent{decision_id: decision_id}), do: decision_id
+  defp record_decision_id(%Decision{decision_id: decision_id}), do: decision_id
+  defp record_decision_id(record) when is_map(record), do: value(record, :decision_id)
+  defp record_decision_id(_record), do: nil
 
   defp actor(record, answer, revision) do
     revision_answer = map_value(revision, :answer)
@@ -391,6 +440,13 @@ defmodule Aiur.DecisionHistory do
     case Keyword.get(opts, :limit) do
       limit when is_integer(limit) and limit >= 0 -> Enum.take(entries, limit)
       _other -> entries
+    end
+  end
+
+  defp limit(opts) do
+    case Keyword.get(opts, :limit, @default_limit) do
+      limit when is_integer(limit) and limit >= 0 -> limit
+      _other -> @default_limit
     end
   end
 
