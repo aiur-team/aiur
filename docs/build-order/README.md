@@ -7,10 +7,11 @@ contracts. It does not implement Build Order, launch Aiur, or dispatch work.
 
 - Plan version: 1
 - Build Order ID: `its-everdred/aiur:build-order-dashboard`
-- Researched code: `16d6033d8824c8cb53ac09e2129f69af751be8c4`
+- Researched code: `1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d`
 - Build Order: 15 executable/capstone tickets, 58 points
 - Standalone dashboard companions: 15 tickets, 56 points
-- GitHub materialization: pending final validation/reconciliation
+- GitHub materialization: mechanically valid; two clean semantic passes and
+  final reconciliation remain pending
 - Dispatch: prohibited in this planning run; never add `agent:todo`
 - Execution gates: unresolved integration baseline and bounded Executor skill
   installation; see `build-order.json`
@@ -122,11 +123,13 @@ and one `build-lane:*`; the root receives only `build-order` from this label
 family. Materialize the fifteen companions separately with complexity and
 `model:codex`, no Build Order parent/phase/lane, and their real native blockers.
 
-After publication, requery node IDs, membership, hard relationships, full
-labels, and parenthood. Run both the isolated `/aiur-build` canonical validator
-and `scripts/validate_publication.py`. The canonical validator owns the BO
-membership/label/dependency receipt; the publication validator proves exact
-companion coverage, standalone root/skill/companion parenthood, observed
-labels, companion and external-skill blocker edges, approval identity, and the
-root reconciliation comment. No newly published issue may have any `agent:*`
-state.
+Every one of the 32 bodies links the real immutable approval commit and carries
+one schema-2 logical-ID marker. After publication, requery node IDs, bodies,
+membership, hard relationships, full labels, parenthood, and the uniquely
+marked pending reconciliation comment. Run both the isolated `/aiur-build`
+canonical validator and `scripts/validate_publication.py`. The canonical
+validator owns the BO membership/label/dependency receipt; the publication
+validator proves exact companion coverage, standalone root/skill/companion
+parenthood, observed labels, body markers/hashes, companion and external-skill
+blocker edges, approval identity, and structured pending-comment evidence. No
+newly published issue may have any `agent:*` state.

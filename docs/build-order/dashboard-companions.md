@@ -6,7 +6,7 @@ requirements or ETA inputs of the Build Order root.
 
 | ID | Outcome | Cx | Hard prerequisites |
 |---|---|---:|---|
-| [DASH-001](companion-tickets/DASH-001-responsive-route-shell.md) | Responsive route-aware shell | 3 | — |
+| [DASH-001](companion-tickets/DASH-001-responsive-route-shell.md) | Responsive route-aware shell | 3 | BO-008 |
 | [DASH-002](companion-tickets/DASH-002-current-run-units-catalog.md) | Canonical current-run Units catalog | 4 | BO-005 |
 | [DASH-003](companion-tickets/DASH-003-units-interface.md) | Responsive Units filters/table | 3 | DASH-001, DASH-002, BO-011 |
 | [DASH-004](companion-tickets/DASH-004-applied-unit-control-protocol.md) | Worker-applied pause/resume protocol | 4 | — |
@@ -17,7 +17,7 @@ requirements or ETA inputs of the Build Order root.
 | [DASH-009](companion-tickets/DASH-009-durable-usage-ledger.md) | Durable attributed usage ledger | 4 | DASH-008 |
 | [DASH-010](companion-tickets/DASH-010-claude-remote-usage.md) | Required Claude Remote accounting | 4 | DASH-008; `GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY` |
 | [DASH-011](companion-tickets/DASH-011-cost-grouping-projection.md) | Versioned cost/grouping projection | 4 | DASH-009 |
-| [DASH-012](companion-tickets/DASH-012-codex-provider-meters.md) | Meter contract and Codex adapter | 4 | — |
+| [DASH-012](companion-tickets/DASH-012-codex-provider-meters.md) | Meter contract and Codex adapter | 4 | DASH-008 |
 | [DASH-013](companion-tickets/DASH-013-claude-provider-meters.md) | Claude subscription/API meter parity | 4 | DASH-012; `GATE-CLAUDE-METER-PROTOCOL-AUTHORITY` |
 | [DASH-014](companion-tickets/DASH-014-current-run-summary.md) | Canonical current-run summary | 4 | DASH-002 |
 | [DASH-015](companion-tickets/DASH-015-usage-run-summary-ui.md) | Authenticated usage/run summary UI | 4 | DASH-001, DASH-003, DASH-010..014 |
@@ -49,15 +49,24 @@ The complete evidence matrix is
   complete and the configured implementation branch contains its accepted
   successors. Publication is allowed before resolution because it adds no
   dispatch label.
-- DASH-001 owns shared route/navigation/CSS metadata. Closed #1034 is accepted
-  predecessor evidence, not a new native blocker.
+- DASH-001 owns shared route/navigation/CSS metadata and consumes BO-008's
+  Phoenix/LiveView browser harness. Closed #1034 is accepted predecessor
+  evidence, not a new native blocker.
 - DASH-002 and DASH-008 consume BO typed activity/identity contracts; DASH-008
   serializes with BO-005's event migration.
+- DASH-008 solely owns the privacy-safe opaque provider-account-generation
+  namespace shared by usage and meter snapshots. DASH-012 consumes it; neither
+  adapter may conflate it with a resettable counter/provider epoch.
 - DASH-003 consumes BO-011 ticket context rather than building a second modal.
 - DASH-003/005/007/015 and BO-012..014 touch shared dashboard composition/CSS
   and must be sequenced or rebased.
 - DASH-006 and runtime identity producers coordinate schema provenance; exact
   backend/model values are never parsed from display text.
+- DASH-009 preserves occurrence-price date, currency, provider-account
+  generation, and every downstream grouping dimension through compaction.
+  DASH-011 exposes generation-qualified groups but does not join meter data;
+  DASH-015 alone joins tier facts by provider, backend, and exact known
+  generation, with explicit unknown/mixed states.
 - DASH-010/013 are not dispatchable until their named human-owned protocol gate
   has a resolution receipt. Their Aiur issues remain incomplete while a required
   external contract is blocked.

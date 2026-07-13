@@ -13,7 +13,7 @@ pending.
 
 - Repository: `its-everdred/aiur`
 - Researched and refreshed `origin/main`:
-  `16d6033d8824c8cb53ac09e2129f69af751be8c4`
+  `1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d`
 - Initial completed OCC integration baseline:
   `b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5`
 - Configured `v2` snapshot:
@@ -25,17 +25,17 @@ pending.
 - Prototype constraints SHA-256:
   `49e068d4999d62197dbd1d5c0438db21a25cd1b5873fb959a58a7e0388c7829a`
 - Canonical Build Order JSON SHA-256:
-  `765e72d3b501238a0f4fcbca593ef87693289bc9f5377eb580cac0b21efd1058`
+  `2f561c915edae56e947335393285b9c4f62a59c4ed37bf48d7b56c300d3c7a4d`
 - Companion baseline JSON SHA-256:
-  `f74bb41b9e6f9ca78e2d8178bf3a6058a21df06bc6deffd711420642682d8e8a`
+  `3fe30941a87b8929fccbef3c83ce3f107ab3c1700bb86c8b857a896fc5afad17`
 - Publication manifest SHA-256:
-  `a07b3131604405624f2d320d796180b79f75e4f3520d803e78dd85c20de8d9d8`
+  `31084d00f40826689c95ad00d67377f0f651207763161cacffa52cb1d690acd7`
 - Requirements SHA-256:
-  `80e2cb7f9f9c3c2721fd553cd98851bb0a91f8d468d755755df60973fb3203b2`
+  `05fd80e2f98593ff51511d0ddfff2f5ae08e07d00bd7b0ea6484d01e79c1080f`
 - Implementation plan SHA-256:
-  `ad031004100d89450d6d3b1eb4b0686ef28e4edb17af04fedd168ddd6977aa81`
+  `9a238f919c44f6f872d7d8e8568119cf88801d8834174f32f4cf6e9f52405de4`
 - Latest validator/skill authority: isolated draft PR #1065 at
-  `fb89a300075abb235e5b5c0330c8aab9c0d35c4d`
+  `0daf29726fbe8345a79588e14b6f4c556584a57c`
 - Approval commit: pending two clean passes
 
 The design hashes match [the manifest](design-manifest.md). The prototype was
@@ -45,8 +45,8 @@ route, filter, detail, scrolling, and interaction behavior recorded in
 
 ## Current-state refresh
 
-The 2026-07-13 refresh found no new ticket split, owner transfer, or hard graph
-edge. It did require these contract updates:
+The 2026-07-13 refresh found no new ticket split or owner transfer. It did add
+two hard graph edges and require these contract updates:
 
 - Current main's runner `:completed/:awaiting_dispatch` state is a nonterminal
   replacement boundary. DASH-002 and BO-006 now prove that it remains visible,
@@ -54,9 +54,16 @@ edge. It did require these contract updates:
 - Closed #1034 is accepted predecessor evidence, not an active DASH-001 native
   blocker. The shared predecessor-baseline gate still requires the configured
   implementation branch to contain it and all accepted OCC successors.
-- The static website Playwright setup is reusable toolchain/CI precedent, but
-  no committed runner yet exercises the authenticated Phoenix/LiveView
-  dashboard. BO-008 remains the owner of that harness.
+- Current main includes a documentation-capture Playwright runner over a
+  synthetic Phoenix/LiveView fixture. BO-008 generalizes that executable
+  precedent into the shared authenticated interaction, accessibility,
+  responsive-artifact, reconnect, trace and performance harness; DASH-001 now
+  depends on it rather than inventing a second runner.
+- Usage and provider meters require one privacy-safe opaque account generation
+  rather than independent namespaces. DASH-008 owns that contract and
+  DASH-012 now depends on it. DASH-009 preserves occurrence-price date,
+  currency, generation and every grouping dimension through compaction;
+  DASH-015 alone performs exact-generation tier composition.
 - Main now uses the Executor role vocabulary, while compatibility module and
   event identifiers remain unchanged. Role-facing planning copy was refreshed
   without renaming durable implementation seams.
@@ -71,7 +78,7 @@ edge. It did require these contract updates:
 |---|---|
 | Canonical validator | 0 errors, 0 warnings |
 | Companion/publication validator | 0 errors, 0 warnings |
-| Publication regression suite | 20 tests pass |
+| Publication regression suite | 37 tests pass |
 | Build Order tickets | 15, 58 complexity points |
 | Standalone companions | 15, 56 complexity points |
 | Planned GitHub materialization | 32 new issues: one root, 30 executable issues, one human issue |
@@ -156,6 +163,24 @@ This pass was not clean. It found and corrected:
    proof, stable requery timestamps, and immutable comment-to-receipt routing.
    The publication manifest and adversarial validator now own those checks.
 
+### Corrective pass 3 — current-main delta and publication proof
+
+This pass was not clean. It found and corrected:
+
+1. The newly landed OCC screenshot runner made the old “no Phoenix browser
+   runner” premise false. BO-008 now generalizes that precedent and DASH-001
+   consumes it through a hard dependency.
+2. Provider usage and meters could mint incompatible account generations,
+   while compaction could erase the occurrence-price date, currency or
+   generation needed for correct historical estimates. DASH-008 owns one
+   privacy-safe shared generation, DASH-012 consumes it, DASH-009 retains all
+   required partitions, and DASH-015 alone joins tier facts exactly.
+3. Publication policy could self-authorize routing-label drift, accept an
+   unresolved approval SHA, omit issue-body evidence, accept an arbitrary root
+   comment, skip three collision references, or follow a document symlink out
+   of the pack. The pinned and local validators now fail closed on each case,
+   with adversarial regression coverage.
+
 ### Clean pass 1
 
 Pending review of an immutable checkpoint.
@@ -166,9 +191,9 @@ Pending a second review of the unchanged candidate after clean pass 1.
 
 ## Skill verification
 
-At isolated skill commit `fb89a300075abb235e5b5c0330c8aab9c0d35c4d`:
+At isolated skill commit `0daf29726fbe8345a79588e14b6f4c556584a57c`:
 
-- 54 adversarial `aiur-build` validator tests pass;
+- 56 adversarial `aiur-build` validator tests pass;
 - the canonical example validates with zero errors and warnings; and
 - `aiur-build`, `aiur-run`, and `aiur-monitor` pass structure validation.
 
@@ -179,9 +204,10 @@ this planning run and require conflict reconciliation against current main.
 
 Pending explicit final execution of the already authorized publication plan.
 Publication must create/reconcile only the root, BO-001..015, DASH-001..015,
-and SKILL-DELIVERY-001; it must not mutate read-only #132 or #845. It then
-records returned identities, full observed labels, exact native parenthood and
-blockers, the pending root-comment URL, and both validator results before the
-same comment is finalized as the last GitHub mutation.
+and SKILL-DELIVERY-001; it must not mutate read-only #132, #845, #1033, #1034,
+or #1067. It then records returned identities, full observed labels, exact
+native parenthood and blockers, all 32 re-read issue-body markers and hashes,
+structured pending root-comment evidence, and both validator results before
+the same comment is finalized as the last GitHub mutation.
 
 No issue may receive any `agent:*` label during this planning run.

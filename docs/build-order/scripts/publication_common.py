@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from publication_paths import resolved_document
+
 
 DASH_ID = re.compile(r"^DASH-[0-9]{3,}$", re.ASCII)
 BO_ID = re.compile(r"^BO-[0-9]{3,}[A-Z]?$", re.ASCII)
@@ -142,19 +144,10 @@ def github_mapping(
 
 def validate_document(ticket: dict[str, Any], base: Path, report: Report) -> None:
     ticket_id, value = ticket.get("id"), ticket.get("document")
-    if not nonempty_string(value):
-        report.error(f"{ticket_id}.document must be a relative path")
+    path = resolved_document(base, value, f"{ticket_id}.document", report)
+    if path is None:
         return
-    relative = Path(value)
-    if relative.is_absolute() or ".." in relative.parts:
-        report.error(f"{ticket_id}.document must stay within the planning pack")
-        return
-    path = base / relative
     try:
-        resolved = path.resolve()
-        if not resolved.is_relative_to(base.resolve()) or not path.is_file():
-            report.error(f"{ticket_id}.document does not resolve: {value}")
-            return
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
         report.error(f"{ticket_id}.document cannot be read: {exc}")

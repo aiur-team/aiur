@@ -1,7 +1,7 @@
 # Dashboard and Prototype Delta
 
 **Current-code baseline:** `origin/main` at
-`16d6033d8824c8cb53ac09e2129f69af751be8c4`
+`1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d`
 
 **Design baseline:** [design-manifest.md](design-manifest.md)
 
@@ -33,6 +33,9 @@ The merged Operator Control Center already has:
   whenever dashboard mutations are enabled; financial/token history therefore
   needs its own authenticated-or-locked policy;
 - a responsive current fleet table and accessible theme/reduced-motion tokens;
+- a synthetic Phoenix/LiveView Playwright screenshot runner for the shipped
+  documentation, which is reusable precedent but not a general authenticated
+  interaction/accessibility/performance test platform;
 - GitHub native dependency read/write clients and Aiur progress events.
 
 It does not have a Build Order route, an all-state current-run ticket catalog, a shared

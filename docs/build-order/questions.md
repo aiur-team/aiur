@@ -39,7 +39,9 @@ be added here and asked one at a time.
 - For flat subscription plans, per-ticket dollar values are versioned
   API-equivalent estimates derived from observed tokens. Display an asterisk,
   explain the estimate in an information popover, and identify the account's
-  actual subscription tier; do not present the estimate as billed spend.
+  actual subscription tier only when usage and meter facts share an exact known
+  provider/backend/account generation; do not present the estimate as billed
+  spend or guess a tier for unknown, mixed, or mismatched generations.
 - Each render/reconnect joins current GitHub Build Order membership with data
   from the active Aiur instance and receives live push updates where available.
   These are the two live sources of truth.
@@ -71,6 +73,7 @@ be added here and asked one at a time.
   delta/accounting issues and one human-blocked issue preserving the isolated
   skill PR #1065. The user explicitly asked that these unrelated skill changes
   not fall through the cracks and delegated the choice of a separate ticket.
-- Do not comment on, close, relabel, or rewrite existing #132 or #845 during
-  publication; the new DASH issue bodies may cite their overlap. No additional
-  mutation authority is inferred from permission to create the approved set.
+- Do not comment on, close, relabel, or rewrite existing #132, #845, #1033,
+  #1034, or #1067 during publication; the new issue bodies may cite their
+  overlap. No additional mutation authority is inferred from permission to
+  create the approved set.

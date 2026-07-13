@@ -46,10 +46,10 @@ cross-message deltas. The minimum versioned envelope is:
 
 ```text
 schema_version, idempotency_key
-occurred_at, ingested_at
+occurred_at, pricing_effective_date, ingested_at
 measurement_kind: delta | absolute
 counter_scope: request | turn | thread | session
-provider_epoch, account_generation
+counter_epoch, provider_account_generation
 source_event_id, source_sequence
 run_id, tracker/repository/ticket identity, attempt_id
 session_id, turn_id, request_id
@@ -60,12 +60,24 @@ provider_cost_decimal, provider_cost_currency, completeness: full | partial
 source, source_version
 ```
 
+`provider_account_generation` is one privacy-safe opaque value minted by a
+trusted provider/auth lifecycle owner and shared by usage and meter adapters.
+It rotates when the authenticated account binding changes or continuity is
+lost, contains no derivable account identity, and is distinct from the
+resettable `counter_epoch`. Unknown generation remains uncorrelated.
+
+`pricing_effective_date` is the UTC date containing trusted `occurred_at`; it
+selects an occurrence-time price partition rather than whichever price happens
+to be current at ingestion or query time. Missing/untrusted occurrence time is
+explicitly unknown and cannot fall back to `ingested_at`.
+
 The DASH-009 single writer converts an absolute token or cost counter to a delta
-only within the same provider, account generation, epoch, scope and counter key,
-using its durable replayable checkpoint. Duplicate or out-of-order events add no
-usage. A provider reset, new session/turn, retry attempt or model fallback cannot
-inherit the prior checkpoint accidentally. DASH-008 classifies and preserves raw
-source semantics; it never keeps a second ephemeral delta authority.
+only within the same provider, account generation, counter epoch, scope,
+currency/cost basis and counter key, using its durable replayable checkpoint.
+Duplicate or out-of-order events add no usage. A counter reset, new
+session/turn, retry attempt, account change or model fallback cannot inherit the
+prior checkpoint accidentally. DASH-008 classifies and preserves raw source
+semantics; it never keeps a second ephemeral delta authority.
 
 Token dimensions overlap. Cached input is normally a subset of input, and
 reasoning output is normally a subset of output. Preserve each dimension for
@@ -118,8 +130,9 @@ V1 uses a daemon-owned, single-writer file store:
 - crash-safe atomic aggregate projections for bounded reads;
 - persist-before-publish acknowledgement and explicit store health;
 - deterministic replay/migration, corruption quarantine and rollback tests;
-- configurable retention/compaction that preserves run/ticket/agent/backend/
-  model aggregates plus the earliest retained coverage timestamp.
+- configurable retention/compaction that preserves occurrence-price date,
+  currency, provider-account generation, run/ticket/agent/backend/exact-model
+  dimensions, estimate basis and coverage plus the earliest retained timestamp.
 
 Aiur has no application Ecto repository, migration/backup lifecycle or shared
 relational store to extend. The opencode SQLite database is viewer-owned and
@@ -139,15 +152,20 @@ V1 produces only bases supported by actual inputs:
 - `unknown`.
 
 Do not invent metered actual, subscription allocation or fixed-fee attribution.
-Do not add different bases into one dollar total. Group and display each basis
-separately with coverage and pricing revision/effective date. Unknown model,
-auth mode or token coverage produces unknown/partial cost, never `$0.00`.
+Do not add different bases, currencies or account generations into one dollar
+total. Group and display each basis separately with coverage, currency,
+occurrence-price date and immutable pricing revision. Unknown model, auth mode,
+currency, occurrence time or token coverage produces unknown/partial cost,
+never `$0.00`.
 
 For flat subscriptions, per-ticket/build dollars are API-equivalent estimates,
 marked with an asterisk. An information popover explains that the value is not
-billed spend and identifies the actual subscription tier separately. Provider
-reported estimates are also labelled as estimates; authoritative API billing
-may reconcile an account total but cannot infer Aiur ticket identity.
+billed spend. The actual subscription tier may appear beside that estimate only
+when usage and meter facts have an exact known provider, backend and
+`provider_account_generation` match. Unknown, mixed and mismatched generations
+stay explicit rather than borrowing the current login's tier. Provider-reported
+estimates are also labelled as estimates; authoritative API billing may
+reconcile an account total but cannot infer Aiur ticket identity.
 
 For a Build Order, totals include all retained Aiur usage attributable to each
 current member ticket, including observations recorded before that ticket was
@@ -159,7 +177,7 @@ excludes nonmembers. For Units, the default scope is the current Aiur run.
 Meters are separate from request accounting:
 
 ```text
-provider, backend, auth_mode, plan_tier, account_generation
+provider, backend, auth_mode, plan_tier, provider_account_generation
 snapshot_kind: full | patch
 windows: [{stable_key, kind, used_percent, resets_at, observed_at}]
 credits_or_spend_control
@@ -169,8 +187,10 @@ observed_at, source, source_version
 
 A full snapshot tombstones absent prior windows; a sparse patch changes only
 named windows. Each window has independent freshness/expiry. Authentication
-changes start a new account generation so stale data from a prior login cannot
-merge into the new account, while raw account identity is discarded.
+changes rotate DASH-008's shared opaque account generation so stale data from a
+prior login cannot merge into the new account, while raw account identity is
+discarded. Meter adapters consume that generation; they do not derive a second
+meter-local namespace or conflate quota resets with account changes.
 
 Subscription accounts show supported session/weekly windows and plan tier.
 API-key accounts show supported metered/rate/credit information without fake
@@ -190,6 +210,8 @@ usage_summary(ticket_ids, run_ids) ->
   by_agent_family,
   by_backend,
   by_model,
+  by_currency,
+  by_provider_account_generation,
   token_and_cost_coverage,
   earliest_retained_at,
   store_health
@@ -206,21 +228,24 @@ The current-run summary is a separate projection. It defines:
   confidence/freshness and unknown/insufficient-evidence states.
 
 LiveView reads bounded cached snapshots and subscribes to PubSub. It does not
-poll providers or scan the ledger per browser. Reconnect/render immediately
-reads current GitHub/Aiur snapshots, then continues with pushed updates.
+poll providers or scan the ledger per browser. DASH-015 is the sole composition
+owner that joins generation-qualified usage groups to provider tiers, and only
+on an exact known provider/backend/generation match. Reconnect/render
+immediately reads current GitHub/Aiur snapshots, then continues with pushed
+updates.
 
 ## Ticket boundaries
 
 | Ticket | Owns | Does not own |
 |---|---|---|
-| DASH-008 | Raw envelope, transport classification and exact attribution inputs | cross-message delta derivation, durability, pricing, UI |
-| DASH-009 | File-first durable ledger, absolute-counter checkpoints/delta derivation and projections | provider adapters, pricing, UI |
+| DASH-008 | Raw envelope, shared privacy-safe account-generation owner, transport classification and exact attribution inputs | cross-message delta derivation, durability, pricing, UI |
+| DASH-009 | File-first durable ledger, absolute-counter checkpoints/delta derivation and lossless dimension-preserving projections | provider adapters, pricing, UI |
 | DASH-010 | Claude REPL/Remote Control OTel usage and cost adapter | Claude account quotas, summary UI |
-| DASH-011 | Versioned API-equivalent pricing and grouped usage query | provider account meters, ingestion, UI |
-| DASH-012 | Meter snapshot/patch contract and Codex adapter | Claude adapter, ticket usage ledger |
+| DASH-011 | Occurrence-time versioned API-equivalent pricing and generation/currency-qualified grouped usage query | provider account meters, ingestion, tier joining, UI |
+| DASH-012 | Meter snapshot/patch contract and Codex adapter consuming the shared account generation | Claude adapter, ticket usage ledger |
 | DASH-013 | Claude subscription and API-key meter parity | Remote Control request accounting |
 | DASH-014 | Canonical current-run count/progress/elapsed/ETA | usage pricing or provider quotas |
-| DASH-015 | Authenticated responsive cards, meters and drill-down | provider I/O or ledger scanning |
+| DASH-015 | Authenticated responsive cards, exact-generation usage/tier composition, meters and drill-down | provider I/O or ledger scanning |
 
 ## Security and accessibility
 

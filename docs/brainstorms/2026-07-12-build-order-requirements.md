@@ -39,7 +39,7 @@ not the opening ten-ticket estimate.
 - Linear parity remains separate human-blocked issue #1067.
 - No implementation dispatch begins until the configured integration branch is
   proven to contain the completed OCC baseline and the bounded Executor skill
-  revision from PR #1065 commit `fb89a300` (or a reviewed compatible successor)
+  revision from PR #1065 commit `0daf2972` (or a reviewed compatible successor)
   is installed. These gates do not enter the feature denominator.
 
 ## Build Order requirements
@@ -124,7 +124,8 @@ not the opening ten-ticket estimate.
 
 These become standalone issues and do not belong to the Build Order root.
 
-- **DREQ-001 — Responsive route shell.** URL-backed Units, Commands, Build
+- **DREQ-001 — Responsive route shell.** After the shared BO-008 real-route
+  browser harness exists, provide URL-backed Units, Commands, Build
   Order and existing Analytics navigation; desktop/sidebar and mobile/bottom
   layouts, safe areas, theme, live status and `aria-current`; sequence after
   #1034 terminology work.
@@ -150,15 +151,18 @@ These become standalone issues and do not belong to the Build Order root.
   filters while preserving every Decision lifecycle, deep link, confirmation,
   retry, revision, follow-up, sanitization and partial-history state.
 - **DREQ-008 — Provider-neutral usage envelope.** Normalize raw delta/absolute
-  measurements with time, scope, epoch/generation, source identity,
-  full/partial coverage, non-overlapping token semantics and exact decimal
+  measurements with trusted occurrence time, UTC occurrence-price date, scope,
+  independent counter epoch, one privacy-safe opaque provider-account
+  generation shared with meter adapters, source identity, full/partial
+  coverage, non-overlapping token semantics, currency and exact decimal
   provider cost. Do not derive cross-message deltas in an ephemeral producer.
 - **DREQ-009 — Durable attributed usage ledger.** Single-writer append-only
   NDJSON authority plus crash-safe checkpoints/aggregates survives restart,
-  retry, fallback and completion while preserving grouping/coverage through
-  compaction. The writer alone derives deltas from absolute counters using
-  durable checkpoints. It supersedes #132's storage/accounting portion and
-  deliberately defers #845's database/BI program.
+  retry, fallback and completion while preserving UTC occurrence-price date,
+  currency, provider-account generation and every grouping/coverage dimension
+  through compaction. The writer alone derives deltas from absolute counters
+  using durable checkpoints. It supersedes #132's storage/accounting portion
+  and deliberately defers #845's database/BI program.
 - **DREQ-010 — Remote Control accounting.** Ingest supported structured Claude
   Code request telemetry locally, correlate session to run/ticket/attempt,
   authenticate the local producer with a permissioned socket or per-process
@@ -167,12 +171,15 @@ These become standalone issues and do not belong to the Build Order root.
   cannot dispatch before its human-owned protocol-authority gate resolves.
 - **DREQ-011 — Versioned cost/grouping projection.** Report tokens and
   separately labelled provider/API-equivalent estimate bases by run/build,
-  ticket, agent family, backend and model with pricing revision, coverage and
-  earliest retained time; never sum unlike bases.
-- **DREQ-012 — Meter contract and Codex adapter.** Full snapshot versus sparse
-  patch, tombstone/expiry, per-window freshness and account generation for
-  subscription/API-key plan tier, quota/rate/credit values; extend structured
-  Codex integration.
+  ticket, agent family, backend, exact model, currency and opaque account
+  generation with occurrence-time pricing revision, coverage and earliest
+  retained time; never sum unlike bases, currencies or generations. Meter
+  joining remains a presentation-composition responsibility.
+- **DREQ-012 — Meter contract and Codex adapter.** Consuming DREQ-008's shared
+  opaque provider-account generation, define full snapshot versus sparse patch,
+  tombstone/expiry and per-window freshness for subscription/API-key plan tier,
+  quota/rate/credit values; extend structured Codex integration without
+  deriving a second meter-only account identity.
 - **DREQ-013 — Claude plan-meter parity.** Provide structured Claude
   subscription and API-key account meters without interactive-output or
   credential scraping; protocol unavailability is an explicit external gate,
@@ -182,10 +189,12 @@ These become standalone issues and do not belong to the Build Order root.
   complexity-weighted progress with unknown denominator, wall-clock elapsed and
   evidence-based ETA with provenance/confidence/freshness.
 - **DREQ-015 — Authenticated usage/run UI.** Compose live provider/run cards and
-  ticket/model/backend/agent breakdowns from cached snapshots. Show estimate
-  asterisks/popovers, actual tier, scope/basis/coverage/freshness, accessible
-  meter semantics and lock every usage/account-meter fact—including plan,
-  auth mode, quota/rate/credit windows, percentages and resets—when
+  ticket/model/backend/agent breakdowns from cached snapshots. Join usage to an
+  actual plan tier only by provider, backend and exact known opaque account
+  generation; render unknown, mixed and mismatch states explicitly. Show
+  estimate asterisks/popovers, scope/basis/currency/coverage/freshness and
+  accessible meter semantics, and lock every usage/account-meter fact—including
+  plan, auth mode, quota/rate/credit windows, percentages and resets—when
   unauthenticated.
 
 ## Acceptance examples
@@ -205,8 +214,10 @@ These become standalone issues and do not belong to the Build Order root.
    and returns focus to the originating card.
 8. At 390px and 200% zoom, fixed navigation cannot obscure content and every
    unit action is at least 44px; only the graph viewport pans horizontally.
-9. Subscription usage shows `$…*`, actual tier and an explanation that the
-   value is an API-equivalent estimate, never billed spend.
+9. Subscription usage with an exact account-generation match shows `$…*`, its
+   actual tier and an explanation that the value is an API-equivalent estimate,
+   never billed spend; unknown, mixed or mismatched generations do not guess a
+   tier.
 10. A current Build Order member displays retained usage from before it joined,
     while a removed ticket no longer contributes to the selected-build total.
 

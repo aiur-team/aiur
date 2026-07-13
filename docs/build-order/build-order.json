@@ -4,7 +4,7 @@
   "ticket_prefix": "BO",
   "plan_version": 1,
   "repository": "its-everdred/aiur",
-  "researched_at_commit": "16d6033d8824c8cb53ac09e2129f69af751be8c4",
+  "researched_at_commit": "1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d",
   "workstreams": [
     {
       "id": "backend",
@@ -113,7 +113,7 @@
       "id": "GATE-002",
       "title": "Install the bounded Executor skill contract",
       "owner": "Product owner",
-      "resolution_criteria": "Before dispatch, the isolated skill revision from PR 1065 commit fb89a300075abb235e5b5c0330c8aab9c0d35c4d, or an explicitly reviewed compatible successor preserving its finite-boundary and publication contracts, is landed or installed and aiur-build, aiur-run, and aiur-monitor are discoverable."
+      "resolution_criteria": "Before dispatch, the isolated skill revision from PR 1065 commit 0daf29726fbe8345a79588e14b6f4c556584a57c, or an explicitly reviewed compatible successor preserving its finite-boundary and publication contracts, is landed or installed and aiur-build, aiur-run, and aiur-monitor are discoverable."
     }
   ],
   "design_evidence": [
@@ -979,7 +979,7 @@
       "read_surfaces": [
         "BO-001 domain fixtures and vocabulary",
         "current LiveView test and asset seams",
-        "static website Playwright toolchain and CI precedent",
+        "shipped Playwright plus synthetic Phoenix documentation-capture precedent",
         "captured prototype behavior"
       ],
       "write_surfaces": [

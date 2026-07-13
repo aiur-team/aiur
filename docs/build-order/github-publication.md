@@ -32,17 +32,34 @@ label, implement a ticket, or merge either planning branch.
     three structured receipts with RFC3339 UTC check times and run the
     canonical plus publication validators.
 
-All created bodies link to the immutable approved planning commit and carry a
-bounded hidden marker. Once the root exists, create one uniquely marked
-`aiur-build-order-reconciliation` comment whose visible state is pending. After
-all relationships requery successfully, record that comment URL in the
-post-publication receipt commit, push it, and edit the same comment to link the
-immutable receipt and declare reconciliation successful. The final comment edit
-is the last publication mutation. This two-commit authority preserves reviewed
-scope while giving the immutable handoff a live route to the eventual receipt.
-A conflicting marker, parent, receipt comment, or existing identity stops
-publication for reconciliation; never use a replacement-parent mutation as a
-shortcut.
+All 32 created bodies link to the immutable approved planning commit and carry
+one canonical `aiur-planning-issue` marker with schema 2, logical ID, plan
+version, and that same commit. Requery each body, parse the marker and link, and
+record its SHA-256; do not trust the submitted body. The approval SHA must
+resolve to a real commit in this repository before the first issue mutation.
+
+Once the root exists, create one uniquely marked
+`aiur-build-order-reconciliation` comment whose visible and marker state is
+`pending`. Requery it and record a structured receipt containing its URL,
+marker, pending state, and body SHA-256. After all relationships requery
+successfully, commit and push that receipt, then edit the same comment to link
+the immutable receipt and declare `successful`. Requery the final live comment;
+the final comment edit is the last publication mutation. This two-commit
+authority preserves reviewed scope while giving the immutable handoff a live
+route to the eventual receipt. A conflicting marker, parent, receipt comment,
+or existing identity stops publication for reconciliation; never use a
+replacement-parent mutation as a shortcut.
+
+Generated BO and DASH bodies use the approved ticket document verbatim beneath
+this preamble and marker:
+
+```markdown
+> Approved planning authority: [`<APPROVED_SHA>`](https://github.com/its-everdred/aiur/commit/<APPROVED_SHA>)
+
+<!-- aiur-planning-issue
+{"schema":2,"logical_id":"<LOGICAL_ID>","plan_version":1,"approved_planning_commit":"<APPROVED_SHA>"}
+-->
+```
 
 ## Label contract
 
@@ -72,9 +89,9 @@ Skill delivery:
 
 Create missing `build-order`, four `build-lane:*`, and required phase labels
 with Build Order-neutral descriptions. Reuse current complexity/model labels.
-The receipt records the full observed label set so the validator can prove
-required routing labels and forbidden dispatch labels, not merely the expected
-projection.
+The version-2 core receipt records both the deterministic projected labels and
+the full observed label set so the validator can prove required routing labels
+and wildcard routing-family exclusions, not merely a self-authored manifest.
 
 For all new root/BO/DASH/skill issues, reject every observed `agent:*` label,
 including terminal, error, watch, and paused variants. Planning publication
@@ -110,6 +127,7 @@ does not inherit workflow state from a template.
 - Root/skill/companion standalone-parenthood requery: pending
 - Skill-delivery issue: pending
 - Root reconciliation comment URL/final state: pending
+- Approval commit existence and 32 observed body markers/hashes: pending
 - Canonical validator: pending
 - Companion/publication validator: pending
 

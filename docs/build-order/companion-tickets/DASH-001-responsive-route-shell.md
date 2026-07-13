@@ -8,7 +8,7 @@
 
 **Risk:** medium
 
-**Depends on:** none
+**Depends on:** BO-008
 
 **Serializes with:** active dashboard shell, navigation, and shared CSS branches
 
@@ -16,7 +16,7 @@
 
 **Requirements:** DREQ-001
 
-**Researched at:** `16d6033d8824c8cb53ac09e2129f69af751be8c4`
+**Researched at:** `1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d`
 
 **Suggested labels:** `complexity:3`, `model:codex`; never `agent:todo`
 
@@ -35,6 +35,10 @@ mobile bottom navigation but treats Analytics as a fake client panel and clips
 navigation at narrow widths. GitHub #1034 completed the user-facing
 Operator-to-Executor rename on current main; this ticket consumes that landed
 terminology and the resolved integration baseline rather than reopening it.
+BO-008 first establishes the shared authenticated Phoenix/LiveView browser,
+accessibility, responsive-screenshot, and artifact harness so this shell and
+all of its downstream companions prove real-route behavior with one test
+platform rather than inventing a second browser runner.
 
 ## Scope
 
@@ -53,6 +57,9 @@ terminology and the resolved integration baseline rather than reopening it.
 ## Existing owner and reuse target
 
 Extend `AiurWeb.DashboardLive`, `AiurWeb.Layouts`, `AiurWeb.Router`, the current dashboard asset pipeline, and `TelemetryDashboardController`. Reuse the authentication and writable/read-only contracts established on the resolved configured integration target.
+Reuse BO-008's Phoenix/LiveView browser helpers, viewport/theme/reduced-motion
+controls, authentication fixtures, accessibility engine, and sanitized failure
+artifacts; this ticket may add shell scenarios but must not fork the harness.
 
 ## Contract and invariants
 
@@ -75,7 +82,7 @@ Extend `AiurWeb.DashboardLive`, `AiurWeb.Layouts`, `AiurWeb.Router`, the current
 ### Agent gate
 
 - Router and LiveView tests cover every current URL, direct Decision links, active-route matching, absent Build Order registration, back/forward, theme, and read-only/writable presentation.
-- Browser and accessibility tests cover 320/390/768/960/desktop widths, 200% text zoom, keyboard and touch navigation, safe-area padding, visible focus, reduced motion, and no horizontal page clipping.
+- BO-008 browser and accessibility tests cover 320/390/768/960/desktop widths, 200% text zoom, keyboard and touch navigation, safe-area padding, visible focus, reduced motion, and no horizontal page clipping on the real LiveView route.
 - Analytics tests prove the link performs normal document navigation and the real authenticated document still loads.
 
 ### At-merge gate
@@ -103,8 +110,10 @@ Extend `AiurWeb.DashboardLive`, `AiurWeb.Layouts`, `AiurWeb.Router`, the current
 
 ## Sibling boundaries and open gates
 
-DASH-003, DASH-005, DASH-007, and DASH-015 consume this shell but own their
-content. Build Order registers its route without making this ticket part of
-Build Order acceptance. If the configured implementation base does not yet
-contain closed #1034, the shared predecessor-baseline gate—not a new feature
-ticket—must be resolved before pickup.
+BO-008 is a hard predecessor only for the shared Phoenix/LiveView browser
+harness; DASH-001 remains a standalone dashboard companion and is not part of
+Build Order acceptance. DASH-003, DASH-005, DASH-007, and DASH-015 consume this
+shell but own their content. Build Order registers its route without making
+this ticket part of Build Order acceptance. If the configured implementation
+base does not yet contain closed #1034, the shared predecessor-baseline
+gate—not a new feature ticket—must be resolved before pickup.

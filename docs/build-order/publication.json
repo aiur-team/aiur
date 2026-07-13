@@ -37,7 +37,10 @@
   ],
   "read_only_issue_refs": [
     "its-everdred/aiur#132",
-    "its-everdred/aiur#845"
+    "its-everdred/aiur#845",
+    "its-everdred/aiur#1033",
+    "its-everdred/aiur#1034",
+    "its-everdred/aiur#1067"
   ],
   "github_reconciliation": null
 }

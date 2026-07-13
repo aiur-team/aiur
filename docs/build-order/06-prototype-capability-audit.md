@@ -1,7 +1,7 @@
 # Prototype Capability Audit
 
 **Production baseline:** `origin/main` at
-`16d6033d8824c8cb53ac09e2129f69af751be8c4`
+`1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d`
 
 **Prototype evidence:** the versioned files and hashes in
 [design-manifest.md](design-manifest.md)
@@ -49,14 +49,19 @@ At the audited commit:
 - Codex exposes structured rate-limit snapshots. Claude does not yet have a
   complete Aiur account-meter contract, and `claude-repl` has no current
   structured token/cost ingestion path.
+- the documentation closeout includes a Playwright command that starts a
+  synthetic Phoenix/LiveView fixture, captures desktop/mobile themes, and
+  rejects horizontal overflow. It does not yet supply the shared authenticated
+  interaction, automated-accessibility, trace, or performance harness.
 - direct Decision lookup exists through `DecisionStore.get/2`; the overview is
   intentionally bounded. Supervisor confidence is persisted, but the current
   presentation omits it. Exact backend/model provenance is not canonical.
 
 PR #971 remains useful planning evidence, not an implementation base. OCC
-capstone #1026 is complete. Active #1033 and #1034 own current-dashboard
-documentation and the Operator-to-Executor vocabulary transition respectively;
-new shell work sequences after #1034 and owns its own future documentation.
+capstone #1026, terminology ticket #1034, documentation ticket #1033, and
+closeout PR #1073 are complete on `main`. The configured `v2` integration
+target still lacks that baseline, so new shell work remains gated on an
+explicit resolved branch/SHA and owns its own future documentation.
 
 ## Visible feature to production contract
 

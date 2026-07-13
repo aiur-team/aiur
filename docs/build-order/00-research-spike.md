@@ -22,10 +22,11 @@ work that should not be buried in nominal frontend tickets.
 ## Current Dashboard Baseline
 
 As of `origin/main` at
-`16d6033d8824c8cb53ac09e2129f69af751be8c4`, the Operator Control Center
-integration capstone is merged. `src/lib/aiur_web/router.ex` exposes Units at
-`/`, the Decision inbox/detail at `/decisions` and `/decisions/:id`, and the
-separate controller-backed analytics report at `/analytics`.
+`1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d`, the Executor Control Center
+integration and documentation closeout are merged. `src/lib/aiur_web/router.ex`
+exposes Units at `/`, the Decision inbox/detail at `/decisions` and
+`/decisions/:id`, and the separate controller-backed analytics report at
+`/analytics`.
 
 `src/lib/aiur_web/live/dashboard_live.ex`, `ControlCenterCache`, the presenter,
 Decision persistence/delivery/history, and PubSub refresh are reusable. The
@@ -34,6 +35,11 @@ all-state current-run catalog, applied pause/resume acknowledgement, canonical
 Decision model provenance, durable attributed usage, complete account meters,
 or Build Order graph. The completed capability audit is
 `06-prototype-capability-audit.md`.
+
+The closeout also adds a Playwright screenshot command that launches a
+synthetic Phoenix/LiveView fixture. It is a concrete browser-tooling precedent,
+not yet the shared authenticated interaction/accessibility/performance harness
+required by BO-008.
 
 ## What PR #971 Demonstrates
 

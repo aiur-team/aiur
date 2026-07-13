@@ -39,7 +39,7 @@ class PublicationBoundaryTests(unittest.TestCase):
 
     def test_requires_root_reconciliation_comment_on_mapped_root(self) -> None:
         data, build, manifest = materialized_pack()
-        manifest["github_reconciliation"]["root_reconciliation_comment_url"] = (
+        manifest["github_reconciliation"]["root_reconciliation_comment"]["url"] = (
             "https://github.com/example/repo/issues/999#issuecomment-1"
         )
         joined = "\n".join(self.report(data, build, manifest).errors)

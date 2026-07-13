@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
-import tempfile
-from pathlib import Path
+from publication_fixture_io import FixtureBase
 
 
 SHA = "a" * 40
@@ -19,15 +17,31 @@ def github(number: int, node: str) -> dict[str, object]:
 
 
 def build_order() -> dict[str, object]:
+    tickets = [
+        {
+            "id": f"BO-{number:03d}",
+            "depends_on": ["BO-001"] if number == 2 else [],
+            "workstream": "backend",
+            "phase_hint": 1,
+            "complexity_points": 3,
+            "github": None,
+        }
+        for number in range(1, 16)
+    ]
     return {
         "plan_version": 1,
         "repository": REPOSITORY,
         "build_order_id": "example/repo:build-order-dashboard",
         "github_root": None,
-        "tickets": [
-            {"id": "BO-001", "depends_on": [], "github": None},
-            {"id": "BO-002", "depends_on": ["BO-001"], "github": None},
-        ],
+        "label_projection": {
+            "build_order": "build-order",
+            "required_ticket_labels": ["model:codex"],
+            "forbidden_labels": [],
+            "workstreams": {"backend": "build-lane:backend"},
+            "phases": {"1": "phase:1"},
+            "complexities": {"3": "complexity:3"},
+        },
+        "tickets": tickets,
     }
 
 
@@ -127,64 +141,25 @@ def publication() -> dict[str, object]:
         "external_blocker_relations": [
             {"blocked_ticket_id": "BO-001", "blocker_issue_id": "SKILL-DELIVERY-001"}
         ],
-        "read_only_issue_refs": ["example/repo#132", "example/repo#845"],
+        "read_only_issue_refs": [
+            "example/repo#132",
+            "example/repo#845",
+            "example/repo#1033",
+            "example/repo#1034",
+            "example/repo#1067",
+        ],
         "github_reconciliation": None,
     }
 
 
-class Fixture:
+class Fixture(FixtureBase):
     def __init__(
         self,
         companion: dict[str, object] | None = None,
         build: dict[str, object] | None = None,
         publication_data: dict[str, object] | None = None,
     ) -> None:
-        self.temp = tempfile.TemporaryDirectory()
-        self.base = Path(self.temp.name)
-        self.companion_path = self.base / "dashboard-companions.json"
-        self.build_path = self.base / "build-order.json"
-        self.publication_path = self.base / "publication.json"
-        self.write(
+        super().__init__(
             companion or companions(), build or build_order(),
             publication_data or publication(),
         )
-
-    def write(
-        self, companion: dict[str, object], build: dict[str, object],
-        publication_data: dict[str, object],
-    ) -> None:
-        (self.base / "tickets").mkdir(exist_ok=True)
-        for ticket in companion.get("tickets", []):
-            if not isinstance(ticket, dict) or not isinstance(ticket.get("id"), str):
-                continue
-            text = (
-                f"# {ticket['id']} — Test\n\n"
-                "**Kind:** executable\n\n"
-                f"**Complexity:** {ticket.get('complexity_points')} — Test\n\n"
-                "**Depends on:** "
-                + ", ".join(
-                    ticket.get("depends_on", []) + ticket.get("external_blockers", [])
-                )
-                + ("\n\n" if ticket.get("depends_on", []) + ticket.get("external_blockers", []) else "none\n\n")
-                + (
-                    "**External gates:** "
-                    + ", ".join(ticket.get("external_gate_ids", []))
-                    + "\n\n"
-                    if ticket.get("external_gate_ids", [])
-                    else ""
-                )
-                + f"**Requirements:** {ticket.get('requirement_ref')}\n\n"
-                + "**Build Order membership:** none — standalone dashboard companion\n"
-            )
-            (self.base / str(ticket.get("document"))).write_text(text, encoding="utf-8")
-        self.companion_path.write_text(json.dumps(companion), encoding="utf-8")
-        self.build_path.write_text(json.dumps(build), encoding="utf-8")
-        self.publication_path.write_text(json.dumps(publication_data), encoding="utf-8")
-        for name, logical_id in (
-            ("root-issue.md", "example/repo:build-order-dashboard"),
-            ("skill-delivery.md", "SKILL-DELIVERY-001"),
-        ):
-            (self.base / name).write_text(f"# Test\n\n{logical_id}\n", encoding="utf-8")
-
-    def close(self) -> None:
-        self.temp.cleanup()

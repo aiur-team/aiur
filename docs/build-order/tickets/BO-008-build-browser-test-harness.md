@@ -20,7 +20,7 @@
 
 **Design evidence:** DESIGN-001, DESIGN-002
 
-**Researched at:** 16d6033d8824c8cb53ac09e2129f69af751be8c4
+**Researched at:** 1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d
 
 **Suggested labels:** `complexity:4`, `model:codex`, `phase:1`, `build-lane:infrastructure`; never `agent:todo`
 
@@ -34,19 +34,21 @@ tickets must use.
 
 ## Context and evidence
 
-The current suite has rich LiveView/component coverage but no committed
-LiveView browser runner that can prove pointer, keyboard, focus, worker timing,
-responsive redraw, reduced motion, or accessible dialogs. The static
-`website/` now has a Vite/Playwright harness and path-scoped CI that can inform
-toolchain and artifact conventions, but it does not exercise Phoenix,
-LiveView, Basic Auth, or the real dashboard route. Deferring infrastructure to
-the capstone would make each UI ticket invent a different proxy and leave
-performance/a11y failures unowned.
+Current main now includes a Playwright documentation-capture runner that starts
+a synthetic Phoenix/LiveView endpoint, allocates an isolated port, records
+desktop/mobile screenshots, and rejects horizontal overflow. Its checked-in
+fixture and assets are useful executable precedent, but the capture command is
+not yet the shared CI acceptance harness: it does not prove authenticated
+navigation, pointer/keyboard/focus behavior, workers, automated accessibility,
+reconnect, trace-on-failure, or performance budgets. Deferring that reusable
+layer to the capstone would make each UI ticket invent a different proxy and
+leave interaction/performance/a11y failures unowned.
 
 ## Scope
 
-- Add a pinned maintained headless-browser runner compatible with the current
-  Node/Elixir toolchain, a pinned automated accessibility engine, and repository
+- Generalize the shipped Playwright/Phoenix capture precedent into a pinned
+  maintained headless-browser runner compatible with the current Node/Elixir
+  toolchain, add a pinned automated accessibility engine, and provide repository
   scripts/configuration that run locally and in CI without external services.
 - Provide deterministic test-server startup/teardown, browser/port isolation,
   failure artifacts, timeouts, and environment detection with no fixed host,
@@ -77,9 +79,11 @@ performance/a11y failures unowned.
 
 ## Existing owner and reuse target
 
-Extend the root development/CI scripts, Phoenix test endpoint/fixtures, and
-existing deterministic test conventions. Keep browser tooling isolated from
-production assets and reuse existing Basic Auth/config injection.
+Extend `website/scripts/capture-executor-control-center.mjs`, its synthetic
+Phoenix fixture patterns, the root development/CI scripts, and existing
+deterministic test conventions without turning documentation screenshots into
+the acceptance API. Keep browser tooling isolated from production assets and
+reuse existing Basic Auth/config injection.
 
 ## Contract and invariants
 

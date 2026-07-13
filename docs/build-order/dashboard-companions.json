@@ -2,7 +2,7 @@
   "schema_version": 1,
   "plan_version": 1,
   "repository": "its-everdred/aiur",
-  "researched_at_commit": "16d6033d8824c8cb53ac09e2129f69af751be8c4",
+  "researched_at_commit": "1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d",
   "approved_planning_commit": null,
   "required_labels": ["model:codex"],
   "forbidden_labels": [
@@ -43,7 +43,9 @@
       "document": "companion-tickets/DASH-001-responsive-route-shell.md",
       "requirement_ref": "DREQ-001",
       "complexity_points": 3,
-      "depends_on": [],
+      "depends_on": [
+        "BO-008"
+      ],
       "external_blockers": [],
       "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
       "github": null
@@ -167,7 +169,9 @@
       "document": "companion-tickets/DASH-012-codex-provider-meters.md",
       "requirement_ref": "DREQ-012",
       "complexity_points": 4,
-      "depends_on": [],
+      "depends_on": [
+        "DASH-008"
+      ],
       "external_blockers": [],
       "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
       "github": null

@@ -36,7 +36,7 @@ resolved on this root:
 
 - the configured integration branch contains the completed OCC predecessor
   baseline and its accepted successors; and
-- PR #1065 commit `fb89a300` or an explicitly reviewed compatible successor is
+- PR #1065 commit `0daf2972` or an explicitly reviewed compatible successor is
   installed and `/aiur-build`, `/aiur-run`, and `/aiur-monitor` are
   discoverable.
 
@@ -49,6 +49,6 @@ BO-015 owns the acceptance matrix and post-merge proof. The Executor closes
 this root with state reason `COMPLETED` only after BO-015 satisfies the terminal
 condition. Incidental non-blockers remain deferred.
 
-<!-- aiur-build-order-root
-{"schema":1,"build_order_id":"its-everdred/aiur:build-order-dashboard","plan_version":1,"approved_planning_commit":"<APPROVED_SHA>"}
+<!-- aiur-planning-issue
+{"schema":2,"logical_id":"its-everdred/aiur:build-order-dashboard","plan_version":1,"approved_planning_commit":"<APPROVED_SHA>"}
 -->

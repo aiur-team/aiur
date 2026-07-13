@@ -22,7 +22,7 @@
 
 **Design evidence:** DESIGN-002
 
-**Researched at:** 16d6033d8824c8cb53ac09e2129f69af751be8c4
+**Researched at:** 1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d
 
 **Suggested labels:** `complexity:3`, `model:codex`, `phase:1`, `build-lane:backend`; never `agent:todo`
 
@@ -48,7 +48,7 @@ ticket. It defines semantics and bounded fixtures, not transport or UI.
 It must not be dispatched until the user records both external gates as
 resolved on the live root: the configured integration target contains the
 completed Operator Control Center baseline used by this plan, and the bounded
-Executor skill revision from PR #1065 commit `fb89a300` (or an explicitly
+Executor skill revision from PR #1065 commit `0daf2972` (or an explicitly
 reviewed compatible successor) is installed and discoverable.
 
 ## Scope

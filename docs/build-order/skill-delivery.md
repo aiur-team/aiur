@@ -8,10 +8,13 @@ isolated skill-only draft PR #1065 so `/aiur-build`, the consolidated bounded
 publication validation are not lost with the research branch.
 
 The reviewed planning authority is commit
-`fb89a300075abb235e5b5c0330c8aab9c0d35c4d`. A later compatible successor is
+`0daf29726fbe8345a79588e14b6f4c556584a57c`. A later compatible successor is
 acceptable only after explicit review confirms it preserves the finite feature
 boundary, rework-before-ticket-multiplication rule, backlog-growth circuit
 breaker, privacy policy, and publication validator behavior.
+
+The Build Order planning authority for this issue body is
+[`<APPROVED_SHA>`](https://github.com/its-everdred/aiur/commit/<APPROVED_SHA>).
 
 ## Why human-blocked
 
@@ -24,7 +27,8 @@ gate, not unfinished Build Order implementation.
 - Wait until the active dashboard Executor confirms its run is complete.
 - Review draft PR #1065 at its current isolated head and reconcile its
   conflicting `aiur-run`/`aiur-monitor`/loop changes with the Executor
-  terminology now on `origin/main` at `16d6033d`, then refresh it against the
+  terminology and documentation now on `origin/main` at `1e0cfba3`, then
+  refresh it against the
   configured integration branch without dropping the bounded contracts.
 - Run the skill validator, focused skill discovery/installation tests and the
   repository CI gate required at pickup.
@@ -51,6 +55,6 @@ closing PR #1065 without those checks does not resolve the gate.
 
 Apply `human:todo`. Do not apply `agent:todo` or Build Order membership.
 
-<!-- aiur-planning-ticket
-{"schema":1,"logical_id":"SKILL-DELIVERY-001","provenance":"planned","introduced_in_plan_version":1}
+<!-- aiur-planning-issue
+{"schema":2,"logical_id":"SKILL-DELIVERY-001","plan_version":1,"approved_planning_commit":"<APPROVED_SHA>"}
 -->

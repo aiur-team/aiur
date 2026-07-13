@@ -29,13 +29,13 @@ class PublicationValidationTests(unittest.TestCase):
         self.assertEqual([], report.errors)
         self.assertEqual([], report.warnings)
 
-    def test_requires_every_active_and_paused_agent_label(self) -> None:
+    def test_requires_exact_bounded_agent_label_denylist(self) -> None:
         data = companions()
         data["forbidden_labels"] = ["agent:todo"]
         fixture = Fixture(data)
         self.addCleanup(fixture.close)
         report = validate(fixture.companion_path, fixture.build_path)
-        self.assertTrue(any("forbidden_labels missing agent states" in error for error in report.errors))
+        self.assertTrue(any("exactly match the bounded agent-state" in error for error in report.errors))
 
     def test_rejects_bad_schema_complexity_document_and_external_blocker(self) -> None:
         data = companions()
@@ -78,32 +78,19 @@ class PublicationValidationTests(unittest.TestCase):
         fixture = Fixture(publication_data=manifest)
         self.addCleanup(fixture.close)
         joined = "\n".join(validate(fixture.companion_path, fixture.build_path).errors)
-        self.assertIn("issues #132 and #845", joined)
+        self.assertIn("#132, #845, #1033, #1034, and #1067", joined)
         self.assertIn("forbidden_label_prefixes must equal", joined)
         self.assertIn("BO-001 blocked by SKILL-DELIVERY-001", joined)
 
     def test_auxiliary_receipt_rejects_agent_labels(self) -> None:
-        manifest = publication()
-        build = build_order()
-        manifest["approved_planning_commit"] = "b" * 40
-        build["github_root"] = github(901, "ROOT_NODE")
-        build["tickets"][0]["github"] = github(17, "BO_NODE")
-        manifest["github_reconciliation"] = {
-            "checked_at": "2026-07-13T00:00:00Z",
-            "issue_mappings": {
-                "example/repo:build-order-dashboard": github(901, "ROOT_NODE"),
-                "SKILL-DELIVERY-001": github(4, "SKILL_NODE"),
-            },
-            "external_blocker_relations": manifest["external_blocker_relations"],
-            "observed_labels": {
-                "example/repo:build-order-dashboard": ["build-order"],
-                "SKILL-DELIVERY-001": ["human:todo", "agent:paused"],
-            },
-        }
-        fixture = Fixture(build=build, publication_data=manifest)
+        data, build, manifest = materialized_pack()
+        manifest["github_reconciliation"]["observed_labels"][
+            "SKILL-DELIVERY-001"
+        ].append("agent:future-state")
+        fixture = Fixture(data, build, manifest)
         self.addCleanup(fixture.close)
         joined = "\n".join(validate(fixture.companion_path, fixture.build_path).errors)
-        self.assertIn("forbidden labels present for SKILL-DELIVERY-001", joined)
+        self.assertIn("unexpected routing labels: agent:future-state", joined)
         self.assertNotIn("number", joined)
 
     def test_materialization_is_complete_and_identity_unique(self) -> None:
@@ -145,8 +132,8 @@ class PublicationValidationTests(unittest.TestCase):
         report = validate(fixture.companion_path, fixture.build_path)
         joined = "\n".join(report.errors)
         self.assertIn("dependencies must exactly match", joined)
-        self.assertIn("forbidden labels present for DASH-001", joined)
-        self.assertIn("labels missing for DASH-002", joined)
+        self.assertIn("unexpected routing labels: agent:paused, complexity:3", joined)
+        self.assertIn("routing labels missing: complexity:4", joined)
 
     def test_cli_has_stable_counts_and_nonzero_errors(self) -> None:
         data = companions()

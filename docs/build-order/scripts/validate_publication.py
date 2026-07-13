@@ -18,6 +18,8 @@ from publication_common import (
     string_list,
 )
 from publication_auxiliary import validate_auxiliary
+from publication_body_evidence import validate_all_body_evidence
+from publication_core_receipt import validate_commit_reference, validate_core_receipt
 from publication_receipt import validate_receipt
 from publication_records import (
     build_tickets,
@@ -75,6 +77,8 @@ def validate(
         data.get("plan_version"), data.get("approved_planning_commit"),
         materialized, report,
     )
+    validate_core_receipt(build_path, materialized, report)
+    validate_all_body_evidence(build_order, data, publication, materialized, report)
     return report
 
 
@@ -93,6 +97,8 @@ def _header(data: dict[str, Any], report: Report) -> str:
     approved = data.get("approved_planning_commit")
     if approved is not None and (not isinstance(approved, str) or not SHA.fullmatch(approved)):
         report.error("approved_planning_commit must be null or a 40-character Git SHA")
+    elif approved is not None:
+        validate_commit_reference(approved, "approved_planning_commit", report)
     _label_contract(data, report)
     return repository
 
@@ -100,11 +106,10 @@ def _header(data: dict[str, Any], report: Report) -> str:
 def _label_contract(data: dict[str, Any], report: Report) -> None:
     required = string_list(data.get("required_labels"), "required_labels", report)
     forbidden = string_list(data.get("forbidden_labels"), "forbidden_labels", report)
-    if "model:codex" not in required:
-        report.error("required_labels must include model:codex")
-    missing = sorted(AGENT_LABELS - set(forbidden))
-    if missing:
-        report.error("forbidden_labels missing agent states: " + ", ".join(missing))
+    if required != ["model:codex"]:
+        report.error("required_labels must equal model:codex")
+    if set(forbidden) != AGENT_LABELS or len(forbidden) != len(AGENT_LABELS):
+        report.error("forbidden_labels must exactly match the bounded agent-state denylist")
     overlap = sorted(set(required) & set(forbidden))
     if overlap:
         report.error("required_labels and forbidden_labels overlap: " + ", ".join(overlap))

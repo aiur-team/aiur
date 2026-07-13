@@ -14,7 +14,7 @@ does not queue work. Until then, do not run Aiur, implement tickets, or add
 - Build Order: `its-everdred/aiur:build-order-dashboard`
 - Plan version: 1
 - Repository: `its-everdred/aiur`
-- Researched commit: `16d6033d8824c8cb53ac09e2129f69af751be8c4`
+- Researched commit: `1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d`
 - Approved planning commit: pending final clean review
 - GitHub root: resolve live by the hidden Build Order root marker; do not trust
   a copied pending number
@@ -36,7 +36,7 @@ are separate tracks and cannot change this run's denominator or ETA.
    - `docs/build-order/validation-report.md`
    - `docs/build-order/github-publication.md`
 2. Use `/aiur-run`, not the retired `/aiur-loop` workflow. Verify the loaded
-   skill is PR #1065 commit `fb89a300` or an explicitly reviewed compatible
+   skill is PR #1065 commit `0daf2972` or an explicitly reviewed compatible
    successor preserving its finite-boundary, review/rework, circuit-breaker,
    and publication rules. A matching skill name is insufficient.
 3. Write a three-to-five-sentence `/goal` stating that you are the Executor,

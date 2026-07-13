@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from publication_common import (
@@ -15,12 +14,14 @@ from publication_common import (
     valid_rfc3339_utc,
 )
 from publication_parenthood import validate_parent_map
+from publication_comment import validate_pending_comment
+from publication_labels import routing_subset, validate_routing_labels
 
 
 RECEIPT_KEYS = {
     "checked_at", "issue_mappings", "external_blocker_relations",
     "observed_labels", "observed_parent_issues",
-    "root_reconciliation_comment_url",
+    "observed_body_evidence", "root_reconciliation_comment",
 }
 EDGE_KEYS = {"blocked_ticket_id", "blocker_issue_id"}
 
@@ -68,7 +69,9 @@ def validate_auxiliary_receipt(
         receipt.get("observed_parent_issues"), set(ids),
         "publication.github_reconciliation.observed_parent_issues", report,
     )
-    _comment_url(receipt.get("root_reconciliation_comment_url"), root_id, mappings, report)
+    validate_pending_comment(
+        receipt.get("root_reconciliation_comment"), root_id, mappings, report
+    )
     approved = data.get("approved_planning_commit")
     if not isinstance(approved, str) or not SHA.fullmatch(approved):
         report.error("publication receipt requires approved_planning_commit")
@@ -165,36 +168,12 @@ def _one_label_set(
     logical_id: str, value: object, issue: dict[str, Any], report: Report
 ) -> None:
     labels = set(string_list(value, f"observed_labels.{logical_id}", report))
-    missing = set(issue["required_labels"]) - labels
-    forbidden = labels & set(issue["forbidden_labels"])
-    forbidden |= {
-        label
-        for label in labels
-        for prefix in issue["forbidden_label_prefixes"]
-        if label.startswith(prefix)
-    }
+    required = set(issue["required_labels"])
+    missing = required - labels
     if missing:
         report.error(
             f"publication labels missing for {logical_id}: " + ", ".join(sorted(missing))
         )
-    if forbidden:
-        report.error(
-            f"publication forbidden labels present for {logical_id}: "
-            + ", ".join(sorted(forbidden))
-        )
-
-
-def _comment_url(
-    value: object,
-    root_id: object,
-    mappings: dict[str, dict[str, Any]],
-    report: Report,
-) -> None:
-    root = mappings.get(root_id) if isinstance(root_id, str) else None
-    if not isinstance(root, dict) or not isinstance(root.get("url"), str):
-        return
-    expected = re.compile(re.escape(root["url"]) + r"#issuecomment-[1-9][0-9]*$")
-    if not isinstance(value, str) or not expected.fullmatch(value):
-        report.error(
-            "publication receipt root_reconciliation_comment_url must point to the mapped root issue"
-        )
+    validate_routing_labels(
+        labels, routing_subset(required), f"publication labels for {logical_id}", report
+    )

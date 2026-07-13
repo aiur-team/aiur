@@ -15,7 +15,7 @@ root, critical path, ETA or terminal condition.
 ## Baselines
 
 - Repository: `its-everdred/aiur`
-- Researched code: `16d6033d8824c8cb53ac09e2129f69af751be8c4`
+- Researched code: `1e0cfba31c0e6cc4fea14a25e8b4344ef1d6d67d`
 - Design HTML SHA-256:
   `23b527eade8c2fad7d37957c248be709091dfd112bbc6e13c6d76cd092d663a3`
 - Design constraints SHA-256:
@@ -149,7 +149,7 @@ and cannot displace the feature path.
 
 | ID | Outcome | Cx | Hard prerequisites |
 |---|---|---:|---|
-| DASH-001 | Responsive URL-backed route shell | 3 | — |
+| DASH-001 | Responsive URL-backed route shell | 3 | BO-008 |
 | DASH-002 | Recoverable current-run Units membership/catalog | 4 | BO-005 |
 | DASH-003 | Units filters/table/responsive UI | 3 | DASH-001, DASH-002, BO-011 |
 | DASH-004 | Applied pause/resume protocol | 4 | — |
@@ -160,13 +160,20 @@ and cannot displace the feature path.
 | DASH-009 | Durable usage ledger and delta checkpoints | 4 | DASH-008 |
 | DASH-010 | Claude Remote Control usage adapter | 4 | DASH-008; named human protocol gate |
 | DASH-011 | Versioned cost/grouping projection | 4 | DASH-009 |
-| DASH-012 | Meter contract and Codex adapter | 4 | — |
+| DASH-012 | Meter contract and Codex adapter | 4 | DASH-008 |
 | DASH-013 | Claude subscription/API meter adapter | 4 | DASH-012; named human protocol gate |
 | DASH-014 | Canonical current-run summary | 4 | DASH-002 |
 | DASH-015 | Accessible usage/run summary UI | 4 | DASH-001, DASH-003, DASH-010..014 |
 
 These dependencies publish as native GitHub blockers even though companions
-have no Build Order parent. DASH-008 serializes with BO-005 on event ingestion.
+have no Build Order parent. DASH-008 serializes with BO-005 on event ingestion
+and owns the single opaque, privacy-safe provider-account generation shared by
+usage and meter adapters. DASH-009 preserves occurrence-price date, currency,
+account generation and every grouping dimension through compaction. DASH-011
+exposes those qualified groups; DASH-015 alone joins them to provider tiers by
+an exact known provider/backend/generation match. DASH-001 consumes BO-008's
+shared real-route browser harness, and DASH-012 consumes DASH-008's generation
+contract.
 DASH-001/003/005/007/015 and BO-012..014 touch shared dashboard composition or
 CSS and must be sequenced/rebased. DASH-006 and BO-004 coordinate provenance
 schema boundaries. Companion publication receives complexity and

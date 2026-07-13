@@ -15,6 +15,7 @@ from publication_common import (
     string_list,
 )
 from publication_auxiliary_receipt import parse_edges, validate_auxiliary_receipt
+from publication_paths import resolved_document
 
 
 TOP_KEYS = {
@@ -108,12 +109,14 @@ def _issue(
 
 
 def _document(base: Path, value: str, logical_id: object, label: str, report: Report) -> None:
-    relative = Path(value)
-    path = base / relative
-    if relative.is_absolute() or ".." in relative.parts or not path.is_file():
-        report.error(f"{label}.document does not resolve within the planning pack")
+    path = resolved_document(base, value, f"{label}.document", report)
+    if path is None:
         return
-    text = path.read_text(encoding="utf-8")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        report.error(f"{label}.document cannot be read: {exc}")
+        return
     if not text.startswith("# ") or str(logical_id) not in text:
         report.error(f"{label}.document must contain its logical ID and a heading")
 
@@ -142,9 +145,11 @@ def _policy(
 
 def _read_only_refs(value: object, repository: str, report: Report) -> None:
     refs = set(string_list(value, "read_only_issue_refs", report))
-    expected = {f"{repository}#132", f"{repository}#845"}
+    expected = {
+        f"{repository}#{number}" for number in (132, 845, 1033, 1034, 1067)
+    }
     if refs != expected:
-        report.error("read_only_issue_refs must contain exactly repository issues #132 and #845")
+        report.error("read_only_issue_refs must contain exactly #132, #845, #1033, #1034, and #1067")
     for ref in refs:
         if not EXTERNAL_BLOCKER.fullmatch(ref):
             report.error(f"read_only_issue_refs has invalid identity {ref}")

@@ -54,25 +54,26 @@ invalidate an otherwise complete selected graph or hide other roots.
 Icons are derived from lane/status with a generic fallback; no icon label is
 needed in v1.
 
-Store only stable planning identity/provenance in a hidden JSON issue-body
-marker:
+Every published planning issue carries one bounded hidden marker that binds its
+logical identity to the immutable approved planning commit:
 
 ```html
-<!-- aiur-build-order-ticket
-{"schema":1,"logical_id":"BO-004","provenance":"planned","introduced_in_plan_version":1}
+<!-- aiur-planning-issue
+{"schema":2,"logical_id":"BO-004","plan_version":1,"approved_planning_commit":"<40-char-sha>"}
 -->
 ```
 
-For discovered work, use `"provenance":"discovered"` and add
-`"discovered_from":"BO-002"` when applicable. Validate logical-ID uniqueness
-within the root. Do not duplicate labels, membership, blockers, live state, or
-progress in this block.
+The approved planning pack retains planned/discovered provenance and
+introduction version. The live marker deliberately does not duplicate labels,
+membership, blockers, lifecycle, progress, runtime state or mutable
+provenance. Validate marker schema, logical-ID uniqueness, commit resolution,
+and the re-read issue-body hash during publication.
 
 The root may carry the approved baseline pointer:
 
 ```html
-<!-- aiur-build-order-root
-{"schema":1,"plan_version":1,"approved_planning_commit":"<40-char-sha>"}
+<!-- aiur-planning-issue
+{"schema":2,"logical_id":"its-everdred/aiur:build-order-dashboard","plan_version":1,"approved_planning_commit":"<40-char-sha>"}
 -->
 ```
 

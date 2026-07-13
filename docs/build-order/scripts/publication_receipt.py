@@ -14,10 +14,12 @@ from publication_common import (
     valid_rfc3339_utc,
 )
 from publication_parenthood import validate_parent_map
+from publication_labels import validate_routing_labels
 
 
 RECEIPT_KEYS = {
     "checked_at", "dependency_edges", "observed_labels", "observed_parent_issues",
+    "observed_body_evidence",
 }
 EDGE_KEYS = {"ticket_id", "depends_on"}
 
@@ -110,27 +112,11 @@ def _labels(
     if set(value) != set(dash):
         report.error("github_reconciliation.observed_labels keys must match DASH tickets")
     required = set(data.get("required_labels", []))
-    forbidden = set(data.get("forbidden_labels", []))
     for ticket_id, ticket in dash.items():
         labels = set(string_list(
             value.get(ticket_id), f"github_reconciliation.observed_labels.{ticket_id}", report
         ))
         expected = required | {f"complexity:{ticket.get('complexity_points')}"}
-        missing = sorted(expected - labels)
-        if missing:
-            report.error(f"github_reconciliation labels missing for {ticket_id}: " + ", ".join(missing))
-        prohibited = _prohibited_labels(labels, expected, forbidden)
-        if prohibited:
-            report.error(
-                f"github_reconciliation forbidden labels present for {ticket_id}: "
-                + ", ".join(prohibited)
-            )
-
-
-def _prohibited_labels(labels: set[str], expected: set[str], forbidden: set[str]) -> list[str]:
-    result = (labels & forbidden) | {label for label in labels if label.startswith("agent:")}
-    result |= {label for label in labels if label.startswith(("phase:", "build-lane:"))}
-    result |= {"build-order"} & labels
-    result |= {label for label in labels if label.startswith("complexity:") and label not in expected}
-    result |= {label for label in labels if label.startswith("model:") and label not in expected}
-    return sorted(result)
+        validate_routing_labels(
+            labels, expected, f"github_reconciliation labels for {ticket_id}", report
+        )
