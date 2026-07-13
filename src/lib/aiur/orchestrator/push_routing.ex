@@ -79,13 +79,7 @@ defmodule Aiur.Orchestrator.PushRouting do
 
         running =
           Map.new(state.running, fn {issue_id, entry} ->
-            if is_map(entry) and subscribed_to_topic?(Map.get(entry, :identifier), topic) do
-              pushes = Map.get(entry, :blocker_branch_pushes, %{})
-              updated = Map.put(entry, :blocker_branch_pushes, Map.put(pushes, to_string(blocker_identifier), metadata))
-              {issue_id, updated}
-            else
-              {issue_id, entry}
-            end
+            {issue_id, maybe_record_blocker_push(entry, blocker_identifier, topic, metadata)}
           end)
 
         %{state | running: running}
@@ -398,6 +392,17 @@ defmodule Aiur.Orchestrator.PushRouting do
   end
 
   defp event_payload(event), do: Map.get(event, :payload) || Map.get(event, "payload") || event
+
+  defp maybe_record_blocker_push(entry, blocker_identifier, topic, metadata) when is_map(entry) do
+    if subscribed_to_topic?(Map.get(entry, :identifier), topic) do
+      pushes = Map.get(entry, :blocker_branch_pushes, %{})
+      Map.put(entry, :blocker_branch_pushes, Map.put(pushes, to_string(blocker_identifier), metadata))
+    else
+      entry
+    end
+  end
+
+  defp maybe_record_blocker_push(entry, _blocker_identifier, _topic, _metadata), do: entry
 
   defp update_running_entry(state, identifier, fun) do
     case State.find_running_by_identifier(state.running, identifier) do
