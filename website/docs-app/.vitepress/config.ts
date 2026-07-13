@@ -51,7 +51,7 @@ export default defineConfig({
           { text: 'Overview', link: '/' },
           { text: 'Skills', link: '/skills' },
           { text: 'Quick start', link: '/guide/quick-start' },
-          { text: 'Configuration', link: '/reference/configuration' }
+          { text: 'Executor Control Center', link: '/guide/executor-control-center' }
         ]
       },
       {
@@ -59,7 +59,15 @@ export default defineConfig({
         items: [
           { text: 'What Aiur is', link: '/concepts/what-is-aiur' },
           { text: 'How a ticket flows', link: '/concepts/ticket-lifecycle' },
-          { text: 'Operating Aiur', link: '/concepts/operating-aiur' }
+          { text: 'Operating Aiur', link: '/concepts/operating-aiur' },
+          { text: 'Coordination and events', link: '/concepts/coordination' }
+        ]
+      },
+      {
+        text: 'Reference',
+        items: [
+          { text: 'Configuration', link: '/reference/configuration' },
+          { text: 'CLI and controls', link: '/reference/cli' }
         ]
       }
     ],

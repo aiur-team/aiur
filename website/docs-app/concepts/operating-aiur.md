@@ -6,7 +6,7 @@ The terminal agent-list board shows running, paused, and idle ticket rows with r
 
 ## The dashboard
 
-The Phoenix web dashboard supports Basic Auth and can bind to a configured host and port for private access. While a run is active, it opens that run's `logs/agent.md` in a live-updating modal.
+The [Executor Control Center](/guide/executor-control-center) combines the live fleet, durable decision inbox and history, recent outcomes, and a link to offline telemetry analytics. It is read-only by default. Browser writes require an explicit configuration gate, and writable or non-loopback deployments require Basic Auth.
 
 ## Alerts
 
