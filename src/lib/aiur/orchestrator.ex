@@ -96,6 +96,11 @@ defmodule Aiur.Orchestrator do
 
   def handle_info({:retry_issue, _issue_id}, state), do: {:noreply, state}
 
+  def handle_info({:ci_wait_rewake, issue_id, token}, state)
+      when is_binary(issue_id) and is_reference(token) do
+    {:noreply, CiLifecycle.handle_ci_wait_rewake(state, issue_id, token)}
+  end
+
   def handle_info({:retry_comment_rework, issue_number, source, event, attempt}, state)
       when is_integer(attempt) do
     {:noreply, CommentWake.maybe_reactivate_on_comment(state, issue_number, source, event, attempt)}
@@ -162,6 +167,10 @@ defmodule Aiur.Orchestrator do
   @doc false
   @spec read_load(number() | nil, number() | nil) :: float() | :unavailable
   defdelegate read_load(hard_threshold, target), to: DispatchPolicy
+
+  @doc false
+  @spec read_cpu(number() | nil) :: Aiur.SystemCpu.snapshot() | :unavailable
+  defdelegate read_cpu(target), to: DispatchPolicy
 
   @doc false
   @spec read_memory(integer() | nil) :: non_neg_integer() | :unavailable
@@ -233,6 +242,8 @@ defmodule Aiur.Orchestrator do
 
   @spec pause_issue_for_ci_wait(State.t(), Issue.t()) :: State.t()
   def pause_issue_for_ci_wait(state, issue), do: CiLifecycle.pause_issue_for_ci_wait(state, issue)
+  @spec cancel_ci_wait_rewake(State.t(), String.t()) :: State.t()
+  def cancel_ci_wait_rewake(state, issue_id), do: CiLifecycle.cancel_ci_wait_rewake(state, issue_id)
   @spec reconcile_pending_auto_resumes(State.t()) :: State.t()
   def reconcile_pending_auto_resumes(%State{} = state),
     do: PushRouting.reconcile_pending_auto_resumes(state)
@@ -286,6 +297,15 @@ defmodule Aiur.Orchestrator do
           {:ok, integer()} | {:error, term()}
   def send_operator_message(server, identifier, payload),
     do: OM.send_operator_message(server, identifier, payload)
+
+  @spec send_correlated_operator_message(String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def send_correlated_operator_message(identifier, payload),
+    do: OM.send_correlated_operator_message(identifier, payload)
+
+  @spec send_correlated_operator_message(GenServer.server(), String.t(), map()) ::
+          {:ok, map()} | {:error, term()}
+  def send_correlated_operator_message(server, identifier, payload),
+    do: OM.send_correlated_operator_message(server, identifier, payload)
 
   @spec pause_agent(String.t()) :: {:ok, integer()} | {:error, term()}
   def pause_agent(identifier), do: PauseResume.pause_agent(identifier)
@@ -456,6 +476,9 @@ defmodule Aiur.Orchestrator do
 
   def handle_call({:send_operator_message, issue_identifier, payload}, _from, state),
     do: OM.send_operator_message_call(state, issue_identifier, payload)
+
+  def handle_call({:send_correlated_operator_message, issue_identifier, payload}, _from, state),
+    do: OM.send_correlated_operator_message_call(state, issue_identifier, payload)
 
   def handle_call({:control_capabilities, issue_identifier}, _from, state)
       when is_binary(issue_identifier),

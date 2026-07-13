@@ -294,9 +294,9 @@ defmodule Aiur.Orchestrator.PauseResume do
   @spec resume_paused_issue(State.t(), map(), boolean()) :: {{:ok, :resumed} | {:error, term()}, State.t()}
   def resume_paused_issue(%State{} = state, running_entry, operator? \\ true) do
     cond do
-      # The paused agent already holds a slot, so the limit only blocks
-      # resume if the *active* count is already at the cap (which can
-      # happen if `max` was lowered while the agent was paused).
+      # A CI-wait pause releases its reservation; other pauses retain one.
+      # In both cases, resume must wait if the active count is already at the
+      # cap (for example, after CI-wait capacity was filled by other work).
       State.active_running_count(state.running) >= Slots.max_concurrent_agent_limit(state) ->
         {{:error, :max_concurrent_agents_reached}, state}
 

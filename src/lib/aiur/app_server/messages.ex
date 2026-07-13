@@ -6,6 +6,8 @@ defmodule Aiur.AppServer.Messages do
   @version Mix.Project.config()[:version]
   @initialize_id 1
 
+  alias Aiur.AppServer.ToolResultSpill
+
   @spec emit_message((map() -> term()), atom(), map(), map()) :: term()
   def emit_message(on_message, event, details, metadata) when is_function(on_message, 1) do
     message = metadata |> Map.merge(details) |> Map.put(:event, event) |> Map.put(:timestamp, DateTime.utc_now())
@@ -15,15 +17,20 @@ defmodule Aiur.AppServer.Messages do
   @spec default_on_message(term()) :: :ok
   def default_on_message(_message), do: :ok
 
-  @spec normalize_tool_result(term()) :: term()
-  def normalize_tool_result(%{"output" => _output} = result), do: result
-
-  def normalize_tool_result(%{"contentItems" => [%{"text" => output} | _]} = result)
-      when is_binary(output) do
-    Map.put(result, "output", output)
+  @spec normalize_tool_result(term(), map() | nil) :: term()
+  def normalize_tool_result(result, context \\ nil) do
+    result
+    |> lift_tool_output()
+    |> ToolResultSpill.maybe_spill(context)
   end
 
-  def normalize_tool_result(result), do: result
+  defp lift_tool_output(%{"output" => _output} = result), do: result
+
+  defp lift_tool_output(%{"contentItems" => [%{"text" => output} | _]} = result)
+       when is_binary(output),
+       do: Map.put(result, "output", output)
+
+  defp lift_tool_output(result), do: result
 
   @spec tool_call_name(term()) :: String.t() | nil
   def tool_call_name(params) when is_map(params) do
@@ -47,6 +54,15 @@ defmodule Aiur.AppServer.Messages do
   end
 
   def tool_call_arguments(_params), do: %{}
+
+  @doc "Stable protocol identity for one tool call, with the JSON-RPC id as a compatibility fallback."
+  @spec tool_call_id(term(), term()) :: term()
+  def tool_call_id(params, fallback) when is_map(params) do
+    Map.get(params, "callId") || Map.get(params, :callId) ||
+      Map.get(params, "call_id") || Map.get(params, :call_id) || fallback
+  end
+
+  def tool_call_id(_params, fallback), do: fallback
 
   @spec issue_context(map()) :: String.t()
   def issue_context(%{id: issue_id, identifier: identifier}) do

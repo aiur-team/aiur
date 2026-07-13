@@ -22,8 +22,9 @@ defmodule Aiur.OperatorWaitLog do
   use GenServer
   require Logger
 
+  alias Aiur.Metrics
+
   @table :aiur_operator_wait_pending
-  @metrics_subdir "metrics"
   @metrics_filename "operator_message_wait.ndjson"
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -92,20 +93,7 @@ defmodule Aiur.OperatorWaitLog do
        to.
   """
   @spec metrics_file() :: Path.t()
-  def metrics_file do
-    case Application.get_env(:aiur, :operator_wait_metrics_path) do
-      path when is_binary(path) ->
-        path
-
-      _ ->
-        log_file = Application.get_env(:aiur, :log_file, Aiur.LogFile.default_log_file())
-
-        log_file
-        |> Path.dirname()
-        |> Path.join(@metrics_subdir)
-        |> Path.join(@metrics_filename)
-    end
-  end
+  def metrics_file, do: Metrics.file(:operator_wait_metrics_path, @metrics_filename)
 
   defp ets_ready? do
     :ets.whereis(@table) != :undefined

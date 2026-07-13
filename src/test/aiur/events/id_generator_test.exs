@@ -146,4 +146,101 @@ defmodule Aiur.Events.IdGeneratorTest do
       GenServer.stop(pid)
     end
   end
+
+  describe "reserve_durable_id/1" do
+    test "returns strictly increasing durable ids within and across batches", %{path: path} do
+      {:ok, pid} = IdGenerator.start_link(name: nil, path: path, batch_size: 3)
+
+      ids =
+        for _ <- 1..10 do
+          {:ok, id} = IdGenerator.reserve_durable_id(pid)
+          id
+        end
+
+      assert ids == Enum.sort(ids)
+      assert Enum.uniq(ids) == ids
+      GenServer.stop(pid)
+    end
+
+    test "shares the same monotonic counter as next_id/1", %{path: path} do
+      {:ok, pid} = IdGenerator.start_link(name: nil, path: path, batch_size: 5)
+
+      first = IdGenerator.next_id(pid)
+      {:ok, second} = IdGenerator.reserve_durable_id(pid)
+      third = IdGenerator.next_id(pid)
+
+      assert [first, second, third] == Enum.sort([first, second, third])
+      assert Enum.uniq([first, second, third]) == [first, second, third]
+      GenServer.stop(pid)
+    end
+
+    test "fails closed instead of degrading when the counter path is unwritable", %{tmp_dir: tmp_dir} do
+      Process.flag(:trap_exit, true)
+
+      unwritable_dir = Path.join(tmp_dir, "unwritable")
+      File.mkdir_p!(unwritable_dir)
+      File.chmod!(unwritable_dir, 0o500)
+      path = Path.join(unwritable_dir, "event_id")
+      on_exit(fn -> File.chmod!(unwritable_dir, 0o700) end)
+
+      capture_log(fn ->
+        {:ok, pid} = IdGenerator.start_link(name: nil, path: path, batch_size: 2)
+
+        assert {:error, :not_durable} = IdGenerator.reserve_durable_id(pid)
+        # The generic fail-open API is unaffected by the strict path's refusal.
+        assert is_integer(IdGenerator.next_id(pid))
+
+        GenServer.stop(pid)
+      end)
+    end
+
+    test "a duplicate strict call after a refused reservation retries from the same position", %{tmp_dir: tmp_dir} do
+      Process.flag(:trap_exit, true)
+
+      unwritable_dir = Path.join(tmp_dir, "unwritable")
+      File.mkdir_p!(unwritable_dir)
+      File.chmod!(unwritable_dir, 0o500)
+      path = Path.join(unwritable_dir, "event_id")
+      on_exit(fn -> File.chmod!(unwritable_dir, 0o700) end)
+
+      capture_log(fn ->
+        {:ok, pid} = IdGenerator.start_link(name: nil, path: path, batch_size: 2)
+
+        before_position = IdGenerator.peek(pid)
+        assert {:error, :not_durable} = IdGenerator.reserve_durable_id(pid)
+        assert {:error, :not_durable} = IdGenerator.reserve_durable_id(pid)
+        assert IdGenerator.peek(pid) == before_position
+
+        GenServer.stop(pid)
+      end)
+    end
+
+    test "recovers once the counter path becomes writable again, instead of staying stuck forever", %{
+      tmp_dir: tmp_dir
+    } do
+      Process.flag(:trap_exit, true)
+
+      unwritable_dir = Path.join(tmp_dir, "unwritable")
+      File.mkdir_p!(unwritable_dir)
+      File.chmod!(unwritable_dir, 0o500)
+      path = Path.join(unwritable_dir, "event_id")
+      on_exit(fn -> File.chmod!(unwritable_dir, 0o700) end)
+
+      capture_log(fn ->
+        {:ok, pid} = IdGenerator.start_link(name: nil, path: path, batch_size: 2)
+
+        assert {:error, :not_durable} = IdGenerator.reserve_durable_id(pid)
+
+        # The underlying issue resolves (operator fixes permissions) —
+        # a later strict call in the SAME still-open batch must retry
+        # persistence rather than staying permanently refused.
+        File.chmod!(unwritable_dir, 0o700)
+
+        assert {:ok, id} = IdGenerator.reserve_durable_id(pid)
+        assert is_integer(id)
+
+        GenServer.stop(pid)
+      end)
+    end
+  end
 end

@@ -113,6 +113,10 @@ defmodule Aiur.Application do
       Aiur.Events.Exchange,
       if(debug?, do: Aiur.RunTelemetry.Supervisor),
       Aiur.Events.Publisher,
+      Aiur.DecisionStore,
+      {Aiur.DecisionMetrics.Writer, path: Aiur.DecisionMetrics.metrics_file()},
+      Aiur.DecisionMetrics,
+      Aiur.RecentMergeStore,
       Aiur.GitHub.CodeOwners,
       {Registry, keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry},
       Aiur.Events.SubscriptionStoreSupervisor,
@@ -126,6 +130,7 @@ defmodule Aiur.Application do
       Aiur.Logs.Retention,
       # Dashboard: always on interactively; in headless only when the
       # operator opted in via `--port`/`server.port` (see `dashboard?/1`).
+      if(dashboard?, do: AiurWeb.ControlCenterCache),
       if(dashboard?, do: Aiur.HttpServer),
       Aiur.Opencode.TokenRegistry,
       Aiur.Opencode.ActiveTurns,

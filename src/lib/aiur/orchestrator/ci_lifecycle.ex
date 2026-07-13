@@ -7,11 +7,12 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   require Logger
 
   alias Aiur.{CIApprovalStore, Config, Issue, Tracker}
-  alias Aiur.Events.{GithubCIPoller, Publisher, Sanitizer, UniversalSubscriptions}
+  alias Aiur.Events.{GithubCIPoller, IdGenerator, Publisher, Sanitizer, UniversalSubscriptions}
 
   alias Aiur.Orchestrator.{
     DispatchPolicy,
     HumanReview,
+    OperatorMessages,
     PauseResume,
     Reconciler,
     RetryEngine,
@@ -22,6 +23,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   @ci_failure_excerpt_message_max 1_200
   @ci_wait_state "ci-wait"
   @human_review_state "human-review"
+  @active_handoff_state "in-progress"
   @ci_poll_states [@ci_wait_state, @human_review_state]
 
   @spec poll_github_ci(State.t(), keyword()) :: State.t()
@@ -34,9 +36,21 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   @spec maybe_resume_for_ci_failure(State.t(), String.t()) :: State.t()
   def maybe_resume_for_ci_failure(%State{} = state, identifier) when is_binary(identifier) do
+    maybe_resume_for_ci_terminal(state, identifier, :failed)
+  end
+
+  @spec maybe_resume_for_ci_terminal(State.t(), String.t(), :passed | :failed) :: State.t()
+  def maybe_resume_for_ci_terminal(%State{} = state, identifier, outcome)
+      when is_binary(identifier) and outcome in [:passed, :failed] do
     case State.find_running_by_identifier(state.running, identifier) do
       %{control: %{status: :paused}, paused_reason: :ci_wait} = running_entry ->
-        maybe_resume_ci_wait_runner(state, running_entry, identifier)
+        revalidate_ci_terminal_wake(
+          state,
+          running_entry,
+          identifier,
+          outcome,
+          &Tracker.fetch_issue_states_by_ids/1
+        )
 
       _ ->
         state
@@ -101,6 +115,11 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       %{control: %{status: :deactivated}} = running_entry ->
         Reconciler.refresh_running_entry_issue(state, issue, running_entry)
 
+      %{control: %{status: :paused}, paused_reason: :ci_wait} = running_entry ->
+        state
+        |> Reconciler.refresh_running_entry_issue(issue, running_entry)
+        |> arm_ci_wait_rewake(issue)
+
       %{control: %{status: :paused}} = running_entry ->
         Reconciler.refresh_running_entry_issue(state, issue, running_entry)
 
@@ -116,7 +135,67 @@ defmodule Aiur.Orchestrator.CiLifecycle do
           |> Map.put(:issue, issue)
           |> Map.put(:paused_reason, :ci_wait)
 
-        PauseResume.transition_control_status(state, running_entry, :paused, "ci_wait")
+        state
+        |> PauseResume.transition_control_status(running_entry, :paused, "ci_wait")
+        |> arm_ci_wait_rewake(issue)
+
+      _ ->
+        state
+    end
+  end
+
+  @doc false
+  @spec arm_ci_wait_rewake(State.t(), Issue.t()) :: State.t()
+  def arm_ci_wait_rewake(%State{} = state, %Issue{id: issue_id} = issue)
+      when is_binary(issue_id) do
+    rewakes = ci_wait_rewakes(state)
+
+    if Map.has_key?(rewakes, issue_id) do
+      state
+    else
+      delay_ms = Config.ci_wait_rewake_minutes() * 60_000
+      token = make_ref()
+      timer_ref = Process.send_after(self(), {:ci_wait_rewake, issue_id, token}, delay_ms)
+
+      rewake = %{
+        timer_ref: timer_ref,
+        token: token,
+        identifier: issue.identifier || issue_id,
+        deadline_ms: System.monotonic_time(:millisecond) + delay_ms
+      }
+
+      put_ci_wait_rewakes(state, Map.put(rewakes, issue_id, rewake))
+    end
+  end
+
+  def arm_ci_wait_rewake(%State{} = state, _issue), do: state
+
+  @doc false
+  @spec cancel_ci_wait_rewake(State.t(), String.t() | nil) :: State.t()
+  def cancel_ci_wait_rewake(%State{} = state, issue_id) when is_binary(issue_id) do
+    case Map.pop(ci_wait_rewakes(state), issue_id) do
+      {%{timer_ref: timer_ref}, remaining} ->
+        if is_reference(timer_ref), do: Process.cancel_timer(timer_ref)
+        put_ci_wait_rewakes(state, remaining)
+
+      {nil, _remaining} ->
+        state
+    end
+  end
+
+  def cancel_ci_wait_rewake(%State{} = state, _issue_id), do: state
+
+  @doc false
+  @spec handle_ci_wait_rewake(State.t(), String.t(), reference(), keyword()) :: State.t()
+  def handle_ci_wait_rewake(%State{} = state, issue_id, token, opts \\ [])
+      when is_binary(issue_id) and is_reference(token) do
+    rewakes = ci_wait_rewakes(state)
+
+    case Map.get(rewakes, issue_id) do
+      %{token: ^token} ->
+        state = put_ci_wait_rewakes(state, Map.delete(rewakes, issue_id))
+        issue_fetcher = Keyword.get(opts, :issue_fetcher, &Tracker.fetch_issue_states_by_ids/1)
+        handle_current_ci_wait_rewake(state, issue_id, issue_fetcher)
 
       _ ->
         state
@@ -184,8 +263,9 @@ defmodule Aiur.Orchestrator.CiLifecycle do
            bypass_contamination: true,
            dedup_key: ci_event_dedup_key(target, outcome, Map.get(result, :head_sha))
          ) do
-      {:ok, _id, _subscribers} ->
-        state
+      {:ok, id, _subscribers} ->
+        event = Map.merge(payload, %{id: id, topic: topic})
+        OperatorMessages.enqueue_event_digest_item(state, target, [event], event)
 
       :deduped ->
         state
@@ -275,9 +355,49 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   defp apply_ci_poll_result_for_target(state, result, issues_by_target) do
     case Map.get(issues_by_target, Map.get(result, :target)) do
-      %Issue{} = issue -> apply_ci_poll_result(state, issue, result)
-      _ -> state
+      %Issue{} = issue ->
+        state
+        |> stash_last_ci_result(issue, result)
+        |> apply_ci_poll_result(issue, result)
+
+      _ ->
+        state
     end
+  end
+
+  # Read-only projection of the poll result for OCC-5's fleet-state row (PR
+  # number / CI decision), cached by ticket identifier independently of
+  # whatever tracker transition (or no-op) the result below triggers — a
+  # lifecycle-level cache rather than a field on the running entry so idle rows
+  # (no live process, e.g. after the agent's turn ends while still cycling
+  # through ci-wait) keep showing the last-known CI/PR state too. Only
+  # replaces the cached value when the projection actually changed, so a
+  # genuinely redundant poll for an unchanged head stays a true no-op for
+  # `state.running`/`state.claimed` and the persisted lifecycle markers.
+  defp stash_last_ci_result(%State{} = state, %Issue{} = issue, result) do
+    case ci_target_for_issue(issue) do
+      nil ->
+        state
+
+      target ->
+        projection = ci_result_projection(result)
+        poll_cache = Map.get(state.ci_lifecycle, :poll_cache, %{})
+
+        if Map.get(poll_cache, target) == projection do
+          state
+        else
+          ci_lifecycle = Map.put(state.ci_lifecycle, :poll_cache, Map.put(poll_cache, target, projection))
+          %{state | ci_lifecycle: ci_lifecycle}
+        end
+    end
+  end
+
+  defp ci_result_projection(result) do
+    %{
+      decision: Map.get(result, :decision),
+      pr_number: Map.get(result, :pr_number),
+      head_sha: Map.get(result, :head_sha)
+    }
   end
 
   defp all_ci_targets_failed?([], _errors), do: false
@@ -326,12 +446,16 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   defp apply_ci_poll_result(state, _issue, _result), do: state
 
   defp transition_ci_pass(state, issue, result) do
-    case Tracker.update_issue_state(to_string(issue.id || issue.identifier), @human_review_state) do
+    case Tracker.update_issue_state(to_string(issue.id || issue.identifier), @active_handoff_state) do
       :ok ->
+        active_issue = %{issue | state: @active_handoff_state}
+
         state
         |> clear_ci_test_failure_retry(issue)
         |> remember_ci_approved_head(issue, result)
-        |> Reconciler.refresh_running_issue_state(%{issue | state: @human_review_state})
+        |> cancel_ci_wait_rewake(issue.id)
+        |> Reconciler.refresh_running_issue_state(active_issue)
+        |> ensure_ci_terminal_subscription(issue)
         |> publish_ci_terminal_event(issue, result, :passed)
 
       {:error, reason} ->
@@ -343,12 +467,15 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   defp transition_ci_failure(state, issue, result) do
     case Tracker.update_issue_state(to_string(issue.id || issue.identifier), "rework") do
       :ok ->
+        rework_issue = %{issue | state: "rework"}
+
         state
         |> clear_ci_test_failure_retry(issue)
         |> clear_ci_approved_head(issue)
-        |> ensure_ci_failure_subscription(issue)
+        |> cancel_ci_wait_rewake(issue.id)
+        |> Reconciler.refresh_running_issue_state(rework_issue)
+        |> ensure_ci_terminal_subscription(issue)
         |> publish_ci_terminal_event(issue, result, :failed)
-        |> maybe_reactivate_after_ci_failure(%{issue | state: "rework"})
 
       {:error, reason} ->
         Logger.warning("CI failure transition skipped: #{State.issue_context(issue)} reason=#{inspect(reason)}")
@@ -356,7 +483,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     end
   end
 
-  defp maybe_reactivate_after_ci_failure(state, issue) do
+  defp maybe_reactivate_after_ci_wait_fallback(state, issue) do
     if Issue.paused?(issue) do
       Reconciler.refresh_running_issue_state(state, issue)
     else
@@ -455,21 +582,117 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
     approved_heads = Map.take(state.ci_lifecycle.approved_heads, targets)
     test_failure_heads = Map.take(state.ci_lifecycle.test_failure_heads, targets)
+    poll_cache = state.ci_lifecycle |> Map.get(:poll_cache, %{}) |> Map.take(targets)
 
     if approved_heads == state.ci_lifecycle.approved_heads and
-         test_failure_heads == state.ci_lifecycle.test_failure_heads do
+         test_failure_heads == state.ci_lifecycle.test_failure_heads and
+         poll_cache == Map.get(state.ci_lifecycle, :poll_cache, %{}) do
       state
     else
-      ci_lifecycle = %{approved_heads: approved_heads, test_failure_heads: test_failure_heads}
+      ci_lifecycle =
+        state.ci_lifecycle
+        |> Map.put(:approved_heads, approved_heads)
+        |> Map.put(:test_failure_heads, test_failure_heads)
+        |> Map.put(:poll_cache, poll_cache)
+
       persist_ci_lifecycle_state(%{state | ci_lifecycle: ci_lifecycle})
     end
   end
 
-  defp ensure_ci_failure_subscription(state, issue) do
+  defp ensure_ci_terminal_subscription(state, issue) do
     case ci_target_for_issue(issue) do
       target when is_binary(target) ->
         :ok = UniversalSubscriptions.attach(target)
         state
+
+      _ ->
+        state
+    end
+  end
+
+  defp handle_current_ci_wait_rewake(state, issue_id, issue_fetcher) do
+    case issue_fetcher.([issue_id]) do
+      {:ok, issues} when is_list(issues) ->
+        case Enum.find(issues, &match?(%Issue{id: ^issue_id}, &1)) do
+          %Issue{} = issue -> maybe_rewake_current_ci_wait(state, issue)
+          nil -> state
+        end
+
+      {:error, reason} ->
+        Logger.warning("CI wait fallback revalidation failed: issue_id=#{issue_id} reason=#{inspect(reason)}")
+        rearm_ci_wait_rewake(state, issue_id)
+
+      other ->
+        Logger.warning(
+          "CI wait fallback revalidation returned unexpected value: " <>
+            "issue_id=#{issue_id} value=#{inspect(other)}"
+        )
+
+        rearm_ci_wait_rewake(state, issue_id)
+    end
+  end
+
+  defp maybe_rewake_current_ci_wait(state, issue) do
+    case Map.get(state.running, issue.id) do
+      %{control: %{status: :paused}, paused_reason: :ci_wait} = running_entry ->
+        cond do
+          not ci_wait_state?(issue.state) ->
+            state
+
+          Issue.paused?(issue) ->
+            Reconciler.refresh_running_entry_issue(state, issue, running_entry)
+
+          not DispatchPolicy.issue_routable_to_worker?(issue) ->
+            state
+
+          true ->
+            transition_ci_wait_fallback(state, issue)
+        end
+
+      _ ->
+        state
+    end
+  end
+
+  defp transition_ci_wait_fallback(state, issue) do
+    case Tracker.update_issue_state(to_string(issue.id || issue.identifier), @active_handoff_state) do
+      :ok ->
+        active_issue = %{issue | state: @active_handoff_state}
+
+        state
+        |> Reconciler.refresh_running_issue_state(active_issue)
+        |> enqueue_ci_wait_rewake_handoff(active_issue)
+        |> maybe_reactivate_after_ci_wait_fallback(active_issue)
+
+      {:error, reason} ->
+        Logger.warning("CI wait fallback transition failed: #{State.issue_context(issue)} reason=#{inspect(reason)}")
+        arm_ci_wait_rewake(state, issue)
+    end
+  end
+
+  defp enqueue_ci_wait_rewake_handoff(state, issue) do
+    identifier = issue.identifier || issue.id
+
+    message =
+      "No terminal CI event arrived before the fallback timeout. " <>
+        "Check CI once; if it is still pending, return to agent:ci-wait without polling."
+
+    event = %{
+      id: IdGenerator.next_id(),
+      topic: "ticket.#{identifier}.ci.rewake",
+      source: :runtime,
+      reason: :ci_wait_timeout,
+      timeout_minutes: Config.ci_wait_rewake_minutes(),
+      message: message
+    }
+
+    OperatorMessages.enqueue_event_digest_item(state, identifier, [event], event)
+  end
+
+  defp rearm_ci_wait_rewake(state, issue_id) do
+    case Map.get(state.running, issue_id) do
+      %{issue: %Issue{} = issue, control: %{status: :paused}, paused_reason: :ci_wait} ->
+        arm_ci_wait_rewake(state, issue)
 
       _ ->
         state
@@ -484,13 +707,66 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     end
   end
 
+  defp revalidate_ci_terminal_wake(state, running_entry, identifier, outcome, issue_fetcher) do
+    issue_id = get_in(running_entry, [:issue, Access.key(:id)])
+
+    case issue_fetcher.([issue_id]) do
+      {:ok, issues} when is_list(issues) ->
+        resume_revalidated_ci_terminal(state, running_entry, identifier, outcome, issue_id, issues)
+
+      {:error, reason} ->
+        Logger.warning("CI terminal wake revalidation failed: issue_id=#{issue_id} reason=#{inspect(reason)}")
+
+        state
+
+      other ->
+        Logger.warning(
+          "CI terminal wake revalidation returned unexpected value: " <>
+            "issue_id=#{issue_id} value=#{inspect(other)}"
+        )
+
+        state
+    end
+  end
+
+  defp resume_revalidated_ci_terminal(state, running_entry, identifier, outcome, issue_id, issues) do
+    case Enum.find(issues, &match?(%Issue{id: ^issue_id}, &1)) do
+      %Issue{} = issue ->
+        state = Reconciler.refresh_running_entry_issue(state, issue, running_entry)
+        refreshed_entry = Map.fetch!(state.running, issue_id)
+
+        if terminal_handoff_state?(issue, outcome) do
+          state
+          |> cancel_ci_wait_rewake(issue_id)
+          |> maybe_resume_ci_wait_runner(refreshed_entry, identifier)
+        else
+          state
+        end
+
+      nil ->
+        state
+    end
+  end
+
+  defp terminal_handoff_state?(%Issue{} = issue, :passed) do
+    DispatchPolicy.issue_routable_to_worker?(issue) and
+      not Issue.paused?(issue) and
+      DispatchPolicy.normalize_issue_state(issue.state) == @active_handoff_state
+  end
+
+  defp terminal_handoff_state?(%Issue{} = issue, :failed) do
+    DispatchPolicy.issue_routable_to_worker?(issue) and
+      not Issue.paused?(issue) and
+      DispatchPolicy.normalize_issue_state(issue.state) == "rework"
+  end
+
   defp resume_ci_wait_runner(state, running_entry, identifier) do
     case PauseResume.resume_paused_issue(state, running_entry, false) do
       {{:ok, :resumed}, next_state} ->
         next_state
 
       {{:error, reason}, next_state} ->
-        Logger.warning("CI failure auto-resume deferred: issue_identifier=#{identifier} reason=#{inspect(reason)}")
+        Logger.warning("CI terminal auto-resume deferred: issue_identifier=#{identifier} reason=#{inspect(reason)}")
         next_state
     end
   end
@@ -501,6 +777,12 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   end
 
   defp ci_event_dedup_key(_target, _outcome, _head_sha), do: nil
+
+  defp ci_wait_rewakes(%State{} = state), do: Map.get(state.ci_lifecycle, :rewakes, %{})
+
+  defp put_ci_wait_rewakes(%State{} = state, rewakes) when is_map(rewakes) do
+    %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :rewakes, rewakes)}
+  end
 
   defp ci_failure_excerpt(failures) when is_list(failures) do
     Enum.find_value(failures, fn

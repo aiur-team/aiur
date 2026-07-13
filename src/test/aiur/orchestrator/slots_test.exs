@@ -32,6 +32,19 @@ defmodule Aiur.Orchestrator.SlotsTest do
 
       assert Slots.available_slots(state) == 0
     end
+
+    test "releases CI-wait pauses while other pauses keep their reservation" do
+      state = %State{
+        max_concurrent_agents: 3,
+        running: %{
+          "active" => running_entry(:working),
+          "ci-wait" => running_entry(:paused, nil, :ci_wait),
+          "operator" => running_entry(:paused, nil, :operator_pause)
+        }
+      }
+
+      assert Slots.available_slots(state) == 1
+    end
   end
 
   describe "max_concurrent_agent_status/1" do
@@ -88,11 +101,13 @@ defmodule Aiur.Orchestrator.SlotsTest do
     end
   end
 
-  defp running_entry(status, worker_host \\ nil) do
-    %{
+  defp running_entry(status, worker_host \\ nil, paused_reason \\ nil) do
+    entry = %{
       control: %{status: status},
       worker_host: worker_host,
       issue: %Issue{id: "issue-#{status}", identifier: "repo##{status}", state: "todo"}
     }
+
+    if is_nil(paused_reason), do: entry, else: Map.put(entry, :paused_reason, paused_reason)
   end
 end

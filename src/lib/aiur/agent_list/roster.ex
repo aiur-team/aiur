@@ -61,17 +61,8 @@ defmodule Aiur.AgentList.Roster do
 
   defp refresh_open_attentions(active_set) do
     Enum.reduce(MapSet.to_list(active_set), %{}, fn id, acc ->
-      Map.put(acc, id, attention_count_for(id))
+      Map.put(acc, id, SubscriptionStore.open_attention_count(id))
     end)
-  end
-
-  defp attention_count_for(id) do
-    case SubscriptionStore.snapshot(id) do
-      %{open_attentions: list} when is_list(list) -> length(list)
-      _ -> 0
-    end
-  rescue
-    _ -> 0
   end
 
   # For each `:deactivated` summary, ensure its `progress_by_id` ring

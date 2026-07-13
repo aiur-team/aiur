@@ -26,7 +26,7 @@ defmodule Aiur.Init.LabelsTest do
   end
 
   defp all_lifecycle_labels do
-    Labels.state_labels("agent")
+    Labels.state_labels("agent") ++ Labels.required_rate_limit_fallback_labels("agent")
   end
 
   test "all labels already present: prints created status, no create_labels call" do
@@ -76,6 +76,35 @@ defmodule Aiur.Init.LabelsTest do
     assert_received :create_called
     # Press Enter prompt goes through io.input, which sends {:input_label, ...}
     assert_received {:input_label, "Press Enter to create them"}
+  end
+
+  test "codex-only setup provisions fallback labels with the configured prefix" do
+    parent = self()
+
+    deps = %{
+      list_labels: fn _tracker -> {:ok, []} end,
+      create_labels: fn _tracker, labels ->
+        send(parent, {:create_called, labels})
+        :ok
+      end
+    }
+
+    answers = %{
+      confirm: %{
+        "Create the complexity labels?" => false,
+        "Create the model labels?" => false
+      }
+    }
+
+    tracker = %{kind: "github", repo: "o/r", label_prefix: "team"}
+    assert :ok = InitLabels.setup_labels(io(parent, answers), deps, tracker, ["codex"])
+
+    assert_received {:create_called, required}
+    assert "team:todo" in required
+    assert "team:rate-limit-fallback" in required
+    assert "model:claude" in required
+    refute Enum.any?(required, &String.starts_with?(&1, "agent:"))
+    refute_received {:create_called, _optional}
   end
 
   test "create_labels error returns :error and shows gh fallback" do

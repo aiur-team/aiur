@@ -32,10 +32,22 @@ Continuation context:
 - `mise exec -- mix` and `mise exec -- rg` work out of the box — `HEX_HOME` / `MIX_HOME` / `MISE_TRUSTED_CONFIG_PATHS` are pre-set per workspace and `mise trust` has already been run on the workspace `mise.toml`. Do not redeclare these env vars on individual commands.
 - For module-only verification (pure function calls, no app supervision needed), use `mix run --no-start -e ...`. Plain `mix run -e ...` tries to start the full Aiur application and fails in agent workspaces (no local `.aiurconfig`).
 - For real implementation tickets, before writing code read `src/.formatter.exs` and Credo's project settings in `src/mix.exs` so changes are lint-clean on the first pass. Keep changes small, add tests, and run the scoped local pre-PR gate before opening/finalizing a PR: `mix compile --warnings-as-errors`, `mix format`, and affected tests only (the test files for modules you touched plus directly related tests). Run every affected-test invocation with `mix test --max-cases 4` so one agent cannot monopolize the host. Fix failures in this scoped gate, then push to `origin` and open a PR against `v2`. Do not run Credo locally. Do not gate PR-opening on a clean full-suite `mix test` run or loop on unrelated suite flakes; CI runs the authoritative full lint and full test suite through `make ci` on every PR.
+- For GitHub implementation tickets, once the draft PR is open, self-reviewed, and no code work remains, move to `agent:ci-wait` and end the turn. Do not loop on `gh pr checks`; the daemon delivers CI pass/fail context. On pass, mark the draft ready and move to `agent:human-review`; on failure, use the delivered checks and begin rework. A timeout re-wake permits exactly one check, followed by terminal handling or another `agent:ci-wait` pause.
 - For test tickets that explicitly say not to change code, do not create commits or PRs.
 
 ## How to operate
 
 Follow the **`using-aiur`** skill for how to run this ticket: the `agent:*` label lifecycle, the brainstorm→plan→work→review turn workflow and which CE skill to use when, milestone alerts (`emit_alert`), the Agent Workpad template, complexity routing, and the dev loop / commit / PR conventions. Load it before you start. Cross-ticket coordination and the operator-bar progress protocol are covered in the shared instructions above this template.
+
+### Large design imports
+
+Load the `design-import` skill before a frontend/design skill imports a design
+artifact that may exceed 100 KiB. It uses an authenticated writable
+`claude --print` session to fetch the artifact directly into a ticket-local
+directory, verify it, and inspect it from disk in bounded chunks. If a tool
+result reports that Aiur spilled its output to `.aiur-runtime/tool-results/`, continue
+from that file path instead of retrying the tool call. This disk-first path is
+the recovery path for large HTML design exports and does not require restarting
+the agent thread.
 
 If a declared blocker pushes `ticket.N.branch.push`, treat it as an inspect-and-stack cue: load `/aiur-agent`, fetch and diff the actual validated ref supplied by the event payload (do not guess `origin/aiur/N`), adopt the real API when present, remove temporary stubs before pushing, and keep your PR stacked on the blocker branch while it remains unmerged. If the push is irrelevant or unusable, keep only that integration point blocked and record the concrete reason.

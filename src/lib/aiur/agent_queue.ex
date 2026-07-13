@@ -24,6 +24,8 @@ defmodule Aiur.AgentQueue do
         immediate: immediate,
         fallback: Keyword.get(opts, :fallback)
       },
+      action_id: Keyword.get(opts, :action_id),
+      correlation: Keyword.get(opts, :correlation),
       causal_refs: Keyword.get(opts, :causal_refs, []),
       turn_id: Keyword.get(opts, :turn_id)
     }

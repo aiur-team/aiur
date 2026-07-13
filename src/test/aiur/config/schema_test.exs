@@ -14,6 +14,63 @@ defmodule Aiur.Config.SchemaTest do
     end
   end
 
+  describe "agent rate_limit_fallback" do
+    test "defaults to claude" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.agent.rate_limit_fallback == "claude"
+    end
+
+    test "rejects a resumable target that could replace the codex session handle" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"agent" => %{"rate_limit_fallback" => "claude-repl"}})
+
+      assert message =~ "rate_limit_fallback"
+      assert message =~ "must be \"claude\""
+    end
+
+    test "accepts an empty string to disable" do
+      assert {:ok, settings} = Schema.parse(%{"agent" => %{"rate_limit_fallback" => ""}})
+      assert settings.agent.rate_limit_fallback == ""
+    end
+
+    test "rejects codex as the fallback target" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"agent" => %{"rate_limit_fallback" => "codex"}})
+
+      assert message =~ "rate_limit_fallback"
+      assert message =~ "must be \"claude\""
+    end
+
+    test "rejects an unknown backend" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"agent" => %{"rate_limit_fallback" => "bogus"}})
+
+      assert message =~ "rate_limit_fallback"
+      assert message =~ "must be \"claude\""
+    end
+  end
+
+  describe "agent CI-wait fallback" do
+    test "defaults to five minutes and accepts a positive override" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.agent.ci_wait_rewake_minutes == 5
+
+      assert {:ok, configured} =
+               Schema.parse(%{"agent" => %{"ci_wait_rewake_minutes" => 9}})
+
+      assert configured.agent.ci_wait_rewake_minutes == 9
+    end
+
+    test "rejects zero, negative, and non-integer values with the dotted field path" do
+      for value <- [0, -1, "five"] do
+        assert {:error, {:invalid_workflow_config, message}} =
+                 Schema.parse(%{"agent" => %{"ci_wait_rewake_minutes" => value}})
+
+        assert message =~ "agent.ci_wait_rewake_minutes"
+      end
+    end
+  end
+
   # FI-CFG-005: StringOrMap cast rejects non-string, non-map values
   describe "StringOrMap" do
     test "casts strings and maps, rejects everything else" do
@@ -195,6 +252,44 @@ defmodule Aiur.Config.SchemaTest do
       assert settings.events.block_state_debounce_seconds == 20
       assert settings.events.custom_events_per_turn_max == 10
       assert settings.events.codeowners_refresh_seconds == 7_200
+    end
+
+    test "Decisions section defaults supervisor autonomy to denied" do
+      {:ok, settings} = Schema.parse(%{})
+
+      assert settings.decisions.supervisor_allowed_kinds == []
+      assert settings.decisions.supervisor_allow_non_reversible == false
+    end
+
+    test "Decisions section normalizes an explicit supervisor policy" do
+      {:ok, settings} =
+        Schema.parse(%{
+          "decisions" => %{
+            "supervisor_allowed_kinds" => [" Architecture ", "product", "ARCHITECTURE"],
+            "supervisor_allow_non_reversible" => true
+          }
+        })
+
+      assert settings.decisions.supervisor_allowed_kinds == ["architecture", "product"]
+      assert settings.decisions.supervisor_allow_non_reversible == true
+    end
+
+    test "Decisions section rejects unsafe or unbounded supervisor kinds" do
+      invalid_kind_sets = [
+        [""],
+        ["   "],
+        ["architecture\n"],
+        ["architecture\u0000credential"],
+        [String.duplicate("a", 101)],
+        Enum.map(1..101, &"kind-#{&1}")
+      ]
+
+      for kinds <- invalid_kind_sets do
+        assert {:error, {:invalid_workflow_config, message}} =
+                 Schema.parse(%{"decisions" => %{"supervisor_allowed_kinds" => kinds}})
+
+        assert message =~ "decisions.supervisor_allowed_kinds"
+      end
     end
 
     test "Hooks section parses with defaults" do

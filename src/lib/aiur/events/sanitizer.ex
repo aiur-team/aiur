@@ -1,5 +1,6 @@
 defmodule Aiur.Events.Sanitizer do
   alias Aiur.GitHub.CodeOwners
+  alias Aiur.SecretRedactor
 
   @moduledoc """
   Four-layer scrub of GitHub-sourced event payloads before they reach
@@ -51,19 +52,6 @@ defmodule Aiur.Events.Sanitizer do
   @commit_subject_max 200
   @comment_body_max 500
   @pr_review_body_max 500
-
-  @redaction_patterns [
-    {~r/sk-[A-Za-z0-9_\-]{20,}/, "[REDACTED:sk]"},
-    {~r/github_pat_[A-Za-z0-9_]{20,}/, "[REDACTED:github_pat]"},
-    {~r/ghp_[A-Za-z0-9]{36,}/, "[REDACTED:ghp]"},
-    {~r/gho_[A-Za-z0-9]{36,}/, "[REDACTED:gho]"},
-    {~r/ghu_[A-Za-z0-9]{36,}/, "[REDACTED:ghu]"},
-    {~r/ghs_[A-Za-z0-9]{36,}/, "[REDACTED:ghs]"},
-    {~r/xoxb-[A-Za-z0-9-]+/, "[REDACTED:xoxb]"},
-    {~r/AKIA[0-9A-Z]{16}/, "[REDACTED:aws]"},
-    {~r/ASIA[0-9A-Z]{16}/, "[REDACTED:aws_session]"},
-    {~r/AIza[0-9A-Za-z\-_]{35}/, "[REDACTED:google]"}
-  ]
 
   @doc """
   Apply the redact-then-truncate-then-escape pass over a payload's
@@ -230,11 +218,7 @@ defmodule Aiur.Events.Sanitizer do
     |> html_escape()
   end
 
-  defp redact(text) when is_binary(text) do
-    Enum.reduce(@redaction_patterns, text, fn {pattern, replacement}, acc ->
-      Regex.replace(pattern, acc, replacement)
-    end)
-  end
+  defp redact(text) when is_binary(text), do: SecretRedactor.redact(text)
 
   defp truncate(text, :commit_subject), do: codepoint_truncate(text, @commit_subject_max)
   defp truncate(text, :comment_body), do: codepoint_truncate(text, @comment_body_max)
