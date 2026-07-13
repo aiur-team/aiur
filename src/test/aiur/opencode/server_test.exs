@@ -117,17 +117,19 @@ defmodule Aiur.Opencode.ServerTest do
 
   defp await_session_message_seq(db_path, session_id, attempts) do
     seq =
-      with {:ok, conn} <- Basic.open(db_path) do
-        try do
-          case Basic.rows(Basic.exec(conn, "SELECT seq FROM session_message WHERE session_id = ? ORDER BY seq DESC LIMIT 1", [session_id])) do
-            {:ok, [[seq]], _} when is_integer(seq) -> seq
-            _ -> nil
+      case Basic.open(db_path) do
+        {:ok, conn} ->
+          try do
+            case Basic.rows(Basic.exec(conn, "SELECT seq FROM session_message WHERE session_id = ? ORDER BY seq DESC LIMIT 1", [session_id])) do
+              {:ok, [[seq]], _} when is_integer(seq) -> seq
+              _ -> nil
+            end
+          after
+            Basic.close(conn)
           end
-        after
-          Basic.close(conn)
-        end
-      else
-        _ -> nil
+
+        _ ->
+          nil
       end
 
     if is_integer(seq) do
