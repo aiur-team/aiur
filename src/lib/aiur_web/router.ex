@@ -143,14 +143,24 @@ defmodule AiurWeb.Router do
     match(:*, "/*path", ObservabilityApiController, :not_found)
   end
 
-  defp dashboard_basic_auth(conn, _opts) do
+  @doc false
+  @spec dashboard_basic_auth(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
+  def dashboard_basic_auth(conn, opts) do
     username = System.get_env("AIUR_DASHBOARD_USERNAME")
     password = System.get_env("AIUR_DASHBOARD_PASSWORD")
+    auth_required? = Keyword.get_lazy(opts, :required?, &dashboard_auth_required?/0)
 
-    if present?(username) and present?(password) do
-      Plug.BasicAuth.basic_auth(conn, username: username, password: password, realm: "Aiur")
-    else
-      conn
+    cond do
+      present?(username) and present?(password) ->
+        Plug.BasicAuth.basic_auth(conn, username: username, password: password, realm: "Aiur")
+
+      auth_required? ->
+        conn
+        |> Plug.BasicAuth.request_basic_auth(realm: "Aiur")
+        |> Plug.Conn.halt()
+
+      true ->
+        conn
     end
   end
 
@@ -186,6 +196,12 @@ defmodule AiurWeb.Router do
 
   defp dashboard_writable? do
     AiurWeb.Endpoint.config(:dashboard_writable) == true
+  rescue
+    _ -> false
+  end
+
+  defp dashboard_auth_required? do
+    AiurWeb.Endpoint.config(:dashboard_auth_required) == true
   rescue
     _ -> false
   end

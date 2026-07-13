@@ -5,10 +5,13 @@ defmodule AiurWeb.ControlCenterCache do
   Every connected dashboard receives the same PubSub notifications. Without a
   shared cache, one event fans out into one Orchestrator and provider read per
   browser. This cache makes the first caller refresh the payload while the
-  remaining callers reuse that result for a short bounded interval.
+  remaining callers reuse that result for a short bounded interval. Cache keys
+  may include provider incarnations, so retained entries are also bounded.
   """
 
   use GenServer
+
+  @max_entries 8
 
   @type loader :: (-> map())
 
@@ -40,8 +43,23 @@ defmodule AiurWeb.ControlCenterCache do
 
       _other ->
         payload = loader.()
-        entry = %{loaded_at_ms: System.monotonic_time(:millisecond), payload: payload}
-        {:reply, payload, Map.put(state, key, entry)}
+
+        entry = %{
+          loaded_at_ms: System.monotonic_time(:millisecond),
+          load_order: System.unique_integer([:monotonic, :positive]),
+          payload: payload
+        }
+
+        {:reply, payload, state |> Map.put(key, entry) |> bound_entries()}
     end
+  end
+
+  defp bound_entries(entries) when map_size(entries) <= @max_entries, do: entries
+
+  defp bound_entries(entries) do
+    entries
+    |> Enum.sort_by(fn {_key, entry} -> Map.get(entry, :load_order, 0) end, :desc)
+    |> Enum.take(@max_entries)
+    |> Map.new()
   end
 end
