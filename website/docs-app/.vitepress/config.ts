@@ -11,6 +11,16 @@ export default defineConfig({
     publicDir: '../public'
   },
   head: [
+    [
+      'script',
+      {},
+      `(() => {
+        const savedTheme = localStorage.getItem('aiur-theme')
+        if (savedTheme === 'dark' || savedTheme === 'light') {
+          document.documentElement.classList.toggle('dark', savedTheme === 'dark')
+        }
+      })()`
+    ],
     ['link', { rel: 'icon', href: '/favicon.ico', sizes: 'any' }],
     ['link', { rel: 'preconnect', href: 'https://fonts.googleapis.com' }],
     ['link', { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' }],

@@ -9,9 +9,11 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "assert": "tsx scripts/assert-sim.ts",
-    "shot": "tsx scripts/shot.ts"
+    "shot": "tsx scripts/shot.ts",
+    "test:brand": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.54.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vite": "^6.0.7"
