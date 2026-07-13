@@ -1,6 +1,8 @@
 defmodule Aiur.HttpServerCredentialGateTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias Aiur.HttpServer
 
   setup do
@@ -54,6 +56,39 @@ defmodule Aiur.HttpServerCredentialGateTest do
       # and `:ignore` from this call would only happen if Config.server_port
       # were negative which it isn't in test env.
       refute match?({:rejected_by_credential_gate, _}, result)
+    end
+  end
+
+  describe "writable dashboard without credentials" do
+    test "refuses to start and explains how to configure authentication" do
+      log =
+        capture_log(fn ->
+          assert :ignore =
+                   HttpServer.start_link(
+                     host: "127.0.0.1",
+                     port: 0,
+                     dashboard_writable: true,
+                     orchestrator: Aiur.Orchestrator
+                   )
+        end)
+
+      assert log =~ "refusing to start with observability.dashboard_writable enabled"
+      assert log =~ "AIUR_DASHBOARD_USERNAME"
+      assert log =~ "AIUR_DASHBOARD_PASSWORD"
+    end
+
+    test "requires both credentials" do
+      System.put_env("AIUR_DASHBOARD_USERNAME", "alice")
+
+      assert capture_log(fn ->
+               assert :ignore =
+                        HttpServer.start_link(
+                          host: "127.0.0.1",
+                          port: 0,
+                          dashboard_writable: true,
+                          orchestrator: Aiur.Orchestrator
+                        )
+             end) =~ "without basic-auth credentials"
     end
   end
 
