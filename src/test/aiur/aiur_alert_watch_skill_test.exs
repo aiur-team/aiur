@@ -95,16 +95,18 @@ defmodule Aiur.AiurAlertWatchSkillTest do
 
     File.write!(
       sleep,
-      "#!/bin/sh\n" <>
-        "count_file=\"$AIUR_ALERT_POLL_BARRIER/count\"\n" <>
-        "mkdir -p \"$AIUR_ALERT_POLL_BARRIER\"\n" <>
-        "count=0\n" <>
-        "[ ! -f \"$count_file\" ] || count=$(cat \"$count_file\")\n" <>
-        "count=$((count + 1))\n" <>
-        "printf '%s\\n' \"$count\" > \"$count_file.tmp\"\n" <>
-        "mv \"$count_file.tmp\" \"$count_file\"\n" <>
-        "until [ -f \"$AIUR_ALERT_POLL_BARRIER/release-$count\" ]; do /bin/sleep 0.01; done\n" <>
-        "exec /bin/sleep \"$@\"\n"
+      ~S"""
+      #!/bin/sh
+      count_file="$AIUR_ALERT_POLL_BARRIER/count"
+      mkdir -p "$AIUR_ALERT_POLL_BARRIER"
+      count=0
+      [ ! -f "$count_file" ] || count=$(cat "$count_file")
+      count=$((count + 1))
+      printf '%s\n' "$count" > "$count_file.tmp"
+      mv "$count_file.tmp" "$count_file"
+      until [ -f "$AIUR_ALERT_POLL_BARRIER/release-$count" ]; do /bin/sleep 0.01; done
+      exec /bin/sleep "$@"
+      """
     )
 
     File.chmod!(sleep, 0o755)
