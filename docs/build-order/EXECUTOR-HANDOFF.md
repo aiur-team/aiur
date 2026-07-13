@@ -10,7 +10,7 @@ stand and what must happen, in order, before the first dispatch.
 
 **State right now:** the consolidated planning pack is mechanically complete
 and validating clean — canonical and publication validators both report 0
-errors / 0 warnings, the 134-test canonical suite passes, and the 125-test
+errors / 0 warnings, the 134-test canonical suite passes, and the 132-test
 publication suite passes. Final clean semantic review and immutable approval
 remain pending. **No GitHub issues have been created.** Skills PR #1065 was
 reviewed at `6447f9c193d2322d63f54a58b9c54e0a72d3e98f` and squash-merged to
