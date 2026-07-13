@@ -71,28 +71,30 @@ are separate tracks and cannot change this run's denominator or ETA.
    root/members/blockers/full labels/open+unlocked state, active PRs, CI and
    Aiur status. Never use the planning JSON as fresher live GitHub truth.
 5. Queue only approved BO members under explicit user authority. Companion
-   issues remain inactive unless separately authorized and their shared
-   `GATE-OCC-PREDECESSOR-BASELINE` plus any ticket-specific provider gate is
-   resolved.
+   issues remain inactive unless separately authorized; their shared
+   predecessor baseline is recorded as resolved (`origin/main` at
+   `9849f32963c2a65367bce565b3f5ede3777c218f`), and any ticket-specific
+   provider gate must still be resolved.
 
 ## External pre-dispatch gates
 
-- **GATE-001 — integration baseline:** the predecessor OCC run is complete and the
-  configured `tracker.base_branch` contains the researched OCC baseline plus
-  accepted successors. At planning time `.aiur/config` and `CONTRIBUTING.md`
-  named divergent `v2` commit `3bbc064a`; record the resolved branch and SHA on
-  the live root. Do not silently implement against that stale snapshot.
+- **GATE-001 — integration baseline (RESOLVED):** the predecessor OCC run is
+  complete and the baseline is resolved — `origin/main` at
+  `9849f32963c2a65367bce565b3f5ede3777c218f` contains closed #1034 plus every
+  accepted OCC successor. Record that resolved branch and SHA on the live
+  root; do not silently implement against any earlier snapshot.
 - **GATE-002 — Executor skill:** the bounded skill revision above is installed and
   `/aiur-build`, `/aiur-run`, and `/aiur-monitor` are discoverable. The separate
   human skill-delivery issue remains outside the Build Order denominator.
 
-Both gates block every Build Order implementation ticket. BO-004 and BO-008 are
-the independent initial nodes, and the human skill-delivery issue is a native
-blocker of both so GATE-002 cannot be bypassed by another branch. BO-001 follows
-BO-004 and inherits both gates transitively.
+GATE-002 still blocks every Build Order implementation ticket; GATE-001 is
+resolved but its branch and SHA must be recorded on the live root. BO-004 and
+BO-008 are the independent initial nodes, and the human skill-delivery issue
+is a native blocker of both so GATE-002 cannot be bypassed by another branch.
+BO-001 follows BO-004 and inherits both gates transitively.
 
-Resolve and record GATE-001 and GATE-002 before changing the skill issue from
-its publication-finalization OPEN state. Close that issue only after the
+Record GATE-001's resolution and resolve GATE-002 before changing the skill
+issue from its publication-finalization OPEN state. Close that issue only after the
 installed bounded skill is proven, and only afterward add dispatch state to
 ready BO issues under the user's execution authority.
 

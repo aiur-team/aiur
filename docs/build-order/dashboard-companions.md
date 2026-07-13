@@ -67,11 +67,12 @@ The complete evidence matrix is
 
 ## Scheduling and shared surfaces
 
-- Every companion is non-pickable until
-  `GATE-OCC-PREDECESSOR-BASELINE` records that the bounded predecessor run is
-  complete and the configured implementation branch contains its accepted
-  successors. Publication is allowed before resolution because it adds no
-  dispatch label.
+- The shared predecessor baseline is resolved: the bounded predecessor
+  dashboard run is complete and `origin/main` at
+  `9849f32963c2a65367bce565b3f5ede3777c218f` contains closed #1034 plus every
+  accepted OCC successor. Every companion ticket records
+  `**Predecessor baseline:** resolved` with that SHA; no shared external gate
+  remains before companion dispatch.
 - DASH-001 owns shared route/navigation/CSS metadata and consumes BO-008's
   Phoenix/LiveView browser harness. Closed #1034 is accepted predecessor
   evidence, not a new native blocker.
@@ -145,11 +146,18 @@ authorized sibling issue/PR that lands first; DASH-013/019 never implement or
 test unlanded sibling changes. Until every referenced gate resolves, a ticket
 is not pickable.
 
-| Gate | Human owner | Resolution receipt |
-|---|---|---|
-| `GATE-OCC-PREDECESSOR-BASELINE` | Product owner and current OCC Executor | Bounded predecessor run is complete; configured implementation branch and SHA contain closed #1034 plus all accepted OCC successors |
-| `GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY` | Human owner with `aiur-claude` write authority | Reviewed matrix plus secure Aiur-only path or already-landed pinned compatible sibling revision; otherwise separate sibling issue/PR lands first |
-| `GATE-CLAUDE-METER-PROTOCOL-AUTHORITY` | Human owner with `aiur-claude` write authority | Reviewed matrix plus existing source or already-landed pinned compatible sibling revision; otherwise separate sibling issue/PR lands first |
+| Gate | Human owner | Status | Resolution receipt |
+|---|---|---|---|
+| `GATE-OCC-PREDECESSOR-BASELINE` | Product owner and current OCC Executor | RESOLVED | Bounded predecessor run is complete; `origin/main` at `9849f32963c2a65367bce565b3f5ede3777c218f` contains closed #1034 plus all accepted OCC successors |
+| `GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY` | Human owner with `aiur-claude` write authority | Active | Reviewed matrix plus secure Aiur-only path or already-landed pinned compatible sibling revision; otherwise separate sibling issue/PR lands first |
+| `GATE-CLAUDE-METER-PROTOCOL-AUTHORITY` | Human owner with `aiur-claude` write authority | Active | Reviewed matrix plus existing source or already-landed pinned compatible sibling revision; otherwise separate sibling issue/PR lands first |
+
+Historical note: `GATE-OCC-PREDECESSOR-BASELINE` was an active pre-dispatch
+gate on every companion ticket while the bounded predecessor dashboard run was
+in flight. It resolved when that run completed and `origin/main` at
+`9849f32963c2a65367bce565b3f5ede3777c218f` was confirmed to contain closed
+#1034 plus every accepted OCC successor; the resolution was propagated into
+the ticket headers during the 2026-07-13 plan reconciliation.
 
 ## Existing-work disposition
 
@@ -164,8 +172,8 @@ is not pickable.
 ## Publication
 
 Create these as standalone issues with one exact `complexity:N` and
-`model:codex`. Every issue also carries the non-native predecessor gate in its
-contract and no dispatch label. Publish the hard prerequisites above as native
+`model:codex`. Every issue also records the resolved predecessor baseline in
+its contract and carries no dispatch label. Publish the hard prerequisites above as native
 blockers, including cross-scope BO edges, but add no Build Order parent,
 phase/lane, or active `agent:*` label. Returned identities and full observed
 labels live in `dashboard-companions.json`.

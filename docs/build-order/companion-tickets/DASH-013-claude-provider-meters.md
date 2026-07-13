@@ -12,11 +12,12 @@
 
 **Serializes with:** none after the human gate pins an already-landed compatible protocol
 
-**External gates:** `GATE-OCC-PREDECESSOR-BASELINE`; and
-`GATE-CLAUDE-METER-PROTOCOL-AUTHORITY`, owned by a human with `aiur-claude`
-write authority and resolved before implementation as either an evidenced
-existing structured source or an already-landed pinned compatible sibling
-protocol revision
+**Predecessor baseline:** resolved — `origin/main` at `9849f32963c2a65367bce565b3f5ede3777c218f`
+
+**External gate:** `GATE-CLAUDE-METER-PROTOCOL-AUTHORITY`, owned by a human
+with `aiur-claude` write authority and resolved before implementation as
+either an evidenced existing structured source or an already-landed pinned
+compatible sibling protocol revision
 
 **Requirements:** DREQ-013
 

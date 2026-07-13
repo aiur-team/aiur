@@ -12,7 +12,7 @@
 
 **Serializes with:** BO-003, BO-005, BO-016, BO-019, DASH-002, DASH-009, DASH-019, DASH-024, DASH-025, DASH-026 — application supervision tree
 
-**External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
+**Predecessor baseline:** resolved — `origin/main` at `9849f32963c2a65367bce565b3f5ede3777c218f`
 
 **Requirements:** DREQ-012
 

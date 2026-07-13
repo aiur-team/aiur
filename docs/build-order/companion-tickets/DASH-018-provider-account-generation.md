@@ -12,7 +12,7 @@
 
 **Serializes with:** BO-003, BO-005, BO-016, BO-019, DASH-002, DASH-019, DASH-026 — application supervision tree; DASH-019 also shares Claude process lifecycle adapters
 
-**External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
+**Predecessor baseline:** resolved — `origin/main` at `9849f32963c2a65367bce565b3f5ede3777c218f`
 
 **Requirements:** DREQ-018
 
