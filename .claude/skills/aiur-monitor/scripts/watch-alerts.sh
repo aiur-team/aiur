@@ -10,8 +10,8 @@
 # running and prints each new alert as it lands. Drive it from the Executor
 # agent's harness as a streaming background watch (the Monitor tool) so every
 # printed line becomes one in-chat notification. It never drives the status
-# cadence (that stays an armed /loop), so it does not violate the monitor skill's
-# "armed timer, not passive event-waiting" cadence rule — it only adds immediacy
+# cadence (which stays armed through the host's recurring mechanism), so it does
+# not violate the "timer, not passive event-waiting" rule — it adds immediacy
 # to alerts, which the periodic `aiurdev watch` tick still catches as a floor.
 #
 # Reuses the #651/#662 structured alert feed: it reads each active agent's
@@ -19,8 +19,9 @@
 #   {"event":"alert","timestamp":"...","name":"ticket.43.agent.paused",
 #    "reason":"Agent paused","severity":"warning","needs_attention":true,
 #    "source_ticket_id":"43",...}
-# The central alerts.ndjson is written only for remote worker_host agents and is
-# out of scope for Phase 1 (local --bg runs write only agent.ndjson).
+# Remote-worker and workspace-less alerts have no local per-workspace record and
+# land in the central alerts.ndjson, which is out of scope here. The recurring
+# server-side `aiurdev watch` cadence is the backstop for those alerts.
 #
 # Output (oldest->newest, one per new alert; same shape as the alert feed plus
 # a timestamp so the chat line can say when it fired):
@@ -45,7 +46,7 @@
 #   AIUR_ALERT_POLL            (default 2)    — seconds between scans
 #   AIUR_ALERT_WATCH_ITERS     (default 0)    — stop after N scans (0 = forever; for tests)
 #   AIUR_ALERT_RELAY_BACKLOG   (default 0)    — 1 = also emit alerts already present at startup
-#   AIUR_ALERT_NEEDS_ATTENTION (default 0)    — 1 = Phase 2: relay only needs_attention:true alerts
+#   AIUR_ALERT_NEEDS_ATTENTION (default 0)    — 1 = relay only needs_attention:true alerts
 #   AIUR_ALERT_DISABLE_JQ       (default 0)    — 1 = force the portable jq-less path (tests)
 #   AIUR_OPERATOR_SURFACES      (default empty) — comma list: claude,codex,remote-control
 #   AIUR_ALERT_NOTIFY_CLAUDE_COMMAND / AIUR_ALERT_NOTIFY_CODEX_COMMAND /
