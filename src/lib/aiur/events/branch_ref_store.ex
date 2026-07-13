@@ -122,13 +122,15 @@ defmodule Aiur.Events.BranchRefStore do
 
   defp validated_refs(refs) do
     refs
-    |> Enum.reduce(%{}, fn {ref, sha}, acc ->
-      case validated_entry(ref, sha) do
-        {:ok, identifier, metadata} -> Map.update(acc, identifier, metadata, fn _ -> :ambiguous end)
-        :error -> acc
-      end
-    end)
+    |> Enum.reduce(%{}, &put_validated_ref/2)
     |> Map.reject(fn {_identifier, metadata} -> metadata == :ambiguous end)
+  end
+
+  defp put_validated_ref({ref, sha}, refs) do
+    case validated_entry(ref, sha) do
+      {:ok, identifier, metadata} -> Map.update(refs, identifier, metadata, fn _ -> :ambiguous end)
+      :error -> refs
+    end
   end
 
   defp validated_entry(ref, sha) do

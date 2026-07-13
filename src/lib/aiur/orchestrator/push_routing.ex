@@ -130,17 +130,27 @@ defmodule Aiur.Orchestrator.PushRouting do
     unblock_key = topic <> ":" <> metadata.sha
 
     if BranchRefStore.latest(blocker_identifier) == metadata do
-      Enum.reduce(state.running, state, fn {_issue_id, entry}, acc ->
-        cond do
-          not is_map(entry) -> acc
-          State.deactivated_running_entry?(entry) -> acc
-          true -> maybe_record_or_resume_for_topic(acc, entry, blocker_identifier, topic, unblock_key)
-        end
-      end)
+      resume_matching_running_entries(state, blocker_identifier, topic, unblock_key)
     else
       state
     end
   end
+
+  defp resume_matching_running_entries(state, blocker_identifier, topic, unblock_key) do
+    Enum.reduce(state.running, state, fn running, acc ->
+      resume_matching_running_entry(running, acc, blocker_identifier, topic, unblock_key)
+    end)
+  end
+
+  defp resume_matching_running_entry({_issue_id, entry}, state, blocker_identifier, topic, unblock_key)
+       when is_map(entry) do
+    if State.deactivated_running_entry?(entry),
+      do: state,
+      else: maybe_record_or_resume_for_topic(state, entry, blocker_identifier, topic, unblock_key)
+  end
+
+  defp resume_matching_running_entry(_running, state, _blocker_identifier, _topic, _unblock_key),
+    do: state
 
   @doc false
   @spec reconcile_pending_auto_resumes(State.t()) :: State.t()
