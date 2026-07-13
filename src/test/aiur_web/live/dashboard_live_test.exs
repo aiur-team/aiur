@@ -816,7 +816,10 @@ defmodule AiurWeb.DashboardLiveTest do
     orchestrator_name = Module.concat(__MODULE__, :BoundedHistoryOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :BoundedHistoryDecisionStore)
 
-    store = start_decision_store(decision_store_name, fn _decision, _opts -> {:ok, %{status: :accepted, item: %{id: 507}}} end)
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 507}}}
+      end)
 
     start_counting_orchestrator(orchestrator_name)
     install_decision_history!(store, 51)

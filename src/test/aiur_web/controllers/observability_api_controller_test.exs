@@ -4,8 +4,8 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
   import Plug.Conn
   import Plug.Test
 
-  alias Aiur.DecisionStore
   alias Aiur.Claude.HookEvents
+  alias Aiur.DecisionStore
 
   # api_write endpoints require a loopback Origin + the X-Aiur-Request header.
   defp hook_conn(identifier, payload) do
@@ -88,13 +88,18 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
   defp install_decision_history!(count) do
     original_state = :sys.get_state(DecisionStore)
 
-    on_exit(fn ->
-      if Process.whereis(DecisionStore), do: :sys.replace_state(DecisionStore, fn _state -> original_state end)
-    end)
+    on_exit(fn -> restore_decision_store(original_state) end)
 
     :sys.replace_state(DecisionStore, fn state ->
       Map.put(state, :audit_history, decision_histories(count))
     end)
+  end
+
+  defp restore_decision_store(original_state) do
+    case Process.whereis(DecisionStore) do
+      nil -> :ok
+      _pid -> :sys.replace_state(DecisionStore, fn _state -> original_state end)
+    end
   end
 
   defp decision_histories(count) do
