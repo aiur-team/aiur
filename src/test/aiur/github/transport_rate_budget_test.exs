@@ -5,7 +5,13 @@ defmodule Aiur.GitHub.TransportRateBudgetTest do
 
   setup do
     :sys.replace_state(RateBudget, fn _ -> nil end)
-    on_exit(fn -> :sys.replace_state(RateBudget, fn _ -> nil end) end)
+    :ets.delete(RateBudget, :observation)
+
+    on_exit(fn ->
+      :sys.replace_state(RateBudget, fn _ -> nil end)
+      :ets.delete(RateBudget, :observation)
+    end)
+
     :ok
   end
 
@@ -17,6 +23,7 @@ defmodule Aiur.GitHub.TransportRateBudgetTest do
   test "mutation responses update the REST rate budget without blocking" do
     for method <- [:post, :patch, :delete] do
       :sys.replace_state(RateBudget, fn _ -> nil end)
+      :ets.delete(RateBudget, :observation)
 
       assert {:ok, %{status: 200}} = request_once(method, "core")
       assert %{remaining: 0} = :sys.get_state(RateBudget)

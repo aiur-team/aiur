@@ -29,7 +29,10 @@ defmodule Aiur.GitHub.RateBudget do
         }
 
   @spec start_link(keyword()) :: GenServer.on_start()
-  def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, %{}, name: Keyword.get(opts, :name, __MODULE__))
+  def start_link(opts \\ []) do
+    name = Keyword.get(opts, :name, __MODULE__)
+    GenServer.start_link(__MODULE__, name, name: name)
+  end
 
   @spec observe_response(map(), GenServer.server(), keyword()) :: :ok
   def observe_response(response, server \\ __MODULE__, opts \\ []) do
@@ -63,16 +66,19 @@ defmodule Aiur.GitHub.RateBudget do
   @spec status(keyword()) :: map() | nil
   def status(opts \\ []) do
     server = Keyword.get(opts, :server, __MODULE__)
-    timeout = Keyword.get(opts, :timeout, 100)
     now_seconds = Keyword.get_lazy(opts, :now_seconds, fn -> System.system_time(:second) end)
     monotonic_ms = Keyword.get_lazy(opts, :monotonic_ms, fn -> System.monotonic_time(:millisecond) end)
 
-    case GenServer.whereis(server) do
-      pid when is_pid(pid) -> GenServer.call(pid, {:status, now_seconds, monotonic_ms}, timeout)
+    with server when is_atom(server) <- server,
+         [{:observation, observation}] <- :ets.lookup(server, :observation) do
+      normalized_now_seconds = normalized_wall_seconds(observation, now_seconds, monotonic_ms)
+      delay_ms = calculate_delay_ms(observation, normalized_now_seconds)
+      status_detail(clear_expired(observation, normalized_now_seconds), delay_ms, normalized_now_seconds)
+    else
       _ -> nil
     end
-  catch
-    :exit, _ -> nil
+  rescue
+    ArgumentError -> nil
   end
 
   @spec parse_headers(list() | map(), keyword()) :: {:ok, observation()} | :error
@@ -104,7 +110,12 @@ defmodule Aiur.GitHub.RateBudget do
   end
 
   @impl true
-  def init(_opts), do: {:ok, nil}
+  def init(name) when is_atom(name) do
+    ^name = :ets.new(name, [:named_table, :set, :public, read_concurrency: true])
+    {:ok, nil}
+  end
+
+  def init(_name), do: {:ok, nil}
 
   @impl true
   def handle_cast({:observe, headers, wall_seconds, monotonic_ms}, current) do
@@ -120,6 +131,7 @@ defmodule Aiur.GitHub.RateBudget do
           current
       end
 
+    publish_observation(next)
     {:noreply, next}
   end
 
@@ -128,14 +140,8 @@ defmodule Aiur.GitHub.RateBudget do
     now_seconds = normalized_wall_seconds(observation, wall_seconds, monotonic_ms)
     delay = calculate_delay_ms(observation, now_seconds)
     next = clear_expired(observation, now_seconds)
+    publish_observation(next)
     {:reply, delay, next}
-  end
-
-  def handle_call({:status, wall_seconds, monotonic_ms}, _from, observation) do
-    now_seconds = normalized_wall_seconds(observation, wall_seconds, monotonic_ms)
-    delay_ms = calculate_delay_ms(observation, now_seconds)
-    next = clear_expired(observation, now_seconds)
-    {:reply, status_detail(next, delay_ms, now_seconds), next}
   end
 
   defp merge_observation(nil, incoming), do: incoming
@@ -159,6 +165,20 @@ defmodule Aiur.GitHub.RateBudget do
 
   defp clear_expired(%{reset_at: reset_at}, now_seconds) when reset_at <= now_seconds, do: nil
   defp clear_expired(observation, _now_seconds), do: observation
+
+  defp publish_observation(nil) do
+    case Process.info(self(), :registered_name) do
+      {:registered_name, name} when is_atom(name) and name != [] -> :ets.delete(name, :observation)
+      _ -> :ok
+    end
+  end
+
+  defp publish_observation(observation) do
+    case Process.info(self(), :registered_name) do
+      {:registered_name, name} when is_atom(name) and name != [] -> :ets.insert(name, {:observation, observation})
+      _ -> :ok
+    end
+  end
 
   defp status_detail(nil, _delay_ms, _now_seconds), do: nil
   defp status_detail(_observation, 0, _now_seconds), do: nil

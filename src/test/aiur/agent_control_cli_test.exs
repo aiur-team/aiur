@@ -753,10 +753,17 @@ defmodule Aiur.AgentControlCLITest do
     test "reports when the GitHub rate budget paces polling", %{orchestrator: pid} do
       now = System.system_time(:second)
       original_budget = :sys.get_state(Aiur.GitHub.RateBudget)
+      original_published_budget = :ets.lookup(Aiur.GitHub.RateBudget, :observation)
       :sys.replace_state(Aiur.GitHub.RateBudget, fn _ -> nil end)
+      :ets.delete(Aiur.GitHub.RateBudget, :observation)
 
       on_exit(fn ->
         :sys.replace_state(Aiur.GitHub.RateBudget, fn _ -> original_budget end)
+
+        case original_published_budget do
+          [] -> :ets.delete(Aiur.GitHub.RateBudget, :observation)
+          [entry] -> :ets.insert(Aiur.GitHub.RateBudget, entry)
+        end
       end)
 
       Aiur.GitHub.RateBudget.observe_response(%{
