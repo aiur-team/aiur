@@ -69,7 +69,9 @@ args. Pass `--host` when you want to expose the dashboard over the network
 Claude Remote Control requires the dashboard server's lifecycle-hook endpoint.
 Aiur therefore rejects `--no-dashboard` when `agent.remote_control` is enabled
 or an `agent.routing` value carries `+remote`; remove `--no-dashboard` or
-disable that Remote Control configuration.
+disable that Remote Control configuration. Runtime Remote Control activation
+(including `model:remote` tickets and the live `r` promotion) is also refused
+unless the HTTP listener is confirmed bound.
 
 ## Per-issue workspaces
 

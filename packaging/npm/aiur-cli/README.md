@@ -97,7 +97,9 @@ tmux state is cleaned up before restart.
 Claude Remote Control lifecycle hooks require the HTTP server. Aiur rejects a
 `--no-dashboard` launch when `agent.remote_control` is enabled or an
 `agent.routing` value uses `+remote`; remove the flag or disable that Remote
-Control configuration.
+Control configuration. Runtime `model:remote` dispatch and live promotion are
+also refused unless the HTTP listener is confirmed bound. A background launch
+prints that confirmed URL, or an explicit listener-unavailable warning.
 
 ---
 

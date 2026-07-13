@@ -221,7 +221,9 @@ Claude Remote Control lifecycle hooks post to `Aiur.HttpServer`, so a
 no-listener run cannot support configured Remote Control. Startup fails with a
 clear error when `--no-dashboard` is combined with `agent.remote_control: true`
 or an `agent.routing` value ending in `+remote`; remove the flag or disable that
-Remote Control configuration.
+Remote Control configuration. Runtime `model:remote` dispatch and live
+promotion also fail fast if no listener is actually bound. Background startup
+prints the confirmed bound URL or an explicit listener-unavailable warning.
 
 Non-loopback dashboard binds retain the authentication guard: set both
 `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD`, or Aiur refuses the

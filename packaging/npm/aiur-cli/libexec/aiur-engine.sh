@@ -457,6 +457,10 @@ run_session() {
   # supplied. `aiur --bg --interactive` opts back into the full terminal stack
   # for an attachable background session.
   build_run_argv "$mode" "$@"
+  local no_dashboard=0
+  for run_arg in "${run_argv[@]}"; do
+    [ "$run_arg" = "--no-dashboard" ] && no_dashboard=1
+  done
   write_argv "${run_argv[@]}"
   export AIUR_ARGV_FILE="$argv_file"
 
@@ -659,6 +663,7 @@ run_session() {
       "$AIUR_RELEASE_NODE" "${AIUR_LOGS_ROOT:-}" \
       "$(aiur_stop_sentinel_path)" "$(aiur_crash_marker_path)" "$AIUR_WORKSPACE_ROOT_FILE")"
     disown "$background_watchdog_pid" 2>/dev/null || true
+    print_background_dashboard_status "$no_dashboard" "$startup_capture"
     echo "aiur started in the background (tmux socket ${socket}, session ${session}). Attach with: aiur" >&2
     # Keep $startup_capture (boot.out.log) for the run's lifetime; only the
     # transient argv file is no longer needed.
@@ -1269,6 +1274,37 @@ probe_control_liveness() {
     printf 'up'
   else
     printf 'down'
+  fi
+}
+
+# Return the externally useful dashboard URL only when the running node confirms
+# that Bandit actually bound a listener. An empty result means the listener was
+# suppressed or refused; configured server.port alone is never proof of service.
+probe_dashboard_url() {
+  local expression output status marker="__AIUR_DASHBOARD_URL__:"
+  expression='case Aiur.HttpServer.base_url() do url when is_binary(url) -> IO.puts("__AIUR_DASHBOARD_URL__:" <> url); _ -> :ok end'
+
+  set +e
+  output="$("$release_bin" rpc "$expression" 2>&1)"
+  status=$?
+  set -e
+
+  if [ "$status" -eq 0 ] && [[ "$output" == *"$marker"* ]]; then
+    output="${output#*"$marker"}"
+    printf '%s' "${output%%$'\n'*}"
+  fi
+}
+
+print_background_dashboard_status() {
+  local no_dashboard="$1" startup_capture="$2" url
+  url="$(probe_dashboard_url)"
+
+  if [ -n "$url" ]; then
+    echo "Dashboard: ${url}" >&2
+  elif [ "$no_dashboard" -eq 1 ]; then
+    echo "Dashboard disabled by --no-dashboard." >&2
+  else
+    echo "⚠️ dashboard listener unavailable; inspect ${startup_capture} for bind or authentication refusal." >&2
   fi
 }
 

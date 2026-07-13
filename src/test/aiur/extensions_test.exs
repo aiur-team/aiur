@@ -1158,6 +1158,7 @@ defmodule Aiur.ExtensionsTest do
 
     port = wait_for_bound_port()
     assert port == HttpServer.bound_port()
+    assert HttpServer.base_url() == "http://127.0.0.1:#{port}"
 
     unauthenticated_response = Req.get!("http://127.0.0.1:#{port}/api/v1/state")
     assert unauthenticated_response.status == 401

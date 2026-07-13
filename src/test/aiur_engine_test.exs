@@ -268,6 +268,22 @@ defmodule AiurEngineTest do
     refute foreground =~ "--headless|"
   end
 
+  test "background dashboard status reports a bound URL, explicit suppression, or listener refusal" do
+    script = """
+    probe_dashboard_url() { printf '%s' "$PROBE_URL"; }
+    print_background_dashboard_status 0 /tmp/boot.log
+    PROBE_URL=""
+    print_background_dashboard_status 1 /tmp/boot.log
+    print_background_dashboard_status 0 /tmp/boot.log
+    """
+
+    {out, 0} = run_sourced_engine(script, [{"PROBE_URL", "http://127.0.0.1:4567"}])
+
+    assert out =~ "Dashboard: http://127.0.0.1:4567"
+    assert out =~ "Dashboard disabled by --no-dashboard."
+    assert out =~ "dashboard listener unavailable; inspect /tmp/boot.log"
+  end
+
   test "--version is distribution-free so it never collides with a running node" do
     rel = fake_release()
     state = Path.join(System.tmp_dir!(), "aiur-st-#{System.unique_integer([:positive])}")
@@ -1061,12 +1077,13 @@ defmodule AiurEngineTest do
       echo PROBE >> "$EVENTS"
       printf up
     }
+    probe_dashboard_url() { printf 'http://127.0.0.1:4567'; }
     start_beam_death_watchdog() {
       echo "WATCHDOG:$*" >> "$EVENTS"
       printf '424242\\n'
     }
     disown() { echo "DISOWN:$*" >> "$EVENTS"; }
-    run_session background
+    aiur_engine_main run --bg
     """
 
     path = "#{Path.dirname(tmux)}:#{System.get_env("PATH")}"
@@ -1081,10 +1098,54 @@ defmodule AiurEngineTest do
       ])
 
     assert out =~ "aiur started in the background"
+    assert out =~ "Dashboard: http://127.0.0.1:4567"
     events_log = File.read!(events)
     assert events_log =~ "PROBE\nWATCHDOG:-name aiur-"
     assert events_log =~ ~r/ 1 1 aiur-\S+ \S+ \S+\.stopping \S+\.last-crash \S+-workspace-root\n/
     assert events_log =~ "DISOWN:424242"
+  end
+
+  test "background launch with --no-dashboard in either-order form reports explicit suppression" do
+    rel = fake_release()
+    state = tmp_state()
+    tmux_state = Path.join(System.tmp_dir!(), "aiur-tmux-state-#{System.unique_integer([:positive])}")
+
+    tmux =
+      fake_tmux_script("""
+      case " $* " in
+        *" new-session "*) touch "#{tmux_state}"; exit 0 ;;
+        *" has-session "*) [ -f "#{tmux_state}" ]; exit $? ;;
+        *) exit 0 ;;
+      esac
+      """)
+
+    on_exit(fn ->
+      File.rm_rf(rel)
+      File.rm_rf(state)
+      File.rm(tmux_state)
+    end)
+
+    script = """
+    sleep() { :; }
+    probe_control_liveness() { printf up; }
+    probe_dashboard_url() { :; }
+    start_beam_death_watchdog() { printf '424242\n'; }
+    disown() { :; }
+    aiur_engine_main --no-dashboard --bg
+    """
+
+    path = "#{Path.dirname(tmux)}:#{System.get_env("PATH")}"
+
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"AIUR_RELEASE_DIR", rel},
+        {"AIUR_BG_STATE_DIR", state},
+        {"PATH", path}
+      ])
+
+    assert out =~ "Dashboard disabled by --no-dashboard."
+    assert out =~ "aiur started in the background"
+    refute out =~ "dashboard listener unavailable"
   end
 
   test "foreground attach filters tmux server-exited noise without process substitution" do
@@ -1114,7 +1175,7 @@ defmodule AiurEngineTest do
     probe_control_liveness() { printf up; }
     start_beam_death_watchdog() { printf '424242\\n'; }
     set +e
-    ( run_session foreground )
+    ( run_session foreground --no-dashboard )
     code=$?
     set -e
     echo "CODE=$code"
