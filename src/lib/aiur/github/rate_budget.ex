@@ -4,7 +4,8 @@ defmodule Aiur.GitHub.RateBudget do
 
   Observations are advisory: missing or malformed headers never block requests.
   Within a reset window the lowest observed remaining count wins so concurrent,
-  out-of-order responses cannot make the budget appear healthier.
+  out-of-order responses cannot make the budget appear healthier. A newly
+  observed reset window supersedes the prior one by arrival order.
   """
 
   use GenServer
@@ -15,6 +16,9 @@ defmodule Aiur.GitHub.RateBudget do
   @reserve_percent 10
   @reset_margin_ms 1_000
   @max_delay_ms :timer.hours(1)
+  @max_reset_window_seconds :timer.hours(1) |> div(1_000)
+  @reset_window_slack_seconds :timer.minutes(5) |> div(1_000)
+  @rest_resource "core"
 
   @type observation :: %{limit: pos_integer(), remaining: non_neg_integer(), reset_at: pos_integer()}
 
@@ -47,12 +51,15 @@ defmodule Aiur.GitHub.RateBudget do
     :exit, _ -> 0
   end
 
-  @spec parse_headers(list() | map()) :: {:ok, observation()} | :error
-  def parse_headers(headers) do
+  @spec parse_headers(list() | map(), keyword()) :: {:ok, observation()} | :error
+  def parse_headers(headers, opts \\ []) do
+    now_seconds = Keyword.get_lazy(opts, :now_seconds, fn -> System.system_time(:second) end)
+
     with {limit, ""} <- parse_integer(Transport.header(headers, "x-ratelimit-limit")),
          {remaining, ""} <- parse_integer(Transport.header(headers, "x-ratelimit-remaining")),
          {reset_at, ""} <- parse_integer(Transport.header(headers, "x-ratelimit-reset")),
-         true <- limit > 0 and remaining >= 0 and reset_at > 0 do
+         @rest_resource <- Transport.header(headers, "x-ratelimit-resource"),
+         true <- valid_observation?(limit, remaining, reset_at, now_seconds) do
       {:ok, %{limit: limit, remaining: remaining, reset_at: reset_at}}
     else
       _ -> :error
@@ -63,10 +70,10 @@ defmodule Aiur.GitHub.RateBudget do
   def calculate_delay_ms(nil, _now_seconds), do: 0
 
   def calculate_delay_ms(%{limit: limit, remaining: remaining, reset_at: reset_at}, now_seconds) do
-    reserve = max(@reserve_floor, div(limit * @reserve_percent, 100))
+    reserve = min(max(@reserve_floor, div(limit * @reserve_percent, 100)), limit - 1)
 
     if remaining <= reserve and reset_at > now_seconds do
-      min((reset_at - now_seconds) * 1_000 + @reset_margin_ms, @max_delay_ms)
+      progressive_delay_ms(remaining, reserve, reset_at - now_seconds)
     else
       0
     end
@@ -89,15 +96,27 @@ defmodule Aiur.GitHub.RateBudget do
 
   defp merge_observation(nil, incoming), do: incoming
 
-  defp merge_observation(%{reset_at: current_reset} = current, %{reset_at: incoming_reset})
-       when incoming_reset < current_reset,
-       do: current
-
   defp merge_observation(%{reset_at: reset_at} = current, %{reset_at: reset_at} = incoming) do
     if incoming.remaining < current.remaining, do: incoming, else: current
   end
 
   defp merge_observation(_current, incoming), do: incoming
+
+  defp valid_observation?(limit, remaining, reset_at, now_seconds) do
+    max_reset_at = now_seconds + @max_reset_window_seconds + @reset_window_slack_seconds
+    limit > 0 and remaining >= 0 and reset_at > 0 and reset_at <= max_reset_at
+  end
+
+  defp progressive_delay_ms(0, _reserve, seconds_until_reset) do
+    min(seconds_until_reset * 1_000 + @reset_margin_ms, @max_delay_ms)
+  end
+
+  defp progressive_delay_ms(remaining, reserve, seconds_until_reset) do
+    depletion = reserve - remaining + 1
+    ramp_width = reserve + 1
+    delay_ms = div(seconds_until_reset * 1_000 * depletion, ramp_width) + @reset_margin_ms
+    min(delay_ms, @max_delay_ms)
+  end
 
   defp parse_integer(value) when is_binary(value), do: Integer.parse(value)
   defp parse_integer(value) when is_integer(value), do: {value, ""}
