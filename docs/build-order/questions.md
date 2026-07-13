@@ -7,18 +7,8 @@ the planning documents.
 
 ## Questions for Kevin
 
-1. Should a Build Order be repository-wide, or can one Aiur instance display
-   orders that span multiple repositories/projects?
-2. May users add and edit dependencies from the dashboard in the first
-   release, or is Build Order initially a read-only projection of GitHub issue
-   metadata?
-3. For flat subscription plans, should per-ticket “spend” be a versioned
-   token-price estimate, an allocation of the subscription fee, or unavailable
-   while tokens and quota consumption remain visible?
-4. Should “total build” include all recorded usage for member tickets, or only
-   usage observed after each ticket joined the Build Order?
-5. Must v1 totals include direct `claude-repl`/Remote Control usage, or may the
-   cards show explicitly incomplete coverage for that transport?
+None currently. New boundary-changing questions discovered during review will
+be added here and asked one at a time.
 
 ## Commands or Access Needed
 
@@ -39,6 +29,22 @@ the planning documents.
 
 ## Resolved
 
+- Build Order v1 is limited to the single configured GitHub repository;
+  cross-repository Build Orders are follow-on scope.
+- Build Order v1 is a read-only projection of GitHub ticket metadata and
+  dependency relationships; dashboard editing is follow-on scope.
+- For flat subscription plans, per-ticket dollar values are versioned
+  API-equivalent estimates derived from observed tokens. Display an asterisk,
+  explain the estimate in an information popover, and identify the account's
+  actual subscription tier; do not present the estimate as billed spend.
+- Each render/reconnect joins current GitHub Build Order membership with data
+  from the active Aiur instance and receives live push updates where available.
+  These are the two live sources of truth.
+- Total-build accounting includes all Aiur-retained usage attributable to each
+  current member ticket, including usage recorded before membership was added.
+- Reliable `claude-repl`/Claude Remote Control token-and-cost accounting is a
+  required standalone companion ticket in this planning effort; incomplete
+  Remote Control coverage is not the intended finished state.
 - The opening request is the Build Order brain dump and authoritative product
   intent. No separate brain-dump document is required before planning.
 - Build Order v1 is GitHub-only. Linear parity is separate, human-blocked work
