@@ -3,27 +3,33 @@
 ## Decision
 
 Usage/accounting and the adjacent run-summary surface are a standalone Executor
-Control Center program, not Build Order behavior. Thirteen companion tickets
+Control Center program, not Build Order behavior. Sixteen companion tickets
 own it:
 
 1. privacy-safe provider-account generation;
 2. provider-neutral usage envelope and headless normalization;
-3. durable attributed usage ledger;
-4. authenticated local telemetry transport and correlation;
-5. Claude REPL/Remote Control envelope normalization;
-6. versioned cost and grouping projection;
-7. the provider-meter foundation;
-8. the Codex meter adapter;
-9. the Claude subscription and API-key meter adapter;
-10. the canonical current-run summary projection;
-11. the enforced financial-data boundary;
-12. the accessible nonfinancial run-summary UI; and
-13. the authenticated usage/provider UI.
+3. durable attributed usage ledger and absolute-counter checkpoints;
+4. crash-safe aggregate/query projection;
+5. dimension-preserving retention and compaction;
+6. authenticated local telemetry transport and correlation;
+7. Claude REPL/Remote Control envelope normalization;
+8. versioned cost and grouping projection;
+9. the provider-meter foundation;
+10. the Codex meter adapter;
+11. the Claude subscription and API-key meter adapter;
+12. the canonical current-run summary projection;
+13. the enforced financial-data boundary;
+14. the accessible nonfinancial run-summary UI;
+15. the authenticated usage/provider UI; and
+16. selected-Build-Order usage integration.
 
 GitHub supplies current Build Order membership and ticket metadata. Aiur owns
 retained usage and current run facts. A selected order can pass its current
-member identities to the accounting query, but no totals are written to GitHub
-and no accounting ticket blocks the Build Order root.
+member identities to the accounting query. A dedicated integration consumes
+the URL-selected root and membership generation, includes all retained usage
+for current members, excludes removed members, and pushes recomputation when
+membership changes. No totals are written to GitHub and no accounting ticket
+blocks the Build Order root.
 
 ## Current capability and gap
 
@@ -36,7 +42,8 @@ limit is not a provider/account-generation-aware meter store.
 
 Existing work must be reconciled rather than duplicated:
 
-- #132's durable per-ticket token/cost portion is superseded by DASH-009. Its
+- #132's durable per-ticket token/cost portion is superseded by
+  DASH-009/DASH-024/DASH-025. Its
   proposed opencode side-panel surface stays outside this dashboard scope.
 - #845 is a larger multi-controller/Postgres/BI program. This bounded local
   feature deliberately uses the repository's file-first durability pattern
@@ -135,10 +142,11 @@ V1 uses a daemon-owned, single-writer file store:
 
 - a canonical append-only, versioned NDJSON observation stream;
 - crash-safe atomic JSON checkpoints for absolute-counter deduplication;
-- crash-safe atomic aggregate projections for bounded reads;
+- crash-safe atomic aggregate projections for bounded reads, owned separately
+  from the append/checkpoint writer;
 - persist-before-publish acknowledgement and explicit store health;
 - deterministic replay/migration, corruption quarantine and rollback tests;
-- configurable retention/compaction that preserves occurrence-price date,
+- separately reviewable configurable retention/compaction that preserves occurrence-price date,
   currency, provider-account generation, run/ticket/agent/backend/exact-model
   dimensions, estimate basis and coverage plus the earliest retained timestamp.
 
@@ -240,7 +248,9 @@ poll providers or scan the ledger per browser. DASH-015 is the sole composition
 owner that joins generation-qualified usage groups to provider tiers, and only
 on an exact known provider/backend/generation match. Reconnect/render
 immediately reads current GitHub/Aiur snapshots, then continues with pushed
-updates.
+updates. DASH-023 is the sole owner of turning the selected root's current
+membership generation into an accounting scope; the generic query projection
+does not discover Build Orders or retain membership.
 
 ## Ticket boundaries
 
@@ -248,7 +258,9 @@ updates.
 |---|---|---|
 | DASH-018 | Shared privacy-safe provider-account-generation lifecycle and identity | usage normalization, meters, pricing, UI |
 | DASH-008 | Raw envelope, headless transport classification and exact attribution inputs | account-generation ownership, cross-message delta derivation, durability, pricing, UI |
-| DASH-009 | File-first durable ledger, absolute-counter checkpoints/delta derivation and lossless dimension-preserving projections | provider adapters, pricing, UI |
+| DASH-009 | File-first append/checkpoint ledger, absolute-counter delta derivation and deterministic replay | aggregate query serving, retention/compaction, provider adapters, pricing, UI |
+| DASH-024 | Crash-safe aggregate/query projection with bounded exact run/ticket grouping snapshots | ledger authority, retention policy, pricing, membership discovery, UI |
+| DASH-025 | Rotation, retention and dimension-preserving compaction lifecycle | ingestion, pricing, membership discovery, UI |
 | DASH-019 | Authenticated bounded local telemetry transport, replay controls and trusted session correlation | usage-envelope mapping, provider meters, UI |
 | DASH-010 | Claude REPL/Remote Control event-to-envelope adapter | local transport/correlation, Claude account quotas, summary UI |
 | DASH-011 | Occurrence-time versioned API-equivalent pricing and generation/currency-qualified grouped usage query | provider account meters, ingestion, tier joining, UI |
@@ -259,6 +271,7 @@ updates.
 | DASH-021 | Enforced server-side financial query/subscription/data boundary | financial projection or UI composition |
 | DASH-022 | Accessible nonfinancial run-summary presentation | usage/provider cards or financial access policy |
 | DASH-015 | Authenticated responsive usage/provider cards, exact-generation tier composition, meters and drill-down | run-summary presentation, provider I/O or ledger scanning |
+| DASH-023 | URL-selected Build Order membership-generation to retained-usage scope integration and pushed recomputation | graph membership authority, generic accounting, Build Order completion, UI mutation |
 
 ## Security and accessibility
 

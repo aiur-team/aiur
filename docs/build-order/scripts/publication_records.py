@@ -20,12 +20,15 @@ from publication_common import (
     string_list,
     validate_document,
 )
+from publication_conflicts import validate_surface_conflicts
 from publication_requirements import validate_requirement_coverage
 
 
 TICKET_KEYS = {
     "id", "title", "document", "requirement_ref", "complexity_points",
-    "depends_on", "external_blockers", "external_gate_ids", "github",
+    "depends_on", "serializes_with", "external_blockers", "external_gate_ids",
+    "read_surfaces", "write_surfaces", "contract_surfaces", "safety_surfaces",
+    "conflict_exceptions", "github",
 }
 GATE_KEYS = {"id", "owner", "resolution_criteria"}
 
@@ -95,12 +98,13 @@ def dash_tickets(
         if not isinstance(ticket_id, str) or not DASH_ID.fullmatch(ticket_id):
             report.error(f"tickets[{index}].id must look like DASH-001")
             continue
+        validated = dict(ticket)
         if ticket_id in found:
             report.error(f"duplicate logical ID {ticket_id}")
         else:
-            found[ticket_id] = ticket
-        _ticket_fields(ticket_id, ticket, base, gates, report)
-        ticket["_github"] = github_mapping(
+            found[ticket_id] = validated
+        _ticket_fields(ticket_id, validated, base, gates, report)
+        validated["_github"] = github_mapping(
             ticket.get("github"), f"{ticket_id}.github", repository, report
         )
     validate_requirement_coverage(found, report)
@@ -119,6 +123,22 @@ def _ticket_fields(
     if not strict_int(points) or not 1 <= points <= 5:
         report.error(f"{ticket_id}.complexity_points must be integer 1..5")
     string_list(ticket.get("depends_on"), f"{ticket_id}.depends_on", report)
+    string_list(
+        ticket.get("serializes_with"), f"{ticket_id}.serializes_with", report
+    )
+    for field in (
+        "read_surfaces", "write_surfaces", "contract_surfaces", "safety_surfaces",
+    ):
+        string_list(ticket.get(field), f"{ticket_id}.{field}", report)
+    exceptions = ticket.get("conflict_exceptions")
+    if not isinstance(exceptions, list):
+        report.error(f"{ticket_id}.conflict_exceptions must be an array")
+    else:
+        for index, exception in enumerate(exceptions):
+            if not isinstance(exception, dict):
+                report.error(
+                    f"{ticket_id}.conflict_exceptions[{index}] must be an object"
+                )
     blockers = string_list(
         ticket.get("external_blockers"), f"{ticket_id}.external_blockers", report
     )
@@ -150,6 +170,31 @@ def validate_graph(
             elif dependency not in all_ids:
                 report.error(f"{ticket_id} depends on unknown ticket {dependency}")
     _check_cycle(all_ids, dependencies, report)
+    _validate_serialization(build, dash, report)
+    validate_surface_conflicts(build, dash, dependencies, report)
+
+
+def _validate_serialization(
+    build: dict[str, dict[str, Any]], dash: dict[str, dict[str, Any]], report: Report,
+) -> None:
+    combined = {**build, **dash}
+    for ticket_id, ticket in combined.items():
+        for target in safe_string_list(ticket.get("serializes_with")):
+            if target == ticket_id:
+                report.error(f"{ticket_id} cannot serialize with itself")
+            elif target not in combined:
+                report.error(f"{ticket_id} serializes with unknown ticket {target}")
+            elif ticket_id in build and target in dash:
+                report.error(
+                    f"cross-pack serialization {ticket_id}<->{target} must be "
+                    "declared by the companion ticket"
+                )
+            elif (ticket_id in build) == (target in build):
+                reverse = set(safe_string_list(combined[target].get("serializes_with")))
+                if ticket_id not in reverse:
+                    report.error(
+                        f"{ticket_id}.serializes_with {target} must be symmetric"
+                    )
 
 
 def _check_cycle(all_ids: set[str], dependencies: dict[str, set[str]], report: Report) -> None:

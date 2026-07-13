@@ -10,7 +10,7 @@
 
 **Depends on:** DASH-016
 
-**Serializes with:** run lifecycle, Units summary, and progress/ETA projection changes
+**Serializes with:** none
 
 **External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
 

@@ -2,15 +2,15 @@
 
 **Kind:** executable
 
-**Provenance:** planned in plan v1 after companion-boundary review
+**Provenance:** planned in plan v1 after current-schema correction
 
-**Complexity:** 3 — Additive durable schema, trusted runtime capture, validation, and replay migration
+**Complexity:** 3 — Additive trusted provenance schema, capture, replay, and legacy migration
 
 **Risk:** high
 
 **Depends on:** none
 
-**Serializes with:** DASH-006 and Decision schema/store/history changes
+**Serializes with:** DASH-006 — shared Decision schema/store/history surfaces
 
 **External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
 
@@ -24,75 +24,75 @@
 
 ## Outcome
 
-Every new Decision may retain exact trusted agent/backend/model/session provenance and actor-scoped confidence, while legacy records remain readable with those facts explicitly unknown.
+Every new Decision may retain exact trusted agent/backend/model/session provenance while legacy records remain readable with those facts explicitly unknown; the existing integer `supervisor_basis.confidence` contract remains unchanged.
 
 ## Context and evidence
 
-The prototype derives provider/model from display prose and shows confidence not present in the canonical schema. Production needs source-backed immutable provenance captured at Decision acceptance, not reconstructed in the Commands UI. Query and pagination work belongs to DASH-006 so this ticket has one durable-schema and migration boundary.
+The prototype derives provider/model from display prose, but production needs source-backed provenance captured at Decision acceptance. Current Aiur already owns supervising confidence in `DecisionDelegation.basis` as integer `0..100`, persisted under `supervisor_basis.confidence` with existing authority, answer, revision, and history semantics. This ticket fills only the missing provenance schema/migration and must not invent or renormalize a second confidence field.
 
 ## Scope
 
 - Version Decision provenance to optionally persist agent family, backend, requested model, resolved model, session/attempt identity, source, and captured time.
 - Populate provenance only from authoritative runtime/session context at acceptance. Agent payload fields and `originName`, question, rationale, or other prose are never trusted inputs.
-- Add optional supervising recommendation/decision confidence as an exact validated decimal in `[0, 1]`, with actor, source, and captured time.
-- Allow only the authenticated supervising decision path to author supervisor confidence. Confidence never grants authority or changes lifecycle.
-- Preserve provenance/confidence append-only across answer, revision, delivery, acknowledgement, resolution, and history records with the action/version that captured it.
-- Add one versioned additive migration/replay path. Legacy records have absent/unknown provenance and confidence; never guess historical values.
-- Expose the canonical optional fields to existing presenters/providers without requiring DASH-006 or DASH-007 to infer them.
+- Preserve provenance append-only across answer, revision, delivery, acknowledgement, resolution, and history records with the Decision version that captured it.
+- Add one additive migration/replay path. Legacy records have absent/unknown provenance; never guess historical values.
+- Preserve the current `DecisionDelegation.basis` and `DecisionAnswer.supervisor_basis` structures unchanged, including integer confidence in `0..100`, policy basis, alternatives, and reversibility fields.
+- Expose canonical optional provenance plus the already-existing supervisor basis to DASH-006/007 without introducing another confidence representation.
 
 ## Non-goals
 
-- Add lookup/pagination/search/counts, redesign Commands, change Decision authority/lifecycle, infer legacy fields, or persist provider account identity.
-- Accept model/backend/confidence from agent-authored content, display strings, prompts, transcripts, or untrusted event payloads.
-- Rename the Decision domain or rewrite unrelated store behavior.
+- Add lookup/pagination/search/counts, redesign Commands, change Decision authority/lifecycle, or infer legacy provenance.
+- Change confidence type, range, scale, validation, authorship, authority, persistence, or presentation meaning; convert it to `[0,1]`; or add recommendation/decision confidence siblings.
+- Accept provenance from agent-authored content, display strings, prompts, transcripts, or untrusted event payloads.
 
 ## Existing owner and reuse target
 
-Extend `Aiur.Decision`, `DecisionValidation`, `DecisionEvent`, `DecisionProjection`, `DecisionStore`, `DecisionHistory`, and trusted Decision acceptance paths. Reuse schema-versioning, append-only audit, exact-decimal validation, supervisor authentication, and replay conventions.
+Extend `Aiur.Decision`, `DecisionValidation`, `DecisionEvent`, `DecisionProjection`, `DecisionStore`, `DecisionHistory`, and trusted Decision acceptance paths. Reuse schema-versioning, append-only audit, supervisor authentication, and replay conventions. Reuse `DecisionDelegation.basis` exactly for confidence.
 
 ## Contract and invariants
 
 - Provenance is accepted only from trusted runtime context and is immutable for the Decision version that captured it.
-- Confidence is exact, finite, `[0,1]`, actor-scoped, source-backed, and append-only. It cannot alter authority or lifecycle.
-- Legacy/human records may be unknown. Unknown is never reconstructed from prose or current session state.
-- Revision/history round trips preserve original provenance and confidence independently for every version/action.
+- Legacy/human records may have unknown provenance. Unknown is never reconstructed from prose or current session state.
+- Existing `supervisor_basis.confidence` remains an integer `0..100`; it is neither migrated nor normalized and continues to carry its current actor/authority semantics.
+- Revision/history round trips preserve both provenance and the existing supervisor basis independently.
 - Durable values exclude account/email/org, raw prompt/session payload, credential, and capability material.
 
 ## Refreshable implementation notes
 
-- Refresh current Decision schema/event versions and trusted runtime context at pickup. Keep new fields optional through the full replay chain.
-- Coordinate shared `DecisionStore` ownership with DASH-006 and active predecessor work; serialize rather than adding a false hard edge.
-- Prefer additive structs/validators/serializers under the repository size limits over further expansion of giant modules.
+- Refresh current Decision schema/event versions and trusted runtime context at pickup. Keep new provenance fields optional through the full replay chain.
+- Characterize `DecisionDelegation`, `DecisionAnswer`, revision, API, and history confidence fixtures before editing, then preserve them byte/semantic-equivalently.
+- Coordinate shared `DecisionStore` ownership with DASH-006; serialize rather than adding a false hard edge.
 
 ## Acceptance and verification
 
 ### Agent gate
 
-- Schema/replay tests cover trusted backend/model fallback, session/attempt capture, legacy unknowns, forged agent/display fields, exact valid/invalid confidence, revisions, delivery/history, and rollback-compatible reads.
-- Authority tests prove only authenticated supervising paths author supervisor confidence and confidence cannot change lifecycle or actor authority.
+- Schema/replay tests cover trusted backend/model fallback, session/attempt capture, legacy unknowns, forged agent/display fields, revisions, delivery/history, and rollback-compatible reads.
+- Regression tests cover confidence `0`, `100`, and representative existing values through delegation, answer, revision, API, store, replay, and history, proving no range/type/key/authority change.
 - Security tests prove account/email/org, prompt, transcript, credential, raw session payload, and capability fields cannot enter provenance or logs.
 
 ### At-merge gate
 
-- Rebase on the resolved configured integration target and sequence with DASH-006/active Decision work; run Decision schema/store/event/projection/history, supervisor authority, migration/replay, security, and full CI suites.
+- Rebase on the resolved configured integration target and sequence with DASH-006/active Decision work; run Decision schema/store/event/projection/history, delegation/answer/API confidence regressions, migration/replay, security, and full CI suites.
 
 ### Human/manual evidence
 
-- Using synthetic Decisions, show one trusted runtime provenance record, one supervising-confidence record, and one legacy record that remains explicitly unknown after replay.
+- Using synthetic Decisions, show trusted runtime provenance, a legacy record with unknown provenance, and an existing `supervisor_basis.confidence` value rendered unchanged by DASH-007.
 
 ## Failure, security, migration, and accessibility cases
 
-- Missing trusted context leaves optional facts unknown and does not reject an otherwise valid legacy-compatible Decision.
+- Missing trusted context leaves optional provenance unknown and does not reject an otherwise valid Decision.
 - Never persist or log account identity, raw prompt/transcript/session payloads, credentials, environment values, or capability URLs.
-- Schema/replay and rollback behavior are versioned; no migration manufactures historical fields.
-- No direct UI. Optional values and unknown reasons have stable human-readable labels for DASH-007.
+- Version provenance replay/rollback only; no migration manufactures history or rewrites supervisor basis.
+- No direct UI. Optional provenance and unknown reasons have stable human-readable labels; confidence retains existing accessible `0..100` meaning.
 
 ## Surfaces
 
-- Reads: authoritative runtime/session context and authenticated supervising action context.
-- Writes: Decision schema/event/projection/store/history fields, validation, replay migration, tests.
-- Contracts: trusted immutable Decision provenance and actor-scoped confidence.
+- Reads: authoritative runtime/session context; existing Decision and supervisor-basis records.
+- Writes: Decision provenance schema/event/projection/store/history fields, validation, replay migration, tests.
+- Contracts: trusted immutable Decision provenance; unchanged existing `supervisor_basis.confidence`.
+- Safety: Decision audit compatibility, supervisor authority, provenance redaction.
 
 ## Sibling boundaries and open gates
 
-DASH-006 owns retained read/query behavior and DASH-007 owns presentation. Neither may parse prose to replace absent provenance. DASH-006 and DASH-017 serialize on shared Decision modules but can be reviewed and reverted independently.
+DASH-006 owns retained read/query behavior and DASH-007 owns presentation. Neither may parse prose to replace absent provenance. DASH-006 and DASH-017 serialize on shared Decision modules but remain independently reviewable.

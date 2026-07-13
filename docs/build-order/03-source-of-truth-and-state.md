@@ -33,7 +33,10 @@ Members are the root's direct native sub-issues:
 
 The constant label discovers roots; it is not copied onto members. Do not add a
 `build-order:<slug>` label that duplicates native parenthood. Multiple root
-issues naturally support the dashboard selector.
+issues naturally support the dashboard selector. V1 defaults to a catalog of
+at most 100 roots, with explicit page and provider-call ceilings. A catalog
+that reaches the configured bound is probed for a bound-plus-one result and
+reported as overflow rather than silently truncated.
 
 A closed root with state reason `COMPLETED` means accepted. `NOT_PLANNED` means
 cancelled. Child completion is shown separately and never closes/accepts the
@@ -138,11 +141,14 @@ either. That proposed path is appropriate as a dispatch bridge but unsafe for a
 - has no atomic last-known-good generation or provider freshness.
 
 Create an always-supervised `BuildOrderGitHubProjection` that owns all GitHub
-I/O and caches by root node ID. Prefer bounded GraphQL reads of root catalog,
-direct sub-issues, node/repository identity, labels/state, and paginated
-`blockedBy` connections; use paginated REST only as a preserving fallback.
-Inspect query cost/rate limits and reject partial results unless failures are
-explicitly modeled.
+I/O and caches by root node ID. It accepts only the configured repository and
+rejects any other repository before provider I/O. Prefer bounded GraphQL reads
+of root catalog, direct sub-issues, node/repository identity, labels/state, and
+paginated `blockedBy` connections; use paginated REST only as a preserving
+fallback. Enforce configurable maximum roots, pages and provider calls for the
+catalog plus GitHub's 100-member selected-root limit, and prove the overflow
+case. Inspect query cost/rate limits and reject partial results unless failures
+are explicitly modeled.
 
 Root-catalog and selected-root refreshes have independent health. One malformed
 root becomes a catalog diagnostic and cannot erase other selectable roots.
@@ -158,9 +164,15 @@ partial response, pagination mismatch, or malformed structural data:
 - show unavailable/unknown if no prior generation exists.
 
 Cache and coalesce per daemon, publish generation changes over PubSub, and keep
-GitHub polling out of LiveView. Webhooks for `issue_dependencies` and
-`sub_issues` may invalidate the cache later, but periodic reconciliation remains
-authoritative and webhook support is not a v1 prerequisite.
+GitHub polling out of LiveView. The configurable defaults are a 60-second root
+catalog interval and a 15-second selected-root interval. Selecting a root or
+reconnecting a browser demands a coalesced refresh when that snapshot is older
+than 5 seconds, then renders the current snapshot while the refresh proceeds.
+Deterministic projection/LiveView tests prove healthy pushed updates arrive
+within the configured bound and failed refreshes retain visibly stale LKG
+state. Webhooks for `issue_dependencies` and `sub_issues` may invalidate the
+cache later, but periodic reconciliation remains authoritative and webhook
+support is not a v1 prerequisite.
 
 ## Shared Aiur activity projection
 
@@ -198,6 +210,28 @@ active progress is unknown until replay or a new event. A GitHub issue closed
 successfully may show outcome completion, but open tickets with absent/stale
 Aiur samples show unknown, not `0%`. LiveView never parses workspace logs.
 
+## Bounded ticket detail, history, and context
+
+Ticket cards carry bounded summaries only. Selecting a typed ticket demands a
+root-independent configured-repository detail snapshot that may include the
+current GitHub description and safe tracker URL. The provider is cached,
+coalesced, independently healthy, and rejects another repository before I/O;
+it is not coupled to Build Order membership or graph refresh.
+
+A separate daemon-owned recent-history provider projects a bounded, sanitized
+timeline from supported Aiur event and issue-log seams using the same typed
+identity. It excludes prompts, transcripts, credentials, environment values,
+local paths and unbounded raw output. Browser render never scans workspace log
+files, and a missing history source is an explicit unavailable/partial state.
+
+An accessible base context composes detail, current progress/latest evidence,
+and bounded recent history into Description, Progress, and Logs sections plus
+truthful destination capabilities. The Build Order adapter adds only selected
+graph relationships and diagnostics. “Read chat,” “View command,” and “Open
+GitHub” are shown only when their separately owned destination can resolve the
+exact ticket; navigation is not evidence that an action succeeded. Units may
+reuse the base context without importing Build Order relationships.
+
 ## Normalized snapshots
 
 The GitHub snapshot contains root identity/acceptance, node IDs and mutable
@@ -208,6 +242,10 @@ The Aiur side contains two immutable inputs keyed by the same typed tracker
 identity: an orchestrator StatusReport snapshot for execution/waiting/provider
 facts and a TicketActivity snapshot for progress/stage/cross-ticket evidence.
 Each retains its own observation time and health.
+
+Selection adds independently cached configured-repository TicketDetail and
+bounded TicketHistory inputs. They remain outside graph-card generations so a
+slow body/history source cannot make membership or blockers disappear.
 
 A pure presenter joins them into cards and edges with:
 

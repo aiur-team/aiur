@@ -45,6 +45,10 @@ and reverse adjacency before layout or ticket context can consume it.
   and `activity` subrecords plus provenance, health, and observation times.
 - Compute directed adjacency, reverse adjacency, self-loops/strongly connected
   components, external/missing references, and bounded graph diagnostics.
+- Distinguish configured-repository endpoints from other-repository endpoints.
+  The latter remain nonfetchable external diagnostics with an optional
+  validated outbound GitHub link; they never join runtime activity or become
+  selected-root members.
 - Classify edges exactly as `cleared`, `blocking`, `terminal_unsatisfied`,
   `unknown`, or `cyclic` and derive member readiness using `cyclic > unknown >
   terminal_unsatisfied > blocking > ready`.
@@ -54,6 +58,10 @@ and reverse adjacency before layout or ticket context can consume it.
 - Produce deterministic lane/phase groups with Unassigned/Unphased fallbacks,
   node summaries, accessible edge/status text, root/catalog health, and counts
   that use the same policies as visible nodes.
+- Derive Aiur-owned lane-icon and status-icon keys from BO-001 normalized lane,
+  lifecycle/readiness, and runtime overlay using one explicit precedence table.
+  Unknown values use the generic accessible fallback; no GitHub icon metadata
+  or prototype icon value is consumed.
 - Produce a body-free card model and selected-node relationship model from the
   normalized cached graph and activity snapshots. Full descriptions, generic
   ticket detail, and safe destination links remain outside this presenter.
@@ -85,6 +93,10 @@ BO-005 event-activity snapshots directly.
   an SCC; edge and member status remain distinct.
 - A missing StatusReport or activity match changes only the corresponding
   execution or activity subrecord to unknown.
+- Other-repository endpoints never join BO-004/005 activity and never become
+  eligible for BO-016 detail I/O; their diagnostic/link state stays explicit.
+- Icon keys are deterministic derived presentation values and never override
+  the accessible status text, lane, lifecycle, readiness, or activity facts.
 - Cards and selected-node relationship values remain body-free and bounded;
   BO-016 separately owns on-demand generic ticket detail and its cache.
 
@@ -107,6 +119,9 @@ BO-005 event-activity snapshots directly.
 - Identity tests prove same issue numbers in different repositories never join.
 - Snapshot/property tests prove deterministic grouping/adjacency and bounded
   body-free card output at 0/1/20/50/100 nodes.
+- Icon/cross-repository tests prove every normalized lane/status combination,
+  generic fallbacks, no GitHub icon input, exact configured-repository joins,
+  and nonfetchable other-repository diagnostics with only validated links.
 
 ### At-merge gate
 
@@ -136,12 +151,13 @@ BO-005 event-activity snapshots directly.
 - Writes: pure BuildOrderPresenter policies, joined view/context models,
   adjacency/SCC helpers, and tests.
 - Contracts: BuildOrderViewModel; body-free card and selected-node relationship
-  input; edge/readiness and diagnostic precedence.
+  input; edge/readiness/diagnostic precedence; derived lane/status icon keys;
+  configured-versus-external repository policy.
 
 ## Sibling boundaries and open gates
 
-BO-016 owns generic ticket detail/cache and accessible base context; BO-011
-adapts that context to this ticket's adjacency/diagnostics; BO-012 owns
-routing/minimum rendering; and layout tickets consume geometry-only inputs.
-Companion Units may reuse the generic context or activity models, but does not
-change this graph join or hard dependencies.
+BO-016 owns configured-repository detail/cache, BO-019 owns bounded history,
+BO-018 owns accessible base context, and BO-011 adapts that context to this
+ticket's adjacency/diagnostics and destination capabilities. BO-012 owns route
+rendering; layout tickets consume geometry-only inputs. Companion Units may
+reuse generic context/activity contracts but cannot change this graph join.

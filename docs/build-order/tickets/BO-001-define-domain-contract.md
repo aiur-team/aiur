@@ -10,11 +10,9 @@
 
 **Phase hint:** 1
 
-**Depends on:** none
+**Depends on:** BO-004
 
 **Serializes with:** none
-
-**External gates:** GATE-001 (integration baseline), GATE-002 (Executor skill)
 
 **Requirements:** BOREQ-001, BOREQ-002, BOREQ-003
 
@@ -43,22 +41,23 @@ and browser work invent separate meanings for invalid, blocked, or complete,
 the resulting graph can look ready while its source data is incomplete.
 
 This ticket is the contract gate for Build Order graph providers, presentation,
-layout, and routes. The root-independent tracker identity/event work (BO-004),
-browser harness (BO-008), and generic ticket context (BO-016) have their own
-contracts and can proceed without importing this domain. This ticket defines
-graph semantics and bounded domain fixtures, not transport or UI.
+layout, and routes. It imports BO-004's configured-repository identity as the
+only member/endpoint identity instead of defining a Build Order copy. The
+browser harness (BO-008) remains the other initial independent node; generic
+detail/history/context work has its own contracts. This ticket defines graph
+semantics and bounded domain fixtures, not transport or UI.
 
-It must not be dispatched until the user records both external gates as
-resolved on the live root: the configured integration target contains the
-completed Operator Control Center baseline used by this plan, and the bounded
-Executor skill revision from PR #1065 commit `0daf2972` (or an explicitly
-reviewed compatible successor) is installed and discoverable.
+Its GATE-001/GATE-002 readiness is inherited transitively from BO-004. Do not
+duplicate gate state on this issue or dispatch it before BO-004 is complete.
 
 ## Scope
 
 - Define root-summary, selected-root, member, repository-qualified identity,
   native dependency reference, provider generation/health, metadata warning,
   lifecycle outcome, edge state, readiness, and structural-diagnostic records.
+- Import BO-004's configured-repository identity unchanged for roots, members,
+  and same-repository endpoints. Preserve other-repository endpoints only as
+  nonfetchable external diagnostics with a separately validated outbound URL.
 - Parse exactly one `complexity:1..5`, one positive `phase:N`, and one controlled
   `build-lane:*`. Missing or duplicate values remain renderable as explicit
   unknown/unphased/unassigned warnings.
@@ -74,6 +73,9 @@ reviewed compatible successor) is installed and discoverable.
 - Distinguish catalog-entry validity, selected-root structural invalidity,
   provider stale/unavailable state, and member metadata warnings. One malformed
   root cannot invalidate or hide otherwise valid catalog entries.
+- Define Aiur-owned derived lane-icon and status-icon keys plus an accessible
+  generic fallback. GitHub labels/state feed the derivation; GitHub provides no
+  icon metadata and prototype icon values are never provider truth.
 - Parse the bounded hidden root/ticket logical-identity markers, safe GitHub
   URLs, state reasons, and representative bounded fixtures without raising on
   untrusted strings.
@@ -89,12 +91,11 @@ reviewed compatible successor) is installed and discoverable.
 
 ## Existing owner and reuse target
 
-Reuse GitHub identity/state/label vocabulary around `Aiur.Issue`,
+Reuse BO-004 identity and GitHub state/label vocabulary around `Aiur.Issue`,
 `Aiur.GitHub.IssueState`, and `Aiur.GitHub.Labels`, while keeping Build Order
 records in a bounded namespace. Reuse existing structured-error conventions.
-Do not add graph/catalog/presentation fields to the general dispatch record;
-BO-004 separately owns the cross-consumer typed tracker identity needed by
-StatusReport and event joins.
+Do not add graph/catalog/presentation fields to the general dispatch record or
+redefine BO-004's identity.
 
 ## Contract and invariants
 
@@ -107,6 +108,8 @@ StatusReport and event joins.
   separately.
 - Planned phase, edge state, readiness, GitHub outcome, Aiur execution state,
   agent stage, and progress are distinct fields.
+- Lane/status icon keys are deterministic derived presentation hints with
+  accessible text and a generic fallback; they are not GitHub metadata.
 - Every parser is total over bounded input. Unknown data never becomes empty,
   zero, cleared, or ready.
 
@@ -133,6 +136,9 @@ StatusReport and event joins.
 - Catalog tests prove one malformed root does not hide valid siblings, selected
   structural-invalid differs from stale/unavailable, and member warnings do not
   erase the member.
+- Identity/icon tests prove BO-004 identity is reused exactly, other-repository
+  endpoints remain nonfetchable diagnostics, every normalized lane/status maps
+  deterministically, and unknown input uses generic accessible fallbacks.
 
 ### At-merge gate
 
@@ -156,19 +162,20 @@ StatusReport and event joins.
 
 ## Surfaces
 
-- Reads: current issue, GitHub identity, label, and state-reason contracts;
-  captured feature constraints.
+- Reads: BO-004 configured-repository identity; current issue label and
+  state-reason contracts; captured feature constraints.
 - Writes: pure Build Order records, parsers, validation policies, and fixtures.
 - Contracts: catalog/selected-root validity; member metadata; edge-state and
-  readiness vocabulary; repository-qualified identity.
+  readiness vocabulary; imported configured-repository identity; derived
+  lane/status icon keys and generic fallback.
 
 ## Sibling boundaries and open gates
 
 BO-002 owns graph transport normalization, BO-003 owns supervised graph
-generations, BO-007 owns the joined view model, and BO-012 owns routes. BO-004,
-BO-008, and BO-016 remain root-independent and must not import Build Order
-relationship assumptions merely to reuse identity, testing, or context seams.
+generations, BO-007 owns the joined view model, and BO-012 owns routes. BO-004
+owns identity; BO-008 owns the browser harness; BO-016/019/018 own generic
+detail, history, and base context without Build Order relationship assumptions.
 No companion ticket may redefine this domain contract; it may only reuse its
 identities or schedule around the same modules. GATE-001 and GATE-002 are
-pre-dispatch gates, not feature tickets or additions to the completion
+inherited through BO-004, not duplicated on BO-001 or added to the completion
 denominator.

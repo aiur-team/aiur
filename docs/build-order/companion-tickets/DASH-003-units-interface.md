@@ -8,9 +8,9 @@
 
 **Risk:** medium
 
-**Depends on:** DASH-001, DASH-016, BO-016
+**Depends on:** DASH-001, DASH-016, BO-018
 
-**Serializes with:** DASH-005 and other Units/DashboardLive/shared CSS branches
+**Serializes with:** DASH-007, DASH-021 — shared `DashboardLive` composition
 
 **External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
 
@@ -28,26 +28,26 @@ Executors can share, refresh, filter, inspect, and navigate one responsive Units
 
 ## Context and evidence
 
-Current main already renders one Fleet table with waiting reasons, Decisions, safe tracker links, and running-agent log access. The refreshed prototype simplifies the columns and adds scope presets, condition chips, progress, model/complexity/lane facts, and rich ticket context, but its clickable table rows, client-mutated objects, exclusive buckets, and narrow typography are not production contracts. BO-016 defines the shared all-state ticket-context path used here; the Build Order capstone, not this companion, owns later feature acceptance.
+Current main already renders one Fleet table with waiting reasons, Decisions, safe tracker links, and running-agent log access. The refreshed prototype simplifies the columns and adds scope presets, condition chips, progress, model/complexity/lane facts, and rich ticket context, but its clickable table rows, client-mutated objects, exclusive buckets, and narrow typography are not production contracts. BO-018 defines the shared accessible all-state base-context path used here; the Build Order capstone, not this companion, owns later feature acceptance.
 
 ## Scope
 
 - Render DASH-016's single-select Live/Unfinished/All/None scope and independent Active/Alert/Paused/Stuck/Queued/Finished condition chips. Display predicate counts from the catalog without implying overlapping counts are additive.
 - Persist validated scope and conditions in URL parameters. Refresh, copied URLs, and browser back/forward restore the same view. Provide a named reset when a valid selection yields no rows.
 - Render one desktop table and narrow card/reflow presentation with typed identity, agent/backend/model/effort/complexity, title and optional lane, latest evidence, progress source/freshness, runtime, waiting/blocking context, open Commands, and safe available actions. Unknown/stale values use explicit text, never fake percentages or placeholder models.
-- Consume the accepted BO-016 ticket-context integration for row inspection, dependency navigation, GitHub navigation, and optional chat/log/Command actions. Preserve the existing running-agent log behavior until the shared context is available; do not fetch tracker data during render.
+- Consume the accepted BO-018 base ticket-context integration for row inspection and read-only GitHub/Chat/Commands navigation capabilities. Preserve the existing running-agent log behavior until the shared context is available; do not fetch tracker data during render or bind Build Order-specific relationships.
 - Preserve focus and selection across live row updates when the same identity remains visible. Coalesce screen-reader count/status announcements and avoid reorder animation when reduced motion is enabled or focus would move.
 - Use explicit named buttons/links for row inspection and actions. A visual row may be hover-highlighted, but a non-focusable clickable `<tr>` is not the interaction contract.
 
 ## Non-goals
 
 - Define catalog membership/predicates, implement pause/resume or capacity writes, ingest usage, redesign Commands, or build the Build Order graph.
-- Reimplement BO-016 ticket context, parse workspace logs during render, or invent completed/progress/model data.
+- Reimplement BO-018 base ticket context, parse workspace logs during render, or invent completed/progress/model data.
 - Copy the prototype's client-side cap behavior, fake remote-control links, 9–12px essential text, or visual-only status encoding.
 
 ## Existing owner and reuse target
 
-Extend the current Fleet table/filter/presenter components under `AiurWeb.OperatorControlCenter`, consume DASH-001 shell metadata and DASH-016 APIs, and reuse the BO-016-accepted ticket-context components and trusted-link policy.
+Extend the current Fleet table/filter/presenter components under `AiurWeb.OperatorControlCenter`, consume DASH-001 shell metadata and DASH-016 APIs, and reuse the BO-018-accepted base-context components and trusted-link policy.
 
 ## Contract and invariants
 
@@ -59,7 +59,7 @@ Extend the current Fleet table/filter/presenter components under `AiurWeb.Operat
 
 ## Refreshable implementation notes
 
-- Refresh BO-016's final context component names and current Fleet behavior at pickup. Keep a thin adapter if the Build Order view model is richer than a plain Units row.
+- Refresh BO-018's final base-context component names and current Fleet behavior at pickup. Keep a thin adapter if the Build Order view model is richer than a plain Units row.
 - Prefer Phoenix streams or keyed components for row updates, but verify focus behavior rather than assuming DOM patch stability.
 - Keep filter controls as real buttons/links with server-backed URL patches. Do not duplicate the prototype JavaScript state machine.
 
@@ -73,7 +73,7 @@ Extend the current Fleet table/filter/presenter components under `AiurWeb.Operat
 
 ### At-merge gate
 
-- Merge the resolved configured integration target plus DASH-001/016 and the BO-016 acceptance result, sequence shared `DashboardLive`/CSS ownership, and pass Fleet, ticket-context, Decision-link, accessibility, asset, and full CI gates.
+- Merge the resolved configured integration target plus DASH-001/016 and the BO-018 acceptance result, sequence shared `DashboardLive`/CSS ownership, and pass Fleet, ticket-context, Decision-link, accessibility, asset, and full CI gates.
 
 ### Human/manual evidence
 
@@ -88,10 +88,10 @@ Extend the current Fleet table/filter/presenter components under `AiurWeb.Operat
 
 ## Surfaces
 
-- Reads: DASH-016 Units catalog/policy, DASH-001 route shell, BO-016 ticket context, URL params.
+- Reads: DASH-016 Units catalog/policy, DASH-001 route shell, BO-018 accessible base ticket context, URL params.
 - Writes: Units LiveView composition, filter/table/card components, CSS, browser and component tests.
 - Contracts: Units URL presentation, row action model, focus/live-update behavior.
 
 ## Sibling boundaries and open gates
 
-DASH-005 owns all writes and may add controls only through this row/action seam. DASH-022 owns the nonfinancial run summary and DASH-015 owns protected usage/provider cards. This ticket does not start until BO-016 has proven the reusable ticket-context integration, preventing a second incompatible modal contract.
+DASH-005 owns all writes and may add controls only through this row/action seam. DASH-022 owns the nonfinancial run summary and DASH-015 owns protected usage/provider cards. This ticket does not start until BO-018 has proven the reusable accessible base-context integration, preventing a second incompatible modal contract. It does not depend on BO-011's Build Order-specific context composition.

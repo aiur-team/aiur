@@ -10,7 +10,7 @@
 
 **Depends on:** none
 
-**Serializes with:** DASH-017 and Decision store/API/presenter changes
+**Serializes with:** DASH-017 — shared Decision store modules
 
 **External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
 
@@ -28,7 +28,7 @@ Commands consumers can resolve any retained Decision by stable ID, page and sear
 
 ## Context and evidence
 
-Current `ControlCenterPresenter` loads a priority-bounded 50-Decision overview and `DashboardLive` searches that payload for direct detail even though `DecisionStore.get/2` exists. An older durable deep link can therefore appear missing, and overview length can be mistaken for a global count. DASH-017 separately owns trusted provenance/confidence schema changes so query work is not coupled to a migration program.
+Current `ControlCenterPresenter` loads a priority-bounded 50-Decision overview and `DashboardLive` searches that payload for direct detail even though `DecisionStore.get/2` exists. An older durable deep link can therefore appear missing, and overview length can be mistaken for a global count. DASH-017 separately owns trusted provenance schema changes while preserving existing supervisor basis, so query work is not coupled to a migration program.
 
 ## Scope
 
@@ -37,11 +37,11 @@ Current `ControlCenterPresenter` loads a priority-bounded 50-Decision overview a
 - Keep priority-bounded overview, retained page/search, and exact detail as three explicit contracts; none may silently substitute for another.
 - Expose canonical counts for open and blocking retained Decisions separately from bounded overview counts, including partial/unavailable health.
 - Thread selected ID and page/search inputs through `PayloadLoader` or a dedicated provider without making every browser mount load all retained Decisions.
-- Return DASH-017 provenance/confidence fields when present without authoring, deriving, or requiring them; legacy unknowns remain valid query results.
+- Return DASH-017 provenance when present and the existing `supervisor_basis` unchanged; legacy unknown provenance remains a valid query result.
 
 ## Non-goals
 
-- Change Decision schema, capture provenance/confidence, migrate records, redesign Commands UI, rename the Decision domain, or change lifecycle/authority semantics.
+- Change Decision schema, capture provenance, alter existing supervisor basis, migrate records, redesign Commands UI, rename the Decision domain, or change lifecycle/authority semantics.
 - Load all Decisions into one LiveView payload, add free-form full-text indexing, or expose raw prompts/session/account data.
 - Parse model, backend, confidence, question, rationale, or origin display text.
 
@@ -94,4 +94,4 @@ Extend `DecisionStore`, `DecisionApi`, `DecisionPresenter`, `ControlCenterPresen
 
 ## Sibling boundaries and open gates
 
-DASH-017 owns every durable provenance/confidence field and migration. DASH-007 owns Commands vocabulary, filters, cards, and actions. DASH-006 and DASH-017 serialize on shared Decision store/schema files but remain independently reviewable outcomes.
+DASH-017 owns durable provenance fields/migration while preserving the existing supervisor-basis contract. DASH-007 owns Commands vocabulary, filters, cards, and actions. DASH-006 and DASH-017 serialize on shared Decision store/schema files but remain independently reviewable outcomes.

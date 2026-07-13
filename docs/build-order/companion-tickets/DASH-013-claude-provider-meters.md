@@ -4,18 +4,18 @@
 
 **Provenance:** planned in plan v1 after provider-meter adversarial review
 
-**Complexity:** 4 — Claude subscription/API integration with possible sibling protocol gate
+**Complexity:** 4 — Claude subscription/API integration against a human-pinned structured protocol
 
 **Risk:** high
 
 **Depends on:** DASH-012
 
-**Serializes with:** Claude account/auth protocol and aiur-claude adapter changes
+**Serializes with:** none after the human gate pins an already-landed compatible protocol
 
 **External gates:** `GATE-OCC-PREDECESSOR-BASELINE`; and
 `GATE-CLAUDE-METER-PROTOCOL-AUTHORITY`, owned by a human with `aiur-claude`
 write authority and resolved before implementation as either an evidenced
-existing structured source or an explicitly authorized compatible sibling
+existing structured source or an already-landed pinned compatible sibling
 protocol revision
 
 **Requirements:** DREQ-013
@@ -36,11 +36,11 @@ The refreshed prototype shows Claude session and weekly meters and the user requ
 
 ## Scope
 
-- Resolve `GATE-CLAUDE-METER-PROTOCOL-AUTHORITY` before implementation dispatch by characterizing the installed Claude CLI, Claude Code OTel, and aiur-claude structured account/rate-limit capabilities using official schemas and sanitized fixtures. The human-owned receipt must select an existing structured source or authorize the minimal sibling protocol/revision. Interactive `/usage`, TUI, transcript, StatusLine, browser, and credential scraping are forbidden.
+- Resolve `GATE-CLAUDE-METER-PROTOCOL-AUTHORITY` before implementation dispatch by characterizing the installed Claude CLI, Claude Code OTel, and aiur-claude structured account/rate-limit capabilities using official schemas and sanitized fixtures. The receipt must select an existing structured source or name an already-landed pinned compatible sibling revision. Missing sibling capability requires a separately authorized sibling issue/PR that lands before this ticket. Interactive `/usage`, TUI, transcript, StatusLine, browser, and credential scraping are forbidden.
 - Implement Claude normalization into DASH-012 `ProviderMeterSnapshot`: provider/backend, opaque account generation, auth mode, actual plan/tier and source, snapshot/patch/tombstone semantics, named limit IDs/windows, used/remaining facts, duration/reset, API credit/rate/spend controls when reported, observed/ingested time, freshness/expiry, and health.
 - Support subscription and API-key modes without assuming they expose the same facts. Renderable session/weekly windows require actual structured values; API mode reports only real rate/credit/spend controls.
 - Preserve sparse updates, per-window last-known-good state, full-snapshot removals, and account-generation isolation exactly as DASH-012 defines. Report trusted Claude auth/session lifecycle changes through DASH-018 and use its returned generation without persisting raw account identity.
-- If the gate determines that Aiur alone cannot expose required meter facts, implement only the minimal typed `aiur-claude` adapter/protocol authorized by its receipt. Include version negotiation and synthetic fixtures in both repositories; no worker infers sibling write authority from this ticket.
+- Implement the Aiur adapter only against the gate-pinned existing protocol. This ticket never implements or tests unlanded sibling changes and never infers sibling write authority.
 - Expose partial/temporarily unavailable/error coverage during protocol failure, but final ticket acceptance requires the supported Claude account modes available in the user's configured integration; “all Claude meters unsupported” is not completion.
 - Redact email, account/organization/workspace IDs, credentials, API/OAuth material, raw responses, headers, endpoint/capability URLs, and unrelated attributes at the adapter boundary.
 
@@ -48,7 +48,7 @@ The refreshed prototype shows Claude session and weekly meters and the user requ
 
 - Ingest request token/cost usage (DASH-010), calculate ticket/build spend, call browser/private endpoints, scrape interactive output, render UI, or redesign Claude authentication.
 - Fabricate session/weekly bars or API controls from token totals, local timers, plan-name guesses, or scheduling availability.
-- Mutate a sibling repository without the explicit external authority gate.
+- Mutate a sibling repository; missing sibling work belongs to its own human-authorized issue/PR.
 
 ## Existing owner and reuse target
 
@@ -65,7 +65,7 @@ Implement against DASH-012's provider-meter contract, DASH-018's generation owne
 ## Refreshable implementation notes
 
 - Refresh official Claude monitoring and the gate-approved aiur-claude schemas at pickup. Keep the approved source-capability matrix in the ticket workpad and fixtures, then implement only the selected reviewed path.
-- Prefer adding a narrow typed method/event to aiur-claude over relaying arbitrary raw account payloads.
+- If the capability matrix needs a new narrow typed sibling method/event, record that requirement for the separate sibling issue/PR and keep this ticket blocked until its pinned revision lands.
 - Keep provider polling/subscription daemon-owned and shared; no browser-specific fetch or credential access.
 
 ## Acceptance and verification
@@ -78,7 +78,7 @@ Implement against DASH-012's provider-meter contract, DASH-018's generation owne
 
 ### At-merge gate
 
-- Rebase on DASH-012 and current Claude integration. Pass provider-meter, Claude lifecycle/protocol, version compatibility, redaction, packaging, and full CI suites; when sibling work is authorized, both repositories' contract tests must pass at pinned compatible revisions.
+- Rebase on DASH-012 and the gate-pinned installed Claude integration. Pass provider-meter, Claude lifecycle/protocol, version compatibility, redaction, packaging, and full Aiur CI suites.
 
 ### Human/manual evidence
 
@@ -88,13 +88,13 @@ Implement against DASH-012's provider-meter contract, DASH-018's generation owne
 
 - Protocol/fetch/auth failure retains only generation-safe last-known-good facts with visible health/freshness; a new generation starts empty until real data arrives.
 - Never persist/log account/email/org/workspace identity, credentials, raw responses, headers, environment values, endpoint/capability URLs, or interactive output.
-- Version the adapter and any sibling method/event. Older protocols yield explicit version coverage rather than heuristic scraping.
+- Version the Aiur adapter against the pinned sibling method/event. Older protocols yield explicit version coverage rather than heuristic scraping.
 - No direct UI; facts and failure reasons use the common human-readable DASH-012 vocabulary.
 
 ## Surfaces
 
 - Reads: official structured Claude account/rate-limit sources; trusted Claude auth/process lifecycle; DASH-018 account generation.
-- Writes: Claude provider-meter adapter, DASH-018 lifecycle observations, optional authorized aiur-claude protocol, fixtures/compatibility/redaction tests.
+- Writes: Aiur Claude provider-meter adapter, DASH-018 lifecycle observations, fixtures/compatibility/redaction tests.
 - Contracts: Claude subscription/API parity on `ProviderMeterSnapshot`; `GATE-CLAUDE-METER-PROTOCOL-AUTHORITY` receipt.
 
 ## Sibling boundaries and open gates
@@ -102,6 +102,7 @@ Implement against DASH-012's provider-meter contract, DASH-018's generation owne
 DASH-012 owns the generic meter contract and DASH-018 owns account identity;
 DASH-010 owns Claude request token/cost accounting and does not satisfy quota
 meters. DASH-015 requires both adapters. This ticket is not dispatchable until
-`GATE-CLAUDE-METER-PROTOCOL-AUTHORITY` is resolved; if sibling authority is
-unavailable, it remains human-blocked rather than complete with universal
-unsupported coverage.
+`GATE-CLAUDE-METER-PROTOCOL-AUTHORITY` names an existing source or already-landed
+pinned sibling revision. Missing sibling work requires a separate authorized
+issue/PR; until it lands, this ticket remains human-blocked rather than complete
+with unsupported coverage.

@@ -62,6 +62,15 @@ class CoreReceiptV2Tests(unittest.TestCase):
         joined = "\n".join(self.report(mutate).errors)
         self.assertIn("unexpected observed labels for BO-001: agent:new-state", joined)
 
+    def test_core_observed_labels_reject_human_routing_drift(self) -> None:
+        def mutate(_data, build, _manifest):
+            build["github_reconciliation"]["observed_labels"]["BO-001"].append(
+                "human:todo"
+            )
+
+        joined = "\n".join(self.report(mutate).errors)
+        self.assertIn("unexpected observed labels for BO-001: human:todo", joined)
+
     def test_core_projected_labels_are_exact(self) -> None:
         def mutate(_data, build, _manifest):
             build["github_reconciliation"]["projected_labels"]["BO-001"].append(

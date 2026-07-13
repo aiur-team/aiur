@@ -10,7 +10,7 @@
 
 **Depends on:** DASH-018
 
-**Serializes with:** provider-meter schema/projection and protected provider-subscription changes
+**Serializes with:** none
 
 **External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
 

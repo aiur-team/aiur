@@ -13,11 +13,13 @@ state, progress estimates, workflow phase, recent activity, and event evidence
 without copying those facts back into a second planning database.
 
 The opening ten-ticket estimate was deliberately treated as a hypothesis. The
-final prototype/current-code audit found sixteen independently reviewable Build
-Order boundaries and twenty-two standalone dashboard companions. The companions
-do not belong to the Build Order root or its completion math. The increase is
-mostly hidden protocol, durable-data, browser-harness, and control-lifecycle
-work that should not be buried in nominal frontend tickets.
+final prototype/current-code audit found nineteen independently reviewable
+Build Order boundaries and twenty-five standalone dashboard companions. The
+companions do not belong to the Build Order root or its completion math. The
+increase is mostly hidden identity/event propagation, bounded detail and
+history, durable-data query/retention, selected-order accounting,
+browser-harness, and control-lifecycle work that should not be buried in
+nominal frontend tickets.
 
 ## Current Dashboard Baseline
 
@@ -211,10 +213,18 @@ Use a provider composition model consistent with the current Control Center:
    critical-path/ready-state annotations, and aggregate counts.
 4. LiveView subscribes to provider changes through PubSub and reads a bounded
    cached snapshot; the browser never polls GitHub directly.
+5. Root-independent on-demand providers load only selected configured-
+   repository detail and bounded sanitized recent activity. The accessible
+   base context consumes those snapshots; it never fetches every card or parses
+   raw logs during render.
 
 Every node and edge should carry provenance and freshness. Partial GitHub
 failure keeps the last-known-good graph visibly stale. Partial Aiur failure
 keeps GitHub planning facts visible while runtime cells degrade to unknown.
+The catalog defaults to 100 roots with explicit page/provider-call ceilings;
+selected graphs retain the 100-member limit. Default catalog/selected refresh
+is 60/15 seconds, with one coalesced refresh on selection or reconnect when the
+demanded snapshot is older than 5 seconds.
 
 ## External References
 
@@ -225,5 +235,5 @@ keeps GitHub planning facts visible while runtime cells degrade to unknown.
 ## Remaining Planning Work
 
 - Run two successive clean adversarial reviews and the canonical validator.
-- Materialize the reviewed root, sixteen members, and twenty-two standalone
+- Materialize the reviewed root, nineteen members, and twenty-five standalone
   companions without dispatching them; then requery and record the receipt.

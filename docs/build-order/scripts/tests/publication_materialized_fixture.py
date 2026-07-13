@@ -2,23 +2,33 @@
 
 from __future__ import annotations
 
-import hashlib
+import copy
 
-from publication_core_receipt import PINNED_SKILL_COMMIT
+from publication_fixture_io import (
+    EXPECTED_BODY_SHA,
+    EXPECTED_COMMENT_SHA,
+    FIXTURE_APPROVED,
+)
 from publication_fixtures import build_order, companions, github, publication
 
 
-APPROVED = PINNED_SKILL_COMMIT
+APPROVED = FIXTURE_APPROVED
 ROOT_ID = "example/repo:build-order-dashboard"
 SKILL_ID = "SKILL-DELIVERY-001"
+REPOSITORY = "example/repo"
 
 
-def body_evidence(ids: list[str]) -> dict[str, dict[str, str]]:
+def body_evidence(ids: list[str]) -> dict[str, dict[str, object]]:
     return {
         logical_id: {
+            "marker_count": 1,
+            "marker_schema_version": 2,
             "marker_logical_id": logical_id,
+            "marker_plan_version": 1,
             "approved_planning_commit": APPROVED,
-            "body_sha256": hashlib.sha256(logical_id.encode()).hexdigest(),
+            "approved_link_count": 1,
+            "approved_link": f"https://github.com/{REPOSITORY}/commit/{APPROVED}",
+            "body_sha256": EXPECTED_BODY_SHA,
         }
         for logical_id in ids
     }
@@ -40,6 +50,13 @@ def materialized_pack() -> tuple[dict, dict, dict]:
         ]
         for ticket in build["tickets"]
     }
+    core_mappings = {
+        ROOT_ID: [copy.deepcopy(build["github_root"])],
+        **{
+            ticket["id"]: [copy.deepcopy(ticket["github"])]
+            for ticket in build["tickets"]
+        },
+    }
     build["github_reconciliation"] = {
         "receipt_schema_version": 2,
         "checked_at": "2026-07-13T00:00:00Z",
@@ -50,9 +67,14 @@ def materialized_pack() -> tuple[dict, dict, dict]:
             {"ticket_id": ticket["id"], "depends_on": dependency}
             for ticket in build["tickets"] for dependency in ticket["depends_on"]
         ],
-        "projected_labels": {"github_root": ["build-order"], **bo_labels},
-        "observed_labels": {"github_root": ["build-order"], **bo_labels},
+        "projected_labels": {
+            "github_root": ["build-order"], **copy.deepcopy(bo_labels),
+        },
+        "observed_labels": {
+            "github_root": ["build-order"], **copy.deepcopy(bo_labels),
+        },
         "observed_body_evidence": body_evidence([ROOT_ID, *bo_ids]),
+        "marker_query_matches": core_mappings,
     }
     dash_ids = [ticket["id"] for ticket in data["tickets"]]
     data["github_reconciliation"] = {
@@ -66,11 +88,14 @@ def materialized_pack() -> tuple[dict, dict, dict]:
             ticket["id"]: ["model:codex", f"complexity:{ticket['complexity_points']}"]
             for ticket in data["tickets"]
         },
-        "observed_parent_issues": {
-            ticket["id"]: None for ticket in data["tickets"]
-        },
+        "observed_parent_issues": {ticket["id"]: None for ticket in data["tickets"]},
         "observed_body_evidence": body_evidence(dash_ids),
+        "marker_query_matches": {
+            ticket["id"]: [copy.deepcopy(ticket["github"])]
+            for ticket in data["tickets"]
+        },
     }
+    root_comment_url = "https://github.com/example/repo/issues/901#issuecomment-987"
     manifest["github_reconciliation"] = {
         "checked_at": "2026-07-13T00:00:00Z",
         "issue_mappings": {
@@ -78,17 +103,22 @@ def materialized_pack() -> tuple[dict, dict, dict]:
             SKILL_ID: github(4, "SKILL_NODE"),
         },
         "external_blocker_relations": manifest["external_blocker_relations"],
-        "observed_labels": {
-            ROOT_ID: ["build-order"],
-            SKILL_ID: ["human:todo"],
-        },
+        "observed_labels": {ROOT_ID: ["build-order"], SKILL_ID: ["human:todo"]},
         "observed_parent_issues": {ROOT_ID: None, SKILL_ID: None},
         "observed_body_evidence": body_evidence([SKILL_ID]),
-        "root_reconciliation_comment": {
+        "marker_query_matches": {SKILL_ID: [github(4, "SKILL_NODE")]},
+        "root_reconciliation_comment_matches": [{
+            "marker_count": 1,
             "marker": "aiur-build-order-reconciliation",
+            "marker_schema_version": 1,
+            "logical_id": ROOT_ID,
+            "plan_version": 1,
+            "approved_planning_commit": APPROVED,
             "state": "pending",
-            "url": "https://github.com/example/repo/issues/901#issuecomment-987",
-            "body_sha256": hashlib.sha256(b"pending comment").hexdigest(),
-        },
+            "receipt_commit": None,
+            "receipt_url": None,
+            "url": root_comment_url,
+            "body_sha256": EXPECTED_COMMENT_SHA,
+        }],
     }
     return data, build, manifest

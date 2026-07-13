@@ -51,9 +51,16 @@ sample objects cannot be carried into production.
 - Subscribe/load generation-safely from BO-003 and BO-005/007, showing explicit
   loading, empty, invalid, unavailable, stale, cycle, external-reference, and
   member-warning states without extra provider calls.
+- Apply BO-003's configurable defaults: catalog refresh 60 seconds, actively
+  demanded selected root 15 seconds, and coalesced asynchronous selection/
+  reconnect refresh when snapshot age exceeds 5 seconds. Render current LKG,
+  refreshing, age, and stale/degraded health instead of blocking navigation.
 - Render server-side lane/phase groups, body-free semantic cards, complete
   accessible titles/status/progress provenance, non-color edge summaries,
   metadata warnings, provider health/freshness, and diagnostics.
+- Render BO-007's derived lane/status icon keys through Aiur-owned local icon
+  components with accessible text and the generic fallback. Never read icon
+  metadata from GitHub or prototype fixture values.
 - Wire BO-010's DOM/SVG adapter and fallback plus BO-011's selected cached
   context. Keep layout/selection state scoped to canonical root and data
   generation.
@@ -95,6 +102,9 @@ assigns or hooks.
   mutation. Destination surfaces remain separately authorized and cannot change
   readiness truth.
 - Every visible count/filter/diagnostic derives from the same BO-007 view model.
+- Provider/activity PubSub updates are generation-checked, coalesced, and
+  visible within the configurable 1,000 ms local acceptance budget; stale
+  generations cannot overwrite the selected root.
 
 ## Refreshable implementation notes
 
@@ -113,12 +123,18 @@ assigns or hooks.
 - LiveView/router tests cover multiple roots, canonical selection/deep link,
   closed-root link, invalid params, refresh/back/reconnect, auth/read-only, and
   generation-safe updates without extra GitHub calls.
+- Injected-clock/barrier tests cover every 60/15/5-second boundary, selection/
+  reconnect coalescing, LKG-on-failure, and exactly one generation-safe render
+  within the 1,000 ms acceptance budget without arbitrary sleeps.
 - Catalog tests prove one malformed root leaves valid siblings visible;
   selected structural-invalid differs from stale/unavailable; member warnings
   leave cards renderable.
 - BO-008 browser tests cover semantic pre-layout/fallback, real worker layout,
   context open/navigation, all five edge states, cycles/external references,
   existing route regression, and absence of GitHub mutation handlers.
+- Component/browser tests cover every derived lane/status icon key, unknown
+  generic fallback, non-color accessible names, and absence of GitHub/prototype
+  icon metadata.
 
 ### At-merge gate
 
@@ -149,8 +165,9 @@ assigns or hooks.
   BO-011 context; current route/auth/navigation state.
 - Writes: Build Order routes, LiveView/component/navigation integration, CSS,
   subscriptions, and tests.
-- Contracts: URL/root selection; route/provider-state matrix; read-only GitHub
-  boundary; minimum semantic graph markup.
+- Contracts: URL/root selection; route/provider-state/freshness matrix;
+  generation-safe bounded PubSub rendering; derived-icon rendering/fallback;
+  read-only GitHub boundary; minimum semantic graph markup.
 
 ## Sibling boundaries and open gates
 

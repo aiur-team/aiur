@@ -10,7 +10,7 @@
 
 **Depends on:** DASH-002, BO-005
 
-**Serializes with:** Units presenter and current Fleet filter-policy changes
+**Serializes with:** none
 
 **External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
 

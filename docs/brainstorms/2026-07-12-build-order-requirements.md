@@ -13,7 +13,7 @@ identity, current membership, ticket facts, lifecycle, planning metadata and
 native blockers. Aiur contributes current activity, progress and event evidence
 without being allowed to clear a GitHub dependency.
 
-The Build Order implementation is sixteen tickets. Twenty-two standalone
+The Build Order implementation is nineteen tickets. Twenty-five standalone
 dashboard companions align Units, Commands, controls and usage/accounting with
 the refreshed prototype; they are not Build Order members or completion
 blockers.
@@ -40,7 +40,7 @@ not the opening ten-ticket estimate.
 - Linear parity remains separate human-blocked issue #1067.
 - No implementation dispatch begins until the configured integration branch is
   proven to contain the completed OCC baseline and the bounded Executor skill
-  revision from PR #1065 commit `0daf2972` (or a reviewed compatible successor)
+  revision from PR #1065 commit `0bb9ec02` (or a reviewed compatible successor)
   is installed. These gates do not enter the feature denominator.
 
 ## Build Order requirements
@@ -61,11 +61,16 @@ not the opening ten-ticket estimate.
   `blocking`, `terminal_unsatisfied`, `unknown`, and `cyclic`; precedence is
   cyclic, unknown, terminal-unsatisfied, blocking, then ready. Only
   `CLOSED + COMPLETED` clears an edge.
-- **BOREQ-004 — Complete provider generations.** Root catalog and selected
-  graph have separate bounded paginated health domains. Publish complete
-  validated candidates atomically, retain visibly stale last-known-good data,
-  distinguish structural invalidity from provider failure, and never let one
-  bad root hide the catalog.
+- **BOREQ-004 — Complete bounded provider generations.** Root catalog and
+  selected graph have separate bounded paginated health domains. The catalog
+  defaults to at most 100 roots and enforces explicit page and provider-call
+  ceilings; selected roots retain GitHub's 100-direct-member limit. Detect the
+  bound-plus-one case instead of truncating. Publish complete validated
+  candidates atomically, retain visibly stale last-known-good data, distinguish
+  structural invalidity from provider failure, and never let one bad root hide
+  the catalog. Default catalog and selected-root freshness are 60 and 15
+  seconds; selection/reconnect coalesces a refresh when the demanded snapshot
+  is older than 5 seconds. All bounds and intervals are configurable.
 
 ### Aiur identity and runtime
 
@@ -98,13 +103,15 @@ not the opening ten-ticket estimate.
   compute lane/phase-constrained coordinates and routed SVG edges off the main
   thread, discard stale generations, redraw after LiveView/font/theme/resize
   changes, and preserve a deterministic readable fallback.
-- **BOREQ-011 — Reusable all-state ticket context.** Provide a root-independent,
-  repository-qualified, bounded on-demand detail/cache and accessible base
-  context for any typed ticket, then adapt it to selected Build Order
-  upstream/downstream relationships, diagnostics, and read-only navigation.
-  Cached runtime evidence, safe links into existing chat/Commands surfaces,
-  partial/error states and focus trap/replacement/restoration remain explicit.
-  Build Order itself exposes no mutating runtime action in v1.
+- **BOREQ-011 — Reusable all-state ticket context.** Provide root-independent,
+  repository-qualified, bounded on-demand ticket detail, sanitized recent
+  activity history, caching, and an accessible base context for any typed
+  configured-repository ticket. Adapt that base to selected Build Order
+  upstream/downstream relationships, diagnostics, and truthful read-only
+  GitHub, chat and Commands destinations. Cached progress/evidence, bounded
+  Logs history, destination availability, partial/error states and focus
+  trap/replacement/restoration remain explicit. Build Order itself exposes no
+  mutating runtime action in v1 and rejects a different repository before I/O.
 - **BOREQ-012 — URL-backed minimum graph.** `/build-orders` and selected-root
   routes survive share/back/refresh and render loading, empty, unavailable,
   stale, invalid and cyclic states. Cards expose source-backed identity, title,
@@ -157,18 +164,19 @@ These become standalone issues and do not belong to the Build Order root.
   independent counter epoch, source identity, full/partial
   coverage, non-overlapping token semantics, currency and exact decimal
   provider cost. Do not derive cross-message deltas in an ephemeral producer.
-- **DREQ-009 — Durable attributed usage ledger.** Single-writer append-only
-  NDJSON authority plus crash-safe checkpoints/aggregates survives restart,
-  retry, fallback and completion while preserving UTC occurrence-price date,
-  currency, provider-account generation and every grouping/coverage dimension
-  through compaction. The writer alone derives deltas from absolute counters
-  using durable checkpoints. It supersedes #132's storage/accounting portion
-  and deliberately defers #845's database/BI program.
+- **DREQ-009 — Durable attributed usage ledger.** A single-writer append-only
+  NDJSON authority plus crash-safe absolute-counter checkpoints survives
+  restart, retry, fallback and completion. The writer alone derives deltas from
+  absolute counters and owns deterministic replay; bounded aggregate queries
+  and retention/compaction are separate consumers. This supersedes #132's
+  storage/accounting portion and deliberately defers #845's database/BI
+  program.
 - **DREQ-010 — Remote Control usage normalization.** Convert authenticated,
   correlated Claude Code request telemetry into exact provider-neutral usage
   envelopes without scraping interactive output. The required Remote Control
   path cannot finish with `claude-repl` coverage unsupported.
-- **DREQ-011 — Versioned cost/grouping projection.** Report tokens and
+- **DREQ-011 — Versioned cost/grouping projection.** Consume the crash-safe
+  aggregate/query projection and report tokens and
   separately labelled provider/API-equivalent estimate bases by run/build,
   ticket, agent family, backend, exact model, currency and opaque account
   generation with occurrence-time pricing revision, coverage and earliest
@@ -198,9 +206,10 @@ These become standalone issues and do not belong to the Build Order root.
   Live/Unfinished/All/None scope plus overlapping Active/Alert/Paused/Stuck/
   Queued/Finished predicates, counts and a versioned URL codec as pure APIs.
 - **DREQ-017 — Trusted Decision provenance.** Version and migrate optional
-  backend/requested-model/resolved-model/session/attempt provenance plus
-  actor-scoped exact supervising confidence from trusted runtime and supervisor
-  paths; legacy and human-authored unknowns remain unknown.
+  backend/requested-model/resolved-model/session/attempt provenance from
+  trusted runtime paths. Reuse the existing persisted supervising confidence
+  scale unchanged (`0..100`) and let Commands present it; legacy and
+  human-authored provenance remain unknown.
 - **DREQ-018 — Opaque provider-account generation.** One trusted provider/auth
   lifecycle owner mints a random, non-derivable generation shared by usage and
   meter adapters, rotates it on account-binding changes or lost continuity, and
@@ -221,6 +230,21 @@ These become standalone issues and do not belong to the Build Order root.
   terminal counts, weighted progress coverage, wall elapsed and evidence-based
   ETA independently of usage/provider availability, with truthful unavailable
   states, responsive semantics and pushed updates.
+- **DREQ-023 — Selected-Build-Order usage integration.** Join the URL-selected
+  root's current GitHub member identities to retained Aiur usage without
+  creating a second membership store. On membership-generation changes, push
+  recomputed totals that include retained pre-membership observations for
+  current members, exclude removed members, and preserve coverage/health.
+- **DREQ-024 — Crash-safe usage aggregate/query projection.** Project the
+  append-only ledger into bounded, atomically published grouping snapshots and
+  exact caller-supplied run/ticket queries. Preserve every pricing, currency,
+  account-generation, attribution and coverage dimension through restart and
+  replay without scanning the ledger per browser.
+- **DREQ-025 — Usage retention and compaction.** Rotate and compact the durable
+  store under configurable limits while preserving the dimensions required to
+  reproduce retained aggregates, earliest-retained coverage and audit/replay
+  behavior. Crash recovery, corruption quarantine and deterministic proof are
+  part of this storage lifecycle.
 
 ## Acceptance examples
 

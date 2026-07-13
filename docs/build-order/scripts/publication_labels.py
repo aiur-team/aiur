@@ -5,7 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 
-ROUTING_PREFIXES = ("agent:", "model:", "phase:", "complexity:", "build-lane:")
+ROUTING_PREFIXES = (
+    "agent:", "human:", "model:", "phase:", "complexity:", "build-lane:",
+)
 ROUTING_LABELS = {"build-order"}
 
 

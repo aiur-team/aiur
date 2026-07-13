@@ -10,7 +10,7 @@
 
 **Depends on:** none
 
-**Serializes with:** AgentChat, Orchestrator pause/resume, worker-control protocol, and backend adapter changes
+**Serializes with:** none
 
 **External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
 

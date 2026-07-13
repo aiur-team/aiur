@@ -53,12 +53,12 @@ that should not be manufactured against live GitHub.
   branch/SHA contains the completed OCC baseline, and the bounded Executor
   skill revision remains the loaded contract. A later branch or skill drift is
   an explicit gate failure, not an inferred success.
-- Integrate all 15 prerequisite tickets (BO-001..014 and BO-016), resolve only
-  contained acceptance defects, run the full automated contract/CI matrix, and
-  maintain an acceptance matrix mapping every BOREQ to exact automated or
+- Integrate all 18 prerequisite tickets (BO-001..014 and BO-016..019), resolve
+  only contained acceptance defects, run the full automated contract/CI matrix,
+  and maintain an acceptance matrix mapping every BOREQ to exact automated or
   Executor evidence.
 - Dogfood the real currently published Build Order root through the real GitHub
-  provider: select/deep-link it, verify all 16 member identities/labels/native
+  provider: select/deep-link it, verify all 19 member identities/labels/native
   edges/outcomes, observe real Aiur activity join, open cached context, navigate
   dependencies, follow one safe destination link, and confirm Build Order
   exposes no GitHub or Aiur mutation handler.
@@ -66,6 +66,14 @@ that should not be manufactured against live GitHub.
   malformed-catalog-root, selected structural-invalid, member-warning, stale
   LKG, unavailable-provider, unknown-activity, and fallback fixtures for full
   browser/accessibility/performance proof.
+- Prove configured-repository detail rejects other repositories before I/O;
+  structured history never parses raw logs; base context renders bounded
+  description/progress/latest/Logs; and Build Order exposes truthful read-only
+  GitHub/Chat/Commands destinations plus nonfetchable other-repo diagnostics.
+- Prove catalog exact-bound/`+1` overflow preserves LKG; configurable 60/15/5-
+  second freshness and selection/reconnect coalescing remain visible; PubSub
+  renders within its bound; and derived lane/status icons always have accessible
+  generic fallbacks without GitHub icon metadata.
 - From the Executor repository root, launch and drive the actual CLI/TUI exactly
   as required by `AGENTS.md`, open a running agent chat pane, send/observe the
   expected user-visible flow, and inspect the authenticated dashboard route.
@@ -74,10 +82,11 @@ that should not be manufactured against live GitHub.
   pan/zoom/fit, light/dark/forced-colors/reduced-motion, 200% text zoom,
   320/390/768/960/desktop, redraw/reconnect, packaged assets, and recorded
   20/50/100 budgets.
-- Write the Executor route/interaction guide, GitHub root/member/metadata/
-  native-dependency authoring guide, provider health/freshness/troubleshooting
-  guide, acceptance evidence index, and bounded cleanup record. Remove temporary
-  fixtures/compatibility code only where their ticket contract requires it.
+- Write the Executor route/interaction/destination/icon guide; configured-
+  repository GitHub root/member/metadata/native-dependency/bounds/external-
+  endpoint authoring guide; graph/detail/history health/freshness/
+  troubleshooting guide; acceptance evidence index; and bounded cleanup record.
+  Remove temporary fixtures/compatibility code only where owned.
 - After the capstone change is reviewed, green, and merged under the current
   configured policy, rerun the required post-merge smoke/proof on the configured
   integration target. The acceptance owner then closes the Build Order root as
@@ -104,9 +113,9 @@ transition.
 ## Contract and invariants
 
 - BO-006 and BO-014 are the two terminal prerequisites and transitively cover
-  all 15 prerequisite tickets, including BO-016 through BO-011; GitHub remains
-  live membership/hard-edge truth while the planning pack remains the approved
-  boundary/conflict baseline.
+  all 18 prerequisite tickets, including the BO-004→017→005→019→018→011 chain;
+  GitHub remains live membership/hard-edge truth while the planning pack remains
+  the approved boundary/conflict baseline.
 - The feature is complete only after implementation, review, current-configured-
   branch CI, merge, documentation, cleanup, post-merge real CLI/browser proof,
   synthetic boundary proof, and root `COMPLETED` closure.
@@ -134,7 +143,7 @@ transition.
 ### Agent gate
 
 - Latest canonical planning validator and published GitHub reconciliation pass
-  with exact 16-member parenthood, required labels, `model:codex`, no active
+  with exact 19-member parenthood, required labels, `model:codex`, no active
   `agent:todo`, and exact native hard edges.
 - Every focused suite plus the complete repository CI gate passes on the
   current integrated candidate; the acceptance matrix has no missing BOREQ or

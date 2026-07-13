@@ -11,8 +11,8 @@ and the net-new Build Order graph. It is not a CSS-only restyle.
 
 The companion dashboard work is separate from Build Order: responsive shell,
 Units membership/policy/presentation, applied controls, Commands query/
-provenance/presentation, and the thirteen-ticket usage/accounting/run-summary
-track in `04-usage-accounting.md`. None of the twenty-two companion tickets
+provenance/presentation, and the sixteen-ticket usage/accounting/run-summary
+track in `04-usage-accounting.md`. None of the twenty-five companion tickets
 enters the Build Order root or feature-completion calculation. The capability-by-capability
 proof for this split is [06-prototype-capability-audit.md](06-prototype-capability-audit.md).
 
@@ -115,25 +115,32 @@ This catch-up is independent of the Build Order data provider and graph.
 
 ## Companion usage/accounting track
 
-The shell cards require thirteen independently reviewable outcomes:
+The shell cards and selected-order totals require sixteen independently
+reviewable outcomes:
 
 1. privacy-safe shared provider-account generation;
 2. a provider-neutral measurement envelope with trustworthy ticket identity;
-3. a durable attributed file-first ledger;
-4. authenticated local telemetry transport and correlation;
-5. required Claude Remote Control request normalization;
-6. versioned cost/coverage and grouping projections;
-7. a provider-meter foundation;
-8. the Codex meter adapter;
-9. Claude subscription and API-key meter parity;
-10. a canonical current-run progress/elapsed/ETA projection;
-11. the enforced financial-data boundary;
-12. accessible nonfinancial run-summary presentation; and
-13. authenticated usage/provider presentation.
+3. a durable attributed file-first ledger and delta checkpoint;
+4. a crash-safe bounded aggregate/query projection;
+5. dimension-preserving retention and compaction;
+6. authenticated local telemetry transport and correlation;
+7. required Claude Remote Control request normalization;
+8. versioned cost/coverage and grouping projections;
+9. a provider-meter foundation;
+10. the Codex meter adapter;
+11. Claude subscription and API-key meter parity;
+12. a canonical current-run progress/elapsed/ETA projection;
+13. the enforced financial-data boundary;
+14. accessible nonfinancial run-summary presentation;
+15. authenticated usage/provider presentation; and
+16. selected-Build-Order membership/accounting integration.
 
 See `04-usage-accounting.md` for boundaries and evidence. Build Order may pass
 its selected member IDs to the accounting query, but its own data provider,
-graph, interactions, and acceptance do not depend on provider billing.
+graph, interactions, and acceptance do not depend on provider billing. The
+selected-order integration consumes the URL-selected root and current GitHub
+membership generation; it does not make accounting part of the Build Order
+root or create a second membership authority.
 
 ## Build Order behavior inventory
 

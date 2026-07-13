@@ -12,19 +12,19 @@ label, implement a ticket, or merge either planning branch.
    the existing issues.
 2. Create or reconcile one non-dispatchable root for
    `its-everdred/aiur:build-order-dashboard` from `root-issue.md`.
-3. Create/reconcile BO-001 through BO-016 from the approved ticket documents.
-4. Add the sixteen BO issues as direct native sub-issues without silently
+3. Create/reconcile BO-001 through BO-019 from the approved ticket documents.
+4. Add the nineteen BO issues as direct native sub-issues without silently
    replacing an existing parent.
 5. Publish every BO `depends_on` relationship as native `blockedBy`.
-6. Create/reconcile DASH-001 through DASH-022 as standalone issues from
+6. Create/reconcile DASH-001 through DASH-025 as standalone issues from
    `dashboard-companions.json` and their documents.
 7. Publish companion hard prerequisites as native blockers, including
    cross-scope BO prerequisites, while leaving companions outside the root.
 8. Create/reconcile the separate human-blocked skill-delivery issue from
    `skill-delivery.md` and `publication.json`; it references draft PR #1065 and
    is not feature work.
-9. Publish the skill-delivery issue as a native external blocker of BO-001,
-   BO-004, and BO-008 so each independent initial branch requires the exact
+9. Publish the skill-delivery issue as a native external blocker of BO-004 and
+   BO-008 so each independent initial branch requires the exact
    Executor contract before feature dispatch; it remains outside root
    membership and the feature denominator.
 10. Requery full label sets, returned identities, parenthood and every native
@@ -33,23 +33,48 @@ label, implement a ticket, or merge either planning branch.
     three structured receipts with RFC3339 UTC check times and run the
     canonical plus publication validators.
 
-All 40 created bodies link to the immutable approved planning commit and carry
+All 46 created bodies link to the immutable approved planning commit and carry
 one canonical `aiur-planning-issue` marker with schema 2, logical ID, plan
 version, and that same commit. Requery each body, parse the marker and link, and
-record its SHA-256; do not trust the submitted body. The approval SHA must
-resolve to a real commit in this repository before the first issue mutation.
+record its SHA-256; do not trust the submitted body. Record the complete result
+set of each logical-marker query and require exactly one returned issue mapping
+per logical ID. The approval SHA must resolve to a real commit in this
+repository before the first issue mutation.
+
+Expected bodies are not receipt-authored hashes. Load the three manifests and
+every referenced document with `git show <APPROVED_SHA>:<path>`. Render BO and
+DASH bodies as the exact preamble below plus the approved ticket document
+verbatim. Render root and skill bodies from their complete approved templates
+by replacing `<APPROVED_SHA>`. Require exactly one schema-2 marker and exactly
+one approved-commit link in every result, then compare the observed SHA-256 to
+that independently rendered body. A missing approved pack/path or any
+missing/wrong/duplicate marker, link, issue match, or hash fails closed.
 
 Once the root exists, create one uniquely marked
 `aiur-build-order-reconciliation` comment whose visible and marker state is
-`pending`. Requery it and record a structured receipt containing its URL,
-marker, pending state, and body SHA-256. After all relationships requery
-successfully, commit and push that receipt, then edit the same comment to link
-the immutable receipt and declare `successful`. Requery the final live comment;
-the final comment edit is the last publication mutation. This two-commit
+`pending`. Requery the marker search and require exactly one comment match;
+record its URL, parsed pending marker, and canonical body SHA-256. After all
+relationships requery successfully, commit and push that receipt, then edit the
+same comment to the canonical `successful` body with the exact immutable
+receipt commit and link. Requery the final live comment and run the read-only
+`scripts/publication_comment.py` verifier; the final comment edit is the last
+publication mutation. This two-commit
 authority preserves reviewed scope while giving the immutable handoff a live
 route to the eventual receipt. A conflicting marker, parent, receipt comment,
 or existing identity stops publication for reconciliation; never use a
 replacement-parent mutation as a shortcut.
+
+Save the final read-only marker-query response as a JSON array of exact
+`{"url": ..., "body": ...}` comment objects, then verify the one live match:
+
+```bash
+python3 docs/build-order/scripts/publication_comment.py \
+  final-comment-query.json \
+  its-everdred/aiur:build-order-dashboard 1 \
+  <APPROVED_SHA> <RECEIPT_SHA> <RECEIPT_URL> \
+  https://github.com/its-everdred/aiur/issues/<ROOT_NUMBER> \
+  its-everdred/aiur
+```
 
 Generated BO and DASH bodies use the approved ticket document verbatim beneath
 this preamble and marker:
@@ -69,7 +94,7 @@ Root:
 - `build-order` only from the planning/routing family;
 - no `model:*`, `complexity:*`, `phase:*`, `build-lane:*` or `agent:*`.
 
-BO-001 through BO-016:
+BO-001 through BO-019:
 
 - exactly one `complexity:N`;
 - `model:codex`;
@@ -77,7 +102,7 @@ BO-001 through BO-016:
 - exactly one `build-lane:documentation|frontend|backend|infrastructure`;
 - no active `agent:*` state.
 
-DASH-001 through DASH-022:
+DASH-001 through DASH-025:
 
 - exactly one `complexity:N` and `model:codex`;
 - no Build Order parent, `phase:N`, `build-lane:*` or active `agent:*` state.
@@ -96,14 +121,16 @@ and wildcard routing-family exclusions, not merely a self-authored manifest.
 
 For all new root/BO/DASH/skill issues, reject every observed `agent:*` label,
 including terminal, error, watch, and paused variants. Planning publication
-does not inherit workflow state from a template.
+does not inherit workflow state from a template. Treat `human:*` as an exact
+routing family too: only the skill issue may carry `human:todo`, and no issue
+may acquire any other `human:*` label.
 
 ## Relationship contract
 
 - Native direct parenthood is Build Order membership.
 - Native `blockedBy` is the only hard prerequisite truth.
-- The human skill-delivery issue is an external native blocker of BO-001,
-  BO-004, and BO-008; it is neither root membership nor Build Order work.
+- The human skill-delivery issue is an external native blocker of BO-004 and
+  BO-008; it is neither root membership nor Build Order work.
 - Companion dependencies are real hard prerequisites and are published even
   though the issues are standalone.
 - Named external gates stay in issue contracts and are not converted into
@@ -119,16 +146,16 @@ does not inherit workflow state from a template.
 - Approved planning commit: pending final clean reviews
 - Reconciliation commit: pending post-publication write
 - GitHub root: pending
-- BO logical-ID mappings: pending in `build-order.json`
-- Companion mappings: pending in `dashboard-companions.json`
+- BO logical-ID mappings and exact marker-query matches: pending in `build-order.json`
+- Companion mappings and exact marker-query matches: pending in `dashboard-companions.json`
 - Membership requery: pending
 - BO dependency requery: pending
 - Companion dependency requery: pending
 - Full-label requery: pending
 - Root/skill/companion standalone-parenthood requery: pending
 - Skill-delivery issue: pending
-- Root reconciliation comment URL/final state: pending
-- Approval commit existence and 40 observed body markers/hashes: pending
+- Root reconciliation comment unique query match/final state: pending
+- Approval commit existence and 46 independently rendered body markers/links/hashes: pending
 - Canonical validator: pending
 - Companion/publication validator: pending
 

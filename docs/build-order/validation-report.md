@@ -25,17 +25,17 @@ pending.
 - Prototype constraints SHA-256:
   `49e068d4999d62197dbd1d5c0438db21a25cd1b5873fb959a58a7e0388c7829a`
 - Canonical Build Order JSON SHA-256:
-  `bc02b3a42431bf1953a6adcdeea9203fdfee6a3347ee338fe7f33346efa71ae2`
+  `f8f1dddda2a75d3411d789091f2a56eef84db1e6235f8bfbe557020c2177655b`
 - Companion baseline JSON SHA-256:
-  `c0d78ad9fd66c81d288f085e1c9b27aaa94aab8c548a0ae1bf2154b5d78fe7b9`
+  `4f3b3d6e446cf0701fbbc377350b0b811cec9d12b392eb654588a5245c58b189`
 - Publication manifest SHA-256:
-  `3e9224af9e8c93fb8d4ecf6a8fb298375f1e62c4e10936cf2937e5597e021efb`
+  `0ffd8d82eadf3525bab29ea555931319d94f11f02ee184534b4b6cb1bf6a86ba`
 - Requirements SHA-256:
-  `5b01d66ea6cc7ef3e063e7be0e996840ea7ee976ee93a2a5812ee070be2b2a86`
+  `bf75997f1c32b4032d88186f4891fb0249598699ba7ae284fb8ad1ec27c20789`
 - Implementation plan SHA-256:
-  `78d2eda7aac863cec51ac7de6fda53b9fd05cfa7941727cb48869cf6b25f6237`
+  `7ed9045b376ea04f5d0275a06b8c43467799cc579a5964ecd8fe934da9a8b551`
 - Latest validator/skill authority: isolated draft PR #1065 at
-  `0daf29726fbe8345a79588e14b6f4c556584a57c`
+  `0bb9ec025efb1cabb56b3450f96abebdb6a86baf`
 - Approval commit: pending two clean passes
 
 The design hashes match [the manifest](design-manifest.md). The prototype was
@@ -81,15 +81,15 @@ updates and a final ticket-boundary correction:
 |---|---|
 | Canonical validator | 0 errors, 0 warnings |
 | Companion/publication validator | 0 errors, 0 warnings |
-| Publication regression suite | 37 tests pass |
-| Build Order tickets | 16, 61 complexity points |
-| Standalone companions | 22, 75 complexity points |
-| Planned GitHub materialization | 40 new issues: one root, 38 executable issues, one human issue |
+| Publication regression suite | 52 tests pass |
+| Build Order tickets | 19, 71 complexity points |
+| Standalone companions | 25, 87 complexity points |
+| Planned GitHub materialization | 46 new issues: one root, 44 executable issues, one human issue |
 | Logical IDs | Unique across BO, DASH, root, and skill delivery |
 | Hard-edge graph | Acyclic across BO and DASH dependencies |
 | Ticket documents | Paths, complexities, requirement refs, dependencies, and external gates match structured records |
-| Requirements | Bidirectional BOREQ-001..015 plus exact unique DREQ-001..022 coverage |
-| Capstone | BO-015 transitively covers every BO ticket |
+| Requirements | Bidirectional BOREQ-001..015 plus exact unique DREQ-001..025 coverage |
+| Capstone | BO-015 transitively covers all 18 prerequisite BO tickets |
 | Pre-publication policy | No dispatch labels; exact root/skill label denylist; standalone companions |
 | Structured data | JSON parse and Python compile pass |
 | Whitespace | `git diff --check` clean |
@@ -106,9 +106,11 @@ python3 -m unittest discover -s docs/build-order/scripts/tests -p 'test_*.py'
 The canonical validator owns the BO receipt, membership, label, and dependency
 proof. The local publication validator owns the all-or-nothing cross-pack
 contract: companion mappings and blockers, exact observed labels, parentless
-root/skill/companions, approval/version consistency, RFC3339 requery times, and
-the root reconciliation comment. Both validators are mandatory after
-materialization.
+root/skill/companions, approval/version consistency, RFC3339 requery times,
+independently rendered approved bodies, exact logical-marker query matches, and
+the unique root reconciliation comment. The read-only final-comment verifier
+also requires the successful live body to name the exact receipt commit and
+link. Both validators are mandatory after materialization.
 
 ## Semantic review log
 
@@ -126,8 +128,9 @@ This pass was not clean. It found and corrected:
    demand plus UI.
 4. BO-009 and BO-011 consumed BO-008 infrastructure without hard prerequisites.
 5. BO-008's toolchain/fixture/artifact/performance scope was undersized; it was
-   raised to complexity 4, producing the then-current 58-point graph. The final
-   BO-016 split in corrective pass 4 produces the current 61-point graph.
+   raised to complexity 4, producing the then-current 58-point graph. The
+   BO-016 split in corrective pass 4 produced a 61-point graph; later ownership
+   splits produced the current 71-point graph.
 6. BO-008..014 omitted material reviewer and at-merge proof from the canonical
    records; those gates are now retained.
 7. Acceptance hard-coded `main`; it now resolves and records the configured
@@ -152,7 +155,8 @@ This pass was not clean. It found and corrected:
 5. Prototype delta was too large for one catch-up issue. This checkpoint split
    it into fifteen standalone Units, control, Commands, usage, meter, and
    summary contracts; corrective pass 4 separated seven more executable
-   boundaries for the current twenty-two-ticket pack.
+   boundaries, and corrective pass 6 produced the current twenty-five-ticket
+   pack.
 6. Usage delta ownership was ambiguous. This checkpoint separated raw
    measurement, durable ledger, Remote Control, price projection, provider
    meters, and summary concerns; corrective pass 4 completed the transport,
@@ -186,6 +190,12 @@ This pass was not clean. It found and corrected:
    comment, skip three collision references, or follow a document symlink out
    of the pack. The pinned and local validators now fail closed on each case,
    with adversarial regression coverage.
+4. A syntactically valid body SHA could still be arbitrary, marker and comment
+   searches did not prove uniqueness, and `human:*` routing drift was ignored.
+   The corrected receipt derives canonical bodies with `git show` from the
+   approved commit, compares complete schema-2 marker/link/hash evidence,
+   records exact query result sets, and read-only verifies the final successful
+   root comment against its immutable receipt SHA and link.
 
 ### Corrective pass 4 — executable ticket boundaries
 
@@ -194,11 +204,13 @@ complexity audit found several tickets that still bundled independently
 reviewable backend programs. It corrected:
 
 1. BO-001 had become a false prerequisite for event identity and the browser
-   harness. BO-001, BO-004, and BO-008 are now independent initial nodes, each
-   directly protected by GATE-001 and GATE-002.
+   harness. This pass initially made BO-001, BO-004, and BO-008 independent;
+   corrective pass 5 later restored the semantic BO-004 to BO-001 prerequisite
+   while leaving BO-008 independent.
 2. Generic repository-qualified issue detail, bounded caching, deep-link base
-   context, and accessibility lacked a reusable owner. BO-016 now owns that
-   foundation; BO-011 is only the Build Order relationship-context adapter.
+   context, and accessibility lacked reusable ownership. This pass created
+   BO-016; corrective pass 5 then separated detail, history, and base-context
+   outcomes across BO-016, BO-019, and BO-018.
 3. Current-run recovery and row eligibility were coupled. DASH-002 now owns
    membership journaling and recovery, while DASH-016 owns Units row
    projection, lifecycle predicates, counts, and stable ticket URLs.
@@ -216,6 +228,54 @@ reviewable backend programs. It corrected:
    financial boundary, DASH-022 the accessible current-run summary, and
    DASH-015 the authenticated usage/provider presentation.
 
+### Corrective pass 5 — core identity and context boundaries
+
+This pass was not clean. It found and corrected:
+
+1. BO-004 still combined the durable tracker identity contract with propagation
+   through every producer. BO-004 now owns identity definition and migration;
+   BO-017 owns event-envelope and producer propagation.
+2. BO-001 consumes tracker identity and therefore cannot start independently of
+   BO-004. The final graph has exactly two initial nodes, BO-004 and BO-008, and
+   the skill-delivery issue blocks exactly those two entry points.
+3. Ticket detail, sanitized recent activity, and accessible base context had
+   different providers, failure modes, and acceptance boundaries. BO-016,
+   BO-019, and BO-018 now own those outcomes respectively; BO-011 owns only
+   Build Order relationship context and truthful destinations.
+4. Repository catalogs and selected graphs lacked explicit exhaustion bounds
+   and freshness semantics. The final contracts cap catalog and selected
+   membership at 100 tickets, use plus-one overflow detection, define provider
+   call/page ceilings, and make refresh/reconnect behavior observable.
+5. Prototype icon metadata had no GitHub source of truth. Icons are now derived
+   from lane/status with a generic fallback instead of inventing tracker data.
+
+### Corrective pass 6 — accounting storage and integration boundaries
+
+This pass was not clean. It found and corrected:
+
+1. DASH-009 combined append durability, aggregate/query projection, and
+   retention/compaction. DASH-009 now owns occurrence ingestion and recovery,
+   DASH-024 owns crash-safe aggregates and queries, and DASH-025 owns retention
+   and compaction without destroying required accounting dimensions.
+2. The prototype's selected Build Order totals lacked a bounded integration
+   owner. DASH-023 joins GitHub membership with authorized Aiur accounting and
+   owns per-ticket, provider/model, agent-type, token, estimated-cost, and total
+   build projections for the selected Build Order.
+3. Decision confidence was at risk of becoming a new scoring program.
+   DASH-017 preserves the existing supervisor-supplied integer contract and
+   owns provenance and presentation only.
+4. Aiur planning cannot mutate the sibling `aiur-claude` repository. Provider
+   tickets now require either Aiur-only evidence or an already-landed pinned
+   compatible sibling revision; otherwise a separately authorized human issue
+   and PR is required.
+5. Cross-pack safety and write-surface conflicts were not mechanically checked.
+   The publication validator now validates combined BO/DASH conflicts and
+   rejects unapproved parallel safety overlap.
+6. Approval protected rendered bodies but not all planning fields. Publication
+   now derives every body from the exact approval commit and rejects any later
+   title, scope, graph, label, or document drift; only returned GitHub mappings
+   and reconciliation receipts may change after approval.
+
 ### Clean pass 1
 
 Pending review of an immutable checkpoint.
@@ -226,9 +286,9 @@ Pending a second review of the unchanged candidate after clean pass 1.
 
 ## Skill verification
 
-At isolated skill commit `0daf29726fbe8345a79588e14b6f4c556584a57c`:
+At isolated skill commit `0bb9ec025efb1cabb56b3450f96abebdb6a86baf`:
 
-- 56 adversarial `aiur-build` validator tests pass;
+- 64 adversarial `aiur-build` validator tests pass;
 - the canonical example validates with zero errors and warnings; and
 - `aiur-build`, `aiur-run`, and `aiur-monitor` pass structure validation.
 
@@ -238,11 +298,13 @@ this planning run and require conflict reconciliation against current main.
 ## Publication reconciliation
 
 Pending explicit final execution of the already authorized publication plan.
-Publication must create/reconcile only the root, BO-001..016, DASH-001..022,
+Publication must create/reconcile only the root, BO-001..019, DASH-001..025,
 and SKILL-DELIVERY-001; it must not mutate read-only #132, #845, #1033, #1034,
 or #1067. It then records returned identities, full observed labels, exact
-native parenthood and blockers, all 40 re-read issue-body markers and hashes,
-structured pending root-comment evidence, and both validator results before
-the same comment is finalized as the last GitHub mutation.
+native parenthood and blockers, every re-read issue-body marker/link/hash
+against independently rendered approved sources, exact logical-marker query
+matches, one canonical pending root-comment match, and both validator results
+before the same comment is finalized and read-only verified as the last GitHub
+mutation.
 
 No issue may receive any `agent:*` label during this planning run.

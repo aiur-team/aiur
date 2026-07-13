@@ -20,13 +20,14 @@ def build_order() -> dict[str, object]:
     tickets = [
         {
             "id": f"BO-{number:03d}",
+            "document": f"tickets/BO-{number:03d}.md",
             "depends_on": ["BO-001"] if number == 2 else [],
             "workstream": "backend",
             "phase_hint": 1,
             "complexity_points": 3,
             "github": None,
         }
-        for number in range(1, 17)
+        for number in range(1, 20)
     ]
     return {
         "plan_version": 1,
@@ -54,8 +55,14 @@ def companions() -> dict[str, object]:
             "requirement_ref": "DREQ-001",
             "complexity_points": 2,
             "depends_on": ["BO-001"],
+            "serializes_with": [],
             "external_blockers": ["outside/repo#93"],
             "external_gate_ids": [],
+            "read_surfaces": [],
+            "write_surfaces": [],
+            "contract_surfaces": [],
+            "safety_surfaces": [],
+            "conflict_exceptions": [],
             "github": None,
         },
         {
@@ -65,8 +72,14 @@ def companions() -> dict[str, object]:
             "requirement_ref": "DREQ-002",
             "complexity_points": 4,
             "depends_on": ["DASH-001"],
+            "serializes_with": [],
             "external_blockers": [],
             "external_gate_ids": ["GATE-HUMAN-AUTHORITY"],
+            "read_surfaces": [],
+            "write_surfaces": [],
+            "contract_surfaces": [],
+            "safety_surfaces": [],
+            "conflict_exceptions": [],
             "github": None,
         },
     ]
@@ -78,11 +91,17 @@ def companions() -> dict[str, object]:
             "requirement_ref": f"DREQ-{number:03d}",
             "complexity_points": 2,
             "depends_on": [],
+            "serializes_with": [],
             "external_blockers": [],
             "external_gate_ids": [],
+            "read_surfaces": [],
+            "write_surfaces": [],
+            "contract_surfaces": [],
+            "safety_surfaces": [],
+            "conflict_exceptions": [],
             "github": None,
         }
-        for number in range(3, 23)
+        for number in range(3, 26)
     )
     return {
         "schema_version": 1,
@@ -129,7 +148,7 @@ def publication() -> dict[str, object]:
             "document": "root-issue.md",
             "required_labels": ["build-order"],
             "forbidden_labels": [],
-            "forbidden_label_prefixes": prefixes,
+            "forbidden_label_prefixes": [*prefixes, "human:"],
         },
         "skill_issue": {
             "logical_id": "SKILL-DELIVERY-001",
@@ -143,7 +162,7 @@ def publication() -> dict[str, object]:
                 "blocked_ticket_id": ticket_id,
                 "blocker_issue_id": "SKILL-DELIVERY-001",
             }
-            for ticket_id in ("BO-001", "BO-004", "BO-008")
+            for ticket_id in ("BO-004", "BO-008")
         ],
         "read_only_issue_refs": [
             "example/repo#132",

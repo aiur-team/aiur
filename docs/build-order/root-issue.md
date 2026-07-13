@@ -6,7 +6,7 @@ lifecycle and native hard blockers; Aiur owns current activity and progress.
 
 ## Finite boundary
 
-This root contains BO-001 through BO-016 only. Completion requires all sixteen
+This root contains BO-001 through BO-019 only. Completion requires all nineteen
 issues implemented, reviewed, green on the current configured integration
 branch, merged, documented, cleaned up and proven after merge through the real
 CLI plus authenticated browser workflow. Dashboard companion work, Linear
@@ -15,10 +15,12 @@ this root's remaining count or ETA.
 
 ## Approved planning authority
 
-- Planning pack: `https://github.com/its-everdred/aiur/tree/<APPROVED_SHA>/docs/build-order`
-- Read first: `https://github.com/its-everdred/aiur/blob/<APPROVED_SHA>/docs/build-order/README.md`
-- Executor handoff: `https://github.com/its-everdred/aiur/blob/<APPROVED_SHA>/docs/build-order/EXECUTOR-HANDOFF.md`
-- Canonical baseline: `https://github.com/its-everdred/aiur/blob/<APPROVED_SHA>/docs/build-order/build-order.json`
+- Approved planning commit:
+  [`<APPROVED_SHA>`](https://github.com/its-everdred/aiur/commit/<APPROVED_SHA>)
+- Planning pack: `docs/build-order/`
+- Read first: `docs/build-order/README.md`
+- Executor handoff: `docs/build-order/EXECUTOR-HANDOFF.md`
+- Canonical baseline: `docs/build-order/build-order.json`
 
 GitHub becomes authoritative for live membership and blockers after
 publication. The linked commit preserves reviewed intent and scheduling
@@ -32,18 +34,18 @@ issue identities, native membership, blockers, and full labels were re-read.
 ## Pre-dispatch gates
 
 Do not dispatch any member until both gates in `build-order.json` are recorded
-as resolved on this root. BO-001, BO-004, and BO-008 are the independent
-initial nodes:
+as resolved on this root. BO-004 and BO-008 are the independent initial nodes;
+BO-001 depends on BO-004 and inherits both gates:
 
 - the configured integration branch contains the completed OCC predecessor
   baseline and its accepted successors; and
-- PR #1065 commit `0daf2972` or an explicitly reviewed compatible successor is
+- PR #1065 commit `0bb9ec02` or an explicitly reviewed compatible successor is
   installed and `/aiur-build`, `/aiur-run`, and `/aiur-monitor` are
   discoverable.
 
 These are external execution gates, not child tickets and not additions to the
-sixteen-ticket denominator. The skill-delivery issue is published as a native
-blocker of all three initial nodes so no branch silently bypasses GATE-002.
+nineteen-ticket denominator. The skill-delivery issue is published as a native
+blocker of both initial nodes so no branch silently bypasses GATE-002.
 
 ## Closure
 

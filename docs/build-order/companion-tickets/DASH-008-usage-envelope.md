@@ -8,9 +8,9 @@
 
 **Risk:** high
 
-**Depends on:** BO-004, DASH-018
+**Depends on:** BO-017, DASH-018
 
-**Serializes with:** BO-005 and Codex/Claude normalizer, MessageHandler, and token-event changes
+**Serializes with:** BO-005 — shared agent event ingestion/normalization seam
 
 **External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
 
@@ -32,7 +32,7 @@ duplicate, overlapping, cross-account, or historically repriced accounting.
 
 ## Context and evidence
 
-Current `Aiur.Orchestrator.TokenAccounting` is transient, while `Aiur.TokenUsage.canonicalize/1` zero-fills missing dimensions and omits cache/reasoning detail. Codex can expose cumulative thread updates and turn usage in the same session; Claude completion data has different per-request semantics and may already include provider-reported cost. Treating every map as the same cumulative counter can double count. BO-004 establishes the shared activity event seam; this ticket starts there and serializes with BO-005 rather than adding a competing fold during migration.
+Current `Aiur.Orchestrator.TokenAccounting` is transient, while `Aiur.TokenUsage.canonicalize/1` zero-fills missing dimensions and omits cache/reasoning detail. Codex can expose cumulative thread updates and turn usage in the same session; Claude completion data has different per-request semantics and may already include provider-reported cost. Treating every map as the same cumulative counter can double count. BO-017 propagates trusted repository-qualified identity, and this ticket serializes with BO-005 rather than adding a competing fold during migration.
 
 ## Scope
 
@@ -66,7 +66,7 @@ Current `Aiur.Orchestrator.TokenAccounting` is transient, while `Aiur.TokenUsage
 
 ## Non-goals
 
-- Persist envelopes or counter checkpoints, derive cross-message deltas, calculate versioned estimates, fetch account/quota meters, support Claude REPL/Remote Control, render UI, or replace BO-004's activity projection.
+- Persist envelopes or counter checkpoints, derive cross-message deltas, calculate versioned estimates, fetch account/quota meters, support Claude REPL/Remote Control, render UI, or replace BO-005's activity projection.
 - Infer auth mode/model/ticket identity from prose, workspace basename alone, email/account IDs, or browser state.
 - Mint or own a meter-only or usage-only account namespace, derive the opaque
   account generation from stable account PII, or treat counter reset as account
@@ -75,7 +75,7 @@ Current `Aiur.Orchestrator.TokenAccounting` is transient, while `Aiur.TokenUsage
 
 ## Existing owner and reuse target
 
-Extend the normalized event path around Codex/Claude event normalizers, `AgentRunner.MessageHandler`, BO-004's accepted activity seam, `Aiur.Boot.run_id/0`, trusted worker/session metadata, and DASH-018's provider-account-generation lookup. Keep lifecycle reporting at trusted adapter boundaries without duplicating DASH-018's owner.
+Extend the normalized event path around Codex/Claude event normalizers, `AgentRunner.MessageHandler`, BO-017's propagated identity contract, `Aiur.Boot.run_id/0`, trusted worker/session metadata, and DASH-018's provider-account-generation lookup. Keep lifecycle reporting at trusted adapter boundaries without duplicating DASH-018's owner.
 
 ## Contract and invariants
 
@@ -110,7 +110,7 @@ Extend the normalized event path around Codex/Claude event normalizers, `AgentRu
 
 ### At-merge gate
 
-- Rebase on BO-004 and serialize with BO-005/current protocol work; run Codex/Claude normalizer, MessageHandler, activity/token compatibility, protocol fixture, security, and full CI suites.
+- Rebase on BO-017 and serialize with BO-005/current protocol work; run Codex/Claude normalizer, MessageHandler, activity/token compatibility, protocol fixture, security, and full CI suites.
 
 ### Human/manual evidence
 
@@ -134,6 +134,6 @@ Extend the normalized event path around Codex/Claude event normalizers, `AgentRu
 DASH-018 owns the sole `provider_account_generation` namespace. DASH-009 owns
 durable counter checkpoints, delta derivation, deduplication and ledger;
 DASH-010 owns Claude REPL/Remote Control event normalization; DASH-011 owns
-estimates/grouping; DASH-012 owns the meter contract. BO-004 remains runtime
-activity truth, and accounting never becomes a Build Order completion
+estimates/grouping; DASH-012 owns the meter contract. BO-017 owns propagated
+identity while StatusReport remains runtime activity truth, and accounting never becomes a Build Order completion
 dependency.

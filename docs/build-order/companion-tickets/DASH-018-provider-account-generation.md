@@ -10,7 +10,7 @@
 
 **Depends on:** none
 
-**Serializes with:** Codex/Claude authentication, process lifecycle, credential replacement, and provider identity changes
+**Serializes with:** none
 
 **External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
 

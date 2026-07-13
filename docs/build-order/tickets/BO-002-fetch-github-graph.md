@@ -48,15 +48,28 @@ budgets at the 100-member bound.
   direct members, identity/database IDs, bounded card title/metadata, labels,
   state and state reason, parent, timestamps, and native dependency
   connections. Root/member graph payloads remain body-free.
+- Add validated provider configuration for catalog root bound (default `100`),
+  finite page budget, and finite per-refresh provider-call budget. Page/call
+  budgets have positive defaults selected against the current schema, a hard
+  implementation ceiling, and cannot be disabled with zero/infinity.
 - Use bounded GraphQL reads where they preserve complete connection/error
   semantics; use paginated REST fallbacks only through the existing transport
   and with equivalent failure preservation.
 - Normalize every response into BO-001 candidate records while retaining
   repository-qualified endpoint identities, external dependency references,
   connection counts, provider request metadata, and rate-limit observations.
+- Fetch roots/members only from the configured repository. Preserve a
+  dependency endpoint naming another repository as a nonfetchable external
+  diagnostic plus an optional separately validated GitHub URL; never follow it
+  with provider I/O or treat it as an internal missing member.
 - Reject a candidate on any required page/field error, pagination/count
   mismatch, duplicate canonical identity, unresolved internal endpoint,
   over-limit membership, or structurally invalid selected root.
+- Detect exact configured bounds without truncation. A root catalog at 100 and
+  a selected graph at 100 members succeed by default; `bound + 1`, `hasNextPage`
+  at the bound, exhausted page budget, or exhausted call budget is a structured
+  preserving overflow/failure for BO-003, never a partial successful catalog or
+  graph.
 - Return catalog entries independently: a malformed root carries its diagnostic
   while valid roots remain selectable. Catalog-level auth/transport failure is
   separate from per-root structural invalidity.
@@ -111,10 +124,15 @@ ordinary tracker polling and `Aiur.GitHub.IssueDependencies` mutation logic.
 - Fixtures cover 0/1/100 members, multiple catalog roots, malformed root among
   valid siblings, direct-child enforcement, duplicate identities, external
   blockers, `COMPLETED`/`NOT_PLANNED`, every planning-label warning, and cycles.
+- Cross-repository fixtures prove no follow-up I/O, no internal join, explicit
+  diagnostic state, and optional safe outbound-link validation.
 - Pagination tests fail closed on page two errors, count drift, partial GraphQL
   data, malformed cursors, missing endpoints, and 101 members.
 - Call-bound tests prove no browser-count or per-node N+1 behavior and retain
   rate-limit/auth/timeout classification without secrets.
+- Configuration tests cover the default 100 roots, lower valid bounds, invalid
+  zero/unbounded values, exact-bound success, `+1` overflow, page exhaustion,
+  call-budget exhaustion, and preservation of the prior BO-003 generation.
 
 ### At-merge gate
 
@@ -142,7 +160,7 @@ ordinary tracker polling and `Aiur.GitHub.IssueDependencies` mutation logic.
 - Reads: GitHub GraphQL/REST through the existing transport; BO-001 contracts.
 - Writes: GitHub Build Order read adapter, normalization fixtures, and tests.
 - Contracts: complete root-catalog candidate; complete body-free selected-root
-  candidate; provider failure taxonomy.
+  candidate; configurable hard root/page/call bounds; provider failure taxonomy.
 
 ## Sibling boundaries and open gates
 

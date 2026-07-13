@@ -14,14 +14,15 @@ from publication_common import (
     valid_rfc3339_utc,
 )
 from publication_parenthood import validate_parent_map
-from publication_comment import validate_pending_comment
+from publication_comment import validate_pending_comment_matches
 from publication_labels import routing_subset, validate_routing_labels
 
 
 RECEIPT_KEYS = {
     "checked_at", "issue_mappings", "external_blocker_relations",
     "observed_labels", "observed_parent_issues",
-    "observed_body_evidence", "root_reconciliation_comment",
+    "observed_body_evidence", "marker_query_matches",
+    "root_reconciliation_comment_matches",
 }
 EDGE_KEYS = {"blocked_ticket_id", "blocker_issue_id"}
 
@@ -69,8 +70,9 @@ def validate_auxiliary_receipt(
         receipt.get("observed_parent_issues"), set(ids),
         "publication.github_reconciliation.observed_parent_issues", report,
     )
-    validate_pending_comment(
-        receipt.get("root_reconciliation_comment"), root_id, mappings, report
+    validate_pending_comment_matches(
+        receipt.get("root_reconciliation_comment_matches"), root_id, mappings,
+        data.get("plan_version"), data.get("approved_planning_commit"), report,
     )
     approved = data.get("approved_planning_commit")
     if not isinstance(approved, str) or not SHA.fullmatch(approved):
@@ -108,8 +110,11 @@ def _core_contract(
 ) -> None:
     if isinstance(root_id, str) and root_id in mappings and core.get("github_root") != mappings[root_id]:
         report.error("publication root mapping must match build-order github_root")
-    if core.get("BO-001") is None:
-        report.error("publication relationship requires materialized BO-001 mapping")
+    for ticket_id in ("BO-004", "BO-008"):
+        if core.get(ticket_id) is None:
+            report.error(
+                f"publication relationship requires materialized {ticket_id} mapping"
+            )
 
 
 def _mappings(

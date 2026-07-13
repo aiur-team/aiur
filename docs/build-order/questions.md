@@ -27,8 +27,9 @@ be added here and asked one at a time.
   100 direct tickets are follow-on scope.
 - Provider quota/token/spend accounting is a separate companion dashboard
   track, not Build Order membership or acceptance work. The final capability
-  audit decomposes it into provider envelope, ledger, Remote Control adapter,
-  pricing/grouping, two meter adapters, run summary, and shared UI.
+  audit decomposes it into provider envelope, ledger, aggregate query,
+  retention/compaction, Remote Control adapter, pricing/grouping, two meter
+  adapters, run summary, shared UI, and selected-order integration.
 
 ## Resolved
 
@@ -69,7 +70,7 @@ be added here and asked one at a time.
   implementation issues in GitHub. Apply one `complexity:N` label and
   `model:codex` to each executable ticket, but do not apply `agent:todo` or
   otherwise dispatch work.
-- The authorized materialization set includes the twenty-two standalone dashboard
+- The authorized materialization set includes the twenty-five standalone dashboard
   delta/accounting issues and one human-blocked issue preserving the isolated
   skill PR #1065. The user explicitly asked that these unrelated skill changes
   not fall through the cracks and delegated the choice of a separate ticket.

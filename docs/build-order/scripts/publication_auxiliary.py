@@ -29,6 +29,7 @@ ISSUE_KEYS = {
 }
 SKILL_ID = re.compile(r"^SKILL-DELIVERY-[0-9]{3,}$", re.ASCII)
 FORBIDDEN_PREFIXES = {"agent:", "model:", "complexity:", "phase:", "build-lane:"}
+ROOT_FORBIDDEN_PREFIXES = FORBIDDEN_PREFIXES | {"human:"}
 
 
 def validate_auxiliary(
@@ -52,18 +53,23 @@ def validate_auxiliary(
     skill_id = skill.get("logical_id") if skill else None
     if not isinstance(skill_id, str) or not SKILL_ID.fullmatch(skill_id):
         report.error("skill_issue.logical_id must look like SKILL-DELIVERY-001")
-    _policy(root, "root_issue", {"build-order"}, set(), report)
-    _policy(skill, "skill_issue", {"human:todo"}, {"build-order"}, report)
+    _policy(
+        root, "root_issue", {"build-order"}, set(), ROOT_FORBIDDEN_PREFIXES, report
+    )
+    _policy(
+        skill, "skill_issue", {"human:todo"}, {"build-order"},
+        FORBIDDEN_PREFIXES, report,
+    )
     edges = parse_edges(
         manifest.get("external_blocker_relations"), "external_blocker_relations", report
     )
     expected_edge = (
-        {(ticket_id, skill_id) for ticket_id in ("BO-001", "BO-004", "BO-008")}
+        {(ticket_id, skill_id) for ticket_id in ("BO-004", "BO-008")}
         if isinstance(skill_id, str) else set()
     )
     if edges != expected_edge:
         report.error(
-            "publication must declare BO-001, BO-004, and BO-008 blocked by "
+            "publication must declare BO-004 and BO-008 blocked by "
             "SKILL-DELIVERY-001"
         )
     _read_only_refs(manifest.get("read_only_issue_refs"), repository, report)
@@ -129,7 +135,7 @@ def _document(base: Path, value: str, logical_id: object, label: str, report: Re
 
 def _policy(
     issue: dict[str, Any] | None, label: str, required: set[str],
-    forbidden: set[str], report: Report,
+    forbidden: set[str], expected_prefixes: set[str], report: Report,
 ) -> None:
     if issue is None:
         return
@@ -142,10 +148,10 @@ def _policy(
             f"{label}.forbidden_labels must equal " + ", ".join(sorted(forbidden))
         )
     prefixes = set(issue.get("forbidden_label_prefixes", []))
-    if prefixes != FORBIDDEN_PREFIXES:
+    if prefixes != expected_prefixes:
         report.error(
             f"{label}.forbidden_label_prefixes must equal "
-            + ", ".join(sorted(FORBIDDEN_PREFIXES))
+            + ", ".join(sorted(expected_prefixes))
         )
 
 

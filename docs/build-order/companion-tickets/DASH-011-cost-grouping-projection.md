@@ -8,9 +8,9 @@
 
 **Risk:** high
 
-**Depends on:** DASH-009
+**Depends on:** DASH-024
 
-**Serializes with:** usage query, pricing revision, and accounting projection changes
+**Serializes with:** none
 
 **External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
 
@@ -64,7 +64,7 @@ The user requires spend and tokens per ticket, agent type, model, and total buil
 
 ## Existing owner and reuse target
 
-Build a pure query/projection over DASH-009's `UsageLedger` behavior with a versioned checked-in/configured price table and exact-money helpers. Keep all financial policy outside LiveView.
+Build a pure pricing/grouping layer over DASH-024's aggregate/query behavior with a versioned checked-in/configured price table and exact-money helpers. Keep all financial policy outside LiveView.
 
 ## Contract and invariants
 
@@ -102,7 +102,7 @@ Build a pure query/projection over DASH-009's `UsageLedger` behavior with a vers
 
 ### At-merge gate
 
-- Rebase on DASH-009 and the resolved configured integration target; run ledger/replay, pricing/query, exact-money, membership identity, security, regression, and full CI suites. Review price fixtures and policy copy as code/data changes.
+- Rebase on DASH-024 and the resolved configured integration target; run aggregate/query, pricing, exact-money, membership identity, security, regression, and full CI suites. Review price fixtures and policy copy as code/data changes.
 
 ### Human/manual evidence
 
@@ -119,7 +119,7 @@ Build a pure query/projection over DASH-009's `UsageLedger` behavior with a vers
 
 ## Surfaces
 
-- Reads: DASH-009 ledger/query behavior with retained occurrence-price,
+- Reads: DASH-024 aggregate/query behavior with retained occurrence-price,
   currency, and opaque account-generation partitions; versioned price table;
   explicit typed run/ticket membership sets. It does not read provider meters.
 - Writes: cost/usage grouping projection and query API, pricing revisions/fixtures, tests.
@@ -129,7 +129,8 @@ Build a pure query/projection over DASH-009's `UsageLedger` behavior with a vers
 
 ## Sibling boundaries and open gates
 
-DASH-010 supplies required Remote Control observations but does not block
+DASH-009 owns raw append/replay and DASH-024 owns the aggregate query consumed
+here. DASH-010 supplies required Remote Control observations but does not block
 developing this projection against fixtures. DASH-012 owns the meter contract,
 and DASH-020/013 own actual Codex/Claude account facts; DASH-011 deliberately
 does not depend on or join them.

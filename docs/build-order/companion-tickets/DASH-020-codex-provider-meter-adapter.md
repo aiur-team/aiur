@@ -10,7 +10,7 @@
 
 **Depends on:** DASH-012
 
-**Serializes with:** Codex account/rate-limit protocol and `ModelAvailability` integration changes
+**Serializes with:** none
 
 **External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
 

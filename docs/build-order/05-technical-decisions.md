@@ -42,22 +42,31 @@ label. A small hidden marker binds logical ID and plan version to the immutable
 approved planning commit, but it may not duplicate membership, dependencies,
 lifecycle, progress, live state, or mutable provenance.
 
+V1 derives deterministic icon keys from lane and lifecycle with a generic
+accessible fallback. The prototype's explicit `icon` field is intentionally
+not copied into GitHub metadata.
+
 ## DEC-005 — Publish complete graph generations
 
 **Status:** accepted
 
 A daemon-owned supervised projection performs paginated GitHub reads, validates
 the whole candidate, and swaps it atomically. Failures preserve a stale
-last-known-good snapshot or report unavailable. LiveView never polls GitHub.
+last-known-good snapshot or report unavailable. The root catalog defaults to
+100 roots with explicit page/provider-call ceilings and overflow detection;
+selected graphs retain the 100-direct-member limit. Catalog and selected-root
+refresh defaults are 60 and 15 seconds, and a selection/reconnect demands one
+coalesced refresh when older than 5 seconds. LiveView never polls GitHub.
 
 ## DEC-006 — Extract runtime projection from UI ownership
 
 **Status:** accepted
 
-Add repository-qualified identity to normalized issues and existing
+First add repository-qualified identity to normalized issues and existing
 orchestrator StatusReport records; StatusReport remains the owner of execution,
-waiting, backend/model, and worker-lifecycle state. Move only the reusable
-progress, active-stage, and latest cross-ticket event fold out of interactive
+waiting, backend/model, and worker-lifecycle state. Then propagate one
+versioned identity-bearing observation envelope through progress, stage and
+latest-evidence producers. Move only their reusable fold out of interactive
 AgentList into an always-supervised typed-identity projection. TUI and dashboard
 join the two typed snapshots. Restart without replay yields unknown progress
 rather than zero and never creates a second lifecycle owner.
@@ -94,18 +103,25 @@ through their separately owned capability, confirmation, and
 applied-acknowledgement contracts. Dependency editing is a separately
 authorized feature.
 
+Ticket detail, bounded sanitized recent history and accessible base context are
+root-independent configured-repository capabilities. Build Order adds only
+relationship diagnostics and truthful destination links; it never treats
+navigation as proof that a destination action succeeded.
+
 ## DEC-009 — Keep companion dashboard work separate
 
 **Status:** accepted
 
 Responsive shell, recoverable Units membership/policy/presentation, runtime
 control protocol/UI, Decision query/provenance/Commands, account identity,
-usage envelope/ledger/Remote Control transport and accounting, cost projection,
-provider-meter foundation/adapters, run summary, financial authorization and
-the two summary surfaces are twenty-two companion tickets. They do not enter
-the Build Order root or terminal condition. BO-016 owns root-independent ticket
-detail/base context; BO-011 adapts it to Build Order relationships; BO-012
-consumes the shared route contract without waiting for companion metrics.
+usage envelope/ledger/aggregate/retention, Remote Control transport and
+accounting, cost projection, provider-meter foundation/adapters, run summary,
+financial authorization, the two summary surfaces, and selected-order usage
+integration are twenty-five companion tickets. They do not enter the Build
+Order root or terminal condition. BO-016 owns configured-repository ticket
+detail, BO-019 owns bounded sanitized recent history, BO-018 owns the accessible
+base context, and BO-011 adapts it to Build Order relationships. BO-012 consumes
+the shared route contract without waiting for companion metrics.
 
 ## DEC-010 — Treat phase as a hint
 
@@ -142,7 +158,7 @@ until a human records the configured branch/SHA that contains the accepted OCC
 baseline and the predecessor dashboard run is complete. That baseline gate
 applies to both Build Order and every standalone dashboard companion. Build
 Order execution is additionally gated on the bounded `/aiur-run` revision from
-PR #1065 commit `0daf2972` (or an explicitly reviewed compatible successor)
+PR #1065 commit `0bb9ec02` (or an explicitly reviewed compatible successor)
 being installed and discoverable. These are external pre-dispatch gates, not
 feature tickets or additions to the completion denominator.
 

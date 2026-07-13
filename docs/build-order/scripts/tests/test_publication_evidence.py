@@ -37,11 +37,11 @@ class PublicationEvidenceTests(unittest.TestCase):
     def test_companion_observation_rejects_new_routing_labels(self) -> None:
         def mutate(data, _build, _manifest):
             data["github_reconciliation"]["observed_labels"]["DASH-001"] += [
-                "agent:brand-new", "phase:4",
+                "agent:brand-new", "human:todo", "phase:4",
             ]
 
         joined = "\n".join(self.report(mutate).errors)
-        self.assertIn("agent:brand-new, phase:4", joined)
+        self.assertIn("agent:brand-new, human:todo, phase:4", joined)
 
     def test_body_evidence_partitions_are_exact(self) -> None:
         def mutate(_data, _build, manifest):
@@ -53,8 +53,13 @@ class PublicationEvidenceTests(unittest.TestCase):
 
     def test_body_markers_and_hashes_are_bound(self) -> None:
         mutations = {
+            "marker_count": (2, "marker_count must equal 1"),
+            "marker_schema_version": (1, "marker_schema_version must equal 2"),
             "marker_logical_id": ("wrong", "marker_logical_id must equal DASH-001"),
+            "marker_plan_version": (2, "marker_plan_version must equal 1"),
             "approved_planning_commit": ("0" * 40, "approved_planning_commit must match"),
+            "approved_link_count": (2, "approved_link_count must equal 1"),
+            "approved_link": ("https://example.com/wrong", "independently rendered approved body"),
             "body_sha256": ("A" * 64, "body_sha256 must be a lowercase SHA-256"),
         }
         for key, (value, expected) in mutations.items():
@@ -65,41 +70,90 @@ class PublicationEvidenceTests(unittest.TestCase):
 
                 self.assertIn(expected, "\n".join(self.report(mutate).errors))
 
-    def test_all_40_body_hashes_must_be_unique(self) -> None:
+    def test_all_body_hashes_must_be_unique(self) -> None:
         def mutate(data, build, _manifest):
             core = build["github_reconciliation"]["observed_body_evidence"]["BO-001"]
+            core["body_sha256"] = "0" * 64
             data["github_reconciliation"]["observed_body_evidence"]["DASH-001"][
                 "body_sha256"
-            ] = core["body_sha256"]
+            ] = "0" * 64
 
         joined = "\n".join(self.report(mutate).errors)
         self.assertIn("observed body SHA-256 for DASH-001 duplicates BO-001", joined)
 
-    def test_materialization_requires_exactly_40_bodies(self) -> None:
-        def mutate(_data, build, _manifest):
-            build["tickets"] = build["tickets"][:-1]
-            receipt = build["github_reconciliation"]
-            receipt["member_ticket_ids"].remove("BO-015")
-            for field in ("projected_labels", "observed_labels", "observed_body_evidence"):
-                del receipt[field]["BO-015"]
+    def test_arbitrary_and_truncated_body_hashes_fail(self) -> None:
+        def arbitrary(data, _build, _manifest):
+            data["github_reconciliation"]["observed_body_evidence"]["DASH-001"][
+                "body_sha256"
+            ] = "0" * 64
 
-        joined = "\n".join(self.report(mutate).errors)
-        self.assertIn("materialization must contain exactly 40 issue bodies", joined)
+        self.assertIn(
+            "independently rendered approved body",
+            "\n".join(self.report(arbitrary).errors),
+        )
+
+        def truncated(data, _build, _manifest):
+            data["github_reconciliation"]["observed_body_evidence"]["DASH-001"][
+                "body_sha256"
+            ] = "0" * 63
+
+        self.assertIn(
+            "body_sha256 must be a lowercase SHA-256",
+            "\n".join(self.report(truncated).errors),
+        )
+
+    def test_materialization_body_coverage_is_derived_from_manifests(self) -> None:
+        def mutate(_data, build, _manifest):
+            removed = build["tickets"].pop()["id"]
+            receipt = build["github_reconciliation"]
+            receipt["member_ticket_ids"].remove(removed)
+            for field in ("projected_labels", "observed_labels", "observed_body_evidence"):
+                del receipt[field][removed]
+            del receipt["marker_query_matches"][removed]
+
+        report = self.report(mutate)
+        self.assertEqual([], report.errors)
 
     def test_comment_receipt_is_exact_and_pending(self) -> None:
         mutations = {
-            "marker": ("wrong", "comment marker must equal"),
-            "state": ("successful", "state must equal pending"),
+            "marker": ("wrong", "must match the canonical pending comment"),
+            "state": ("successful", "must match the canonical pending comment"),
             "url": ("https://github.com/example/repo/issues/2#issuecomment-1", "mapped root issue"),
-            "body_sha256": ("not-a-hash", "body_sha256 must be a lowercase SHA-256"),
+            "body_sha256": ("not-a-hash", "must match the canonical pending comment"),
         }
         for key, (value, expected) in mutations.items():
             with self.subTest(key=key):
                 def mutate(_data, _build, manifest, key=key, value=value):
-                    comment = manifest["github_reconciliation"]["root_reconciliation_comment"]
+                    comment = manifest["github_reconciliation"]["root_reconciliation_comment_matches"][0]
                     comment[key] = value
 
                 self.assertIn(expected, "\n".join(self.report(mutate).errors))
+
+    def test_issue_marker_queries_require_one_exact_mapping(self) -> None:
+        def duplicate(data, _build, _manifest):
+            matches = data["github_reconciliation"]["marker_query_matches"]["DASH-001"]
+            matches.append(dict(matches[0]))
+
+        self.assertIn(
+            "must contain exactly one issue match", "\n".join(self.report(duplicate).errors)
+        )
+
+        def wrong(data, _build, _manifest):
+            matches = data["github_reconciliation"]["marker_query_matches"]["DASH-001"]
+            matches[0] = dict(data["tickets"][1]["github"])
+
+        self.assertIn(
+            "must equal the returned GitHub mapping", "\n".join(self.report(wrong).errors)
+        )
+
+    def test_comment_marker_query_requires_one_match(self) -> None:
+        def mutate(_data, _build, manifest):
+            matches = manifest["github_reconciliation"]["root_reconciliation_comment_matches"]
+            matches.append(dict(matches[0]))
+
+        self.assertIn(
+            "must contain exactly one comment match", "\n".join(self.report(mutate).errors)
+        )
 
     def test_read_only_refs_are_exact(self) -> None:
         manifest = publication()

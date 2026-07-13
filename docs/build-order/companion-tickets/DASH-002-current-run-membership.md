@@ -8,9 +8,9 @@
 
 **Risk:** high
 
-**Depends on:** BO-004
+**Depends on:** BO-017
 
-**Serializes with:** Orchestrator lifecycle, run identity, and daemon-private recovery-state changes
+**Serializes with:** none
 
 **External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
 
@@ -28,11 +28,11 @@ Aiur exposes one headless-safe, recoverable membership set containing every type
 
 ## Context and evidence
 
-Current `Orchestrator.StatusReport` describes current runtime state but is not a durable all-state membership authority. Finished, replaced, retry-waiting, or temporarily absent tickets can therefore disappear from a dashboard denominator. BO-004 establishes trusted repository-qualified event identity; this ticket owns only current-run membership and recovery. DASH-016 separately composes rich Units rows and filter policy.
+Current `Orchestrator.StatusReport` describes current runtime state but is not a durable all-state membership authority. Finished, replaced, retry-waiting, or temporarily absent tickets can therefore disappear from a dashboard denominator. BO-017 propagates trusted repository-qualified identity through tracker/runtime records; this ticket owns only current-run membership and recovery. DASH-016 separately composes rich Units rows and filter policy.
 
 ## Scope
 
-- Define membership as every BO-004-qualified ticket identity observed in the active `run_id` as queued, retrying, allocated, running, paused, waiting, replaced, or terminal.
+- Define membership as every BO-017-qualified ticket identity observed in the active `run_id` as queued, retrying, allocated, running, paused, waiting, replaced, or terminal.
 - Retain terminal membership through the end of the current run. A new `run_id` creates a new generation; prior-run members never enter the new set.
 - Add one daemon-private, run-qualified append/checkpoint protocol for membership and terminal transitions. Persist an accepted transition before publishing the corresponding generation.
 - Rebuild exact same-run membership after only the membership process crashes. Reconcile the rebuilt set against current Orchestrator/tracker observations without treating a temporarily absent row as historical proof that it never belonged.
@@ -48,7 +48,7 @@ Current `Orchestrator.StatusReport` describes current runtime state but is not a
 
 ## Existing owner and reuse target
 
-Build a supervised projection over BO-004 typed identity, `Aiur.Boot.run_id/0`, canonical tracker `Issue` values, and `Aiur.Orchestrator.StatusReport` lifecycle observations. Reuse the daemon-private state root, atomic/checksummed file patterns, injected filesystem/clock hooks, and PubSub health conventions.
+Build a supervised projection over BO-017 propagated identity, `Aiur.Boot.run_id/0`, canonical tracker `Issue` values, and `Aiur.Orchestrator.StatusReport` lifecycle observations. Reuse the daemon-private state root, atomic/checksummed file patterns, injected filesystem/clock hooks, and PubSub health conventions.
 
 ## Contract and invariants
 
@@ -60,7 +60,7 @@ Build a supervised projection over BO-004 typed identity, `Aiur.Boot.run_id/0`, 
 
 ## Refreshable implementation notes
 
-- Refresh BO-004's final typed identity/event names and current StatusReport lifecycle values at pickup; add a compatibility adapter rather than duplicating its reducer.
+- Refresh BO-017's final propagated identity fields and current StatusReport lifecycle values at pickup; add a compatibility adapter rather than duplicating its owner.
 - Keep recovery records content-free and bounded. Prefer one owner process plus pure transition/replay modules so crash cases remain deterministic.
 - Characterize daemon restart versus supervised projection restart: `run_id` changes on the former and remains stable on the latter.
 
@@ -74,7 +74,7 @@ Build a supervised projection over BO-004 typed identity, `Aiur.Boot.run_id/0`, 
 
 ### At-merge gate
 
-- Rebase on BO-004 and the resolved configured integration target; run event identity, Orchestrator/StatusReport, run lifecycle, private-state/recovery, packaging, PubSub, and full CI suites.
+- Rebase on BO-017 and the resolved configured integration target; run propagated identity, Orchestrator/StatusReport, run lifecycle, private-state/recovery, packaging, PubSub, and full CI suites.
 
 ### Human/manual evidence
 
@@ -89,7 +89,7 @@ Build a supervised projection over BO-004 typed identity, `Aiur.Boot.run_id/0`, 
 
 ## Surfaces
 
-- Reads: BO-004 typed identity, current `run_id`, StatusReport/tracker lifecycle observations, same-run recovery state.
+- Reads: BO-017 propagated identity, current `run_id`, StatusReport/tracker lifecycle observations, same-run recovery state.
 - Writes: membership journal/checkpoint, supervised membership projection, health/generation PubSub, tests.
 - Contracts: current-run membership/terminal retention, recovery generation, snapshot/lookup/health APIs.
 

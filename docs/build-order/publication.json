@@ -10,6 +10,7 @@
     "forbidden_labels": [],
     "forbidden_label_prefixes": [
       "agent:",
+      "human:",
       "model:",
       "complexity:",
       "phase:",
@@ -30,10 +31,6 @@
     ]
   },
   "external_blocker_relations": [
-    {
-      "blocked_ticket_id": "BO-001",
-      "blocker_issue_id": "SKILL-DELIVERY-001"
-    },
     {
       "blocked_ticket_id": "BO-004",
       "blocker_issue_id": "SKILL-DELIVERY-001"

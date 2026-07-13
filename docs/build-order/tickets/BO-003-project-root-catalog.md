@@ -46,12 +46,21 @@ polling because requests would scale with browser count and disconnects.
 - Coalesce concurrent catalog/selected-root demand, bound in-flight work and
   retained roots, schedule refresh/retry with observable backoff, and publish
   generation changes over the existing process/PubSub conventions.
+- Default catalog refresh to 60 seconds and an actively demanded selected root
+  to 15 seconds. On selection or LiveView reconnect, coalesce an asynchronous
+  refresh when the relevant snapshot is older than 5 seconds while rendering
+  the current snapshot and visible refreshing/freshness state immediately.
+  All three positive durations are configurable; the reconnect threshold may
+  not exceed the demanded-root interval.
 - Build each candidate off-process, validate it fully, and atomically swap only
   after BO-002 returns complete success. Never merge individual pages or edges
   into the visible generation.
 - On refresh failure, retain last-known-good data with last-success,
   last-attempt, failure class, staleness, and next-retry metadata. Without an
   LKG, expose unavailable rather than an empty graph.
+- Treat BO-002 exact-bound-plus-one, page-budget, and provider-call-budget
+  failures like any other preserving failure: retain the prior LKG, mark health
+  stale/degraded, and never publish the partial candidate.
 - Preserve each catalog entry's validity. One malformed root does not hide
   valid siblings; selecting it yields structural-invalid, which differs from
   catalog unavailable, selected unavailable, or selected stale-LKG.
@@ -80,6 +89,9 @@ polling, or the interactive AgentList process.
 
 - Each published generation is immutable, monotonically identified, complete,
   and tied to its repository/root identity and provider observation time.
+- Successful atomic swap broadcasts exactly one generation notification before
+  the refresh operation completes; a failed/partial candidate broadcasts only
+  a health transition and never a data generation.
 - A failed attempt changes health metadata, not the content of the LKG.
 - Catalog health, catalog-entry validity, selected-root health, and member
   warnings are independent and remain distinguishable to BO-007/012.
@@ -92,8 +104,9 @@ polling, or the interactive AgentList process.
   child; serialize with BO-005 when both touch those owners.
 - Prefer deterministic injected timers/tasks and explicit generation tokens;
   avoid sleep-based tests.
-- Keep refresh policy configurable through existing application configuration,
-  with conservative defaults and no per-view knobs.
+- Keep the 60-second catalog, 15-second demanded-root, and 5-second selection/
+  reconnect defaults configurable through existing application configuration,
+  with validation and no per-view knobs.
 
 ## Acceptance and verification
 
@@ -102,10 +115,17 @@ polling, or the interactive AgentList process.
 - Deterministic tests cover cold start, success, stale LKG, no-LKG failure,
   recovery, concurrent coalescing, out-of-order completion, timeout, retry,
   bounded eviction, provider restart, and subscriber churn without sleeps.
+- Injected-clock tests cover each 60/15/5-second boundary at `-1`, exact, and
+  `+1`, selection/reconnect coalescing, configurable overrides, and visible LKG
+  freshness after failure.
 - Catalog tests prove malformed-root isolation and selected structural-invalid
   versus stale/unavailable behavior.
 - Generation tests inject a partial/error candidate and prove no member or edge
   from it becomes visible.
+- Barrier-based PubSub tests prove exactly one generation notification is
+  observable before successful refresh completion, no notification exposes a
+  partial candidate, and health-only failure updates are deterministic without
+  timing sleeps.
 
 ### At-merge gate
 
@@ -132,7 +152,8 @@ polling, or the interactive AgentList process.
 - Writes: supervised catalog/graph LKG projection, cache/task children, PubSub
   topics, and deterministic tests.
 - Contracts: catalog snapshot; body-free selected-root generation;
-  provider health/freshness; demand/refresh API.
+  provider health/freshness; configurable 60/15/5-second demand/refresh API;
+  atomic generation/health PubSub notification policy.
 
 ## Sibling boundaries and open gates
 

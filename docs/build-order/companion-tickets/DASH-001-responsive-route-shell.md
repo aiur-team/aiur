@@ -10,7 +10,7 @@
 
 **Depends on:** BO-008
 
-**Serializes with:** active dashboard shell, navigation, and shared CSS branches
+**Serializes with:** none — all declared shared shell consumers are hard-ordered
 
 **External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
 

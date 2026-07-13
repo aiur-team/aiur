@@ -18,17 +18,20 @@ runtime controls, Decision/Commands provenance, and durable provider-neutral
 usage/accounting. Worker-boundary review further separates recovery from Units
 policy, Decision query from provenance migration, account identity from usage,
 meter contracts from adapters, local telemetry transport from normalization,
-financial authorization from presentation, and run status from provider UI.
-The recommended companion pack therefore contains twenty-two issues. Those
+financial authorization from presentation, run status from provider UI,
+append/checkpoint storage from aggregate query and compaction, and selected
+Build Order accounting from generic grouping. The recommended companion pack
+therefore contains twenty-five issues. Those
 issues remain outside the Build Order root and completion math.
 
-The Build Order graph itself also needs four boundaries that the earlier
-eleven-ticket draft compressed: trustworthy repository-qualified event
-identity, a real browser/accessibility/performance harness, vendored layout
-assets separated from DOM/SVG integration, and interaction separated from
-responsive scale proof. The bounded Build Order recommendation is therefore
-sixteen implementation/capstone issues, including a root-independent ticket
-detail/context foundation and a narrower Build Order relationship adapter.
+The Build Order graph itself also needs boundaries that the earlier draft
+compressed: configured-repository Issue/StatusReport identity separated from
+event propagation, detail and bounded activity history separated from the
+accessible base context and Build Order adapter, a real
+browser/accessibility/performance harness, vendored layout assets separated
+from DOM/SVG integration, and interaction separated from responsive scale
+proof. The bounded Build Order recommendation is therefore nineteen
+implementation/capstone issues.
 
 ## Current production facts
 
@@ -78,19 +81,19 @@ explicit resolved branch/SHA and owns its own future documentation.
 | Responsive Units/Commands/Build Order/Analytics navigation | Real routes, authentication, theme and Analytics report | Shared route metadata, desktop/sidebar and mobile/bottom navigation, safe-area/reflow behavior | DASH-001 |
 | Live/Unfinished/All/None plus overlapping state chips | One Fleet table with basic filter params | Recoverable current-run unit universe, terminal retention, canonical predicates, exact truth table, URL/count semantics | DASH-002, DASH-016, DASH-003 |
 | Finished/queued/non-running Units | Current running/retrying/idle snapshots | Recoverable same-run membership journal, terminal retention, and honest missing/stale activity | DASH-002 |
-| Backend, exact model, effort, complexity, lane and progress | StatusReport owns lifecycle/backend facts; AgentList owns event progress | Common typed identity, preserved StatusReport ownership, extracted event activity, and joined Units projection | BO-004, BO-005, DASH-016 |
-| Rich row/ticket dialog | Running-only agent-log dialog | Root-independent on-demand cached base context plus a Build Order relationship adapter, safe destinations, and no graph mutation handlers | BO-016, BO-011, adopted by DASH-003 |
+| Backend, exact model, effort, complexity, lane and progress | StatusReport owns lifecycle/backend facts; AgentList owns event progress | Configured-repository Issue/StatusReport identity, typed observation propagation, extracted event activity, and joined Units projection | BO-004, BO-017, BO-005, DASH-016 |
+| Rich row/ticket dialog | Running-only agent-log dialog | Root-independent cached detail, bounded sanitized activity history, accessible base context, and a narrower Build Order relationship adapter with truthful destinations | BO-016, BO-019, BO-018, BO-011, adopted by DASH-003 |
 | Per-unit pause/resume toggle | Pause/resume request functions and capability checks | Correlated request, accepted, worker-applied/rejected/expired acknowledgement and conflict recovery | DASH-004, DASH-005 |
 | Max-agents stepper | Positive-integer runtime capacity setter | Authenticated UI reconciliation and stale/error handling; zero remains invalid | DASH-005 |
 | Commands cards and filters | Durable Decision state machine, direct lookup, revisions and delivery | Complete retained lookup/query, trusted provenance/confidence migration, and presentation catch-up without lifecycle loss | DASH-006, DASH-017, DASH-007 |
-| Per-ticket/model/backend tokens | Transient Codex/Claude token folds | Shared opaque account generation, raw provider-neutral measurements, and durable single-writer delta checkpoints/ledger | DASH-018, DASH-008, DASH-009 |
+| Per-ticket/model/backend tokens | Transient Codex/Claude token folds | Shared opaque account generation, raw provider-neutral measurements, durable single-writer delta checkpoints/ledger, crash-safe aggregates, and dimension-preserving retention | DASH-018, DASH-008, DASH-009, DASH-024, DASH-025 |
 | Claude Remote Control tokens/cost | Remote Control turn/session identity only | Authenticated bounded local telemetry/correlation plus request normalization behind a human-owned protocol gate; required coverage, not an unsupported terminal state | DASH-019, DASH-010 |
-| Dollar values by ticket/model/build | Some provider cost and token counters | Versioned API-equivalent pricing, exact basis buckets, coverage and selected-member grouping | DASH-011 |
+| Dollar values by ticket/model/build | Some provider cost and token counters | Versioned API-equivalent pricing, exact basis buckets, coverage and current selected-member integration | DASH-011, DASH-023 |
 | Codex session/weekly meter and plan | Structured Codex account/rate-limit protocol | Shared account generation, provider-meter LKG contract, and structured Codex adapter/availability compatibility | DASH-018, DASH-012, DASH-020 |
 | Claude session/weekly/API plan meter | No complete stable Aiur projection | Structured Claude subscription and API-key adapter; no interactive-output scraping | DASH-013 |
 | Live units, remaining, progress, elapsed and ETA | Individual row/run counters | Canonical current-run denominator, weighting, wall-clock start, evidence-based ETA, and independently shippable accessible UI | DASH-014, DASH-022 |
-| Provider/Aiur usage cards and drill-down | No shared durable summary | Enforced financial-data boundary plus authenticated, accessible, live-updating composition with explicit scope/basis/freshness | DASH-021, DASH-015 |
-| Build Order selector and graph | GitHub issue/dependency clients and dashboard LiveView patterns | Root catalog, complete paginated graph, LKG health, pure join, root-independent base context, and URL-backed route | BO-001..BO-012, BO-016 |
+| Provider/Aiur usage cards and drill-down | No shared durable summary | Enforced financial-data boundary plus authenticated, accessible, live-updating run/build composition with explicit scope/basis/freshness | DASH-021, DASH-015, DASH-023 |
+| Build Order selector and graph | GitHub issue/dependency clients and dashboard LiveView patterns | Bounded root catalog, complete paginated graph, LKG health, typed event join, root-independent detail/history/context, and URL-backed route | BO-001..BO-012, BO-016..BO-019 |
 | Graph geometry and routed edges | Static-asset and LiveView hook seams | Pinned local worker engine, measured DOM/SVG adapter and deterministic readable fallback | BO-008..BO-010 |
 | Chain selection, dialog navigation, pan/zoom | Prototype hover and scroll only | Keyboard/touch/focus semantics, explicit controls, reduced motion and persistent selected context | BO-011..BO-013 |
 | 20/50/100-node usability | Illustrative fixed 31-node data only | Synthetic degradation/cycle/scale fixtures plus current-root dogfood | BO-008, BO-014, BO-015 |
@@ -136,11 +139,12 @@ or browser-local mutations as a source of truth.
 5. The edge/readiness vocabulary is `cleared`, `blocking`,
    `terminal_unsatisfied`, `unknown`, and `cyclic`. Conservative readiness
    precedence is cyclic, unknown, terminal-unsatisfied, blocking, then ready.
-6. The usage ledger uses the repository's proven file-first pattern: a single
-   supervised writer, append-only versioned NDJSON authority, and crash-safe
-   atomic checkpoint/aggregate projections. A new application database is not
-   introduced for this bounded local-first feature. The behavior boundary
-   leaves a future Postgres/multi-controller adapter possible.
+6. Usage storage uses the repository's proven file-first pattern: a single
+   supervised append/checkpoint writer, a separate crash-safe aggregate/query
+   projection, and a separately proven retention/compaction lifecycle. A new
+   application database is not introduced for this bounded local-first
+   feature. The behavior boundaries leave a future Postgres/multi-controller
+   adapter possible.
 7. DASH-021 ensures usage and account-meter facts never leak through the dashboard's optional
    unauthenticated local mode. Without authenticated Executor mode, tokens,
    costs, plan/auth mode, quota/rate/credit windows, percentages, resets, and
@@ -148,7 +152,8 @@ or browser-local mutations as a source of truth.
 
 ## Adjacent existing work
 
-- #132 overlaps durable per-ticket token/cost storage. DASH-009 supersedes its
+- #132 overlaps durable per-ticket token/cost storage.
+  DASH-009/DASH-024/DASH-025 supersede its
   storage/accounting contract; #132's proposed opencode side-panel surface is
   not silently pulled into this dashboard scope.
 - #845 is a broader optimization program that recommends Postgres and
@@ -162,7 +167,7 @@ or browser-local mutations as a source of truth.
 
 ## Publication implication
 
-Publish one Build Order root with sixteen direct member issues, twenty-two
+Publish one Build Order root with nineteen direct member issues, twenty-five
 standalone dashboard companions, and one human-blocked skill-delivery issue.
 Companion dependencies are real native blockers even though companions are not
 root members. Every companion is held by the predecessor-baseline gate, and

@@ -8,7 +8,7 @@ isolated skill-only draft PR #1065 so `/aiur-build`, the consolidated bounded
 publication validation are not lost with the research branch.
 
 The reviewed planning authority is commit
-`0daf29726fbe8345a79588e14b6f4c556584a57c`. A later compatible successor is
+`0bb9ec025efb1cabb56b3450f96abebdb6a86baf`. A later compatible successor is
 acceptable only after explicit review confirms it preserves the finite feature
 boundary, rework-before-ticket-multiplication rule, backlog-growth circuit
 breaker, privacy policy, and publication validator behavior.
@@ -45,9 +45,10 @@ gate, not unfinished Build Order implementation.
 
 ## Build Order gate
 
-This issue is published as an external native blocker of BO-001, BO-004, and
-BO-008—the three independent initial branches. It remains outside Build Order
-membership, points, ETA, and completion. Closing it means the reviewed revision
+This issue is published as an external native blocker of BO-004 and BO-008—the
+two independent initial branches. BO-001 depends on BO-004 and therefore
+inherits the gate. The skill issue remains outside Build Order membership,
+points, ETA, and completion. Closing it means the reviewed revision
 (or a proven compatible successor) is landed or installed and all three skills
 are discoverable for both supported worker backends; merely closing PR #1065
 without those checks does not resolve the gate.

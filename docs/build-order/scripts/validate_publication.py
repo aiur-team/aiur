@@ -21,6 +21,7 @@ from publication_auxiliary import validate_auxiliary
 from publication_body_evidence import validate_all_body_evidence
 from publication_core_receipt import validate_commit_reference, validate_core_receipt
 from publication_receipt import validate_receipt
+from publication_rendering import render_approved_pack
 from publication_records import (
     build_tickets,
     dash_tickets,
@@ -57,7 +58,7 @@ def validate(
     data = strict_object(companions, "top level", TOP_KEYS, report)
     if data is None:
         return report
-    repository = _header(data, report)
+    repository = _header(data, build_path, report)
     gates = external_gates(data, report)
     build = build_tickets(build_order, repository, report)
     dash = dash_tickets(data, companion_path.parent, repository, gates, report)
@@ -77,12 +78,21 @@ def validate(
         data.get("plan_version"), data.get("approved_planning_commit"),
         materialized, report,
     )
-    validate_core_receipt(build_path, materialized, report)
-    validate_all_body_evidence(build_order, data, publication, materialized, report)
+    expected_bodies = None
+    if materialized:
+        expected_bodies = render_approved_pack(
+            build_order, data, publication, build_path, companion_path,
+            publication_path, data.get("approved_planning_commit"), report,
+        )
+    validate_core_receipt(build_path, materialized, expected_bodies, report)
+    validate_all_body_evidence(
+        build_order, data, publication, mappings, expected_bodies,
+        materialized, report,
+    )
     return report
 
 
-def _header(data: dict[str, Any], report: Report) -> str:
+def _header(data: dict[str, Any], build_path: Path, report: Report) -> str:
     if data.get("schema_version") != 1:
         report.error("schema_version must be integer 1")
     if not strict_int(data.get("plan_version")) or data["plan_version"] < 1:
@@ -98,7 +108,9 @@ def _header(data: dict[str, Any], report: Report) -> str:
     if approved is not None and (not isinstance(approved, str) or not SHA.fullmatch(approved)):
         report.error("approved_planning_commit must be null or a 40-character Git SHA")
     elif approved is not None:
-        validate_commit_reference(approved, "approved_planning_commit", report)
+        validate_commit_reference(
+            approved, "approved_planning_commit", build_path, report
+        )
     _label_contract(data, report)
     return repository
 

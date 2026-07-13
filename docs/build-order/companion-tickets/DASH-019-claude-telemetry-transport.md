@@ -4,13 +4,13 @@
 
 **Provenance:** planned in plan v1 after companion-boundary review
 
-**Complexity:** 4 — Cross-process local telemetry trust boundary, lifecycle correlation, resource controls, and possible sibling protocol revision
+**Complexity:** 4 — Cross-process local telemetry trust boundary, lifecycle correlation, and resource controls against a pinned protocol
 
 **Risk:** high
 
 **Depends on:** none
 
-**Serializes with:** Claude REPL/Remote Control launch, local receiver, session registry, and aiur-claude protocol changes
+**Serializes with:** none after the human gate pins an already-landed compatible protocol
 
 **External gates:** `GATE-OCC-PREDECESSOR-BASELINE`; and `GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY`, owned by a human with `aiur-claude` write authority and resolved before dispatch
 
@@ -32,7 +32,7 @@ Claude Code exposes official OpenTelemetry monitoring events, but loopback bindi
 
 ## Scope
 
-- Resolve `GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY` with a reviewed capability matrix selecting either a secure Aiur-only launch/receiver path or an explicitly authorized minimal compatible `aiur-claude` protocol revision.
+- Resolve `GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY` with a reviewed capability matrix selecting either a secure Aiur-only launch/receiver path or an already-landed pinned compatible `aiur-claude` revision. If sibling work is missing, a human must authorize and land it through a separate sibling issue/PR before this ticket becomes pickable.
 - Configure or embed one local-only telemetry receiver for Claude processes Aiur owns. Prefer an owner-only Unix-domain socket.
 - If loopback TCP is required, mint an unguessable per-process capability, inject it only at owned process launch, authenticate it before payload decoding/logging, bind it to process/session generation, and revoke it on teardown.
 - Maintain a trusted correlation registry established at process/session creation: producer generation, Claude session identity, current `run_id`, repository-qualified ticket, attempt, backend/transport, and worker generation.
@@ -46,11 +46,11 @@ Claude Code exposes official OpenTelemetry monitoring events, but loopback bindi
 
 - Normalize tokens/cost, persist usage, calculate prices, fetch provider meters, render UI, or scrape interactive output.
 - Treat loopback, process PID, repository path, session ID, browser state, or account identity as producer authentication.
-- Mutate `aiur-claude` without the explicit gate receipt or relay arbitrary raw telemetry payloads into Aiur.
+- Mutate or test unlanded changes in `aiur-claude`, infer sibling authority, or relay arbitrary raw telemetry payloads into Aiur.
 
 ## Existing owner and reuse target
 
-Extend Claude REPL/Remote Control process/session lifecycle and trusted launch configuration in Aiur. Reuse existing supervised local-server, permissioned-socket, capability, lifecycle teardown, version negotiation, and redaction patterns. If authorized, keep any sibling change a narrow typed launch/configuration contract with compatibility fixtures.
+Extend Claude REPL/Remote Control process/session lifecycle and trusted launch configuration in Aiur. Reuse existing supervised local-server, permissioned-socket, capability, lifecycle teardown, version negotiation, and redaction patterns against the gate-pinned installed protocol. Any sibling implementation is separate, already landed work.
 
 ## Contract and invariants
 
@@ -73,11 +73,11 @@ Extend Claude REPL/Remote Control process/session lifecycle and trusted launch c
 - Transport tests cover owner-only socket or authenticated loopback, correct/wrong/missing/stale capability, reconnect, resume, replacement generation, teardown revocation, session-ID spoof, and current ticket correlation.
 - Resource tests cover oversize body/attributes, connection/rate exhaustion, malformed encoding, replay flood, slow/partial clients, and recovery without crashing owned Claude workers.
 - Redaction/no-egress tests prove forbidden content/account/header/credential/path/capability attributes are removed before diagnostic or subscriber delivery.
-- If sibling work is authorized, version negotiation and synthetic compatibility fixtures pass in both repositories at pinned revisions.
+- Compatibility fixtures prove Aiur works against the exact already-landed sibling revision named by the gate receipt; this worker changes only Aiur.
 
 ### At-merge gate
 
-- Rebase on current Claude lifecycle and the gate-approved protocol; pass Claude REPL/Remote Control, launch/teardown, local receiver, correlation, capability, redaction, packaging, and full CI suites, plus authorized sibling compatibility gates.
+- Rebase on current Claude lifecycle and the gate-pinned installed protocol; pass Claude REPL/Remote Control, launch/teardown, local receiver, correlation, capability, redaction, packaging, compatibility, and full Aiur CI suites.
 
 ### Human/manual evidence
 
@@ -93,9 +93,9 @@ Extend Claude REPL/Remote Control process/session lifecycle and trusted launch c
 ## Surfaces
 
 - Reads: owned Claude launch/session lifecycle and official local telemetry transport.
-- Writes: permissioned receiver or authenticated-loopback capability lifecycle, trusted correlation registry, allowlisted event stream, health/rejections, fixtures/tests, optional authorized sibling protocol.
+- Writes: Aiur permissioned receiver or authenticated-loopback capability lifecycle, trusted correlation registry, allowlisted event stream, health/rejections, fixtures/tests.
 - Contracts: producer-authenticated bounded local telemetry and `GATE-CLAUDE-OTEL-PROTOCOL-AUTHORITY` receipt.
 
 ## Sibling boundaries and open gates
 
-DASH-010 alone converts delivered events into DASH-008 envelopes. This ticket is not dispatchable until its human gate resolves; inability to obtain authority cannot be reclassified as completed unsupported Remote Control accounting.
+DASH-010 alone converts delivered events into DASH-008 envelopes. This ticket is not dispatchable until its human gate names an Aiur-only path or already-landed pinned compatible sibling revision. Missing sibling capability requires a separate human-authorized sibling issue/PR and cannot be implemented here or reclassified as unsupported completion.

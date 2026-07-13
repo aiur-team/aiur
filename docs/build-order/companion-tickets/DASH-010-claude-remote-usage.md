@@ -10,7 +10,7 @@
 
 **Depends on:** DASH-008, DASH-019
 
-**Serializes with:** Claude REPL/Remote Control event adapters and usage-normalizer changes
+**Serializes with:** none
 
 **External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
 

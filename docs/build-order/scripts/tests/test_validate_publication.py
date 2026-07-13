@@ -70,6 +70,42 @@ class PublicationValidationTests(unittest.TestCase):
         report = validate(fixture.companion_path, fixture.build_path)
         self.assertTrue(any("GATE-HUMAN-AUTHORITY" in error for error in report.errors))
 
+    def test_rejects_unordered_parallel_safety_surface(self) -> None:
+        data = companions()
+        data["tickets"][0]["safety_surfaces"] = ["shared authorization"]
+        data["tickets"][2]["write_surfaces"] = ["shared authorization"]
+        fixture = Fixture(data)
+        self.addCleanup(fixture.close)
+        joined = "\n".join(validate(fixture.companion_path, fixture.build_path).errors)
+        self.assertIn(
+            "DASH-001 and DASH-003: parallel safety-surface conflict: shared authorization",
+            joined,
+        )
+
+    def test_warns_for_unordered_parallel_write_surface(self) -> None:
+        data = companions()
+        data["tickets"][0]["write_surfaces"] = ["shared composition"]
+        data["tickets"][2]["write_surfaces"] = ["shared composition"]
+        fixture = Fixture(data)
+        self.addCleanup(fixture.close)
+        report = validate(fixture.companion_path, fixture.build_path)
+        self.assertIn(
+            "DASH-001 and DASH-003: overlapping parallel surfaces: shared composition",
+            report.warnings,
+        )
+
+    def test_serialization_covers_shared_surface(self) -> None:
+        data = companions()
+        data["tickets"][0]["write_surfaces"] = ["shared composition"]
+        data["tickets"][2]["write_surfaces"] = ["shared composition"]
+        data["tickets"][0]["serializes_with"] = ["DASH-003"]
+        data["tickets"][2]["serializes_with"] = ["DASH-001"]
+        fixture = Fixture(data)
+        self.addCleanup(fixture.close)
+        report = validate(fixture.companion_path, fixture.build_path)
+        self.assertEqual([], report.errors)
+        self.assertEqual([], report.warnings)
+
     def test_validates_auxiliary_manifest_contract(self) -> None:
         manifest = publication()
         manifest["read_only_issue_refs"] = ["example/repo#132"]
@@ -81,7 +117,7 @@ class PublicationValidationTests(unittest.TestCase):
         self.assertIn("#132, #845, #1033, #1034, and #1067", joined)
         self.assertIn("forbidden_label_prefixes must equal", joined)
         self.assertIn(
-            "BO-001, BO-004, and BO-008 blocked by SKILL-DELIVERY-001", joined
+            "BO-004 and BO-008 blocked by SKILL-DELIVERY-001", joined
         )
 
     def test_auxiliary_receipt_rejects_agent_labels(self) -> None:
@@ -94,6 +130,23 @@ class PublicationValidationTests(unittest.TestCase):
         joined = "\n".join(validate(fixture.companion_path, fixture.build_path).errors)
         self.assertIn("unexpected routing labels: agent:future-state", joined)
         self.assertNotIn("number", joined)
+
+    def test_auxiliary_receipt_rejects_human_routing_drift(self) -> None:
+        data, build, manifest = materialized_pack()
+        root_id = "example/repo:build-order-dashboard"
+        manifest["github_reconciliation"]["observed_labels"][root_id].append(
+            "human:todo"
+        )
+        manifest["github_reconciliation"]["observed_labels"][
+            "SKILL-DELIVERY-001"
+        ].append("human:done")
+        fixture = Fixture(data, build, manifest)
+        self.addCleanup(fixture.close)
+        joined = "\n".join(validate(
+            fixture.companion_path, fixture.build_path, fixture.publication_path
+        ).errors)
+        self.assertIn("unexpected routing labels: human:todo", joined)
+        self.assertIn("unexpected routing labels: human:done", joined)
 
     def test_materialization_is_complete_and_identity_unique(self) -> None:
         data = companions()

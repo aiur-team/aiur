@@ -8,9 +8,9 @@
 
 **Risk:** high
 
-**Depends on:** DASH-003, DASH-010, DASH-011, DASH-013, DASH-020, DASH-021
+**Depends on:** DASH-003, DASH-010, DASH-011, DASH-013, DASH-020, DASH-021, DASH-025
 
-**Serializes with:** DASH-022 and shared Units summary, `DashboardLive`, provider-card, drill-down, and CSS changes
+**Serializes with:** DASH-005, DASH-007, DASH-022 — shared `DashboardLive`/CSS/summary layout
 
 **External gate:** `GATE-OCC-PREDECESSOR-BASELINE` — resolve before dispatch
 
@@ -79,7 +79,7 @@ Add protected provider/usage presenters and components to DASH-003's Units page 
 
 ### At-merge gate
 
-- Rebase all six prerequisites and the resolved configured integration target; sequence with DASH-022/shared Units/CSS ownership and pass accounting, Remote Control coverage, provider meters, auth/security, accessibility, performance, and full CI suites.
+- Rebase all seven prerequisites and the resolved configured integration target; sequence with DASH-022/shared Units/CSS ownership and pass accounting, retention/compaction, Remote Control coverage, provider meters, auth/security, accessibility, performance, and full CI suites.
 
 ### Human/manual evidence
 
@@ -94,7 +94,7 @@ Add protected provider/usage presenters and components to DASH-003's Units page 
 
 ## Surfaces
 
-- Reads: DASH-010 Remote usage coverage, DASH-011 grouped usage/estimates, DASH-013 Claude meters, DASH-020 Codex meters, DASH-021 protected query/subscription/locked contract, DASH-003 Units scope.
+- Reads: DASH-010 Remote usage coverage, DASH-011 grouped usage/estimates over DASH-025-hardened retention, DASH-013 Claude meters, DASH-020 Codex meters, DASH-021 protected query/subscription/locked contract, DASH-003 Units scope.
 - Writes: protected usage/provider presenters/components, bounded drill-down/popover, authorized subscriptions, responsive CSS and tests.
 - Contracts: exact-generation tier composition, authenticated usage/provider UI states, estimate disclosure, responsive/accessibility/live-update behavior.
 

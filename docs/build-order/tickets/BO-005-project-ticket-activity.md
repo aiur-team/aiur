@@ -10,7 +10,7 @@
 
 **Phase hint:** 3
 
-**Depends on:** BO-004
+**Depends on:** BO-017
 
 **Serializes with:** BO-003
 
@@ -38,15 +38,16 @@ waiting, backend/model, and worker-lifecycle state.
 Progress, active CE stage, and latest activity are currently folded inside the
 interactive AgentList lifecycle and pruned with its visible roster. Background
 runs and dashboard-only consumers cannot treat that UI process as canonical.
-BO-004 supplies trustworthy identity; this ticket supplies state ownership and
-ordering semantics for those event-derived fields. It deliberately extends,
+BO-004 supplies configured-repository identity and BO-017 propagates it through
+typed observations; this ticket supplies state ownership and ordering semantics
+for those event-derived fields. It deliberately extends,
 rather than duplicates, StatusReport, which already reports running, retrying,
 idle, waiting reason, backend/model, and latest worker observations.
 
 ## Scope
 
-- Add an always-supervised projection keyed only by BO-004's trusted
-  repository-qualified tracker identity.
+- Add an always-supervised projection keyed only by the BO-004 identity carried
+  in BO-017 observations.
 - Fold active agent stage, progress value/source/time, latest safe cross-ticket
   evidence, run/attempt/session provenance where present, and observed time.
 - Define per-field ordering/idempotency rules for duplicate, late, cross-attempt,
@@ -73,7 +74,7 @@ idle, waiting reason, backend/model, and latest worker observations.
 - Migrate AgentList consumers in this ticket; BO-006 owns the cutover and old
   ownership removal.
 - Infer repository identity from an event topic, issue number, current run, or
-  local path when BO-004 marks the observation unattributed.
+  local path when BO-017 marks the observation unattributed.
 
 ## Existing owner and reuse target
 
@@ -85,10 +86,10 @@ until BO-006 completes.
 
 ## Contract and invariants
 
-- Snapshot identity is the exact trusted tracker identity from BO-004. Display
+- Snapshot identity is the exact trusted tracker identity from BO-017/BO-004. Display
   IDs are never alternate keys.
 - Planned rollout phase and active agent/CE stage remain separate fields.
-- Progress is an observation with source, observed time, and freshness; it
+- Progress is a BO-017 observation with source, observed time, and freshness; it
   never changes GitHub lifecycle or any edge state.
 - Execution, queue/retry/paused state, waiting reason, backend/model/effort, and
   latest worker status are read from BO-004-identified StatusReport snapshots,
@@ -144,7 +145,7 @@ until BO-006 completes.
 
 ## Surfaces
 
-- Reads: BO-004 normalized event envelopes and current pure AgentList
+- Reads: BO-017 normalized event envelopes and current pure AgentList
   progress/stage/latest-event reducers.
 - Writes: supervised TicketActivity projection, reducer/query/PubSub APIs,
   retention policy, and tests.
@@ -153,6 +154,10 @@ until BO-006 completes.
 
 ## Sibling boundaries and open gates
 
-BO-006 migrates AgentList and removes duplicate ownership. BO-007 performs the
+BO-004 owns identity, BO-017 owns envelope/producer propagation, BO-006
+migrates AgentList, BO-019 owns bounded recent history, and BO-007 performs the
 GitHub/Aiur join. Usage companions may reuse identity or serialize on shared
 event producers, but financial observation/storage is outside this ticket.
+DASH-008 declares the cross-pack `serializes_with: BO-005` edge in the companion
+manifest; the joined publication graph derives the reverse edge because the
+standalone core manifest cannot reference an external logical ID.
