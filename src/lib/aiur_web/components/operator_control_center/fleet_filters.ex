@@ -7,6 +7,7 @@ defmodule AiurWeb.OperatorControlCenter.FleetFilters do
   @stuck_reasons [:backing_off, :unresponsive]
   @finished_states ["done", "closed", "cancelled", "canceled"]
 
+  @spec default() :: map()
   def default, do: MapSet.new(@default_filters)
 
   @spec all() :: [atom()]
