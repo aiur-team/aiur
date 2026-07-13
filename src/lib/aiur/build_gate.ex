@@ -4,7 +4,7 @@ defmodule Aiur.BuildGate do
 
   The Bash hook owns acquisition and release so a running Mix command never
   depends on an Aiur BEAM staying alive. This module supplies its environment
-  and reads the advisory records for operator status.
+  and reads the advisory records for Executor status.
   """
 
   alias Aiur.Config

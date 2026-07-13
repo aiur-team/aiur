@@ -272,7 +272,7 @@ defmodule Aiur.IssueLog do
     # same `[tag]` shape the pane shows. `Logger.debug` entries
     # (broadcast traces, codex notifications) only appear when
     # `--debug` is on; everything else in aiur.log is one of these
-    # human-readable rows, mirroring what the operator sees in the pane.
+    # human-readable rows, mirroring what the Executor sees in the pane.
     Logger.info(format_log_line(event[:role], event[:body], state.identifier))
 
     {:noreply, push_history(state, {:transcript_event, event})}
@@ -298,7 +298,7 @@ defmodule Aiur.IssueLog do
   Writes an `[event:<kind>]` marker row to the per-issue log file.
   Called from `Aiur.Events.Publisher.publish/3` (for `:emit`),
   `Aiur.Events.SubscriptionStore` post-enqueue (`:consumed`), and the
-  agent's own emit path (`:self`) so the operator can `tail -F` the log
+  agent's own emit path (`:self`) so the Executor can `tail -F` the log
   and see every event for this issue in one place.
 
   Async cast — never blocks the publisher.

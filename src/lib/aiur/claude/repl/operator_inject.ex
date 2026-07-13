@@ -1,8 +1,8 @@
 defmodule Aiur.Claude.Repl.OperatorInject do
   @moduledoc """
-  Operator input into the live REPL pane.
+  Executor input into the live REPL pane.
 
-  Provides mid-turn delivery of operator messages and the explicit interrupt
+  Provides mid-turn delivery of Executor messages and the explicit interrupt
   path. PTY input is sanitized: every control byte collapses to a space so a
   crafted message cannot submit early or inject escape codes.
   """
@@ -12,7 +12,7 @@ defmodule Aiur.Claude.Repl.OperatorInject do
   alias Aiur.Tmux
 
   @doc """
-  Inject an operator message straight into the live REPL pane.
+  Inject an Executor message straight into the live REPL pane.
 
   This is the whole of mid-turn delivery: sanitize the text, type it with
   `send_keys_literal`, then submit with one `Enter`. The agent's native
@@ -21,7 +21,7 @@ defmodule Aiur.Claude.Repl.OperatorInject do
   interrupt-then-send path here (cutting the agent off is a separate,
   explicit parity action, not this one).
 
-  Operator text is typed verbatim into a PTY, so it is sanitized first:
+  Executor text is typed verbatim into a PTY, so it is sanitized first:
   every control byte (newlines that would submit early, `Esc`/C0/C1
   sequences that would trip the REPL's own keybindings) is collapsed to a
   space. The single trailing `Enter` is the only submit.
@@ -47,7 +47,7 @@ defmodule Aiur.Claude.Repl.OperatorInject do
   @doc """
   Interrupt the REPL's current turn by sending `Ctrl+C` to its pane.
 
-  This is the explicit operator-interrupt path: unlike
+  This is the explicit Executor-interrupt path: unlike
   `send_operator_message/2`, which lets Claude's native queue fold a
   message in at the next boundary without aborting in-flight work, this
   cuts the active turn at Claude's next safe point so a queued message is
@@ -64,10 +64,10 @@ defmodule Aiur.Claude.Repl.OperatorInject do
   def interrupt(_session), do: {:error, :invalid_session}
 
   @doc """
-  Deliver an operator message from the native queue into the live pane.
+  Deliver an Executor message from the native queue into the live pane.
 
   The claim callback (supplied by the runner) talks to the orchestrator
-  queue and hands back the operator text plus consume/restore callbacks,
+  queue and hands back the Executor text plus consume/restore callbacks,
   so the driver stays decoupled from the queue store. `:noop` means
   nothing was claimable (e.g. a racing drain already took it).
   """
@@ -95,7 +95,7 @@ defmodule Aiur.Claude.Repl.OperatorInject do
     end
   end
 
-  # Operator content is typed into a live PTY via `send-keys -l`, which
+  # Executor content is typed into a live PTY via `send-keys -l`, which
   # emits the bytes verbatim. Collapse every control byte to a space so a
   # crafted message cannot submit early (embedded newline), abort the agent
   # (`Esc`), or inject terminal escape codes / extra keystrokes. The one

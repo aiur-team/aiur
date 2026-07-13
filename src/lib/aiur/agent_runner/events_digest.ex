@@ -33,7 +33,7 @@ defmodule Aiur.AgentRunner.EventsDigest do
 
     # Drop GitHub-sourced events from non-CODEOWNERS authors before
     # they reach the agent prompt. The events stay in the per-issue
-    # log and dashboard panel (operator visibility preserved) — only
+    # log and dashboard panel (Executor visibility preserved) — only
     # the digest delivered to the agent is filtered. Non-github events
     # (orchestrator-emitted, agent-emitted, system-source) pass through.
     trusted = Enum.filter(events, &author_trusted_for_digest?/1)
@@ -57,7 +57,7 @@ defmodule Aiur.AgentRunner.EventsDigest do
   # events constructed and sanitized by the orchestrator from GitHub's
   # check API. They have no human author, must wake a paused agent on
   # failure, and remain wrapped as external GitHub data below. The
-  # operator still sees every other filtered event in the per-issue log +
+  # Executor still sees every other filtered event in the per-issue log +
   # dashboard. Non-github events (agent emissions, orchestrator events)
   # pass through; they are not user-content channels and don't need the
   # CODEOWNERS gate.

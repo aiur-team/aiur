@@ -9,7 +9,7 @@ date: 2026-07-12
 
 ## Summary
 
-Represent a runner that has crossed its final turn boundary separately from a working runner, release its dispatch capacity immediately, and replace it when tracker rework or a queued operator message requires another turn. Keep the durable queue and persisted backend session as the continuity boundaries.
+Represent a runner that has crossed its final turn boundary separately from a working runner, release its dispatch capacity immediately, and replace it when tracker rework or a queued Executor message requires another turn. Keep the durable queue and persisted backend session as the continuity boundaries.
 
 ---
 
@@ -32,10 +32,10 @@ An agent publishes `turn_completed` before its runner task finishes post-turn bo
 ## Requirements
 
 - R1. A runner that will return after a completed turn must stop reporting `working` and stop consuming active capacity before its teardown tail finishes.
-- R2. An accepted operator message for a completed entry must remain durably ordered and cause a replacement runner to start without pause/resume.
+- R2. An accepted Executor message for a completed entry must remain durably ordered and cause a replacement runner to start without pause/resume.
 - R3. A tracker transition from CI wait or review back to `rework` must replace a completed entry without duplicate dispatch.
 - R4. Replacement must resume the persisted backend thread and consume queued items in their existing order.
-- R5. A bounded reconciliation path must repair completed/active mismatches even when no operator message arrives.
+- R5. A bounded reconciliation path must repair completed/active mismatches even when no Executor message arrives.
 - R6. Multiple completed entries returned to rework together must each release and reacquire capacity according to the existing global and per-host gates.
 - R7. Completing or replacing a runner must invalidate stale pause-containment timers so an already-finished process group is not reaped and a clean port exit is not reclassified as a failed turn.
 
@@ -46,7 +46,7 @@ An agent publishes `turn_completed` before its runner task finishes post-turn bo
 - Keep queue storage, queue ordering, session-handle persistence, tracker state names, and general crash retry budgets unchanged.
 - Do not treat the UI stream-idle `:sleeping` state as runner completion; it deliberately retains capacity and has different semantics.
 - Do not broaden this fix into app-server teardown performance work unless implementation proves teardown itself violates an existing bounded contract.
-- Do not split operator delivery, roster truth, and rework re-arming into separate changes.
+- Do not split Executor delivery, roster truth, and rework re-arming into separate changes.
 
 ---
 
@@ -74,7 +74,7 @@ An agent publishes `turn_completed` before its runner task finishes post-turn bo
 - Add a distinct completed control state rather than overloading `:sleeping`, `:paused`, or `:deactivated`; only the new state means the runner has no more turns to execute.
 - Emit the completed state from `TurnLoop` only on branches that return from the session loop, after queue bookkeeping and tracker refresh have chosen not to recurse.
 - Count completed entries as non-active and non-reserved so status and slot admission become truthful immediately.
-- Enqueue operator messages first, then replace a completed entry, preventing a fresh runner from racing ahead of the message it was created to consume.
+- Enqueue Executor messages first, then replace a completed entry, preventing a fresh runner from racing ahead of the message it was created to consume.
 - Reconcile an active tracker issue plus completed entry through the same replace-and-dispatch operation, making the poll loop the bounded self-heal.
 - Park a completed entry observed in CI wait or review as a no-task deactivated entry; never convert it to a paused state whose resume path assumes a live turn loop.
 - Release the runner's pause-containment latch at the completed boundary and defensively before replacement so stale deadlines cannot act on the old process generation.
@@ -90,7 +90,7 @@ An agent publishes `turn_completed` before its runner task finishes post-turn bo
 stateDiagram-v2
   working --> working: another autonomous turn
   working --> completed: final turn returns
-  completed --> working: queued operator message
+  completed --> working: queued Executor message
   completed --> working: tracker observes active rework
   completed --> deactivated: review / CI wait remains inactive
   completed --> retrying: bounded fallback after replacement failure
@@ -154,7 +154,7 @@ stateDiagram-v2
 
 ### U3. Re-arm from messages and tracker transitions
 
-**Goal:** Replace completed entries from both explicit operator messages and normal active-state reconciliation.
+**Goal:** Replace completed entries from both explicit Executor messages and normal active-state reconciliation.
 
 **Requirements:** R2, R3, R4, R5, R6
 
@@ -171,7 +171,7 @@ stateDiagram-v2
 **Approach:** Introduce one orchestrator-owned completed-entry replacement operation that terminates/demonitors the old task, preserves queue and session artifacts, refreshes the issue, and dispatches through existing capacity gates. Invoke it after message persistence and when polling observes a completed entry in an active state. If capacity is unavailable, retain a truthful completed entry and let the next poll retry.
 
 **Test scenarios:**
-- Operator path: message enqueue is observable before replacement dispatch and remains first in queue order.
+- Executor path: message enqueue is observable before replacement dispatch and remains first in queue order.
 - Tracker path: CI-wait/review entry completed, then refreshed to rework, starts a fresh runner without pause/resume.
 - Inactive boundary: a completed entry refreshed in CI wait or review is parked without a live pid; its later rework transition uses fresh dispatch rather than a resume control message.
 - Fleet path: multiple completed entries transition to rework together; available capacity starts the allowed set and later polls drain the remainder.
@@ -210,7 +210,7 @@ stateDiagram-v2
 ## Documentation / Operational Notes
 
 - Update lifecycle/status documentation only if the completed work-state is user-visible outside existing status output.
-- Real background-run validation must be performed from an allowed operator checkout because agent workspaces cannot run the protected dogfood harness.
+- Real background-run validation must be performed from an allowed Executor checkout because agent workspaces cannot run the protected dogfood harness.
 
 ---
 

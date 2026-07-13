@@ -2254,7 +2254,7 @@ defmodule Aiur.OrchestratorStatusTest do
             }} = OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-SLEEP-CHAT")
   end
 
-  test "completed runner releases its slot and an operator message schedules replacement" do
+  test "completed runner releases its slot and an Executor message schedules replacement" do
     orchestrator_name = Module.concat(__MODULE__, :CompletedOperatorMessageOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
     freeze_poll_cycle(pid)
@@ -2736,7 +2736,7 @@ defmodule Aiur.OrchestratorStatusTest do
     assert next.queue_store.pending_ids_by_target[active_issue.identifier] == item_ids
   end
 
-  test "operator messages rearm multiple completed runners without returned workers holding slots" do
+  test "Executor messages rearm multiple completed runners without returned workers holding slots" do
     orchestrator_name = Module.concat(__MODULE__, :CompletedBatchOperatorMessageOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
     freeze_poll_cycle(pid)

@@ -51,7 +51,7 @@ defmodule AiurWeb.ObservabilityApiController do
   # Opencode Ctrl+C bridge. The tmux key binding POSTs the pane id here;
   # the orchestrator derives the 3-state action from the agent's live
   # state. Any error degrades to `close_pane` so a failed bridge call
-  # never leaves the operator unable to close the pane (the binding's
+  # never leaves the Executor unable to close the pane (the binding's
   # fallback behaviour).
   @spec pane_interrupt(Conn.t(), map()) :: Conn.t()
   def pane_interrupt(conn, %{"pane_id" => pane_id}) when is_binary(pane_id) and pane_id != "" do

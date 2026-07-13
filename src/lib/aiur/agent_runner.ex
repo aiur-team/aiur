@@ -42,7 +42,7 @@ defmodule Aiur.AgentRunner do
 
   # A mid-turn REPL pane death (`:repl_gone`) is a transient, recoverable
   # condition — the cloud-mediated remote-control pane dropped (flaky link or
-  # operator-closed pane), not a broken agent. Raising on it would exit the
+  # Executor-closed pane), not a broken agent. Raising on it would exit the
   # Task abnormally, booking a *failure* retry that counts against
   # max_retry_attempts; a few disconnects would then strand the issue. Exiting
   # cleanly instead lets the orchestrator schedule a cheap continuation
@@ -173,7 +173,7 @@ defmodule Aiur.AgentRunner do
   defp pause_for_before_run_failure(workspace, issue, codex_update_recipient, worker_host, status, output, reason) do
     Logger.warning("Pausing agent for #{issue_context(issue)} after before_run hook failed status=#{inspect(status)} output=#{inspect(trim_hook_output(output))}")
 
-    write_pause_log(workspace, worker_host, "before_run hook failed; agent paused pending operator resume.")
+    write_pause_log(workspace, worker_host, "before_run hook failed; agent paused pending Executor resume.")
     MessageHandler.send_control_state(codex_update_recipient, issue, :paused, %{kind: :before_run_failure})
     wait_for_before_run_resume(issue, codex_update_recipient, reason)
   end
@@ -316,7 +316,7 @@ defmodule Aiur.AgentRunner do
 
   @doc false
   @spec write_pause_log(Path.t() | nil, worker_host()) :: :ok
-  def write_pause_log(workspace, worker_host), do: write_pause_log(workspace, worker_host, "Agent paused by operator.")
+  def write_pause_log(workspace, worker_host), do: write_pause_log(workspace, worker_host, "Agent paused by Executor.")
 
   @doc false
   @spec write_pause_log(Path.t() | nil, worker_host(), String.t()) :: :ok

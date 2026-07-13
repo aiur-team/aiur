@@ -41,7 +41,7 @@ what you're doing — you don't need all four every turn.
 Two protocols live in the per-turn shared prompt instead of this skill because
 they fire between turns or must always be visible:
 
-- The operator-bar **`progress` / `progress.checkin`** estimate protocol.
+- The Executor-bar **`progress` / `progress.checkin`** estimate protocol.
 - The **`/aiur-agent`** pointer and the cross-ticket coordination reflexes.
 
 Follow those from the prompt; use the `aiur-agent` skill for the cross-ticket

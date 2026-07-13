@@ -83,7 +83,7 @@ defmodule Aiur.AgentList.Renderer.EventsBlock do
   @spec events_divider_row(non_neg_integer()) :: iodata()
   def events_divider_row(inner_width) do
     # Inject an "oldest" label at the far-right of the divider so the
-    # operator can read the timeline direction:
+    # Executor can read the timeline direction:
     #   `├──...── oldest ─┤`
     # When the box is too narrow (`< 14` cols) for label + chrome, fall
     # back to the plain divider so we never truncate the corner glyphs.

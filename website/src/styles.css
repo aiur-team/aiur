@@ -361,7 +361,7 @@
       opacity: 1;
       transform: none;
     }
-    /* freeze the operator's input cursor on the static beat frame */
+    /* freeze the Executor’s input cursor on the static beat frame */
     .term-screen .cursor { animation: none; opacity: 1; }
   }
 

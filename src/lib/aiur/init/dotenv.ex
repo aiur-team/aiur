@@ -2,7 +2,7 @@ defmodule Aiur.Init.Dotenv do
   @moduledoc """
   Loads `.env` key=value pairs into the process environment for the `aiur init`
   wizard. `aiur init` runs as a bare foreground process (the launcher only
-  sources .env for the running app, not init), so a GITHUB_TOKEN the operator
+  sources .env for the running app, not init), so a GITHUB_TOKEN the Executor
   placed in the repo's .env is not yet in the environment.
   """
 

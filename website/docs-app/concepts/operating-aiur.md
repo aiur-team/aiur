@@ -14,8 +14,8 @@ Alerts are defined in the checked-in `.aiur/alerts` file. Each entry is keyed by
 
 ## Pause / resume
 
-Operators can pause and resume agents. A paused agent keeps its slot, so polling cannot auto-claim over it. The concurrency cap can change at runtime with the arrow keys or `aiur set max-agents N`; the space key starts a queued ticket.
+Executors can pause and resume agents. A paused agent keeps its slot, so polling cannot auto-claim over it. The concurrency cap can change at runtime with the arrow keys or `aiur set max-agents N`; the space key starts a queued ticket.
 
 ## Remote control
 
-Remote control is opt-in per agent through the `model:remote` label or the `r` key. It rides the persistent `claude-repl` session and is local-only in v1. The opencode chat panes let an operator type into the live session while the Codex/Claude runtime and transcript remain the source of truth.
+Remote control is opt-in per agent through the `model:remote` label or the `r` key. It rides the persistent `claude-repl` session and is local-only in v1. The opencode chat panes let an Executor type into the live session while the Codex/Claude runtime and transcript remain the source of truth.

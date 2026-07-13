@@ -18,7 +18,7 @@ defmodule Aiur.Events.Topic do
   For "first-match-wins" alert lookup, callers sort candidate patterns by
   `specificity_score/1` descending: more literal segments score higher, then
   `*` segments, then `#` segments. Ties break lexicographically by pattern
-  string. Matches operator intuition that the more-specific pattern wins.
+  string. Matches Executor intuition that the more-specific pattern wins.
   """
 
   @doc """

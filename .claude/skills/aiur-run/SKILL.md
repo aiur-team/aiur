@@ -5,11 +5,11 @@ description: "Launch and babysit a background (--bg) aiur dogfood run end-to-end
 
 # Run aiur in --bg mode
 
-Operator playbook for running a background aiur run myself: launch it detached, keep it
+Executor playbook for running a background aiur run myself: launch it detached, keep it
 healthy, and drive the controls. Pairs with the `aiur-monitor` skill — that one owns the
 per-agent status read; this one owns launch + lifecycle.
 
-`iarc` is an operator alias for `aiur` in this repo. Treat `/iarc run` as this
+`iarc` is an Executor alias for `aiur` in this repo. Treat `/iarc run` as this
 same aiur background-run playbook.
 
 ## Mental model
@@ -32,10 +32,10 @@ same aiur background-run playbook.
 1. **No nested tmux** — aiurdev refuses if `$TMUX` is set. Run from a bare terminal.
 2. **Pull main** — `git -C <repo> pull origin main` so the build + prewarm base carry the
    latest merged fixes.
-3. **Check for a live instance** — `pgrep -f 'rel/aiur/.*beam'`. For the operator's own run,
+3. **Check for a live instance** — `pgrep -f 'rel/aiur/.*beam'`. For the Executor’s own run,
    stop a stale one first: `aiurdev stop`.
 4. **Set concurrency in `.aiur/config`** (no `--max-agents` flag yet — see #449):
-   - `agent.max_concurrent_agents` — the ceiling (operator default ≤ 10).
+   - `agent.max_concurrent_agents` — the ceiling (Executor default ≤ 10).
    - `pre_warmed_sessions` — the warm-pool / first-open latency dial. It controls how many
      opencode serves boot eagerly at startup, not how many agents can run. Keep it at the
      number of instant-open chat panes you actually want; cold slots grow on demand up to the
@@ -80,18 +80,18 @@ an un-armed cadence (relying on event/completion notifications instead of an arm
 equivalent recurring wake) is a failed launch** — see `aiur-monitor`'s "How to enforce the cadence."
 
 **REQUIRED pre-flight/launch step — ASK the cadence once.** Before (or at) launch, **ASK the
-operator their preferred status-table update cadence** — use **AskUserQuestion**, offer 5 / 10 /
+Executor their preferred status-table update cadence** — use **AskUserQuestion**, offer 5 / 10 /
 15 min, and **default to 5 minutes** if they don't specify. **Record the chosen interval for the
 whole session**; that single answer drives the auto-cadence and you never re-ask it.
 
 Immediately after a verified launch (step 4 confirms prewarm), you **MUST** hand off to
-`aiur-monitor` and start its **auto-cadence at the operator's chosen interval**: post a fresh
+`aiur-monitor` and start its **auto-cadence at the Executor’s chosen interval**: post a fresh
 board (run `aiurdev watch`) every `<chosen>` minutes (the `/loop <chosen>m` interval;
 "approximately" is not license to stretch it past the chosen interval), automatically, until the
-run reaches a terminal state or the operator says stop. This is not optional and the operator
+run reaches a terminal state or the Executor says stop. This is not optional and the Executor
 should **NEVER** have to ask for the next update — see `aiur-monitor`'s "Monitoring cadence" for
 the required rule, the board format, and the alert relay. (5 min is the recommended default; the
-operator picks the value once via the ask above.)
+Executor picks the value once via the ask above.)
 
 **Update format (required — two status tables + Decisions).** Every cadence tick is posted as
 **two markdown status tables plus `## Decisions`**, not prose: **Table 1** the full refactor
@@ -129,7 +129,7 @@ Use **MEDIUM autonomy** while babysitting: decide reversible / operational unblo
 ordering within granted authority, rework routing, error recovery, and mechanical scope reads.
 Escalate product behavior, architecture, scope cuts, destructive or irreversible actions, and
 anything outside granted authority. Record every decision in the ledger before acting or pushing;
-an escalation always notifies every active operator surface as well as being logged.
+an escalation always notifies every active Executor surface as well as being logged.
 
 - **Agents** — start the cadence now by arming the loop at the chosen interval:
   `/loop <chosen>m /aiur-monitor` (e.g. `/loop 5m /aiur-monitor` for the default). There is no
@@ -138,19 +138,19 @@ an escalation always notifies every active operator surface as well as being log
   anyway, noting steady-state (`aiurdev watch --changes` prints `(no changes)` — relay that).
 - **Alerts / wake-on-attention** — arm `aiur-monitor`'s real-time alert relay now: start
   `watch-alerts.sh` once via the **Monitor tool** (`persistent: true`) while the cadence timer stays
-  armed. Every `needs_attention:true` Monitor event re-invokes the operator in seconds instead of
+  armed. Every `needs_attention:true` Monitor event re-invokes the Executor in seconds instead of
   waiting for the next tick; post each alert in chat (`#<ticket> · <name> · <reason>`). Before
-  arming it, record the active operator backend from the operator session (not `agent.kind`, which
+  arming it, record the active Executor backend from the Executor session (not `agent.kind`, which
   routes workers) and whether that session has a Remote Control URL. For every
   `operator_decision:true` line, `aiur-monitor` must first update the durable `### Decisions` log
   and then notify every active surface: Claude native push, Codex native push or the configured
   shared Aiur device-notification fallback, plus the RC notification path when RC is active.
   `aiurdev watch`'s `ACTIONABLE` section remains the periodic floor. See `aiur-monitor`'s
-  "Operator-decision escalation: log, then fan out".
+  "Executor-decision escalation: log, then fan out".
 - **CPU/FD** — watch `top`/`ps` for CPU; `grep -i emfile <log>` (#409 — FD exhaustion at high
   concurrency). If CPU pegs or `:emfile` appears → lower `pre_warmed_sessions` /
   `max_concurrent_agents` and relaunch.
-- **Stuck agents** — repeated "Operator check-in" with no progress, or broken progress bars →
+- **Stuck agents** — repeated "Executor check-in" with no progress, or broken progress bars →
   investigate; file `agent:todo` or grab it.
 
 ## 6. Controls

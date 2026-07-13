@@ -36,7 +36,7 @@ defmodule Aiur.Claude.Repl.Launcher do
 
     # RC sessions emit no structured stdout, so turn detection rides on claude
     # lifecycle hooks POSTed to the dashboard. Inject them via --settings (which
-    # composes with the operator's own settings). Best-effort: a missing
+    # composes with the Executor’s own settings). Best-effort: a missing
     # identifier or unbound dashboard degrades to no hooks rather than failing.
     settings_path = Command.maybe_hook_settings(rc?, Keyword.get(opts, :identifier))
 

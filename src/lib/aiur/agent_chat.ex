@@ -1,6 +1,6 @@
 defmodule Aiur.AgentChat do
   @moduledoc """
-  Public facade for operator messages sent to active agent sessions.
+  Public facade for Executor messages sent to active agent sessions.
   """
 
   require Logger

@@ -19,7 +19,7 @@ defmodule Aiur.Claude.Repl.RcAttach do
   # When launched with `--remote-control`, the REPL prints a
   # `… https://claude.ai/code/session_… ` banner to the pane as it attaches,
   # alongside the ready prompt. Scan the pane for it once the REPL is ready;
-  # it is a capability token surfaced only to the operator display, never
+  # it is a capability token surfaced only to the Executor display, never
   # logged. The banner is also the proof RC attached: an account without RC
   # entitlement never prints it, so its absence within this budget is taken
   # as RC-unavailable and degrades the session to the non-RC backend (see
