@@ -88,22 +88,37 @@ defmodule Aiur.AiurAlertWatchSkillTest do
     |> Enum.map(&Jason.decode!/1)
   end
 
-  defp install_poll_probe(home) do
-    marker = Path.join(home, "polls")
+  defp install_poll_barrier(home) do
+    barrier = Path.join(home, "poll-barrier")
     sleep = Path.join(home, "bin/sleep")
     File.mkdir_p!(Path.dirname(sleep))
-    File.write!(sleep, "#!/bin/sh\nprintf 'x\\n' >> \"$AIUR_ALERT_POLL_MARKER\"\nexec /bin/sleep \"$@\"\n")
+
+    File.write!(
+      sleep,
+      "#!/bin/sh\n" <>
+        "count_file=\"$AIUR_ALERT_POLL_BARRIER/count\"\n" <>
+        "mkdir -p \"$AIUR_ALERT_POLL_BARRIER\"\n" <>
+        "count=0\n" <>
+        "[ ! -f \"$count_file\" ] || count=$(cat \"$count_file\")\n" <>
+        "count=$((count + 1))\n" <>
+        "printf '%s\\n' \"$count\" > \"$count_file.tmp\"\n" <>
+        "mv \"$count_file.tmp\" \"$count_file\"\n" <>
+        "until [ -f \"$AIUR_ALERT_POLL_BARRIER/release-$count\" ]; do /bin/sleep 0.01; done\n" <>
+        "exec /bin/sleep \"$@\"\n"
+    )
+
     File.chmod!(sleep, 0o755)
-    marker
+    barrier
   end
 
-  defp await_poll(marker, count, timeout_ms \\ 5_000) do
+  defp await_poll(barrier, count, timeout_ms \\ 5_000) do
     deadline = System.monotonic_time(:millisecond) + timeout_ms
-    await_poll_until(marker, count, deadline)
+    await_poll_until(barrier, count, deadline)
   end
 
-  defp await_poll_until(marker, count, deadline) do
-    polls = if File.exists?(marker), do: marker |> File.read!() |> String.split("\n", trim: true) |> length(), else: 0
+  defp await_poll_until(barrier, count, deadline) do
+    count_file = Path.join(barrier, "count")
+    polls = if File.exists?(count_file), do: count_file |> File.read!() |> String.trim() |> String.to_integer(), else: 0
 
     cond do
       polls >= count ->
@@ -114,8 +129,12 @@ defmodule Aiur.AiurAlertWatchSkillTest do
 
       true ->
         Process.sleep(10)
-        await_poll_until(marker, count, deadline)
+        await_poll_until(barrier, count, deadline)
     end
+  end
+
+  defp release_poll(barrier, count) do
+    File.touch!(Path.join(barrier, "release-#{count}"))
   end
 
   test "cold start skips history — relays nothing already present", %{home: home} do
@@ -294,7 +313,7 @@ defmodule Aiur.AiurAlertWatchSkillTest do
     File.mkdir_p!(bin)
     File.write!(recorder, "#!/bin/sh\ncat >> \"$AIUR_NOTIFY_LOG\"\n")
     File.chmod!(recorder, 0o755)
-    poll_marker = install_poll_probe(home)
+    poll_barrier = install_poll_barrier(home)
     started_at = System.monotonic_time(:millisecond)
 
     fresh =
@@ -304,8 +323,14 @@ defmodule Aiur.AiurAlertWatchSkillTest do
     # skipped), the append lands during the poll, a later scan streams it once.
     appender =
       Task.async(fn ->
-        await_poll(poll_marker, 1)
+        await_poll(poll_barrier, 1)
         File.write!(ndjson, fresh <> "\n", [:append])
+        release_poll(poll_barrier, 1)
+
+        # Arrival at poll 2 proves scan 2 consumed the new alert. Release the
+        # watcher so scan 3 can verify the alert is not emitted twice.
+        await_poll(poll_barrier, 2)
+        release_poll(poll_barrier, 2)
       end)
 
     out =
@@ -314,7 +339,7 @@ defmodule Aiur.AiurAlertWatchSkillTest do
         poll: 1,
         extra_env: [
           {"AIUR_NOTIFY_LOG", notification_log},
-          {"AIUR_ALERT_POLL_MARKER", poll_marker},
+          {"AIUR_ALERT_POLL_BARRIER", poll_barrier},
           {"AIUR_OPERATOR_SURFACES", "codex"},
           {"AIUR_ALERT_NOTIFY_CODEX_COMMAND", "record-wake-notification"}
         ]
@@ -345,7 +370,7 @@ defmodule Aiur.AiurAlertWatchSkillTest do
     ndjson: ndjson
   } do
     config = build_fixture(home)
-    poll_marker = install_poll_probe(home)
+    poll_barrier = install_poll_barrier(home)
 
     # A real append flushes `json <> "\n"` in one write, but a scan can still land
     # on a half-written prefix: bytes present, line not yet newline-terminated.
@@ -360,13 +385,22 @@ defmodule Aiur.AiurAlertWatchSkillTest do
 
     appender =
       Task.async(fn ->
-        await_poll(poll_marker, 1)
+        # Hold the watcher after its baseline until the partial head is present.
+        await_poll(poll_barrier, 1)
         File.write!(ndjson, head, [:append])
-        await_poll(poll_marker, 2)
+        release_poll(poll_barrier, 1)
+
+        # Poll 2 begins only after scan 2 observed the incomplete line. Keep the
+        # watcher held until the tail is appended, then let scan 3 consume it.
+        await_poll(poll_barrier, 2)
         File.write!(ndjson, tail, [:append])
+        release_poll(poll_barrier, 2)
+
+        await_poll(poll_barrier, 3)
+        release_poll(poll_barrier, 3)
       end)
 
-    out = run(config, home, iters: 4, poll: 1, extra_env: [{"AIUR_ALERT_POLL_MARKER", poll_marker}])
+    out = run(config, home, iters: 4, poll: 1, extra_env: [{"AIUR_ALERT_POLL_BARRIER", poll_barrier}])
     Task.await(appender)
 
     names = out |> alert_lines() |> Enum.map(& &1["name"])
