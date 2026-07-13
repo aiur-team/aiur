@@ -1,6 +1,8 @@
 defmodule Aiur.CoordinationTasksTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias Aiur.CoordinationTasks
 
   test "same-key operations retain admission order" do
@@ -46,11 +48,11 @@ defmodule Aiur.CoordinationTasksTest do
 
   test "absence and restart loss return coordination unavailable" do
     name = unique_name("Absent")
-    assert {:error, :coordination_unavailable} = CoordinationTasks.enqueue(:key, fn -> :ok end, name, 20)
+    assert {:error, :coordination_unavailable} = CoordinationTasks.enqueue(:key, fn -> :ok end, name, [], 20)
 
     pid = start_supervised!({CoordinationTasks, name: name})
     Process.exit(pid, :kill)
-    assert {:error, :coordination_unavailable} = CoordinationTasks.enqueue(:key, fn -> :ok end, name, 20)
+    assert {:error, :coordination_unavailable} = CoordinationTasks.enqueue(:key, fn -> :ok end, name, [], 20)
   end
 
   test "timed out work releases its keyed lane" do
@@ -61,6 +63,35 @@ defmodule Aiur.CoordinationTasksTest do
     assert :pending = CoordinationTasks.enqueue(:key, fn -> Process.sleep(:infinity) end, name)
     assert :pending = CoordinationTasks.enqueue(:key, fn -> send(test_pid, :after_timeout) end, name)
     assert_receive :after_timeout, 200
+  end
+
+  test "infinite operation timeout preserves ordering past the default deadline" do
+    name = unique_name("NoTimeout")
+    start_supervised!({CoordinationTasks, name: name, operation_timeout_ms: 20})
+    test_pid = self()
+
+    assert :pending =
+             CoordinationTasks.enqueue(:key, blocking_operation(test_pid), name, operation_timeout: :infinity)
+
+    assert_receive {:started, first}
+    assert :pending = CoordinationTasks.enqueue(:key, fn -> send(test_pid, :second_started) end, name)
+    refute_receive :second_started, 40
+    send(first, :release)
+    assert_receive :second_started
+  end
+
+  test "terminal operation errors are logged before the lane advances" do
+    name = unique_name("Error")
+    start_supervised!({CoordinationTasks, name: name})
+
+    log =
+      capture_log(fn ->
+        assert :pending = CoordinationTasks.enqueue(:key, fn -> {:error, :terminal_failure} end, name)
+        Process.sleep(20)
+      end)
+
+    assert log =~ "coordination operation failed"
+    assert log =~ "terminal_failure"
   end
 
   defp blocking_operation(test_pid) do

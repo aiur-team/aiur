@@ -39,10 +39,15 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   @spec build(Issue.t(), Path.t() | nil, String.t() | nil, map(), keyword()) :: (String.t(), map() -> map())
   def build(issue, workspace, worker_host, app_session \\ %{}, opts \\ []) do
     coordination = %{
-      enqueue: Keyword.get(opts, :coordination_enqueuer, &CoordinationTasks.enqueue/2),
+      enqueue:
+        Keyword.get(opts, :coordination_enqueuer, fn key, operation, enqueue_opts ->
+          CoordinationTasks.enqueue(key, operation, CoordinationTasks, enqueue_opts)
+        end),
       declare_dependency: Keyword.get(opts, :dependency_declarer, &IssueDependencies.declare/2),
       unblock_dependency: Keyword.get(opts, :dependency_unblocker, &IssueDependencies.unblock/2),
-      subscribe_blocker: Keyword.get(opts, :blocker_subscriber, &Orchestrator.subscribe_for_declared_blocker/2)
+      dependency_present: Keyword.get(opts, :dependency_present, &IssueDependencies.declared?/2),
+      subscribe_blocker: Keyword.get(opts, :blocker_subscriber, &Orchestrator.subscribe_for_declared_blocker/2),
+      unsubscribe_blocker: Keyword.get(opts, :blocker_unsubscriber, &Orchestrator.unsubscribe_for_declared_blocker/2)
     }
 
     event_handlers = %{
@@ -124,10 +129,12 @@ defmodule Aiur.AgentRunner.ToolExecutor do
         {:error, :no_issue_number}
 
       current ->
-        admit(coordination.enqueue, dependency_key(current, blocker_number), fn ->
-          coordination.subscribe_blocker.(current, blocker_number)
-          coordination.declare_dependency.(current, blocker_number)
-        end)
+        admit(
+          coordination.enqueue,
+          dependency_key(current, blocker_number),
+          fn -> declare_and_reconcile(current, blocker_number, coordination) end,
+          operation_timeout: :infinity
+        )
     end
   end
 
@@ -137,18 +144,88 @@ defmodule Aiur.AgentRunner.ToolExecutor do
         {:error, :no_issue_number}
 
       current ->
-        admit(coordination.enqueue, dependency_key(current, blocker_number), fn ->
-          coordination.unblock_dependency.(current, blocker_number)
-        end)
+        admit(
+          coordination.enqueue,
+          dependency_key(current, blocker_number),
+          fn -> coordination.unblock_dependency.(current, blocker_number) end,
+          operation_timeout: :infinity
+        )
     end
   end
 
   defp dependency_key(current, blocker), do: {:dependency, current, blocker}
 
-  defp admit(enqueue, key, operation) do
-    case enqueue.(key, operation) do
+  defp admit(enqueue, key, operation, opts) do
+    case enqueue.(key, operation, opts) do
       :pending -> {:ok, :pending}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp declare_and_reconcile(current, blocker, coordination) do
+    case safe_coordination_call(coordination.subscribe_blocker, [current, blocker]) do
+      :ok ->
+        case safe_coordination_call(coordination.declare_dependency, [current, blocker]) do
+          {:ok, _result} -> :ok
+          {:error, reason} -> reconcile_declaration(current, blocker, reason, coordination)
+          other -> reconcile_declaration(current, blocker, {:unexpected, other}, coordination)
+        end
+
+      {:error, reason} ->
+        reconcile_subscription_failure(current, blocker, reason, coordination)
+
+      other ->
+        reconcile_subscription_failure(current, blocker, {:unexpected, other}, coordination)
+    end
+  end
+
+  defp safe_coordination_call(function, arguments) do
+    apply(function, arguments)
+  rescue
+    error -> {:error, {:coordination_call_error, Exception.message(error)}}
+  catch
+    :exit, reason -> {:error, {:coordination_call_exit, reason}}
+  end
+
+  defp reconcile_declaration(current, blocker, declaration_error, coordination) do
+    case safe_coordination_call(coordination.dependency_present, [current, blocker]) do
+      {:ok, true} ->
+        case safe_coordination_call(coordination.subscribe_blocker, [current, blocker]) do
+          :ok -> :ok
+          {:error, reason} -> {:error, {:blocker_reconcile_subscription_failed, declaration_error, reason}}
+          other -> {:error, {:blocker_reconcile_subscription_failed, declaration_error, {:unexpected, other}}}
+        end
+
+      {:ok, false} ->
+        case safe_coordination_call(coordination.unsubscribe_blocker, [current, blocker]) do
+          :ok -> {:error, {:blocker_declaration_failed, declaration_error}}
+          {:error, reason} -> {:error, {:blocker_declaration_cleanup_failed, declaration_error, reason}}
+          other -> {:error, {:blocker_declaration_cleanup_failed, declaration_error, {:unexpected, other}}}
+        end
+
+      {:error, reason} ->
+        {:error, {:blocker_reconcile_inconclusive, declaration_error, reason}}
+    end
+  end
+
+  defp reconcile_subscription_failure(current, blocker, subscription_error, coordination) do
+    case safe_coordination_call(coordination.dependency_present, [current, blocker]) do
+      {:ok, true} ->
+        case safe_coordination_call(coordination.subscribe_blocker, [current, blocker]) do
+          :ok -> :ok
+          {:error, reason} -> {:error, {:blocker_subscription_retry_failed, subscription_error, reason}}
+          other -> {:error, {:blocker_subscription_retry_failed, subscription_error, {:unexpected, other}}}
+        end
+
+      {:ok, false} ->
+        case safe_coordination_call(coordination.unsubscribe_blocker, [current, blocker]) do
+          :ok -> {:error, {:blocker_subscription_failed, subscription_error}}
+          {:error, reason} -> {:error, {:blocker_subscription_cleanup_failed, subscription_error, reason}}
+          other -> {:error, {:blocker_subscription_cleanup_failed, subscription_error, {:unexpected, other}}}
+        end
+
+      {:error, reason} ->
+        {:error, {:blocker_subscription_reconcile_inconclusive, subscription_error, reason}}
     end
   end
 
@@ -282,7 +359,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       end
     end
 
-    case enqueue.({:event, identifier}, operation) do
+    case enqueue.({:event, identifier}, operation, operation_timeout: :infinity) do
       :pending -> {:ok, %{"status" => "pending", "topic" => topic}}
       {:error, reason} -> {:error, reason}
     end

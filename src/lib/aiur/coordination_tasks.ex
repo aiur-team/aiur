@@ -24,10 +24,17 @@ defmodule Aiur.CoordinationTasks do
     GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
   end
 
-  @spec enqueue(key(), (-> term()), GenServer.server(), timeout()) :: admission_result()
-  def enqueue(key, operation, server \\ __MODULE__, timeout \\ @default_admission_timeout_ms)
+  @spec enqueue(key(), (-> term()), GenServer.server(), keyword(), timeout()) :: admission_result()
+  def enqueue(
+        key,
+        operation,
+        server \\ __MODULE__,
+        opts \\ [],
+        admission_timeout \\ @default_admission_timeout_ms
+      )
       when is_function(operation, 0) do
-    GenServer.call(server, {:enqueue, key, operation}, timeout)
+    operation_timeout = Keyword.get(opts, :operation_timeout, :default)
+    GenServer.call(server, {:enqueue, key, operation, operation_timeout}, admission_timeout)
   catch
     :exit, _reason -> {:error, :coordination_unavailable}
   end
@@ -46,19 +53,26 @@ defmodule Aiur.CoordinationTasks do
   end
 
   @impl true
-  def handle_call({:enqueue, _key, _operation}, _from, %{pending: pending, max_pending: max} = state)
+  def handle_call({:enqueue, _key, _operation, _timeout}, _from, %{pending: pending, max_pending: max} = state)
       when pending >= max do
     {:reply, {:error, :coordination_overloaded}, state}
   end
 
-  def handle_call({:enqueue, key, operation}, _from, state) do
+  def handle_call({:enqueue, key, operation, timeout}, _from, state) do
     queue = Map.get(state.queues, key, :queue.new())
-    state = %{state | queues: Map.put(state.queues, key, :queue.in(operation, queue)), pending: state.pending + 1}
+    entry = {operation, resolve_timeout(timeout, state.operation_timeout_ms)}
+    state = %{state | queues: Map.put(state.queues, key, :queue.in(entry, queue)), pending: state.pending + 1}
     {:reply, :pending, dispatch(state)}
   end
 
   @impl true
-  def handle_info({ref, _result}, state) when is_reference(ref), do: finish(ref, state)
+  def handle_info({ref, result}, state) when is_reference(ref) do
+    if match?({:error, _reason}, result) do
+      Logger.error("coordination operation failed reason=#{inspect(result)}")
+    end
+
+    finish(ref, state)
+  end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
     if reason != :normal, do: Logger.error("coordination task failed reason=#{inspect(reason)}")
@@ -92,6 +106,8 @@ defmodule Aiur.CoordinationTasks do
     {:noreply, dispatch(%{state | active: Map.delete(state.active, key)})}
   end
 
+  defp cancel_timer(nil, _ref), do: :ok
+
   defp cancel_timer(timer, ref) do
     case Process.cancel_timer(timer) do
       false ->
@@ -113,9 +129,9 @@ defmodule Aiur.CoordinationTasks do
            not Map.has_key?(state.active, key) and not :queue.is_empty(queue)
          end) do
       {key, queue} ->
-        {{:value, operation}, queue} = :queue.out(queue)
+        {{:value, {operation, timeout}}, queue} = :queue.out(queue)
         task = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, operation)
-        timer = Process.send_after(self(), {:coordination_timeout, task.ref}, state.operation_timeout_ms)
+        timer = schedule_timeout(task.ref, timeout)
         queues = if :queue.is_empty(queue), do: Map.delete(state.queues, key), else: Map.put(state.queues, key, queue)
 
         state
@@ -132,4 +148,11 @@ defmodule Aiur.CoordinationTasks do
   defp active_by_ref(active, ref) do
     Enum.find(active, fn {_key, task} -> task.ref == ref end)
   end
+
+  defp resolve_timeout(:default, default), do: default
+  defp resolve_timeout(:infinity, _default), do: :infinity
+  defp resolve_timeout(timeout, _default) when is_integer(timeout) and timeout > 0, do: timeout
+
+  defp schedule_timeout(_ref, :infinity), do: nil
+  defp schedule_timeout(ref, timeout), do: Process.send_after(self(), {:coordination_timeout, ref}, timeout)
 end

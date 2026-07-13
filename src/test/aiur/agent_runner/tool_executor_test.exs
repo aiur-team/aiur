@@ -50,8 +50,8 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       executor =
         ToolExecutor.build(issue, nil, nil, %{},
-          coordination_enqueuer: fn key, operation ->
-            send(test_pid, {:enqueued, key, operation})
+          coordination_enqueuer: fn key, operation, opts ->
+            send(test_pid, {:enqueued, key, operation, opts})
             :pending
           end
         )
@@ -60,7 +60,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       assert response["success"] == true
       assert Jason.decode!(response["output"])["result"] == "pending"
-      assert_receive {:enqueued, {:dependency, "1031", 999}, operation}
+      assert_receive {:enqueued, {:dependency, "1031", 999}, operation, [operation_timeout: :infinity]}
       assert is_function(operation, 0)
     end
 
@@ -82,7 +82,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       call = Task.async(fn -> executor.("aiur_declare_blocker", %{"issue_number" => 999}) end)
 
-      assert {:ok, response} = Task.yield(call, 100)
+      assert {:ok, response} = Task.yield(call, 250)
       assert response["success"] == true
       assert Jason.decode!(response["output"])["result"] == "pending"
       assert_receive {:subscribed, "1031", 999}, 200
@@ -96,16 +96,16 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       executor =
         ToolExecutor.build(issue, nil, nil, %{},
-          coordination_enqueuer: fn key, operation ->
-            send(test_pid, {:enqueued, key, operation})
+          coordination_enqueuer: fn key, operation, opts ->
+            send(test_pid, {:enqueued, key, operation, opts})
             :pending
           end
         )
 
       assert executor.("aiur_declare_blocker", %{"issue_number" => 999})["success"]
       assert executor.("aiur_unblock", %{"issue_number" => 999})["success"]
-      assert_receive {:enqueued, key, _declare}
-      assert_receive {:enqueued, ^key, _unblock}
+      assert_receive {:enqueued, key, _declare, [operation_timeout: :infinity]}
+      assert_receive {:enqueued, ^key, _unblock, [operation_timeout: :infinity]}
     end
 
     test "does not report pending when coordination admission fails" do
@@ -113,7 +113,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       for reason <- [:coordination_overloaded, :coordination_unavailable] do
         executor =
-          ToolExecutor.build(issue, nil, nil, %{}, coordination_enqueuer: fn _key, _operation -> {:error, reason} end)
+          ToolExecutor.build(issue, nil, nil, %{}, coordination_enqueuer: fn _key, _operation, _opts -> {:error, reason} end)
 
         response = executor.("aiur_declare_blocker", %{"issue_number" => 999})
         assert response["success"] == false
@@ -121,7 +121,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       end
     end
 
-    test "subscription is established before a declaration that times out" do
+    test "coordination timeout does not kill an admitted dependency mutation" do
       issue = %Issue{identifier: "1031"}
       name = Module.concat(__MODULE__, "Timeout#{System.unique_integer([:positive])}")
       start_supervised!({Aiur.CoordinationTasks, name: name, operation_timeout_ms: 20})
@@ -129,19 +129,122 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       executor =
         ToolExecutor.build(issue, nil, nil, %{},
-          coordination_enqueuer: fn key, operation -> Aiur.CoordinationTasks.enqueue(key, operation, name) end,
-          blocker_subscriber: fn _current, _blocker -> send(test_pid, :subscribed) end,
+          coordination_enqueuer: fn key, operation, opts ->
+            Aiur.CoordinationTasks.enqueue(key, operation, name, opts)
+          end,
+          blocker_subscriber: fn _current, _blocker ->
+            send(test_pid, :subscribed)
+            :ok
+          end,
           dependency_declarer: fn _current, _blocker ->
-            send(test_pid, :dependency_landed)
-            Process.sleep(:infinity)
+            send(test_pid, {:dependency_started, self()})
+            receive do: (:release -> {:ok, :created})
           end
         )
 
       assert executor.("aiur_declare_blocker", %{"issue_number" => 999})["success"]
       assert_receive :subscribed
-      assert_receive :dependency_landed
+      assert_receive {:dependency_started, worker}
       Process.sleep(30)
       assert Process.alive?(Process.whereis(name))
+      assert Process.alive?(worker)
+      send(worker, :release)
+    end
+
+    test "subscription failure prevents declaration" do
+      issue = %Issue{identifier: "1031"}
+      test_pid = self()
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{},
+          coordination_enqueuer: capturing_enqueuer(test_pid),
+          blocker_subscriber: fn _current, _blocker -> {:error, :disk_busy} end,
+          dependency_present: fn _current, _blocker -> {:ok, false} end,
+          blocker_unsubscriber: fn current, blocker ->
+            send(test_pid, {:unsubscribed, current, blocker})
+            :ok
+          end,
+          dependency_declarer: fn _current, _blocker -> send(test_pid, :unexpected_declare) end
+        )
+
+      assert executor.("aiur_declare_blocker", %{"issue_number" => 999})["success"]
+      assert_receive {:captured_operation, operation}
+      assert {:error, {:blocker_subscription_failed, :disk_busy}} = operation.()
+      assert_receive {:unsubscribed, "1031", 999}
+      refute_receive :unexpected_declare
+    end
+
+    test "subscription failure retries without removing coverage for an existing dependency" do
+      issue = %Issue{identifier: "1031"}
+      test_pid = self()
+      {:ok, calls} = Agent.start_link(fn -> 0 end)
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{},
+          coordination_enqueuer: capturing_enqueuer(test_pid),
+          blocker_subscriber: fn _current, _blocker ->
+            Agent.get_and_update(calls, fn
+              0 -> {{:error, :disk_busy}, 1}
+              count -> {:ok, count + 1}
+            end)
+          end,
+          dependency_present: fn _current, _blocker -> {:ok, true} end,
+          blocker_unsubscriber: fn _current, _blocker -> send(test_pid, :unexpected_unsubscribe) end,
+          dependency_declarer: fn _current, _blocker -> send(test_pid, :unexpected_declare) end
+        )
+
+      assert executor.("aiur_declare_blocker", %{"issue_number" => 999})["success"]
+      assert_receive {:captured_operation, operation}
+      assert :ok = operation.()
+      assert Agent.get(calls, & &1) == 2
+      refute_receive :unexpected_unsubscribe
+      refute_receive :unexpected_declare
+    end
+
+    test "failed declaration removes stale subscription when GitHub confirms absence" do
+      issue = %Issue{identifier: "1031"}
+      test_pid = self()
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{},
+          coordination_enqueuer: capturing_enqueuer(test_pid),
+          blocker_subscriber: fn _current, _blocker -> :ok end,
+          dependency_declarer: fn _current, _blocker -> {:error, :timeout} end,
+          dependency_present: fn _current, _blocker -> {:ok, false} end,
+          blocker_unsubscriber: fn current, blocker ->
+            send(test_pid, {:unsubscribed, current, blocker})
+            :ok
+          end
+        )
+
+      assert executor.("aiur_declare_blocker", %{"issue_number" => 999})["success"]
+      assert_receive {:captured_operation, operation}
+      assert {:error, {:blocker_declaration_failed, :timeout}} = operation.()
+      assert_receive {:unsubscribed, "1031", 999}
+    end
+
+    test "ambiguous declaration keeps auto-resume coverage when GitHub confirms presence" do
+      issue = %Issue{identifier: "1031"}
+      test_pid = self()
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{},
+          coordination_enqueuer: capturing_enqueuer(test_pid),
+          blocker_subscriber: fn current, blocker ->
+            send(test_pid, {:subscribed, current, blocker})
+            :ok
+          end,
+          dependency_declarer: fn _current, _blocker -> {:error, :timeout} end,
+          dependency_present: fn _current, _blocker -> {:ok, true} end,
+          blocker_unsubscriber: fn _current, _blocker -> send(test_pid, :unexpected_unsubscribe) end
+        )
+
+      assert executor.("aiur_declare_blocker", %{"issue_number" => 999})["success"]
+      assert_receive {:captured_operation, operation}
+      assert :ok = operation.()
+      assert_receive {:subscribed, "1031", 999}
+      assert_receive {:subscribed, "1031", 999}
+      refute_receive :unexpected_unsubscribe
     end
 
     test "stalled declare followed by unblock finishes unblocked" do
@@ -153,13 +256,23 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       executor =
         ToolExecutor.build(issue, nil, nil, %{},
-          coordination_enqueuer: fn key, operation -> Aiur.CoordinationTasks.enqueue(key, operation, name) end,
+          coordination_enqueuer: fn key, operation, opts ->
+            Aiur.CoordinationTasks.enqueue(key, operation, name, opts)
+          end,
           blocker_subscriber: fn _current, _blocker -> :ok end,
           dependency_declarer: fn _current, _blocker ->
             send(test_pid, {:declare_started, self()})
-            receive do: (:release -> Agent.update(state, fn _ -> :declared end))
+
+            receive do
+              :release ->
+                Agent.update(state, fn _ -> :declared end)
+                {:ok, :created}
+            end
           end,
-          dependency_unblocker: fn _current, _blocker -> Agent.update(state, fn _ -> :unblocked end) end
+          dependency_unblocker: fn _current, _blocker ->
+            Agent.update(state, fn _ -> :unblocked end)
+            {:ok, :removed}
+          end
         )
 
       assert executor.("aiur_declare_blocker", %{"issue_number" => 999})["success"]
@@ -870,6 +983,13 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
     case SubscriptionStore.snapshot(identifier) do
       :not_found -> []
       snapshot -> snapshot.open_attentions
+    end
+  end
+
+  defp capturing_enqueuer(test_pid) do
+    fn _key, operation, _opts ->
+      send(test_pid, {:captured_operation, operation})
+      :pending
     end
   end
 end
