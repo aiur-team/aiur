@@ -112,17 +112,19 @@ Plus OCC-0/#988 (auto codex→claude fallback) and the planning/docs PRs (#1006/
 These fix the last-mile tax (§5). Merging them + a daemon rebuild makes the rest of the wave
 run without wedging:
 
-| PR | Fixes | State |
+| PR | Fixes | State (dual-review adjudicated) |
 |---|---|---|
-| **#1039** | P1 bootstrap-race (workspace checkout wiped mid-turn) | green + MERGEABLE, in review |
-| #1036 | P1 coordination-RPC hang (bound tool latency) | needs CI |
-| #1046 | require explicit dependency unblock signal | test failing |
-| #1045 | AIMD recovery speed | green + MERGEABLE, in review |
-| #1042 | post-planning stall diagnosis (spike) | green + MERGEABLE, in review |
-| #1047 | bound dashboard decision projection | green + MERGEABLE, in review |
+| **#1039** | P1 bootstrap-race (workspace checkout wiped mid-turn) | ✅ **MERGE** — both reviewers `merge_with_nits`, solves the bug. Nit: only guards the *active-turn* window, not idle-between-turns gaps (a partial close of #1030 — file a follow-up); mark_closed now takes a cluster-wide `:global.trans` (~1–2s under contention). |
+| **#1045** | AIMD recovery speed | ❌ **REWORK** — adversarial found a must-fix: fast-ramp leaps the envelope to full cap in one poll → thundering-herd over-dispatch, re-introducing thrash. Routed to rework; cap per-poll growth. |
+| #1042 | post-planning stall diagnosis (spike) | ✅ **MERGE** — safe/inert diagnostic instrumentation (doesn't change dispatch behavior). |
+| #1047 | bound dashboard decision projection | ✅ **MERGE** — both `merge_with_nits`, 0 must-fix. |
+| #1036 | P1 coordination-RPC hang (bound tool latency) | needs CI — review after it goes green |
+| #1046 | require explicit dependency unblock signal | test failing — fix the test, then review |
 
-A dual-review workflow was running against #1039/#1045/#1042/#1047 at handoff — check its
-verdicts, then merge the ones marked `merge`/`merge_with_nits`.
+**Merge #1039 first** (verify `base==main` + rebased), then #1047 and #1042. Merging to `main`
+is safe for the running fleet (#720: main pushes notify agents, don't kill them). The
+orchestrator fixes only take effect after a **daemon rebuild/relaunch** — do that once #1039 is
+in so the rest of the wave runs tax-free. #1045 is in rework; #1036/#1046 need CI/test fixes.
 
 ### 2e. Other open follow-ups / bottlenecks
 
