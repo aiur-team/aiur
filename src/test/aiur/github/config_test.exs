@@ -1,6 +1,6 @@
 defmodule Aiur.GitHub.ConfigTest do
-  # async: false — these tests mutate the GITHUB_TOKEN env var and the shared
-  # :persistent_term cache, so they must not run concurrently.
+  # async: false — these tests mutate GitHub token env vars and the shared
+  # :persistent_term caches, so they must not run concurrently.
   use ExUnit.Case, async: false
 
   alias Aiur.GitHub.Config

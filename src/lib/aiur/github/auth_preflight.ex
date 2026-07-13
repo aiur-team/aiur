@@ -141,7 +141,7 @@ defmodule Aiur.GitHub.AuthPreflight do
     endpoint = diagnostic.endpoint
     source = diagnostic.token_source
     reason = human_auth_reason(diagnostic)
-    keyring = human_gh_keyring_status(gh_status)
+    keyring = human_gh_keyring_status(gh_status, source)
 
     [
       "GitHub auth preflight failed for #{source} while validating #{repo} #{endpoint} access: #{reason}.",
@@ -202,12 +202,15 @@ defmodule Aiur.GitHub.AuthPreflight do
   defp reset_suffix(nil), do: ""
   defp reset_suffix(reset), do: " until #{reset}"
 
-  defp human_gh_keyring_status(:available),
+  defp human_gh_keyring_status(:available, "AIUR_GITHUB_TOKEN"),
+    do: "`gh` keyring auth appears usable, but Aiur will not fall back while AIUR_GITHUB_TOKEN is configured."
+
+  defp human_gh_keyring_status(:available, _source),
     do: "`gh` keyring auth appears usable when GITHUB_TOKEN is removed, but Aiur will not use it while GITHUB_TOKEN is set."
 
-  defp human_gh_keyring_status(:unavailable), do: "`gh` keyring auth was not usable when checked without GITHUB_TOKEN."
-  defp human_gh_keyring_status(:not_installed), do: "`gh` is not installed or not on PATH, so only GITHUB_TOKEN can be validated."
-  defp human_gh_keyring_status(_), do: "`gh` keyring auth status could not be determined."
+  defp human_gh_keyring_status(:unavailable, _source), do: "`gh` keyring auth was not usable when checked without GITHUB_TOKEN."
+  defp human_gh_keyring_status(:not_installed, _source), do: "`gh` is not installed or not on PATH, so only an environment token can be validated."
+  defp human_gh_keyring_status(_, _source), do: "`gh` keyring auth status could not be determined."
 
   defp default_gh_auth_status_fun do
     case System.find_executable("gh") do

@@ -4,11 +4,16 @@ defmodule Aiur.GitHub.AuthPreflightTest do
   alias Aiur.GitHub.AuthPreflight
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @token_source_cache_key {Aiur.GitHub.Config, :resolved_token_source}
 
   setup do
     prev_token = System.get_env("GITHUB_TOKEN")
+    prev_daemon_token = System.get_env("AIUR_GITHUB_TOKEN")
     prev_cached_token = :persistent_term.get(@token_cache_key, :unset)
+    prev_cached_source = :persistent_term.get(@token_source_cache_key, :unset)
     :persistent_term.erase(@token_cache_key)
+    :persistent_term.erase(@token_source_cache_key)
+    System.delete_env("AIUR_GITHUB_TOKEN")
     System.put_env("GITHUB_TOKEN", "preflight-token")
 
     write_workflow_file!(Workflow.workflow_file_path(),
@@ -18,10 +23,16 @@ defmodule Aiur.GitHub.AuthPreflightTest do
 
     on_exit(fn ->
       restore_env("GITHUB_TOKEN", prev_token)
+      restore_env("AIUR_GITHUB_TOKEN", prev_daemon_token)
 
       case prev_cached_token do
         :unset -> :persistent_term.erase(@token_cache_key)
         token -> :persistent_term.put(@token_cache_key, token)
+      end
+
+      case prev_cached_source do
+        :unset -> :persistent_term.erase(@token_source_cache_key)
+        source -> :persistent_term.put(@token_source_cache_key, source)
       end
     end)
 
@@ -70,6 +81,26 @@ defmodule Aiur.GitHub.AuthPreflightTest do
     assert diagnostic.gh_keyring_status == :available
     assert diagnostic.message =~ "GITHUB_TOKEN"
     refute inspect(diagnostic) =~ "preflight-token"
+  end
+
+  test "dedicated token failures name the fail-closed source" do
+    System.put_env("AIUR_GITHUB_TOKEN", "dedicated-token")
+
+    request_fun = fn %{url: "https://api.github.com/rate_limit", token: "dedicated-token"} ->
+      {:ok, %{status: 401, headers: [], body: %{"message" => "Bad credentials"}}}
+    end
+
+    assert {:error, {:github_auth_preflight_failed, diagnostic}} =
+             AuthPreflight.preflight_auth(
+               request_fun: request_fun,
+               gh_auth_status_fun: fn -> {:ok, :available} end
+             )
+
+    assert diagnostic.token_source == "AIUR_GITHUB_TOKEN"
+    assert diagnostic.message =~ "will not fall back while AIUR_GITHUB_TOKEN is configured"
+    assert diagnostic.message =~ "unset AIUR_GITHUB_TOKEN"
+    refute diagnostic.message =~ "while GITHUB_TOKEN is set"
+    refute inspect(diagnostic) =~ "dedicated-token"
   end
 
   test "formats diagnostic maps and plain fallback reasons" do

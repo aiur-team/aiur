@@ -30,7 +30,7 @@ defmodule Aiur.GitHub.RateBudget do
     with %{headers: headers} <- response,
          {:ok, observation} <- parse_headers(headers),
          pid when is_pid(pid) <- GenServer.whereis(server) do
-      GenServer.call(pid, {:observe, observation})
+      GenServer.cast(pid, {:observe, observation})
     else
       _ -> :ok
     end
@@ -83,8 +83,8 @@ defmodule Aiur.GitHub.RateBudget do
   def init(_opts), do: {:ok, nil}
 
   @impl true
-  def handle_call({:observe, incoming}, _from, current) do
-    {:reply, :ok, merge_observation(current, incoming)}
+  def handle_cast({:observe, incoming}, current) do
+    {:noreply, merge_observation(current, incoming)}
   end
 
   @impl true
@@ -104,7 +104,7 @@ defmodule Aiur.GitHub.RateBudget do
 
   defp valid_observation?(limit, remaining, reset_at, now_seconds) do
     max_reset_at = now_seconds + @max_reset_window_seconds + @reset_window_slack_seconds
-    limit > 0 and remaining >= 0 and reset_at > 0 and reset_at <= max_reset_at
+    limit > 0 and remaining >= 0 and remaining <= limit and reset_at > now_seconds and reset_at <= max_reset_at
   end
 
   defp progressive_delay_ms(0, _reserve, seconds_until_reset) do

@@ -25,6 +25,8 @@ defmodule Aiur.GitHub.RateBudgetTest do
 
     assert :error = RateBudget.parse_headers(Map.put(headers, "x-ratelimit-resource", "graphql"), now_seconds: 1_000)
     assert :error = RateBudget.parse_headers(Map.put(headers, "x-ratelimit-reset", "999999"), now_seconds: 1_000)
+    assert :error = RateBudget.parse_headers(headers(5_000, 50, 900), now_seconds: 1_000)
+    assert :error = RateBudget.parse_headers(headers(5_000, 5_001, 2_000), now_seconds: 1_000)
   end
 
   test "GraphQL quota observations do not throttle REST polling" do
@@ -32,9 +34,12 @@ defmodule Aiur.GitHub.RateBudgetTest do
     start_supervised!({RateBudget, name: name})
     now = System.system_time(:second)
 
-    response = %{headers: Map.put(headers(5_000, 50, now + 1_000), "x-ratelimit-resource", "graphql")}
+    observe(name, 5_000, 50, now + 1_000)
+    assert RateBudget.delay_ms(server: name, now_seconds: now) > 0
+
+    response = %{headers: Map.put(headers(5_000, 5_000, now + 2_000), "x-ratelimit-resource", "graphql")}
     assert :ok = RateBudget.observe_response(response, name)
-    assert RateBudget.delay_ms(server: name, now_seconds: now) == 0
+    assert RateBudget.delay_ms(server: name, now_seconds: now) > 0
   end
 
   test "progressively protects the larger of ten percent or one hundred requests" do
@@ -44,6 +49,21 @@ defmodule Aiur.GitHub.RateBudgetTest do
     assert RateBudget.calculate_delay_ms(%{limit: 500, remaining: 100, reset_at: 900}, 1_000) == 0
     assert RateBudget.calculate_delay_ms(%{limit: 5_000, remaining: 0, reset_at: 9_000}, 1_000) == :timer.hours(1)
     assert RateBudget.calculate_delay_ms(%{limit: 60, remaining: 60, reset_at: 2_000}, 1_000) == 0
+    assert RateBudget.calculate_delay_ms(%{limit: 100, remaining: 100, reset_at: 2_000}, 1_000) == 0
+  end
+
+  test "observing a response does not wait for a suspended budget process" do
+    name = Module.concat(__MODULE__, "Budget#{System.unique_integer([:positive])}")
+    start_supervised!({RateBudget, name: name})
+    :sys.suspend(name)
+
+    try do
+      task = Task.async(fn -> RateBudget.observe_response(%{headers: headers(5_000, 50, System.system_time(:second) + 1_000)}, name) end)
+
+      assert {:ok, :ok} = Task.yield(task, 500)
+    after
+      :sys.resume(name)
+    end
   end
 
   test "retains the lowest remaining count in the newest reset window" do
@@ -70,6 +90,18 @@ defmodule Aiur.GitHub.RateBudgetTest do
 
     observe(name, 5_000, 5_000, now + 1_000)
     assert RateBudget.delay_ms(server: name, now_seconds: now) == 0
+  end
+
+  test "a late expired response does not erase the active budget" do
+    name = Module.concat(__MODULE__, "Budget#{System.unique_integer([:positive])}")
+    start_supervised!({RateBudget, name: name})
+    now = System.system_time(:second)
+
+    observe(name, 5_000, 0, now + 1_000)
+    RateBudget.observe_response(%{headers: headers(5_000, 5_000, now - 1)}, name)
+    :sys.get_state(name)
+
+    assert RateBudget.delay_ms(server: name, now_seconds: now) > 0
   end
 
   test "a new observation recovers after the wall clock moves backward" do
@@ -102,10 +134,18 @@ defmodule Aiur.GitHub.RateBudgetTest do
     state = %State{poll_interval_ms: 10_000, github_poll_delays: %{}}
 
     observe(name, 5_000, 0, now + 1_000)
-    throttled_delay = TrackerHealth.next_poll_delay_ms(state, budget_delay_fun: fn -> RateBudget.delay_ms(server: name, now_seconds: now) end)
+
+    throttled_delay =
+      TrackerHealth.next_poll_delay_ms(state,
+        budget_delay_fun: fn -> RateBudget.delay_ms(server: name, now_seconds: now) end
+      )
+
     assert throttled_delay > 10_000
 
-    assert 10_000 = TrackerHealth.next_poll_delay_ms(state, budget_delay_fun: fn -> RateBudget.delay_ms(server: name, now_seconds: now + 1_001) end)
+    assert 10_000 =
+             TrackerHealth.next_poll_delay_ms(state,
+               budget_delay_fun: fn -> RateBudget.delay_ms(server: name, now_seconds: now + 1_001) end
+             )
 
     scheduled = Lifecycle.schedule_tick(state, 10_000)
     assert scheduled.next_poll_due_at_ms > System.monotonic_time(:millisecond) + 9_000

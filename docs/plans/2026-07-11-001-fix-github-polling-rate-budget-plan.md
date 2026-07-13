@@ -2,7 +2,7 @@
 title: "fix: Separate daemon GitHub auth and throttle polling before exhaustion"
 date: 2026-07-11
 type: fix
-status: ready
+status: completed
 issue: 678
 ---
 
