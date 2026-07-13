@@ -53,6 +53,12 @@ definitions it is allowed to create are `build-order`, the five approved
 `build-lane:*` labels, and `phase:7`/`phase:8`; all other required definitions
 must already exist.
 
+The trusted branch is rechecked immediately before the first mutation and at
+bounded mutation checkpoints. Restore the same frozen authority and rerun if a
+checkpoint detects drift. Any issue or PR containing multiple planning markers,
+or any two logical IDs resolving to one issue number or node, fails before
+publication mutation.
+
 After `--apply`, review both receipt manifests and the two substituted
 templates, then commit and push those receipt-only changes through the normal
 review path. Finalization is deliberately separate:
@@ -71,7 +77,11 @@ python3 docs/build-order/scripts/publication_operator.py --finalize \
 Finalization runs the existing receipt-bound pending verifier (two complete
 fresh snapshots plus branch/commit authority), edits only that same pending
 comment to the canonical successful body, then runs the successful verifier.
-It does not create issues, labels, membership, or dependencies.
+The immutable receipt commit exclusively selects the comment identity; mutable
+checkout receipt fields cannot redirect it. Finalization is idempotent: after a
+crash or transient failure following the edit, rerunning verifies an already
+canonical successful comment without editing it again. It does not create
+issues, labels, membership, or dependencies.
 
 ## Materialization set
 

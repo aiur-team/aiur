@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -15,7 +16,9 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from publication_operator import (  # noqa: E402
+    AUTHORITY_CHECKPOINT_MUTATIONS,
     CREATABLE_LABELS,
+    Client,
     Context,
     GhClient,
     IssueSpec,
@@ -23,11 +26,17 @@ from publication_operator import (  # noqa: E402
     Publisher,
     build_context,
 )
+from publication_comment import (  # noqa: E402
+    render_pending_comment,
+    render_successful_comment,
+)
+from publication_receipt_authority import ReceiptAuthority  # noqa: E402
 from publication_rendering import authority_preamble  # noqa: E402
 
 
 APPROVED = "a" * 40
 AUTHORITY = "b" * 40
+RECEIPT = "c" * 40
 REPOSITORY = "example/repo"
 ROOT = "example/repo:build-order-dashboard"
 SKILL = "SKILL-DELIVERY-001"
@@ -125,6 +134,11 @@ class AuthorityFreePublisher(Publisher):
         return None
 
 
+class ValidationFreePublisher(AuthorityFreePublisher):
+    def _run_validators(self) -> None:
+        return None
+
+
 def labels_response(ctx: Context, *, omit: set[str] | None = None) -> list[dict[str, str]]:
     required = {label for spec in ctx.specs.values() for label in spec.labels}
     return [{"name": value} for value in sorted(required - (omit or set()))]
@@ -213,6 +227,34 @@ class DryRunTests(unittest.TestCase):
         client = FakeClient(dry_responses(self.ctx, [issue(8, ROOT), issue(9, ROOT)]))
         with self.assertRaisesRegex(PublicationError, "multiple issue matches"):
             AuthorityFreePublisher(client, self.ctx).dry_run()
+
+    def test_two_logical_markers_on_one_issue_fail_before_mutation(self) -> None:
+        raw = issue(8, ROOT)
+        raw["body"] += issue(9, SKILL)["body"].split("# Body\n", 1)[0]
+        client = FakeClient(dry_responses(self.ctx, [raw]))
+        with self.assertRaisesRegex(PublicationError, "multiple planning markers"):
+            AuthorityFreePublisher(client, self.ctx).dry_run()
+        self.assertTrue(all(call[0] == "GET" for call in client.calls))
+
+    def test_duplicate_node_across_logical_mappings_fails(self) -> None:
+        first, second = issue(8, ROOT), issue(9, SKILL)
+        second["node_id"] = first["node_id"]
+        first["_planning_markers"] = [{
+            "schema": 2,
+            "logical_id": ROOT,
+            "plan_version": 1,
+            "approved_planning_commit": APPROVED,
+        }]
+        second["_planning_markers"] = [{
+            "schema": 2,
+            "logical_id": SKILL,
+            "plan_version": 1,
+            "approved_planning_commit": APPROVED,
+        }]
+        with self.assertRaisesRegex(PublicationError, "same issue"):
+            AuthorityFreePublisher(FakeClient({}), self.ctx)._canonical_mappings(
+                [first, second]
+            )
 
     def test_malformed_marker_opening_fails(self) -> None:
         raw = issue(8, "unrelated")
@@ -347,6 +389,222 @@ class ReconciliationTests(unittest.TestCase):
         with self.assertRaisesRegex(PublicationError, "multiple reconciliation"):
             AuthorityFreePublisher(client, self.ctx)._ensure_pending_comment({"number": 1})
         self.assertTrue(all(call[0] == "GET" for call in client.calls))
+
+    def test_complete_existing_graph_apply_is_idempotent(self) -> None:
+        mappings: dict[str, dict[str, Any]] = {}
+        raw_issues: list[dict[str, Any]] = []
+        for number, (logical_id, spec) in enumerate(self.ctx.specs.items(), 1):
+            raw = issue(number, logical_id)
+            raw.update({
+                "title": spec.title,
+                "body": spec.body,
+                "labels": [{"name": label} for label in spec.labels],
+            })
+            raw_issues.append(raw)
+            mappings[logical_id] = {
+                "number": number,
+                "_database_id": raw["id"],
+            }
+        root_number = mappings[ROOT]["number"]
+        comment_body = render_pending_comment(ROOT, 1, APPROVED, REPOSITORY)
+        comment = {
+            "id": 44,
+            "html_url": (
+                f"https://github.com/{REPOSITORY}/issues/{root_number}"
+                "#issuecomment-44"
+            ),
+            "body": comment_body,
+        }
+        base = f"repos/{REPOSITORY}"
+        responses = dry_responses(self.ctx, raw_issues)
+        responses.update(relationship_responses(self.ctx, mappings))
+        for raw in raw_issues:
+            responses[("GET", f"{base}/issues/{raw['number']}")] = raw
+        responses[("GET", f"{base}/issues/{root_number}/comments?per_page=100&page=1")] = [comment]
+        responses[("GET", f"{base}/issues/comments/44")] = comment
+        client = FakeClient(responses)
+
+        result = ValidationFreePublisher(client, self.ctx).apply()
+
+        self.assertEqual(result["mode"], "apply-pending")
+        self.assertEqual(result["issues"], 56)
+        self.assertEqual(result["members"], 54)
+        self.assertEqual(result["blocked_by_edges"], 107)
+        self.assertTrue(all(call[0] == "GET" for call in client.calls))
+
+
+class FinalizationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.ctx = context(Path(self.temp.name))
+        self.comment_url = (
+            f"https://github.com/{REPOSITORY}/issues/1#issuecomment-44"
+        )
+        self.receipt_url = f"https://github.com/{REPOSITORY}/commit/{RECEIPT}"
+        self.authority = ReceiptAuthority(
+            repository=REPOSITORY,
+            root_id=ROOT,
+            plan_version=1,
+            approved_commit=APPROVED,
+            root_issue_url=f"https://github.com/{REPOSITORY}/issues/1",
+            root_comment_url=self.comment_url,
+            trusted_repository_ref="refs/heads/build-order-research",
+            receipt_manifests={},
+        )
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def _comment(self, state: str) -> dict[str, Any]:
+        body = (
+            render_pending_comment(ROOT, 1, APPROVED, REPOSITORY)
+            if state == "pending"
+            else render_successful_comment(
+                ROOT, 1, APPROVED, REPOSITORY, RECEIPT, self.receipt_url,
+            )
+        )
+        return {"id": 44, "html_url": self.comment_url, "body": body}
+
+    def _publisher(
+        self, client: Client, *, fail_successful_once: bool = False,
+    ) -> Publisher:
+        authority = self.authority
+
+        class FinalizePublisher(AuthorityFreePublisher):
+            def __init__(inner, fake: Client, ctx: Context) -> None:
+                super().__init__(fake, ctx)
+                inner.verifications: list[str] = []
+                inner.fail_successful_once = fail_successful_once
+
+            def _receipt_authority(inner, receipt_commit: str) -> ReceiptAuthority:
+                self.assertEqual(receipt_commit, RECEIPT)
+                return authority
+
+            def _run_receipt_verifier(
+                inner, state: str, value: ReceiptAuthority,
+                receipt_commit: str, receipt_url: str,
+            ) -> None:
+                inner.verifications.append(state)
+                if state == "successful" and inner.fail_successful_once:
+                    inner.fail_successful_once = False
+                    raise PublicationError("simulated post-PATCH verifier failure")
+
+        return FinalizePublisher(client, self.ctx)
+
+    @patch("publication_operator.exact_commit", return_value=True)
+    @patch(
+        "publication_operator.run_authority_git",
+        return_value=subprocess.CompletedProcess([], 0, "", ""),
+    )
+    def test_mutable_checkout_receipt_cannot_redirect_patch(
+        self, _git: Any, _commit: Any,
+    ) -> None:
+        self.ctx.publication["github_reconciliation"] = {
+            "root_reconciliation_comment_matches": [{
+                "url": f"https://github.com/{REPOSITORY}/issues/99#issuecomment-999",
+            }],
+        }
+        pending = self._comment("pending")
+        successful = self._comment("successful")
+
+        class CommentClient(FakeClient):
+            def request(inner, method: str, path: str, payload=None, *, allow_404=False):
+                inner.calls.append((method, path, payload))
+                if method == "GET":
+                    return copy.deepcopy(pending)
+                if method == "PATCH":
+                    self.assertEqual(path, f"repos/{REPOSITORY}/issues/comments/44")
+                    self.assertEqual(payload, {"body": successful["body"]})
+                    return copy.deepcopy(successful)
+                raise AssertionError((method, path))
+
+        client = CommentClient({})
+        result = self._publisher(client).finalize(RECEIPT, self.receipt_url)
+        self.assertEqual(result["comment"], self.comment_url)
+        self.assertNotIn("comments/999", [call[1] for call in client.calls])
+
+    @patch("publication_operator.exact_commit", return_value=True)
+    @patch(
+        "publication_operator.run_authority_git",
+        return_value=subprocess.CompletedProcess([], 0, "", ""),
+    )
+    def test_already_successful_finalization_is_idempotent(
+        self, _git: Any, _commit: Any,
+    ) -> None:
+        successful = self._comment("successful")
+        client = FakeClient({
+            ("GET", f"repos/{REPOSITORY}/issues/comments/44"): successful,
+        })
+        publisher = self._publisher(client)
+        result = publisher.finalize(RECEIPT, self.receipt_url)
+        self.assertEqual(result["mode"], "finalized")
+        self.assertEqual(publisher.verifications, ["successful"])
+        self.assertTrue(all(call[0] == "GET" for call in client.calls))
+
+    @patch("publication_operator.exact_commit", return_value=True)
+    @patch(
+        "publication_operator.run_authority_git",
+        return_value=subprocess.CompletedProcess([], 0, "", ""),
+    )
+    def test_crash_after_patch_resumes_from_successful_comment(
+        self, _git: Any, _commit: Any,
+    ) -> None:
+        state = self._comment("pending")
+
+        class StatefulCommentClient(FakeClient):
+            def request(inner, method: str, path: str, payload=None, *, allow_404=False):
+                inner.calls.append((method, path, payload))
+                if method == "GET":
+                    return copy.deepcopy(state)
+                if method == "PATCH":
+                    state["body"] = payload["body"]
+                    return copy.deepcopy(state)
+                raise AssertionError((method, path))
+
+        client = StatefulCommentClient({})
+        first = self._publisher(client, fail_successful_once=True)
+        with self.assertRaisesRegex(PublicationError, "simulated post-PATCH"):
+            first.finalize(RECEIPT, self.receipt_url)
+        second = self._publisher(client)
+        result = second.finalize(RECEIPT, self.receipt_url)
+        self.assertEqual(result["mode"], "finalized")
+        self.assertEqual(second.verifications, ["successful"])
+        self.assertEqual(sum(call[0] == "PATCH" for call in client.calls), 1)
+
+
+class AuthorityCheckpointTests(unittest.TestCase):
+    def test_drift_stops_before_next_bounded_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as name:
+            ctx = context(Path(name))
+
+            class DriftPublisher(AuthorityFreePublisher):
+                checks = 0
+
+                def _check_authority(
+                    inner, expected_tip: str | None = "configured",
+                ) -> None:
+                    inner.checks += 1
+                    if inner.checks == 2:
+                        raise PublicationError("simulated trusted-ref drift")
+
+            responses = {
+                ("POST", f"repos/{REPOSITORY}/labels/{index}"): {}
+                for index in range(AUTHORITY_CHECKPOINT_MUTATIONS + 1)
+            }
+            client = FakeClient(responses)
+            publisher = DriftPublisher(client, ctx)
+            publisher._guard_apply_mutations = True
+            for index in range(AUTHORITY_CHECKPOINT_MUTATIONS):
+                publisher._mutate(
+                    "POST", f"repos/{REPOSITORY}/labels/{index}", {},
+                )
+            with self.assertRaisesRegex(PublicationError, "trusted-ref drift"):
+                publisher._mutate(
+                    "POST",
+                    f"repos/{REPOSITORY}/labels/{AUTHORITY_CHECKPOINT_MUTATIONS}",
+                    {},
+                )
+            self.assertEqual(len(client.calls), AUTHORITY_CHECKPOINT_MUTATIONS)
 
 
 class ClientSafetyTests(unittest.TestCase):

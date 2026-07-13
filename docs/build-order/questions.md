@@ -7,19 +7,9 @@ the planning documents.
 
 ## Questions for Kevin
 
-Five decision items from the independent second review — full context and
-recommendations in
-[09-plan-review-synthesis.md](09-plan-review-synthesis.md#questions-for-kevin-decision-ledger):
-
-1. Usage/cost accounting family (17 tickets): keep / cut to design-parity
-   slice (recommended) / drop.
-2. Publication ceremony: keep full receipt machinery or collapse to minimal
-   render+publish + requery-diff + human body review (recommended).
-3. Ratify the merge-candidate list (mutually-serialized pairs; no parallelism
-   cost).
-4. Ratify the structural parallelism changes (per-page LiveViews; BO-012 sans
-   BO-011; DASH-003/BO-018 and DASH-001/BO-008 as contract deps).
-5. Add an executable owner for /aiur-build automation verification.
+No planning-ledger decisions remain open. The five items from the independent
+second review are recorded below; full context remains in
+[09-plan-review-synthesis.md](09-plan-review-synthesis.md#questions-for-kevin-decision-ledger).
 
 ## Operator decisions recorded 2026-07-13
 
@@ -43,6 +33,19 @@ recommendations in
 - **Skill delivery landed:** PR #1065 was reviewed at
   `6447f9c193d2322d63f54a58b9c54e0a72d3e98f` and squash-merged to `main` as
   `ed1846c4bc76d4657095da57951a0dbf3e914c3d`.
+- **Full publication ceremony retained:** publication uses the complete
+  dry-run → apply/pending receipts → reviewed immutable receipt commit →
+  receipt-bound finalization sequence. It is not collapsed to the minimal
+  ceremony proposed during review.
+- **Graph and merge plan frozen:** the current merge-candidate list and
+  structural parallelism recommendations are ratified as represented in the
+  validated 54-member graph. Publication does not reopen or restructure them.
+- **Executable verification owner:** the runtime Executor owns proving the
+  installed `/aiur-build` automation and recording GATE-002 before dispatch.
+- **Conditional run authorization:** once the immutable successful receipt,
+  GATE-001 record, GATE-002 proof, and `main` integration-baseline check all
+  pass, the Executor may dispatch the approved members without asking for a
+  second run authorization.
 
 ## Commands or Access Needed
 

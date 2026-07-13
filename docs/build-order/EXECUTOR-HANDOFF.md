@@ -15,20 +15,21 @@ publication suite passes. Final clean semantic review and immutable approval
 remain pending. **No GitHub issues have been created.** Skills PR #1065 was
 reviewed at `6447f9c193d2322d63f54a58b9c54e0a72d3e98f` and squash-merged to
 `main` as `ed1846c4bc76d4657095da57951a0dbf3e914c3d`. Draft PR #1064 carries
-this pack. The live run remains limited to legacy tails #1032, #1081, and
-#678; unrelated queued #99 and #728 have `agent:paused` overlays (#1030 was
+this pack. The live run remains limited to legacy tails #1032 and #678;
+#1081/#1083 merged to `main` as `9dca435e` and the issue is closed. Unrelated
+queued #99 and #728 have `agent:paused` overlays (#1030 was
 already paused), and the public authenticated dashboard remains live.
 
 **Ordered pre-run checklist:**
 
 1. **Operator decisions** (see `questions.md`, "Questions for Kevin" plus the
-   2026-07-13 decisions section): the **single-Build-Order consolidation is
-   DONE** — one root contains every ticket (all 54 BO + DASH members) so
-   agents parallelize across the whole graph; membership, denominators, and
-   this handoff reflect it, and ledger question 1 is resolved as "keep — the
-   accounting family is included in the consolidated graph". Still pending:
-   the publication-ceremony scope, merge candidates, structural parallelism
-   changes, and an /aiur-build verification owner.
+   2026-07-13 decisions section): all five ledger items are resolved. The
+   **single-Build-Order consolidation is DONE** — one root contains every
+   ticket (all 54 BO + DASH members); the accounting family remains included;
+   the full receipt ceremony is retained; the current merge-candidate and
+   structural-parallelism graph is frozen; and the Executor owns executable
+   `/aiur-build` verification. The operator's conditional run authorization
+   remains active after the immutable receipt and gates pass.
 2. **Record the landed PR #1065 authority**: reviewed source head
    `6447f9c193d2322d63f54a58b9c54e0a72d3e98f` and squash-merged `main` commit
    `ed1846c4bc76d4657095da57951a0dbf3e914c3d`. Verify `/aiur-build`,

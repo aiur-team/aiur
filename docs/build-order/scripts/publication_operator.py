@@ -29,6 +29,7 @@ from publication_comment import (
 from publication_common import Report, SHA, load_json
 from publication_labels import routing_subset
 from publication_live_graph import API_VERSION, MARKER, MARKER_NAME
+from publication_receipt_authority import ReceiptAuthority, load_receipt_authority
 from publication_rendering import (
     MARKER_KEYS,
     exact_commit,
@@ -44,6 +45,7 @@ PAGE_SIZE = 100
 MAX_PAGES = 100
 MAX_REQUESTS = 2_500
 MAX_ITEMS = 50_000
+AUTHORITY_CHECKPOINT_MUTATIONS = 16
 EXPECTED_ISSUE_COUNT = 56
 EXPECTED_MEMBER_COUNT = 54
 EXPECTED_EDGE_COUNT = 107
@@ -160,6 +162,8 @@ class Context:
 class Publisher:
     def __init__(self, client: Client, context: Context) -> None:
         self.client, self.context, self.budget = client, context, Budget()
+        self._guard_apply_mutations = False
+        self._apply_mutation_count = 0
 
     def dry_run(self) -> dict[str, Any]:
         self._check_authority()
@@ -187,19 +191,24 @@ class Publisher:
         missing = self._validate_label_inventory(labels)
         scan = self._scan_all()
         mappings = self._canonical_mappings(scan)
-        for name in missing:
-            color, description = CREATABLE_LABELS[name]
-            self._mutate("POST", f"repos/{self.context.repository}/labels", {
-                "name": name, "color": color, "description": description,
-            })
-        for logical_id in sorted(self.context.specs):
-            mappings[logical_id] = self._ensure_issue(
-                self.context.specs[logical_id], mappings.get(logical_id),
-            )
-        if len(mappings) != EXPECTED_ISSUE_COUNT:
-            raise PublicationError("publication did not materialize exactly 56 identities")
-        self._ensure_relationships(mappings)
-        comment = self._ensure_pending_comment(mappings[self.context.root_id])
+        self._guard_apply_mutations = True
+        self._apply_mutation_count = 0
+        try:
+            for name in missing:
+                color, description = CREATABLE_LABELS[name]
+                self._mutate("POST", f"repos/{self.context.repository}/labels", {
+                    "name": name, "color": color, "description": description,
+                })
+            for logical_id in sorted(self.context.specs):
+                mappings[logical_id] = self._ensure_issue(
+                    self.context.specs[logical_id], mappings.get(logical_id),
+                )
+            if len(mappings) != EXPECTED_ISSUE_COUNT:
+                raise PublicationError("publication did not materialize exactly 56 identities")
+            self._ensure_relationships(mappings)
+            comment = self._ensure_pending_comment(mappings[self.context.root_id])
+        finally:
+            self._guard_apply_mutations = False
         self._check_authority()
         fresh = self._fresh_evidence(mappings, comment)
         self._write_materialized(fresh)
@@ -233,39 +242,116 @@ class Publisher:
         ], check=False, capture_output=True, text=True)
         if ancestor.returncode or receipt_commit == self.context.approved:
             raise PublicationError("receipt commit must strictly descend from approval")
-        # The existing receipt-bound verifier performs two full reads and all
-        # local/remote authority checks immediately before this sole mutation.
+        authority = self._receipt_authority(receipt_commit)
+        expected_receipt_url = (
+            f"https://github.com/{authority.repository}/commit/{receipt_commit}"
+        )
+        expected = (
+            (authority.root_id, self.context.root_id, "root identity"),
+            (authority.plan_version, self.context.plan_version, "plan version"),
+            (authority.approved_commit, self.context.approved, "approval"),
+            (authority.repository, self.context.repository, "repository"),
+        )
+        for receipt_value, context_value, label in expected:
+            if receipt_value != context_value:
+                raise PublicationError(f"receipt {label} differs from operator context")
+        if receipt_url != expected_receipt_url:
+            raise PublicationError(f"--receipt-url must equal {expected_receipt_url}")
+
+        # The immutable receipt, never mutable checkout receipt fields, selects
+        # the sole comment this stage may edit.
+        comment_url = authority.root_comment_url
+        prefix = f"{authority.root_issue_url}#issuecomment-"
+        comment_id = comment_url.removeprefix(prefix)
+        if not comment_url.startswith(prefix) or not comment_id.isdigit() or comment_id.startswith("0"):
+            raise PublicationError("receipt-bound comment identity is invalid")
+        comment_path = f"repos/{authority.repository}/issues/comments/{comment_id}"
+        raw_comment = self._get(comment_path)
+        state = self._canonical_comment_state(
+            raw_comment, authority, receipt_commit, expected_receipt_url,
+        )
+        if state == "successful":
+            self._run_receipt_verifier(
+                "successful", authority, receipt_commit, expected_receipt_url,
+            )
+            return {
+                "mode": "finalized", "comment": comment_url,
+                "receipt": receipt_commit,
+            }
+        if state != "pending":
+            raise PublicationError(
+                "receipt-bound comment is neither canonical pending nor successful"
+            )
+
+        # The receipt-bound verifier performs two complete graph reads before
+        # the mutation. Re-read the exact comment afterward to close the most
+        # useful race window and refuse to overwrite drift.
+        self._run_receipt_verifier(
+            "pending", authority, receipt_commit, expected_receipt_url,
+        )
+        fresh_comment = self._get(comment_path)
+        if self._canonical_comment_state(
+            fresh_comment, authority, receipt_commit, expected_receipt_url,
+        ) != "pending":
+            raise PublicationError("receipt-bound pending comment changed before finalization")
+        body = render_successful_comment(
+            authority.root_id, authority.plan_version, authority.approved_commit,
+            authority.repository, receipt_commit, expected_receipt_url,
+        )
+        self._mutate("PATCH", comment_path, {"body": body})
+        self._run_receipt_verifier(
+            "successful", authority, receipt_commit, expected_receipt_url,
+        )
+        return {"mode": "finalized", "comment": comment_url, "receipt": receipt_commit}
+
+    def _receipt_authority(self, receipt_commit: str) -> ReceiptAuthority:
+        report = Report()
+        authority = load_receipt_authority(
+            receipt_commit, self.context.root, report,
+        )
+        if authority is None:
+            raise PublicationError(
+                "receipt authority is invalid: " + "; ".join(report.errors)
+            )
+        return authority
+
+    def _canonical_comment_state(
+        self, raw: Any, authority: ReceiptAuthority, receipt_commit: str,
+        receipt_url: str,
+    ) -> str | None:
+        if not isinstance(raw, dict) or raw.get("html_url") != authority.root_comment_url:
+            return None
+        body = raw.get("body")
+        for state, commit, url in (
+            ("successful", receipt_commit, receipt_url),
+            ("pending", None, None),
+        ):
+            report = Report()
+            if inspect_comment(
+                body, raw.get("html_url"), authority.root_id,
+                authority.plan_version, authority.approved_commit, state,
+                commit, url, authority.repository,
+                f"receipt-bound {state} comment", report,
+            ) is not None and not report.errors:
+                return state
+        return None
+
+    def _run_receipt_verifier(
+        self, state: str, authority: ReceiptAuthority, receipt_commit: str,
+        receipt_url: str,
+    ) -> None:
         command = [
             sys.executable,
             str(self.context.publication_path.parent / "scripts/publication_comment.py"),
-            "--state", "pending", self.context.root_id,
-            str(self.context.plan_version), self.context.approved, receipt_commit,
-            receipt_url,
         ]
-        root_mapping = self.context.build.get("github_root")
-        root_url = root_mapping.get("url") if isinstance(root_mapping, dict) else None
-        if not isinstance(root_url, str):
-            raise PublicationError("materialized root mapping is unavailable")
-        command.extend([root_url, self.context.repository])
-        self._run_checked(command, "pending receipt-bound verifier")
-        receipt = self.context.publication.get("github_reconciliation")
-        matches = receipt.get("root_reconciliation_comment_matches") if isinstance(receipt, dict) else None
-        comment_url = matches[0].get("url") if isinstance(matches, list) and len(matches) == 1 and isinstance(matches[0], dict) else None
-        if not isinstance(comment_url, str) or "#issuecomment-" not in comment_url:
-            raise PublicationError("pending comment identity is unavailable")
-        comment_id = comment_url.rsplit("-", 1)[-1]
-        body = render_successful_comment(
-            self.context.root_id, self.context.plan_version, self.context.approved,
-            self.context.repository, receipt_commit, receipt_url,
-        )
-        self._mutate(
-            "PATCH", f"repos/{self.context.repository}/issues/comments/{comment_id}",
-            {"body": body},
-        )
-        command.remove("--state")
-        command.remove("pending")
-        self._run_checked(command, "successful receipt-bound verifier")
-        return {"mode": "finalized", "comment": comment_url, "receipt": receipt_commit}
+        if state == "pending":
+            command.extend(["--state", "pending"])
+        command.extend([
+            authority.root_id, str(authority.plan_version),
+            authority.approved_commit, receipt_commit, receipt_url,
+            authority.root_issue_url, authority.repository,
+        ])
+        self._run_checked(command, f"{state} receipt-bound verifier")
 
     def _check_authority(self, expected_tip: str | None = "configured") -> None:
         report = Report()
@@ -345,6 +431,10 @@ class Publisher:
                 if not isinstance(payload, dict) or set(payload) != MARKER_KEYS:
                     raise PublicationError(f"malformed planning marker schema on issue/PR #{number}")
                 payloads.append(payload)
+            if len(payloads) > 1:
+                raise PublicationError(
+                    f"issue/PR #{number} contains multiple planning markers"
+                )
             copy = dict(raw); copy["_planning_markers"] = payloads
             output.append(copy)
         return output
@@ -379,6 +469,12 @@ class Publisher:
                 if raw["number"] in protected:
                     raise PublicationError(f"logical identity {logical_id} reuses protected issue #{raw['number']}")
                 mappings[logical_id] = self._mapping(raw)
+        numbers = [mapping["number"] for mapping in mappings.values()]
+        nodes = [mapping["node_id"] for mapping in mappings.values()]
+        if len(numbers) != len(set(numbers)) or len(nodes) != len(set(nodes)):
+            raise PublicationError(
+                "multiple logical identities resolve to the same issue"
+            )
         return mappings
 
     def _ensure_issue(
@@ -740,8 +836,16 @@ class Publisher:
         return self.client.request("GET", path, allow_404=allow_404)
 
     def _mutate(self, method: str, path: str, payload: dict[str, Any]) -> Any:
+        if (
+            self._guard_apply_mutations
+            and self._apply_mutation_count % AUTHORITY_CHECKPOINT_MUTATIONS == 0
+        ):
+            self._check_authority()
         self.budget.request()
-        return self.client.request(method, path, payload)
+        result = self.client.request(method, path, payload)
+        if self._guard_apply_mutations:
+            self._apply_mutation_count += 1
+        return result
 
     def _mapping(self, raw: dict[str, Any]) -> dict[str, Any]:
         number, node, url = raw.get("number"), raw.get("node_id"), raw.get("html_url")
