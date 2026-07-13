@@ -74,7 +74,7 @@ Follow the detailed reference. At a glance:
 
 1. intake, identity, scope, and questions;
 2. current repository, design, tracker, and prior-art grounding;
-3. requirements brainstorm without premature ticketing;
+3. requirements brainstorm and sizing calibration without premature ticketing;
 4. cumulative evidence and explicit decisions;
 5. adversarial verification of load-bearing claims;
 6. `ce-plan` synthesis of implementation units and candidate boundaries;
@@ -95,6 +95,13 @@ review/acceptance boundary, and a PR that can leave the repository green. Split
 work with multiple independently shippable outcomes, bounded contexts, public
 contracts, or internal phase programs. Merge observations that share one root
 cause, owner/write seam, and verification boundary.
+
+Every executable ticket carries concrete implementation pointers — exact
+files, module and function names, patterns to copy, one worked data shape —
+verified against the researched commit and marked refreshable. Abstract
+constraint prose alone is not worker-ready for low-tier models, and a named
+reuse target that does not exist at the researched commit is a
+review-blocking defect.
 
 Complexity points measure size and uncertainty only:
 
@@ -117,6 +124,14 @@ turn useful observations into an open-ended feature backlog.
 Use hard `depends_on` only for semantic start/merge prerequisites. Represent
 resource or merge conflicts as `serializes_with`, advisory order as
 `suggested_after`, hierarchy as `contains`, and external constraints as gates.
+
+Design the graph for parallel execution, not just correctness: compute the
+wave profile and critical path before approval; dissolve same-wave
+serialization cliques by re-partitioning write surfaces (one module per
+page/section mounted by a shared shell beats many tickets composing one
+file); prefer reviewed-contract dependencies over proven-implementation
+dependencies where an explicitly temporary path is specified; and mark the
+top fan-out spine for first-slot staffing in the Executor handoff.
 Treat phase as a rollout/presentation hint, not a global barrier. Readiness is
 derived from hard dependencies, conflicts, current state, and capacity.
 
