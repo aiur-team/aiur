@@ -217,28 +217,26 @@ defmodule Aiur.Events.BranchRefStore do
   end
 
   defp decode_pending_unblocks(pending) when is_map(pending) do
-    Enum.reduce(pending, %{}, fn
-      {identifier, entries}, acc when is_map(entries) ->
-        validated =
-          Enum.reduce(entries, %{}, fn
-            {_key, metadata}, entry_acc when is_map(metadata) ->
-              case decode_metadata(identifier, metadata) do
-                {:ok, value} -> Map.put(entry_acc, pending_key(value), value)
-                :error -> entry_acc
-              end
-
-            _invalid, entry_acc ->
-              entry_acc
-          end)
-
-        if map_size(validated) == 0, do: acc, else: Map.put(acc, identifier, validated)
-
-      _invalid, acc ->
-        acc
-    end)
+    Enum.reduce(pending, %{}, &decode_pending_unblock/2)
   end
 
   defp decode_pending_unblocks(_pending), do: %{}
+
+  defp decode_pending_unblock({identifier, entries}, pending) when is_map(entries) do
+    validated = Enum.reduce(entries, %{}, &decode_pending_metadata(identifier, &1, &2))
+    if map_size(validated) == 0, do: pending, else: Map.put(pending, identifier, validated)
+  end
+
+  defp decode_pending_unblock(_invalid, pending), do: pending
+
+  defp decode_pending_metadata(identifier, {_key, metadata}, entries) when is_map(metadata) do
+    case decode_metadata(identifier, metadata) do
+      {:ok, value} -> Map.put(entries, pending_key(value), value)
+      :error -> entries
+    end
+  end
+
+  defp decode_pending_metadata(_identifier, _invalid, entries), do: entries
 
   defp decode_metadata(identifier, metadata) do
     ref = Map.get(metadata, "ref") || Map.get(metadata, :ref)

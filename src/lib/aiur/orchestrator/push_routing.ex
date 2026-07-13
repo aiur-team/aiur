@@ -184,16 +184,15 @@ defmodule Aiur.Orchestrator.PushRouting do
   @doc false
   @spec reconcile_pending_auto_resumes(State.t()) :: State.t()
   def reconcile_pending_auto_resumes(%State{} = state) do
-    state
-    |> reconcile_durable_unblocks()
-    |> then(fn reconciled ->
-      Enum.reduce(reconciled.running, reconciled, fn {_issue_id, entry}, acc ->
-        case Map.get(entry, :pending_auto_resume) do
-          %{} = hint when is_map(hint) -> maybe_drain_pending_auto_resume(acc, entry, hint)
-          _ -> acc
-        end
-      end)
-    end)
+    reconciled = reconcile_durable_unblocks(state)
+    Enum.reduce(reconciled.running, reconciled, &reconcile_pending_auto_resume/2)
+  end
+
+  defp reconcile_pending_auto_resume({_issue_id, entry}, state) do
+    case Map.get(entry, :pending_auto_resume) do
+      %{} = hint when is_map(hint) -> maybe_drain_pending_auto_resume(state, entry, hint)
+      _ -> state
+    end
   end
 
   defp reconcile_durable_unblocks(state) do
