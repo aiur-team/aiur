@@ -223,6 +223,8 @@ defmodule AiurEngineTest do
     }
     aiur_engine_main run --bg --no-dashboard --debug
     aiur_engine_main --bg --no-dashboard --debug
+    aiur_engine_main run --no-dashboard --bg --debug
+    aiur_engine_main --no-dashboard --bg --debug
     aiur_engine_main run --no-dashboard
     aiur_engine_main --no-dashboard
     """
@@ -230,6 +232,8 @@ defmodule AiurEngineTest do
     {out, 0} = run_sourced_engine(script, [])
 
     assert String.split(out, "\n", trim: true) == [
+             "MODE=background ARGS=--no-dashboard --debug",
+             "MODE=background ARGS=--no-dashboard --debug",
              "MODE=background ARGS=--no-dashboard --debug",
              "MODE=background ARGS=--no-dashboard --debug",
              "MODE=foreground ARGS=--no-dashboard",

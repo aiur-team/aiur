@@ -2118,6 +2118,21 @@ cmd_stop() {
 
 # --- dispatch ----------------------------------------------------------------
 
+dispatch_run() {
+  local mode="foreground" arg
+  local args=()
+
+  for arg in "$@"; do
+    if [ "$arg" = "--bg" ]; then
+      mode="background"
+    else
+      args+=("$arg")
+    fi
+  done
+
+  run_session "$mode" "${args[@]}"
+}
+
 aiur_engine_main() {
   local cmd="${1:-}"
   case "$cmd" in
@@ -2141,17 +2156,11 @@ aiur_engine_main() {
       run_init "$@"
       ;;
     --bg)
-      shift
-      run_session background "$@"
+      dispatch_run "$@"
       ;;
     run)
       shift
-      if [ "${1:-}" = "--bg" ]; then
-        shift
-        run_session background "$@"
-      else
-        run_session foreground "$@"
-      fi
+      dispatch_run "$@"
       ;;
     status)
       shift
@@ -2189,16 +2198,16 @@ aiur_engine_main() {
       cmd_stop
       ;;
     "")
-      run_session foreground
+      dispatch_run
       ;;
     -*)
       # leading-flag forms (e.g. `aiur --interactive <config>`) are a run
-      run_session foreground "$@"
+      dispatch_run "$@"
       ;;
     *)
       # a path/config argument is a run; anything else is a usage error
       if [ -e "$cmd" ]; then
-        run_session foreground "$@"
+        dispatch_run "$@"
       else
         echo "aiur: unknown command: $cmd" >&2
         usage >&2

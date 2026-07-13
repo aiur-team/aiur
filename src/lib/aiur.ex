@@ -21,6 +21,8 @@ defmodule Aiur.Application do
 
   require Logger
 
+  alias Aiur.Config, as: AiurConfig
+  alias Aiur.Config.RoutingValue
   alias Aiur.GitHub.Config
 
   @impl true
@@ -38,26 +40,62 @@ defmodule Aiur.Application do
     maybe_start_distribution()
     if Application.get_env(:aiur, :resolve_github_token_on_boot, true), do: resolve_github_token()
 
-    headless? = Application.get_env(:aiur, :headless, false)
-    dashboard? = not Application.get_env(:aiur, :no_dashboard, false)
-    # Headless is authoritative: if both flags somehow end up set (e.g. a
-    # hand-run `aiur --headless` that also injected `--interactive`), the lean
-    # path wins rather than booting a half-built interactive tree.
-    interactive_cli? = Application.get_env(:aiur, :interactive_cli, false) and not headless?
+    no_dashboard? = Application.get_env(:aiur, :no_dashboard, false)
 
-    children =
-      child_specs(
-        interactive_cli?: interactive_cli?,
-        headless?: headless?,
-        dashboard?: dashboard?,
-        debug?: debug?
+    with :ok <- validate_dashboard_compatibility(no_dashboard?) do
+      headless? = Application.get_env(:aiur, :headless, false)
+      # Headless is authoritative: if both flags somehow end up set (e.g. a
+      # hand-run `aiur --headless` that also injected `--interactive`), the lean
+      # path wins rather than booting a half-built interactive tree.
+      interactive_cli? = Application.get_env(:aiur, :interactive_cli, false) and not headless?
+
+      children =
+        child_specs(
+          interactive_cli?: interactive_cli?,
+          headless?: headless?,
+          dashboard?: not no_dashboard?,
+          debug?: debug?
+        )
+
+      Supervisor.start_link(
+        children,
+        strategy: :one_for_one,
+        name: Aiur.Supervisor
       )
+    end
+  end
 
-    Supervisor.start_link(
-      children,
-      strategy: :one_for_one,
-      name: Aiur.Supervisor
-    )
+  @doc """
+  Reject a no-dashboard launch when configured Remote Control sessions would
+  lose the HTTP lifecycle-hook endpoint they require.
+
+  The optional inputs keep this check pure in tests; production resolves both
+  values from the active workflow config.
+  """
+  @spec validate_dashboard_compatibility(boolean(), keyword()) :: :ok | {:error, String.t()}
+  def validate_dashboard_compatibility(no_dashboard?, opts \\ [])
+
+  def validate_dashboard_compatibility(false, _opts), do: :ok
+
+  def validate_dashboard_compatibility(true, opts) do
+    remote_control? = Keyword.get_lazy(opts, :remote_control?, &AiurConfig.agent_remote_control?/0)
+    routing = Keyword.get_lazy(opts, :routing, &AiurConfig.agent_routing/0)
+
+    sources =
+      []
+      |> maybe_add_remote_control_source(remote_control?, "agent.remote_control")
+      |> maybe_add_remote_control_source(remote_routing?(routing), "agent.routing +remote")
+
+    case sources do
+      [] ->
+        :ok
+
+      configured_sources ->
+        {:error,
+         "--no-dashboard cannot be used with Claude Remote Control configured by " <>
+           "#{Enum.join(configured_sources, " and ")}; Remote Control lifecycle hooks require " <>
+           "Aiur.HttpServer. Remove --no-dashboard or disable the Remote Control setting."}
+    end
   end
 
   @doc """
@@ -145,6 +183,15 @@ defmodule Aiur.Application do
     |> Enum.reject(&is_nil/1)
     |> Kernel.++(cli_children)
   end
+
+  defp remote_routing?(routing) when is_map(routing) do
+    Enum.any?(routing, fn {_level, value} -> RoutingValue.routing_remote_flag?(value) end)
+  end
+
+  defp remote_routing?(_routing), do: false
+
+  defp maybe_add_remote_control_source(sources, true, source), do: sources ++ [source]
+  defp maybe_add_remote_control_source(sources, false, _source), do: sources
 
   @impl true
   def prep_stop(state) do

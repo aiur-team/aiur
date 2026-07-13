@@ -94,6 +94,11 @@ keeps one detached tmux session as the BEAM lifetime holder. Re-running
 `aiur --bg` against a live session exits with an already-running hint; stale
 tmux state is cleaned up before restart.
 
+Claude Remote Control lifecycle hooks require the HTTP server. Aiur rejects a
+`--no-dashboard` launch when `agent.remote_control` is enabled or an
+`agent.routing` value uses `+remote`; remove the flag or disable that Remote
+Control configuration.
+
 ---
 
 _Command macro, delegate micro, maximize APM._

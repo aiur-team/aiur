@@ -217,6 +217,12 @@ watchdog. If that session is already live, `aiurdev --bg` exits successfully
 with an "already running" hint; if the tmux session is stale and the control RPC
 is down, the launcher cleans it up before starting a fresh background run.
 
+Claude Remote Control lifecycle hooks post to `Aiur.HttpServer`, so a
+no-listener run cannot support configured Remote Control. Startup fails with a
+clear error when `--no-dashboard` is combined with `agent.remote_control: true`
+or an `agent.routing` value ending in `+remote`; remove the flag or disable that
+Remote Control configuration.
+
 Non-loopback dashboard binds retain the authentication guard: set both
 `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD`, or Aiur refuses the
 dashboard bind while leaving the agent runtime available.

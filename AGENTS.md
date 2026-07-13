@@ -66,6 +66,11 @@ npm-installed `aiur` accepts the exact same set. The engine injects
 args. Pass `--host` when you want to expose the dashboard over the network
 (e.g. Tailscale, LAN).
 
+Claude Remote Control requires the dashboard server's lifecycle-hook endpoint.
+Aiur therefore rejects `--no-dashboard` when `agent.remote_control` is enabled
+or an `agent.routing` value carries `+remote`; remove `--no-dashboard` or
+disable that Remote Control configuration.
+
 ## Per-issue workspaces
 
 Each issue gets an isolated workspace at:

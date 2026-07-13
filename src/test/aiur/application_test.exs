@@ -32,6 +32,47 @@ defmodule Aiur.ApplicationTest do
     end
   end
 
+  describe "validate_dashboard_compatibility/2" do
+    test "allows no-dashboard when Remote Control is not configured" do
+      assert :ok =
+               AiurApp.validate_dashboard_compatibility(true,
+                 remote_control?: false,
+                 routing: %{1 => "codex", 2 => "claude:sonnet"}
+               )
+    end
+
+    test "rejects no-dashboard when global Remote Control is configured" do
+      assert {:error, message} =
+               AiurApp.validate_dashboard_compatibility(true,
+                 remote_control?: true,
+                 routing: %{}
+               )
+
+      assert message =~ "--no-dashboard cannot be used with Claude Remote Control"
+      assert message =~ "agent.remote_control"
+      assert message =~ "Remove --no-dashboard"
+    end
+
+    test "rejects no-dashboard when a complexity route forces Remote Control" do
+      assert {:error, message} =
+               AiurApp.validate_dashboard_compatibility(true,
+                 remote_control?: false,
+                 routing: %{5 => "claude:opus+remote"}
+               )
+
+      assert message =~ "agent.routing +remote"
+      assert message =~ "lifecycle hooks require Aiur.HttpServer"
+    end
+
+    test "dashboard-enabled launches bypass Remote Control compatibility checks" do
+      assert :ok =
+               AiurApp.validate_dashboard_compatibility(false,
+                 remote_control?: true,
+                 routing: %{5 => "claude+remote"}
+               )
+    end
+  end
+
   describe "child_specs/1 run-shape gating" do
     @terminal_only [
       Aiur.Tmux,
