@@ -91,16 +91,22 @@ defmodule Aiur.Events.BranchRefStore do
 
   @impl true
   def init(opts) do
-    path = Keyword.get(opts, :path, default_path())
-    document = load(path)
+    case store_path(opts) do
+      {:ok, path} ->
+        document = load(path)
 
-    {:ok,
-     %{
-       path: path,
-       refs: document.refs,
-       pending_unblocks: document.pending_unblocks,
-       persisted: document
-     }}
+        {:ok,
+         %{
+           path: path,
+           refs: document.refs,
+           pending_unblocks: document.pending_unblocks,
+           persisted: document
+         }}
+
+      {:error, reason} ->
+        Logger.error("BranchRefStore state path unavailable: reason=#{inspect(reason)}")
+        {:stop, {:decision_state_dir_unavailable, reason}}
+    end
   end
 
   @impl true
@@ -271,10 +277,17 @@ defmodule Aiur.Events.BranchRefStore do
     empty_document()
   end
 
+  defp store_path(opts) do
+    case Keyword.fetch(opts, :path) do
+      {:ok, path} -> {:ok, path}
+      :error -> default_path()
+    end
+  end
+
   defp default_path do
     case Paths.decision_state_dir() do
-      {:ok, state_dir} -> Path.join(state_dir, "branch_refs.json")
-      {:error, _reason} -> Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.branch_refs.json")
+      {:ok, state_dir} -> {:ok, Path.join(state_dir, "branch_refs.json")}
+      {:error, reason} -> {:error, reason}
     end
   end
 
