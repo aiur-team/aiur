@@ -96,7 +96,8 @@ style.
   members by phase and by lane; point totals fold the BO-001 complexity
   records. Ready-at-start and longest-chain facts should come from the BO-007
   readiness/graph module rather than a re-derivation in the view.
-- The plan-preview artifact (published from this pack's data) demonstrates
+- The committed plan preview (`docs/build-order/plan-preview.html` — open it
+  in a browser; it renders this pack's real data) demonstrates
   the intended layout: two side-by-side tables — Phase | count | points |
   bar | tickets and Epic | count | points | tickets — plus a KPI strip.
 - CSS lives with the Build Order route styles; note `dashboard.css` is

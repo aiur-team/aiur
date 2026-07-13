@@ -1,0 +1,441 @@
+<title>Aiur Build Order — plan preview</title>
+<style>
+:root{
+  --bg:#16171a; --bg-2:#1a1b1e; --surface:#1e2025; --surface-2:#23262c; --surface-3:#292d34;
+  --fg:#edeef0; --muted:#969aa4; --faint:#676b74;
+  --line:rgba(221,226,235,.12); --line-strong:rgba(221,226,235,.20); --hairline:rgba(221,226,235,.08);
+  --pill-bd:rgba(221,226,235,.14); --pill-bg:rgba(221,226,235,.04);
+  --accent:#2f86ff; --accent-ink:#8fbcff; --accent-soft:rgba(47,134,255,.15); --accent-line:rgba(47,134,255,.34);
+  --attn:#e3b341; --attn-ink:#f1cf6f; --attn-soft:rgba(227,179,65,.15); --attn-line:rgba(227,179,65,.34);
+  --block:#ff7b72; --block-ink:#ffa39c; --block-soft:rgba(255,123,114,.14); --block-line:rgba(255,123,114,.34);
+  --good:#3fb950; --good-ink:#74d47f; --good-soft:rgba(63,185,80,.14); --good-line:rgba(63,185,80,.32);
+  --super:#c69bff; --super-ink:#d8bcff; --super-soft:rgba(198,155,255,.15); --super-line:rgba(198,155,255,.34);
+  --shadow-sm:0 1px 2px rgba(0,0,0,.35);
+  --mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme: light){:root{
+  --bg:#e7d6b2; --bg-2:#e2cfa6; --surface:#f4ecd9; --surface-2:#efe5cd; --surface-3:#e9dcbf;
+  --fg:#2a2520; --muted:#756a55; --faint:#9a8e73;
+  --line:rgba(42,37,26,.16); --line-strong:rgba(42,37,26,.28); --hairline:rgba(42,37,26,.10);
+  --pill-bd:rgba(42,37,26,.18); --pill-bg:rgba(42,37,26,.04);
+  --accent:#1f57c4; --accent-ink:#1a4aa8; --accent-soft:rgba(31,87,196,.11); --accent-line:rgba(31,87,196,.30);
+  --attn:#b8821a; --attn-ink:#8a6210; --attn-soft:rgba(184,130,26,.13); --attn-line:rgba(184,130,26,.32);
+  --block:#d23b32; --block-ink:#a52a23; --block-soft:rgba(210,59,50,.11); --block-line:rgba(210,59,50,.30);
+  --good:#1f9d4d; --good-ink:#167038; --good-soft:rgba(31,157,77,.13); --good-line:rgba(31,157,77,.30);
+  --super:#8a4fd0; --super-ink:#6d3aa8; --super-soft:rgba(138,79,208,.12); --super-line:rgba(138,79,208,.30);
+  --shadow-sm:0 1px 2px rgba(58,44,18,.10);
+  color-scheme:light;
+}}
+:root[data-theme="dark"]{
+  --bg:#16171a; --bg-2:#1a1b1e; --surface:#1e2025; --surface-2:#23262c; --surface-3:#292d34;
+  --fg:#edeef0; --muted:#969aa4; --faint:#676b74;
+  --line:rgba(221,226,235,.12); --line-strong:rgba(221,226,235,.20); --hairline:rgba(221,226,235,.08);
+  --pill-bd:rgba(221,226,235,.14); --pill-bg:rgba(221,226,235,.04);
+  --accent:#2f86ff; --accent-ink:#8fbcff; --accent-soft:rgba(47,134,255,.15); --accent-line:rgba(47,134,255,.34);
+  --attn:#e3b341; --attn-ink:#f1cf6f; --attn-soft:rgba(227,179,65,.15); --attn-line:rgba(227,179,65,.34);
+  --block:#ff7b72; --block-ink:#ffa39c; --block-soft:rgba(255,123,114,.14); --block-line:rgba(255,123,114,.34);
+  --good:#3fb950; --good-ink:#74d47f; --good-soft:rgba(63,185,80,.14); --good-line:rgba(63,185,80,.32);
+  --super:#c69bff; --super-ink:#d8bcff; --super-soft:rgba(198,155,255,.15); --super-line:rgba(198,155,255,.34);
+  --shadow-sm:0 1px 2px rgba(0,0,0,.35); color-scheme:dark;
+}
+:root[data-theme="light"]{
+  --bg:#e7d6b2; --bg-2:#e2cfa6; --surface:#f4ecd9; --surface-2:#efe5cd; --surface-3:#e9dcbf;
+  --fg:#2a2520; --muted:#756a55; --faint:#9a8e73;
+  --line:rgba(42,37,26,.16); --line-strong:rgba(42,37,26,.28); --hairline:rgba(42,37,26,.10);
+  --pill-bd:rgba(42,37,26,.18); --pill-bg:rgba(42,37,26,.04);
+  --accent:#1f57c4; --accent-ink:#1a4aa8; --accent-soft:rgba(31,87,196,.11); --accent-line:rgba(31,87,196,.30);
+  --attn:#b8821a; --attn-ink:#8a6210; --attn-soft:rgba(184,130,26,.13); --attn-line:rgba(184,130,26,.32);
+  --block:#d23b32; --block-ink:#a52a23; --block-soft:rgba(210,59,50,.11); --block-line:rgba(210,59,50,.30);
+  --good:#1f9d4d; --good-ink:#167038; --good-soft:rgba(31,157,77,.13); --good-line:rgba(31,157,77,.30);
+  --super:#8a4fd0; --super-ink:#6d3aa8; --super-soft:rgba(138,79,208,.12); --super-line:rgba(138,79,208,.30);
+  --shadow-sm:0 1px 2px rgba(58,44,18,.10); color-scheme:light;
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);line-height:1.45;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1240px;margin:0 auto;padding:26px 20px 80px}
+a{color:var(--accent-ink)}
+button{font-family:inherit}
+
+/* header */
+.hd{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:16px;margin-bottom:18px}
+.hd-brand{display:flex;align-items:center;gap:.7rem}
+.hd-mark{width:34px;height:34px;border-radius:9px;background:var(--accent-soft);border:1px solid var(--accent-line);display:grid;place-items:center;color:var(--accent-ink);font-weight:800;font-size:15px}
+.hd h1{font-size:1.12rem;margin:0;font-weight:700}
+.hd .sub{font-family:var(--mono);font-size:.7rem;color:var(--muted);margin-top:2px}
+.hd-note{font-family:var(--mono);font-size:.66rem;color:var(--faint);text-align:right;max-width:430px}
+.theme-btn{border:1px solid var(--pill-bd);background:var(--pill-bg);color:var(--fg);border-radius:8px;padding:.35rem .6rem;cursor:pointer;font-size:.72rem;font-family:var(--mono)}
+
+/* KPI strip */
+.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin:14px 0 26px}
+@media(max-width:900px){.kpis{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:520px){.kpis{grid-template-columns:repeat(2,1fr)}}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 13px;box-shadow:var(--shadow-sm)}
+.kpi .n{font-family:var(--mono);font-size:1.35rem;font-weight:700;letter-spacing:-.01em}
+.kpi .l{font-size:.68rem;color:var(--muted);margin-top:4px;line-height:1.3}
+.kpi.acc .n{color:var(--accent-ink)} .kpi.good .n{color:var(--good-ink)} .kpi.sup .n{color:var(--super-ink)} .kpi.attn .n{color:var(--attn-ink)}
+
+/* graph card (prototype .bo-*) */
+.bo-card{display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px 18px 20px;box-shadow:var(--shadow-sm);margin-bottom:34px}
+.bo-header{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap}
+.bo-header h2{margin:0;font-size:1rem}
+.bo-header .cap{font-size:.74rem;color:var(--muted);margin-top:3px;max-width:64ch}
+.bo-tools{display:flex;align-items:center;gap:1rem;flex-wrap:wrap}
+.bo-legend{display:flex;align-items:center;gap:.9rem}
+.bo-leg{display:inline-flex;align-items:center;gap:.4rem;font-family:var(--mono);font-size:.68rem;color:var(--muted)}
+.bo-leg-line{width:1.4rem;height:0;border-top-width:2px;border-top-style:solid}
+.bo-leg-line.solid{border-color:var(--good)}
+.bo-leg-line.dashed{border-color:var(--block);border-top-style:dashed}
+.bo-zoom{display:inline-flex;align-items:center;gap:.3rem}
+.bo-zbtn{display:inline-grid;place-items:center;min-width:1.9rem;height:1.9rem;padding:0 .5rem;border-radius:8px;border:1px solid var(--pill-bd);background:var(--pill-bg);color:var(--fg);cursor:pointer;font-family:var(--mono);font-size:.82rem}
+.bo-zbtn:hover{border-color:var(--line-strong)}
+.bo-zval{font-family:var(--mono);font-size:.72rem;color:var(--muted);min-width:3rem;text-align:center}
+.bo-viewport{position:relative;margin-top:1rem;max-height:min(78vh,760px);border:1px solid var(--line);border-radius:14px;overflow:auto;cursor:grab;
+  background:radial-gradient(circle at center,color-mix(in srgb,var(--fg) 4%,transparent) 1px,transparent 1px) 0 0/22px 22px,var(--surface-2)}
+.bo-viewport.grabbing{cursor:grabbing}
+.bo-scale{transform-origin:0 0;width:max-content;min-width:100%}
+.bo-stage{position:relative;width:1120px;padding:0 1.2rem 1.4rem}
+.bo-lanes,.bo-grid{display:grid;grid-template-columns:58px repeat(5,minmax(150px,1fr));gap:0 14px}
+.bo-lanes{position:sticky;top:0;z-index:5;padding:.9rem 0 .7rem;background:color-mix(in srgb,var(--surface-2) 92%,transparent);backdrop-filter:blur(3px)}
+.bo-lane{min-width:0;display:flex;align-items:center;gap:.5rem;padding:.5rem .7rem;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-weight:700;font-size:.9rem}
+.bo-lane-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.78rem}
+.bo-lane-n{margin-left:auto;font-family:var(--mono);font-size:.66rem;color:var(--muted);font-weight:600}
+.bo-lane-ic{width:18px;height:18px;display:grid;place-items:center;color:var(--accent-ink)}
+.bo-lane-ic svg{width:16px;height:16px}
+.bo-grid-wrap{position:relative}
+.bo-grid{position:relative;z-index:2;align-items:start}
+.bo-edges{position:absolute;top:0;left:0;width:100%;height:100%;overflow:visible;z-index:1;pointer-events:none}
+.bo-edge{fill:none;stroke:var(--block-line);stroke-width:1.5;stroke-dasharray:5 4;opacity:.55}
+.bo-edge.hl{stroke:var(--accent);stroke-width:2.2;stroke-dasharray:none;opacity:1}
+.bo-edge-dot{fill:var(--block);opacity:.55}
+.bo-edge-dot.hl{fill:var(--accent);opacity:1}
+.bo-phase{grid-column:1;position:sticky;left:0;z-index:4;display:flex;flex-direction:column;justify-content:flex-start;align-items:flex-start;padding:1rem .5rem 0 0;background:color-mix(in srgb,var(--surface-2) 92%,transparent)}
+.bo-phase-n{font-weight:700;font-size:.82rem}
+.bo-phase-note{font-family:var(--mono);font-size:.62rem;color:var(--muted);letter-spacing:.03em}
+.bo-cell{display:flex;flex-wrap:wrap;gap:.7rem;padding:1rem 0 1.3rem;justify-content:center;align-content:flex-start}
+.bo-cell>.bo-node{flex:0 1 calc(50% - .35rem)}
+.bo-node{position:relative;z-index:2;display:flex;flex-direction:column;gap:.4rem;padding:.65rem .7rem;border-radius:12px;border:1px solid var(--line-strong);background:var(--surface);box-shadow:var(--shadow-sm);cursor:pointer;text-align:left;color:var(--fg);
+  transition:border-color .15s ease,box-shadow .15s ease,transform .15s ease,opacity .2s ease}
+.bo-node:hover{border-color:var(--accent-line);box-shadow:0 8px 22px color-mix(in srgb,var(--accent) 16%,transparent);transform:translateY(-1px)}
+.bo-node:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.bo-node.is-ready{border-color:var(--good-line)}
+.bo-node.dim{opacity:.38}
+.bo-node.hl{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.bo-node.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.bo-node-top{display:flex;align-items:center;gap:.5rem}
+.bo-ic{width:1.7rem;height:1.7rem;flex:none;display:grid;place-items:center;border-radius:8px;border:1px solid var(--line);background:var(--surface-2);color:var(--fg)}
+.bo-ic svg{width:15px;height:15px}
+.bo-node-title{font-size:.72rem;font-weight:600;line-height:1.25;color:var(--fg);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden}
+.bo-cx{margin-left:auto;flex:none;display:inline-flex;align-items:center;padding:.12rem .44rem;border-radius:999px;border:1px solid var(--super-line);background:var(--super-soft);font-family:var(--mono);font-size:.6rem;font-weight:700;color:var(--super-ink)}
+.bo-node-id{font-family:var(--mono);font-size:.64rem;font-weight:700;color:var(--muted)}
+.bo-node-status{display:flex;align-items:center;justify-content:space-between;gap:.4rem;font-family:var(--mono);font-size:.6rem;color:var(--muted)}
+.bo-node-status .st{display:inline-flex;align-items:center;gap:.3rem}
+.bo-node-status .st::before{content:"";width:.42rem;height:.42rem;border-radius:50%;background:currentColor;flex:none}
+.bo-node.is-ready .bo-node-status{color:var(--good-ink)}
+.crit{display:inline-flex;padding:.08rem .4rem;border-radius:999px;border:1px solid var(--attn-line);background:var(--attn-soft);color:var(--attn-ink);font-family:var(--mono);font-size:.56rem;font-weight:700}
+.xdep{display:inline-flex;padding:.08rem .4rem;border-radius:999px;border:1px solid var(--pill-bd);background:var(--pill-bg);color:var(--muted);font-family:var(--mono);font-size:.56rem}
+
+/* detail drawer */
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(400px,92vw);background:var(--surface);border-left:1px solid var(--line-strong);box-shadow:-18px 0 50px rgba(0,0,0,.3);z-index:50;padding:20px;overflow-y:auto;transform:translateX(105%);transition:transform .2s ease}
+.drawer.open{transform:none}
+.drawer h3{margin:.2rem 0 .3rem;font-size:.95rem;line-height:1.3}
+.drawer .did{font-family:var(--mono);font-size:.7rem;color:var(--muted)}
+.drawer .row{display:flex;gap:.5rem;flex-wrap:wrap;margin:.7rem 0}
+.pill{display:inline-flex;align-items:center;gap:.3rem;padding:.18rem .55rem;border-radius:999px;border:1px solid var(--pill-bd);background:var(--pill-bg);font-family:var(--mono);font-size:.64rem;color:var(--muted)}
+.drawer h4{font-size:.68rem;font-family:var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--faint);margin:1.1rem 0 .4rem}
+.dep-chip{display:inline-flex;margin:0 .3rem .3rem 0;padding:.2rem .55rem;border-radius:8px;border:1px solid var(--line);background:var(--surface-2);font-family:var(--mono);font-size:.66rem;color:var(--fg);cursor:pointer}
+.dep-chip:hover{border-color:var(--accent-line);color:var(--accent-ink)}
+.dep-chip.ext{cursor:default;color:var(--muted)}
+.drawer .close{position:absolute;top:12px;right:12px;border:1px solid var(--pill-bd);background:var(--pill-bg);color:var(--fg);border-radius:8px;width:28px;height:28px;cursor:pointer}
+
+/* summary tables */
+.sum{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px}
+@media(max-width:840px){.sum{grid-template-columns:1fr}}
+.sum-card{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:13px 15px}
+.sum-card h3{margin:0 0 8px;font-size:.78rem}
+.sum-tbl{width:100%;border-collapse:collapse;font-size:.7rem}
+.sum-tbl th{text-align:left;font-family:var(--mono);font-size:.6rem;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);padding:.25rem .4rem;border-bottom:1px solid var(--line)}
+.sum-tbl td{padding:.3rem .4rem;border-bottom:1px solid var(--hairline);vertical-align:top}
+.sum-tbl td.mono,.sum-tbl td:first-child{font-family:var(--mono);white-space:nowrap}
+.sum-tbl .ids{font-family:var(--mono);font-size:.62rem;color:var(--muted);line-height:1.6}
+.sum-tbl .ids b{color:var(--attn-ink);font-weight:700}
+.bar-cell{display:flex;align-items:center;gap:.5rem}
+.bar-cell i{height:8px;border-radius:4px;background:var(--accent);opacity:.75;display:inline-block}
+footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-family:var(--mono);font-size:.64rem;color:var(--faint);line-height:1.7}
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+  <div class="hd">
+    <div class="hd-brand">
+      <div class="hd-mark">A</div>
+      <div>
+        <h1>Build Order — plan preview</h1>
+        <div class="sub">its-everdred/aiur : aiur-dashboard-program · 54 members · plan v1 · researched @ 9849f329</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:.8rem">
+      <div class="hd-note">Prototype Build Order page rendered with the REAL planning-pack data (53 tickets). Static preview — the shipped page binds to live GitHub + Aiur state.</div>
+      <button class="theme-btn" id="themeBtn" aria-label="Toggle theme">◐ theme</button>
+    </div>
+  </div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <section class="bo-card" id="graph-all"></section>
+
+  <footer>
+    Data: docs/build-order/build-order.json + dashboard-companions.json (branch build-order-research), consolidated into one Build Order per operator direction 2026-07-13.
+    Rows are dependency waves (longest blocker path); all edges render blocking (dashed) because nothing is merged at plan time.
+    Epics re-drawn for this program (plan-graph / runtime / dashboard-ui / accounting / platform); icon keys map to the BO_ICONS line-art set (flow, gauge, components, chart, pipeline).
+    The per-phase and per-epic breakdowns are part of the real page design \u2014 owned by ticket BO-020.
+    Click any card for details \u00b7 drag to pan \u00b7 buttons to zoom.
+  </footer>
+</div>
+
+<div class="drawer" id="drawer" role="dialog" aria-modal="false" aria-label="Ticket detail">
+  <button class="close" id="drawerClose" aria-label="Close">✕</button>
+  <div id="drawerBody"></div>
+</div>
+
+<script>
+const DATA = {"tickets":[{"id":"BO-004","title":"Define configured-repository tracker identity","lane":"plan-graph","cx":3,"deps":[],"pack":"all","phase":1,"critical":true},{"id":"BO-008","title":"Build browser, accessibility, and performance harness","lane":"platform","cx":4,"deps":[],"pack":"all","phase":1},{"id":"DASH-006","title":"Add retained Decision lookup and queries","lane":"runtime","cx":3,"deps":[],"pack":"all","phase":1},{"id":"DASH-017","title":"Persist trusted Decision provenance","lane":"runtime","cx":3,"deps":[],"pack":"all","phase":1},{"id":"DASH-018","title":"Own provider-account generation identity","lane":"accounting","cx":3,"deps":[],"pack":"all","phase":1},{"id":"BO-001","title":"Define Build Order domain contract","lane":"plan-graph","cx":3,"deps":["BO-004"],"pack":"all","phase":2,"critical":true},{"id":"BO-016","title":"Provide configured-repository ticket detail","lane":"plan-graph","cx":4,"deps":["BO-004"],"pack":"all","phase":2},{"id":"BO-017","title":"Propagate typed ticket event observations","lane":"runtime","cx":4,"deps":["BO-004"],"pack":"all","phase":2},{"id":"DASH-001","title":"Ship responsive route-aware shell","lane":"dashboard-ui","cx":3,"deps":["BO-008"],"pack":"all","phase":2},{"id":"DASH-004","title":"Confirm applied unit controls","lane":"runtime","cx":4,"deps":["BO-004"],"pack":"all","phase":2},{"id":"DASH-012","title":"Project canonical provider meters","lane":"accounting","cx":3,"deps":["DASH-018"],"pack":"all","phase":2},{"id":"DASH-019","title":"Authenticate Claude telemetry transport","lane":"platform","cx":4,"deps":["BO-004"],"pack":"all","phase":2},{"id":"BO-002","title":"Fetch complete GitHub planning graph","lane":"plan-graph","cx":4,"deps":["BO-001"],"pack":"all","phase":3,"critical":true},{"id":"BO-005","title":"Project shared ticket activity","lane":"runtime","cx":4,"deps":["BO-017"],"pack":"all","phase":3},{"id":"BO-009","title":"Vendor layout worker and static platform","lane":"platform","cx":4,"deps":["BO-001","BO-008"],"pack":"all","phase":3},{"id":"DASH-002","title":"Recover canonical current-run membership","lane":"runtime","cx":4,"deps":["BO-017"],"pack":"all","phase":3},{"id":"DASH-007","title":"Align Commands presentation","lane":"dashboard-ui","cx":3,"deps":["DASH-001","DASH-006","DASH-017"],"pack":"all","phase":3},{"id":"DASH-008","title":"Define attributed usage envelopes","lane":"accounting","cx":3,"deps":["BO-017","DASH-018"],"pack":"all","phase":3},{"id":"DASH-013","title":"Normalize Claude account meters","lane":"accounting","cx":4,"deps":["DASH-012"],"pack":"all","phase":3},{"id":"DASH-020","title":"Normalize Codex account meters","lane":"accounting","cx":3,"deps":["DASH-012"],"pack":"all","phase":3},{"id":"DASH-021","title":"Enforce financial-data authentication","lane":"platform","cx":3,"deps":["DASH-001"],"pack":"all","phase":3},{"id":"DASH-026","title":"Project bounded live conversations","lane":"runtime","cx":3,"deps":["BO-017"],"pack":"all","phase":3},{"id":"BO-003","title":"Project atomic planning caches and LKG","lane":"plan-graph","cx":4,"deps":["BO-002"],"pack":"all","phase":4,"critical":true},{"id":"BO-006","title":"Migrate AgentList to shared activity","lane":"runtime","cx":3,"deps":["BO-005"],"pack":"all","phase":4},{"id":"BO-010","title":"Build DOM/SVG layout adapter and fallback","lane":"platform","cx":4,"deps":["BO-008","BO-009"],"pack":"all","phase":4},{"id":"BO-019","title":"Provide bounded recent ticket history","lane":"plan-graph","cx":3,"deps":["BO-005"],"pack":"all","phase":4},{"id":"DASH-009","title":"Persist canonical usage ledger","lane":"accounting","cx":4,"deps":["DASH-008"],"pack":"all","phase":4},{"id":"DASH-010","title":"Normalize Claude Remote usage","lane":"accounting","cx":3,"deps":["DASH-008","DASH-019"],"pack":"all","phase":4},{"id":"DASH-011","title":"Resolve exact usage pricing","lane":"accounting","cx":3,"deps":["DASH-008"],"pack":"all","phase":4},{"id":"DASH-016","title":"Project canonical Units rows and policy","lane":"dashboard-ui","cx":3,"deps":["BO-005","DASH-002"],"pack":"all","phase":4},{"id":"DASH-029","title":"Normalize headless usage sources","lane":"accounting","cx":3,"deps":["BO-017","DASH-008","DASH-018"],"pack":"all","phase":4},{"id":"BO-007","title":"Join planning and runtime state","lane":"plan-graph","cx":4,"deps":["BO-001","BO-003","BO-005"],"pack":"all","phase":5,"critical":true},{"id":"BO-018","title":"Build accessible base ticket context","lane":"dashboard-ui","cx":3,"deps":["BO-008","BO-016","BO-019"],"pack":"all","phase":5},{"id":"DASH-014","title":"Project canonical run summary","lane":"runtime","cx":4,"deps":["DASH-016"],"pack":"all","phase":5},{"id":"DASH-024","title":"Project durable usage aggregates","lane":"accounting","cx":4,"deps":["DASH-009"],"pack":"all","phase":5},{"id":"BO-011","title":"Adapt ticket context to Build Order","lane":"dashboard-ui","cx":4,"deps":["BO-007","BO-018"],"pack":"all","phase":6,"critical":true},{"id":"DASH-003","title":"Render responsive Units interface","lane":"dashboard-ui","cx":3,"deps":["BO-018","DASH-001","DASH-016"],"pack":"all","phase":6},{"id":"DASH-025","title":"Harden usage retention and compaction","lane":"accounting","cx":4,"deps":["DASH-024"],"pack":"all","phase":6},{"id":"DASH-030","title":"Project grouped usage scopes","lane":"accounting","cx":3,"deps":["DASH-011","DASH-024"],"pack":"all","phase":6},{"id":"DASH-032","title":"Project truthful current-run outcomes","lane":"runtime","cx":3,"deps":["DASH-002","DASH-014"],"pack":"all","phase":6},{"id":"BO-012","title":"Ship selectable minimum graph route","lane":"dashboard-ui","cx":4,"deps":["BO-003","BO-007","BO-010","BO-011"],"pack":"all","phase":7,"critical":true},{"id":"DASH-005","title":"Render applied unit controls","lane":"dashboard-ui","cx":3,"deps":["DASH-003","DASH-004"],"pack":"all","phase":7},{"id":"DASH-015","title":"Render authenticated provider meters","lane":"accounting","cx":3,"deps":["DASH-003","DASH-013","DASH-020","DASH-021"],"pack":"all","phase":7},{"id":"DASH-022","title":"Render accessible current-run summary","lane":"dashboard-ui","cx":3,"deps":["DASH-003","DASH-014"],"pack":"all","phase":7},{"id":"DASH-027","title":"Render accessible conversation drawer","lane":"dashboard-ui","cx":3,"deps":["DASH-003","DASH-026"],"pack":"all","phase":7},{"id":"DASH-028","title":"Render runtime capacity control","lane":"dashboard-ui","cx":2,"deps":["DASH-003"],"pack":"all","phase":7},{"id":"DASH-031","title":"Render authenticated usage and cost summary","lane":"accounting","cx":4,"deps":["DASH-003","DASH-010","DASH-013","DASH-020","DASH-021","DASH-025","DASH-029","DASH-030"],"pack":"all","phase":7},{"id":"DASH-034","title":"Render current-run Recent outcomes","lane":"dashboard-ui","cx":3,"deps":["DASH-003","DASH-007","DASH-032"],"pack":"all","phase":7},{"id":"BO-013","title":"Harden graph interaction and accessibility","lane":"dashboard-ui","cx":4,"deps":["BO-008","BO-012"],"pack":"all","phase":8,"critical":true},{"id":"BO-020","title":"Render plan phase and epic breakdowns","lane":"dashboard-ui","cx":2,"deps":["BO-003","BO-012"],"pack":"all","phase":8},{"id":"DASH-023","title":"Integrate selected Build Order usage","lane":"accounting","cx":4,"deps":["BO-003","BO-012","DASH-021","DASH-030","DASH-031"],"pack":"all","phase":8},{"id":"DASH-033","title":"Prove existing-dashboard parity","lane":"dashboard-ui","cx":3,"deps":["DASH-001","DASH-003","DASH-005","DASH-007","DASH-015","DASH-022","DASH-027","DASH-028","DASH-031","DASH-034"],"pack":"all","phase":8},{"id":"BO-014","title":"Prove responsive redraw, scale, and performance","lane":"dashboard-ui","cx":4,"deps":["BO-008","BO-013"],"pack":"all","phase":9,"critical":true},{"id":"BO-015","title":"Prove current-base real and synthetic acceptance","lane":"dashboard-ui","cx":4,"deps":["BO-006","BO-014","BO-020","DASH-023","DASH-033"],"pack":"all","phase":10,"critical":true}],"critical_path":["BO-004","BO-001","BO-002","BO-003","BO-007","BO-011","BO-012","BO-013","BO-014","BO-015"],"edge_count":105};
+
+const LANES = ["plan-graph","runtime","dashboard-ui","accounting","platform"];
+const LANE_LABEL = {"plan-graph":"Plan graph","runtime":"Runtime","dashboard-ui":"Dashboard UI","accounting":"Accounting","platform":"Platform"};
+const ICONS = {
+  "plan-graph":'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="5" r="2.2"/><circle cx="18" cy="5" r="2.2"/><circle cx="12" cy="19" r="2.2"/><path d="M7.5 6.8 11 16.5M16.5 6.8 13 16.5M8.2 5h7.6"/></svg>',
+  "runtime":'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 14a8 8 0 0 1 16 0"/><path d="M12 14l4-4"/><path d="M4 19h16"/></svg>',
+  "dashboard-ui":'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="8" height="7" rx="1.5"/><rect x="13" y="4" width="8" height="16" rx="1.5"/><rect x="3" y="13" width="8" height="7" rx="1.5"/></svg>',
+  "accounting":'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V9M10 20V4M16 20v-8M21 20H3"/></svg>',
+  "platform":'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h10M4 12h16M4 17h7"/><circle cx="17" cy="7" r="1.6"/><circle cx="14" cy="17" r="1.6"/></svg>'
+};
+const CX_GLYPH = ["","❶","❷","❸","❹","❺"];
+
+const byId = {};
+DATA.tickets.forEach(t => byId[t.id] = t);
+const dependents = {};
+DATA.tickets.forEach(t => t.deps.forEach(d => { (dependents[d] = dependents[d] || []).push(t.id); }));
+
+function packTickets(pack){ return DATA.tickets.filter(t => t.pack === pack); }
+
+function buildGraph(rootEl, pack, title, cap){
+  const T = packTickets(pack);
+  const phases = [...new Set(T.map(t=>t.phase))].sort((a,b)=>a-b);
+  const laneCounts = {}; T.forEach(t=>laneCounts[t.lane]=(laneCounts[t.lane]||0)+1);
+
+  let html = `
+  <div class="bo-header">
+    <div><h2>${title}</h2><div class="cap">${cap}</div></div>
+    <div class="bo-tools">
+      <div class="bo-legend">
+        <span class="bo-leg"><i class="bo-leg-line solid"></i>cleared</span>
+        <span class="bo-leg"><i class="bo-leg-line dashed"></i>blocking</span>
+      </div>
+      <div class="bo-zoom">
+        <button class="bo-zbtn" data-z="-">−</button>
+        <span class="bo-zval">100%</span>
+        <button class="bo-zbtn" data-z="+">+</button>
+        <button class="bo-zbtn" data-z="fit">Fit</button>
+      </div>
+    </div>
+  </div>
+  <div class="bo-viewport"><div class="bo-scale"><div class="bo-stage">
+    <div class="bo-lanes"><div></div>${LANES.map(l=>`
+      <div class="bo-lane"><span class="bo-lane-ic">${ICONS[l]}</span>
+        <span class="bo-lane-label">${LANE_LABEL[l]}</span>
+        <span class="bo-lane-n">${laneCounts[l]||0}</span></div>`).join("")}
+    </div>
+    <div class="bo-grid-wrap">
+      <svg class="bo-edges" aria-hidden="true"></svg>
+      <div class="bo-grid">`;
+
+  for (const ph of phases){
+    const inPhase = T.filter(t=>t.phase===ph);
+    html += `<div class="bo-phase"><span class="bo-phase-n">W${ph}</span><span class="bo-phase-note">${inPhase.length} tkt</span></div>`;
+    for (const lane of LANES){
+      const cell = inPhase.filter(t=>t.lane===lane);
+      html += `<div class="bo-cell">` + cell.map(t=>{
+        const ready = t.deps.length===0;
+        const xdeps = t.deps.filter(d=>byId[d] && byId[d].pack!==pack);
+        return `<button class="bo-node${ready?" is-ready":""}" data-id="${t.id}" id="node-${t.id}" aria-label="${t.id}: ${t.title}">
+          <div class="bo-node-top"><span class="bo-ic">${ICONS[t.lane]}</span>
+            <span class="bo-node-id">${t.id}</span>
+            <span class="bo-cx">${CX_GLYPH[t.cx]||t.cx} cx${t.cx}</span></div>
+          <div class="bo-node-title">${t.title}</div>
+          <div class="bo-node-status"><span class="st">${ready?"ready":"blocked ×"+t.deps.length}</span>
+            <span>${t.critical?'<span class="crit">critical path</span>':""}${xdeps.length?`<span class="xdep">needs ${xdeps.join(", ")}</span>`:""}</span></div>
+        </button>`;}).join("") + `</div>`;
+    }
+  }
+  html += `</div></div></div></div></div>`;
+
+  // per-phase + per-lane summary
+  html += `<div class="sum">
+    <div class="sum-card"><h3>Tickets per phase (dependency wave)</h3><table class="sum-tbl">
+      <tr><th>Wave</th><th>#</th><th>Pts</th><th></th><th>Tickets</th></tr>`;
+  const maxN = Math.max(...phases.map(p=>T.filter(t=>t.phase===p).length));
+  for (const ph of phases){
+    const P = T.filter(t=>t.phase===ph);
+    const pts = P.reduce((s,t)=>s+t.cx,0);
+    html += `<tr><td>P${ph}</td><td class="mono">${P.length}</td><td class="mono">${pts}</td>
+      <td style="width:90px"><span class="bar-cell"><i style="width:${Math.round(P.length/maxN*80)}px"></i></span></td>
+      <td class="ids">${P.map(t=>t.critical?`<b>${t.id}</b>`:t.id).join(", ")}</td></tr>`;
+  }
+  html += `</table></div>
+    <div class="sum-card"><h3>Tickets per epic</h3><table class="sum-tbl">
+      <tr><th>Epic</th><th>#</th><th>Pts</th><th>Tickets</th></tr>`;
+  for (const lane of LANES){
+    const P = T.filter(t=>t.lane===lane);
+    if (!P.length) continue;
+    html += `<tr><td>${LANE_LABEL[lane]}</td><td class="mono">${P.length}</td><td class="mono">${P.reduce((s,t)=>s+t.cx,0)}</td>
+      <td class="ids">${P.map(t=>t.id).join(", ")}</td></tr>`;
+  }
+  html += `</table></div></div>`;
+
+  rootEl.innerHTML = html;
+  wireGraph(rootEl, pack);
+}
+
+function posIn(el, ancestor){
+  let x=0,y=0,n=el;
+  while(n && n!==ancestor){ x+=n.offsetLeft; y+=n.offsetTop; n=n.offsetParent; }
+  return {x,y};
+}
+
+function drawEdges(rootEl, pack){
+  const svg = rootEl.querySelector(".bo-edges");
+  const wrap = rootEl.querySelector(".bo-grid-wrap");
+  const T = packTickets(pack);
+  svg.setAttribute("width", wrap.scrollWidth);
+  svg.setAttribute("height", wrap.scrollHeight);
+  let paths = "";
+  for (const t of T){
+    for (const d of t.deps){
+      const sEl = rootEl.querySelector(`#node-${d}`);
+      const tEl = rootEl.querySelector(`#node-${t.id}`);
+      if (!sEl || !tEl) continue;
+      const s = posIn(sEl, wrap), e = posIn(tEl, wrap);
+      const x1 = s.x + sEl.offsetWidth/2, y1 = s.y + sEl.offsetHeight;
+      const x2 = e.x + tEl.offsetWidth/2, y2 = e.y;
+      const dy = Math.max(24,(y2-y1)*0.45);
+      paths += `<path class="bo-edge" data-from="${d}" data-to="${t.id}" d="M ${x1} ${y1} C ${x1} ${y1+dy}, ${x2} ${y2-dy}, ${x2} ${y2}"/>
+                <circle class="bo-edge-dot" data-from="${d}" data-to="${t.id}" cx="${x2}" cy="${y2}" r="2.6"/>`;
+    }
+  }
+  svg.innerHTML = paths;
+}
+
+function chain(id, pack){
+  const up = new Set(), down = new Set();
+  (function walkUp(n){ (byId[n]?.deps||[]).forEach(d=>{ if(byId[d]?.pack===pack && !up.has(d)){ up.add(d); walkUp(d);} }); })(id);
+  (function walkDown(n){ (dependents[n]||[]).forEach(d=>{ if(byId[d]?.pack===pack && !down.has(d)){ down.add(d); walkDown(d);} }); })(id);
+  return new Set([id, ...up, ...down]);
+}
+
+function wireGraph(rootEl, pack){
+  const viewport = rootEl.querySelector(".bo-viewport");
+  const scale = rootEl.querySelector(".bo-scale");
+  const zval = rootEl.querySelector(".bo-zval");
+  let z = 1;
+  function apply(){ scale.style.transform = `scale(${z})`; zval.textContent = Math.round(z*100)+"%"; }
+  rootEl.querySelectorAll(".bo-zbtn").forEach(b=>b.addEventListener("click",()=>{
+    const k = b.dataset.z;
+    if (k==="+") z = Math.min(1.6, z+0.1);
+    else if (k==="-") z = Math.max(0.4, z-0.1);
+    else { z = Math.min(1.6, Math.max(0.4, (viewport.clientWidth-8)/scale.querySelector(".bo-stage").offsetWidth)); }
+    apply();
+  }));
+  // drag to pan
+  let drag=null;
+  viewport.addEventListener("pointerdown",e=>{
+    if (e.target.closest(".bo-node,.bo-zbtn")) return;
+    drag={x:e.clientX,y:e.clientY,l:viewport.scrollLeft,t:viewport.scrollTop};
+    viewport.classList.add("grabbing"); viewport.setPointerCapture(e.pointerId);
+  });
+  viewport.addEventListener("pointermove",e=>{ if(!drag) return;
+    viewport.scrollLeft = drag.l-(e.clientX-drag.x); viewport.scrollTop = drag.t-(e.clientY-drag.y); });
+  ["pointerup","pointercancel"].forEach(ev=>viewport.addEventListener(ev,()=>{drag=null;viewport.classList.remove("grabbing");}));
+
+  // hover chain highlight
+  rootEl.querySelectorAll(".bo-node").forEach(n=>{
+    n.addEventListener("mouseenter",()=>{
+      const c = chain(n.dataset.id, pack);
+      rootEl.querySelectorAll(".bo-node").forEach(m=>m.classList.toggle("dim", !c.has(m.dataset.id)));
+      rootEl.querySelectorAll(".bo-edge,.bo-edge-dot").forEach(p=>p.classList.toggle("hl", c.has(p.dataset.from)&&c.has(p.dataset.to)));
+    });
+    n.addEventListener("mouseleave",()=>{
+      rootEl.querySelectorAll(".bo-node.dim").forEach(m=>m.classList.remove("dim"));
+      rootEl.querySelectorAll(".hl").forEach(p=>p.classList.remove("hl"));
+    });
+    n.addEventListener("click",()=>openDrawer(n.dataset.id));
+  });
+
+  drawEdges(rootEl, pack);
+  new ResizeObserver(()=>drawEdges(rootEl, pack)).observe(rootEl.querySelector(".bo-grid"));
+}
+
+/* drawer */
+const drawer = document.getElementById("drawer");
+function openDrawer(id){
+  const t = byId[id];
+  const deps = t.deps.map(d=>({id:d, ext: byId[d]?.pack!==t.pack}));
+  const downs = (dependents[id]||[]).map(d=>({id:d, ext: byId[d]?.pack!==t.pack}));
+  document.getElementById("drawerBody").innerHTML = `
+    <div class="did">${t.id} · ${t.pack==="bo"?"Build Order member":"Dashboard companion"}</div>
+    <h3>${t.title}</h3>
+    <div class="row">
+      <span class="pill">${LANE_LABEL[t.lane]} epic</span>
+      <span class="pill">wave ${t.phase}</span>
+      <span class="pill">complexity ${t.cx}</span>
+      ${t.critical?'<span class="pill" style="color:var(--attn-ink);border-color:var(--attn-line);background:var(--attn-soft)">critical path</span>':""}
+    </div>
+    <h4>Blocked by (${deps.length})</h4>
+    <div>${deps.length?deps.map(d=>`<span class="dep-chip${d.ext?" ext":""}" data-go="${d.ext?"":d.id}">${d.id}${d.ext?" ↗":""}</span>`).join(""):'<span class="pill">none — ready at start</span>'}</div>
+    <h4>Blocks (${downs.length})</h4>
+    <div>${downs.length?downs.map(d=>`<span class="dep-chip${d.ext?" ext":""}" data-go="${d.ext?"":d.id}">${d.id}${d.ext?" ↗":""}</span>`).join(""):'<span class="pill">nothing downstream</span>'}</div>
+    <h4>Ticket document</h4>
+    <div class="did" style="line-height:1.5">docs/build-order/${t.pack==="bo"?"tickets":"companion-tickets"}/${t.id}-*.md<br>+ implementation pointers: docs/build-order/08-implementation-pointers.md §${t.id}</div>`;
+  drawer.classList.add("open");
+  document.querySelectorAll(".bo-node.sel").forEach(m=>m.classList.remove("sel"));
+  document.getElementById("node-"+id)?.classList.add("sel");
+  drawer.querySelectorAll(".dep-chip[data-go]").forEach(c=>{
+    if(!c.dataset.go) return;
+    c.addEventListener("click",()=>{ openDrawer(c.dataset.go);
+      document.getElementById("node-"+c.dataset.go)?.scrollIntoView({block:"center",inline:"center",behavior:"smooth"}); });
+  });
+}
+document.getElementById("drawerClose").addEventListener("click",()=>drawer.classList.remove("open"));
+document.addEventListener("keydown",e=>{ if(e.key==="Escape") drawer.classList.remove("open"); });
+
+/* KPIs */
+(function(){
+  const T = DATA.tickets;
+  const pts = T.reduce((s,t)=>s+t.cx,0);
+  const ready = T.filter(t=>t.deps.length===0).length;
+  const maxW = Math.max(...T.map(t=>t.phase));
+  document.getElementById("kpis").innerHTML = [
+    ["acc", T.length, "tickets \u2014 one Build Order, one graph"],
+    ["sup", pts, "complexity points across 5 epics"],
+    ["", maxW, "dependency waves (row = wave)"],
+    ["good", ready, "ready on day one (no blockers)"],
+    ["attn", DATA.critical_path.length, "tickets on the serial critical path"],
+    ["", DATA.edge_count, "hard blocker edges in the graph"],
+  ].map(([c,n,l])=>`<div class="kpi ${c}"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
+})();
+
+buildGraph(document.getElementById("graph-all"), "all",
+  "Build Order: aiur-dashboard-program \u2014 54 members, one graph",
+  "The consolidated plan as the shipped page would render it: every ticket is a member of one Build Order, so agents parallelize across the whole graph. Epic lanes \u00d7 dependency waves; native blockedBy edges (blocker \u2192 blocked), all blocking at plan time. Hover a card to trace its chain; amber marks the serial critical path. The per-phase and per-epic breakdowns below ship on the real page via BO-020.");
+
+/* theme toggle */
+document.getElementById("themeBtn").addEventListener("click",()=>{
+  const r = document.documentElement;
+  const cur = r.dataset.theme || (matchMedia("(prefers-color-scheme: light)").matches?"light":"dark");
+  r.dataset.theme = cur==="dark"?"light":"dark";
+  document.querySelectorAll(".bo-card").forEach(c=>{ // redraw edges (colors are CSS vars; sizes unchanged) — no-op but keeps svg sized
+  });
+});
+</script>

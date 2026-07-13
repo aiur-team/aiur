@@ -47,7 +47,8 @@ DASH-006, DASH-017, DASH-018 have no blockers); staff the top fan-out spine
 first — DASH-003 (8 dependents), BO-008 (6), BO-004 (5), BO-017 (5), BO-005,
 DASH-001, DASH-008 — a stall there starves more of the fleet than anything
 else. The serial critical path is BO-004→001→002→003→007→011→012→013→014→015
-(amber in the plan-preview artifact); keep it staffed continuously.
+(amber in the committed plan preview, `docs/build-order/plan-preview.html`);
+keep it staffed continuously.
 
 ## Start gate
 
