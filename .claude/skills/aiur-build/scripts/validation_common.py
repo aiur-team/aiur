@@ -9,6 +9,8 @@ from typing import Any
 
 TICKET_ID = re.compile(r"^[A-Z][A-Z0-9]*-[0-9]{3,}[A-Z]?$", re.ASCII)
 REQ_ID = re.compile(r"^[A-Z][A-Z0-9]*-[0-9]{3,}$", re.ASCII)
+DECISION_ID = re.compile(r"^DEC-[0-9]{3,}$", re.ASCII)
+DESIGN_ID = re.compile(r"^DESIGN-[0-9]{3,}$", re.ASCII)
 GATE_ID = re.compile(r"^GATE-[0-9]{3,}$", re.ASCII)
 SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$", re.ASCII)
 REPOSITORY = re.compile(r"^[^/\s]+/[^/\s]+$", re.ASCII)
@@ -16,7 +18,7 @@ SHA = re.compile(r"^[0-9a-fA-F]{40}$", re.ASCII)
 KINDS = {"executable", "audit", "gate", "umbrella", "capstone"}
 RUNNABLE_KINDS = {"executable", "audit", "gate", "capstone"}
 PROVENANCE = {"planned", "discovered"}
-DISPOSITIONS = {"ticket", "covered", "deferred", "rejected", "satisfied"}
+DISPOSITIONS = {"ticket", "deferred", "rejected", "satisfied"}
 EDGE_FIELDS = ("depends_on", "serializes_with", "suggested_after")
 SURFACE_FIELDS = ("write_surfaces", "contract_surfaces", "safety_surfaces")
 

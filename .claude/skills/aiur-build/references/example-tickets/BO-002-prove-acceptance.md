@@ -14,9 +14,15 @@
 
 **Requirements:** REQ-002
 
+**Researched at:** 0123456789abcdef0123456789abcdef01234567
+
 ## Outcome
 
 The bounded feature has durable merged-base acceptance evidence.
+
+## Context and evidence
+
+The finite feature boundary requires named merged-base operator evidence.
 
 ## Scope
 
@@ -27,10 +33,18 @@ The bounded feature has durable merged-base acceptance evidence.
 
 - Fix deferred reliability or optimization findings.
 
+## Existing owner and reuse target
+
+Reuse the repository's current integration and manual-acceptance harnesses.
+
 ## Contract and invariants
 
 This ticket owns feature-level acceptance. It may return a contributing ticket
 to rework, but it cannot expand the active feature boundary for non-blockers.
+
+## Refreshable implementation notes
+
+Refresh the current-base test commands and operator workflow at pickup.
 
 ## Acceptance and verification
 
@@ -46,8 +60,16 @@ to rework, but it cannot expand the active feature boundary for non-blockers.
 
 - The operator observes the complete Build Order workflow.
 
+## Failure, security, migration, and accessibility cases
+
+Record failed proof without expanding scope; no migration or new input applies.
+
 ## Surfaces
 
 - Reads: `BuildOrderSnapshot`.
 - Writes: acceptance evidence.
 - Contracts: feature acceptance.
+
+## Sibling boundaries and open gates
+
+BO-001 owns the provider contract; this ticket owns only final acceptance.

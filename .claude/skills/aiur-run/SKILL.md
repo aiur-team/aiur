@@ -35,25 +35,27 @@ status table in the planning branch.
 ## 2. Preflight
 
 Set `AIUR_CMD=scripts/aiurdev` in an Aiur development checkout and
-`AIUR_CMD=aiur` in a consumer repository. The examples below use the local shim.
+`AIUR_CMD=aiur` in a consumer repository. Use that command boundary throughout;
+consumer repositories do not contain the development shim.
 
 From the repository root:
 
 1. confirm auth, config discovery, tracker state slugs, workspace hooks, and the
    base branch required by the repository;
-2. run `scripts/aiurdev status` and resolve an existing session deliberately;
+2. run `"$AIUR_CMD" status` and resolve an existing session deliberately;
 3. inspect the scoped queue and native blockers before dispatch; if explicit
    IDs are in scope, queue them separately before launch:
 
    ```bash
-   scripts/aiurdev --todo <ids...> [--only]
+   "$AIUR_CMD" --todo <ids...> [--only]
    ```
 
    `--only` dequeues all other pending tickets and therefore requires explicit
    scope authority;
 4. choose a conservative starting cap and the recorded maximum;
-5. build with `scripts/aiurdev build` when the local release needs an explicit
-   clean checkpoint; ordinary launches already rebuild stale sources.
+5. when `AIUR_CMD=scripts/aiurdev`, use `"$AIUR_CMD" build` if the local release
+   needs an explicit clean checkpoint; ordinary local launches rebuild stale
+   sources, and installed `aiur` has no shim-only `build` command.
 
 Do not use `--test` or `--test3` for a real run. Those are destructive sandbox
 harnesses. Do not run from nested tmux.
@@ -64,8 +66,8 @@ Use the repository shim while developing Aiur and the installed `aiur` command
 in consumer repositories. Equivalent background forms are:
 
 ```bash
-scripts/aiurdev run --bg --debug --max-agents <n>
-scripts/aiurdev --bg --debug --max-agents <n>
+"$AIUR_CMD" run --bg --debug --max-agents <n>
+"$AIUR_CMD" --bg --debug --max-agents <n>
 ```
 
 Include `--debug` only when authorized. Its incident-reporting consequence is
@@ -85,8 +87,8 @@ builds; reduce concurrency before that fan-out.
 Use `aiur-monitor` after launch. First run:
 
 ```bash
-scripts/aiurdev watch --full
-scripts/aiurdev alerts --needs-attention
+"$AIUR_CMD" watch --full
+"$AIUR_CMD" alerts --needs-attention
 ```
 
 Then arm the platform's recurring/monitor mechanism at the recorded cadence.
@@ -94,7 +96,7 @@ Claude may use its recurring loop facility; Codex should use its persistent
 goal/monitor continuation; a shell operator can use:
 
 ```bash
-scripts/aiurdev watch --changes --interval <seconds>
+"$AIUR_CMD" watch --changes --interval <seconds>
 ```
 
 The timer and alert path are additive: an urgent alert is handled immediately,
@@ -108,7 +110,7 @@ On every observation:
 - act on the `ACTIONABLE` section before routine scheduling;
 - keep dependency-ready, conflict-free critical-path lanes occupied;
 - let default-on AIMD govern effective slots under the session ceiling; use
-  `scripts/aiurdev set max-agents <n>` to raise that ceiling deliberately or to
+  `"$AIUR_CMD" set max-agents <n>` to raise that ceiling deliberately or to
   lower it for resource/review pressure AIMD does not capture;
 - classify discoveries before ticket creation, prefer contained rework, and
   freeze creation when promoted/created tickets outpace completions;
@@ -116,7 +118,7 @@ On every observation:
   and optimization ledger;
 - follow the recovery ladder for stale, looping, or feedback-blind agents;
 - treat `ci-wait` as an automatic gate unless evidence shows the poller failed;
-- use `scripts/aiurdev message <id> <text>`, `pause`, and `resume` as the least
+- use `"$AIUR_CMD" message <id> <text>`, `pause`, and `resume` as the least
   invasive controls;
 - preserve decisions and incidents in the durable handoff/workpad.
 
@@ -150,10 +152,14 @@ sentence goal describing the Executor role, authority, Build Order selector,
 terminal condition, and immediate next actions. A replacement Executor starts
 by querying live GitHub/Aiur state.
 
-At the true terminal condition—or on an explicit human stop—run:
+The true terminal condition requires the bounded feature to be implemented and
+reviewed, integrated with green evidence on the current base, merged under the
+recorded policy, documented, and proven through its named end-to-end workflow.
+Deferred non-blockers do not extend that boundary. Then—or on an explicit human
+stop—run:
 
 ```bash
-scripts/aiurdev stop
+"$AIUR_CMD" stop
 ```
 
 Confirm the control plane and background processes are gone. A leak is an Aiur

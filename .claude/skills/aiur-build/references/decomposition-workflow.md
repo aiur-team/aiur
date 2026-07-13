@@ -127,8 +127,9 @@ Every executable ticket needs:
 - agent gate, at-merge gate, and human/manual evidence owner where relevant;
 - sibling boundaries and unresolved question gates.
 
-Give every requirement/finding exactly one disposition: ticket, covered by,
-deferred with reason, rejected with reason, or already satisfied with evidence.
+Give every requirement/finding exactly one disposition: owned by one or more
+tickets, deferred with reason, rejected with reason, or already satisfied with
+evidence.
 
 Classify execution discoveries in advance: promote only P0/P1 acceptance
 blockers, return contained review findings to rework, and preserve P2/P3 plus
@@ -150,7 +151,7 @@ Edge types:
   merge concurrently because of resource/write/contract conflict;
 - `suggested_after`: advisory ordering only;
 - `contains`: umbrella/hierarchy relation;
-- `external_blocker`: non-ticket gate with an owner;
+- `external_gates`: non-ticket gates with owners;
 - `discovered_from`: provenance for execution-discovered work.
 
 Phase is a presentation/rollout hint. It may aid batching, but it does not make
@@ -221,8 +222,9 @@ Stop here. Execution requires a separate `aiur-run` authorization.
 ### 8–15 tickets
 
 Use one requirements doc, one current-target delta, one technical decision doc,
-one test/rollout plan, three-to-five research tracks, one adversarial pass, and
-one integration capstone.
+one test/rollout plan, three-to-five research tracks, at least one adversarial
+pass (repeat after a high-severity or boundary-changing finding), and one
+integration capstone.
 
 ### 15–40 tickets
 

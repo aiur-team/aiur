@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import copy
+import tempfile
+from pathlib import Path
 
 from helpers import ValidatorCase, example, report_for
+from validation_common import Report
+from validation_documents import validate_document
 
 
 class SchemaTests(ValidatorCase):
@@ -41,6 +45,8 @@ class SchemaTests(ValidatorCase):
             lambda data: data["feature_boundary"].update({"mystery": 1}),
             lambda data: data["label_projection"].update({"mystery": 1}),
             lambda data: data["external_gates"][0].update({"mystery": 1}),
+            lambda data: data["design_evidence"][0].update({"mystery": 1}),
+            lambda data: data["decisions"][0].update({"mystery": 1}),
             lambda data: data["requirements"][0].update({"mystery": 1}),
             lambda data: data["tickets"][0].update({"mystery": 1}),
             lambda data: data["tickets"][0]["acceptance"].update({"mystery": 1}),
@@ -124,6 +130,47 @@ class SchemaTests(ValidatorCase):
         requirement.update(disposition="deferred", reason=None)
         self.assert_error(data, "deferred disposition cannot have ticket_ids")
         self.assert_error(data, "deferred disposition requires reason")
+
+    def test_covered_is_not_an_ambiguous_disposition(self) -> None:
+        data = example()
+        data["requirements"][0]["disposition"] = "covered"
+        self.assert_error(data, "invalid disposition")
+
+    def test_decision_and_design_refs_resolve(self) -> None:
+        data = example()
+        data["tickets"][0]["decision_refs"] = ["DEC-999"]
+        self.assert_error(data, "unknown decision ref")
+        data = example()
+        data["tickets"][0]["design_evidence_refs"] = ["DESIGN-999"]
+        self.assert_error(data, "unknown design evidence ref")
+        data = example()
+        data["design_evidence"][0]["sha256"] = "0" * 64
+        self.assert_error(data, "sha256 does not match")
+        data = example()
+        data["tickets"][0]["decision_refs"] = []
+        self.assert_error(data, "accepted decision is not referenced")
+
+    def test_ticket_document_requires_worker_sections(self) -> None:
+        data = example()
+        data["tickets"][0]["document"] = "example-tickets/BO-003-example-umbrella.md"
+        self.assert_error(data, "Kind metadata must match")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ticket.md"
+            path.write_text(
+                "# BO-001 — Thin\n\n**Kind:** executable\n\n"
+                "**Requirements:** REQ-001\n\n**Researched at:** abc\n",
+                encoding="utf-8",
+            )
+            report = Report()
+            validate_document(
+                "BO-001",
+                "ticket.md",
+                {"kind": "executable", "requirement_refs": ["REQ-001"]},
+                {"researched_at_commit": "abc"},
+                Path(directory),
+                report,
+            )
+            self.assertTrue(any("missing section: Outcome" in item for item in report.errors))
 
     def test_mutating_fixture_does_not_leak(self) -> None:
         first = example()

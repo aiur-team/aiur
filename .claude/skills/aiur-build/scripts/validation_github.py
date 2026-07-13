@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from validation_common import REPOSITORY, Report, nonempty_string, strict_int, strict_object
+from validation_github_receipt import validate_reconciliation
 
 
 GITHUB_KEYS = {"repository", "number", "node_id", "url"}
@@ -56,8 +57,10 @@ def validate_all_github(
     identities: dict[tuple[str, object], str] = {}
     node_ids: dict[str, str] = {}
     mappings: list[tuple[str, dict[str, Any] | None]] = [("github_root", root)]
+    ticket_mappings: dict[str, dict[str, Any] | None] = {}
     for ticket_id, ticket in by_id.items():
         mapping = validate_github_mapping(ticket.get("github"), f"{ticket_id}.github", report)
+        ticket_mappings[ticket_id] = mapping
         mappings.append((ticket_id, mapping))
         if mapping is not None and root is None:
             report.error(f"{ticket_id}.github cannot be materialized without github_root")
@@ -80,3 +83,4 @@ def validate_all_github(
             report.error(f"{label}.github duplicates node_id used by {node_ids[node_id]}")
         elif nonempty_string(node_id):
             node_ids[node_id] = label
+    validate_reconciliation(data, by_id, root, ticket_mappings, report)

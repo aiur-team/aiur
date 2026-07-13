@@ -214,7 +214,8 @@ defmodule Aiur.AiurAgentSkillTest do
     run_skill = one_line(run_skill)
     relay = one_line(relay)
 
-    assert monitor_skill =~ "adds immediacy"
+    assert monitor_skill =~ "streams new local-workspace alert records"
+    assert monitor_skill =~ "workspace-less alerts remain visible"
     assert run_skill =~ "timer and alert path are additive"
     assert relay =~ "real-time wake path"
     assert relay =~ "does not replace the recurring status cadence"

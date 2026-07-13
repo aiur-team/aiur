@@ -57,6 +57,8 @@ def umbrella(ticket_id: str, document: str, children: list[str]) -> dict[str, An
         "contract_surfaces": [],
         "safety_surfaces": [],
         "conflict_exceptions": [],
+        "decision_refs": [],
+        "design_evidence_refs": [],
         "acceptance": {"agent_gate": [], "at_merge_gate": [], "human_or_e2e": []},
         "github": None,
     }
@@ -68,7 +70,7 @@ def executable(ticket_id: str = "BO-003") -> dict[str, Any]:
         {
             "id": ticket_id,
             "title": "Add a second graph projection",
-            "document": "example-tickets/BO-003-example-umbrella.md",
+            "document": "example-tickets/BO-003-example-executable.md",
             "outcome": "A second projection is available.",
             "depends_on": ["BO-001"],
             "safety_surfaces": [],

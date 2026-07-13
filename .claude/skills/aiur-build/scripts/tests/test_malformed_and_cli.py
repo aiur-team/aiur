@@ -33,6 +33,8 @@ class MalformedSweepTests(ValidatorCase):
         baseline = example()
         paths = (
             ("requirement", baseline["requirements"][0]),
+            ("design", baseline["design_evidence"][0]),
+            ("decision", baseline["decisions"][0]),
             ("boundary", baseline["feature_boundary"]),
             ("labels", baseline["label_projection"]),
             ("gate", baseline["external_gates"][0]),
@@ -45,6 +47,8 @@ class MalformedSweepTests(ValidatorCase):
                         data = copy.deepcopy(baseline)
                         target = {
                             "requirement": data["requirements"][0],
+                            "design": data["design_evidence"][0],
+                            "decision": data["decisions"][0],
                             "boundary": data["feature_boundary"],
                             "labels": data["label_projection"],
                             "gate": data["external_gates"][0],

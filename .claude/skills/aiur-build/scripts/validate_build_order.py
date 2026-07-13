@@ -31,6 +31,7 @@ from validation_outcome import (
     validate_label_coverage,
     validate_surface_conflicts,
 )
+from validation_records import validate_decisions, validate_design_evidence, validate_record_refs
 from validation_tickets import validate_tickets
 
 
@@ -46,7 +47,10 @@ def validate_data(value: object, base_dir: Path) -> Report:
     projection = validate_label_projection(data, report)
     gates = validate_external_gates(data, report)
     requirements = validate_requirements(data, report)
+    design = validate_design_evidence(data, base_dir, report)
+    decisions = validate_decisions(data, report)
     by_id = validate_tickets(data, base_dir, report)
+    validate_record_refs(design, decisions, by_id, report)
     validate_references(requirements, by_id, workstreams, gates, report)
     validate_edge_types(by_id, report)
     closure = dependency_closure(by_id, report)

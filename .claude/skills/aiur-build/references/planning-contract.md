@@ -50,6 +50,7 @@ Top-level records are strict:
 - finite feature boundary with acceptance, critical path, documentation,
   cleanup, end-to-end proof, and terminal condition;
 - owned external gates;
+- captured design evidence and explicit accepted/rejected decisions;
 - requirements with exactly one disposition;
 - complete ticket contracts; and
 - capstone-owned epic acceptance evidence.
@@ -60,10 +61,10 @@ requirement references, typed edges, external gates, read/write/contract/safety
 surfaces, structured conflict exceptions, agent/at-merge/human acceptance, and
 optional returned GitHub identity.
 
-Allowed requirement dispositions are `ticket`, `covered`, `deferred`,
-`rejected`, and `satisfied`. `ticket` and `covered` require at least one ticket
-ID. Their `reason` is `null`; other dispositions require a non-empty reason and
-no ticket IDs. Requirement-to-ticket traceability must agree in both directions.
+Allowed requirement dispositions are `ticket`, `deferred`, `rejected`, and
+`satisfied`. `ticket` means one or more tickets own the requirement and requires
+their IDs plus a null reason. Other dispositions require a non-empty reason and
+no ticket IDs. Requirement-to-ticket traceability agrees in both directions.
 
 Allowed ticket kinds are `executable`, `audit`, `gate`, `umbrella`, and
 `capstone`. Every runnable kind needs complexity and acceptance metadata in its
@@ -80,6 +81,12 @@ expected number:
   "url": "https://github.com/owner/repo/issues/1234"
 }
 ```
+
+Keep `github_reconciliation` null before publication. After publication it is a
+bounded receipt from a fresh requery: timestamp, root node ID, exact direct
+membership, exact native dependency edges, and projected Build Order labels.
+The validator compares that receipt with the baseline and requires every GitHub
+mapping; it cannot prove the remote query was honestly performed.
 
 ## Ticket document template
 
@@ -164,7 +171,7 @@ What adjacent tickets own and any question that blocks pickup.
 
 ## Validation invariants
 
-The pack fails validation when:
+The graph validator fails when:
 
 1. Build Order/version/repository/SHA or stable IDs are absent or duplicated.
 2. Edge or requirement endpoints do not resolve, a self-edge exists, or the
@@ -179,13 +186,15 @@ The pack fails validation when:
    requirement traceability.
 7. An umbrella is counted as runnable work or hides an internal phase program.
 8. No capstone owns feature-level acceptance evidence.
-9. Design hash/import metadata, researched SHA, or required approval commit is
-   absent from the research/validation report.
-10. Generated ticket counts, tables, diagrams, and the canonical record differ.
-11. GitHub mappings or relationships do not requery successfully after
-    materialization.
-12. Planning prose claims live agent/progress state or contradicts the declared
-    source precedence.
+9. Captured design artifacts do not match their recorded hashes, decisions or
+   design evidence are orphaned, or ticket references do not resolve.
+10. Materialized mappings are partial or their reconciliation receipt drifts
+    from membership, dependencies, or projected labels.
+
+The command validates the canonical graph and referenced ticket/design files;
+it is not a whole-pack verifier. The committed validation report must separately
+record the approved planning commit, artifact hashes, generated-view/count
+agreement, fresh GitHub requery evidence, and a prose/source-precedence review.
 
 ## Source-state rules
 

@@ -79,7 +79,7 @@ Follow the detailed reference. At a glance:
 5. adversarial verification of load-bearing claims;
 6. `ce-plan` synthesis of implementation units and candidate boundaries;
 7. worker-sized ticket contracts and typed scheduling graph;
-8. mechanical validation plus CE document review;
+8. mechanical validation plus adversarial document review;
 9. optional GitHub materialization and post-publish reconciliation;
 10. durable runtime Executor handoff and stop.
 
@@ -136,16 +136,17 @@ python3 <loaded-skill-directory>/scripts/validate_build_order.py \
   docs/build-orders/<slug>/build-order.json
 ```
 
-Validation must cover unique IDs, resolved references, acyclic hard edges,
-phase contradictions, requirement dispositions, pickability metadata,
-parallel write/contract conflicts, and capstone ownership. Fix errors; explain
-and disposition warnings. Generate human tables and diagrams from the same
-records rather than maintaining competing counts by hand.
+Graph validation covers unique IDs, design/decision references, worker-document
+shape, resolved edges, phase contradictions, dispositions, pickability,
+parallel-safety conflicts, capstone ownership, and any GitHub reconciliation
+receipt. Fix errors; explain and disposition warnings. The separate review
+report records whole-pack gates the command cannot prove. Generate human tables
+and diagrams from the same records rather than maintaining competing counts.
 
-Run `ce-doc-review` on requirements, technical decisions, the plan, ticket
-contracts, and handoff using relevant lenses. Planning is complete only after
-two successive relevant review passes add no high-severity or boundary-changing
-finding and all required quality gates pass.
+Run `ce-doc-review`, or an equivalent adversarial review when CE is unavailable,
+on requirements, decisions, the plan, ticket contracts, and handoff. Run at
+least one pass; repeat after any high-severity or boundary-changing finding.
+Planning is complete when a relevant pass adds neither and all gates pass.
 
 ## Optional GitHub materialization
 
@@ -156,7 +157,8 @@ Only when explicitly authorized:
 3. map stable logical IDs to returned repo-qualified issue identities;
 4. publish native membership and dependency relationships;
 5. requery and validate the published graph rather than trusting mutation
-   responses;
+   responses, then record the bounded reconciliation receipt defined by the
+   planning contract;
 6. make GitHub canonical for the materialized ticket facts.
 
 Do not assume issue-number adjacency. Keep prose dependency tables as generated

@@ -117,9 +117,11 @@ ticket it will not pick up:
    ticket/PR, and the agent workpad/log evidence;
 2. send a concise, ticket-specific message with `aiurdev message <id> <text>`;
 3. correct labels, dependency state, or queue state only when the authoritative
-   source proves it is wrong and the authority envelope permits it;
-4. pause/resume the ticket; when process state is broken, stop and relaunch the
-   run because there is no per-worker restart control;
+   source proves it is wrong and the authority envelope permits it; in a GitHub
+   workflow, shelve an undispatched ticket with the `agent:paused` tracker
+   overlay, not a runtime pause command;
+4. pause/resume an existing worker; when process state is broken, stop and
+   relaunch the run because there is no per-worker restart control;
 5. route a reproducible Aiur defect under the bug policy below;
 6. take over the affected ticket/lane when it remains blocked after recovery,
    takeover is the best option, and self-fix authority was granted.
@@ -192,6 +194,9 @@ A resumable handoff contains:
 - the last deliberate capacity setting and why.
 - the deferred findings ledger and ticket-creation circuit-breaker state.
 
-The run is terminal only when the agreed scope and feature-level acceptance are
-satisfied, or the human explicitly stops it. A quiet board, one empty poll, or
-all child tickets closing without capstone evidence is not sufficient.
+A successful run is terminal only when the agreed scope is implemented,
+independently reviewed, green against the current configured base, merged under
+the recorded policy, documented/cleaned up, and proven through the named
+end-to-end workflow. An explicit human stop ends operation but must be recorded
+as stopped or incomplete rather than accepted. A quiet board, one empty poll,
+or all child tickets closing without capstone evidence is not sufficient.

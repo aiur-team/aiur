@@ -45,6 +45,17 @@ class GithubTests(ValidatorCase):
         data["github_root"] = github("example/repo", 100, "ROOT")
         data["tickets"][0]["github"] = github("example/repo", 101, "ONE")
         data["tickets"][1]["github"] = github("example/other", 102, "TWO")
+        data["github_reconciliation"] = {
+            "checked_at": "2026-01-01T00:00:00Z",
+            "root_node_id": "ROOT",
+            "member_ticket_ids": ["BO-001", "BO-002"],
+            "dependency_edges": [{"ticket_id": "BO-002", "depends_on": "BO-001"}],
+            "projected_labels": {
+                "github_root": ["build-order"],
+                "BO-001": ["build-lane:platform", "phase:1", "complexity:3"],
+                "BO-002": ["build-lane:integration", "phase:2", "complexity:2"],
+            },
+        }
         return data
 
     def test_valid_same_owner_mapping(self) -> None:
@@ -65,6 +76,25 @@ class GithubTests(ValidatorCase):
         data = self.materialized()
         data["tickets"][1]["github"] = github("outsider/repo", 102, "TWO")
         self.assert_error(data, "share the GitHub owner")
+
+    def test_materialization_requires_complete_reconciliation(self) -> None:
+        data = example()
+        data["github_root"] = github("example/repo", 100, "ROOT")
+        self.assert_error(data, "require github_reconciliation")
+        data = self.materialized()
+        data["tickets"][1]["github"] = None
+        self.assert_error(data, "missing ticket mappings")
+        data = self.materialized()
+        data["github_reconciliation"]["dependency_edges"] = []
+        self.assert_error(data, "dependencies must exactly match")
+
+    def test_reconciliation_is_strict_and_malformed_safe(self) -> None:
+        data = self.materialized()
+        data["github_reconciliation"]["mystery"] = True
+        self.assert_error(data, "unknown key mystery")
+        data = self.materialized()
+        data["github_reconciliation"]["projected_labels"] = []
+        self.assert_error(data, "projected_labels must be an object")
 
     def test_mapping_identity_must_be_unique(self) -> None:
         data = self.materialized()

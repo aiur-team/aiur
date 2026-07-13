@@ -19,8 +19,9 @@
 #   {"event":"alert","timestamp":"...","name":"ticket.43.agent.paused",
 #    "reason":"Agent paused","severity":"warning","needs_attention":true,
 #    "source_ticket_id":"43",...}
-# The central alerts.ndjson is written only for remote worker_host agents and is
-# out of scope here (local --bg runs write only agent.ndjson).
+# Remote-worker and workspace-less alerts have no local per-workspace record and
+# land in the central alerts.ndjson, which is out of scope here. The recurring
+# server-side `aiurdev watch` cadence is the backstop for those alerts.
 #
 # Output (oldest->newest, one per new alert; same shape as the alert feed plus
 # a timestamp so the chat line can say when it fired):

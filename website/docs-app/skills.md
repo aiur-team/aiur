@@ -20,7 +20,7 @@ Aiur has two skill families: driver skills under `.claude/skills/`, and skills p
 
 ## Skills in agent workspaces
 
-After a workspace is populated, `Aiur.AgentSkills.install/1` ([`agent_skills.ex`](../../src/lib/aiur/agent_skills.ex)) writes the **using-aiur** and **aiur-agent** driver skills into `<workspace>/.claude/skills/` and mirrors them into `<workspace>/.codex/skills/` via relative symlinks, so agents on any repository can load them; see the [Driver skills](#driver-skills) section.
+After a workspace is populated, `Aiur.AgentSkills.install/1` ([`agent_skills.ex`](../../src/lib/aiur/agent_skills.ex)) writes **using-aiur**, **aiur-agent**, and **design-import** into `<workspace>/.claude/skills/` and mirrors them into `<workspace>/.codex/skills/` via relative symlinks, so agents on any repository can load them; see the [Driver skills](#driver-skills) section.
 
 ### Codex-native git-workflow skills
 

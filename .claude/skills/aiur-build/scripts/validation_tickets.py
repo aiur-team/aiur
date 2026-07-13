@@ -19,6 +19,7 @@ from validation_common import (
     strict_int,
     strict_object,
 )
+from validation_documents import validate_document
 
 
 TICKET_KEYS = {
@@ -28,7 +29,8 @@ TICKET_KEYS = {
     "workstream", "requirement_refs", "depends_on", "serializes_with",
     "suggested_after", "contains", "external_gates", "read_surfaces",
     "write_surfaces", "contract_surfaces", "safety_surfaces",
-    "conflict_exceptions", "acceptance", "github",
+    "conflict_exceptions", "acceptance", "decision_refs",
+    "design_evidence_refs", "github",
 }
 ACCEPTANCE_KEYS = {"agent_gate", "at_merge_gate", "human_or_e2e"}
 EXCEPTION_KEYS = {"ticket_id", "surfaces", "reason"}
@@ -75,34 +77,6 @@ def validate_exceptions(ticket_id: str, value: object, report: Report) -> None:
             report.error(f"{label}.reason must be a non-empty string")
 
 
-def validate_document(ticket_id: str, value: object, base_dir: Path, report: Report) -> None:
-    if not nonempty_string(value):
-        report.error(f"{ticket_id}.document must be a non-empty relative path")
-        return
-    document = Path(value)
-    if document.is_absolute() or ".." in document.parts:
-        report.error(f"{ticket_id}.document must stay within the planning pack")
-        return
-    path = base_dir / document
-    try:
-        if not path.resolve().is_relative_to(base_dir.resolve()):
-            report.error(f"{ticket_id}.document must stay within the planning pack")
-            return
-    except OSError as exc:
-        report.error(f"{ticket_id}.document cannot be resolved: {exc}")
-        return
-    if not path.is_file():
-        report.error(f"{ticket_id}.document does not exist: {value}")
-        return
-    try:
-        first_line = path.read_text(encoding="utf-8").splitlines()[0]
-    except (OSError, UnicodeError, IndexError) as exc:
-        report.error(f"{ticket_id}.document cannot be read: {exc}")
-        return
-    if not re.match(rf"^#\s+{re.escape(ticket_id)}(?:\s|\u2014|-)", first_line):
-        report.error(f"{ticket_id}.document heading must begin with '# {ticket_id}'")
-
-
 def validate_ticket_fields(
     ticket_id: str, ticket: dict[str, Any], data: dict[str, Any], base_dir: Path, report: Report
 ) -> None:
@@ -116,8 +90,10 @@ def validate_ticket_fields(
     source = ticket.get("discovered_from")
     if provenance == "planned" and source is not None:
         report.error(f"{ticket_id}: planned ticket discovered_from must be null")
-    if provenance == "discovered" and not nonempty_string(source):
-        report.error(f"{ticket_id}: discovered ticket requires discovered_from")
+    if provenance == "discovered" and (
+        not isinstance(source, str) or not TICKET_ID.fullmatch(source)
+    ):
+        report.error(f"{ticket_id}: discovered ticket requires a ticket ID in discovered_from")
     version = ticket.get("introduced_in_plan_version")
     plan_version = data.get("plan_version")
     if not strict_int(version) or not strict_int(plan_version) or not 1 <= version <= plan_version:
@@ -128,7 +104,7 @@ def validate_ticket_fields(
             continue
         if not nonempty_string(value):
             report.error(f"{ticket_id}.{field} must be a non-empty string")
-    validate_document(ticket_id, ticket.get("document"), base_dir, report)
+    validate_document(ticket_id, ticket.get("document"), ticket, data, base_dir, report)
     phase = ticket.get("phase_hint")
     if not strict_int(phase) or phase < 1:
         report.error(f"{ticket_id}.phase_hint must be a positive integer")
@@ -137,7 +113,10 @@ def validate_ticket_fields(
         report.error(f"{ticket_id}: runnable complexity_points must be integer 1..5")
     if not runnable and points is not None:
         report.error(f"{ticket_id}: umbrella complexity_points must be null")
-    for field in ("scope", "non_goals", "capability_requirements", "requirement_refs"):
+    for field in (
+        "scope", "non_goals", "capability_requirements", "requirement_refs",
+        "decision_refs", "design_evidence_refs",
+    ):
         required = field in {"scope", "non_goals"} or (runnable and field in {"capability_requirements", "requirement_refs"})
         checked_string_list(ticket.get(field), f"{ticket_id}.{field}", report, require_items=required)
     for field in EDGE_FIELDS + ("contains", "external_gates", "read_surfaces") + SURFACE_FIELDS:
