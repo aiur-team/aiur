@@ -219,6 +219,74 @@ defmodule Aiur.WorkspaceMaterializeTest do
     assert File.dir?(unrelated)
   end
 
+  test "materialization waits for workspace recovery to leave its critical section", %{
+    tmp: tmp,
+    base: base
+  } do
+    workspace = Path.join(tmp, "serialized")
+    parent = self()
+
+    recovery =
+      Task.async(fn ->
+        Materialize.with_workspace_lock(workspace, fn ->
+          send(parent, :recovery_locked)
+
+          receive do
+            :release_recovery -> :ok
+          end
+        end)
+      end)
+
+    assert_receive :recovery_locked
+
+    materialization =
+      Task.async(fn ->
+        result = Workspace.materialize_from_base(base, workspace)
+        send(parent, {:materialization_finished, result})
+        result
+      end)
+
+    refute_receive {:materialization_finished, _result}, 100
+    send(recovery.pid, :release_recovery)
+
+    assert :ok = Task.await(recovery)
+    assert :ok = Task.await(materialization)
+    assert_receive {:materialization_finished, :ok}
+    assert branch(workspace) == "aiur/serialized"
+  end
+
+  test "does not recover a nested directory from its parent git checkout", %{tmp: tmp} do
+    parent = Path.join(tmp, "parent-checkout")
+    File.mkdir_p!(parent)
+    git!(["init", "--quiet", "-b", "main", parent])
+
+    workspace = Path.join(parent, "nested")
+    backup = workspace <> ".replaced-" <> String.duplicate("f", 32)
+    File.mkdir_p!(backup)
+    File.write!(Path.join(backup, "sentinel"), "not a checkout\n")
+
+    assert :ok = Materialize.recover_interrupted_replacement(workspace)
+    refute File.exists?(workspace)
+    refute File.exists?(backup)
+  end
+
+  test "preserves a valid backup when the canonical path is not a checkout", %{
+    tmp: tmp,
+    base: base
+  } do
+    workspace = Path.join(tmp, "ambiguous")
+    backup = workspace <> ".replaced-" <> String.duplicate("0", 32)
+    File.mkdir_p!(workspace)
+    File.write!(Path.join(workspace, "partial"), "failed restore\n")
+    File.cp_r!(base, backup)
+
+    assert {:error, {:workspace_recovery_ambiguous, ^workspace}} =
+             Materialize.recover_interrupted_replacement(workspace)
+
+    assert File.read!(Path.join(workspace, "partial")) == "failed restore\n"
+    assert File.read!(Path.join(backup, "README.md")) == "v1\n"
+  end
+
   test "exclusive sibling reservation retries preexisting paths", %{tmp: tmp} do
     workspace = Path.join(tmp, "reserved")
     collision = String.duplicate("d", 32)

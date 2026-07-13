@@ -42,16 +42,36 @@ defmodule Aiur.Workspace.Materialize do
   @doc false
   @spec recover_interrupted_replacement(Path.t()) :: :ok | {:error, term()}
   def recover_interrupted_replacement(workspace) when is_binary(workspace) do
+    with_workspace_lock(workspace, fn -> recover_interrupted_replacement_locked(workspace) end)
+  end
+
+  @doc false
+  @spec with_workspace_lock(Path.t(), (-> result)) :: result when result: term()
+  def with_workspace_lock(workspace, operation)
+      when is_binary(workspace) and is_function(operation, 0) do
+    lock_resource = {__MODULE__, Path.expand(workspace)}
+    :global.trans({lock_resource, self()}, operation)
+  end
+
+  defp recover_interrupted_replacement_locked(workspace) do
     backups = recognized_siblings(workspace, "replaced")
     staging = recognized_siblings(workspace, "materializing")
     reservations = recognized_reservations(workspace)
+    valid_backup = newest_valid_backup(backups)
 
     cond do
+      valid_checkout?(workspace) ->
+        cleanup_paths(backups ++ staging ++ reservations)
+        :ok
+
+      File.exists?(workspace) and valid_backup ->
+        {:error, {:workspace_recovery_ambiguous, workspace}}
+
       File.exists?(workspace) ->
         cleanup_paths(backups ++ staging ++ reservations)
         :ok
 
-      backup = newest_valid_backup(backups) ->
+      backup = valid_backup ->
         case File.rename(backup, workspace) do
           :ok ->
             cleanup_paths(List.delete(backups, backup) ++ staging ++ reservations)
@@ -79,24 +99,58 @@ defmodule Aiur.Workspace.Materialize do
 
   defp materialize_and_promote(base, workspace, checkout) do
     File.mkdir_p!(Path.dirname(workspace))
+    with_workspace_lock(workspace, fn -> materialize_locked(base, workspace, checkout) end)
+  end
 
-    with :ok <- recover_interrupted_replacement(workspace) do
+  defp materialize_locked(base, workspace, checkout) do
+    with :ok <- recover_interrupted_replacement_locked(workspace) do
       with_reserved_sibling(workspace, "materializing", &random_token/0, fn staging ->
-        try do
-          with {_out, 0} <- copy_tree(base, staging),
-               :ok <- checkout.(staging),
-               :ok <- promote(staging, workspace) do
-            :ok
-          else
-            other ->
-              Logger.warning("prewarm materialize failed (#{inspect(other)}); preserving existing workspace")
-              {:error, other}
-          end
-        after
-          File.rm_rf(staging)
-        end
+        build_and_promote(base, staging, workspace, checkout)
       end)
     end
+  end
+
+  defp build_and_promote(base, staging, workspace, checkout) do
+    try do
+      with {_out, 0} <- copy_tree(base, staging),
+           :ok <- checkout.(staging),
+           :ok <- promote(staging, workspace) do
+        :ok
+      else
+        other ->
+          Logger.warning("prewarm materialize failed (#{inspect(other)}); preserving existing workspace")
+          {:error, other}
+      end
+    after
+      File.rm_rf(staging)
+    end
+  end
+
+  defp valid_checkout?(path) do
+    candidate = Path.expand(path)
+
+    git_result =
+      System.cmd(
+        "git",
+        ["-C", candidate, "rev-parse", "--show-toplevel", "--absolute-git-dir"],
+        stderr_to_stdout: true
+      )
+
+    case git_result do
+      {output, 0} ->
+        case String.split(output, "\n", trim: true) do
+          [top_level, git_dir] -> Path.expand(top_level) == candidate and path_within?(git_dir, candidate)
+          _other -> false
+        end
+
+      _other ->
+        false
+    end
+  end
+
+  defp path_within?(path, parent) do
+    relative = path |> Path.expand() |> Path.relative_to(parent)
+    relative != ".." and not String.starts_with?(relative, "../")
   end
 
   defp reserve_sibling(_workspace, purpose, _token_fun, _operation, 0) do
@@ -190,13 +244,6 @@ defmodule Aiur.Workspace.Materialize do
     backups
     |> Enum.filter(&valid_checkout?/1)
     |> Enum.max_by(&modified_at/1, fn -> nil end)
-  end
-
-  defp valid_checkout?(path) do
-    case System.cmd("git", ["-C", path, "rev-parse", "--is-inside-work-tree"], stderr_to_stdout: true) do
-      {output, 0} -> String.trim(output) == "true"
-      _ -> false
-    end
   end
 
   defp modified_at(path) do
