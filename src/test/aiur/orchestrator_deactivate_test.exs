@@ -5029,6 +5029,50 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert get_in(next.running, [issue_id, :control, :status]) == :working
     end
 
+    test "ready unblock survives restart ordering until the consumer is restored", %{
+      identifier: identifier,
+      fake_pid: fake_pid
+    } do
+      empty = %Orchestrator.State{running: %{}}
+
+      empty =
+        EventTopics.route(empty, %{
+          topic: "ticket.99.agent.unblocked",
+          payload: %{ref: blocker_ref(), sha: blocker_sha()}
+        })
+
+      EventTopics.route(empty, %{
+        topic: "ticket.99.branch.push",
+        ref: blocker_ref(),
+        sha: blocker_sha()
+      })
+
+      assert BranchRefStore.ready_unblock("99") == %{ref: blocker_ref(), sha: blocker_sha()}
+      :ok = SubscriptionStore.add_subscription(identifier, "ticket.99.agent.unblocked", "blocker:auto")
+      issue_id = "issue-restored-after-ready"
+
+      entry =
+        %{
+          pid: fake_pid,
+          ref: nil,
+          identifier: identifier,
+          issue: %Issue{id: issue_id, state: "in-progress", identifier: identifier},
+          started_at: DateTime.utc_now(),
+          control: %{status: :paused}
+        }
+        |> Map.merge(blocker_pause_fields())
+
+      restored = %Orchestrator.State{
+        running: %{issue_id => entry},
+        claimed: MapSet.new([issue_id]),
+        max_concurrent_agents: 6
+      }
+
+      resumed = PushRouting.reconcile_pending_auto_resumes(restored)
+      assert get_in(resumed.running, [issue_id, :control, :status]) == :working
+      assert BranchRefStore.ready_unblock("99") == nil
+    end
+
     test "parked blockee ignores branch push then consumes explicit unblocked and resumes", %{
       identifier: identifier,
       fake_pid: fake_pid
@@ -5161,9 +5205,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
       end
 
       unblock = %{topic: "ticket.99.agent.unblocked", payload: %{ref: blocker_ref(), sha: blocker_sha()}}
-      assert get_in(EventTopics.route(state, unblock).running, [issue_id, :control, :status]) == :paused
-
-      pushed = EventTopics.route(state, %{topic: "ticket.99.branch.push", ref: blocker_ref(), sha: blocker_sha()})
+      awaiting_push = EventTopics.route(state, unblock)
+      assert get_in(awaiting_push.running, [issue_id, :control, :status]) == :paused
 
       mismatches = [
         %{ref: "refs/heads/aiur/99-other", sha: blocker_sha()},
@@ -5171,12 +5214,13 @@ defmodule Aiur.OrchestratorDeactivateTest do
       ]
 
       for payload <- mismatches do
-        next = EventTopics.route(pushed, %{topic: "ticket.99.agent.unblocked", payload: payload})
+        next = EventTopics.route(awaiting_push, %{topic: "ticket.99.agent.unblocked", payload: payload})
         assert get_in(next.running, [issue_id, :control, :status]) == :paused
       end
 
-      resumed = EventTopics.route(pushed, unblock)
-      assert get_in(resumed.running, [issue_id, :control, :status]) == :working
+      pushed = EventTopics.route(awaiting_push, %{topic: "ticket.99.branch.push", ref: blocker_ref(), sha: blocker_sha()})
+      assert get_in(pushed.running, [issue_id, :control, :status]) == :working
+      assert EventTopics.route(pushed, %{topic: "ticket.99.branch.push", ref: blocker_ref(), sha: blocker_sha()}) == pushed
     end
 
     test "retained readiness only drains its matching blocker-pause generation", %{

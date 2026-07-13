@@ -72,8 +72,18 @@ defmodule Aiur.Orchestrator.PushRouting do
   def record_blocker_branch_push(%State{} = state, blocker_identifier, event) do
     case validated_branch_metadata(blocker_identifier, event) do
       {:ok, metadata} ->
-        :ok = BranchRefStore.record(metadata.ref, metadata.sha)
-        state
+        case BranchRefStore.record_and_ready_unblock(metadata.ref, metadata.sha) do
+          {:ok, %{} = pending_unblock} ->
+            topic = "ticket.#{blocker_identifier}.agent.unblocked"
+            unblock_key = topic <> ":" <> pending_unblock.sha
+            resume_and_maybe_ack_unblock(state, blocker_identifier, topic, pending_unblock, unblock_key)
+
+          {:ok, nil} ->
+            state
+
+          :error ->
+            state
+        end
 
       :error ->
         state
@@ -129,11 +139,30 @@ defmodule Aiur.Orchestrator.PushRouting do
   def maybe_resume_blockees_on_unblocked(%State{} = state, blocker_identifier, topic, metadata) do
     unblock_key = topic <> ":" <> metadata.sha
 
-    if BranchRefStore.latest(blocker_identifier) == metadata do
-      resume_matching_running_entries(state, blocker_identifier, topic, unblock_key)
-    else
-      state
+    case BranchRefStore.register_unblock(metadata.ref, metadata.sha) do
+      :ready -> resume_and_maybe_ack_unblock(state, blocker_identifier, topic, metadata, unblock_key)
+      :pending -> state
+      :error -> state
     end
+  end
+
+  defp resume_and_maybe_ack_unblock(state, blocker_identifier, topic, metadata, unblock_key) do
+    candidate_ids = matching_candidate_ids(state, blocker_identifier)
+    next = resume_matching_running_entries(state, blocker_identifier, topic, unblock_key)
+
+    if candidate_ids != [] and Enum.all?(candidate_ids, &consumed_unblock?(next.running[&1], unblock_key)) do
+      :ok = BranchRefStore.acknowledge_unblock(metadata.ref, metadata.sha)
+    end
+
+    next
+  end
+
+  defp matching_candidate_ids(state, blocker_identifier) do
+    for {issue_id, entry} <- state.running,
+        is_map(entry),
+        not State.deactivated_running_entry?(entry),
+        match?({:ok, _generation}, matching_blocker_pause_generation(entry, blocker_identifier)),
+        do: issue_id
   end
 
   defp resume_matching_running_entries(state, blocker_identifier, topic, unblock_key) do
@@ -155,12 +184,34 @@ defmodule Aiur.Orchestrator.PushRouting do
   @doc false
   @spec reconcile_pending_auto_resumes(State.t()) :: State.t()
   def reconcile_pending_auto_resumes(%State{} = state) do
-    Enum.reduce(state.running, state, fn {_issue_id, entry}, acc ->
-      case Map.get(entry, :pending_auto_resume) do
-        %{} = hint when is_map(hint) ->
-          maybe_drain_pending_auto_resume(acc, entry, hint)
+    state
+    |> reconcile_durable_unblocks()
+    |> then(fn reconciled ->
+      Enum.reduce(reconciled.running, reconciled, fn {_issue_id, entry}, acc ->
+        case Map.get(entry, :pending_auto_resume) do
+          %{} = hint when is_map(hint) -> maybe_drain_pending_auto_resume(acc, entry, hint)
+          _ -> acc
+        end
+      end)
+    end)
+  end
 
-        _ ->
+  defp reconcile_durable_unblocks(state) do
+    state.running
+    |> Enum.reduce(MapSet.new(), fn {_issue_id, entry}, blockers ->
+      case Map.get(entry, :blocker_pause) do
+        %{blocker_identifier: identifier} -> MapSet.put(blockers, identifier)
+        _ -> blockers
+      end
+    end)
+    |> Enum.reduce(state, fn blocker_identifier, acc ->
+      case BranchRefStore.ready_unblock(blocker_identifier) do
+        %{} = metadata ->
+          topic = "ticket.#{blocker_identifier}.agent.unblocked"
+          unblock_key = topic <> ":" <> metadata.sha
+          resume_and_maybe_ack_unblock(acc, blocker_identifier, topic, metadata, unblock_key)
+
+        nil ->
           acc
       end
     end)

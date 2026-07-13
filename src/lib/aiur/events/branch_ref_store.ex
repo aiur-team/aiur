@@ -1,11 +1,12 @@
 defmodule Aiur.Events.BranchRefStore do
   @moduledoc """
-  Owns the restart-durable latest validated remote ref for each ticket branch.
+  Owns restart-durable validated remote refs and pending final unblocks.
 
-  Branch-push events update the store immediately. `LsRemoteTicker` replaces
-  the baseline after every successful poll, including its silent bootstrap,
-  so corroboration survives consumer subscription ordering and is restored
-  after an application restart.
+  Branch-push events update the ref baseline immediately. A final unblock that
+  arrives before its matching ref is retained until the exact ref/SHA is later
+  observed, preserving the agent's one-shot emission across event reordering.
+  `LsRemoteTicker` also replaces the baseline after every successful poll,
+  including its silent bootstrap.
   """
 
   use GenServer
@@ -32,6 +33,48 @@ defmodule Aiur.Events.BranchRefStore do
 
   def record(_ref, _sha, _server), do: :error
 
+  @doc """
+  Records a branch ref and returns a pending final unblock for the exact same
+  ref/SHA, if one arrived first. The unblock remains durable until routing
+  acknowledges it after consumers actually resume.
+  """
+  @spec record_and_ready_unblock(String.t(), String.t(), GenServer.server()) ::
+          {:ok, metadata() | nil} | :error
+  def record_and_ready_unblock(ref, sha, server \\ __MODULE__)
+
+  def record_and_ready_unblock(ref, sha, server) when is_binary(ref) and is_binary(sha) do
+    GenServer.call(server, {:record_and_ready_unblock, ref, sha})
+  end
+
+  def record_and_ready_unblock(_ref, _sha, _server), do: :error
+
+  @doc """
+  Registers a final unblock. Returns `:ready` when its exact ref is already
+  corroborated, otherwise durably retains it and returns `:pending`.
+  """
+  @spec register_unblock(String.t(), String.t(), GenServer.server()) :: :ready | :pending | :error
+  def register_unblock(ref, sha, server \\ __MODULE__)
+
+  def register_unblock(ref, sha, server) when is_binary(ref) and is_binary(sha) do
+    GenServer.call(server, {:register_unblock, ref, sha})
+  end
+
+  def register_unblock(_ref, _sha, _server), do: :error
+
+  @spec ready_unblock(String.t() | integer(), GenServer.server()) :: metadata() | nil
+  def ready_unblock(identifier, server \\ __MODULE__) do
+    GenServer.call(server, {:ready_unblock, to_string(identifier)})
+  end
+
+  @spec acknowledge_unblock(String.t(), String.t(), GenServer.server()) :: :ok | :error
+  def acknowledge_unblock(ref, sha, server \\ __MODULE__)
+
+  def acknowledge_unblock(ref, sha, server) when is_binary(ref) and is_binary(sha) do
+    GenServer.call(server, {:acknowledge_unblock, ref, sha})
+  end
+
+  def acknowledge_unblock(_ref, _sha, _server), do: :error
+
   @spec replace(map(), GenServer.server()) :: :ok
   def replace(refs, server \\ __MODULE__) when is_map(refs) do
     GenServer.call(server, {:replace, refs})
@@ -49,15 +92,74 @@ defmodule Aiur.Events.BranchRefStore do
   @impl true
   def init(opts) do
     path = Keyword.get(opts, :path, default_path())
-    {:ok, %{path: path, refs: load(path)}}
+    document = load(path)
+
+    {:ok,
+     %{
+       path: path,
+       refs: document.refs,
+       pending_unblocks: document.pending_unblocks,
+       persisted: document
+     }}
   end
 
   @impl true
   def handle_call({:record, ref, sha}, _from, state) do
     case validated_entry(ref, sha) do
       {:ok, identifier, metadata} ->
-        refs = Map.put(state.refs, identifier, metadata)
-        {:reply, :ok, persist_if_changed(state, refs)}
+        next = state |> Map.put(:refs, Map.put(state.refs, identifier, metadata)) |> persist_if_dirty()
+        {:reply, :ok, next}
+
+      :error ->
+        {:reply, :error, state}
+    end
+  end
+
+  def handle_call({:record_and_ready_unblock, ref, sha}, _from, state) do
+    case validated_entry(ref, sha) do
+      {:ok, identifier, metadata} ->
+        next =
+          state
+          |> Map.put(:refs, Map.put(state.refs, identifier, metadata))
+          |> persist_if_dirty()
+
+        {:reply, {:ok, get_pending(next.pending_unblocks, identifier, metadata)}, next}
+
+      :error ->
+        {:reply, :error, state}
+    end
+  end
+
+  def handle_call({:register_unblock, ref, sha}, _from, state) do
+    case validated_entry(ref, sha) do
+      {:ok, identifier, metadata} ->
+        if Map.get(state.refs, identifier) == metadata do
+          {:reply, :ready, persist_if_dirty(state)}
+        else
+          pending_unblocks = put_pending(state.pending_unblocks, identifier, metadata)
+          {:reply, :pending, state |> Map.put(:pending_unblocks, pending_unblocks) |> persist_if_dirty()}
+        end
+
+      :error ->
+        {:reply, :error, state}
+    end
+  end
+
+  def handle_call({:ready_unblock, identifier}, _from, state) do
+    ready =
+      case Map.get(state.refs, identifier) do
+        %{} = metadata -> get_pending(state.pending_unblocks, identifier, metadata)
+        nil -> nil
+      end
+
+    {:reply, ready, state}
+  end
+
+  def handle_call({:acknowledge_unblock, ref, sha}, _from, state) do
+    case validated_entry(ref, sha) do
+      {:ok, identifier, metadata} ->
+        {_pending, pending_unblocks} = pop_pending(state.pending_unblocks, identifier, metadata)
+        {:reply, :ok, state |> Map.put(:pending_unblocks, pending_unblocks) |> persist_if_dirty()}
 
       :error ->
         {:reply, :error, state}
@@ -65,7 +167,8 @@ defmodule Aiur.Events.BranchRefStore do
   end
 
   def handle_call({:replace, refs}, _from, state) do
-    {:reply, :ok, persist_if_changed(state, validated_refs(refs))}
+    next = state |> Map.put(:refs, validated_refs(refs)) |> persist_if_dirty()
+    {:reply, :ok, next}
   end
 
   def handle_call({:latest, identifier}, _from, state) do
@@ -73,26 +176,39 @@ defmodule Aiur.Events.BranchRefStore do
   end
 
   def handle_call(:reset, _from, state) do
-    {:reply, :ok, persist_if_changed(state, %{})}
+    next = state |> Map.put(:refs, %{}) |> Map.put(:pending_unblocks, %{}) |> persist_if_dirty()
+    {:reply, :ok, next}
   end
 
   defp load(path) do
     case JsonStore.read(path, %{}) do
-      {:ok, refs} when is_map(refs) -> decode_refs(refs)
+      {:ok, value} when is_map(value) -> decode_document(value)
       {:error, reason} -> log_load_failure(path, reason)
-      _other -> %{}
+      _other -> empty_document()
+    end
+  end
+
+  defp decode_document(value) do
+    if Map.has_key?(value, "refs") or Map.has_key?(value, :refs) do
+      refs = Map.get(value, "refs") || Map.get(value, :refs) || %{}
+      pending_unblocks = Map.get(value, "pending_unblocks") || Map.get(value, :pending_unblocks) || %{}
+
+      %{
+        refs: decode_refs(refs),
+        pending_unblocks: decode_pending_unblocks(pending_unblocks)
+      }
+    else
+      # Migration from the first store format, whose top-level map was refs.
+      %{refs: decode_refs(value), pending_unblocks: %{}}
     end
   end
 
   defp decode_refs(refs) do
     Enum.reduce(refs, %{}, fn
       {identifier, metadata}, acc when is_map(metadata) ->
-        ref = Map.get(metadata, "ref") || Map.get(metadata, :ref)
-        sha = Map.get(metadata, "sha") || Map.get(metadata, :sha)
-
-        case validated_entry(ref, sha) do
-          {:ok, ^identifier, validated} -> Map.put(acc, identifier, validated)
-          _ -> acc
+        case decode_metadata(identifier, metadata) do
+          {:ok, validated} -> Map.put(acc, identifier, validated)
+          :error -> acc
         end
 
       _invalid, acc ->
@@ -100,25 +216,93 @@ defmodule Aiur.Events.BranchRefStore do
     end)
   end
 
-  defp persist_if_changed(%{refs: refs} = state, refs), do: state
+  defp decode_pending_unblocks(pending) when is_map(pending) do
+    Enum.reduce(pending, %{}, fn
+      {identifier, entries}, acc when is_map(entries) ->
+        validated =
+          Enum.reduce(entries, %{}, fn
+            {_key, metadata}, entry_acc when is_map(metadata) ->
+              case decode_metadata(identifier, metadata) do
+                {:ok, value} -> Map.put(entry_acc, pending_key(value), value)
+                :error -> entry_acc
+              end
 
-  defp persist_if_changed(state, refs) do
-    JsonStore.write!(state.path, refs)
-    %{state | refs: refs}
+            _invalid, entry_acc ->
+              entry_acc
+          end)
+
+        if map_size(validated) == 0, do: acc, else: Map.put(acc, identifier, validated)
+
+      _invalid, acc ->
+        acc
+    end)
+  end
+
+  defp decode_pending_unblocks(_pending), do: %{}
+
+  defp decode_metadata(identifier, metadata) do
+    ref = Map.get(metadata, "ref") || Map.get(metadata, :ref)
+    sha = Map.get(metadata, "sha") || Map.get(metadata, :sha)
+
+    case validated_entry(ref, sha) do
+      {:ok, ^identifier, validated} -> {:ok, validated}
+      _ -> :error
+    end
+  end
+
+  defp persist_if_dirty(state) do
+    document = current_document(state)
+
+    if document == state.persisted do
+      state
+    else
+      JsonStore.write!(state.path, document)
+      %{state | persisted: document}
+    end
   rescue
     error ->
       Logger.warning("BranchRefStore persistence failed: path=#{state.path} reason=#{Exception.message(error)}")
-      %{state | refs: refs}
+      state
   end
+
+  defp current_document(state), do: %{refs: state.refs, pending_unblocks: state.pending_unblocks}
+  defp empty_document, do: %{refs: %{}, pending_unblocks: %{}}
 
   defp log_load_failure(path, reason) do
     Logger.warning("BranchRefStore load failed: path=#{path} reason=#{inspect(reason)}")
-    %{}
+    empty_document()
   end
 
   defp default_path do
-    Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.branch_refs.json")
+    case Paths.decision_state_dir() do
+      {:ok, state_dir} -> Path.join(state_dir, "branch_refs.json")
+      {:error, _reason} -> Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.branch_refs.json")
+    end
   end
+
+  defp put_pending(pending, identifier, metadata) do
+    Map.update(pending, identifier, %{pending_key(metadata) => metadata}, fn entries ->
+      Map.put(entries, pending_key(metadata), metadata)
+    end)
+  end
+
+  defp pop_pending(pending, identifier, metadata) do
+    entries = Map.get(pending, identifier, %{})
+    {matched, remaining} = Map.pop(entries, pending_key(metadata))
+
+    pending =
+      if map_size(remaining) == 0,
+        do: Map.delete(pending, identifier),
+        else: Map.put(pending, identifier, remaining)
+
+    {matched, pending}
+  end
+
+  defp get_pending(pending, identifier, metadata) do
+    pending |> Map.get(identifier, %{}) |> Map.get(pending_key(metadata))
+  end
+
+  defp pending_key(metadata), do: metadata.ref <> ":" <> metadata.sha
 
   defp validated_refs(refs) do
     refs
