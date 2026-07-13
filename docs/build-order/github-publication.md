@@ -14,6 +14,65 @@
 Publication is the final planning action. Do not launch Aiur, add a dispatch
 label, implement a ticket, or merge either planning branch.
 
+## Publication operator
+
+Use `scripts/publication_operator.py`; do not reproduce the 56-issue and
+107-edge ceremony with ad hoc `gh` commands. Its default mode is a bounded,
+read-only rehearsal. Both authority arguments are assertions: the approval is
+the exact commit reviewed as immutable planning scope, and the green authority
+is the exact current tip of the frozen trusted branch.
+
+The approval SHA changes whenever this planning branch changes, including a
+change to the operator itself. After the final planning commit, obtain fresh
+approval of that exact SHA; never reuse an approval for an earlier candidate.
+Then run:
+
+```bash
+APPROVED_SHA=<exact-newly-reviewed-40-character-commit>
+GREEN_SHA=<exact-current-green-tip-of-build-order-research>
+
+# Default is --dry-run and performs no mutation.
+python3 docs/build-order/scripts/publication_operator.py \
+  --approved-sha "$APPROVED_SHA" \
+  --green-authority-sha "$GREEN_SHA"
+
+# Explicit publication stage. This stops with a pending comment and local
+# receipt files; it never commits, pushes, or marks publication successful.
+python3 docs/build-order/scripts/publication_operator.py --apply \
+  --approved-sha "$APPROVED_SHA" \
+  --green-authority-sha "$GREEN_SHA"
+```
+
+`--apply` is resumable. If it is interrupted, rerun the identical command.
+The operator rescans mixed open/closed issue and PR entries, resolves only the
+one exact canonical marker for each logical ID, fresh-GETs created identities,
+adds missing labels and native relationships without removal/replacement, and
+reuses the one exact pending reconciliation comment. A conflicting marker,
+parent, child, blocker, routing label, or comment stops the run. The only label
+definitions it is allowed to create are `build-order`, the five approved
+`build-lane:*` labels, and `phase:7`/`phase:8`; all other required definitions
+must already exist.
+
+After `--apply`, review both receipt manifests and the two substituted
+templates, then commit and push those receipt-only changes through the normal
+review path. Finalization is deliberately separate:
+
+```bash
+RECEIPT_SHA=<exact-pushed-receipt-commit>
+RECEIPT_URL="https://github.com/its-everdred/aiur/commit/$RECEIPT_SHA"
+
+python3 docs/build-order/scripts/publication_operator.py --finalize \
+  --approved-sha "$APPROVED_SHA" \
+  --green-authority-sha "$RECEIPT_SHA" \
+  --receipt-commit "$RECEIPT_SHA" \
+  --receipt-url "$RECEIPT_URL"
+```
+
+Finalization runs the existing receipt-bound pending verifier (two complete
+fresh snapshots plus branch/commit authority), edits only that same pending
+comment to the canonical successful body, then runs the successful verifier.
+It does not create issues, labels, membership, or dependencies.
+
 ## Materialization set
 
 1. Requery open and closed issues for hidden logical-ID markers and overlapping

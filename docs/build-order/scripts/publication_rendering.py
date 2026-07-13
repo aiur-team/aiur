@@ -329,6 +329,168 @@ def render_approved_titles(
     return titles
 
 
+def render_approved_issue_content(
+    build_path: Path, publication_path: Path, approved: object, report: Report,
+) -> tuple[dict[str, str], dict[str, str], dict[str, dict[str, Any]]] | None:
+    """Render titles, bodies, and evidence using only approval-commit blobs.
+
+    This is the publication operator's write-side counterpart to
+    :func:`render_approved_pack`.  It deliberately does not consult current
+    document bytes: an unmaterialized checkout still contains
+    ``<APPROVED_SHA>`` in the two templates.  The caller may write those exact
+    substitutions only after authority and collision checks succeed.
+    """
+    root = repository_root(build_path, report)
+    if root is None or not exact_commit(
+        root, approved, "approved_planning_commit", report
+    ) or not isinstance(approved, str):
+        return None
+    relative_paths = [
+        repository_relative(path, root, report)
+        for path in (build_path, publication_path)
+    ]
+    if any(path is None for path in relative_paths):
+        return None
+    build_relative, publication_relative = relative_paths
+    assert build_relative is not None and publication_relative is not None
+    build = _approved_json(root, approved, build_relative, "build-order", report)
+    publication = _approved_json(
+        root, approved, publication_relative, "publication", report
+    )
+    if build is None or publication is None:
+        return None
+    try:
+        current_build = json.loads(build_path.read_text(encoding="utf-8"))
+        current_publication = json.loads(
+            publication_path.read_text(encoding="utf-8")
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        report.error(f"current publication manifests must be valid JSON: {exc}")
+        return None
+    for label, approved_pack, current_pack, family in (
+        ("build-order", build, current_build, "build"),
+        ("publication", publication, current_publication, "publication"),
+    ):
+        if not isinstance(current_pack, dict) or _frozen_planning_fields(
+            approved_pack, family
+        ) != _frozen_planning_fields(current_pack, family):
+            report.error(
+                f"current {label} planning fields must equal the approved commit"
+            )
+            return None
+    repository, plan_version = build.get("repository"), build.get("plan_version")
+    root_id = build.get("build_order_id")
+    root_issue, skill_issue = publication.get("root_issue"), publication.get("skill_issue")
+    skill_id = skill_issue.get("logical_id") if isinstance(skill_issue, dict) else None
+    if (
+        not isinstance(repository, str) or type(plan_version) is not int
+        or not isinstance(root_id, str) or not isinstance(skill_id, str)
+    ):
+        report.error("approved publication identity is unavailable")
+        return None
+
+    bodies: dict[str, str] = {}
+    evidence: dict[str, dict[str, Any]] = {}
+    build_dir, publication_dir = (
+        PurePosixPath(build_relative).parent,
+        PurePosixPath(publication_relative).parent,
+    )
+    for logical_id, issue, label in (
+        (root_id, root_issue, "approved root"),
+        (skill_id, skill_issue, "approved skill"),
+    ):
+        if not isinstance(issue, dict):
+            report.error(f"{label} must be an object")
+            continue
+        document = safe_repository_relative(
+            issue.get("document"), f"{label}.document", report,
+        )
+        if document is None:
+            continue
+        template = _git_show(
+            root, approved, str(publication_dir / PurePosixPath(document)),
+            f"{label} document", report,
+        )
+        if template is None:
+            continue
+        if template.count("<APPROVED_SHA>") < 1:
+            report.error(f"{label} document must contain <APPROVED_SHA>")
+            continue
+        body = template.replace("<APPROVED_SHA>", approved)
+        inspected = inspect_issue_body(
+            body, repository, logical_id, plan_version, approved, report,
+            f"{label} body",
+        )
+        if inspected is not None:
+            bodies[logical_id], evidence[logical_id] = body, inspected
+
+    tickets = build.get("tickets")
+    if not isinstance(tickets, list):
+        report.error("approved build-order tickets must be an array")
+        return None
+    for index, ticket in enumerate(tickets):
+        label = f"approved build-order tickets[{index}]"
+        if not isinstance(ticket, dict) or not isinstance(ticket.get("id"), str):
+            report.error(f"{label} must have a logical ID")
+            continue
+        logical_id = ticket["id"]
+        document = safe_repository_relative(
+            ticket.get("document"), f"{label}.document", report,
+        )
+        if document is None:
+            continue
+        source = _git_show(
+            root, approved, str(build_dir / PurePosixPath(document)),
+            f"approved {logical_id} document", report,
+        )
+        if source is None:
+            continue
+        body = authority_preamble(
+            repository, logical_id, plan_version, approved,
+        ) + source
+        inspected = inspect_issue_body(
+            body, repository, logical_id, plan_version, approved, report,
+            f"approved ticket body {logical_id}",
+        )
+        if inspected is not None:
+            bodies[logical_id], evidence[logical_id] = body, inspected
+
+    titles = _approved_content_titles(
+        root, approved, build_dir, publication_dir, build, publication, report,
+    )
+    expected_ids = {root_id, skill_id} | {
+        item.get("id") for item in tickets if isinstance(item, dict)
+    }
+    if (
+        None in expected_ids or set(bodies) != expected_ids
+        or set(evidence) != expected_ids or set(titles) != expected_ids
+    ):
+        report.error("approved publication content must exactly cover all 56 issues")
+        return None
+    return titles, bodies, evidence
+
+
+def _approved_content_titles(
+    root: Path, approved: str, build_dir: PurePosixPath,
+    publication_dir: PurePosixPath, build: dict[str, Any],
+    publication: dict[str, Any], report: Report,
+) -> dict[str, str]:
+    titles: dict[str, str] = {}
+    _approved_ticket_titles(
+        titles, root, approved, build_dir, build, "ticket", report,
+    )
+    for key in ("root_issue", "skill_issue"):
+        issue = publication.get(key)
+        if not isinstance(issue, dict):
+            report.error(f"approved publication {key} must be an object")
+            continue
+        _approved_document_title(
+            titles, root, approved, publication_dir, issue.get("logical_id"),
+            issue.get("document"), None, f"approved publication {key}", report,
+        )
+    return titles
+
+
 def _approved_ticket_titles(
     output: dict[str, str], root: Path, approved: str, pack_dir: PurePosixPath,
     data: dict[str, Any], family: str, report: Report,

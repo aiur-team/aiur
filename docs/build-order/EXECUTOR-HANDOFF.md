@@ -10,12 +10,14 @@ stand and what must happen, in order, before the first dispatch.
 
 **State right now:** the consolidated planning pack is mechanically complete
 and validating clean — canonical and publication validators both report 0
-errors / 0 warnings, the 134-test canonical suite passes, and the 103-test
+errors / 0 warnings, the 134-test canonical suite passes, and the 125-test
 publication suite passes. Final clean semantic review and immutable approval
 remain pending. **No GitHub issues have been created.** Skills PR #1065 was
 reviewed at `6447f9c193d2322d63f54a58b9c54e0a72d3e98f` and squash-merged to
 `main` as `ed1846c4bc76d4657095da57951a0dbf3e914c3d`. Draft PR #1064 carries
-this pack.
+this pack. The live run remains limited to legacy tails #1032, #1081, and
+#678; unrelated queued #99 and #728 have `agent:paused` overlays (#1030 was
+already paused), and the public authenticated dashboard remains live.
 
 **Ordered pre-run checklist:**
 
@@ -31,13 +33,27 @@ this pack.
    `6447f9c193d2322d63f54a58b9c54e0a72d3e98f` and squash-merged `main` commit
    `ed1846c4bc76d4657095da57951a0dbf3e914c3d`. Verify `/aiur-build`,
    `/aiur-run`, and `/aiur-monitor` are discoverable afterward (GATE-002).
-3. **Finalize and publish** the issue graph per `github-publication.md` at
-   whatever ceremony scope the operator chose. Every issue body carries the
-   full ticket contract plus a "Plan context" block linking back to this
-   pack at the approved commit.
+3. **Finalize and publish** with `scripts/publication_operator.py` exactly as
+   sequenced in `github-publication.md`: approve the exact latest planning SHA
+   (any branch change invalidates an older approval), run the default dry-run,
+   rerun with explicit `--apply`, review/commit/push the generated core-v3 and
+   auxiliary-v2 pending receipts, then use the separate receipt-bound
+   `--finalize` mode. An interrupted apply resumes by rerunning the same
+   approval/green-authority command. Never replace this with hand-authored
+   `gh` issue/relationship commands. Every issue body carries the full ticket
+   contract plus a "Plan context" block linking back to this pack at the
+   approved commit.
 4. **Record GATE-001's resolution** on the live root and prove GATE-002,
-   then obtain the operator's explicit run authorization.
-5. **Run Aiur** via `/aiur-run` and drive to the terminal condition.
+   then proceed under the operator's already explicit conditional run
+   authorization; no second approval prompt is required once the immutable
+   receipt and both gates pass.
+5. **Correct the live integration target:** the operator's local
+   `.aiur/config` currently says `tracker.base_branch: v2`, while this Build
+   Order's PR and terminal authority is current `main`. After the legacy tails
+   finish, change that local setting to `main`, restart branch-safely, and
+   verify the daemon reports the intended integration baseline. Do not add any
+   member `agent:todo` label before this check.
+6. **Run Aiur** via `/aiur-run` and drive to the terminal condition.
 
 **Read-first map for this run:** `README.md` (pack index) →
 `08-implementation-pointers.md` (verified per-ticket file/module/function
@@ -58,7 +74,9 @@ This handoff becomes executable only after the live Build Order root contains a
 uniquely marked `aiur-build-order-reconciliation` comment linking a successful
 immutable post-publication receipt whose exact commit contains both valid
 reconciliations, both external gates below are recorded as resolved, and the
-user separately authorizes a run. Re-run the trusted final-comment verifier;
+operator's current conditional run authorization remains in force. No second
+approval prompt is required after those conditions pass. Re-run the trusted
+final-comment verifier;
 neither caller-supplied identity or query JSON, Git object substitution,
 imported foreign history, nor a merely local/API-visible commit is a start
 gate. The verifier anchors the repository to the configured GitHub origin,
@@ -71,6 +89,11 @@ both the worktree and common Git directories, and all authority API reads pin
 either commit revokes this gate; never substitute `main`, a pull ref, or a tag.
 Planning publication does not queue work. Until then, do not run Aiur,
 implement tickets, or add `agent:todo`.
+
+The finite authorized boundary is the one consolidated 54-member BO+DASH
+graph. Publish and dispatch only those members after the verifier and gates;
+every member retains the exact `model:codex-gpt-5.6-terra` label, with no model
+substitution.
 
 The immutable receipt and final verifier attest the publication-finalization
 snapshot: all 56 issues are open and unlocked, have their receipt-bound
@@ -126,7 +149,12 @@ change this run's 54-member denominator or ETA.
 4. Before any execution mutation, run the receipt-bound full live verifier and
    requery repository instructions, configured integration branch, the GitHub
    root/members/blockers/full labels/open+unlocked state, active PRs, CI and
-   Aiur status. Never use the planning JSON as fresher live GitHub truth.
+   Aiur status. The live operator config currently points at legacy `v2`:
+   after the legacy tails, change the operator-local `.aiur/config`
+   `tracker.base_branch` to `main`, restart branch-safely, and verify the
+   daemon/integration baseline before adding any member `agent:todo`. Never
+   use the planning JSON as fresher live GitHub truth, and do not edit that
+   operator-local config from a publication or ticket worktree.
 5. Queue only approved members of the consolidated root under explicit user
    authority. The shared
    predecessor baseline is recorded as resolved (`origin/main` at
@@ -254,6 +282,10 @@ wave; the full version lives at
 - **Restarts are branch-safe:** the checkout logic re-fetches an existing
   remote ticket branch, so recycling a wedged worker (bloated thread,
   CI-poll loop) loses only the unproductive turn, never committed work.
+- **Old-branch skill-path collisions:** an older ticket branch can collide
+  with turn-injected skill paths when merging the newly landed skill commit.
+  Pause that worker, clean only artifacts verified as injected, merge current
+  `main`, restore the tracked tree, and only then resume it.
 - **Capacity:** track real CPU (`vmstat` id%), not 1-minute load; the
   observed thrash ceiling is ~8–11 concurrent agents on a 12-core box with
   `max_concurrent_builds: 2` as the true protector. Ramp `set max-agents`
