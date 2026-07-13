@@ -29,7 +29,7 @@ defmodule AiurWeb.ControlCenterPresenter do
         Presenter.state_payload(orchestrator, snapshot_timeout_ms, presenter_opts)
       end)
 
-    decisions_fun = Keyword.get(opts, :decisions_fun, fn -> DecisionStore.list(decision_store) end)
+    decisions_fun = Keyword.get(opts, :decisions_fun, fn -> DecisionStore.recent_decisions(50, decision_store) end)
 
     {fleet, fleet_health} = safe_read(fleet_fun, unavailable_fleet(), &is_map/1)
     {decisions, decisions_health} = safe_read(decisions_fun, [], &is_list/1)
