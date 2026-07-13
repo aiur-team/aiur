@@ -58,6 +58,15 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       attention_resolver: Keyword.get(opts, :attention_resolver, &DecisionAttention.resolve/2)
     }
 
+    event_context = %{
+      issue: issue,
+      workspace: workspace,
+      worker_host: worker_host,
+      app_session: app_session,
+      handlers: event_handlers,
+      enqueue: coordination.enqueue
+    }
+
     fn tool, arguments ->
       DynamicTool.execute(
         tool,
@@ -81,17 +90,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
           )
         end,
         event_publisher: fn name, message, payload ->
-          emit_agent_event(
-            issue,
-            workspace,
-            worker_host,
-            app_session,
-            event_handlers,
-            coordination.enqueue,
-            name,
-            message,
-            payload
-          )
+          emit_agent_event(event_context, name, message, payload)
         end,
         subscriber: fn pattern -> subscribe_for_issue(issue, pattern) end,
         unsubscriber: fn pattern -> unsubscribe_for_issue(issue, pattern) end,
@@ -188,46 +187,59 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   end
 
   defp reconcile_declaration(current, blocker, declaration_error, coordination) do
-    case safe_coordination_call(coordination.dependency_present, [current, blocker]) do
-      {:ok, true} ->
-        case safe_coordination_call(coordination.subscribe_blocker, [current, blocker]) do
-          :ok -> :ok
-          {:error, reason} -> {:error, {:blocker_reconcile_subscription_failed, declaration_error, reason}}
-          other -> {:error, {:blocker_reconcile_subscription_failed, declaration_error, {:unexpected, other}}}
-        end
-
-      {:ok, false} ->
-        case safe_coordination_call(coordination.unsubscribe_blocker, [current, blocker]) do
-          :ok -> {:error, {:blocker_declaration_failed, declaration_error}}
-          {:error, reason} -> {:error, {:blocker_declaration_cleanup_failed, declaration_error, reason}}
-          other -> {:error, {:blocker_declaration_cleanup_failed, declaration_error, {:unexpected, other}}}
-        end
-
-      {:error, reason} ->
-        {:error, {:blocker_reconcile_inconclusive, declaration_error, reason}}
-    end
+    coordination.dependency_present
+    |> safe_coordination_call([current, blocker])
+    |> reconcile_declaration_state(current, blocker, declaration_error, coordination)
   end
 
   defp reconcile_subscription_failure(current, blocker, subscription_error, coordination) do
-    case safe_coordination_call(coordination.dependency_present, [current, blocker]) do
-      {:ok, true} ->
-        case safe_coordination_call(coordination.subscribe_blocker, [current, blocker]) do
-          :ok -> :ok
-          {:error, reason} -> {:error, {:blocker_subscription_retry_failed, subscription_error, reason}}
-          other -> {:error, {:blocker_subscription_retry_failed, subscription_error, {:unexpected, other}}}
-        end
-
-      {:ok, false} ->
-        case safe_coordination_call(coordination.unsubscribe_blocker, [current, blocker]) do
-          :ok -> {:error, {:blocker_subscription_failed, subscription_error}}
-          {:error, reason} -> {:error, {:blocker_subscription_cleanup_failed, subscription_error, reason}}
-          other -> {:error, {:blocker_subscription_cleanup_failed, subscription_error, {:unexpected, other}}}
-        end
-
-      {:error, reason} ->
-        {:error, {:blocker_subscription_reconcile_inconclusive, subscription_error, reason}}
-    end
+    coordination.dependency_present
+    |> safe_coordination_call([current, blocker])
+    |> reconcile_subscription_state(current, blocker, subscription_error, coordination)
   end
+
+  defp reconcile_declaration_state({:ok, true}, current, blocker, error, coordination) do
+    result = safe_coordination_call(coordination.subscribe_blocker, [current, blocker])
+    normalize_reconcile_result(result, :blocker_reconcile_subscription_failed, error)
+  end
+
+  defp reconcile_declaration_state({:ok, false}, current, blocker, error, coordination) do
+    result = safe_coordination_call(coordination.unsubscribe_blocker, [current, blocker])
+    normalize_cleanup_result(result, :blocker_declaration_failed, :blocker_declaration_cleanup_failed, error)
+  end
+
+  defp reconcile_declaration_state({:error, reason}, _current, _blocker, error, _coordination),
+    do: {:error, {:blocker_reconcile_inconclusive, error, reason}}
+
+  defp reconcile_subscription_state({:ok, true}, current, blocker, error, coordination) do
+    result = safe_coordination_call(coordination.subscribe_blocker, [current, blocker])
+    normalize_reconcile_result(result, :blocker_subscription_retry_failed, error)
+  end
+
+  defp reconcile_subscription_state({:ok, false}, current, blocker, error, coordination) do
+    result = safe_coordination_call(coordination.unsubscribe_blocker, [current, blocker])
+    normalize_cleanup_result(result, :blocker_subscription_failed, :blocker_subscription_cleanup_failed, error)
+  end
+
+  defp reconcile_subscription_state({:error, reason}, _current, _blocker, error, _coordination),
+    do: {:error, {:blocker_subscription_reconcile_inconclusive, error, reason}}
+
+  defp normalize_reconcile_result(:ok, _failure, _original_error), do: :ok
+
+  defp normalize_reconcile_result({:error, reason}, failure, original_error),
+    do: {:error, {failure, original_error, reason}}
+
+  defp normalize_reconcile_result(other, failure, original_error),
+    do: {:error, {failure, original_error, {:unexpected, other}}}
+
+  defp normalize_cleanup_result(:ok, failure, _cleanup_failure, original_error),
+    do: {:error, {failure, original_error}}
+
+  defp normalize_cleanup_result({:error, reason}, _failure, cleanup_failure, original_error),
+    do: {:error, {cleanup_failure, original_error, reason}}
+
+  defp normalize_cleanup_result(other, _failure, cleanup_failure, original_error),
+    do: {:error, {cleanup_failure, original_error, {:unexpected, other}}}
 
   defp issue_number_of(issue) do
     case Map.get(issue, :number) || Map.get(issue, :identifier) do
@@ -267,27 +279,24 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   # service — everything else keeps the existing generic publish path
   # below unchanged. `Publisher.publish/3` itself also rejects this topic
   # family, so this is the sole production ingress, not just a preference.
-  defp emit_agent_event(
-         issue,
-         _workspace,
-         _worker_host,
-         app_session,
-         handlers,
-         _enqueue,
-         "decision.requested",
-         message,
-         payload
-       ) do
-    request_decision(issue, app_session, handlers, message, payload)
+  defp emit_agent_event(context, "decision.requested", message, payload) do
+    request_decision(context.issue, context.app_session, context.handlers, message, payload)
   end
 
-  defp emit_agent_event(issue, _workspace, _worker_host, app_session, handlers, _enqueue, name, message, payload)
+  defp emit_agent_event(context, name, message, payload)
        when name in ["decision.acknowledged", "decision.resolved"] do
-    record_decision_lifecycle(issue, app_session, handlers.decision_lifecycle_recorder, name, message, payload)
+    record_decision_lifecycle(
+      context.issue,
+      context.app_session,
+      context.handlers.decision_lifecycle_recorder,
+      name,
+      message,
+      payload
+    )
   end
 
-  defp emit_agent_event(issue, workspace, worker_host, app_session, handlers, enqueue, name, message, payload) do
-    identifier = issue_identifier(issue)
+  defp emit_agent_event(context, name, message, payload) do
+    identifier = issue_identifier(context.issue)
 
     topic =
       case identifier do
@@ -298,51 +307,27 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     if durable_decision_topic?(topic) do
       {:error, :decision_requires_durable_publish}
     else
-      enqueue_agent_event(
-        issue,
-        workspace,
-        worker_host,
-        app_session,
-        handlers,
-        enqueue,
-        name,
-        message,
-        payload,
-        identifier,
-        topic
-      )
+      enqueue_agent_event(context, name, message, payload, identifier, topic)
     end
   end
 
-  defp enqueue_agent_event(
-         issue,
-         workspace,
-         worker_host,
-         app_session,
-         handlers,
-         enqueue,
-         name,
-         message,
-         payload,
-         identifier,
-         topic
-       ) do
+  defp enqueue_agent_event(context, name, message, payload, identifier, topic) do
     event_payload =
       payload
       |> Map.put("message", message)
       |> Map.put("name", name)
       |> Map.put("issue", identifier)
 
-    source = trusted_source(app_session)
+    source = trusted_source(context.app_session)
 
     operation = fn ->
       decision_projection =
         prepare_decision_attention(
-          issue,
-          workspace,
-          worker_host,
+          context.issue,
+          context.workspace,
+          context.worker_host,
           source,
-          handlers.attention_opener,
+          context.handlers.attention_opener,
           name,
           message,
           payload
@@ -352,14 +337,14 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
       case Publisher.publish(topic, event_payload) do
         {:ok, _id, _subscribers} ->
-          sync_decision_resolution(issue, name, payload, handlers.attention_resolver)
+          sync_decision_resolution(context.issue, name, payload, context.handlers.attention_resolver)
 
         result ->
           Logger.error("coordination event publish failed topic=#{topic} reason=#{inspect(result)}")
       end
     end
 
-    case enqueue.({:event, identifier}, operation, operation_timeout: :infinity) do
+    case context.enqueue.({:event, identifier}, operation, operation_timeout: :infinity) do
       :pending -> {:ok, %{"status" => "pending", "topic" => topic}}
       {:error, reason} -> {:error, reason}
     end
