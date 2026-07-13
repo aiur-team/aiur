@@ -100,6 +100,7 @@ defmodule Aiur.ExtensionsTest do
 
     def init(decisions), do: {:ok, decisions}
     def handle_call(:list, _from, decisions), do: {:reply, decisions, decisions}
+    def handle_call({:recent_decisions, limit}, _from, decisions), do: {:reply, Enum.take(decisions, limit), decisions}
   end
 
   setup do
@@ -978,8 +979,15 @@ defmodule Aiur.ExtensionsTest do
     snapshot = static_snapshot()
     decision = decision_fixture("decision-live-route")
 
+    unrelated =
+      Enum.map(1..50, fn index ->
+        decision_fixture("unrelated-decision-#{index}")
+        |> Map.put(:blocking, false)
+        |> Map.put(:urgency, :low)
+      end)
+
     start_supervised!({StaticOrchestrator, name: orchestrator_name, snapshot: snapshot})
-    start_supervised!({StaticDecisionStore, name: decision_store_name, decisions: [decision]})
+    start_supervised!({StaticDecisionStore, name: decision_store_name, decisions: [decision | unrelated]})
 
     start_test_endpoint(
       orchestrator: orchestrator_name,
@@ -991,6 +999,7 @@ defmodule Aiur.ExtensionsTest do
     {:ok, inbox_view, inbox_html} = live(build_conn(), "/decisions")
     assert inbox_html =~ "Decision inbox"
     assert has_element?(inbox_view, ~s(a[href="/decisions/decision-live-route"]))
+    refute has_element?(inbox_view, ~s(a[href="/decisions/unrelated-decision-50"]))
 
     {:ok, detail_view, detail_html} = live(build_conn(), "/decisions/decision-live-route")
     assert has_element?(detail_view, "#decision-detail-decision-live-route")
