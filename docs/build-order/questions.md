@@ -7,21 +7,19 @@ the planning documents.
 
 ## Questions for Kevin
 
-1. Should the first Build Order release support GitHub only, or must its data
-   model and UI also work with Linear-backed workflows from day one?
-2. At the end of planning, should I create the GitHub issues themselves, or
+1. At the end of planning, should I create the GitHub issues themselves, or
    stop after producing reviewed ticket documents that are ready to publish?
-3. Should a Build Order be repository-wide, or can one Aiur instance display
+2. Should a Build Order be repository-wide, or can one Aiur instance display
    orders that span multiple repositories/projects?
-4. May users add and edit dependencies from the dashboard in the first
+3. May users add and edit dependencies from the dashboard in the first
    release, or is Build Order initially a read-only projection of GitHub issue
    metadata?
-5. For flat subscription plans, should per-ticket “spend” be a versioned
+4. For flat subscription plans, should per-ticket “spend” be a versioned
    token-price estimate, an allocation of the subscription fee, or unavailable
    while tokens and quota consumption remain visible?
-6. Should “total build” include all recorded usage for member tickets, or only
+5. Should “total build” include all recorded usage for member tickets, or only
    usage observed after each ticket joined the Build Order?
-7. Must v1 totals include direct `claude-repl`/Remote Control usage, or may the
+6. Must v1 totals include direct `claude-repl`/Remote Control usage, or may the
    cards show explicitly incomplete coverage for that transport?
 
 ## Commands or Access Needed
@@ -31,7 +29,7 @@ the planning documents.
 
 ## Working Recommendations Pending Confirmation
 
-- GitHub-only, same configured repository, read-only v1.
+- Same configured repository and read-only v1.
 - One root GitHub issue per Build Order, selected from a constant `build-order`
   root label; direct native sub-issues define its members.
 - Stop after reviewed ticket documents unless issue creation is explicitly
@@ -46,6 +44,9 @@ the planning documents.
 
 - The opening request is the Build Order brain dump and authoritative product
   intent. No separate brain-dump document is required before planning.
+- Build Order v1 is GitHub-only. Linear parity is separate, human-blocked work
+  tracked in [#1067](https://github.com/its-everdred/aiur/issues/1067) and does
+  not affect this feature's scope, critical path, ticket count, or ETA.
 - Work may be committed early and often with 3–7 word commit messages and
   pushed regularly.
 - Do not merge any work into `main` while the dashboard agents are active.
