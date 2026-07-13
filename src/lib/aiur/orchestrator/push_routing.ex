@@ -26,10 +26,14 @@ defmodule Aiur.Orchestrator.PushRouting do
       when is_binary(blocker_identifier) do
     topic = "ticket." <> blocker_identifier <> ".agent.unblocked"
 
-    case Map.get(state.blocker_branch_pushes, blocker_identifier) do
-      %{ref: _ref, sha: _sha} = metadata -> maybe_resume_blockees_on_unblocked(state, blocker_identifier, topic, metadata)
-      _ -> state
-    end
+    metadata =
+      state.running
+      |> Map.values()
+      |> Enum.find_value(&get_in(&1, [:blocker_branch_pushes, blocker_identifier]))
+
+    if metadata,
+      do: maybe_resume_blockees_on_unblocked(state, blocker_identifier, topic, metadata),
+      else: state
   end
 
   @spec maybe_pause_on_request(State.t(), String.t() | integer()) :: State.t()
@@ -70,20 +74,34 @@ defmodule Aiur.Orchestrator.PushRouting do
   @spec record_blocker_branch_push(State.t(), String.t() | integer(), map()) :: State.t()
   def record_blocker_branch_push(%State{} = state, blocker_identifier, event) do
     case validated_branch_metadata(blocker_identifier, event) do
-      {:ok, metadata} -> %{state | blocker_branch_pushes: Map.put(state.blocker_branch_pushes, blocker_identifier, metadata)}
-      :error -> state
+      {:ok, metadata} ->
+        topic = "ticket.#{blocker_identifier}.agent.unblocked"
+
+        running =
+          Map.new(state.running, fn {issue_id, entry} ->
+            if is_map(entry) and subscribed_to_topic?(Map.get(entry, :identifier), topic) do
+              pushes = Map.get(entry, :blocker_branch_pushes, %{})
+              updated = Map.put(entry, :blocker_branch_pushes, Map.put(pushes, to_string(blocker_identifier), metadata))
+              {issue_id, updated}
+            else
+              {issue_id, entry}
+            end
+          end)
+
+        %{state | running: running}
+
+      :error ->
+        state
     end
   end
 
   @doc false
-  @spec corroborated_unblock_metadata(State.t(), String.t() | integer(), map()) ::
+  @spec validated_unblock_metadata(String.t() | integer(), map()) ::
           %{ref: String.t(), sha: String.t()} | nil
-  def corroborated_unblock_metadata(%State{} = state, blocker_identifier, event) do
-    with {:ok, metadata} <- validated_branch_metadata(blocker_identifier, event),
-         ^metadata <- Map.get(state.blocker_branch_pushes, blocker_identifier) do
-      metadata
-    else
-      _ -> nil
+  def validated_unblock_metadata(blocker_identifier, event) do
+    case validated_branch_metadata(blocker_identifier, event) do
+      {:ok, metadata} -> metadata
+      :error -> nil
     end
   end
 
@@ -130,7 +148,7 @@ defmodule Aiur.Orchestrator.PushRouting do
       cond do
         not is_map(entry) -> acc
         State.deactivated_running_entry?(entry) -> acc
-        true -> maybe_record_or_resume_for_topic(acc, entry, blocker_identifier, topic, unblock_key)
+        true -> maybe_record_or_resume_for_topic(acc, entry, blocker_identifier, topic, metadata, unblock_key)
       end
     end)
   end
@@ -156,7 +174,7 @@ defmodule Aiur.Orchestrator.PushRouting do
     end
   end
 
-  defp maybe_record_or_resume_for_topic(state, entry, blocker_identifier, topic, unblock_key) do
+  defp maybe_record_or_resume_for_topic(state, entry, blocker_identifier, topic, metadata, unblock_key) do
     identifier = Map.get(entry, :identifier)
 
     cond do
@@ -167,6 +185,9 @@ defmodule Aiur.Orchestrator.PushRouting do
         state
 
       consumed_unblock?(entry, unblock_key) ->
+        state
+
+      get_in(entry, [:blocker_branch_pushes, to_string(blocker_identifier)]) != metadata ->
         state
 
       subscribed_to_topic?(identifier, topic) and matching_blocker_pause?(entry, blocker_identifier) ->

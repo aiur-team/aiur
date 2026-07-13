@@ -33,7 +33,7 @@ defmodule Aiur.Orchestrator.EventTopics do
       provisional_unblock?(event) ->
         state
 
-      metadata = PushRouting.corroborated_unblock_metadata(state, blocker_identifier, event) ->
+      metadata = PushRouting.validated_unblock_metadata(blocker_identifier, event) ->
         PushRouting.maybe_resume_blockees_on_unblocked(state, blocker_identifier, topic, metadata)
 
       true ->

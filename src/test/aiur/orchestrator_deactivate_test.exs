@@ -4842,7 +4842,15 @@ defmodule Aiur.OrchestratorDeactivateTest do
     defp blocker_sha, do: String.duplicate("a", 40)
 
     defp blocker_pause_fields do
-      %{paused_reason: :blocker_dependency, blocker_pause_generation: 1, blocker_pause: %{blocker_identifier: "99", generation: 1}}
+      %{
+        paused_reason: :blocker_dependency,
+        blocker_pause_generation: 1,
+        blocker_pause: %{blocker_identifier: "99", generation: 1}
+      }
+    end
+
+    defp with_blocker_push(entry) do
+      Map.put(entry, :blocker_branch_pushes, %{"99" => %{ref: blocker_ref(), sha: blocker_sha()}})
     end
 
     test "dependency pause requests establish a blocker-specific generation", %{
@@ -4905,6 +4913,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
               control: %{status: :paused}
             }
             |> Map.merge(blocker_pause_fields())
+            |> with_blocker_push()
         },
         claimed: MapSet.new([issue_id]),
         codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
@@ -4915,7 +4924,12 @@ defmodule Aiur.OrchestratorDeactivateTest do
       after_push = EventTopics.route(state, %{topic: "ticket.99.branch.push", ref: blocker_ref(), sha: blocker_sha()})
       assert get_in(after_push.running, [issue_id, :control, :status]) == :paused
 
-      next = EventTopics.route(after_push, %{topic: "ticket.99.agent.unblocked", payload: %{ref: blocker_ref(), sha: blocker_sha()}})
+      next =
+        EventTopics.route(after_push, %{
+          topic: "ticket.99.agent.unblocked",
+          payload: %{ref: blocker_ref(), sha: blocker_sha()}
+        })
+
       assert get_in(next.running, [issue_id, :control, :status]) == :working
     end
 
@@ -4944,12 +4958,12 @@ defmodule Aiur.OrchestratorDeactivateTest do
               control: %{status: :working}
             }
             |> Map.merge(blocker_pause_fields())
+            |> with_blocker_push()
         },
         claimed: MapSet.new([issue_id]),
         codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
         retry_attempts: %{},
-        max_concurrent_agents: 6,
-        blocker_branch_pushes: %{"99" => %{ref: blocker_ref(), sha: blocker_sha()}}
+        max_concurrent_agents: 6
       }
 
       next = PushRouting.apply_agent_unblocked(state, "99")
@@ -4984,7 +4998,11 @@ defmodule Aiur.OrchestratorDeactivateTest do
         }
         |> Map.merge(blocker_pause_fields())
 
-      state = %Orchestrator.State{running: %{issue_id => entry}, claimed: MapSet.new([issue_id]), max_concurrent_agents: 6}
+      state = %Orchestrator.State{
+        running: %{issue_id => entry},
+        claimed: MapSet.new([issue_id]),
+        max_concurrent_agents: 6
+      }
 
       invalid_payloads = [
         %{},
@@ -5037,12 +5055,12 @@ defmodule Aiur.OrchestratorDeactivateTest do
           control: %{status: :working}
         }
         |> Map.merge(blocker_pause_fields())
+        |> with_blocker_push()
 
       state = %Orchestrator.State{
         running: %{issue_id => entry},
         claimed: MapSet.new([issue_id]),
-        max_concurrent_agents: 6,
-        blocker_branch_pushes: %{"99" => %{ref: blocker_ref(), sha: blocker_sha()}}
+        max_concurrent_agents: 6
       }
 
       ready = PushRouting.apply_agent_unblocked(state, "99")
@@ -5176,12 +5194,12 @@ defmodule Aiur.OrchestratorDeactivateTest do
               paused_at: stale_at
             }
             |> Map.merge(blocker_pause_fields())
+            |> with_blocker_push()
         },
         claimed: MapSet.new([issue_id]),
         codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
         retry_attempts: %{},
-        max_concurrent_agents: 6,
-        blocker_branch_pushes: %{"99" => %{ref: blocker_ref(), sha: blocker_sha()}}
+        max_concurrent_agents: 6
       }
 
       before_ms = System.monotonic_time(:millisecond)
