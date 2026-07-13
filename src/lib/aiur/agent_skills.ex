@@ -35,7 +35,7 @@ defmodule Aiur.AgentSkills do
   # skills (aiur-run, aiur-monitor, aiur-loop, release) are excluded because an
   # issue worker has no reason to run aiur itself. That test cross-checks this
   # subset, so the two cannot silently drift.
-  @issue_worker_skills ~w(using-aiur aiur-agent)
+  @issue_worker_skills ~w(using-aiur aiur-agent design-import)
 
   @claude_skills_dir ".claude/skills"
   @codex_skills_dir ".codex/skills"
