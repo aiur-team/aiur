@@ -144,6 +144,7 @@ defmodule AiurWeb.Router do
   end
 
   @doc false
+  @spec dashboard_basic_auth(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   def dashboard_basic_auth(conn, opts) do
     username = System.get_env("AIUR_DASHBOARD_USERNAME")
     password = System.get_env("AIUR_DASHBOARD_PASSWORD")

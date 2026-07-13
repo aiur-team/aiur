@@ -1051,12 +1051,14 @@ defmodule Aiur.ExtensionsTest do
   test "http server serves embedded assets, accepts form posts, and rejects invalid hosts" do
     previous_username = System.get_env("AIUR_DASHBOARD_USERNAME")
     previous_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
+    previous_endpoint_config = Application.get_env(:aiur, AiurWeb.Endpoint)
     System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
     System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
 
     on_exit(fn ->
       restore_env("AIUR_DASHBOARD_USERNAME", previous_username)
       restore_env("AIUR_DASHBOARD_PASSWORD", previous_password)
+      restore_endpoint_config(previous_endpoint_config)
     end)
 
     authorization = {"authorization", "Basic " <> Base.encode64("operator:secret")}
@@ -1129,6 +1131,13 @@ defmodule Aiur.ExtensionsTest do
       )
 
     assert method_not_allowed_response.status == 405
+
+    System.delete_env("AIUR_DASHBOARD_PASSWORD")
+
+    credential_loss_response =
+      Req.get!("http://127.0.0.1:#{port}/api/v1/state", headers: [authorization])
+
+    assert credential_loss_response.status == 401
     assert method_not_allowed_response.body["error"]["code"] == "method_not_allowed"
 
     assert {:error, _reason} = HttpServer.start_link(host: "bad host", port: 0)
@@ -1162,13 +1171,17 @@ defmodule Aiur.ExtensionsTest do
       |> Keyword.merge(
         server: false,
         secret_key_base: String.duplicate("s", 64),
-        dashboard_writable: true
+        dashboard_writable: true,
+        dashboard_auth_required: false
       )
       |> Keyword.merge(overrides)
 
     Application.put_env(:aiur, AiurWeb.Endpoint, endpoint_config)
     start_supervised!({AiurWeb.Endpoint, []})
   end
+
+  defp restore_endpoint_config(nil), do: Application.delete_env(:aiur, AiurWeb.Endpoint)
+  defp restore_endpoint_config(config), do: Application.put_env(:aiur, AiurWeb.Endpoint, config)
 
   defp static_snapshot(opts \\ []) do
     workspace_path = Keyword.get(opts, :workspace_path)
