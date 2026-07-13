@@ -61,9 +61,16 @@ choosing whichever is easier to implement.
    production library/ownership decision.
 7. The refreshed mock moves navigation into a responsive sidebar, adds a
    Units-only summary, status filters, pause/resume, and richer ticket context.
-   These are companion dashboard requirements, not hidden prerequisites for
-   the Build Order graph.
+   Navigation, Units, controls, and summary work are standalone companions.
+   Rich all-state ticket context is one shared Build Order capability (BO-011)
+   that the later Units presentation adopts rather than duplicates.
+8. At a measured 390 by 844 viewport, the fixed bottom navigation occupies the
+   lower safe area and pause controls are about 34px square. Production must
+   preserve unobscured content and use at least 44px named touch targets rather
+   than copying this density.
 
 The two operator-provided screenshots in the planning conversation confirm the
 intended dense desktop hierarchy and lower-phase continuation. They are
 supplementary references; the committed prototype above is the durable artifact.
+The full browser and current-code inventory is recorded in
+`06-prototype-capability-audit.md`.

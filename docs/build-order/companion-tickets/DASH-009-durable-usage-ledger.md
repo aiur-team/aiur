@@ -1,0 +1,96 @@
+# DASH-009 — Persist attributed usage ledger
+
+**Kind:** executable
+
+**Provenance:** planned in plan v1 after storage/accounting adversarial review
+
+**Complexity:** 4 — Crash-safe single-writer audit, replay, checkpoints, and retained aggregate coverage
+
+**Risk:** high
+
+**Depends on:** DASH-008
+
+**Serializes with:** daemon state-directory, durable writer, and usage-ledger changes
+
+**Requirements:** DREQ-009
+
+**Researched at:** `b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5`
+
+**Suggested labels:** `complexity:4`, `model:codex`; never `agent:todo`
+
+**Build Order membership:** none — standalone dashboard companion
+
+## Outcome
+
+Aiur durably and idempotently retains DASH-008 usage by run, ticket, attempt, backend, agent family, exact model, and token/cost dimension across retries, completion, restart, rotation, and corruption without requiring Postgres or application SQLite.
+
+## Context and evidence
+
+Current accounting disappears with process/run state. Open #132 requests durable per-ticket tokens/cost but proposes a per-issue JSON artifact and TUI surface that cannot provide one daemon-owned multi-dimensional ledger. Open #845 recommends a future Postgres RunLedger for broader BI/cloud work. This bounded local dashboard v1 uses a file-first owner and a behavior seam, explicitly deferring that infrastructure program instead of asking a worker to choose storage architecture.
+
+## Scope
+
+- Implement one supervised single-writer `UsageLedger` behind a behavior. The v1 adapter stores canonical versioned append-only NDJSON segments under Aiur's private daemon state directory, never inside issue workspaces or human-readable agent logs.
+- Persist each accepted DASH-008 envelope before publishing ledger updates. Maintain a durable idempotency/source checkpoint keyed by envelope identity and counter scope so replay, provider retry, daemon restart, and out-of-order delivery cannot add usage twice.
+- Maintain crash-safe aggregate/checkpoint projections by run, typed ticket, attempt, backend, agent family, exact resolved model, auth mode, token dimension, and provider-reported cost basis. Write snapshot/checkpoint updates to a same-filesystem temporary file, flush, atomically rename, and preserve enough generation/checksum metadata to reject torn or mismatched state.
+- On startup, validate the latest checkpoint and replay subsequent canonical segments. If a checkpoint is absent/corrupt, rebuild from retained canonical segments; quarantine a malformed tail/segment with visible health rather than silently truncating valid history.
+- Implement bounded segment rotation/retention. Before removing an old raw segment, commit an aggregate snapshot that preserves every required ticket/model/run grouping, exact totals, coverage gaps, and `earliest_covered_at`/`latest_covered_at`. “All retained usage” includes compacted aggregates, not only raw events.
+- Expose exact snapshot/query primitives, store generation, health, retained coverage interval, and update PubSub. Keep provider/auth/plan facts numeric or enumerated and content-free.
+- Document #132 as superseded/covered for storage and accounting; retain its TUI presentation as deferred consumer work. Relate #845 as the deferred Postgres/BI backend and prove the behavior seam can support a later adapter without changing query semantics.
+
+## Non-goals
+
+- Add Postgres, Ecto, application SQLite, a database service, pricing estimates, account meters, dashboard/TUI UI, budget alerts, or prompt/transcript storage.
+- Create one mutable JSON file per ticket, parse logs for usage, or make a browser/worker the ledger writer.
+- Guarantee retention beyond the configured policy without reporting the retained coverage interval.
+
+## Existing owner and reuse target
+
+Add a daemon-owned supervised writer using existing private state-directory, atomic-file, append-only audit, checksum/version, and PubSub conventions where available. Consume only DASH-008 envelopes and keep transient `TokenAccounting` as a compatibility consumer until separately retired.
+
+## Contract and invariants
+
+- The supervised writer is the only file owner. An envelope is acknowledged persisted only after its canonical append and durable idempotency state are committed according to the documented durability policy.
+- Replaying the same canonical segments and checkpoint yields identical exact aggregates. Duplicate/out-of-order input cannot inflate tokens or cost.
+- Projection/compaction never merges away ticket, run, backend, agent-family, model, auth-mode, cost-basis, or token-dimension keys required by DASH-011.
+- Empty healthy data, partial retained coverage, corrupt/unavailable storage, and unknown attribution are distinct states.
+- The file adapter is implementation; `UsageLedger` behavior/query semantics are the durable contract for a future #845 backend.
+
+## Refreshable implementation notes
+
+- Reuse proven atomic write helpers if current main has them; otherwise keep a small dedicated file adapter with injected filesystem/clock/fault hooks.
+- Define flush/fsync batching from measured event frequency, but persist-before-publish and crash tests are non-negotiable. Do not let performance tuning weaken acknowledgement semantics.
+- Use restrictive owner-only permissions and canonicalized paths beneath the configured Aiur state root.
+
+## Acceptance and verification
+
+### Agent gate
+
+- Deterministic tests cover append/replay, duplicate/out-of-order envelopes, retry/new attempt, model/backend fallback, completed tickets, process/daemon restart, torn tail, corrupt checkpoint, bad checksum, segment rotation, compaction, retention, and exact rebuilt aggregates.
+- Failure injection covers append, flush, rename, directory, disk-full/permission, and publish ordering; no failure is reported as persisted success.
+- Security tests prove owner-only location/permissions, path containment, content redaction, and absence from issue workspaces/logs.
+
+### At-merge gate
+
+- Rebase on DASH-008/current main; run usage normalizer, application supervision, durable-file/replay, PubSub, packaging/state-directory, security, and full CI suites. Reconcile #132/#845 issue text or links before publication/merge.
+
+### Human/manual evidence
+
+- From the operator repository root, record synthetic attributed usage, restart the real daemon, and show identical retained totals/coverage without inspecting or exposing real account data. Corrupt a synthetic copy to demonstrate visible degraded health and recovery.
+
+## Failure, security, migration, and accessibility cases
+
+- Corruption or I/O failure preserves last validated state where safe, marks health/coverage, and stops acknowledgement; it never resets totals to zero.
+- Store owner-only normalized numeric/identity facts. Never store prompt/output, raw provider response, credentials, emails/account/org IDs, environment values, capability URLs, or raw workspace paths.
+- Schema/segment/checkpoint versions and rebuild/rollback behavior are explicit. A future backend migrates through the behavior contract, not live dual writers.
+- No direct UI; health and coverage reasons are stable and human-readable.
+
+## Surfaces
+
+- Reads: DASH-008 `UsageEnvelope` stream and private state configuration.
+- Writes: append-only NDJSON segments, aggregate/checkpoint snapshots, health/generation/coverage projection, PubSub and tests.
+- Contracts: `UsageLedger` behavior, persistence acknowledgement, retained grouping/coverage, replay/compaction semantics.
+
+## Sibling boundaries and open gates
+
+DASH-011 owns all pricing/grouping policy and DASH-015 owns presentation. #132 must not remain a competing active storage design; #845's Postgres/BI work remains separately authorized future scope.

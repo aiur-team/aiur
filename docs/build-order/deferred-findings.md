@@ -64,16 +64,16 @@ critical-path capacity, or prevent completion.
   sufficient v1 navigation.
 - Future disposition: Test real operator pain before adding controls.
 
-## DF-007 — Complete Claude/Remote Control account coverage
+## DF-007 — Opencode accounting surface
 
-- Severity: P2 companion capability gap
-- Evidence: the current adapter has no complete structured quota method and
-  direct `claude-repl` lacks a complete usage/cost path.
-- Affected component: sibling Claude adapter, DASH-005, DASH-007
-- Why non-blocking: usage companions can render explicit partial/unsupported
-  coverage, and none blocks Build Order.
-- Future disposition: Human-authorized cross-repository protocol plan if
-  structured support is required after the open product answer.
+- Severity: P3 separate presentation
+- Evidence: #132 proposes a context/cost row in the opencode side panel and
+  chat header; the refreshed dashboard request does not include that TUI.
+- Affected component: opencode session projection and pane rendering
+- Why non-blocking: DASH-009 supersedes #132's durable storage/accounting
+  substrate, while DASH-015 owns the requested dashboard surface.
+- Future disposition: Narrow #132 to the TUI consumer after the shared ledger
+  contract lands, then authorize it separately if still useful.
 
 ## DF-008 — Analytics redesign
 

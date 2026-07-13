@@ -1,0 +1,175 @@
+{
+  "schema_version": 1,
+  "plan_version": 1,
+  "repository": "its-everdred/aiur",
+  "researched_at_commit": "b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5",
+  "approved_planning_commit": null,
+  "required_labels": ["model:codex"],
+  "forbidden_labels": [
+    "agent:todo",
+    "agent:in-progress",
+    "agent:rework",
+    "agent:merging"
+  ],
+  "tickets": [
+    {
+      "id": "DASH-001",
+      "title": "Ship responsive route-aware shell",
+      "document": "companion-tickets/DASH-001-responsive-route-shell.md",
+      "requirement_ref": "DREQ-001",
+      "complexity_points": 3,
+      "depends_on": [],
+      "external_blockers": ["its-everdred/aiur#1034"],
+      "github": null
+    },
+    {
+      "id": "DASH-002",
+      "title": "Project canonical current-run Units",
+      "document": "companion-tickets/DASH-002-current-run-units-catalog.md",
+      "requirement_ref": "DREQ-002",
+      "complexity_points": 4,
+      "depends_on": ["BO-005"],
+      "external_blockers": [],
+      "github": null
+    },
+    {
+      "id": "DASH-003",
+      "title": "Render responsive Units interface",
+      "document": "companion-tickets/DASH-003-units-interface.md",
+      "requirement_ref": "DREQ-003",
+      "complexity_points": 3,
+      "depends_on": ["DASH-001", "DASH-002", "BO-011"],
+      "external_blockers": [],
+      "github": null
+    },
+    {
+      "id": "DASH-004",
+      "title": "Confirm applied unit controls",
+      "document": "companion-tickets/DASH-004-applied-unit-control-protocol.md",
+      "requirement_ref": "DREQ-004",
+      "complexity_points": 4,
+      "depends_on": [],
+      "external_blockers": [],
+      "github": null
+    },
+    {
+      "id": "DASH-005",
+      "title": "Render unit and capacity controls",
+      "document": "companion-tickets/DASH-005-unit-capacity-controls-ui.md",
+      "requirement_ref": "DREQ-005",
+      "complexity_points": 3,
+      "depends_on": ["DASH-002", "DASH-003", "DASH-004"],
+      "external_blockers": [],
+      "github": null
+    },
+    {
+      "id": "DASH-006",
+      "title": "Add Decision lookup and provenance",
+      "document": "companion-tickets/DASH-006-decision-lookup-provenance.md",
+      "requirement_ref": "DREQ-006",
+      "complexity_points": 4,
+      "depends_on": [],
+      "external_blockers": [],
+      "github": null
+    },
+    {
+      "id": "DASH-007",
+      "title": "Align Commands presentation",
+      "document": "companion-tickets/DASH-007-commands-interface.md",
+      "requirement_ref": "DREQ-007",
+      "complexity_points": 3,
+      "depends_on": ["DASH-001", "DASH-006"],
+      "external_blockers": [],
+      "github": null
+    },
+    {
+      "id": "DASH-008",
+      "title": "Normalize attributed usage envelopes",
+      "document": "companion-tickets/DASH-008-usage-envelope.md",
+      "requirement_ref": "DREQ-008",
+      "complexity_points": 4,
+      "depends_on": ["BO-004"],
+      "external_blockers": [],
+      "github": null
+    },
+    {
+      "id": "DASH-009",
+      "title": "Persist attributed usage ledger",
+      "document": "companion-tickets/DASH-009-durable-usage-ledger.md",
+      "requirement_ref": "DREQ-009",
+      "complexity_points": 4,
+      "depends_on": ["DASH-008"],
+      "external_blockers": [],
+      "github": null
+    },
+    {
+      "id": "DASH-010",
+      "title": "Account Claude Remote usage",
+      "document": "companion-tickets/DASH-010-claude-remote-usage.md",
+      "requirement_ref": "DREQ-010",
+      "complexity_points": 4,
+      "depends_on": ["DASH-008"],
+      "external_blockers": [],
+      "github": null
+    },
+    {
+      "id": "DASH-011",
+      "title": "Project cost and usage groups",
+      "document": "companion-tickets/DASH-011-cost-grouping-projection.md",
+      "requirement_ref": "DREQ-011",
+      "complexity_points": 4,
+      "depends_on": ["DASH-009"],
+      "external_blockers": [],
+      "github": null
+    },
+    {
+      "id": "DASH-012",
+      "title": "Normalize Codex account meters",
+      "document": "companion-tickets/DASH-012-codex-provider-meters.md",
+      "requirement_ref": "DREQ-012",
+      "complexity_points": 4,
+      "depends_on": [],
+      "external_blockers": [],
+      "github": null
+    },
+    {
+      "id": "DASH-013",
+      "title": "Normalize Claude account meters",
+      "document": "companion-tickets/DASH-013-claude-provider-meters.md",
+      "requirement_ref": "DREQ-013",
+      "complexity_points": 4,
+      "depends_on": ["DASH-012"],
+      "external_blockers": [],
+      "github": null
+    },
+    {
+      "id": "DASH-014",
+      "title": "Project canonical run summary",
+      "document": "companion-tickets/DASH-014-current-run-summary.md",
+      "requirement_ref": "DREQ-014",
+      "complexity_points": 4,
+      "depends_on": ["DASH-002"],
+      "external_blockers": [],
+      "github": null
+    },
+    {
+      "id": "DASH-015",
+      "title": "Render accessible usage and run summary",
+      "document": "companion-tickets/DASH-015-usage-run-summary-ui.md",
+      "requirement_ref": "DREQ-015",
+      "complexity_points": 4,
+      "depends_on": [
+        "DASH-001",
+        "DASH-003",
+        "DASH-010",
+        "DASH-011",
+        "DASH-012",
+        "DASH-013",
+        "DASH-014"
+      ],
+      "external_blockers": [],
+      "github": null
+    }
+  ],
+  "github_reconciliation": null
+}

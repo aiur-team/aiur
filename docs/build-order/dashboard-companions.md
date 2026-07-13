@@ -1,47 +1,74 @@
 # Standalone Dashboard Companion Tickets
 
-These eight tickets implement the delta between current dashboard scope and the
-refreshed prototype. They are intentionally not members, dependencies, or
-acceptance requirements of the Build Order root.
+These fifteen tickets implement the capability delta between current OCC main
+and the refreshed prototype. They are intentionally not members, completion
+requirements or ETA inputs of the Build Order root.
 
-| ID | Requirement | Outcome | Cx | Depends on |
-|---|---|---|---:|---|
-| [DASH-001](companion-tickets/DASH-001-responsive-shell.md) | DREQ-001 | Responsive route-aware shell | 3 | — |
-| [DASH-002](companion-tickets/DASH-002-units-read-model.md) | DREQ-002 | Units read model and exact filters | 4 | — |
-| [DASH-003](companion-tickets/DASH-003-unit-capacity-controls.md) | DREQ-003 | Real unit and max-agent controls | 4 | DASH-002 |
-| [DASH-004](companion-tickets/DASH-004-commands-catch-up.md) | DREQ-004 | Commands presentation parity | 3 | — |
-| [DASH-005](companion-tickets/DASH-005-usage-observations.md) | DREQ-005 | Durable attributed observations | 4 | — |
-| [DASH-006](companion-tickets/DASH-006-usage-accounting.md) | DREQ-006 | Cost/coverage/grouping projection | 4 | DASH-005 |
-| [DASH-007](companion-tickets/DASH-007-provider-meters.md) | DREQ-007 | Subscription/API account meters | 4 | — |
-| [DASH-008](companion-tickets/DASH-008-usage-summary.md) | DREQ-008 | Shared run/build summary UI | 3 | DASH-006, DASH-007 |
+| ID | Outcome | Cx | Hard prerequisites |
+|---|---|---:|---|
+| [DASH-001](companion-tickets/DASH-001-responsive-route-shell.md) | Responsive route-aware shell | 3 | sequence after #1034 |
+| [DASH-002](companion-tickets/DASH-002-current-run-units-catalog.md) | Canonical current-run Units catalog | 4 | BO-005 |
+| [DASH-003](companion-tickets/DASH-003-units-interface.md) | Responsive Units filters/table | 3 | DASH-001, DASH-002, BO-011 |
+| [DASH-004](companion-tickets/DASH-004-applied-unit-control-protocol.md) | Worker-applied pause/resume protocol | 4 | — |
+| [DASH-005](companion-tickets/DASH-005-unit-capacity-controls-ui.md) | Unit and positive-capacity controls | 3 | DASH-002, DASH-003, DASH-004 |
+| [DASH-006](companion-tickets/DASH-006-decision-lookup-provenance.md) | Decision lookup/provenance contract | 4 | — |
+| [DASH-007](companion-tickets/DASH-007-commands-interface.md) | Commands presentation catch-up | 3 | DASH-001, DASH-006 |
+| [DASH-008](companion-tickets/DASH-008-usage-envelope.md) | Provider-neutral usage envelope | 4 | BO-004 |
+| [DASH-009](companion-tickets/DASH-009-durable-usage-ledger.md) | Durable attributed usage ledger | 4 | DASH-008 |
+| [DASH-010](companion-tickets/DASH-010-claude-remote-usage.md) | Required Claude Remote accounting | 4 | DASH-008; sibling gate if required |
+| [DASH-011](companion-tickets/DASH-011-cost-grouping-projection.md) | Versioned cost/grouping projection | 4 | DASH-009 |
+| [DASH-012](companion-tickets/DASH-012-codex-provider-meters.md) | Meter contract and Codex adapter | 4 | — |
+| [DASH-013](companion-tickets/DASH-013-claude-provider-meters.md) | Claude subscription/API meter parity | 4 | DASH-012; sibling gate if required |
+| [DASH-014](companion-tickets/DASH-014-current-run-summary.md) | Canonical current-run summary | 4 | DASH-002 |
+| [DASH-015](companion-tickets/DASH-015-usage-run-summary-ui.md) | Authenticated usage/run summary UI | 4 | DASH-001, DASH-003, DASH-010..014 |
 
-## Why eight
+Total: 15 tickets, 56 complexity points.
 
-- Navigation/shell and Units state/filtering have separate reusable outcomes.
-- Per-unit and capacity controls cross an authenticated mutation boundary and
-  cannot be treated as visual acceptance inside the read-only Units ticket.
-- Commands composes the durable Decision domain and has its own regression
-  boundary.
-- Durable observation ingestion and versioned financial aggregation differ in
-  storage, correctness, security, and verification. Keeping them together
-  would hide a complexity-5 program in one issue.
-- Provider quota meters are account state, not ticket attribution.
-- Summary UI joins accounting and meters but owns no ingestion.
+## Why fifteen
 
-## Scheduling and conflicts
+- Units membership/predicate truth is separate from presentation and from the
+  applied mutation boundary.
+- Runtime control request acceptance is not worker application; the protocol
+  must exist before the toggle UI can claim success.
+- Decision durable lookup/provenance is separate from Commands vocabulary and
+  card composition.
+- Measurement normalization, durability, Remote Control ingestion and pricing
+  have different correctness/storage/protocol boundaries.
+- Account quotas are not ticket accounting; Codex and Claude use different
+  provider contracts.
+- Live/remaining/progress/elapsed/ETA needs one canonical projection before the
+  summary UI can render truthful values.
 
-- DASH-001 owns the shared shell and navigation. BO-009 registers its route.
-- DASH-002 owns Units rows/filter policy. DASH-003 owns writes and capacity.
-- BO-008 owns reusable ticket context; Units consumes it when available.
-- DASH-002, DASH-003, DASH-004, DASH-008, and BO-009 may touch dashboard
-  composition/CSS and must be sequenced or rebased rather than run as
-  conflicting writers.
-- DASH-005 and DASH-007 can run in parallel. DASH-006 follows DASH-005;
-  DASH-008 follows DASH-006 and DASH-007.
+The complete evidence matrix is
+[06-prototype-capability-audit.md](06-prototype-capability-audit.md).
+
+## Scheduling and shared surfaces
+
+- DASH-001 follows #1034 and owns shared route/navigation/CSS metadata.
+- DASH-002 and DASH-008 consume BO typed activity/identity contracts; DASH-008
+  serializes with BO-005's event migration.
+- DASH-003 consumes BO-011 ticket context rather than building a second modal.
+- DASH-003/005/007/015 and BO-012..014 touch shared dashboard composition/CSS
+  and must be sequenced or rebased.
+- DASH-006 and runtime identity producers coordinate schema provenance; exact
+  backend/model values are never parsed from display text.
+- DASH-010/013 may require separately authorized sibling changes. Their Aiur
+  issues remain incomplete while a required external contract is blocked.
+
+## Existing-work disposition
+
+- DASH-009 supersedes #132's storage/accounting contract. The proposed
+  opencode TUI surface stays separate and is recorded in the deferred ledger.
+- DASH-009/011 relate to #845, but this bounded local-first program does not
+  pull in its Postgres/multi-controller/BI scope.
+- Debug-only #930 is evidence, not normal-run accounting truth.
+- #1033 documents the current dashboard; these companions own documentation
+  for their future behavior.
 
 ## Publication
 
-After review, create these as standalone issues with one `complexity:N` and
-`model:codex`. Do not add `agent:todo`, `phase:N`, `build-lane:*`, or the Build
-Order parent. A later planning run may organize them into their own bounded
-order if desired.
+Create these as standalone issues with one `complexity:N` and `model:codex`.
+Publish the hard prerequisites above as native blockers, including cross-scope
+BO edges, but add no Build Order parent, phase/lane or active `agent:*` label.
+Returned identities and full observed labels live in
+`dashboard-companions.json`.

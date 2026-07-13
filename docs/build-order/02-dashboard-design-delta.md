@@ -1,7 +1,7 @@
 # Dashboard and Prototype Delta
 
 **Current-code baseline:** `origin/main` at
-`3d67b7be722eb649f28088fc8d609dd7b75254c7`
+`b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5`
 
 **Design baseline:** [design-manifest.md](design-manifest.md)
 
@@ -10,15 +10,18 @@ substantial Fleet-to-Units redesign, a smaller Decision-to-Commands alignment,
 and the net-new Build Order graph. It is not a CSS-only restyle.
 
 The companion dashboard work is separate from Build Order: responsive shell,
-Units read model, unit/capacity controls, Commands, and the four-ticket
-usage/accounting track in `04-usage-accounting.md`. None of those tickets enters
-the Build Order root or feature-completion calculation.
+Units catalog and presentation, applied controls, Commands provenance and
+presentation, and the eight-ticket usage/accounting track in
+`04-usage-accounting.md`. None of the fifteen companion tickets enters the
+Build Order root or feature-completion calculation. The capability-by-capability
+proof for this split is [06-prototype-capability-audit.md](06-prototype-capability-audit.md).
 
 ## Current production baseline
 
 The merged Operator Control Center already has:
 
-- Phoenix LiveView routes for Fleet, Decision inbox/detail, and analytics;
+- Phoenix LiveView routes for Fleet and Decision inbox/detail, plus a separate
+  authenticated controller-backed analytics report;
 - independently degrading fleet, decision, history, recent-merge, outcome, and
   analytics providers;
 - URL-persisted decision filters and deep links;
@@ -26,12 +29,13 @@ The merged Operator Control Center already has:
   fail-closed writable behavior;
 - a decision overview intentionally bounded to the most recent 50 canonical
   records, with unresolved/blocking/urgent items ordered ahead of recency;
-- Basic Auth required whenever the dashboard enables mutations, including on
-  loopback; an unconfigured writable dashboard fails closed at startup;
+- optional unauthenticated loopback read-only mode, with Basic Auth required
+  whenever dashboard mutations are enabled; financial/token history therefore
+  needs its own authenticated-or-locked policy;
 - a responsive current fleet table and accessible theme/reduced-motion tokens;
 - GitHub native dependency read/write clients and Aiur progress events.
 
-It does not have a Build Order route, an all-state ticket catalog, a shared
+It does not have a Build Order route, an all-state current-run ticket catalog, a shared
 runtime progress projection, a general ticket-detail component, provider-split
 accounting/rate limits, or a maintained graph-layout integration.
 
@@ -56,7 +60,7 @@ theme/status affordance remains reachable without page-level clipping.
 | Area | Current | Target and constraint |
 |---|---|---|
 | Units data | Ticket/state/waiting/latest/elapsed/decisions/actions | Add real backend/model/effort/complexity/progress/epic-lane data with honest unknowns. Preserve waiting reason. |
-| Filters | Separate Running, queued/waiting, and retry tables | One Units table with single-select Live/Unfinished/All/None presets plus independently toggleable Active/Alert/Paused/Stuck/Queued/Finished chips; define exact precedence for rows matching multiple signals. |
+| Filters | One Units table with basic running/blocked/paused/stuck/finished filters | One table with a single-select Live/Unfinished/All/None lifecycle scope plus independently toggleable Active/Alert/Paused/Stuck/Queued/Finished conditions; define an exact truth table for rows matching multiple signals. |
 | Row detail | Only running rows open an agent-log modal | A reusable ticket-context component with safe GitHub/chat/command links, navigable blocker/blocked-ticket chips, and honest unavailable states. |
 | Mobile | Labelled fleet cards | Preserve accessible labels and readable text; the mock's 9–12px density is not acceptance. |
 
@@ -108,14 +112,16 @@ This catch-up is independent of the Build Order data provider and graph.
 
 ## Companion usage/accounting track
 
-The shell cards require four independently reviewable outcomes:
+The shell cards require eight independently reviewable outcomes:
 
-1. durable idempotent usage observations attributed by ticket, run, backend,
-   agent family, and exact model;
-2. cost/coverage and grouping projections over those observations;
-3. provider account-meter ingestion for subscription and API-key modes; and
-4. shared OCC summary cards with honest scope, cost basis, coverage, staleness,
-   and unavailable states.
+1. a provider-neutral measurement envelope with trustworthy ticket identity;
+2. a durable attributed file-first ledger;
+3. required Claude Remote Control request accounting;
+4. versioned cost/coverage and grouping projections;
+5. a provider-meter contract plus Codex adapter;
+6. Claude subscription and API-key meter parity;
+7. a canonical current-run progress/elapsed/ETA projection; and
+8. authenticated accessible summary UI.
 
 See `04-usage-accounting.md` for boundaries and evidence. Build Order may pass
 its selected member IDs to the accounting query, but its own data provider,
@@ -151,8 +157,8 @@ graph, interactions, and acceptance do not depend on provider billing.
 - direction is blocker to blocked;
 - green/solid only for a successfully completed GitHub blocker;
 - red/dashed for a known open blocker;
-- an explicit distinct state for unknown data and a cancelled/not-planned
-  blocker whose edge remains unsatisfied;
+- distinct `terminal_unsatisfied`, `unknown`, and `cyclic` states in addition
+  to cleared and actively blocking edges;
 - missing/external blockers remain visible as diagnostics/counts;
 - cycles render with a graph-quality warning and never invent readiness;
 - hover, keyboard focus, and persistent touch selection highlight upstream and

@@ -2,235 +2,232 @@
 
 ## Decision
 
-The Codex/Claude usage cards are shared Operator Control Center work, not Build
-Order behavior. Implement them as four companion tickets outside the Build
-Order root:
+Usage/accounting is a standalone Operator Control Center program, not Build
+Order behavior. Eight companion tickets own it:
 
-1. durable attributed usage observations;
-2. cost, coverage, and grouping projections;
-3. subscription/API provider account meters; and
-4. shared dashboard summary UI.
+1. provider-neutral usage envelope and current transport normalization;
+2. durable attributed usage ledger;
+3. Claude REPL/Remote Control request accounting;
+4. versioned cost and grouping projection;
+5. provider-meter contract plus Codex adapter;
+6. Claude subscription and API-key meter adapter;
+7. canonical current-run summary projection; and
+8. authenticated accessible summary UI.
 
-A selected Build Order may supply a set of member ticket IDs to the accounting
-query. The accounting store remains Aiur-owned and does not write totals to
-GitHub.
+GitHub supplies current Build Order membership and ticket metadata. Aiur owns
+retained usage and current run facts. A selected order can pass its current
+member identities to the accounting query, but no totals are written to GitHub
+and no accounting ticket blocks the Build Order root.
 
-## Current reusable capability
+## Current capability and gap
 
-Aiur already has useful pieces:
+Aiur already folds Codex token notifications into current running entries,
+normalizes headless Claude completion usage and cost, reads structured Codex
+rate limits, and publishes dashboard changes through PubSub. It does not yet
+retain complete ticket/model/backend attribution across daemon restart,
+completed tickets, retry, fallback and Remote Control. The current latest rate
+limit is not a provider/account-generation-aware meter store.
 
-- `Aiur.Orchestrator.TokenAccounting` folds cumulative token events into each
-  running entry and one current-daemon total;
-- Codex `thread/tokenUsage/updated` and completion events are normalized;
-- Codex handshake already calls `account/rateLimits/read`;
-- `Aiur.ModelAvailability` persists a small provider-availability snapshot;
-- headless `aiur-claude` reports input/output/cache usage and provider-reported
-  `cost_usd` on completion;
-- the current dashboard forwards global tokens, active-ticket tokens, and one
-  raw latest-rate-limit value.
+Existing work must be reconciled rather than duplicated:
 
-The missing product boundary is durable, provider-neutral attribution:
+- #132's durable per-ticket token/cost portion is superseded by DASH-009. Its
+  proposed opencode side-panel surface stays outside this dashboard scope.
+- #845 is a larger multi-controller/Postgres/BI program. This bounded local
+  feature deliberately uses the repository's file-first durability pattern
+  behind a behavior that can gain a future database adapter.
+- #930 is debug-only telemetry. It may supply vocabulary or test evidence, but
+  it is not a normal-run accounting authority.
 
-- completed ticket totals disappear;
-- current-daemon totals disappear on restart;
-- provider, backend, exact model, run, attempt, and Build Order membership are
-  not retained together;
-- cost is ignored;
-- direct `claude-repl`/Remote Control has no token/cost path;
-- the last quota map can overwrite another provider;
-- sparse/multi-limit account updates and all quota windows are not preserved.
+## Measurement envelope
 
-## Provider protocol findings
+Normalize each provider message before persistence. The minimum versioned
+envelope is:
 
-### Codex
+```text
+schema_version, idempotency_key
+occurred_at, ingested_at
+measurement_kind: delta | absolute
+counter_scope: request | turn | thread | session
+provider_epoch, account_generation
+source_event_id, source_sequence
+run_id, tracker/repository/ticket identity, attempt_id
+session_id, turn_id, request_id
+agent_family, backend, requested_model, resolved_model, effort, auth_mode
+raw_absolute_usage, derived_delta_usage
+input, cached_input, cache_creation_input, output, reasoning_output, total
+provider_cost_decimal, provider_cost_currency, completeness: full | partial
+source, source_version
+```
 
-The locally installed Codex app-server schema exposes structured account,
-rate-limit, and usage methods. It distinguishes API-key and ChatGPT accounts,
-supports multiple rate-limit IDs, separates primary/secondary windows, and
-emits sparse rolling updates. Token notifications include cached input and
-reasoning output.
+An absolute counter is converted to a delta only within the same provider,
+account generation, epoch, scope and counter key. Duplicate or out-of-order
+events add no usage. A provider reset, new session/turn, retry attempt or model
+fallback cannot inherit the prior checkpoint accidentally.
 
-Current Aiur parsing expects some snake-case fields while the app-server schema
-uses camelCase fields such as `limitId`. Aiur also drops multi-limit/reset-credit
-data and cached/reasoning token components. Extend the existing integration
-rather than building a new scraper.
+Token dimensions overlap. Cached input is normally a subset of input, and
+reasoning output is normally a subset of output. Preserve each dimension for
+pricing and display, but calculate total using the provider-reported total when
+available; otherwise use non-overlapping input plus output. Never sum every
+field. Preserve an exact decimal provider cost at the protocol boundary.
 
-For API accounts, OpenAI's organization Usage API can group completion usage by
-model/project/user/API key, while the Costs endpoint reports invoice-aligned
-spend by project and line item. Those organization endpoints require the
-appropriate admin credential and do not provide Aiur ticket identity, so they
-can reconcile aggregate billed spend but cannot replace Aiur's per-ticket
-ledger. See [OpenAI Usage and Costs API](https://platform.openai.com/docs/api-reference/usage/audio_transcriptions_object).
+## Required Remote Control source
 
-### Claude
+Current `claude-repl` turn/display events do not carry tokens or cost. Claude
+Code's supported OpenTelemetry event stream now provides a structured
+`claude_code.api_request` event with session ID, monotonic event sequence,
+model, estimated USD cost, input/output/cache token fields, request ID,
+query source and effort. DASH-010 must evaluate and implement a local-only OTLP
+ingress path, correlate `session.id` to Aiur run/ticket/attempt identity, and
+deduplicate at request/event identity.
 
-Headless `aiur-claude` already returns detailed token usage and a cost value
-reported by the Claude CLI. Aiur currently copies that field into a normalized
-event but does not store it.
+This is preferable to scraping `/usage`, transcript output or the status line.
+The status-line token totals describe the current context rather than
+cumulative usage in current Claude Code versions, and taking over a user's
+status-line configuration is not an acceptable accounting contract.
 
-The installed adapter exposes no structured account/quota method. If Claude
-Session/Weekly values cannot be obtained through a supported structured
-provider contract, render them as unsupported. Do not scrape interactive
-status text, credential files, transcripts, or browser state. A required
-`aiur-claude` protocol addition is a separate cross-repository prerequisite.
+Raw prompts, tool details and API bodies remain disabled. Drop email, account,
+organization, host paths and any other unnecessary identity at the ingress
+boundary before persistence. If the local OTLP endpoint requires a sibling
+`aiur-claude` launch-protocol change, that external change is an explicit gate;
+the Aiur ticket cannot finish with Remote Control marked unsupported.
 
-Direct `claude-repl` usage must either gain a supported observation path or be
-shown as incomplete coverage; it must never count as zero.
+Sources:
+
+- [Claude Code OpenTelemetry monitoring](https://code.claude.com/docs/en/monitoring-usage)
+- [Claude Code status-line field semantics](https://code.claude.com/docs/en/statusline)
+- [Claude Code cost semantics](https://code.claude.com/docs/en/costs)
+
+## Durable storage decision
+
+V1 uses a daemon-owned, single-writer file store:
+
+- a canonical append-only, versioned NDJSON observation stream;
+- crash-safe atomic JSON checkpoints for absolute-counter deduplication;
+- crash-safe atomic aggregate projections for bounded reads;
+- persist-before-publish acknowledgement and explicit store health;
+- deterministic replay/migration, corruption quarantine and rollback tests;
+- configurable retention/compaction that preserves run/ticket/agent/backend/
+  model aggregates plus the earliest retained coverage timestamp.
+
+Aiur has no application Ecto repository, migration/backup lifecycle or shared
+relational store to extend. The opencode SQLite database is viewer-owned and
+cannot become accounting truth. Adding Postgres for this local-first feature
+would make a deployment program a hidden dashboard prerequisite. The storage
+behavior and envelope remain backend-neutral so a separately authorized
+multi-controller/BI run can add an adapter later.
+
+## Cost policy
+
+V1 produces only bases supported by actual inputs:
+
+- `provider_reported_estimate`, when a provider reports a request/session
+  estimate;
+- `api_equivalent_estimate`, derived from resolved model, token dimensions and
+  an immutable versioned price table; and
+- `unknown`.
+
+Do not invent metered actual, subscription allocation or fixed-fee attribution.
+Do not add different bases into one dollar total. Group and display each basis
+separately with coverage and pricing revision/effective date. Unknown model,
+auth mode or token coverage produces unknown/partial cost, never `$0.00`.
+
+For flat subscriptions, per-ticket/build dollars are API-equivalent estimates,
+marked with an asterisk. An information popover explains that the value is not
+billed spend and identifies the actual subscription tier separately. Provider
+reported estimates are also labelled as estimates; authoritative API billing
+may reconcile an account total but cannot infer Aiur ticket identity.
+
+For a Build Order, totals include all retained Aiur usage attributable to each
+current member ticket, including observations recorded before that ticket was
+added to the order. The view reports the earliest retained coverage time and
+excludes nonmembers. For Units, the default scope is the current Aiur run.
 
 ## Account-meter contract
 
-Use one normalized provider snapshot:
+Meters are separate from request accounting:
 
 ```text
-agent_family
-backend
-auth_mode: subscription | api_key | other | unknown
-plan_type
-quota_status: available | partial | unsupported | stale | error
-windows: [{bucket, limit_id, used_percent, duration_minutes, resets_at}]
+provider, backend, auth_mode, plan_tier, account_generation
+snapshot_kind: full | patch
+windows: [{stable_key, kind, used_percent, resets_at, observed_at}]
 credits_or_spend_control
-observed_at
-source
-source_version
+health: available | partial | stale | error | unsupported
+observed_at, source, source_version
 ```
 
-Subscription accounts show available session/weekly windows. API-key accounts
-show applicable metered/rate/credit information without fabricated
-subscription bars. Sparse updates merge into a provider-and-limit-ID
-last-known-good snapshot. Failure retains stale data with health metadata;
-failed fetch never means zero or fully available.
+A full snapshot tombstones absent prior windows; a sparse patch changes only
+named windows. Each window has independent freshness/expiry. Authentication
+changes start a new account generation so stale data from a prior login cannot
+merge into the new account, while raw account identity is discarded.
 
-Normalize and discard email, account IDs, API-key material, OAuth tokens, and
-raw credentials at the provider boundary.
+Subscription accounts show supported session/weekly windows and plan tier.
+API-key accounts show supported metered/rate/credit information without fake
+subscription bars. Codex extends the existing structured account/rate-limit
+path. Claude parity gets its own ticket because subscription quotas and API
+organization usage are different protocols; interactive-output or credential
+scraping is prohibited.
 
-## Durable usage record
+## Query and summary contracts
 
-Each accepted observation needs enough identity to aggregate without guessing:
+The accounting projection supports exact caller-supplied scope:
 
 ```text
-schema_version, idempotency_key, observed_at, run_id
-tracker and repository/project identity, issue ID/display identifier
-attempt_id, session_id, turn_id
-agent_family, backend, model_requested, model_resolved, effort, auth_mode
-input, cached-input, cache-creation-input, output, reasoning-output tokens
-provider-reported total tokens
-cost_micros_usd, cost_basis, pricing_revision
+usage_summary(ticket_ids, run_ids) ->
+  totals_by_basis,
+  by_ticket,
+  by_agent_family,
+  by_backend,
+  by_model,
+  token_and_cost_coverage,
+  earliest_retained_at,
+  store_health
 ```
 
-Keep `claude` and `claude-repl` distinct at storage time and group them into the
-Claude card only at query time.
+The current-run summary is a separate projection. It defines:
 
-Cumulative counters are keyed by provider/session/thread/turn and counter kind,
-not only by ticket. Duplicate or out-of-order observations add zero; new
-sessions/turns start new counters; restart/resume reloads checkpoints; retries
-receive distinct attempts; backend fallback retains the ticket while changing
-backend/model attribution.
+- live unit count from the canonical current-run catalog;
+- remaining tickets and the included lifecycle states;
+- weighted progress denominator (complexity when present, otherwise one point)
+  without treating missing progress as zero;
+- wall-clock elapsed from the run start, not summed agent runtimes; and
+- ETA from observed completed work and remaining weight, with sample window,
+  confidence/freshness and unknown/insufficient-evidence states.
 
-Use a daemon-owned durable store and stable projection. SQLite is available and
-fits relational aggregation; a versioned append-only audit with rebuilt
-projection can also fit existing patterns. The ticket must decide after
-measuring write frequency. Either choice requires atomic/idempotent writes,
-schema migration/replay, health separate from zero data, bounded compaction,
-persist-before-broadcast, and no LiveView/log parsing.
+LiveView reads bounded cached snapshots and subscribes to PubSub. It does not
+poll providers or scan the ledger per browser. Reconnect/render immediately
+reads current GitHub/Aiur snapshots, then continues with pushed updates.
 
-## Cost semantics
+## Ticket boundaries
 
-Store currency in integer micros or exact decimal. Every value has a basis:
+| Ticket | Owns | Does not own |
+|---|---|---|
+| DASH-008 | Envelope, transport normalization and exact attribution inputs | durability, pricing, UI |
+| DASH-009 | File-first durable ledger/checkpoints/projections | provider adapters, pricing, UI |
+| DASH-010 | Claude REPL/Remote Control OTel usage and cost adapter | Claude account quotas, summary UI |
+| DASH-011 | Versioned API-equivalent pricing and grouped usage query | provider account meters, ingestion, UI |
+| DASH-012 | Meter snapshot/patch contract and Codex adapter | Claude adapter, ticket usage ledger |
+| DASH-013 | Claude subscription and API-key meter parity | Remote Control request accounting |
+| DASH-014 | Canonical current-run count/progress/elapsed/ETA | usage pricing or provider quotas |
+| DASH-015 | Authenticated responsive cards, meters and drill-down | provider I/O or ledger scanning |
 
-- `provider_reported`;
-- `metered_actual`;
-- `api_equivalent_estimate` from exact resolved model and versioned prices;
-- `subscription_fixed` from explicit configuration;
-- `allocated` under an explicit allocation policy; or
-- `unknown`.
+## Security and accessibility
 
-Never mix these into an unlabeled “spend” total. Preserve pricing revision and
-effective date so history does not change when prices change. Unknown model or
-auth semantics means unknown cost, not `$0.00`. Cached input/cache creation must
-remain separate when prices differ.
+- Numeric token/cost history and its APIs require authenticated operator mode.
+  Optional unauthenticated local dashboard mode renders a locked state with no
+  financial/token values.
+- Never persist prompts, transcripts, output, credentials, email/account/org
+  identity, capability URLs, raw environment values or provider bodies.
+- Keep the ledger outside agent workspaces with restrictive permissions. Do not
+  inject values into agent prompts or public bug reports.
+- Meters expose accessible names, values, reset timestamps and unknown states;
+  color or progress width is never the only meaning.
+- At 320px and 200% text zoom, summary facts reflow, bottom navigation does not
+  obscure content, and every action target is at least 44px.
 
-The total card reports pricing coverage when any usage is unknown. For flat
-subscriptions, the recommended default is to show provider-reported or
-API-equivalent per-ticket usage cost and show the configured fixed fee once,
-without allocating it across tickets. If allocation is desired, label it
-allocated rather than actual.
+## Resolved product decisions
 
-## Aggregation API
-
-Query exact groups over a caller-supplied ticket set:
-
-```text
-summary(ticket_ids, run_ids) ->
-  totals, by_agent_family, by_backend, by_model, by_ticket,
-  cost_basis_and_coverage, quota_snapshots, store_health
-```
-
-For a selected Build Order, GitHub membership supplies `ticket_ids`. For a plain
-Units page, the caller may select the current Aiur run. UI copy must distinguish
-“this build” from “this run.”
-
-## Companion ticket boundaries
-
-### DASH-USAGE-1 — Persist attributed usage observations
-
-**Complexity:** 4
-
-Own the provider-neutral durable record, idempotency/checkpoints, raw
-provider-reported cost, attribution dimensions, retention/compaction, health,
-and source redaction. Include Claude REPL coverage or an explicit incomplete
-state. No versioned pricing, aggregation query, provider quota fetching, or
-dashboard cards.
-
-Acceptance includes restart/resume, retries, fallback, duplicates/out-of-order
-events, completed tickets, corruption, and credential redaction.
-
-### DASH-USAGE-2 — Project cost and aggregations
-
-**Complexity:** 4
-
-Own exact cost basis, pricing revisions, unknown/partial coverage, the grouped
-query by build/run, ticket, backend, agent family, and model, plus unrelated
-ticket exclusion. It consumes durable observations and does not ingest quota or
-render cards.
-
-Acceptance includes exact micros, mixed bases, unknown models/auth, cached and
-reasoning token dimensions, historical price stability, membership filters,
-completed tickets, and corrupted/unavailable store health.
-
-### DASH-USAGE-3 — Ingest provider account meters
-
-**Complexity:** 4, or 5 with a cross-repository Claude adapter prerequisite.
-
-Own Codex/Claude auth-mode and quota ingestion, sparse multi-limit merges,
-session+weekly preservation, API-key meter behavior, last-known-good health,
-and conservative fallback compatibility. No visual redesign.
-
-Acceptance includes current Codex camelCase fixtures, multiple limit IDs,
-300-minute plus 10,080-minute windows, API-key/ChatGPT modes, email stripping,
-unsupported Claude state, stale/error behavior, and current availability-ledger
-migration.
-
-### DASH-USAGE-4 — Render shared OCC usage summary
-
-**Complexity:** 3
-
-Own the shared Codex/Claude/Aiur summary cards, scope labels, total build/run
-tokens, supported quota windows, cost basis/coverage, progress/ETA provenance,
-live updates, degraded states, responsive/accessibility behavior, and
-drill-down/grouping presentation. Consume the first three tickets; do not fetch
-providers per browser render.
-
-## Security and privacy
-
-- Never persist or log credentials, account emails, capability URLs, raw
-  environment values, or raw provider responses.
-- Token/cost history stays behind the authenticated operator dashboard/API.
-- Store numeric/account-plan facts, not prompts, transcripts, or model output.
-- Treat credit and spend controls as financial operator data, never agent prompt
-  or public tracker content.
-- Use synthetic values and account IDs in tests, recordings, and bug reports.
-
-## Open product decisions
-
-The durable questions are in `questions.md`: subscription cost basis, Build
-Order membership-time semantics, and direct Claude REPL coverage.
+There are no remaining product gates for this track: subscription estimates,
+current-member/all-retained scope, read-only GitHub planning, and required
+Remote Control accounting are accepted in `questions.md`. Provider protocol
+availability can block an adapter ticket, but cannot silently weaken its
+acceptance criteria.

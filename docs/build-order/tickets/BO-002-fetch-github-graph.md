@@ -1,10 +1,10 @@
-# BO-002 — Fetch complete GitHub Build Order graphs
+# BO-002 — Complete GitHub graph adapter
 
 **Kind:** executable
 
 **Provenance:** planned in plan v1
 
-**Complexity:** 4 — Batched paginated GitHub graph reads with partial-failure semantics
+**Complexity:** 4 — Bounded multi-connection GitHub adapter with partial-failure semantics
 
 **Risk:** high
 
@@ -14,89 +14,134 @@
 
 **Serializes with:** none
 
-**Requirements:** BOREQ-001, BOREQ-002, BOREQ-003, BOREQ-004, BOREQ-009, BOREQ-012
+**Requirements:** BOREQ-001, BOREQ-002, BOREQ-003, BOREQ-004
 
 **Decisions:** DEC-001, DEC-002, DEC-003, DEC-004, DEC-005
 
 **Design evidence:** DESIGN-002
 
-**Researched at:** 3d67b7be722eb649f28088fc8d609dd7b75254c7
+**Researched at:** b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5
 
 **Suggested labels:** `complexity:4`, `model:codex`, `phase:2`, `build-lane:backend`; never `agent:todo`
 
 ## Outcome
 
-One adapter returns a complete candidate root catalog or selected-root graph, including identities, ticket facts, ordered membership, labels, outcomes, native blockers, and external references, with bounded GitHub calls and explicit failure.
+Aiur can fetch a bounded root catalog and one complete selected Build Order
+candidate from GitHub, preserving native identity, membership, labels,
+lifecycle outcomes, dependency endpoints, pagination, and partial failures
+without publishing an incomplete graph as valid data.
 
 ## Context and evidence
 
-Existing issue fetching drops GitHub node/database IDs, sub-issue order, and dependency detail. `Aiur.GitHub.DependenciesAPI` reads only one dependency page and converts some failure paths into shapes unsuitable for an authoritative 100-node graph.
-
-Current GraphQL schema introspection confirms `Issue.parent`, `subIssues`, `blockedBy`, and `blocking`. The adapter must use those native relationships and preserve errors instead of turning an incomplete connection into an empty edge set.
+GitHub exposes `Issue.parent`, `subIssues`, `blockedBy`, and `blocking`, while
+Aiur's current per-issue dependency hydration is designed for dispatch and can
+collapse dependency-fetch failure to an empty list. That behavior is unsafe for
+a graph: losing page two or one endpoint must not make a dependent appear
+ready. Browser-count-dependent or per-node polling would also exhaust provider
+budgets at the 100-member bound.
 
 ## Scope
 
-- Fetch an open root catalog by the constant `build-order` label and support direct lookup of a selected closed root for stable deep links.
-- Fetch one selected root, its direct ordered sub-issues, labels, state/state reason, node/database/repository identities, body marker, and paginated `blockedBy` connections.
-- Batch member/dependency hydration with GraphQL `nodes(ids)` or an equivalently bounded strategy; preserve external blocker identity and known outcome even when it is not a member card.
-- Return structured candidate data and provider metadata without caching or mutating process state.
-- Reject top-level GraphQL errors, field-level partial responses, page failures, count mismatches, ambiguous identities, and over-limit membership.
-- Measure and assert a documented upper call/query-cost bound for 20, 50, and 100 members.
+- Add transport operations for a paginated root catalog and a selected root's
+  direct members, identity/database IDs, title/body summary, labels, state and
+  state reason, parent, timestamps, and native dependency connections.
+- Use bounded GraphQL reads where they preserve complete connection/error
+  semantics; use paginated REST fallbacks only through the existing transport
+  and with equivalent failure preservation.
+- Normalize every response into BO-001 candidate records while retaining
+  repository-qualified endpoint identities, external dependency references,
+  connection counts, provider request metadata, and rate-limit observations.
+- Reject a candidate on any required page/field error, pagination/count
+  mismatch, duplicate canonical identity, unresolved internal endpoint,
+  over-limit membership, or structurally invalid selected root.
+- Return catalog entries independently: a malformed root carries its diagnostic
+  while valid roots remain selectable. Catalog-level auth/transport failure is
+  separate from per-root structural invalidity.
+- Keep member metadata warnings renderable. Missing/duplicate phase, lane,
+  complexity, or optional marker does not turn a complete provider generation
+  into an empty graph.
+- Bound calls and payloads independently of member count and connected browser
+  count; classify auth, permission, rate-limit, timeout, network, GraphQL
+  partial, schema, and validation failures.
 
 ## Non-goals
 
-- Own refresh cadence, last-known-good generations, PubSub, browser demand coalescing, or LiveView assigns.
-- Write sub-issue/dependency relationships, reparent tickets, or edit labels.
-- Fetch Aiur progress, logs, usage, commands, or provider billing.
+- Supervise refresh cadence, retain last-known-good generations, broadcast
+  PubSub updates, join Aiur activity, or render UI.
+- Mutate sub-issues, labels, issue state, or dependencies.
+- Reuse a per-member N+1 hydration path or silently treat a failed connection
+  as `[]`.
 
 ## Existing owner and reuse target
 
-Extend `Aiur.GitHub.Transport` conventions and reuse cursor/error patterns from the paginated review-thread clients. Do not extend the per-issue dispatch hydration path into an N+1 graph provider.
+Extend `Aiur.GitHub.Transport`, the existing issue-state/label normalization,
+and native sub-issue/dependency API knowledge. Keep this adapter separate from
+ordinary tracker polling and `Aiur.GitHub.IssueDependencies` mutation logic.
 
 ## Contract and invariants
 
-- Catalog reads and selected-root reads are separate operations with separate errors and pagination.
-- A successful result is complete by contract. Any unresolved page or partial GraphQL response is an error carrying retry/rate-limit context.
-- Native direction is blocker to blocked. Only `blockedBy` relationships become hard edges; prose tables and `serializes_with` never do.
-- The adapter returns canonical node IDs and mutable locators and never assumes issue-number adjacency.
-- GitHub tokens, emails, raw headers, and full raw responses are not retained in returned records or logs.
+- Success means the entire requested catalog page set or selected-root
+  generation is complete and bounded. Partial success is an error with
+  evidence, never a smaller successful graph.
+- Dependency direction normalizes to blocker → blocked while preserving both
+  upstream and downstream source connections for reconciliation.
+- Internal identities resolve by repository plus node ID. A number, title, or
+  logical marker is never sufficient to join endpoints.
+- Structural-invalid selected roots, malformed catalog entries, stale cache,
+  and provider unavailable are distinct results for BO-003.
+- The adapter performs no retry loop, cache swap, or browser-specific work.
 
 ## Refreshable implementation notes
 
-- Refresh GitHub API fields and rate-limit budget at pickup; the researched schema may evolve.
-- Likely seams include `src/lib/aiur/github/transport.ex` plus new `build_order/github_adapter*` modules and boundary fixtures.
-- Keep queries and response normalization in separate modules to respect the 200-line file target.
+- Re-introspect the authenticated GitHub schema and current REST API version at
+  pickup; protocol fields are evidence, not timeless assumptions.
+- Add new Build Order adapter modules beside the existing transport rather than
+  expanding an already-large ordinary issue poller.
+- Record query cost/call bounds in fixtures and expose enough response metadata
+  for BO-003 health and retry policy.
 
 ## Acceptance and verification
 
 ### Agent gate
 
-- Boundary tests cover empty catalog, multiple roots, selected closed root, root-with-parent, 100 children, pagination, ordering, external blockers, `COMPLETED`/`NOT_PLANNED`, duplicate metadata, and malformed marker preservation.
-- Failure tests cover page two failure, partial GraphQL `errors`, missing node, rate limit, auth, timeout, over-limit count, and verify that no failure is returned as a successful empty edge list.
-- Call-bound tests prove browser count is irrelevant and candidate fetches remain bounded at 20/50/100 nodes.
+- Fixtures cover 0/1/100 members, multiple catalog roots, malformed root among
+  valid siblings, direct-child enforcement, duplicate identities, external
+  blockers, `COMPLETED`/`NOT_PLANNED`, every planning-label warning, and cycles.
+- Pagination tests fail closed on page two errors, count drift, partial GraphQL
+  data, malformed cursors, missing endpoints, and 101 members.
+- Call-bound tests prove no browser-count or per-node N+1 behavior and retain
+  rate-limit/auth/timeout classification without secrets.
 
 ### At-merge gate
 
-- Current-base GitHub adapter tests and full CI pass with synthetic fixtures and no live-token dependency.
-- The selected API fields are rechecked against current GitHub schema and deviations are recorded in the PR.
+- Current GitHub schema fixtures, transport tests, compile/lint/spec checks,
+  and full repository CI pass on the current configured integration branch.
+- No regression weakens existing dependency mutation or ordinary tracker
+  polling behavior.
 
 ### Human/manual evidence
 
-- No separate human evidence; BO-011 owns end-to-end operator proof.
+- None separately; BO-015 exercises the published root through the real
+  provider path.
 
 ## Failure, security, migration, and accessibility cases
 
-- Security: redact credentials and account/user identifiers and allow only configured repository identities in v1.
-- Migration: no persistent data is written.
-- Accessibility: no direct UI; retain enough diagnostic detail for an understandable provider failure.
+- Use configured GitHub auth and trusted repository/host policy; never log
+  tokens, raw authorization headers, private bodies, or unredacted responses.
+- No persisted migration; normalized candidate contracts are versioned through
+  BO-001.
+- Provider errors must carry safe operator text suitable for later accessible
+  status rendering.
 
 ## Surfaces
 
-- Reads: GitHub GraphQL issue/sub-issue/dependency API; Build Order domain contract; GitHub transport/error conventions.
-- Writes: Build Order GitHub adapter; GraphQL fixtures and adapter tests.
-- Contracts: complete root catalog candidate; complete selected-root graph candidate; bounded call and error contract.
+- Reads: GitHub GraphQL/REST through the existing transport; BO-001 contracts.
+- Writes: GitHub Build Order read adapter, normalization fixtures, and tests.
+- Contracts: complete root-catalog candidate; complete selected-root candidate;
+  bounded provider failure taxonomy.
 
 ## Sibling boundaries and open gates
 
-BO-003 owns caching and refresh. BO-001 owns parsing policies. BO-006 owns readiness/presentation. Issue publication later uses write APIs but is not part of this read adapter.
-
+BO-003 alone owns refresh/cache/LKG behavior. BO-012 consumes BO-003 snapshots,
+not this adapter. Companion dashboard work neither blocks nor extends this
+provider and may only serialize if it changes the shared GitHub transport.

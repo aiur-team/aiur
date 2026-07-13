@@ -1,119 +1,129 @@
 # Build Order Executor Handoff
 
-## Stop: planning approval is still pending
+## Start gate
 
-This handoff is not executable until the operator approves the ticket pack and
-`github-publication.md` contains a successful reconciliation receipt. The
-approved planning commit and returned GitHub root identity are intentionally
-pending in this draft. Do not run Aiur, implement a ticket, or add `agent:todo`
-while that gate is open.
+This handoff becomes executable only after
+`docs/build-order/github-publication.md` contains a successful reconciliation
+receipt and the operator separately authorizes a run. Planning publication does
+not queue work. Until then, do not run Aiur, implement tickets or add
+`agent:todo`.
 
 ## Identity and objective
 
 - Build Order: `its-everdred/aiur:build-order-dashboard`
 - Plan version: 1
 - Repository: `its-everdred/aiur`
-- Researched commit: `3d67b7be722eb649f28088fc8d609dd7b75254c7`
-- Approved planning commit: pending operator review
-- GitHub root selector/node identity: pending materialization
+- Researched commit: `b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5`
+- Approved planning commit: pending final clean review
+- GitHub root: pending materialization
 
-The objective is to deliver the 11-ticket, authenticated, read-only Build Order
-feature. GitHub owns plan facts; Aiur owns runtime facts. The eight dashboard
-companions and every deferred finding are outside this run.
+Deliver the fifteen-ticket authenticated, GitHub-planning-read-only Build Order
+feature. GitHub owns current plan facts; Aiur owns runtime facts. The fifteen
+dashboard companions, Linear #1067, skill-delivery work and deferred findings
+are separate tracks and cannot change this run's denominator or ETA.
 
-## Executor startup
+## Required startup
 
-After the pending gates close:
-
-1. Read `README.md`, requirements, technical decisions, canonical JSON, all BO
-   ticket contracts, validation report, and publication receipt.
-2. Use `aiur-run`, not the removed `aiur-loop` workflow.
+1. Read these repository-relative paths in order:
+   - `docs/build-order/README.md`
+   - `docs/brainstorms/2026-07-12-build-order-requirements.md`
+   - `docs/build-order/05-technical-decisions.md`
+   - `docs/build-order/build-order.json`
+   - `docs/build-order/tickets/BO-001-define-domain-contract.md` through
+     `docs/build-order/tickets/BO-015-prove-feature-acceptance.md`
+   - `docs/build-order/validation-report.md`
+   - `docs/build-order/github-publication.md`
+2. Use `/aiur-run`, not the retired `/aiur-loop` workflow.
 3. Write a three-to-five-sentence `/goal` stating that you are the Executor,
-   the finite acceptance boundary, granted merge/issue authority, critical-path
-   priority, and terminal condition.
-4. Requery current repository instructions, integration branch, root
-   membership/dependencies/labels, active PRs, CI, and Aiur status. Do not trust
-   copied status in this document.
-5. Queue only approved BO members under the user's authority. The planning
-   publication deliberately leaves them undispatched.
+   the finite acceptance boundary, granted issue/merge authority, critical-path
+   priority and terminal condition.
+4. Requery repository instructions, configured integration branch, the GitHub
+   root/members/blockers/full labels, active PRs, CI and Aiur status. Never use
+   the planning JSON as fresher live GitHub truth.
+5. Queue only approved BO members under explicit operator authority. Companion
+   issues remain inactive unless separately authorized.
 
 ## Authority map
 
-- GitHub: identity, direct membership, title/body, labels, state/state reason,
-  and native hard blockers.
+- GitHub: root/member identity, title/body, planning labels, lifecycle/state
+  reason and native blockers.
 - Aiur: running/queued/retry/paused state, progress, active agent stage, alerts,
-  events, and latest evidence.
-- Planning pack: approved requirements, decisions, ticket boundaries, typed
-  scheduling graph, validation evidence, and finite boundary.
-- Executor: current readiness/capacity decisions, review/rework routing, merge
-  policy under granted authority, recovery, status, and final proof.
+  events and latest evidence.
+- Planning pack: approved requirements, technical decisions, ticket contracts,
+  initial scheduling/conflict metadata, validation and finite boundary.
+- Executor: current readiness/capacity, review/rework routing, merge policy
+  under authority, recovery, status and final proof.
 
-Unknown/stale provider data never becomes empty, ready, successful, or zero.
-Aiur progress—including 100%—never clears a GitHub blocker.
+Unknown/stale provider data never becomes empty, ready, successful or zero.
+Aiur progress, including 100%, never clears a GitHub blocker.
 
-## Graph and capacity
+## Initial graph and capacity
 
-The canonical graph is `build-order.json`; derive reverse edges/readiness from
-it and GitHub. The initial contract gate is BO-001. After it lands, BO-002,
-BO-004, and BO-007 can run in parallel. BO-003 and BO-004 serialize on
-supervision. BO-003/005/006 then unlock independent work, followed by BO-008,
-BO-009, BO-010, and BO-011 as encoded.
+BO-001 and BO-008 can begin together. After BO-001, BO-002, BO-004 and BO-009
+are independent. BO-003 follows BO-002; BO-005 follows BO-004, and those two
+serialize on the application supervision seam. BO-010 follows BO-008/009;
+BO-006/007 follow activity; BO-011 follows the presenter; BO-012 joins graph,
+presenter, layout and context; BO-013/014 harden interaction and scale; BO-015
+integrates and proves the feature.
 
-Maximize progress against this bounded graph, not raw active-ticket count.
-Increase agent capacity only when memory/CPU/build gates and independent ready
-work justify it. Do not activate companion or deferred work to keep slots busy.
+Derive current readiness from GitHub native blockers, ticket lifecycle,
+declared serialization and real capacity. Phase is only a rollout/display hint.
+Maximize progress against ready critical-path work, not raw active count. Do not
+activate companions or deferred findings to keep slots busy.
 
-## Review, rework, and merge
+## Review, rework and convergence
 
-- Review each PR against its ticket contract, shared decisions, and current
-  base. Use parallel `ce-code-review` agents where available.
-- Contained findings return the same ticket to rework and are delivered through
-  the event bus; do not create a follow-up merely to preserve PR momentum.
-- Create/promote a new ticket only for a genuine independent P0/P1 feature
-  blocker. Record P2/P3 and optimizations in `deferred-findings.md`.
-- Keep branches current, CI green, and shared-write tickets sequenced as the
-  plan specifies. Merge only under explicit authority and current repository
-  policy.
-- If created/promoted work exceeds completions in an interval, freeze new
-  promotion until the bounded feature completes.
+- Review each PR against its issue contract, decisions and current base. Use
+  parallel independent code review where useful.
+- Return a contained finding to the same ticket/worker through rework and the
+  event bus. Do not multiply tickets to preserve PR momentum.
+- Promote a new issue only for an independent P0/P1 acceptance blocker. Record
+  P2/P3 and optimization evidence in the deferred ledger.
+- At each status interval compare completed versus created/promoted work. If
+  promotion exceeds completion, freeze further promotion until the original
+  feature lands.
+- Keep branches current, CI green and shared-write work sequenced. Merge only
+  under the operator's current authority and repository policy.
+
+Report two tracks separately: bounded Build Order critical path/count/ETA, and
+reliability/optimization findings as active only when separately authorized or
+otherwise deferred. Deferred work cannot consume critical-path capacity or
+prevent completion.
 
 ## Recovery and Aiur defects
 
-Monitor all workers, alerts, commands, PRs, reviews, CI, and resource/capacity
-state. Prefer messaging/retrying/returning the owning worker to rework. The
-Executor may take over a critical ticket only when an Aiur defect or hard
-operational failure makes that the economical backstop.
+Monitor workers, alerts, Commands, PRs, reviews, CI and machine capacity. First
+message/retry or return the owning worker to rework. Take over a critical ticket
+only when an Aiur defect or hard operational failure makes that the economical
+backstop.
 
-With debug authorization, file a sanitized Aiur bug for reproducible Aiur
-failures. Without it, ask before external issue creation. Always remove secrets,
-tokens, credentials, private content, account identifiers, environment values,
-local paths/hosts, and irrelevant source context.
-
-## Status reporting
-
-Report two independent tracks:
-
-1. Build Order critical path: current ready/active/rework/merged tickets,
-   remaining count, blockers, and evidence-based ETA.
-2. Reliability/optimization findings: active only if separately authorized;
-   otherwise deferred count and notable evidence.
-
-Deferred work cannot change the feature count/ETA, consume critical-path
-capacity, or prevent completion.
+With debug authorization, file a sanitized Aiur issue for a reproducible Aiur
+failure. Without it, ask the operator first. Always remove credentials, tokens,
+private content, account identifiers, environment values, local paths/hosts and
+irrelevant source context.
 
 ## Terminal condition
 
-Stop when BO-001 through BO-011 are implemented, reviewed, green on the current
-configured base, merged, documented, cleaned up, and proven on current main by
-the required end-to-end workflow.
+Stop only when BO-001 through BO-015 are implemented, reviewed, green on the
+current configured integration branch, merged, documented, cleaned up and
+proven after merge.
 
-BO-011 owns the acceptance matrix and published-root dogfood. The Executor must
-run the canonical real CLI flow from the operator repo root because issue
-workspaces may not bypass the `--test` guard. Proof includes the authenticated
-browser route and required TUI evidence, provider degradation/LKG, multiple
-root selection/deep links, activity updates, context/dependency navigation,
-keyboard/touch/pan/zoom, light/dark/reduced motion, narrow viewport, and
-20/50/100-member fixtures.
+BO-015 owns the acceptance matrix, real published-root dogfood, synthetic
+cycle/invalid/degraded/20/50/100 fixtures and post-merge smoke. The Executor
+runs the canonical real CLI/TUI flow from the operator repository root because
+issue workspaces cannot bypass the `--test` guard. Proof also covers the
+authenticated browser, selection/deep links, LKG degradation, live activity,
+context/dependency navigation, keyboard/touch/pan/zoom, light/dark/reduced
+motion, mobile safe area, 200% zoom and preservation of Units, Commands and
+Analytics.
 
-The loop ends there. It does not continue until every bug, optimization, or
-reliability opportunity discovered along the way is exhausted.
+After proof, BO-015 closes the GitHub root with state reason `COMPLETED`. The
+loop ends there; it does not continue until every discovered reliability or
+optimization opportunity is exhausted.
+
+## Adjacent delivery that must not be lost
+
+Draft PR #1065 contains the isolated `/aiur-build` and bounded Executor skill
+rewrite. Its separate human-blocked tracking issue may land only after the
+current dashboard Executor stops using the prior contracts. Never merge mixed
+research PR #1064 merely to recover the skill files.

@@ -2,212 +2,192 @@
 
 ## Outcome
 
-Ship an authenticated, read-only Build Order dashboard that selects one
-GitHub-rooted feature plan, renders its native dependency graph, overlays
+Ship an authenticated, GitHub-planning-read-only Build Order page that selects
+one GitHub-rooted feature, renders its native dependency graph, overlays
 current Aiur activity without changing planning truth, and remains truthful
-through partial providers, cycles, external blockers, restart, and 100-ticket
-graphs.
+through partial providers, cycles, restart and 100-ticket graphs.
 
-This plan covers 11 Build Order implementation tickets (40 complexity points).
-Eight standalone dashboard companions (29 points) align the refreshed shell,
-Units, Commands, controls, and usage/accounting but are outside the Build Order
-root, critical path, ETA, and terminal condition.
+The bounded feature is fifteen tickets (57 points). Fifteen standalone
+dashboard companions (56 points) align the current OCC with the refreshed
+Units, Commands, controls and usage design, but do not enter the Build Order
+root, critical path, ETA or terminal condition.
 
 ## Baselines
 
 - Repository: `its-everdred/aiur`
-- Researched code: `3d67b7be722eb649f28088fc8d609dd7b75254c7`
+- Researched code: `b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5`
 - Design HTML SHA-256:
   `23b527eade8c2fad7d37957c248be709091dfd112bbc6e13c6d76cd092d663a3`
 - Design constraints SHA-256:
   `49e068d4999d62197dbd1d5c0438db21a25cd1b5873fb959a58a7e0388c7829a`
-- Canonical graph: `docs/build-order/build-order.json`
-- Requirements:
-  `docs/brainstorms/2026-07-12-build-order-requirements.md`
+- Canonical baseline: `docs/build-order/build-order.json`
+- Capability audit: `docs/build-order/06-prototype-capability-audit.md`
 
-Workers must refresh current paths, active dashboard PRs, GitHub schema, ELK.js
-release, and current integration-branch instructions at pickup without silently
-changing the ticket contract.
+Workers refresh current repository instructions, the configured integration
+branch, active ownership seams, GitHub schema, layout-engine release and
+provider protocols at pickup without silently weakening the ticket contract.
 
 ## Architecture
 
 ```text
-GitHub GraphQL
-      |
-      v
-BO-002 complete adapter
-      |
-      v
-BO-003 catalog + selected-root LKG ----+
-                                      |
-Aiur events -> BO-004 activity -------+--> BO-006 pure presenter
-                  |                              |
-                  +--> BO-005 AgentList          +--> BO-008 ticket context
-                                                     |
-BO-007 layout worker -------------------------------+
-                                                     v
-                                               BO-009 route/MVS
-                                                     |
-                                                     v
-                                               BO-010 hardening
-                                                     |
-                                                     v
-                                               BO-011 acceptance
+GitHub GraphQL -> BO-002 adapter -> BO-003 catalog/selected-root LKG --+
+                                                                    |
+Aiur lifecycle -> BO-004 typed identity -> BO-005 activity ----------+-> BO-007 presenter
+                                           |                               |
+                                           +-> BO-006 AgentList            +-> BO-011 context
+                                                                               |
+BO-008 browser harness -> BO-009 assets/worker -> BO-010 DOM/SVG adapter -------+
+                                                                               v
+                                                                         BO-012 route
+                                                                               |
+                                                                         BO-013 interaction
+                                                                               |
+                                                                         BO-014 scale
+                                                                               |
+                                                                         BO-015 acceptance
 ```
 
-GitHub owns root/member identity, labels, lifecycle, and native `blockedBy`.
-Aiur owns activity, progress, alerts, and events. BO-006 is the only join and
-does no I/O. Server-rendered DOM owns semantics; the BO-007 browser worker owns
-geometry and edge routing only.
+GitHub owns root/member identity, labels, lifecycle and native blockers. Aiur
+owns activity and progress. BO-007 is a pure join. Server DOM owns semantics;
+the browser worker owns only layout geometry. Cards receive bounded summaries;
+selected context reads cached normalized detail rather than fetching per node.
 
-## Ticket graph
+## Build Order ticket graph
 
-| ID | Outcome | Cx | Phase | Hard prerequisites |
-|---|---|---:|---:|---|
-| BO-001 | Strict Build Order domain contract | 3 | 1 | — |
-| BO-002 | Complete bounded GitHub graph adapter | 4 | 2 | BO-001 |
-| BO-003 | Atomic catalog/order LKG projections | 4 | 3 | BO-002 |
-| BO-004 | Shared headless ticket activity | 4 | 2 | BO-001 |
-| BO-005 | AgentList consumes shared activity | 3 | 3 | BO-004 |
-| BO-006 | Pure planning/runtime presenter | 3 | 3 | BO-001, BO-004 |
-| BO-007 | Vendored accessible layout platform | 4 | 2 | BO-001 |
-| BO-008 | Reusable all-state ticket context | 3 | 4 | BO-006 |
-| BO-009 | Selectable minimum graph route | 4 | 5 | BO-003, BO-006, BO-007, BO-008 |
-| BO-010 | Interaction/a11y/scale hardening | 4 | 6 | BO-009 |
-| BO-011 | Merged-base real-workflow capstone | 4 | 7 | BO-005, BO-010 |
+| ID | Outcome | Cx | Phase | Lane | Hard prerequisites |
+|---|---|---:|---:|---|---|
+| BO-001 | Strict domain/readiness contract | 3 | 1 | Backend | — |
+| BO-002 | Complete bounded GitHub graph adapter | 4 | 2 | Backend | BO-001 |
+| BO-003 | Atomic root catalog and selected LKG | 4 | 3 | Backend | BO-002 |
+| BO-004 | Repository-qualified event identity | 4 | 2 | Infrastructure | BO-001 |
+| BO-005 | Shared daemon ticket activity | 4 | 3 | Backend | BO-004 |
+| BO-006 | AgentList consumes shared activity | 3 | 4 | Frontend | BO-005 |
+| BO-007 | Pure planning/runtime presenter | 4 | 4 | Backend | BO-001, BO-005 |
+| BO-008 | Browser/a11y/performance harness | 3 | 1 | Infrastructure | — |
+| BO-009 | Pinned layout worker/static platform | 4 | 2 | Frontend | BO-001 |
+| BO-010 | DOM/SVG layout adapter and fallback | 4 | 3 | Frontend | BO-008, BO-009 |
+| BO-011 | Reusable all-state ticket context | 4 | 4 | Frontend | BO-007 |
+| BO-012 | Selectable minimum graph route | 4 | 5 | Frontend | BO-003, BO-007, BO-010, BO-011 |
+| BO-013 | Accessible graph interaction | 4 | 6 | Frontend | BO-008, BO-012 |
+| BO-014 | Responsive redraw and bounded scale | 4 | 7 | Frontend | BO-008, BO-013 |
+| BO-015 | Current-base acceptance capstone | 4 | 8 | Documentation | BO-006, BO-014 |
 
-BO-003 and BO-004 are symmetric `serializes_with` because both change the
-application supervision tree and its tests. Phase is a presentation/rollout
-hint, not a wave barrier; the later Executor derives readiness from hard edges,
-this conflict, tracker state, and capacity.
+BO-003 and BO-005 serialize because both change the application supervision
+surface after different prerequisites. Phase is a display/rollout hint, not a
+wave barrier. Same-phase hard edges are valid.
 
 ## Parallel execution shape
 
-1. Land BO-001 first to avoid competing identity and state contracts.
-2. Start BO-002, BO-004, and BO-007 in parallel.
-3. Once BO-004 completes, BO-003, BO-005, and BO-006 may run in parallel; if
-   BO-004 is still active when BO-002 completes, BO-003 waits on the declared
-   supervision conflict.
-4. Start BO-008 after BO-006. BO-005 may continue independently.
-5. Start BO-009 only after BO-003, BO-006, BO-007, and BO-008 are merged.
-6. BO-010 hardens the real page; BO-011 integrates and proves the bounded
-   feature after both the page and AgentList migration are complete.
+1. BO-001 and BO-008 can begin together.
+2. After BO-001, start BO-002, BO-004 and BO-009 independently.
+3. BO-003 follows BO-002; BO-005 follows BO-004. Sequence those two on the
+   supervision seam, while BO-010 follows BO-008/009 in parallel.
+4. BO-006 and BO-007 follow activity; BO-011 follows the presenter.
+5. BO-012 joins graph providers, presenter, layout and context.
+6. BO-013 owns relationship selection/accessibility; BO-014 owns pan/zoom,
+   responsive redraw and measured 20/50/100 scale.
+7. BO-015 integrates current base, proves the published root and closes it only
+   after post-merge real workflow evidence.
 
-The Executor maximizes progress against this graph, not raw agent count. It may
-use standalone companion work to fill spare capacity only under separate
-authorization and without displacing the Build Order critical path.
+The Executor maximizes progress against ready critical-path work, not raw agent
+count. Companion work may use spare capacity only under separate authorization
+and cannot displace the feature path.
 
-## Implementation contracts by layer
+## Core contracts
 
-### Domain and GitHub provider
+### Planning and provider health
 
-- Canonical identity is repository plus GitHub node ID; issue number remains a
-  mutable URL/display locator.
-- Root catalog and selected-root graph are separate provider operations and
-  separate LKG health domains.
-- A successful adapter candidate is complete. Any page/field GraphQL error,
-  count mismatch, malformed identity, or over-limit membership fails the
-  candidate.
-- Optional malformed body markers create diagnostics but do not erase a valid
-  GitHub issue.
-- Only `CLOSED + COMPLETED` satisfies a native blocker.
+- Canonical identity is repository plus GitHub node ID; number is a URL/display
+  locator.
+- Root catalog and selected graph are separate operations and LKG health
+  domains. One invalid root cannot hide the catalog.
+- A complete adapter candidate has all pages/fields/endpoints. Provider error
+  preserves stale LKG or shows unavailable; selected structural invalidity and
+  member-local metadata warnings are separate states.
+- Edge/readiness states are cleared, blocking, terminal-unsatisfied, unknown
+  and cyclic, with conservative precedence. Only `CLOSED + COMPLETED` clears.
 
 ### Runtime and presentation
 
-- Ticket activity is keyed by tracker kind, project/repository identity, and
-  issue identity; bare numbers are prohibited.
-- Activity carries observed time/source/staleness. Restart without replay makes
-  open-ticket progress unknown.
-- Presenter precedence is GitHub terminal outcome, runtime overlay, dependency
-  readiness, then planned phase/lane. These remain separate fields.
-- Cycles, external blockers, conflicting labels, and unavailable providers are
-  explicit diagnostics, not filtered rows.
+- Event identity is repository-qualified at trusted ingestion; display strings
+  and bare topics are never join keys.
+- Restart without replay makes open progress unknown, not zero.
+- The presenter performs no I/O and preserves plan, dependency outcome,
+  runtime state, agent stage and progress as separate fields.
+- Build Order does not mutate GitHub planning. Shared ticket context may expose
+  existing Aiur actions only through authenticated writable/capability,
+  confirmation and applied acknowledgement.
 
-### Browser and LiveView
+### Browser
 
-- Routes are `/build-orders` and `/build-orders/:root_number`; the selected
-  route is canonical and survives share/back/refresh.
-- Cards remain semantic server-rendered controls. ELK.js is pinned and served
-  locally; a generation-safe worker returns coordinates/routes only.
-- Build Order is read-only and works under authenticated dashboard read-only
-  mode. No GitHub mutation or editing event exists.
-- Hook failure keeps a readable fallback. Unknown provider/progress state never
-  renders as empty, ready, or zero.
+- Routes are `/build-orders` and `/build-orders/:root_number`; URL selection is
+  deterministic across share/back/refresh.
+- The engine is pinned, licensed, checksummed and served locally. Worker
+  generations are cancellable/stale-safe; product state never enters it.
+- DOM order stays semantic. Layout failure keeps a readable fallback.
+- Interaction is keyboard/pointer/touch complete; pan/zoom/fit controls are
+  named; focus, reduced motion, mobile safe area and 200% reflow are proven.
 
-## Companion dashboard plan
+## Standalone dashboard companions
 
-| ID | Standalone outcome | Cx | Dependency |
+| ID | Outcome | Cx | Hard prerequisites |
 |---|---|---:|---|
-| DASH-001 | Responsive URL-backed shell/navigation | 3 | — |
-| DASH-002 | Units all-state read model and filters | 4 | — |
-| DASH-003 | Unit pause/resume and capacity controls | 4 | DASH-002 |
-| DASH-004 | Commands presentation parity | 3 | — |
-| DASH-005 | Durable attributed usage observations | 4 | — |
-| DASH-006 | Cost/coverage/grouping projection | 4 | DASH-005 |
-| DASH-007 | Provider account meter projection | 4 | — |
-| DASH-008 | Shared run/build summary UI | 3 | DASH-006, DASH-007 |
+| DASH-001 | Responsive URL-backed route shell | 3 | sequence after #1034 |
+| DASH-002 | Current-run Units catalog/predicates | 4 | BO-005 |
+| DASH-003 | Units filters/table/responsive UI | 3 | DASH-001, DASH-002, BO-011 |
+| DASH-004 | Applied pause/resume protocol | 4 | — |
+| DASH-005 | Unit and capacity controls UI | 3 | DASH-002, DASH-003, DASH-004 |
+| DASH-006 | Decision lookup/provenance contract | 4 | — |
+| DASH-007 | Commands presentation catch-up | 3 | DASH-001, DASH-006 |
+| DASH-008 | Provider-neutral usage envelope | 4 | BO-004 |
+| DASH-009 | Durable attributed usage ledger | 4 | DASH-008 |
+| DASH-010 | Claude Remote Control usage adapter | 4 | DASH-008; sibling protocol gate if required |
+| DASH-011 | Versioned cost/grouping projection | 4 | DASH-009 |
+| DASH-012 | Meter contract and Codex adapter | 4 | — |
+| DASH-013 | Claude subscription/API meter adapter | 4 | DASH-012; sibling protocol gate if required |
+| DASH-014 | Canonical current-run summary | 4 | DASH-002 |
+| DASH-015 | Accessible usage/run summary UI | 4 | DASH-001, DASH-003, DASH-010..014 |
 
-These tickets have their own contracts under
-`docs/build-order/companion-tickets/`. They receive complexity and
-`model:codex`, but no `phase:N`, `build-lane:*`, or Build Order parent unless a
-future planning run explicitly creates a separate order.
+These dependencies publish as native GitHub blockers even though companions
+have no Build Order parent. DASH-008 serializes with BO-005 on event ingestion.
+DASH-001/003/005/007/015 and BO-012..014 touch shared dashboard composition or
+CSS and must be sequenced/rebased. DASH-006 and BO-004 coordinate provenance
+schema boundaries. Companion publication receives complexity and
+`model:codex`, never phase/lane/root membership or `agent:todo`.
 
-Shared-write guidance:
-
-- DASH-001 owns shared shell/navigation/CSS. BO-009 only registers its route.
-- BO-008 owns ticket context. DASH-002 consumes it rather than creating another
-  modal contract.
-- DASH-002, DASH-003, DASH-004, DASH-008, and BO-009 must rebase/sequence shared
-  `DashboardLive` and CSS work rather than editing the same composition in
-  parallel.
-- DASH-005 and DASH-007 may run in parallel; DASH-006 follows observations and
-  DASH-008 joins accounting plus meters.
-
-## Verification strategy
+## Verification
 
 ### Agent-runnable
 
-- Pure domain/parser/presenter policy tables.
-- Synthetic GitHub GraphQL pagination, partial-error, external-reference, and
-  call-bound fixtures.
-- OTP projection, LKG, coalescing, restart, PubSub, retention, and supervision
-  tests without sleeps.
-- AgentList characterization and compatibility tests.
-- Static asset/worker/hook, LiveView route/state, component, accessibility, and
-  browser tests.
-- 20/50/100 node performance fixtures with recorded budgets.
-- Repository compile, formatting, specs/lint, coverage, regression, dialyzer,
-  and `make ci` gates required by current `CONTRIBUTING.md`.
+- pure parser/readiness/presenter tables;
+- paginated GitHub partial/error/cycle/external fixtures and call bounds;
+- OTP projection/LKG/PubSub/restart/coalescing tests without sleeps;
+- AgentList compatibility characterization;
+- static-asset worker/hook and real browser harness tests;
+- keyboard/touch/focus/reduced-motion/200%-zoom/mobile-safe-area checks;
+- 20/50/100-member generation/routing/performance fixtures with numeric budgets;
+- current repository compile, format, lint/spec, coverage and CI gates.
 
-### At merge and operator root
+### Capstone/operator
 
-- Reconcile current base and every active dashboard ownership seam.
-- Requery the published GitHub root, direct membership, labels, and every
-  native blocker relationship.
-- From the operator repo root, run the real CLI workflow required by
-  `AGENTS.md`; an issue workspace must not bypass its `--test` guard.
-- Observe the authenticated browser route plus required TUI evidence for root
-  selection/deep links, live activity, LKG degradation, contexts, keyboard,
-  touch, theme, reduced motion, narrow viewport, and 20/50/100 fixtures.
+- Reconcile every member, label and native blocker from GitHub.
+- Prove the real published root plus synthetic cycle/invalid/degraded/scale
+  fixtures; the real root alone cannot cover every failure mode.
+- From the operator repo root, run the real CLI and TUI workflow required by
+  `AGENTS.md`, plus authenticated browser selection/context/live updates.
+- Verify existing Units, Commands, Analytics and TUI remain intact on the
+  current configured integration branch and after merge.
 
-## Finite boundary and discovery policy
+## Convergence policy
 
-- P0/P1 findings that directly block a requirement, CI, merge, daemon operation,
-  or required end-to-end proof may be promoted.
-- A review finding inside a ticket's acceptance returns that ticket to rework.
-- P2/P3 defects and optimizations go to
-  `docs/build-order/deferred-findings.md` with evidence and do not change the
-  feature denominator or ETA.
-- If created/promoted work outpaces completions in an Executor interval, freeze
-  new promotion until the original feature completes.
-- The loop stops after implementation, review, current-base green, merge,
-  documentation, cleanup, and real end-to-end proof—not after every discovery
-  is exhausted.
+Promote only an independent P0/P1 acceptance blocker. Contained findings return
+to the same ticket. P2/P3 defects and optimizations retain evidence in
+`deferred-findings.md` without changing feature count/ETA/capacity. Freeze new
+promotion when creation exceeds completion. The loop stops after BO-015 proves
+implementation, review, current-base CI, merge, documentation, cleanup and the
+required end-to-end workflow—not after every discovered improvement is fixed.
 
-## Open gates
+## Planning gate
 
-- Confirm same-configured-repository and read-only v1 before dispatch.
-- Resolve subscription cost display, Build Order usage time window, and direct
-  Claude Remote Control coverage before the affected standalone usage tickets.
-- Operator reviews this ticket pack before GitHub materialization. Publication
-  adds no `agent:todo` and does not start Aiur.
+The final planning action is GitHub materialization and reconciliation. It does
+not launch Aiur, merge either planning branch, or add an active agent label.

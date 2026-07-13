@@ -68,28 +68,33 @@ redraw, fit/pan/zoom, and a deterministic failure fallback; ELK does not own
 product state or rendering.
 
 This choice follows ELK's documented strength for directed layered graphs,
-routed edges, and Web Worker operation. BO-006 must prove the representative
-20/50/100 fixtures before the route depends on it. If that proof fails, the
-ticket records the evidence and substitutes a maintained layout-only engine
-without changing the adapter contract.
+routed edges, and Web Worker operation. BO-008 establishes the browser harness,
+BO-009 owns reproducible vendoring/worker packaging, BO-010 owns the measured
+DOM/SVG adapter and fallback, and BO-014 proves representative 20/50/100
+fixtures. If the engine fails the accepted budget, the owning ticket records
+the evidence and substitutes a maintained layout-only engine without changing
+the adapter contract.
 
 ## DEC-008 — Keep v1 read-only
 
 **Status:** accepted for the v1 planning baseline
 
-Build Order does not mutate GitHub. It inherits dashboard authentication and
-safe URL rules. Dependency editing is a separately authorized feature if the
-operator rejects this baseline before dispatch.
+Build Order does not mutate GitHub planning data. It inherits dashboard
+authentication and safe URL rules. Reusable ticket context may retain existing
+Aiur runtime actions only behind their established writable-mode, capability,
+confirmation and applied-acknowledgement contracts. Dependency editing is a
+separately authorized feature.
 
 ## DEC-009 — Keep companion dashboard work separate
 
 **Status:** accepted
 
-Responsive shell, Units read model, unit/capacity controls, Commands, durable
-usage observations, accounting projection, account meters, and usage summary
-are eight companion tickets. They do not enter the Build Order root or terminal
-condition. BO-008 owns reusable ticket context; BO-009 consumes the shared route
-contract when available without waiting for all companion metrics.
+Responsive shell, Units catalog/presentation, runtime control protocol/UI,
+Decision provenance/Commands, usage envelope/ledger/Remote Control accounting,
+cost projection, provider meters, run summary and usage UI are fifteen
+companion tickets. They do not enter the Build Order root or terminal condition.
+BO-011 owns reusable ticket context; BO-012 consumes the shared route contract
+when available without waiting for all companion metrics.
 
 ## DEC-010 — Treat phase as a hint
 

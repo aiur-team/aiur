@@ -11,7 +11,10 @@ authorities:
   alerts, and latest runtime evidence.
 
 The presentation layer derives readiness, reverse edges, warnings, layout
-groups, and summaries. It does not mutate GitHub or parse workspace logs.
+groups, and summaries. It does not mutate GitHub planning data or parse
+workspace logs. Shared ticket context may expose existing Aiur runtime actions
+only through their independent authenticated writable/capability/confirmation
+contracts.
 
 ## GitHub identity and membership
 
@@ -44,8 +47,10 @@ Use strict, single-valued labels:
 - `phase:<positive integer>`;
 - `build-lane:documentation|frontend|backend|infrastructure`.
 
-Missing or duplicate complexity is unknown/invalid. Missing or duplicate phase
-renders Unphased with a warning. Missing or duplicate lane renders Unassigned.
+Missing or duplicate complexity is unknown with a warning. Missing or duplicate
+phase renders Unphased with a warning. Missing or duplicate lane renders
+Unassigned. These member-local metadata failures remain renderable; they do not
+invalidate an otherwise complete selected graph or hide other roots.
 Icons are derived from lane/status with a generic fallback; no icon label is
 needed in v1.
 
@@ -94,12 +99,13 @@ External blockers are retained as references and affect readiness even when
 their full cards are not rendered. A missing/out-of-order endpoint must never
 disappear as if no blocker existed.
 
-## Four-valued readiness
+## Five-valued edge and readiness policy
 
 For each member:
 
 - `ready`: dependency data is fresh and every blocker closed successfully;
-- `blocked`: at least one known blocker is open;
+- `blocking`: at least one known blocker is open;
+- `terminal_unsatisfied`: a blocker closed without successful completion;
 - `unknown`: membership, dependency, or blocker outcome is unavailable/stale;
 - `cyclic`: the member participates in a strongly connected component or
   self-loop.
@@ -107,6 +113,11 @@ For each member:
 A blocker closed with `COMPLETED` clears its edge. A blocker closed with
 `NOT_PLANNED` is terminal but unsatisfied until the relationship or successor
 contract changes. Aiur progress—including `100%`—never clears an edge.
+
+When multiple conditions apply, readiness uses the conservative precedence
+`cyclic > unknown > terminal_unsatisfied > blocking > ready`. Edges carry the
+parallel vocabulary `cleared | blocking | terminal_unsatisfied | unknown |
+cyclic`; no unsatisfied terminal edge is styled as an actively running blocker.
 
 Planned phase, dependency readiness, Aiur execution state, active CE stage, and
 capacity/conflict eligibility are separate fields. Phase does not imply a
@@ -130,10 +141,13 @@ direct sub-issues, node/repository identity, labels/state, and paginated
 Inspect query cost/rate limits and reject partial results unless failures are
 explicitly modeled.
 
+Root-catalog and selected-root refreshes have independent health. One malformed
+root becomes a catalog diagnostic and cannot erase other selectable roots.
 Each selected-root refresh builds a complete candidate generation, validates
-counts/endpoints/cycles/metadata, and atomically replaces the snapshot only on
-success. On auth, rate-limit, timeout, partial response, pagination mismatch,
-or malformed data:
+structure/counts/endpoints/cycles, records member-local metadata warnings, and
+atomically replaces the snapshot only on success. A structurally invalid
+selected root is distinct from provider failure. On auth, rate-limit, timeout,
+partial response, pagination mismatch, or malformed structural data:
 
 - preserve the last-known-good graph;
 - mark it stale with last success/attempt, failure class, and retry time;
@@ -151,9 +165,12 @@ Progress, active CE phase, and latest event currently live inside the interactiv
 AgentList process and are pruned with its visible roster. Headless runs and the
 dashboard cannot safely depend on that UI-owned state.
 
-Extract the fold into an always-supervised `TicketActivityProjection` consumed
-by AgentList and dashboard. Key it by a typed tracker identity containing
-provider/repository identity, never a bare issue number. Per ticket retain:
+First extend the ticket-scoped lifecycle/event envelope so repository-qualified
+identity is present or resolved from a frozen tracked-issue snapshot at the
+trusted ingestion boundary. Never infer it from a bare event topic or display
+name. Then extract the fold into an always-supervised
+`TicketActivityProjection` consumed by AgentList and dashboard. Key it by that
+typed identity, never a bare issue number. Per ticket retain:
 
 - execution state and explicit waiting reason;
 - latest event/evidence and observed time;

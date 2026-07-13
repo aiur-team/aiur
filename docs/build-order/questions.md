@@ -15,7 +15,7 @@ be added here and asked one at a time.
 - None currently. The Claude Design project is committed under
   `docs/build-order/prototype/` and recorded in `design-manifest.md`.
 
-## Working Recommendations Pending Confirmation
+## Accepted Planning Baseline
 
 - Same configured repository and read-only v1.
 - One root GitHub issue per Build Order, selected from a constant `build-order`
@@ -23,9 +23,9 @@ be added here and asked one at a time.
 - Dashboard dependency editing, Linear, cross-repository orders, and more than
   100 direct tickets are follow-on scope.
 - Provider quota/token/spend accounting is a separate companion dashboard
-  track, not Build Order membership or acceptance work. Research recommends
-  four pickable tickets: durable observations, cost/aggregation projection,
-  account meters, and shared UI.
+  track, not Build Order membership or acceptance work. The final capability
+  audit decomposes it into provider envelope, ledger, Remote Control adapter,
+  pricing/grouping, two meter adapters, run summary, and shared UI.
 
 ## Resolved
 

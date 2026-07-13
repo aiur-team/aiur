@@ -1,6 +1,6 @@
 # Build Order Research Spike
 
-**Status:** In progress  
+**Status:** Research complete; publication reconciliation pending
 **Scope:** Feature decomposition and reusable planning workflow only. This spike
 does not implement Build Order or run Aiur.
 
@@ -12,28 +12,28 @@ their metadata, and their dependency edges. Aiur contributes live execution
 state, progress estimates, workflow phase, recent activity, and event evidence
 without copying those facts back into a second planning database.
 
-The initial implementation size hypothesis is ten Build Order tickets. Separate
-dashboard companion work currently comprises Units, Commands, and three
-usage/accounting tickets. Those tickets do not belong to the Build Order root
-or its completion math. Final counts follow independently reviewable dependency
-boundaries, not a quota.
+The opening ten-ticket estimate was deliberately treated as a hypothesis. The
+final prototype/current-code audit found fifteen independently reviewable Build
+Order boundaries and fifteen standalone dashboard companions. The companions
+do not belong to the Build Order root or its completion math. The increase is
+mostly hidden protocol, durable-data, browser-harness, and control-lifecycle
+work that should not be buried in nominal frontend tickets.
 
 ## Current Dashboard Baseline
 
-As of `origin/main` at `e5f07d02`, the Operator Control Center from PR #1037 is
-already merged. `src/lib/aiur_web/router.ex` exposes Fleet at `/`, the Decision
-inbox at `/decisions`, stable decision detail routes, and the separate offline
-analytics page at `/analytics`.
+As of `origin/main` at
+`b7c4e7c06b8c7011f306ce9efb0b9cd8fd8cbac5`, the Operator Control Center
+integration capstone is merged. `src/lib/aiur_web/router.ex` exposes Units at
+`/`, the Decision inbox/detail at `/decisions` and `/decisions/:id`, and the
+separate controller-backed analytics report at `/analytics`.
 
-`src/lib/aiur_web/live/dashboard_live.ex` is the LiveView shell.
-`src/lib/aiur_web/control_center_presenter.ex` composes independently-degrading
-fleet, decision, history, outcome, and analytics providers. The UI is split
-under `src/lib/aiur_web/components/operator_control_center/`; the fleet table
-currently shows ticket, state, explicit waiting reason, latest activity,
-elapsed time, decision count, and tracker/log actions.
-
-There is no Build Order or Commands route on `origin/main`. The completed delta
-is recorded in `02-dashboard-design-delta.md`.
+`src/lib/aiur_web/live/dashboard_live.ex`, `ControlCenterCache`, the presenter,
+Decision persistence/delivery/history, and PubSub refresh are reusable. The
+current Fleet is already one combined table. It does not yet supply an
+all-state current-run catalog, applied pause/resume acknowledgement, canonical
+Decision model provenance, durable attributed usage, complete account meters,
+or Build Order graph. The completed capability audit is
+`06-prototype-capability-audit.md`.
 
 ## What PR #971 Demonstrates
 
@@ -110,7 +110,7 @@ dependencies only in prose.
 
 ## Recommended GitHub Model
 
-This is the working recommendation pending user and design review.
+This is the accepted v1 recommendation.
 
 ### Build Order identity
 
@@ -211,9 +211,8 @@ keeps GitHub planning facts visible while runtime cells degrade to unknown.
 - [GitHub REST sub-issue endpoints](https://docs.github.com/en/rest/issues/sub-issues?apiVersion=2026-03-10)
 - [GitHub REST issue-dependency endpoints](https://docs.github.com/en/rest/issues/issue-dependencies?apiVersion=2026-03-10)
 
-## Remaining Research Work
+## Remaining Planning Work
 
-- Resolve or convert the remaining questions in `questions.md` into explicit
-  v1 decisions/gates.
-- Write and review the requirements, implementation plan, issue-ready ticket
-  contracts, structured graph, validation report, and Executor handoff.
+- Run two successive clean adversarial reviews and the canonical validator.
+- Materialize the reviewed root, fifteen members, and fifteen standalone
+  companions without dispatching them; then requery and record the receipt.

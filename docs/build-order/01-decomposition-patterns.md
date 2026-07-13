@@ -53,6 +53,7 @@ intake and identity
 | Integration/capstone was added late | Locally correct slices did not form a working feature | Add a merged-base acceptance capstone on day one. |
 | All children closed meant “feature done” | Final operator outcome lacked proof | Track root acceptance and capstone evidence independently. |
 | Execution-discovered work rewrote the original plan | Intent and scope growth became impossible to audit | Version the graph and mark `planned` versus `discovered`. |
+| Review and monitoring created work faster than agents completed it | A finite feature became an open-ended reliability program and its percentage/ETA lost meaning | Classify every finding; return contained work to rework, defer P2/P3/optimizations, and freeze promotion when creation exceeds completion. |
 
 ## Precedent-specific strengths
 
@@ -97,6 +98,21 @@ PRs would be artificial. Umbrellas organize but are not dispatched.
   decomposition review.
 
 Complexity is neither risk nor model routing. Record those independently.
+
+## Execution convergence contract
+
+The planning pack must make the later stop condition executable: acceptance,
+critical path, required documentation/cleanup, real end-to-end proof and the
+root-closing owner are recorded before dispatch. The Executor protects that
+boundary. Maximum parallelism means maximum progress toward the bounded
+outcome, not maximum active-ticket or discovery count.
+
+During execution, classify a new finding before creating work: independent
+P0/P1 blocker, contained rework, deferred P2/P3, or optimization. Keep deferred
+evidence without activating it, report critical path separately from
+reliability work, and apply a backlog-growth circuit breaker whenever promoted
+work outpaces completion. A later bounded hardening run can promote selected
+deferred findings after the original feature finishes.
 
 ## Planning stop criteria
 
