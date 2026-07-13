@@ -90,6 +90,18 @@ defmodule Aiur.ExtensionsTest do
     end
   end
 
+  defmodule StaticDecisionStore do
+    use GenServer
+
+    def start_link(opts) do
+      name = Keyword.fetch!(opts, :name)
+      GenServer.start_link(__MODULE__, Keyword.fetch!(opts, :decisions), name: name)
+    end
+
+    def init(decisions), do: {:ok, decisions}
+    def handle_call(:list, _from, decisions), do: {:reply, decisions, decisions}
+  end
+
   setup do
     linear_client_module = Application.get_env(:aiur, :linear_client_module)
 
@@ -432,10 +444,17 @@ defmodule Aiur.ExtensionsTest do
                  "issue_id" => "issue-http",
                  "issue_identifier" => "MT-HTTP",
                  "state" => "In Progress",
+                 "tag" => nil,
+                 "title" => nil,
+                 "url" => nil,
                  "worker_host" => nil,
                  "workspace_path" => nil,
                  "session_id" => "thread-http",
                  "turn_count" => 7,
+                 "runtime_seconds" => 0,
+                 "work_state" => "working",
+                 "pause_reason" => nil,
+                 "tracker_paused" => false,
                  "last_event" => "notification",
                  "last_message" => "rendered",
                  "queue_depth" => 1,
@@ -469,6 +488,9 @@ defmodule Aiur.ExtensionsTest do
                  "tag" => nil,
                  "title" => nil,
                  "url" => nil,
+                 "runtime_seconds" => 0,
+                 "work_state" => "retrying",
+                 "tracker_paused" => false,
                  "waiting_reason" => "backing_off",
                  "open_decision_count" => 0,
                  "ci" => nil,
@@ -775,6 +797,10 @@ defmodule Aiur.ExtensionsTest do
     assert dashboard_css =~ "[data-phx-main].phx-connected .status-badge-offline"
     assert dashboard_css =~ ".live-button[data-live=\"false\"]"
 
+    logo = get(build_conn(), "/aiur-logo.png")
+    assert response(logo, 200) == File.read!(Path.expand("../../../website/public/assets/aiur-logo.png", __DIR__))
+    assert Plug.Conn.get_resp_header(logo, "content-type") == ["image/png; charset=utf-8"]
+
     phoenix_html_js = response(get(build_conn(), "/vendor/phoenix_html/phoenix_html.js"), 200)
     assert phoenix_html_js =~ "phoenix.link.click"
 
@@ -843,15 +869,14 @@ defmodule Aiur.ExtensionsTest do
     start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
 
     {:ok, view, html} = live(build_conn(), "/")
-    assert html =~ "Operations Dashboard"
+    assert html =~ "Operator Control Center"
     assert html =~ "MT-HTTP"
     assert html =~ "MT-RETRY"
     assert html =~ "rendered"
-    assert html =~ "Runtime"
+    assert html =~ "Elapsed"
     assert html =~ "Live"
     assert html =~ "Offline"
-    assert html =~ "Copy ID"
-    assert html =~ "Agent update"
+    assert html =~ "Latest"
     assert html =~ "phx-click=\"show-agent-log\""
     refute html =~ "data-runtime-clock="
     refute html =~ "setInterval(refreshRuntimeClocks"
@@ -906,7 +931,7 @@ defmodule Aiur.ExtensionsTest do
       |> element("tr[phx-value-issue=\"MT-HTTP\"]")
       |> render_click()
 
-    assert log_html =~ "Agent log"
+    assert log_html =~ "Logs"
     assert log_html =~ "MT-HTTP"
     assert log_html =~ "data-agent-log-live"
     assert log_html =~ "Live"
@@ -945,6 +970,38 @@ defmodule Aiur.ExtensionsTest do
       |> render_click()
 
     refute closed_html =~ "hello from workspace log"
+  end
+
+  test "dashboard decision routes render a stable deep link from the real Decision projection" do
+    orchestrator_name = Module.concat(__MODULE__, :DecisionRouteOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :DecisionRouteStore)
+    snapshot = static_snapshot()
+    decision = decision_fixture("decision-live-route")
+
+    start_supervised!({StaticOrchestrator, name: orchestrator_name, snapshot: snapshot})
+    start_supervised!({StaticDecisionStore, name: decision_store_name, decisions: [decision]})
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 50,
+      decision_store: decision_store_name,
+      dashboard_writable: false
+    )
+
+    {:ok, inbox_view, inbox_html} = live(build_conn(), "/decisions")
+    assert inbox_html =~ "Decision inbox"
+    assert has_element?(inbox_view, ~s(a[href="/decisions/decision-live-route"]))
+
+    {:ok, detail_view, detail_html} = live(build_conn(), "/decisions/decision-live-route")
+    assert has_element?(detail_view, "#decision-detail-decision-live-route")
+    assert detail_html =~ "Should this real projected decision ship?"
+    assert detail_html =~ "&lt;script&gt;never execute&lt;/script&gt;"
+    assert detail_html =~ "Read-only mode · mutation controls are hidden."
+    refute detail_html =~ "phx-click=\"answer-decision\""
+
+    {:ok, _missing_view, missing_html} = live(build_conn(), "/decisions/not-present")
+    assert missing_html =~ "Decision not found"
+    assert missing_html =~ "not-present"
   end
 
   test "read-only dashboard liveview hides chat controls and no-ops write events" do
@@ -1155,6 +1212,30 @@ defmodule Aiur.ExtensionsTest do
       idle: [],
       agent_totals: %{input_tokens: 4, output_tokens: 8, total_tokens: 12, seconds_running: 42.5},
       rate_limits: %{"primary" => %{"remaining" => 11}}
+    }
+  end
+
+  defp decision_fixture(decision_id) do
+    %Aiur.Decision{
+      decision_id: decision_id,
+      source_id: decision_id,
+      version: 1,
+      ticket: %{identifier: "MT-HTTP", title: "Projected ticket", url: "https://example.test/issues/MT-HTTP"},
+      source: %{agent_id: "agent-http", session_id: "thread-http", event_id: "event-http"},
+      kind: "architecture",
+      authority: :human_required,
+      urgency: :critical,
+      blocking: true,
+      reversibility: :reversible,
+      question: "Should this real projected decision ship?",
+      context: %{short_summary: "A durable request", long_context_markdown: "<script>never execute</script>"},
+      options: [],
+      recommendation: nil,
+      consequence_of_delay: "The ticket agent remains paused.",
+      artifacts: [],
+      created_at: ~U[2026-07-12 12:00:00Z],
+      source_created_at: ~U[2026-07-12 12:00:00Z],
+      content_hash: "hash-#{decision_id}"
     }
   end
 
