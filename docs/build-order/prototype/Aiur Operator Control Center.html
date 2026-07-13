@@ -126,7 +126,6 @@ html { background: var(--bg); }
 body {
   margin: 0;
   min-height: 100vh;
-  overflow-x: hidden;
   background:
     radial-gradient(1200px 520px at 78% -8%, var(--accent-soft) 0%, transparent 60%),
     var(--bg);
@@ -149,13 +148,57 @@ button { font: inherit; cursor: pointer; }
 ::selection { background: var(--accent-soft); }
 
 /* ---------- layout shell ---------- */
-html, body { overflow-x: hidden; }
+html { overflow-x: hidden; }
+html { scrollbar-gutter: stable; }
 .app-shell { max-width: 1320px; margin: 0 auto; padding: 1.1rem 1.15rem 4rem; min-width: 0; }
 .dashboard-shell { display: grid; gap: 1rem; min-width: 0; }
 /* grid/flex children default to min-width:auto, which lets wide content
    (e.g. the 720px fleet table) force the whole page wider than the viewport.
    Pinning them to 0 lets overflow-x:auto containers actually clip + scroll. */
 .dashboard-shell > *, .panel, .panel > *, .hero-grid > *, .detail-grid > * { min-width: 0; }
+
+/* ---------- app layout (sidebar + content) ---------- */
+.app-layout { display: grid; grid-template-columns: 224px minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+.sidenav { position: sticky; top: 1.1rem; display: flex; flex-direction: column; gap: 0.35rem; }
+.sidenav-brand { display: flex; align-items: center; gap: 0.55rem; padding: 0.35rem 0.35rem 0.95rem 0.7rem; }
+.sidenav-brand #theme-toggle { margin-left: auto; }
+.sidenav-brand .brand-live { margin-left: 0.15rem; font-size: 0.68rem; padding: 0.16rem 0.5rem; }
+.sidenav-brand .brand-logo { height: 24px; width: auto; display: block; }
+.sidenav-brand .wm { font-family: "Bungee", sans-serif; font-size: 1.05rem; line-height: 1; letter-spacing: 0.01em; color: var(--fg); text-transform: uppercase; }
+.sidenav-nav { display: flex; flex-direction: column; gap: 0.15rem; }
+.snav { position: relative; display: flex; align-items: center; gap: 0.7rem; width: 100%; padding: 0.62rem 0.72rem; border: 0; border-radius: 10px; background: transparent; color: var(--muted); cursor: pointer; font: inherit; font-size: 0.9rem; font-weight: 600; text-align: left; transition: background 0.15s ease, color 0.15s ease; }
+.snav:hover { background: var(--surface-2); color: var(--fg); }
+.snav.is-active { background: var(--accent-soft); color: var(--accent-ink); }
+.snav-ic { display: inline-flex; flex: 0 0 auto; }
+.snav-ic svg { width: 18px; height: 18px; }
+.snav-label { flex: 1 1 auto; }
+.snav-c { font-family: "JetBrains Mono", monospace; font-size: 0.7rem; font-weight: 700; min-width: 1.4rem; text-align: center; padding: 0.08rem 0.42rem; border-radius: 999px; background: var(--surface-3); color: var(--muted); }
+.snav.is-active .snav-c { background: var(--surface); color: var(--accent-ink); }
+.snav-c.attn { background: var(--attn-soft); color: var(--attn-ink); }
+.snav-soon { font-family: "JetBrains Mono", monospace; font-size: 0.58rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; padding: 0.12rem 0.42rem; border-radius: 999px; border: 1px solid var(--line); color: var(--faint); }
+.snav.is-soon { color: var(--faint); }
+.snav.is-soon .snav-ic { opacity: 0.7; }
+.sidenav-foot { margin-top: 0.4rem; padding: 0.35rem 0.4rem 0; border-top: 1px solid var(--line); display: flex; }
+
+/* ---------- page header (per view) ---------- */
+.page-head { display: flex; align-items: center; gap: 0.85rem; padding: 0.15rem 0.15rem 0; }
+.page-head-ic { display: inline-flex; align-items: center; justify-content: center; width: 42px; height: 42px; flex: 0 0 auto; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); color: var(--accent); }
+.page-head-ic svg { width: 22px; height: 22px; }
+.page-head h1 { margin: 0; font-size: 1.55rem; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
+.page-head p { margin: 0.12rem 0 0; font-size: 0.85rem; color: var(--muted); }
+
+@media (max-width: 960px) {
+  .app-layout { grid-template-columns: 1fr; gap: 1rem; }
+  .app-shell { padding-bottom: 5.5rem; }
+  .sidenav { position: fixed; bottom: 0; left: 0; right: 0; top: auto; z-index: 60; flex-direction: row; gap: 0.15rem; padding: 0.35rem 0.5rem calc(0.35rem + env(safe-area-inset-bottom, 0px)); background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -6px 20px rgba(0,0,0,0.16); }
+  .sidenav-brand, .sidenav-foot { display: none; }
+  .sidenav-nav { flex-direction: row; flex: 1 1 auto; gap: 0.15rem; }
+  .snav { flex-direction: column; gap: 0.2rem; padding: 0.45rem 0.3rem; font-size: 0.66rem; font-weight: 600; justify-content: center; text-align: center; }
+  .snav-label { flex: 0 0 auto; }
+  .snav-c:not(.attn) { display: none; }
+  .snav-c.attn { position: absolute; top: 2px; left: 50%; margin-left: 3px; min-width: 0; padding: 0 0.32rem; font-size: 0.58rem; background: var(--attn); color: #fff; }
+  .snav-soon { position: absolute; top: 2px; left: 50%; margin-left: 3px; padding: 0 0.3rem; font-size: 0.5rem; }
+}
 
 /* ---------- top bar ---------- */
 .topbar {
@@ -180,7 +223,10 @@ html, body { overflow-x: hidden; }
 .tool-btn.is-on { color: var(--fg); border-color: var(--accent-line); background: var(--accent-soft); }
 .tool-btn.analytics { color: var(--accent-ink); border-color: var(--accent-line); }
 .tool-btn.analytics:hover { background: var(--accent-soft); }
+.tool-btn.icon-only { gap: 0; padding: 0; width: 2.05rem; height: 2.05rem; justify-content: center; border-radius: 50%; aspect-ratio: 1; flex: none; }
 
+.toggle-icon { display: inline-flex; align-items: center; justify-content: center; }
+.toggle-icon svg { display: block; }
 .toggle-icon .moon { display: none; }
 html[data-theme="light"] .toggle-icon .sun { display: none; }
 html[data-theme="light"] .toggle-icon .moon { display: inline; }
@@ -226,46 +272,44 @@ html[data-theme="light"] .toggle-icon .moon { display: inline; }
 
 /* ---------- overview strip (single compact pane) ---------- */
 .overview {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 0.55rem 0.7rem; margin-top: 1rem;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 0.55rem 0.7rem; margin-top: 0;
 }
-/* Live group: label + its status chips share one rounded shell */
-.fgroup { display: inline-flex; align-items: stretch; gap: 0; padding: 0; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow-sm); overflow: hidden; }
-.fgrp-owner { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.8rem; border: 0; border-right: 1px solid var(--line); background: var(--surface-3); cursor: pointer; color: var(--fg); font-family: inherit; font-size: 0.8rem; font-weight: 700; transition: background 0.15s, color 0.15s; }
-.fgrp-owner:hover { background: var(--surface-2); }
-.fgrp-owner.is-active { background: var(--accent); color: #fff; }
-html[data-theme="light"] .fgrp-owner.is-active { color: #fff; }
-.fgrp-owner.is-active .fgrp-n { background: rgba(255,255,255,0.22); color: #fff; }
-.fchips { display: inline-flex; align-items: center; gap: 0.15rem; padding: 0.28rem 0.35rem; }
-.fgrp-n { font-family: "JetBrains Mono", monospace; font-size: 0.72rem; font-weight: 700; padding: 0.05rem 0.4rem; border-radius: 999px; background: var(--surface-2); color: var(--muted); }
-.fgrp-name { letter-spacing: 0.02em; }
-.fchips { display: inline-flex; align-items: center; gap: 0.25rem; }
+/* scope — segmented preset control (single-select: Live / Unfinished / All) */
+.fscope { display: inline-flex; align-items: center; padding: 0.1rem; gap: 0.12rem; border-radius: 999px; border: 1px solid var(--line); background: var(--surface-2); box-shadow: var(--shadow-sm); flex: none; }
+.fseg { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.34rem 0.7rem; border: 0; border-radius: 999px; background: transparent; color: var(--muted); cursor: pointer; font-family: inherit; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.01em; transition: color 0.15s, background 0.15s; }
+.fseg:hover { color: var(--fg); }
+.fseg.is-active { color: var(--fg); background: var(--surface); box-shadow: var(--shadow-sm); }
+.fseg-n { font-size: 0.7rem; font-weight: 700; padding: 0.03rem 0.42rem; border-radius: 999px; background: var(--surface-3); color: var(--muted); }
+.fseg.is-active .fseg-n { background: var(--accent-soft); color: var(--accent-ink); }
+
+/* divider between scope and status chips */
+.fdiv { width: 1px; align-self: stretch; min-height: 1.7rem; background: var(--line); margin: 0 0.35rem; flex: none; }
+
+/* status chips — flat row, individually toggleable */
+.fbar { display: inline-flex; align-items: center; flex-wrap: nowrap; min-width: 0; gap: 0 0.3rem; }
+.fchips-flat { display: inline-flex; align-items: center; gap: 0.26rem; flex-wrap: wrap; }
 .fchip {
-  display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.32rem 0.65rem; border: 1px solid transparent;
-  border-radius: 999px; background: transparent; cursor: pointer; color: var(--muted);
-  font-family: inherit; font-size: 0.78rem; font-weight: 600; transition: color 0.15s, background 0.15s, border-color 0.15s, opacity 0.15s;
+  display: inline-flex; align-items: center; gap: 0.34rem; padding: 0.34rem 0.6rem; border: 1px solid var(--line);
+  border-radius: 999px; background: var(--surface); cursor: pointer; color: var(--fg);
+  font-family: inherit; font-size: 0.78rem; font-weight: 600; box-shadow: var(--shadow-sm);
+  transition: color 0.15s, background 0.15s, border-color 0.15s, opacity 0.15s;
 }
-.fchip:hover { color: var(--fg); }
-.fchip:not(.is-active) { opacity: 0.5; }
-.fchip.is-active { color: var(--fg); background: var(--surface-2); border-color: var(--line); }
+.fchip:hover { border-color: var(--line-strong); }
+.fchip:not(.is-active) { opacity: 0.4; box-shadow: none; background: transparent; border-color: transparent; color: var(--muted); }
+.fchip.is-active { color: var(--fg); background: var(--surface); border-color: var(--line-strong); }
 .fchip-dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--faint); flex: none; }
 .fchip[data-tone="attn"] .fchip-dot { background: var(--attn); }
 .fchip[data-tone="block"] .fchip-dot { background: var(--block); }
 .fchip[data-tone="good"] .fchip-dot { background: var(--good); }
+.fchip[data-tone="queue"] .fchip-dot { background: var(--accent); }
 .fchip.is-active[data-tone="block"] .fchip-dot { box-shadow: 0 0 8px var(--block); animation: pulse 1.8s ease-in-out infinite; }
 .fchip-n { font-family: "JetBrains Mono", monospace; font-size: 0.72rem; font-weight: 700; color: inherit; }
-.fchip-solo { padding: 0.4rem 0.85rem; border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow-sm); }
-.fchip-solo.is-active { background: var(--surface-3); border-color: var(--line-strong); }
-.fgroup-solo { padding: 0.28rem; }
-.fgroup-solo .fgrp-label { gap: 0.45rem; }
-.fgroup-solo .fgrp-label .fchip-dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--good); flex: none; }
-.fpill-all { border: 1px solid var(--line); border-radius: 999px; background: var(--surface); box-shadow: var(--shadow-sm); padding: 0.4rem 0.85rem; margin-left: auto; }
-.fpill-all.is-active { background: var(--surface-3); border-color: var(--line-strong); color: var(--fg); }
 
 /* ---------- max-agents stepper (far right of overview) ---------- */
-.max-agents { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 0.55rem; padding: 0.3rem 0.35rem 0.3rem 0.85rem; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow-sm); }
+.max-agents { flex: none; display: inline-flex; align-items: center; gap: 0.55rem; padding: 0.07rem 0.1rem 0.13rem 0.85rem; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow-sm); }
 .ma-label { font-size: 0.78rem; font-weight: 700; color: var(--fg); letter-spacing: 0.01em; white-space: nowrap; }
-.ma-stepper { display: inline-flex; align-items: center; gap: 0.15rem; padding: 0.12rem; border-radius: 999px; background: var(--surface-3); border: 1px solid var(--line); }
-.ma-btn { display: inline-grid; place-items: center; width: 1.65rem; height: 1.65rem; border: 0; border-radius: 999px; background: transparent; color: var(--fg); cursor: pointer; transition: background 0.14s, color 0.14s, opacity 0.14s; }
+.ma-stepper { display: inline-flex; align-items: center; gap: 0.15rem; padding: 0.13rem; border-radius: 999px; background: var(--surface-3); border: 1px solid var(--line); }
+.ma-btn { display: inline-grid; place-items: center; width: 1.5rem; height: 1.5rem; border: 0; border-radius: 999px; background: transparent; color: var(--fg); cursor: pointer; transition: background 0.14s, color 0.14s, opacity 0.14s; }
 .ma-btn:hover:not(:disabled) { background: var(--surface); }
 .ma-btn:disabled { opacity: 0.32; cursor: default; }
 .ma-btn svg { width: 15px; height: 15px; }
@@ -289,7 +333,8 @@ html[data-theme="light"] .fgrp-owner.is-active { color: #fff; }
 .panel.is-active { display: grid; gap: 1rem; }
 
 /* ---------- run summary ---------- */
-.run-summary { display: grid; grid-template-columns: 1fr 1fr auto; gap: 0.9rem; }
+.run-summary { display: grid; grid-template-columns: minmax(170px, 0.92fr) 1fr 1fr; gap: 0.9rem; }
+.run-summary .rs-status { order: -1; }
 .rs-block { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-sm); padding: 0.85rem 1rem; display: flex; flex-direction: column; gap: 0.7rem; min-width: 0; }
 .rs-head { display: flex; align-items: center; gap: 0.5rem; }
 .rs-logo { width: 1.2rem; height: 1.2rem; flex: none; object-fit: contain; }
@@ -309,6 +354,23 @@ html[data-theme="light"] .fgrp-owner.is-active { color: #fff; }
 .rs-total-label { font-family: "JetBrains Mono", monospace; font-size: 0.66rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 .rs-total-val { font-size: 1.8rem; font-weight: 700; letter-spacing: -0.02em; line-height: 1; }
 .rs-total-sub { font-family: "JetBrains Mono", monospace; font-size: 0.7rem; color: var(--muted); }
+.rs-status { gap: 0.75rem; justify-content: flex-start; }
+.rs-status-head { display: flex; align-items: center; justify-content: flex-end; gap: 0.5rem; }
+.rs-status-head .status-badge-live { font-size: 0.72rem; }
+.rs-spend { font-family: "JetBrains Mono", monospace; font-size: 1.05rem; font-weight: 700; letter-spacing: -0.01em; color: var(--fg); }
+.rs-status-rows { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.6rem 1.4rem; width: 100%; }
+.rs-progress { margin-top: auto; }
+.rs-progress .rs-limit-meta svg { width: 12px; height: 12px; vertical-align: -2px; }
+.rs-stat-spend { color: var(--good-ink); }
+.rs-stat { display: flex; flex-direction: column; gap: 0.04rem; }
+.rs-stat-label { display: inline-flex; align-items: center; gap: 0.28rem; font-family: "JetBrains Mono", monospace; font-size: 0.63rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.rs-stat-label svg { width: 12px; height: 12px; }
+.rs-stat-val { font-size: 0.84rem; font-weight: 700; letter-spacing: -0.01em; color: var(--fg); }
+.rs-head-stats { margin-left: auto; display: flex; gap: 1.1rem; }
+.rs-head-stats .rs-stat:first-child { align-items: center; }
+.rs-head-stats .rs-stat { align-items: flex-start; }
+.rs-head-stats .rs-stat-val { display: inline-flex; align-items: center; gap: 0.3rem; font-family: "JetBrains Mono", monospace; }
+.rs-head-stats .rs-token-ic { margin: 0; }
 @media (max-width: 820px) {
   .run-summary { grid-template-columns: 1fr; }
   .rs-total { flex-direction: row; align-items: baseline; gap: 0.6rem; }
@@ -326,7 +388,6 @@ html[data-theme="light"] .fgrp-owner.is-active { color: #fff; }
 .ptab-c { font-family: "JetBrains Mono", monospace; font-size: 0.72rem; font-weight: 700; min-width: 1.5rem; padding: 0.05rem 0.42rem; border-radius: 999px; background: var(--surface-3); color: var(--muted); border: 1px solid var(--line); }
 .ptab.is-active .ptab-c { background: var(--accent-soft); color: var(--accent-ink); border-color: var(--accent-line); }
 .ptab.is-active .ptab-c.attn { background: var(--attn-soft); color: var(--attn-ink); border-color: var(--attn-line); }
-.panel.is-active > .section-card:first-child { border-top-left-radius: 0; border-top-right-radius: 0; }
 .techtree-empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 0.5rem; padding: 4rem 1.5rem; color: var(--muted); }
 .techtree-empty svg { width: 44px; height: 44px; color: var(--faint); margin-bottom: 0.4rem; }
 .techtree-empty .tt-title { font-size: 1.15rem; font-weight: 700; color: var(--fg); }
@@ -386,8 +447,8 @@ html[data-theme="light"] .fgrp-owner.is-active { color: #fff; }
 .bo-node-top { display: flex; align-items: center; gap: 0.5rem; }
 .bo-ic { width: 2rem; height: 2rem; flex: none; display: grid; place-items: center; border-radius: 9px; border: 1px solid var(--line); background: var(--surface-2); color: var(--fg); }
 .bo-ic svg { width: 18px; height: 18px; }
-.bo-node-title { font-size: 0.74rem; font-weight: 600; line-height: 1.2; color: var(--fg); text-wrap: pretty; min-height: 2.4em; }
-.bo-cx { margin-left: auto; flex: none; font-family: "JetBrains Mono", monospace; font-size: 0.62rem; font-weight: 700; color: var(--muted); }
+.bo-node-title { font-size: 0.74rem; font-weight: 600; line-height: 1.2; color: var(--fg); min-height: 2.4em; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+.bo-cx { margin-left: auto; flex: none; display: inline-flex; align-items: center; padding: 0.12rem 0.44rem; border-radius: 999px; border: 1px solid var(--super-line); background: var(--super-soft); font-family: "JetBrains Mono", monospace; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.02em; color: var(--super-ink); }
 .bo-node-id { font-family: "JetBrains Mono", monospace; font-size: 0.66rem; font-weight: 700; color: var(--muted); }
 .bo-node-status { display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; font-family: "JetBrains Mono", monospace; font-size: 0.64rem; color: var(--muted); }
 .bo-node-status > span:first-child { display: inline-flex; align-items: center; gap: 0.3rem; }
@@ -465,7 +526,7 @@ body.readonly [data-write] { display: none !important; }
 .eta-badge svg { width: 15px; height: 15px; }
 
 /* filter chips */
-.filter-row { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.95rem; }
+.filter-row { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 .filter-chip {
   border: 1px solid var(--pill-bd); background: var(--pill-bg); color: var(--muted);
   border-radius: 999px; padding: 0.36rem 0.78rem;
@@ -691,7 +752,7 @@ html[data-theme="light"] .btn.ghost { color: var(--muted); }
 .custom-response .cr-actions { display: flex; gap: 0.5rem; margin-top: 0.6rem; }
 
 /* ---------- fleet table ---------- */
-.table-wrap { overflow: visible; margin: 1.05rem -1.15rem 0; border: 0; }
+.table-wrap { overflow: visible; margin: 0.55rem -1.15rem 0; border: 0; }
 .data-table { width: 100%; min-width: 640px; border-collapse: collapse; table-layout: fixed; }
 .data-table thead th {
   position: sticky; top: 0; background: var(--surface-2); z-index: 1;
@@ -703,7 +764,9 @@ html[data-theme="light"] .btn.ghost { color: var(--muted); }
 .data-table tbody tr:hover td { background: var(--pill-bg); }
 .data-table tbody tr.blocked-row td { background: var(--block-soft); }
 .data-table tbody tr.blocked-row:hover td { background: var(--block-soft); filter: brightness(1.04); }
-.data-table tbody tr.awaiting-row td { background: color-mix(in srgb, var(--block) 15%, var(--surface)); }
+.data-table tbody tr.awaiting-row td { background: color-mix(in srgb, var(--block) 15%, var(--surface)); border-top-color: color-mix(in srgb, var(--block) 22%, var(--surface)); }
+.data-table tbody tr.awaiting-row + tr.awaiting-row td { border-top-color: color-mix(in srgb, var(--block) 28%, var(--surface)); }
+.data-table tbody tr.awaiting-row + tr td, .data-table tbody tr.blocked-row + tr td { border-top-color: color-mix(in srgb, var(--block) 22%, var(--surface)); }
 .data-table tbody tr.awaiting-row:hover td { background: color-mix(in srgb, var(--block) 15%, var(--surface)); }
 .data-table tbody tr.awaiting-row td:first-child { box-shadow: inset 3px 0 0 var(--block); }
 .data-table tbody tr.awaiting-row .pbar-fill { background: var(--block) !important; }
@@ -757,6 +820,11 @@ html[data-theme="light"] .btn.ghost { color: var(--muted); }
 .ft-dec-tab:hover { background: var(--block); color: #fff; }
 .ft-dec-tab svg { width: 14px; height: 14px; }
 .ft-cmd-cell { position: relative; padding-top: 1.5rem !important; text-align: center; }
+.ft-cmd-actions { display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; }
+.ft-pause-btn { display: inline-grid; place-items: center; width: 2.1rem; height: 2.1rem; padding: 0; border-radius: 9px; border: 1px solid var(--pill-bd); background: var(--pill-bg); color: var(--muted); cursor: pointer; transition: color 0.15s, border-color 0.15s, background 0.15s; }
+.ft-pause-btn:hover { color: var(--fg); border-color: var(--line-strong); }
+.ft-pause-btn svg { width: 15px; height: 15px; }
+.ft-pause-btn.is-paused { color: var(--attn-ink); border-color: var(--attn-line); background: var(--attn-soft); }
 .ft-read-btn { display: inline-grid; place-items: center; width: 2.1rem; height: 2.1rem; padding: 0; border-radius: 9px; border: 1px solid var(--pill-bd); background: var(--pill-bg); color: var(--muted); cursor: pointer; }
 .ft-read-btn:hover { color: var(--fg); border-color: var(--line-strong); }
 .ft-read-btn svg { width: 16px; height: 16px; }
@@ -874,6 +942,17 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
 .tk-h { margin: 0; font-family: "JetBrains Mono", monospace; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); }
 .tk-desc { font-size: 0.94rem; line-height: 1.6; color: var(--fg); max-height: 11rem; overflow-y: auto; padding: 0.9rem 1rem; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); }
 .tk-pbar { max-width: 340px; }
+.tk-deps { display: flex; flex-direction: column; gap: 0.7rem; }
+.tk-dep-group { display: flex; flex-direction: column; gap: 0.4rem; }
+.tk-dep-label { display: inline-flex; align-items: center; gap: 0.4rem; font-family: "JetBrains Mono", monospace; font-size: 0.7rem; font-weight: 700; color: var(--muted); }
+.tk-dep-label .cdot { width: 0.5rem; height: 0.5rem; border-radius: 50%; flex: none; }
+.tk-dep-label.up .cdot { background: var(--block); }
+.tk-dep-label.down .cdot { background: var(--good); }
+.tk-dep-row { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.tk-dep { display: inline-flex; align-items: center; gap: 0.5rem; max-width: 100%; padding: 0.4rem 0.7rem; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--fg); cursor: pointer; font-family: inherit; font-size: 0.8rem; text-align: left; transition: border-color 0.14s, background 0.14s, transform 0.14s; }
+.tk-dep:hover { border-color: var(--accent-line); background: var(--accent-soft); transform: translateY(-1px); }
+.tk-dep-num { font-family: "JetBrains Mono", monospace; font-size: 0.72rem; font-weight: 700; color: var(--muted); flex: none; }
+.tk-dep-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 15rem; }
 .tk-latest-line { margin: 0.2rem 0 0; font-size: 0.86rem; color: var(--muted); }
 .tk-latest-line b { color: var(--fg); font-weight: 600; }
 .tk-events { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.55rem; }
@@ -990,6 +1069,7 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
   .toolbar { width: 100%; }
   .tool-btn { flex: 1 1 auto; justify-content: center; }
   .overview { gap: 0.5rem; }
+  .fbar { flex-wrap: wrap; }
   .fgroup { flex-wrap: wrap; }
   .ftotal { margin-left: 0; }
   .opt-bd { grid-template-columns: 1fr; }
@@ -1062,90 +1142,57 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
 </head>
 <body>
 <div class="app-shell">
-  <section class="dashboard-shell">
+  <div class="app-layout">
 
-    <!-- ============ TOP BAR ============ -->
-    <div class="topbar">
-      <div class="brand-mini">
+    <!-- ============ SIDEBAR NAV ============ -->
+    <aside class="sidenav">
+      <div class="sidenav-brand">
         <img class="brand-logo" src="assets/aiur-logo.png" alt="Aiur" />
         <span class="wm">aiur</span>
-      </div>
-      <div class="toolbar">
-        <span class="status-badge status-badge-live"><span class="status-badge-dot"></span> Live</span>
-        <span class="eta-badge nav-eta">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>
-          ETA <b>58 min</b>
-        </span>
-        <a class="tool-btn analytics" href="https://aiur.team/analytics" target="_blank" rel="noopener" title="Telemetry report">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
-          Telemetry &amp; analytics
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>
-        </a>
-        <button class="tool-btn" id="theme-toggle" type="button" title="Toggle theme">
+        <span class="status-badge status-badge-live brand-live"><span class="status-badge-dot"></span> Live</span>
+        <button class="tool-btn icon-only" id="theme-toggle" type="button" title="Toggle theme">
           <span class="toggle-icon">
             <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
             <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
           </span>
         </button>
       </div>
-    </div>
+      <nav class="sidenav-nav" aria-label="Views">
+        <button class="snav is-active" type="button" data-tab="fleet">
+          <span class="snav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></span>
+          <span class="snav-label">Units</span>
+          <span class="snav-c" id="tabcount-fleet">0</span>
+        </button>
+        <button class="snav" type="button" data-tab="inbox">
+          <span class="snav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg></span>
+          <span class="snav-label">Commands</span>
+          <span class="snav-c attn" id="tabcount-inbox">0</span>
+        </button>
+        <button class="snav" type="button" data-tab="techtree">
+          <span class="snav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="8" r="3"/><path d="M6 9v6"/><path d="M18 11a9 9 0 0 1-9 9"/></svg></span>
+          <span class="snav-label">Build Order</span>
+        </button>
+        <button class="snav is-soon" type="button" data-tab="analytics">
+          <span class="snav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="5"/><rect x="12" y="8" width="3" height="9"/><rect x="17" y="5" width="3" height="12"/></svg></span>
+          <span class="snav-label">Analytics</span>
+          <span class="snav-soon">Soon</span>
+        </button>
+      </nav>
+    </aside>
+
+    <section class="dashboard-shell">
 
     <!-- ============ AWAITING-DECISIONS BANNER ============ -->
     <button class="decisions-banner" id="decisions-banner" type="button"></button>
 
-    <!-- ============ RUN SUMMARY ============ -->
-    <section class="run-summary" aria-label="Run usage summary">
-      <div class="rs-block">
-        <div class="rs-head">
-          <img class="rs-logo" src="assets/codex-color.svg" alt="" aria-hidden="true" />
-          <span class="rs-name">Codex</span>
-          <span class="rs-tok">0.89M</span>
-          <img class="rs-token-ic" src="assets/codex-token.svg" alt="tokens" />
-          <span class="rs-cost">$12.07</span>
-        </div>
-        <div class="rs-limits">
-          <div class="rs-limit">
-            <div class="rs-limit-top"><span class="rs-limit-label">Session</span><span class="rs-limit-meta">19% · resets in 40m</span></div>
-            <div class="rs-meter"><i style="width:19%"></i></div>
-          </div>
-          <div class="rs-limit">
-            <div class="rs-limit-top"><span class="rs-limit-label">Weekly</span><span class="rs-limit-meta">31% · resets Mon 9:00 AM</span></div>
-            <div class="rs-meter"><i style="width:31%"></i></div>
-          </div>
-        </div>
-      </div>
-      <div class="rs-block">
-        <div class="rs-head">
-          <img class="rs-logo" src="assets/claude-symbol.svg" alt="" aria-hidden="true" />
-          <span class="rs-name">Claude</span>
-          <span class="rs-tok">1.24M</span>
-          <img class="rs-token-ic" src="assets/claude-token.svg" alt="tokens" />
-          <span class="rs-cost">$38.40</span>
-        </div>
-        <div class="rs-limits">
-          <div class="rs-limit">
-            <div class="rs-limit-top"><span class="rs-limit-label">Session</span><span class="rs-limit-meta">28% · resets in 22m</span></div>
-            <div class="rs-meter"><i style="width:28%"></i></div>
-          </div>
-          <div class="rs-limit">
-            <div class="rs-limit-top"><span class="rs-limit-label">Weekly</span><span class="rs-limit-meta">47% · resets Thu 6:00 PM</span></div>
-            <div class="rs-meter"><i style="width:47%"></i></div>
-          </div>
-        </div>
-      </div>
-      <div class="rs-block rs-total">
-        <span class="rs-total-label">Total spend</span>
-        <span class="rs-total-val">$50.47</span>
-        <span class="rs-total-sub">2.13M tokens this run</span>
-      </div>
-    </section>
 
-    <!-- ============ PAGE TABS ============ -->
-    <nav class="page-tabs" id="page-tabs" aria-label="Views">
-      <button class="ptab is-active" type="button" data-tab="fleet">Units <span class="ptab-c" id="tabcount-fleet">0</span></button>
-      <button class="ptab" type="button" data-tab="inbox">Commands <span class="ptab-c attn" id="tabcount-inbox">0</span></button>
-      <button class="ptab" type="button" data-tab="techtree">Build Order</button>
-    </nav>
+    <!-- ============ PAGE HEADER ============ -->
+    <header class="page-head" id="page-head">
+      <span class="page-head-ic" id="page-head-ic"></span>
+      <div class="page-head-txt">
+        <h1 id="page-head-title">Units</h1>
+      </div>
+    </header>
 
     <!-- ============ INBOX PANEL ============ -->
     <div class="panel" data-panel="inbox">
@@ -1157,7 +1204,87 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
 
     <!-- ============ FLEET PANEL ============ -->
     <div class="panel is-active" data-panel="fleet">
+      <!-- run summary — fleet page only -->
+      <section class="run-summary" aria-label="Run usage summary">
+        <div class="rs-block">
+          <div class="rs-head">
+            <img class="rs-logo" src="assets/codex-color.svg" alt="" aria-hidden="true" />
+            <span class="rs-name">Codex</span>
+            <div class="rs-head-stats">
+              <div class="rs-stat">
+                <span class="rs-stat-label">Tokens</span>
+                <span class="rs-stat-val">0.89M<img class="rs-token-ic" src="assets/codex-token.svg" alt="tokens" /></span>
+              </div>
+              <div class="rs-stat">
+                <span class="rs-stat-label">Spend</span>
+                <span class="rs-stat-val rs-stat-spend">$12.07</span>
+              </div>
+            </div>
+          </div>
+          <div class="rs-limits">
+            <div class="rs-limit">
+              <div class="rs-limit-top"><span class="rs-limit-label">Session</span><span class="rs-limit-meta">19% · resets in 40m</span></div>
+              <div class="rs-meter"><i style="width:19%"></i></div>
+            </div>
+            <div class="rs-limit">
+              <div class="rs-limit-top"><span class="rs-limit-label">Weekly</span><span class="rs-limit-meta">31% · resets Mon 9:00 AM</span></div>
+              <div class="rs-meter"><i style="width:31%"></i></div>
+            </div>
+          </div>
+        </div>
+        <div class="rs-block">
+          <div class="rs-head">
+            <img class="rs-logo" src="assets/claude-symbol.svg" alt="" aria-hidden="true" />
+            <span class="rs-name">Claude</span>
+            <div class="rs-head-stats">
+              <div class="rs-stat">
+                <span class="rs-stat-label">Tokens</span>
+                <span class="rs-stat-val">1.24M<img class="rs-token-ic" src="assets/claude-token.svg" alt="tokens" /></span>
+              </div>
+              <div class="rs-stat">
+                <span class="rs-stat-label">Spend</span>
+                <span class="rs-stat-val rs-stat-spend">$38.40</span>
+              </div>
+            </div>
+          </div>
+          <div class="rs-limits">
+            <div class="rs-limit">
+              <div class="rs-limit-top"><span class="rs-limit-label">Session</span><span class="rs-limit-meta">28% · resets in 22m</span></div>
+              <div class="rs-meter"><i style="width:28%"></i></div>
+            </div>
+            <div class="rs-limit">
+              <div class="rs-limit-top"><span class="rs-limit-label">Weekly</span><span class="rs-limit-meta">47% · resets Thu 6:00 PM</span></div>
+              <div class="rs-meter"><i style="width:47%"></i></div>
+            </div>
+          </div>
+        </div>
+        <div class="rs-block rs-status">
+          <div class="rs-head">
+            <img class="rs-logo" src="assets/aiur-logo.png" alt="" aria-hidden="true" />
+            <span class="rs-name">Summary</span>
+          </div>
+          <div class="rs-status-rows">
+            <div class="rs-stat">
+              <span class="rs-stat-label">Live</span>
+              <span class="rs-stat-val">10 units</span>
+            </div>
+            <div class="rs-stat">
+              <span class="rs-stat-label">Tickets</span>
+              <span class="rs-stat-val">20 remain</span>
+            </div>
+            <div class="rs-stat">
+              <span class="rs-stat-label">Spend</span>
+              <span class="rs-stat-val rs-stat-spend">$50.47</span>
+            </div>
+          </div>
+          <div class="rs-progress">
+            <div class="rs-limit-top"><span class="rs-limit-label">Progress</span><span class="rs-limit-meta">1h 47m elapsed</span><span class="rs-limit-meta"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg> ETA 58 min</span></div>
+            <div class="rs-meter"><i style="width:65%"></i></div>
+          </div>
+        </div>
+      </section>
       <section class="section-card">
+
         <section class="overview" id="overview"></section>
         <div class="table-wrap">
           <table class="data-table">
@@ -1214,7 +1341,19 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
       </section>
     </div>
 
-  </section>
+    <!-- ============ ANALYTICS PANEL ============ -->
+    <div class="panel" data-panel="analytics">
+      <section class="section-card">
+        <div class="techtree-empty">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 14 3-4 3 3 4-6"/></svg>
+          <h3 style="margin:0;font-size:1.1rem;color:var(--fg);">Analytics coming soon</h3>
+          <p style="margin:0;max-width:34ch;">Throughput, cost-per-ticket, and cycle-time trends across the run will land here.</p>
+        </div>
+      </section>
+    </div>
+
+    </section>
+  </div>
 </div>
 
 <!-- confirm modal -->
@@ -1276,6 +1415,7 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
 
   const ICON = {
     chevron: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
+    github: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.58 2 12.26c0 4.5 2.87 8.32 6.84 9.67.5.1.68-.22.68-.49 0-.24-.01-.87-.01-1.71-2.78.62-3.37-1.37-3.37-1.37-.46-1.18-1.11-1.5-1.11-1.5-.91-.63.07-.62.07-.62 1 .07 1.53 1.05 1.53 1.05.9 1.57 2.35 1.12 2.92.85.09-.66.35-1.12.63-1.38-2.22-.26-4.55-1.14-4.55-5.05 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05a9.35 9.35 0 0 1 2.5-.34c.85 0 1.71.12 2.5.34 1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.92-2.34 4.79-4.57 5.04.36.32.68.95.68 1.92 0 1.39-.01 2.51-.01 2.85 0 .27.18.6.69.49A10.02 10.02 0 0 0 22 12.26C22 6.58 17.52 2 12 2z"/></svg>',
     ext: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>',
     issue: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/></svg>',
     pr: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M6 8.5v7M18 15.5V12a4 4 0 0 0-4-4h-3"/><path d="m13 5 -2 3 3 2"/></svg>',
@@ -1294,6 +1434,7 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
     chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
     inbox: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.5 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.5A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.5z"/></svg>',
     pause: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="7" y="5" width="3.4" height="14" rx="1.1"/><rect x="13.6" y="5" width="3.4" height="14" rx="1.1"/></svg>',
+    pauseOutline: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="5" width="3.4" height="14" rx="1.1"/><rect x="13.6" y="5" width="3.4" height="14" rx="1.1"/></svg>',
   };
 
   const ACTOR = {
@@ -1633,10 +1774,10 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
       conv: [ { role: "agent", text: "Buttons, inputs and selects with focus states." } ],
     },
     {
-      id: "AIUR-520", num: 520, title: "Navigation shell", epic: "frontend", phase: 2, complexity: 3, icon: "flow", blockedBy: [],
+      id: "AIUR-401", num: 401, title: "Auth refactor — extract token service", epic: "backend", phase: 3, complexity: 4, icon: "key", blockedBy: ["AIUR-304"],
       model: "Claude Sonnet 4.6", effort: "High", agent: "sonnet", claude: true, remote: false,
-      phaseKind: "working", latest: "Wiring tab + route shell", pct: 40, runtime: "9m", blocked: false, control: "Running", openDec: 0,
-      conv: [ { role: "agent", text: "Standing up the nav shell and routing." } ],
+      phaseKind: "brainstorm", latest: "Weighing base-branch options", pct: 72, runtime: "26m", blocked: false, control: "Running", openDec: 1,
+      conv: [ { role: "agent", text: "Token service extracted; base-branch decision pending." } ],
     },
     {
       id: "AIUR-412", num: 412, title: "Restore retry state across daemon restarts", epic: "backend", phase: 2, complexity: 4, icon: "database", blockedBy: ["AIUR-302"],
@@ -1681,10 +1822,10 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
       conv: [ { role: "agent", text: "Applying theme tokens across components." } ],
     },
     {
-      id: "AIUR-401", num: 401, title: "Auth refactor — extract token service", epic: "backend", phase: 3, complexity: 4, icon: "key", blockedBy: ["AIUR-304"],
+      id: "AIUR-520", num: 520, title: "Navigation shell", epic: "frontend", phase: 2, complexity: 3, icon: "flow", blockedBy: [],
       model: "Claude Sonnet 4.6", effort: "High", agent: "sonnet", claude: true, remote: false,
-      phaseKind: "brainstorm", latest: "Weighing base-branch options", pct: 72, runtime: "26m", blocked: false, control: "Running", openDec: 1,
-      conv: [ { role: "agent", text: "Token service extracted; base-branch decision pending." } ],
+      phaseKind: "working", latest: "Wiring tab + route shell", pct: 40, runtime: "9m", blocked: false, control: "Running", openDec: 0,
+      conv: [ { role: "agent", text: "Standing up the nav shell and routing." } ],
     },
     {
       id: "AIUR-338", num: 338, title: "Structured error responses for the API", epic: "backend", phase: 3, complexity: 3, icon: "alert", blockedBy: ["AIUR-408"],
@@ -1915,7 +2056,7 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
      ============================================================ */
   let activeFilter = "open";
   let activeTab = "fleet";
-  let fleetFilters = new Set(["running", "blocked", "paused", "stuck"]);
+  let fleetFilters = new Set(["running", "alert", "paused", "stuck"]);
 
   /* ---- agent cap: max concurrent (non-finished) agents ---- */
   const AGENT_CAP_MAX = 20;
@@ -1954,22 +2095,33 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
 
   function bucketOf(f) {
     if (f.control === "Merged" || f.phaseKind === "finished") return "finished";
+    if (f.openDec > 0) return "alert";
     if (f.control === "Paused") return "paused";
     if (f.control === "Unresponsive" || f.control === "Backing off" || f.phaseKind === "unresponsive") return "stuck";
-    if (f.control === "Blocked" || f.control === "Waiting") return "blocked";
+    if (f.control === "Waiting") return "queued";
     return "running";
   }
   function fleetMatch(f) {
     return fleetFilters.has(bucketOf(f));
   }
+  function togglePause(f) {
+    if (f.control === "Paused") {
+      f.control = f._prevControl || "Running";
+      f.phaseKind = f._prevPhase || "working";
+    } else {
+      f._prevControl = f.control;
+      f._prevPhase = f.phaseKind;
+      f.control = "Paused";
+      f.phaseKind = "paused";
+    }
+    renderFleet();
+    renderOverview();
+  }
 
   const FILTERS = [
     { key: "open", label: "Open" },
     { key: "blocking", label: "Blocking" },
-    { key: "answered_pending", label: "Answered · not delivered" },
-    { key: "supervising", label: "Decided by supervising agent" },
     { key: "resolved", label: "Resolved" },
-    { key: "superseded", label: "Superseded" },
     { key: "all", label: "All" },
   ];
 
@@ -1998,66 +2150,55 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
      ============================================================ */
   function renderOverview() {
     const needing = decisions.filter(needsInput);
-    const cnt = (key) => fleet.filter((f) => {
-      switch (key) {
-        case "running":  return f.control === "Running";
-        case "blocked":  return f.control === "Blocked" || f.control === "Waiting";
-        case "paused":   return f.control === "Paused";
-        case "stuck":    return f.control === "Unresponsive" || f.control === "Backing off" || f.phaseKind === "unresponsive";
-        case "finished": return f.control === "Merged" || f.phaseKind === "finished";
-        default:         return true;
-      }
-    }).length;
-
-    const cntLive = cnt("running") + cnt("blocked") + cnt("paused") + cnt("stuck");
-    const LIVE = ["running", "blocked", "paused", "stuck"];
-    const ALL = ["running", "blocked", "paused", "stuck", "finished"];
-    const liveChips = [
-      { label: "Active", key: "running", tone: "good" },
-      { label: "Blocked", key: "blocked", tone: "block" },
-      { label: "Paused", key: "paused", tone: "faint" },
-      { label: "Stuck", key: "stuck", tone: "attn" },
-    ];
+    const cnt = (key) => fleet.filter((f) => bucketOf(f) === key).length;
+    const LIVE = ["running", "alert", "paused", "stuck"];
+    const UNFIN = ["running", "alert", "paused", "stuck", "queued"];
+    const ALLK = ["running", "alert", "paused", "stuck", "queued", "finished"];
+    const cntKeys = (keys) => keys.reduce((n, k) => n + cnt(k), 0);
     const ov = $("#overview");
     ov.innerHTML = "";
 
     const rerender = () => { switchTab("fleet"); renderFleet(); renderOverview(); };
     const toggle = (key) => { if (fleetFilters.has(key)) fleetFilters.delete(key); else fleetFilters.add(key); rerender(); };
-    const setGroup = (keys) => { const anyOn = keys.some((k) => fleetFilters.has(k)); keys.forEach((k) => anyOn ? fleetFilters.delete(k) : fleetFilters.add(k)); rerender(); };
+    const setScope = (keys) => { fleetFilters = new Set(keys); rerender(); };
+    const sameSet = (keys) => keys.length === fleetFilters.size && keys.every((k) => fleetFilters.has(k));
 
-    const subChip = (label, tone, active, count, onClick) => {
-      const b = el("button", { class: "fchip" + (active ? " is-active" : ""), dataset: { tone }, type: "button" });
-      b.innerHTML = '<span class="fchip-dot"></span><span class="fchip-label">' + esc(label) + '</span><span class="fchip-n">' + count + "</span>";
-      b.addEventListener("click", onClick);
-      return b;
-    };
-    // a group = an owner "row tag" (hard right edge) + its member sub-chips
-    const groupEl = (ownerLabel, ownerCount, ownerActive, ownerClick, subs) => {
-      const g = el("div", { class: "fgroup" });
-      const owner = el("button", { class: "fgrp-owner" + (ownerActive ? " is-active" : ""), type: "button" });
-      owner.innerHTML = '<span class="fgrp-name">' + esc(ownerLabel) + '</span><span class="fgrp-n">' + ownerCount + "</span>";
-      owner.addEventListener("click", ownerClick);
-      g.appendChild(owner);
-      const wrap = el("div", { class: "fchips" });
-      subs.forEach((s) => wrap.appendChild(s));
-      g.appendChild(wrap);
-      ov.appendChild(g);
-    };
+    // ---- SCOPE: single-select preset segmented control ----
+    const scopes = [
+      { label: "Live", keys: LIVE, count: cntKeys(LIVE) },
+      { label: "Unfinished", keys: UNFIN, count: cntKeys(UNFIN) },
+      { label: "All", keys: ALLK, count: fleet.length },
+      { label: "None", keys: [], count: 0 },
+    ];
+    const fbar = el("div", { class: "fbar" });
+    const seg = el("div", { class: "fscope" });
+    scopes.forEach((s) => {
+      const b = el("button", { class: "fseg" + (sameSet(s.keys) ? " is-active" : ""), type: "button" });
+      b.innerHTML = '<span class="fseg-name">' + esc(s.label) + '</span><span class="fseg-n num">' + s.count + "</span>";
+      b.addEventListener("click", () => setScope(s.keys));
+      seg.appendChild(b);
+    });
+    fbar.appendChild(seg);
+    fbar.appendChild(el("span", { class: "fdiv" }));
 
-    // LIVE group — owns the four working states
-    groupEl("Live", cntLive, LIVE.some((k) => fleetFilters.has(k)), () => setGroup(LIVE), [
-      subChip("Active", "good", fleetFilters.has("running"), cnt("running"), () => toggle("running")),
-      subChip("Blocked", "block", fleetFilters.has("blocked"), cnt("blocked"), () => toggle("blocked")),
-      subChip("Paused", "faint", fleetFilters.has("paused"), cnt("paused"), () => toggle("paused")),
-      subChip("Stuck", "attn", fleetFilters.has("stuck"), cnt("stuck"), () => toggle("stuck")),
-    ]);
-
-    // ALL group — owns finished vs unfinished
-    const allOn = ALL.every((k) => fleetFilters.has(k));
-    groupEl("All", fleet.length, allOn, () => { fleetFilters = new Set(allOn ? LIVE : ALL); rerender(); }, [
-      subChip("Unfinished", "good", LIVE.some((k) => fleetFilters.has(k)), cntLive, () => setGroup(LIVE)),
-      subChip("Finished", "faint", fleetFilters.has("finished"), cnt("finished"), () => toggle("finished")),
-    ]);
+    // ---- STATUS: individually toggleable chips ----
+    const statuses = [
+      { label: "Active", key: "running", tone: "good" },
+      { label: "Alert", key: "alert", tone: "block" },
+      { label: "Paused", key: "paused", tone: "faint" },
+      { label: "Stuck", key: "stuck", tone: "attn" },
+      { label: "Queued", key: "queued", tone: "queue" },
+      { label: "Finished", key: "finished", tone: "faint" },
+    ];
+    const chips = el("div", { class: "fchips-flat" });
+    statuses.forEach((s) => {
+      const b = el("button", { class: "fchip" + (fleetFilters.has(s.key) ? " is-active" : ""), dataset: { tone: s.tone }, type: "button" });
+      b.innerHTML = '<span class="fchip-dot"></span><span class="fchip-label">' + esc(s.label) + '</span><span class="fchip-n">' + cnt(s.key) + "</span>";
+      b.addEventListener("click", () => toggle(s.key));
+      chips.appendChild(b);
+    });
+    fbar.appendChild(chips);
+    ov.appendChild(fbar);
 
     // MAX-AGENTS stepper — pinned to the far right of the overview strip
     const MINUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14"/></svg>';
@@ -2080,16 +2221,15 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
     if (needing.length === 0) { banner.classList.remove("show"); return; }
     banner.classList.add("show");
     banner.classList.toggle("blocking", blocking > 0);
-    const title = blocking > 0
-      ? blocking + (blocking === 1 ? " unit needs command" : " units need commands") + " to unblock"
-      : needing.length + (needing.length === 1 ? " unit needs command" : " units need commands");
+    const unitWord = needing.length === 1 ? "unit needs" : "units need";
+    const title = needing.length + " " + unitWord + " commands";
     const sub = blocking > 0
       ? needing.length + " awaiting input in total · answer the blocking one first to unblock the units"
       : "Nothing blocking — answer at your pace to keep agents moving";
     banner.innerHTML =
       '<span class="db-icon">' + ICON.warn + "</span>" +
       '<span class="db-body"><span class="db-title">' + esc(title) + "</span></span>" +
-      '<span class="db-cta">Review commands ' + ICON.chevron.replace("m6 9 6 6 6-6", "m9 6 6 6-6 6") + "</span>";
+      '<span class="db-cta">Issue commands ' + ICON.chevron.replace("m6 9 6 6 6-6", "m9 6 6 6-6 6") + "</span>";
   }
 
   function metricCard(label, value, sev, detail) {
@@ -2657,8 +2797,41 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
     "</span>";
   }
 
+  const prefersReducedMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function animateFleetRows(body, prevRects) {
+    if (prefersReducedMotion) return;
+    const rows = [...body.querySelectorAll("tr.fleet-row")];
+    rows.forEach((tr) => {
+      const before = prevRects.get(tr.dataset.fid);
+      const now = tr.getBoundingClientRect();
+      const done = () => { tr.style.transition = ""; tr.style.transform = ""; tr.style.opacity = ""; };
+      if (before) {
+        const dy = before.top - now.top;
+        if (Math.abs(dy) < 0.5) return;
+        tr.style.transition = "none";
+        tr.style.transform = "translateY(" + dy + "px)";
+        requestAnimationFrame(() => {
+          tr.style.transition = "transform .34s cubic-bezier(.2,.8,.2,1)";
+          tr.style.transform = "translateY(0)";
+        });
+        setTimeout(done, 380);
+      } else {
+        tr.style.transition = "none";
+        tr.style.opacity = "0";
+        tr.style.transform = "translateY(8px)";
+        requestAnimationFrame(() => {
+          tr.style.transition = "opacity .3s ease, transform .34s cubic-bezier(.2,.8,.2,1)";
+          tr.style.opacity = "1";
+          tr.style.transform = "translateY(0)";
+        });
+        setTimeout(done, 380);
+      }
+    });
+  }
   function renderFleet() {
     const body = $("#fleet-body");
+    const prevRects = new Map();
+    body.querySelectorAll("tr.fleet-row").forEach((tr) => { prevRects.set(tr.dataset.fid, tr.getBoundingClientRect()); });
     body.innerHTML = "";
     fleet.forEach((f) => {
       if (!fleetMatch(f)) return;
@@ -2666,10 +2839,11 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
       const rowState = f.phaseKind === "unresponsive" ? " blocked-row"
         : f.phaseKind === "paused" ? " paused-row"
         : f.openDec > 0 ? " awaiting-row" : "";
-      const tr = el("tr", { class: "fleet-row" + rowState });
+      const tr = el("tr", { class: "fleet-row" });
+      tr.className = "fleet-row" + rowState;
+      tr.dataset.fid = f.id;
       tr.innerHTML =
         '<td class="num ft-id"><span class="ft-idn">' + f.num + "</span>" +
-          (f.phaseKind === "paused" ? '<span class="paused-pill" title="Paused">' + ICON.pause + "</span>" : "") +
           (f.openDec > 0 ? '<button class="ft-dec-tab" type="button" data-act="dec" title="Needs command">' + ICON.warn + "</button>" : "") +
         "</td>" +
         '<td>' + modelPill(f) + "</td>" +
@@ -2684,7 +2858,10 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
           (f.claude && f.remote
             ? '<a class="ft-remote-corner" href="https://claude.ai/chat" target="_blank" rel="noopener" title="Remote control" data-act="remote">' + ICON.ext + "</a>"
             : "") +
+          '<div class="ft-cmd-actions">' +
+          '<button class="ft-pause-btn' + (f.control === "Paused" ? " is-paused" : "") + '" type="button" data-act="pause" title="' + (f.control === "Paused" ? "Resume" : "Pause") + '">' + (f.control === "Paused" ? ICON.pause : ICON.pauseOutline) + "</button>" +
           '<button class="ft-read-btn" type="button" data-act="chat" title="Read chat">' + ICON.chat + "</button>" +
+          "</div>" +
         "</td>";
       // row click → ticket context modal; CTAs handle their own action
       tr.style.cursor = "pointer";
@@ -2694,6 +2871,7 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
           const a = act.dataset.act;
           if (a === "chat") { e.stopPropagation(); openConversation(f); }
           else if (a === "dec") { e.stopPropagation(); jumpToDecision(f.id); }
+          else if (a === "pause") { e.stopPropagation(); togglePause(f); }
           // remote is a real link — let it navigate
           return;
         }
@@ -2701,6 +2879,7 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
       });
       body.appendChild(tr);
     });
+    animateFleetRows(body, prevRects);
   }
 
   /* ============================================================
@@ -2757,6 +2936,9 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
   function openTicketModal(f) {
     const p = PHASE[f.phaseKind] || PHASE.working;
     const det = TICKET_DETAIL[f.id] || { desc: "No expanded description available.", events: [] };
+    const ghUrl = "https://github.com/aiur-labs/aiur/issues/" + f.num;
+    const blockedByT = (f.blockedBy || []).map((id) => fleet.find((x) => x.id === id)).filter(Boolean);
+    const blockingT = fleet.filter((x) => (x.blockedBy || []).includes(f.id));
     const head = $("#tk-head");
     head.innerHTML =
       '<button class="tk-close" id="tk-close" type="button" aria-label="Close">' + ICON.x + "</button>" +
@@ -2774,6 +2956,7 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
         (f.openDec > 0 ? '<button class="btn sm" type="button" data-tk="dec">' + ICON.inbox + " View command</button>" : "") +
         '<button class="btn secondary sm" type="button" data-tk="chat">' + ICON.chat + " Read chat</button>" +
         (f.claude && f.remote ? '<a class="btn ghost sm" href="https://claude.ai/chat" target="_blank" rel="noopener">' + ICON.ext + " Remote control</a>" : "") +
+        '<a class="btn ghost sm" href="' + ghUrl + '" target="_blank" rel="noopener">' + ICON.github + " Open in GitHub</a>" +
       "</div>";
 
     const eventsHtml = det.events.length
@@ -2784,11 +2967,23 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
         }).join("")
       : '<li class="tk-event info"><div class="tk-ev-body"><p>No events emitted yet.</p></div></li>';
 
+    const depTag = (t) => '<button class="tk-dep" type="button" data-goto="' + t.id + '"><span class="tk-dep-num">#' + t.num + '</span><span class="tk-dep-title">' + esc(t.title) + '</span></button>';
+    const depsHtml = (blockedByT.length || blockingT.length)
+      ? '<section class="tk-section">' +
+          '<h4 class="tk-h">Dependencies</h4>' +
+          '<div class="tk-deps">' +
+            (blockedByT.length ? '<div class="tk-dep-group"><span class="tk-dep-label up"><span class="cdot"></span>Blocked by</span><div class="tk-dep-row">' + blockedByT.map(depTag).join("") + '</div></div>' : "") +
+            (blockingT.length ? '<div class="tk-dep-group"><span class="tk-dep-label down"><span class="cdot"></span>Blocking</span><div class="tk-dep-row">' + blockingT.map(depTag).join("") + '</div></div>' : "") +
+          '</div>' +
+        "</section>"
+      : "";
+
     $("#tk-body").innerHTML =
       '<section class="tk-section">' +
         '<h4 class="tk-h">Ticket description</h4>' +
         '<div class="tk-desc">' + esc(det.desc) + "</div>" +
       "</section>" +
+      depsHtml +
       '<section class="tk-section">' +
         '<h4 class="tk-h">Progress</h4>' +
         '<div class="pbar-wrap tk-pbar">' + progressBar(f.pct, p.tone) + "</div>" +
@@ -2800,6 +2995,10 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
       "</section>";
 
     $("#tk-close").addEventListener("click", closeTicketModal);
+    $$('[data-goto]', $("#tk-body")).forEach((b) => b.addEventListener("click", () => {
+      const t = fleet.find((x) => x.id === b.dataset.goto);
+      if (t) openTicketModal(t);
+    }));
     $$('[data-tk]', head).forEach((b) => b.addEventListener("click", () => {
       const a = b.dataset.tk;
       closeTicketModal();
@@ -3009,10 +3208,25 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
   /* ============================================================
      TABS + NAV
      ============================================================ */
+  const NAV_ICON = {
+    fleet: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>',
+    inbox: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>',
+    techtree: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="8" r="3"/><path d="M6 9v6"/><path d="M18 11a9 9 0 0 1-9 9"/></svg>',
+    analytics: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="5"/><rect x="12" y="8" width="3" height="9"/><rect x="17" y="5" width="3" height="12"/></svg>',
+  };
+  const PAGE_META = {
+    fleet: { title: "Units", sub: "Every agent in the current run" },
+    inbox: { title: "Commands", sub: "Decisions waiting on your call" },
+    techtree: { title: "Build Order", sub: "Dependency graph across epics" },
+    analytics: { title: "Analytics", sub: "Coming soon" },
+  };
   function switchTab(tab) {
     activeTab = tab;
     $$(".panel").forEach((p) => p.classList.toggle("is-active", p.dataset.panel === tab));
-    $$(".ptab").forEach((b) => b.classList.toggle("is-active", b.dataset.tab === tab));
+    $$(".snav").forEach((b) => b.classList.toggle("is-active", b.dataset.tab === tab));
+    const meta = PAGE_META[tab] || PAGE_META.fleet;
+    const t = $("#page-head-title"); if (t) t.textContent = meta.title;
+    const ic = $("#page-head-ic"); if (ic) ic.innerHTML = NAV_ICON[tab] || NAV_ICON.fleet;
     const recent = $("#recent-card"); if (recent) recent.style.display = tab === "fleet" ? "" : "none";
     window.scrollTo({ top: 0, behavior: "smooth" });
     if (tab === "techtree") renderBuildOrder();
@@ -3130,8 +3344,9 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
     // decisions banner
     $("#decisions-banner").addEventListener("click", () => switchTab("inbox"));
 
-    // page tabs
-    $$(".ptab").forEach((b) => b.addEventListener("click", () => switchTab(b.dataset.tab)));
+    // sidebar nav
+    $$(".snav").forEach((b) => b.addEventListener("click", () => switchTab(b.dataset.tab)));
+    switchTab(activeTab);
     window.addEventListener("resize", () => { if (activeTab === "techtree") drawBoEdges(); });
 
     // clock
