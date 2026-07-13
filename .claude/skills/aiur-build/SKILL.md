@@ -163,7 +163,10 @@ approval and receipt commits; it does not accept caller-supplied ref authority.
 Receipt-commit mode also requires an authenticated `gh` CLI. It performs two
 fresh read-only GitHub snapshots and requires exact agreement across every
 mapped issue, all-state marker matches, root membership, and native blockers
-before accepting the immutable v3 receipt.
+before accepting the immutable v3 receipt. Every authority API request pins
+`--hostname github.com`, API version `2026-03-10`, an explicit read method, and
+a finite timeout. Collection uses explicit GETs capped at 100 pages and 10,000
+items per endpoint; it never delegates an unbounded `--paginate --slurp` read.
 
 Materialized validation also freezes the current planning documents: every
 ticket document must remain byte-for-byte equal to its approved source, and the
@@ -197,8 +200,9 @@ Only when explicitly authorized:
 4. publish native membership and dependency relationships;
 5. generate each ticket body as the exact authority preamble plus its approved
    ticket document verbatim, and generate the root from its approved full-body
-   template by replacing `<APPROVED_SHA>`; disable Git replace/graft object
-   substitution for every approval and receipt read;
+   template by replacing `<APPROVED_SHA>`; disable Git replace refs and reject
+   any legacy `info/grafts` entry in either the worktree Git directory or its
+   shared common directory for every approval and receipt read;
 6. preserve that same post-approval document freeze in the current pack;
 7. requery and validate the published graph, full labels, OPEN issue states,
    and bodies rather than trusting mutation responses: every body has exactly
@@ -217,8 +221,11 @@ Only when explicitly authorized:
     Anchor the repository outside both receipt and caller data to the configured
     GitHub origin. Query the exact target of the explicitly trusted
     `refs/heads/...` repository branch and prove receipt and approval commits
-    are ancestors, with approval also preceding receipt; object/API visibility
-    alone is insufficient. Requery the ref after proof and require the same tip.
+    are ancestors. Separately prove strict approval-to-receipt order in a fresh
+    graft-free clone of that GitHub branch and through GitHub's compare API;
+    object/API visibility alone is insufficient. Requery the ref after proof
+    and require the same tip. Any graft entry, including a nonregular or
+    uninspectable one, fails closed.
 
 The all-OPEN check is a publication-finalization snapshot, not a perpetual
 invariant. After authorized execution begins, current GitHub lifecycle is live

@@ -111,10 +111,13 @@ the start gate. Anchor the repository to the trusted configured GitHub origin
 outside both receipt and caller data. Pin one `trusted_repository_ref` in the
 publication manifest as an exact `refs/heads/...` branch. At gate time, query
 that branch's exact target from GitHub and prove the receipt and approval
-commits are ancestors, with approval preceding receipt. Base-repository API
-visibility of a fork-only PR commit, or foreign history imported into the local
-object database, is not authority. Requery the ref after proof and require the
-same target; movement or deletion fails closed.
+commits are ancestors. Prove strict approval-to-receipt ordering separately in
+a fresh graft-free clone of that branch and through GitHub's compare API.
+Base-repository API visibility of a fork-only PR commit, or foreign history
+imported into the local object database, is not authority. Requery the ref after
+proof and require the same target; movement or deletion fails closed. Reject
+any legacy `info/grafts` entry in the worktree Git directory or shared common
+directory; a nonregular or uninspectable entry also fails closed.
 
 Immediately before publishing the successful start gate, run receipt-commit
 validation with authenticated `gh`. The validator performs two fresh bounded
@@ -123,14 +126,16 @@ identity, title, body evidence, full labels, `OPEN` state, all-state marker
 uniqueness, unlocked state, direct root membership, and native blockers. It
 then compares that stable snapshot with the immutable receipt and re-proves
 branch authority.
-Queries pin `github.com`, fully paginate, and fail on malformed data or the
-bounded ceiling of 100 pages/10,000 items per endpoint.
+Queries pin `github.com` and fail on malformed data or the bounded ceiling of
+100 pages/10,000 items per endpoint. They use explicit per-page GETs, API
+version `2026-03-10`, and finite timeouts rather than an unbounded
+`--paginate --slurp` retrieval.
 
 The observed hash is never self-authorizing. A trusted pack adapter must load
 the root template, `build-order.json`, and every ticket document with
-`git show <approved-commit>:<path>` while disabling Git replace/graft object
-substitution. It renders tickets as the exact authority preamble plus the
-approved source verbatim and renders the root by replacing
+`git show <approved-commit>:<path>` while disabling Git replace refs and
+rejecting legacy graft entries. It renders tickets as the exact authority
+preamble plus the approved source verbatim and renders the root by replacing
 `<APPROVED_SHA>` in its approved full-body template. The validator compares the
 entire observed evidence record with those independently rendered
 expectations. Missing approved commits, packs, paths, expectations, duplicate

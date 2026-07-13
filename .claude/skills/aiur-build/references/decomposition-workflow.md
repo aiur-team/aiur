@@ -189,9 +189,10 @@ This stage requires explicit permission.
 - Map logical IDs to returned node IDs and repo-qualified numbers.
 - Publish membership and native issue-dependency edges.
 - Render every expected body from files loaded with
-  `git show <approved-commit>:<path>` with Git replace/graft object substitution
-  disabled; fail closed if the approved pack, root template, or a ticket
-  document is absent.
+  `git show <approved-commit>:<path>` with Git replace refs disabled and any
+  legacy `info/grafts` entry rejected in both the worktree Git directory and
+  shared common directory; fail closed if the approved pack, root template, or
+  a ticket document is absent.
 - Freeze the current sources after approval: ticket documents remain
   byte-for-byte equal to their approved versions, and the root document permits
   only deterministic `<APPROVED_SHA>` substitution. Reject missing, unreadable,
@@ -212,13 +213,17 @@ This stage requires explicit permission.
   repository to a trusted configured GitHub origin outside the receipt. Record
   one explicit `trusted_repository_ref` as a full `refs/heads/...` branch in the
   publication manifest, query its exact target from GitHub at gate time, and
-  prove both receipt and approval commits are ancestors, with approval preceding
-  receipt. A fork-only PR commit can be API-visible through the base repository
-  without being authoritative. Requery the ref after proof and require the same
-  target; movement or deletion fails closed.
+  prove both receipt and approval commits are ancestors. Prove strict
+  approval-to-receipt order separately in a fresh graft-free clone of that
+  branch and through GitHub's compare API. A fork-only PR commit can be
+  API-visible through the base repository without being authoritative. Requery
+  the ref after proof and require the same target; movement or deletion fails
+  closed. Any present, nonregular, or uninspectable graft entry fails closed.
 - Immediately before the successful gate mutation, run receipt-commit mode
   with authenticated `gh`; require two identical bounded live snapshots of all
   mappings, titles, bodies, labels, states, markers, members, and blockers.
+  Pin every API GET to `github.com`, API version `2026-03-10`, and a finite
+  timeout; request no more than 100 explicit pages or 10,000 items per endpoint.
 - Apply projected and required routing labels, record full observed labels in
   the receipt, and prove every forbidden dispatch/active-state label and every
   unprojected `human:*` routing label is absent. Keep the `build-order` label on

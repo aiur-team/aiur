@@ -5,12 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
 from validation_common import SHA, Report, nonempty_string, strict_int
+from validation_github_api import GhApiClient, GitHubApiError
 from validation_github_rendering import (
     MARKER,
     MARKER_KEYS,
@@ -24,6 +24,7 @@ ISSUE_URL = re.compile(
     re.ASCII,
 )
 MAX_PAGES = 100
+PAGE_SIZE = 100
 MAX_ITEMS = 10_000
 
 
@@ -47,6 +48,7 @@ class GhApiReader:
     def __init__(self, cwd: Path, executable: str = "gh") -> None:
         self.cwd = cwd
         self.executable = executable
+        self.api = GhApiClient(cwd, executable)
 
     def repository_issues(self, repository: str) -> list[dict[str, Any]]:
         return self._paged(f"repos/{repository}/issues?state=all&per_page=100")
@@ -67,87 +69,49 @@ class GhApiReader:
         )
 
     def _paged(self, endpoint: str) -> list[dict[str, Any]]:
-        try:
-            result = subprocess.run(
-                [
-                    self.executable,
-                    "api",
-                    "--hostname", "github.com",
-                    "-H", "Accept: application/vnd.github+json",
-                    "-H", "X-GitHub-Api-Version: 2026-03-10",
-                    "--paginate",
-                    "--slurp",
-                    endpoint,
-                ],
-                cwd=self.cwd,
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            raise LiveGitHubError(f"GitHub query failed for {endpoint}: {exc}") from exc
-        if result.returncode:
-            detail = result.stderr.strip() or f"exit {result.returncode}"
-            raise LiveGitHubError(f"GitHub query failed for {endpoint}: {detail}")
-        try:
-            pages = json.loads(result.stdout)
-        except json.JSONDecodeError as exc:
-            raise LiveGitHubError(
-                f"GitHub query returned invalid JSON for {endpoint}: {exc}"
-            ) from exc
-        if not isinstance(pages, list) or any(not isinstance(page, list) for page in pages):
-            raise LiveGitHubError(
-                f"GitHub paginated query returned an invalid envelope for {endpoint}"
-            )
-        if len(pages) > MAX_PAGES:
-            raise LiveGitHubError(
-                f"GitHub query exceeds the {MAX_PAGES}-page verification bound: {endpoint}"
-            )
-        items = [item for page in pages for item in page]
-        if len(items) > MAX_ITEMS:
-            raise LiveGitHubError(
-                f"GitHub query exceeds the {MAX_ITEMS}-item verification bound: {endpoint}"
-            )
-        if any(not isinstance(item, dict) for item in items):
-            raise LiveGitHubError(
-                f"GitHub paginated query contains a malformed item for {endpoint}"
-            )
-        return items
+        separator = "&" if "?" in endpoint else "?"
+        items: list[dict[str, Any]] = []
+        for page_number in range(1, MAX_PAGES + 1):
+            page_endpoint = f"{endpoint}{separator}page={page_number}"
+            page = self._json(page_endpoint)
+            if not isinstance(page, list):
+                raise LiveGitHubError(
+                    f"GitHub paginated query returned an invalid page for {endpoint}"
+                )
+            if len(page) > PAGE_SIZE:
+                raise LiveGitHubError(
+                    f"GitHub query exceeds the {PAGE_SIZE}-item page bound: {endpoint}"
+                )
+            if any(not isinstance(item, dict) for item in page):
+                raise LiveGitHubError(
+                    f"GitHub paginated query contains a malformed item for {endpoint}"
+                )
+            if len(items) + len(page) > MAX_ITEMS:
+                raise LiveGitHubError(
+                    f"GitHub query exceeds the {MAX_ITEMS}-item verification bound: "
+                    f"{endpoint}"
+                )
+            items.extend(page)
+            if len(page) < PAGE_SIZE:
+                return items
+        raise LiveGitHubError(
+            f"GitHub query reaches the {MAX_PAGES}-page verification ceiling: "
+            f"{endpoint}"
+        )
 
     def _one(self, endpoint: str, *, allow_404: bool = False) -> dict[str, Any] | None:
-        try:
-            result = subprocess.run(
-                [
-                    self.executable,
-                    "api",
-                    "--hostname", "github.com",
-                    "-H", "Accept: application/vnd.github+json",
-                    "-H", "X-GitHub-Api-Version: 2026-03-10",
-                    endpoint,
-                ],
-                cwd=self.cwd,
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            raise LiveGitHubError(f"GitHub query failed for {endpoint}: {exc}") from exc
-        if result.returncode:
-            if allow_404 and "HTTP 404" in result.stderr:
-                return None
-            detail = result.stderr.strip() or f"exit {result.returncode}"
-            raise LiveGitHubError(f"GitHub query failed for {endpoint}: {detail}")
-        try:
-            value = json.loads(result.stdout)
-        except json.JSONDecodeError as exc:
-            raise LiveGitHubError(
-                f"GitHub query returned invalid JSON for {endpoint}: {exc}"
-            ) from exc
+        value = self._json(endpoint, allow_404=allow_404)
+        if value is None:
+            return None
         if not isinstance(value, dict):
             raise LiveGitHubError(f"GitHub query returned an invalid object for {endpoint}")
         return value
+
+    def _json(self, endpoint: str, *, allow_404: bool = False) -> object | None:
+        try:
+            return self.api.get(endpoint, allow_404=allow_404)
+        except GitHubApiError as exc:
+            raise LiveGitHubError(str(exc)) from exc
 
 
 @dataclass(frozen=True)
