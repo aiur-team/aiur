@@ -18,7 +18,11 @@ def validate_all_issue_state_evidence(
     build: dict[str, Any], companions: dict[str, Any], publication: dict[str, Any],
     materialized: bool, report: Report,
 ) -> None:
-    """Require one exact, non-overlapping OPEN-state observation for all 46 issues."""
+    """Require one exact, non-overlapping OPEN-state observation for every issue.
+
+    The covered identity set is derived from the manifests: the root, the
+    skill-delivery issue, and every BO and DASH ticket.
+    """
     if not materialized:
         return
     core_ids, dash_ids, skill_ids = _partitions(build, companions, publication)

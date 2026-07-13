@@ -7,6 +7,10 @@
 > Addendum 2026-07-13: after re-vendoring the skill at `f92aa045`,
 > `validate_build_order.py docs/build-order/build-order.json` reports
 > 0 errors and 0 warnings, and the vendored validator suite passes 115/115.
+> After deriving the publication verifier's expected counts from the
+> manifests, `scripts/validate_publication.py` also reports 0 errors and
+> 0 warnings against the regenerated 34-ticket manifests, and the
+> publication test suite passes 102/102.
 
 ## Candidate status
 

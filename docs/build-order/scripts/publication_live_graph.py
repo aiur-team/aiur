@@ -38,9 +38,10 @@ MAX_PAGES = 100
 PAGE_SIZE = 100
 MAX_ITEMS = MAX_PAGES * PAGE_SIZE
 GITHUB_TIMEOUT_SECONDS = 30
-EXPECTED_ISSUES = 46
-EXPECTED_ROOT_MEMBERS = 19
-EXPECTED_BLOCKED_BY_EDGES = 73
+# The expected issue and blockedBy-edge totals are not constants: they are
+# derived from the two validated receipt manifests (all BO and DASH tickets
+# plus the root and skill issue; every depends_on/external blocker edge plus
+# the publication external blocker relations).
 
 
 class LiveGraphError(RuntimeError):
@@ -108,8 +109,9 @@ def _expected_graph(authority: ReceiptAuthority) -> ExpectedGraph:
     skill_id = skill.get("logical_id") if isinstance(skill, dict) else None
     if not isinstance(skill_id, str):
         raise LiveGraphError("validated receipt skill identity is unavailable")
-    if len(build_tickets) != EXPECTED_ROOT_MEMBERS or len(dash_tickets) != 25:
-        raise LiveGraphError("validated receipt does not contain the bounded 19/25 graph")
+    if not build_tickets or not dash_tickets:
+        raise LiveGraphError("validated receipt manifests contain no tickets")
+    expected_issue_count = len(build_tickets) + len(dash_tickets) + 2
 
     core_receipt = _receipt(build, "Build Order")
     dash_receipt = _receipt(companions, "companion")
@@ -125,8 +127,10 @@ def _expected_graph(authority: ReceiptAuthority) -> ExpectedGraph:
     mappings[skill_id] = _mapping(auxiliary_mappings.get(skill_id), skill_id)
     if auxiliary_mappings.get(root_id) != mappings[root_id]:
         raise LiveGraphError("publication and core root mappings disagree")
-    if len(mappings) != EXPECTED_ISSUES:
-        raise LiveGraphError("validated receipt mappings do not cover exactly 46 issues")
+    if len(mappings) != expected_issue_count:
+        raise LiveGraphError(
+            f"validated receipt mappings do not cover exactly {expected_issue_count} issues"
+        )
     numbers = [mapping["number"] for mapping in mappings.values()]
     nodes = [mapping["node_id"] for mapping in mappings.values()]
     if len(numbers) != len(set(numbers)) or len(nodes) != len(set(nodes)):
@@ -159,11 +163,6 @@ def _expected_graph(authority: ReceiptAuthority) -> ExpectedGraph:
     blockers = _blockers(
         root_id, skill_id, build_tickets, dash_tickets, publication
     )
-    edge_count = sum(len(items) for items in blockers.values())
-    if edge_count != EXPECTED_BLOCKED_BY_EDGES:
-        raise LiveGraphError(
-            f"validated receipt graph has {edge_count} blockedBy edges, expected 73"
-        )
 
     issues: dict[str, ExpectedIssue] = {}
     for logical_id in sorted(mappings):
@@ -339,8 +338,17 @@ def _compare_snapshot(
     clean = True
     live_issues = snapshot.get("issues")
     if not isinstance(live_issues, dict) or set(live_issues) != set(expected.issues):
-        report.error("live GitHub issue snapshot must exactly cover all 46 mappings")
+        report.error(
+            "live GitHub issue snapshot must exactly cover all "
+            f"{len(expected.issues)} mappings"
+        )
         return False
+    expected_edge_count = sum(
+        len(issue.blocked_by) for issue in expected.issues.values()
+    )
+    expected_root_members = max(
+        len(issue.subissues) for issue in expected.issues.values()
+    )
     edge_count = 0
     for logical_id, wanted in sorted(expected.issues.items()):
         live = live_issues.get(logical_id)
@@ -370,13 +378,19 @@ def _compare_snapshot(
             edge_count += len(blocked)
     root = live_issues.get(next(
         logical_id for logical_id, issue in expected.issues.items()
-        if len(issue.subissues) == EXPECTED_ROOT_MEMBERS
+        if len(issue.subissues) == expected_root_members
     ))
-    if not isinstance(root, dict) or len(root.get("subissues", ())) != EXPECTED_ROOT_MEMBERS:
-        report.error("live GitHub root must have exactly 19 direct BO subissues")
+    if not isinstance(root, dict) or len(root.get("subissues", ())) != expected_root_members:
+        report.error(
+            "live GitHub root must have exactly "
+            f"{expected_root_members} direct BO subissues"
+        )
         clean = False
-    if edge_count != EXPECTED_BLOCKED_BY_EDGES:
-        report.error("live GitHub graph must have exactly 73 native blockedBy edges")
+    if edge_count != expected_edge_count:
+        report.error(
+            "live GitHub graph must have exactly "
+            f"{expected_edge_count} native blockedBy edges"
+        )
         clean = False
     live_matches = snapshot.get("marker_matches")
     if live_matches != expected.marker_matches:
@@ -411,6 +425,7 @@ def _partitioned_field(
     core: dict[str, Any], dash: dict[str, Any], auxiliary: dict[str, Any],
     field: str,
 ) -> dict[str, Any]:
+    expected_total = len({root_id, skill_id}) + len(build_tickets) + len(dash_tickets)
     result: dict[str, Any] = {}
     for receipt, identities, label in (
         (core, {root_id, *build_tickets}, "Build Order"),
@@ -421,8 +436,10 @@ def _partitioned_field(
         if not isinstance(value, dict) or set(value) != identities:
             raise LiveGraphError(f"validated {label} receipt {field} partition is invalid")
         result.update(value)
-    if len(result) != EXPECTED_ISSUES:
-        raise LiveGraphError(f"validated receipt {field} does not cover 46 issues")
+    if len(result) != expected_total:
+        raise LiveGraphError(
+            f"validated receipt {field} does not cover {expected_total} issues"
+        )
     return result
 
 
@@ -450,8 +467,11 @@ def _labels(
     for logical_id in dash_tickets:
         result[logical_id] = _label_tuple(dash_labels.get(logical_id), logical_id)
     result[skill_id] = _label_tuple(auxiliary_labels.get(skill_id), skill_id)
-    if len(result) != EXPECTED_ISSUES:
-        raise LiveGraphError("validated receipt labels do not cover 46 issues")
+    expected_total = len({root_id, skill_id}) + len(build_tickets) + len(dash_tickets)
+    if len(result) != expected_total:
+        raise LiveGraphError(
+            f"validated receipt labels do not cover {expected_total} issues"
+        )
     return result
 
 

@@ -36,18 +36,6 @@ RECEIPT = "b" * 40
 class LiveGraphVerifierTests(unittest.TestCase):
     def setUp(self) -> None:
         companions, build, publication = materialized_pack()
-        current_edges = sum(
-            len(ticket.get("depends_on", []))
-            for ticket in build["tickets"]
-        ) + sum(
-            len(ticket.get("depends_on", []))
-            + len(ticket.get("external_blockers", []))
-            for ticket in companions["tickets"]
-        ) + len(publication["external_blocker_relations"])
-        companions["tickets"][0]["external_blockers"].extend(
-            f"external/repo#{10_000 + index}"
-            for index in range(73 - current_edges)
-        )
         self.authority = ReceiptAuthority(
             repository="example/repo",
             root_id="example/repo:build-order-dashboard",
