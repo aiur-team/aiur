@@ -62,7 +62,7 @@ defmodule Aiur.Opencode.ChatCompletions do
   defp handle_identified_text(body, conn, identifier, @turn_marker_prefix <> _ = marker) do
     case Regex.run(@turn_marker_regex, marker) do
       [_, aiur_turn_id] ->
-        # Coalescing defense: if opencode folded queued operator text into
+        # Coalescing defense: if opencode folded queued Executor text into
         # this request's trailing user batch, the marker (routed as the last
         # user message) would otherwise silently shadow it. Dispatch any
         # non-marker text in the batch before streaming the segment.
@@ -89,11 +89,11 @@ defmodule Aiur.Opencode.ChatCompletions do
   end
 
   defp handle_identified_text(body, conn, identifier, raw_text) do
-    # Symmetric coalescing defense: when operator text routes (it was the
+    # Symmetric coalescing defense: when Executor text routes (it was the
     # LAST user message), a turn marker coalesced earlier in the same
     # trailing batch would be consumed without ever opening its segment
     # stream. Re-post any such marker so the segment resumes after this
-    # operator message dispatches.
+    # Executor message dispatches.
     repost_shadowed_markers(body, conn, identifier)
     OperatorDispatch.dispatch_user_text(body, conn, identifier, raw_text)
   end
@@ -128,7 +128,7 @@ defmodule Aiur.Opencode.ChatCompletions do
     model == "placeholder" or model == "#{prefix}/placeholder"
   end
 
-  # Operator text coalesced BEHIND the routed marker: dispatch it to the
+  # Executor text coalesced BEHIND the routed marker: dispatch it to the
   # agent before the segment stream opens, else it is silently dropped.
   defp dispatch_shadowed_operator_texts(body, identifier) do
     body
@@ -148,7 +148,7 @@ defmodule Aiur.Opencode.ChatCompletions do
     end)
   end
 
-  # Turn marker coalesced BEHIND routed operator text: re-post it so the
+  # Turn marker coalesced BEHIND routed Executor text: re-post it so the
   # segment stream still opens once this request closes.
   defp repost_shadowed_markers(body, conn, identifier) do
     markers =

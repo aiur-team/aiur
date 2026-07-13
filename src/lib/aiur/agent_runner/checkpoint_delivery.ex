@@ -1,6 +1,6 @@
 defmodule Aiur.AgentRunner.CheckpointDelivery do
   @moduledoc """
-  Mid-turn checkpoint delivery and immediate operator delivery handlers.
+  Mid-turn checkpoint delivery and immediate Executor delivery handlers.
 
   Delivers blocker-critical events urgently at safe-checkpoint boundaries,
   falls back to the next normal checkpoint item, and handles the four
@@ -12,9 +12,9 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
   alias Aiur.AgentRunner.{EventsDigest, QueueDrain}
   alias Aiur.Issue
 
-  # Mid-turn delivery for the persistent-REPL backend: when an operator
+  # Mid-turn delivery for the persistent-REPL backend: when an Executor
   # message lands while the agent is working, the driver invokes this to
-  # claim the next operator item and type it straight into the live pane.
+  # claim the next Executor item and type it straight into the live pane.
   # The claimed item moves to `delivered`, so the turn-end
   # `consume_delivered_queue_items` sweep retires it — it is never also run
   # as a separate follow-up turn. A send failure restores it to pending so
@@ -107,7 +107,7 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
   end
 
   defp safe_checkpoint_delivery(issue, orchestrator, item, checkpoint, decision_store) do
-    Logger.info("Queueing operator message into active turn for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{item.id} checkpoint=#{inspect(checkpoint)}")
+    Logger.info("Queueing Executor message into active turn for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{item.id} checkpoint=#{inspect(checkpoint)}")
 
     case QueueDrain.record_operator_delivery(item, issue, decision_store) do
       :ok ->

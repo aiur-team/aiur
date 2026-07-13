@@ -312,6 +312,21 @@ defmodule Aiur.CLITest do
     assert Application.get_env(:aiur, :headless) == true
   end
 
+  test "disables dashboard supervision when requested" do
+    previous = Application.get_env(:aiur, :no_dashboard)
+
+    on_exit(fn ->
+      if is_nil(previous),
+        do: Application.delete_env(:aiur, :no_dashboard),
+        else: Application.put_env(:aiur, :no_dashboard, previous)
+    end)
+
+    Application.delete_env(:aiur, :no_dashboard)
+
+    assert :ok = CLI.evaluate([@ack_flag, "--no-dashboard", ".aiurconfig"], passthrough_deps())
+    assert Application.get_env(:aiur, :no_dashboard) == true
+  end
+
   test "--max-agents N records the orchestrator launch override" do
     previous = Application.get_env(:aiur, :max_concurrent_agents_override)
 

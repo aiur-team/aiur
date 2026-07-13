@@ -5,8 +5,10 @@ defmodule Aiur.AgentSkills do
 
   The per-turn agent prompt (`shared-agent-instructions.md`) routes every agent
   to the `using-aiur` operating manual and the `/aiur-agent` cross-ticket event
-  skill. Those skills ship in aiur's own tree under `.claude/skills/`, but an
-  agent's workspace is a checkout of the *target* repo, which has no copy — so
+  skill, while `/aiur-debug` is the shared diagnosis overlay available when a
+  run or ticket fails. Those skills ship in aiur's own tree under
+  `.claude/skills/`, but an agent's workspace is a checkout of the *target*
+  repo, which has no copy — so
   without this, agents on non-aiur repos full-disk `find /` for a skill the
   prompt tells them to load (#689).
 
@@ -33,11 +35,11 @@ defmodule Aiur.AgentSkills do
 
   # The skills the agent prompt routes issue workers to. This is a deliberate
   # subset of the canonical taxonomy in `Aiur.AiurAgentSkillTest`
-  # (`@codex_exposed_aiur_skills` / `@claude_operator_only_skills`): operator
+  # (`@codex_exposed_aiur_skills` / `@claude_operator_only_skills`): Executor
   # skills (aiur-run, aiur-monitor, aiur-loop, release) are excluded because an
   # issue worker has no reason to run aiur itself. That test cross-checks this
   # subset, so the two cannot silently drift.
-  @issue_worker_skills ~w(using-aiur aiur-agent design-import)
+  @issue_worker_skills ~w(using-aiur aiur-agent aiur-debug design-import)
 
   @claude_skills_dir ".claude/skills"
   @codex_skills_dir ".codex/skills"

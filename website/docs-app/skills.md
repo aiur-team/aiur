@@ -10,13 +10,13 @@ Aiur has two skill families: driver skills under `.claude/skills/`, and skills p
 
 [aiur-agent](../../.claude/skills/aiur-agent/SKILL.md) routes cross-ticket events, including `emit_event`, subscriptions, blockers, and attention open/close. An agent loads it before emitting or subscribing to events.
 
-[aiur-run](../../.claude/skills/aiur-run/SKILL.md) is the operator playbook for launching and babysitting a detached `--bg` dogfood run. It triggers on “run aiur”, “run IAR”, or “iarc run”.
+[aiur-run](../../.claude/skills/aiur-run/SKILL.md) is the Executor playbook for launching and babysitting a detached `--bg` dogfood run. It triggers on “run aiur”, “run IAR”, or “iarc run”.
 
 [aiur-monitor](../../.claude/skills/aiur-monitor/SKILL.md) compiles a one-glance status board from `aiurdev watch`. It triggers on “aiur status” or “iarc status”.
 
 [aiur-loop](../../.claude/skills/aiur-loop/SKILL.md) runs a sustained improve-this-repository loop covering launch, monitoring, curation, review, and merge. It triggers on “run the aiur loop” or “improve this repo with aiur”.
 
-[release](../../.claude/skills/release/SKILL.md) is the operator playbook for cutting a new npm release by bumping `src/mix.exs`, tagging, and creating a GitHub release. It triggers on `/release` or “release a new version”.
+[release](../../.claude/skills/release/SKILL.md) is the Executor playbook for cutting a new npm release by bumping `src/mix.exs`, tagging, and creating a GitHub release. It triggers on `/release` or “release a new version”.
 
 ## Skills in agent workspaces
 
@@ -38,4 +38,4 @@ After a workspace is populated, `Aiur.AgentSkills.install/1` ([`agent_skills.ex`
 
 ### Compound-engineering skills
 
-These are operator-provided CE skills invoked by the complexity router; they are not bundled into workspaces by Aiur. The routing rules are in [complexity-routing.md](../../.claude/skills/using-aiur/complexity-routing.md), which references **ce-work**, **ce-code-review**, **ce-plan**, **ce-brainstorm**, and **ce-doc-review**. These skills ship with the operator’s environment, so this page does not link to per-skill files in this repository.
+These are Executor-provided CE skills invoked by the complexity router; they are not bundled into workspaces by Aiur. The routing rules are in [complexity-routing.md](../../.claude/skills/using-aiur/complexity-routing.md), which references **ce-work**, **ce-code-review**, **ce-plan**, **ce-brainstorm**, and **ce-doc-review**. These skills ship with the Executor’s environment, so this page does not link to per-skill files in this repository.

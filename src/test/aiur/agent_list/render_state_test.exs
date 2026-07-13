@@ -72,6 +72,15 @@ defmodule Aiur.AgentList.RenderStateTest do
     end
   end
 
+  describe "dashboard_url/1" do
+    test "renders only a confirmed bound-listener URL" do
+      assert RenderState.dashboard_url(fn -> "http://127.0.0.1:4321" end) ==
+               "http://127.0.0.1:4321/"
+
+      assert RenderState.dashboard_url(fn -> nil end) == nil
+    end
+  end
+
   describe "terminal_geometry/0" do
     test "returns a {columns, rows} pair of positive integers" do
       {cols, rows} = RenderState.terminal_geometry()

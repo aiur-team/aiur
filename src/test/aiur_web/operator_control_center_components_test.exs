@@ -74,7 +74,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
       question: "What should happen after the target became terminal?",
       changed_at: ~U[2026-07-12 13:00:00Z],
       change: :follow_up_required,
-      actor: %{type: :human_operator, id: "operator", label: "Human operator"},
+      actor: %{type: :human_operator, id: "operator", label: "Executor"},
       choice: nil,
       rationale: "The revision could not be dispatched.",
       dispatch_result: :failed,
@@ -87,7 +87,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
 
     html = render_component(&History.history/1, %{entries: [entry], provider_health: :ok})
 
-    assert html =~ "Human operator"
+    assert html =~ "Executor"
     assert html =~ "Follow-up required"
     assert html =~ "dispatch: Failed"
     assert html =~ "revision: No longer applicable"
@@ -351,11 +351,11 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert writable =~ "Hold the rollout"
     assert writable =~ "No longer applicable"
     assert writable =~ "does not claim earlier effects were rolled back"
-    assert writable =~ "Operator follow-up required"
+    assert writable =~ "Executor follow-up required"
     assert writable =~ ~s(phx-submit="revise-decision")
     assert writable =~ ~s(phx-submit="handle-revision-follow-up")
     assert readonly =~ "Original answer · preserved"
-    assert readonly =~ "Operator follow-up required"
+    assert readonly =~ "Executor follow-up required"
     refute readonly =~ ~s(phx-submit="revise-decision")
     refute readonly =~ ~s(phx-submit="handle-revision-follow-up")
   end

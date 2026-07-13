@@ -1,5 +1,8 @@
 # OCC — brainstorm grounding + ticket decomposition
 
+> Historical OCC planning artifact. The shipped product is now the **Executor
+> Control Center**; legacy terminology below is preserved as historical context.
+
 ## Grounding (verified against origin/main)
 OCC **extends existing plumbing** rather than inventing parallel systems. Confirmed present:
 - `AiurWeb.DashboardLive` (`src/lib/aiur_web/live/dashboard_live.ex`) + `AiurWeb.Presenter` — the live dashboard + its data (running agents, retry, logs, writable chat/pause controls).

@@ -211,7 +211,7 @@ defmodule Aiur.Orchestrator.PushRouting do
   # Resume can fail when the concurrent-agent cap is already full —
   # the blockee would otherwise sit silently paused forever because
   # the explicit unblock event is consumed exactly once. Log a warning so
-  # operators can see
+  # Executors can see
   # the cap is blocking the resume, and stamp a hint on the entry so a
   # future reconcile tick (when a slot opens up) can drain the queue.
   defp attempt_auto_resume(state, entry, identifier, blocker_identifier, topic, unblock_key, pause_generation) do

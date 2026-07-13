@@ -15,6 +15,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
           | :waiting_for_ci
           | :waiting_for_review
           | :paused
+          | :awaiting_dispatch
           | :backing_off
           | :unresponsive
           | :active
@@ -37,6 +38,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
 
     cond do
       open_decision?(Map.get(attrs, :open_decision_count)) -> :waiting_for_human
+      Map.get(attrs, :work_state) == :completed -> :awaiting_dispatch
       unresponsive?(attrs) -> :unresponsive
       tracker_reason != :active -> tracker_reason
       agent_requested_human?(Map.get(attrs, :pause_reason)) -> :waiting_for_human

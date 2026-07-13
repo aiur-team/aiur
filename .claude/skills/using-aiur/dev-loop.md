@@ -27,7 +27,7 @@ and avoids the index-write failure path entirely.
 
 Ticket branches are named `aiur/<id>-<slug>` for new tickets, with legacy
 `aiur/<id>` branches still supported. `scripts/resolve-ticket-branch <id>` is the
-operator helper for the reverse lookup: it queries the remote, prints the one
+Executor helper for the reverse lookup: it queries the remote, prints the one
 matching branch, and exits non-zero when no branch or more than one branch exists.
 
 ## The loop
@@ -82,7 +82,7 @@ resume you with a terminal CI result, a bounded CI fallback re-wake, or when the
 label flips back to `agent:in-progress` / `agent:rework` / `merging`. If you have
 nothing left to do on the current turn but the label is still
 `agent:in-progress` for a non-CI reason (for example, an upstream PR must merge),
-emit `pause.request` instead of looping; the operator will see the ❗ and reply
+emit `pause.request` instead of looping; the Executor will see the ❗ and reply
 when ready.
 
 ## Manual CLI verification before opening a PR

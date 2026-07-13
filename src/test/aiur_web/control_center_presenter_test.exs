@@ -119,7 +119,7 @@ defmodule AiurWeb.ControlCenterPresenterTest do
         source_version: 2,
         changed_at: ~U[2026-07-12 13:00:00Z],
         change: :revision_no_longer_applicable,
-        actor: %{type: :human_operator, id: "operator", label: "Human operator"},
+        actor: %{type: :human_operator, id: "operator", label: "Executor"},
         choice: "Option B",
         rationale: "The target is terminal.",
         dispatch_result: :failed,

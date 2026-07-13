@@ -326,7 +326,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
   test "renders durable decision history, honest merge provenance, and the analytics link during a snapshot outage" do
     history = [
-      history_entry("dec-human", :human_operator, "Human operator", "<script>alert('decision')</script>"),
+      history_entry("dec-human", :human_operator, "Executor", "<script>alert('decision')</script>"),
       history_entry("dec-supervisor", :supervising_agent, "Supervising agent", "Approve the fallback?")
     ]
 
@@ -360,7 +360,7 @@ defmodule AiurWeb.DashboardLiveTest do
     refute html =~ "Merged this run"
     refute html =~ "from the current run"
     assert html =~ "Decision history"
-    assert html =~ "Human operator"
+    assert html =~ "Executor"
     assert html =~ "Supervising agent"
     assert html =~ "&lt;script&gt;alert"
     refute html =~ "<script>alert"
@@ -864,7 +864,7 @@ defmodule AiurWeb.DashboardLiveTest do
         }
       })
 
-    assert eventually(fn -> render(view) =~ "Operator follow-up required" end, 100)
+    assert eventually(fn -> render(view) =~ "Executor follow-up required" end, 100)
 
     {:ok, pending} = DecisionStore.get(decision.decision_id, store)
 

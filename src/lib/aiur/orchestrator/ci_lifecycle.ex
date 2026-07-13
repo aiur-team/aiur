@@ -10,6 +10,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   alias Aiur.Events.{GithubCIPoller, IdGenerator, Publisher, Sanitizer, UniversalSubscriptions}
 
   alias Aiur.Orchestrator.{
+    AgentTeardown,
     DispatchPolicy,
     HumanReview,
     OperatorMessages,
@@ -111,6 +112,12 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     case Map.get(state.running, issue.id) do
       nil ->
         RetryEngine.release_issue_claim(state, issue.id)
+
+      %{control: %{status: :completed}} = running_entry ->
+        state
+        |> Reconciler.refresh_running_entry_issue(issue, running_entry)
+        |> AgentTeardown.deactivate_running_issue(issue.id)
+        |> arm_ci_wait_rewake(issue)
 
       %{control: %{status: :deactivated}} = running_entry ->
         Reconciler.refresh_running_entry_issue(state, issue, running_entry)

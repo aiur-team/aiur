@@ -51,7 +51,7 @@ If the branch push is irrelevant or unusable, remain blocked only on that integr
 
 ## When you can NOT stub
 
-Some blockers can't be reasonably stubbed — schema migrations that need to land before your code can compile, secrets that have to be rotated in shared infra, infra changes the operator must approve. In those cases:
+Some blockers can't be reasonably stubbed — schema migrations that need to land before your code can compile, secrets that have to be rotated in shared infra, infra changes the Executor must approve. In those cases:
 
 1. Declare the blocker (`aiur_declare_blocker(N)`).
 2. **Required: emit `blocked` once** with

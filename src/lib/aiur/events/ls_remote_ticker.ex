@@ -72,7 +72,7 @@ defmodule Aiur.Events.LsRemoteTicker do
       refs: %{},
       bootstrapped?: false,
       # Streak state for the connectivity escalation policy (#617): a
-      # sustained DNS/auth break raises a loud operator blocker instead of
+      # sustained DNS/auth break raises a loud Executor blocker instead of
       # only Logger.debug-ing forever.
       connectivity: %{},
       next_delay_ms: Keyword.get(opts, :interval_ms, @default_interval_ms),
@@ -119,7 +119,7 @@ defmodule Aiur.Events.LsRemoteTicker do
     }
   end
 
-  # Records a classified ls-remote failure and emits a single operator-visible
+  # Records a classified ls-remote failure and emits a single Executor-visible
   # blocker once a sustained DNS/auth streak crosses the escalation threshold.
   defp note_connectivity_failure(state, classification) do
     {streaks, delay_ms} =
@@ -142,7 +142,7 @@ defmodule Aiur.Events.LsRemoteTicker do
       Enum.each(current_refs, &maybe_publish_change(state, &1, repo))
       %{state | refs: current_refs}
     else
-      # First successful tick: log so an operator can tell the ticker
+      # First successful tick: log so an Executor can tell the ticker
       # is alive AND see the ref baseline it locked in. Silent ticker
       # is indistinguishable from a dead one in production, which
       # masked the first --test3 regression hunt.

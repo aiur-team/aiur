@@ -340,7 +340,7 @@ defmodule Aiur.Config do
   @doc """
   Maximum known synthetic load-generator descendants allowed per agent process
   tree. `nil` in config derives from available schedulers; `0` disables the
-  guard for operators that prefer manual containment.
+  guard for Executors that prefer manual containment.
   """
   @spec synthetic_load_process_cap() :: non_neg_integer()
   def synthetic_load_process_cap do
@@ -442,7 +442,7 @@ defmodule Aiur.Config do
     settings!().observability.dashboard_enabled
   end
 
-  # Whether the dashboard may drive agents (operator chat, pause). Read-only by
+  # Whether the dashboard may drive agents (Executor chat, pause). Read-only by
   # default until a deliberate dashboard parity pass — see issue #371.
   @spec dashboard_writable?() :: boolean()
   def dashboard_writable? do
