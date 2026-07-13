@@ -1,9 +1,9 @@
-# Operator Control Center
+# Executor Control Center
 
-This is the planning and implementation-contract home for the **Operator
-Control Center (OCC)** — extending Aiur's existing LiveView dashboard into a
-decision inbox, fleet-state view, and history control surface for a human
-operator overseeing the fleet.
+This is the planning and implementation-contract home for the **Executor
+Control Center**. The directory and `OCC-*` ticket identifiers preserve the
+historical Operator Control Center wave name; shipped UI and current prose use
+Executor terminology.
 
 ## Layout
 
@@ -16,6 +16,7 @@ operator overseeing the fleet.
 | `04-occ-3-answer-delivery-contract.md` | Answer, dispatch, transport, and agent acknowledgement handoff | OCC-3 |
 | `05-occ-8-decision-revision-contract.md` | Append-only revision, corrective dispatch, and blocking follow-up handoff | OCC-8 |
 | `06-occ-7-supervisor-decision-api-contract.md` | Supervisor auth, policy, machine routes, and sibling delegation handoff | OCC-7 |
+| `EXECUTOR-HANDOFF.md` | Shipped ownership, security, documentation, and acceptance handoff | docs closeout |
 | `claude-design-prompt.md` | Ready-to-send prompt → Claude builds a self-contained HTML mock with example data | design handoff |
 
 ## Decisions locked (from the brainstorm)
@@ -30,7 +31,7 @@ operator overseeing the fleet.
 OCC-0 established the architecture decisions, OCC-1 delivered the durable
 Decision request store, OCC-3 added persist-before-dispatch answer delivery,
 and OCC-8 extended that same audit/outbox with ordered revisions. OCC-7 exposes
-those contracts through a separately authenticated, fail-closed supervisor API.
+those contracts through a separately authenticated, fail-closed supervising-Executor API.
 The LiveView now drives the human answer and revision boundaries directly and
 renders OCC-6 history/outcomes and OCC-9 latency from their canonical providers.
 Follow the numbered contract docs rather than reconstructing behavior from
@@ -40,8 +41,8 @@ individual implementation tickets.
 
 | Capability | Canonical owner | Dashboard responsibility |
 |---|---|---|
-| Human answer and retry | `Aiur.DecisionStore` + `Aiur.DecisionDispatch` | Submit an operator-attributed command and reload canonical state |
-| Supervisor enrich/decide/revise | `Aiur.DecisionApi` behind supervisor authentication and policy | Render the shared Decision projection; never borrow supervisor authority for human actions |
+| Human answer and retry | `Aiur.DecisionStore` + `Aiur.DecisionDispatch` | Submit a human-Executor-attributed command and reload canonical state |
+| Supervising-Executor enrich/decide/revise | `Aiur.DecisionApi` behind supervisor authentication and policy | Render the shared Decision projection; never borrow machine authority for human actions |
 | Human revision and follow-up | `Aiur.DecisionStore` OCC-8 revision APIs | Submit an append-only correction and render original/revised actions |
 | History | `Aiur.DecisionHistory` over the Decision audit store | Render provider rows without rebuilding lifecycle events |
 | Recent outcomes | `Aiur.RecentMergeStore` | Render provider rows without polling GitHub |
