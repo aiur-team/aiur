@@ -21,11 +21,19 @@ the planning documents.
 
 ## Commands or Access Needed
 
-- Claude Design project import: pending MCP discovery. If the connector asks
-  for interactive authentication, run `/design-login` and tell me when it is
-  complete.
+- Claude Design project import: Kevin is arranging a local export because the
+  `claude_design` connector is unavailable in this Codex session. When ready,
+  place it in the workspace and send its repo-relative path.
 
 ## Resolved
 
 - Work may be committed early and often with 3–7 word commit messages and
   pushed regularly.
+- Do not merge any work into `main` while the dashboard agents are active.
+  Keep all changes isolated on review branches.
+- This spike does not run Aiur or implement the Build Order feature. Its two
+  outcomes are the researched feature breakdown and a reproducible
+  `/aiur-build` skill for future breakdowns.
+- Roughly ten Build Order implementation tickets is the initial sizing
+  hypothesis, not a required count; dependency boundaries and reviewability
+  determine the final recommendation.
