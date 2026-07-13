@@ -8,6 +8,8 @@ defmodule AiurWeb.ControlCenterPresenter do
   alias AiurWeb.OperatorControlCenter.DecisionPresenter
   alias AiurWeb.Presenter
 
+  @decision_history_limit 50
+
   @spec state_payload(GenServer.name(), timeout(), keyword()) :: map()
   def state_payload(orchestrator, snapshot_timeout_ms, opts \\ []) do
     decision_store = Keyword.get(opts, :decision_store, DecisionStore)
@@ -15,7 +17,7 @@ defmodule AiurWeb.ControlCenterPresenter do
 
     presenter_opts = [
       decision_history_fun: fn ->
-        required_provider_call(Aiur.DecisionHistory, :list, [[server: decision_store]])
+        required_provider_call(Aiur.DecisionHistory, :list, [[server: decision_store, limit: @decision_history_limit]])
       end,
       recent_merge_snapshot_fun: fn ->
         required_provider_call(Aiur.RecentMergeStore, :snapshot, [recent_merge_store])
