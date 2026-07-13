@@ -992,6 +992,18 @@ defmodule Aiur.ExtensionsTest do
   end
 
   test "http server serves embedded assets, accepts form posts, and rejects invalid hosts" do
+    previous_username = System.get_env("AIUR_DASHBOARD_USERNAME")
+    previous_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
+    System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
+
+    on_exit(fn ->
+      restore_env("AIUR_DASHBOARD_USERNAME", previous_username)
+      restore_env("AIUR_DASHBOARD_PASSWORD", previous_password)
+    end)
+
+    authorization = {"authorization", "Basic " <> Base.encode64("operator:secret")}
+
     spec = HttpServer.child_spec(port: 0)
     assert spec.id == HttpServer
     assert spec.start == {HttpServer, :start_link, [[port: 0]]}
@@ -1024,21 +1036,25 @@ defmodule Aiur.ExtensionsTest do
     port = wait_for_bound_port()
     assert port == HttpServer.bound_port()
 
-    response = Req.get!("http://127.0.0.1:#{port}/api/v1/state")
+    unauthenticated_response = Req.get!("http://127.0.0.1:#{port}/api/v1/state")
+    assert unauthenticated_response.status == 401
+
+    response = Req.get!("http://127.0.0.1:#{port}/api/v1/state", headers: [authorization])
     assert response.status == 200
     assert response.body["counts"] == %{"running" => 1, "retrying" => 1, "idle" => 0}
 
-    dashboard_css = Req.get!("http://127.0.0.1:#{port}/dashboard.css")
+    dashboard_css = Req.get!("http://127.0.0.1:#{port}/dashboard.css", headers: [authorization])
     assert dashboard_css.status == 200
     assert dashboard_css.body =~ ":root {"
 
-    phoenix_js = Req.get!("http://127.0.0.1:#{port}/vendor/phoenix/phoenix.js")
+    phoenix_js = Req.get!("http://127.0.0.1:#{port}/vendor/phoenix/phoenix.js", headers: [authorization])
     assert phoenix_js.status == 200
     assert phoenix_js.body =~ "var Phoenix = (() => {"
 
     refresh_response =
       Req.post!("http://127.0.0.1:#{port}/api/v1/refresh",
         headers: [
+          authorization,
           {"content-type", "application/x-www-form-urlencoded"},
           {"origin", "http://127.0.0.1:#{port}"},
           {"x-aiur-request", "1"}
@@ -1051,7 +1067,7 @@ defmodule Aiur.ExtensionsTest do
 
     method_not_allowed_response =
       Req.post!("http://127.0.0.1:#{port}/api/v1/state",
-        headers: [{"content-type", "application/x-www-form-urlencoded"}],
+        headers: [authorization, {"content-type", "application/x-www-form-urlencoded"}],
         body: ""
       )
 
