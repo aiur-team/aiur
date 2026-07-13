@@ -12,9 +12,9 @@ their metadata, and their dependency edges. Aiur contributes live execution
 state, progress estimates, workflow phase, recent activity, and event evidence
 without copying those facts back into a second planning database.
 
-The initial implementation size hypothesis is roughly ten tickets. The final
-count will follow independently reviewable dependency boundaries after the
-Claude Design artifact and the remaining reference reviews are available.
+The initial implementation size hypothesis is roughly ten Build Order tickets,
+plus two independent existing-page catch-up tickets. The final count follows
+independently reviewable dependency boundaries, not a quota.
 
 ## Current Dashboard Baseline
 
@@ -30,9 +30,8 @@ under `src/lib/aiur_web/components/operator_control_center/`; the fleet table
 currently shows ticket, state, explicit waiting reason, latest activity,
 elapsed time, decision count, and tracker/log actions.
 
-There is no Build Order or Commands route on `origin/main`. The visual and
-interaction delta for Fleet, Decisions, and Commands remains pending the local
-Claude Design export.
+There is no Build Order or Commands route on `origin/main`. The completed delta
+is recorded in `02-dashboard-design-delta.md`.
 
 ## What PR #971 Demonstrates
 
@@ -114,9 +113,9 @@ This is the working recommendation pending user and design review.
 ### Build Order identity
 
 Represent each Build Order as a normal root GitHub issue carrying one stable
-`build-order` label. Its canonical identifier is repo-qualified
-`owner/repo#number` (and its immutable GitHub node ID internally), not a new
-free-form label slug.
+`build-order` label. Its canonical technical identity is the GitHub global issue
+node ID. Keep `owner/repo#number` as the human locator and the REST database ID
+for relationship mutations; do not add a per-feature membership label.
 
 This gives the selector a durable title, description, URL, open/closed state,
 and discussion home. A constant discovery label finds root issues without
@@ -129,10 +128,10 @@ supports listing, adding, removing, reprioritizing, and browsing sub-issues;
 the REST relationship is machine-readable and the CLI exposes parent,
 sub-issue, and completion-summary fields.
 
-Use direct children as the v1 ticket set. Preserve repo-qualified identities so
-multi-repository orders under one owner remain representable later, but keep
-the first Aiur implementation scoped to the configured tracker repository
-unless product review explicitly expands it.
+Use direct children as the v1 ticket set, limited to the configured tracker
+repository and GitHub's 100 direct-child maximum. A ticket has one parent and
+therefore one Build Order in v1. Cross-repository and nested orders require an
+identity/model expansion rather than implicit support.
 
 ### Dependency edges
 
@@ -151,6 +150,7 @@ Use existing GitHub fields directly:
 | Workflow state | `agent:*` state label plus open/closed state |
 | Complexity / points | `complexity:1` through `complexity:5` |
 | Rollout phase | `phase:N` |
+| Horizontal lane | `build-lane:documentation|frontend|backend|infrastructure` |
 | Dispatch priority within a phase | `priority:N` when needed |
 | Build Order membership | Native parent/sub-issue relationship |
 | Blockers and dependents | Native issue dependency relationships |
@@ -158,13 +158,13 @@ Use existing GitHub fields directly:
 Do not infer an authoritative phase solely from graph depth. The UI may show a
 derived topological layer as a diagnostic, but `phase:N` is the planned rollout
 source. Validation must reject a dependent whose phase is not later than its
-open blocker and flag concurrent tickets with overlapping declared file
-surfaces.
+open blocker and flag concurrent tickets with overlapping declared file or
+contract surfaces.
 
 ## Recommended Aiur Runtime Overlay
 
-Aiur should merge runtime facts by repo-qualified ticket identity at the
-presentation boundary:
+Aiur should merge runtime facts through a typed tracker key and GitHub node-ID
+mapping at the presentation boundary; a bare issue number is not sufficient:
 
 | Runtime fact | Aiur source |
 |---|---|
@@ -209,14 +209,9 @@ keeps GitHub planning facts visible while runtime cells degrade to unknown.
 - [GitHub REST sub-issue endpoints](https://docs.github.com/en/rest/issues/sub-issues?apiVersion=2026-03-10)
 - [GitHub REST issue-dependency endpoints](https://docs.github.com/en/rest/issues/issue-dependencies?apiVersion=2026-03-10)
 
-## Pending Research
+## Remaining Research Work
 
-- Review PRs #513, #732, and #971 through the CE document-review lenses and
-  synthesize their reusable and failed patterns.
-- Inspect the local Claude Design export and write the exact existing-page
-  delta plus Build Order interaction/state inventory.
-- Resolve the questions in `docs/build-order/questions.md`.
-- Decide the v1 repository boundary and whether Build Order is read-only or
-  may mutate GitHub membership/dependencies.
-- Convert this recommendation into reviewed requirements, implementation
-  plan, issue-ready tickets, and the `/aiur-build` workflow.
+- Resolve or convert the remaining questions in `questions.md` into explicit
+  v1 decisions/gates.
+- Write and review the requirements, implementation plan, issue-ready ticket
+  contracts, structured graph, validation report, and Executor handoff.

@@ -21,9 +21,18 @@ the planning documents.
 
 ## Commands or Access Needed
 
-- Claude Design project import: Kevin is arranging a local export because the
-  `claude_design` connector is unavailable in this Codex session. When ready,
-  place it in the workspace and send its repo-relative path.
+- None currently. The Claude Design project is committed under
+  `docs/build-order/prototype/` and recorded in `design-manifest.md`.
+
+## Working Recommendations Pending Confirmation
+
+- GitHub-only, same configured repository, read-only v1.
+- One root GitHub issue per Build Order, selected from a constant `build-order`
+  root label; direct native sub-issues define its members.
+- Stop after reviewed ticket documents unless issue creation is explicitly
+  authorized.
+- Dashboard dependency editing, Linear, cross-repository orders, and more than
+  100 direct tickets are follow-on scope.
 
 ## Resolved
 
