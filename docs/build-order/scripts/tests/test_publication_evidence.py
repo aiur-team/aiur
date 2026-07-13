@@ -145,12 +145,49 @@ class PublicationEvidenceTests(unittest.TestCase):
             for field in (
                 "projected_labels", "observed_labels", "observed_body_evidence",
                 "expected_issue_titles", "observed_issue_titles",
+                "observed_issue_states",
             ):
                 del receipt[field][removed]
             del receipt["marker_query_matches"][removed]
 
         report = self.report(mutate)
         self.assertEqual([], report.errors)
+
+    def test_all_receipt_state_partitions_are_exactly_open(self) -> None:
+        mutations = (
+            ("core", lambda _data, build, _manifest: build[
+                "github_reconciliation"
+            ]["observed_issue_states"].__setitem__("BO-001", "CLOSED")),
+            ("dash", lambda data, _build, _manifest: data[
+                "github_reconciliation"
+            ]["observed_issue_states"].pop("DASH-001")),
+            ("skill", lambda _data, _build, manifest: manifest[
+                "github_reconciliation"
+            ]["observed_issue_states"].__setitem__(SKILL_ID, "closed")),
+        )
+        for owner, mutate in mutations:
+            with self.subTest(owner=owner):
+                joined = "\n".join(self.report(mutate).errors)
+                self.assertTrue(
+                    "must equal OPEN" in joined or "keys must match its owned issues" in joined
+                )
+
+    def test_companion_and_auxiliary_receipt_versions_are_bumped(self) -> None:
+        def companion(data, _build, _manifest):
+            data["github_reconciliation"]["receipt_schema_version"] = 1
+
+        self.assertIn(
+            "receipt_schema_version must be integer 2",
+            "\n".join(self.report(companion).errors),
+        )
+
+        def auxiliary(_data, _build, manifest):
+            manifest["github_reconciliation"]["receipt_schema_version"] = 1
+
+        self.assertIn(
+            "receipt_schema_version must be integer 2",
+            "\n".join(self.report(auxiliary).errors),
+        )
 
     def test_comment_receipt_is_exact_and_pending(self) -> None:
         mutations = {

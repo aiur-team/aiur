@@ -58,7 +58,7 @@ def materialized_pack() -> tuple[dict, dict, dict]:
         },
     }
     build["github_reconciliation"] = {
-        "receipt_schema_version": 2,
+        "receipt_schema_version": 3,
         "checked_at": "2026-07-13T00:00:00Z",
         "approved_planning_commit": APPROVED,
         "root_node_id": "ROOT_NODE",
@@ -68,10 +68,10 @@ def materialized_pack() -> tuple[dict, dict, dict]:
             for ticket in build["tickets"] for dependency in ticket["depends_on"]
         ],
         "projected_labels": {
-            "github_root": ["build-order"], **copy.deepcopy(bo_labels),
+            ROOT_ID: ["build-order"], **copy.deepcopy(bo_labels),
         },
         "observed_labels": {
-            "github_root": ["build-order"], **copy.deepcopy(bo_labels),
+            ROOT_ID: ["build-order"], **copy.deepcopy(bo_labels),
         },
         "observed_body_evidence": body_evidence([ROOT_ID, *bo_ids]),
         "expected_issue_titles": {
@@ -88,10 +88,12 @@ def materialized_pack() -> tuple[dict, dict, dict]:
                 for ticket in build["tickets"]
             },
         },
+        "observed_issue_states": {key: "OPEN" for key in [ROOT_ID, *bo_ids]},
         "marker_query_matches": core_mappings,
     }
     dash_ids = [ticket["id"] for ticket in data["tickets"]]
     data["github_reconciliation"] = {
+        "receipt_schema_version": 2,
         "checked_at": "2026-07-13T00:00:00Z",
         "dependency_edges": [
             {"ticket_id": ticket["id"], "depends_on": dependency}
@@ -112,6 +114,7 @@ def materialized_pack() -> tuple[dict, dict, dict]:
             ticket["id"]: f"{ticket['id']} — {ticket['title']}"
             for ticket in data["tickets"]
         },
+        "observed_issue_states": {key: "OPEN" for key in dash_ids},
         "marker_query_matches": {
             ticket["id"]: [copy.deepcopy(ticket["github"])]
             for ticket in data["tickets"]
@@ -119,6 +122,7 @@ def materialized_pack() -> tuple[dict, dict, dict]:
     }
     root_comment_url = "https://github.com/example/repo/issues/901#issuecomment-987"
     manifest["github_reconciliation"] = {
+        "receipt_schema_version": 2,
         "checked_at": "2026-07-13T00:00:00Z",
         "issue_mappings": {
             ROOT_ID: github(901, "ROOT_NODE"),
@@ -134,6 +138,7 @@ def materialized_pack() -> tuple[dict, dict, dict]:
         "observed_issue_titles": {
             SKILL_ID: "Test skill",
         },
+        "observed_issue_states": {SKILL_ID: "OPEN"},
         "marker_query_matches": {SKILL_ID: [github(4, "SKILL_NODE")]},
         "root_reconciliation_comment_matches": [{
             "marker_count": 1,

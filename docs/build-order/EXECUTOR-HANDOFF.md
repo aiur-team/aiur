@@ -17,6 +17,19 @@ either commit revokes this gate; never substitute `main`, a pull ref, or a tag.
 Planning publication does not queue work. Until then, do not run Aiur,
 implement tickets, or add `agent:todo`.
 
+The immutable receipt and final verifier attest the publication-finalization
+snapshot: all 46 issues are open and unlocked, have their receipt-bound
+titles/bodies/full labels, the root has exactly nineteen BO children, every
+non-root has no children, and all 73 blockers are exact. Run that full verifier
+immediately before the first execution mutation. Once the authorized run
+begins, later lifecycle changes are legitimate runtime truth and do not rewrite
+the receipt: gate resolution may update live issues, the skill-delivery issue
+may close, and BO issues may acquire `agent:*` labels. Record and resolve both
+external gates while the skill issue is still open; only after both gates are
+proven may the Executor close the skill issue and dispatch BO work. Never close
+the skill issue or add dispatch labels first and then attempt to use the now
+historical OPEN receipt as though it were a fresh publication snapshot.
+
 ## Identity and objective
 
 - Build Order: `its-everdred/aiur:build-order-dashboard`
@@ -44,15 +57,16 @@ are separate tracks and cannot change this run's denominator or ETA.
    - `docs/build-order/validation-report.md`
    - `docs/build-order/github-publication.md`
 2. Use `/aiur-run`, not the retired `/aiur-loop` workflow. Verify the loaded
-   skill is PR #1065 commit `6bead211` or an explicitly reviewed compatible
+   skill is PR #1065 commit `afd9828c` or an explicitly reviewed compatible
    successor preserving its finite-boundary, review/rework, circuit-breaker,
    and publication rules. A matching skill name is insufficient.
 3. Write a three-to-five-sentence `/goal` stating that you are the Executor,
    the finite acceptance boundary, granted issue/merge authority, critical-path
    priority and terminal condition.
-4. Requery repository instructions, configured integration branch, the GitHub
-   root/members/blockers/full labels, active PRs, CI and Aiur status. Never use
-   the planning JSON as fresher live GitHub truth.
+4. Before any execution mutation, run the receipt-bound full live verifier and
+   requery repository instructions, configured integration branch, the GitHub
+   root/members/blockers/full labels/open+unlocked state, active PRs, CI and
+   Aiur status. Never use the planning JSON as fresher live GitHub truth.
 5. Queue only approved BO members under explicit user authority. Companion
    issues remain inactive unless separately authorized and their shared
    `GATE-OCC-PREDECESSOR-BASELINE` plus any ticket-specific provider gate is
@@ -73,6 +87,11 @@ Both gates block every Build Order implementation ticket. BO-004 and BO-008 are
 the independent initial nodes, and the human skill-delivery issue is a native
 blocker of both so GATE-002 cannot be bypassed by another branch. BO-001 follows
 BO-004 and inherits both gates transitively.
+
+Resolve and record GATE-001 and GATE-002 before changing the skill issue from
+its publication-finalization OPEN state. Close that issue only after the
+installed bounded skill is proven, and only afterward add dispatch state to
+ready BO issues under the user's execution authority.
 
 ## Authority map
 

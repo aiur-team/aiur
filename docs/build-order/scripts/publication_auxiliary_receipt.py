@@ -19,8 +19,10 @@ from publication_labels import routing_subset, validate_routing_labels
 
 
 RECEIPT_KEYS = {
-    "checked_at", "issue_mappings", "external_blocker_relations",
+    "receipt_schema_version", "checked_at", "issue_mappings",
+    "external_blocker_relations",
     "observed_labels", "observed_parent_issues",
+    "observed_issue_states",
     "observed_body_evidence", "marker_query_matches",
     "expected_issue_titles", "observed_issue_titles",
     "root_reconciliation_comment_matches",
@@ -52,6 +54,10 @@ def validate_auxiliary_receipt(
     )
     if receipt is None:
         return
+    if receipt.get("receipt_schema_version") != 2:
+        report.error(
+            "publication.github_reconciliation.receipt_schema_version must be integer 2"
+        )
     if not valid_rfc3339_utc(receipt.get("checked_at")):
         report.error(
             "publication.github_reconciliation.checked_at must be an RFC3339 UTC instant"

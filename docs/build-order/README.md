@@ -137,7 +137,8 @@ family. Materialize the twenty-five companions separately with complexity and
 Every one of the 46 titles comes from its approved document H1, and every body
 links the real immutable approval commit and carries one schema-2 logical-ID
 marker. After publication, requery node IDs, exact titles, bodies,
-membership, hard relationships, full labels, parenthood, and the uniquely
+exact `OPEN` and unlocked state, membership, hard relationships, full labels,
+parenthood, non-root subissue absence, and the uniquely
 marked pending reconciliation comment. Run both the isolated `/aiur-build`
 canonical validator and `scripts/validate_publication.py`. The canonical
 validator owns the BO membership/label/dependency receipt; the publication
@@ -146,6 +147,14 @@ parenthood, observed labels, expected-versus-observed exact titles, body
 markers/hashes, companion and external-skill
 blocker edges, approval identity, and structured pending-comment evidence. No
 newly published issue may have any `agent:*` state.
+
+The immutable materialization uses core receipt v3, companion/auxiliary receipt
+v2, and bundle v2. The final verifier derives its expected graph only from that
+validated receipt and reads GitHub twice with finite bounds. Both complete
+snapshots must be identical and exactly cover 46 open, unlocked issues, the
+nineteen root members, 73 native blockers, all logical-marker matches including
+closed and PR-shaped collisions, and the exact pending/successful comment. Run
+it before and after the one pending-to-successful comment edit.
 
 The immutable receipt also freezes
 `trusted_repository_ref=refs/heads/build-order-research`. Final verification

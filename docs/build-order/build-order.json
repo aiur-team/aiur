@@ -113,7 +113,7 @@
       "id": "GATE-002",
       "title": "Install the bounded Executor skill contract",
       "owner": "Product owner",
-      "resolution_criteria": "Before dispatch, the isolated skill revision from PR 1065 commit 6bead211250ad84a21f564070d7a7a0fbb51658e, or an explicitly reviewed compatible successor preserving its finite-boundary and publication contracts, is landed or installed and aiur-build, aiur-run, and aiur-monitor are discoverable."
+      "resolution_criteria": "Before dispatch, the isolated skill revision from PR 1065 commit afd9828c61005a84ee316e3b2c995c0122b896ff, or an explicitly reviewed compatible successor preserving its finite-boundary and publication contracts, is landed or installed and aiur-build, aiur-run, and aiur-monitor are discoverable."
     }
   ],
   "design_evidence": [

@@ -1,4 +1,4 @@
-"""Run the pinned aiur-build v2 receipt contract without vendoring it."""
+"""Run the pinned aiur-build v3 receipt contract without vendoring it."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from publication_common import SHA, Report
 from publication_rendering import exact_commit, repository_root, run_authority_git
 
 
-PINNED_SKILL_COMMIT = "6bead211250ad84a21f564070d7a7a0fbb51658e"
+PINNED_SKILL_COMMIT = "afd9828c61005a84ee316e3b2c995c0122b896ff"
 SKILL_ROOT = ".claude/skills/aiur-build/scripts"
 PINNED_MODULES = (
     "validation_common.py",
@@ -21,6 +21,7 @@ PINNED_MODULES = (
     "validation_github_approved.py",
     "validation_github_receipt.py",
     "validation_github_rendering.py",
+    "validation_github_live.py",
 )
 ADAPTER = """\
 import json
@@ -144,8 +145,8 @@ def _apply_result(result: subprocess.CompletedProcess[str], report: Report) -> N
     except (json.JSONDecodeError, KeyError, TypeError) as exc:
         report.error(f"pinned Build Order receipt validator returned invalid output: {exc}")
         return
-    report.errors.extend(f"Build Order receipt v2: {item}" for item in errors)
-    report.warnings.extend(f"Build Order receipt v2: {item}" for item in warnings)
+    report.errors.extend(f"Build Order receipt v3: {item}" for item in errors)
+    report.warnings.extend(f"Build Order receipt v3: {item}" for item in warnings)
 
 
 def _exact_commit(root: Path, report: Report) -> bool:

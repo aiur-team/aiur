@@ -18,7 +18,8 @@ from publication_labels import validate_routing_labels
 
 
 RECEIPT_KEYS = {
-    "checked_at", "dependency_edges", "observed_labels", "observed_parent_issues",
+    "receipt_schema_version", "checked_at", "dependency_edges", "observed_labels",
+    "observed_parent_issues", "observed_issue_states",
     "observed_body_evidence",
     "expected_issue_titles", "observed_issue_titles",
     "marker_query_matches",
@@ -43,6 +44,8 @@ def validate_receipt(
     if receipt is None:
         report.error("materialized companions require github_reconciliation")
         return
+    if receipt.get("receipt_schema_version") != 2:
+        report.error("github_reconciliation.receipt_schema_version must be integer 2")
     if not valid_rfc3339_utc(receipt.get("checked_at")):
         report.error("github_reconciliation.checked_at must be an RFC3339 UTC instant")
     expected = _expected_edges(dash)

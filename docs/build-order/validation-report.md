@@ -25,17 +25,17 @@ pending.
 - Prototype constraints SHA-256:
   `49e068d4999d62197dbd1d5c0438db21a25cd1b5873fb959a58a7e0388c7829a`
 - Canonical Build Order JSON SHA-256:
-  `905e75b5d420ef66a664425d6447946534987edac60373bba918eac12f0d24d0`
+  `c7b00fb8c6321af9528a3261643c38ab5e1a95b4aa11fb805a88d5fff4cb8bdf`
 - Companion baseline JSON SHA-256:
-  `dc641ee49a5a00dd49312123e864d627bfce2d2377a90d1900990693e9fb7ac9`
+  `c630d907a7f6b0996fd712b772d11a0b3afa7eef9f3ffcc1acc2669a7425aea8`
 - Publication manifest SHA-256:
   `0e0b836d69bb6aec9b432cb3ba3d2e61a2a305eccf86fcca5dfccdf6f6819b9f`
 - Requirements SHA-256:
-  `a9b2156a55f1ee5540ce879414c8a004f1db4b43d5fb0aac07c3c8b5d2461ace`
+  `358520a645233393259e0d680a7ce3660317a9d33b26d5b09622ce7cc001f597`
 - Implementation plan SHA-256:
-  `53313576913e30f52e10a9cafd1e46fc037dc1353163d1f41d426c5043bdc295`
+  `9794d00fb611a26a4c791e45b3b14f97b55c680239f80040aad2d021c3ba3e62`
 - Latest validator/skill authority: isolated draft PR #1065 at
-  `6bead211250ad84a21f564070d7a7a0fbb51658e`
+  `afd9828c61005a84ee316e3b2c995c0122b896ff`
 - Approval commit: pending two clean passes
 
 The design hashes match [the manifest](design-manifest.md). The prototype was
@@ -81,7 +81,7 @@ updates and a final ticket-boundary correction:
 |---|---|
 | Canonical validator | 0 errors, 0 warnings |
 | Companion/publication validator | 0 errors, 0 warnings |
-| Publication regression suite | 80 tests pass |
+| Publication regression suite | 97 tests pass |
 | Build Order tickets | 19, 71 complexity points |
 | Standalone companions | 25, 87 complexity points |
 | Planned GitHub materialization | 46 new issues: one root, 44 executable issues, one human issue |
@@ -395,7 +395,49 @@ fail-closed gaps without changing any issue boundary:
    member issues because it rejected only dynamic routing-family drift. The
    successor pinned skill contract rejects that label on every BO member and
    carries an adversarial regression while preserving `build-order` on the root.
-   The planning pack and gates now pin successor `6bead211`.
+   The planning pack and gates now pin successor `afd9828c`.
+
+### Corrective pass 12 — mixed-provider API-equivalent totals
+
+This pass was not clean. Final dashboard review found that the accounting
+contracts preserved provider and account-generation buckets but exposed no
+API-equivalent run/build total across a mixed Codex/Claude workload, leaving the
+headline build cost incomplete. DASH-011 now owns one exact same-currency
+`api_equivalent_estimate` roll-up across provider/generation contributors while
+preserving those contributors, coverage, pricing partitions, and exact tier
+join boundaries. DASH-015 renders and explains that total without mixing
+provider-reported bases, currencies, or synthesizing a cross-provider tier;
+DASH-023 consumes the same selected-member contract. Requirements, decisions,
+usage accounting, prototype audit, companion manifests, and implementation
+plan now name and test this API-equivalent behavior consistently.
+
+### Corrective pass 13 — live publication graph and state authority
+
+This pass was not clean. Independent publication review confirmed two blockers
+and exposed adjacent race/transport gaps:
+
+1. A receipt could prove mappings and content without proving that every
+   materialized issue was still open. Core receipt schema v3 and companion/
+   auxiliary schema v2 now carry exact, logical-ID-keyed
+   `observed_issue_states` partitions whose union is all 46 issues and whose
+   only accepted value is `OPEN`; the bundle is v2.
+2. Finalization previously verified only the reconciliation comment. The
+   committed production verifier now derives the expected graph from the
+   validated immutable receipt, queries GitHub itself twice, rejects any drift,
+   and exactly rechecks mappings, titles, body hashes, full labels, open and
+   unlocked state, all-state marker matches, nineteen root members, parent and
+   non-root subissue state, 73 blockers, and the exact comment.
+3. PR-shaped marker collisions and closed matches can no longer disappear from
+   the mixed all-state issue scan. Malformed entries fail rather than being
+   filtered, mapped PRs fail, reads pin `github.com` and API `2026-03-10`, and
+   page/item/time bounds prevent an unbounded verification.
+4. Receipt/branch authority is checked again after both live snapshots. The
+   finalizer runs the full pending check before its only mutation and the full
+   successful check after it, closing force-push and mid-query drift races.
+5. The handoff now distinguishes the immutable publication-finalization OPEN
+   snapshot from legitimate later execution state. The Executor must reverify
+   before its first mutation, resolve both gates while skill delivery remains
+   open, and only then close that issue and add dispatch labels.
 
 ### Clean pass 1
 
@@ -407,9 +449,9 @@ Pending a second review of the unchanged candidate after clean pass 1.
 
 ## Skill verification
 
-At isolated skill commit `6bead211250ad84a21f564070d7a7a0fbb51658e`:
+At isolated skill commit `afd9828c61005a84ee316e3b2c995c0122b896ff`:
 
-- 85 Python `aiur-build` validator tests pass;
+- 104 Python `aiur-build` validator tests pass;
 - 28 repository skill/discovery tests pass;
 - the canonical example validates with zero errors and warnings; and
 - `aiur-build`, `aiur-run`, and `aiur-monitor` pass structure validation.
@@ -426,7 +468,8 @@ or #1067. It then records returned identities, full observed labels, exact
 native parenthood and blockers, every re-read issue-body marker/link/hash
 against independently rendered approved sources, exact logical-marker query
 matches, one canonical pending root-comment match, and both validator results
-before the same comment is finalized and read-only verified as the last GitHub
-mutation.
+before the same comment is finalized. A full two-snapshot verification runs
+immediately before and after that pending-to-successful edit; the edit is the
+only finalization mutation.
 
 No issue may receive any `agent:*` label during this planning run.

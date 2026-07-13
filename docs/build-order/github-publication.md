@@ -9,7 +9,10 @@ label, implement a ticket, or merge either planning branch.
 
 1. Requery open and closed issues for hidden logical-ID markers and overlapping
    work (#132, #845, #1033, #1034 and #1067). This is read-only; do not mutate
-   the existing issues.
+   the existing issues. Parse marker bodies on pull-request-shaped list entries
+   too: a PR collision must not disappear when the mixed issues endpoint is
+   filtered. Any open, closed, or PR-shaped marker collision stops publication.
+   Never reopen a closed match or create a replacement identity.
 2. Create or reconcile one non-dispatchable root for
    `its-everdred/aiur:build-order-dashboard` from `root-issue.md`.
 3. Create/reconcile BO-001 through BO-019 from the approved ticket documents.
@@ -32,6 +35,11 @@ label, implement a ticket, or merge either planning branch.
     parentless while all BO tickets have the intended direct root. Populate all
     three structured receipts with RFC3339 UTC check times and run the
     canonical plus publication validators.
+
+The materialized receipt schemas are core v3, companion v2, auxiliary v2, and
+bundle v2. Each owning receipt includes a freshly queried
+`observed_issue_states` map keyed by logical ID. The three maps are disjoint,
+cover exactly all 46 identities, and contain only the exact value `OPEN`.
 
 All 46 created bodies link to the immutable approved planning commit and carry
 one canonical `aiur-planning-issue` marker with schema 2, logical ID, plan
@@ -66,10 +74,20 @@ record its URL, parsed pending marker, and canonical body SHA-256. After all
 relationships requery successfully, commit and push that receipt, then edit the
 same comment URL to the canonical `successful` body with the exact immutable
 receipt commit and link. Run the read-only `scripts/publication_comment.py`
-verifier; the final comment edit is the last publication mutation. The verifier
-does not trust a caller-authored query file: it derives the exact pending
-comment URL from the immutable receipt and fetches that comment ID directly
-from GitHub. It treats its CLI identity arguments as
+verifier once against the pending comment immediately before the edit and
+again against the successful comment immediately afterward; the comment edit
+is the only finalization mutation. The verifier does not trust a caller-authored
+query file or observation object. It derives the complete expected graph and
+exact pending-comment URL from the immutable receipt, queries GitHub itself,
+and performs two complete bounded reads. The two snapshots must be identical
+and must exactly match all 46 mappings, titles, independently rendered body
+hashes, full label sets, `OPEN` states, unlocked state, all-state marker result
+sets, native parents, subissues, 73 `blockedBy` edges, and the one exact comment.
+The root has exactly nineteen BO children and no parent; each BO has that root
+as parent; DASH and skill issues are parentless; every non-root has no
+subissues. Closed and PR-shaped marker matches remain visible to the collision
+check. Reads pin `github.com`, API version `2026-03-10`, finite page/item bounds,
+and a per-call timeout. It treats its CLI identity arguments as
 assertions, not authority: it derives repository, root identity and URL, plan
 version, and approval from the exact receipt commit, requires all three
 materialized reconciliation receipts, and runs the trusted current validator
@@ -91,9 +109,21 @@ route to the eventual receipt. A conflicting marker, parent, receipt comment,
 or existing identity stops publication for reconciliation; never use a
 replacement-parent mutation as a shortcut.
 
+Receipt/branch authority is checked before and after the two live snapshots.
+Deletion, force-push, or authority drift during the query therefore fails
+closed rather than racing the final comment edit.
+
 Verify the receipt-bound live comment directly:
 
 ```bash
+# Immediately before the only finalization mutation:
+python3 docs/build-order/scripts/publication_comment.py --state pending \
+  its-everdred/aiur:build-order-dashboard 1 \
+  <APPROVED_SHA> <RECEIPT_SHA> <RECEIPT_URL> \
+  https://github.com/its-everdred/aiur/issues/<ROOT_NUMBER> \
+  its-everdred/aiur
+
+# Immediately after the pending-to-successful edit:
 python3 docs/build-order/scripts/publication_comment.py \
   its-everdred/aiur:build-order-dashboard 1 \
   <APPROVED_SHA> <RECEIPT_SHA> <RECEIPT_URL> \
@@ -140,7 +170,7 @@ Skill delivery:
 
 Create missing `build-order`, four `build-lane:*`, and required phase labels
 with Build Order-neutral descriptions. Reuse current complexity/model labels.
-The version-2 core receipt records both the deterministic projected labels and
+The version-3 core receipt records both the deterministic projected labels and
 the full observed label set so the validator can prove required routing labels
 and wildcard routing-family exclusions, not merely a self-authored manifest.
 
@@ -149,6 +179,12 @@ including terminal, error, watch, and paused variants. Planning publication
 does not inherit workflow state from a template. Treat `human:*` as an exact
 routing family too: only the skill issue may carry `human:todo`, and no issue
 may acquire any other `human:*` label.
+
+These are exact planning/routing-family projections, not a repository-wide
+denylist for unrelated metadata labels. A pre-existing non-routing label may
+remain; publication neither invents nor removes it. The receipt records the
+entire observed label set, and “exact full labels” at finalization means the two
+live snapshots must equal that frozen full set with no later addition/removal.
 
 ## Relationship contract
 
@@ -182,6 +218,8 @@ may acquire any other `human:*` label.
 - Root reconciliation comment unique query match/final state: pending
 - Approval/receipt trusted-branch reachability: pending
 - 46 independently rendered body markers/links/hashes and exact title pairs: pending
+- Exact `OPEN` state and unlocked-state requery for all 46 issues: pending
+- Two identical full live-graph snapshots (19 members, 73 blockers): pending
 - Canonical validator: pending
 - Companion/publication validator: pending
 

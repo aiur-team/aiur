@@ -8,7 +8,7 @@ isolated skill-only draft PR #1065 so `/aiur-build`, the consolidated bounded
 publication validation are not lost with the research branch.
 
 The reviewed planning authority is commit
-`6bead211250ad84a21f564070d7a7a0fbb51658e`. A later compatible successor is
+`afd9828c61005a84ee316e3b2c995c0122b896ff`. A later compatible successor is
 acceptable only after explicit review confirms it preserves the finite feature
 boundary, rework-before-ticket-multiplication rule, backlog-growth circuit
 breaker, privacy policy, and publication validator behavior.

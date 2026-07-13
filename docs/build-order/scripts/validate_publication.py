@@ -24,6 +24,7 @@ from publication_receipt import validate_receipt
 from publication_rendering import render_approved_pack
 from publication_rendering import render_approved_titles
 from publication_title_evidence import validate_all_title_evidence
+from publication_state_evidence import validate_all_issue_state_evidence
 from publication_records import (
     build_tickets,
     dash_tickets,
@@ -100,6 +101,9 @@ def validate(
     )
     validate_all_title_evidence(
         build_order, data, publication, expected_titles, materialized, report,
+    )
+    validate_all_issue_state_evidence(
+        build_order, data, publication, materialized, report,
     )
     return report
 

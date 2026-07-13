@@ -1,3 +1,5 @@
+"""Pinned reusable core receipt v3 contract tests."""
+
 from __future__ import annotations
 
 import sys
@@ -15,7 +17,7 @@ from publication_materialized_fixture import materialized_pack  # noqa: E402
 from validate_publication import validate  # noqa: E402
 
 
-class CoreReceiptV2Tests(unittest.TestCase):
+class CoreReceiptV3Tests(unittest.TestCase):
     def report(self, mutate=None):
         data, build, manifest = materialized_pack()
         if mutate is not None:
@@ -26,16 +28,36 @@ class CoreReceiptV2Tests(unittest.TestCase):
             fixture.companion_path, fixture.build_path, fixture.publication_path
         )
 
-    def test_pinned_v2_contract_accepts_complete_receipt(self) -> None:
+    def test_pinned_v3_contract_accepts_complete_receipt(self) -> None:
         self.assertEqual([], self.report().errors)
 
-    def test_rejects_v1_core_receipt(self) -> None:
+    def test_rejects_pre_v3_core_receipt(self) -> None:
         def mutate(_data, build, _manifest):
-            build["github_reconciliation"]["receipt_schema_version"] = 1
+            build["github_reconciliation"]["receipt_schema_version"] = 2
 
         joined = "\n".join(self.report(mutate).errors)
-        self.assertIn("Build Order receipt v2", joined)
-        self.assertIn("receipt_schema_version must be integer 2", joined)
+        self.assertIn("Build Order receipt v3", joined)
+        self.assertIn("receipt_schema_version must be integer 3", joined)
+
+    def test_core_receipt_requires_exact_open_state_partition(self) -> None:
+        def mutate(_data, build, _manifest):
+            build["github_reconciliation"]["observed_issue_states"]["BO-001"] = (
+                "CLOSED"
+            )
+
+        joined = "\n".join(self.report(mutate).errors)
+        self.assertIn("observed_issue_states.BO-001 must equal OPEN", joined)
+
+    def test_core_root_label_maps_use_logical_id(self) -> None:
+        def mutate(_data, build, _manifest):
+            root_id = build["build_order_id"]
+            for field in ("projected_labels", "observed_labels"):
+                build["github_reconciliation"][field]["github_root"] = (
+                    build["github_reconciliation"][field].pop(root_id)
+                )
+
+        joined = "\n".join(self.report(mutate).errors)
+        self.assertIn("keys must match root and tickets", joined)
 
     def test_core_receipt_requires_body_evidence(self) -> None:
         def mutate(_data, build, _manifest):

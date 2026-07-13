@@ -6,7 +6,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Callable
@@ -16,6 +15,7 @@ from publication_rendering import (
     BODY_SHA,
     approved_link,
 )
+from publication_live_graph import verify_live_graph
 
 
 COMMENT_MARKER = "aiur-build-order-reconciliation"
@@ -28,7 +28,6 @@ COMMENT_EVIDENCE_KEYS = {
     "plan_version", "approved_planning_commit", "state", "receipt_commit",
     "receipt_url", "url", "body_sha256",
 }
-LIVE_COMMENT_KEYS = {"url", "body"}
 MARKER = re.compile(
     r"<!-- aiur-build-order-reconciliation[ \t]*\n(?P<payload>[^\n]*)\n-->",
     re.ASCII,
@@ -113,7 +112,7 @@ def validate_final_comment_matches(
     receipt_url: str, root_issue_url: str,
     repository: str, report: Report, repository_anchor: Path | None = None,
     remote_ref_contains: Callable[[str, str, tuple[str, ...]], bool] | None = None,
-    live_comment_query: Callable[[str, str], object] | None = None,
+    expected_state: str = "successful",
 ) -> None:
     """Verify the receipt-bound live comment without mutating GitHub."""
     label = "final reconciliation comment query"
@@ -138,17 +137,6 @@ def validate_final_comment_matches(
     )
     if authority is None:
         return
-    try:
-        value = (live_comment_query or _github_live_comment)(
-            authority.repository, authority.root_comment_url
-        )
-    except Exception:
-        value = None
-    if not isinstance(value, list):
-        report.error(f"{label} must be a live GitHub result array")
-        return
-    if len(value) != 1:
-        report.error(f"{label} must contain exactly one comment match")
     authority_values = (
         ("root_id", root_id, authority.root_id),
         ("plan_version", plan_version, authority.plan_version),
@@ -163,32 +151,39 @@ def validate_final_comment_matches(
     expected_receipt_url = approved_link(authority.repository, receipt_commit)
     if receipt_url != expected_receipt_url:
         report.error(f"receipt_url must equal {expected_receipt_url}")
-    expected_body = render_successful_comment(
-        authority.root_id, authority.plan_version, authority.approved_commit,
-        authority.repository, receipt_commit, expected_receipt_url,
+    if expected_state == "pending":
+        expected_body = render_pending_comment(
+            authority.root_id, authority.plan_version,
+            authority.approved_commit, authority.repository,
+        )
+    elif expected_state == "successful":
+        expected_body = render_successful_comment(
+            authority.root_id, authority.plan_version, authority.approved_commit,
+            authority.repository, receipt_commit, expected_receipt_url,
+        )
+    else:
+        report.error("expected reconciliation comment state must be pending or successful")
+        return
+    inspect_comment(
+        expected_body, authority.root_comment_url, authority.root_id,
+        authority.plan_version, authority.approved_commit, expected_state,
+        receipt_commit if expected_state == "successful" else None,
+        expected_receipt_url if expected_state == "successful" else None,
+        authority.repository, label, report,
     )
-    for index, raw in enumerate(value):
-        item = strict_object(raw, f"{label}[{index}]", LIVE_COMMENT_KEYS, report)
-        if item is None:
-            continue
-        url, body = item.get("url"), item.get("body")
-        if (
-            not isinstance(url, str)
-            or url != authority.root_comment_url
-        ):
-            report.error(
-                "final reconciliation comment URL must equal the exact pending "
-                "comment URL recorded in the immutable receipt"
-            )
-        if body != expected_body:
-            report.error(
-                "final reconciliation comment body must equal the canonical successful receipt"
-            )
-        inspect_comment(
-            body, url, authority.root_id, authority.plan_version,
-            authority.approved_commit, "successful", receipt_commit,
-            expected_receipt_url, authority.repository,
-            f"{label}[{index}]", report,
+    verify_live_graph(authority, receipt_commit, expected_body, report)
+    final_authority = load_receipt_authority(
+        receipt_commit, repository_anchor or Path(__file__), report,
+        remote_ref_contains,
+    )
+    if final_authority is None:
+        return
+    if (
+        final_authority != authority
+        or final_authority.receipt_manifests != authority.receipt_manifests
+    ):
+        report.error(
+            "receipt authority changed across live GitHub publication verification"
         )
 
 
@@ -274,60 +269,29 @@ def _comment_url(root_url: str) -> re.Pattern[str]:
     return re.compile(re.escape(root_url) + r"#issuecomment-[1-9][0-9]*$")
 
 
-def _github_live_comment(repository: str, expected_url: str) -> object | None:
-    match = re.fullmatch(
-        rf"https://github\.com/{re.escape(repository)}/issues/[1-9][0-9]*"
-        r"#issuecomment-([1-9][0-9]*)",
-        expected_url,
-    )
-    if match is None:
-        return None
-    try:
-        result = subprocess.run(
-            [
-                "gh", "api",
-                "-H", "Accept: application/vnd.github+json",
-                "-H", "X-GitHub-Api-Version: 2026-03-10",
-                f"repos/{repository}/issues/comments/{match.group(1)}",
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-    except OSError:
-        return None
-    if result.returncode:
-        return None
-    try:
-        payload = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return None
-    if (
-        not isinstance(payload, dict)
-        or payload.get("html_url") != expected_url
-        or not isinstance(payload.get("body"), str)
-    ):
-        return None
-    return [{"url": payload["html_url"], "body": payload["body"]}]
-
-
 def main(argv: list[str]) -> int:
-    if len(argv) != 8:
+    args = list(argv[1:])
+    expected_state = "successful"
+    if len(args) >= 2 and args[0] == "--state":
+        expected_state = args[1]
+        args = args[2:]
+    if len(args) != 7:
         print(
-            "usage: publication_comment.py ROOT_ID PLAN_VERSION "
+            "usage: publication_comment.py [--state pending|successful] "
+            "ROOT_ID PLAN_VERSION "
             "APPROVED_SHA RECEIPT_SHA RECEIPT_URL ROOT_ISSUE_URL REPOSITORY",
             file=sys.stderr,
         )
         return 64
     try:
-        plan_version = int(argv[2])
+        plan_version = int(args[1])
     except ValueError as exc:
         print(f"ERROR: invalid plan version: {exc}")
         return 1
     report = Report()
     validate_final_comment_matches(
-        argv[1], plan_version, argv[3], argv[4], argv[5], argv[6], argv[7],
-        report,
+        args[0], plan_version, args[2], args[3], args[4], args[5], args[6],
+        report, expected_state=expected_state,
     )
     for message in sorted(report.errors):
         print(f"ERROR: {message}")

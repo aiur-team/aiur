@@ -6,7 +6,7 @@ import json
 import re
 import subprocess
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
@@ -34,6 +34,9 @@ class ReceiptAuthority:
     root_issue_url: str
     root_comment_url: str
     trusted_repository_ref: str
+    receipt_manifests: dict[str, dict[str, Any]] = field(
+        repr=False, compare=False,
+    )
 
 
 def load_receipt_authority(
@@ -396,6 +399,7 @@ def _derive_authority(
         root_issue_url=root_url,
         root_comment_url=root_comment_url,
         trusted_repository_ref=trusted_ref,
+        receipt_manifests=manifests,
     )
 
 

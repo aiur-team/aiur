@@ -15,7 +15,6 @@ sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from publication_comment import (  # noqa: E402
-    _github_live_comment,
     render_pending_comment,
     render_successful_comment,
     validate_final_comment_matches,
@@ -313,35 +312,6 @@ class TrustedRepositoryRefTests(unittest.TestCase):
                 ))
 
 
-class LiveCommentQueryTests(unittest.TestCase):
-    @patch("publication_comment.subprocess.run")
-    def test_fetches_exact_receipt_comment_id(self, run) -> None:
-        url = "https://github.com/example/repo/issues/901#issuecomment-987"
-        run.return_value = subprocess.CompletedProcess(
-            [], 0, json.dumps({"html_url": url, "body": "receipt"}), "",
-        )
-        self.assertEqual(
-            [{"url": url, "body": "receipt"}],
-            _github_live_comment(REPOSITORY, url),
-        )
-        self.assertEqual(
-            "repos/example/repo/issues/comments/987", run.call_args.args[0][-1]
-        )
-
-    @patch("publication_comment.subprocess.run")
-    def test_rejects_mismatched_response_url(self, run) -> None:
-        url = "https://github.com/example/repo/issues/901#issuecomment-987"
-        run.return_value = subprocess.CompletedProcess(
-            [], 0,
-            json.dumps({
-                "html_url": "https://github.com/example/repo/issues/901#issuecomment-999",
-                "body": "receipt",
-            }),
-            "",
-        )
-        self.assertIsNone(_github_live_comment(REPOSITORY, url))
-
-
 class FinalCommentTests(unittest.TestCase):
     @staticmethod
     def remote_ref_contains(
@@ -392,47 +362,66 @@ class FinalCommentTests(unittest.TestCase):
     def report(
         self, matches, receipt=None, receipt_url=None, root_id=None,
         plan_version=None, approved=None, root_url=None, repository=None,
-        repository_anchor=None, remote_ref_contains=None, live_comment_query=None,
+        repository_anchor=None, remote_ref_contains=None,
     ):
         baseline_receipt, baseline_url, _, _, _ = self.values()
         report = Report()
-        query = live_comment_query or (
-            lambda _repository, _comment_url: matches
-        )
-        validate_final_comment_matches(
-            self.root_id if root_id is None else root_id,
-            self.plan_version if plan_version is None else plan_version,
-            self.approved if approved is None else approved,
-            baseline_receipt if receipt is None else receipt,
-            baseline_url if receipt_url is None else receipt_url,
-            self.root_url if root_url is None else root_url,
-            self.repository if repository is None else repository,
-            report,
-            repository_anchor=repository_anchor or self.fixture.build_path,
-            remote_ref_contains=(
-                remote_ref_contains or self.remote_ref_contains
-            ),
-            live_comment_query=query,
-        )
+        def verify(authority, _receipt, expected_body, live_report):
+            if not isinstance(matches, list) or len(matches) != 1:
+                live_report.error(
+                    "live GitHub reconciliation comment must contain exactly one "
+                    "comment match"
+                )
+                return False
+            item = matches[0]
+            if not isinstance(item, dict):
+                live_report.error("live GitHub reconciliation comment is malformed")
+                return False
+            if item.get("url") != authority.root_comment_url:
+                live_report.error(
+                    "live GitHub comment must equal the exact pending comment URL "
+                    "recorded in the immutable receipt"
+                )
+            body = item.get("body")
+            if body != expected_body:
+                if isinstance(body, str) and body.count(
+                    "<!-- aiur-build-order-reconciliation"
+                ) != 1:
+                    live_report.error(
+                        "live GitHub comment must contain exactly one "
+                        "aiur-build-order-reconciliation marker"
+                    )
+                else:
+                    live_report.error(
+                        "live GitHub comment must equal the canonical successful receipt"
+                    )
+            return not live_report.errors
+
+        with patch("publication_comment.verify_live_graph", side_effect=verify):
+            validate_final_comment_matches(
+                self.root_id if root_id is None else root_id,
+                self.plan_version if plan_version is None else plan_version,
+                self.approved if approved is None else approved,
+                baseline_receipt if receipt is None else receipt,
+                baseline_url if receipt_url is None else receipt_url,
+                self.root_url if root_url is None else root_url,
+                self.repository if repository is None else repository,
+                report,
+                repository_anchor=repository_anchor or self.fixture.build_path,
+                remote_ref_contains=(
+                    remote_ref_contains or self.remote_ref_contains
+                ),
+            )
         return report
 
     def test_exact_successful_comment_is_clean(self) -> None:
         _, _, _, url, body = self.values()
         self.assertEqual([], self.report([{"url": url, "body": body}]).errors)
 
-    def test_production_query_uses_exact_receipt_comment_url(self) -> None:
+    def test_production_verifier_uses_exact_receipt_comment_url(self) -> None:
         _, _, _, url, body = self.values()
-        calls: list[tuple[str, str]] = []
-
-        def live_comment_query(repository: str, comment_url: str) -> object:
-            calls.append((repository, comment_url))
-            return [{"url": comment_url, "body": body}]
-
-        report = self.report(
-            None, live_comment_query=live_comment_query,
-        )
+        report = self.report([{"url": url, "body": body}])
         self.assertEqual([], report.errors)
-        self.assertEqual([(self.repository, url)], calls)
 
     def test_other_comment_on_same_root_cannot_replace_pending_comment(self) -> None:
         _, _, _, url, body = self.values()
@@ -564,15 +553,13 @@ class FinalCommentTests(unittest.TestCase):
             repository, receipt, receipt_url,
         )
         report = Report()
-        validate_final_comment_matches(
-            materialized_build["build_order_id"], data["plan_version"], missing,
-            receipt, receipt_url, root_url, repository, report,
-            repository_anchor=fixture.build_path,
-            remote_ref_contains=self.remote_ref_contains,
-            live_comment_query=lambda _repository, _url: [
-                {"url": root_url + "#issuecomment-123", "body": body}
-            ],
-        )
+        with patch("publication_comment.verify_live_graph", return_value=True):
+            validate_final_comment_matches(
+                materialized_build["build_order_id"], data["plan_version"], missing,
+                receipt, receipt_url, root_url, repository, report,
+                repository_anchor=fixture.build_path,
+                remote_ref_contains=self.remote_ref_contains,
+            )
         self.assertTrue(any(
             "approved_planning_commit must resolve to an exact commit" in error
             for error in report.errors
@@ -612,15 +599,13 @@ class FinalCommentTests(unittest.TestCase):
             root_id, plan_version, approved, repository, receipt, receipt_url
         )
         report = Report()
-        validate_final_comment_matches(
-            root_id, plan_version, approved, receipt, receipt_url,
-            root_url, repository, report,
-            repository_anchor=fixture.build_path,
-            remote_ref_contains=self.remote_ref_contains,
-            live_comment_query=lambda _repository, _url: [
-                {"url": root_url + "#issuecomment-123", "body": body}
-            ],
-        )
+        with patch("publication_comment.verify_live_graph", return_value=True):
+            validate_final_comment_matches(
+                root_id, plan_version, approved, receipt, receipt_url,
+                root_url, repository, report,
+                repository_anchor=fixture.build_path,
+                remote_ref_contains=self.remote_ref_contains,
+            )
         self.assertIn(
             "validated receipt repository must equal configured GitHub origin "
             "its-everdred/aiur",
@@ -651,6 +636,29 @@ class FinalCommentTests(unittest.TestCase):
             ],
             checked,
         )
+        self.assertIn(
+            "receipt_commit and approved_planning_commit must remain ancestors "
+            "of configured GitHub repository branch "
+            f"{self.repository}:refs/heads/build-order-research",
+            report.errors,
+        )
+
+    def test_trusted_branch_change_during_live_verification_fails(self) -> None:
+        _, _, _, comment_url, body = self.values()
+        outcomes = iter((True, False))
+        checks: list[tuple[str, str, tuple[str, ...]]] = []
+
+        def remote_ref_contains(
+            repository: str, trusted_ref: str, commits: tuple[str, ...],
+        ) -> bool:
+            checks.append((repository, trusted_ref, commits))
+            return next(outcomes)
+
+        report = self.report(
+            [{"url": comment_url, "body": body}],
+            remote_ref_contains=remote_ref_contains,
+        )
+        self.assertEqual(2, len(checks))
         self.assertIn(
             "receipt_commit and approved_planning_commit must remain ancestors "
             "of configured GitHub repository branch "
@@ -692,15 +700,13 @@ class FinalCommentTests(unittest.TestCase):
             unmaterialized, receipt_url,
         )
         report = Report()
-        validate_final_comment_matches(
-            root_id, plan_version, unmaterialized, unmaterialized,
-            receipt_url, root_url, repository, report,
-            repository_anchor=fixture.build_path,
-            remote_ref_contains=self.remote_ref_contains,
-            live_comment_query=lambda _repository, _url: [
-                {"url": root_url + "#issuecomment-123", "body": body}
-            ],
-        )
+        with patch("publication_comment.verify_live_graph", return_value=True):
+            validate_final_comment_matches(
+                root_id, plan_version, unmaterialized, unmaterialized,
+                receipt_url, root_url, repository, report,
+                repository_anchor=fixture.build_path,
+                remote_ref_contains=self.remote_ref_contains,
+            )
         self.assertIn(
             "receipt commit build-order.json github_reconciliation must be materialized",
             report.errors,
