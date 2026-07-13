@@ -1,0 +1,6 @@
+interface:
+  display_name: "Aiur Monitor"
+  short_description: "Inspect and supervise a live Aiur run"
+  default_prompt: "Use $aiur-monitor to inspect this Aiur run and surface the next actionable state."
+policy:
+  allow_implicit_invocation: true
