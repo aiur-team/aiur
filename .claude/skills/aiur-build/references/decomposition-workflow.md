@@ -270,6 +270,10 @@ This stage requires explicit permission.
   `OPEN` at publication.
 - Reject any returned mapping that reuses an existing issue recorded as
   reference-only or otherwise outside the user's mutation authority.
+- Freeze that authority in `publication.json`: the trusted branch, canonical
+  root path, allowed mutation repositories, reference-only issue URLs, and
+  actual tracker lifecycle-label prefix must be identical at approval and
+  receipt.
 - If publication exposes a live reconciliation/start-gate comment, derive its
   repository, root, plan version, approval, and root URL from the exact receipt
   commit. Require that commit to contain the complete materialized pack and
@@ -288,9 +292,13 @@ This stage requires explicit permission.
   with authenticated `gh`; require two identical bounded live snapshots of all
   mappings, titles, bodies, labels, states, markers, members, and blockers.
   Pin every API GET to `github.com`, API version `2026-03-10`, and a finite
-  timeout; request no more than 100 explicit pages or 10,000 items per endpoint.
+  timeout; request no more than 100 explicit pages or 10,000 items per endpoint,
+  and share the global request/item budget across both snapshots.
+- Bound receipt extraction by file count, per-file bytes, aggregate bytes, and
+  Git operation time; apply the common repository-path sanitizer throughout.
 - Apply projected and required routing labels, record full observed labels in
-  the receipt, and prove every forbidden dispatch/active-state label and every
+  the receipt, and case-insensitively prove every forbidden dispatch/active-state
+  label under the manifest-declared tracker prefix and every
   unprojected `human:*` routing label is absent. Keep the `build-order` label on
   the root only. Record expected and observed issue-title maps, and compare both
   with titles rendered from approved document H1s.
