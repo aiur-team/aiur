@@ -1,5 +1,9 @@
 # Build Order Planning Validation
 
+> **STALE (2026-07-13):** this report validates the retired 25-ticket
+> companion pack; the full validation suite must be re-run against the
+> propagated 34-ticket manifests before this report is cited as current.
+
 > Addendum 2026-07-13: after re-vendoring the skill at `f92aa045`,
 > `validate_build_order.py docs/build-order/build-order.json` reports
 > 0 errors and 0 warnings, and the vendored validator suite passes 115/115.

@@ -292,9 +292,11 @@ The current-run summary is a separate projection. It defines:
   confidence/freshness and unknown/insufficient-evidence states.
 
 LiveView reads bounded cached snapshots and subscribes to PubSub. It does not
-poll providers or scan the ledger per browser. DASH-015 is the sole composition
-owner that joins generation-qualified usage groups to provider tiers, and only
-on an exact known provider/backend/generation match. Reconnect/render
+poll providers or scan the ledger per browser. DASH-030 owns the bounded
+grouped run/ticket usage query; DASH-031 is the sole composition owner that
+joins those generation-qualified usage groups to provider tiers, and only on
+an exact known provider/backend/generation match, while DASH-015 owns only the
+provider-meter cards. Reconnect/render
 immediately reads current GitHub/Aiur snapshots, then continues with pushed
 updates. DASH-023 is the sole owner of turning the selected root's current
 membership generation into an accounting scope; the generic query projection
@@ -305,20 +307,23 @@ does not discover Build Orders or retain membership.
 | Ticket | Owns | Does not own |
 |---|---|---|
 | DASH-018 | Shared privacy-safe provider-account-generation lifecycle and identity | usage normalization, meters, pricing, UI |
-| DASH-008 | Raw envelope, versioned provider/source token relationships, headless transport classification and exact attribution inputs | account-generation ownership, cross-message delta derivation, durability, pricing, UI |
+| DASH-008 | Raw envelope schema, versioned provider/source token-relationship registry and exact attribution inputs | account-generation ownership, headless source adapters (DASH-029), cross-message delta derivation, durability, pricing, UI |
+| DASH-029 | Version-pinned Codex/Claude headless source adapters emitting DASH-008 envelopes during normal runs | envelope/registry definition, Remote Control mapping (DASH-010), durability, meters, UI |
 | DASH-009 | File-first append/checkpoint ledger, absolute-counter delta derivation, deterministic replay, and unchanged relationship-revision evidence | aggregate query serving, retention/compaction, provider adapters, pricing, UI |
 | DASH-024 | Crash-safe aggregate/query projection with relationship-revision-partitioned bounded exact run/ticket grouping snapshots | ledger authority, retention policy, pricing, membership discovery, UI |
 | DASH-025 | Rotation, retention and dimension/relationship-revision-preserving compaction lifecycle | ingestion, pricing, membership discovery, UI |
 | DASH-019 | Authenticated bounded local telemetry transport, replay controls and trusted session correlation | usage-envelope mapping, provider meters, UI |
 | DASH-010 | Claude REPL/Remote Control event-to-envelope adapter with additive request dimensions | local transport/correlation, Claude account quotas, summary UI |
-| DASH-011 | Relationship-aware occurrence-time API-equivalent pricing and generation/currency-qualified grouped usage query | provider account meters, ingestion, tier joining, UI |
+| DASH-011 | Relationship-aware occurrence-time exact API-equivalent pricing and token/provider-total reconciliation | grouped usage query (DASH-030), provider account meters, ingestion, tier joining, UI |
+| DASH-030 | Bounded exact run/explicit-ticket grouped usage scopes with contributor reconciliation and generation-qualified tier keys | price policy, ingestion, membership discovery, meter joins, UI |
 | DASH-012 | Provider-meter snapshot/patch/LKG contract consuming the shared account generation | either provider adapter, ticket usage ledger |
 | DASH-020 | Structured Codex meter adapter and scheduling compatibility | Claude adapter, meter foundation, ticket usage ledger |
 | DASH-013 | Claude subscription and API-key meter parity | Remote Control request accounting |
 | DASH-014 | Canonical current-run count/progress/elapsed/ETA | usage pricing or provider quotas |
 | DASH-021 | Enforced server-side financial query/subscription/data boundary | financial projection or UI composition |
 | DASH-022 | Accessible nonfinancial run-summary presentation | usage/provider cards or financial access policy |
-| DASH-015 | Authenticated responsive usage/provider cards, exact-generation tier composition, meters and drill-down | run-summary presentation, provider I/O or ledger scanning |
+| DASH-015 | Authenticated responsive provider-meter cards | usage/cost summary and tier composition (DASH-031), run-summary presentation, provider I/O or ledger scanning |
+| DASH-031 | Authenticated usage/cost summary, bounded drill-down and exact-generation tier composition | provider-meter cards (DASH-015), nonfinancial run summary (DASH-022), ingestion/pricing/grouping, Build Order discovery |
 | DASH-023 | URL-selected Build Order membership-generation to retained-usage scope integration and pushed recomputation | graph membership authority, generic accounting, Build Order completion, UI mutation |
 
 ## Security and accessibility

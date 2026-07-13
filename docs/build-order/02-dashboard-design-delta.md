@@ -73,6 +73,24 @@ some blocked units. Filter counts, selected state, zero-result reset, URL
 persistence, focus, announcements, and reduced-motion behavior are part of the
 contract rather than polish.
 
+## Fleet-row modal and conversation drawer
+
+The shipped Fleet table makes a running row itself clickable and opens the
+`AgentLogModal`, which exposes a local workspace path and can render unknown
+structured session data as raw JSON. The prototype instead separates three
+destinations:
+
+- row activation opens bounded ticket context;
+- a named Chat action opens a read-only conversation drawer; and
+- structured Logs/activity remain part of ticket context.
+
+That split motivates two companions: DASH-026 owns the bounded, sanitized,
+source-aware live-conversation projection (no workspace paths, raw payloads,
+or filesystem reads in a web contract), and DASH-027 owns the accessible
+read-only drawer behind an explicit named Units action. Row activation itself
+stays a ticket-context interaction; a non-focusable clickable `<tr>` is never
+the drawer trigger.
+
 ## Catch-up ticket C: unit and capacity controls
 
 - Reuse the current `AgentChat`/control-plane capabilities for per-unit

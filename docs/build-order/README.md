@@ -3,8 +3,9 @@
 > **Successor note (2026-07-13):** the shipped-dashboard delta was reopened
 > after new production screenshots/source evidence. Read
 > [PLANNING-HANDOFF.md](PLANNING-HANDOFF.md) before using the counts or
-> publication instructions below; the provisional DASH-026..034 split has not
-> yet been propagated through every manifest or validator.
+> publication instructions below; the DASH-026..034 split has now been
+> propagated through the manifests, tickets, and requirements, and the
+> publication validation re-run remains pending.
 
 Read this file first. This branch contains reviewed planning evidence and issue
 contracts. It does not implement Build Order, launch Aiur, or dispatch work.
@@ -15,12 +16,15 @@ contracts. It does not implement Build Order, launch Aiur, or dispatch work.
 - Build Order ID: `its-everdred/aiur:build-order-dashboard`
 - Researched code: `9849f32963c2a65367bce565b3f5ede3777c218f`
 - Build Order: 19 executable/capstone tickets, 71 points
-- Standalone dashboard companions: 25 tickets, 87 points
+- Standalone dashboard companions: 34 tickets, 111 points
+- GitHub graph: 55 issues including the root and the skill-delivery issue,
+  102 native blocker edges
 - GitHub materialization: mechanically valid; two clean semantic passes and
   final reconciliation remain pending
 - Dispatch: prohibited in this planning run; never add `agent:todo`
-- Execution gates: unresolved integration baseline and bounded Executor skill
-  installation; see `build-order.json`
+- Execution gates: the integration baseline is resolved (`origin/main` at
+  `9849f32963c2a65367bce565b3f5ede3777c218f`); the bounded Executor skill
+  installation gate remains unresolved; see `build-order.json`
 - Merge: do not merge this planning branch or the isolated skill branch while
   the current dashboard run is active
 
@@ -93,15 +97,16 @@ dependencies, ticket state, declared serialization conflicts and current
 capacity determine readiness. BO-003, BO-005, BO-016, and BO-019 serialize on
 the application-supervision tree wherever hard dependencies do not already
 order them. When the separately authorized companion pack runs, DASH-002,
-DASH-009, DASH-012, DASH-018, DASH-019, DASH-024, and DASH-025 declare the
-remaining cross-pack and same-pack serialization pairs on that same central
-bootstrap surface.
+DASH-009, DASH-012, DASH-018, DASH-019, DASH-024, DASH-025, and DASH-026
+declare the remaining cross-pack and same-pack serialization pairs on that
+same central bootstrap surface.
 
 BO-004 and BO-008 are the independent initial implementation nodes;
-none is ready until both external gates are recorded as resolved. The current
-configured `v2` target does not contain the researched OCC baseline, and the
-bounded Executor skills remain isolated in PR #1065; neither condition may be
-inferred away.
+none is ready until both external gates are recorded as resolved on the live
+root. The integration baseline is resolved — `origin/main` at
+`9849f32963c2a65367bce565b3f5ede3777c218f` contains the completed OCC
+predecessor — while the bounded Executor skills remain isolated in PR #1065;
+the skill gate may not be inferred away.
 
 ## Authority
 
@@ -125,7 +130,7 @@ green on the current configured integration branch, merged, documented,
 cleaned up and proven after merge through the real CLI plus authenticated
 browser workflow. BO-015 owns the acceptance matrix and root closure.
 
-The twenty-five dashboard companions, Linear parity #1067, skill-delivery tracking,
+The thirty-four dashboard companions, Linear parity #1067, skill-delivery tracking,
 deferred findings and optimizations do not change that denominator or ETA.
 During execution, contained review findings return to the existing ticket;
 only an independent P0/P1 acceptance blocker can expand the active feature.
@@ -137,10 +142,10 @@ work outpaces completion, promotion freezes until the bounded feature lands.
 Materialize one non-dispatchable root plus nineteen direct native sub-issues.
 Each member receives exactly one `complexity:N`, `model:codex`, one `phase:N`
 and one `build-lane:*`; the root receives only `build-order` from this label
-family. Materialize the twenty-five companions separately with complexity and
+family. Materialize the thirty-four companions separately with complexity and
 `model:codex`, no Build Order parent/phase/lane, and their real native blockers.
 
-Every one of the 46 titles comes from its approved document H1, and every body
+Every one of the 55 titles comes from its approved document H1, and every body
 links the real immutable approval commit and carries one schema-2 logical-ID
 marker. After publication, requery node IDs, exact titles, bodies,
 exact `OPEN` and unlocked state, membership, hard relationships, full labels,
@@ -157,8 +162,8 @@ newly published issue may have any `agent:*` state.
 The immutable materialization uses core receipt v3, companion/auxiliary receipt
 v2, and bundle v2. The final verifier derives its expected graph only from that
 validated receipt and reads GitHub twice with finite bounds. Both complete
-snapshots must be identical and exactly cover 46 open, unlocked issues, the
-nineteen root members, 73 native blockers, all logical-marker matches including
+snapshots must be identical and exactly cover 55 open, unlocked issues, the
+nineteen root members, 102 native blockers, all logical-marker matches including
 closed and PR-shaped collisions, and the exact pending/successful comment. Run
 it before and after the one pending-to-successful comment edit.
 
