@@ -69,32 +69,38 @@ Plus OCC-0/#988 (auto codex→claude fallback) and the planning/docs PRs (#1006/
 
 ### 2b. In-flight — OCC-4 UI (`#987` / PR #1037) — THE LONG POLE
 
-- Branch `aiur/987-occ-4-operator-control`, HEAD `1fe78323`, base `main`, MERGEABLE.
+- Branch `aiur/987-occ-4-operator-control`, HEAD **`3fd24584`**, base `main`, `#987` **PAUSED**.
 - **Structurally correct and review-passed:** real componentized LiveView modules under
   `src/lib/aiur_web/components/operator_control_center/` (overview, decision_inbox,
-  decision_card, decision_detail, fleet_table, history, recent_outcomes, decision_action,
-  decision_revision_action, lifecycle_components, agent_log_modal) + `control_center_presenter.ex`,
-  `dashboard_live.ex`, `decision_commands.ex`, `decision_events.ex`. A 4-lens review
-  (correctness + adversarial + backend-wiring + agent-native) **confirmed it is wired to the
-  real backend with no mock data, XSS/CSRF-safe, and agent-native**.
-- The **final responsive design** (mobile card layouts) was imported from the Claude design
-  project and landed (`f996d396`).
-- **Must-fixes from review — status:**
-  - ✅ **Enrichment-history bug FIXED** (`1fe78323`): `persist_enrichment/4` in
-    `decision_store.ex` was the only audit-append path missing the `recent_audit` companion;
-    added `recent_audit: remember_recent_audit(state.recent_audit, event)` so `:enriched`
-    events show in the dashboard history + `/observability`.
-  - ⬜ **/observability default** (fast-follow): `DecisionHistory.list/1` still defaults to the
-    bounded `recent_audit_history(50)` window, which changes the public `/observability`
-    `decision_history` field from full-history. Fix: keep `list/1` default = full history;
-    have the dashboard pass an explicit bounded option.
-  - ⬜ **`DecisionAction.answer_label/1`** needs a catch-all clause returning `"Unavailable"`
-    (crashes the LiveView on a malformed answer today).
-  - ⬜ **Answer idempotency key** isn't reset on the error path in `decision_commands.ex`
-    (blocks resubmitting a changed answer after a transient failure).
-- **`#987` is currently PAUSED** by the Executor (it had finished the design + moved to
-  finalizing the PR body without doing the must-fixes). Resume it to do the 3 remaining
-  fast-follow fixes, or hand-fix them yourself, then **merge to `main`**.
+  decision_card, decision_detail, fleet_table, fleet_filters, history, recent_outcomes,
+  decision_action, decision_revision_action, lifecycle_components, agent_log_modal) +
+  `control_center_presenter.ex`, `dashboard_live.ex`, `decision_commands.ex`,
+  `decision_events.ex`. A 4-lens review confirmed it is **wired to the real backend with no
+  mock data, XSS/CSRF-safe, and agent-native**. The final responsive design (mobile card
+  layouts) was imported from the Claude design project and landed.
+- **Review must-fixes — DONE by the Executor:**
+  - ✅ Enrichment-history bug (`1fe78323`): added the missing `recent_audit` companion in
+    `persist_enrichment/4` so `:enriched` events show in history + `/observability`.
+  - ✅ `answer_label/1` catch-all + answer idempotency-key reset on the error path (`c94e1752`).
+  - ➡️ `/observability` default (full-history vs bounded) — filed as fast-follow **#1051** (the
+    dashboard passes its own bounded fun and is correct; only the `/observability` debug
+    endpoint's default changed, so this is non-blocking).
+- **⚠️ MERGE BLOCKER — the UI is NOT green yet.** The design-delta components the agent pushed
+  introduced CI failures it never resolved:
+  - ✅ **lint** (credo alias-order in `dashboard_live.ex`) **FIXED** (`3fd24584`).
+  - ❌ **dialyzer STILL FAILS** on
+    `src/lib/aiur_web/components/operator_control_center/fleet_filters.ex`: `:10 contract_with_opaque`
+    (the `@spec default() :: MapSet.t(atom())` opaque subtype is violated by the success typing)
+    and `:68 call_without_opaque` (type mismatch in `MapSet.equal?`). The Executor's attempted fix
+    (make `@default_filters` a plain list, build the set via `MapSet.new/1` in `default/0`) **did
+    NOT clear it** — dialyzer still infers a concrete, non-opaque set. **Next agent: resolve this**
+    — likely by loosening the `MapSet.t(atom())` @specs on the filter helpers to `MapSet.t()` (or
+    dropping them), or adding a scoped `.dialyzer_ignore` entry; then confirm `mix dialyzer` +
+    `make lint` clean. (11 dialyzer errors total, 9 pre-existing skips, so these 2 are the real
+    blockers; there is also 1 "Unnecessary Skip" to prune.)
+- **To merge the UI:** fix the `fleet_filters.ex` dialyzer error → green (`--admin` past
+  SlotPolicy flake #506) → verify `base==main` + `--is-ancestor` → `gh pr merge 1037 --squash
+  --admin` → `gh issue close 987`. This is the gate for OCC-10.
 - The remaining fast-follows are also filed as review findings — they are display/observability/
   robustness, not core-flow correctness, so the UI may merge with them as fast-follows if speed
   is paramount. Executor's call.
@@ -295,13 +301,17 @@ before merge — hold that bar.
 
 ## 8. Concrete next steps (in order)
 
-1. **Finish OCC-4 UI (#1037).** Resume `#987` (or hand-fix in a worktree) to land the 3
-   fast-follow must-fixes (§2b): /observability default, `answer_label/1` catch-all, idempotency
-   reset. Then confirm `base == main` + green CI + `--is-ancestor`, and **merge to `main`**;
-   `gh issue close 987`.
-2. **Merge the reviewed bottleneck fixes** (§2d) — start with **#1039** (bootstrap-race). After
-   merging the orchestrator fixes, **rebuild + relaunch the daemon** so the running fleet picks
-   them up (they only take effect on restart) and the rest of the wave runs tax-free.
+1. **Finish OCC-4 UI (#1037) — START HERE.** The review must-fixes are done; the ONLY blocker
+   is the **dialyzer opaque-type error in `fleet_filters.ex`** (see §2b for the exact fix). `#987`
+   is paused — hand-fix it in a worktree (don't fight the agent; it kept restarting into
+   review-loops without fixing its own red CI). Then green CI (`--admin` past SlotPolicy flake
+   #506) + confirm `base==main` + `--is-ancestor` → `gh pr merge 1037 --squash --admin` →
+   `gh issue close 987`. `/observability` is fast-follow #1051.
+2. **Merge the reviewed bottleneck fixes** (§2d): **#1042 is already merged** (main `69077467`).
+   Next merge **#1039** (bootstrap-race) — it needs an `update-branch` to current main first —
+   then **#1047**. Merge the UI (step 1) BEFORE #1047 to avoid re-staling it (both touch the
+   dashboard). After the orchestrator fixes land, **rebuild + relaunch the daemon** so the fleet
+   picks them up (they only take effect on restart) and the rest of the wave runs tax-free.
 3. **Dispatch OCC-10 (#1026) — the capstone, LAST.** Wire the UI actions (answer/revise/enrich)
    to the OCC-3/7 dispatch + decision API end-to-end and prove it in the running app. This is
    the gate for Clause 5. Consider Claude Opus for this one ticket if codex wedges on the
