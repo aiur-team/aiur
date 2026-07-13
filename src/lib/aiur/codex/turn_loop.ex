@@ -79,7 +79,9 @@ defmodule Aiur.Codex.TurnLoop do
 
   defp handle_turn_method(%{port: port} = session, state, payload, payload_string, method) do
     on_message = state.on_message
+
     metadata = TurnEvents.metadata_from_message(port, payload)
+    execution_context = %{workspace: Map.get(session, :workspace), response_id: Map.get(payload, "id")}
 
     case Approvals.maybe_handle_approval_request(
            port,
@@ -90,6 +92,7 @@ defmodule Aiur.Codex.TurnLoop do
            metadata,
            state.tool_executor,
            state.auto_approve_requests,
+           execution_context,
            pause_latched?(session, state)
          ) do
       :input_required ->

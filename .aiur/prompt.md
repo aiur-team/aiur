@@ -39,4 +39,15 @@ Continuation context:
 
 Follow the **`using-aiur`** skill for how to run this ticket: the `agent:*` label lifecycle, the brainstorm→plan→work→review turn workflow and which CE skill to use when, milestone alerts (`emit_alert`), the Agent Workpad template, complexity routing, and the dev loop / commit / PR conventions. Load it before you start. Cross-ticket coordination and the operator-bar progress protocol are covered in the shared instructions above this template.
 
+### Large design imports
+
+Load the `design-import` skill before a frontend/design skill imports a design
+artifact that may exceed 100 KiB. It uses an authenticated writable
+`claude --print` session to fetch the artifact directly into a ticket-local
+directory, verify it, and inspect it from disk in bounded chunks. If a tool
+result reports that Aiur spilled its output to `.aiur-runtime/tool-results/`, continue
+from that file path instead of retrying the tool call. This disk-first path is
+the recovery path for large HTML design exports and does not require restarting
+the agent thread.
+
 When a declared blocker emits `ticket.N.agent.unblocked`, treat that explicit signal as readiness to consume. Load `/aiur-agent`, then use the latest `ticket.N.branch.push` payload only to fetch and diff the actual validated ref (do not guess `origin/aiur/N`), adopt the real API, remove temporary stubs, and keep your PR stacked on the blocker branch while it remains unmerged. Never infer readiness from `branch.push` alone; if the explicitly-unblocked dependency is unusable, keep only that integration point blocked and record the concrete reason.

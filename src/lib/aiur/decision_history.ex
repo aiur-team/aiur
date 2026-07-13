@@ -3,7 +3,7 @@ defmodule Aiur.DecisionHistory do
   Read-only operator history projected from `Aiur.DecisionStore` records.
 
   The store remains the only source of truth. This module gives dashboard and
-  API consumers one bounded, newest-first shape while preserving uncertainty:
+  API consumers one newest-first shape while preserving uncertainty:
   actor types are used only when a canonical record states them explicitly.
   OCC-1 request records have source-agent metadata but no separate mutation
   actor, so they are identified as ticket-agent activity rather than guessed to
@@ -40,15 +40,19 @@ defmodule Aiur.DecisionHistory do
 
   @spec list(keyword()) :: [map()]
   def list(opts \\ []) when is_list(opts) do
-    case Keyword.fetch(opts, :history_fun) do
-      {:ok, history_fun} ->
+    server = Keyword.get(opts, :server, DecisionStore)
+
+    cond do
+      history_fun = Keyword.get(opts, :history_fun) ->
         history_fun.() |> from_histories(opts)
 
-      :error ->
-        server = Keyword.get(opts, :server, DecisionStore)
+      Keyword.has_key?(opts, :limit) or Keyword.has_key?(opts, :recent_history_fun) ->
         default_recent_fun = fn -> DecisionStore.recent_audit_history(limit(opts), server) end
         recent_fun = Keyword.get(opts, :recent_history_fun, default_recent_fun)
         recent_fun.() |> from_recent_audit(opts)
+
+      true ->
+        DecisionStore.all_audit_history(server) |> from_histories(opts)
     end
   end
 
@@ -58,7 +62,7 @@ defmodule Aiur.DecisionHistory do
     histories
     |> Enum.flat_map(fn {_decision_id, records} -> project_history(records) end)
     |> Enum.sort_by(&sort_key/1, :desc)
-    |> Enum.take(limit(opts))
+    |> take_limit(opts)
   end
 
   @doc "Projects the DecisionStore's bounded audit window without reading the full audit map."
@@ -431,6 +435,13 @@ defmodule Aiur.DecisionHistory do
 
   defp integer(value) when is_integer(value), do: value
   defp integer(_value), do: 0
+
+  defp take_limit(entries, opts) do
+    case Keyword.get(opts, :limit) do
+      limit when is_integer(limit) and limit >= 0 -> Enum.take(entries, limit)
+      _other -> entries
+    end
+  end
 
   defp limit(opts) do
     case Keyword.get(opts, :limit, @default_limit) do
