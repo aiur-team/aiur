@@ -18,4 +18,13 @@ defmodule Aiur.AgentRunner.TurnLoopTest do
       assert TurnLoop.max_turns_display(3) == "3"
     end
   end
+
+  describe "return_completed/2" do
+    test "reports the final runner boundary to the orchestrator" do
+      issue = %Aiur.Issue{id: "issue-completed"}
+
+      assert :ok = TurnLoop.return_completed(%{codex_update_recipient: self()}, issue)
+      assert_receive {:worker_control_state, "issue-completed", :completed}
+    end
+  end
 end

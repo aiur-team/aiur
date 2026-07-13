@@ -99,10 +99,15 @@ defmodule Aiur.OrchestratorStatusTest do
         safe_checkpoints: [:notification],
         status: status
       },
+      codex_app_server_pid: nil,
+      codex_process_group_id: nil,
       session_id: "thread-#{identifier}",
       agent_input_tokens: 0,
       agent_output_tokens: 0,
       agent_total_tokens: 0,
+      last_codex_timestamp: nil,
+      last_codex_message: nil,
+      last_codex_event: nil,
       started_at: DateTime.utc_now()
     }
   end
@@ -2246,6 +2251,164 @@ defmodule Aiur.OrchestratorStatusTest do
               category: :operator_message,
               delivery: %{interrupt_requested: false, priority: :next}
             }} = OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-SLEEP-CHAT")
+  end
+
+  test "completed runner releases its slot and an operator message schedules replacement" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_active_states: ["in-progress", "rework"]
+    )
+
+    orchestrator_name = Module.concat(__MODULE__, :CompletedOperatorMessageOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    parent = self()
+    old_worker = spawn(fn -> operator_message_probe(parent) end)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+      if Process.alive?(old_worker), do: Process.exit(old_worker, :kill)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      entry =
+        "issue-completed"
+        |> running_entry("MT-COMPLETED", :working, old_worker)
+        |> Map.update!(:issue, &%{&1 | state: "in-progress"})
+
+      %{
+        state
+        | session_max_concurrent_agents: 1,
+          running: %{"issue-completed" => entry},
+          claimed: MapSet.put(state.claimed, "issue-completed")
+      }
+    end)
+
+    send(pid, {:worker_control_state, "issue-completed", :completed})
+
+    assert %{active: 0} = Orchestrator.max_concurrent_agents(orchestrator_name)
+
+    assert %{running: [%{work_state: :completed, waiting_reason: :awaiting_dispatch}]} =
+             GenServer.call(orchestrator_name, :snapshot)
+
+    assert {:error, :already_inactive} = Orchestrator.pause_agent(orchestrator_name, "MT-COMPLETED")
+
+    assert {:ok, item_id} =
+             Orchestrator.send_operator_message(orchestrator_name, "MT-COMPLETED", %{
+               kind: :text,
+               body: "please address the review"
+             })
+
+    refute Process.alive?(old_worker)
+
+    state = :sys.get_state(pid)
+    assert %{body: %{text: "please address the review"}} = state.queue_store.items[item_id]
+
+    assert Map.has_key?(state.running, "issue-completed") or
+             Map.has_key?(state.retry_attempts, "issue-completed")
+  end
+
+  test "explicit resume replaces a completed runner instead of waking its returned task" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_active_states: ["in-progress", "rework"]
+    )
+
+    orchestrator_name = Module.concat(__MODULE__, :CompletedResumeOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    old_worker = spawn(fn -> operator_message_probe(self()) end)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+      if Process.alive?(old_worker), do: Process.exit(old_worker, :kill)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      entry =
+        "issue-completed-resume"
+        |> running_entry("MT-COMPLETED-RESUME", :completed, old_worker)
+        |> Map.update!(:issue, &%{&1 | state: "rework"})
+
+      %{
+        state
+        | session_max_concurrent_agents: 1,
+          running: %{"issue-completed-resume" => entry},
+          claimed: MapSet.put(state.claimed, "issue-completed-resume")
+      }
+    end)
+
+    assert {:ok, :started} = Orchestrator.resume_agent(orchestrator_name, "MT-COMPLETED-RESUME")
+    refute Process.alive?(old_worker)
+
+    state = :sys.get_state(pid)
+
+    assert Map.has_key?(state.running, "issue-completed-resume") or
+             Map.has_key?(state.retry_attempts, "issue-completed-resume")
+  end
+
+  test "operator messages rearm multiple completed runners without returned workers holding slots" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_active_states: ["in-progress", "rework"]
+    )
+
+    orchestrator_name = Module.concat(__MODULE__, :CompletedBatchOperatorMessageOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    parent = self()
+
+    completed =
+      for number <- 1..3, into: %{} do
+        issue_id = "issue-completed-#{number}"
+        identifier = "MT-COMPLETED-#{number}"
+        worker = spawn(fn -> operator_message_probe(parent) end)
+
+        entry =
+          issue_id
+          |> running_entry(identifier, :completed, worker)
+          |> Map.update!(:issue, &%{&1 | state: "rework"})
+
+        {issue_id, {identifier, worker, entry}}
+      end
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+
+      Enum.each(completed, fn {_issue_id, {_identifier, worker, _entry}} ->
+        if Process.alive?(worker), do: Process.exit(worker, :kill)
+      end)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      entries = Map.new(completed, fn {issue_id, {_identifier, _worker, entry}} -> {issue_id, entry} end)
+
+      %{
+        state
+        | session_max_concurrent_agents: 3,
+          running: entries,
+          claimed: MapSet.new(Map.keys(entries))
+      }
+    end)
+
+    assert %{active: 0, max: 3} = Orchestrator.max_concurrent_agents(orchestrator_name)
+
+    item_ids =
+      for {issue_id, {identifier, _worker, _entry}} <- completed, into: %{} do
+        assert {:ok, item_id} =
+                 GenServer.call(
+                   orchestrator_name,
+                   {:send_operator_message, identifier, %{kind: :text, body: "rework #{issue_id}"}},
+                   30_000
+                 )
+
+        {issue_id, item_id}
+      end
+
+    state = :sys.get_state(pid)
+
+    Enum.each(completed, fn {issue_id, {_identifier, worker, _entry}} ->
+      refute Process.alive?(worker)
+      expected_body = "rework #{issue_id}"
+      assert %{body: %{text: ^expected_body}} = state.queue_store.items[item_ids[issue_id]]
+
+      assert Map.has_key?(state.running, issue_id) or
+               Map.has_key?(state.retry_attempts, issue_id)
+    end)
   end
 
   test "chat-send to a paused agent auto-resumes it when a slot is free" do

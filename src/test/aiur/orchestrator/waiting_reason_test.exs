@@ -4,6 +4,17 @@ defmodule Aiur.Orchestrator.WaitingReasonTest do
   alias Aiur.Orchestrator.WaitingReason
 
   describe "for_running/1" do
+    test "completed runners are awaiting replacement dispatch" do
+      assert WaitingReason.for_running(%{
+               tracker_state: "rework",
+               pause_reason: nil,
+               work_state: :completed,
+               open_decision_count: 0,
+               stale_for_seconds: 0,
+               stall_timeout_seconds: 300
+             }) == :awaiting_dispatch
+    end
+
     test "an actively working agent with fresh activity is active" do
       assert WaitingReason.for_running(%{
                tracker_state: "in-progress",

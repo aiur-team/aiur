@@ -64,6 +64,27 @@ defmodule Aiur.OrchestratorCILifecycleTest do
   end
 
   describe "CI lifecycle coordination" do
+    test "a completed runner entering CI wait is parked without a cooperative pause" do
+      identifier = unique_identifier("completed-ci-wait")
+      recorder = start_recorder()
+      issue = issue(identifier, "ci-wait")
+
+      state = running_state(issue, recorder, :completed, [])
+      ref = Process.monitor(recorder)
+      next = CiLifecycle.pause_issue_for_ci_wait(state, issue)
+
+      assert_receive {:DOWN, ^ref, :process, ^recorder, :killed}
+      refute_received {:recorded, _sequence, {:pause_agent, _request_id}}
+
+      entry = Map.fetch!(next.running, identifier)
+      assert entry.control.status == :deactivated
+      assert entry.pid == nil
+      assert entry.ref == nil
+      assert %{token: token, timer_ref: timer_ref} = next.ci_lifecycle.rewakes[identifier]
+      assert is_reference(token)
+      assert is_reference(timer_ref)
+    end
+
     test "pending CI writes ci-wait before pausing a live human-review runner" do
       identifier = unique_identifier("ci-pending")
       recorder = start_recorder()

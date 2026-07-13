@@ -5,6 +5,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   """
 
   alias Aiur.{Config, Issue, Tracker}
+  alias Aiur.Orchestrator.AgentTeardown
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.OperatorMessages
@@ -46,11 +47,15 @@ defmodule Aiur.Orchestrator.PauseResume do
     {:reply, reply, state}
   end
 
-  @spec resume_issue(State.t(), String.t()) :: {{:ok, :resumed} | {:error, term()}, State.t()}
+  @spec resume_issue(State.t(), String.t()) ::
+          {{:ok, :resumed | :started} | {:error, term()}, State.t()}
   def resume_issue(%State{} = state, issue_identifier) do
     case State.find_running_by_identifier(state.running, issue_identifier) do
       running_entry when is_map(running_entry) ->
         cond do
+          State.completed_running_entry?(running_entry) ->
+            restart_completed_issue(state, running_entry)
+
           State.deactivated_running_entry?(running_entry) ->
             reactivate_issue(state, running_entry)
 
@@ -172,7 +177,8 @@ defmodule Aiur.Orchestrator.PauseResume do
   # the pause immediately — even mid-spin-up, before the worker reaches a
   # checkpoint — then queue the cooperative `{:pause_agent}` control message.
   defp pause_running_or_inactive(state, running_entry, issue_identifier) do
-    if State.deactivated_running_entry?(running_entry) do
+    if State.deactivated_running_entry?(running_entry) or
+         State.completed_running_entry?(running_entry) do
       {{:error, :already_inactive}, state}
     else
       reply = send_pause_control_message(state, issue_identifier)
@@ -189,7 +195,7 @@ defmodule Aiur.Orchestrator.PauseResume do
     end)
   end
 
-  @spec handle_worker_control_state(State.t(), String.t(), :paused | :working, map()) ::
+  @spec handle_worker_control_state(State.t(), String.t(), :completed | :paused | :working, map()) ::
           {:noreply, State.t()}
   def handle_worker_control_state(%State{running: running} = state, issue_id, status, pause_payload) do
     case Map.get(running, issue_id) do
@@ -241,6 +247,51 @@ defmodule Aiur.Orchestrator.PauseResume do
       OperatorMessages.maybe_emit_agent_control_alert(old_status, new_status, next_entry)
       StatusReport.notify_dashboard(next_state)
       next_state
+    end
+  end
+
+  @doc false
+  @spec replace_completed_issue(State.t(), map(), Issue.t()) :: State.t()
+  def replace_completed_issue(%State{} = state, running_entry, %Issue{} = issue) do
+    worker_host = Map.get(running_entry, :worker_host)
+
+    cond do
+      not State.completed_running_entry?(running_entry) ->
+        state
+
+      not DispatchPolicy.active_issue_state?(issue.state, DispatchPolicy.active_state_set()) ->
+        state
+
+      State.active_running_count(state.running) >= Slots.max_concurrent_agent_limit(state) ->
+        state
+
+      not DispatchPolicy.state_slots_available?(issue, state) ->
+        state
+
+      not Slots.resume_worker_slot_available?(state, worker_host) ->
+        state
+
+      true ->
+        issue_id = issue.id
+
+        Logger.info("Replacing completed runner: issue_id=#{issue_id} issue_identifier=#{issue.identifier}")
+
+        _ = Aiur.PauseContainment.release_target(issue.identifier || issue.id)
+
+        state
+        |> AgentTeardown.terminate_running_issue(issue_id, false)
+        |> Dispatcher.do_dispatch_issue(issue, nil, worker_host)
+    end
+  end
+
+  defp restart_completed_issue(state, running_entry) do
+    issue = Map.fetch!(running_entry, :issue)
+    next_state = replace_completed_issue(state, running_entry, issue)
+
+    if next_state == state do
+      {{:error, :max_concurrent_agents_reached}, state}
+    else
+      {{:ok, :started}, next_state}
     end
   end
 

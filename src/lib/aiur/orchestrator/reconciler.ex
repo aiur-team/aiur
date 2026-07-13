@@ -105,6 +105,9 @@ defmodule Aiur.Orchestrator.Reconciler do
   @spec maybe_reactivate_or_refresh(State.t(), Issue.t()) :: State.t()
   def maybe_reactivate_or_refresh(%State{} = state, %Issue{} = issue) do
     case Map.get(state.running, issue.id) do
+      %{control: %{status: :completed}} = running_entry ->
+        PauseResume.replace_completed_issue(state, running_entry, issue)
+
       %{control: %{status: :deactivated}} = running_entry ->
         # Update the stored issue first so the dispatched agent sees
         # the freshest label state.

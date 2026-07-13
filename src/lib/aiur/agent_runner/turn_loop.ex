@@ -219,16 +219,32 @@ defmodule Aiur.AgentRunner.TurnLoop do
 
         Logger.info("Reached agent.max_turns for #{Aiur.AgentRunner.issue_context(refreshed_issue)} with issue still active; returning control to orchestrator")
 
-        :ok
+        return_completed(turn_context, refreshed_issue)
 
       {:done, refreshed_issue} ->
         Logger.info("aiur_autonomous_loop phase=done elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} reason=issue_inactive")
 
-        :ok
+        return_completed(turn_context, refreshed_issue)
 
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  @doc false
+  @spec return_completed(map(), Issue.t()) :: :ok
+  def return_completed(turn_context, %Issue{} = issue) when is_map(turn_context) do
+    # A pause request can race the final turn boundary. Once this runner has
+    # no more turns to execute, its cooperative-pause fallback must not reap
+    # the already-finished app-server and turn a clean port exit into a
+    # synthetic failed follow-up turn.
+    _ = Aiur.PauseContainment.release_target(issue.identifier || issue.id)
+
+    MessageHandler.send_control_state(
+      Map.get(turn_context, :codex_update_recipient),
+      issue,
+      :completed
+    )
   end
 
   defp wait_for_resume(turn_context, app_session, message_handler) do
