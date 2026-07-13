@@ -155,7 +155,63 @@ defmodule Aiur.DecisionRevisionStoreTest do
     assert List.last(revised.dispatch_attempts).action_id == revision.action_id
 
     assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, pid)
-    assert Enum.map(audit, & &1.type) == [:requested, :answer_recorded, :dispatch_queued, :revision_recorded, :revision_dispatched]
+
+    assert Enum.map(audit, & &1.type) == [
+             :requested,
+             :answer_recorded,
+             :dispatch_queued,
+             :revision_recorded,
+             :revision_dispatched
+           ]
+  end
+
+  test "explicit retry targets the failed active revision rather than the original answer", %{dir: dir} do
+    dispatcher = fn dispatched, opts ->
+      cond do
+        dispatched.revision_sequence == 0 ->
+          {:ok,
+           %{
+             status: :accepted,
+             item: %{id: 18, status: :pending, correlation: %{attempt_id: opts[:attempt_id]}}
+           }}
+
+        opts[:retry_failed] ->
+          {:ok,
+           %{
+             status: :accepted,
+             item: %{id: 19, status: :pending, correlation: %{attempt_id: opts[:attempt_id]}}
+           }}
+
+        true ->
+          {:error, :permanent}
+      end
+    end
+
+    pid =
+      start_store!(dir,
+        dispatcher: dispatcher,
+        dispatch_delay_ms: 0,
+        retry_delays_ms: []
+      )
+
+    {decision, original} = answered_decision(pid)
+    _original_queued = wait_for(pid, decision.decision_id, &(&1.delivery_status == :queued))
+
+    assert {:ok, %{action: revision}} =
+             revise(pid, decision, original, "revision-explicit-retry", "Hold the rollout")
+
+    failed =
+      wait_for(pid, decision.decision_id, fn current ->
+        current.delivery_status == :failed and current.active_action_id == revision.action_id
+      end)
+
+    assert List.last(Decision.active_dispatch_attempts(failed)).failure_reason_class == "dispatch_rejected"
+    assert {:error, :action_mismatch} = DecisionStore.retry_dispatch(decision.decision_id, original.action_id, pid)
+    assert {:ok, :scheduled} = DecisionStore.retry_dispatch(decision.decision_id, revision.action_id, pid)
+
+    retried = wait_for(pid, decision.decision_id, &(&1.delivery_status == :queued))
+    assert retried.active_action_id == revision.action_id
+    assert List.last(Decision.active_dispatch_attempts(retried)).queue_item_id == 19
   end
 
   test "rapid revisions serialize corrective dispatch in revision order", %{dir: dir} do
