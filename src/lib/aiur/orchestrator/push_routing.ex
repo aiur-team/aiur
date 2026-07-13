@@ -151,7 +151,9 @@ defmodule Aiur.Orchestrator.PushRouting do
     next = resume_matching_running_entries(state, blocker_identifier, topic, unblock_key)
 
     if candidate_ids != [] and Enum.all?(candidate_ids, &consumed_unblock?(next.running[&1], unblock_key)) do
-      :ok = BranchRefStore.acknowledge_unblock(metadata.ref, metadata.sha)
+      if BranchRefStore.acknowledge_unblock(metadata.ref, metadata.sha) == :error do
+        Logger.warning("Final unblock acknowledgement remains pending after persistence failure: blocker=#{blocker_identifier} ref=#{metadata.ref} sha=#{metadata.sha}")
+      end
     end
 
     next

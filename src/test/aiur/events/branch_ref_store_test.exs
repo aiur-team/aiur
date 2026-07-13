@@ -2,6 +2,8 @@ defmodule Aiur.Events.BranchRefStoreTest do
   use ExUnit.Case, async: false
 
   alias Aiur.Events.BranchRefStore
+  alias Aiur.Orchestrator.EventTopics
+  alias Aiur.Orchestrator.State
 
   test "reloads the latest validated refs before consumers start" do
     path = Path.join(System.tmp_dir!(), "branch-refs-#{System.unique_integer([:positive])}.json")
@@ -142,7 +144,7 @@ defmodule Aiur.Events.BranchRefStoreTest do
     refute File.exists?(Path.join(launch_two, "test-repo.branch_refs.json"))
   end
 
-  test "an identical record retries persistence after a transient write failure" do
+  test "a write failure is not accepted without a second caller" do
     root = Path.join(System.tmp_dir!(), "branch-retry-#{System.unique_integer([:positive])}")
     blocker = Path.join(root, "not-a-directory")
     path = Path.join(blocker, "branch-refs.json")
@@ -150,15 +152,19 @@ defmodule Aiur.Events.BranchRefStoreTest do
     sha = String.duplicate("d", 40)
 
     File.mkdir_p!(root)
-    File.write!(blocker, "blocks mkdir_p")
+    File.mkdir_p!(blocker)
     on_exit(fn -> File.rm_rf(root) end)
 
     {:ok, store} = BranchRefStore.start_link(name: nil, path: path)
-    assert :ok = BranchRefStore.record(ref, sha, store)
-    assert BranchRefStore.latest("99", store) == %{ref: ref, sha: sha}
+    File.rm_rf!(blocker)
+    File.write!(blocker, "blocks mkdir_p")
+
+    assert :error = BranchRefStore.record(ref, sha, store)
+    assert BranchRefStore.latest("99", store) == nil
 
     File.rm!(blocker)
-    assert :ok = BranchRefStore.record(ref, sha, store)
+    File.mkdir_p!(blocker)
+    assert_eventually(fn -> BranchRefStore.latest("99", store) == %{ref: ref, sha: sha} end)
     GenServer.stop(store)
 
     {:ok, restarted} = BranchRefStore.start_link(name: nil, path: path)
@@ -166,8 +172,99 @@ defmodule Aiur.Events.BranchRefStoreTest do
     GenServer.stop(restarted)
   end
 
+  test "branch-push routing autonomously preserves a write that fails once" do
+    root = Path.join(System.tmp_dir!(), "branch-route-retry-#{System.unique_integer([:positive])}")
+    blocker = Path.join(root, "not-a-directory")
+    path = Path.join(blocker, "branch-refs.json")
+    ref = "refs/heads/aiur/99-dependency"
+    sha = String.duplicate("f", 40)
+    original_path = :sys.get_state(BranchRefStore).path
+
+    File.mkdir_p!(root)
+    File.write!(blocker, "blocks mkdir_p")
+    :ok = BranchRefStore.reset()
+    :sys.replace_state(BranchRefStore, &Map.put(&1, :path, path))
+
+    on_exit(fn ->
+      File.rm_rf(root)
+      :sys.replace_state(BranchRefStore, &Map.put(&1, :path, original_path))
+      :ok = BranchRefStore.reset()
+    end)
+
+    state = %State{running: %{}}
+
+    assert EventTopics.route(state, %{topic: "ticket.99.branch.push", ref: ref, sha: sha}) == state
+    assert BranchRefStore.latest("99") == nil
+
+    File.rm!(blocker)
+    File.mkdir_p!(blocker)
+
+    assert_eventually(fn ->
+      BranchRefStore.latest("99") == %{ref: ref, sha: sha}
+    end)
+
+    {:ok, restarted} = BranchRefStore.start_link(name: nil, path: path)
+    assert BranchRefStore.latest("99", restarted) == %{ref: ref, sha: sha}
+    GenServer.stop(restarted)
+  end
+
+  test "existing unreadable state fails closed" do
+    path = Path.join(System.tmp_dir!(), "branch-unreadable-#{System.unique_integer([:positive])}")
+    previous_trap_exit = Process.flag(:trap_exit, true)
+
+    File.mkdir_p!(path)
+
+    on_exit(fn ->
+      Process.flag(:trap_exit, previous_trap_exit)
+      File.rm_rf(path)
+    end)
+
+    assert {:error, {:state_load_failed, _reason}} = BranchRefStore.start_link(name: nil, path: path)
+  end
+
+  test "existing corrupt state fails closed" do
+    path = Path.join(System.tmp_dir!(), "branch-corrupt-#{System.unique_integer([:positive])}.json")
+    previous_trap_exit = Process.flag(:trap_exit, true)
+
+    File.write!(path, "{not-json")
+
+    on_exit(fn ->
+      Process.flag(:trap_exit, previous_trap_exit)
+      File.rm(path)
+    end)
+
+    assert {:error, {:state_load_failed, _reason}} = BranchRefStore.start_link(name: nil, path: path)
+  end
+
+  test "existing structurally invalid state fails closed" do
+    path = Path.join(System.tmp_dir!(), "branch-invalid-#{System.unique_integer([:positive])}.json")
+    previous_trap_exit = Process.flag(:trap_exit, true)
+
+    File.write!(path, Jason.encode!(%{refs: []}))
+
+    on_exit(fn ->
+      Process.flag(:trap_exit, previous_trap_exit)
+      File.rm(path)
+    end)
+
+    assert {:error, {:state_load_failed, {:invalid_document, :invalid_fields}}} =
+             BranchRefStore.start_link(name: nil, path: path)
+  end
+
   defp restore_env(key, nil), do: Application.delete_env(:aiur, key)
   defp restore_env(key, value), do: Application.put_env(:aiur, key, value)
   defp restore_system_env(key, nil), do: System.delete_env(key)
   defp restore_system_env(key, value), do: System.put_env(key, value)
+
+  defp assert_eventually(fun, attempts \\ 50)
+  defp assert_eventually(fun, 0), do: assert(fun.())
+
+  defp assert_eventually(fun, attempts) do
+    if fun.() do
+      :ok
+    else
+      Process.sleep(20)
+      assert_eventually(fun, attempts - 1)
+    end
+  end
 end

@@ -136,7 +136,10 @@ defmodule Aiur.Events.LsRemoteTicker do
 
   defp fold_refs(state, current_refs) do
     repo = state.repo || resolve_repo()
-    :ok = BranchRefStore.replace(current_refs)
+
+    if BranchRefStore.replace(current_refs) == :error do
+      Logger.warning("Remote ref snapshot was not accepted because durable persistence failed; next poll will retry")
+    end
 
     if state.bootstrapped? do
       Enum.each(current_refs, &maybe_publish_change(state, &1, repo))

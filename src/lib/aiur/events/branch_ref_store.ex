@@ -17,6 +17,9 @@ defmodule Aiur.Events.BranchRefStore do
   alias Aiur.Events.GithubKeys
   alias Aiur.JsonStore
 
+  @persist_retry_initial_ms 50
+  @persist_retry_max_ms 1_000
+
   @type metadata :: %{ref: String.t(), sha: String.t()}
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -75,7 +78,7 @@ defmodule Aiur.Events.BranchRefStore do
 
   def acknowledge_unblock(_ref, _sha, _server), do: :error
 
-  @spec replace(map(), GenServer.server()) :: :ok
+  @spec replace(map(), GenServer.server()) :: :ok | :error
   def replace(refs, server \\ __MODULE__) when is_map(refs) do
     GenServer.call(server, {:replace, refs})
   end
@@ -86,22 +89,28 @@ defmodule Aiur.Events.BranchRefStore do
   end
 
   @doc false
-  @spec reset(GenServer.server()) :: :ok
+  @spec reset(GenServer.server()) :: :ok | :error
   def reset(server \\ __MODULE__), do: GenServer.call(server, :reset)
 
   @impl true
   def init(opts) do
-    case store_path(opts) do
-      {:ok, path} ->
-        document = load(path)
-
-        {:ok,
-         %{
-           path: path,
-           refs: document.refs,
-           pending_unblocks: document.pending_unblocks,
-           persisted: document
-         }}
+    with {:ok, path} <- store_path(opts),
+         {:ok, document} <- load(path) do
+      {:ok,
+       %{
+         path: path,
+         refs: document.refs,
+         pending_unblocks: document.pending_unblocks,
+         persisted: document,
+         pending_persist: nil,
+         persist_retry_ref: nil,
+         persist_retry_token: nil,
+         persist_retry_delay_ms: @persist_retry_initial_ms
+       }}
+    else
+      {:error, {:load_failed, reason}} ->
+        Logger.error("BranchRefStore state load failed: reason=#{inspect(reason)}")
+        {:stop, {:state_load_failed, reason}}
 
       {:error, reason} ->
         Logger.error("BranchRefStore state path unavailable: reason=#{inspect(reason)}")
@@ -113,8 +122,8 @@ defmodule Aiur.Events.BranchRefStore do
   def handle_call({:record, ref, sha}, _from, state) do
     case validated_entry(ref, sha) do
       {:ok, identifier, metadata} ->
-        next = state |> Map.put(:refs, Map.put(state.refs, identifier, metadata)) |> persist_if_dirty()
-        {:reply, :ok, next}
+        candidate = desired_state(state)
+        candidate |> Map.put(:refs, Map.put(candidate.refs, identifier, metadata)) |> persist_reply(:ok)
 
       :error ->
         {:reply, :error, state}
@@ -124,12 +133,10 @@ defmodule Aiur.Events.BranchRefStore do
   def handle_call({:record_and_ready_unblock, ref, sha}, _from, state) do
     case validated_entry(ref, sha) do
       {:ok, identifier, metadata} ->
-        next =
-          state
-          |> Map.put(:refs, Map.put(state.refs, identifier, metadata))
-          |> persist_if_dirty()
-
-        {:reply, {:ok, get_pending(next.pending_unblocks, identifier, metadata)}, next}
+        candidate = desired_state(state)
+        next = Map.put(candidate, :refs, Map.put(candidate.refs, identifier, metadata))
+        reply = {:ok, get_pending(next.pending_unblocks, identifier, metadata)}
+        persist_reply(next, reply)
 
       :error ->
         {:reply, :error, state}
@@ -139,11 +146,13 @@ defmodule Aiur.Events.BranchRefStore do
   def handle_call({:register_unblock, ref, sha}, _from, state) do
     case validated_entry(ref, sha) do
       {:ok, identifier, metadata} ->
-        if Map.get(state.refs, identifier) == metadata do
-          {:reply, :ready, persist_if_dirty(state)}
+        candidate = desired_state(state)
+
+        if Map.get(candidate.refs, identifier) == metadata do
+          persist_reply(candidate, :ready)
         else
-          pending_unblocks = put_pending(state.pending_unblocks, identifier, metadata)
-          {:reply, :pending, state |> Map.put(:pending_unblocks, pending_unblocks) |> persist_if_dirty()}
+          pending_unblocks = put_pending(candidate.pending_unblocks, identifier, metadata)
+          candidate |> Map.put(:pending_unblocks, pending_unblocks) |> persist_reply(:pending)
         end
 
       :error ->
@@ -164,8 +173,9 @@ defmodule Aiur.Events.BranchRefStore do
   def handle_call({:acknowledge_unblock, ref, sha}, _from, state) do
     case validated_entry(ref, sha) do
       {:ok, identifier, metadata} ->
-        {_pending, pending_unblocks} = pop_pending(state.pending_unblocks, identifier, metadata)
-        {:reply, :ok, state |> Map.put(:pending_unblocks, pending_unblocks) |> persist_if_dirty()}
+        candidate = desired_state(state)
+        {_pending, pending_unblocks} = pop_pending(candidate.pending_unblocks, identifier, metadata)
+        candidate |> Map.put(:pending_unblocks, pending_unblocks) |> persist_reply(:ok)
 
       :error ->
         {:reply, :error, state}
@@ -173,8 +183,7 @@ defmodule Aiur.Events.BranchRefStore do
   end
 
   def handle_call({:replace, refs}, _from, state) do
-    next = state |> Map.put(:refs, validated_refs(refs)) |> persist_if_dirty()
-    {:reply, :ok, next}
+    state |> desired_state() |> Map.put(:refs, validated_refs(refs)) |> persist_reply(:ok)
   end
 
   def handle_call({:latest, identifier}, _from, state) do
@@ -182,67 +191,121 @@ defmodule Aiur.Events.BranchRefStore do
   end
 
   def handle_call(:reset, _from, state) do
-    next = state |> Map.put(:refs, %{}) |> Map.put(:pending_unblocks, %{}) |> persist_if_dirty()
-    {:reply, :ok, next}
+    state
+    |> desired_state()
+    |> Map.put(:refs, %{})
+    |> Map.put(:pending_unblocks, %{})
+    |> persist_reply(:ok)
   end
+
+  @impl true
+  def handle_info({:retry_persist, token}, %{persist_retry_token: token} = state) do
+    candidate = state |> Map.put(:persist_retry_ref, nil) |> Map.put(:persist_retry_token, nil) |> desired_state()
+
+    case persist_if_dirty(candidate) do
+      {:ok, persisted} -> {:noreply, persisted}
+      {:error, queued} -> {:noreply, queued}
+    end
+  end
+
+  def handle_info({:retry_persist, _stale_token}, state), do: {:noreply, state}
+
+  defp persist_reply(candidate, success_reply) do
+    case persist_if_dirty(candidate) do
+      {:ok, persisted} -> {:reply, success_reply, persisted}
+      {:error, original} -> {:reply, :error, original}
+    end
+  end
+
+  defp desired_state(%{pending_persist: %{} = document} = state) do
+    %{state | refs: document.refs, pending_unblocks: document.pending_unblocks}
+  end
+
+  defp desired_state(state), do: state
 
   defp load(path) do
     case JsonStore.read(path, %{}) do
-      {:ok, value} when is_map(value) -> decode_document(value)
-      {:error, reason} -> log_load_failure(path, reason)
-      _other -> empty_document()
+      {:ok, value} when is_map(value) ->
+        case decode_document(value) do
+          {:ok, document} -> {:ok, document}
+          {:error, reason} -> {:error, {:load_failed, {:invalid_document, reason}}}
+        end
+
+      {:ok, _invalid} ->
+        {:error, {:load_failed, :invalid_document}}
+
+      {:error, reason} ->
+        {:error, {:load_failed, reason}}
     end
   end
 
   defp decode_document(value) do
-    if Map.has_key?(value, "refs") or Map.has_key?(value, :refs) do
-      refs = Map.get(value, "refs") || Map.get(value, :refs) || %{}
-      pending_unblocks = Map.get(value, "pending_unblocks") || Map.get(value, :pending_unblocks) || %{}
-
-      %{
-        refs: decode_refs(refs),
-        pending_unblocks: decode_pending_unblocks(pending_unblocks)
-      }
+    if document_format?(value) do
+      with refs when is_map(refs) <- field(value, "refs", %{}),
+           pending when is_map(pending) <- field(value, "pending_unblocks", %{}),
+           {:ok, decoded_refs} <- decode_refs(refs),
+           {:ok, decoded_pending} <- decode_pending_unblocks(pending) do
+        {:ok, %{refs: decoded_refs, pending_unblocks: decoded_pending}}
+      else
+        _ -> {:error, :invalid_fields}
+      end
     else
       # Migration from the first store format, whose top-level map was refs.
-      %{refs: decode_refs(value), pending_unblocks: %{}}
+      case decode_refs(value) do
+        {:ok, refs} -> {:ok, %{refs: refs, pending_unblocks: %{}}}
+        {:error, reason} -> {:error, reason}
+      end
     end
   end
 
+  defp document_format?(value) do
+    Map.has_key?(value, "refs") or Map.has_key?(value, :refs) or
+      Map.has_key?(value, "pending_unblocks") or Map.has_key?(value, :pending_unblocks)
+  end
+
+  defp field(value, "refs", default), do: Map.get(value, "refs", Map.get(value, :refs, default))
+
+  defp field(value, "pending_unblocks", default),
+    do: Map.get(value, "pending_unblocks", Map.get(value, :pending_unblocks, default))
+
   defp decode_refs(refs) do
-    Enum.reduce(refs, %{}, fn
-      {identifier, metadata}, acc when is_map(metadata) ->
+    Enum.reduce_while(refs, {:ok, %{}}, fn
+      {identifier, metadata}, {:ok, acc} when is_binary(identifier) and is_map(metadata) ->
         case decode_metadata(identifier, metadata) do
-          {:ok, validated} -> Map.put(acc, identifier, validated)
-          :error -> acc
+          {:ok, validated} -> {:cont, {:ok, Map.put(acc, identifier, validated)}}
+          :error -> {:halt, {:error, :invalid_ref}}
         end
 
-      _invalid, acc ->
-        acc
+      _invalid, _acc ->
+        {:halt, {:error, :invalid_ref}}
     end)
   end
 
   defp decode_pending_unblocks(pending) when is_map(pending) do
-    Enum.reduce(pending, %{}, &decode_pending_unblock/2)
+    Enum.reduce_while(pending, {:ok, %{}}, &decode_pending_unblock/2)
   end
 
-  defp decode_pending_unblocks(_pending), do: %{}
+  defp decode_pending_unblocks(_pending), do: {:error, :invalid_pending_unblocks}
 
-  defp decode_pending_unblock({identifier, entries}, pending) when is_map(entries) do
-    validated = Enum.reduce(entries, %{}, &decode_pending_metadata(identifier, &1, &2))
-    if map_size(validated) == 0, do: pending, else: Map.put(pending, identifier, validated)
-  end
-
-  defp decode_pending_unblock(_invalid, pending), do: pending
-
-  defp decode_pending_metadata(identifier, {_key, metadata}, entries) when is_map(metadata) do
-    case decode_metadata(identifier, metadata) do
-      {:ok, value} -> Map.put(entries, pending_key(value), value)
-      :error -> entries
+  defp decode_pending_unblock({identifier, entries}, {:ok, pending})
+       when is_binary(identifier) and is_map(entries) do
+    case Enum.reduce_while(entries, {:ok, %{}}, &decode_pending_metadata(identifier, &1, &2)) do
+      {:ok, validated} -> {:cont, {:ok, Map.put(pending, identifier, validated)}}
+      {:error, reason} -> {:halt, {:error, reason}}
     end
   end
 
-  defp decode_pending_metadata(_identifier, _invalid, entries), do: entries
+  defp decode_pending_unblock(_invalid, _pending), do: {:halt, {:error, :invalid_pending_unblock}}
+
+  defp decode_pending_metadata(identifier, {_key, metadata}, {:ok, entries}) when is_map(metadata) do
+    case decode_metadata(identifier, metadata) do
+      {:ok, value} -> {:cont, {:ok, Map.put(entries, pending_key(value), value)}}
+      :error -> {:halt, {:error, :invalid_pending_metadata}}
+    end
+  end
+
+  defp decode_pending_metadata(_identifier, _invalid, _entries),
+    do: {:halt, {:error, :invalid_pending_metadata}}
 
   defp decode_metadata(identifier, metadata) do
     ref = Map.get(metadata, "ref") || Map.get(metadata, :ref)
@@ -258,24 +321,64 @@ defmodule Aiur.Events.BranchRefStore do
     document = current_document(state)
 
     if document == state.persisted do
-      state
+      {:ok, clear_retry(state)}
     else
-      JsonStore.write!(state.path, document)
-      %{state | persisted: document}
+      case write_document(state.path, document) do
+        :ok ->
+          {:ok, clear_retry(%{state | persisted: document})}
+
+        {:error, error} ->
+          Logger.warning("BranchRefStore persistence failed: path=#{state.path} reason=#{Exception.message(error)}")
+
+          {:error, queue_retry(state, document)}
+      end
     end
+  end
+
+  defp write_document(path, document) do
+    JsonStore.write!(path, document)
+    :ok
   rescue
-    error ->
-      Logger.warning("BranchRefStore persistence failed: path=#{state.path} reason=#{Exception.message(error)}")
+    error -> {:error, error}
+  end
+
+  defp queue_retry(state, document) do
+    state = rollback(state)
+
+    if state.persist_retry_ref do
+      %{state | pending_persist: document}
+    else
+      token = make_ref()
+      timer_ref = Process.send_after(self(), {:retry_persist, token}, state.persist_retry_delay_ms)
+      next_delay = min(state.persist_retry_delay_ms * 2, @persist_retry_max_ms)
+
+      %{
+        state
+        | pending_persist: document,
+          persist_retry_ref: timer_ref,
+          persist_retry_token: token,
+          persist_retry_delay_ms: next_delay
+      }
+    end
+  end
+
+  defp clear_retry(state) do
+    if state.persist_retry_ref, do: Process.cancel_timer(state.persist_retry_ref)
+
+    %{
       state
+      | pending_persist: nil,
+        persist_retry_ref: nil,
+        persist_retry_token: nil,
+        persist_retry_delay_ms: @persist_retry_initial_ms
+    }
+  end
+
+  defp rollback(state) do
+    %{state | refs: state.persisted.refs, pending_unblocks: state.persisted.pending_unblocks}
   end
 
   defp current_document(state), do: %{refs: state.refs, pending_unblocks: state.pending_unblocks}
-  defp empty_document, do: %{refs: %{}, pending_unblocks: %{}}
-
-  defp log_load_failure(path, reason) do
-    Logger.warning("BranchRefStore load failed: path=#{path} reason=#{inspect(reason)}")
-    empty_document()
-  end
 
   defp store_path(opts) do
     case Keyword.fetch(opts, :path) do
