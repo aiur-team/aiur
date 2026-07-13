@@ -34,6 +34,18 @@ defmodule Aiur.Claude.Repl.Launcher do
     # the live session's jsonl only at first-message time, always after this.
     started_at = System.os_time(:second)
 
+    ctx = %{
+      tmux: tmux,
+      workspace: expanded,
+      model: model,
+      effort: effort,
+      rc?: rc?,
+      rc_name: rc_name,
+      window_name: window_name,
+      started_at: started_at,
+      opts: opts
+    }
+
     # RC sessions emit no structured stdout, so turn detection rides on Claude
     # lifecycle hooks POSTed to Aiur.HttpServer. Never start RC without that
     # capability: model:remote tickets and live promotion can opt into RC after
@@ -47,34 +59,42 @@ defmodule Aiur.Claude.Repl.Launcher do
       Logger.error("claude-repl remote-control requires a bound Aiur.HttpServer lifecycle-hook listener")
       {:error, :remote_control_requires_dashboard}
     else
-      do_start_session(expanded, model, effort, rc?, rc_name, window_name, settings_path, started_at, opts, tmux)
+      do_start_session(ctx, settings_path)
     end
   end
 
-  defp do_start_session(expanded, model, effort, rc?, rc_name, window_name, settings_path, started_at, opts, tmux) do
+  defp do_start_session(ctx, settings_path) do
     # Resume the prior conversation across an aiur restart when the runner
     # handed us a persisted session id whose transcript still exists (#613).
     # nil means a clean start (no handle, or its transcript is gone).
-    resume_id = Command.resume_session_id(opts, expanded)
-    command = Command.build_command(expanded, model, effort, rc?, rc_name, settings_path, resume_id)
+    resume_id = Command.resume_session_id(ctx.opts, ctx.workspace)
 
-    Aiur.Perf.event(:repl_agent_spawn, workspace: expanded, remote_control: rc?, resumed: is_binary(resume_id))
+    command =
+      Command.build_command(
+        ctx.workspace,
+        ctx.model,
+        ctx.effort,
+        ctx.rc?,
+        ctx.rc_name,
+        settings_path,
+        resume_id
+      )
 
-    ctx = %{
-      tmux: tmux,
-      workspace: expanded,
-      model: model,
-      rc?: rc?,
-      rc_name: rc_name,
-      identifier: Keyword.get(opts, :identifier),
-      process_reaper: Keyword.get(opts, :process_reaper, ProcessReaper),
-      hooks?: is_binary(settings_path),
-      started_at: started_at,
-      resume_id: resume_id,
-      opts: opts
-    }
+    Aiur.Perf.event(:repl_agent_spawn,
+      workspace: ctx.workspace,
+      remote_control: ctx.rc?,
+      resumed: is_binary(resume_id)
+    )
 
-    case Tmux.new_hidden_window(tmux, window_name, command) do
+    ctx =
+      Map.merge(ctx, %{
+        identifier: Keyword.get(ctx.opts, :identifier),
+        process_reaper: Keyword.get(ctx.opts, :process_reaper, ProcessReaper),
+        hooks?: is_binary(settings_path),
+        resume_id: resume_id
+      })
+
+    case Tmux.new_hidden_window(ctx.tmux, ctx.window_name, command) do
       {:ok, pane_id} ->
         finish_start(ctx, pane_id)
 
