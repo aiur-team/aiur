@@ -4,7 +4,7 @@ defmodule AiurWeb.DashboardLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
-  alias Aiur.{DecisionPubSub, Issue}
+  alias Aiur.{DecisionPubSub, DecisionStore, Issue}
   alias Aiur.Orchestrator
   alias Aiur.RecentMerge
   alias AiurWeb.{DashboardLive, ObservabilityPubSub, Presenter}
@@ -198,6 +198,58 @@ defmodule AiurWeb.DashboardLiveTest do
 
     DecisionPubSub.broadcast_changed("decision-only", 26)
     assert eventually(fn -> CountingOrchestrator.snapshot_count(orchestrator_name) == initial_count + 2 end)
+  end
+
+  test "keeps the mounted dashboard decision history bounded" do
+    orchestrator_name = Module.concat(__MODULE__, :BoundedHistoryOrchestrator)
+
+    start_supervised!(
+      {CountingOrchestrator,
+       name: orchestrator_name,
+       snapshot: %{
+         running: [],
+         retrying: [],
+         idle: [],
+         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+         rate_limits: nil
+       }}
+    )
+
+    install_decision_history!(51)
+    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 100)
+
+    {:ok, view, _html} = live(build_conn(), "/")
+
+    rows = view |> render() |> Floki.parse_document!() |> Floki.find("#decision-history tbody tr")
+    assert length(rows) == 50
+  end
+
+  defp install_decision_history!(count) do
+    original_state = :sys.get_state(DecisionStore)
+
+    on_exit(fn ->
+      if Process.whereis(DecisionStore), do: :sys.replace_state(DecisionStore, fn _state -> original_state end)
+    end)
+
+    :sys.replace_state(DecisionStore, fn state ->
+      Map.put(state, :audit_history, decision_histories(count))
+    end)
+  end
+
+  defp decision_histories(count) do
+    %{
+      "dec-dashboard" =>
+        Enum.map(1..count, fn version ->
+          %{
+            decision_id: "dec-dashboard",
+            version: version,
+            ticket: %{identifier: "1051", title: "Decision history", url: nil},
+            source: %{agent_id: "agent-1", session_id: "session-1", event_id: nil},
+            question: "Decision version #{version}?",
+            created_at: DateTime.add(~U[2026-07-12 12:00:00Z], version, :second)
+          }
+        end)
+    }
   end
 
   defp start_test_endpoint(overrides) do

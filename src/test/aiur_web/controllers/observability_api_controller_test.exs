@@ -4,6 +4,7 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
   import Plug.Conn
   import Plug.Test
 
+  alias Aiur.DecisionStore
   alias Aiur.Claude.HookEvents
 
   # api_write endpoints require a loopback Origin + the X-Aiur-Request header.
@@ -73,5 +74,42 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
 
       assert conn.status == 403
     end
+  end
+
+  test "GET /api/v1/state returns the full decision history by default" do
+    install_decision_history!(51)
+
+    conn = call(conn(:get, "/api/v1/state"))
+
+    assert conn.status == 200
+    assert conn.resp_body |> Jason.decode!() |> get_in(["decision_history", "entries"]) |> length() == 51
+  end
+
+  defp install_decision_history!(count) do
+    original_state = :sys.get_state(DecisionStore)
+
+    on_exit(fn ->
+      if Process.whereis(DecisionStore), do: :sys.replace_state(DecisionStore, fn _state -> original_state end)
+    end)
+
+    :sys.replace_state(DecisionStore, fn state ->
+      Map.put(state, :audit_history, decision_histories(count))
+    end)
+  end
+
+  defp decision_histories(count) do
+    %{
+      "dec-observability" =>
+        Enum.map(1..count, fn version ->
+          %{
+            decision_id: "dec-observability",
+            version: version,
+            ticket: %{identifier: "1051", title: "Decision history", url: nil},
+            source: %{agent_id: "agent-1", session_id: "session-1", event_id: nil},
+            question: "Decision version #{version}?",
+            created_at: DateTime.add(~U[2026-07-12 12:00:00Z], version, :second)
+          }
+        end)
+    }
   end
 end
