@@ -83,6 +83,9 @@ for (const theme of themes) {
     }
     expect(contrastRatio(contrast.brandButton.foreground, contrast.brandButton.background)).toBeGreaterThanOrEqual(4.5)
 
+    const codeLanguageLabel = page.locator('.lang').first()
+    expect(contrastRatio(...await renderedColors(codeLanguageLabel))).toBeGreaterThanOrEqual(4.5)
+
     const homeLink = page.getByRole('link', { name: 'Home' })
     await expect(homeLink).toHaveAttribute('href', 'https://aiur.team/')
     await expect(homeLink).toHaveAttribute('target', '_self')
@@ -136,5 +139,22 @@ async function colors(locator: import('@playwright/test').Locator): Promise<[str
       return `#${channels.map((channel) => channel.toString(16).padStart(2, '0')).join('')}`
     }
     return [toHex(styles.color), toHex(styles.backgroundColor)]
+  })
+}
+
+async function renderedColors(locator: import('@playwright/test').Locator): Promise<[string, string]> {
+  return locator.evaluate((element) => {
+    const toHex = (color: string) => {
+      const channels = color.match(/\d+/g)?.slice(0, 3).map(Number) ?? []
+      return `#${channels.map((channel) => channel.toString(16).padStart(2, '0')).join('')}`
+    }
+    const foreground = getComputedStyle(element).color
+    let backgroundElement: Element | null = element
+    let background = 'rgba(0, 0, 0, 0)'
+    while (backgroundElement && /rgba?\([^)]*,\s*0\)/.test(background)) {
+      background = getComputedStyle(backgroundElement).backgroundColor
+      backgroundElement = backgroundElement.parentElement
+    }
+    return [toHex(foreground), toHex(background)]
   })
 }

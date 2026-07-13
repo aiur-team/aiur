@@ -15,7 +15,7 @@
   --vp-c-bg-soft: var(--aiur-surface);
   --vp-c-text-1: var(--aiur-fg);
   --vp-c-text-2: var(--aiur-muted);
-  --vp-c-text-3: color-mix(in srgb, var(--aiur-muted) 72%, transparent);
+  --vp-c-text-3: var(--aiur-muted);
   --vp-c-divider: var(--aiur-line);
   --vp-c-gutter: var(--aiur-line);
   --vp-c-brand-1: var(--aiur-accent);
