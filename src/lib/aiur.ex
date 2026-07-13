@@ -21,6 +21,8 @@ defmodule Aiur.Application do
 
   require Logger
 
+  alias Aiur.GitHub.Config
+
   @impl true
   def start(_type, _args) do
     :ok = Aiur.Boot.mark()
@@ -189,7 +191,7 @@ defmodule Aiur.Application do
   # GITHUB_TOKEN env var but falling back to the gh keyring when the env token
   # is stale/invalid. Best-effort: a resolution error must not crash boot.
   defp resolve_github_token do
-    Aiur.GitHub.Config.resolve_token()
+    Config.resolve_token()
     :ok
   rescue
     error ->
