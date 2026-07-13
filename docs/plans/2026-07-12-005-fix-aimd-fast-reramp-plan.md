@@ -56,8 +56,9 @@ The current envelope uses the same lagging one-minute load sample for both safet
 
 - Add a small `Aiur.SystemCpu` sampler that parses cumulative CPU counters and runnable count, leaving delta calculation in a pure helper so tests do not depend on live host timing.
 - Store the prior cumulative CPU sample in orchestrator state. The first sample seeds history; the next poll can calculate idle percentage, satisfying the one-to-two-cycle recovery target.
-- Treat fast recovery as a bounded multiplicative branch. If headroom is absent or unavailable, retain today's additive increase and all existing high-load behavior.
-- Pass whether dispatchable queued work exists into the envelope update so idle telemetry alone never expands capacity without demand.
+- Treat fast recovery as a bounded multiplicative branch entered only after a recorded backoff. Clear recovery state at the static cap so fresh overload still decreases before any later recovery.
+- Clear CPU history across telemetry gaps or disabled targeting so recovery requires two consecutive valid samples.
+- Pass whether work can consume per-state and worker-host capacity into the envelope update so idle telemetry alone never expands capacity without real demand.
 
 ## Implementation Units
 
@@ -100,15 +101,17 @@ The current envelope uses the same lagging one-minute load sample for both safet
 - Test: `src/test/aiur/orchestrator_load_gate_test.exs`
 - Test: `src/test/aiur/orchestrator/dispatcher_test.exs`
 
-**Approach:** Sample real CPU beside existing resource samples. When demand exists, idle percentage is clearly high, and runnable pressure remains below scheduler capacity, grow multiplicatively while capping each poll to three new slots. Otherwise use the configured additive step exactly as today. Let the existing issue reduction consume all resulting slots in the same poll.
+**Approach:** Sample real CPU beside existing resource samples. After a recorded backoff, when demand can consume state/worker capacity, idle percentage is clearly high, and runnable pressure remains below scheduler capacity, grow multiplicatively while capping each poll to three new slots. Clear recovery state at the cap and clear CPU history across unavailable samples. Otherwise use the configured additive step or overload decrease exactly as today. Let the existing issue reduction consume all resulting slots in the same poll.
 
-**Patterns to follow:** Pure `load_envelope/4` decisions, `update_load_envelope/5`, and `choose_issues/2` slot re-evaluation after each dispatch.
+**Patterns to follow:** Pure `load_envelope/4` decisions, `update_load_envelope/7`, and `choose_issues/2` slot re-evaluation after each dispatch.
 
 **Test scenarios:**
 - Happy path: after a decrease, a seeded high-idle/low-runnable sample with queued work restores the cap on the following poll.
 - Integration: multiple queued eligible issues are dispatched automatically into all restored slots during that poll.
 - Edge case: high idle without queued demand keeps the existing envelope value.
 - Edge case: high runnable pressure or unavailable CPU delta uses additive growth rather than fast-ramp.
+- Edge case: above-target load with no recorded prior decrease performs multiplicative backoff even when a CPU delta reports high idle.
+- Edge case: state/worker capacity exhaustion suppresses fast-ramp demand, and a telemetry gap requires two new valid samples.
 - Regression: above-target load still halves capacity subject to cooldown, and load above the hard threshold still holds dispatch.
 
 **Verification:** Focused policy and dispatcher tests demonstrate recovery within two samples and no manual resume path.

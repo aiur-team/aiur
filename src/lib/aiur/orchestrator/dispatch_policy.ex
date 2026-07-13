@@ -168,8 +168,11 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   end
 
   defp adjust_load_envelope(effective, last_decrease_ms, load, %{schedulers: schedulers} = options) do
-    if options.queued_work? and clear_cpu_headroom?(options.cpu_headroom, schedulers) do
-      {fast_ramp_limit(effective, options.static_limit), last_decrease_ms}
+    recovering? = is_integer(last_decrease_ms)
+
+    if recovering? and options.queued_work? and
+         clear_cpu_headroom?(options.cpu_headroom, schedulers) do
+      fast_ramp(effective, last_decrease_ms, options.static_limit)
     else
       adjust_load_envelope_without_headroom(effective, last_decrease_ms, load, options)
     end
@@ -207,12 +210,13 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   defp clear_cpu_headroom?(_headroom, _schedulers), do: false
 
-  defp fast_ramp_limit(effective, static_limit) do
-    min(static_limit, min(effective * 2, effective + @cpu_headroom_ramp_max))
+  defp fast_ramp(effective, last_decrease_ms, static_limit) do
+    next = min(static_limit, min(effective * 2, effective + @cpu_headroom_ramp_max))
+    {next, if(next == static_limit, do: nil, else: last_decrease_ms)}
   end
 
   defp next_cpu_snapshot(_previous, %{total: _total, idle: _idle, runnable: _runnable} = current), do: current
-  defp next_cpu_snapshot(previous, _current), do: previous
+  defp next_cpu_snapshot(_previous, _current), do: nil
 
   defp normalize_load_envelope_limit(effective, static_limit)
        when is_integer(effective) and effective > 0 and is_integer(static_limit) and static_limit > 0,
@@ -289,12 +293,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     active_states = active_state_set()
     terminal_states = terminal_state_set()
 
-    Enum.any?(issues, fn issue ->
-      candidate_issue?(issue, active_states, terminal_states) and
-        !todo_issue_blocked_by_non_terminal?(issue, terminal_states) and
-        !MapSet.member?(state.claimed, issue.id) and
-        !Map.has_key?(state.running, issue.id)
-    end)
+    Enum.any?(issues, &dispatch_candidate?(&1, state, active_states, terminal_states))
   end
 
   @spec state_slots_available?(term(), term()) :: boolean()
