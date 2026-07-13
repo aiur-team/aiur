@@ -1,6 +1,6 @@
 defmodule Aiur.Codex.OperatorDelivery do
   @moduledoc """
-  Codex operator-message delivery over the app-server turn/start request.
+  Codex Executor-message delivery over the app-server turn/start request.
   """
 
   alias Aiur.Codex.{Frames, Rpc}

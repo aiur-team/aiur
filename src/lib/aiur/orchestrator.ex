@@ -82,7 +82,7 @@ defmodule Aiur.Orchestrator do
   end
 
   def handle_info({:worker_control_state, issue_id, status}, state)
-      when is_binary(issue_id) and status in [:paused, :working] do
+      when is_binary(issue_id) and status in [:completed, :paused, :working] do
     PauseResume.handle_worker_control_state(state, issue_id, status, %{})
   end
 
@@ -167,6 +167,10 @@ defmodule Aiur.Orchestrator do
   @doc false
   @spec read_load(number() | nil, number() | nil) :: float() | :unavailable
   defdelegate read_load(hard_threshold, target), to: DispatchPolicy
+
+  @doc false
+  @spec read_cpu(number() | nil) :: Aiur.SystemCpu.snapshot() | :unavailable
+  defdelegate read_cpu(target), to: DispatchPolicy
 
   @doc false
   @spec read_memory(integer() | nil) :: non_neg_integer() | :unavailable

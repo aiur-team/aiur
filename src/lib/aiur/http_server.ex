@@ -33,7 +33,7 @@ defmodule Aiur.HttpServer do
         decision_policy = Keyword.get(opts, :decision_policy)
 
         with {:ok, ip} <- parse_host(host),
-             :ok <- guard_credentials_for_non_loopback(ip, host),
+             :ok <- guard_dashboard_credentials(ip, host, dashboard_writable),
              :ok <- guard_port_available(ip, port, host) do
           endpoint_opts = [
             server: true,
@@ -42,6 +42,7 @@ defmodule Aiur.HttpServer do
             orchestrator: orchestrator,
             snapshot_timeout_ms: snapshot_timeout_ms,
             dashboard_writable: dashboard_writable,
+            dashboard_auth_required: dashboard_writable or not loopback?(ip),
             decision_api: decision_api,
             decision_store: decision_store,
             decision_policy: decision_policy,
@@ -56,7 +57,7 @@ defmodule Aiur.HttpServer do
           Application.put_env(:aiur, Endpoint, endpoint_config)
           Endpoint.start_link()
         else
-          :credentials_missing_for_non_loopback -> :ignore
+          :dashboard_credentials_missing -> :ignore
           :port_in_use -> :ignore
           other -> other
         end
@@ -78,19 +79,42 @@ defmodule Aiur.HttpServer do
     :exit, _reason -> nil
   end
 
-  # Refuse to bind on non-loopback when basic-auth credentials are
-  # missing. The dashboard exposes write endpoints (chat, pause,
-  # refresh); without auth, every device on the LAN/tailnet can POST.
-  # Returns `:ok` to proceed, or the sentinel
-  # `:credentials_missing_for_non_loopback` to short-circuit to
-  # `:ignore`. The Logger.error log line is the operator's only signal,
-  # so it must include the resolved host + env-var names + remediation.
-  defp guard_credentials_for_non_loopback(ip, host_input) do
+  @doc "Return the dashboard URL only when the HTTP listener is actually bound."
+  @spec base_url() :: String.t() | nil
+  def base_url do
+    case bound_port() do
+      port when is_integer(port) and port > 0 ->
+        host = Config.server_host()
+        "http://#{display_host(host)}:#{port}"
+
+      _ ->
+        nil
+    end
+  rescue
+    _error -> nil
+  catch
+    :exit, _reason -> nil
+  end
+
+  # Require basic-auth credentials for writable dashboards on every host, and
+  # for read-only dashboards exposed beyond loopback. Returns `:ok` to proceed,
+  # or a sentinel that disables the dashboard after logging remediation.
+  defp guard_dashboard_credentials(ip, host_input, dashboard_writable) do
     cond do
-      loopback?(ip) ->
+      basic_auth_configured?() ->
         :ok
 
-      basic_auth_configured?() ->
+      dashboard_writable ->
+        Logger.error(
+          "Aiur dashboard refusing to start with observability.dashboard_writable enabled " <>
+            "without basic-auth credentials.\n" <>
+            "Set both AIUR_DASHBOARD_USERNAME and AIUR_DASHBOARD_PASSWORD env vars, " <>
+            "or disable observability.dashboard_writable."
+        )
+
+        :dashboard_credentials_missing
+
+      loopback?(ip) ->
         :ok
 
       true ->
@@ -101,7 +125,7 @@ defmodule Aiur.HttpServer do
             "or re-run with --host 127.0.0.1 (loopback bind is unauthenticated by design)."
         )
 
-        :credentials_missing_for_non_loopback
+        :dashboard_credentials_missing
     end
   end
 
@@ -112,7 +136,7 @@ defmodule Aiur.HttpServer do
   # and the whole BEAM goes down on startup (#442). Probe the bind first and
   # degrade to no-dashboard (`:ignore`) instead: the node keeps running agents,
   # only this instance's dashboard is unavailable. The `Logger.warning` line is
-  # the operator's only signal, so it names the port + remediation.
+  # the Executor’s only signal, so it names the port + remediation.
   #
   # Port 0 is ephemeral (the OS assigns a free port), so it never collides —
   # skip the probe. The probe mirrors Bandit's bind (`reuseaddr: true`) so a
@@ -149,7 +173,7 @@ defmodule Aiur.HttpServer do
   defp loopback?(@loopback_v6), do: true
   defp loopback?(_), do: false
 
-  # Read-only unless the operator opted into dashboard writes. Fail closed if
+  # Read-only unless the Executor opted into dashboard writes. Fail closed if
   # config can't be resolved — an observe-only dashboard is the safe default.
   defp dashboard_writable? do
     Config.dashboard_writable?()
@@ -190,6 +214,10 @@ defmodule Aiur.HttpServer do
   defp normalize_host(host) when host in ["", nil], do: "127.0.0.1"
   defp normalize_host(host) when is_binary(host), do: host
   defp normalize_host(host), do: to_string(host)
+
+  defp display_host(host) when host in ["0.0.0.0", "::", "", nil], do: "127.0.0.1"
+  defp display_host(host) when is_binary(host), do: host
+  defp display_host(host), do: to_string(host)
 
   defp secret_key_base do
     Base.encode64(:crypto.strong_rand_bytes(@secret_key_bytes), padding: false)

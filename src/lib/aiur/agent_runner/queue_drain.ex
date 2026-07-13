@@ -1,9 +1,9 @@
 defmodule Aiur.AgentRunner.QueueDrain do
   @moduledoc """
-  Operator queue drain, paused-wait loop, and queue-item turn execution.
+  Executor queue drain, paused-wait loop, and queue-item turn execution.
 
   Owns the receive loops that block the runner Task process while paused,
-  the claim/dispatch cycle for each queued operator message or event digest,
+  the claim/dispatch cycle for each queued Executor message or event digest,
   and the exactly-once consume/restore/fail settlement per FI-ORC-072 and
   FI-ORC-073.
 
@@ -60,8 +60,8 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
   # Paused state. Wait for an explicit wake signal — a new
   # `:agent_queue_updated` broadcast from the orchestrator, or a
-  # `:resume_agent` control message — before touching the operator
-  # queue. Eagerly claiming on entry was a foot-gun: when the operator
+  # `:resume_agent` control message — before touching the Executor
+  # queue. Eagerly claiming on entry was a foot-gun: when the Executor
   # paused mid-turn, `restore_delivered_queue_items/2` put the in-flight
   # item back in the queue, and the very next entry to this function
   # would re-claim and re-resume in a tight loop that no amount of
@@ -117,7 +117,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
         # A stale containment latch makes the next app-server turn return an
         # immediate `{:paused, %{request_id: :containment}}`. Clear it only
-        # after the orchestrator admitted this resume, so an operator pause
+        # after the orchestrator admitted this resume, so an Executor pause
         # remains protected until an actual resume reaches the worker.
         _ = PauseContainment.release_target(issue.identifier)
         MessageHandler.send_control_state(codex_update_recipient, issue, :working)

@@ -22,6 +22,7 @@ defmodule Aiur.CLI do
     version: :boolean,
     interactive: :boolean,
     headless: :boolean,
+    no_dashboard: :boolean,
     max_agents: :integer,
     force: :boolean,
     todo: :boolean,
@@ -151,7 +152,8 @@ defmodule Aiur.CLI do
          :ok <- maybe_set_server_host(opts, deps),
          :ok <- maybe_set_max_agents(opts),
          :ok <- maybe_set_interactive(opts),
-         :ok <- maybe_set_headless(opts) do
+         :ok <- maybe_set_headless(opts),
+         :ok <- maybe_disable_dashboard(opts) do
       run(workflow_path, deps)
     end
   end
@@ -207,7 +209,7 @@ defmodule Aiur.CLI do
 
   @spec usage_message() :: String.t()
   defp usage_message do
-    "Usage: aiur [--interactive] [--headless] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [config-path]\n       aiur init [--force]\n       aiur --todo <id> [<id> ...] [--only]"
+    "Usage: aiur [--interactive] [--headless] [--no-dashboard] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [config-path]\n       aiur init [--force]\n       aiur --todo <id> [<id> ...] [--only]"
   end
 
   @spec runtime_deps() :: deps()
@@ -334,12 +336,20 @@ defmodule Aiur.CLI do
     :ok
   end
 
-  # Lean `--bg` mode: skip UI-only supervised work (dashboard, chat panes,
+  # Detached `--bg` mode skips terminal-only supervised work (chat panes and
   # the interactive CLI block). The engine injects `--headless` for `--bg`;
-  # foreground stays interactive and unchanged.
+  # dashboard supervision is controlled independently by `--no-dashboard`.
   defp maybe_set_headless(opts) do
     if Keyword.get(opts, :headless, false) do
       Application.put_env(:aiur, :headless, true)
+    end
+
+    :ok
+  end
+
+  defp maybe_disable_dashboard(opts) do
+    if Keyword.get(opts, :no_dashboard, false) do
+      Application.put_env(:aiur, :no_dashboard, true)
     end
 
     :ok

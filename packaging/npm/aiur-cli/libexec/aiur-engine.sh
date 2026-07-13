@@ -46,7 +46,7 @@ else
 fi
 unset __aiur_soft_nofile
 
-# Preserve the shell that initiated the run as a best-effort operator root.
+# Preserve the shell that initiated the run as a best-effort Executor root.
 # An explicit positive override wins (service managers may know a better root);
 # otherwise the engine's parent is the nearest identity available before tmux
 # hands daemon ownership to its pane launcher.
@@ -309,10 +309,10 @@ build_init_cmd() {
 
 usage() {
   cat <<'EOF'
-Usage: aiur [--interactive] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [path-to-.aiurconfig]
-       aiur run [--bg] [--debug]  explicit launch form (foreground unless --bg)
+Usage: aiur [--interactive] [--no-dashboard] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [path-to-.aiurconfig]
+       aiur run [--bg] [--no-dashboard] [--debug]  explicit launch form (foreground unless --bg)
        aiur init [--force]   scaffold .aiurconfig (interactive setup wizard)
-       aiur --bg [--debug]   start in a lean, headless detached tmux session
+       aiur --bg [--no-dashboard] [--debug]   start detached; dashboard on unless suppressed
        aiur stop             stop the running session
        aiur status           show agent status
        aiur agents           show each agent's state + current activity
@@ -320,7 +320,7 @@ Usage: aiur [--interactive] [--max-agents <n>] [--logs-root <path>] [--port <por
        aiur watch [--full|--changes] [--interval <secs>]  server-side status board
        aiur set max-agents <n>   change the concurrent-agent cap at runtime
        aiur pause <ids|--all> | resume <ids|--all>
-       aiur message <id> <text>  send operator text to a running agent
+       aiur message <id> <text>  send Executor text to a running agent
        aiur --todo <ids...> [--only]  queue tickets; optionally dequeue all other pending tickets
        aiur cleanup-stale [--dry-run]  list/reap stale manual-smoke leftovers
        aiur --version
@@ -393,6 +393,33 @@ load_dotenv() {
   done <"$file"
 }
 
+run_argv=()
+build_run_argv() {
+  local mode="$1"
+  shift
+
+  local has_host=0 has_interactive=0 has_headless=0 has_ack=0 arg
+  for arg in "$@"; do
+    case "$arg" in
+      --host | --host=*) has_host=1 ;;
+      --interactive) has_interactive=1 ;;
+      --headless) has_headless=1 ;;
+      --i-understand-that-this-will-be-running-without-the-usual-guardrails) has_ack=1 ;;
+    esac
+  done
+
+  local injected=()
+  [ "$has_host" -eq 1 ] || injected+=(--host 127.0.0.1)
+  if [ "$mode" = "background" ] && [ "$has_interactive" -eq 0 ]; then
+    [ "$has_headless" -eq 1 ] || injected+=(--headless)
+  else
+    [ "$has_interactive" -eq 1 ] || injected+=(--interactive)
+  fi
+  [ "$has_ack" -eq 1 ] || injected+=(--i-understand-that-this-will-be-running-without-the-usual-guardrails)
+
+  run_argv=("${injected[@]}" "$@")
+}
+
 run_session() {
   local mode="$1"
   shift
@@ -424,29 +451,17 @@ run_session() {
 
   # Inject the flags a bare `aiur` needs: loopback bind, UI mode, and the
   # no-guardrails ack. Skip any the user already passed. Foreground runs are
-  # interactive (tmux panes + dashboard); `--bg` runs lean/headless — no panes,
-  # no dashboard bind, no chat backfill — and is driven over the control RPC
-  # (status/agents/message/pause/set). `aiur --bg --interactive` opts back into
-  # the full interactive stack for an attachable background session.
-  local has_host=0 has_interactive=0 has_headless=0 has_ack=0 arg
-  for arg in "$@"; do
-    case "$arg" in
-      --host | --host=*) has_host=1 ;;
-      --interactive) has_interactive=1 ;;
-      --headless) has_headless=1 ;;
-      --i-understand-that-this-will-be-running-without-the-usual-guardrails) has_ack=1 ;;
-    esac
+  # interactive; `--bg` runs headless (no panes/chat backfill) and is driven
+  # over the control RPC (status/agents/message/pause/set). Dashboard binding is
+  # independent: it remains enabled in either mode unless `--no-dashboard` is
+  # supplied. `aiur --bg --interactive` opts back into the full terminal stack
+  # for an attachable background session.
+  build_run_argv "$mode" "$@"
+  local no_dashboard=0
+  for run_arg in "${run_argv[@]}"; do
+    [ "$run_arg" = "--no-dashboard" ] && no_dashboard=1
   done
-  local injected=()
-  [ "$has_host" -eq 1 ] || injected+=(--host 127.0.0.1)
-  if [ "$mode" = "background" ] && [ "$has_interactive" -eq 0 ]; then
-    [ "$has_headless" -eq 1 ] || injected+=(--headless)
-  else
-    [ "$has_interactive" -eq 1 ] || injected+=(--interactive)
-  fi
-  [ "$has_ack" -eq 1 ] || injected+=(--i-understand-that-this-will-be-running-without-the-usual-guardrails)
-
-  write_argv "${injected[@]}" "$@"
+  write_argv "${run_argv[@]}"
   export AIUR_ARGV_FILE="$argv_file"
 
   prepare_distribution
@@ -501,7 +516,7 @@ run_session() {
   # is diagnosable instead of vanishing. Written next to the run's aiur.log so it
   # survives the launcher's tempfile cleanup; ERL_CRASH_DUMP_SECONDS bounds the
   # write so a wedged BEAM can't hang the dump indefinitely. Nothing in the
-  # release boot disables dumps, and an operator override of either var is kept.
+  # release boot disables dumps, and an Executor override of either var is kept.
   # Requires a durable logs root (background run or agent IR sandbox).
   if [ -n "${AIUR_LOGS_ROOT:-}" ]; then
     export ERL_CRASH_DUMP="${ERL_CRASH_DUMP:-$AIUR_LOGS_ROOT/erl_crash.dump}"
@@ -648,6 +663,7 @@ run_session() {
       "$AIUR_RELEASE_NODE" "${AIUR_LOGS_ROOT:-}" \
       "$(aiur_stop_sentinel_path)" "$(aiur_crash_marker_path)" "$AIUR_WORKSPACE_ROOT_FILE")"
     disown "$background_watchdog_pid" 2>/dev/null || true
+    print_background_dashboard_status "$no_dashboard" "$startup_capture"
     echo "aiur started in the background (tmux socket ${socket}, session ${session}). Attach with: aiur" >&2
     # Keep $startup_capture (boot.out.log) for the run's lifetime; only the
     # transient argv file is no longer needed.
@@ -973,7 +989,7 @@ agent_pid_matches() {
 #
 # tmux runs on aiur's PRIVATE socket (-L aiur-$USER), so kill-server tears down
 # every REPL/chat pane agent in one shot AND leaves no live aiur tmux server —
-# never touching the operator's own default tmux. Headless agents (claude/codex
+# never touching the Executor’s own default tmux. Headless agents (claude/codex
 # app-servers spawned via Port) are bare OS processes that reparent to init on a
 # BEAM crash; kill-server can't see them, so they're reaped from the pidfile by
 # process tree, comm-guarded against pid reuse. Idempotent.
@@ -1258,6 +1274,37 @@ probe_control_liveness() {
     printf 'up'
   else
     printf 'down'
+  fi
+}
+
+# Return the externally useful dashboard URL only when the running node confirms
+# that Bandit actually bound a listener. An empty result means the listener was
+# suppressed or refused; configured server.port alone is never proof of service.
+probe_dashboard_url() {
+  local expression output status marker="__AIUR_DASHBOARD_URL__:"
+  expression='case Aiur.HttpServer.base_url() do url when is_binary(url) -> IO.puts("__AIUR_DASHBOARD_URL__:" <> url); _ -> :ok end'
+
+  set +e
+  output="$("$release_bin" rpc "$expression" 2>&1)"
+  status=$?
+  set -e
+
+  if [ "$status" -eq 0 ] && [[ "$output" == *"$marker"* ]]; then
+    output="${output#*"$marker"}"
+    printf '%s' "${output%%$'\n'*}"
+  fi
+}
+
+print_background_dashboard_status() {
+  local no_dashboard="$1" startup_capture="$2" url
+  url="$(probe_dashboard_url)"
+
+  if [ -n "$url" ]; then
+    echo "Dashboard: ${url}" >&2
+  elif [ "$no_dashboard" -eq 1 ]; then
+    echo "Dashboard disabled by --no-dashboard." >&2
+  else
+    echo "⚠️ dashboard listener unavailable; inspect ${startup_capture} for bind or authentication refusal." >&2
   fi
 }
 
@@ -1756,7 +1803,7 @@ cmd_pause_resume() {
   run_control_rpc "$expression"
 }
 
-# `aiur message <issue> <text>` — deliver operator text to one running agent.
+# `aiur message <issue> <text>` — deliver Executor text to one running agent.
 # The text is base64-encoded for the RPC hop so arbitrary content (quotes,
 # backslashes, `#{}`, newlines) survives without Elixir-string escaping.
 cmd_message() {
@@ -1788,7 +1835,7 @@ cmd_agents() {
 }
 
 # `aiur alerts` — newline-delimited structured alert feed from persisted
-# per-agent logs. `--needs-attention` filters to operator-actionable alerts.
+# per-agent logs. `--needs-attention` filters to Executor-actionable alerts.
 cmd_alerts() {
   local needs_attention=0 arg
   for arg in "$@"; do
@@ -1932,7 +1979,7 @@ sweep_dead_tmux_sockets() {
 # foreground teardown (session_cleanup) and on `aiur stop`. Bounded and safe:
 #
 #   * Only exact top-level Aiur artifact families under the temp roots the engine
-#     and BEAM write to. Arbitrary operator worktrees/checkouts like
+#     and BEAM write to. Arbitrary Executor worktrees/checkouts like
 #     `/tmp/aiur-pr490` are not candidates.
 #   * Age-gated by AIUR_TMP_REAP_MINUTES (default 1440 = 24h). An entry is removed
 #     only when NOTHING in its subtree was modified within the window, so a live
@@ -2107,6 +2154,21 @@ cmd_stop() {
 
 # --- dispatch ----------------------------------------------------------------
 
+dispatch_run() {
+  local mode="foreground" arg
+  local args=()
+
+  for arg in "$@"; do
+    if [ "$arg" = "--bg" ]; then
+      mode="background"
+    else
+      args+=("$arg")
+    fi
+  done
+
+  run_session "$mode" "${args[@]}"
+}
+
 aiur_engine_main() {
   local cmd="${1:-}"
   case "$cmd" in
@@ -2130,17 +2192,11 @@ aiur_engine_main() {
       run_init "$@"
       ;;
     --bg)
-      shift
-      run_session background "$@"
+      dispatch_run "$@"
       ;;
     run)
       shift
-      if [ "${1:-}" = "--bg" ]; then
-        shift
-        run_session background "$@"
-      else
-        run_session foreground "$@"
-      fi
+      dispatch_run "$@"
       ;;
     status)
       shift
@@ -2178,16 +2234,16 @@ aiur_engine_main() {
       cmd_stop
       ;;
     "")
-      run_session foreground
+      dispatch_run
       ;;
     -*)
       # leading-flag forms (e.g. `aiur --interactive <config>`) are a run
-      run_session foreground "$@"
+      dispatch_run "$@"
       ;;
     *)
       # a path/config argument is a run; anything else is a usage error
       if [ -e "$cmd" ]; then
-        run_session foreground "$@"
+        dispatch_run "$@"
       else
         echo "aiur: unknown command: $cmd" >&2
         usage >&2

@@ -3,7 +3,7 @@ defmodule Aiur.Codex.UserInputAnswers do
   Auto-answer policies for Codex requestUserInput tool calls.
   """
 
-  @non_interactive_tool_input_answer "This is a non-interactive session. Operator input is unavailable."
+  @non_interactive_tool_input_answer "This is a non-interactive session. Executor input is unavailable."
 
   @spec approval_answers(map()) :: {:ok, map(), String.t()} | :error
   def approval_answers(%{"questions" => questions}) when is_list(questions) do

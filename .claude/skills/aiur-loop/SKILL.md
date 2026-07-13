@@ -33,7 +33,7 @@ launching anything, ask (AskUserQuestion) and record the answers for the whole s
 6. **Cadence & concurrency** — **ASK the status-update interval** (offer 5 / 10 / 15 min;
    **default 5 minutes** if they don't specify). Whatever value they pick feeds the **REQUIRED**
    auto-cadence from `aiur-monitor` (not optional) and is recorded once for the session — the
-   operator never re-asks. Also ask starting agent count and willingness to ramp concurrency up
+   Executor never re-asks. Also ask starting agent count and willingness to ramp concurrency up
    as load allows.
 
 The default operating policy is **MEDIUM autonomy** inside the scope and merge authority recorded
@@ -46,7 +46,7 @@ above:
 - **Escalate** anything that changes product behavior, architecture, scope cuts, or requires a
   destructive or irreversible action. Also escalate actions outside the scope or merge authority
   the developer granted in Step 0. Record the question as `escalated`, immediately notify every
-  active operator surface, and leave it open until answered.
+  active Executor surface, and leave it open until answered.
 
 The practical test is reversibility and product impact: if the action is easy to undo and only
 restores the agreed workflow, decide it; if it changes what gets built or creates lasting risk,
@@ -58,16 +58,16 @@ escalate it. Medium autonomy never grants merge or ticket-creation authority tha
    are captured under `~/.aiur/logs` for monitoring + diagnosis. Clean slate first (no stray BEAM,
    dashboard port free, epmd clear) — a stale instance will grab newly-`agent:todo` tickets on old code.
 2. **Monitor** with `aiur-monitor`. This is REQUIRED, not optional: while the run is live you
-   **MUST** post a fresh board (run `aiurdev watch`) every `<the operator's chosen interval>`
+   **MUST** post a fresh board (run `aiurdev watch`) every `<the Executor’s chosen interval>`
    automatically (the `/loop <chosen>m` interval — **default 5 minutes** if unset; "approximately"
-   is not license to stretch it past the chosen interval; the operator should never have to ask;
+   is not license to stretch it past the chosen interval; the Executor should never have to ask;
    don't skip a tick when steady — see `aiur-monitor`'s required "Monitoring cadence"). Use the
-   interval the operator chose in Step 0 (question 6); the cadence stays automatic and unprompted
-   regardless of the value — never let an operator-set interval become "post only when asked."
+   interval the Executor chose in Step 0 (question 6); the cadence stays automatic and unprompted
+   regardless of the value — never let an Executor-set interval become "post only when asked."
    In parallel, arm `aiur-monitor`'s **wake-on-attention** watcher. A `needs_attention:true`
-   Monitor event re-invokes the operator in seconds and preempts the cadence wait; ordinary
+   Monitor event re-invokes the Executor in seconds and preempts the cadence wait; ordinary
    activity still falls back to the chosen timer. Watch for bugs, stuck agents, CPU/FD. At loop
-   launch, record the operator backend and whether Remote Control is active;
+   launch, record the Executor backend and whether Remote Control is active;
    `operator_decision:true` alerts must update the durable `### Decisions`
    log and fan out through Claude native push, Codex native push/shared Aiur device fallback, and
    the RC notification path when active. **Post each tick as two status tables plus Decisions,

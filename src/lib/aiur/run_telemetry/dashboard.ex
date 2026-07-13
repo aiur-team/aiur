@@ -183,7 +183,7 @@ defmodule Aiur.RunTelemetry.Dashboard do
       <section id="actor-timeline" class="panel" aria-labelledby="actor-timeline-title">
         <div class="section-heading">
           <div><p class="kicker">03 / resource stream</p><h2 id="actor-timeline-title">Per-actor timeline</h2></div>
-          <p>Compare daemon, operator, and ticket process trees on one clock.</p>
+          <p>Compare daemon, Executor, and ticket process trees on one clock.</p>
         </div>
         <div class="controls actor-controls">
           <label>Metric<select id="resource-metric"></select></label>
@@ -390,6 +390,11 @@ defmodule Aiur.RunTelemetry.Dashboard do
       const appendFact = (target, term, description) => { const wrap=node("div","fact"); wrap.append(node("dt",null,term), node("dd",null,description)); target.append(wrap); };
       const tableEmpty = (body, columns, message) => { const row=node("tr"); const cell=node("td",null,message); cell.colSpan=columns; row.append(cell); body.append(row); };
       const bindDetail = (item, text, output) => { item.addEventListener("mouseenter", () => output.textContent=text); item.addEventListener("focus", () => output.textContent=text); };
+      const actorLabel = actor => actor === "_operator" ? "Executor" : actor;
+      const unavailableReason = reason => ({
+        operator_process_unavailable: "Executor process unavailable",
+        operator_pid_unavailable: "Executor PID unavailable"
+      })[reason] || String(reason || "unknown reason");
 
       function renderHeader() {
         $("generated-at").textContent = date(data.generated_at);
@@ -423,7 +428,7 @@ defmodule Aiur.RunTelemetry.Dashboard do
 
       function setupActorControls() {
         const select=$("resource-metric"); metrics.forEach(([key,label]) => { const option=node("option",null,label); option.value=key; select.append(option); });
-        const filters=$("actor-filters"); sortedEntries(data.actors).forEach(([actor],index) => { const label=node("label","actor-check"); const input=node("input"); input.type="checkbox"; input.checked=true; input.value=actor; input.dataset.color=palette[index%palette.length]; const dot=node("i"); dot.style.background=input.dataset.color; label.append(input,dot,document.createTextNode(actor)); filters.append(label); input.addEventListener("change",renderActorChart); });
+        const filters=$("actor-filters"); sortedEntries(data.actors).forEach(([actor],index) => { const label=node("label","actor-check"); const input=node("input"); input.type="checkbox"; input.checked=true; input.value=actor; input.dataset.color=palette[index%palette.length]; const dot=node("i"); dot.style.background=input.dataset.color; label.append(input,dot,document.createTextNode(actorLabel(actor))); filters.append(label); input.addEventListener("change",renderActorChart); });
         select.addEventListener("change",renderActorChart);
         $("actor-table-more").addEventListener("click",appendActorTablePage);
         renderActorChart();
@@ -464,7 +469,7 @@ defmodule Aiur.RunTelemetry.Dashboard do
 
       function appendActorTablePage() {
         const body=$("actor-table-body"), next=Math.min(actorTableOffset+actorTablePageSize,actorTableRows.length);
-        actorTableRows.slice(actorTableOffset,next).forEach(sample => { const row=node("tr"); [date(sample.timestamp),sample.actor,sample.availability,metricValue(actorTableMetric,sample[actorTableMetric]),sample.boot_id].forEach(value=>row.append(node("td",null,value))); body.append(row); });
+        actorTableRows.slice(actorTableOffset,next).forEach(sample => { const row=node("tr"); [date(sample.timestamp),actorLabel(sample.actor),sample.availability,metricValue(actorTableMetric,sample[actorTableMetric]),sample.boot_id].forEach(value=>row.append(node("td",null,value))); body.append(row); });
         actorTableOffset=next; $("actor-table-count").textContent=`Showing ${actorTableOffset} of ${actorTableRows.length} samples`; $("actor-table-more").hidden=actorTableOffset>=actorTableRows.length;
       }
 
@@ -491,8 +496,8 @@ defmodule Aiur.RunTelemetry.Dashboard do
             const x=scale(Number(sample.timestamp_ms),minTime,maxTime,left,right), value=numeric(sample[metric]);
             if (sample.availability === "measured" && value !== null) {
               const y=scale(value,0,yMax,bottom,top); segment.push({x,y}); const circle=svgNode("circle",{cx:x,cy:y,r:5,fill:actorColor(actor.actor),class:"sample-point",tabindex:0,role:"img"});
-              const label=`${actor.actor} · ${metricMeta(metric)[1]} ${metricValue(metric,value)} · ${date(sample.timestamp)}`; circle.setAttribute("aria-label",label); const title=svgNode("title"); title.textContent=label; circle.append(title); bindDetail(circle,label,detail); svg.append(circle);
-            } else { flush(); const group=svgNode("g",{tabindex:0,role:"img","aria-label":`${actor.actor} unavailable at ${date(sample.timestamp)}: ${sample.unavailable_reason || "unknown reason"}`}); group.append(svgNode("line",{x1:x-4,x2:x+4,y1:bottom-4,y2:bottom+4,class:"unavailable-mark"}),svgNode("line",{x1:x-4,x2:x+4,y1:bottom+4,y2:bottom-4,class:"unavailable-mark"})); bindDetail(group,group.getAttribute("aria-label"),detail); svg.append(group); }
+              const label=`${actorLabel(actor.actor)} · ${metricMeta(metric)[1]} ${metricValue(metric,value)} · ${date(sample.timestamp)}`; circle.setAttribute("aria-label",label); const title=svgNode("title"); title.textContent=label; circle.append(title); bindDetail(circle,label,detail); svg.append(circle);
+            } else { flush(); const group=svgNode("g",{tabindex:0,role:"img","aria-label":`${actorLabel(actor.actor)} unavailable at ${date(sample.timestamp)}: ${unavailableReason(sample.unavailable_reason)}`}); group.append(svgNode("line",{x1:x-4,x2:x+4,y1:bottom-4,y2:bottom+4,class:"unavailable-mark"}),svgNode("line",{x1:x-4,x2:x+4,y1:bottom+4,y2:bottom-4,class:"unavailable-mark"})); bindDetail(group,group.getAttribute("aria-label"),detail); svg.append(group); }
           }); flush();
         });
         resetActorTable(allSamples,metric);
@@ -528,14 +533,14 @@ defmodule Aiur.RunTelemetry.Dashboard do
 
       function renderProfiles() {
         const body=$("profile-table-body"); let count=0;
-        sortedEntries(data.actors).forEach(([actor,item])=>{ sortedEntries(item.profile||{}).forEach(([metric,stats])=>{ const row=node("tr"); [actor,metricMeta(metric)[1],String(stats.count),metricValue(metric,stats.min),metricValue(metric,stats.median),metricValue(metric,stats.p95),metricValue(metric,stats.max)].forEach(value=>row.append(node("td",null,value))); body.append(row); count++; }); });
+        sortedEntries(data.actors).forEach(([actor,item])=>{ sortedEntries(item.profile||{}).forEach(([metric,stats])=>{ const row=node("tr"); [actorLabel(actor),metricMeta(metric)[1],String(stats.count),metricValue(metric,stats.min),metricValue(metric,stats.median),metricValue(metric,stats.p95),metricValue(metric,stats.max)].forEach(value=>row.append(node("td",null,value))); body.append(row); count++; }); });
         if (!count) tableEmpty(body,7,"No measured resource values are available for profiling.");
       }
 
       function renderNotes() {
         const samples=Object.values(data.actors).flatMap(actor=>actor.samples||[]), gaps=Object.values(data.actors).reduce((sum,actor)=>sum+(actor.gaps||[]).length,0), unavailable=samples.filter(sample=>sample.availability!=="measured").length, broken=data.findings.filter(f=>f.status==="broken").length;
         const notes=[
-          broken ? `${broken} broken review wakeup path${broken===1?"":"s"} require operator investigation.` : "No broken review pause → resume path is present in this dataset.",
+          broken ? `${broken} broken review wakeup path${broken===1?"":"s"} require Executor investigation.` : "No broken review pause → resume path is present in this dataset.",
           gaps ? `${gaps} within-boot sampling gap${gaps===1?"":"s"} exceeded the configured cadence.` : "No within-boot resource sampling gap exceeded the configured cadence.",
           `Unavailable samples: ${unavailable} of ${samples.length}. Missing values are excluded from resource distributions.`,
           `${data.restarts.length} daemon restart marker${data.restarts.length===1?"":"s"} preserve${data.restarts.length===1?"s":""} chronology across handoffs.`,

@@ -9,7 +9,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicy do
   @spec normalize_delivery_request(term(), term(), map()) ::
           {:ok, keyword()} | {:error, atom()}
   # `:auto` lets the caller defer to the backend: the persistent REPL takes
-  # operator messages immediately mid-turn; everything else holds at a safe
+  # Executor messages immediately mid-turn; everything else holds at a safe
   # checkpoint (native codex/headless-claude turn UX).
   def normalize_delivery_request(:auto, _fallback, %{immediate_delivery: true}) do
     {:ok, [delivery_policy: :immediate]}

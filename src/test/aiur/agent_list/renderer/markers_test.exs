@@ -11,6 +11,7 @@ defmodule Aiur.AgentList.Renderer.MarkersTest do
     refute Markers.finished_work_state?(:running)
     assert Markers.summary_emoji(%{status: :running, identifier: "1", work_state: :sleeping}, %{}, nil) == "💤"
     assert Markers.summary_emoji(%{status: :running, identifier: "1", work_state: :done}, %{}, nil) == "🏁"
+    assert Markers.summary_emoji(%{status: :running, identifier: "1", work_state: :completed}, %{}, nil) == "⏹️"
     assert Markers.summary_emoji(%{status: :running, identifier: "1"}, %{"1" => "⚪"}, :review) == "🔍"
     assert Markers.phase_emoji(:work) == "🔨"
   end
