@@ -1,8 +1,8 @@
 defmodule Aiur.OrchestratorStatusTest do
   use Aiur.TestSupport
 
-  alias Aiur.Codex.CodingAgent, as: CodexCodingAgent
   alias Aiur.{AgentQueueStore, Issue}
+  alias Aiur.Codex.CodingAgent, as: CodexCodingAgent
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator.{OperatorMessages, PauseResume, State, WorkspaceCleanup}
