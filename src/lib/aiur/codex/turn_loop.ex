@@ -79,7 +79,11 @@ defmodule Aiur.Codex.TurnLoop do
 
   defp handle_turn_method(%{port: port} = session, state, payload, payload_string, method) do
     on_message = state.on_message
-    metadata = TurnEvents.metadata_from_message(port, payload)
+
+    metadata =
+      port
+      |> TurnEvents.metadata_from_message(payload)
+      |> Map.put(:workspace, Map.get(session, :workspace))
 
     case Approvals.maybe_handle_approval_request(
            port,

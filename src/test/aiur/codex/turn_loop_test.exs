@@ -89,6 +89,23 @@ defmodule Aiur.Codex.TurnLoopTest do
       close_port(port)
     end
 
+    @tag :tmp_dir
+    test "auto-approved tool calls spill oversized results into the session workspace", %{tmp_dir: tmp_dir} do
+      port = open_cat_port()
+      output = String.duplicate("x", 100 * 1024 + 1)
+      payload = %{"method" => "item/tool/call", "id" => 78, "params" => %{"tool" => "aiur.echo", "arguments" => %{}}}
+      state = %{base_state() | tool_executor: fn "aiur.echo", %{} -> %{"success" => true, "output" => output} end}
+
+      assert {:continue, _state} =
+               TurnLoop.handle_method(%{port: port, workspace: tmp_dir}, state, payload, Jason.encode!(payload), "item/tool/call")
+
+      frame = read_one_frame(port)
+      assert get_in(frame, ["result", "success"])
+      assert [path] = Regex.run(~r/saved to (.+)\. Read the file/, get_in(frame, ["result", "output"]), capture: :all_but_first)
+      assert File.read!(path) == output
+      close_port(port)
+    end
+
     test "approval-required requests return an approval error" do
       port = open_cat_port()
       payload = %{"method" => "item/commandExecution/requestApproval", "id" => 88, "params" => %{}}

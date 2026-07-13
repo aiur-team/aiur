@@ -1,6 +1,8 @@
 defmodule Aiur.AppServer.MessagesTest do
   use ExUnit.Case, async: true
 
+  @moduletag :tmp_dir
+
   alias Aiur.AppServer.Messages
 
   test "emit_message/4 builds an event envelope with metadata and timestamp" do
@@ -26,6 +28,43 @@ defmodule Aiur.AppServer.MessagesTest do
     assert Messages.normalize_tool_result(%{"output" => "kept", "contentItems" => [%{"text" => "ignored"}]})[
              "output"
            ] == "kept"
+  end
+
+  test "normalize_tool_result/2 spills successful output over 100 KiB", %{tmp_dir: tmp_dir} do
+    output = String.duplicate("x", 100 * 1024 + 1)
+
+    result =
+      Messages.normalize_tool_result(
+        %{"success" => true, "output" => output, "contentItems" => [%{"text" => output}]},
+        tmp_dir
+      )
+
+    assert result["success"]
+    assert result["output"] == hd(result["contentItems"])["text"]
+    assert [path] = Regex.run(~r/saved to (.+)\. Read the file/, result["output"], capture: :all_but_first)
+    assert String.starts_with?(path, Path.expand(tmp_dir))
+    assert File.read!(path) == output
+  end
+
+  test "normalize_tool_result/2 keeps boundary-sized and failed output inline", %{tmp_dir: tmp_dir} do
+    boundary = String.duplicate("x", 100 * 1024)
+    failed = %{"success" => false, "output" => boundary <> "x"}
+
+    assert Messages.normalize_tool_result(%{"success" => true, "output" => boundary}, tmp_dir)["output"] == boundary
+    assert Messages.normalize_tool_result(failed, tmp_dir) == failed
+  end
+
+  test "normalize_tool_result/2 bounds the response when spilling fails", %{tmp_dir: tmp_dir} do
+    blocked_workspace = Path.join(tmp_dir, "not-a-directory")
+    File.write!(blocked_workspace, "file")
+    output = String.duplicate("x", 100 * 1024 + 1)
+
+    result = Messages.normalize_tool_result(%{"success" => true, "output" => output}, blocked_workspace)
+
+    refute result["success"]
+    assert result["output"] =~ "could not be saved"
+    assert byte_size(result["output"]) < 1024
+    refute result["output"] =~ output
   end
 
   test "tool call helpers normalize blank names and missing arguments" do

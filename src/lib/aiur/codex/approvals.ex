@@ -63,7 +63,7 @@ defmodule Aiur.Codex.Approvals do
     result =
       tool_executor
       |> ToolExecutor.execute(tool_name, arguments, Messages.tool_call_id(params, id))
-      |> Messages.normalize_tool_result()
+      |> Messages.normalize_tool_result(Map.get(metadata, :workspace))
 
     Rpc.send_message(port, %{"id" => id, "result" => result})
 

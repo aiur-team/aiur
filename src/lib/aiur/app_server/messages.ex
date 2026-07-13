@@ -5,6 +5,7 @@ defmodule Aiur.AppServer.Messages do
 
   @version Mix.Project.config()[:version]
   @initialize_id 1
+  @max_inline_tool_result_bytes 100 * 1024
 
   @spec emit_message((map() -> term()), atom(), map(), map()) :: term()
   def emit_message(on_message, event, details, metadata) when is_function(on_message, 1) do
@@ -15,15 +16,52 @@ defmodule Aiur.AppServer.Messages do
   @spec default_on_message(term()) :: :ok
   def default_on_message(_message), do: :ok
 
-  @spec normalize_tool_result(term()) :: term()
-  def normalize_tool_result(%{"output" => _output} = result), do: result
-
-  def normalize_tool_result(%{"contentItems" => [%{"text" => output} | _]} = result)
-      when is_binary(output) do
-    Map.put(result, "output", output)
+  @spec normalize_tool_result(term(), Path.t() | nil) :: term()
+  def normalize_tool_result(result, workspace \\ nil) do
+    result
+    |> lift_tool_output()
+    |> maybe_spill_tool_output(workspace)
   end
 
-  def normalize_tool_result(result), do: result
+  defp lift_tool_output(%{"output" => _output} = result), do: result
+
+  defp lift_tool_output(%{"contentItems" => [%{"text" => output} | _]} = result)
+       when is_binary(output),
+       do: Map.put(result, "output", output)
+
+  defp lift_tool_output(result), do: result
+
+  defp maybe_spill_tool_output(%{"success" => true, "output" => output} = result, workspace)
+       when is_binary(output) and is_binary(workspace) and byte_size(output) > @max_inline_tool_result_bytes do
+    spill_tool_output(result, output, workspace)
+  end
+
+  defp maybe_spill_tool_output(result, _workspace), do: result
+
+  defp spill_tool_output(result, output, workspace) do
+    directory = Path.join([Path.expand(workspace), ".aiur", "tool-results"])
+    token = 8 |> :crypto.strong_rand_bytes() |> Base.encode16(case: :lower)
+    path = Path.join(directory, "tool-result-#{token}.txt")
+
+    with :ok <- File.mkdir_p(directory),
+         :ok <- File.write(path, output, [:exclusive]) do
+      bounded_tool_result(
+        result,
+        "Tool result exceeded #{@max_inline_tool_result_bytes} inline bytes and was saved to #{path}. Read the file from disk in chunks."
+      )
+    else
+      {:error, reason} ->
+        result
+        |> Map.put("success", false)
+        |> bounded_tool_result("Oversized tool result could not be saved to disk: #{:file.format_error(reason)}")
+    end
+  end
+
+  defp bounded_tool_result(result, message) do
+    result
+    |> Map.put("output", message)
+    |> Map.put("contentItems", [%{"type" => "inputText", "text" => message}])
+  end
 
   @spec tool_call_name(term()) :: String.t() | nil
   def tool_call_name(params) when is_map(params) do
