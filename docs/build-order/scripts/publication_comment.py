@@ -8,7 +8,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from publication_common import SHA, Report, strict_object
 from publication_rendering import (
@@ -111,6 +111,7 @@ def validate_final_comment_matches(
     value: object, root_id: str, plan_version: int, approved: str,
     receipt_commit: str, receipt_url: str, root_issue_url: str,
     repository: str, report: Report, repository_anchor: Path | None = None,
+    remote_commit_exists: Callable[[str, str], bool] | None = None,
 ) -> None:
     """Verify exact live query results without mutating GitHub."""
     label = "final reconciliation comment query"
@@ -135,7 +136,8 @@ def validate_final_comment_matches(
     from publication_receipt_authority import load_receipt_authority
 
     authority = load_receipt_authority(
-        receipt_commit, repository_anchor or Path(__file__), report
+        receipt_commit, repository_anchor or Path(__file__), report,
+        remote_commit_exists,
     )
     if authority is None:
         return

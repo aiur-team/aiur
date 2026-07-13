@@ -25,17 +25,17 @@ pending.
 - Prototype constraints SHA-256:
   `49e068d4999d62197dbd1d5c0438db21a25cd1b5873fb959a58a7e0388c7829a`
 - Canonical Build Order JSON SHA-256:
-  `6a325647de58b526024bf57577234a7a8c9b3183ccae74e45d5f3af85ac73aeb`
+  `86b7f8ba6e423d209e6aa9902f3e7e4e86ca9f3698002e34ba0e64c3ff92e70a`
 - Companion baseline JSON SHA-256:
   `dc641ee49a5a00dd49312123e864d627bfce2d2377a90d1900990693e9fb7ac9`
 - Publication manifest SHA-256:
   `0ffd8d82eadf3525bab29ea555931319d94f11f02ee184534b4b6cb1bf6a86ba`
 - Requirements SHA-256:
-  `8382c30e43d3c375651aa8f697d586824e898199f05f57f00587745e507807fc`
+  `5119db4e38edb5d9f223b47c1f18a50e20052d5ca0f924592c7ffceca8716432`
 - Implementation plan SHA-256:
   `53313576913e30f52e10a9cafd1e46fc037dc1353163d1f41d426c5043bdc295`
 - Latest validator/skill authority: isolated draft PR #1065 at
-  `a9a2142fb6763bec31c30474f98d112c4dad049e`
+  `26af4fc158e8f00688aaa27cbc02bc1a905023fe`
 - Approval commit: pending two clean passes
 
 The design hashes match [the manifest](design-manifest.md). The prototype was
@@ -81,7 +81,7 @@ updates and a final ticket-boundary correction:
 |---|---|
 | Canonical validator | 0 errors, 0 warnings |
 | Companion/publication validator | 0 errors, 0 warnings |
-| Publication regression suite | 63 tests pass |
+| Publication regression suite | 66 tests pass |
 | Build Order tickets | 19, 71 complexity points |
 | Standalone companions | 25, 87 complexity points |
 | Planned GitHub materialization | 46 new issues: one root, 44 executable issues, one human issue |
@@ -339,9 +339,33 @@ found two remaining authorization gaps:
    that validated snapshot, and treats CLI values only as equality assertions.
 2. The requirements still permitted an obsolete PR #1065 revision that
    predated approved-document freezing and protected receipt handling. Every
-   gate and handoff now pins skill commit `a9a2142f`, whose reusable contract
+   gate and handoff now pins skill commit `26af4fc1`, whose reusable contract
    also requires a fully validated materialized receipt commit rather than
    mere commit existence.
+
+### Corrective pass 10 — immutable object and origin authority
+
+This pass was not clean. Two independent adversarial reviews found that the
+receipt still trusted Git object and repository identity too early:
+
+1. Git replace refs could substitute the fully materialized receipt tree for
+   an unmaterialized SHA while `rev-parse`, `ls-tree`, and `show` continued to
+   report the old SHA. All approval, receipt, and pinned-skill object reads now
+   force `GIT_NO_REPLACE_OBJECTS=1`; a regression proves an unmaterialized
+   commit cannot be promoted through replacement or graft substitution.
+2. A self-consistent foreign approval and receipt history imported into the
+   local Aiur object database could define its own repository, root, URLs, and
+   matching caller values. Receipt authority now comes from the configured
+   GitHub `origin`, requires the validated repository/root URL namespace to
+   match it, and read-only verifies both approval and receipt commits exist in
+   that remote repository. A fully materialized foreign-receipt fixture now
+   fails even when its comment and caller values agree.
+3. The reusable skill authority is superseded by `26af4fc1`, which carries the
+   same no-substitution and trusted-origin/remote rules plus its own approved
+   source regression. A malicious authorized same-repository publisher remains
+   outside this receipt threat model; preventing that actor from fabricating
+   observations would require independent API attestation or protected
+   signatures.
 
 ### Clean pass 1
 
@@ -353,9 +377,9 @@ Pending a second review of the unchanged candidate after clean pass 1.
 
 ## Skill verification
 
-At isolated skill commit `a9a2142fb6763bec31c30474f98d112c4dad049e`:
+At isolated skill commit `26af4fc158e8f00688aaa27cbc02bc1a905023fe`:
 
-- 69 adversarial `aiur-build` validator tests pass;
+- 70 adversarial `aiur-build` validator tests pass;
 - the canonical example validates with zero errors and warnings; and
 - `aiur-build`, `aiur-run`, and `aiur-monitor` pass structure validation.
 

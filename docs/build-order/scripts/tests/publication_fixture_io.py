@@ -27,6 +27,9 @@ class FixtureBase:
         self.build_path = self.pack / "build-order.json"
         self.publication_path = self.pack / "publication.json"
         self.approved_commit: str | None = None
+        self.github_repository = str(
+            publication_data.get("repository", "example/repo")
+        )
         values = copy.deepcopy((companion, build, publication_data))
         if self._needs_git(*values):
             source = self._approved_source(*values)
@@ -162,6 +165,13 @@ class FixtureBase:
         )
         subprocess.run(
             ["git", "-C", str(self.base), "config", "user.name", "Test"],
+            check=True,
+        )
+        subprocess.run(
+            [
+                "git", "-C", str(self.base), "remote", "add", "origin",
+                f"https://github.com/{self.github_repository}.git",
+            ],
             check=True,
         )
         subprocess.run(["git", "-C", str(self.base), "add", "."], check=True)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -32,6 +33,19 @@ from validate_publication import validate  # noqa: E402
 REPOSITORY = "example/repo"
 ROOT_ID = "example/repo:build-order-dashboard"
 APPROVED = "a" * 40
+
+
+def replace_repository(value, old: str, new: str):
+    if isinstance(value, str):
+        return value.replace(old, new)
+    if isinstance(value, list):
+        return [replace_repository(item, old, new) for item in value]
+    if isinstance(value, dict):
+        return {
+            replace_repository(key, old, new): replace_repository(item, old, new)
+            for key, item in value.items()
+        }
+    return value
 
 
 class IssueRenderingTests(unittest.TestCase):
@@ -182,6 +196,10 @@ class IssueRenderingTests(unittest.TestCase):
 
 
 class FinalCommentTests(unittest.TestCase):
+    @staticmethod
+    def remote_commit_exists(_repository: str, _commit: str) -> bool:
+        return True
+
     @classmethod
     def setUpClass(cls) -> None:
         data, build, manifest = materialized_pack()
@@ -219,7 +237,7 @@ class FinalCommentTests(unittest.TestCase):
     def report(
         self, matches, receipt=None, receipt_url=None, root_id=None,
         plan_version=None, approved=None, root_url=None, repository=None,
-        repository_anchor=None,
+        repository_anchor=None, remote_commit_exists=None,
     ):
         baseline_receipt, baseline_url, _, _, _ = self.values()
         report = Report()
@@ -234,6 +252,9 @@ class FinalCommentTests(unittest.TestCase):
             self.repository if repository is None else repository,
             report,
             repository_anchor=repository_anchor or self.fixture.build_path,
+            remote_commit_exists=(
+                remote_commit_exists or self.remote_commit_exists
+            ),
         )
         return report
 
@@ -366,11 +387,130 @@ class FinalCommentTests(unittest.TestCase):
             materialized_build["build_order_id"], data["plan_version"], missing,
             receipt, receipt_url, root_url, repository, report,
             repository_anchor=fixture.build_path,
+            remote_commit_exists=self.remote_commit_exists,
         )
         self.assertTrue(any(
             "approved_planning_commit must resolve to an exact commit" in error
             for error in report.errors
         ))
+
+    def test_foreign_materialized_receipt_cannot_override_origin(self) -> None:
+        data, build, manifest = materialized_pack()
+        data, build, manifest = (
+            replace_repository(item, "example/repo", "attacker/fork")
+            for item in (data, build, manifest)
+        )
+        fixture = Fixture(
+            data, build, manifest, pack_prefix="docs/build-order"
+        )
+        self.addCleanup(fixture.close)
+        receipt = fixture.commit_materialized()
+        subprocess.run(
+            [
+                "git", "-C", str(fixture.base), "remote", "set-url", "origin",
+                "git@github.com:its-everdred/aiur.git",
+            ],
+            check=True,
+        )
+        materialized_build = json.loads(
+            fixture.build_path.read_text(encoding="utf-8")
+        )
+        materialized_companions = json.loads(
+            fixture.companion_path.read_text(encoding="utf-8")
+        )
+        repository = materialized_companions["repository"]
+        root_id = materialized_build["build_order_id"]
+        plan_version = materialized_companions["plan_version"]
+        approved = materialized_companions["approved_planning_commit"]
+        root_url = materialized_build["github_root"]["url"]
+        receipt_url = f"https://github.com/{repository}/commit/{receipt}"
+        body = render_successful_comment(
+            root_id, plan_version, approved, repository, receipt, receipt_url
+        )
+        report = Report()
+        validate_final_comment_matches(
+            [{"url": root_url + "#issuecomment-123", "body": body}],
+            root_id, plan_version, approved, receipt, receipt_url,
+            root_url, repository, report,
+            repository_anchor=fixture.build_path,
+            remote_commit_exists=self.remote_commit_exists,
+        )
+        self.assertIn(
+            "validated receipt repository must equal configured GitHub origin "
+            "its-everdred/aiur",
+            report.errors,
+        )
+
+    def test_receipt_and_approval_must_exist_in_origin(self) -> None:
+        _, _, _, comment_url, body = self.values()
+        checked: list[tuple[str, str]] = []
+
+        def remote_commit_exists(repository: str, commit: str) -> bool:
+            checked.append((repository, commit))
+            return commit != self.approved
+
+        report = self.report(
+            [{"url": comment_url, "body": body}],
+            remote_commit_exists=remote_commit_exists,
+        )
+        self.assertEqual(
+            [
+                (self.repository, self.receipt),
+                (self.repository, self.approved),
+            ],
+            checked,
+        )
+        self.assertIn(
+            "approved_planning_commit must exist in configured GitHub repository "
+            f"{self.repository}",
+            report.errors,
+        )
+
+    def test_replace_ref_cannot_promote_unmaterialized_commit(self) -> None:
+        data, build, manifest = materialized_pack()
+        fixture = Fixture(
+            data, build, manifest, pack_prefix="docs/build-order"
+        )
+        self.addCleanup(fixture.close)
+        receipt = fixture.commit_materialized()
+        assert fixture.approved_commit is not None
+        unmaterialized = fixture.approved_commit
+        subprocess.run(
+            [
+                "git", "-C", str(fixture.base), "replace",
+                unmaterialized, receipt,
+            ],
+            check=True,
+        )
+        materialized_build = json.loads(
+            fixture.build_path.read_text(encoding="utf-8")
+        )
+        materialized_companions = json.loads(
+            fixture.companion_path.read_text(encoding="utf-8")
+        )
+        repository = materialized_companions["repository"]
+        root_id = materialized_build["build_order_id"]
+        plan_version = materialized_companions["plan_version"]
+        root_url = materialized_build["github_root"]["url"]
+        receipt_url = (
+            f"https://github.com/{repository}/commit/{unmaterialized}"
+        )
+        body = render_successful_comment(
+            root_id, plan_version, unmaterialized, repository,
+            unmaterialized, receipt_url,
+        )
+        report = Report()
+        validate_final_comment_matches(
+            [{"url": root_url + "#issuecomment-123", "body": body}],
+            root_id, plan_version, unmaterialized, unmaterialized,
+            receipt_url, root_url, repository, report,
+            repository_anchor=fixture.build_path,
+            remote_commit_exists=self.remote_commit_exists,
+        )
+        self.assertIn(
+            "receipt commit build-order.json github_reconciliation must be materialized",
+            report.errors,
+        )
 
     def test_unmaterialized_local_commit_cannot_be_receipt(self) -> None:
         assert self.fixture.approved_commit is not None

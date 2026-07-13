@@ -10,10 +10,10 @@ from pathlib import Path
 from typing import Any
 
 from publication_common import SHA, Report
-from publication_rendering import exact_commit, repository_root
+from publication_rendering import exact_commit, repository_root, run_authority_git
 
 
-PINNED_SKILL_COMMIT = "a9a2142fb6763bec31c30474f98d112c4dad049e"
+PINNED_SKILL_COMMIT = "26af4fc158e8f00688aaa27cbc02bc1a905023fe"
 SKILL_ROOT = ".claude/skills/aiur-build/scripts"
 PINNED_MODULES = (
     "validation_common.py",
@@ -134,7 +134,7 @@ def _apply_result(result: subprocess.CompletedProcess[str], report: Report) -> N
 
 
 def _exact_commit(root: Path, report: Report) -> bool:
-    result = subprocess.run(
+    result = run_authority_git(
         ["git", "-C", str(root), "rev-parse", "--verify", f"{PINNED_SKILL_COMMIT}^{{commit}}"],
         check=False, capture_output=True, text=True,
     )
@@ -146,7 +146,7 @@ def _exact_commit(root: Path, report: Report) -> bool:
 
 def _extract_modules(root: Path, base: Path, report: Report) -> bool:
     for filename in PINNED_MODULES:
-        result = subprocess.run(
+        result = run_authority_git(
             ["git", "-C", str(root), "show", f"{PINNED_SKILL_COMMIT}:{SKILL_ROOT}/{filename}"],
             check=False, capture_output=True,
         )

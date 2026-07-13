@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Callable
 
 from publication_common import SHA, Report
-from publication_rendering import exact_commit, repository_root
+from publication_rendering import exact_commit, repository_root, run_authority_git
 
 
 PACK_ROOT = PurePosixPath("docs/build-order")
@@ -20,6 +21,8 @@ MANIFEST_NAMES = (
     "publication.json",
 )
 REGULAR_MODES = {b"100644", b"100755"}
+GITHUB_REPOSITORY = re.compile(r"^[^/\s]+/[^/\s]+$", re.ASCII)
+RemoteCommitChecker = Callable[[str, str], bool]
 
 
 @dataclass(frozen=True)
@@ -35,6 +38,7 @@ def load_receipt_authority(
     receipt_commit: str,
     repository_anchor: Path,
     report: Report,
+    remote_commit_exists: RemoteCommitChecker | None = None,
 ) -> ReceiptAuthority | None:
     """Validate exact receipt bytes with current trusted validation code."""
     validation = Report()
@@ -42,6 +46,10 @@ def load_receipt_authority(
     if root is None or not exact_commit(
         root, receipt_commit, "receipt_commit", validation
     ):
+        _merge(validation, report)
+        return None
+    trusted_repository = _github_origin_repository(root, validation)
+    if trusted_repository is None:
         _merge(validation, report)
         return None
 
@@ -66,7 +74,15 @@ def load_receipt_authority(
 
     authority = None
     if not validation.errors and not validation.warnings:
-        authority = _derive_authority(manifests, root, validation)
+        authority = _derive_authority(
+            manifests, root, trusted_repository, validation
+        )
+    if authority is not None and not validation.errors and not validation.warnings:
+        _require_remote_commits(
+            authority, receipt_commit,
+            remote_commit_exists or _github_remote_commit_exists,
+            validation,
+        )
     _merge(validation, report)
     return authority if not validation.errors and not validation.warnings else None
 
@@ -74,6 +90,34 @@ def load_receipt_authority(
 def _source_root(anchor: Path, report: Report) -> Path | None:
     probe = anchor / ".receipt-authority-anchor" if anchor.is_dir() else anchor
     return repository_root(probe, report)
+
+
+def _github_origin_repository(root: Path, report: Report) -> str | None:
+    result = run_authority_git(
+        ["git", "-C", str(root), "remote", "get-url", "origin"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode:
+        report.error("receipt authority requires a configured GitHub origin")
+        return None
+    url = result.stdout.strip().rstrip("/")
+    if url.endswith(".git"):
+        url = url[:-4]
+    repository = None
+    for prefix in (
+        "https://github.com/",
+        "git@github.com:",
+        "ssh://git@github.com/",
+    ):
+        if url.startswith(prefix):
+            repository = url[len(prefix):]
+            break
+    if repository is None or not GITHUB_REPOSITORY.fullmatch(repository):
+        report.error("receipt authority origin must identify one GitHub repository")
+        return None
+    return repository
 
 
 def _snapshot_blobs(
@@ -158,7 +202,7 @@ def _safe_relative_path(value: object, label: str, report: Report) -> str | None
 def _commit_blob(
     root: Path, commit: str, path: str, label: str, report: Report,
 ) -> bytes | None:
-    entry = subprocess.run(
+    entry = run_authority_git(
         ["git", "-C", str(root), "ls-tree", "-z", commit, "--", path],
         check=False,
         capture_output=True,
@@ -166,7 +210,7 @@ def _commit_blob(
     if entry.returncode or not _regular_tree_entry(entry.stdout, path):
         report.error(f"{label} must be a regular file at {path}")
         return None
-    result = subprocess.run(
+    result = run_authority_git(
         ["git", "-C", str(root), "show", f"{commit}:{path}"],
         check=False,
         capture_output=True,
@@ -218,7 +262,7 @@ def _require_materialized_receipts(
 
 
 def _clone_without_checkout(root: Path, destination: Path, report: Report) -> bool:
-    result = subprocess.run(
+    result = run_authority_git(
         [
             "git", "clone", "--quiet", "--shared", "--no-checkout", "--",
             str(root), str(destination),
@@ -261,7 +305,8 @@ def _validate_with_trusted_code(root: Path, report: Report) -> None:
 
 
 def _derive_authority(
-    manifests: dict[str, dict[str, Any]], root: Path, report: Report,
+    manifests: dict[str, dict[str, Any]], root: Path,
+    trusted_repository: str, report: Report,
 ) -> ReceiptAuthority | None:
     build = manifests["build-order.json"]
     companions = manifests["dashboard-companions.json"]
@@ -271,10 +316,22 @@ def _derive_authority(
     approved = companions.get("approved_planning_commit")
     github_root = build.get("github_root")
     root_url = github_root.get("url") if isinstance(github_root, dict) else None
+    root_number = (
+        github_root.get("number") if isinstance(github_root, dict) else None
+    )
     if not isinstance(repository, str):
         report.error("validated receipt repository is unavailable")
+    elif repository != trusted_repository:
+        report.error(
+            "validated receipt repository must equal configured GitHub origin "
+            f"{trusted_repository}"
+        )
     if not isinstance(root_id, str):
         report.error("validated receipt root ID is unavailable")
+    elif not root_id.startswith(f"{trusted_repository}:"):
+        report.error(
+            "validated receipt root ID must use configured GitHub repository namespace"
+        )
     if type(plan_version) is not int:
         report.error("validated receipt plan version is unavailable")
     if not isinstance(approved, str) or not SHA.fullmatch(approved):
@@ -283,6 +340,12 @@ def _derive_authority(
         pass
     if not isinstance(root_url, str):
         report.error("validated receipt root issue URL is unavailable")
+    elif root_url != (
+        f"https://github.com/{trusted_repository}/issues/{root_number}"
+    ):
+        report.error(
+            "validated receipt root issue URL must use configured GitHub repository namespace"
+        )
     if report.errors:
         return None
     assert isinstance(repository, str)
@@ -291,12 +354,47 @@ def _derive_authority(
     assert isinstance(approved, str)
     assert isinstance(root_url, str)
     return ReceiptAuthority(
-        repository=repository,
+        repository=trusted_repository,
         root_id=root_id,
         plan_version=plan_version,
         approved_commit=approved,
         root_issue_url=root_url,
     )
+
+
+def _require_remote_commits(
+    authority: ReceiptAuthority, receipt_commit: str,
+    checker: RemoteCommitChecker, report: Report,
+) -> None:
+    for label, commit in (
+        ("receipt_commit", receipt_commit),
+        ("approved_planning_commit", authority.approved_commit),
+    ):
+        try:
+            exists = checker(authority.repository, commit)
+        except Exception:
+            exists = False
+        if exists is not True:
+            report.error(
+                f"{label} must exist in configured GitHub repository "
+                f"{authority.repository}"
+            )
+
+
+def _github_remote_commit_exists(repository: str, commit: str) -> bool:
+    try:
+        result = subprocess.run(
+            [
+                "gh", "api", "--silent",
+                f"repos/{repository}/commits/{commit}",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return False
+    return result.returncode == 0
 
 
 def _merge(source: Report, destination: Report) -> None:

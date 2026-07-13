@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import subprocess
 from copy import deepcopy
@@ -36,6 +37,16 @@ MARKER = re.compile(
     r"<!-- aiur-planning-issue[ \t]*\n(?P<payload>[^\n]*)\n-->",
     re.ASCII,
 )
+
+
+def run_authority_git(
+    args: list[str], **kwargs: Any,
+) -> subprocess.CompletedProcess[Any]:
+    """Run an authority-bearing Git read without honoring replace refs."""
+    configured = kwargs.pop("env", None)
+    env = os.environ.copy() if configured is None else dict(configured)
+    env["GIT_NO_REPLACE_OBJECTS"] = "1"
+    return subprocess.run(args, env=env, **kwargs)
 
 
 def approved_link(repository: str, approved: str) -> str:
@@ -232,7 +243,7 @@ def repository_relative(path: Path, root: Path, report: Report) -> str | None:
 def exact_commit(root: Path, value: object, label: str, report: Report) -> bool:
     if not isinstance(value, str) or not SHA.fullmatch(value):
         return False
-    result = subprocess.run(
+    result = run_authority_git(
         ["git", "-C", str(root), "rev-parse", "--verify", f"{value}^{{commit}}"],
         check=False, capture_output=True, text=True,
     )
@@ -426,7 +437,7 @@ def _current_document_bytes(
 def _git_show(
     root: Path, approved: str, path: str, label: str, report: Report,
 ) -> str | None:
-    entry = subprocess.run(
+    entry = run_authority_git(
         ["git", "-C", str(root), "ls-tree", "-z", approved, "--", path],
         check=False, capture_output=True,
     )
@@ -436,7 +447,7 @@ def _git_show(
     if not _regular_tree_entry(entry.stdout, path):
         report.error(f"{label} must be a regular non-symlink file at {path}")
         return None
-    result = subprocess.run(
+    result = run_authority_git(
         ["git", "-C", str(root), "show", f"{approved}:{path}"],
         check=False, capture_output=True,
     )

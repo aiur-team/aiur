@@ -62,8 +62,11 @@ publication mutation. The verifier treats its CLI identity arguments as
 assertions, not authority: it derives repository, root identity and URL, plan
 version, and approval from the exact receipt commit, requires all three
 materialized reconciliation receipts, and runs the trusted current validator
-against raw regular blobs from that commit before accepting the comment. The
-mere existence of a local commit cannot authorize execution. This two-commit
+against raw regular blobs from that commit before accepting the comment. Every
+authority-bearing Git read disables replace/graft object substitution. The
+repository is anchored to the configured GitHub `origin`, and both approval and
+receipt commits must exist remotely there; imported foreign object history and
+the mere existence of a local commit cannot authorize execution. This two-commit
 authority preserves reviewed scope while giving the immutable handoff a live
 route to the eventual receipt. A conflicting marker, parent, receipt comment,
 or existing identity stops publication for reconciliation; never use a
