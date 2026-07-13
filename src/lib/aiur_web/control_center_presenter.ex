@@ -30,7 +30,7 @@ defmodule AiurWeb.ControlCenterPresenter do
         Presenter.state_payload(orchestrator, snapshot_timeout_ms, presenter_opts)
       end)
 
-    decisions_fun = Keyword.get(opts, :decisions_fun, fn -> DecisionStore.list(decision_store) end)
+    decisions_fun = Keyword.get(opts, :decisions_fun, fn -> DecisionStore.recent_decisions(50, decision_store) end)
 
     decision_metrics_fun =
       Keyword.get(opts, :decision_metrics_fun, fn -> DecisionMetrics.snapshots(decision_metrics) end)

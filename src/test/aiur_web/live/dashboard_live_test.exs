@@ -90,6 +90,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     @impl true
     def handle_call(:list, _from, state), do: {:reply, [state.decision], state}
+    def handle_call({:recent_decisions, _limit}, _from, state), do: {:reply, [state.decision], state}
     def handle_call(:all_history, _from, state), do: {:reply, %{state.decision.decision_id => [state.decision]}, state}
 
     def handle_call(:all_audit_history, _from, state) do
@@ -120,6 +121,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     @impl true
     def handle_call(:list, _from, state), do: {:reply, [state.decision], state}
+    def handle_call({:recent_decisions, _limit}, _from, state), do: {:reply, [state.decision], state}
     def handle_call(:all_history, _from, state), do: {:reply, %{state.decision.decision_id => [state.decision]}, state}
 
     def handle_call(:all_audit_history, _from, state) do
