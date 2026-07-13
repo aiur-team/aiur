@@ -326,7 +326,7 @@ class TrustedRepositoryRefTests(unittest.TestCase):
             capture_output=True,
         )
         with patch(
-            "validation_git_authority._github_clone_url",
+            "validation_git_remote._github_clone_url",
             return_value=str(remote),
         ):
             passing = Report()
@@ -358,7 +358,7 @@ class TrustedRepositoryRefTests(unittest.TestCase):
             return real_lstat(path, *args, **kwargs)
 
         report = Report()
-        with patch("validation_git_authority.os.lstat", side_effect=fail_graft):
+        with patch("validation_git_repository.os.lstat", side_effect=fail_graft):
             self.assertFalse(_reject_legacy_grafts(self.root, report))
         self.assertIn(
             "cannot inspect legacy Git graft entry", "\n".join(report.errors)
