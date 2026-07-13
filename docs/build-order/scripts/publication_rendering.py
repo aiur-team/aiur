@@ -49,6 +49,50 @@ def run_authority_git(
     return subprocess.run(args, env=env, **kwargs)
 
 
+def reject_legacy_grafts(root: Path, report: Report) -> bool:
+    """Reject graft files in both the worktree Git dir and common Git dir.
+
+    ``GIT_NO_REPLACE_OBJECTS`` does not disable the legacy ``info/grafts``
+    mechanism.  Presence is forbidden regardless of file type or contents;
+    using ``lstat`` also makes symlinks, broken symlinks, directories, and
+    other non-regular entries fail closed without opening them.
+    """
+    result = run_authority_git(
+        [
+            "git", "-C", str(root), "rev-parse", "--git-dir",
+            "--git-common-dir",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    directories = result.stdout.splitlines() if result.returncode == 0 else []
+    if len(directories) != 2 or not all(directories):
+        report.error("cannot resolve Git worktree and common directories for graft audit")
+        return False
+    clean = True
+    checked: set[Path] = set()
+    for raw in directories:
+        directory = Path(raw)
+        if not directory.is_absolute():
+            directory = Path(os.path.abspath(root / directory))
+        graft = directory / "info" / "grafts"
+        if graft in checked:
+            continue
+        checked.add(graft)
+        try:
+            graft.lstat()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            report.error(f"cannot establish absence of legacy Git graft file {graft}: {exc}")
+            clean = False
+        else:
+            report.error(f"legacy Git graft authority is forbidden: {graft}")
+            clean = False
+    return clean
+
+
 def approved_link(repository: str, approved: str) -> str:
     return f"https://github.com/{repository}/commit/{approved}"
 
@@ -366,7 +410,7 @@ def _approved_document_title(
 
 
 def repository_root(path: Path, report: Report) -> Path | None:
-    result = subprocess.run(
+    result = run_authority_git(
         ["git", "-C", str(path.resolve().parent), "rev-parse", "--show-toplevel"],
         check=False, capture_output=True, text=True,
     )

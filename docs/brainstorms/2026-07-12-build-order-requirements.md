@@ -43,8 +43,9 @@ not the opening ten-ticket estimate.
 - Linear parity remains separate human-blocked issue #1067.
 - No implementation dispatch begins until the configured integration branch is
   proven to contain the completed OCC baseline and the bounded Executor skill
-  revision from PR #1065 commit `6bead211` (or a reviewed compatible successor)
-  is installed. These gates do not enter the feature denominator.
+  revision from PR #1065 commit
+  `afd9828c61005a84ee316e3b2c995c0122b896ff` (or a reviewed compatible
+  successor) is installed. These gates do not enter the feature denominator.
 
 ## Build Order requirements
 
@@ -165,26 +166,37 @@ These become standalone issues and do not belong to the Build Order root.
   provider-account generation and normalize raw delta/absolute
   measurements with trusted occurrence time, UTC occurrence-price date, scope,
   independent counter epoch, source identity, full/partial
-  coverage, non-overlapping token semantics, currency and exact decimal
-  provider cost. Do not derive cross-message deltas in an ephemeral producer.
+  coverage, currency and exact decimal provider cost. Own a versioned
+  per-provider/source contract that classifies token dimensions as additive,
+  subset, mutually exclusive, or unknown and declares provider-total
+  authority. Unknown or contradictory relationships fail closed. Do not derive
+  cross-message deltas in an ephemeral producer.
 - **DREQ-009 — Durable attributed usage ledger.** A single-writer append-only
   NDJSON authority plus crash-safe absolute-counter checkpoints survives
   restart, retry, fallback and completion. The writer alone derives deltas from
-  absolute counters and owns deterministic replay; bounded aggregate queries
-  and retention/compaction are separate consumers. This supersedes #132's
-  storage/accounting portion and deliberately defers #845's database/BI
-  program.
+  absolute counters, preserves source version and pinned token-relationship
+  revision unchanged in canonical records and replayed deltas, and owns
+  deterministic replay; bounded aggregate queries and retention/compaction are
+  separate consumers. This supersedes #132's storage/accounting portion and
+  deliberately defers #845's database/BI program.
 - **DREQ-010 — Remote Control usage normalization.** Convert authenticated,
   correlated Claude Code request telemetry into exact provider-neutral usage
-  envelopes without scraping interactive output. The required Remote Control
-  path cannot finish with `claude-repl` coverage unsupported.
+  envelopes without scraping interactive output. Map Claude base input,
+  cache-creation input, and cache-read input as separate additive request
+  dimensions under the exact supported source version. The required Remote
+  Control path cannot finish with `claude-repl` coverage unsupported.
 - **DREQ-011 — Versioned cost/grouping projection.** Consume the crash-safe
   aggregate/query projection and report tokens and
   separately labelled provider/API-equivalent estimate bases by run/build,
   ticket, agent family, backend, exact model, currency and opaque account
-  generation with occurrence-time pricing revision, coverage and earliest
-  retained time. Preserve contributor groups by provider/account generation,
-  but also produce one exact cross-provider/cross-generation
+  generation with occurrence-time pricing revision, token-relationship
+  revision, coverage and earliest retained time. Price and reconcile each
+  billable dimension according to the DASH-008 relationship contract: additive
+  dimensions contribute separately, subset dimensions replace the matching
+  parent slice rather than double count it, and unknown/contradictory
+  relationships produce unknown API-equivalent coverage. Preserve contributor
+  groups by provider/account generation, but also produce one exact
+  cross-provider/cross-generation
   `api_equivalent_estimate` roll-up for each compatible currency. Never mix
   currencies or provider-reported and API-equivalent bases. Meter joining
   remains a presentation-composition responsibility.
@@ -248,12 +260,14 @@ These become standalone issues and do not belong to the Build Order root.
 - **DREQ-024 — Crash-safe usage aggregate/query projection.** Project the
   append-only ledger into bounded, atomically published grouping snapshots and
   exact caller-supplied run/ticket queries. Preserve every pricing, currency,
-  account-generation, attribution and coverage dimension through restart and
-  replay without scanning the ledger per browser.
+  token-relationship-revision, account-generation, attribution and coverage
+  dimension through restart and replay without scanning the ledger per browser;
+  distinct or unknown relationship revisions never merge.
 - **DREQ-025 — Usage retention and compaction.** Rotate and compact the durable
   store under configurable limits while preserving the dimensions required to
   reproduce retained aggregates, earliest-retained coverage and audit/replay
-  behavior. Crash recovery, corruption quarantine and deterministic proof are
+  behavior, including exact separation of known/unknown token-relationship
+  revisions. Crash recovery, corruption quarantine and deterministic proof are
   part of this storage lifecycle.
 
 ## Acceptance examples

@@ -49,7 +49,9 @@ Total: 25 tickets, 87 complexity points.
 - Measurement normalization, raw append/delta/replay, aggregate/query recovery,
   destructive retention/compaction, authenticated Claude telemetry transport,
   Remote event mapping, and cost projection have distinct trust, storage,
-  protocol, and review boundaries.
+  protocol, and review boundaries. Measurement normalization owns the
+  provider/source token-relationship contract; provider adapters pin mappings,
+  and cost projection consumes them.
 - The provider-meter contract precedes Codex and Claude adapters, allowing the
   two provider integrations to proceed in parallel.
 - Financial-data authorization must prevent queries/subscriptions/assigns
@@ -101,13 +103,20 @@ The complete evidence matrix is
   trusted lifecycle evidence. DASH-018/019 serialize on the shared Claude
   process-lifecycle adapter; DASH-019 still owns only telemetry launch,
   producer authentication, and session correlation.
-- DASH-008 serializes with BO-005's event migration. DASH-009 owns raw append,
-  counter delta, checkpoint and replay; DASH-024 owns aggregate/query recovery;
-  DASH-025 alone owns destructive rotation/retention/compaction and preserves
-  every grouping dimension before deletion.
-- DASH-011 exposes generation-qualified groups but does not join meter data.
-  DASH-015 alone joins tier facts by provider, backend, and exact known
-  generation, with explicit unknown/mixed/mismatch states.
+- DASH-008 serializes with BO-005's event migration and owns the versioned
+  provider/source token-dimension relationship and provider-total authority.
+  DASH-010 pins Claude base input, cache creation, and cache read as additive
+  for each supported telemetry revision. DASH-009 owns raw append, counter
+  delta, checkpoint and replay and preserves the pinned relationship revision
+  unchanged. DASH-024 owns relationship-revision-partitioned aggregate/query
+  recovery; DASH-025 alone owns destructive rotation/retention/compaction and
+  preserves every grouping and downstream pricing dimension without merging
+  revisions before deletion.
+- DASH-011 prices and reconciles additive, subset, and mutually exclusive
+  dimensions under the pinned relationship revision, failing closed on unknown
+  or contradictory mappings. It exposes generation-qualified groups but does
+  not join meter data. DASH-015 alone joins tier facts by provider, backend,
+  and exact known generation, with explicit unknown/mixed/mismatch states.
 - DASH-019 owns secure local Claude transport/correlation and its protocol gate;
   DASH-010 owns only authenticated event-to-envelope mapping. Its BO-004
   prerequisite supplies repository-qualified ticket correlation and does not

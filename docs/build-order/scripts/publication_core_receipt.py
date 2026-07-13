@@ -53,7 +53,7 @@ print(json.dumps({"errors": report.errors, "warnings": report.warnings}))
 
 
 def contract_repository_root(report: Report) -> Path | None:
-    result = subprocess.run(
+    result = run_authority_git(
         ["git", "-C", str(Path(__file__).resolve().parent), "rev-parse", "--show-toplevel"],
         check=False, capture_output=True, text=True,
     )

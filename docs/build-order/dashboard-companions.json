@@ -85,32 +85,32 @@
       "depends_on": ["BO-017", "DASH-018"], "serializes_with": ["BO-005"], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
       "read_surfaces": ["Codex/Claude headless protocol events", "BO-017 propagated identity", "DASH-018 account generation"],
       "write_surfaces": ["agent event ingestion/normalization seam", "UsageEnvelope publication"],
-      "contract_surfaces": ["provider-neutral raw measurement envelope", "measurement/counter/token-overlap semantics"],
-      "safety_surfaces": ["exact ticket attribution", "raw payload/account redaction"], "conflict_exceptions": [], "github": null
+      "contract_surfaces": ["provider-neutral raw measurement envelope", "versioned provider/source token-dimension relationships and provider-total authority", "measurement/counter semantics"],
+      "safety_surfaces": ["exact ticket attribution", "unknown relationship fail-closed coverage", "raw payload/account redaction"], "conflict_exceptions": [], "github": null
     },
     {
       "id": "DASH-009", "title": "Persist canonical usage ledger", "document": "companion-tickets/DASH-009-durable-usage-ledger.md", "requirement_ref": "DREQ-009", "complexity_points": 4,
       "depends_on": ["DASH-008"], "serializes_with": ["BO-003", "BO-005", "BO-016", "BO-019", "DASH-002", "DASH-012", "DASH-019"], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
-      "read_surfaces": ["DASH-008 UsageEnvelope stream", "private daemon state configuration"],
-      "write_surfaces": ["usage raw ledger segments", "usage idempotency/counter checkpoints", "usage derived-delta stream"],
-      "contract_surfaces": ["durable append/delta/replay acknowledgement"],
-      "safety_surfaces": ["exactly-once accounting", "raw-ledger crash consistency", "owner-only content-free storage", "application supervision tree"], "conflict_exceptions": [], "github": null
+      "read_surfaces": ["DASH-008 UsageEnvelope stream with token-relationship revisions", "private daemon state configuration"],
+      "write_surfaces": ["usage raw ledger segments", "usage idempotency/counter checkpoints", "relationship-revision-preserving usage derived-delta stream"],
+      "contract_surfaces": ["durable append/delta/replay acknowledgement", "unchanged source-version and token-relationship evidence"],
+      "safety_surfaces": ["exactly-once accounting", "no replay-time relationship revision substitution", "raw-ledger crash consistency", "owner-only content-free storage", "application supervision tree"], "conflict_exceptions": [], "github": null
     },
     {
       "id": "DASH-010", "title": "Normalize Claude Remote usage", "document": "companion-tickets/DASH-010-claude-remote-usage.md", "requirement_ref": "DREQ-010", "complexity_points": 3,
       "depends_on": ["DASH-008", "DASH-019"], "serializes_with": [], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
       "read_surfaces": ["DASH-019 authenticated Claude request events/correlation", "DASH-008 envelope contract"],
       "write_surfaces": ["Claude Remote usage adapter", "UsageEnvelope and coverage events"],
-      "contract_surfaces": ["Claude request-event to envelope mapping"],
+      "contract_surfaces": ["source-versioned Claude additive request-dimension to envelope mapping"],
       "safety_surfaces": ["cross-ticket correlation isolation", "content/account redaction"], "conflict_exceptions": [], "github": null
     },
     {
       "id": "DASH-011", "title": "Project cost and usage groups", "document": "companion-tickets/DASH-011-cost-grouping-projection.md", "requirement_ref": "DREQ-011", "complexity_points": 4,
       "depends_on": ["DASH-024"], "serializes_with": [], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
-      "read_surfaces": ["usage aggregate query API", "versioned effective-dated price table", "explicit typed ticket/run scopes"],
+      "read_surfaces": ["usage aggregate query API", "token-relationship revisions in aggregate rows", "DASH-008 immutable provider/source token-relationship registry", "versioned effective-dated price table", "explicit typed ticket/run scopes"],
       "write_surfaces": ["cost/usage grouping projection", "pricing revisions and fixtures"],
-      "contract_surfaces": ["exact basis/currency/generation grouping", "compatible-currency API-equivalent run/build roll-up", "explicit run/build accounting query"],
-      "safety_surfaces": ["no unlike-basis/currency summation", "preserved provider/account-generation contributors", "no provider/backend-only tier join"], "conflict_exceptions": [], "github": null
+      "contract_surfaces": ["relationship-aware token pricing and provider-total reconciliation", "exact basis/currency/generation grouping", "compatible-currency API-equivalent run/build roll-up", "explicit run/build accounting query"],
+      "safety_surfaces": ["unknown/contradictory token relationship fail-closed pricing", "no unlike-basis/currency summation", "preserved provider/account-generation contributors", "no provider/backend-only tier join"], "conflict_exceptions": [], "github": null
     },
     {
       "id": "DASH-012", "title": "Project canonical provider meters", "document": "companion-tickets/DASH-012-provider-meter-foundation.md", "requirement_ref": "DREQ-012", "complexity_points": 3,
@@ -211,18 +211,18 @@
     {
       "id": "DASH-024", "title": "Project durable usage aggregates", "document": "companion-tickets/DASH-024-usage-aggregate-query.md", "requirement_ref": "DREQ-024", "complexity_points": 4,
       "depends_on": ["DASH-009"], "serializes_with": ["BO-003", "BO-005", "BO-016", "BO-019", "DASH-002", "DASH-012", "DASH-019"], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
-      "read_surfaces": ["usage derived-delta stream", "usage raw ledger replay/coverage"],
-      "write_surfaces": ["usage aggregate/checkpoint snapshots", "usage aggregate query API"],
-      "contract_surfaces": ["exact multidimensional usage aggregate/query behavior"],
-      "safety_surfaces": ["reproducible projection", "exact group reconciliation", "no raw-store mutation", "application supervision tree"], "conflict_exceptions": [], "github": null
+      "read_surfaces": ["relationship-revision-preserving usage derived-delta stream", "usage raw ledger replay/coverage"],
+      "write_surfaces": ["token-relationship-revision-partitioned usage aggregate/checkpoint snapshots", "usage aggregate query API"],
+      "contract_surfaces": ["exact multidimensional usage aggregate/query behavior", "no token-relationship revision merging"],
+      "safety_surfaces": ["reproducible projection", "exact group reconciliation", "relationship revision isolation", "no raw-store mutation", "application supervision tree"], "conflict_exceptions": [], "github": null
     },
     {
       "id": "DASH-025", "title": "Harden usage retention and compaction", "document": "companion-tickets/DASH-025-usage-retention-compaction.md", "requirement_ref": "DREQ-025", "complexity_points": 4,
       "depends_on": ["DASH-024"], "serializes_with": ["BO-003", "BO-005", "BO-016", "BO-019", "DASH-002", "DASH-012", "DASH-019"], "external_blockers": [], "external_gate_ids": ["GATE-OCC-PREDECESSOR-BASELINE"],
-      "read_surfaces": ["usage raw ledger segments", "usage aggregate/checkpoint snapshots and query API"],
-      "write_surfaces": ["usage compaction manifest", "usage compacted aggregate blocks", "usage raw segment retirement"],
-      "contract_surfaces": ["dimension-preserving compaction", "retained-coverage semantics"],
-      "safety_surfaces": ["no-delete-before-coverage", "crash-safe destructive state machine", "exact query equivalence", "application supervision tree"], "conflict_exceptions": [], "github": null
+      "read_surfaces": ["usage raw ledger segments", "token-relationship-revision-partitioned usage aggregate/checkpoint snapshots", "usage aggregate query API"],
+      "write_surfaces": ["usage compaction manifest", "relationship-revision-preserving usage compacted aggregate blocks", "usage raw segment retirement"],
+      "contract_surfaces": ["dimension- and token-relationship-revision-preserving compaction", "retained-coverage semantics"],
+      "safety_surfaces": ["no-delete-before-coverage", "no relationship revision merging", "crash-safe destructive state machine", "exact query equivalence", "application supervision tree"], "conflict_exceptions": [], "github": null
     }
   ],
   "github_reconciliation": null

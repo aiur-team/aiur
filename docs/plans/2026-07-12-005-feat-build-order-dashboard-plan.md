@@ -173,10 +173,10 @@ and cannot displace the feature path.
 | DASH-005 | Unit and capacity controls UI | 3 | DASH-003, DASH-004 |
 | DASH-006 | Retained Decision lookup/query | 3 | — |
 | DASH-007 | Commands presentation catch-up | 3 | DASH-001, DASH-006, DASH-017 |
-| DASH-008 | Raw provider-neutral usage measurements | 4 | BO-017, DASH-018 |
+| DASH-008 | Raw usage plus versioned token relationships | 4 | BO-017, DASH-018 |
 | DASH-009 | Durable usage ledger and delta checkpoints | 4 | DASH-008 |
-| DASH-010 | Claude Remote Control usage adapter | 3 | DASH-008, DASH-019 |
-| DASH-011 | Versioned cost/grouping projection | 4 | DASH-024 |
+| DASH-010 | Claude additive Remote Control usage adapter | 3 | DASH-008, DASH-019 |
+| DASH-011 | Relationship-aware cost/grouping projection | 4 | DASH-024 |
 | DASH-012 | Provider-meter foundation | 3 | DASH-018 |
 | DASH-013 | Claude subscription/API meter adapter | 4 | DASH-012; named human protocol gate |
 | DASH-014 | Canonical current-run summary | 4 | DASH-016 |
@@ -195,10 +195,18 @@ and cannot displace the feature path.
 These dependencies publish as native GitHub blockers even though companions
 have no Build Order parent. DASH-018 owns the single opaque, privacy-safe
 provider-account generation shared by usage and meters. DASH-008 serializes
-with BO-005 on event ingestion and consumes BO-017 identity. DASH-009 owns the
-append/checkpoint authority, DASH-024 owns bounded aggregate/query snapshots,
-and DASH-025 owns destructive rotation/retention/compaction while preserving
-every grouping dimension. DASH-011 prices those qualified groups;
+with BO-005 on event ingestion, consumes BO-017 identity, and owns the
+versioned per-provider/source token-relationship contract. DASH-010 pins Claude
+base input, cache creation, and cache read as additive request dimensions for
+the exact supported telemetry revision. DASH-009 owns the append/checkpoint
+authority and preserves that pinned revision unchanged through canonical
+records and replayed deltas. DASH-024 owns bounded aggregate/query snapshots
+partitioned by revision, and DASH-025 owns destructive
+rotation/retention/compaction without merging revisions while preserving every
+grouping and downstream pricing dimension. DASH-011
+prices and reconciles those qualified dimensions separately, including Claude
+additive and Codex-subset behavior, and fails closed when the relationship is
+unknown or contradictory;
 DASH-011 also reconciles compatible-currency API-equivalent contributors into
 one cross-provider/cross-generation run or build estimate while preserving the
 groups and never mixing bases or currencies.

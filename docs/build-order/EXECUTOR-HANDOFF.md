@@ -11,8 +11,11 @@ neither caller-supplied identity or query JSON, Git object substitution,
 imported foreign history, nor a merely local/API-visible commit is a start
 gate. The verifier anchors the repository to the configured GitHub origin,
 fetches the exact receipt-recorded comment ID, and proves approval plus receipt
-remain ancestors of the unchanged tip of the frozen
-`refs/heads/build-order-research` branch. Deletion or a force-push that removes
+remain ancestors of the unchanged tip of the frozen branch while separately
+proving approval is an ancestor of receipt. It rejects legacy graft entries in
+both the worktree and common Git directories, and all authority API reads pin
+`github.com` with finite timeouts. The frozen branch ref is
+`refs/heads/build-order-research`. Deletion or a force-push that removes
 either commit revokes this gate; never substitute `main`, a pull ref, or a tag.
 Planning publication does not queue work. Until then, do not run Aiur,
 implement tickets, or add `agent:todo`.

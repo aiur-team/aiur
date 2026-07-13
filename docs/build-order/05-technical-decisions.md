@@ -129,6 +129,23 @@ attribution and exact tier joins, while producing one same-currency
 currencies or provider-reported and API-equivalent bases, and a combined total
 never receives a synthetic plan tier.
 
+DASH-008 owns the versioned provider/source token-relationship authority rather
+than imposing one cache rule on every backend. Its contract distinguishes
+additive, subset, mutually exclusive, and unknown dimensions plus independent
+provider-total authority. DASH-010 pins Claude base input, cache creation, and
+cache read as additive for the exact supported telemetry version. DASH-011
+prices those Claude dimensions separately, prices subset sources such as Codex
+without double counting the parent slice, and fails closed on unknown or
+contradictory relationships. Provider totals, exact money, source versions,
+and partial coverage remain preserved rather than being repurposed to fill a
+missing dimensional contract.
+
+DASH-009 persists the pinned relationship revision unchanged in canonical
+records and replayed deltas; DASH-024 partitions aggregates by it; DASH-025
+cannot merge it during compaction. DASH-011 resolves each retained revision ID
+through DASH-008's immutable registry, ordered by the existing transitive
+storage dependency chain rather than a redundant direct graph edge.
+
 ## DEC-010 — Treat phase as a hint
 
 **Status:** accepted

@@ -71,7 +71,7 @@ agent_family, backend, requested_model, resolved_model, effort, auth_mode
 raw_input, raw_cached_input, raw_cache_creation_input, raw_output
 raw_reasoning_output, provider_reported_total
 provider_cost_decimal, provider_cost_currency, completeness: full | partial
-source, source_version
+source, source_version, token_relationship_revision
 ```
 
 `provider_account_generation` is one privacy-safe opaque value minted by the
@@ -94,11 +94,37 @@ session/turn, retry attempt, account change or model fallback cannot inherit the
 prior checkpoint accidentally. DASH-008 classifies and preserves raw source
 semantics; it never keeps a second ephemeral delta authority.
 
-Token dimensions overlap. Cached input is normally a subset of input, and
-reasoning output is normally a subset of output. Preserve each dimension for
-pricing and display, but calculate total using the provider-reported total when
-available; otherwise use non-overlapping input plus output. Never sum every
-field. Preserve an exact decimal provider cost at the protocol boundary.
+DASH-008 owns one versioned token-relationship registry keyed by `(provider,
+source, source_version)`. Every token-bearing envelope pins the matching
+`token_relationship_revision`. For each dimension, that revision declares one
+of these relationships:
+
+- `additive`: the dimension is disjoint and contributes once;
+- `subset_of:<parent>`: the dimension is already included in its parent;
+- `mutually_exclusive:<group>`: at most one alternative in the group may
+  contribute for an observation; or
+- `unknown`: no safe additive or pricing interpretation is available.
+
+The same revision separately declares whether a structured
+`provider_reported_total` is authoritative. An authoritative provider total is
+the canonical total when present, while every raw dimension remains available
+for pricing and reconciliation. When it is absent or the source declares no
+provider-total authority, derive a total only from fully known relationships:
+add disjoint dimensions, count a subset through its parent once, and select the
+one valid mutually exclusive alternative. An unknown, missing, or contradictory
+relationship fails closed: an explicitly authoritative provider total may
+remain the canonical total with partial dimension coverage, but otherwise the
+total is unknown, and no dimension-derived API-equivalent estimate is emitted.
+It never guesses a total or zero. A provider-total discrepancy is visible
+coverage/reconciliation evidence and does not erase the authoritative value.
+
+Relationships are provider/source facts, not global assumptions. The supported
+Claude request mapping declares base input, cache-creation input, and cache-read
+input as three additive input dimensions. A supported Codex mapping may declare
+cached input as a subset of input; reasoning is an output subset only when that
+exact source revision says so. DASH-011 prices each dimension under the pinned
+relationship revision. Preserve exact decimal provider cost at the protocol
+boundary.
 
 ## Required Remote Control source
 
@@ -110,6 +136,13 @@ query source and effort. DASH-019 owns the authenticated local-only OTLP ingress
 and trusted `session.id` to Aiur run/ticket/attempt correlation. DASH-010 maps
 that accepted event into DASH-008 without acquiring a second receiver,
 correlation registry, or replay authority.
+
+Anthropic's [official pricing contract](https://docs.anthropic.com/en/docs/about-claude/pricing)
+defines base input, cache creation, and cache read as separately priced input
+dimensions whose counts add to total input. DASH-010 pins that additive meaning
+to the exact supported Claude telemetry source version and refreshes the
+allowlisted OTel field mapping at pickup; billing semantics do not license
+guessing telemetry field names across versions.
 
 This is preferable to scraping `/usage`, transcript output or the status line.
 The status-line token totals describe the current context rather than
@@ -140,10 +173,14 @@ Sources:
 
 V1 uses a daemon-owned, single-writer file store:
 
-- a canonical append-only, versioned NDJSON observation stream;
+- a canonical append-only, versioned NDJSON observation stream that preserves
+  source version and pinned token-relationship revision;
 - crash-safe atomic JSON checkpoints for absolute-counter deduplication;
 - crash-safe atomic aggregate projections for bounded reads, owned separately
-  from the append/checkpoint writer;
+  from the append/checkpoint writer and partitioned by token-relationship
+  revision;
+- compacted aggregate blocks that never merge known, unknown, or different
+  token-relationship revisions;
 - persist-before-publish acknowledgement and explicit store health;
 - deterministic replay/migration, corruption quarantine and rollback tests;
 - separately reviewable configurable retention/compaction that preserves occurrence-price date,
@@ -176,7 +213,8 @@ comparable estimate. Provider-reported estimates remain separate from that
 roll-up and from each other when their semantics are not comparable. Every
 roll-up retains its contributor groups, coverage, occurrence-price partitions
 and immutable pricing revisions. Unknown model, auth mode, currency, occurrence
-time or token coverage produces partial/unknown coverage, never `$0.00`.
+time, token-relationship revision, or token coverage produces partial/unknown
+coverage, never `$0.00`.
 
 For flat subscriptions, per-ticket/build dollars are API-equivalent estimates,
 marked with an asterisk. An information popover explains that the value is not
@@ -237,6 +275,7 @@ usage_summary(ticket_ids, run_ids) ->
   by_model,
   by_currency,
   by_provider_account_generation,
+  token_relationship_coverage,
   token_and_cost_coverage,
   earliest_retained_at,
   store_health
@@ -266,13 +305,13 @@ does not discover Build Orders or retain membership.
 | Ticket | Owns | Does not own |
 |---|---|---|
 | DASH-018 | Shared privacy-safe provider-account-generation lifecycle and identity | usage normalization, meters, pricing, UI |
-| DASH-008 | Raw envelope, headless transport classification and exact attribution inputs | account-generation ownership, cross-message delta derivation, durability, pricing, UI |
-| DASH-009 | File-first append/checkpoint ledger, absolute-counter delta derivation and deterministic replay | aggregate query serving, retention/compaction, provider adapters, pricing, UI |
-| DASH-024 | Crash-safe aggregate/query projection with bounded exact run/ticket grouping snapshots | ledger authority, retention policy, pricing, membership discovery, UI |
-| DASH-025 | Rotation, retention and dimension-preserving compaction lifecycle | ingestion, pricing, membership discovery, UI |
+| DASH-008 | Raw envelope, versioned provider/source token relationships, headless transport classification and exact attribution inputs | account-generation ownership, cross-message delta derivation, durability, pricing, UI |
+| DASH-009 | File-first append/checkpoint ledger, absolute-counter delta derivation, deterministic replay, and unchanged relationship-revision evidence | aggregate query serving, retention/compaction, provider adapters, pricing, UI |
+| DASH-024 | Crash-safe aggregate/query projection with relationship-revision-partitioned bounded exact run/ticket grouping snapshots | ledger authority, retention policy, pricing, membership discovery, UI |
+| DASH-025 | Rotation, retention and dimension/relationship-revision-preserving compaction lifecycle | ingestion, pricing, membership discovery, UI |
 | DASH-019 | Authenticated bounded local telemetry transport, replay controls and trusted session correlation | usage-envelope mapping, provider meters, UI |
-| DASH-010 | Claude REPL/Remote Control event-to-envelope adapter | local transport/correlation, Claude account quotas, summary UI |
-| DASH-011 | Occurrence-time versioned API-equivalent pricing and generation/currency-qualified grouped usage query | provider account meters, ingestion, tier joining, UI |
+| DASH-010 | Claude REPL/Remote Control event-to-envelope adapter with additive request dimensions | local transport/correlation, Claude account quotas, summary UI |
+| DASH-011 | Relationship-aware occurrence-time API-equivalent pricing and generation/currency-qualified grouped usage query | provider account meters, ingestion, tier joining, UI |
 | DASH-012 | Provider-meter snapshot/patch/LKG contract consuming the shared account generation | either provider adapter, ticket usage ledger |
 | DASH-020 | Structured Codex meter adapter and scheduling compatibility | Claude adapter, meter foundation, ticket usage ledger |
 | DASH-013 | Claude subscription and API-key meter parity | Remote Control request accounting |

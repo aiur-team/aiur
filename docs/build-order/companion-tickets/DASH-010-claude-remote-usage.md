@@ -24,21 +24,45 @@
 
 ## Outcome
 
-Authenticated Claude REPL and Remote Control `claude_code.api_request` events become exactly attributed DASH-008 usage/provider-cost envelopes with deterministic identity and explicit coverage.
+Authenticated Claude REPL and Remote Control `claude_code.api_request` events
+become exactly attributed DASH-008 usage/provider-cost envelopes with
+deterministic identity, explicit coverage, and a pinned Claude relationship
+revision that treats base input, cache creation, and cache read as additive
+request dimensions.
 
 ## Context and evidence
 
 Current HookTurn and Remote Control DisplayTailer paths do not provide authoritative request tokens/cost. DASH-019 separately owns the authenticated bounded local telemetry receiver and trusted process/session correlation. This ticket is the accounting adapter over that fixed transport, avoiding transcript, StatusLine, or `/usage` scraping.
 
+Anthropic's [official pricing contract](https://docs.anthropic.com/en/docs/about-claude/pricing)
+defines base input, cache creation, and cache read as distinct input categories
+with separate prices, and defines API total input as `input_tokens +
+cache_creation_input_tokens + cache_read_input_tokens`. That provider semantic
+is durable evidence; the Claude Code OTel attribute names remain
+source-versioned adapter evidence that must be refreshed at pickup.
+
 ## Scope
 
 - Define a versioned allowlisted adapter for official structured `claude_code.api_request` events emitted by DASH-019.
-- Map authenticated source identity, Claude session ID, event sequence/request ID, model, exact `cost_usd`, input/output/cache token fields, query source, effort, occurrence time, and source version into DASH-008 `UsageEnvelope`.
+- Map authenticated source identity, Claude session ID, event sequence/request
+  ID, model, exact `cost_usd`, input/output/cache token fields, query source,
+  effort, occurrence time, and source version into DASH-008 `UsageEnvelope`.
+- For the currently evidenced telemetry revision, map its allowlisted base
+  `input_tokens`, `cache_creation_tokens`, and `cache_read_tokens` attributes to
+  raw base-input, cache-creation-input, and cached-input dimensions. Later
+  source versions require a reviewed mapping and may use different attribute
+  names. Pin the DASH-008 relationship revision that declares those three
+  dimensions disjoint/additive for a request. A derived request total adds each
+  once plus output; a structured provider total wins only if the exact source
+  contract separately declares provider-total authority.
 - Use DASH-019's trusted run, repository-qualified ticket, attempt, backend/transport, session, and worker-generation correlation. Reject an event when required correlation is absent or stale; never guess from session ID alone.
 - Classify the source as request-scoped delta measurement and preserve raw supported dimensions. Exact monetary decoding must occur before binary float conversion.
 - Derive deterministic envelope idempotency identity from official request/event identity plus authenticated producer/session generation. DASH-009 remains the sole durable deduplication owner.
 - Cover Claude REPL, Remote Control, reconnect, resume, replacement attempt, and model/effort change. A resumed session retains attribution only when DASH-019 proves continuity.
-- Emit bounded content-free coverage events for unsupported source versions, missing required identity, ambiguous measurement semantics, and optional-field absence.
+- Emit bounded content-free coverage events for unsupported source or
+  relationship revisions, missing required identity, ambiguous measurement
+  semantics, and optional-field absence. Never fall back to Codex-style cache
+  subset semantics.
 - Ensure HookTurn, transcript, DisplayTailer, StatusLine, and browser state cannot create or alter accounting envelopes.
 
 ## Non-goals
@@ -57,6 +81,9 @@ Add a Claude OTel usage adapter beside existing Claude event normalizers. Consum
 - Request/event identity plus producer/session generation is deterministic across exporter retry. Receipt time never replaces missing occurrence or source identity.
 - `cost_usd` remains a provider-reported request estimate represented exactly; it is not billed spend or subscription allocation.
 - Unsupported/partial/missing input is explicit coverage, never zero usage.
+- Claude base input, cache creation, and cache read remain separate additive
+  dimensions under the pinned relationship revision; no adapter consumer may
+  relabel either cache dimension as a subset of base input.
 - No raw content, account identity, endpoint capability, header, credential, path, or unrelated OTel attribute reaches an envelope, log, or error.
 
 ## Refreshable implementation notes
@@ -69,7 +96,13 @@ Add a Claude OTel usage adapter beside existing Claude event normalizers. Consum
 
 ### Agent gate
 
-- Fixture/property tests cover REPL and Remote Control, retry/replay, session resume, new attempt/generation, model/effort changes, cache dimensions, exact decimal cost, missing optional fields, unsupported version, and unattributable events.
+- Fixture/property tests cover REPL and Remote Control, retry/replay, session
+  resume, new attempt/generation, model/effort changes, nonzero base-input plus
+  cache-creation plus cache-read dimensions, exact additive request totals,
+  exact decimal cost, missing optional fields, unsupported source/relationship
+  version, and unattributable events. One fixture proves base `100` + cache
+  creation `20` + cache read `30` + output `10` yields `160`, not `110` or
+  `130`.
 - Integration tests prove trusted DASH-019 correlation reaches the correct run/ticket/attempt and stale/wrong generation cannot cross ticket boundaries.
 - Negative tests prove HookTurn/DisplayTailer/transcript/StatusLine/browser data cannot affect totals and raw disallowed attributes are absent before publication/logging.
 
@@ -79,20 +112,25 @@ Add a Claude OTel usage adapter beside existing Claude event normalizers. Consum
 
 ### Human/manual evidence
 
-- From the Executor repository root, drive one synthetic-safe Claude REPL and one Remote Control request through the real DASH-019 path and show correctly attributed envelopes with stable identity after reconnect, without displaying prompts or account identity.
+- From the Executor repository root, drive one synthetic-safe Claude REPL and
+  one Remote Control request through the real DASH-019 path and show correctly
+  attributed envelopes with stable identity and additive cache dimensions
+  after reconnect, without displaying prompts or account identity.
 
 ## Failure, security, migration, and accessibility cases
 
 - Malformed, unsupported, partial, or uncorrelated input produces bounded visible coverage failure and never fabricated/zero usage.
 - Redact content, account/email/org, credentials, headers, capability values, environment values, and paths before logs, bug reports, envelope publication, or persistence.
-- Version the source adapter and envelope mapping. Legacy uncovered runs remain uncovered rather than retroactively inferred.
+- Version the source adapter and envelope/relationship mapping. Legacy
+  uncovered runs remain uncovered rather than retroactively inferred.
 - No direct UI. Coverage failures use stable human-readable source/adapter classes.
 
 ## Surfaces
 
 - Reads: DASH-019 authenticated allowlisted Claude request events and trusted correlation; DASH-008 envelope contract.
 - Writes: Claude request-event adapter, DASH-008 envelopes, coverage events, fixtures/tests.
-- Contracts: required Claude REPL/Remote Control event-to-envelope accounting coverage.
+- Contracts: required Claude REPL/Remote Control event-to-envelope accounting
+  coverage and source-versioned additive base/cache-create/cache-read mapping.
 
 ## Sibling boundaries and open gates
 

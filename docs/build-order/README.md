@@ -159,6 +159,9 @@ it before and after the one pending-to-successful comment edit.
 The immutable receipt also freezes
 `trusted_repository_ref=refs/heads/build-order-research`. Final verification
 fetches the exact receipt-recorded comment directly from GitHub and requires
-approval plus receipt to remain ancestors of an unchanged tip of that branch.
-Branch deletion or a force-push that removes either commit revokes the start
-gate; no other ref is an implicit fallback.
+approval plus receipt to remain ancestors of an unchanged tip of that branch,
+and independently proves approval is an ancestor of receipt. Authority reads
+pin `github.com` with finite timeouts; replace objects are disabled and any
+worktree/common-dir legacy graft entry fails closed. Branch deletion or a
+force-push that removes either commit revokes the start gate; no other ref is an
+implicit fallback.

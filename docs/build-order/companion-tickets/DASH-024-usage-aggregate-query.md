@@ -33,7 +33,11 @@ DASH-009 supplies one replayable raw/delta authority. Dashboard and pricing cons
 ## Scope
 
 - Consume only DASH-009 ordered accepted deltas/replay positions; never become a second raw envelope, idempotency, or counter owner.
-- Maintain exact aggregate partitions by provider, run, typed ticket, attempt, opaque account generation including unknown, backend, agent family, exact resolved model, auth mode, UTC pricing-effective date, token dimension, monetary basis, and currency.
+- Maintain exact aggregate partitions by provider, run, typed ticket, attempt,
+  opaque account generation including unknown, backend, agent family, exact
+  resolved model, auth mode, UTC pricing-effective date, token dimension,
+  `token_relationship_revision` including unknown, monetary basis, and
+  currency.
 - Write aggregate/checkpoint snapshots via same-filesystem temporary file, flush, atomic rename, schema/version/checksum, and a source ledger position/generation.
 - Recover by validating the latest aggregate checkpoint and replaying DASH-009 deltas after its source position. Missing/corrupt aggregate state rebuilds from the retained DASH-009 raw authority.
 - Expose exact bounded snapshot/query primitives by explicit typed run/ticket sets, aggregate generation, health/freshness, raw/projected coverage bounds, and PubSub changes.
@@ -54,7 +58,9 @@ Add a supervised projection/query implementation beside DASH-009's behavior, usi
 ## Contract and invariants
 
 - DASH-009 owns source truth; aggregate state is reproducible from retained ordered deltas.
-- Every downstream grouping/pricing dimension survives projection unchanged. Known/unknown account generations, dates, currencies, bases, models, and identities never merge.
+- Every downstream grouping/pricing dimension survives projection unchanged.
+  Known/unknown token-relationship revisions, account generations, dates,
+  currencies, bases, models, and identities never merge.
 - Snapshot source position and checksum make crash/replay idempotent; duplicate projection delivery cannot inflate totals.
 - Queries accept repository-qualified typed ticket/run sets and never key by bare issue number.
 - Group sums reconcile exactly to their matching scope/basis/currency/generation total with explicit coverage gaps.
@@ -71,8 +77,14 @@ Add a supervised projection/query implementation beside DASH-009's behavior, usi
 
 ### Agent gate
 
-- Property fixtures vary provider, run, ticket, attempt, backend, agent family, exact model, auth mode, account generation, UTC date, token dimension, basis, and currency and prove exact partition/reconciliation.
-- Crash/recovery tests stop before/after aggregate update/checkpoint/publish and prove deterministic rebuild from DASH-009 without duplicate totals.
+- Property fixtures vary provider, run, ticket, attempt, backend, agent family,
+  exact model, auth mode, account generation, UTC date, token dimension,
+  token-relationship revision including unknown, basis, and currency and prove
+  exact partition/reconciliation. Identical dimensions under two relationship
+  revisions remain separate groups.
+- Crash/recovery tests stop before/after aggregate update/checkpoint/publish and
+  prove deterministic rebuild from DASH-009 without duplicate totals or
+  revision substitution/merging.
 - Query tests cover explicit run/ticket sets, typed identity collision, empty/partial/unknown, stale/corrupt/unavailable health, bounded reads, and browser-count-independent work.
 - Failure injection covers snapshot write/flush/rename/checksum/schema/source-position mismatches and safe LKG behavior.
 
@@ -93,9 +105,12 @@ Add a supervised projection/query implementation beside DASH-009's behavior, usi
 
 ## Surfaces
 
-- Reads: DASH-009 ordered delta/replay behavior and source coverage.
-- Writes: aggregate/checkpoint snapshots, bounded query projection, health/freshness/generation PubSub.
-- Contracts: exact multidimensional usage aggregate/query behavior.
+- Reads: DASH-009 ordered delta/replay behavior with pinned token-relationship
+  revisions and source coverage.
+- Writes: relationship-revision-partitioned aggregate/checkpoint snapshots,
+  bounded query projection, health/freshness/generation PubSub.
+- Contracts: exact multidimensional usage aggregate/query behavior that never
+  merges token-relationship revisions.
 - Safety: reproducible projection, exact reconciliation, no raw-store mutation,
   and the application supervision tree.
 

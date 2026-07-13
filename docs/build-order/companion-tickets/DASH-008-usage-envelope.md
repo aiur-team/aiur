@@ -27,8 +27,10 @@
 Every supported Codex and Claude headless usage source emits one
 provider-neutral, exactly attributed raw measurement envelope whose counter
 scope, account namespace, occurrence-price partition, and delta/absolute
-semantics give the DASH-009 single writer everything needed to prevent
-duplicate, overlapping, cross-account, or historically repriced accounting.
+semantics, plus a pinned provider/source token-relationship revision, give the
+DASH-009 single writer and DASH-011 pricing projection everything needed to
+prevent duplicate, overlapping, cross-account, or historically repriced
+accounting without inventing how token dimensions relate.
 
 ## Context and evidence
 
@@ -42,7 +44,9 @@ Current `Aiur.Orchestrator.TokenAccounting` is transient, while `Aiur.TokenUsage
   - typed run, tracker, repository/project, issue, attempt, session, thread, turn, and request identity where available;
   - agent family, provider, backend, transport, auth mode, effort, requested model, exact resolved model, and opaque `provider_account_generation`;
   - `measurement_kind` (`delta` or `absolute`), `counter_scope` (`request`, `turn`, `thread`, or `session`), independent `counter_epoch`, source event ID/sequence, and update kind (`full` or `partial`);
-  - raw token dimensions for input, cached input, cache-creation input, output, and reasoning output, plus provider-reported total;
+  - raw token dimensions for input, cached input, cache-creation input, output,
+    and reasoning output, plus provider-reported total and a pinned
+    `token_relationship_revision`;
   - optional exact-decimal provider-reported cost, currency, cost measurement kind/scope, source/version, and explicit coverage/unknown reasons.
 - Consume DASH-018's sole shared `provider_account_generation` for every
   envelope. Usage normalizers report trusted provider/auth lifecycle evidence
@@ -58,7 +62,22 @@ Current `Aiur.Orchestrator.TokenAccounting` is transient, while `Aiur.TokenUsage
   `occurred_at`. It is a deterministic occurrence partition, not a selected
   price revision. Missing or untrusted source occurrence time yields explicit
   unknown pricing coverage; `ingested_at` must never choose this bucket.
-- Define token overlap semantics: cached and cache-creation tokens are input subdimensions and reasoning is an output subdimension unless a provider contract says otherwise. Preserve each dimension, but canonical total uses provider-reported total when available and otherwise non-overlapping input plus output; it never sums every subdimension.
+- Own a versioned token-relationship registry keyed by `(provider, source,
+  source_version)`. Each token-bearing source revision declares every raw
+  dimension as `additive`, `subset_of:<parent>`,
+  `mutually_exclusive:<group>`, or `unknown`, and independently declares
+  whether a structured provider-reported total is authoritative. Pin the
+  selected registry revision on the envelope so replay, aggregate projection,
+  compaction, and pricing retain the exact interpretation used at ingestion.
+- Preserve every raw dimension. When an authoritative provider total is
+  present, use it as canonical total and expose any dimensional discrepancy as
+  coverage/reconciliation evidence. Otherwise derive a total only when all
+  contributing relationships are known: add disjoint dimensions, count a
+  subset through its parent once, and accept at most one nonzero alternative
+  in a mutually exclusive group. Missing, unknown, or contradictory
+  relationships fail closed: an explicitly authoritative provider total may
+  remain canonical with partial dimension coverage, but otherwise the total is
+  unknown, and no dimension-derived pricing input is published.
 - Normalize existing Codex and Claude headless protocol events before transient accounting loss. Classify each source event as absolute or delta at its true scope and preserve the raw source counters unchanged. Do not derive a cross-message delta here.
 - Generate deterministic idempotency identity from trusted source event identity. Preserve source order, `provider_account_generation`, and independent counter-reset evidence so DASH-009 can reject duplicates, out-of-order values and an unexplained lower absolute value durably.
 - Capture provider cost as exact decimal/integer minor units at decode time, before float conversion. A missing or imprecise value is unknown, not zero.
@@ -71,7 +90,10 @@ Current `Aiur.Orchestrator.TokenAccounting` is transient, while `Aiur.TokenUsage
 - Mint or own a meter-only or usage-only account namespace, derive the opaque
   account generation from stable account PII, or treat counter reset as account
   change.
-- Treat cached/reasoning dimensions as additional tokens on top of reported input/output or coerce missing fields to zero.
+- Apply one global cache/reasoning assumption, silently choose between
+  conflicting mutually exclusive dimensions, treat any provider total as
+  authoritative without a versioned source contract, or coerce missing fields
+  to zero.
 
 ## Existing owner and reuse target
 
@@ -82,6 +104,12 @@ Extend the normalized event path around Codex/Claude event normalizers, `AgentRu
 - Measurement kind, counter scope, `counter_epoch`, and source event identity are mandatory whenever a resettable numeric counter is present; otherwise the numeric field is rejected as unsupported/unknown.
 - The raw identity fields required for DASH-009's durable delta key include provider, transport, `provider_account_generation`, `counter_epoch`, session/thread/turn/request scope, counter kind, currency/cost basis where applicable, and model context—not merely ticket ID.
 - One envelope represents one raw source measurement. A thread absolute update and turn delta may both be retained, but DASH-009 can distinguish overlapping streams and applies the only additive/dedup policy.
+- Every token-bearing envelope identifies the selected relationship revision,
+  or explicit unknown, matching its provider/source/source version. Unknown
+  revisions may preserve bounded raw evidence with explicit coverage failure,
+  but cannot publish a derived canonical total or API-equivalent pricing input.
+  Provider-total authority never discards the dimension-level reconciliation
+  record.
 - `occurred_at` records trusted source event time; `pricing_effective_date`
   records its exact UTC daily partition; `ingested_at` records daemon receipt.
   Ordering, deduplication, and pricing never substitute receipt time for missing
@@ -104,8 +132,18 @@ Extend the normalized event path around Codex/Claude event normalizers, `AgentRu
 
 ### Agent gate
 
-- Fixture/property tests cover faithful classification of Codex cumulative thread updates plus turn completion, Claude request deltas, duplicates, out-of-order events, counter reset/new epoch without account rotation, account rotation without counter collision, retry/new attempt, session resume, backend/model fallback, partial updates, cache/reasoning subsets, UTC date-boundary buckets, missing occurrence time, and unknown fields without stateful delta derivation.
-- Exact-arithmetic tests prove provider cost survives decoding without float drift and canonical totals do not double count subdimensions.
+- Fixture/property tests cover faithful classification of Codex cumulative
+  thread updates plus turn completion, Claude request deltas, duplicates,
+  out-of-order events, counter reset/new epoch without account rotation,
+  account rotation without counter collision, retry/new attempt, session
+  resume, backend/model fallback, partial updates, Claude-style additive cache
+  dimensions, Codex-style cache subsets, mutually exclusive alternatives,
+  provider-total authority/discrepancy, UTC date-boundary buckets, missing
+  occurrence time, and unknown relationships/fields without stateful delta
+  derivation.
+- Exact-arithmetic tests prove provider cost survives decoding without float
+  drift; additive, subset, and mutually exclusive fixtures reconcile exactly;
+  and unknown or contradictory relationships never produce a guessed total.
 - Attribution/security tests cover DASH-018 shared generation consumption, typed identity collision, missing/unknown generation, forged prose/model fields, account rotation observed through the owner, and complete raw-payload/account/credential redaction.
 
 ### At-merge gate
@@ -114,11 +152,16 @@ Extend the normalized event path around Codex/Claude event normalizers, `AgentRu
 
 ### Human/manual evidence
 
-- No separate visual evidence. Record sanitized synthetic raw envelopes from one real Codex and one real Claude headless turn and show their source scope, identity and measurement classification; DASH-009 owns the resulting delta proof.
+- No separate visual evidence. Record sanitized synthetic raw envelopes from
+  one real Codex and one real Claude headless turn and show their source scope,
+  identity, measurement classification, and pinned token-relationship
+  revision; DASH-009 owns the resulting delta proof.
 
 ## Failure, security, migration, and accessibility cases
 
-- Malformed, ambiguous, or unattributable usage is rejected/recorded as coverage failure without crashing the agent or becoming zero usage.
+- Malformed, ambiguous, unattributable, or relationship-unknown usage is
+  rejected/recorded as coverage failure without crashing the agent, becoming
+  zero usage, or silently acquiring additive semantics.
 - Never retain raw provider response, prompt/output, email/account/org, credential, OAuth/API material, environment value, capability URL, or workspace path in an envelope.
 - Version the envelope and compatibility adapter; downstream tickets must support replay/migration by schema version.
 - No direct UI; unknown/coverage reasons use stable human-readable classes.
@@ -127,7 +170,10 @@ Extend the normalized event path around Codex/Claude event normalizers, `AgentRu
 
 - Reads: normalized Codex/Claude headless protocol events; trusted run/ticket/attempt/session/backend/model context; DASH-018 account generation.
 - Writes: raw `UsageEnvelope` schema/normalizers, trusted lifecycle observations to DASH-018, event publication, fixtures and tests.
-- Contracts: provider account versus counter-epoch identity, occurrence-price bucket, measurement semantics, token overlap/total policy, exact provider-cost representation, attribution/redaction.
+- Contracts: provider account versus counter-epoch identity, occurrence-price
+  bucket, measurement semantics, versioned provider/source token-dimension
+  relationships and provider-total authority, exact provider-cost
+  representation, attribution/redaction.
 
 ## Sibling boundaries and open gates
 

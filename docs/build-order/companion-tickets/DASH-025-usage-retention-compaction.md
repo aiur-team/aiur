@@ -33,10 +33,17 @@ Raw append and aggregate correctness must be proven before old segments can be r
 ## Scope
 
 - Define configurable bounded segment rotation and retention policy with explicit size/time thresholds, minimum retained raw recovery window, and reported coverage.
-- Before deleting any raw segment, commit a DASH-024-compatible compacted aggregate block preserving provider, run, typed ticket, attempt, backend, agent family, exact model, auth mode, account generation including unknown, UTC pricing-effective date, token dimension, basis, currency, exact totals, gaps, and earliest/latest covered time.
+- Before deleting any raw segment, commit a DASH-024-compatible compacted
+  aggregate block preserving provider, run, typed ticket, attempt, backend,
+  agent family, exact model, auth mode, account generation including unknown,
+  UTC pricing-effective date, token dimension, `token_relationship_revision`
+  including unknown, basis, currency, exact totals, gaps, and earliest/latest
+  covered time.
 - Use a versioned manifest/state machine for prepared, aggregate-committed, source-retired, and finalized phases. Flush/atomic rename/checksum every transition needed for crash recovery.
 - Make DASH-024 queries combine compacted blocks plus live aggregates without duplicates or gaps and without changing public query semantics.
-- Never merge different dates, currencies, bases, generations, models, identities, or token dimensions during compaction.
+- Never merge different dates, currencies, bases, generations, models,
+  identities, token dimensions, or token-relationship revisions during
+  compaction.
 - Quarantine inconsistent manifests/segments/blocks, preserve the last validated queryable state, and stop destructive progress until safe reconciliation.
 - Expose retention policy, earliest/latest raw and aggregate coverage, compaction generation/status/health, and bounded operational evidence.
 - Prove rollback/rebuild limits explicitly once raw segments are retired.
@@ -55,6 +62,9 @@ Extend DASH-009 segment and DASH-024 aggregate behaviors through one supervised 
 
 - No source deletion precedes durable validated compacted coverage for its exact ledger range.
 - Compacted plus live query results equal pre-compaction results for every scope and grouping dimension.
+- Compacted blocks retain the exact token-relationship revision from DASH-024;
+  unknown and distinct revisions remain separate before and after source
+  retirement.
 - Compaction is idempotent across duplicate/restarted phases and cannot double count a range.
 - Retained coverage is explicit; expired data is never reported as zero or silently absent from a complete result.
 - Destructive operations are owner-only, path-contained, and halt on ambiguity/corruption.
@@ -71,7 +81,10 @@ Extend DASH-009 segment and DASH-024 aggregate behaviors through one supervised 
 
 ### Agent gate
 
-- Property tests compact fixtures differing in every preserved dimension and prove all scoped totals/groups/coverage remain identical.
+- Property tests compact fixtures differing in every preserved dimension,
+  including identical token rows under distinct known/unknown relationship
+  revisions, and prove all scoped totals/groups/coverage remain identical and
+  no revisions merge.
 - Crash-boundary tests stop at prepared, aggregate write/flush/rename, manifest commit, source delete, and finalize; restart yields exactly one valid result or a safe halted state.
 - Retention tests cover size/time thresholds, partial raw windows, multiple generations, repeated compaction, no eligible segments, corrupt blocks/manifests, disk/permission failures, and rollback limits.
 - Security tests prove path containment, owner-only permissions, and content-free compacted data.
@@ -82,20 +95,28 @@ Extend DASH-009 segment and DASH-024 aggregate behaviors through one supervised 
 
 ### Human/manual evidence
 
-- Compact a synthetic multi-day/multi-account dataset, restart the daemon, and show byte-bounded raw storage plus identical DASH-024 totals/groups and explicit retained coverage.
+- Compact a synthetic multi-day/multi-account/multi-relationship-revision
+  dataset, restart the daemon, and show byte-bounded raw storage plus identical
+  DASH-024 totals/groups/revisions and explicit retained coverage.
 
 ## Failure, security, migration, and accessibility cases
 
 - Any ambiguous/corrupt/destructive failure halts deletion, preserves validated query state, and reports health; it never resets totals or claims full coverage.
 - Compacted data remains owner-only and content-free; no prompts, raw responses, credentials, PII, environment values, or paths.
-- Version manifests/blocks and document upgrade/rollback after source retirement.
+- Version manifests/blocks and document upgrade/rollback after source
+  retirement; migration never rewrites or coalesces historical
+  token-relationship revisions.
 - No direct UI; retention/coverage/health reasons are stable human-readable values.
 
 ## Surfaces
 
-- Reads: DASH-009 segment ranges and DASH-024 aggregate/query/checkpoint behavior.
-- Writes: rotation/retention policy, compacted aggregate blocks, destructive-phase manifest, segment retirement, health/coverage.
-- Contracts: dimension-preserving compaction and retained-coverage semantics.
+- Reads: DASH-009 segment ranges and DASH-024
+  relationship-revision-partitioned aggregate/query/checkpoint behavior.
+- Writes: rotation/retention policy, relationship-revision-preserving compacted
+  aggregate blocks, destructive-phase manifest, segment retirement,
+  health/coverage.
+- Contracts: dimension- and token-relationship-revision-preserving compaction
+  and retained-coverage semantics.
 - Safety: no-delete-before-coverage, crash-safe destructive state machine,
   exact query equivalence, and the application supervision tree.
 

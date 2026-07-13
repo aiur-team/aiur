@@ -111,7 +111,7 @@ def validate_final_comment_matches(
     root_id: str, plan_version: int, approved: str, receipt_commit: str,
     receipt_url: str, root_issue_url: str,
     repository: str, report: Report, repository_anchor: Path | None = None,
-    remote_ref_contains: Callable[[str, str, tuple[str, ...]], bool] | None = None,
+    remote_ref_contains: Callable[[str, str, str, str], bool] | None = None,
     expected_state: str = "successful",
 ) -> None:
     """Verify the receipt-bound live comment without mutating GitHub."""

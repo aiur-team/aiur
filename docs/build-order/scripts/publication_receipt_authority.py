@@ -11,7 +11,12 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
 from publication_common import SHA, Report, valid_trusted_branch_ref
-from publication_rendering import exact_commit, repository_root, run_authority_git
+from publication_rendering import (
+    exact_commit,
+    reject_legacy_grafts,
+    repository_root,
+    run_authority_git,
+)
 
 
 PACK_ROOT = PurePosixPath("docs/build-order")
@@ -22,7 +27,8 @@ MANIFEST_NAMES = (
 )
 REGULAR_MODES = {b"100644", b"100755"}
 GITHUB_REPOSITORY = re.compile(r"^[^/\s]+/[^/\s]+$", re.ASCII)
-RemoteRefContainmentChecker = Callable[[str, str, tuple[str, ...]], bool]
+GITHUB_TIMEOUT_SECONDS = 30
+RemoteRefContainmentChecker = Callable[[str, str, str, str], bool]
 
 
 @dataclass(frozen=True)
@@ -53,6 +59,9 @@ def load_receipt_authority(
     ):
         _merge(validation, report)
         return None
+    if not reject_legacy_grafts(root, validation):
+        _merge(validation, report)
+        return None
     trusted_repository = _github_origin_repository(root, validation)
     if trusted_repository is None:
         _merge(validation, report)
@@ -68,6 +77,7 @@ def load_receipt_authority(
         _merge(validation, report)
         return None
 
+    authority = None
     with tempfile.TemporaryDirectory() as temp_name:
         clone = Path(temp_name) / "receipt"
         if not _clone_without_checkout(root, clone, validation):
@@ -76,22 +86,32 @@ def load_receipt_authority(
         _write_snapshot(clone, blobs, validation)
         if not validation.errors:
             _validate_with_trusted_code(clone, validation)
-
-    authority = None
-    if not validation.errors and not validation.warnings:
-        authority = _derive_authority(
-            manifests, root, trusted_repository, validation
-        )
-    if authority is not None and not validation.errors and not validation.warnings:
-        _require_local_receipt_order(
-            root, authority.approved_commit, receipt_commit, validation
-        )
+        if not validation.errors and not validation.warnings:
+            authority = _derive_authority(
+                manifests, clone, trusted_repository, validation
+            )
+        if (
+            authority is not None
+            and not validation.errors
+            and not validation.warnings
+            and reject_legacy_grafts(clone, validation)
+        ):
+            # The shared no-checkout clone deliberately has no source
+            # ``info/grafts`` file, so this local consistency check cannot be
+            # rewritten by a legacy graft racing in the source repository.
+            _require_local_receipt_order(
+                clone, authority.approved_commit, receipt_commit, validation
+            )
     if authority is not None and not validation.errors and not validation.warnings:
         _require_remote_ref_containment(
             authority, receipt_commit,
             remote_ref_contains or _github_repository_ref_contains,
             validation,
         )
+    # Detect a graft introduced after the initial audit.  A file that races
+    # only during validation still cannot authorize history: local ancestry is
+    # checked in the clean clone and approval->receipt is proved by GitHub.
+    reject_legacy_grafts(root, validation)
     _merge(validation, report)
     return authority if not validation.errors and not validation.warnings else None
 
@@ -407,17 +427,19 @@ def _require_remote_ref_containment(
     authority: ReceiptAuthority, receipt_commit: str,
     checker: RemoteRefContainmentChecker, report: Report,
 ) -> None:
-    commits = (receipt_commit, authority.approved_commit)
     try:
         contains = checker(
-            authority.repository, authority.trusted_repository_ref, commits
+            authority.repository,
+            authority.trusted_repository_ref,
+            authority.approved_commit,
+            receipt_commit,
         )
     except Exception:
         contains = False
     if contains is not True:
         report.error(
-            "receipt_commit and approved_planning_commit must remain ancestors "
-            f"of configured GitHub repository branch "
+            "receipt_commit must descend from approved_planning_commit and both "
+            "must remain ancestors of configured GitHub repository branch "
             f"{authority.repository}:{authority.trusted_repository_ref}"
         )
 
@@ -442,22 +464,28 @@ def _require_local_receipt_order(
 
 
 def _github_repository_ref_contains(
-    repository: str, trusted_ref: str, commits: tuple[str, ...],
+    repository: str, trusted_ref: str,
+    approved_commit: str, receipt_commit: str,
 ) -> bool:
     if not valid_trusted_branch_ref(trusted_ref):
         return False
     target_sha = _github_branch_target(repository, trusted_ref)
-    if target_sha is None or not commits or not all(
+    commits = (approved_commit, receipt_commit)
+    if target_sha is None or approved_commit == receipt_commit or not all(
         isinstance(commit, str) and bool(SHA.fullmatch(commit)) for commit in commits
     ):
         return False
+    ordered = _github_compare_proves_ancestor(
+        repository, approved_commit.lower(), receipt_commit.lower()
+    )
     contained = all(
         _github_compare_proves_ancestor(repository, commit.lower(), target_sha)
         for commit in commits
     )
     # A force-push between the ref and compare reads must not produce a
     # self-consistent-looking receipt from two different remote snapshots.
-    return contained and _github_branch_target(repository, trusted_ref) == target_sha
+    unchanged = _github_branch_target(repository, trusted_ref) == target_sha
+    return ordered and contained and unchanged
 
 
 def _github_branch_target(repository: str, trusted_ref: str) -> str | None:
@@ -517,16 +545,18 @@ def _github_json(endpoint: str) -> object | None:
     try:
         result = subprocess.run(
             [
-                "gh", "api",
+                "gh", "api", "--hostname", "github.com",
                 "-H", "Accept: application/vnd.github+json",
                 "-H", "X-GitHub-Api-Version: 2026-03-10",
+                "--method", "GET",
                 endpoint,
             ],
             check=False,
             capture_output=True,
             text=True,
+            timeout=GITHUB_TIMEOUT_SECONDS,
         )
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired):
         return None
     if result.returncode:
         return None

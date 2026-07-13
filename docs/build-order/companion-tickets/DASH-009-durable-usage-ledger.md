@@ -24,7 +24,10 @@
 
 ## Outcome
 
-Aiur durably and idempotently appends DASH-008 measurements and derives each additive token/provider-cost delta exactly once across retry, out-of-order input, process/daemon restart, and corrupt/torn checkpoint recovery.
+Aiur durably and idempotently appends DASH-008 measurements, preserves each
+pinned token-relationship revision unchanged, and derives every accepted raw
+token/provider-cost counter delta exactly once across retry, out-of-order
+input, process/daemon restart, and corrupt/torn checkpoint recovery.
 
 ## Context and evidence
 
@@ -33,12 +36,24 @@ Current accounting disappears with process/run state. The accepted local-first a
 ## Scope
 
 - Implement one supervised single-writer `UsageLedger` core behind a behavior. Store canonical versioned append-only NDJSON segments beneath Aiur's private daemon state root.
-- Persist each accepted DASH-008 envelope before publishing its accepted ledger position/generation.
+- Persist each accepted DASH-008 envelope, including its source, source version,
+  and pinned `token_relationship_revision`, before publishing its accepted
+  ledger position/generation.
 - Maintain the sole durable idempotency and absolute-counter checkpoint keyed by provider, transport, opaque account generation, independent counter epoch, session/thread/turn/request scope, counter kind, model context, monetary basis/currency, and source identity.
-- Derive additive token and provider-cost deltas inside the writer. Matching absolute counters advance one durable checkpoint; duplicate/older input adds zero; unexplained decrease is a coverage/reset error until a trusted epoch/reset. Source deltas add once by durable event identity.
-- Never add overlapping absolute/delta streams unless the source contract declares them independent.
+- Derive raw token and provider-cost counter deltas inside the writer. Matching
+  absolute counters advance one durable checkpoint; duplicate/older input adds
+  zero; unexplained decrease is a coverage/reset error until a trusted
+  epoch/reset. Source deltas add once by durable event identity. Every emitted
+  delta carries the envelope's relationship revision unchanged; this ticket
+  does not reinterpret dimension relationships or price them.
+- Never add overlapping absolute/delta streams unless the pinned source
+  contract declares them independent.
 - Make raw append and counter/idempotency checkpoint one replayable acknowledgement protocol. Crash at any boundary and replay must reproduce the same deltas exactly once; resumed cumulative sessions cannot re-add earlier totals.
-- On startup, validate checkpoint/schema/checksum and replay subsequent canonical observations. Rebuild durable counter/idempotency state from raw segments when safe; quarantine malformed tail/segment with explicit health instead of silently truncating valid history.
+- On startup, validate checkpoint/schema/checksum and replay subsequent
+  canonical observations with their original source version and relationship
+  revision. Rebuild durable counter/idempotency state from raw segments when
+  safe; quarantine malformed tail/segment with explicit health instead of
+  silently truncating valid history.
 - Expose append acknowledgement, ordered replay/scan behavior, accepted derived-delta stream, store generation, raw coverage bounds, and health. DASH-024 is the only aggregate/query subscriber.
 - Preserve restrictive permissions/path containment and content-free normalized facts.
 
@@ -56,6 +71,9 @@ Add one daemon-owned writer using existing private-state, atomic/checksummed fil
 
 - The supervised writer is the sole raw append, idempotency, counter checkpoint, and delta owner.
 - Replay of the same canonical segments/checkpoint yields identical ordered deltas and never inflates usage.
+- Canonical records and replayed deltas preserve
+  `token_relationship_revision` byte-for-byte; replay never substitutes the
+  currently installed registry revision for historical evidence.
 - `provider_account_generation`, `counter_epoch`, and ledger/store generation remain distinct namespaces.
 - Persistence acknowledgement follows documented append/checkpoint durability; an I/O failure never returns success.
 - Empty healthy, partial raw coverage, corrupt/unavailable storage, rejected measurement, and unknown attribution are distinct.
@@ -74,6 +92,10 @@ Add one daemon-owned writer using existing private-state, atomic/checksummed fil
 ### Agent gate
 
 - Deterministic tests cover absolute-to-delta tokens/cost, source deltas, duplicates, out-of-order/lower-without-reset, trusted epoch reset, account rotation, retry/attempt, resumed sessions, fallback/model changes, and completed tickets.
+- Record-codec/replay fixtures vary source version and token-relationship
+  revision and prove both survive append, checkpoint recovery, and derived-delta
+  replay unchanged; the same raw dimensions under two revisions never acquire
+  one another's semantics.
 - Crash tests stop after append and counter/idempotency checkpoint boundaries; replay emits every delta exactly once.
 - Recovery tests cover missing/corrupt checkpoint, torn tail, bad checksum/schema, malformed segment, process/daemon restart, and safe quarantine.
 - Failure injection covers append, flush, rename, directory, disk-full/permission, and publish ordering; no failed path acknowledges success.
@@ -85,20 +107,29 @@ Add one daemon-owned writer using existing private-state, atomic/checksummed fil
 
 ### Human/manual evidence
 
-- Record synthetic attributed usage, restart the real daemon, replay the same cumulative source, and show identical derived deltas without exposing account data. Corrupt a synthetic copy and demonstrate visible health/quarantine.
+- Record synthetic attributed usage, restart the real daemon, replay the same
+  cumulative source, and show identical derived deltas and relationship
+  revisions without exposing account data. Corrupt a synthetic copy and
+  demonstrate visible health/quarantine.
 
 ## Failure, security, migration, and accessibility cases
 
 - I/O/corruption preserves the last validated raw authority where safe, stops acknowledgement, and never resets usage to zero.
 - Store only normalized numeric/opaque identity facts, never prompts/output, raw provider response, credentials, account PII, environment values, capability URLs, or paths.
-- Version record/checkpoint/replay behavior and rollback. A future backend migrates through the behavior, never live dual writers.
+- Version record/checkpoint/replay behavior and rollback. Migration preserves
+  source version and token-relationship revision; a future backend migrates
+  through the behavior, never live dual writers.
 - No direct UI; rejection/health/coverage classes are stable and human-readable.
 
 ## Surfaces
 
-- Reads: DASH-008 `UsageEnvelope` stream and private state configuration.
-- Writes: canonical append-only segments, idempotency/counter checkpoints, ordered derived-delta stream, health/generation.
-- Contracts: sole durable append/delta/replay acknowledgement behavior.
+- Reads: DASH-008 `UsageEnvelope` stream with pinned token-relationship
+  revisions and private state configuration.
+- Writes: canonical append-only segments, idempotency/counter checkpoints,
+  relationship-revision-preserving ordered derived-delta stream,
+  health/generation.
+- Contracts: sole durable append/delta/replay acknowledgement behavior with
+  unchanged source-version and token-relationship evidence.
 - Safety: exactly-once accounting, crash consistency, owner-only content-free
   storage, and the application supervision tree.
 

@@ -86,19 +86,25 @@ sets, native parents, subissues, 73 `blockedBy` edges, and the one exact comment
 The root has exactly nineteen BO children and no parent; each BO has that root
 as parent; DASH and skill issues are parentless; every non-root has no
 subissues. Closed and PR-shaped marker matches remain visible to the collision
-check. Reads pin `github.com`, API version `2026-03-10`, finite page/item bounds,
-and a per-call timeout. It treats its CLI identity arguments as
+check. Every GitHub read, including branch/compare authority, pins `github.com`,
+API version `2026-03-10`, finite page/item bounds where applicable, and a
+per-call timeout. It treats its CLI identity arguments as
 assertions, not authority: it derives repository, root identity and URL, plan
 version, and approval from the exact receipt commit, requires all three
 materialized reconciliation receipts, and runs the trusted current validator
-against raw regular blobs from that commit before accepting the comment. Every
-authority-bearing Git read disables replace/graft object substitution. The
-repository is anchored to the configured GitHub `origin`. The approved pack
+against raw regular blobs from that commit before accepting the comment.
+Every authority-bearing Git read disables replacement objects. Because that
+setting does not disable legacy grafts, the verifier rejects any `info/grafts`
+entry (including symlink or non-regular entries) in both the worktree Git dir
+and common Git dir before and after validation, and performs its local ancestry
+check in a clean shared no-checkout clone. The repository is anchored to the
+configured GitHub `origin`. The approved pack
 freezes `trusted_repository_ref` as
 `refs/heads/build-order-research`. GitHub must return that exact branch ref and
-an unchanged commit tip around the compare reads; both approval and receipt
-must be ancestors of that tip, and the receipt must descend from approval in
-the no-substitution local graph. Imported foreign object history and the mere
+an unchanged commit tip around the compare reads. Strict GitHub comparisons
+must prove approval is an ancestor of receipt and both are ancestors of that
+tip; the clean local graph must independently agree. Imported foreign object
+history and the mere
 existence of a local or API-visible commit cannot authorize execution. Branch
 fast-forwards are valid. Deleting the branch or force-pushing either authority
 commit out of its history revokes the start gate and fails closed, even when a

@@ -27,13 +27,13 @@ pending.
 - Canonical Build Order JSON SHA-256:
   `c7b00fb8c6321af9528a3261643c38ab5e1a95b4aa11fb805a88d5fff4cb8bdf`
 - Companion baseline JSON SHA-256:
-  `c630d907a7f6b0996fd712b772d11a0b3afa7eef9f3ffcc1acc2669a7425aea8`
+  `aa4d13b43af8c19cfeba158a34009d32c595c4996ea8982991108de3d4343294`
 - Publication manifest SHA-256:
   `0e0b836d69bb6aec9b432cb3ba3d2e61a2a305eccf86fcca5dfccdf6f6819b9f`
 - Requirements SHA-256:
-  `358520a645233393259e0d680a7ce3660317a9d33b26d5b09622ce7cc001f597`
+  `0f0ede7470bdf47fd61059acf639a22834af517c58a58b7da4de59ebc88343fc`
 - Implementation plan SHA-256:
-  `9794d00fb611a26a4c791e45b3b14f97b55c680239f80040aad2d021c3ba3e62`
+  `3c871032a4e1f0000173779464a2509d316b29df560c4f39e708b863b9056e45`
 - Latest validator/skill authority: isolated draft PR #1065 at
   `afd9828c61005a84ee316e3b2c995c0122b896ff`
 - Approval commit: pending two clean passes
@@ -81,7 +81,7 @@ updates and a final ticket-boundary correction:
 |---|---|
 | Canonical validator | 0 errors, 0 warnings |
 | Companion/publication validator | 0 errors, 0 warnings |
-| Publication regression suite | 97 tests pass |
+| Publication regression suite | 102 tests pass |
 | Build Order tickets | 19, 71 complexity points |
 | Standalone companions | 25, 87 complexity points |
 | Planned GitHub materialization | 46 new issues: one root, 44 executable issues, one human issue |
@@ -355,7 +355,8 @@ receipt still trusted Git object and repository identity too early:
    an unmaterialized SHA while `rev-parse`, `ls-tree`, and `show` continued to
    report the old SHA. All approval, receipt, and pinned-skill object reads now
    force `GIT_NO_REPLACE_OBJECTS=1`; a regression proves an unmaterialized
-   commit cannot be promoted through replacement or graft substitution.
+   commit cannot be promoted through replacement-object substitution. The
+   distinct legacy graft mechanism was found and closed in corrective pass 15.
 2. A self-consistent foreign approval and receipt history imported into the
    local Aiur object database could define its own repository, root, URLs, and
    matching caller values. Receipt authority now comes from the configured
@@ -438,6 +439,61 @@ and exposed adjacent race/transport gaps:
    snapshot from legitimate later execution state. The Executor must reverify
    before its first mutation, resolve both gates while skill delivery remains
    open, and only then close that issue and add dispatch labels.
+
+### Corrective pass 14 — provider/source token relationships
+
+This pass was not clean. Product accounting review against Anthropic's primary
+pricing contract found that the prior global cache-subset assumption would
+undercount Claude requests and misprice their cache dimensions. It corrected
+the contracts without changing the twenty-five-ticket companion count or graph:
+
+1. DASH-008 now owns an immutable, versioned provider/source/source-version
+   relationship contract. It distinguishes additive, subset, mutually
+   exclusive, and unknown dimensions; declares provider-total authority
+   separately; pins the revision on each envelope; and fails closed instead of
+   guessing when relationships are absent or contradictory.
+2. DASH-010 maps the currently evidenced Claude base-input, cache-creation, and
+   cache-read attributes as three additive request dimensions. The provider
+   semantic is backed by Anthropic pricing evidence, while exact Claude Code
+   OTel names remain versioned adapter evidence that is refreshed at pickup.
+3. DASH-011 prices and reconciles Claude's three input dimensions separately,
+   while a Codex cached-input subset is removed from the parent-priced slice
+   and not counted twice. Mutually exclusive, provider-total, discrepancy, and
+   unknown cases now have explicit exact-arithmetic/fail-closed tests.
+4. DASH-009 preserves the pinned revision in canonical records and replayed
+   deltas, DASH-024 partitions aggregates by it, and DASH-025 never merges it
+   during compaction. Replay, projection, crash recovery, and destructive
+   retention fixtures now vary known and unknown revisions explicitly.
+5. Requirements, usage policy, DEC-009, the implementation/companion plans,
+   canonical companion metadata, and all six affected ticket contracts preserve
+   exact-money, provider-total, source-version, contributor, and coverage
+   semantics consistently.
+
+### Corrective pass 15 — graft-free ordered receipt authority
+
+This pass was not clean. Publication review found that the prior authority
+guard disabled replace objects but still honored legacy graft files, and that
+its remote proof established only that approval and receipt independently
+reached the branch tip:
+
+1. Final verification now rejects any `info/grafts` entry in both the worktree
+   Git directory and common Git directory, including symlink and non-regular
+   entries. It audits before and after authority validation and runs the local
+   approval-to-receipt check in a clean shared no-checkout clone, so a graft
+   raced into the source repository cannot define accepted ancestry.
+2. The configured-repository proof now uses a separate strict GitHub compare
+   to prove approval is an ancestor of receipt, then proves both commits are
+   ancestors of one unchanged trusted-branch tip. An unrelated orphan receipt
+   merged beside the approval can no longer become the durable start gate.
+3. Every authority-bearing GitHub request now explicitly pins `github.com`, API
+   version `2026-03-10`, and a finite subprocess timeout. `GH_HOST` cannot
+   redirect the branch proof to a same-named foreign server, and a stalled
+   authority read fails closed.
+4. Regressions cover an orphan materialized receipt promoted by a legacy graft,
+   worktree/common-dir symlink and non-regular graft entries, a graft introduced
+   during remote proof, two unordered commits that independently reach the same
+   tip, `GH_HOST` redirection, and timeout behavior. The issue and relationship
+   counts remain 46, nineteen, and 73.
 
 ### Clean pass 1
 
