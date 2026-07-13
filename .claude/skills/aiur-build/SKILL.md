@@ -177,7 +177,8 @@ Only when explicitly authorized:
 4. publish native membership and dependency relationships;
 5. generate each ticket body as the exact authority preamble plus its approved
    ticket document verbatim, and generate the root from its approved full-body
-   template by replacing `<APPROVED_SHA>`;
+   template by replacing `<APPROVED_SHA>`; disable Git replace/graft object
+   substitution for every approval and receipt read;
 6. preserve that same post-approval document freeze in the current pack;
 7. requery and validate the published graph, full labels, and bodies rather
    than trusting mutation responses: every body has exactly one schema-2
@@ -191,6 +192,9 @@ Only when explicitly authorized:
     plan version, approval, and root URL from the exact receipt commit; require
     that commit to contain the complete materialized pack and pass the trusted
     reconciliation validator before accepting the same-repository commit URL.
+    Anchor the repository outside both receipt and caller data to the trusted
+    configured GitHub origin, and prove receipt and approval commits exist
+    remotely there.
 
 Do not assume issue-number adjacency. Keep prose dependency tables as generated
 human views, not a second source of truth.

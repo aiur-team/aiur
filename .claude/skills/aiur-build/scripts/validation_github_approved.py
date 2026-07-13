@@ -8,7 +8,7 @@ from copy import deepcopy
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from validation_common import SHA, Report
+from validation_common import SHA, Report, git_no_replace_env
 from validation_github_rendering import (
     inspect_issue_body,
     render_template_body,
@@ -204,7 +204,7 @@ def _exact_commit(root: Path, approved: object, report: Report) -> bool:
         return False
     result = subprocess.run(
         ["git", "-C", str(root), "rev-parse", "--verify", f"{approved}^{{commit}}"],
-        check=False, capture_output=True, text=True,
+        check=False, capture_output=True, text=True, env=git_no_replace_env(),
     )
     if result.returncode or result.stdout.strip().lower() != approved.lower():
         report.error("approved planning commit must resolve to an exact commit")
@@ -217,7 +217,7 @@ def _git_show(
 ) -> str | None:
     result = subprocess.run(
         ["git", "-C", str(root), "show", f"{approved}:{path}"],
-        check=False, capture_output=True,
+        check=False, capture_output=True, env=git_no_replace_env(),
     )
     if result.returncode:
         report.error(f"{label} is absent from approved commit at {path}")

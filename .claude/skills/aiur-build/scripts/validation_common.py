@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -22,6 +23,13 @@ PROVENANCE = {"planned", "discovered"}
 DISPOSITIONS = {"ticket", "deferred", "rejected", "satisfied"}
 EDGE_FIELDS = ("depends_on", "serializes_with", "suggested_after")
 SURFACE_FIELDS = ("write_surfaces", "contract_surfaces", "safety_surfaces")
+
+
+def git_no_replace_env() -> dict[str, str]:
+    """Return an environment that reads named Git objects without substitution."""
+    environment = os.environ.copy()
+    environment["GIT_NO_REPLACE_OBJECTS"] = "1"
+    return environment
 
 
 @dataclass

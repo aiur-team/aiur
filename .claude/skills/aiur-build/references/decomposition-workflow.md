@@ -188,8 +188,9 @@ This stage requires explicit permission.
 - Map logical IDs to returned node IDs and repo-qualified numbers.
 - Publish membership and native issue-dependency edges.
 - Render every expected body from files loaded with
-  `git show <approved-commit>:<path>`; fail closed if the approved pack, root
-  template, or a ticket document is absent.
+  `git show <approved-commit>:<path>` with Git replace/graft object substitution
+  disabled; fail closed if the approved pack, root template, or a ticket
+  document is absent.
 - Freeze the current sources after approval: ticket documents remain
   byte-for-byte equal to their approved versions, and the root document permits
   only deterministic `<APPROVED_SHA>` substitution. Reject missing, unreadable,
@@ -204,7 +205,9 @@ This stage requires explicit permission.
   repository, root, plan version, approval, and root URL from the exact receipt
   commit. Require that commit to contain the complete materialized pack and
   pass the trusted reconciliation validator; resolving an arbitrary local
-  commit or accepting caller-supplied authority is insufficient.
+  commit or accepting caller-supplied authority is insufficient. Bind the
+  repository to a trusted configured GitHub origin outside the receipt and
+  prove both receipt and approval commits exist remotely in that repository.
 - Apply projected and required routing labels, record full observed labels in
   the receipt, and prove every forbidden dispatch/active-state label and every
   unprojected `human:*` routing label is absent.

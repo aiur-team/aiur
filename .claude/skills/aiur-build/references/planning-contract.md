@@ -99,12 +99,16 @@ exact receipt commit. Its URL must be that repository's exact commit URL, the
 commit must contain the complete materialized pack, and the pack must pass the
 trusted reconciliation validator before the comment is authoritative. Never
 let caller-supplied values or the mere existence of a local commit authorize
-the start gate.
+the start gate. Anchor the repository to the trusted configured GitHub origin
+outside both receipt and caller data, and prove the receipt and approval commits
+exist remotely in that repository. A foreign history imported into the local
+object database is not authority.
 
 The observed hash is never self-authorizing. A trusted pack adapter must load
 the root template, `build-order.json`, and every ticket document with
-`git show <approved-commit>:<path>`. It renders tickets as the exact authority
-preamble plus the approved source verbatim and renders the root by replacing
+`git show <approved-commit>:<path>` while disabling Git replace/graft object
+substitution. It renders tickets as the exact authority preamble plus the
+approved source verbatim and renders the root by replacing
 `<APPROVED_SHA>` in its approved full-body template. The validator compares the
 entire observed evidence record with those independently rendered
 expectations. Missing approved commits, packs, paths, expectations, duplicate

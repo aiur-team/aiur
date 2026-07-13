@@ -198,6 +198,39 @@ class ApprovedCommitTests(unittest.TestCase):
             "\n".join(report.errors),
         )
 
+    def test_git_replace_cannot_substitute_approved_sources(self) -> None:
+        self.ticket_document.write_text("# BO-001 substituted\n", encoding="utf-8")
+        self.root_document.write_text(self.root_template, encoding="utf-8")
+        subprocess.run(["git", "-C", str(self.root), "add", "pack"], check=True)
+        subprocess.run(
+            ["git", "-C", str(self.root), "commit", "-qm", "substitute"],
+            check=True,
+        )
+        substitute = subprocess.run(
+            ["git", "-C", str(self.root), "rev-parse", "HEAD"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        self.root_document.write_text(
+            self.root_template.replace("<APPROVED_SHA>", self.sha),
+            encoding="utf-8",
+        )
+        subprocess.run(
+            ["git", "-C", str(self.root), "replace", self.sha, substitute],
+            check=True, capture_output=True,
+        )
+        try:
+            expected, report = self.render()
+        finally:
+            subprocess.run(
+                ["git", "-C", str(self.root), "replace", "-d", self.sha],
+                check=True, capture_output=True,
+            )
+        self.assertIsNone(expected)
+        self.assertIn(
+            "current BO-001 document must exactly match its approved source",
+            report.errors,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
