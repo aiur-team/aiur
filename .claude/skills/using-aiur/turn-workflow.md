@@ -106,7 +106,7 @@ actually enter or leave the phase, not retroactively:
 
 Aiur automatically scopes every agent-emitted name under
 `ticket.<your-issue>.agent.`, so you pass the bare phase name and the event bus
-does the rest. (The operator-bar `progress` / `progress.checkin` emits are a
+does the rest. (The Executor-bar `progress` / `progress.checkin` emits are a
 separate protocol — they stay in your per-turn prompt, paired with these phase
 alerts.)
 

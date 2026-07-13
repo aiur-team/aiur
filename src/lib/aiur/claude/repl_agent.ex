@@ -78,7 +78,7 @@ defmodule Aiur.Claude.ReplAgent do
   defdelegate sweep_own_panes(tmux \\ Tmux), to: Reaper
 
   @doc """
-  Inject an operator message straight into the live REPL pane.
+  Inject an Executor message straight into the live REPL pane.
 
   This is the whole of mid-turn delivery: sanitize the text, type it with
   `send_keys_literal`, then submit with one `Enter`. The agent's native
@@ -87,7 +87,7 @@ defmodule Aiur.Claude.ReplAgent do
   interrupt-then-send path here (cutting the agent off is a separate,
   explicit parity action, not this one).
 
-  Operator text is typed verbatim into a PTY, so it is sanitized first:
+  Executor text is typed verbatim into a PTY, so it is sanitized first:
   every control byte (newlines that would submit early, `Esc`/C0/C1
   sequences that would trip the REPL's own keybindings) is collapsed to a
   space. The single trailing `Enter` is the only submit.
@@ -100,7 +100,7 @@ defmodule Aiur.Claude.ReplAgent do
   @doc """
   Interrupt the REPL's current turn by sending `Ctrl+C` to its pane.
 
-  This is the explicit operator-interrupt path: unlike
+  This is the explicit Executor-interrupt path: unlike
   `send_operator_message/2`, which lets Claude's native queue fold a
   message in at the next boundary without aborting in-flight work, this
   cuts the active turn at Claude's next safe point so a queued message is

@@ -16,7 +16,7 @@ defmodule Aiur.Opencode.ChatCompletions.TurnStream do
   # turn-event signal that fires on this identifier's AgentPubSub topic
   # until the codex turn finishes OR a segment boundary closes this SSE —
   # in which case a continuation marker (`<parent>-s<N>`) was posted just
-  # before the close, opencode flushes any queued operator input, and the
+  # before the close, opencode flushes any queued Executor input, and the
   # next segment's request resumes streaming. SessionWriter still writes
   # parts to SQL in parallel so re-attach renders complete history from
   # disk (manual-override preserved: agents work without opencode attached).
@@ -82,7 +82,7 @@ defmodule Aiur.Opencode.ChatCompletions.TurnStream do
   # agent_runner broadcasts `{:aiur_turn_done, identifier, aiur_turn_id, reason}`
   # and the bridge closes the SSE with the matching finish reason.
   # We intentionally do NOT filter transcript events by codex's
-  # `params.turnId`: operator messages injected mid-codex-turn share
+  # `params.turnId`: Executor messages injected mid-codex-turn share
   # the active turnId (verified empirically), and any internal codex
   # sub-turn boundaries are an implementation detail we render as
   # one growing assistant message (Approach C.2 per the brainstorm).
@@ -122,7 +122,7 @@ defmodule Aiur.Opencode.ChatCompletions.TurnStream do
       :heartbeat ->
         # The heartbeat doubles as the idle-boundary clock: a segment that
         # has streamed content but gone quiet closes here so queued
-        # operator input flushes during silent stretches (origin R4's idle
+        # Executor input flushes during silent stretches (origin R4's idle
         # cadence). Empty continuation segments do NOT idle-close — that
         # would churn one marker per threshold through a long quiet tool
         # run with nothing to flush it for.
@@ -161,7 +161,7 @@ defmodule Aiur.Opencode.ChatCompletions.TurnStream do
           {:close, silent_ms} ->
             Logger.warning("opencode_bridge turn_stream_watchdog identifier=#{identifier} aiur_turn=#{parent_id} silent_ms=#{silent_ms}")
             # Paint the agent row 💤 (AgentEvents.state_emoji/1) so the
-            # operator sees the agent went to sleep on a genuinely idle
+            # Executor sees the agent went to sleep on a genuinely idle
             # stream. The next turn's `:worker_control_state :working`
             # flips it back to 🟢.
             Aiur.Orchestrator.mark_sleeping(identifier)
@@ -216,7 +216,7 @@ defmodule Aiur.Opencode.ChatCompletions.TurnStream do
   end
 
   # Close THIS segment: post the continuation marker for the next segment
-  # to the originating writer FIRST (it queues behind any operator text
+  # to the originating writer FIRST (it queues behind any Executor text
   # opencode is holding), then end the SSE with a normal "stop" so opencode
   # flushes its queue. Aiur state is untouched — the parent turn stays
   # :active and the next segment's request resumes streaming.

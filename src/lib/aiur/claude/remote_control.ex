@@ -408,7 +408,7 @@ defmodule Aiur.Claude.RemoteControl do
   and kept pegging CPU — the sweep is therefore cwd-scoped, not comm-scoped.
 
   Scoped strictly to processes whose `cwd` is *under* the workspace root (never
-  the root itself), so an operator's out-of-band process running anywhere else is
+  the root itself), so an Executor’s out-of-band process running anywhere else is
   never touched. The running BEAM and its still-supervised descendant tree are
   also spared (`protected_pids`), so a mis-set root can't make aiur kill itself
   or a child it is still managing; orphaned agents have reparented to init, so

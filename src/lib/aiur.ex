@@ -65,7 +65,7 @@ defmodule Aiur.Application do
   machinery, and the whole interactive CLI block (tmux, pane manager,
   opencode pre-warm, agent-list panes). The agent **backends** that
   actually run agents (session writers, the opencode bridge, token
-  registry) are kept so a headless node still does real work; an operator
+  registry) are kept so a headless node still does real work; an Executor
   drives it over the control RPC (`status` / `agents` / `message` /
   `pause` / `set max-agents`) instead of attaching to panes.
 
@@ -128,7 +128,8 @@ defmodule Aiur.Application do
       Aiur.ProgressCheckin.Worker,
       Aiur.Logs.Retention,
       # Dashboard: always on interactively; in headless only when the
-      # operator opted in via `--port`/`server.port` (see `dashboard?/1`).
+      # Executor opted in via `--port`/`server.port` (see `dashboard?/1`).
+      if(dashboard?, do: AiurWeb.ControlCenterCache),
       if(dashboard?, do: Aiur.HttpServer),
       Aiur.Opencode.TokenRegistry,
       Aiur.Opencode.ActiveTurns,
@@ -141,7 +142,7 @@ defmodule Aiur.Application do
     |> Kernel.++(cli_children)
   end
 
-  # In headless mode the dashboard is off unless the operator explicitly
+  # In headless mode the dashboard is off unless the Executor explicitly
   # asked for it — `--port` (server_port_override) or a non-zero
   # `server.port` in config. Interactive runs always start it (unchanged).
   defp dashboard_enabled?(false = _headless?), do: true

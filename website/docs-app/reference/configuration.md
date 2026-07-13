@@ -19,8 +19,8 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 | --- | --- | --- | --- |
 | `tracker.kind` | string | — | Selects `linear`, `github`, or `memory`. |
 | `tracker.base_branch` | string | repo default | Branch agents target with PRs. |
-| `tracker.active_states` | array | `["Todo", "In Progress"]` | States eligible for dispatch. |
-| `tracker.terminal_states` | array | `["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]` | States that stop work. |
+| `tracker.active_states` | array | tracker-specific | States eligible for dispatch. GitHub values are lifecycle label slugs such as `todo` and `in-progress`, not display names. |
+| `tracker.terminal_states` | array | tracker-specific | States that stop work. GitHub values are lifecycle label slugs such as `done`. |
 | `tracker.github.repo` | string | — | GitHub owner/name used by Aiur. |
 | `tracker.github.label_prefix` | string | `agent` | Prefixes lifecycle labels. |
 | `tracker.github.bot_account` | string | nil | Account Aiur replies as or recognizes. |
@@ -59,8 +59,12 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 | `agent.remote_control` | boolean | false | Opts RC-capable backends into remote control. |
 | `agent.max_concurrent_agents` | integer | 10 | Global simultaneous-agent cap. |
 | `agent.max_concurrent_builds` | integer | 2 | Caps agent-launched Mix verification; 0 disables the gate. |
+| `agent.build_start_stagger_seconds` | integer | 0 | Minimum spacing between local Mix build starts; 0 disables pacing. |
+| `agent.min_free_memory_mb` | integer or nil | nil | Linux `MemAvailable` floor shared by dispatch and the Mix build gate. |
 | `agent.max_concurrent_agents_by_state` | map | `%{}` | Per-state caps overriding the global cap. |
 | `agent.routing` | map | `%{}` | Maps complexity levels to backend/model/effort routing. |
+| `agent.switch_model_on_ratelimit` | array | `[]` | Opt-in backend order for a new claim when a model is rate-limited. |
+| `agent.rate_limit_fallback` | string | `claude` | Automatic recovery backend for an already-running Codex agent; `""` disables it. |
 | `agent.complexity_prompts` | map | `%{}` | Adds prompt guidance by complexity level. |
 | `agent.max_turns` | integer or nil | nil | Per-issue turn cap; nil is uncapped. |
 | `agent.max_retry_attempts` | integer | 3 | Failed-turn retry count. |
@@ -144,10 +148,21 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
-| `observability.dashboard_enabled` | boolean | true | Enables the web dashboard. |
+| `observability.dashboard_enabled` | boolean | true | Reserved compatibility setting; foreground startup currently ignores it, while headless dashboard opt-in is a positive server port. |
 | `observability.dashboard_writable` | boolean | false | Enables dashboard write paths. |
 | `observability.refresh_ms` | integer | 1000 | Dashboard data refresh interval. |
 | `observability.render_interval_ms` | integer | 16 | Minimum render interval. |
+
+`dashboard_writable` is an authorization gate, not an authentication mechanism. Writable or non-loopback dashboards also require `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD`. The supervising-Executor Decision API uses the separate `AIUR_SUPERVISOR_TOKEN` bearer credential.
+
+## decisions
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `decisions.supervisor_allowed_kinds` | array | `[]` | Decision kinds an authenticated supervising Executor may answer. Empty means none. |
+| `decisions.supervisor_allow_non_reversible` | boolean | false | Allows supervisor policy to cover partially reversible or irreversible decisions. |
+
+These policy keys never grant transport access by themselves. The supervisor API also requires `AIUR_SUPERVISOR_TOKEN`; mutations require the writable and origin gates described above.
 
 ## server
 

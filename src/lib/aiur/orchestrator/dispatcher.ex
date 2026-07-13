@@ -107,11 +107,19 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # this function so a capacity wait never burns their retry budget.
   @spec maybe_choose_under_load(State.t(), [Issue.t()]) :: State.t()
   def maybe_choose_under_load(%State{} = state, issues) when is_list(issues) do
+    maybe_choose_under_load(state, issues, &maybe_choose/2)
+  end
+
+  @doc false
+  @spec maybe_choose_under_load(State.t(), [Issue.t()], (State.t(), [Issue.t()] -> State.t())) :: State.t()
+  def maybe_choose_under_load(%State{} = state, issues, choose_fun)
+      when is_list(issues) and is_function(choose_fun, 2) do
     hard_threshold = Config.max_load_average()
     target = Config.target_load_average()
     memory_threshold_mb = Config.min_free_memory_mb()
     schedulers = System.schedulers_online()
     load = DispatchPolicy.read_load(hard_threshold, target)
+    cpu_snapshot = DispatchPolicy.read_cpu(target)
     available_memory_mb = DispatchPolicy.read_memory(memory_threshold_mb)
     fd_sample = DispatchPolicy.read_file_descriptors()
 
@@ -121,7 +129,9 @@ defmodule Aiur.Orchestrator.Dispatcher do
         load,
         target,
         schedulers,
-        System.monotonic_time(:millisecond)
+        System.monotonic_time(:millisecond),
+        cpu_snapshot,
+        DispatchPolicy.queued_dispatch_demand?(issues, state)
       )
 
     case DispatchPolicy.memory_gate(available_memory_mb, memory_threshold_mb) do
@@ -130,7 +140,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         state
 
       :dispatch ->
-        maybe_choose_with_fd_headroom(state, issues, fd_sample, load, hard_threshold, schedulers)
+        maybe_choose_with_fd_headroom(state, issues, fd_sample, load, hard_threshold, schedulers, choose_fun)
     end
   end
 
@@ -367,25 +377,25 @@ defmodule Aiur.Orchestrator.Dispatcher do
     )
   end
 
-  defp maybe_choose_with_fd_headroom(state, issues, fd_sample, load, threshold, schedulers) do
+  defp maybe_choose_with_fd_headroom(state, issues, fd_sample, load, threshold, schedulers, choose_fun) do
     case DispatchPolicy.fd_gate(fd_sample) do
       :hold ->
         log_fd_hold(fd_sample)
         state
 
       :dispatch ->
-        maybe_choose_under_hard_load(state, issues, load, threshold, schedulers)
+        maybe_choose_under_hard_load(state, issues, load, threshold, schedulers, choose_fun)
     end
   end
 
-  defp maybe_choose_under_hard_load(state, issues, load, threshold, schedulers) do
+  defp maybe_choose_under_hard_load(state, issues, load, threshold, schedulers, choose_fun) do
     case DispatchPolicy.load_gate(load, threshold, schedulers) do
       :hold ->
         log_load_hold(load, threshold, schedulers)
         state
 
       :dispatch ->
-        maybe_choose(state, issues)
+        choose_fun.(state, issues)
     end
   end
 

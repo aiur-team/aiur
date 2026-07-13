@@ -1,6 +1,6 @@
 defmodule Aiur.Orchestrator.OperatorMessages.Capabilities do
   @moduledoc """
-  Projects per-issue control capabilities, queue depth, and visible operator messages.
+  Projects per-issue control capabilities, queue depth, and visible Executor messages.
   """
 
   alias Aiur.AgentQueueStore
@@ -23,7 +23,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Capabilities do
         # item is an %AgentQueueItem{} struct (no Access), so reach into its body
         # map directly rather than via get_in/2 — the latter crashed the whole
         # Orchestrator whenever the dashboard rendered an issue with a visible
-        # operator message.
+        # Executor message.
         text: operator_item_text(item),
         status: item.status
       }
@@ -53,7 +53,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Capabilities do
   defp operator_item_text(%{body: %{text: text}}) when is_binary(text), do: text
   defp operator_item_text(_item), do: ""
 
-  # The REPL backend forwards operator messages straight into the live
+  # The REPL backend forwards Executor messages straight into the live
   # process, so it offers :immediate instead of the hold-then-deliver
   # :checkpoint / :interrupt policies.
   defp accepted_delivery_policies(_can_interrupt, true), do: [:immediate]

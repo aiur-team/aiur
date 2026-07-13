@@ -1,6 +1,6 @@
 defmodule Aiur.AppServer.OperatorDelivery do
   @moduledoc """
-  Shared safe-checkpoint delivery and operator response tracking.
+  Shared safe-checkpoint delivery and Executor response tracking.
   """
 
   alias Aiur.AppServer.{Messages, TurnState}

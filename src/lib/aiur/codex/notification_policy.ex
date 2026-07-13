@@ -7,7 +7,7 @@ defmodule Aiur.Codex.NotificationPolicy do
   # level with their payload, not buried at debug. Codex sends "error"
   # as a top-level method when the API itself fails (rate limit, auth,
   # transport timeout). It also sends `*/error`-suffixed methods for
-  # subsystem failures. Without these surfacing rules an operator
+  # subsystem failures. Without these surfacing rules an Executor
   # debugging a stuck agent has to enable debug logging globally and
   # then grep through 1000s of lines of routine MCP notifications.
   @spec codex_error_method?(String.t()) :: boolean()
@@ -47,7 +47,7 @@ defmodule Aiur.Codex.NotificationPolicy do
   # Codex says "no active turn to interrupt" (-32600). The turn ended on its
   # own between us deciding to interrupt and codex processing the request.
   # The -32600 / "no active turn" tolerance keeps the interrupt path from
-  # crashing the agent when a fresh task receives an operator-queue update
+  # crashing the agent when a fresh task receives an Executor-queue update
   # before its first codex turn has spawned (FI-CDX-035).
   @spec no_active_turn_error?(term()) :: boolean()
   def no_active_turn_error?(%{"code" => -32_600}), do: true
@@ -79,7 +79,7 @@ defmodule Aiur.Codex.NotificationPolicy do
   end
 
   # Pause payload for a quota-exhaustion turn error. `kind` lets the agent
-  # runner emit the operator alert; `reset_hint` carries the human-readable
+  # runner emit the Executor alert; `reset_hint` carries the human-readable
   # "try again at …" time when codex provides one.
   @spec usage_limit_pause(map(), String.t()) :: map()
   def usage_limit_pause(payload, method) do
@@ -107,7 +107,7 @@ defmodule Aiur.Codex.NotificationPolicy do
   # exhausted (it resets at a stated time) — NOT a transient rate limit, so
   # immediate retries cannot help and only burn the agent's retry budget into
   # `agent:error`. Detect it robustly (codex stashes the marker under different
-  # keys across versions) and route the turn to a pause + operator alert. The
+  # keys across versions) and route the turn to a pause + Executor alert. The
   # inspected-payload scan mirrors the agent runner's `more_tokens_reason?` and
   # survives field-name drift. Kept total (no `is_map` guard) so a malformed
   # non-map payload degrades to `false` rather than crashing the receive loop.

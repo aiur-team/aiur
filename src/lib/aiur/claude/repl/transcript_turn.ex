@@ -192,7 +192,7 @@ defmodule Aiur.Claude.Repl.TranscriptTurn do
           {:agent_queue_updated, _identifier, _item_id} ->
             await_turn(session, tailer, turn_id, deadline, poll_ms, on_operator, pause_confirm_ms)
 
-          # A failed interrupt still parks — the operator asked for a pause.
+          # A failed interrupt still parks — the Executor asked for a pause.
           {:pause_agent, request_id} when is_integer(request_id) ->
             case OperatorInject.interrupt(session) do
               :ok ->

@@ -26,6 +26,29 @@ defmodule Aiur.AgentSkillsTest do
     end
   end
 
+  test "installs design-import auxiliary agent metadata", %{workspace: ws} do
+    assert :ok = AgentSkills.install(ws)
+
+    metadata = Path.join([ws, ".claude", "skills", "design-import", "agents", "openai.yaml"])
+    assert File.read!(metadata) =~ ~s(display_name: "Design Import")
+  end
+
+  test "remote install script materializes discoverable Claude and Codex skills", %{workspace: ws} do
+    remote_workspace = Path.join(ws, "remote workspace")
+    script = AgentSkills.remote_install_script(remote_workspace)
+
+    assert {_output, 0} = System.cmd("bash", ["-c", script], stderr_to_stdout: true)
+    assert {_output, 0} = System.cmd("bash", ["-c", script], stderr_to_stdout: true)
+
+    assert File.exists?(Path.join([remote_workspace, ".claude", "skills", "design-import", "SKILL.md"]))
+    assert File.exists?(Path.join([remote_workspace, ".claude", "skills", "design-import", "agents", "openai.yaml"]))
+
+    assert {:ok, "../../.claude/skills/design-import"} =
+             File.read_link(Path.join([remote_workspace, ".codex", "skills", "design-import"]))
+
+    assert Path.wildcard(Path.join([remote_workspace, ".claude", "skills", "*.tmp.*"])) == []
+  end
+
   test "mirrors the Codex convention with relative symlinks that resolve", %{workspace: ws} do
     assert :ok = AgentSkills.install(ws)
 

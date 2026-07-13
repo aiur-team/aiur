@@ -69,7 +69,8 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
 
   defp headless_os_pid(_session), do: nil
   @doc false
-  @spec run_session(Path.t(), Issue.t(), pid() | nil, keyword(), worker_host()) :: :ok | {:error, term()}
+  @spec run_session(Path.t(), Issue.t(), pid() | nil, keyword(), worker_host()) ::
+          :ok | {:completed, Issue.t()} | {:error, term()}
   def run_session(workspace, issue, codex_update_recipient, opts, worker_host) do
     max_turns = Keyword.get(opts, :max_turns, Config.settings!().agent.max_turns)
     issue_state_fetcher = Keyword.get(opts, :issue_state_fetcher, &Tracker.fetch_issue_states_by_ids/1)
@@ -227,7 +228,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     :exit, _ -> :ok
   end
 
-  # The `--remote-control <name>` string is what the operator sees as the
+  # The `--remote-control <name>` string is what the Executor sees as the
   # chat title in the Claude app / mobile, so derive it from the issue
   # ("Aiur: Actions #99 - Title") rather than the opaque `aiur-repl-<pid>-<n>`
   # window name. Only set when RC is active; headless and RC-off REPL sessions
@@ -267,7 +268,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   end
 
   def maybe_trust_remote_control_workspace(_workspace, _rc?, _worker_host, _trust_fun), do: :ok
-  # Operator-facing RC chat title: `Aiur: <Repo> #<ID> - <title>`, e.g.
+  # Executor-facing RC chat title: `Aiur: <Repo> #<ID> - <title>`, e.g.
   # `Aiur: Actions #7 - CLI: ENS namespace`. The repo name is the capitalized
   # short name of the configured tracker repo (`its-applekid/actions` ->
   # `Actions`); when the tracker exposes no repo it is omitted, leaving
