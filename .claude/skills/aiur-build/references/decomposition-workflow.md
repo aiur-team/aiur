@@ -179,6 +179,22 @@ Phase is a presentation/rollout hint. It may aid batching, but it does not make
 every earlier phase ticket a blocker. Derive readiness from hard dependencies,
 conflicts, tracker state, and available capacity.
 
+Epic/lane labels are the planner's choice, not a fixed vocabulary. The
+prototype's docs/frontend/backend/infra set is an example — choose lanes that
+partition THIS feature's work into legible ownership columns (for example
+plan-graph / runtime / dashboard-ui / accounting / platform), keep the set
+small (3–6), fold a one-ticket lane into its nearest neighbor, and record the
+chosen labels in the pack's label projection. Assign each epic (and, where it
+adds signal, each ticket) an icon key from the dashboard's controlled
+line-art icon library (`BO_ICONS` in the vendored design prototype — keys
+like `flow`, `gauge`, `components`, `chart`, `pipeline`, `database`,
+`shield`, `book`) so rendering never needs a model call and falls back to a
+generic glyph for unknown keys. Prefer a single Build Order containing every
+ticket in the program over sibling packs: one graph maximizes how many agents
+can work at once, and separation belongs in lanes and phases, not in
+membership — split membership only when a track genuinely must not gate or be
+gated by the feature's completion.
+
 Analyze write surfaces and public contracts, not just file paths. Two tickets
 editing different modules may still conflict on a route, schema, event topic,
 API, generated asset, or acceptance fixture.
