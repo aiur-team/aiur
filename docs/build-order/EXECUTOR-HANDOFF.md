@@ -1,70 +1,72 @@
 # Build Order Executor Handoff
 
-## Current state and pre-run checklist (updated 2026-07-13, publication pending receipt finalization)
+## Live Executor state (updated 2026-07-13 19:03 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
 act as the fallback when an agent cannot finish its last mile. Everything
-below this section is the binding contract; this section is where things
-stand and what must happen, in order, before the first dispatch.
+below this section is the binding contract; this section is the current live
+truth and supersedes stale pre-run wording later in the document.
 
-**State right now:** immutable planning approval is frozen at
-`4d8de9508206e08e314f2730cd916501a3b4cafd`. The complete graph is live:
-marker-resolved root #1084, 54 direct members #1085–#1138, and parentless
-skill-delivery issue #1139. The publisher's idempotent apply verifies all 56
-identities and 107 blocker relations, both validators report 0 errors / 0
-warnings, and both the reusable-skill and publication suites pass 139 tests.
-The unique pending reconciliation comment is
-`https://github.com/its-everdred/aiur/issues/1084#issuecomment-4964359714`.
-Generated core-v3 and auxiliary-v2 receipts are valid locally, but their
-post-approval receipt commit has not yet been pushed or finalized with the
-distinct successful comment; **the start gate remains closed and no member has
-an `agent:*` label**. Skills PR #1065 was reviewed at
-`6447f9c193d2322d63f54a58b9c54e0a72d3e98f` and squash-merged to `main` as
-`ed1846c4bc76d4657095da57951a0dbf3e914c3d`. Draft PR #1064 carries the pack
-and pending receipts. Aiur, its dashboard, and all workers are currently
-stopped; preserved legacy tails #1032 and #678 remain paused for later
-resolution.
+**State right now:** planning approval remains frozen at
+`4d8de9508206e08e314f2730cd916501a3b4cafd`; the complete graph is live at root
+#1084 with 54 members #1085–#1138 and 107 exact blocker relations. Skills PR
+#1065 was reviewed at `6447f9c193d2322d63f54a58b9c54e0a72d3e98f` and
+squash-merged to `main` as `ed1846c4bc76d4657095da57951a0dbf3e914c3d`.
+Receipt finalization exposed a contained authority-loader defect after the
+successful idempotent publication; the operator explicitly overrode that gate
+for this run on root comment
+`https://github.com/its-everdred/aiur/issues/1084#issuecomment-4964521448`.
+Because execution has now legitimately mutated issue lifecycle state, the old
+OPEN publication snapshot is historical evidence and must not be presented as
+a fresh executable receipt.
 
-**Ordered pre-run checklist:**
+Aiur is running against current `main` from an isolated Executor checkout.
+Phase 1 has five dependency-ready Terra workers: #1086 BO-004, #1087 BO-008,
+#1088 DASH-006, #1089 DASH-017, and #1090 DASH-018. The initial cap of five
+matched the graph's ready width; it is not a program ceiling. At every readiness
+transition, set concurrency toward the full ready width when measured CPU,
+memory, file-descriptor, build-gate, serialization, and model capacity permit.
+At this snapshot, 5/5 slots and both build slots are occupied, CPU is saturated,
+and memory has ample headroom, so adding unrelated work would reduce throughput.
 
-1. **Operator decisions** (see `questions.md`, "Questions for Kevin" plus the
-   2026-07-13 decisions section): all five ledger items are resolved. The
-   **single-Build-Order consolidation is DONE** — one root contains every
-   ticket (all 54 BO + DASH members); the accounting family remains included;
-   the full receipt ceremony is retained; the current merge-candidate and
-   structural-parallelism graph is frozen; and the Executor owns executable
-   `/aiur-build` verification. The operator's conditional run authorization
-   remains active after the immutable receipt and gates pass.
-2. **Record the landed PR #1065 authority**: reviewed source head
-   `6447f9c193d2322d63f54a58b9c54e0a72d3e98f` and squash-merged `main` commit
-   `ed1846c4bc76d4657095da57951a0dbf3e914c3d`. Verify `/aiur-build`,
-   `/aiur-run`, and `/aiur-monitor` are discoverable afterward (GATE-002).
-3. **Finalize and publish** with the skill-owned
-   `.claude/skills/aiur-build/scripts/publish_build_order.py` exactly as
-   sequenced in `github-publication.md`: approve the exact latest planning SHA
-   (any branch change invalidates an older approval), run the default dry-run,
-   rerun with explicit `--apply`, review/commit/push the generated core-v3 and
-   auxiliary-v2 pending receipts, then use the separate receipt-bound
-   `--finalize` mode. An interrupted apply resumes by rerunning the same
-   approval/green-authority command. Approval, dry-run, creation, live
-   relationship reconciliation, and the pending receipts are complete at the
-   state recorded above. Next review/commit/push the generated receipts and
-   the validator correction, then run the separate receipt-bound `--finalize`
-   mode and its two-snapshot verifier. Every issue body carries the full
-   ticket contract plus a "Plan context" block linking back to this pack at
-   the approved commit.
-4. **Record GATE-001's resolution** on the live root and prove GATE-002,
-   then proceed under the operator's already explicit conditional run
-   authorization; no second approval prompt is required once the immutable
-   receipt and both gates pass.
-5. **Correct the live integration target:** the operator's local
-   `.aiur/config` currently says `tracker.base_branch: v2`, while this Build
-   Order's PR and terminal authority is current `main`. After the legacy tails
-   finish, change that local setting to `main`, restart branch-safely, and
-   verify the daemon reports the intended integration baseline. Do not add any
-   member `agent:todo` label before this check.
-6. **Run Aiur** via `/aiur-run` and drive to the terminal condition.
+**Current operating decisions:**
+
+1. Use explicit `progress.checkin` events as the percentage authority. Workpad
+   checkboxes are useful planning evidence but are not the live progress meter.
+2. Replace unconditional five-minute model wakes with an adaptive shell wait:
+   wake immediately for attention, agent-state, PR/CI, daemon, stale-log, or
+   unchanged-progress/thrash signals; otherwise force a health audit after a
+   quiet ceiling. Start at 10 minutes, bound it to 2–20 minutes, shorten after
+   an intervention, lengthen after repeated no-action audits, and retain a
+   wake/outcome history so later phases tune thresholds from evidence. A user
+   check-in always interrupts the wait.
+3. Keep `docs/build-order/plan-preview.html` current at meaningful execution
+   snapshots and every phase boundary. Show actual event-reported percentages
+   while work is active and verified/merged truth when a phase closes; avoid
+   committing a new snapshot for every uneventful local poll.
+4. Diagnose reproducible Aiur defects and file them, then apply two gates before
+   activation: the work must be authorized/in-boundary (or a direct P0/P1
+   blocker), and measured CPU, memory, build, serialization, and agent-slot
+   headroom must exist. Otherwise schedule it for a later phase without
+   `agent:todo`. Issue #1140 records the tracked per-workspace Hex cache defect;
+   it is deferred because Phase 1 currently has no compute or slot headroom.
+   Issue #1142 owns permanent adaptive-monitoring and resource-triage skill
+   delivery after this multi-phase run supplies tuning evidence; its prototype
+   is active operationally but it also has no dispatch label.
+5. Maintain this handoff whenever an operator directive, execution override,
+   capacity decision, discovered blocker, or validation authority changes.
+6. The prewarm base currently equals live `origin/main` at `9dca435e`. Although
+   `prewarm.poll_seconds` is zero, each tracker dispatch cycle calls
+   `RepoBase.refresh_async/0`; after every merge verify the base fetches,
+   rebuilds, and reaches the new `main` before newly-ready dispatch begins.
+
+At 19:06 PDT the five event-reported percentages are BO-004 70%, BO-008 70%,
+DASH-006 70%, DASH-017 50%, and DASH-018 70% (66% ticket-average). DASH-018
+opened draft PR #1141 against `main`; its worker retains ownership while lint
+is red and the test job is still running. The Executor begins independent
+review when the branch stabilizes and does not treat an in-flight draft as
+merge-ready.
 
 **Read-first map for this run:** `README.md` (pack index) →
 `08-implementation-pointers.md` (verified per-ticket file/module/function
@@ -79,7 +81,14 @@ else. The serial critical path is BO-004→001→002→003→007→011→012→0
 (amber in the committed plan preview, `docs/build-order/plan-preview.html`);
 keep it staffed continuously.
 
-## Start gate
+## Start gate (historical contract; explicitly overridden for this run)
+
+The operator-authorized override and live execution state above are now the
+authority for this run. Do not attempt to recreate a fresh pre-execution OPEN
+snapshot after runtime labels and lifecycle transitions have begun. The
+remaining text in this section records the intended immutable ceremony and is
+useful for fixing the publisher, but it is not a reason to pause the authorized
+Phase 1 workers.
 
 This handoff becomes executable only after the live Build Order root contains a
 uniquely marked immutable pending `aiur-build-order-reconciliation` comment and
@@ -160,15 +169,11 @@ change this run's 54-member denominator or ETA.
 3. Write a three-to-five-sentence `/goal` stating that you are the Executor,
    the finite acceptance boundary, granted issue/merge authority, critical-path
    priority and terminal condition.
-4. Before any execution mutation, run the receipt-bound full live verifier and
-   requery repository instructions, configured integration branch, the GitHub
-   root/members/blockers/full labels/open+unlocked state, active PRs, CI and
-   Aiur status. The live operator config currently points at legacy `v2`:
-   after the legacy tails, change the operator-local `.aiur/config`
-   `tracker.base_branch` to `main`, restart branch-safely, and verify the
-   daemon/integration baseline before adding any member `agent:todo`. Never
-   use the planning JSON as fresher live GitHub truth, and do not edit that
-   operator-local config from a publication or ticket worktree.
+4. The receipt-bound full live verifier was superseded for this run by the
+   explicit root override recorded in the live-state section. The Executor
+   re-queried repository instructions, set the isolated operator config to
+   `tracker.base_branch: main`, and verified current integration truth before
+   dispatch. Never use planning JSON as fresher live GitHub truth.
 5. Queue only approved members of the consolidated root under explicit user
    authority. The shared
    predecessor baseline is recorded as resolved (`origin/main` at
@@ -189,11 +194,9 @@ change this run's 54-member denominator or ETA.
   `/aiur-run`, and `/aiur-monitor` are discoverable. The separate human
   skill-delivery issue remains outside the Build Order denominator.
 
-GATE-002 still blocks every Build Order implementation ticket; GATE-001 is
-resolved but its branch and SHA must be recorded on the live root. BO-004 and
-BO-008 are the independent initial nodes, and the human skill-delivery issue
-is a native blocker of both so GATE-002 cannot be bypassed by another branch.
-BO-001 follows BO-004 and inherits both gates transitively.
+GATE-001 and GATE-002 are resolved for execution; the skill-delivery issue was
+closed under the operator's explicit receipt override before Phase 1 dispatch.
+BO-004 and BO-008 are the independent initial nodes. BO-001 follows BO-004.
 
 Record GATE-001's resolution and resolve GATE-002 before changing the skill
 issue from its publication-finalization OPEN state. Close that issue only after the
