@@ -44,9 +44,7 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
   @spec subscribe(GenServer.server(), Aiur.TrackerIdentity.t()) :: :ok | {:error, Failure.t() | term()}
   def subscribe(server \\ __MODULE__, identity) do
     with {:ok, topic} <- GenServer.call(server, {:subscription_topic, identity}),
-         :ok <- Phoenix.PubSub.subscribe(Aiur.PubSub, topic) do
-      :ok
-    end
+         do: Phoenix.PubSub.subscribe(Aiur.PubSub, topic)
   end
 
   @spec topic(Aiur.TrackerIdentity.t()) :: String.t()
@@ -98,12 +96,8 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
   end
 
   def handle_call({:current, identity}, _from, state) do
-    with {:ok, identity, _configured_repo} <- TicketDetail.fetchable_identity(identity, detail_opts(state)) do
-      case Map.fetch(state.entries, cache_key(identity)) do
-        {:ok, entry} -> {:reply, {:ok, state_for(entry, state)}, state}
-        :error -> {:reply, {:ok, unavailable_state(identity)}, state}
-      end
-    else
+    case TicketDetail.fetchable_identity(identity, detail_opts(state)) do
+      {:ok, identity, _configured_repo} -> current_reply(state, identity)
       {:error, %Failure{} = failure} -> {:reply, {:error, failure}, state}
     end
   end
@@ -250,6 +244,13 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
       last_success_at: detail && detail.observed_at,
       last_attempt_at: entry.last_attempt_at
     }
+  end
+
+  defp current_reply(state, identity) do
+    case Map.fetch(state.entries, cache_key(identity)) do
+      {:ok, entry} -> {:reply, {:ok, state_for(entry, state)}, state}
+      :error -> {:reply, {:ok, unavailable_state(identity)}, state}
+    end
   end
 
   defp unavailable_state(identity), do: %State{identity: identity, generation: :unknown, health: :unavailable}

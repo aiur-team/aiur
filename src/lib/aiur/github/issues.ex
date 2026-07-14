@@ -53,8 +53,7 @@ defmodule Aiur.GitHub.Issues do
     end
   end
 
-  defp valid_repository_part?(value) when is_binary(value), do: String.trim(value) != "" and not String.contains?(value, "/")
-  defp valid_repository_part?(_value), do: false
+  defp valid_repository_part?(value), do: String.trim(value) != "" and not String.contains?(value, "/")
 
   @spec fetch_issues_for_each_label(
           [String.t()],

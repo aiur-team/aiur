@@ -8,9 +8,9 @@ defmodule Aiur.BuildOrder.TicketDetail do
   accepted.
   """
 
-  alias Aiur.{GitHub, SecretRedactor, TrackerIdentity}
   alias Aiur.BuildOrder.{Bounded, Lifecycle}
-  alias Aiur.GitHub.Issues
+  alias Aiur.GitHub.{Issues, Transport}
+  alias Aiur.{GitHub, SecretRedactor, TrackerIdentity}
 
   @default_max_description_bytes 16_384
 
@@ -45,7 +45,7 @@ defmodule Aiur.BuildOrder.TicketDetail do
             identity: TrackerIdentity.t(),
             generation: pos_integer() | :unknown,
             health: health(),
-            detail: Snapshot.t() | nil,
+            detail: Aiur.BuildOrder.TicketDetail.Snapshot.t() | nil,
             failure: Failure.t() | nil,
             last_success_at: DateTime.t() | nil,
             last_attempt_at: DateTime.t() | nil
@@ -84,7 +84,7 @@ defmodule Aiur.BuildOrder.TicketDetail do
          {:ok, raw_issue} <-
            Issues.fetch_issue_raw(identity.identifier,
              repository: configured_repository,
-             request_fun: Keyword.get(opts, :request_fun, &Aiur.GitHub.Transport.default_request_fun/1)
+             request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
            ),
          {:ok, snapshot} <- snapshot(identity, raw_issue, opts) do
       {:ok, snapshot}
@@ -97,18 +97,10 @@ defmodule Aiur.BuildOrder.TicketDetail do
   @spec fetchable_identity(TrackerIdentity.t(), keyword()) ::
           {:ok, TrackerIdentity.t(), TrackerIdentity.repository()} | {:error, Failure.t()}
   def fetchable_identity(identity, opts \\ []) do
-    cond do
-      !TrackerIdentity.joinable?(identity) or identity.kind != :github ->
-        {:error, %Failure{kind: :nonfetchable_repository}}
-
-      true ->
-        with {:ok, configured_repository} <- configured_repository(opts),
-             true <- same_repository?(identity, configured_repository) do
-          {:ok, identity, configured_repository}
-        else
-          false -> {:error, %Failure{kind: :nonfetchable_repository}}
-          {:error, %Failure{} = failure} -> {:error, failure}
-        end
+    if TrackerIdentity.joinable?(identity) and identity.kind == :github do
+      configured_identity(identity, opts)
+    else
+      {:error, %Failure{kind: :nonfetchable_repository}}
     end
   end
 
@@ -152,17 +144,32 @@ defmodule Aiur.BuildOrder.TicketDetail do
   def snapshot(_identity, _raw_issue, _opts), do: {:error, %Failure{kind: :schema}}
 
   defp configured_repository(opts) do
-    case Keyword.get_lazy(opts, :configured_repo, &GitHub.Config.configured_repo/0) do
-      {owner, repository} when is_binary(owner) and is_binary(repository) and owner != "" and repository != "" ->
-        {:ok, {owner, repository}}
+    opts
+    |> Keyword.get_lazy(:configured_repo, &GitHub.Config.configured_repo/0)
+    |> configured_repository_result()
+  end
 
-      {:ok, {owner, repository}} when is_binary(owner) and is_binary(repository) and owner != "" and repository != "" ->
-        {:ok, {owner, repository}}
-
-      _ ->
-        {:error, %Failure{kind: :configuration}}
+  defp configured_identity(identity, opts) do
+    with {:ok, configured_repository} <- configured_repository(opts),
+         true <- same_repository?(identity, configured_repository) do
+      {:ok, identity, configured_repository}
+    else
+      false -> {:error, %Failure{kind: :nonfetchable_repository}}
+      {:error, %Failure{} = failure} -> {:error, failure}
     end
   end
+
+  defp configured_repository_result({:ok, repository}), do: configured_repository_result(repository)
+
+  defp configured_repository_result({owner, repository}) when is_binary(owner) and is_binary(repository) do
+    if owner != "" and repository != "" do
+      {:ok, {owner, repository}}
+    else
+      {:error, %Failure{kind: :configuration}}
+    end
+  end
+
+  defp configured_repository_result(_repository), do: {:error, %Failure{kind: :configuration}}
 
   defp same_repository?(%TrackerIdentity{owner: owner, repository: repository}, {configured_owner, configured_repository}) do
     String.downcase(owner) == String.downcase(configured_owner) and
@@ -223,10 +230,9 @@ defmodule Aiur.BuildOrder.TicketDetail do
   defp description("", _max_bytes), do: {:ok, nil}
 
   defp description(value, max_bytes) when is_binary(value) and is_integer(max_bytes) and max_bytes > 0 do
-    with {:ok, sanitized} <- sanitize(value, max_bytes) do
-      {:ok, if(sanitized == "", do: nil, else: sanitized)}
-    else
-      _ -> {:error, %Failure{kind: :validation}}
+    case sanitize(value, max_bytes) do
+      {:ok, sanitized} -> {:ok, if(sanitized == "", do: nil, else: sanitized)}
+      :error -> {:error, %Failure{kind: :validation}}
     end
   end
 

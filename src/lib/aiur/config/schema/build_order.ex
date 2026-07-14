@@ -16,7 +16,11 @@ defmodule Aiur.Config.Schema.BuildOrder do
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(schema, attrs) do
     schema
-    |> cast(attrs, [:ticket_detail_freshness_ms, :ticket_detail_max_entries, :ticket_detail_max_description_bytes], empty_values: [])
+    |> cast(
+      attrs,
+      [:ticket_detail_freshness_ms, :ticket_detail_max_entries, :ticket_detail_max_description_bytes],
+      empty_values: []
+    )
     |> validate_number(:ticket_detail_freshness_ms, greater_than: 0, less_than_or_equal_to: 300_000)
     |> validate_number(:ticket_detail_max_entries, greater_than: 0, less_than_or_equal_to: 100)
     |> validate_number(:ticket_detail_max_description_bytes, greater_than: 0, less_than_or_equal_to: 16_384)

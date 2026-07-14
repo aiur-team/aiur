@@ -34,7 +34,9 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     send(reader_pid, :finish)
 
     assert_receive {:ticket_detail_updated, %State{health: :healthy, generation: 1, detail: %Snapshot{title: "first"}}}
-    assert {:ok, %State{health: :healthy, generation: 1, detail: %Snapshot{title: "first"}}} = TicketDetailCache.current(cache, identity)
+
+    assert {:ok, %State{health: :healthy, generation: 1, detail: %Snapshot{title: "first"}}} =
+             TicketDetailCache.current(cache, identity)
   end
 
   test "rejects another repository before cache admission or reader invocation" do
@@ -97,7 +99,8 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     first = identity(1, "I1")
     second = identity(2, "I2")
 
-    {:ok, cache} = start_cache(max_entries: 1, reader: fn identity -> {:ok, snapshot(identity, identity.identifier)} end)
+    {:ok, cache} =
+      start_cache(max_entries: 1, reader: fn identity -> {:ok, snapshot(identity, identity.identifier)} end)
 
     assert :ok = TicketDetailCache.subscribe(cache, first)
     assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, first)
@@ -193,7 +196,9 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     :ok = GenServer.stop(cache)
 
     {:ok, restarted} = start_cache(reader: fn _identity -> flunk("current must not fetch") end)
-    assert {:ok, %State{health: :unavailable, detail: nil, generation: :unknown}} = TicketDetailCache.current(restarted, identity)
+
+    assert {:ok, %State{health: :unavailable, detail: nil, generation: :unknown}} =
+             TicketDetailCache.current(restarted, identity)
   end
 
   test "does not let direct startup options exceed cache hard bounds" do
@@ -249,7 +254,10 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
 
   defp inflight_ref(cache, identity) do
     %{entries: entries} = :sys.get_state(cache)
-    %{inflight: %{ref: ref}} = Enum.find_value(entries, fn {_key, entry} -> if entry.identity == identity, do: entry end)
+
+    %{inflight: %{ref: ref}} =
+      Enum.find_value(entries, fn {_key, entry} -> if entry.identity == identity, do: entry end)
+
     ref
   end
 end
