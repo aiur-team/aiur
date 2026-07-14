@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 04:56 PDT)
+## Live Executor state (updated 2026-07-14 05:19 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -16,15 +16,15 @@ repository root against `main`; current accepted `main` is
 `4f49e0a1d3c88054905b2edbaa6a3a1ffa2b7a10`, including DASH-017/#1089. The core
 program is 5/54 merged with 49 remaining.
 
-The measured runtime envelope is temporarily eight workers. #1093/BO-005 and
-#1109/DASH-002 started as soon as the GitHub API limit reset; #1130/DASH-026 is
-dependency-ready, labeled `agent:todo`, and capacity-queued. #1088, #1090,
-#1096, #1111, #1151, and P1 #1161 occupy the other active execution slots.
-#1091 and #1103 are deactivated in exact-head review, #1108 remains recovery
-held, and #1123 remains GATE-003 held. Host load spiked above the documented
-hard ceiling while eight workers and two build slots overlapped, so do not add
-a ninth worker until load falls or an active worker drains. All providers are
-Codex Sol or Terra; never dispatch Claude.
+The measured runtime envelope is temporarily eight workers. #1109/DASH-002 and
+#1130/DASH-026 are now productive; #1093/BO-005 is suppressed after two
+workspace-replacement races and waits for P1 #1161. #1091/BO-002 and
+#1103/BO-016 completed dual review and are in bounded rework; #1162 is actively
+fixing its own dual-review P1, while #1161 is retry-queued for capacity. #1108
+remains recovery held and #1123 remains GATE-003 held. Host load remains above
+the documented hard ceiling during overlapping builds, so do not add a ninth
+worker until load falls or an active worker drains. All providers are Codex Sol
+or Terra; never dispatch Claude.
 
 **Current operating decisions:**
 
@@ -638,11 +638,40 @@ Codex Sol or Terra; never dispatch Claude.
     lifecycle tests, and Credo complexity. The Executor refused regression-test
     approval, routed the bounded production-behavior rework, and unpaused the
     existing worker. This P1 retains priority over queued #1130.
+74. The 05:06 PDT hourly retrospective found an action-dense hour: #1089 merged,
+    three dependency-ready tickets were dispatched, GitHub rate-limit recovery
+    was verified, reviews were routed, and workspaces were recovered. The only
+    clear low-value polling was repeating `aiurdev agents` after its control RPC
+    had timed out or returned blank. Use 60–90 second quiet waits, then prefer
+    daemon/GitHub evidence after one control timeout; record each wake outcome
+    so the next hourly sample has quantitative counts.
+75. #1109 and #1093 reproduced P1 #1161 while the unfixed daemon was still live:
+    competing generations replaced their checkouts during agent use or clone.
+    #1109 recovered through one guarded retry and is productive. #1093 failed a
+    second clean clone because its pack directory vanished mid-write, so the
+    Executor applied `agent:paused` until #1161 lands. This is existing P1
+    evidence, not authority for another ticket.
+76. Two independent reviews of #1162/PR #1165 converged on one P1: Codex emits
+    idle before the paired interrupted completion, but the branch exited on idle
+    and bypassed pause/operator interruption routing. #1162 is implementing the
+    single contained ordering fix plus sequence regressions.
+77. Two independent reviews of #1103/PR #1163 found two BO-016 P1s: the default
+    request function accidentally selected the literal test token instead of
+    configured GitHub auth, and generic Authorization Bearer/Basic values could
+    survive snapshot/PubSub sanitization. #1103 is active on that bounded rework.
+78. Two independent reviews of #1091/PR #1157 returned a six-part BO-002
+    fail-closed contract: effective portable GitHub config, nullable GraphQL
+    nodes, missing-identity classification, label diagnostics, external endpoint
+    identity, and duplicate external endpoints. #1091 is rework-queued at the
+    measured capacity ceiling; no separate follow-up issues were created.
+79. #1130/DASH-026 recovered from an initial provider port exit, completed the
+    guarded bootstrap, and started a Terra session. It is now productive rather
+    than merely dependency-ready.
 
-At 04:56 PDT the core graph is 5/54 accepted. The fleet is at its temporary
-eight-worker ceiling, with #1130 first in the queue and host load above the hard
-ceiling during overlapping builds. Treat completed turns, stale bases, and
-green builds with unmet acceptance criteria as pending Executor work, not
+At 05:19 PDT the core graph is 5/54 accepted. The fleet is at its temporary
+eight-worker ceiling, with #1091 and P1 #1161 retry-queued and host load above
+the hard ceiling during overlapping builds. Treat completed turns, stale bases,
+and green builds with unmet acceptance criteria as pending Executor work, not
 merge-ready truth.
 
 **Read-first map for this run:** `README.md` (pack index) →
