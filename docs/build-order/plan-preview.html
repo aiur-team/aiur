@@ -12,6 +12,7 @@
   --attn:#e3b341; --attn-ink:#f1cf6f; --attn-soft:rgba(227,179,65,.15); --attn-line:rgba(227,179,65,.34);
   --block:#ff7b72; --block-ink:#ffa39c; --block-soft:rgba(255,123,114,.14); --block-line:rgba(255,123,114,.34);
   --good:#3fb950; --good-ink:#74d47f; --good-soft:rgba(63,185,80,.14); --good-line:rgba(63,185,80,.32);
+  --done-bg:#2b2e34; --done-bg-2:#33373e; --done-border:#5d626c; --done-border-strong:#777d88; --done-ink:#b2b6be; --done-muted:#8b9099;
   --super:#c69bff; --super-ink:#d8bcff; --super-soft:rgba(198,155,255,.15); --super-line:rgba(198,155,255,.34);
   --shadow-sm:0 1px 2px rgba(0,0,0,.35);
   --mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
@@ -27,6 +28,7 @@
   --attn:#b8821a; --attn-ink:#8a6210; --attn-soft:rgba(184,130,26,.13); --attn-line:rgba(184,130,26,.32);
   --block:#d23b32; --block-ink:#a52a23; --block-soft:rgba(210,59,50,.11); --block-line:rgba(210,59,50,.30);
   --good:#1f9d4d; --good-ink:#167038; --good-soft:rgba(31,157,77,.13); --good-line:rgba(31,157,77,.30);
+  --done-bg:#d6d3cd; --done-bg-2:#cbc8c1; --done-border:#9c9992; --done-border-strong:#7f7c75; --done-ink:#625f59; --done-muted:#77736c;
   --super:#8a4fd0; --super-ink:#6d3aa8; --super-soft:rgba(138,79,208,.12); --super-line:rgba(138,79,208,.30);
   --shadow-sm:0 1px 2px rgba(58,44,18,.10);
   color-scheme:light;
@@ -40,6 +42,7 @@
   --attn:#e3b341; --attn-ink:#f1cf6f; --attn-soft:rgba(227,179,65,.15); --attn-line:rgba(227,179,65,.34);
   --block:#ff7b72; --block-ink:#ffa39c; --block-soft:rgba(255,123,114,.14); --block-line:rgba(255,123,114,.34);
   --good:#3fb950; --good-ink:#74d47f; --good-soft:rgba(63,185,80,.14); --good-line:rgba(63,185,80,.32);
+  --done-bg:#2b2e34; --done-bg-2:#33373e; --done-border:#5d626c; --done-border-strong:#777d88; --done-ink:#b2b6be; --done-muted:#8b9099;
   --super:#c69bff; --super-ink:#d8bcff; --super-soft:rgba(198,155,255,.15); --super-line:rgba(198,155,255,.34);
   --shadow-sm:0 1px 2px rgba(0,0,0,.35); color-scheme:dark;
 }
@@ -52,6 +55,7 @@
   --attn:#b8821a; --attn-ink:#8a6210; --attn-soft:rgba(184,130,26,.13); --attn-line:rgba(184,130,26,.32);
   --block:#d23b32; --block-ink:#a52a23; --block-soft:rgba(210,59,50,.11); --block-line:rgba(210,59,50,.30);
   --good:#1f9d4d; --good-ink:#167038; --good-soft:rgba(31,157,77,.13); --good-line:rgba(31,157,77,.30);
+  --done-bg:#d6d3cd; --done-bg-2:#cbc8c1; --done-border:#9c9992; --done-border-strong:#7f7c75; --done-ink:#625f59; --done-muted:#77736c;
   --super:#8a4fd0; --super-ink:#6d3aa8; --super-soft:rgba(138,79,208,.12); --super-line:rgba(138,79,208,.30);
   --shadow-sm:0 1px 2px rgba(58,44,18,.10); color-scheme:light;
 }
@@ -99,6 +103,9 @@ button{font-family:inherit}
 .bo-leg-line{width:1.4rem;height:0;border-top-width:2px;border-top-style:solid}
 .bo-leg-line.solid{border-color:var(--good)}
 .bo-leg-line.dashed{border-color:var(--block);border-top-style:dashed}
+.bo-leg-card{width:.85rem;height:.65rem;border-radius:3px;border:1px solid}
+.bo-leg-card.live{border-color:var(--good);background:var(--good-soft);box-shadow:0 0 0 1px var(--good-line)}
+.bo-leg-card.done{border-color:var(--done-border);background:var(--done-bg)}
 .bo-zoom{display:inline-flex;align-items:center;gap:.3rem}
 .bo-zbtn{display:inline-grid;place-items:center;min-width:1.9rem;height:1.9rem;padding:0 .5rem;border-radius:8px;border:1px solid var(--pill-bd);background:var(--pill-bg);color:var(--fg);cursor:pointer;font-family:var(--mono);font-size:.82rem}
 .bo-zbtn:hover{border-color:var(--line-strong)}
@@ -132,12 +139,16 @@ button{font-family:inherit}
   transition:border-color .15s ease,box-shadow .15s ease,transform .15s ease,opacity .2s ease}
 .bo-node:hover{border-color:var(--accent-line);box-shadow:0 8px 22px color-mix(in srgb,var(--accent) 16%,transparent);transform:translateY(-1px)}
 .bo-node:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.bo-node.is-ready{border-color:var(--good-line)}
+.bo-node.is-ready{border-color:var(--accent-line);border-style:dashed}
 .bo-node.is-working{border-color:var(--good);background:color-mix(in srgb,var(--good-soft) 58%,var(--surface));box-shadow:0 0 0 1px var(--good-line),0 8px 24px color-mix(in srgb,var(--good) 12%,transparent)}
 .bo-node.is-working .bo-node-status{color:var(--good-ink)}
 .bo-node.is-working .bo-node-status .st::before{animation:run-pulse 1.8s ease-in-out infinite}
-.bo-node.is-merged{border-color:var(--good);background:var(--good-soft);box-shadow:0 0 0 1px var(--good-line)}
-.bo-node.is-merged .bo-node-status{color:var(--good-ink)}
+.bo-node.is-merged{border-color:var(--done-border);background:var(--done-bg);box-shadow:none;color:var(--done-ink)}
+.bo-node.is-merged:hover{border-color:var(--done-border-strong);box-shadow:0 7px 18px color-mix(in srgb,var(--done-border) 18%,transparent)}
+.bo-node.is-merged .bo-node-title,.bo-node.is-merged .bo-node-id,.bo-node.is-merged .bo-node-status{color:var(--done-ink)}
+.bo-node.is-merged .bo-ic,.bo-node.is-merged .bo-cx,.bo-node.is-merged .crit,.bo-node.is-merged .xdep{border-color:var(--done-border);background:var(--done-bg-2);color:var(--done-muted)}
+.bo-node.is-merged .bo-progress{background:var(--done-bg-2);border:1px solid var(--done-border)}
+.bo-node.is-merged .bo-progress>i{background:var(--done-ink)}
 .bo-progress{height:3px;border-radius:999px;background:var(--hairline);overflow:hidden}
 .bo-progress>i{display:block;height:100%;border-radius:inherit;background:var(--good);min-width:0}
 @keyframes run-pulse{50%{box-shadow:0 0 0 5px color-mix(in srgb,var(--good) 12%,transparent)}}
@@ -153,7 +164,7 @@ button{font-family:inherit}
 .bo-node-status{display:flex;align-items:center;justify-content:space-between;gap:.4rem;font-family:var(--mono);font-size:.6rem;color:var(--muted)}
 .bo-node-status .st{display:inline-flex;align-items:center;gap:.3rem}
 .bo-node-status .st::before{content:"";width:.42rem;height:.42rem;border-radius:50%;background:currentColor;flex:none}
-.bo-node.is-ready .bo-node-status{color:var(--good-ink)}
+.bo-node.is-ready .bo-node-status{color:var(--accent-ink)}
 .crit{display:inline-flex;padding:.08rem .4rem;border-radius:999px;border:1px solid var(--attn-line);background:var(--attn-soft);color:var(--attn-ink);font-family:var(--mono);font-size:.56rem;font-weight:700}
 .xdep{display:inline-flex;padding:.08rem .4rem;border-radius:999px;border:1px solid var(--pill-bd);background:var(--pill-bg);color:var(--muted);font-family:var(--mono);font-size:.56rem}
 
@@ -164,6 +175,8 @@ button{font-family:inherit}
 .drawer .did{font-family:var(--mono);font-size:.7rem;color:var(--muted)}
 .drawer .row{display:flex;gap:.5rem;flex-wrap:wrap;margin:.7rem 0}
 .pill{display:inline-flex;align-items:center;gap:.3rem;padding:.18rem .55rem;border-radius:999px;border:1px solid var(--pill-bd);background:var(--pill-bg);font-family:var(--mono);font-size:.64rem;color:var(--muted)}
+.pill.state-live{color:var(--good-ink);border-color:var(--good-line);background:var(--good-soft)}
+.pill.state-complete{color:var(--done-ink);border-color:var(--done-border);background:var(--done-bg)}
 .drawer h4{font-size:.68rem;font-family:var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--faint);margin:1.1rem 0 .4rem}
 .dep-chip{display:inline-flex;margin:0 .3rem .3rem 0;padding:.2rem .55rem;border-radius:8px;border:1px solid var(--line);background:var(--surface-2);font-family:var(--mono);font-size:.66rem;color:var(--fg);cursor:pointer}
 .dep-chip:hover{border-color:var(--accent-line);color:var(--accent-ink)}
@@ -227,7 +240,7 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
   <footer>
     Data: docs/build-order/build-order.json (branch build-order-research), one consolidated Build Order per operator direction 2026-07-13.
     Rows are dependency waves (longest blocker path); dashed edges are still blocking and solid green edges have cleared after merge.
-    Green “dependency-ready” cards have cleared native blockers only; Executor capacity, host load, serialization conflicts, and paused state still govern dispatch.
+    Green card background + border means an Aiur agent is live on that ticket. Solid grey cards are merged or closed and remain selectable; dashed blue cards are dependency-ready but not running.
     Core epics are plan-graph / runtime / dashboard-ui / accounting / platform. The Ad Hoc epic tracks tickets created during execution without changing the approved 54-ticket denominator; phase is assigned when a ticket is picked up.
     The per-phase and per-epic breakdowns are part of the real page design — owned by ticket BO-020.
     Click any card for details · drag to pan · buttons to zoom.
@@ -242,23 +255,23 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
 <script>
 const RUN = {
   phase: 1,
-  updated: "2026-07-14 07:10 PDT",
+  updated: "2026-07-14 07:25 PDT",
   tickets: {
     "BO-004": {state:"merged", progress:100, issue:1086},
     "BO-008": {state:"merged", progress:100, issue:1087},
-    "DASH-006": {state:"same-ID Decision P1 rework cycling", progress:80, issue:1088},
+    "DASH-006": {state:"same-ID Decision P1 rework active", progress:80, issue:1088, agent_live:true},
     "DASH-017": {state:"merged", progress:100, issue:1089},
     "DASH-018": {state:"capacity hold", progress:70, issue:1090},
     "BO-001": {state:"merged", progress:100, issue:1085},
-    "BO-016": {state:"dual-review rework dispatched", progress:60, issue:1103},
+    "BO-016": {state:"final local gates active", progress:60, issue:1103, agent_live:true},
     "BO-017": {state:"merged", progress:100, issue:1104},
     "DASH-001": {state:"workspace recovery queued", progress:0, issue:1108},
     "DASH-004": {state:"preserved-WIP hold", progress:90, issue:1111},
     "DASH-019": {state:"gate/workspace paused", progress:0, issue:1123},
-    "BO-002": {state:"new local fix head · validating", progress:90, issue:1091},
+    "BO-002": {state:"green · exact-head review", progress:90, issue:1091},
     "BO-005": {state:"workspace-race hold", progress:0, issue:1093},
-    "BO-009": {state:"fresh head · browser CI rework", progress:80, issue:1096},
-    "DASH-002": {state:"CI/reliability repair active", progress:100, issue:1109},
+    "BO-009": {state:"green · exact-head review", progress:80, issue:1096},
+    "DASH-002": {state:"CI/reliability repair active", progress:100, issue:1109, agent_live:true},
     "DASH-026": {state:"workspace-race hold", progress:0, issue:1130},
     "ADHOC-1139": {state:"closed", progress:100, issue:1139},
     "ADHOC-1140": {state:"deferred", progress:0, issue:1140},
@@ -266,11 +279,11 @@ const RUN = {
     "ADHOC-1146": {state:"deferred", progress:0, issue:1146},
     "ADHOC-1148": {state:"deferred", progress:0, issue:1148},
     "ADHOC-1149": {state:"deferred", progress:0, issue:1149},
-    "ADHOC-1151": {state:"CI rework active", progress:50, issue:1151},
+    "ADHOC-1151": {state:"fresh-head CI active", progress:70, issue:1151, agent_live:true},
     "ADHOC-1152": {state:"deferred", progress:0, issue:1152},
     "ADHOC-1154": {state:"deferred P1", progress:0, issue:1154},
-    "ADHOC-1161": {state:"workspace-ownership P1 rework active", progress:40, issue:1161},
-    "ADHOC-1162": {state:"CI regression rework cycling", progress:90, issue:1162},
+    "ADHOC-1161": {state:"workspace-ownership P1 gate active", progress:40, issue:1161, agent_live:true},
+    "ADHOC-1162": {state:"suite-state diagnosis active", progress:70, issue:1162, agent_live:true},
     "ADHOC-1164": {state:"closed duplicate of #1154", progress:0, issue:1164}
   }
 };
@@ -312,6 +325,8 @@ TICKETS.forEach(t => t.deps.forEach(d => { (dependents[d] = dependents[d] || [])
 function packTickets(pack){ return TICKETS.filter(t => t.pack === pack); }
 function phaseOrder(phase){ return phase == null ? Number.MAX_SAFE_INTEGER : phase; }
 function phaseLabel(phase, prefix="W"){ return phase == null ? "TBD" : `${prefix}${phase}`; }
+function isCompleted(run){ return !!run && (run.state === "merged" || run.state.startsWith("closed")); }
+function hasLiveAgent(run){ return run?.agent_live === true; }
 
 function buildGraph(rootEl, pack, title, cap){
   const T = packTickets(pack);
@@ -323,6 +338,8 @@ function buildGraph(rootEl, pack, title, cap){
     <div><h2>${title}</h2><div class="cap">${cap}</div></div>
     <div class="bo-tools">
       <div class="bo-legend">
+        <span class="bo-leg"><i class="bo-leg-card live"></i>agent live</span>
+        <span class="bo-leg"><i class="bo-leg-card done"></i>merged</span>
         <span class="bo-leg"><i class="bo-leg-line solid"></i>cleared</span>
         <span class="bo-leg"><i class="bo-leg-line dashed"></i>blocking</span>
       </div>
@@ -352,8 +369,8 @@ function buildGraph(rootEl, pack, title, cap){
       html += `<div class="bo-cell">` + cell.map(t=>{
         const ready = t.deps.every(d=>RUN.tickets[d]?.state==="merged");
         const live = RUN.tickets[t.id];
-        const completed = live && (live.state === "merged" || live.state.startsWith("closed"));
-        const active = live && !completed && /(working|active|rework|CI|review)/i.test(live.state);
+        const completed = isCompleted(live);
+        const active = !completed && hasLiveAgent(live);
         const nodeClass = completed ? " is-merged" : active ? " is-working" : !live && ready ? " is-ready" : "";
         const stateCopy = live ? `${live.progress}% · ${live.state}` : ready ? "dependency-ready" : "blocked ×"+t.deps.length;
         const xdeps = t.deps.filter(d=>byId[d] && byId[d].pack!==pack);
@@ -482,6 +499,7 @@ const drawer = document.getElementById("drawer");
 function openDrawer(id){
   const t = byId[id];
   const live = RUN.tickets[id];
+  const stateClass = isCompleted(live) ? " state-complete" : hasLiveAgent(live) ? " state-live" : "";
   const deps = t.deps.map(d=>({id:d, ext: byId[d]?.pack!==t.pack}));
   const downs = (dependents[id]||[]).map(d=>({id:d, ext: byId[d]?.pack!==t.pack}));
   document.getElementById("drawerBody").innerHTML = `
@@ -491,7 +509,7 @@ function openDrawer(id){
       <span class="pill">${LANE_LABEL[t.lane]} epic</span>
       <span class="pill">${t.phase == null ? "phase assigned at pickup" : `phase ${t.phase}`}</span>
       <span class="pill">complexity ${t.cx == null ? "unassigned" : t.cx}</span>
-      ${live?`<span class="pill" style="color:var(--good-ink);border-color:var(--good-line);background:var(--good-soft)">${live.progress}% · ${live.state}</span>`:""}
+      ${live?`<span class="pill${stateClass}">${live.progress}% · ${live.state}</span>`:""}
       ${t.critical?'<span class="pill" style="color:var(--attn-ink);border-color:var(--attn-line);background:var(--attn-soft)">critical path</span>':""}
     </div>
     <h4>Blocked by (${deps.length})</h4>
@@ -518,7 +536,7 @@ document.addEventListener("keydown",e=>{ if(e.key==="Escape") drawer.classList.r
   const pts = T.reduce((s,t)=>s+t.cx,0);
   const coreRun = T.map(t=>RUN.tickets[t.id]).filter(Boolean);
   const allRun = Object.values(RUN.tickets);
-  const working = allRun.filter(t=>/(working|active|rework)/i.test(t.state));
+  const working = allRun.filter(hasLiveAgent);
   const ci = allRun.filter(t=>/(CI|review)/i.test(t.state) && t.state!=="merged");
   const merged = coreRun.filter(t=>t.state==="merged");
   const paused = allRun.filter(t=>t.state.includes("paused"));
@@ -561,7 +579,7 @@ document.addEventListener("keydown",e=>{ if(e.key==="Escape") drawer.classList.r
 
 buildGraph(document.getElementById("graph-all"), "all",
   `Build Order: aiur-dashboard-program \u2014 ${CORE_TICKETS.length} core members + ${ADHOC_TICKETS.length} ad hoc`,
-  "The approved 54-ticket graph remains the feature denominator. The Ad Hoc epic shows tickets created during execution; each receives the phase closest to its actual pickup, while deferred work stays in the TBD row. Epic lanes \u00d7 dependency waves; native blockedBy edges apply to the core graph. Hover a card to trace its chain; green marks live or completed work and amber marks the serial critical path.");
+  "The approved 54-ticket graph remains the feature denominator. The Ad Hoc epic shows tickets created during execution; each receives the phase closest to its actual pickup, while deferred work stays in the TBD row. Epic lanes \u00d7 dependency waves; native blockedBy edges apply to the core graph. Hover a card to trace its chain; green cards mean an agent is live, solid grey cards are merged, and amber marks the serial critical path.");
 
 /* theme toggle */
 document.getElementById("themeBtn").addEventListener("click",()=>{

@@ -771,8 +771,33 @@ dispatch Claude.
     cycling only #1162's completed generation before returning it to rework;
     preserve both the new pause path and the pre-existing exactly-once drain
     contract, and create no additional ticket.
+94. The operator clarified the Build Order card-state contract for both this
+    preview and BO-020: reserve a green background plus green border for a
+    ticket with an explicitly live Aiur agent; render merged or closed work as
+    a solid grey card with grey text and borders while keeping the card fully
+    selectable for historical detail; and distinguish dependency-ready but
+    unstaffed work with a dashed blue border. The static preview demonstrates
+    this with explicit `agent_live` evidence. The shipped page must derive live
+    state from authoritative Aiur runtime identity and completion from GitHub,
+    never infer either from free-form status text.
+95. PR #1144 is a required case study for deferred Executor optimization issue
+    #1142. It has spent roughly 11.5 hours across 17 commits and repeated
+    exact-head review/rework/CI cycles, including late discovery of cursor,
+    boundedness, property-coverage, performance, and same-ID selection defects
+    plus a missing terminal-CI event that exhausted one worker generation.
+    Analyze its timeline after the feature phase for duplicated reviewer
+    discovery, feedback batching, review timing, CI/event latency, and whether
+    acceptance evidence could have been front-loaded. This analysis must not
+    delay DASH-006 or promote a new in-boundary ticket.
+96. BO-002/#1091 reached green current-main head `f0ea7fbc`, but dual exact-
+    head review found that malformed HTTP-200 GraphQL envelopes could still
+    escape the controlled provider-schema taxonomy through transport clauses
+    and unvalidated `get_in/2` boundaries, and that the selected root could be
+    accepted as its own executable member. Both findings were returned to the
+    existing ticket in issue comment `4970344090`; #1091 is back in rework and
+    no follow-up ticket was created.
 
-At 07:10 PDT the core graph is 5/54 accepted. Six Codex workers are productive;
+At 07:25 PDT the core graph is 5/54 accepted. Six Codex workers are productive;
 #1088 and #1162 are cycling completed generations into the remaining two slots.
 #1093, #1108, #1111, and #1130 stay on workspace-race holds until #1161 lands.
 The latest emitted progress evidence remains 1088=80, 1091=90, 1096=80,
