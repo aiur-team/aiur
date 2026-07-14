@@ -146,6 +146,8 @@ defmodule Aiur.CurrentRunMembership.Store do
       clear_journal_fun: Keyword.get(opts, :clear_journal_fun, &clear_journal/1),
       checkpoint_interval: checkpoint_interval(Keyword.get(opts, :checkpoint_interval, @checkpoint_interval)),
       sync_fun: Keyword.get(opts, :filesystem_sync_fun, &Fs.sync_filesystem/0),
+      degraded_marker_fun: Keyword.get(opts, :degraded_marker_fun, &write_degraded_marker/4),
+      quarantine_fun: Keyword.get(opts, :quarantine_fun, &quarantine/1),
       clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
       cleanup_fun: Keyword.get(opts, :cleanup_fun, &cleanup_obsolete_runs/2)
     }
@@ -224,6 +226,8 @@ defmodule Aiur.CurrentRunMembership.Store do
       checkpoint_interval: persistence.checkpoint_interval,
       journal_event_count: journal_event_count,
       sync_fun: persistence.sync_fun,
+      degraded_marker_fun: persistence.degraded_marker_fun,
+      quarantine_fun: persistence.quarantine_fun,
       cleanup_fun: persistence.cleanup_fun,
       clock: persistence.clock,
       recovered_at: persistence.clock.(),
@@ -323,18 +327,18 @@ defmodule Aiur.CurrentRunMembership.Store do
   end
 
   defp degrade_and_quarantine(state, path, reason) do
-    case quarantine(path) do
+    case state.degraded_marker_fun.(state.degraded_path, state.run_id, reason, state.sync_fun) do
       :ok ->
-        case write_degraded_marker(state.degraded_path, state.run_id, reason, state.sync_fun) do
+        case state.quarantine_fun.(path) do
           :ok ->
             %{state | health: {:degraded, reason}, writable?: false}
 
-          {:error, marker_reason} ->
-            %{state | health: {:unavailable, {:degraded_marker_failed, marker_reason}}, writable?: false}
+          {:error, quarantine_reason} ->
+            %{state | health: {:unavailable, {:quarantine_failed, quarantine_reason}}, writable?: false}
         end
 
-      {:error, quarantine_reason} ->
-        %{state | health: {:unavailable, {:quarantine_failed, quarantine_reason}}, writable?: false}
+      {:error, marker_reason} ->
+        %{state | health: {:unavailable, {:degraded_marker_failed, marker_reason}}, writable?: false}
     end
   end
 
@@ -602,6 +606,8 @@ defmodule Aiur.CurrentRunMembership.Store do
       checkpoint_interval: persistence.checkpoint_interval,
       journal_event_count: 0,
       sync_fun: persistence.sync_fun,
+      degraded_marker_fun: persistence.degraded_marker_fun,
+      quarantine_fun: persistence.quarantine_fun,
       cleanup_fun: persistence.cleanup_fun,
       clock: persistence.clock,
       recovered_at: persistence.clock.(),

@@ -1963,8 +1963,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
   test "orchestrator enqueues operator messages and pause requests for the running agent task" do
     orchestrator_name = Module.concat(__MODULE__, :OperatorMessageOrchestrator)
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
-    freeze_poll_cycle(pid)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
     :ok = ActiveTurns.put("MT-CHAT", "turn-chat")
 
     on_exit(fn ->
@@ -1973,6 +1972,8 @@ defmodule Aiur.OrchestratorStatusTest do
     end)
 
     parent = self()
+
+    assert %{next_poll_due_at_ms: nil, tick_timer_ref: nil} = :sys.get_state(pid)
 
     worker_pid =
       spawn(fn ->

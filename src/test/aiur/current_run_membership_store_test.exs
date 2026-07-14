@@ -160,6 +160,36 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
     assert member.lifecycle == :queued
   end
 
+  test "a failed degraded marker write preserves a corrupt checkpoint across later restarts", %{dir: dir} do
+    first = start_store!(dir)
+    assert {:ok, %{generation: 1}} = observe(first, identity(), :queued)
+    stop(first)
+
+    checkpoint = checkpoint_path(dir)
+    assert :ok = File.write(checkpoint, "{")
+
+    failed =
+      start_store!(dir, @run_id,
+        filesystem_sync_fun: fn -> :ok end,
+        degraded_marker_fun: fn _path, _run_id, _reason, _sync_fun ->
+          {:error, :injected_marker_write_failure}
+        end
+      )
+
+    assert %{health: {:unavailable, {:degraded_marker_failed, :injected_marker_write_failure}}} =
+             Store.snapshot(server: failed)
+
+    assert File.exists?(checkpoint)
+    stop(failed)
+
+    recovered_once = start_store!(dir, @run_id, filesystem_sync_fun: fn -> :ok end)
+    assert %{health: {:degraded, _reason}, members: []} = Store.snapshot(server: recovered_once)
+    stop(recovered_once)
+
+    recovered_twice = start_store!(dir, @run_id, filesystem_sync_fun: fn -> :ok end)
+    assert %{health: {:degraded, _reason}, members: []} = Store.snapshot(server: recovered_twice)
+  end
+
   test "corrupt journal preserves the checkpoint projection but marks recovery degraded", %{dir: dir} do
     pid = start_store!(dir)
     assert {:ok, _} = observe(pid, identity(), :queued)

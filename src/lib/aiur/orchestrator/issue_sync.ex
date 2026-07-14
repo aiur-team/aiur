@@ -4,13 +4,69 @@ defmodule Aiur.Orchestrator.IssueSync do
   All functions execute inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{AgentQueue, AgentQueueStore, Alerts, Issue}
+  alias Aiur.{AgentQueue, AgentQueueStore, Alerts, Issue, Tracker, TrackerIdentity}
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, OperatorMessages, Slots, State}
+  alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, MembershipLifecycle, OperatorMessages, Slots, State}
 
   @spec sync_polled_issue_state(State.t(), list()) :: State.t()
   def sync_polled_issue_state(%State{} = state, issues) when is_list(issues) do
+    sync_polled_issue_state(
+      state,
+      issues,
+      &Tracker.fetch_issue_states_by_ids/1,
+      &MembershipLifecycle.observe/2,
+      DispatchPolicy.terminal_state_set()
+    )
+  end
+
+  def sync_polled_issue_state(%State{} = state, _issues), do: state
+
+  @doc false
+  @spec sync_polled_issue_state(
+          State.t(),
+          list(),
+          ([String.t()] -> {:ok, [term()]} | {:error, term()}),
+          (TrackerIdentity.t(), atom() -> term())
+        ) :: State.t()
+  def sync_polled_issue_state(%State{} = state, issues, fetch_issue_states_fun, observe_membership_fun)
+      when is_list(issues) and is_function(fetch_issue_states_fun, 1) and is_function(observe_membership_fun, 2) do
+    sync_polled_issue_state(
+      state,
+      issues,
+      fetch_issue_states_fun,
+      observe_membership_fun,
+      DispatchPolicy.terminal_state_set()
+    )
+  end
+
+  @doc false
+  @spec sync_polled_issue_state(
+          State.t(),
+          list(),
+          ([String.t()] -> {:ok, [term()]} | {:error, term()}),
+          (TrackerIdentity.t(), atom() -> term()),
+          MapSet.t()
+        ) :: State.t()
+  def sync_polled_issue_state(
+        %State{} = state,
+        issues,
+        fetch_issue_states_fun,
+        observe_membership_fun,
+        terminal_states
+      )
+      when is_list(issues) and is_function(fetch_issue_states_fun, 1) and is_function(observe_membership_fun, 2) and
+             is_struct(terminal_states, MapSet) do
     previous_issues = state.last_polled_issues
+    current_issues = issues_by_id(issues)
+
+    record_disappearing_idle_terminals(
+      state,
+      previous_issues,
+      current_issues,
+      fetch_issue_states_fun,
+      observe_membership_fun,
+      terminal_states
+    )
 
     state =
       Enum.reduce(issues, state, fn issue, state_acc ->
@@ -21,10 +77,8 @@ defmodule Aiur.Orchestrator.IssueSync do
         |> emit_dependency_transition_events(previous_issue, issue)
       end)
 
-    %{state | last_polled_issues: issues_by_id(issues)}
+    %{state | last_polled_issues: current_issues}
   end
-
-  def sync_polled_issue_state(%State{} = state, _issues), do: state
 
   defp issues_by_id(issues) do
     Enum.reduce(issues, %{}, fn
@@ -32,6 +86,85 @@ defmodule Aiur.Orchestrator.IssueSync do
       _issue, acc -> acc
     end)
   end
+
+  defp record_disappearing_idle_terminals(
+         %State{} = state,
+         previous_issues,
+         current_issues,
+         fetch_issue_states_fun,
+         observe_membership_fun,
+         terminal_states
+       ) do
+    disappearing_idle_issue_ids =
+      previous_issues
+      |> Map.keys()
+      |> Enum.reject(&Map.has_key?(current_issues, &1))
+      |> Enum.reject(&Map.has_key?(state.running, &1))
+      |> Enum.reject(&Map.has_key?(state.retry_attempts, &1))
+
+    record_refreshed_terminal_membership(
+      disappearing_idle_issue_ids,
+      fetch_issue_states_fun,
+      observe_membership_fun,
+      terminal_states
+    )
+  end
+
+  defp record_refreshed_terminal_membership(
+         [],
+         _fetch_issue_states_fun,
+         _observe_membership_fun,
+         _terminal_states
+       ),
+       do: :ok
+
+  defp record_refreshed_terminal_membership(
+         issue_ids,
+         fetch_issue_states_fun,
+         observe_membership_fun,
+         terminal_states
+       ) do
+    disappeared_issue_ids = MapSet.new(issue_ids)
+
+    case fetch_issue_states_fun.(issue_ids) do
+      {:ok, refreshed_issues} when is_list(refreshed_issues) ->
+        Enum.each(refreshed_issues, fn issue ->
+          record_refreshed_terminal_member(
+            issue,
+            disappeared_issue_ids,
+            observe_membership_fun,
+            terminal_states
+          )
+        end)
+
+      _result ->
+        :ok
+    end
+  end
+
+  defp record_refreshed_terminal_member(
+         %Issue{id: issue_id} = issue,
+         disappeared_issue_ids,
+         observe_membership_fun,
+         terminal_states
+       ) do
+    if MapSet.member?(disappeared_issue_ids, issue_id) and
+         DispatchPolicy.terminal_issue_state?(issue.state, terminal_states) do
+      MembershipLifecycle.record(
+        issue,
+        MembershipLifecycle.terminal_lifecycle(issue.state),
+        observe_membership_fun
+      )
+    end
+  end
+
+  defp record_refreshed_terminal_member(
+         _issue,
+         _disappeared_issue_ids,
+         _observe_membership_fun,
+         _terminal_states
+       ),
+       do: :ok
 
   defp emit_dependency_transition_events(%State{} = state, previous_issue, %Issue{} = issue) do
     if is_nil(previous_issue) do
