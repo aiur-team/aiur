@@ -12,8 +12,8 @@ defmodule Aiur.AgentRunner.BootstrapDigest do
 
   alias Aiur.AgentRunner.{CommentContext, EventsDigest}
   alias Aiur.Events.{SubscriptionStore, Topic, UniversalSubscriptions}
-  alias Aiur.Orchestrator.CommentWake
   alias Aiur.{Issue, IssueLog}
+  alias Aiur.Orchestrator.CommentWake
 
   @doc false
   @spec maybe_enqueue_bootstrap_digest(Issue.t() | term()) :: :ok

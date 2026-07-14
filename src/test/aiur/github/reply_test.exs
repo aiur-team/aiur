@@ -190,13 +190,16 @@ defmodule Aiur.GitHub.ReviewThreads.ReplyTest do
          }}
       end
 
-      assert {:error, {:review_thread_reply_not_verified, %{published_comment: %{"id" => 2}, reason: {:github_graphql_errors, [_]}}}} =
+      assert {:error, {:review_thread_reply_not_verified, details}} =
                Reply.reply_to_review_thread("PRRT_partial", "Done.",
                  request_fun: request_fun,
                  bot_account: "aiur-bot",
                  attempts: 1,
                  retry_delay_ms: 0
                )
+
+      assert %{"id" => 2} = details.published_comment
+      assert {:github_graphql_errors, [_]} = details.reason
     end
 
     test "rejects a later same-login comment whose identity differs from the mutation" do

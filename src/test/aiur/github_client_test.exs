@@ -895,7 +895,7 @@ defmodule Aiur.GitHub.ClientTest do
       assert get_in(result.verification, ["latest_comment", "user", "login"]) == "aiur-bot"
     end
 
-    test "preserves GraphQL errors from the reply mutation" do
+    test "reports reply-mutation GraphQL errors as an unverified reply" do
       request_fun = fn %{method: :post, url: "https://api.github.com/graphql", body: body} ->
         assert body["query"] =~ "addPullRequestReviewThreadReply"
 
@@ -906,7 +906,14 @@ defmodule Aiur.GitHub.ClientTest do
          }}
       end
 
-      assert {:error, {:github_graphql_errors, [%{"message" => "Could not resolve to a node"}]}} =
+      assert {:error,
+              {:review_thread_reply_not_verified,
+               %{
+                 attempts: 1,
+                 published_comment: nil,
+                 reason: {:github_graphql_errors, [%{"message" => "Could not resolve to a node"}]},
+                 review_thread_id: "PRRT_missing"
+               }}} =
                Client.reply_to_review_thread("PRRT_missing", "reply",
                  request_fun: request_fun,
                  bot_account: "aiur-bot",
