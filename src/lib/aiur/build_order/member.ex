@@ -34,25 +34,43 @@ defmodule Aiur.BuildOrder.Dependency do
           kind: :native | :external | :unknown,
           identity: TrackerIdentity.t() | nil,
           url: String.t() | nil,
+          direction: :blocker_to_blocked,
+          source_connection: :blocked_by | :blocking,
+          blocker_identity: TrackerIdentity.t() | nil,
+          blocked_identity: TrackerIdentity.t() | nil,
           diagnostics: [Diagnostic.t()]
         }
 
-  defstruct kind: :external, identity: nil, url: nil, diagnostics: []
+  defstruct kind: :external,
+            identity: nil,
+            url: nil,
+            direction: :blocker_to_blocked,
+            source_connection: :blocked_by,
+            blocker_identity: nil,
+            blocked_identity: nil,
+            diagnostics: []
 
   @spec new(term(), term(), term()) :: t()
-  def new(configured_identity, endpoint_identity, url) do
+  def new(configured_identity, endpoint_identity, url),
+    do: new(configured_identity, endpoint_identity, url, :blocked_by)
+
+  @spec new(term(), term(), term(), term()) :: t()
+  def new(configured_identity, endpoint_identity, url, source_connection) do
+    source_connection = source_connection(source_connection)
+    endpoints = directed_endpoints(configured_identity, endpoint_identity, source_connection)
+
     cond do
       native?(configured_identity, endpoint_identity) and foreign_url?(configured_identity, url) ->
-        external(url)
+        external(endpoint_identity, url, source_connection, endpoints)
 
       native?(configured_identity, endpoint_identity) ->
-        native(endpoint_identity, url)
+        native(endpoint_identity, url, source_connection, endpoints)
 
       external?(configured_identity, endpoint_identity, url) ->
-        external(url)
+        external(endpoint_identity, url, source_connection, endpoints)
 
       true ->
-        unknown(url)
+        unknown(url, source_connection, endpoints)
     end
   end
 
@@ -67,42 +85,65 @@ defmodule Aiur.BuildOrder.Dependency do
       foreign_url?(configured, url)
   end
 
-  defp external(url) do
+  defp external(identity, url, source_connection, endpoints) do
     case Bounded.github_url(url) do
       {:ok, safe_url} ->
-        %__MODULE__{url: safe_url, diagnostics: [Diagnostic.new(:external_dependency)]}
+        %__MODULE__{
+          identity: identity,
+          url: safe_url,
+          source_connection: source_connection,
+          diagnostics: [Diagnostic.new(:external_dependency)]
+        }
+        |> Map.merge(endpoints)
 
       :error ->
         %__MODULE__{
+          identity: identity,
+          source_connection: source_connection,
           diagnostics: [
             Diagnostic.new(:external_dependency),
             Diagnostic.new(:unsafe_external_url)
           ]
         }
+        |> Map.merge(endpoints)
     end
   end
 
-  defp native(identity, url) do
+  defp native(identity, url, source_connection, endpoints) do
     case Bounded.github_url(url) do
       {:ok, safe_url} ->
-        %__MODULE__{kind: :native, identity: identity, url: safe_url}
+        %__MODULE__{kind: :native, identity: identity, url: safe_url, source_connection: source_connection}
+        |> Map.merge(endpoints)
 
       :error ->
         %__MODULE__{
           kind: :native,
           identity: identity,
+          source_connection: source_connection,
           diagnostics: [Diagnostic.new(:invalid_url)]
         }
+        |> Map.merge(endpoints)
     end
   end
 
-  defp unknown(url) do
+  defp unknown(url, source_connection, endpoints) do
     case Bounded.github_url(url) do
       {:ok, safe_url} ->
-        %__MODULE__{kind: :unknown, url: safe_url, diagnostics: [Diagnostic.new(:invalid_identity)]}
+        %__MODULE__{
+          kind: :unknown,
+          url: safe_url,
+          source_connection: source_connection,
+          diagnostics: [Diagnostic.new(:invalid_identity)]
+        }
+        |> Map.merge(endpoints)
 
       :error ->
-        %__MODULE__{kind: :unknown, diagnostics: [Diagnostic.new(:invalid_identity), Diagnostic.new(:invalid_url)]}
+        %__MODULE__{
+          kind: :unknown,
+          source_connection: source_connection,
+          diagnostics: [Diagnostic.new(:invalid_identity), Diagnostic.new(:invalid_url)]
+        }
+        |> Map.merge(endpoints)
     end
   end
 
@@ -112,6 +153,15 @@ defmodule Aiur.BuildOrder.Dependency do
       :error -> false
     end
   end
+
+  defp source_connection(source) when source in [:blocked_by, :blocking], do: source
+  defp source_connection(_source), do: :blocked_by
+
+  defp directed_endpoints(configured, endpoint, :blocked_by),
+    do: %{blocker_identity: endpoint, blocked_identity: configured}
+
+  defp directed_endpoints(configured, endpoint, :blocking),
+    do: %{blocker_identity: configured, blocked_identity: endpoint}
 end
 
 defmodule Aiur.BuildOrder.Member do
@@ -127,6 +177,11 @@ defmodule Aiur.BuildOrder.Member do
           metadata: Metadata.t(),
           lifecycle: Lifecycle.t(),
           activity: Activity.t(),
+          parent_identity: TrackerIdentity.t() | nil,
+          labels: [String.t()],
+          created_at: DateTime.t() | nil,
+          updated_at: DateTime.t() | nil,
+          connection_counts: %{blocked_by: non_neg_integer(), blocking: non_neg_integer()},
           dependencies: [Dependency.t()],
           diagnostics: [Diagnostic.t()]
         }
@@ -137,6 +192,11 @@ defmodule Aiur.BuildOrder.Member do
             metadata: %Metadata{},
             lifecycle: %Lifecycle{},
             activity: %Activity{},
+            parent_identity: nil,
+            labels: [],
+            created_at: nil,
+            updated_at: nil,
+            connection_counts: %{blocked_by: 0, blocking: 0},
             dependencies: [],
             diagnostics: []
 
@@ -163,6 +223,11 @@ defmodule Aiur.BuildOrder.Member do
       metadata: metadata,
       lifecycle: lifecycle(attributes),
       activity: activity(attributes),
+      parent_identity: parent_identity(Map.get(attributes, :parent_identity)),
+      labels: labels(Map.get(attributes, :labels, [])),
+      created_at: datetime(Map.get(attributes, :created_at)),
+      updated_at: datetime(Map.get(attributes, :updated_at)),
+      connection_counts: connection_counts(Map.get(attributes, :connection_counts)),
       dependencies: dependencies,
       diagnostics: diagnostics
     }
@@ -175,8 +240,19 @@ defmodule Aiur.BuildOrder.Member do
       when is_list(diagnostics) do
     TrackerIdentity.joinable?(identity) and
       Enum.all?(diagnostics, fn
-        %Diagnostic{code: code} -> code not in [:invalid_identity, :invalid_dependency]
-        _other -> false
+        %Diagnostic{code: code} ->
+          code not in [
+            :connection_overflow,
+            :invalid_identity,
+            :invalid_dependency,
+            :invalid_member,
+            :invalid_title,
+            :invalid_url,
+            :unresolved_internal_dependency
+          ]
+
+        _other ->
+          false
       end)
   end
 
@@ -232,4 +308,21 @@ defmodule Aiur.BuildOrder.Member do
 
   defp marker_diagnostics({:warning, diagnostic}), do: [diagnostic]
   defp marker_diagnostics(_marker), do: []
+
+  defp parent_identity(%TrackerIdentity{} = identity) do
+    if TrackerIdentity.joinable?(identity), do: identity, else: nil
+  end
+
+  defp parent_identity(_identity), do: nil
+
+  defp labels(labels) when is_list(labels), do: Enum.filter(labels, &is_binary/1)
+  defp labels(_labels), do: []
+  defp datetime(%DateTime{} = datetime), do: datetime
+  defp datetime(_datetime), do: nil
+
+  defp connection_counts(%{blocked_by: blocked_by, blocking: blocking})
+       when is_integer(blocked_by) and blocked_by >= 0 and is_integer(blocking) and blocking >= 0,
+       do: %{blocked_by: blocked_by, blocking: blocking}
+
+  defp connection_counts(_counts), do: %{blocked_by: 0, blocking: 0}
 end

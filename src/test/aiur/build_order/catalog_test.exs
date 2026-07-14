@@ -133,7 +133,7 @@ defmodule Aiur.BuildOrder.CatalogTest do
     assert %{kind: :native, identity: %{provider_id: "I2"}} = native
     assert native.identity == identity(2)
 
-    assert %{kind: :external, identity: nil, url: "https://github.com/other/repo/issues/2"} =
+    assert %{kind: :external, identity: ^foreign, url: "https://github.com/other/repo/issues/2"} =
              external
 
     assert Enum.map(external.diagnostics, & &1.code) == [:external_dependency]
@@ -141,7 +141,7 @@ defmodule Aiur.BuildOrder.CatalogTest do
     mismatched_native =
       Dependency.new(identity(1), identity(2), "https://github.com/other/repo/issues/2")
 
-    assert %{kind: :external, identity: nil, url: "https://github.com/other/repo/issues/2"} =
+    assert %{kind: :external, identity: %{provider_id: "I2"}, url: "https://github.com/other/repo/issues/2"} =
              mismatched_native
 
     assert Enum.map(mismatched_native.diagnostics, & &1.code) == [:external_dependency]

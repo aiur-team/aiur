@@ -6,7 +6,7 @@ defmodule Aiur.TrackerIdentityTest do
   @configured {"owner", "repo"}
 
   test "builds a versioned identity from configured repository and provider node ID" do
-    issue = %{"node_id" => "I_kwDOExample", "number" => 42, "title" => "Ticket 42"}
+    issue = %{"node_id" => "I_kwDOExample", "database_id" => 84, "number" => 42, "title" => "Ticket 42"}
 
     assert {:ok, identity} = TrackerIdentity.from_github(issue, @configured, @configured)
     assert identity.version == 1
@@ -15,9 +15,11 @@ defmodule Aiur.TrackerIdentityTest do
     assert identity.owner == "owner"
     assert identity.repository == "repo"
     assert identity.provider_id == "I_kwDOExample"
+    assert identity.database_id == 84
     assert identity.identifier == "42"
     assert TrackerIdentity.joinable?(identity)
     assert Jason.decode!(Jason.encode!(identity))["provider_id"] == "I_kwDOExample"
+    assert Jason.decode!(Jason.encode!(identity))["database_id"] == 84
   end
 
   test "keeps same-number issues from different repositories distinct" do

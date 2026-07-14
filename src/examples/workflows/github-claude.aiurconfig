@@ -13,6 +13,11 @@ github:
   # agent event digests even when CODEOWNERS team expansion is unavailable.
   # trusted_accounts:
   #   - your-github-login
+  # Build Order planning graph safeguards; each must be a finite positive integer.
+  # Defaults accept exactly 100 roots/direct members across at most four pages/calls.
+  planning_root_limit: 100
+  planning_page_budget: 4
+  planning_call_budget: 4
 workspace:
   root: ~/code/aiur-workspaces
 hooks:

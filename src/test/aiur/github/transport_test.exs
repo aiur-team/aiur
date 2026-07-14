@@ -89,6 +89,22 @@ defmodule Aiur.GitHub.TransportTest do
              Transport.github_graphql(http_error, "token", "query", %{})
   end
 
+  test "returns GraphQL response headers for bounded provider observation" do
+    request_fun = fn _request ->
+      {:ok,
+       %{
+         status: 200,
+         headers: [{"x-ratelimit-remaining", "99"}],
+         body: %{"data" => %{"repository" => %{}}}
+       }}
+    end
+
+    assert {:ok, %{"data" => %{"repository" => %{}}}, %{headers: headers}} =
+             Transport.github_graphql_response(request_fun, "token", "query", %{})
+
+    assert Transport.header(headers, "x-ratelimit-remaining") == "99"
+  end
+
   test "fetches JSON lists and classifies failures" do
     ok = fn %{method: :get, url: "https://example.test", token: "token"} ->
       {:ok, %{status: 200, body: [%{"name" => "file"}]}}

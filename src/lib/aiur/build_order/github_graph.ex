@@ -1,0 +1,621 @@
+defmodule Aiur.BuildOrder.GitHubGraph do
+  @moduledoc "Bounded, body-free GitHub reads for Build Order planning candidates."
+
+  alias Aiur.{GitHub, TrackerIdentity}
+  alias Aiur.BuildOrder.{Catalog, Dependency, Diagnostic, Member, ProviderHealth, ProviderResult, RootSummary, SelectedRoot}
+  alias Aiur.GitHub.{Errors, Transport}
+
+  @root_label "build-order"
+  @member_limit 100
+  @connection_limit 100
+  @max_page_budget 4
+  @max_call_budget 4
+
+  @catalog_query """
+  query AiurBuildOrderCatalog($owner: String!, $repo: String!, $cursor: String, $pageSize: Int!) {
+    repository(owner: $owner, name: $repo) {
+      issues(first: $pageSize, after: $cursor, labels: ["#{@root_label}"]) {
+        totalCount
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          id databaseId number title url state stateReason createdAt updatedAt
+          repository { name owner { login } }
+          parent { id databaseId number url repository { name owner { login } } }
+          labels(first: 100) { totalCount pageInfo { hasNextPage endCursor } nodes { name } }
+        }
+      }
+    }
+  }
+  """
+
+  @selected_root_query """
+  query AiurBuildOrderSelectedRoot($owner: String!, $repo: String!, $number: Int!, $cursor: String, $pageSize: Int!) {
+    repository(owner: $owner, name: $repo) {
+      issue(number: $number) {
+        id databaseId number title url state stateReason createdAt updatedAt
+        repository { name owner { login } }
+        parent { id databaseId number url repository { name owner { login } } }
+        labels(first: 100) { totalCount pageInfo { hasNextPage endCursor } nodes { name } }
+        subIssues(first: $pageSize, after: $cursor) {
+          totalCount
+          pageInfo { hasNextPage endCursor }
+          nodes {
+            id databaseId number title url state stateReason createdAt updatedAt
+            repository { name owner { login } }
+            parent { id databaseId number url repository { name owner { login } } }
+            labels(first: 100) { totalCount pageInfo { hasNextPage endCursor } nodes { name } }
+            blockedBy(first: 100) {
+              totalCount
+              pageInfo { hasNextPage endCursor }
+              nodes { id databaseId number url repository { name owner { login } } }
+            }
+            blocking(first: 100) {
+              totalCount
+              pageInfo { hasNextPage endCursor }
+              nodes { id databaseId number url repository { name owner { login } } }
+            }
+          }
+        }
+      }
+    }
+  }
+  """
+
+  @type result :: {:ok, ProviderResult.t()} | {:error, ProviderResult.t()}
+
+  @spec fetch_catalog(keyword()) :: result()
+  def fetch_catalog(opts \\ []) do
+    with {:ok, repository} <- configured_repository(opts),
+         {:ok, token} <- Transport.require_token(opts),
+         {:ok, limits} <- limits(opts) do
+      state = initial_state(opts)
+
+      case catalog_pages(repository, token, limits, state, nil, MapSet.new(), []) do
+        {:ok, nodes, state} -> catalog_result(nodes, repository, state)
+        {:error, reason, state} -> failure(reason, state)
+      end
+    else
+      {:error, reason} -> failure(reason, initial_state(opts))
+    end
+  end
+
+  @spec fetch_selected_root(TrackerIdentity.t() | pos_integer() | String.t(), keyword()) :: result()
+  def fetch_selected_root(root, opts \\ []) do
+    with {:ok, repository} <- configured_repository(opts),
+         {:ok, number} <- root_number(root, repository),
+         {:ok, token} <- Transport.require_token(opts),
+         {:ok, limits} <- limits(opts) do
+      state = initial_state(opts)
+
+      case selected_pages(repository, token, number, limits, state, nil, nil, MapSet.new(), []) do
+        {:ok, root_node, member_nodes, state} -> selected_result(root_node, member_nodes, repository, state)
+        {:error, reason, state} -> failure(reason, state)
+      end
+    else
+      {:error, reason} -> failure(reason, initial_state(opts))
+    end
+  end
+
+  defp catalog_pages(repository, token, limits, state, cursor, seen_cursors, acc) do
+    case request_page(state, token, @catalog_query, catalog_variables(repository, cursor, limits)) do
+      {:ok, body, next_state} ->
+        with {:ok, connection} <- catalog_connection(body),
+             {:ok, nodes, total, page_info} <- connection(connection) do
+          collect_pages(
+            nodes,
+            total,
+            page_info,
+            limits.root_limit,
+            repository,
+            token,
+            limits,
+            next_state,
+            cursor,
+            seen_cursors,
+            acc,
+            fn repository, token, limits, state, cursor, seen_cursors, nodes ->
+              catalog_pages(repository, token, limits, state, cursor, seen_cursors, nodes)
+            end,
+            :catalog_overflow
+          )
+        else
+          {:error, reason} -> {:error, reason, next_state}
+        end
+
+      {:error, reason, failed_state} ->
+        {:error, reason, failed_state}
+    end
+  end
+
+  defp selected_pages(repository, token, number, limits, state, cursor, root_node, seen_cursors, acc) do
+    case request_page(state, token, @selected_root_query, selected_variables(repository, number, cursor, limits)) do
+      {:ok, body, next_state} ->
+        with {:ok, fetched_root, connection} <- selected_connection(body),
+             :ok <- same_root?(root_node, fetched_root),
+             {:ok, nodes, total, page_info} <- connection(connection) do
+          collect_pages(
+            nodes,
+            total,
+            page_info,
+            @member_limit,
+            repository,
+            token,
+            limits,
+            next_state,
+            cursor,
+            seen_cursors,
+            acc,
+            fn repository, token, limits, state, cursor, seen_cursors, nodes ->
+              case selected_pages(repository, token, number, limits, state, cursor, fetched_root, seen_cursors, nodes) do
+                {:ok, _root, members, next_state} -> {:ok, members, next_state}
+                {:error, reason, failed_state} -> {:error, reason, failed_state}
+              end
+            end,
+            :member_overflow
+          )
+          |> selected_page_result(fetched_root)
+        else
+          {:error, reason} -> {:error, reason, next_state}
+        end
+
+      {:error, reason, failed_state} ->
+        {:error, reason, failed_state}
+    end
+  end
+
+  defp selected_page_result({:ok, nodes, state}, root), do: {:ok, root, nodes, state}
+  defp selected_page_result({:error, reason, state}, _root), do: {:error, reason, state}
+
+  defp collect_pages(
+         nodes,
+         total,
+         page_info,
+         limit,
+         repository,
+         token,
+         limits,
+         state,
+         _cursor,
+         seen_cursors,
+         acc,
+         recurse,
+         overflow_code
+       ) do
+    all_nodes = acc ++ nodes
+
+    cond do
+      total > limit or length(all_nodes) > limit ->
+        {:error, overflow_code, state}
+
+      page_info.has_next? and length(all_nodes) >= limit ->
+        {:error, overflow_code, state}
+
+      page_info.has_next? and state.pages >= limits.page_budget ->
+        {:error, :page_budget_exhausted, state}
+
+      page_info.has_next? ->
+        with {:ok, next_cursor} <- next_cursor(page_info, seen_cursors) do
+          recurse.(repository, token, limits, state, next_cursor, MapSet.put(seen_cursors, next_cursor), all_nodes)
+        else
+          {:error, reason} -> {:error, reason, state}
+        end
+
+      length(all_nodes) == total ->
+        {:ok, all_nodes, state}
+
+      true ->
+        {:error, :pagination_mismatch, state}
+    end
+  end
+
+  defp catalog_result(nodes, repository, state) do
+    roots = Enum.map(nodes, &root_summary(&1, repository))
+    catalog = Catalog.new(roots, ProviderHealth.new(1, :healthy, true))
+
+    if Enum.any?(roots, &duplicate_root?(&1, roots)) do
+      failure(:invalid_catalog, state, candidate: catalog, diagnostics: [Diagnostic.new(:duplicate_identity)])
+    else
+      success(catalog, state)
+    end
+  end
+
+  defp selected_result(root_node, member_nodes, repository, state) do
+    root = root_summary(root_node, repository)
+    members = Enum.map(member_nodes, &member(&1, repository, root.identity))
+    members = validate_internal_dependencies(members, root.identity)
+    selected = SelectedRoot.new(root, members, ProviderHealth.new(1, :healthy, true))
+
+    cond do
+      not RootSummary.valid?(root) ->
+        failure(:structurally_invalid, state, candidate: selected)
+
+      duplicate_members?(members) ->
+        failure(:duplicate_identity, state,
+          candidate: selected,
+          diagnostics: [Diagnostic.new(:duplicate_identity)]
+        )
+
+      not SelectedRoot.structurally_valid?(selected) ->
+        failure(:structurally_invalid, state, candidate: selected)
+
+      true ->
+        success(selected, state)
+    end
+  end
+
+  defp root_summary(node, repository) do
+    {identity, identity_diagnostic} = node_identity(node, repository)
+    {parent, parent_diagnostic} = parent_identity(node, repository)
+    {labels, labels_diagnostic} = labels(node)
+    {created_at, created_diagnostic} = timestamp(node, "createdAt")
+    {updated_at, updated_diagnostic} = timestamp(node, "updatedAt")
+
+    RootSummary.new(%{
+      identity: identity,
+      title: Map.get(node, "title"),
+      url: Map.get(node, "url"),
+      parent_identity: parent,
+      state: Map.get(node, "state"),
+      state_reason: Map.get(node, "stateReason"),
+      labels: labels,
+      created_at: created_at,
+      updated_at: updated_at
+    })
+    |> append_diagnostics([identity_diagnostic, parent_diagnostic, labels_diagnostic, created_diagnostic, updated_diagnostic])
+  end
+
+  defp member(node, repository, root_identity) do
+    {identity, identity_diagnostic} = node_identity(node, repository)
+    {parent, parent_diagnostic} = parent_identity(node, repository)
+    {labels, labels_diagnostic} = labels(node)
+    {created_at, created_diagnostic} = timestamp(node, "createdAt")
+    {updated_at, updated_diagnostic} = timestamp(node, "updatedAt")
+    {blocked_by, blocked_count, blocked_diagnostic} = dependencies(node, "blockedBy", repository, identity, :blocked_by)
+    {blocking, blocking_count, blocking_diagnostic} = dependencies(node, "blocking", repository, identity, :blocking)
+
+    Member.new(%{
+      identity: identity,
+      title: Map.get(node, "title"),
+      url: Map.get(node, "url"),
+      state: Map.get(node, "state"),
+      state_reason: Map.get(node, "stateReason"),
+      labels: labels,
+      parent_identity: parent,
+      created_at: created_at,
+      updated_at: updated_at,
+      connection_counts: %{blocked_by: blocked_count, blocking: blocking_count},
+      dependencies: blocked_by ++ blocking
+    })
+    |> append_diagnostics([
+      identity_diagnostic,
+      parent_diagnostic,
+      direct_parent_diagnostic(parent, root_identity),
+      labels_diagnostic,
+      created_diagnostic,
+      updated_diagnostic,
+      blocked_diagnostic,
+      blocking_diagnostic
+    ])
+  end
+
+  defp dependencies(node, key, repository, configured_identity, direction) do
+    with {:ok, connection} <- Map.fetch(node, key),
+         {:ok, nodes, total, page_info} <- connection(connection),
+         true <- total <= @connection_limit and not page_info.has_next? and length(nodes) == total do
+      {dependencies, malformed_endpoint?} =
+        Enum.map_reduce(nodes, false, fn endpoint, malformed? ->
+          {identity, _diagnostic} = endpoint_identity(endpoint, repository)
+          dependency = Dependency.new(configured_identity, identity, Map.get(endpoint, "url"), direction)
+          {dependency, malformed? or dependency.kind == :unknown}
+        end)
+
+      {dependencies, total, if(malformed_endpoint?, do: Diagnostic.new(:invalid_dependency), else: nil)}
+    else
+      false -> {[], 0, Diagnostic.new(:connection_overflow)}
+      {:error, _reason} -> {[], 0, Diagnostic.new(:invalid_dependency)}
+    end
+  end
+
+  defp validate_internal_dependencies(members, root_identity) do
+    identities = members |> Enum.map(&identity_key(&1.identity)) |> Enum.reject(&is_nil/1) |> MapSet.new()
+    identities = if TrackerIdentity.joinable?(root_identity), do: MapSet.put(identities, identity_key(root_identity)), else: identities
+
+    Enum.map(members, fn member ->
+      if Enum.any?(member.dependencies, &unresolved_internal?(&1, identities)) do
+        append_diagnostics(member, [Diagnostic.new(:unresolved_internal_dependency)])
+      else
+        member
+      end
+    end)
+  end
+
+  defp unresolved_internal?(%Dependency{kind: :native, identity: identity}, identities),
+    do: not MapSet.member?(identities, identity_key(identity))
+
+  defp unresolved_internal?(_dependency, _identities), do: false
+
+  defp node_identity(node, repository) do
+    case endpoint_identity(node, repository) do
+      {nil, diagnostic} ->
+        {nil, diagnostic}
+
+      {%TrackerIdentity{} = identity, diagnostic} ->
+        if same_repository?(identity, repository),
+          do: {identity, diagnostic},
+          else: {nil, Diagnostic.new(:invalid_identity)}
+    end
+  end
+
+  defp endpoint_identity(node, fallback_repository) when is_map(node) do
+    with {:ok, {owner, name}} <- repository_from_node(node, fallback_repository),
+         {:ok, identity} <-
+           TrackerIdentity.from_github(
+             %{
+               "node_id" => Map.get(node, "id"),
+               "database_id" => Map.get(node, "databaseId"),
+               "number" => Map.get(node, "number"),
+               "repository" => Map.get(node, "repository")
+             },
+             {owner, name},
+             {owner, name}
+           ) do
+      {identity, nil}
+    else
+      _ -> {nil, Diagnostic.new(:invalid_identity)}
+    end
+  end
+
+  defp endpoint_identity(_node, _fallback_repository), do: {nil, Diagnostic.new(:invalid_identity)}
+
+  defp parent_identity(node, repository) do
+    case Map.get(node, "parent") do
+      nil -> {nil, nil}
+      parent -> endpoint_identity(parent, repository)
+    end
+  end
+
+  defp repository_from_node(%{"repository" => %{"name" => repository, "owner" => %{"login" => owner}}}, _fallback)
+       when is_binary(owner) and is_binary(repository),
+       do: {:ok, {owner, repository}}
+
+  defp repository_from_node(_node, _fallback), do: {:error, :missing_repository_identity}
+
+  defp labels(node) do
+    with {:ok, connection} <- Map.fetch(node, "labels"),
+         {:ok, nodes, total, page_info} <- connection(connection),
+         true <- total <= @connection_limit and not page_info.has_next? and length(nodes) == total,
+         true <- Enum.all?(nodes, &is_binary(Map.get(&1, "name"))) do
+      {Enum.map(nodes, &Map.fetch!(&1, "name")), nil}
+    else
+      _ -> {[], Diagnostic.new(:invalid_dependency)}
+    end
+  end
+
+  defp timestamp(node, key) do
+    case Map.get(node, key) do
+      value when is_binary(value) ->
+        case DateTime.from_iso8601(value) do
+          {:ok, datetime, _offset} -> {datetime, nil}
+          _ -> {nil, Diagnostic.new(:invalid_member)}
+        end
+
+      _ ->
+        {nil, Diagnostic.new(:invalid_member)}
+    end
+  end
+
+  defp direct_parent_diagnostic(parent, root) do
+    if same_identity?(parent, root), do: nil, else: Diagnostic.new(:invalid_member)
+  end
+
+  defp append_diagnostics(%{diagnostics: existing_diagnostics} = record, additions) do
+    additions = Enum.reject(additions, &is_nil/1)
+    %{record | diagnostics: existing_diagnostics ++ additions}
+  end
+
+  defp duplicate_root?(root, roots), do: Enum.count(roots, &same_identity?(&1.identity, root.identity)) > 1
+
+  defp duplicate_members?(members) do
+    identities = Enum.map(members, & &1.identity)
+    Enum.any?(identities, &is_nil/1) or length(identities) != MapSet.size(MapSet.new(identities))
+  end
+
+  defp same_identity?(%TrackerIdentity{} = left, %TrackerIdentity{} = right) do
+    case {identity_key(left), identity_key(right)} do
+      {{:github, _, _, _} = left_key, {:github, _, _, _} = right_key} -> left_key == right_key
+      _ -> false
+    end
+  end
+
+  defp same_identity?(_left, _right), do: false
+
+  defp identity_key(%TrackerIdentity{} = identity) do
+    if TrackerIdentity.joinable?(identity) do
+      {:github, String.downcase(identity.owner), String.downcase(identity.repository), identity.provider_id}
+    end
+  end
+
+  defp identity_key(_identity), do: nil
+
+  defp same_root?(nil, _root), do: :ok
+
+  defp same_root?(%{"id" => id}, %{"id" => id}), do: :ok
+  defp same_root?(_first, _next), do: {:error, :pagination_mismatch}
+
+  defp catalog_connection(body), do: get_in(body, ["data", "repository", "issues"]) |> connection_value()
+
+  defp selected_connection(body) do
+    case get_in(body, ["data", "repository", "issue"]) do
+      %{} = root ->
+        case Map.get(root, "subIssues") do
+          %{} = connection -> {:ok, root, connection}
+          _ -> {:error, :invalid_connection}
+        end
+
+      _ ->
+        {:error, :invalid_root}
+    end
+  end
+
+  defp connection_value(%{} = connection), do: {:ok, connection}
+  defp connection_value(_connection), do: {:error, :invalid_connection}
+
+  defp connection(%{"nodes" => nodes, "totalCount" => total, "pageInfo" => page_info})
+       when is_list(nodes) and is_integer(total) and total >= 0 and is_map(page_info) do
+    with has_next when is_boolean(has_next) <- Map.get(page_info, "hasNextPage"),
+         end_cursor <- Map.get(page_info, "endCursor"),
+         true <- is_nil(end_cursor) or is_binary(end_cursor) do
+      {:ok, nodes, total, %{has_next?: has_next, end_cursor: end_cursor}}
+    else
+      _ -> {:error, :invalid_connection}
+    end
+  end
+
+  defp connection(_connection), do: {:error, :invalid_connection}
+
+  defp next_cursor(%{end_cursor: cursor}, seen_cursors) when is_binary(cursor) and byte_size(cursor) > 0 do
+    if MapSet.member?(seen_cursors, cursor), do: {:error, :pagination_mismatch}, else: {:ok, cursor}
+  end
+
+  defp next_cursor(_page_info, _seen_cursors), do: {:error, :pagination_mismatch}
+
+  defp request_page(%{pages: pages, calls: _calls} = state, _token, _query, _variables)
+       when pages >= state.page_budget,
+       do: {:error, :page_budget_exhausted, state}
+
+  defp request_page(%{calls: calls} = state, _token, _query, _variables) when calls >= state.call_budget,
+    do: {:error, :call_budget_exhausted, state}
+
+  defp request_page(state, token, query, variables) do
+    state = %{state | calls: state.calls + 1}
+
+    case Transport.github_graphql_response(state.request_fun, token, query, variables) do
+      {:ok, body, response} -> {:ok, body, observe(state, response)}
+      {:error, reason} -> {:error, reason, state}
+    end
+  end
+
+  defp observe(state, response) do
+    rate_limit =
+      %{
+        remaining: Errors.rate_limit_remaining(response),
+        reset_at: Errors.rate_limit_reset(response),
+        retry_after: Errors.retry_after(response),
+        poll_interval: Errors.rate_limit_poll_interval(response)
+      }
+      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+      |> Map.new()
+
+    %{state | pages: state.pages + 1, rate_limit: rate_limit}
+  end
+
+  defp success(candidate, state),
+    do: {:ok, ProviderResult.complete(candidate, calls: state.calls, pages: state.pages, rate_limit: state.rate_limit)}
+
+  defp failure(reason, state, opts \\ []) do
+    {:error,
+     ProviderResult.failed(reason,
+       calls: state.calls,
+       pages: state.pages,
+       rate_limit: state.rate_limit,
+       candidate: Keyword.get(opts, :candidate),
+       diagnostics: Keyword.get(opts, :diagnostics, failure_diagnostics(reason))
+     )}
+  end
+
+  defp failure_diagnostics(reason) when reason in [:call_budget_exhausted, :catalog_overflow, :member_overflow, :page_budget_exhausted, :pagination_mismatch],
+    do: [Diagnostic.new(reason)]
+
+  defp failure_diagnostics(:invalid_planning_bounds), do: [Diagnostic.new(:invalid_planning_bounds)]
+  defp failure_diagnostics(reason) when reason in [:invalid_connection, :invalid_root], do: [Diagnostic.new(:provider_schema)]
+  defp failure_diagnostics(reason) when reason in [:invalid_catalog, :structurally_invalid], do: []
+  defp failure_diagnostics(_reason), do: [Diagnostic.new(:provider_unavailable)]
+
+  defp initial_state(opts) do
+    %{
+      request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
+      calls: 0,
+      pages: 0,
+      rate_limit: %{},
+      page_budget: option_or_config(opts, :page_budget, &GitHub.Config.planning_page_budget/0),
+      call_budget: option_or_config(opts, :call_budget, &GitHub.Config.planning_call_budget/0)
+    }
+  end
+
+  defp configured_repository(opts) do
+    case Keyword.get(opts, :repository) do
+      {owner, repository} when is_binary(owner) and is_binary(repository) and owner != "" and repository != "" ->
+        {:ok, {owner, repository}}
+
+      nil ->
+        GitHub.Config.configured_repo()
+
+      _ ->
+        {:error, :invalid_github_repo}
+    end
+  end
+
+  defp limits(opts) do
+    limits = %{
+      root_limit: option_or_config(opts, :root_limit, &GitHub.Config.planning_root_limit/0),
+      page_budget: option_or_config(opts, :page_budget, &GitHub.Config.planning_page_budget/0),
+      call_budget: option_or_config(opts, :call_budget, &GitHub.Config.planning_call_budget/0)
+    }
+
+    if valid_limits?(limits), do: {:ok, Map.put(limits, :page_size, page_size(limits, @member_limit))}, else: {:error, :invalid_planning_bounds}
+  end
+
+  defp valid_limits?(%{root_limit: roots, page_budget: pages, call_budget: calls}) do
+    is_integer(roots) and roots in 1..@member_limit and
+      is_integer(pages) and pages in 1..@max_page_budget and
+      is_integer(calls) and calls in 1..@max_call_budget
+  end
+
+  defp page_size(limits, limit) do
+    slots = min(limits.page_budget, limits.call_budget)
+    max(1, div(limit + slots - 1, slots))
+  end
+
+  defp catalog_variables({owner, repository}, cursor, limits) do
+    %{"owner" => owner, "repo" => repository, "pageSize" => page_size(limits, limits.root_limit)}
+    |> Transport.maybe_put_query("cursor", cursor)
+  end
+
+  defp selected_variables({owner, repository}, number, cursor, limits) do
+    %{"owner" => owner, "repo" => repository, "number" => number, "pageSize" => limits.page_size}
+    |> Transport.maybe_put_query("cursor", cursor)
+  end
+
+  defp root_number(%TrackerIdentity{} = root, repository) do
+    with true <- same_repository?(root, repository),
+         {:ok, number} <- positive_number(root.identifier) do
+      {:ok, number}
+    else
+      _ -> {:error, :invalid_root}
+    end
+  end
+
+  defp root_number(number, _repository), do: positive_number(number)
+
+  defp positive_number(value) when is_integer(value) and value > 0, do: {:ok, value}
+
+  defp positive_number(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {number, ""} when number > 0 -> {:ok, number}
+      _ -> {:error, :invalid_root}
+    end
+  end
+
+  defp positive_number(_value), do: {:error, :invalid_root}
+
+  defp same_repository?(%TrackerIdentity{owner: owner, repository: repository}, {expected_owner, expected_repository}) do
+    String.downcase(owner) == String.downcase(expected_owner) and
+      String.downcase(repository) == String.downcase(expected_repository)
+  end
+
+  defp same_repository?(_root, _repository), do: false
+
+  defp option_or_config(opts, key, config_fun) do
+    if Keyword.has_key?(opts, key), do: Keyword.fetch!(opts, key), else: config_fun.()
+  end
+end

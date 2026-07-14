@@ -10,13 +10,14 @@ defmodule Aiur.TrackerIdentity do
   @version 1
   @max_provider_id_bytes 512
 
-  @derive {Jason.Encoder, only: [:version, :status, :kind, :owner, :repository, :provider_id, :identifier, :reason]}
+  @derive {Jason.Encoder, only: [:version, :status, :kind, :owner, :repository, :provider_id, :database_id, :identifier, :reason]}
   defstruct version: @version,
             status: :unjoinable,
             kind: nil,
             owner: nil,
             repository: nil,
             provider_id: nil,
+            database_id: nil,
             identifier: nil,
             reason: :legacy
 
@@ -38,6 +39,7 @@ defmodule Aiur.TrackerIdentity do
           owner: String.t() | nil,
           repository: String.t() | nil,
           provider_id: String.t() | nil,
+          database_id: pos_integer() | nil,
           identifier: String.t() | nil,
           reason: reason() | nil
         }
@@ -55,6 +57,7 @@ defmodule Aiur.TrackerIdentity do
          :ok <- ensure_same_repository({owner, repository}, requested_repository),
          :ok <- ensure_response_repository(issue, {owner, repository}),
          {:ok, provider_id} <- provider_id(Map.get(issue, "node_id")),
+         {:ok, database_id} <- database_id(Map.get(issue, "database_id")),
          {:ok, identifier} <- display_identifier(Map.get(issue, "number")) do
       {:ok,
        %__MODULE__{
@@ -64,6 +67,7 @@ defmodule Aiur.TrackerIdentity do
          owner: owner,
          repository: repository,
          provider_id: provider_id,
+         database_id: database_id,
          identifier: identifier,
          reason: nil
        }}
@@ -93,6 +97,7 @@ defmodule Aiur.TrackerIdentity do
       kind: Keyword.get(opts, :kind, :github),
       owner: owner,
       repository: repository,
+      database_id: database_id_or_nil(Keyword.get(opts, :database_id)),
       identifier: display_identifier_or_nil(Keyword.get(opts, :identifier)),
       reason: reason
     }
@@ -234,6 +239,10 @@ defmodule Aiur.TrackerIdentity do
 
   defp provider_id(_value), do: {:error, :invalid_provider_identity}
 
+  defp database_id(nil), do: {:ok, nil}
+  defp database_id(value) when is_integer(value) and value > 0, do: {:ok, value}
+  defp database_id(_value), do: {:error, :invalid_provider_identity}
+
   defp display_identifier(value) when is_integer(value) and value > 0, do: {:ok, Integer.to_string(value)}
 
   defp display_identifier(value) when is_binary(value) do
@@ -248,6 +257,13 @@ defmodule Aiur.TrackerIdentity do
   defp display_identifier_or_nil(value) do
     case display_identifier(value) do
       {:ok, identifier} -> identifier
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp database_id_or_nil(value) do
+    case database_id(value) do
+      {:ok, database_id} -> database_id
       {:error, _reason} -> nil
     end
   end

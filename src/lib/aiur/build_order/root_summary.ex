@@ -1,13 +1,17 @@
 defmodule Aiur.BuildOrder.RootSummary do
   @moduledoc "A visible root-catalog entry with per-entry structural validity."
 
-  alias Aiur.{BuildOrder.Bounded, BuildOrder.Diagnostic, TrackerIdentity}
+  alias Aiur.{BuildOrder.Bounded, BuildOrder.Diagnostic, BuildOrder.Lifecycle, TrackerIdentity}
 
   @type t :: %__MODULE__{
           identity: TrackerIdentity.t() | nil,
           title: String.t(),
           url: String.t() | nil,
           parent_identity: TrackerIdentity.t() | nil,
+          lifecycle: Lifecycle.t(),
+          labels: [String.t()],
+          created_at: DateTime.t() | nil,
+          updated_at: DateTime.t() | nil,
           diagnostics: [Diagnostic.t()]
         }
 
@@ -15,6 +19,10 @@ defmodule Aiur.BuildOrder.RootSummary do
             title: "Untitled Build Order",
             url: nil,
             parent_identity: nil,
+            lifecycle: %Lifecycle{},
+            labels: [],
+            created_at: nil,
+            updated_at: nil,
             diagnostics: []
 
   @spec new(term()) :: t()
@@ -40,6 +48,10 @@ defmodule Aiur.BuildOrder.RootSummary do
       title: title,
       url: url,
       parent_identity: parent,
+      lifecycle: lifecycle(attributes),
+      labels: labels(Map.get(attributes, :labels, [])),
+      created_at: datetime(Map.get(attributes, :created_at)),
+      updated_at: datetime(Map.get(attributes, :updated_at)),
       diagnostics: diagnostics
     }
   end
@@ -80,4 +92,14 @@ defmodule Aiur.BuildOrder.RootSummary do
   end
 
   defp parent(_parent), do: {nil, Diagnostic.new(:root_has_parent)}
+
+  defp lifecycle(%{lifecycle: %Lifecycle{} = lifecycle}), do: lifecycle
+
+  defp lifecycle(attributes),
+    do: Lifecycle.from_github(Map.get(attributes, :state), Map.get(attributes, :state_reason))
+
+  defp labels(labels) when is_list(labels), do: Enum.filter(labels, &is_binary/1)
+  defp labels(_labels), do: []
+  defp datetime(%DateTime{} = datetime), do: datetime
+  defp datetime(_datetime), do: nil
 end
