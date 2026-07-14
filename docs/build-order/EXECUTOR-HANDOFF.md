@@ -146,6 +146,21 @@ so the controller—not an arbitrary Executor cap—is the remaining admission g
     notification/polling issues under the normal scope circuit breaker; these
     optimizations cannot delay Build Order acceptance. This run's first hard
     retrospective is due at 21:16 PDT.
+15. Dual review returned #1086/#1143 to rework for three contained repository-
+    identity gaps: ambiguous bare-number API results leaked one arbitrary
+    nested identity, noncanonical/contradictory structs could be marked
+    joinable, and rate-limit fallback redispatch dropped identity metadata.
+    The packet is at
+    `https://github.com/its-everdred/aiur/pull/1143#issuecomment-4965070307`;
+    #1086 resumed and owns every fix.
+16. Dual review returned #1090/#1141 to rework for the provider-account
+    generation lifecycle as a whole: authenticated startup did not seed a
+    binding, RPC waits dropped lifecycle notifications, subscription and hard-
+    teardown boundaries could preserve/cross stale generations, and five
+    related continuity/degradation cases violated the ticket contract. The
+    single consolidated packet is at
+    `https://github.com/its-everdred/aiur/pull/1141#issuecomment-4965072012`;
+    #1090 resumed. Do not split these findings into new tickets.
 
 At 19:48 PDT the five latest event-reported percentages are BO-004 70%, BO-008
 90%, DASH-006 90%, DASH-017 90%, and DASH-018 70% (82% ticket-average). All
