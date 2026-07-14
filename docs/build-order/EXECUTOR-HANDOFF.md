@@ -377,11 +377,32 @@ to a safe range.
     and numeric publisher-cursor behavior. The durable decision is at
     `https://github.com/its-everdred/aiur/issues/1089#issuecomment-4966200021`;
     do not substitute a two-phase rollout or weaken complete anti-stripping.
+37. At 00:03 PDT BO-017/PR #1156 exact head `3bc75ee5` completed its second
+    review wave. The security/API/reliability reviewer confirmed the earlier
+    envelope-spoof, attempt-ID, observed-time, and producer-coverage findings
+    are fixed. Correctness review found one remaining P1: queued follow-up
+    turns construct `ToolExecutor` without the lifecycle attempt, so their
+    observations lose attempt provenance. The second review also required the
+    ticket's explicit duplicate-ID, out-of-order occurrence/ingestion, and
+    pre/post-`Boot.remark/0` restart regressions; CI separately found contained
+    Credo line-length/arity failures. All findings remain on #1104. Its
+    app-server turn then stayed idle while Aiur counted the slot as working,
+    despite a direct message and durable external PR comments. Because the
+    complete owned tree was pushed, the Executor recycled only the
+    `agent:rework` transition: the slot immediately backfilled #1090 and #1104
+    was safely requeued. This live wake failure was appended to existing Ad Hoc
+    #1151 rather than multiplying tickets.
+38. The 00:05 PDT progress capture retained 219 normalized samples. Latest
+    agent-reported estimates are DASH-006 80%, DASH-017 50%, DASH-018 60%,
+    BO-002 20%, BO-009 40%, and BO-017 90% before its contained review rework.
+    Static preview commit `de157f90` publishes those exact percentages and
+    states; do not silently replace agent estimates with Executor guesses.
 
-At 23:28 PDT the core graph is 3/54 merged. Core
-#1089/#1090/#1091/#1096/#1104 are active, #1030 is in contained rework, and
-#1088/#1111 plus direct P1 #1151 await the next measured slots; newly-ready
-#1108 remains queued behind that bounded rework. #1103/#1123 remain paused. Treat
+At 00:05 PDT the core graph is 3/54 merged. Core
+#1088/#1089/#1090/#1091/#1096 and direct blocker #1030 occupy the six measured
+slots; #1104 is requeued with its complete review packet. #1111 plus direct P1
+#1151 await later measured slots, and newly-ready #1108 remains queued behind
+that bounded rework. #1103/#1123 remain paused. Treat
 completed turns, stale bases, and green builds with unmet acceptance criteria
 as pending Executor work, not merge-ready truth.
 
