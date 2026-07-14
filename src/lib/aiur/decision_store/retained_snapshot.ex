@@ -246,24 +246,30 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
   defp readable?(_health), do: false
 
   defp valid_query?(%{cursor: cursor, lifecycle: lifecycle, search: search, ticket: ticket} = query) do
-    valid_cursor?(cursor) and
-      (is_nil(lifecycle) or lifecycle in @lifecycle_statuses) and
-      valid_optional_authority?(Map.get(query, :authority)) and
-      valid_optional_boolean?(Map.get(query, :blocking)) and
-      valid_optional_string?(Map.get(query, :kind)) and
-      valid_optional_string?(search) and
-      valid_optional_string?(ticket) and
-      (is_nil(search) or is_nil(ticket))
+    [
+      valid_cursor?(cursor),
+      valid_lifecycle?(lifecycle),
+      valid_optional_authority?(Map.get(query, :authority)),
+      valid_optional_boolean?(Map.get(query, :blocking)),
+      valid_optional_string?(Map.get(query, :kind)),
+      valid_optional_string?(search),
+      valid_optional_string?(ticket),
+      valid_search_ticket?(search, ticket)
+    ]
+    |> Enum.all?()
   end
 
   defp valid_query?(_query), do: false
   defp valid_cursor?(nil), do: true
   defp valid_cursor?(%{created_at: %DateTime{}, decision_id: decision_id}) when is_binary(decision_id), do: true
   defp valid_cursor?(_cursor), do: false
+  defp valid_lifecycle?(nil), do: true
+  defp valid_lifecycle?(lifecycle), do: lifecycle in @lifecycle_statuses
   defp valid_optional_authority?(nil), do: true
   defp valid_optional_authority?(authority), do: authority in Decision.authorities()
   defp valid_optional_boolean?(nil), do: true
   defp valid_optional_boolean?(value), do: is_boolean(value)
   defp valid_optional_string?(nil), do: true
   defp valid_optional_string?(value), do: is_binary(value) and String.valid?(value)
+  defp valid_search_ticket?(search, ticket), do: is_nil(search) or is_nil(ticket)
 end

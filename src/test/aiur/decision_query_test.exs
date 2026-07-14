@@ -320,7 +320,12 @@ defmodule Aiur.DecisionQueryTest do
               decisions: [],
               partial_results?: true,
               partial_reason: :retained_query_scan_capped,
-              pagination: %{next_cursor: next_cursor, total: nil, partial_reason: :retained_query_scan_capped, label: label}
+              pagination: %{
+                next_cursor: next_cursor,
+                total: nil,
+                partial_reason: :retained_query_scan_capped,
+                label: label
+              }
             }} = DecisionQuery.list(%{"limit" => 1, "search" => "dec_missing"}, store: store)
 
     assert is_binary(next_cursor)
