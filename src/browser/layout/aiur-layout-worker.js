@@ -35,6 +35,9 @@ const allowedOptions = new Map([
   ["favorStraightEdges", (value) => typeof value === "boolean"]
 ])
 
+const workerPath = /^\/vendor\/layout\/worker-v1\/[a-f0-9]{64}\/aiur-layout-worker\.js$/
+const enginePath = /^\/vendor\/layout\/elk-0\.11\.1\/[a-f0-9]{64}\/elk-worker\.min\.js$/
+
 let enginePromise
 
 self.addEventListener("message", (event) => {
@@ -217,12 +220,7 @@ async function layout(request) {
 async function loadEngine() {
   if (!enginePromise) {
     enginePromise = Promise.resolve().then(() => {
-      const engineUrl = new URL(self.location.href).searchParams.get("engine")
-      const resolved = engineUrl && new URL(engineUrl, self.location.href)
-
-      if (!resolved || resolved.origin !== self.location.origin || !/^\/vendor\/layout\/elk-0\.11\.1\/[a-f0-9]{64}\/elk-worker\.min\.js$/.test(resolved.pathname)) {
-        throw protocolError("engine_unavailable")
-      }
+      const resolved = engineAssetUrl()
 
       importScripts(resolved.href)
 
@@ -235,6 +233,42 @@ async function loadEngine() {
   }
 
   return enginePromise
+}
+
+function engineAssetUrl() {
+  try {
+    const worker = new URL(self.location.href)
+    const parameters = Array.from(worker.searchParams.entries())
+
+    if (!validWorkerUrl(worker) || parameters.length !== 1 || parameters[0][0] !== "engine") {
+      throw protocolError("engine_unavailable")
+    }
+
+    const engine = new URL(parameters[0][1], worker.href)
+    if (!validEngineUrl(engine)) throw protocolError("engine_unavailable")
+
+    return engine
+  } catch (error) {
+    if (error?.code === "engine_unavailable") throw error
+    throw protocolError("engine_unavailable")
+  }
+}
+
+function validWorkerUrl(url) {
+  return url.origin === self.location.origin &&
+    url.username === "" &&
+    url.password === "" &&
+    url.hash === "" &&
+    workerPath.test(url.pathname)
+}
+
+function validEngineUrl(url) {
+  return url.origin === self.location.origin &&
+    url.username === "" &&
+    url.password === "" &&
+    url.search === "" &&
+    url.hash === "" &&
+    enginePath.test(url.pathname)
 }
 
 function inlineEngine(dispatch) {
@@ -285,9 +319,12 @@ function toElkGraph(request) {
       "elk.layered.spacing.nodeNodeBetweenLayers": String(options.layerSpacing ?? 50),
       "elk.randomSeed": String(options.randomSeed ?? 1),
       "elk.layered.thoroughness": String(options.thoroughness ?? 7),
-      "elk.layered.considerModelOrder": String(options.considerModelOrder ?? true),
+      "elk.layered.considerModelOrder.strategy": modelOrderStrategy(options),
+      "elk.layered.considerModelOrder.components": "FORCE_MODEL_ORDER",
+      "elk.layered.considerModelOrder.groupModelOrder.cmGroupOrderStrategy": "ENFORCED",
       "elk.layered.nodePlacement.favorStraightEdges": String(options.favorStraightEdges ?? true),
-      "elk.partitioning.activate": "true"
+      "elk.partitioning.activate": "true",
+      "elk.separateConnectedComponents": "false"
     },
     children: request.nodes.map((node) => ({
       id: node.id,
@@ -299,10 +336,18 @@ function toElkGraph(request) {
   }
 }
 
+function modelOrderStrategy(options) {
+  return options.considerModelOrder === false ? "NONE" : "NODES_AND_EDGES"
+}
+
 function partitionOptions(node) {
   if (node.lane === null && node.phase === null) return {}
 
-  return { "elk.partitioning.partition": String((node.lane ?? 0) * MAX_CONSTRAINTS + (node.phase ?? 0)) }
+  return {
+    "elk.partitioning.partition": String(node.phase ?? 0),
+    "elk.layered.considerModelOrder.groupModelOrder.crossingMinimizationId": String(node.lane ?? 0),
+    "elk.layered.considerModelOrder.groupModelOrder.componentGroupId": String(node.lane ?? 0)
+  }
 }
 
 function normalizeLayout(request, result) {

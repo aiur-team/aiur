@@ -95,7 +95,8 @@ export function createLayoutWorkerClient(options = {}) {
     if (worker) return worker
 
     try {
-      const workerWithEngine = `${workerUrl}?engine=${encodeURIComponent(engineUrl)}`
+      const workerWithEngine = new URL(workerUrl, globalThis.location.href)
+      workerWithEngine.searchParams.set("engine", new URL(engineUrl, globalThis.location.href).href)
       const activeWorker = new WorkerConstructor(workerWithEngine)
       worker = activeWorker
       activeWorker.addEventListener("message", (event) => {
@@ -165,13 +166,19 @@ function validAssetUrls(workerUrl, engineUrl) {
     const worker = new URL(workerUrl, globalThis.location.href)
     const engine = new URL(engineUrl, globalThis.location.href)
 
-    return worker.origin === globalThis.location.origin &&
-      engine.origin === globalThis.location.origin &&
-      workerPath.test(worker.pathname) &&
-      enginePath.test(engine.pathname)
+    return validLocalAssetUrl(worker, workerPath) && validLocalAssetUrl(engine, enginePath)
   } catch (_error) {
     return false
   }
+}
+
+function validLocalAssetUrl(url, path) {
+  return url.origin === globalThis.location.origin &&
+    url.username === "" &&
+    url.password === "" &&
+    url.search === "" &&
+    url.hash === "" &&
+    path.test(url.pathname)
 }
 
 function safeIdentity(value) {

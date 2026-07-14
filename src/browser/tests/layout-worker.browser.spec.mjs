@@ -88,6 +88,120 @@ test('worker preserves directed order and repeated constrained geometry', async 
   }
 })
 
+test('worker preserves independent lane and phase order across multiple roots and disconnected components', async ({ browser }) => {
+  const urls = await layoutAssetUrls()
+  const context = await browser.newContext({ httpCredentials: dashboardCredentials })
+  const page = await context.newPage()
+  const multipleRootRequest = {
+    type: 'layout',
+    version: 1,
+    requestId: 'request_7_4',
+    generation: 7,
+    constraints: {
+      lanes: [{ index: 0 }, { index: 1 }],
+      phases: [{ index: 0 }, { index: 1 }]
+    },
+    nodes: [
+      { id: 'node_0', width: 120, height: 48, lane: 0, phase: 0 },
+      { id: 'node_1', width: 120, height: 48, lane: 1, phase: 0 },
+      { id: 'node_2', width: 120, height: 48, lane: 0, phase: 1 },
+      { id: 'node_3', width: 120, height: 48, lane: 1, phase: 1 }
+    ],
+    edges: [
+      { id: 'edge_0', source: 'node_0', target: 'node_2' },
+      { id: 'edge_1', source: 'node_1', target: 'node_3' }
+    ],
+    options: { direction: 'RIGHT', edgeRouting: 'ORTHOGONAL', randomSeed: 1, thoroughness: 1, considerModelOrder: true }
+  }
+  const disconnectedRequest = {
+    ...multipleRootRequest,
+    requestId: 'request_8_4',
+    generation: 8,
+    edges: []
+  }
+
+  try {
+    await openFixture(page)
+
+    const result = await page.evaluate(async (payload) => {
+      const { createLayoutWorkerClient } = await import(payload.urls.client)
+      const client = createLayoutWorkerClient({ workerUrl: payload.urls.worker, engineUrl: payload.urls.engine })
+      const first = await client.layout(payload.multipleRootRequest)
+      const second = await client.layout(payload.multipleRootRequest)
+      const disconnected = await client.layout(payload.disconnectedRequest)
+      client.dispose()
+      return { first, second, disconnected }
+    }, { urls, multipleRootRequest, disconnectedRequest })
+
+    for (const layout of [result.first, result.disconnected]) {
+      const positions = new Map(layout.nodes.map((node) => [node.id, node]))
+      const phaseZero = ['node_0', 'node_1'].map((id) => positions.get(id).x)
+      const phaseOne = ['node_2', 'node_3'].map((id) => positions.get(id).x)
+      const laneZero = ['node_0', 'node_2'].map((id) => positions.get(id).y)
+      const laneOne = ['node_1', 'node_3'].map((id) => positions.get(id).y)
+
+      expect(layout.type).toBe('result')
+      expect(Math.max(...phaseZero)).toBeLessThan(Math.min(...phaseOne))
+      expect(Math.max(...laneZero)).toBeLessThan(Math.min(...laneOne))
+    }
+    expect(result.second).toEqual(result.first)
+  } finally {
+    await context.close()
+  }
+})
+
+test('worker maps model-order preference to a documented ELK strategy', async ({ browser }) => {
+  const urls = await layoutAssetUrls()
+  const context = await browser.newContext({ httpCredentials: dashboardCredentials })
+  const page = await context.newPage()
+  const request = {
+    type: 'layout',
+    version: 1,
+    requestId: 'request_11_5',
+    generation: 11,
+    constraints: { lanes: [], phases: [] },
+    nodes: Array.from({ length: 5 }, (_, index) => ({ id: `node_${index}`, width: 120, height: 48 })),
+    edges: [
+      { id: 'edge_0', source: 'node_0', target: 'node_1' },
+      { id: 'edge_1', source: 'node_0', target: 'node_2' },
+      { id: 'edge_2', source: 'node_0', target: 'node_3' }
+    ],
+    options: { direction: 'RIGHT', edgeRouting: 'ORTHOGONAL', randomSeed: 1, thoroughness: 1, considerModelOrder: true }
+  }
+  const unorderedRequest = {
+    ...request,
+    requestId: 'request_12_5',
+    generation: 12,
+    options: { ...request.options, considerModelOrder: false }
+  }
+
+  try {
+    await openFixture(page)
+
+    const result = await page.evaluate(async (payload) => {
+      const { createLayoutWorkerClient } = await import(payload.urls.client)
+      const client = createLayoutWorkerClient({ workerUrl: payload.urls.worker, engineUrl: payload.urls.engine })
+      const ordered = await client.layout(payload.request)
+      const unordered = await client.layout(payload.unorderedRequest)
+      client.dispose()
+      return { ordered, unordered }
+    }, { urls, request, unorderedRequest })
+
+    const ordered = new Map(result.ordered.nodes.map((node) => [node.id, node.y]))
+    const unordered = new Map(result.unordered.nodes.map((node) => [node.id, node.y]))
+
+    expect(result.ordered.type).toBe('result')
+    expect(result.unordered.type).toBe('result')
+    expect(ordered.get('node_1')).toBeLessThan(ordered.get('node_2'))
+    expect(ordered.get('node_2')).toBeLessThan(ordered.get('node_3'))
+    expect([unordered.get('node_1'), unordered.get('node_2'), unordered.get('node_3')]).not.toEqual([
+      ordered.get('node_1'), ordered.get('node_2'), ordered.get('node_3')
+    ])
+  } finally {
+    await context.close()
+  }
+})
+
 test('worker supports empty through 50-node graph fixtures with stable identities', async ({ browser }) => {
   const urls = await layoutAssetUrls()
   const context = await browser.newContext({ httpCredentials: dashboardCredentials })
@@ -140,8 +254,8 @@ test('worker protocol keeps failures and stale identities structured', async ({ 
       const stale = await client.layout(payload.request)
       client.dispose()
 
-      const directWorkerRequest = (request) => new Promise((resolve, reject) => {
-        const worker = new Worker(`${payload.urls.worker}?engine=${encodeURIComponent(payload.urls.engine)}`)
+      const directWorkerRequest = (request, workerUrl = `${payload.urls.worker}?engine=${encodeURIComponent(payload.urls.engine)}`) => new Promise((resolve, reject) => {
+        const worker = new Worker(workerUrl)
         worker.addEventListener('message', (event) => {
           worker.terminate()
           resolve(event.data)
@@ -165,10 +279,16 @@ test('worker protocol keeps failures and stale identities structured', async ({ 
         ...payload.request,
         nodes: [{ ...payload.request.nodes[0], lane: 99 }, ...payload.request.nodes.slice(1)]
       })
+      const directEngineQuery = await directWorkerRequest(payload.request, `${payload.urls.worker}?engine=${encodeURIComponent(`${payload.urls.engine}?cache=1`)}`)
+      const directEngineHash = await directWorkerRequest(payload.request, `${payload.urls.worker}?engine=${encodeURIComponent(`${payload.urls.engine}#fragment`)}`)
+      const directDuplicateEngine = await directWorkerRequest(payload.request, `${payload.urls.worker}?engine=${encodeURIComponent(payload.urls.engine)}&engine=${encodeURIComponent(payload.urls.engine)}`)
+      const directExtraParameter = await directWorkerRequest(payload.request, `${payload.urls.worker}?engine=${encodeURIComponent(payload.urls.engine)}&debug=1`)
 
       let invalidPosts = 0
+      let assetUrlConstructions = 0
 
       class RecordingWorker {
+        constructor() { assetUrlConstructions += 1 }
         addEventListener() {}
         postMessage() { invalidPosts += 1 }
         terminate() {}
@@ -179,6 +299,21 @@ test('worker protocol keeps failures and stale identities structured', async ({ 
         engineUrl: payload.urls.engine,
         WorkerConstructor: RecordingWorker
       }).layout({ ...payload.request, title: 'must-not-cross-worker-boundary' })
+
+      const credentialedWorkerUrl = new URL(payload.urls.worker, globalThis.location.href)
+      credentialedWorkerUrl.username = 'layout'
+      credentialedWorkerUrl.password = 'worker'
+      const credentialedEngineUrl = new URL(payload.urls.engine, globalThis.location.href)
+      credentialedEngineUrl.username = 'layout'
+      credentialedEngineUrl.password = 'engine'
+      const invalidAssetUrls = await Promise.all([
+        createLayoutWorkerClient({ workerUrl: credentialedWorkerUrl.href, engineUrl: payload.urls.engine, WorkerConstructor: RecordingWorker }).layout(payload.request),
+        createLayoutWorkerClient({ workerUrl: `${payload.urls.worker}?debug=1`, engineUrl: payload.urls.engine, WorkerConstructor: RecordingWorker }).layout(payload.request),
+        createLayoutWorkerClient({ workerUrl: `${payload.urls.worker}#fragment`, engineUrl: payload.urls.engine, WorkerConstructor: RecordingWorker }).layout(payload.request),
+        createLayoutWorkerClient({ workerUrl: payload.urls.worker, engineUrl: credentialedEngineUrl.href, WorkerConstructor: RecordingWorker }).layout(payload.request),
+        createLayoutWorkerClient({ workerUrl: payload.urls.worker, engineUrl: `${payload.urls.engine}?cache=1`, WorkerConstructor: RecordingWorker }).layout(payload.request),
+        createLayoutWorkerClient({ workerUrl: payload.urls.worker, engineUrl: `${payload.urls.engine}#fragment`, WorkerConstructor: RecordingWorker }).layout(payload.request)
+      ])
 
       const unsupported = await createLayoutWorkerClient({
         workerUrl: payload.urls.worker,
@@ -319,7 +454,7 @@ test('worker protocol keeps failures and stale identities structured', async ({ 
         engineUrl: payload.urls.engine.replace(/[a-f0-9]{64}/, '0000000000000000000000000000000000000000000000000000000000000000')
       }).layout(payload.request)
 
-      return { malformed, oversized, credentialShaped, directMalformed, directOversized, directInvalidConstraint, stale, preflight, invalidPosts, unsupported, timeout, retry, constructions, malformedResponse, malformedGeometry, staleResponse, lateTimeout, lateRecoveryResult, lateWorkers: lateWorkers.length, firstDuplicate, secondDuplicate, engineFailure }
+      return { malformed, oversized, credentialShaped, directMalformed, directOversized, directInvalidConstraint, directEngineQuery, directEngineHash, directDuplicateEngine, directExtraParameter, stale, preflight, invalidPosts, assetUrlConstructions, invalidAssetUrls, unsupported, timeout, retry, constructions, malformedResponse, malformedGeometry, staleResponse, lateTimeout, lateRecoveryResult, lateWorkers: lateWorkers.length, firstDuplicate, secondDuplicate, engineFailure }
     }, { urls, request: layoutRequest(20, { generation: 9, cycle: true }) })
 
     expect(result.malformed).toMatchObject({ type: 'error', requestId: 'request_9_20', generation: 9, error: { code: 'invalid_request' } })
@@ -330,10 +465,17 @@ test('worker protocol keeps failures and stale identities structured', async ({ 
     expect(result.directMalformed).toMatchObject({ type: 'error', requestId: 'request_9_20', generation: 9, error: { code: 'invalid_request' } })
     expect(result.directOversized).toMatchObject({ type: 'error', requestId: 'request_12_101', generation: 12, error: { code: 'invalid_request' } })
     expect(result.directInvalidConstraint).toMatchObject({ type: 'error', requestId: 'request_9_20', generation: 9, error: { code: 'invalid_request' } })
+    expect(result.directEngineQuery).toMatchObject({ type: 'error', requestId: 'request_9_20', generation: 9, error: { code: 'engine_unavailable' } })
+    expect(result.directEngineHash).toMatchObject({ type: 'error', requestId: 'request_9_20', generation: 9, error: { code: 'engine_unavailable' } })
+    expect(result.directDuplicateEngine).toMatchObject({ type: 'error', requestId: 'request_9_20', generation: 9, error: { code: 'engine_unavailable' } })
+    expect(result.directExtraParameter).toMatchObject({ type: 'error', requestId: 'request_9_20', generation: 9, error: { code: 'engine_unavailable' } })
     expect(JSON.stringify(result.directMalformed)).not.toContain('ghp_')
     expect(JSON.stringify(result.directOversized).length).toBeLessThan(256)
     expect(result.preflight).toMatchObject({ type: 'error', requestId: 'request_9_20', generation: 9, error: { code: 'invalid_request' } })
     expect(result.invalidPosts).toBe(0)
+    expect(result.invalidAssetUrls).toHaveLength(6)
+    expect(result.invalidAssetUrls.every((response) => response.error?.code === 'asset_url_invalid')).toBe(true)
+    expect(result.assetUrlConstructions).toBe(0)
     expect(result.stale).toMatchObject({ type: 'result', requestId: 'request_9_20', generation: 9 })
     expect(result.unsupported).toMatchObject({ type: 'error', requestId: 'request_9_20', generation: 9, error: { code: 'worker_unsupported' } })
     expect(result.timeout).toMatchObject({ type: 'error', requestId: 'request_9_20', generation: 9, error: { code: 'request_timeout' } })
