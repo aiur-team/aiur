@@ -60,10 +60,9 @@ defmodule Aiur.BuildOrder.TicketDetail.Repository do
   defp configured_repository_result({:ok, repository}), do: configured_repository_result(repository)
 
   defp configured_repository_result({owner, repository}) when is_binary(owner) and is_binary(repository) do
-    with {:ok, {owner, repository}} <- Bounded.github_repository_components(owner, repository) do
-      {:ok, {owner, repository}}
-    else
-      _ -> {:error, %Failure{kind: :configuration}}
+    case Bounded.github_repository_components(owner, repository) do
+      {:ok, {owner, repository}} -> {:ok, {owner, repository}}
+      :error -> {:error, %Failure{kind: :configuration}}
     end
   end
 
@@ -74,10 +73,9 @@ defmodule Aiur.BuildOrder.TicketDetail.Repository do
   end
 
   defp valid_repository_components(%TrackerIdentity{owner: owner, repository: repository}) do
-    with {:ok, {_owner, _repository}} <- Bounded.github_repository_components(owner, repository) do
-      :ok
-    else
-      _ -> :invalid_repository_component
+    case Bounded.github_repository_components(owner, repository) do
+      {:ok, {_owner, _repository}} -> :ok
+      :error -> :invalid_repository_component
     end
   end
 end
