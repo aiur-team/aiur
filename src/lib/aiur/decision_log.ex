@@ -212,8 +212,13 @@ defmodule Aiur.DecisionLog do
 
   defp decode_lines(content, validator) do
     content
-    |> String.split("\n", trim: true)
+    |> String.split("\n")
+    |> drop_terminal_delimiter()
     |> decode_lines(validator, 1, [])
+  end
+
+  defp drop_terminal_delimiter(lines) do
+    if List.last(lines) == "", do: List.delete_at(lines, -1), else: lines
   end
 
   defp decode_lines([], _validator, _line_number, acc), do: {:ok, Enum.reverse(acc), nil}

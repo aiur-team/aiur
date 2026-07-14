@@ -20,12 +20,15 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
     assert {:ok, %{status: :accepted, generation: 1}} = observe(pid, issue, :queued)
     assert {:ok, %{status: :accepted, generation: 2}} = observe(pid, issue, :completed, 1)
     assert {:ok, %{status: :terminal, generation: 2}} = observe(pid, issue, :retrying, 2)
-    assert %{generation: 2, health: :healthy, members: [%{lifecycle: :completed, terminal?: true}]} = Store.snapshot(server: pid)
+
+    assert %{generation: 2, health: :healthy, members: [%{lifecycle: :completed, terminal?: true}]} =
+             Store.snapshot(server: pid)
 
     crash(pid)
     recovered = start_store!(dir)
 
-    assert %{generation: 2, health: :healthy, members: [%{lifecycle: :completed, terminal?: true}]} = Store.snapshot(server: recovered)
+    assert %{generation: 2, health: :healthy, members: [%{lifecycle: :completed, terminal?: true}]} =
+             Store.snapshot(server: recovered)
   end
 
   test "publishes the durable accepted membership fact over the headless PubSub API", %{dir: dir} do
@@ -35,7 +38,32 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
     pid = start_store!(dir)
     assert {:ok, %{status: :accepted, generation: 1}} = observe(pid, identity(), :queued)
 
-    assert_receive {:current_run_membership_changed, %{run_id: @run_id, generation: 1, event: %{lifecycle: :queued}, health: :healthy}}
+    assert_receive {:current_run_membership_changed, payload}
+    assert payload.run_id == @run_id
+    assert payload.generation == 1
+    assert payload.event.lifecycle == :queued
+    assert payload.health == :healthy
+    assert %{status: _status} = payload.freshness
+  end
+
+  test "compacts after a bounded journal cadence instead of syncing the filesystem per observation", %{dir: dir} do
+    {:ok, sync_count} = Agent.start_link(fn -> 0 end)
+
+    sync_fun = fn ->
+      Agent.update(sync_count, &(&1 + 1))
+      :ok
+    end
+
+    pid = start_store!(dir, @run_id, checkpoint_interval: 2, filesystem_sync_fun: sync_fun)
+
+    assert {:ok, %{generation: 1}} = observe(pid, identity(), :queued)
+    assert Agent.get(sync_count, & &1) == 1
+    refute File.exists?(Path.join(Path.dirname(journal_path(dir)), "membership.checkpoint.json"))
+    assert File.read!(journal_path(dir)) != ""
+
+    assert {:ok, %{generation: 2}} = observe(pid, identity(), :running, 1)
+    assert Agent.get(sync_count, & &1) == 2
+    assert File.read!(journal_path(dir)) == ""
   end
 
   test "same-run recovery replays an acknowledged journal prefix and repairs a torn tail", %{dir: dir} do
@@ -55,13 +83,46 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
     assert String.ends_with?(File.read!(journal), "\n")
   end
 
+  test "freshness distinguishes recovered membership from unavailable and fresh source observations", %{dir: dir} do
+    first = start_store!(dir)
+    assert {:ok, %{generation: 1}} = observe(first, identity(), :queued)
+    stop(first)
+
+    recovered = start_store!(dir)
+    assert %{freshness: %{status: :stale, reconciled_at: nil}, members: [_]} = Store.snapshot(server: recovered)
+
+    assert :ok = Store.mark_reconciled(:unavailable, recovered)
+    assert %{freshness: %{status: :unavailable, reconciled_at: %DateTime{}}} = Store.snapshot(server: recovered)
+
+    assert :ok = Store.mark_reconciled(:fresh, recovered)
+    assert %{freshness: %{status: :fresh}, members: [_]} = Store.snapshot(server: recovered)
+  end
+
+  test "freshness records every completed reconciliation even when its status is unchanged", %{dir: dir} do
+    {:ok, clock} = Agent.start_link(fn -> @now end)
+    clock_fun = fn -> Agent.get(clock, & &1) end
+    pid = start_store!(dir, @run_id, clock: clock_fun)
+
+    assert :ok = Store.mark_reconciled(:fresh, pid)
+    assert %{freshness: %{reconciled_at: @now}} = Store.snapshot(server: pid)
+
+    later = DateTime.add(@now, 1, :second)
+    Agent.update(clock, fn _ -> later end)
+
+    assert :ok = Store.mark_reconciled(:fresh, pid)
+    assert %{freshness: %{reconciled_at: ^later}} = Store.snapshot(server: pid)
+  end
+
   test "a new run cannot inherit a prior run's members", %{dir: dir} do
     first = start_store!(dir, @run_id)
     assert {:ok, %{generation: 1}} = observe(first, identity(), :queued)
     stop(first)
 
     second = start_store!(dir, "membership-store-next-run")
-    assert %{run_id: "membership-store-next-run", generation: 0, health: :healthy, members: []} = Store.snapshot(server: second)
+
+    assert %{run_id: "membership-store-next-run", generation: 0, health: :healthy, members: []} =
+             Store.snapshot(server: second)
+
     assert [run_dir] = Path.wildcard(Path.join([dir, "runs", "*"]))
     assert File.dir?(run_dir)
   end
@@ -83,6 +144,22 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
     assert [{_quarantined, _}] = Path.wildcard(checkpoint <> ".corrupt-*") |> Enum.map(&{&1, File.stat!(&1)})
   end
 
+  test "corrupt checkpoint replays its valid journal while retaining degraded recovery health", %{dir: dir} do
+    pid = start_store!(dir, @run_id, clear_journal_fun: fn _path -> {:error, :compaction_failed} end)
+    assert {:ok, %{generation: 1}} = observe(pid, identity(), :queued)
+    stop(pid)
+
+    checkpoint = checkpoint_path(dir)
+    assert :ok = File.write(checkpoint, "{")
+
+    recovered = start_store!(dir)
+
+    assert %{generation: 1, health: {:degraded, {:checkpoint_corrupt, _reason}}, members: [member]} =
+             Store.snapshot(server: recovered)
+
+    assert member.lifecycle == :queued
+  end
+
   test "corrupt journal preserves the checkpoint projection but marks recovery degraded", %{dir: dir} do
     pid = start_store!(dir)
     assert {:ok, _} = observe(pid, identity(), :queued)
@@ -91,11 +168,69 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
     assert :ok = File.write(journal_path(dir), "not-json\n")
     recovered = start_store!(dir)
 
-    assert %{health: {:degraded, {:journal_corrupt, 1, _reason}}, members: [%{lifecycle: :queued}]} = Store.snapshot(server: recovered)
+    assert %{health: {:degraded, {:journal_corrupt, 1, _reason}}, members: [%{lifecycle: :queued}]} =
+             Store.snapshot(server: recovered)
+
     assert {:error, {:membership_unavailable, {:degraded, _reason}}} = observe(recovered, identity(), :running, 1)
   end
 
-  test "append failure leaves the last known good generation unchanged and can recover on retry", %{dir: dir} do
+  test "an interior blank journal record is quarantined instead of reporting healthy recovery", %{dir: dir} do
+    pid = start_store!(dir, @run_id, clear_journal_fun: fn _path -> {:error, :compaction_failed} end)
+    assert {:ok, _} = observe(pid, identity(), :queued)
+    stop(pid)
+
+    journal = journal_path(dir)
+    assert :ok = File.write(journal, "\n", [:append])
+
+    recovered = start_store!(dir)
+
+    assert %{health: {:degraded, {:journal_corrupt, 2, _reason}}, members: [%{lifecycle: :queued}]} =
+             Store.snapshot(server: recovered)
+
+    assert [_quarantined] = Path.wildcard(journal <> ".corrupt-*")
+  end
+
+  test "a corrupt journal checkpoints its validated prefix before quarantine across two restarts", %{dir: dir} do
+    first = start_store!(dir, @run_id, checkpoint_interval: 32)
+    assert {:ok, %{generation: 1}} = observe(first, identity(), :queued)
+    stop(first)
+
+    journal = journal_path(dir)
+    assert :ok = File.write(journal, "not-json\n", [:append])
+
+    recovered_once = start_store!(dir, @run_id, checkpoint_interval: 32)
+
+    assert %{generation: 1, health: {:degraded, _reason}, members: [%{lifecycle: :queued}]} =
+             Store.snapshot(server: recovered_once)
+
+    stop(recovered_once)
+    recovered_twice = start_store!(dir, @run_id, checkpoint_interval: 32)
+
+    assert %{generation: 1, health: {:degraded, _reason}, members: [%{lifecycle: :queued}]} =
+             Store.snapshot(server: recovered_twice)
+  end
+
+  test "checkpoint recovery rejects a checksummed member with content-bearing extra keys", %{dir: dir} do
+    pid = start_store!(dir)
+    assert {:ok, %{generation: 1}} = observe(pid, identity(), :queued)
+    stop(pid)
+
+    checkpoint = checkpoint_path(dir)
+    record = Jason.decode!(File.read!(checkpoint))
+    [member] = record["members"]
+    record = Map.put(record, "members", [Map.put(member, "title", "must not persist")])
+    record = Map.put(record, "checksum", checkpoint_checksum(record))
+    assert :ok = File.write(checkpoint, Jason.encode!(record))
+
+    recovered = start_store!(dir)
+
+    assert %{health: {:degraded, {:checkpoint_corrupt, :invalid_checkpoint}}, members: []} =
+             Store.snapshot(server: recovered)
+
+    assert [_quarantined] = Path.wildcard(checkpoint <> ".corrupt-*")
+  end
+
+  test "append failure leaves membership read-only until recovery validates the journal", %{dir: dir} do
     {:ok, mode} = Agent.start_link(fn -> :fail end)
 
     append_fun = fn path, record ->
@@ -105,25 +240,71 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
     pid = start_store!(dir, @run_id, append_fun: append_fun)
 
     assert {:error, {:membership_persistence_failed, {:append_failed, :disk_full}}} = observe(pid, identity(), :queued)
-    assert %{generation: 0, members: [], health: {:degraded, {:append_failed, :disk_full}}} = Store.snapshot(server: pid)
+
+    assert %{generation: 0, members: [], health: {:degraded, {:append_failed, :disk_full}}} =
+             Store.snapshot(server: pid)
 
     Agent.update(mode, fn _ -> :ok end)
-    assert {:ok, %{generation: 1}} = observe(pid, identity(), :queued)
-    assert %{generation: 1, health: :healthy} = Store.snapshot(server: pid)
+
+    assert {:error, {:membership_unavailable, {:degraded, {:append_failed, :disk_full}}}} =
+             observe(pid, identity(), :queued)
+
+    stop(pid)
+    recovered = start_store!(dir)
+    assert {:ok, %{generation: 1}} = observe(recovered, identity(), :queued)
+    assert %{generation: 1, health: :healthy} = Store.snapshot(server: recovered)
   end
 
-  test "checkpoint failure retains the previous generation until replay can safely restore the durable journal", %{dir: dir} do
+  test "an ambiguous append failure is replayed before another transition can compact it", %{dir: dir} do
+    append_fun = fn path, record ->
+      :ok = DecisionLog.append(path, record)
+      {:error, :acknowledgement_lost}
+    end
+
+    pid = start_store!(dir, @run_id, append_fun: append_fun)
+
+    assert {:error, {:membership_persistence_failed, {:append_failed, :acknowledgement_lost}}} =
+             observe(pid, identity(), :queued)
+
+    assert {:error, {:membership_unavailable, {:degraded, {:append_failed, :acknowledgement_lost}}}} =
+             observe(pid, identity("owner", "repo", "I-next"), :running)
+
+    stop(pid)
+    recovered = start_store!(dir)
+
+    assert %{generation: 1, health: :healthy, members: [%{lifecycle: :queued}]} =
+             Store.snapshot(server: recovered)
+  end
+
+  test "journal compaction failure retains a replayable event without duplicating membership", %{dir: dir} do
+    pid = start_store!(dir, @run_id, clear_journal_fun: fn _path -> {:error, :compaction_failed} end)
+
+    assert {:ok, %{generation: 1}} = observe(pid, identity(), :queued)
+    assert %{health: {:degraded, {:journal_compaction_failed, :compaction_failed}}} = Store.snapshot(server: pid)
+    stop(pid)
+
+    recovered = start_store!(dir)
+
+    assert %{generation: 1, health: :healthy, members: [%{lifecycle: :queued}]} =
+             Store.snapshot(server: recovered)
+  end
+
+  test "checkpoint failure retains its previous generation through a durable journal replay", %{dir: dir} do
     pid = start_store!(dir, @run_id, checkpoint_fun: fn _path, _record -> {:error, :rename_failed} end)
 
-    assert {:error, {:membership_persistence_failed, {:checkpoint_failed, :rename_failed}}} = observe(pid, identity(), :queued)
-    assert %{generation: 0, members: [], health: {:degraded, {:checkpoint_failed, :rename_failed}}} = Store.snapshot(server: pid)
+    assert {:error, {:membership_persistence_failed, {:checkpoint_failed, :rename_failed}}} =
+             observe(pid, identity(), :queued)
+
+    assert %{generation: 0, members: [], health: {:degraded, {:checkpoint_failed, :rename_failed}}} =
+             Store.snapshot(server: pid)
+
     stop(pid)
 
     recovered = start_store!(dir)
     assert %{generation: 1, health: :healthy, members: [%{lifecycle: :queued}]} = Store.snapshot(server: recovered)
   end
 
-  test "first checkpoint directory entry is synced before its journal can be cleared", %{dir: dir} do
+  test "every checkpoint replacement is synced before its journal can be cleared", %{dir: dir} do
     {:ok, sync_count} = Agent.start_link(fn -> 0 end)
 
     sync_fun = fn ->
@@ -135,7 +316,8 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
 
     pid = start_store!(dir, @run_id, filesystem_sync_fun: sync_fun)
 
-    assert {:error, {:membership_persistence_failed, {:checkpoint_entry_sync_failed, :sync_failed}}} = observe(pid, identity(), :queued)
+    assert {:error, {:membership_persistence_failed, {:checkpoint_entry_sync_failed, :sync_failed}}} =
+             observe(pid, identity(), :queued)
 
     assert %{generation: 0, members: [], health: {:degraded, {:checkpoint_entry_sync_failed, :sync_failed}}} =
              Store.snapshot(server: pid)
@@ -143,6 +325,24 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
     stop(pid)
     recovered = start_store!(dir)
     assert %{generation: 1, health: :healthy, members: [%{lifecycle: :queued}]} = Store.snapshot(server: recovered)
+  end
+
+  test "a checkpoint replacement sync failure retains the journal for recovery", %{dir: dir} do
+    first = start_store!(dir)
+    assert {:ok, %{generation: 1}} = observe(first, identity(), :queued)
+    stop(first)
+
+    second =
+      start_store!(dir, @run_id, filesystem_sync_fun: fn -> {:error, :sync_failed} end)
+
+    assert {:error, {:membership_persistence_failed, {:checkpoint_entry_sync_failed, :sync_failed}}} =
+             observe(second, identity(), :running, 1)
+
+    stop(second)
+    recovered = start_store!(dir)
+
+    assert %{generation: 2, health: :healthy, members: [%{lifecycle: :running}]} =
+             Store.snapshot(server: recovered)
   end
 
   test "invalid run IDs remain unavailable instead of crashing the projection", %{dir: dir} do
@@ -160,7 +360,7 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
              Store.snapshot(server: pid)
   end
 
-  test "a process crash after the fsynced append and before checkpoint replay recovers the accepted member", %{dir: dir} do
+  test "a crash between an fsynced append and checkpoint replay recovers the member", %{dir: dir} do
     parent = self()
 
     pid =
@@ -215,7 +415,8 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
   end
 
   defp start_store!(dir, run_id \\ @run_id, opts \\ []) do
-    {:ok, pid} = Store.start_link(Keyword.merge([name: nil, state_dir: dir, run_id: run_id], opts))
+    defaults = [name: nil, state_dir: dir, run_id: run_id, checkpoint_interval: 1]
+    {:ok, pid} = Store.start_link(Keyword.merge(defaults, opts))
     pid
   end
 
@@ -238,6 +439,13 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
 
   defp checkpoint_path(dir), do: only_path(dir, "membership.checkpoint.json")
   defp journal_path(dir), do: only_path(dir, "membership.ndjson")
+
+  defp checkpoint_checksum(record) do
+    {record["version"], record["run_id"], record["generation"], record["members"]}
+    |> :erlang.term_to_binary([:deterministic])
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
+  end
 
   defp only_path(dir, filename) do
     [path] = Path.wildcard(Path.join([dir, "runs", "*", filename]))

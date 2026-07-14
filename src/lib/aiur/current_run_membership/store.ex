@@ -7,10 +7,10 @@ defmodule Aiur.CurrentRunMembership.Store do
   restart replays those records for the same `run_id`; a different `run_id`
   always starts an empty generation and can never replay a prior run.
 
-  The checkpoint is a compaction cache, not an alternative lifecycle source.
-  An observation is appended and synced before its checkpoint is written, and
-  a first checkpoint directory entry is synced before the journal may be
-  cleared or a change is published. A malformed checkpoint or journal is
+  The checkpoint is a bounded-cadence compaction cache, not an alternative
+  lifecycle source. An observation is appended and synced before publication.
+  Each checkpoint replacement is synced before its journal prefix may be
+  cleared. A malformed checkpoint or journal is
   quarantined and leaves the store degraded or unavailable rather than
   silently reporting a healthy empty set.
 
@@ -34,6 +34,8 @@ defmodule Aiur.CurrentRunMembership.Store do
   @checkpoint_filename "membership.checkpoint.json"
   @degraded_filename "membership.degraded.json"
   @max_snapshot_limit 1_000
+  @checkpoint_interval 32
+  @checkpoint_keys ~w(checksum generation members run_id version)
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -45,7 +47,8 @@ defmodule Aiur.CurrentRunMembership.Store do
     server = Keyword.get(opts, :server, __MODULE__)
     observed_at = Keyword.get(opts, :observed_at, DateTime.utc_now())
     source = Keyword.get(opts, :source, :status_report)
-    GenServer.call(server, {:observe, identity, lifecycle, observed_at, source}, 60_000)
+    timeout = Keyword.get(opts, :timeout, 60_000)
+    GenServer.call(server, {:observe, identity, lifecycle, observed_at, source}, timeout)
   end
 
   @spec snapshot(keyword()) :: map()
@@ -67,6 +70,11 @@ defmodule Aiur.CurrentRunMembership.Store do
   @spec freshness(GenServer.server()) :: map()
   def freshness(server \\ __MODULE__), do: GenServer.call(server, :freshness)
 
+  @spec mark_reconciled(:fresh | :unavailable, GenServer.server()) :: :ok
+  def mark_reconciled(status, server \\ __MODULE__) when status in [:fresh, :unavailable] do
+    GenServer.call(server, {:mark_reconciled, status})
+  end
+
   @impl true
   def init(opts) do
     run_id = Keyword.get(opts, :run_id, Boot.run_id())
@@ -78,6 +86,7 @@ defmodule Aiur.CurrentRunMembership.Store do
         {:error, reason} -> unavailable_state(run_id, persistence, {:path_unresolved, reason})
       end
 
+    notify(state, nil)
     {:ok, state}
   end
 
@@ -87,12 +96,8 @@ defmodule Aiur.CurrentRunMembership.Store do
   end
 
   def handle_call({:observe, identity, lifecycle, observed_at, source}, _from, state) do
-    with {:ok, event} <- Event.new(state.run_id, identity, lifecycle, observed_at, source: source) do
-      case Projection.apply(state.projection, event) do
-        {:accepted, projection} -> persist(event, projection, state)
-        {:ignored, reason, _projection} -> {:reply, {:ok, %{status: reason, generation: state.projection.generation}}, state}
-      end
-    else
+    case Event.new(state.run_id, identity, lifecycle, observed_at, source: source) do
+      {:ok, event} -> handle_observation(event, state)
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
@@ -126,15 +131,34 @@ defmodule Aiur.CurrentRunMembership.Store do
   def handle_call(:health, _from, state), do: {:reply, state.health, state}
   def handle_call(:freshness, _from, state), do: {:reply, state_freshness(state), state}
 
+  def handle_call({:mark_reconciled, status}, _from, state) do
+    changed? = state.reconciliation.status != status
+    reconciliation = %{status: status, reconciled_at: state.clock.()}
+    state = %{state | reconciliation: reconciliation}
+    if changed?, do: notify(state, nil)
+    {:reply, :ok, state}
+  end
+
   defp persistence_options(opts) do
     %{
       append_fun: Keyword.get(opts, :append_fun, &DecisionLog.append/2),
       checkpoint_fun: Keyword.get(opts, :checkpoint_fun, &write_checkpoint/2),
       clear_journal_fun: Keyword.get(opts, :clear_journal_fun, &clear_journal/1),
+      checkpoint_interval: checkpoint_interval(Keyword.get(opts, :checkpoint_interval, @checkpoint_interval)),
       sync_fun: Keyword.get(opts, :filesystem_sync_fun, &Fs.sync_filesystem/0),
       clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
       cleanup_fun: Keyword.get(opts, :cleanup_fun, &cleanup_obsolete_runs/2)
     }
+  end
+
+  defp handle_observation(event, state) do
+    case Projection.apply(state.projection, event) do
+      {:accepted, projection} ->
+        persist(event, projection, state)
+
+      {:ignored, reason, _projection} ->
+        {:reply, {:ok, %{status: reason, generation: state.projection.generation}}, state}
+    end
   end
 
   defp state_dir(opts) do
@@ -178,7 +202,9 @@ defmodule Aiur.CurrentRunMembership.Store do
     checkpoint = load_checkpoint(paths.checkpoint_path, run_id)
     marker = load_degraded_marker(paths.degraded_path, run_id)
     {projection, checkpoint_health, writable?} = checkpoint_projection(checkpoint, run_id)
-    {projection, journal_health, journal_writable?} = replay_journal(paths.journal_path, run_id, projection)
+
+    {projection, journal_health, journal_writable?, journal_event_count} =
+      replay_journal(paths.journal_path, run_id, projection)
 
     health = boot_health(marker, checkpoint_health, journal_health)
     writable? = writable? and journal_writable? and marker == :absent
@@ -195,10 +221,13 @@ defmodule Aiur.CurrentRunMembership.Store do
       append_fun: persistence.append_fun,
       checkpoint_fun: persistence.checkpoint_fun,
       clear_journal_fun: persistence.clear_journal_fun,
+      checkpoint_interval: persistence.checkpoint_interval,
+      journal_event_count: journal_event_count,
       sync_fun: persistence.sync_fun,
       cleanup_fun: persistence.cleanup_fun,
       clock: persistence.clock,
       recovered_at: persistence.clock.(),
+      reconciliation: initial_reconciliation(projection),
       writable?: writable?,
       health: health
     }
@@ -236,13 +265,13 @@ defmodule Aiur.CurrentRunMembership.Store do
 
     case DecisionLog.replay(path, validator) do
       {:ok, events, nil} ->
-        {replay_events(projection, events), :healthy, true}
+        {replay_events(projection, events), :healthy, true, length(events)}
 
       {:ok, events, {:corrupt, line, reason}} ->
-        {replay_events(projection, events), {:degraded, {:journal_corrupt, line, reason}}, false}
+        {replay_events(projection, events), {:degraded, {:journal_corrupt, line, reason}}, false, length(events)}
 
       {:error, reason} ->
-        {projection, {:unavailable, {:journal_unreadable, reason}}, false}
+        {projection, {:unavailable, {:journal_unreadable, reason}}, false, 0}
     end
   end
 
@@ -266,18 +295,42 @@ defmodule Aiur.CurrentRunMembership.Store do
     degrade_and_quarantine(state, state.checkpoint_path, {:checkpoint_corrupt, reason})
   end
 
-  defp maybe_quarantine_recovery_artifacts(state, _checkpoint, {:degraded, {:journal_corrupt, _line, _reason}} = health) do
-    degrade_and_quarantine(state, state.journal_path, elem(health, 1))
+  defp maybe_quarantine_recovery_artifacts(
+         state,
+         _checkpoint,
+         {:degraded, {:journal_corrupt, _line, _reason}} = health
+       ) do
+    case checkpoint_validated_journal_prefix(state) do
+      :ok ->
+        degrade_and_quarantine(state, state.journal_path, elem(health, 1))
+
+      {:error, reason} ->
+        %{state | health: {:unavailable, {:journal_prefix_checkpoint_failed, reason}}, writable?: false}
+    end
   end
 
   defp maybe_quarantine_recovery_artifacts(state, _checkpoint, _journal_health), do: state
+
+  defp checkpoint_validated_journal_prefix(state) do
+    with :ok <- state.checkpoint_fun.(state.checkpoint_path, checkpoint_record(state.projection)),
+         :ok <- ensure_regular_file(state.checkpoint_path),
+         :ok <- sync_recovery_entry(state.sync_fun) do
+      :ok
+    else
+      {:error, reason} -> {:error, reason}
+      {:error, stage, reason} -> {:error, {stage, reason}}
+    end
+  end
 
   defp degrade_and_quarantine(state, path, reason) do
     case quarantine(path) do
       :ok ->
         case write_degraded_marker(state.degraded_path, state.run_id, reason, state.sync_fun) do
-          :ok -> %{state | health: {:degraded, reason}, writable?: false}
-          {:error, marker_reason} -> %{state | health: {:unavailable, {:degraded_marker_failed, marker_reason}}, writable?: false}
+          :ok ->
+            %{state | health: {:degraded, reason}, writable?: false}
+
+          {:error, marker_reason} ->
+            %{state | health: {:unavailable, {:degraded_marker_failed, marker_reason}}, writable?: false}
         end
 
       {:error, quarantine_reason} ->
@@ -287,17 +340,31 @@ defmodule Aiur.CurrentRunMembership.Store do
 
   defp persist(event, projection, state) do
     case state.append_fun.(state.journal_path, Event.to_record(event)) do
-      :ok -> persist_checkpoint(event, projection, state)
-      {:error, reason} -> persist_failed(state, {:append_failed, reason})
+      :ok -> persist_appended_event(event, projection, state)
+      {:error, reason} -> persist_failed(%{state | writable?: false}, {:append_failed, reason})
     end
   end
 
-  defp persist_checkpoint(event, projection, state) do
-    checkpoint_existed? = regular_file?(state.checkpoint_path)
+  defp persist_appended_event(event, projection, state) do
+    state = %{state | journal_event_count: state.journal_event_count + 1}
 
+    if state.journal_event_count >= state.checkpoint_interval do
+      persist_checkpoint(event, projection, state)
+    else
+      finish_journal_append(event, projection, state)
+    end
+  end
+
+  defp finish_journal_append(event, projection, state) do
+    state = %{state | projection: projection}
+    notify(state, event)
+    {:reply, {:ok, %{status: :accepted, generation: projection.generation}}, state}
+  end
+
+  defp persist_checkpoint(event, projection, state) do
     with :ok <- state.checkpoint_fun.(state.checkpoint_path, checkpoint_record(projection)),
          :ok <- ensure_regular_file(state.checkpoint_path),
-         :ok <- sync_first_recovery_entry(checkpoint_existed?, state.sync_fun) do
+         :ok <- sync_recovery_entry(state.sync_fun) do
       candidate = %{state | projection: projection, health: persisted_health(state.health)}
       finish_checkpoint(event, candidate)
     else
@@ -312,6 +379,7 @@ defmodule Aiur.CurrentRunMembership.Store do
   defp finish_checkpoint(event, state) do
     case state.clear_journal_fun.(state.journal_path) do
       :ok ->
+        state = %{state | journal_event_count: 0}
         notify(state, event)
         {:reply, {:ok, %{status: :accepted, generation: state.projection.generation}}, state}
 
@@ -363,15 +431,13 @@ defmodule Aiur.CurrentRunMembership.Store do
   end
 
   defp checkpoint_from_record(record, run_id) when is_map(record) do
-    expected_keys = MapSet.new(["version", "run_id", "generation", "members", "checksum"])
-
-    with true <- MapSet.equal?(MapSet.new(Map.keys(record)), expected_keys),
+    with @checkpoint_keys <- record |> Map.keys() |> Enum.sort(),
          @checkpoint_version <- Map.get(record, "version"),
          ^run_id <- Map.get(record, "run_id"),
          generation when is_integer(generation) and generation >= 0 <- Map.get(record, "generation"),
          members when is_list(members) <- Map.get(record, "members"),
          checksum when is_binary(checksum) <- Map.get(record, "checksum"),
-         true <- checksum == checkpoint_checksum(Map.drop(record, ["version", "checksum"]) |> Map.put("version", @checkpoint_version)),
+         true <- checksum == checkpoint_checksum(checkpoint_payload(record)),
          {:ok, projection} <- Projection.restore_checkpoint(run_id, generation, members) do
       {:ok, projection}
     else
@@ -382,6 +448,12 @@ defmodule Aiur.CurrentRunMembership.Store do
 
   defp checkpoint_from_record(_record, _run_id), do: {:error, :invalid_checkpoint}
 
+  defp checkpoint_payload(record) do
+    record
+    |> Map.drop(["version", "checksum"])
+    |> Map.put("version", @checkpoint_version)
+  end
+
   defp checkpoint_checksum(%{"run_id" => run_id, "generation" => generation, "members" => members}) do
     {@checkpoint_version, run_id, generation, members}
     |> :erlang.term_to_binary([:deterministic])
@@ -390,16 +462,16 @@ defmodule Aiur.CurrentRunMembership.Store do
   end
 
   defp write_checkpoint(path, record) do
-    with :ok <- regular_or_missing?(path),
-         :ok <- Fs.atomic_write(path, Jason.encode!(record), fsync: true, mode: 0o600) do
-      :ok
+    case regular_or_missing?(path) do
+      :ok -> Fs.atomic_write(path, Jason.encode!(record), fsync: true, mode: 0o600)
+      {:error, reason} -> {:error, reason}
     end
   end
 
   defp clear_journal(path) do
-    with :ok <- regular_or_missing?(path),
-         :ok <- Fs.atomic_write(path, "", fsync: true, mode: 0o600) do
-      :ok
+    case regular_or_missing?(path) do
+      :ok -> Fs.atomic_write(path, "", fsync: true, mode: 0o600)
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -421,9 +493,7 @@ defmodule Aiur.CurrentRunMembership.Store do
     if regular_file?(path), do: :ok, else: {:error, :atomic_write_not_visible}
   end
 
-  defp sync_first_recovery_entry(true, _sync_fun), do: :ok
-
-  defp sync_first_recovery_entry(false, sync_fun) do
+  defp sync_recovery_entry(sync_fun) do
     case sync_fun.() do
       :ok -> :ok
       {:error, reason} -> {:error, :checkpoint_entry_sync_failed, reason}
@@ -454,25 +524,17 @@ defmodule Aiur.CurrentRunMembership.Store do
   end
 
   defp write_degraded_marker(path, run_id, reason, sync_fun) do
-    marker_existed? = regular_file?(path)
     record = %{"version" => 1, "run_id" => run_id, "reason" => degraded_marker_reason(reason)}
 
     with :ok <- regular_or_missing?(path),
          :ok <- Fs.atomic_write(path, Jason.encode!(record), fsync: true, mode: 0o600),
-         :ok <- ensure_regular_file(path),
-         :ok <- sync_first_recovery_entry(marker_existed?, sync_fun) do
-      :ok
+         :ok <- ensure_regular_file(path) do
+      sync_recovery_entry(sync_fun)
     end
   end
 
   defp degraded_marker_reason({:checkpoint_corrupt, _reason}), do: "checkpoint is corrupt"
   defp degraded_marker_reason({:journal_corrupt, _line, _reason}), do: "journal is corrupt"
-  defp degraded_marker_reason({:append_failed, _reason}), do: "journal append failed"
-  defp degraded_marker_reason({:checkpoint_failed, _reason}), do: "checkpoint write failed"
-  defp degraded_marker_reason({:checkpoint_entry_sync_failed, _reason}), do: "checkpoint directory sync failed"
-  defp degraded_marker_reason({:journal_compaction_failed, _reason}), do: "journal compaction failed"
-  defp degraded_marker_reason({:cleanup_failed, _reason}), do: "obsolete generation cleanup failed"
-  defp degraded_marker_reason(_reason), do: "membership recovery is degraded"
 
   defp quarantine(path) do
     case File.lstat(path) do
@@ -486,23 +548,33 @@ defmodule Aiur.CurrentRunMembership.Store do
     with {:ok, entries} <- File.ls(runs_dir) do
       entries
       |> Enum.reject(&(&1 == active_leaf))
-      |> Enum.reduce_while(:ok, fn entry, :ok ->
-        path = Path.join(runs_dir, entry)
+      |> Enum.reduce_while(:ok, &cleanup_obsolete_entry(&1, runs_dir, &2))
+    end
+  end
 
-        case File.lstat(path) do
-          {:ok, %File.Stat{type: :directory}} when byte_size(entry) == 64 ->
-            case File.rm_rf(path) do
-              {:ok, _removed} -> {:cont, :ok}
-              {:error, reason, _path} -> {:halt, {:error, reason}}
-            end
+  defp cleanup_obsolete_entry(entry, runs_dir, :ok) do
+    path = Path.join(runs_dir, entry)
 
-          {:ok, _stat} ->
-            {:halt, {:error, :unexpected_generation_entry}}
+    with :ok <- valid_generation_directory(path, entry),
+         :ok <- remove_generation(path) do
+      {:cont, :ok}
+    else
+      {:error, reason} -> {:halt, {:error, reason}}
+    end
+  end
 
-          {:error, reason} ->
-            {:halt, {:error, reason}}
-        end
-      end)
+  defp valid_generation_directory(path, entry) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :directory}} when byte_size(entry) == 64 -> :ok
+      {:ok, _stat} -> {:error, :unexpected_generation_entry}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp remove_generation(path) do
+    case File.rm_rf(path) do
+      {:ok, _removed} -> :ok
+      {:error, reason, _path} -> {:error, reason}
     end
   end
 
@@ -527,10 +599,13 @@ defmodule Aiur.CurrentRunMembership.Store do
       append_fun: persistence.append_fun,
       checkpoint_fun: persistence.checkpoint_fun,
       clear_journal_fun: persistence.clear_journal_fun,
+      checkpoint_interval: persistence.checkpoint_interval,
+      journal_event_count: 0,
       sync_fun: persistence.sync_fun,
       cleanup_fun: persistence.cleanup_fun,
       clock: persistence.clock,
       recovered_at: persistence.clock.(),
+      reconciliation: %{status: :unavailable, reconciled_at: nil},
       writable?: false,
       health: {:unavailable, reason}
     }
@@ -539,11 +614,19 @@ defmodule Aiur.CurrentRunMembership.Store do
   defp snapshot_limit(limit) when is_integer(limit) and limit > 0, do: min(limit, @max_snapshot_limit)
   defp snapshot_limit(_limit), do: @max_snapshot_limit
 
+  defp checkpoint_interval(interval) when is_integer(interval) and interval > 0, do: interval
+  defp checkpoint_interval(_interval), do: @checkpoint_interval
+
   defp safe_run_id(run_id) when is_binary(run_id) and byte_size(run_id) > 0, do: run_id
   defp safe_run_id(_run_id), do: "unavailable"
 
   defp persisted_health({:degraded, {:cleanup_failed, _reason}} = health), do: health
   defp persisted_health(_health), do: :healthy
+
+  defp initial_reconciliation(projection) do
+    status = if Projection.members(projection) == [], do: :unknown, else: :stale
+    %{status: status, reconciled_at: nil}
+  end
 
   defp state_freshness(state) do
     last_observed_at =
@@ -552,16 +635,24 @@ defmodule Aiur.CurrentRunMembership.Store do
       |> Enum.map(& &1.last_observed_at)
       |> Enum.max_by(&DateTime.to_unix(&1, :microsecond), fn -> nil end)
 
-    %{last_observed_at: last_observed_at, recovered_at: state.recovered_at}
+    %{
+      status: state.reconciliation.status,
+      last_observed_at: last_observed_at,
+      recovered_at: state.recovered_at,
+      reconciled_at: state.reconciliation.reconciled_at
+    }
   end
 
   defp health_message(:healthy), do: "current-run membership is healthy"
-  defp health_message({:degraded, {:checkpoint_corrupt, _reason}}), do: "current-run membership is degraded: checkpoint is corrupt"
+
+  defp health_message({:degraded, {:checkpoint_corrupt, _reason}}),
+    do: "current-run membership is degraded: checkpoint is corrupt"
 
   defp health_message({:degraded, {:journal_corrupt, _line, _reason}}),
     do: "current-run membership is degraded: journal is corrupt"
 
-  defp health_message({:degraded, {:append_failed, _reason}}), do: "current-run membership is degraded: journal append failed"
+  defp health_message({:degraded, {:append_failed, _reason}}),
+    do: "current-run membership is degraded: journal append failed"
 
   defp health_message({:degraded, {:checkpoint_failed, _reason}}),
     do: "current-run membership is degraded: checkpoint write failed"
@@ -592,17 +683,28 @@ defmodule Aiur.CurrentRunMembership.Store do
   defp health_message({:unavailable, {:journal_unreadable, _reason}}),
     do: "current-run membership is unavailable: journal cannot be read"
 
+  defp health_message({:unavailable, {:journal_prefix_checkpoint_failed, _reason}}),
+    do: "current-run membership is unavailable: validated journal prefix cannot be checkpointed"
+
   defp health_message({:unavailable, {:degraded_marker_failed, _reason}}),
     do: "current-run membership is unavailable: degraded recovery state cannot be recorded"
 
   defp health_message({:unavailable, {:quarantine_failed, _reason}}),
     do: "current-run membership is unavailable: corrupt recovery data cannot be quarantined"
 
-  defp health_message({:unavailable, reason}) when is_binary(reason), do: "current-run membership is unavailable: #{reason}"
+  defp health_message({:unavailable, reason}) when is_binary(reason),
+    do: "current-run membership is unavailable: #{reason}"
+
   defp health_message({:unavailable, _reason}), do: "current-run membership is unavailable"
 
   defp notify(state, event) do
-    CurrentRunMembership.broadcast_changed(state.run_id, state.projection.generation, event, state.health)
+    CurrentRunMembership.broadcast_changed(
+      state.run_id,
+      state.projection.generation,
+      event,
+      state.health,
+      state_freshness(state)
+    )
   rescue
     error -> Logger.warning("aiur_current_run_membership phase=notify_failed error=#{Exception.message(error)}")
   end

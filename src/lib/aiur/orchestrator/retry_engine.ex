@@ -14,6 +14,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   alias Aiur.Orchestrator.{
     DispatchPolicy,
+    MembershipLifecycle,
     Reconciler,
     Slots,
     State,
@@ -238,7 +239,8 @@ defmodule Aiur.Orchestrator.RetryEngine do
     Map.get(metadata, :delay_type) not in [:continuation, :capacity_wait, :precondition]
   end
 
-  @spec pop_retry_attempt_state(State.t(), String.t(), reference()) :: {:ok, integer(), map(), State.t()} | :missing
+  @spec pop_retry_attempt_state(State.t(), String.t(), reference()) ::
+          {:ok, integer(), map(), State.t()} | :missing
   def pop_retry_attempt_state(%State{} = state, issue_id, retry_token)
       when is_reference(retry_token) do
     case Map.get(state.retry_attempts, issue_id) do
@@ -348,6 +350,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
       {:error, reason} ->
         Logger.warning("Failed moving exhausted issue identifier=#{identifier} to error state: #{inspect(reason)}")
+
         :ok
     end
   end
@@ -431,14 +434,42 @@ defmodule Aiur.Orchestrator.RetryEngine do
     )
   end
 
-  defp handle_retry_issue_lookup(%Issue{} = issue, state, issue_id, attempt, metadata) do
-    terminal_states = DispatchPolicy.terminal_state_set()
+  @doc false
+  @spec handle_retry_issue_lookup(
+          Issue.t() | nil,
+          State.t(),
+          String.t(),
+          integer(),
+          map(),
+          keyword()
+        ) ::
+          {:noreply, State.t()}
+  def handle_retry_issue_lookup(issue, state, issue_id, attempt, metadata, opts \\ [])
+
+  def handle_retry_issue_lookup(%Issue{} = issue, state, issue_id, attempt, metadata, opts) do
+    terminal_states = Keyword.get(opts, :terminal_states, DispatchPolicy.terminal_state_set())
+
+    observe_membership_fun =
+      Keyword.get(opts, :observe_membership_fun, &MembershipLifecycle.observe/2)
+
+    cleanup_terminal_issue_artifacts_fun =
+      Keyword.get(
+        opts,
+        :cleanup_terminal_issue_artifacts_fun,
+        &Orchestrator.cleanup_terminal_issue_artifacts/2
+      )
 
     cond do
       DispatchPolicy.terminal_issue_state?(issue.state, terminal_states) ->
         Logger.info("Issue state is terminal: issue_id=#{issue_id} issue_identifier=#{issue.identifier} state=#{issue.state}; removing associated workspace")
 
-        Orchestrator.cleanup_terminal_issue_artifacts(issue.identifier, metadata[:worker_host])
+        MembershipLifecycle.record(
+          issue,
+          MembershipLifecycle.terminal_lifecycle(issue.state),
+          observe_membership_fun
+        )
+
+        cleanup_terminal_issue_artifacts_fun.(issue.identifier, metadata[:worker_host])
         {:noreply, release_issue_claim(state, issue_id)}
 
       Orchestrator.retry_candidate_issue?(issue, terminal_states) ->
@@ -451,7 +482,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
     end
   end
 
-  defp handle_retry_issue_lookup(nil, state, issue_id, _attempt, _metadata) do
+  def handle_retry_issue_lookup(nil, state, issue_id, _attempt, _metadata, _opts) do
     Logger.debug("Issue no longer visible, removing claim issue_id=#{issue_id}")
     {:noreply, release_issue_claim(state, issue_id)}
   end

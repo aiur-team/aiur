@@ -12,7 +12,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.Events.UniversalSubscriptions
   alias Aiur.{Issue, Tracker}
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, PrAnchored, State}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, PrAnchored, State}
   alias Aiur.RunTelemetry.Lifecycle
 
   @comment_rework_retry_delay_ms 2_000
@@ -38,15 +38,28 @@ defmodule Aiur.Orchestrator.CommentWake do
     end
   end
 
-  @spec mark_pr_merged_issue_done(State.t(), String.t() | integer()) :: State.t()
-  def mark_pr_merged_issue_done(%State{} = state, identifier) do
-    case Tracker.update_issue_state(to_string(identifier), "done") do
+  @spec mark_pr_merged_issue_done(State.t(), String.t() | integer(), keyword()) :: State.t()
+  def mark_pr_merged_issue_done(%State{} = state, identifier, opts \\ []) when is_list(opts) do
+    update_issue_state_fun =
+      Keyword.get(opts, :update_issue_state_fun, &Tracker.update_issue_state/2)
+
+    clear_session_handle_fun =
+      Keyword.get(opts, :clear_session_handle_fun, &Orchestrator.clear_session_handle/1)
+
+    observe_membership_fun =
+      Keyword.get(opts, :observe_membership_fun, &MembershipLifecycle.observe/2)
+
+    terminate_running_issue_fun =
+      Keyword.get(opts, :terminate_running_issue_fun, &Orchestrator.terminate_running_issue/3)
+
+    case update_issue_state_fun.(to_string(identifier), "done") do
       :ok ->
-        Orchestrator.clear_session_handle(identifier)
+        clear_session_handle_fun.(identifier)
 
         case State.find_running_by_identifier(state.running, identifier) do
-          %{issue: %Issue{id: issue_id}} ->
-            Orchestrator.terminate_running_issue(state, issue_id, true)
+          %{issue: %Issue{id: issue_id} = issue} ->
+            MembershipLifecycle.record(issue, :completed, observe_membership_fun)
+            terminate_running_issue_fun.(state, issue_id, true)
 
           _ ->
             state

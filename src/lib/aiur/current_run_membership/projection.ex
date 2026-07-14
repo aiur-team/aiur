@@ -6,13 +6,23 @@ defmodule Aiur.CurrentRunMembership.Projection do
   alias Aiur.CurrentRunMembership.Event
   alias Aiur.TrackerIdentity
 
+  @checkpoint_member_keys ~w(first_observed_at last_event)
+
   @enforce_keys [:run_id]
   defstruct run_id: nil, members: %{}, generation: 0
 
   defmodule Member do
     @moduledoc false
 
-    @enforce_keys [:identity, :lifecycle, :terminal?, :first_observed_at, :last_observed_at, :last_checksum, :last_event]
+    @enforce_keys [
+      :identity,
+      :lifecycle,
+      :terminal?,
+      :first_observed_at,
+      :last_observed_at,
+      :last_checksum,
+      :last_event
+    ]
     defstruct [:identity, :lifecycle, :terminal?, :first_observed_at, :last_observed_at, :last_checksum, :last_event]
   end
 
@@ -149,23 +159,28 @@ defmodule Aiur.CurrentRunMembership.Projection do
   end
 
   defp restore_entries(run_id, entries) do
-    Enum.reduce_while(entries, {:ok, new(run_id)}, fn entry, {:ok, state} ->
-      with %{"first_observed_at" => first_observed_at, "last_event" => event_record} <- entry,
-           {:ok, first_observed_at} <- parse_timestamp(first_observed_at),
-           {:ok, event} <- Event.from_record(event_record),
-           true <- event.run_id == run_id,
-           true <- DateTime.compare(first_observed_at, event.observed_at) in [:lt, :eq],
-           {:accepted, restored} <- apply(state, event) do
-        key = identity_key(event.identity)
-        member = Map.fetch!(restored.members, key)
-        member = %{member | first_observed_at: first_observed_at}
-        {:cont, {:ok, %{restored | members: Map.put(restored.members, key, member)}}}
-      else
-        false -> {:halt, {:error, :invalid_checkpoint}}
-        {:ignored, _reason, _state} -> {:halt, {:error, :invalid_checkpoint}}
-        {:error, _reason} -> {:halt, {:error, :invalid_checkpoint}}
-        _ -> {:halt, {:error, :invalid_checkpoint}}
-      end
+    Enum.reduce_while(entries, {:ok, new(run_id)}, fn
+      entry, {:ok, state} when is_map(entry) ->
+        with @checkpoint_member_keys <- entry |> Map.keys() |> Enum.sort(),
+             %{"first_observed_at" => first_observed_at, "last_event" => event_record} <- entry,
+             {:ok, first_observed_at} <- parse_timestamp(first_observed_at),
+             {:ok, event} <- Event.from_record(event_record),
+             true <- event.run_id == run_id,
+             true <- DateTime.compare(first_observed_at, event.observed_at) in [:lt, :eq],
+             {:accepted, restored} <- apply(state, event) do
+          key = identity_key(event.identity)
+          member = Map.fetch!(restored.members, key)
+          member = %{member | first_observed_at: first_observed_at}
+          {:cont, {:ok, %{restored | members: Map.put(restored.members, key, member)}}}
+        else
+          false -> {:halt, {:error, :invalid_checkpoint}}
+          {:ignored, _reason, _state} -> {:halt, {:error, :invalid_checkpoint}}
+          {:error, _reason} -> {:halt, {:error, :invalid_checkpoint}}
+          _ -> {:halt, {:error, :invalid_checkpoint}}
+        end
+
+      _entry, {:ok, _state} ->
+        {:halt, {:error, :invalid_checkpoint}}
     end)
   end
 

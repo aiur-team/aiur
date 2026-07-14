@@ -249,4 +249,39 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       assert result.claimed == state.claimed
     end
   end
+
+  describe "handle_retry_issue_lookup/6" do
+    test "records terminal membership before cleanup and claim release" do
+      issue = %Issue{
+        id: "issue-terminal",
+        identifier: "27",
+        state: "done",
+        tracker_identity: tracker_identity("27")
+      }
+
+      state = %State{claimed: MapSet.new([issue.id])}
+      parent = self()
+      identity = issue.tracker_identity
+
+      assert {:noreply, next_state} =
+               RetryEngine.handle_retry_issue_lookup(
+                 issue,
+                 state,
+                 issue.id,
+                 1,
+                 %{worker_host: nil},
+                 terminal_states: MapSet.new(["done"]),
+                 observe_membership_fun: fn identity, lifecycle ->
+                   send(parent, {:membership_recorded, identity, lifecycle})
+                   :ok
+                 end,
+                 cleanup_terminal_issue_artifacts_fun: fn _identifier, _worker_host ->
+                   assert_receive {:membership_recorded, ^identity, :completed}
+                   :ok
+                 end
+               )
+
+      refute MapSet.member?(next_state.claimed, issue.id)
+    end
+  end
 end

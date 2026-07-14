@@ -4,6 +4,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
   alias Aiur.Issue
   alias Aiur.Orchestrator.Reconciler
   alias Aiur.Orchestrator.State
+  alias Aiur.TrackerIdentity
 
   describe "reconcile_running_issue_states/4" do
     test "returns state unchanged for empty list" do
@@ -25,6 +26,76 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
       assert Reconciler.reconcile_issue_state(nil, state, active, terminal) == state
       assert Reconciler.reconcile_issue_state(%{}, state, active, terminal) == state
     end
+
+    test "records a terminal lifecycle before removing its running entry" do
+      parent = self()
+      identity = tracker_identity("I-terminal")
+      issue = %Issue{id: "issue-terminal", identifier: "I-terminal", state: "done", tracker_identity: identity}
+
+      assert %State{} =
+               Reconciler.reconcile_issue_state(
+                 issue,
+                 %State{running: %{"issue-terminal" => %{issue: issue}}},
+                 MapSet.new(["in-progress"]),
+                 MapSet.new(["done"]),
+                 fn observed_identity, lifecycle -> send(parent, {observed_identity, lifecycle}) end
+               )
+
+      assert_received {^identity, :completed}
+    end
+
+    test "records cancellation and replacement lifecycle observations" do
+      parent = self()
+      identity = tracker_identity("I-cancelled")
+
+      cancelled = %Issue{
+        id: "issue-cancelled",
+        identifier: "I-cancelled",
+        state: "cancelled",
+        tracker_identity: identity
+      }
+
+      Reconciler.reconcile_issue_state(
+        cancelled,
+        %State{},
+        MapSet.new(["in-progress"]),
+        MapSet.new(["cancelled"]),
+        fn observed_identity, lifecycle -> send(parent, {observed_identity, lifecycle}) end
+      )
+
+      assert_received {^identity, :cancelled}
+
+      replacement = %Issue{
+        id: "issue-replaced",
+        identifier: "I-replaced",
+        state: "replaced",
+        tracker_identity: identity,
+        assigned_to_worker: false
+      }
+
+      Reconciler.reconcile_issue_state(
+        replacement,
+        %State{},
+        MapSet.new(["in-progress"]),
+        MapSet.new(),
+        fn observed_identity, lifecycle -> send(parent, {observed_identity, lifecycle}) end
+      )
+
+      assert_received {^identity, :replaced}
+    end
+  end
+
+  defp tracker_identity(provider_id) do
+    %TrackerIdentity{
+      version: 1,
+      status: :joinable,
+      kind: :github,
+      owner: "owner",
+      repository: "repo",
+      provider_id: provider_id,
+      identifier: "42",
+      reason: nil
+    }
   end
 
   describe "refresh_running_issue_state/2" do

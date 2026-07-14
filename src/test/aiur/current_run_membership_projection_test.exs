@@ -37,7 +37,8 @@ defmodule Aiur.CurrentRunMembership.ProjectionTest do
       lifecycles
       |> Enum.with_index(1)
       |> Enum.reduce(Projection.new(@run_id), fn {lifecycle, index}, state ->
-        {:accepted, state} = Projection.apply(state, event(identity("owner", "repo", "I-#{index}", "#{index}"), lifecycle, index))
+        event = event(identity("owner", "repo", "I-#{index}", "#{index}"), lifecycle, index)
+        {:accepted, state} = Projection.apply(state, event)
         state
       end)
 

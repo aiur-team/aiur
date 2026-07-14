@@ -7,7 +7,8 @@ defmodule Aiur.CurrentRunMembership.Event do
   @lifecycles [:queued, :retrying, :allocated, :running, :paused, :waiting, :replaced, :completed, :cancelled]
   @terminal_lifecycles [:completed, :cancelled]
   @sources [:status_report, :tracker]
-  @record_keys MapSet.new(["version", "run_id", "identity", "lifecycle", "source", "observed_at", "checksum"])
+  @record_keys ~w(checksum identity lifecycle observed_at run_id source version)
+  @identity_record_keys ~w(identifier kind owner provider_id reason repository status version)
 
   @enforce_keys [:run_id, :identity, :lifecycle, :source, :observed_at, :checksum]
   defstruct version: @version,
@@ -31,7 +32,8 @@ defmodule Aiur.CurrentRunMembership.Event do
           checksum: String.t()
         }
 
-  @spec new(String.t(), TrackerIdentity.t(), lifecycle(), DateTime.t(), keyword()) :: {:ok, t()} | {:error, atom()}
+  @spec new(String.t(), TrackerIdentity.t(), lifecycle(), DateTime.t(), keyword()) ::
+          {:ok, t()} | {:error, atom()}
   def new(run_id, identity, lifecycle, observed_at, opts \\ []) do
     source = Keyword.get(opts, :source, :status_report)
 
@@ -71,7 +73,7 @@ defmodule Aiur.CurrentRunMembership.Event do
 
   @spec from_record(term()) :: {:ok, t()} | {:error, atom()}
   def from_record(record) when is_map(record) do
-    with true <- MapSet.equal?(MapSet.new(Map.keys(record)), @record_keys),
+    with @record_keys <- record |> Map.keys() |> Enum.sort(),
          @version <- Map.get(record, "version"),
          {:ok, identity} <- identity_from_record(Map.get(record, "identity")),
          {:ok, lifecycle} <- parse_lifecycle(Map.get(record, "lifecycle")),
@@ -91,9 +93,8 @@ defmodule Aiur.CurrentRunMembership.Event do
 
   @spec valid?(term()) :: boolean()
   def valid?(%__MODULE__{} = event) do
-    with {:ok, rebuilt} <- new(event.run_id, event.identity, event.lifecycle, event.observed_at, source: event.source) do
-      rebuilt.checksum == event.checksum
-    else
+    case new(event.run_id, event.identity, event.lifecycle, event.observed_at, source: event.source) do
+      {:ok, rebuilt} -> rebuilt.checksum == event.checksum
       _ -> false
     end
   end
@@ -160,9 +161,7 @@ defmodule Aiur.CurrentRunMembership.Event do
            "reason" => nil
          } = identity
        ) do
-    expected_keys = MapSet.new(["version", "status", "kind", "owner", "repository", "provider_id", "identifier", "reason"])
-
-    if MapSet.equal?(MapSet.new(Map.keys(identity)), expected_keys) do
+    if Enum.sort(Map.keys(identity)) == @identity_record_keys do
       tracker_identity = %TrackerIdentity{
         version: 1,
         status: :joinable,
@@ -174,7 +173,11 @@ defmodule Aiur.CurrentRunMembership.Event do
         reason: nil
       }
 
-      if TrackerIdentity.joinable?(tracker_identity), do: {:ok, tracker_identity}, else: {:error, :invalid_identity}
+      if TrackerIdentity.joinable?(tracker_identity) do
+        {:ok, tracker_identity}
+      else
+        {:error, :invalid_identity}
+      end
     else
       {:error, :invalid_identity}
     end

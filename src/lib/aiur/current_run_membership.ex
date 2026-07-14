@@ -34,22 +34,32 @@ defmodule Aiur.CurrentRunMembership do
   @spec freshness() :: map()
   def freshness, do: Store.freshness()
 
+  @spec mark_reconciled(:fresh | :unavailable) :: :ok
+  def mark_reconciled(status), do: Store.mark_reconciled(status)
+
   @spec subscribe() :: :ok | {:error, term()}
   def subscribe, do: Phoenix.PubSub.subscribe(@pubsub, @topic)
 
   @doc false
-  @spec broadcast_changed(String.t(), non_neg_integer(), Event.t() | nil, term()) :: :ok
-  def broadcast_changed(run_id, generation, event, health) do
+  @spec broadcast_changed(String.t(), non_neg_integer(), Event.t() | nil, term(), map()) :: :ok
+  def broadcast_changed(run_id, generation, event, health, freshness) do
     if is_pid(Process.whereis(@pubsub)) do
       message =
         case event do
-          %Event{} -> {:current_run_membership_changed, %{run_id: run_id, generation: generation, event: event, health: health}}
-          nil -> {:current_run_membership_health_changed, %{run_id: run_id, generation: generation, health: health}}
+          %Event{} ->
+            {:current_run_membership_changed, changed_payload(run_id, generation, event, health, freshness)}
+
+          nil ->
+            {:current_run_membership_health_changed, changed_payload(run_id, generation, nil, health, freshness)}
         end
 
       Phoenix.PubSub.broadcast(@pubsub, @topic, message)
     end
 
     :ok
+  end
+
+  defp changed_payload(run_id, generation, event, health, freshness) do
+    %{run_id: run_id, generation: generation, event: event, health: health, freshness: freshness}
   end
 end

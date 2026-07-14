@@ -6,9 +6,16 @@ defmodule Aiur.Orchestrator.Reconciler do
 
   require Logger
 
-  alias Aiur.{Issue, Tracker}
+  alias Aiur.{Issue, Tracker, TrackerIdentity}
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{DispatchPolicy, PauseResume, RateLimitFallback, State}
+
+  alias Aiur.Orchestrator.{
+    DispatchPolicy,
+    MembershipLifecycle,
+    PauseResume,
+    RateLimitFallback,
+    State
+  }
 
   @spec reconcile_running_lifecycle(State.t()) :: State.t()
   def reconcile_running_lifecycle(%State{} = state) do
@@ -53,7 +60,8 @@ defmodule Aiur.Orchestrator.Reconciler do
     )
   end
 
-  @spec reconcile_running_issue_states([Issue.t()], State.t(), MapSet.t(), MapSet.t()) :: State.t()
+  @spec reconcile_running_issue_states([Issue.t()], State.t(), MapSet.t(), MapSet.t()) ::
+          State.t()
   def reconcile_running_issue_states([], state, _active_states, _terminal_states), do: state
 
   def reconcile_running_issue_states([issue | rest], state, active_states, terminal_states) do
@@ -66,16 +74,60 @@ defmodule Aiur.Orchestrator.Reconciler do
   end
 
   @spec reconcile_issue_state(Issue.t() | term(), State.t(), MapSet.t(), MapSet.t()) :: State.t()
-  def reconcile_issue_state(%Issue{} = issue, state, active_states, terminal_states) do
+  def reconcile_issue_state(issue, state, active_states, terminal_states) do
+    reconcile_issue_state(
+      issue,
+      state,
+      active_states,
+      terminal_states,
+      &MembershipLifecycle.observe/2
+    )
+  end
+
+  @doc false
+  @spec reconcile_issue_state(
+          Issue.t() | term(),
+          State.t(),
+          MapSet.t(),
+          MapSet.t(),
+          (TrackerIdentity.t(), atom() -> term())
+        ) :: State.t()
+  def reconcile_issue_state(
+        %Issue{} = issue,
+        state,
+        active_states,
+        terminal_states,
+        observe_membership_fun
+      )
+      when is_function(observe_membership_fun, 2) do
     cond do
       DispatchPolicy.terminal_issue_state?(issue.state, terminal_states) ->
-        Logger.info("Issue moved to terminal state: #{State.issue_context(issue)} state=#{issue.state}; stopping active agent")
+        Logger.info([
+          "Issue moved to terminal state: ",
+          State.issue_context(issue),
+          " state=",
+          inspect(issue.state),
+          "; stopping active agent"
+        ])
+
+        record_membership(
+          issue,
+          MembershipLifecycle.terminal_lifecycle(issue.state),
+          observe_membership_fun
+        )
 
         Orchestrator.terminate_running_issue(state, issue.id, true)
 
       !DispatchPolicy.issue_routable_to_worker?(issue) ->
-        Logger.info("Issue no longer routed to this worker: #{State.issue_context(issue)} assignee=#{inspect(issue.assignee_id)}; stopping active agent")
+        Logger.info([
+          "Issue no longer routed to this worker: ",
+          State.issue_context(issue),
+          " assignee=",
+          inspect(issue.assignee_id),
+          "; stopping active agent"
+        ])
 
+        record_membership(issue, :replaced, observe_membership_fun)
         Orchestrator.terminate_running_issue(state, issue.id, false)
 
       Issue.paused?(issue) ->
@@ -94,13 +146,31 @@ defmodule Aiur.Orchestrator.Reconciler do
         Orchestrator.preserve_running_issue_on_external_error(state, issue)
 
       true ->
-        Logger.info("Issue moved to non-active state: #{State.issue_context(issue)} state=#{issue.state}; stopping active agent")
+        Logger.info([
+          "Issue moved to non-active state: ",
+          State.issue_context(issue),
+          " state=",
+          inspect(issue.state),
+          "; stopping active agent"
+        ])
 
+        record_membership(issue, :replaced, observe_membership_fun)
         Orchestrator.terminate_running_issue(state, issue.id, false)
     end
   end
 
-  def reconcile_issue_state(_issue, state, _active_states, _terminal_states), do: state
+  def reconcile_issue_state(
+        _issue,
+        state,
+        _active_states,
+        _terminal_states,
+        _observe_membership_fun
+      ),
+      do: state
+
+  defp record_membership(%Issue{} = issue, lifecycle, observe_membership_fun) do
+    MembershipLifecycle.record(issue, lifecycle, observe_membership_fun)
+  end
 
   @spec maybe_reactivate_or_refresh(State.t(), Issue.t()) :: State.t()
   def maybe_reactivate_or_refresh(%State{} = state, %Issue{} = issue) do
@@ -145,11 +215,13 @@ defmodule Aiur.Orchestrator.Reconciler do
 
       {{:error, reason}, next_state} ->
         Logger.info("Paused issue resume deferred: #{State.issue_context(issue)} reason=#{inspect(reason)}")
+
         next_state
     end
   end
 
-  @spec reconcile_missing_running_issue_ids(State.t(), [String.t()], [Issue.t() | term()]) :: State.t()
+  @spec reconcile_missing_running_issue_ids(State.t(), [String.t()], [Issue.t() | term()]) ::
+          State.t()
   def reconcile_missing_running_issue_ids(%State{} = state, requested_issue_ids, issues)
       when is_list(requested_issue_ids) and is_list(issues) do
     visible_issue_ids =
@@ -192,7 +264,13 @@ defmodule Aiur.Orchestrator.Reconciler do
   defp log_missing_running_issue(%State{} = state, issue_id) when is_binary(issue_id) do
     case Map.get(state.running, issue_id) do
       %{identifier: identifier} ->
-        Logger.info("Issue no longer visible during running-state refresh: issue_id=#{issue_id} issue_identifier=#{identifier}; stopping active agent")
+        Logger.info([
+          "Issue no longer visible during running-state refresh: issue_id=",
+          issue_id,
+          " issue_identifier=",
+          inspect(identifier),
+          "; stopping active agent"
+        ])
 
       _ ->
         Logger.info("Issue no longer visible during running-state refresh: issue_id=#{issue_id}; stopping active agent")
