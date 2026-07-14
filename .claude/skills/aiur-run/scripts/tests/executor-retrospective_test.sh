@@ -17,6 +17,25 @@ run() {
     "$script" "${@:3}"
 }
 
+process_start_identity() {
+  local pid="$1" identity stat rest
+
+  if [ -r "/proc/$pid/stat" ]; then
+    IFS= read -r stat < "/proc/$pid/stat" || return 1
+    rest="${stat##*) }"
+    set -- $rest
+    [ "$#" -ge 20 ] || return 1
+    printf 'proc:%s\n' "${20}"
+    return
+  fi
+
+  identity="$(LC_ALL=C TZ=UTC ps -o lstart= -p "$pid")" || return 1
+  identity="${identity#"${identity%%[![:space:]]*}"}"
+  identity="${identity%"${identity##*[![:space:]]}"}"
+  [ -n "$identity" ] || return 1
+  printf 'ps:%s\n' "$identity"
+}
+
 if AIUR_EXECUTOR_STATE_DIR="$state_root" "$script" due >/dev/null 2>&1; then
   fail "missing run ID was accepted"
 fi
@@ -58,9 +77,9 @@ printf '%s\n' '"valid-json-but-not-an-event"' >> "$state_root/run-a/history.ndjs
 jq -e '.malformed_lines == 2 and .total_wakes == 3' <<< "$(run run-a 3600 summarize)" >/dev/null ||
   fail "malformed history was not isolated"
 
-run concurrent 60 record first unchanged > "$state_root/first.out" &
+run concurrent 60 record first unchanged > "$state_root/first.out" 2> "$state_root/first.err" &
 first_pid=$!
-run concurrent 60 record second unchanged > "$state_root/second.out" &
+run concurrent 60 record second unchanged > "$state_root/second.out" 2> "$state_root/second.err" &
 second_pid=$!
 wait "$first_pid"
 wait "$second_pid"
@@ -104,6 +123,147 @@ set -e
 [ "$signal_status" -eq 143 ] || fail "TERM did not stop the locked operation"
 [ ! -d "$state_root/signal/.retrospective-lock" ] || fail "TERM left the retrospective lock behind"
 [ ! -s "$state_root/signal/history.ndjson" ] || fail "TERM allowed the locked operation to continue"
+
+publish_signal_bin="$state_root/publish-signal-bin"
+publish_signal_marker="$state_root/publish-signal-ln.started"
+mkdir -p "$publish_signal_bin"
+cat > "$publish_signal_bin/ln" <<'EOF'
+#!/usr/bin/env bash
+: > "$AIUR_TEST_LN_MARKER"
+sleep 1
+exit 1
+EOF
+chmod +x "$publish_signal_bin/ln"
+
+AIUR_EXECUTOR_STATE_DIR="$state_root" \
+  AIUR_EXECUTOR_RUN_ID=publish-signal \
+  AIUR_EXECUTOR_RETROSPECTIVE_SECONDS=60 \
+  AIUR_TEST_LN_MARKER="$publish_signal_marker" \
+  PATH="$publish_signal_bin:$PATH" \
+  "$script" record interrupted unchanged \
+  > "$state_root/publish-signal.out" 2> "$state_root/publish-signal.err" &
+publish_signal_pid=$!
+
+attempt=0
+while [ ! -e "$publish_signal_marker" ] && kill -0 "$publish_signal_pid" 2>/dev/null && [ "$attempt" -lt 100 ]; do
+  sleep 0.01
+  attempt=$((attempt + 1))
+done
+[ -e "$publish_signal_marker" ] || fail "publication signal test did not enter the mkdir-to-owner gap"
+kill -TERM "$publish_signal_pid"
+set +e
+wait "$publish_signal_pid"
+publish_signal_status=$?
+set -e
+[ "$publish_signal_status" -eq 143 ] || fail "TERM did not stop owner publication"
+[ ! -d "$state_root/publish-signal/.retrospective-lock" ] ||
+  fail "TERM left the unpublished lock directory behind"
+if compgen -G "$state_root/publish-signal/.retrospective-lock.claim.*" >/dev/null; then
+  fail "TERM left an owner claim behind"
+fi
+
+abandoned_bin="$state_root/abandoned-bin"
+abandoned_marker="$state_root/abandoned-date.started"
+mkdir -p "$abandoned_bin"
+cat > "$abandoned_bin/date" <<'EOF'
+#!/usr/bin/env bash
+: > "$AIUR_TEST_DATE_MARKER"
+sleep 1
+exec "$AIUR_TEST_REAL_DATE" "$@"
+EOF
+chmod +x "$abandoned_bin/date"
+
+AIUR_EXECUTOR_STATE_DIR="$state_root" \
+  AIUR_EXECUTOR_RUN_ID=abandoned \
+  AIUR_EXECUTOR_RETROSPECTIVE_SECONDS=60 \
+  AIUR_TEST_DATE_MARKER="$abandoned_marker" \
+  AIUR_TEST_REAL_DATE="$real_date" \
+  PATH="$abandoned_bin:$PATH" \
+  "$script" record abandoned unchanged \
+  > "$state_root/abandoned.out" 2> "$state_root/abandoned.err" &
+abandoned_pid=$!
+
+attempt=0
+while [ ! -e "$abandoned_marker" ] && kill -0 "$abandoned_pid" 2>/dev/null && [ "$attempt" -lt 100 ]; do
+  sleep 0.01
+  attempt=$((attempt + 1))
+done
+[ -e "$abandoned_marker" ] || fail "abandoned-lock test did not enter the locked section"
+kill -KILL "$abandoned_pid"
+set +e
+wait "$abandoned_pid" 2>/dev/null
+abandoned_status=$?
+set -e
+[ "$abandoned_status" -eq 137 ] || fail "KILL did not abandon the locked operation"
+[ -d "$state_root/abandoned/.retrospective-lock" ] || fail "KILL did not leave a lock to reclaim"
+compgen -G "$state_root/abandoned/.retrospective-lock/owner.*" >/dev/null ||
+  fail "abandoned lock did not retain immutable owner metadata"
+
+run abandoned 60 observe action "recovered abandoned lock" \
+  > "$state_root/abandoned-recovered.out" 2> "$state_root/abandoned-recovered.err"
+jq -e '.outcome == "action" and .reason == "recovered abandoned lock"' \
+  "$state_root/abandoned-recovered.out" >/dev/null || fail "abandoned lock was not reclaimed"
+grep -q 'reclaimed abandoned retrospective lock' "$state_root/abandoned-recovered.err" ||
+  fail "abandoned-lock recovery was not reported"
+[ ! -d "$state_root/abandoned/.retrospective-lock" ] || fail "recovered lock was not released"
+
+run recycled-owner 60 due >/dev/null
+recycled_lock_dir="$state_root/recycled-owner/.retrospective-lock"
+mkdir "$recycled_lock_dir"
+printf 'pid=%s\nstarted=not-the-current-process\ntoken=recycled-owner\n' "$$" \
+  > "$recycled_lock_dir/owner.$$-recycled-owner"
+run recycled-owner 60 observe action "recovered recycled owner" \
+  > "$state_root/recycled-owner.out" 2> "$state_root/recycled-owner.err"
+jq -e '.outcome == "action" and .reason == "recovered recycled owner"' \
+  "$state_root/recycled-owner.out" >/dev/null || fail "recycled PID kept an abandoned lock alive"
+
+run abandoned-window 60 due >/dev/null
+abandoned_window_dir="$state_root/abandoned-window/.retrospective-lock"
+abandoned_claim="$state_root/abandoned-window/.retrospective-lock.claim.999999999-dead"
+mkdir "$abandoned_window_dir"
+printf 'pid=999999999\nstarted=dead\ntoken=dead\n' > "$abandoned_claim"
+run abandoned-window 60 observe action "recovered abandoned publication" \
+  > "$state_root/abandoned-window.out" 2> "$state_root/abandoned-window.err"
+jq -e '.outcome == "action" and .reason == "recovered abandoned publication"' \
+  "$state_root/abandoned-window.out" >/dev/null ||
+  fail "abandoned owner-publication window was not reclaimed"
+
+run live-window 60 due >/dev/null
+live_window_dir="$state_root/live-window/.retrospective-lock"
+live_claim="$state_root/live-window/.retrospective-lock.claim.$$-live-window"
+live_started="$(process_start_identity $$)"
+mkdir "$live_window_dir"
+printf 'pid=%s\nstarted=%s\ntoken=live-window\n' "$$" "$live_started" > "$live_claim"
+run live-window 60 observe action "waited for live publication" \
+  > "$state_root/live-window.out" 2> "$state_root/live-window.err" &
+live_window_waiter_pid=$!
+sleep 0.2
+kill -0 "$live_window_waiter_pid" 2>/dev/null || fail "contender stole a publishing owner's lock"
+[ -d "$live_window_dir" ] || fail "contender removed a publishing owner's lock directory"
+[ -e "$live_claim" ] || fail "contender removed a live owner claim"
+rm "$live_claim"
+rmdir "$live_window_dir"
+wait "$live_window_waiter_pid"
+
+run live-lock 60 due >/dev/null
+live_lock_dir="$state_root/live-lock/.retrospective-lock"
+live_owner_marker="$live_lock_dir/owner.$$-live-owner"
+mkdir "$live_lock_dir"
+printf 'pid=%s\ntoken=live-owner\n' "$$" > "$live_owner_marker"
+
+run live-lock 60 observe action "waited for live lock" \
+  > "$state_root/live-lock.out" 2> "$state_root/live-lock.err" &
+live_waiter_pid=$!
+sleep 0.2
+kill -0 "$live_waiter_pid" 2>/dev/null || fail "contender stole a live retrospective lock"
+[ ! -s "$state_root/live-lock.out" ] || fail "contender wrote while the live lock was held"
+[ -e "$live_owner_marker" ] || fail "contender removed a live owner marker"
+
+rm "$live_owner_marker"
+rmdir "$live_lock_dir"
+wait "$live_waiter_pid"
+jq -e '.outcome == "action" and .reason == "waited for live lock"' \
+  "$state_root/live-lock.out" >/dev/null || fail "contender did not proceed after live lock release"
 
 if grep -q 'date -d' "$script"; then
   fail "GNU-only date parsing returned"
