@@ -11,7 +11,7 @@ defmodule Aiur.GitHub.Errors do
   an expired token need entirely different remediation.
   """
   @type classification ::
-          :dns | :timeout | :tls | :transport | :auth | :rate_limited | :http
+          :dns | :timeout | :tls | :transport | :auth | :permission | :rate_limited | :http
 
   @doc """
   Classifies a GitHub transport failure or HTTP response into the structured
@@ -63,8 +63,7 @@ defmodule Aiur.GitHub.Errors do
   def classify_transport_reason(reason), do: {:github, :transport, %{reason: reason}}
 
   @spec classify_status(integer(), map()) :: {:github, classification(), map()}
-  def classify_status(401, response),
-    do: {:github, :auth, %{status: 401, message: response_message(response)}}
+  def classify_status(401, response), do: {:github, :auth, %{status: 401, message: response_message(response)}}
 
   def classify_status(403, response) do
     if rate_limited_response?(response, :unknown) do
@@ -92,6 +91,31 @@ defmodule Aiur.GitHub.Errors do
 
   @spec github_status_error(map()) :: {:github, classification(), map()}
   def github_status_error(%{status: _status} = response), do: classify_error(response)
+
+  @doc "Classifies GraphQL responses with planning-graph rate-limit evidence."
+  @spec github_graph_status_error(map()) :: {:github, classification(), map()}
+  def github_graph_status_error(%{status: status} = response) do
+    detail = Map.put(rate_limit_observation(response), :status, status)
+    {:github, graph_status_classification(status, response), detail}
+  end
+
+  defp graph_status_classification(401, _response), do: :auth
+  defp graph_status_classification(429, _response), do: :rate_limited
+
+  defp graph_status_classification(403, response) do
+    if rate_limited_response?(response, :unknown), do: :rate_limited, else: :permission
+  end
+
+  defp graph_status_classification(_status, _response), do: :http
+
+  @spec graphql_error(map()) :: {:github, :rate_limited, map()} | :graphql_partial
+  def graphql_error(response) do
+    if rate_limited_response?(response, :unknown) do
+      {:github, :rate_limited, Map.put(rate_limit_observation(response), :status, Map.get(response, :status))}
+    else
+      :graphql_partial
+    end
+  end
 
   @spec response_message(map()) :: String.t() | nil
   def response_message(%{body: %{"message" => message}}) when is_binary(message), do: message
@@ -168,6 +192,20 @@ defmodule Aiur.GitHub.Errors do
   end
 
   def rate_limit_reset(_response), do: nil
+
+  @spec rate_limit_observation(map()) :: map()
+  def rate_limit_observation(response) when is_map(response) do
+    %{
+      remaining: rate_limit_remaining(response),
+      reset_at: rate_limit_reset(response),
+      retry_after: retry_after(response),
+      poll_interval: rate_limit_poll_interval(response)
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
+
+  def rate_limit_observation(_response), do: %{}
 
   @spec rate_limit_body_remaining(map()) :: integer() | nil
   def rate_limit_body_remaining(%{body: %{"resources" => %{"core" => %{"remaining" => remaining}}}})

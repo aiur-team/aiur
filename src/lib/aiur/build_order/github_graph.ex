@@ -31,7 +31,9 @@ defmodule Aiur.BuildOrder.GitHubGraph do
       :limits,
       :limit,
       :root_number,
+      :requested_root,
       :root,
+      root_fingerprint: nil,
       expected_total: nil,
       cursor: nil,
       seen_cursors: MapSet.new(),
@@ -109,15 +111,15 @@ defmodule Aiur.BuildOrder.GitHubGraph do
     end
   end
 
-  @spec fetch_selected_root(TrackerIdentity.t() | pos_integer() | String.t(), keyword()) :: result()
+  @spec fetch_selected_root(TrackerIdentity.t(), keyword()) :: result()
   def fetch_selected_root(root, opts \\ []) do
     with {:ok, repository} <- configured_repository(opts),
-         {:ok, number} <- root_number(root, repository),
+         {:ok, requested_root} <- requested_root(root, repository),
          {:ok, token} <- Transport.require_token(opts),
          {:ok, limits} <- limits(opts) do
       state = initial_state(opts)
 
-      paging = new_paging(repository, token, limits, @member_limit, number)
+      paging = new_paging(repository, token, limits, @member_limit, requested_root)
 
       case selected_pages(paging, state) do
         {:ok, root_node, member_nodes, state} -> selected_result(root_node, member_nodes, repository, state)
@@ -153,10 +155,9 @@ defmodule Aiur.BuildOrder.GitHubGraph do
 
   defp selected_response(body, paging, state) do
     with {:ok, fetched_root, connection} <- selected_connection(body),
-         :ok <- same_root?(paging.root, fetched_root),
+         {:ok, paging} <- selected_root_page(paging, fetched_root),
          {:ok, nodes, total, page_info} <- connection(connection) do
-      paging = %{paging | root: fetched_root}
-      selected_page_result(advance_page(paging, nodes, total, page_info, state), fetched_root)
+      selected_page_result(advance_page(paging, nodes, total, page_info, state), paging.root)
     else
       {:error, reason} -> {:error, reason, state}
     end
@@ -340,11 +341,14 @@ defmodule Aiur.BuildOrder.GitHubGraph do
   end
 
   defp dependencies(node, key, repository, configured_identity, direction) do
-    with {:ok, connection} <- Map.fetch(node, key),
+    connection = Map.get(node, key)
+    total = connection_total(connection)
+
+    with {:ok, connection} <- connection_value(connection),
          {:ok, nodes, total, page_info} <- connection(connection) do
       dependencies_from_connection(nodes, total, page_info, repository, configured_identity, direction)
     else
-      {:error, _reason} -> {[], 0, Diagnostic.new(:invalid_dependency)}
+      {:error, _reason} -> {[], total, Diagnostic.new(:connection_overflow)}
     end
   end
 
@@ -354,14 +358,27 @@ defmodule Aiur.BuildOrder.GitHubGraph do
       Enum.map_reduce(nodes, false, fn endpoint, malformed? ->
         {identity, _diagnostic} = endpoint_identity(endpoint, repository)
         dependency = Dependency.new(configured_identity, identity, Map.get(endpoint, "url"), direction)
-        {dependency, malformed? or dependency.kind == :unknown}
+        {dependency, malformed? or invalid_native_dependency?(dependency) or dependency.kind == :unknown}
       end)
 
-    {dependencies, total, if(malformed_endpoint?, do: Diagnostic.new(:invalid_dependency), else: nil)}
+    diagnostic =
+      cond do
+        malformed_endpoint? -> Diagnostic.new(:invalid_dependency)
+        duplicate_native_dependencies?(dependencies) -> Diagnostic.new(:duplicate_identity)
+        true -> nil
+      end
+
+    {dependencies, total, diagnostic}
   end
 
   defp dependencies_from_connection(_nodes, total, _page_info, _repository, _configured_identity, _direction),
     do: {[], total, Diagnostic.new(:connection_overflow)}
+
+  defp invalid_native_dependency?(%Dependency{kind: :native, diagnostics: diagnostics}) do
+    Enum.any?(diagnostics, &(&1.code == :invalid_url))
+  end
+
+  defp invalid_native_dependency?(_dependency), do: false
 
   defp validate_internal_dependencies(members, root_identity) do
     identities =
@@ -508,10 +525,47 @@ defmodule Aiur.BuildOrder.GitHubGraph do
 
   defp identity_key(_identity), do: nil
 
-  defp same_root?(nil, _root), do: :ok
+  defp duplicate_native_dependencies?(dependencies) do
+    keys =
+      dependencies
+      |> Enum.filter(&(&1.kind == :native))
+      |> Enum.map(&identity_key(&1.identity))
 
-  defp same_root?(%{"id" => id}, %{"id" => id}), do: :ok
-  defp same_root?(_first, _next), do: {:error, :pagination_mismatch}
+    Enum.any?(keys, &is_nil/1) or length(keys) != MapSet.size(MapSet.new(keys))
+  end
+
+  defp selected_root_page(%Paging{root: nil, requested_root: requested_root} = paging, fetched_root) do
+    if requested_root?(fetched_root, requested_root, paging.repository) do
+      {:ok, %{paging | root: fetched_root, root_fingerprint: root_fingerprint(fetched_root)}}
+    else
+      {:error, :invalid_root}
+    end
+  end
+
+  defp selected_root_page(%Paging{} = paging, fetched_root) do
+    if requested_root?(fetched_root, paging.requested_root, paging.repository) and
+         root_fingerprint(fetched_root) == paging.root_fingerprint do
+      {:ok, paging}
+    else
+      {:error, :pagination_mismatch}
+    end
+  end
+
+  defp requested_root?(fetched_root, requested_root, repository) do
+    case node_identity(fetched_root, repository) do
+      {%TrackerIdentity{} = fetched_identity, nil} -> same_requested_root?(fetched_identity, requested_root)
+      _ -> false
+    end
+  end
+
+  defp same_requested_root?(%TrackerIdentity{} = fetched, %TrackerIdentity{} = requested) do
+    same_identity?(fetched, requested) and fetched.identifier == requested.identifier
+  end
+
+  defp same_requested_root?(_fetched, _requested), do: false
+
+  defp root_fingerprint(root) when is_map(root), do: Map.drop(root, ["subIssues"])
+  defp root_fingerprint(_root), do: nil
 
   defp catalog_connection(body), do: get_in(body, ["data", "repository", "issues"]) |> connection_value()
 
@@ -544,6 +598,9 @@ defmodule Aiur.BuildOrder.GitHubGraph do
 
   defp connection(_connection), do: {:error, :invalid_connection}
 
+  defp connection_total(%{"totalCount" => total}) when is_integer(total) and total >= 0, do: total
+  defp connection_total(_connection), do: 0
+
   defp next_cursor(%{end_cursor: cursor}, seen_cursors) when is_binary(cursor) and byte_size(cursor) > 0 do
     if MapSet.member?(seen_cursors, cursor), do: {:error, :pagination_mismatch}, else: {:ok, cursor}
   end
@@ -562,23 +619,18 @@ defmodule Aiur.BuildOrder.GitHubGraph do
 
     case Transport.github_graphql_response(state.request_fun, token, query, variables) do
       {:ok, body, response} -> {:ok, body, observe(state, response)}
-      {:error, reason} -> {:error, reason, state}
+      {:error, reason, response} -> {:error, reason, observe_failure(state, response)}
     end
   end
 
   defp observe(state, response) do
-    rate_limit =
-      %{
-        remaining: Errors.rate_limit_remaining(response),
-        reset_at: Errors.rate_limit_reset(response),
-        retry_after: Errors.retry_after(response),
-        poll_interval: Errors.rate_limit_poll_interval(response)
-      }
-      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-      |> Map.new()
-
-    %{state | pages: state.pages + 1, rate_limit: rate_limit}
+    %{state | pages: state.pages + 1, rate_limit: observed_rate_limit(state, response)}
   end
+
+  defp observe_failure(state, response), do: %{state | rate_limit: observed_rate_limit(state, response)}
+
+  defp observed_rate_limit(state, response),
+    do: Map.merge(state.rate_limit, Errors.rate_limit_observation(response))
 
   defp success(candidate, state),
     do: {:ok, ProviderResult.complete(candidate, calls: state.calls, pages: state.pages, rate_limit: state.rate_limit)}
@@ -612,13 +664,14 @@ defmodule Aiur.BuildOrder.GitHubGraph do
   defp failure_diagnostics(reason) when reason in [:invalid_catalog, :structurally_invalid], do: []
   defp failure_diagnostics(_reason), do: [Diagnostic.new(:provider_unavailable)]
 
-  defp new_paging(repository, token, limits, limit, root_number \\ nil) do
+  defp new_paging(repository, token, limits, limit, requested_root \\ nil) do
     %Paging{
       repository: repository,
       token: token,
       limits: limits,
       limit: limit,
-      root_number: root_number
+      root_number: requested_root_number(requested_root),
+      requested_root: requested_root
     }
   end
 
@@ -681,16 +734,26 @@ defmodule Aiur.BuildOrder.GitHubGraph do
     |> Transport.maybe_put_query("cursor", cursor)
   end
 
-  defp root_number(%TrackerIdentity{} = root, repository) do
-    with true <- same_repository?(root, repository),
-         {:ok, number} <- positive_number(root.identifier) do
-      {:ok, number}
+  defp requested_root(%TrackerIdentity{} = root, repository) do
+    with true <- TrackerIdentity.joinable?(root),
+         true <- same_repository?(root, repository),
+         {:ok, _number} <- positive_number(root.identifier) do
+      {:ok, root}
     else
       _ -> {:error, :invalid_root}
     end
   end
 
-  defp root_number(number, _repository), do: positive_number(number)
+  defp requested_root(_root, _repository), do: {:error, :invalid_root}
+
+  defp requested_root_number(%TrackerIdentity{} = root) do
+    case positive_number(root.identifier) do
+      {:ok, number} -> number
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp requested_root_number(_root), do: nil
 
   defp positive_number(value) when is_integer(value) and value > 0, do: {:ok, value}
 

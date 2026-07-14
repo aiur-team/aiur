@@ -63,7 +63,7 @@ defmodule Aiur.GitHub.Client do
   def fetch_build_order_catalog(opts \\ []), do: GitHubGraph.fetch_catalog(opts)
 
   @doc "Fetches one complete, bounded direct-member Build Order graph without mutating GitHub."
-  @spec fetch_build_order_selected_root(TrackerIdentity.t() | pos_integer() | String.t(), keyword()) ::
+  @spec fetch_build_order_selected_root(TrackerIdentity.t(), keyword()) ::
           {:ok, ProviderResult.t()} | {:error, ProviderResult.t()}
   def fetch_build_order_selected_root(root, opts \\ []), do: GitHubGraph.fetch_selected_root(root, opts)
 

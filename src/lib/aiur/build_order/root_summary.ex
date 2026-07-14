@@ -27,9 +27,9 @@ defmodule Aiur.BuildOrder.RootSummary do
 
   @spec new(term()) :: t()
   def new(attributes) when is_map(attributes) do
-    {title, title_diagnostic} = title(Map.get(attributes, :title))
-    {url, url_diagnostic} = url(Map.get(attributes, :url))
     identity = identity(Map.get(attributes, :identity))
+    {title, title_diagnostic} = title(Map.get(attributes, :title))
+    {url, url_diagnostic} = url(Map.get(attributes, :url), identity)
     {parent, parent_diagnostic} = parent(Map.get(attributes, :parent_identity))
 
     diagnostics =
@@ -69,7 +69,16 @@ defmodule Aiur.BuildOrder.RootSummary do
     end
   end
 
-  defp url(value) do
+  defp url(value, nil), do: safe_url(value)
+
+  defp url(value, identity) do
+    case Bounded.github_issue_url_for(value, identity) do
+      {:ok, url} -> {url, nil}
+      :error -> {nil, Diagnostic.new(:invalid_url)}
+    end
+  end
+
+  defp safe_url(value) do
     case Bounded.github_url(value) do
       {:ok, url} -> {url, nil}
       :error -> {nil, Diagnostic.new(:invalid_url)}

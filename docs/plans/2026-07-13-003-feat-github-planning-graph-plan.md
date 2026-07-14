@@ -56,6 +56,19 @@ connection semantics.
   single-valued metadata, and complete provider generations (see origin:
   `docs/brainstorms/2026-07-12-build-order-requirements.md`).
 
+### Exact-head rework acceptance amendment
+
+The selected-root contract is anchored by a joinable, repository-qualified
+`TrackerIdentity`, never an issue number alone. The first GraphQL response must
+match its requested provider ID, repository, and number; every later page must
+match the same stable root fingerprint. Root, member, and native dependency URLs
+must agree with their canonical identities. A valid `totalCount` remains in
+failed-candidate evidence even when the rest of a connection shape is malformed,
+and duplicate canonical endpoints within one dependency connection invalidate
+the graph. Provider failures preserve safe status and rate-limit observations,
+including a distinct permission outcome and exhausted GraphQL responses before
+generic partial-data classification.
+
 ---
 
 ## Scope Boundaries
@@ -386,6 +399,87 @@ GitHub request-function tests.
 
 **Verification:** BO-003 can consume a single complete candidate result without
 depending on ordinary tracker polling, and no legacy GitHub behavior regresses.
+
+### U6. Harden selected-root and connection provenance
+
+**Goal:** Prevent a complete selected graph from being published when the
+provider response, embedded URLs, or connection endpoint set cannot be proven
+to represent the requested canonical graph.
+
+**Requirements:** BOREQ-001 through BOREQ-004; exact-head rework amendment.
+
+**Dependencies:** U2, U4, U5.
+
+**Files:** `src/lib/aiur/build_order/github_graph.ex`,
+`src/lib/aiur/build_order/member.ex`, `src/lib/aiur/build_order/bounded.ex`,
+`src/lib/aiur/github/client.ex`,
+`src/test/aiur/build_order/github_graph_test.exs`.
+
+**Approach:** Require a joinable `TrackerIdentity` at the selected-root facade,
+then compare the first response's canonical provider ID, repository, and number
+with that request. Retain a root fingerprint excluding only the paginated
+sub-issue connection and reject later field drift. Validate required root/member
+URLs against their identities; validate or omit optional external URLs according
+to the external identity. Parse a valid connection `totalCount` before checking
+nodes and pagination fields so diagnostics retain evidence. Reject duplicate
+canonical endpoints within either native dependency source connection.
+
+**Patterns to follow:** `Aiur.TrackerIdentity`, `Aiur.BuildOrder.Bounded`,
+`Aiur.BuildOrder.Dependency`, and the injected GraphQL fixture helpers.
+
+**Test scenarios:**
+
+- Requested and returned roots with differing provider IDs, repositories, or
+  numbers fail before a candidate is admitted; numeric-only facade input fails
+  without provider I/O.
+- A later page changing a root field fails closed while an unchanged fingerprint
+  completes.
+- Required same-repository URLs with a wrong number/repository fail; optional
+  foreign dependency URLs are omitted with a bounded diagnostic.
+- Missing or malformed dependency nodes/pageInfo retain a valid `totalCount`;
+  duplicate endpoints fail structurally.
+
+**Verification:** Every successful selected graph is anchored to the caller's
+canonical root and contains only identity-consistent, unambiguous endpoints.
+
+### U7. Preserve classified provider failure evidence
+
+**Goal:** Carry sanitized HTTP and rate-limit observations from every GraphQL
+outcome without allowing a permission or exhausted response to collapse into a
+generic provider failure.
+
+**Requirements:** BOREQ-004; exact-head rework amendment.
+
+**Dependencies:** U1, U2.
+
+**Files:** `src/lib/aiur/github/errors.ex`, `src/lib/aiur/github/transport.ex`,
+`src/lib/aiur/build_order/github_graph.ex`,
+`src/lib/aiur/build_order/provider_result.ex`,
+`src/test/aiur/github/errors_test.exs`, `src/test/aiur/github/transport_test.exs`,
+`src/test/aiur/build_order/github_graph_test.exs`,
+`src/test/aiur/build_order/provider_result_test.exs`.
+
+**Approach:** Classify non-rate-limited 403 responses as permission failures;
+extract only status, remaining/reset/retry/poll facts from success and failure
+responses. Detect exhausted 403, 429, and HTTP-200 GraphQL error responses
+before generic GraphQL-partial handling. Feed the same safe observations into
+the adapter result on failure, preserving existing auth, timeout, and DNS
+distinctions and never retaining response bodies or authorization material.
+
+**Patterns to follow:** `Aiur.GitHub.Errors`, `Aiur.GitHub.Transport`, and
+`Aiur.BuildOrder.ProviderResult` safe-map filtering.
+
+**Test scenarios:**
+
+- Public catalog and selected-graph reads retain sanitized rate-limit facts for
+  403, 429, and exhausted 200-with-errors responses.
+- Auth, permission, timeout, and DNS remain distinct public adapter outcomes.
+- Provider result filtering drops tokens, response bodies, and unapproved keys.
+- Both GraphQL query fixtures remain body-free and the Client selected-root
+  facade preserves the anchored result contract.
+
+**Verification:** BO-003 receives enough safe evidence to distinguish retry,
+permission, and authentication posture without access to provider secrets.
 
 ---
 

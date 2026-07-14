@@ -141,10 +141,10 @@ defmodule Aiur.BuildOrder.CatalogTest do
     mismatched_native =
       Dependency.new(identity(1), identity(2), "https://github.com/other/repo/issues/2")
 
-    assert %{kind: :external, identity: %{provider_id: "I2"}, url: "https://github.com/other/repo/issues/2"} =
+    assert %{kind: :native, identity: %{provider_id: "I2"}, url: nil} =
              mismatched_native
 
-    assert Enum.map(mismatched_native.diagnostics, & &1.code) == [:external_dependency]
+    assert Enum.map(mismatched_native.diagnostics, & &1.code) == [:invalid_url]
 
     unsafe = Dependency.new(identity(1), foreign, "https://token@github.com/other/repo/issues/2")
     assert unsafe.url == nil

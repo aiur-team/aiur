@@ -74,9 +74,10 @@ defmodule Aiur.BuildOrder.ProviderResult do
   end
 
   defp safe_error({:github, classification, detail}) when is_atom(classification) and is_map(detail) do
-    {:github, classification, Map.take(detail, [:status, :retry_after, :poll_interval])}
+    {:github, classification, Map.take(detail, [:status, :remaining, :reset_at, :retry_after, :poll_interval])}
   end
 
+  defp safe_error(:graphql_partial), do: :graphql_partial
   defp safe_error({:github_graphql_errors, _errors}), do: :graphql_partial
   defp safe_error(reason) when reason in [:invalid_connection, :invalid_root], do: :schema
   defp safe_error(reason) when is_atom(reason), do: reason

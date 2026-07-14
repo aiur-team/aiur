@@ -60,9 +60,6 @@ defmodule Aiur.BuildOrder.Dependency do
     endpoints = directed_endpoints(configured_identity, endpoint_identity, source_connection)
 
     cond do
-      native?(configured_identity, endpoint_identity) and foreign_url?(configured_identity, url) ->
-        external(endpoint_identity, url, source_connection, endpoints)
-
       native?(configured_identity, endpoint_identity) ->
         native(endpoint_identity, url, source_connection, endpoints)
 
@@ -86,7 +83,7 @@ defmodule Aiur.BuildOrder.Dependency do
   end
 
   defp external(identity, url, source_connection, endpoints) do
-    case Bounded.github_url(url) do
+    case Bounded.github_issue_url_for(url, identity) do
       {:ok, safe_url} ->
         %__MODULE__{
           identity: identity,
@@ -110,7 +107,7 @@ defmodule Aiur.BuildOrder.Dependency do
   end
 
   defp native(identity, url, source_connection, endpoints) do
-    case Bounded.github_url(url) do
+    case Bounded.github_issue_url_for(url, identity) do
       {:ok, safe_url} ->
         %__MODULE__{kind: :native, identity: identity, url: safe_url, source_connection: source_connection}
         |> Map.merge(endpoints)
@@ -202,9 +199,9 @@ defmodule Aiur.BuildOrder.Member do
 
   @spec new(term()) :: t()
   def new(attributes) when is_map(attributes) do
-    {title, title_diagnostic} = title(Map.get(attributes, :title))
-    {url, url_diagnostic} = url(Map.get(attributes, :url))
     identity = identity(Map.get(attributes, :identity))
+    {title, title_diagnostic} = title(Map.get(attributes, :title))
+    {url, url_diagnostic} = url(Map.get(attributes, :url), identity)
     metadata = Metadata.parse(Map.get(attributes, :labels, []))
     marker_diagnostics = marker_diagnostics(Map.get(attributes, :marker))
     {dependencies, dependency_diagnostics} = dependencies(attributes)
@@ -243,6 +240,7 @@ defmodule Aiur.BuildOrder.Member do
         %Diagnostic{code: code} ->
           code not in [
             :connection_overflow,
+            :duplicate_identity,
             :invalid_identity,
             :invalid_dependency,
             :invalid_member,
@@ -266,7 +264,16 @@ defmodule Aiur.BuildOrder.Member do
     end
   end
 
-  defp url(value) do
+  defp url(value, nil), do: safe_url(value)
+
+  defp url(value, identity) do
+    case Bounded.github_issue_url_for(value, identity) do
+      {:ok, url} -> {url, nil}
+      :error -> {nil, Diagnostic.new(:invalid_url)}
+    end
+  end
+
+  defp safe_url(value) do
     case Bounded.github_url(value) do
       {:ok, url} -> {url, nil}
       :error -> {nil, Diagnostic.new(:invalid_url)}

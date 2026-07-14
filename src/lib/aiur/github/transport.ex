@@ -103,28 +103,37 @@ defmodule Aiur.GitHub.Transport do
   @spec github_graphql(function(), String.t(), String.t(), map()) :: {:ok, map()} | {:error, term()}
   def github_graphql(request_fun, token, query, variables) do
     case github_graphql_response(request_fun, token, query, variables) do
-      {:ok, body, _response} -> {:ok, body}
-      {:error, reason} -> {:error, reason}
+      {:ok, body, _response} ->
+        {:ok, body}
+
+      {:error, _reason, %{status: 200, body: %{"errors" => errors}}} ->
+        {:error, {:github_graphql_errors, errors}}
+
+      {:error, {:github, _classification, _detail}, %{status: _status} = response} ->
+        {:error, Errors.github_status_error(response)}
+
+      {:error, reason, _response} ->
+        {:error, reason}
     end
   end
 
   @spec github_graphql_response(function(), String.t(), String.t(), map()) ::
-          {:ok, map(), map()} | {:error, term()}
+          {:ok, map(), map()} | {:error, term(), map() | nil}
   def github_graphql_response(request_fun, token, query, variables) do
     body = %{"query" => query, "variables" => variables}
 
     case request_fun.(%{method: :post, url: @graphql_url, token: token, body: body}) do
-      {:ok, %{status: 200, body: %{"errors" => errors}}} ->
-        {:error, {:github_graphql_errors, errors}}
+      {:ok, %{status: 200, body: %{"errors" => _errors}} = response} ->
+        {:error, Errors.graphql_error(response), response}
 
       {:ok, %{status: 200, body: response} = transport_response} when is_map(response) ->
         {:ok, response, transport_response}
 
       {:ok, %{status: _status} = response} ->
-        {:error, Errors.github_status_error(response)}
+        {:error, Errors.github_graph_status_error(response), response}
 
       {:error, reason} ->
-        {:error, Errors.classify_error({:error, reason})}
+        {:error, Errors.classify_error({:error, reason}), nil}
     end
   end
 

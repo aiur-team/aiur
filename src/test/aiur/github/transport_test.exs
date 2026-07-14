@@ -83,6 +83,18 @@ defmodule Aiur.GitHub.TransportTest do
     assert {:error, {:github_graphql_errors, [%{"message" => "bad"}]}} =
              Transport.github_graphql(graph_error, "token", "query", %{})
 
+    exhausted_graph_error = fn _ ->
+      {:ok,
+       %{
+         status: 200,
+         headers: [{"x-ratelimit-remaining", "0"}, {"retry-after", "7"}],
+         body: %{"errors" => [%{"message" => "rate limit exceeded"}]}
+       }}
+    end
+
+    assert {:error, {:github_graphql_errors, [%{"message" => "rate limit exceeded"}]}} =
+             Transport.github_graphql(exhausted_graph_error, "token", "query", %{})
+
     http_error = fn _ -> {:ok, %{status: 401, body: %{"message" => "Bad credentials"}}} end
 
     assert {:error, {:github, :auth, %{status: 401, message: "Bad credentials"}}} =

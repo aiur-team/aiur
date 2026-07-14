@@ -1,7 +1,7 @@
 defmodule Aiur.BuildOrder.GitHubGraphTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.BuildOrder.{Catalog, GitHubGraph, ProviderResult}
+  alias Aiur.{BuildOrder.Catalog, BuildOrder.GitHubGraph, BuildOrder.ProviderResult, GitHub.Client, TrackerIdentity}
 
   @repository {"owner", "repo"}
 
@@ -118,7 +118,7 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
 
     assert {:ok, result} =
              GitHubGraph.fetch_selected_root(
-               1,
+               identity(root),
                base_opts(queued_responses(responses), page_budget: 4, call_budget: 4)
              )
 
@@ -128,6 +128,41 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     assert length(result.candidate.members) == 100
     assert Enum.all?(result.candidate.members, &(&1.parent_identity == result.candidate.root.identity))
     assert Enum.map(drain_requests(), &Map.fetch!(&1, "pageSize")) == [25, 25, 25, 25]
+  end
+
+  test "anchors selected-root reads to a joinable requested canonical identity" do
+    root = root(1)
+    request = fn _request -> flunk("invalid selected-root input must not reach GitHub") end
+
+    assert {:error, %{error: :schema, calls: 0}} =
+             GitHubGraph.fetch_selected_root(1, base_opts(request))
+
+    for returned_root <- [
+          Map.put(root, "id", "RETURNED_OTHER_NODE"),
+          root(2),
+          issue_node(1, "other", "repo") |> Map.put("labels", labels(["build-order"]))
+        ] do
+      assert {:error, %{error: :schema, candidate: nil, calls: 1}} =
+               GitHubGraph.fetch_selected_root(
+                 identity(root),
+                 base_opts(selected_response(returned_root, [], 0))
+               )
+    end
+  end
+
+  test "rejects selected-root field drift across GraphQL pages" do
+    root = root(1)
+
+    responses = [
+      selected_response(root, [member(2, root)], 2, has_next?: true, cursor: "member-page-2"),
+      selected_response(Map.put(root, "title", "Changed title"), [member(3, root)], 2)
+    ]
+
+    assert {:error, %{error: :pagination_mismatch, calls: 2, pages: 2, candidate: nil}} =
+             GitHubGraph.fetch_selected_root(
+               identity(root),
+               base_opts(queued_responses(responses), page_budget: 2, call_budget: 2)
+             )
   end
 
   test "normalizes both dependency source connections to blocker-to-blocked and preserves an external endpoint" do
@@ -142,7 +177,7 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
       )
 
     assert {:ok, result} =
-             GitHubGraph.fetch_selected_root(1, base_opts(selected_response(root, [child], 1)))
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, [child], 1)))
 
     assert result.calls == 1
     [member] = result.candidate.members
@@ -167,14 +202,17 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     duplicate = member(2, root)
 
     assert {:error, %{error: :duplicate_identity, candidate: selected}} =
-             GitHubGraph.fetch_selected_root(1, base_opts(selected_response(root, [duplicate, duplicate], 2)))
+             GitHubGraph.fetch_selected_root(
+               identity(root),
+               base_opts(selected_response(root, [duplicate, duplicate], 2))
+             )
 
     assert length(selected.members) == 2
 
     missing_endpoint = member(3, root, blocked_by: [%{}])
 
     assert {:error, %{error: :structurally_invalid, candidate: selected}} =
-             GitHubGraph.fetch_selected_root(1, base_opts(selected_response(root, [missing_endpoint], 1)))
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, [missing_endpoint], 1)))
 
     [member] = selected.members
     assert :invalid_dependency in Enum.map(member.diagnostics, & &1.code)
@@ -182,7 +220,7 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     missing_parent = Map.put(member(4, root), "parent", nil)
 
     assert {:error, %{error: :structurally_invalid, candidate: selected}} =
-             GitHubGraph.fetch_selected_root(1, base_opts(selected_response(root, [missing_parent], 1)))
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, [missing_parent], 1)))
 
     diagnostic_codes =
       Enum.flat_map(selected.members, fn member ->
@@ -197,7 +235,7 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     missing_internal = member(2, root, blocked_by: [endpoint(99)])
 
     assert {:error, %{error: :structurally_invalid, candidate: selected}} =
-             GitHubGraph.fetch_selected_root(1, base_opts(selected_response(root, [missing_internal], 1)))
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, [missing_internal], 1)))
 
     assert :unresolved_internal_dependency in (selected.members
                                                |> hd()
@@ -208,7 +246,7 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     unqualified = member(3, root, blocked_by: [unqualified_endpoint])
 
     assert {:error, %{error: :structurally_invalid, candidate: selected}} =
-             GitHubGraph.fetch_selected_root(1, base_opts(selected_response(root, [unqualified], 1)))
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, [unqualified], 1)))
 
     assert :invalid_dependency in (selected.members
                                    |> hd()
@@ -219,7 +257,7 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     second = member(3, root, blocking: [endpoint(2)])
 
     assert {:ok, %{candidate: %{members: members}}} =
-             GitHubGraph.fetch_selected_root(1, base_opts(selected_response(root, [first, second], 2)))
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, [first, second], 2)))
 
     assert Enum.map(members, & &1.identity.identifier) == ["2", "3"]
   end
@@ -238,10 +276,71 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
       |> Map.put("parent", mixed_case_root)
 
     assert {:ok, %{candidate: %{members: [member]}}} =
-             GitHubGraph.fetch_selected_root(1, base_opts(selected_response(root, [child], 1)))
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, [child], 1)))
 
     assert member.parent_identity.owner == "OWNER"
     assert [%{kind: :native}] = member.dependencies
+  end
+
+  test "rejects identity-mismatched required URLs and omits mismatched optional external URLs" do
+    root = root(1)
+
+    for wrong_root_url <- [
+          "https://github.com/owner/repo/issues/9",
+          "https://github.com/owner/repo/pull/1"
+        ] do
+      root_with_wrong_url = Map.put(root, "url", wrong_root_url)
+
+      assert {:error, %{error: :structurally_invalid, candidate: selected}} =
+               GitHubGraph.fetch_selected_root(
+                 identity(root),
+                 base_opts(selected_response(root_with_wrong_url, [], 0))
+               )
+
+      assert :invalid_url in Enum.map(selected.root.diagnostics, & &1.code)
+    end
+
+    external = endpoint(44, "other", "repo") |> Map.put("url", "https://github.com/other/repo/issues/45")
+    child = member(2, root, blocked_by: [external])
+
+    assert {:ok, %{candidate: %{members: [member]}}} =
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, [child], 1)))
+
+    [dependency] = member.dependencies
+    assert dependency.kind == :external
+    assert dependency.url == nil
+    assert :unsafe_external_url in Enum.map(dependency.diagnostics, & &1.code)
+
+    for wrong_native_url <- [
+          "https://github.com/owner/repo/issues/9",
+          "https://github.com/other/repo/issues/1"
+        ] do
+      native_endpoint = endpoint(1) |> Map.put("url", wrong_native_url)
+      child = member(2, root, blocking: [native_endpoint])
+
+      assert {:error, %{error: :structurally_invalid, candidate: selected}} =
+               GitHubGraph.fetch_selected_root(
+                 identity(root),
+                 base_opts(selected_response(root, [child], 1))
+               )
+
+      [member] = selected.members
+      [dependency] = member.dependencies
+      assert dependency.kind == :native
+      assert :invalid_url in Enum.map(dependency.diagnostics, & &1.code)
+      assert :invalid_dependency in Enum.map(member.diagnostics, & &1.code)
+    end
+  end
+
+  test "rejects duplicate canonical native endpoints within one connection" do
+    root = root(1)
+    child = member(2, root, blocked_by: [endpoint(1), endpoint(1)])
+
+    assert {:error, %{error: :structurally_invalid, candidate: selected}} =
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, [child], 1)))
+
+    [member] = selected.members
+    assert :duplicate_identity in Enum.map(member.diagnostics, & &1.code)
   end
 
   test "fails closed when a selected-member page changes the reported total" do
@@ -254,7 +353,7 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
 
     assert {:error, %{error: :pagination_mismatch, calls: 2, pages: 2, candidate: nil}} =
              GitHubGraph.fetch_selected_root(
-               1,
+               identity(root),
                base_opts(queued_responses(responses), page_budget: 2, call_budget: 2)
              )
   end
@@ -280,7 +379,7 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
 
     assert {:error, %{error: :duplicate_identity, candidate: selected}} =
              GitHubGraph.fetch_selected_root(
-               1,
+               identity(root),
                base_opts(selected_response(root, [duplicate, same_identity_with_different_casing], 2))
              )
 
@@ -293,14 +392,17 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     missing_root_state = Map.delete(root, "state")
 
     assert {:error, %{error: :structurally_invalid, candidate: selected}} =
-             GitHubGraph.fetch_selected_root(1, base_opts(selected_response(missing_root_state, [], 0)))
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(missing_root_state, [], 0)))
 
     assert :invalid_lifecycle in Enum.map(selected.root.diagnostics, & &1.code)
 
     missing_member_state = member(2, root) |> Map.delete("state")
 
     assert {:error, %{error: :structurally_invalid, candidate: selected}} =
-             GitHubGraph.fetch_selected_root(1, base_opts(selected_response(root, [missing_member_state], 1)))
+             GitHubGraph.fetch_selected_root(
+               identity(root),
+               base_opts(selected_response(root, [missing_member_state], 1))
+             )
 
     assert :invalid_lifecycle in (selected.members
                                   |> hd()
@@ -310,14 +412,14 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     closed_without_reason = root |> Map.put("state", "CLOSED") |> Map.put("stateReason", nil)
 
     assert {:error, %{error: :structurally_invalid, candidate: selected}} =
-             GitHubGraph.fetch_selected_root(1, base_opts(selected_response(closed_without_reason, [], 0)))
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(closed_without_reason, [], 0)))
 
     assert :invalid_lifecycle in Enum.map(selected.root.diagnostics, & &1.code)
 
     invalid_root_state = Map.put(root, "state", "UNRECOGNIZED")
 
     assert {:error, %{error: :structurally_invalid, candidate: selected}} =
-             GitHubGraph.fetch_selected_root(1, base_opts(selected_response(invalid_root_state, [], 0)))
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(invalid_root_state, [], 0)))
 
     assert :invalid_lifecycle in Enum.map(selected.root.diagnostics, & &1.code)
   end
@@ -326,7 +428,7 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     root = root(1)
 
     assert {:ok, %{candidate: %{root: accepted_root}}} =
-             GitHubGraph.fetch_selected_root(1, base_opts(selected_response(root, [], 0)))
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, [], 0)))
 
     assert %{state: :open, state_reason: :none} = accepted_root.lifecycle
 
@@ -335,7 +437,7 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
           Map.put(root, "stateReason", "UNRECOGNIZED")
         ] do
       assert {:error, %{error: :structurally_invalid, candidate: selected}} =
-               GitHubGraph.fetch_selected_root(1, base_opts(selected_response(malformed_root, [], 0)))
+               GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(malformed_root, [], 0)))
 
       assert :invalid_lifecycle in Enum.map(selected.root.diagnostics, & &1.code)
     end
@@ -345,7 +447,10 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
           member(2, root) |> Map.put("stateReason", "UNRECOGNIZED")
         ] do
       assert {:error, %{error: :structurally_invalid, candidate: selected}} =
-               GitHubGraph.fetch_selected_root(1, base_opts(selected_response(root, [malformed_member], 1)))
+               GitHubGraph.fetch_selected_root(
+                 identity(root),
+                 base_opts(selected_response(root, [malformed_member], 1))
+               )
 
       [selected_member] = selected.members
       assert :invalid_lifecycle in Enum.map(selected_member.diagnostics, & &1.code)
@@ -356,7 +461,10 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     unlabeled_root = root(1) |> Map.put("labels", labels([]))
 
     assert {:error, %{error: :structurally_invalid, candidate: selected}} =
-             GitHubGraph.fetch_selected_root(1, base_opts(selected_response(unlabeled_root, [], 0)))
+             GitHubGraph.fetch_selected_root(
+               identity(unlabeled_root),
+               base_opts(selected_response(unlabeled_root, [], 0))
+             )
 
     assert :missing_root_label in Enum.map(selected.root.diagnostics, & &1.code)
   end
@@ -366,7 +474,10 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     reopened_member = member(2, reopened_root) |> Map.put("state", "OPEN") |> Map.put("stateReason", "REOPENED")
 
     assert {:ok, %{candidate: %{root: root, members: [member]}}} =
-             GitHubGraph.fetch_selected_root(1, base_opts(selected_response(reopened_root, [reopened_member], 1)))
+             GitHubGraph.fetch_selected_root(
+               identity(reopened_root),
+               base_opts(selected_response(reopened_root, [reopened_member], 1))
+             )
 
     assert %{state: :open, state_reason: :reopened} = root.lifecycle
     assert %{state: :open, state_reason: :reopened} = member.lifecycle
@@ -378,12 +489,14 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     for {connection, expected_count} <- [
           {connection([], 101, has_next?: true, cursor: "dependency-page-2"), 101},
           {connection([endpoint(9)], 1, has_next?: true, cursor: "dependency-page-2"), 1},
-          {connection([endpoint(9)], 2, []), 2}
+          {connection([endpoint(9)], 2, []), 2},
+          {%{"totalCount" => 3, "pageInfo" => %{}}, 3},
+          {%{"totalCount" => 4, "nodes" => :malformed, "pageInfo" => %{}}, 4}
         ] do
       child = member(2, root) |> Map.put("blockedBy", connection)
 
       assert {:error, %{error: :structurally_invalid, candidate: selected}} =
-               GitHubGraph.fetch_selected_root(1, base_opts(selected_response(root, [child], 1)))
+               GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, [child], 1)))
 
       [member] = selected.members
       assert member.connection_counts.blocked_by == expected_count
@@ -395,7 +508,7 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     root = root(1)
 
     assert {:ok, %{candidate: %{members: []}}} =
-             GitHubGraph.fetch_selected_root(1, base_opts(selected_response(root, [], 0)))
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, [], 0)))
 
     first_page =
       selected_response(
@@ -407,7 +520,149 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
       )
 
     assert {:error, %{error: :member_overflow, calls: 1, pages: 1, candidate: nil}} =
-             GitHubGraph.fetch_selected_root(1, base_opts(first_page))
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(first_page))
+  end
+
+  test "keeps planning-label warnings renderable and distinguishes NOT_PLANNED" do
+    root = root(1) |> Map.put("state", "CLOSED") |> Map.put("stateReason", "NOT_PLANNED")
+
+    child =
+      member(2, root, labels: ["phase:1", "phase:2", "build-lane:plan-graph", "complexity:4", "complexity:5"])
+
+    assert {:ok, %{candidate: %{root: selected_root, members: [member]}}} =
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, [child], 1)))
+
+    assert selected_root.lifecycle.state_reason == :not_planned
+    assert Enum.sort(Enum.map(member.metadata.warnings, & &1.code)) == [:ambiguous_complexity, :ambiguous_phase]
+
+    for {labels, warning} <- [
+          {[], :missing_complexity},
+          {["phase:2", "build-lane:plan-graph"], :missing_complexity},
+          {["complexity:4", "build-lane:plan-graph"], :missing_phase},
+          {["phase:2", "complexity:4"], :missing_lane},
+          {["phase:2", "complexity:4", "build-lane:plan-graph", "build-lane:runtime"], :ambiguous_lane}
+        ] do
+      child = member(2, root, labels: labels)
+
+      assert {:ok, %{candidate: %{members: [member]}}} =
+               GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, [child], 1)))
+
+      assert warning in Enum.map(member.metadata.warnings, & &1.code)
+    end
+  end
+
+  test "preserves sanitized provider observations for public graph failures" do
+    failures = [
+      {
+        fn _ ->
+          {:ok,
+           %{
+             status: 403,
+             headers: [{"x-ratelimit-remaining", "0"}, {"retry-after", "5"}],
+             body: %{"message" => "rate limited"}
+           }}
+        end,
+        {:github, :rate_limited, %{status: 403, remaining: 0, retry_after: 5}}
+      },
+      {
+        fn _ ->
+          {:ok,
+           %{
+             status: 401,
+             headers: [{"x-ratelimit-remaining", "3"}],
+             body: %{"message" => "not authorized"}
+           }}
+        end,
+        {:github, :auth, %{status: 401, remaining: 3}}
+      },
+      {
+        fn _ ->
+          {:ok,
+           %{
+             status: 403,
+             headers: [{"x-ratelimit-remaining", "7"}, {"x-ratelimit-reset", "1"}],
+             body: %{"message" => "forbidden"}
+           }}
+        end,
+        {:github, :permission, %{status: 403, remaining: 7, reset_at: "1970-01-01T00:00:01Z"}}
+      },
+      {
+        fn _ ->
+          {:ok,
+           %{
+             status: 429,
+             headers: [{"x-ratelimit-remaining", "0"}, {"retry-after", "5"}],
+             body: %{"message" => "rate limited"}
+           }}
+        end,
+        {:github, :rate_limited, %{status: 429, remaining: 0, retry_after: 5}}
+      },
+      {
+        fn _ ->
+          {:ok,
+           %{
+             status: 200,
+             headers: [{"x-ratelimit-remaining", "0"}, {"x-ratelimit-reset", "1"}],
+             body: %{"errors" => [%{"message" => "private"}]}
+           }}
+        end,
+        {:github, :rate_limited, %{status: 200, remaining: 0, reset_at: "1970-01-01T00:00:01Z"}}
+      },
+      {fn _ -> {:error, :timeout} end, {:github, :timeout, %{}}},
+      {fn _ -> {:error, :nxdomain} end, {:github, :dns, %{}}}
+    ]
+
+    for {request_fun, error} <- failures do
+      assert {:error, %{error: ^error, calls: 1, pages: 0} = result} =
+               GitHubGraph.fetch_catalog(base_opts(request_fun))
+
+      assert result.rate_limit == Map.drop(elem(error, 2), [:status])
+    end
+
+    root = root(1)
+    {:ok, selected_success} = selected_response(root, [], 0)
+
+    selected_success_request = fn _ ->
+      headers = [{"x-ratelimit-remaining", "8"}, {"x-ratelimit-reset", "1"}, {"retry-after", "5"}]
+      {:ok, %{selected_success | headers: headers}}
+    end
+
+    assert {:ok, %{rate_limit: %{remaining: 8, reset_at: "1970-01-01T00:00:01Z", retry_after: 5}}} =
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_success_request))
+
+    selected_failure_request = fn _ ->
+      {:ok,
+       %{
+         status: 403,
+         headers: [{"x-ratelimit-remaining", "0"}, {"retry-after", "5"}],
+         body: %{"message" => "rate limited"}
+       }}
+    end
+
+    assert {:error, %{error: {:github, :rate_limited, %{status: 403, remaining: 0, retry_after: 5}}}} =
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_failure_request))
+  end
+
+  test "the Client facade retains graph contracts and body-free queries" do
+    root = root(1)
+
+    request_fun = fn %{body: %{"query" => query}} ->
+      refute query =~ "body"
+      selected_response(root, [], 0)
+    end
+
+    assert {:ok, %{candidate: %{root: %{identity: selected_identity}}}} =
+             Client.fetch_build_order_selected_root(identity(root), base_opts(request_fun))
+
+    assert selected_identity == identity(root)
+
+    catalog_request_fun = fn %{body: %{"query" => query}} ->
+      refute query =~ "body"
+      catalog_response([], 0)
+    end
+
+    assert {:ok, %{candidate: %{entries: []}}} =
+             Client.fetch_build_order_catalog(base_opts(catalog_request_fun))
   end
 
   defp base_opts(response_or_request_fun, overrides \\ []) do
@@ -509,6 +764,22 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
 
   defp endpoint_from(node) do
     Map.take(node, ["id", "databaseId", "number", "url", "repository"])
+  end
+
+  defp identity(node) do
+    {:ok, identity} =
+      TrackerIdentity.from_github(
+        %{
+          "node_id" => node["id"],
+          "database_id" => node["databaseId"],
+          "number" => node["number"],
+          "repository" => node["repository"]
+        },
+        @repository,
+        @repository
+      )
+
+    identity
   end
 
   defp repository(owner, repo), do: %{"name" => repo, "owner" => %{"login" => owner}}
