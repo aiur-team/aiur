@@ -45,4 +45,8 @@ defmodule Aiur.BuildOrder.ProviderResultTest do
     assert ProviderResult.failed(:invalid_root).error == :schema
     assert ProviderResult.failed(:invalid_graphql_response).error == :schema
   end
+
+  test "caller validation failures retain their local taxonomy" do
+    assert ProviderResult.failed(:invalid_requested_root).error == :invalid_requested_root
+  end
 end

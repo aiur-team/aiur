@@ -35,6 +35,7 @@ defmodule Aiur.BuildOrder.Diagnostic do
   defp text_for(:invalid_member), do: "Member data is unavailable."
   defp text_for(:invalid_planning_bounds), do: "GitHub planning limits are invalid."
   defp text_for(:invalid_phase), do: "Phase label is invalid."
+  defp text_for(:invalid_requested_root), do: "Requested Build Order root identity is invalid."
   defp text_for(:invalid_root), do: "Root data is unavailable."
   defp text_for(:invalid_title), do: "Title is unavailable."
   defp text_for(:invalid_url), do: "GitHub URL is unavailable."

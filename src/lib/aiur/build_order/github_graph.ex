@@ -198,6 +198,7 @@ defmodule Aiur.BuildOrder.GitHubGraph do
   defp page_status(paging, total, page_info, state) do
     cond do
       page_overflow?(paging, total, page_info) -> :overflow
+      page_info.has_next? and length(paging.nodes) >= total -> :pagination_mismatch
       page_info.has_next? and state.pages >= paging.limits.page_budget -> :page_budget_exhausted
       page_info.has_next? -> :next
       length(paging.nodes) == total -> :complete
@@ -689,6 +690,8 @@ defmodule Aiur.BuildOrder.GitHubGraph do
 
   defp failure_diagnostics(:invalid_planning_bounds), do: [Diagnostic.new(:invalid_planning_bounds)]
 
+  defp failure_diagnostics(:invalid_requested_root), do: [Diagnostic.new(:invalid_requested_root)]
+
   defp failure_diagnostics(reason) when reason in [:invalid_connection, :invalid_graphql_response, :invalid_root],
     do: [Diagnostic.new(:provider_schema)]
 
@@ -771,11 +774,11 @@ defmodule Aiur.BuildOrder.GitHubGraph do
          {:ok, _number} <- positive_number(root.identifier) do
       {:ok, root}
     else
-      _ -> {:error, :invalid_root}
+      _ -> {:error, :invalid_requested_root}
     end
   end
 
-  defp requested_root(_root, _repository), do: {:error, :invalid_root}
+  defp requested_root(_root, _repository), do: {:error, :invalid_requested_root}
 
   defp requested_root_number(%TrackerIdentity{} = root) do
     case positive_number(root.identifier) do

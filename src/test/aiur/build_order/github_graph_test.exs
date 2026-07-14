@@ -94,6 +94,61 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
              GitHubGraph.fetch_catalog(base_opts(invalid_bounds, root_limit: 0))
   end
 
+  test "rejects a continuation after the reported catalog or member total is already complete" do
+    root = root(1)
+
+    catalog_pages = [
+      catalog_response([root], 1, has_next?: true, cursor: "catalog-page-2"),
+      catalog_response([], 1)
+    ]
+
+    assert {:error, %{error: :pagination_mismatch, calls: 1, pages: 1, candidate: nil}} =
+             GitHubGraph.fetch_catalog(base_opts(queued_responses(catalog_pages), page_budget: 2, call_budget: 2))
+
+    member_pages = [
+      selected_response(root, [member(2, root)], 1, has_next?: true, cursor: "member-page-2"),
+      selected_response(root, [], 1)
+    ]
+
+    assert {:error, %{error: :pagination_mismatch, calls: 1, pages: 1, candidate: nil}} =
+             GitHubGraph.fetch_selected_root(
+               identity(root),
+               base_opts(queued_responses(member_pages), page_budget: 2, call_budget: 2)
+             )
+  end
+
+  test "treats a continuation at the configured catalog or member bound as overflow" do
+    root = root(1)
+
+    catalog =
+      catalog_response(Enum.map(1..100, &root/1), 100, has_next?: true, cursor: "catalog-page-2")
+
+    assert {:error, %{error: :catalog_overflow, calls: 1, pages: 1, candidate: nil}} =
+             GitHubGraph.fetch_catalog(base_opts(catalog))
+
+    members = Enum.map(2..101, &member(&1, root))
+    selected = selected_response(root, members, 100, has_next?: true, cursor: "member-page-2")
+
+    assert {:error, %{error: :member_overflow, calls: 1, pages: 1, candidate: nil}} =
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected))
+  end
+
+  test "classifies an invalid requested root without provider I/O" do
+    root = root(1)
+
+    for invalid_root <- [
+          %{identity(root) | repository: "other-repository"},
+          %{identity(root) | identifier: "0"}
+        ] do
+      request_fun = fn _request -> flunk("invalid requested roots must not reach GitHub") end
+
+      assert {:error, %{error: :invalid_requested_root, calls: 0, pages: 0, candidate: nil, diagnostics: diagnostics}} =
+               GitHubGraph.fetch_selected_root(invalid_root, base_opts(request_fun))
+
+      assert :invalid_requested_root in Enum.map(diagnostics, & &1.code)
+    end
+  end
+
   test "detects finite page and call budget exhaustion without returning a partial catalog" do
     first_page = catalog_response([root(1)], 2, has_next?: true, cursor: "page-two")
 
@@ -261,8 +316,10 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     root = root(1)
     request = fn _request -> flunk("invalid selected-root input must not reach GitHub") end
 
-    assert {:error, %{error: :schema, calls: 0}} =
+    assert {:error, %{error: :invalid_requested_root, calls: 0, diagnostics: diagnostics}} =
              GitHubGraph.fetch_selected_root(1, base_opts(request))
+
+    assert :invalid_requested_root in Enum.map(diagnostics, & &1.code)
 
     for returned_root <- [
           Map.put(root, "id", "RETURNED_OTHER_NODE"),
