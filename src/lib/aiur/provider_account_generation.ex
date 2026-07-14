@@ -63,6 +63,14 @@ defmodule Aiur.ProviderAccountGeneration do
     safe_call(server, {:issue_binding, provider, backend}, {:error, :owner_unavailable})
   end
 
+  @doc false
+  @spec recover_binding(GenServer.server(), provider(), backend(), lifecycle_binding()) ::
+          :ok | {:error, :owner_unavailable}
+  def recover_binding(server, provider, backend, %{binding: binding, authority: authority})
+      when is_reference(binding) and is_reference(authority) do
+    safe_call(server, {:recover_binding, provider, backend, binding, authority}, {:error, :owner_unavailable})
+  end
+
   @spec bind(provider(), backend(), binding(), keyword()) :: {:ok, snapshot()}
   def bind(provider, backend, binding, opts \\ []), do: bind(__MODULE__, provider, backend, binding, opts)
 
@@ -142,6 +150,28 @@ defmodule Aiur.ProviderAccountGeneration do
       {entry, state} = ensure_entry(state, provider, backend, binding)
       state = put_entry(state, entry_key(provider, backend, binding), %{entry | authority: authority})
       {:reply, {:ok, %{binding: binding, authority: authority}}, state}
+    else
+      {:reply, {:error, :owner_unavailable}, state}
+    end
+  end
+
+  def handle_call({:recover_binding, provider, backend, binding, authority}, _from, state) do
+    if valid_scope?(provider, backend) and is_reference(binding) and is_reference(authority) do
+      {entry, state} = ensure_entry(state, provider, backend, binding)
+
+      case entry.authority do
+        nil ->
+          state =
+            put_entry(state, entry_key(provider, backend, binding), %{entry | authority: authority})
+
+          {:reply, :ok, state}
+
+        ^authority ->
+          {:reply, :ok, state}
+
+        _other ->
+          {:reply, {:error, :owner_unavailable}, state}
+      end
     else
       {:reply, {:error, :owner_unavailable}, state}
     end

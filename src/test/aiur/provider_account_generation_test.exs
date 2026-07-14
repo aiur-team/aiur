@@ -153,6 +153,24 @@ defmodule Aiur.ProviderAccountGenerationTest do
     assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, binding) == original
   end
 
+  test "recovery cannot replace the authority for a live binding", %{owner: owner} do
+    binding = issued_binding(owner)
+
+    assert {:error, :owner_unavailable} =
+             ProviderAccountGeneration.recover_binding(owner, :codex, :app_server, %{
+               binding: binding.binding,
+               authority: make_ref()
+             })
+
+    assert {:ok, %{generation: generation}} =
+             ProviderAccountGeneration.bind(owner, :codex, :app_server, binding,
+               source: :codex_app_server,
+               auth_mode: "chatgpt"
+             )
+
+    assert is_binary(generation)
+  end
+
   test "a caller-supplied source cannot mint an unissued binding", %{owner: owner} do
     assert {:ok, %{generation: nil, reason: :owner_unavailable}} =
              ProviderAccountGeneration.bind(owner, :codex, :app_server, make_ref(),

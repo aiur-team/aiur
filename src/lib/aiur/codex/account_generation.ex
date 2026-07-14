@@ -88,12 +88,18 @@ defmodule Aiur.Codex.AccountGeneration do
   end
 
   defp recover_and_bind(%{account_generation_context: context}, server, auth_mode) when is_reference(context) do
-    with {:ok, binding} <- ProviderAccountGeneration.issue_binding(server, :codex, :app_server),
-         :ok <- replace_binding_context(context, binding) do
-      ProviderAccountGeneration.bind(server, :codex, :app_server, binding.binding,
+    with {:ok, %{binding: binding, authority: authority}} <- current_binding_context(context),
+         :ok <-
+           ProviderAccountGeneration.recover_binding(
+             server,
+             :codex,
+             :app_server,
+             %{binding: binding, authority: authority}
+           ) do
+      ProviderAccountGeneration.bind(server, :codex, :app_server, binding,
         source: :codex_app_server,
         auth_mode: auth_mode,
-        authority: binding.authority
+        authority: authority
       )
     end
 
@@ -160,11 +166,6 @@ defmodule Aiur.Codex.AccountGeneration do
       %{binding: binding, authority: authority} -> {:ok, %{binding: binding, authority: authority}}
       _ -> :error
     end
-  end
-
-  defp replace_binding_context(context, binding) do
-    Process.put(context_key(context), binding)
-    :ok
   end
 
   defp clear_binding_context(%{account_generation_context: context}) when is_reference(context),

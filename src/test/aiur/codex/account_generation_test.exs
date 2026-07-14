@@ -136,9 +136,10 @@ defmodule Aiur.Codex.AccountGenerationTest do
              AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "chatgpt"}})
   end
 
-  test "trusted authenticated evidence re-registers a live session after its owner restarts" do
+  test "trusted authenticated evidence restores the binding retained by session consumers after its owner restarts" do
     name = :provider_account_generation_restart_test
-    {:ok, owner} = ProviderAccountGeneration.start_link(name: name, mint: sequence_mint())
+    mint = sequence_mint()
+    {:ok, owner} = ProviderAccountGeneration.start_link(name: name, mint: mint)
 
     on_exit(fn ->
       if Process.whereis(name), do: GenServer.stop(name)
@@ -156,15 +157,36 @@ defmodule Aiur.Codex.AccountGenerationTest do
     assert {:redacted, _} =
              AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "chatgpt"}})
 
+    original_generation =
+      ProviderAccountGeneration.lookup(name, :codex, :app_server, session.account_generation_binding)
+      |> Map.fetch!(:generation)
+
+    assert is_binary(original_generation)
+
     GenServer.stop(owner)
-    {:ok, replacement_owner} = ProviderAccountGeneration.start_link(name: name, mint: sequence_mint())
+    {:ok, replacement_owner} = ProviderAccountGeneration.start_link(name: name, mint: mint)
+
+    assert %{generation: nil, reason: :never_observed} =
+             ProviderAccountGeneration.lookup(
+               replacement_owner,
+               :codex,
+               :app_server,
+               session.account_generation_binding
+             )
 
     assert {:redacted, _} =
              AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "chatgpt"}})
 
-    assert Enum.any?(:sys.get_state(replacement_owner).entries, fn {_key, entry} ->
-             is_binary(entry.snapshot.generation)
-           end)
+    assert %{generation: recovered_generation, source: :codex_app_server} =
+             ProviderAccountGeneration.lookup(
+               replacement_owner,
+               :codex,
+               :app_server,
+               session.account_generation_binding
+             )
+
+    assert is_binary(recovered_generation)
+    refute recovered_generation == original_generation
   end
 
   defp sequence_mint do
