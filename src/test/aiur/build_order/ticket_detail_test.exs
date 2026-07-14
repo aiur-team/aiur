@@ -300,6 +300,7 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
     body =
       "Authorization: Bearer not-a-known-prefix-secret\n" <>
         "X-Api-Key: unrecognized-api-key\n" <>
+        "Cookie: public-cookie\n private-folded-cookie\nX-Trace: retained\n" <>
         "inline Basic dXNlcjpwYXNzd29yZA==\n" <>
         ~s({"Authorization":"Bearer json-secret","headers":{"X-Api-Key":"json-key"}}) <>
         "\n" <>
@@ -324,6 +325,8 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
     assert description =~ "[REDACTED:credential]"
     refute description =~ "not-a-known-prefix-secret"
     refute description =~ "unrecognized-api-key"
+    refute description =~ "private-folded-cookie"
+    assert description =~ "X-Trace: retained"
     refute description =~ "dXNlcjpwYXNzd29yZA=="
     refute description =~ "json-secret"
     refute description =~ "json-key"

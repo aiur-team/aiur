@@ -10,6 +10,7 @@ defmodule Aiur.BuildOrder.CatalogTest do
     BuildOrder.ProviderHealth,
     BuildOrder.RootSummary,
     BuildOrder.SelectedRoot,
+    BuildOrder.TicketDetailCache,
     TrackerIdentity
   }
 
@@ -182,6 +183,34 @@ defmodule Aiur.BuildOrder.CatalogTest do
     refute Map.has_key?(root, :detail)
     refute Map.has_key?(catalog, :ticket_detail)
     refute Map.has_key?(catalog, :subscription)
+  end
+
+  test "catalog construction does not demand detail through the reader, cache, or event seam" do
+    parent = self()
+    root = root(1)
+    {:ok, invocations} = Agent.start_link(fn -> 0 end)
+    {:ok, task_supervisor} = Task.Supervisor.start_link()
+
+    {:ok, _cache} =
+      TicketDetailCache.start_link(
+        name: nil,
+        task_supervisor: task_supervisor,
+        configured_repo: @configured,
+        reader: fn _identity ->
+          Agent.update(invocations, &(&1 + 1))
+          send(parent, :detail_provider_invoked)
+          flunk("catalog construction must not demand detail")
+        end
+      )
+
+    assert :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, TicketDetailCache.topic(root.identity))
+
+    catalog = Catalog.new([root], ProviderHealth.new(1, :healthy, true))
+
+    assert catalog.entries == [root]
+    assert Agent.get(invocations, & &1) == 0
+    refute_received :detail_provider_invoked
+    refute_received {:ticket_detail_updated, _state}
   end
 
   test "record constructors reject untyped inputs without raising" do

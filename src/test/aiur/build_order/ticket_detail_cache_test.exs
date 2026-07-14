@@ -274,12 +274,93 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     assert %{entries: %{}} = :sys.get_state(cache)
   end
 
+  test "reconciles idle subscribed detail before subscription and cannot resurrect it after a switch-back" do
+    identity = identity(42, "I42")
+    switched_identity = identity(42, "I42", {"other", "repo"})
+    {:ok, repository} = Agent.start_link(fn -> @configured end)
+    {:ok, attempts} = Agent.start_link(fn -> 0 end)
+
+    {:ok, cache} =
+      start_cache(
+        configured_repo: fn -> Agent.get(repository, & &1) end,
+        reader: fn requested_identity ->
+          attempt = Agent.get_and_update(attempts, fn attempt -> {attempt + 1, attempt + 1} end)
+          {:ok, snapshot(requested_identity, if(attempt == 1, do: "first", else: "second"))}
+        end
+      )
+
+    assert :ok = TicketDetailCache.subscribe(cache, identity)
+    assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert_receive {:ticket_detail_updated, %State{health: :healthy, detail: %Snapshot{title: "first"}}}
+
+    Agent.update(repository, fn _repository -> {"other", "repo"} end)
+
+    assert :ok = TicketDetailCache.subscribe(cache, switched_identity)
+
+    assert_receive {
+      :ticket_detail_updated,
+      %State{identity: ^identity, health: :unavailable, detail: nil, failure: %Failure{kind: :evicted}}
+    }
+
+    assert {:error, %Failure{kind: :nonfetchable_repository}} = TicketDetailCache.current(cache, identity)
+    assert {:ok, %State{identity: ^switched_identity, health: :unavailable}} = TicketDetailCache.current(cache, switched_identity)
+    assert %{entries: %{}} = :sys.get_state(cache)
+
+    Agent.update(repository, fn _repository -> @configured end)
+
+    assert {:ok, %State{identity: ^identity, health: :unavailable, detail: nil}} = TicketDetailCache.current(cache, identity)
+    assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert_receive {:ticket_detail_updated, %State{health: :healthy, detail: %Snapshot{title: "second"}}}
+    assert Agent.get(attempts, & &1) == 2
+  end
+
+  test "reconciles an in-flight repository switch before capacity admission" do
+    parent = self()
+    first = identity(42, "I42")
+    second = identity(43, "I43", {"other", "repo"})
+    {:ok, repository} = Agent.start_link(fn -> @configured end)
+
+    {:ok, cache} =
+      start_cache(
+        max_entries: 1,
+        configured_repo: fn -> Agent.get(repository, & &1) end,
+        reader: fn requested_identity ->
+          send(parent, {:reader_started, requested_identity, self()})
+
+          receive do
+            :finish -> {:ok, snapshot(requested_identity, requested_identity.identifier)}
+          end
+        end
+      )
+
+    assert :ok = TicketDetailCache.subscribe(cache, first)
+    assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, first)
+    assert_receive {:reader_started, ^first, _first_reader}
+
+    Agent.update(repository, fn _repository -> {"other", "repo"} end)
+
+    assert :ok = TicketDetailCache.subscribe(cache, second)
+    assert {:ok, %State{identity: ^second, health: :unavailable}} = TicketDetailCache.request(cache, second)
+
+    assert_receive {
+      :ticket_detail_updated,
+      %State{identity: ^first, health: :unavailable, detail: nil, failure: %Failure{kind: :evicted}}
+    }
+
+    assert_receive {:reader_started, ^second, second_reader}
+    send(second_reader, :finish)
+    assert_receive {:ticket_detail_updated, %State{identity: ^second, health: :healthy}}
+    assert %{entries: entries} = :sys.get_state(cache)
+    assert map_size(entries) == 1
+  end
+
   test "publishes structured credential-sanitized detail without the raw provider body" do
     identity = identity(42, "I42")
 
     body =
       "Authorization: Bearer not-a-known-prefix-secret\n" <>
         "Cookie: private-session-cookie\n" <>
+        "Cookie: public-cookie\n private-folded-cookie\n" <>
         "inline Basic dXNlcjpwYXNzd29yZA==\n" <>
         ~s({"Authorization":"Bearer json-secret"}) <>
         "\n" <>
@@ -331,6 +412,7 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     assert description =~ "https://example.test/tmp"
     refute description =~ "not-a-known-prefix-secret"
     refute description =~ "private-session-cookie"
+    refute description =~ "private-folded-cookie"
     refute description =~ "dXNlcjpwYXNzd29yZA=="
     refute description =~ "json-secret"
     refute description =~ "curl-key"
