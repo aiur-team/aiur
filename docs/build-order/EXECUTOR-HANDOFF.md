@@ -122,6 +122,18 @@ so the controller—not an arbitrary Executor cap—is the remaining admission g
     ticket or acceptance dependency. The prototype's CDN-loaded d3 remains
     non-authoritative; production layout stays within BO-009/BO-010's vendored
     platform contract.
+13. PR #1147/#1089 reached a clean all-green head, but dual independent review
+    found four contained trust/acceptance defects: bare legacy records could
+    inject unhashed provenance, new provenance-bearing schema-1 events were not
+    compatible with the previous decoder's rollback hash semantics,
+    credential-shaped strings could enter allowlisted identity fields, and the
+    required store-backed lifecycle/history matrix was incomplete. The
+    deduplicated review is at
+    `https://github.com/its-everdred/aiur/pull/1147#issuecomment-4965018879`;
+    #1089 returned to `agent:rework` and resumed. Keep every fix on #1089.
+    At the same snapshot #1086/#1143 and #1090/#1141 are green and in dual
+    Executor review, #1088/#1144 is rerunning its failed test, and #1087/#1145
+    remains in its existing review-driven rework.
 
 At 19:48 PDT the five latest event-reported percentages are BO-004 70%, BO-008
 90%, DASH-006 90%, DASH-017 90%, and DASH-018 70% (82% ticket-average). All
