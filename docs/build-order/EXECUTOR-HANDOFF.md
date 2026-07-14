@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-13 23:51 PDT)
+## Live Executor state (updated 2026-07-14 04:56 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -10,31 +10,21 @@ truth and supersedes stale pre-run wording later in the document.
 
 **State right now:** planning approval remains frozen at
 `4d8de9508206e08e314f2730cd916501a3b4cafd`; the complete graph is live at root
-#1084 with 54 members #1085–#1138 and 107 exact blocker relations. Skills PR
-#1065 was reviewed at `6447f9c193d2322d63f54a58b9c54e0a72d3e98f` and
-squash-merged to `main` as `ed1846c4bc76d4657095da57951a0dbf3e914c3d`.
-Receipt finalization exposed a contained authority-loader defect after the
-successful idempotent publication; the operator explicitly overrode that gate
-for this run on root comment
-`https://github.com/its-everdred/aiur/issues/1084#issuecomment-4964521448`.
-Because execution has now legitimately mutated issue lifecycle state, the old
-OPEN publication snapshot is historical evidence and must not be presented as
-a fresh executable receipt.
+#1084 with 54 members #1085–#1138 and 107 exact blocker relations. The historical
+receipt gate remains operator-overridden for this run. Aiur is running from the
+repository root against `main`; current accepted `main` is
+`4f49e0a1d3c88054905b2edbaa6a3a1ffa2b7a10`, including DASH-017/#1089. The core
+program is 5/54 merged with 49 remaining.
 
-Aiur is running against `main` from the repository root. Current `main` is
-`a83a7e7230ffdc7b266baa287f2abd7b9dee39eb`, which includes the independently
-re-reviewed hourly Executor-retrospective helper from PR #1150 and the merged
-dogfood workspace-bootstrap fix from PR #1060. Phase 1 has
-two merged tickets (#1086/BO-004 and #1087/BO-008), three original rework tickets
-(#1088/DASH-006, #1089/DASH-017, and #1090/DASH-018), and three recovered
-post-BO-004 workers (#1085/BO-001, #1104/BO-017, and #1111/DASH-004). #1103 is
-paused on a deleted-inode workspace generation; #1123 is paused on both the
-same workspace class and unresolved GATE-003. Direct P1 #1151 is in CI wait
-outside the approved 54-ticket denominator. The runtime ceiling was reduced
-from 16 to 6 after simultaneous cold bootstrap drove load to 43 against the
-configured 5.5 ceiling; this is temporary containment, not a program cap. Raise
-it toward the full ready width only after load and bootstrap contention return
-to a safe range.
+The measured runtime envelope is temporarily eight workers. #1093/BO-005 and
+#1109/DASH-002 started as soon as the GitHub API limit reset; #1130/DASH-026 is
+dependency-ready, labeled `agent:todo`, and capacity-queued. #1088, #1090,
+#1096, #1111, #1151, and P1 #1161 occupy the other active execution slots.
+#1091 and #1103 are deactivated in exact-head review, #1108 remains recovery
+held, and #1123 remains GATE-003 held. Host load spiked above the documented
+hard ceiling while eight workers and two build slots overlapped, so do not add
+a ninth worker until load falls or an active worker drains. All providers are
+Codex Sol or Terra; never dispatch Claude.
 
 **Current operating decisions:**
 
@@ -630,16 +620,30 @@ to a safe range.
     #1164 into the Ad Hoc ledger, then closed it as a duplicate without a phase
     because it was never picked up. Keep the reproduction as evidence; never
     dispatch #1164 or count it as additional executable scope.
+70. DASH-017/#1089 passed two independent exact-head reviews and fresh full CI,
+    then squash-merged to `main` as `4f49e0a1d3c88054905b2edbaa6a3a1ffa2b7a10`.
+    It directly unlocked no new ticket because DASH-007 still needs DASH-001
+    and DASH-006.
+71. Aiur's configured `GITHUB_TOKEN` exhausted its REST budget at 04:49 PDT and
+    reset at 04:51:46. The daemon recovered on its first post-reset tracker poll
+    without a restart. Do not confuse this condition with agent-slot starvation:
+    correlate the auth preflight log before changing capacity.
+72. The preview exposed three genuinely unassigned dependency-ready tickets,
+    not five: #1093/BO-005, #1109/DASH-002, and #1130/DASH-026. #1093 and #1109
+    are live; #1130 is queued at the eight-worker ceiling. Cards already in
+    review or recovery may look available at a glance but are not new work.
+73. P1 #1161/PR #1166 recovered from its finalization wedge without restarting
+    Aiur by terminating only the stale finalized provider process group. Its
+    first CI head failed the protected-regression guard, four owned workspace
+    lifecycle tests, and Credo complexity. The Executor refused regression-test
+    approval, routed the bounded production-behavior rework, and unpaused the
+    existing worker. This P1 retains priority over queued #1130.
 
-At 03:58 PDT the core graph is 4/54 accepted. The recovered fleet is at its
-temporary eight-worker ceiling: #1088/#1089/#1090/#1091/#1096/#1103 plus Phase
-1 Ad Hoc #1161/#1162. #1111 and #1151 are the next eligible tickets after one
-active worker drains; #1108 remains provisioning-paused and DASH-019/#1123
-remains gate-paused. Host load is near the configured target but below the hard
-ceiling. Every live provider is Codex Sol or Terra; do not dispatch Claude.
-Treat
-completed turns, stale bases, and green builds with unmet acceptance criteria
-as pending Executor work, not merge-ready truth.
+At 04:56 PDT the core graph is 5/54 accepted. The fleet is at its temporary
+eight-worker ceiling, with #1130 first in the queue and host load above the hard
+ceiling during overlapping builds. Treat completed turns, stale bases, and
+green builds with unmet acceptance criteria as pending Executor work, not
+merge-ready truth.
 
 **Read-first map for this run:** `README.md` (pack index) →
 `08-implementation-pointers.md` (verified per-ticket file/module/function
