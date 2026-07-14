@@ -51,6 +51,8 @@ defmodule Aiur.DecisionProjection do
         |> Map.delete(:provenance)
         |> Map.delete("provenance_hash")
         |> Map.delete(:provenance_hash)
+        |> Map.delete("provenance_state")
+        |> Map.delete(:provenance_state)
         |> Map.put("created_at", Map.get(raw, "source_created_at"))
 
       case DecisionValidation.normalize(replay_payload,

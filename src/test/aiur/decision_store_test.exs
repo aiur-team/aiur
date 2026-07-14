@@ -1026,6 +1026,18 @@ defmodule Aiur.DecisionStoreTest do
                  entry.acknowledgement_result == :resolved and entry.supervisor_basis["confidence"] == confidence
                end)
 
+        limited_history = DecisionHistory.list(server: replayed_pid, limit: 50)
+
+        assert Enum.any?(limited_history, fn entry ->
+                 entry.action_id == answer.action_id and entry.dispatch_result == :dispatch_queued and
+                   entry.supervisor_basis["confidence"] == confidence
+               end)
+
+        assert Enum.any?(limited_history, fn entry ->
+                 entry.action_id == revision.action_id and entry.dispatch_result == :delivered and
+                   entry.supervisor_basis["confidence"] == confidence
+               end)
+
         GenServer.stop(replayed_pid)
       end
     end

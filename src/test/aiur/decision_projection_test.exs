@@ -62,6 +62,54 @@ defmodule Aiur.DecisionProjectionTest do
     event
   end
 
+  defp schema_1_snapshot_raw(raw, type) when type in [:requested, :enriched] do
+    provenance =
+      case type do
+        :requested -> raw["data"]["provenance"]
+        :enriched -> raw["data"]["decision"]["provenance"]
+      end
+
+    provenance_hash =
+      DecisionValidation.content_hash(%{
+        schema_version: 1,
+        event_type: type,
+        event_id: raw["event_id"],
+        run_id: raw["run_id"],
+        decision_id: raw["decision_id"],
+        decision_version: raw["decision_version"],
+        occurred_at: raw["occurred_at"],
+        provenance: provenance
+      })
+
+    data =
+      raw["data"]
+      |> Map.delete("provenance_state")
+      |> Map.put("provenance_hash", provenance_hash)
+
+    hash_data =
+      case type do
+        :requested -> Map.drop(data, ["provenance", "provenance_hash"])
+        :enriched -> data |> Map.delete("provenance_hash") |> update_in(["decision"], &Map.delete(&1, "provenance"))
+      end
+
+    content_hash =
+      DecisionValidation.content_hash(%{
+        schema_version: 1,
+        event_type: type,
+        event_id: raw["event_id"],
+        run_id: raw["run_id"],
+        decision_id: raw["decision_id"],
+        decision_version: raw["decision_version"],
+        occurred_at: raw["occurred_at"],
+        data: hash_data
+      })
+
+    raw
+    |> Map.put("schema_version", 1)
+    |> Map.put("data", data)
+    |> Map.put("content_hash", content_hash)
+  end
+
   defp revision(decision, prior_answer, overrides \\ %{}) do
     now = ~U[2026-07-12 10:10:00Z]
 
@@ -148,7 +196,7 @@ defmodule Aiur.DecisionProjectionTest do
       assert decoded.content_hash == decision.content_hash
     end
 
-    test "only typed events replay trusted runtime provenance with rollback-safe integrity" do
+    test "typed request events bind trusted provenance state against stripping" do
       provenance = %{
         agent_family: "codex",
         backend: "codex",
@@ -176,32 +224,60 @@ defmodule Aiur.DecisionProjectionTest do
                )
 
       raw = DecisionEvent.to_json_safe(request_event)
-      assert is_binary(raw["data"]["provenance_hash"])
+      assert raw["schema_version"] == 2
+      assert raw["data"]["provenance_state"] == "captured"
+      refute Map.has_key?(raw["data"], "provenance_hash")
 
       assert {:ok, %DecisionEvent{data: decoded}} = DecisionProjection.decode_record(raw)
       assert decoded.provenance.backend == "codex"
       assert decoded.provenance.session_id == "thread-123"
 
-      # This is the exact material an origin/main schema-1 reader reconstructs
-      # after dropping the additive fields it does not understand.
-      old_reader_material = %{
-        schema_version: raw["schema_version"],
-        event_type: :requested,
-        event_id: raw["event_id"],
-        run_id: raw["run_id"],
-        decision_id: raw["decision_id"],
-        decision_version: raw["decision_version"],
-        occurred_at: raw["occurred_at"],
-        data: Map.drop(raw["data"], ["provenance", "provenance_hash"])
-      }
+      assert {:ok, %DecisionEvent{schema_version: 1, data: legacy_decoded}} =
+               raw |> schema_1_snapshot_raw(:requested) |> DecisionProjection.decode_record()
 
-      assert DecisionValidation.content_hash(old_reader_material) == raw["content_hash"]
+      assert legacy_decoded.provenance == decoded.provenance
 
       tampered =
         raw
         |> put_in(["data", "provenance", "backend"], "forged")
 
-      assert DecisionProjection.decode_record(tampered) == {:error, :provenance_hash_mismatch}
+      assert DecisionProjection.decode_record(tampered) == {:error, :event_content_hash_mismatch}
+
+      stripped =
+        update_in(raw, ["data"], fn data ->
+          data
+          |> Map.delete("provenance")
+          |> Map.delete("provenance_state")
+        end)
+
+      assert DecisionProjection.decode_record(stripped) == {:error, :provenance_state_missing}
+
+      stripped_with_captured_state = update_in(raw, ["data"], &Map.delete(&1, "provenance"))
+
+      assert DecisionProjection.decode_record(stripped_with_captured_state) ==
+               {:error, :provenance_missing}
+
+      downgraded =
+        update_in(raw, ["data"], fn data ->
+          data
+          |> Map.delete("provenance")
+          |> Map.put("provenance_state", "unknown")
+        end)
+
+      assert DecisionProjection.decode_record(downgraded) == {:error, :event_content_hash_mismatch}
+
+      unknown = build_decision(%{"source_id" => "typed-unknown-provenance"})
+
+      assert {:ok, unknown_event} =
+               DecisionEvent.new(:requested, unknown.decision_id, unknown.version, unknown,
+                 event_id: "evt-unknown-provenance",
+                 run_id: "run-unknown-provenance",
+                 now: ~U[2026-07-13 12:02:00Z]
+               )
+
+      unknown_raw = DecisionEvent.to_json_safe(unknown_event)
+      assert unknown_raw["data"]["provenance_state"] == "unknown"
+      assert {:ok, %DecisionEvent{data: %{provenance: nil}}} = DecisionProjection.decode_record(unknown_raw)
     end
 
     test "records written before legacy provenance existed keep their content hash" do
@@ -467,7 +543,7 @@ defmodule Aiur.DecisionProjectionTest do
       assert List.last(result.audit_history[request.decision_id]).data.actor == enrichment.actor
     end
 
-    test "a provenance-bearing enrichment retains schema-1 reader hash material" do
+    test "typed enrichment events bind trusted provenance state against stripping" do
       request =
         build_decision(
           %{"source_id" => "rollback-provenance-enrichment"},
@@ -495,28 +571,42 @@ defmodule Aiur.DecisionProjectionTest do
                )
 
       raw = DecisionEvent.to_json_safe(event)
-      assert is_binary(raw["data"]["provenance_hash"])
+      assert raw["schema_version"] == 2
+      assert raw["data"]["provenance_state"] == "captured"
+      refute Map.has_key?(raw["data"], "provenance_hash")
       assert {:ok, %DecisionEvent{data: %{decision: decoded}}} = DecisionProjection.decode_record(raw)
       assert decoded.provenance.backend == "codex"
 
       tampered = put_in(raw, ["data", "decision", "provenance", "backend"], "forged")
-      assert DecisionProjection.decode_record(tampered) == {:error, :provenance_hash_mismatch}
+      assert DecisionProjection.decode_record(tampered) == {:error, :event_content_hash_mismatch}
 
-      old_reader_material = %{
-        schema_version: raw["schema_version"],
-        event_type: :enriched,
-        event_id: raw["event_id"],
-        run_id: raw["run_id"],
-        decision_id: raw["decision_id"],
-        decision_version: raw["decision_version"],
-        occurred_at: raw["occurred_at"],
-        data:
-          raw["data"]
-          |> Map.delete("provenance_hash")
+      stripped =
+        update_in(raw, ["data"], fn data ->
+          data
+          |> Map.delete("provenance_state")
           |> update_in(["decision"], &Map.delete(&1, "provenance"))
-      }
+        end)
 
-      assert DecisionValidation.content_hash(old_reader_material) == raw["content_hash"]
+      assert DecisionProjection.decode_record(stripped) == {:error, :provenance_state_missing}
+
+      stripped_with_captured_state = update_in(raw, ["data", "decision"], &Map.delete(&1, "provenance"))
+
+      assert DecisionProjection.decode_record(stripped_with_captured_state) ==
+               {:error, :provenance_missing}
+
+      downgraded =
+        update_in(raw, ["data"], fn data ->
+          data
+          |> Map.put("provenance_state", "unknown")
+          |> update_in(["decision"], &Map.delete(&1, "provenance"))
+        end)
+
+      assert DecisionProjection.decode_record(downgraded) == {:error, :event_content_hash_mismatch}
+
+      assert {:ok, %DecisionEvent{schema_version: 1, data: %{decision: legacy_decoded}}} =
+               raw |> schema_1_snapshot_raw(:enriched) |> DecisionProjection.decode_record()
+
+      assert legacy_decoded.provenance == decoded.provenance
     end
 
     test "rejects an enrichment that changes captured provenance" do

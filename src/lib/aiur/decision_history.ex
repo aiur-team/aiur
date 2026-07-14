@@ -70,16 +70,16 @@ defmodule Aiur.DecisionHistory do
   def from_recent_audit(recent, opts \\ []) when is_map(recent) and is_list(opts) do
     records = Map.get(recent, :records, [])
     contexts = Map.get(recent, :contexts, %{})
-    revisions = Map.get(recent, :revisions, %{})
+    actions = Map.get(recent, :actions, Map.get(recent, :revisions, %{}))
 
     records
     |> Enum.flat_map(fn record ->
       decision_id = record_decision_id(record)
       decision_contexts = Map.get(contexts, decision_id, %{})
-      decision_revisions = Map.get(revisions, decision_id, %{})
+      decision_actions = Map.get(actions, decision_id, %{})
 
       isolated_projection(fn ->
-        project_history_record(record, decision_contexts, decision_revisions)
+        project_history_record(record, decision_contexts, decision_actions)
       end)
     end)
     |> Enum.sort_by(&sort_key/1, :desc)
