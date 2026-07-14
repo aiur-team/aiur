@@ -290,8 +290,7 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
 
   defp record_ids(ticket, comment_ids) when is_list(comment_ids) do
     with {:ok, path} <- path_for(),
-         {:ok, ticket} <- normalize_ticket(ticket),
-         true <- comment_ids != [] do
+         {:ok, ticket} <- normalize_ticket(ticket) do
       Store.with_ticket_lock(path, ticket, fn ->
         with {:ok, state} <- load_state(path, ticket) do
           origins = (comment_ids ++ state.origins) |> Enum.uniq() |> Enum.take(@max_origins_per_ticket)
@@ -299,7 +298,6 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
         end
       end)
     else
-      false -> {:error, :missing_comment_id}
       {:error, _reason} = error -> error
     end
   rescue
