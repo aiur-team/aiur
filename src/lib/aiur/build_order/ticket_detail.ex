@@ -8,8 +8,8 @@ defmodule Aiur.BuildOrder.TicketDetail do
   accepted.
   """
 
-  alias Aiur.{GitHub, SecretRedactor, TrackerIdentity}
   alias Aiur.BuildOrder.{Bounded, Lifecycle}
+  alias Aiur.{GitHub, SecretRedactor, TrackerIdentity}
   alias Aiur.GitHub.{Issues, Transport}
 
   @default_max_description_bytes 16_384
