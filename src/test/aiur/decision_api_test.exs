@@ -368,6 +368,37 @@ defmodule Aiur.DecisionApiTest do
     assert Enum.count(audit, &match?(%Aiur.DecisionEvent{type: :revision_recorded}, &1)) == 1
   end
 
+  test "the API keeps confidence endpoints as integer supervisor basis values", %{store: store} do
+    decision = request!(store, "architecture", :supervisor_allowed, source_id: "confidence-boundaries")
+
+    answer_payload =
+      decision_payload()
+      |> Map.put("idempotency_key", "confidence-zero")
+      |> Map.put("confidence", 0)
+
+    assert {:ok, answered} = DecisionApi.decide(decision.decision_id, answer_payload, supervisor_opts(store))
+    assert answered["action"]["supervisor_basis"]["confidence"] == 0
+
+    revision_payload = %{
+      "expected_version" => 1,
+      "expected_action_id" => answered["action"]["action_id"],
+      "expected_revision_sequence" => 0,
+      "idempotency_key" => "confidence-hundred",
+      "custom_response" => "Use the corrected path",
+      "rationale" => "New production evidence",
+      "confidence" => 100,
+      "alternatives_considered" => ["Keep the original direction"],
+      "reversibility_belief" => "reversible"
+    }
+
+    assert {:ok, revised} = DecisionApi.revise(decision.decision_id, revision_payload, supervisor_opts(store))
+    assert revised["action"]["answer"]["supervisor_basis"]["confidence"] == 100
+
+    assert {:ok, current} = DecisionStore.get(decision.decision_id, store)
+    assert current.answer.supervisor_basis.confidence == 0
+    assert hd(current.revisions).answer.supervisor_basis.confidence == 100
+  end
+
   test "revise denies unsafe, forged, or incomplete calls before OCC-8 persistence", %{store: store} do
     human = request!(store, "architecture", :human_required, source_id: "revise-human")
 

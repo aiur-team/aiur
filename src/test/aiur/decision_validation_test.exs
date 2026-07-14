@@ -147,6 +147,54 @@ defmodule Aiur.DecisionValidationTest do
       assert decision.source.agent_id == "agent-1"
     end
 
+    test "provenance comes only from trusted opts, never the payload" do
+      payload = %{
+        "question" => "Q?",
+        "blocking" => true,
+        "provenance" => %{
+          "backend" => "forged-backend",
+          "requested_model" => "forged-model",
+          "session_id" => "forged-session"
+        }
+      }
+
+      trusted = %{
+        agent_family: "codex",
+        backend: "codex",
+        requested_model: "gpt-5.6-terra",
+        session_id: "thread-123",
+        attempt_id: "attempt-456",
+        source: "agent_runner"
+      }
+
+      assert {:ok, decision} = normalize(payload, provenance: trusted, now: ~U[2026-07-13 12:00:00Z])
+      assert decision.provenance.backend == "codex"
+      assert decision.provenance.requested_model == "gpt-5.6-terra"
+      assert decision.provenance.session_id == "thread-123"
+      assert decision.provenance.resolved_model == nil
+    end
+
+    test "provenance preserves retry idempotency and the legacy request hash shape" do
+      payload = %{"question" => "Q?", "blocking" => true, "source_id" => "retry-provenance"}
+
+      provenance = %{
+        agent_family: "codex",
+        backend: "codex",
+        requested_model: "gpt-5.6-terra",
+        session_id: "thread-123",
+        source: "agent_runner"
+      }
+
+      assert {:ok, first} = normalize(payload, provenance: provenance, now: ~U[2026-07-13 12:00:00Z])
+      assert {:ok, retry} = normalize(payload, provenance: provenance, now: ~U[2026-07-13 12:01:00Z])
+      assert {:ok, legacy_shape} = normalize(payload, now: ~U[2026-07-13 12:01:00Z])
+
+      refute first.provenance.captured_at == retry.provenance.captured_at
+      assert first.decision_id == retry.decision_id
+      assert first.content_hash == retry.content_hash
+      assert first.content_hash == legacy_shape.content_hash
+    end
+
     test "a forged source-reported timestamp never becomes canonical created_at" do
       fixed_now = ~U[2026-01-01 00:00:00Z]
       payload = %{"question" => "Q?", "blocking" => true, "created_at" => "1999-01-01T00:00:00Z"}
