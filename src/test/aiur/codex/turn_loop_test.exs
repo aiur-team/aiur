@@ -287,15 +287,18 @@ defmodule Aiur.Codex.TurnLoopTest do
           interrupt_action: :pause
       }
 
-      assert {:continue, ^state} =
+      assert {:continue, idle_state} =
                TurnLoop.handle_method(%{port: port}, state, idle, Jason.encode!(idle), idle["method"])
+
+      assert Map.delete(idle_state, :interrupt_idle_seen?) == state
+      assert idle_state.interrupt_idle_seen?
 
       interrupted = turn_completed_payload("turn-1", "interrupted")
 
       assert {:paused, %{request_id: 7, turn_id: "turn-1", details: ^interrupted}} =
                TurnLoop.handle_method(
                  %{port: port},
-                 state,
+                 idle_state,
                  interrupted,
                  Jason.encode!(interrupted),
                  interrupted["method"]
@@ -315,15 +318,18 @@ defmodule Aiur.Codex.TurnLoopTest do
           interrupt_action: :operator_message
       }
 
-      assert {:continue, ^state} =
+      assert {:continue, idle_state} =
                TurnLoop.handle_method(%{port: port}, state, idle, Jason.encode!(idle), idle["method"])
+
+      assert Map.delete(idle_state, :interrupt_idle_seen?) == state
+      assert idle_state.interrupt_idle_seen?
 
       interrupted = turn_completed_payload("turn-1", "interrupted")
 
       assert {:ok, :turn_interrupted_for_operator_message} =
                TurnLoop.handle_method(
                  %{port: port},
-                 state,
+                 idle_state,
                  interrupted,
                  Jason.encode!(interrupted),
                  interrupted["method"]

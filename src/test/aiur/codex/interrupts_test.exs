@@ -5,10 +5,21 @@ defmodule Aiur.Codex.InterruptsTest do
 
   describe "handle_interrupt_error/2" do
     test "treats -32600 as a successful interrupt" do
-      state = %{pending_interrupt_request_id: 123, interrupt_action: :pause}
+      parent = self()
 
-      assert {:continue, %{pending_interrupt_request_id: nil, interrupt_action: nil}} =
-               Interrupts.handle_interrupt_error(state, %{"code" => -32_600})
+      state = %{
+        active_turn_ids: MapSet.new(["turn-1"]),
+        outstanding_turns: 1,
+        pending_operator_requests: %{
+          9 => %{on_failure: fn reason -> send(parent, {:failed, reason}) end}
+        },
+        pending_interrupt_request_id: 123,
+        interrupt_action: :pause,
+        interrupt_idle_seen?: true
+      }
+
+      assert {:ok, :turn_completed} = Interrupts.handle_interrupt_error(state, %{"code" => -32_600})
+      assert_receive {:failed, :parent_turn_completed}
     end
 
     test "treats no active turn messages as successful interrupts" do

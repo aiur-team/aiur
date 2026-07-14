@@ -196,7 +196,7 @@ defmodule Aiur.Codex.TurnLoop do
   defp handle_idle_notification(%{interrupt_action: action} = state, method, payload)
        when action in [:pause, :operator_message] do
     Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; awaiting paired interrupted completion")
-    {:continue, state}
+    {:continue, Map.put(state, :interrupt_idle_seen?, true)}
   end
 
   defp handle_idle_notification(state, method, payload) do

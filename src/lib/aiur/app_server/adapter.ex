@@ -18,7 +18,7 @@ defmodule Aiur.AppServer.Adapter do
               {:ok, String.t()} | {:error, term()}
   @callback loop_state_extras(session :: map()) :: map()
   @callback handle_interrupt_error(state :: map(), error :: term()) ::
-              {:continue, map()} | {:error, term()}
+              {:ok, :turn_completed} | {:continue, map()} | {:error, term()}
   @callback handle_method(
               session :: map(),
               state :: map(),
