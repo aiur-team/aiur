@@ -32,15 +32,26 @@ defmodule Aiur.DecisionProjection do
 
   @doc "Decode an OCC-1 request snapshot through the canonical ingress validator."
   @spec decode_request_record(map()) :: {:ok, Decision.t()} | {:error, term()}
-  def decode_request_record(raw) when is_map(raw) do
+  def decode_request_record(raw) when is_map(raw), do: decode_request_record(raw, nil)
+  def decode_request_record(_other), do: {:error, :not_a_map}
+
+  @doc false
+  @spec decode_request_record(map(), DecisionProvenance.t() | nil) :: {:ok, Decision.t()} | {:error, term()}
+  def decode_request_record(raw, trusted_provenance) when is_map(raw) do
     with {:ok, ticket} <- fetch_map(raw, "ticket", :ticket),
          {:ok, source} <- fetch_map(raw, "source", :source),
          {:ok, version} <- fetch_pos_integer(raw, "version", :version),
          {:ok, persisted_decision_id} <- fetch_string(raw, "decision_id", :decision_id),
          {:ok, persisted_content_hash} <- fetch_string(raw, "content_hash", :content_hash),
          {:ok, created_at} <- fetch_timestamp(raw, "created_at", :created_at),
-         {:ok, provenance} <- decode_provenance(Map.get(raw, "provenance", Map.get(raw, :provenance))) do
-      replay_payload = Map.put(raw, "created_at", Map.get(raw, "source_created_at"))
+         {:ok, provenance} <- trusted_provenance(trusted_provenance) do
+      replay_payload =
+        raw
+        |> Map.delete("provenance")
+        |> Map.delete(:provenance)
+        |> Map.delete("provenance_hash")
+        |> Map.delete(:provenance_hash)
+        |> Map.put("created_at", Map.get(raw, "source_created_at"))
 
       case DecisionValidation.normalize(replay_payload,
              ticket: ticket,
@@ -55,7 +66,11 @@ defmodule Aiur.DecisionProjection do
     end
   end
 
-  def decode_request_record(_other), do: {:error, :not_a_map}
+  def decode_request_record(_other, _trusted_provenance), do: {:error, :not_a_map}
+
+  defp trusted_provenance(nil), do: {:ok, nil}
+  defp trusted_provenance(%DecisionProvenance{} = provenance), do: {:ok, provenance}
+  defp trusted_provenance(_other), do: {:error, :untrusted_provenance}
 
   defp verify_request_hash(decision, persisted_decision_id, version, persisted_content_hash) do
     if decision.content_hash == persisted_content_hash do
@@ -829,9 +844,6 @@ defmodule Aiur.DecisionProjection do
   defp maybe_put_provenance(map, provenance) do
     Map.put(map, "provenance", DecisionProvenance.to_json_safe(provenance))
   end
-
-  defp decode_provenance(nil), do: {:ok, nil}
-  defp decode_provenance(provenance), do: DecisionProvenance.from_json_safe(provenance)
 
   defp maybe_put_source_created_at(payload, nil), do: payload
 

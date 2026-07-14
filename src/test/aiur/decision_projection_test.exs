@@ -7,6 +7,7 @@ defmodule Aiur.DecisionProjectionTest do
     DecisionEnrichment,
     DecisionEvent,
     DecisionProjection,
+    DecisionProvenance,
     DecisionRevision,
     DecisionValidation
   }
@@ -147,7 +148,7 @@ defmodule Aiur.DecisionProjectionTest do
       assert decoded.content_hash == decision.content_hash
     end
 
-    test "trusted runtime provenance survives the round trip and is event-hash protected" do
+    test "only typed events replay trusted runtime provenance with rollback-safe integrity" do
       provenance = %{
         agent_family: "codex",
         backend: "codex",
@@ -158,11 +159,14 @@ defmodule Aiur.DecisionProjectionTest do
       }
 
       decision = build_decision(%{"source_id" => "trusted-provenance"}, provenance: provenance)
-      raw = persisted_raw(decision)
 
-      assert {:ok, decoded} = DecisionProjection.decode_record(raw)
-      assert decoded.provenance.backend == "codex"
-      assert decoded.provenance.session_id == "thread-123"
+      forged_legacy =
+        build_decision(%{"source_id" => "legacy-forged-provenance"})
+        |> persisted_raw()
+        |> Map.put("provenance", DecisionProvenance.to_json_safe(decision.provenance))
+
+      assert {:ok, decoded_legacy} = DecisionProjection.decode_record(forged_legacy)
+      assert decoded_legacy.provenance == nil
 
       assert {:ok, request_event} =
                DecisionEvent.new(:requested, decision.decision_id, decision.version, decision,
@@ -171,12 +175,33 @@ defmodule Aiur.DecisionProjectionTest do
                  now: ~U[2026-07-13 12:01:00Z]
                )
 
+      raw = DecisionEvent.to_json_safe(request_event)
+      assert is_binary(raw["data"]["provenance_hash"])
+
+      assert {:ok, %DecisionEvent{data: decoded}} = DecisionProjection.decode_record(raw)
+      assert decoded.provenance.backend == "codex"
+      assert decoded.provenance.session_id == "thread-123"
+
+      # This is the exact material an origin/main schema-1 reader reconstructs
+      # after dropping the additive fields it does not understand.
+      old_reader_material = %{
+        schema_version: raw["schema_version"],
+        event_type: :requested,
+        event_id: raw["event_id"],
+        run_id: raw["run_id"],
+        decision_id: raw["decision_id"],
+        decision_version: raw["decision_version"],
+        occurred_at: raw["occurred_at"],
+        data: Map.drop(raw["data"], ["provenance", "provenance_hash"])
+      }
+
+      assert DecisionValidation.content_hash(old_reader_material) == raw["content_hash"]
+
       tampered =
-        request_event
-        |> DecisionEvent.to_json_safe()
+        raw
         |> put_in(["data", "provenance", "backend"], "forged")
 
-      assert DecisionProjection.decode_record(tampered) == {:error, :event_content_hash_mismatch}
+      assert DecisionProjection.decode_record(tampered) == {:error, :provenance_hash_mismatch}
     end
 
     test "records written before legacy provenance existed keep their content hash" do
@@ -440,6 +465,55 @@ defmodule Aiur.DecisionProjectionTest do
       assert [%{attempt_id: "attempt-1"}] = updated.dispatch_attempts
       assert Enum.map(result.history[request.decision_id], & &1.version) == [1, 2]
       assert List.last(result.audit_history[request.decision_id]).data.actor == enrichment.actor
+    end
+
+    test "a provenance-bearing enrichment retains schema-1 reader hash material" do
+      request =
+        build_decision(
+          %{"source_id" => "rollback-provenance-enrichment"},
+          provenance: %{backend: "codex", session_id: "thread-123", source: "agent_runner"}
+        )
+
+      assert {:ok, enrichment} =
+               DecisionEnrichment.normalize(
+                 request,
+                 %{"context" => %{"short_summary" => "Keep the trusted context"}},
+                 expected_version: 1,
+                 actor: %{kind: :supervisor, id: "supervising-agent"},
+                 now: ~U[2026-07-13 12:02:00Z]
+               )
+
+      assert {:ok, event} =
+               DecisionEvent.new(
+                 :enriched,
+                 request.decision_id,
+                 2,
+                 %{decision: enrichment.decision, actor: enrichment.actor, expected_version: enrichment.expected_version},
+                 event_id: "evt-rollback-provenance-enrichment",
+                 run_id: "run-rollback-provenance-enrichment",
+                 now: ~U[2026-07-13 12:03:00Z]
+               )
+
+      raw = DecisionEvent.to_json_safe(event)
+      assert is_binary(raw["data"]["provenance_hash"])
+      assert {:ok, %DecisionEvent{data: %{decision: decoded}}} = DecisionProjection.decode_record(raw)
+      assert decoded.provenance.backend == "codex"
+
+      old_reader_material = %{
+        schema_version: raw["schema_version"],
+        event_type: :enriched,
+        event_id: raw["event_id"],
+        run_id: raw["run_id"],
+        decision_id: raw["decision_id"],
+        decision_version: raw["decision_version"],
+        occurred_at: raw["occurred_at"],
+        data:
+          raw["data"]
+          |> Map.delete("provenance_hash")
+          |> update_in(["decision"], &Map.delete(&1, "provenance"))
+      }
+
+      assert DecisionValidation.content_hash(old_reader_material) == raw["content_hash"]
     end
 
     test "rejects an enrichment that changes captured provenance" do

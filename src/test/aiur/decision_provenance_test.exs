@@ -71,4 +71,13 @@ defmodule Aiur.DecisionProvenanceTest do
                )
     end
   end
+
+  test "rejects credential-shaped values in every allowed runtime identity field" do
+    credential = "ghp_123456789012345678901234567890123456"
+
+    for field <- [:agent_family, :backend, :requested_model, :resolved_model, :session_id, :attempt_id] do
+      assert {:error, {:provenance, {^field, :redacted_secret}}} =
+               DecisionProvenance.normalize(Map.put(%{source: "agent_runner"}, field, credential), @captured_at)
+    end
+  end
 end

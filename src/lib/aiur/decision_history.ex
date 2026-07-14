@@ -134,10 +134,10 @@ defmodule Aiur.DecisionHistory do
 
   defp project_history(records) when is_list(records) do
     contexts = request_contexts(records)
-    revisions = revision_contexts(records)
+    actions = action_contexts(records)
 
     Enum.flat_map(records, fn record ->
-      isolated_projection(fn -> project_history_record(record, contexts, revisions) end)
+      isolated_projection(fn -> project_history_record(record, contexts, actions) end)
     end)
   end
 
@@ -215,14 +215,18 @@ defmodule Aiur.DecisionHistory do
     })
   end
 
-  defp event_record(%DecisionEvent{type: type, data: data}, base, _revisions)
+  defp event_record(%DecisionEvent{type: type, data: data}, base, actions)
        when type in [:dispatch_queued, :delivered, :restored, :consumed, :failed] do
-    Map.merge(base, %{action_id: data.action_id, dispatch_result: type})
+    base
+    |> Map.merge(action_context(Map.get(actions, data.action_id)))
+    |> Map.merge(%{action_id: data.action_id, dispatch_result: type})
   end
 
-  defp event_record(%DecisionEvent{type: type, data: data}, base, _revisions)
+  defp event_record(%DecisionEvent{type: type, data: data}, base, actions)
        when type in [:acknowledged, :resolved] do
-    Map.merge(base, %{action_id: data.action_id, actor: data.actor, acknowledgement_result: type})
+    base
+    |> Map.merge(action_context(Map.get(actions, data.action_id)))
+    |> Map.merge(%{action_id: data.action_id, actor: data.actor, acknowledgement_result: type})
   end
 
   defp event_record(_event, base, _revisions), do: base
@@ -240,15 +244,22 @@ defmodule Aiur.DecisionHistory do
     end)
   end
 
-  defp revision_contexts(records) do
+  defp action_contexts(records) do
     Enum.reduce(records, %{}, fn
+      %DecisionEvent{type: :answer_recorded, data: %Aiur.DecisionAnswer{} = answer}, actions ->
+        Map.put(actions, answer.action_id, answer)
+
       %DecisionEvent{type: :revision_recorded, data: %DecisionRevision{} = revision}, revisions ->
         Map.put(revisions, revision.action_id, revision)
 
-      _record, revisions ->
-        revisions
+      _record, actions ->
+        actions
     end)
   end
+
+  defp action_context(%Aiur.DecisionAnswer{} = answer), do: %{answer: answer}
+  defp action_context(%DecisionRevision{} = revision), do: %{revision: revision}
+  defp action_context(_action), do: %{}
 
   defp latest_context(contexts) when map_size(contexts) == 0, do: nil
   defp latest_context(contexts), do: contexts |> Map.values() |> Enum.max_by(& &1.version)

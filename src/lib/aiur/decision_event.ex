@@ -8,7 +8,7 @@ defmodule Aiur.DecisionEvent do
   complete semantic envelope so replay fails closed on tampering.
   """
 
-  alias Aiur.{Decision, DecisionAnswer, DecisionProjection, DecisionRevision, DecisionValidation, SecretRedactor}
+  alias Aiur.{Decision, DecisionAnswer, DecisionProjection, DecisionProvenance, DecisionRevision, DecisionValidation, SecretRedactor}
 
   @schema_version 1
   @identity_max 256
@@ -82,6 +82,10 @@ defmodule Aiur.DecisionEvent do
   @doc "Build and validate one trusted lifecycle event before append."
   @spec new(type(), String.t(), pos_integer(), term(), keyword()) :: {:ok, t()} | {:error, term()}
   def new(type, decision_id, decision_version, data, opts) when is_list(opts) do
+    build(type, decision_id, decision_version, data, opts, nil)
+  end
+
+  defp build(type, decision_id, decision_version, data, opts, trusted_provenance) do
     event_id = Keyword.fetch!(opts, :event_id)
     run_id = Keyword.fetch!(opts, :run_id)
     occurred_at = Keyword.get(opts, :now, DateTime.utc_now())
@@ -92,7 +96,7 @@ defmodule Aiur.DecisionEvent do
          :ok <- validate_event_id(event_id),
          {:ok, run_id} <- bounded_required(run_id, @identity_max, :run_id),
          :ok <- validate_timestamp(occurred_at),
-         {:ok, data} <- normalize_data(type, data, decision_id, decision_version) do
+         {:ok, data} <- normalize_data(type, data, decision_id, decision_version, trusted_provenance) do
       material = event_material(type, event_id, run_id, decision_id, decision_version, occurred_at, data)
 
       {:ok,
@@ -122,11 +126,7 @@ defmodule Aiur.DecisionEvent do
          {:ok, data} <- fetch_map(raw, "data", :data),
          {:ok, persisted_hash} <- fetch_string(raw, "content_hash", :content_hash),
          {:ok, event} <-
-           new(type, decision_id, decision_version, data,
-             event_id: event_id,
-             run_id: run_id,
-             now: occurred_at
-           ),
+           decode_typed_event(type, decision_id, decision_version, data, event_id, run_id, occurred_at),
          :ok <- verify_hash(event.content_hash, persisted_hash) do
       {:ok, event}
     end
@@ -145,12 +145,26 @@ defmodule Aiur.DecisionEvent do
       "decision_id" => event.decision_id,
       "decision_version" => event.decision_version,
       "occurred_at" => DateTime.to_iso8601(event.occurred_at),
-      "data" => data_to_json_safe(event.type, event.data),
+      "data" => data_to_json_safe(event.type, event.data, event),
       "content_hash" => event.content_hash
     }
   end
 
-  defp normalize_data(:requested, %Decision{} = decision, decision_id, version) do
+  defp decode_typed_event(type, decision_id, decision_version, data, event_id, run_id, occurred_at) do
+    with {:ok, trusted_provenance} <-
+           decode_typed_provenance(type, data, event_id, run_id, decision_id, decision_version, occurred_at) do
+      build(
+        type,
+        decision_id,
+        decision_version,
+        data,
+        [event_id: event_id, run_id: run_id, now: occurred_at],
+        trusted_provenance
+      )
+    end
+  end
+
+  defp normalize_data(:requested, %Decision{} = decision, decision_id, version, _trusted_provenance) do
     if decision.decision_id == decision_id and decision.version == version do
       {:ok, decision}
     else
@@ -158,8 +172,8 @@ defmodule Aiur.DecisionEvent do
     end
   end
 
-  defp normalize_data(:requested, raw, decision_id, version) when is_map(raw) do
-    with {:ok, decision} <- DecisionProjection.decode_request_record(raw),
+  defp normalize_data(:requested, raw, decision_id, version, trusted_provenance) when is_map(raw) do
+    with {:ok, decision} <- DecisionProjection.decode_request_record(raw, trusted_provenance),
          true <- decision.decision_id == decision_id and decision.version == version do
       {:ok, decision}
     else
@@ -168,8 +182,8 @@ defmodule Aiur.DecisionEvent do
     end
   end
 
-  defp normalize_data(:enriched, raw, decision_id, version) when is_map(raw) do
-    with {:ok, decision} <- normalize_enrichment_decision(get(raw, :decision), decision_id, version),
+  defp normalize_data(:enriched, raw, decision_id, version, trusted_provenance) when is_map(raw) do
+    with {:ok, decision} <- normalize_enrichment_decision(get(raw, :decision), decision_id, version, trusted_provenance),
          {:ok, actor} <- normalize_actor(get(raw, :actor)),
          :ok <- require_supervisor_actor(actor),
          {:ok, expected_version} <- map_required_pos_integer(raw, :expected_version),
@@ -181,7 +195,7 @@ defmodule Aiur.DecisionEvent do
     end
   end
 
-  defp normalize_data(:answer_recorded, %DecisionAnswer{} = answer, decision_id, version) do
+  defp normalize_data(:answer_recorded, %DecisionAnswer{} = answer, decision_id, version, _trusted_provenance) do
     if answer.decision_id == decision_id and answer.decision_version == version do
       {:ok, answer}
     else
@@ -189,7 +203,7 @@ defmodule Aiur.DecisionEvent do
     end
   end
 
-  defp normalize_data(:answer_recorded, raw, decision_id, version) when is_map(raw) do
+  defp normalize_data(:answer_recorded, raw, decision_id, version, _trusted_provenance) when is_map(raw) do
     with {:ok, answer} <- DecisionAnswer.from_json_safe(raw),
          true <- answer.decision_id == decision_id and answer.decision_version == version do
       {:ok, answer}
@@ -199,7 +213,7 @@ defmodule Aiur.DecisionEvent do
     end
   end
 
-  defp normalize_data(:revision_recorded, %DecisionRevision{} = revision, decision_id, version) do
+  defp normalize_data(:revision_recorded, %DecisionRevision{} = revision, decision_id, version, _trusted_provenance) do
     if revision.decision_id == decision_id and revision.decision_version == version do
       {:ok, revision}
     else
@@ -207,7 +221,7 @@ defmodule Aiur.DecisionEvent do
     end
   end
 
-  defp normalize_data(:revision_recorded, raw, decision_id, version) when is_map(raw) do
+  defp normalize_data(:revision_recorded, raw, decision_id, version, _trusted_provenance) when is_map(raw) do
     with {:ok, revision} <- DecisionRevision.from_json_safe(raw, &DecisionAnswer.from_json_safe/1),
          true <- revision.decision_id == decision_id and revision.decision_version == version do
       {:ok, revision}
@@ -217,14 +231,14 @@ defmodule Aiur.DecisionEvent do
     end
   end
 
-  defp normalize_data(:revision_no_longer_applicable, raw, _decision_id, _version) when is_map(raw) do
+  defp normalize_data(:revision_no_longer_applicable, raw, _decision_id, _version, _trusted_provenance) when is_map(raw) do
     with {:ok, action_id} <- map_required_string(raw, :action_id, @identity_max),
          {:ok, reason_class} <- bounded_required(get(raw, :reason_class), @reason_max, :reason_class) do
       {:ok, %{action_id: action_id, reason_class: reason_class}}
     end
   end
 
-  defp normalize_data(:follow_up_required, raw, _decision_id, _version) when is_map(raw) do
+  defp normalize_data(:follow_up_required, raw, _decision_id, _version, _trusted_provenance) when is_map(raw) do
     with {:ok, action_id} <- map_required_string(raw, :action_id, @identity_max),
          {:ok, slug} <- map_required_string(raw, :slug, 64),
          :ok <- validate_attention_slug(slug),
@@ -233,7 +247,7 @@ defmodule Aiur.DecisionEvent do
     end
   end
 
-  defp normalize_data(:follow_up_handled, raw, _decision_id, _version) when is_map(raw) do
+  defp normalize_data(:follow_up_handled, raw, _decision_id, _version, _trusted_provenance) when is_map(raw) do
     with {:ok, action_id} <- map_required_string(raw, :action_id, @identity_max),
          {:ok, slug} <- map_required_string(raw, :slug, 64),
          :ok <- validate_attention_slug(slug),
@@ -243,7 +257,7 @@ defmodule Aiur.DecisionEvent do
     end
   end
 
-  defp normalize_data(type, raw, _decision_id, _version) when type in @transport_types and is_map(raw) do
+  defp normalize_data(type, raw, _decision_id, _version, _trusted_provenance) when type in @transport_types and is_map(raw) do
     with {:ok, action_id} <- map_required_string(raw, :action_id, @identity_max),
          {:ok, attempt_id} <- map_required_string(raw, :attempt_id, @identity_max),
          {:ok, queue_item_id} <- map_optional_pos_integer(raw, :queue_item_id),
@@ -258,7 +272,7 @@ defmodule Aiur.DecisionEvent do
     end
   end
 
-  defp normalize_data(type, raw, _decision_id, _version) when type in @actor_types and is_map(raw) do
+  defp normalize_data(type, raw, _decision_id, _version, _trusted_provenance) when type in @actor_types and is_map(raw) do
     with {:ok, action_id} <- map_required_string(raw, :action_id, @identity_max),
          {:ok, actor} <- normalize_actor(get(raw, :actor)),
          {:ok, source} <- normalize_lifecycle_source(get(raw, :source)),
@@ -267,9 +281,9 @@ defmodule Aiur.DecisionEvent do
     end
   end
 
-  defp normalize_data(_type, _data, _decision_id, _version), do: {:error, {:event_data, :invalid}}
+  defp normalize_data(_type, _data, _decision_id, _version, _trusted_provenance), do: {:error, {:event_data, :invalid}}
 
-  defp normalize_enrichment_decision(%Decision{} = decision, decision_id, version) do
+  defp normalize_enrichment_decision(%Decision{} = decision, decision_id, version, _trusted_provenance) do
     if decision.decision_id == decision_id and decision.version == version do
       {:ok, request_snapshot(decision)}
     else
@@ -277,8 +291,8 @@ defmodule Aiur.DecisionEvent do
     end
   end
 
-  defp normalize_enrichment_decision(raw, decision_id, version) when is_map(raw) do
-    with {:ok, decision} <- DecisionProjection.decode_request_record(raw),
+  defp normalize_enrichment_decision(raw, decision_id, version, trusted_provenance) when is_map(raw) do
+    with {:ok, decision} <- DecisionProjection.decode_request_record(raw, trusted_provenance),
          true <- decision.decision_id == decision_id and decision.version == version do
       {:ok, request_snapshot(decision)}
     else
@@ -287,7 +301,7 @@ defmodule Aiur.DecisionEvent do
     end
   end
 
-  defp normalize_enrichment_decision(_raw, _decision_id, _version),
+  defp normalize_enrichment_decision(_raw, _decision_id, _version, _trusted_provenance),
     do: {:error, {:event_data, :enrichment_invalid}}
 
   defp request_snapshot(decision) do
@@ -363,8 +377,31 @@ defmodule Aiur.DecisionEvent do
       decision_id: decision_id,
       decision_version: decision_version,
       occurred_at: DateTime.to_iso8601(occurred_at),
-      data: data_to_json_safe(type, data)
+      data: legacy_data_to_json_safe(type, data)
     }
+  end
+
+  # Schema-1 event hashes deliberately retain the old reader's material. The
+  # optional provenance is bound separately so a previous binary can still
+  # replay the event after dropping fields it does not understand.
+  defp legacy_data_to_json_safe(:requested, %Decision{} = decision) do
+    data_to_json_safe(:requested, decision)
+    |> Map.delete("provenance")
+  end
+
+  defp legacy_data_to_json_safe(:enriched, data) do
+    encoded = data_to_json_safe(:enriched, data)
+
+    encoded
+    |> Map.delete("provenance_hash")
+    |> Map.put("decision", Map.delete(encoded["decision"], "provenance"))
+  end
+
+  defp legacy_data_to_json_safe(type, data), do: data_to_json_safe(type, data)
+
+  defp data_to_json_safe(type, data, event) do
+    data_to_json_safe(type, data)
+    |> maybe_put_provenance_hash(type, data, event)
   end
 
   defp data_to_json_safe(:requested, %Decision{} = decision), do: DecisionProjection.to_json_safe(decision)
@@ -419,6 +456,105 @@ defmodule Aiur.DecisionEvent do
       },
       "detail" => data.detail
     }
+  end
+
+  defp maybe_put_provenance_hash(data, _type, _event_data, %__MODULE__{data: %Decision{provenance: nil}}), do: data
+
+  defp maybe_put_provenance_hash(data, type, event_data, %__MODULE__{} = event) do
+    case provenance_for(type, event_data) do
+      nil ->
+        data
+
+      %DecisionProvenance{} = provenance ->
+        Map.put(
+          data,
+          "provenance_hash",
+          DecisionValidation.content_hash(provenance_material(type, event, provenance))
+        )
+    end
+  end
+
+  defp provenance_for(:requested, %Decision{} = decision), do: decision.provenance
+  defp provenance_for(:enriched, %{decision: %Decision{} = decision}), do: decision.provenance
+  defp provenance_for(_type, _data), do: nil
+
+  defp provenance_material(type, event, provenance) do
+    %{
+      schema_version: @schema_version,
+      event_type: type,
+      event_id: event.event_id,
+      run_id: event.run_id,
+      decision_id: event.decision_id,
+      decision_version: event.decision_version,
+      occurred_at: DateTime.to_iso8601(event.occurred_at),
+      provenance: DecisionProvenance.to_json_safe(provenance)
+    }
+  end
+
+  defp decode_typed_provenance(:requested, data, event_id, run_id, decision_id, decision_version, occurred_at) do
+    decode_snapshot_provenance(data, :requested, event_id, run_id, decision_id, decision_version, occurred_at)
+  end
+
+  defp decode_typed_provenance(:enriched, data, event_id, run_id, decision_id, decision_version, occurred_at) do
+    with {:ok, decision} <- fetch_map(data, "decision", :decision) do
+      decision
+      |> Map.put("provenance_hash", get(data, :provenance_hash))
+      |> decode_snapshot_provenance(:enriched, event_id, run_id, decision_id, decision_version, occurred_at)
+    end
+  end
+
+  defp decode_typed_provenance(_type, data, _event_id, _run_id, _decision_id, _decision_version, _occurred_at) do
+    if is_nil(get(data, :provenance)) and is_nil(get(data, :provenance_hash)),
+      do: {:ok, nil},
+      else: {:error, :unexpected_provenance}
+  end
+
+  defp decode_snapshot_provenance(raw, type, event_id, run_id, decision_id, decision_version, occurred_at) do
+    case {get(raw, :provenance), get(raw, :provenance_hash)} do
+      {nil, nil} ->
+        {:ok, nil}
+
+      {nil, _hash} ->
+        {:error, :provenance_hash_without_provenance}
+
+      {_provenance, nil} ->
+        {:error, :provenance_hash_missing}
+
+      {provenance, hash} when is_map(provenance) and is_binary(hash) and hash != "" ->
+        with {:ok, provenance} <- DecisionProvenance.from_json_safe(provenance),
+             :ok <-
+               verify_provenance_hash(
+                 type,
+                 event_id,
+                 run_id,
+                 decision_id,
+                 decision_version,
+                 occurred_at,
+                 provenance,
+                 hash
+               ) do
+          {:ok, provenance}
+        end
+
+      _other ->
+        {:error, :invalid_provenance_binding}
+    end
+  end
+
+  defp verify_provenance_hash(type, event_id, run_id, decision_id, decision_version, occurred_at, provenance, persisted_hash) do
+    actual_hash =
+      DecisionValidation.content_hash(%{
+        schema_version: @schema_version,
+        event_type: type,
+        event_id: event_id,
+        run_id: run_id,
+        decision_id: decision_id,
+        decision_version: decision_version,
+        occurred_at: DateTime.to_iso8601(occurred_at),
+        provenance: DecisionProvenance.to_json_safe(provenance)
+      })
+
+    if actual_hash == persisted_hash, do: :ok, else: {:error, :provenance_hash_mismatch}
   end
 
   defp validate_type(type) when type in @types, do: :ok

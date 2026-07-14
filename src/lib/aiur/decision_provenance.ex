@@ -8,6 +8,8 @@ defmodule Aiur.DecisionProvenance do
   URL.
   """
 
+  alias Aiur.SecretRedactor
+
   @schema_version 1
   @identity_max 256
   @source "agent_runner"
@@ -125,6 +127,7 @@ defmodule Aiur.DecisionProvenance do
   defp optional_identity(value, field) when is_binary(value) do
     cond do
       byte_size(value) > @identity_max -> {:error, {:provenance, {field, :too_long}}}
+      SecretRedactor.redact(value) != value -> {:error, {:provenance, {field, :redacted_secret}}}
       Regex.match?(~r/\A[A-Za-z0-9][A-Za-z0-9._:-]*\z/, value) -> {:ok, value}
       true -> {:error, {:provenance, {field, :invalid_format}}}
     end
