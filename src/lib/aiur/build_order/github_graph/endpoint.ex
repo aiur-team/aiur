@@ -103,7 +103,6 @@ defmodule Aiur.BuildOrder.GitHubGraph.Endpoint do
       String.downcase(repository) == String.downcase(expected_repository)
   end
 
-  defp same_repository?(_identity, _repository), do: false
   defp endpoint_url(node) when is_map(node), do: Map.get(node, "url")
   defp endpoint_url(_node), do: nil
 

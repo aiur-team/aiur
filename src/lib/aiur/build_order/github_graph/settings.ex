@@ -19,21 +19,6 @@ defmodule Aiur.BuildOrder.GitHubGraph.Settings do
   defmodule Paging do
     @moduledoc false
 
-    @type t :: %__MODULE__{
-            repository: {String.t(), String.t()} | nil,
-            token: String.t() | nil,
-            limits: map() | nil,
-            limit: pos_integer() | nil,
-            root_number: pos_integer() | nil,
-            requested_root: TrackerIdentity.t() | nil,
-            root: map() | nil,
-            root_fingerprint: map() | nil,
-            expected_total: non_neg_integer() | nil,
-            cursor: String.t() | nil,
-            seen_cursors: MapSet.t(),
-            nodes: [map()]
-          }
-
     defstruct [
       :repository,
       :token,
@@ -91,7 +76,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.Settings do
     }
   end
 
-  @spec new_paging(repository(), String.t(), limits(), pos_integer(), TrackerIdentity.t() | nil) :: Paging.t()
+  @spec new_paging(repository(), String.t(), limits(), pos_integer(), TrackerIdentity.t() | nil) :: map()
   def new_paging(repository, token, limits, limit, requested_root \\ nil) do
     %Paging{
       repository: repository,
@@ -103,13 +88,13 @@ defmodule Aiur.BuildOrder.GitHubGraph.Settings do
     }
   end
 
-  @spec catalog_variables(Paging.t()) :: map()
+  @spec catalog_variables(map()) :: map()
   def catalog_variables(%Paging{repository: {owner, repository}, cursor: cursor, limits: limits}) do
     %{"owner" => owner, "repo" => repository, "pageSize" => page_size(limits, limits.root_limit)}
     |> Transport.maybe_put_query("cursor", cursor)
   end
 
-  @spec selected_variables(Paging.t()) :: map()
+  @spec selected_variables(map()) :: map()
   def selected_variables(%Paging{
         repository: {owner, repository},
         root_number: number,

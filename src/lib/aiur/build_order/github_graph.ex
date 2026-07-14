@@ -2,8 +2,8 @@ defmodule Aiur.BuildOrder.GitHubGraph do
   @moduledoc "Bounded, body-free GitHub reads for Build Order planning candidates."
 
   alias Aiur.BuildOrder.GitHubGraph.{Pager, Result, Settings}
-  alias Aiur.TrackerIdentity
   alias Aiur.GitHub.Transport
+  alias Aiur.TrackerIdentity
 
   @member_limit 100
 
