@@ -89,7 +89,7 @@ defmodule Aiur.Codex.Approvals do
     approve_command_or_require(
       port,
       id,
-      "acceptForSession",
+      "accept",
       payload,
       payload_string,
       on_message,
@@ -123,7 +123,16 @@ defmodule Aiur.Codex.Approvals do
         auto_approve_requests,
         false
       ) do
-    approve_or_require(port, id, "approved_for_session", payload, payload_string, on_message, metadata, auto_approve_requests)
+    approve_command_or_require(
+      port,
+      id,
+      "approved_for_session",
+      payload,
+      payload_string,
+      on_message,
+      metadata,
+      auto_approve_requests
+    )
   end
 
   def maybe_handle_approval_request(

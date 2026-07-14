@@ -432,6 +432,7 @@ defmodule Aiur.AppServerTest do
                    |> Jason.decode!()
 
                  payload["id"] == 2 and
+                   get_in(payload, ["params", "approvalPolicy"]) == "untrusted" and
                    case get_in(payload, ["params", "dynamicTools"]) do
                      tools when is_list(tools) ->
                        Enum.any?(tools, fn
@@ -474,7 +475,7 @@ defmodule Aiur.AppServerTest do
                    |> String.trim_leading("JSON:")
                    |> Jason.decode!()
 
-                 payload["id"] == 99 and get_in(payload, ["result", "decision"]) == "acceptForSession"
+                 payload["id"] == 99 and get_in(payload, ["result", "decision"]) == "accept"
                else
                  false
                end
@@ -560,7 +561,7 @@ defmodule Aiur.AppServerTest do
       assert {:error, {:agent_comment_origin_not_recorded, :disk_full}} =
                AppServer.run(workspace, "Post top-level comment", issue, on_message: handler)
 
-      assert AgentCommentOrigins.origin(issue.identifier, %{"id" => 71_151}) == :agent
+      assert AgentCommentOrigins.origin(issue.identifier, %{"id" => 71_151}) == {:ok, :agent}
     after
       File.rm_rf(test_root)
 

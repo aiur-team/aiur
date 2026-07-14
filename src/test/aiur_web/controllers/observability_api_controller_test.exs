@@ -94,6 +94,22 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
       assert conn.status == 200
     end
 
+    test "rejects a public-comment PreToolUse event without durable operation identity" do
+      conn =
+        call(
+          hook_conn("MT-PRE-MISSING", %{
+            "hook_event_name" => "PreToolUse",
+            "tool_name" => "Bash",
+            "tool_input" => %{"command" => "gh pr comment 1153 --body 'Resolved.'"}
+          })
+        )
+
+      assert conn.status == 503
+
+      assert %{"error" => %{"code" => "pre_tool_provenance_unavailable"}} =
+               Jason.decode!(conn.resp_body)
+    end
+
     test "rejects without the X-Aiur-Request header" do
       conn =
         :post

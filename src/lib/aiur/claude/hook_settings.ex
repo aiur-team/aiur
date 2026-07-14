@@ -11,16 +11,26 @@ defmodule Aiur.Claude.HookSettings do
   alias Aiur.Config.Paths
 
   # UserPromptSubmit = input received; PostToolUse = progress/heartbeat;
-  # Stop = turn done; StopFailure = terminal API failure.
-  @events ["UserPromptSubmit", "PostToolUse", "Stop", "StopFailure"]
+  # Stop = turn done; StopFailure = terminal API failure. PreToolUse is kept
+  # separate because a durable-provenance failure must reject the mutation.
+  @lifecycle_events ["UserPromptSubmit", "PostToolUse", "Stop", "StopFailure"]
 
   @doc "Settings map for an agent identifier + dashboard base URL."
   @spec settings(String.t(), String.t()) :: map()
   def settings(identifier, dashboard_url)
       when is_binary(identifier) and is_binary(dashboard_url) do
-    command = hook_command(identifier, dashboard_url)
-    entry = [%{"hooks" => [%{"type" => "command", "command" => command}]}]
-    %{"hooks" => Map.new(@events, fn name -> {name, entry} end)}
+    lifecycle_entry = [%{"hooks" => [%{"type" => "command", "command" => hook_command(identifier, dashboard_url)}]}]
+
+    pre_tool_entry = [
+      %{"hooks" => [%{"type" => "command", "command" => pre_tool_hook_command(identifier, dashboard_url)}]}
+    ]
+
+    %{
+      "hooks" =>
+        @lifecycle_events
+        |> Map.new(fn name -> {name, lifecycle_entry} end)
+        |> Map.put("PreToolUse", pre_tool_entry)
+    }
   end
 
   @doc """
@@ -42,6 +52,18 @@ defmodule Aiur.Claude.HookSettings do
     "curl -sS -m 2 -o /dev/null " <>
       "-H 'Content-Type: application/json' -H 'Origin: http://127.0.0.1' -H 'X-Aiur-Request: 1' " <>
       "--data-binary @- " <> single_quote(url) <> " >/dev/null 2>&1; exit 0"
+  end
+
+  @doc "A PreToolUse hook that rejects a mutation when provenance cannot persist."
+  @spec pre_tool_hook_command(String.t(), String.t()) :: String.t()
+  def pre_tool_hook_command(identifier, dashboard_url)
+      when is_binary(identifier) and is_binary(dashboard_url) do
+    url =
+      String.trim_trailing(dashboard_url, "/") <> "/api/v1/#{URI.encode(identifier)}/claude-hook"
+
+    "curl -fsS -m 2 -o /dev/null " <>
+      "-H 'Content-Type: application/json' -H 'Origin: http://127.0.0.1' -H 'X-Aiur-Request: 1' " <>
+      "--data-binary @- " <> single_quote(url) <> " >/dev/null 2>&1 || exit 2; exit 0"
   end
 
   @doc """

@@ -39,7 +39,6 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   @spec build(Issue.t(), Path.t() | nil, String.t() | nil, map(), keyword()) :: (String.t(), map() -> map())
   def build(issue, workspace, worker_host, app_session \\ %{}, opts \\ []) do
     origin_recorder = Keyword.get(opts, :agent_comment_origin_recorder, &AgentCommentOrigins.record/2)
-    origin_transaction = Keyword.get(opts, :agent_comment_origin_transaction, &AgentCommentOrigins.with_lock/1)
     attempt_id = Keyword.get(opts, :attempt_id)
 
     event_handlers = %{
@@ -65,7 +64,21 @@ defmodule Aiur.AgentRunner.ToolExecutor do
           agent_comment_origin_recorder: fn comment ->
             origin_recorder.(issue_number_of(issue), comment)
           end,
-          agent_comment_origin_transaction: origin_transaction
+          agent_comment_origin_begin: fn operation_id ->
+            AgentCommentOrigins.begin_review_thread_reply(issue_number_of(issue), operation_id)
+          end,
+          agent_comment_origin_complete: fn operation_id, comment ->
+            AgentCommentOrigins.complete_review_thread_reply(
+              issue_number_of(issue),
+              operation_id,
+              comment,
+              fn ticket, verified_comment -> origin_recorder.(ticket, verified_comment) end
+            )
+          end,
+          agent_comment_origin_abandon: fn operation_id ->
+            AgentCommentOrigins.abandon_review_thread_reply(issue_number_of(issue), operation_id)
+          end,
+          agent_comment_origin_operation_id: invocation_id()
         ] ++ Keyword.take(opts, [:review_thread_replier, :review_thread_resolver])
 
       DynamicTool.execute(

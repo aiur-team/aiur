@@ -39,6 +39,17 @@ wake path stay intact.
   the exact mutation identity rather than inferring it from a later fetch.
 - R9. A self-comment must not suppress a later human reply in the same review
   thread, and publisher replay must reapply the canonical origin guard.
+- R10. An unreadable provenance ledger resolves as unknown, not external: the
+  poller defers publication and retains its cursor until resolution succeeds.
+- R11. A pending public write is ticket-scoped, expires or reconciles after a
+  crash, and cannot permanently suppress a later trusted human comment.
+- R12. Every supported comment mutation registers durable intent before the
+  network mutation begins, including Codex paths without an approval prompt.
+- R13. Compound public-comment commands either durably record every returned
+  comment identity in one operation or fail closed without claiming success.
+- R14. Provenance storage, command classification, and pending-operation
+  recovery are separately owned, bounded components with ticket-local
+  coordination; no storage lock spans network or shell execution.
 
 ---
 
@@ -92,11 +103,12 @@ wake path stay intact.
 | Decision | Rationale |
 | --- | --- |
 | Match origin by verified comment ID plus ticket, not actor login | The identity is stable across shared-login agent and operator comments. |
-| Persist the record before reporting the reply tool as successful | A restart or poll between reply and lifecycle transition must not lose the guard. |
+| Persist a durable pending intent before the mutation, then finalize exact IDs | A restart or poll between visibility and final recording must quarantine only the affected ticket until recovery. |
 | Attach a positive `agent` origin marker only to exact recorded comments | Unrecorded same-login comments continue through existing CODEOWNERS trust. |
 | Centralize comment actionability in `CommentWake` | All lifecycle and routing callers apply the same provenance rule and log reason. |
 | Preserve mutation identities across every public-write path | Later shared-login comments must never be mistaken for the agent write. |
-| Treat origin persistence failure as a failed agent write | A visible but unrecorded comment is unsafe to report as a successful operation. |
+| Treat unresolved provenance as retryable, never external | A corrupt ledger or interrupted write must not wake a ticket or advance a cursor. |
+| Scope coordination and cleanup by ticket | Independent ticket writes remain concurrent and abandoned operations cannot become permanent suppression. |
 
 ---
 
@@ -116,7 +128,9 @@ sequenceDiagram
   participant CI
 
   Agent->>WriteBoundary: comment or review reply
-  WriteBoundary->>OriginStore: persist exact mutation identity before release
+  WriteBoundary->>OriginStore: persist pending mutation intent
+  WriteBoundary->>Agent: execute public mutation
+  WriteBoundary->>OriginStore: atomically finalize exact returned identities
   Poller->>OriginStore: resolve inbound comment identity
   OriginStore-->>Poller: agent origin marker
   Poller->>Wake: trusted comment event with provenance
@@ -263,10 +277,11 @@ poller can observe them, including Claude's split command/result stream.
 - Test: `src/test/aiur/agent_runner/tool_executor_test.exs`
 - Test: `src/test/aiur/github/agent_comment_origins_test.exs`
 
-**Approach:** Introduce one ticket-bound public-write seam that correlates
-command intent with its completion identity for both backend event shapes. Keep
-the origin lock across mutation visibility and durable persistence, and return
-an actionable failure whenever the public write cannot be recorded.
+**Approach:** Introduce one ticket-bound public-write seam that persists intent
+before a mutation can start, correlates its completion identities for both
+backend event shapes, and finalizes atomically. Never hold a provenance-storage
+lock across network or shell execution; an interrupted operation remains a
+bounded, recoverable ticket-local pending record.
 
 **Patterns to follow:** `Aiur.GitHub.AgentCommentOrigins.with_lock/1` and the
 backend-neutral transcript extraction boundary.
@@ -320,6 +335,90 @@ comment happens to be latest.
 
 **Verification:** Review-thread retries, partial success, and later human
 replies preserve exact provenance and trusted-human wake behavior.
+
+### U6. Split and harden provenance resolution
+
+**Goal:** Make provenance lookup fail closed and recover safely from durable
+state errors or interrupted public writes.
+
+**Requirements:** R10, R11, R14
+
+**Dependencies:** U1
+
+**Files:**
+
+- Modify: `src/lib/aiur/github/agent_comment_origins.ex`
+- Add: `src/lib/aiur/github/agent_comment_origins/store.ex`
+- Add: `src/lib/aiur/github/agent_comment_origins/command.ex`
+- Add: `src/lib/aiur/github/agent_comment_origins/pending.ex`
+- Test: `src/test/aiur/github/agent_comment_origins_test.exs`
+
+**Approach:** Split durable I/O, command classification, and pending-operation
+recovery behind a small facade. Resolve origins as `{:ok, origin}` or a
+structured error; use ticket-scoped state/locks, terminal-record bounds, and a
+short recovery TTL so a crash cannot poison later trusted feedback.
+
+**Test scenarios:**
+
+- Corrupt or unreadable state returns an unresolved result without classifying
+  the comment as external.
+- Restarted or expired pending state releases a distinct later human comment.
+- Concurrent writes for different tickets do not serialize, while writes for
+  one ticket remain atomic.
+
+**Verification:** State errors and abandoned work are observable, bounded, and
+cannot silently wake a ticket.
+
+### U7. Defer inbound delivery until origin resolution succeeds
+
+**Goal:** Retain poll cursors and bootstrap/replay safety whenever provenance
+cannot be resolved.
+
+**Requirements:** R4, R6, R10
+
+**Dependencies:** U2, U6
+
+**Files:**
+
+- Modify: `src/lib/aiur/events/github_comments_poller.ex`
+- Modify: `src/lib/aiur/agent_runner/comment_context.ex`
+- Modify: `src/lib/aiur/run_telemetry/github_enricher.ex`
+- Test: `src/test/aiur/events/github_comments_poller_test.exs`
+- Test: `src/test/aiur/agent_runner/comment_context_test.exs`
+
+**Approach:** Publish only resolved `agent` or `external` origins. On unknown
+or store error, log the reason, return a retryable polling error, and leave the
+affected cursor unchanged; bootstrap and telemetry treat unknown as
+non-actionable.
+
+**Verification:** A transient provenance failure cannot become trusted feedback
+or be lost past the polling cursor.
+
+### U8. Cover pre-execution and compound mutation boundaries
+
+**Goal:** Prevent every public comment path from becoming visible before it has
+durable intent, and preserve every mutation identity.
+
+**Requirements:** R7, R8, R12, R13, R14
+
+**Dependencies:** U4, U5, U6
+
+**Files:**
+
+- Modify: `src/lib/aiur/agent_runner/message_handler.ex`
+- Modify: `src/lib/aiur/agent_runner/tool_executor.ex`
+- Modify: `src/lib/aiur/codex/dynamic_tool/review_threads.ex`
+- Test: `src/test/aiur/agent_runner/message_handler_test.exs`
+- Test: `src/test/aiur/agent_runner/tool_executor_test.exs`
+- Test: `src/test/aiur/codex/dynamic_tool/review_threads_test.exs`
+
+**Approach:** Locate the acknowledged pre-execution signal for Codex
+no-approval commands and bind durable intent there. For compound commands,
+extract every returned ID and finalize all of them together; incomplete output
+is an explicit failure that leaves only bounded recovery state.
+
+**Verification:** Concurrent pollers cannot observe an unregistered supported
+write, including a no-approval command, review reply, or multi-comment command.
 
 ---
 

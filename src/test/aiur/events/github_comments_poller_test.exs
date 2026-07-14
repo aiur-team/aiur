@@ -110,6 +110,102 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
     stop_codeowners(codeowners)
   end
 
+  test "defers a corrupt provenance lookup without advancing the poll cursor" do
+    path = Path.join(System.tmp_dir!(), "aiur-comment-poller-corrupt-#{System.unique_integer([:positive])}.json")
+    previous_path = Application.get_env(:aiur, :agent_comment_origins_path)
+    Application.put_env(:aiur, :agent_comment_origins_path, path)
+    :ok = File.write(path, "not json")
+
+    on_exit(fn ->
+      File.rm_rf(path <> ".tickets")
+      File.rm(path)
+
+      if previous_path do
+        Application.put_env(:aiur, :agent_comment_origins_path, previous_path)
+      else
+        Application.delete_env(:aiur, :agent_comment_origins_path)
+      end
+    end)
+
+    request_fun = fn %{url: url} ->
+      cond do
+        String.contains?(url, "/issues/42/comments?") ->
+          {:ok,
+           %{
+             status: 200,
+             body: [
+               %{
+                 "id" => 1013,
+                 "body" => "must not become trusted while provenance is corrupt",
+                 "updated_at" => "2026-06-24T12:00:00Z",
+                 "user" => %{"login" => "its-everdred"}
+               }
+             ]
+           }}
+
+        String.contains?(url, "/pulls?") ->
+          {:ok, %{status: 200, body: []}}
+      end
+    end
+
+    assert {:ok, %{count: 0, since: %{"42" => "2026-06-24T11:00:00Z"}, errors: errors}} =
+             GithubCommentsPoller.poll(["42"],
+               since: "2026-06-24T11:00:00Z",
+               repo: "owner/repo",
+               request_fun: request_fun
+             )
+
+    assert [{"42", {:origin_unresolved, {:store_read_failed, _reason}}}] = errors
+  end
+
+  test "defers parseable but invalid provenance state without advancing the poll cursor" do
+    path = Path.join(System.tmp_dir!(), "aiur-comment-poller-invalid-#{System.unique_integer([:positive])}.json")
+    previous_path = Application.get_env(:aiur, :agent_comment_origins_path)
+    Application.put_env(:aiur, :agent_comment_origins_path, path)
+    :ok = File.write(path, ~s({"origins":{"42":"not-a-list"},"pending":{}}))
+
+    on_exit(fn ->
+      File.rm_rf(path <> ".tickets")
+      File.rm(path)
+
+      if previous_path do
+        Application.put_env(:aiur, :agent_comment_origins_path, previous_path)
+      else
+        Application.delete_env(:aiur, :agent_comment_origins_path)
+      end
+    end)
+
+    request_fun = fn %{url: url} ->
+      cond do
+        String.contains?(url, "/issues/42/comments?") ->
+          {:ok,
+           %{
+             status: 200,
+             body: [
+               %{
+                 "id" => 1014,
+                 "body" => "must not become trusted while provenance shape is invalid",
+                 "updated_at" => "2026-06-24T12:00:00Z",
+                 "user" => %{"login" => "its-everdred"}
+               }
+             ]
+           }}
+
+        String.contains?(url, "/pulls?") ->
+          {:ok, %{status: 200, body: []}}
+      end
+    end
+
+    assert {:ok, %{count: 0, since: %{"42" => "2026-06-24T11:00:00Z"}, errors: errors}} =
+             GithubCommentsPoller.poll(["42"],
+               since: "2026-06-24T11:00:00Z",
+               repo: "owner/repo",
+               request_fun: request_fun
+             )
+
+    assert [{"42", {:origin_unresolved, :invalid_origins}}] = errors
+  end
+
   test "skips Agent Workpad issue comments" do
     :ok = Exchange.subscribe("ticket.42.issue.commented")
     codeowners = ensure_codeowners!("* @its-everdred\n")
@@ -247,7 +343,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
                     }},
                    500
 
-    assert AgentCommentOrigins.origin("42", %{"id" => comment_id + 1}) == :external
+    assert AgentCommentOrigins.origin("42", %{"id" => comment_id + 1}) == {:ok, :external}
     stop_codeowners(codeowners)
   end
 

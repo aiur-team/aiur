@@ -2,7 +2,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   @moduledoc false
   require Logger
   alias Aiur.{AgentPubSub, CodingAgent, Config, Issue, Tracker}
-  alias Aiur.AgentRunner.{SessionResume, TurnLoop}
+  alias Aiur.AgentRunner.{MessageHandler, SessionResume, TurnLoop}
   alias Aiur.Claude.DisplayTailer
   alias Aiur.RunTelemetry.Lifecycle
   @type worker_host :: String.t() | nil
@@ -200,8 +200,12 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
       # shared run recipient), so a `from: :start` backfill burst would hammer
       # both. The pane render only needs the transcript broadcast.
       on_message = fn
-        %{transcript_event: event} -> AgentPubSub.broadcast_transcript(identifier, event)
-        _ -> :ok
+        %{transcript_event: event} = message ->
+          _ = MessageHandler.observe_agent_comment_origin(identifier, backend, message)
+          AgentPubSub.broadcast_transcript(identifier, event)
+
+        _ ->
+          :ok
       end
 
       case DisplayTailer.start(

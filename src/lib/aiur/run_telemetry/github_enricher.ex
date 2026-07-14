@@ -8,6 +8,8 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
   to apply the normal trust and benign-review rules and are never returned.
   """
 
+  require Logger
+
   alias Aiur.GitHub.{AgentCommentOrigins, CodeOwners, Config, Transport}
   alias Aiur.Orchestrator.CommentWake
   alias Aiur.RunTelemetry.Lifecycle
@@ -266,20 +268,26 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
     author = get_in(comment, ["user", "login"])
     trusted? = author_allowed?(trusted_author_fun, author)
 
-    candidate = %{
-      id: "comment:#{Map.get(comment, "id")}",
-      topic: "ticket.#{ticket}.#{topic_suffix}",
-      source: :github,
-      author: author,
-      author_trusted?: trusted?,
-      comment_origin: comment_origin(ticket, comment, comment_origin_resolver),
-      comment: comment
-    }
+    with {:ok, origin} <- comment_origin(ticket, comment, comment_origin_resolver) do
+      candidate = %{
+        id: "comment:#{Map.get(comment, "id")}",
+        topic: "ticket.#{ticket}.#{topic_suffix}",
+        source: :github,
+        author: author,
+        author_trusted?: trusted?,
+        comment_origin: origin,
+        comment: comment
+      }
 
-    if actionable_comment?(comment) and CommentWake.actionable_trusted_comment_event?(candidate) do
-      [%{candidate | comment: comment_payload(comment)}]
+      if actionable_comment?(comment) and CommentWake.actionable_trusted_comment_event?(candidate) do
+        [%{candidate | comment: comment_payload(comment)}]
+      else
+        []
+      end
     else
-      []
+      {:error, reason} ->
+        Logger.warning("github_enricher deferred unresolved comment origin: ticket=#{ticket} reason=#{inspect(reason)}")
+        []
     end
   end
 
@@ -287,9 +295,16 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
 
   defp comment_origin(ticket, comment, resolver) do
     case resolver.(ticket, comment) do
-      :agent -> "agent"
-      "agent" -> "agent"
-      _ -> "external"
+      {:ok, :agent} -> {:ok, "agent"}
+      {:ok, "agent"} -> {:ok, "agent"}
+      {:ok, :external} -> {:ok, "external"}
+      {:ok, "external"} -> {:ok, "external"}
+      :agent -> {:ok, "agent"}
+      "agent" -> {:ok, "agent"}
+      :external -> {:ok, "external"}
+      "external" -> {:ok, "external"}
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:invalid_origin_resolver_result, other}}
     end
   end
 

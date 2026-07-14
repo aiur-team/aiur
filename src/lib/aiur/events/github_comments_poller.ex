@@ -143,13 +143,13 @@ defmodule Aiur.Events.GithubCommentsPoller do
   defp poll_issue_comments(target, since, repo, opts) do
     case Client.fetch_issue_comments(target, Keyword.put(opts, :since, since)) do
       {:ok, comments} ->
-        count =
+        results =
           comments
           |> Enum.reject(&CommentFilter.agent_workpad?/1)
           |> Enum.map(&publish_issue_comment(target, &1, repo))
-          |> Enum.count(&match?({:ok, _, _}, &1))
 
-        {count, newest_comment_datetime(comments), :ok}
+        count = Enum.count(results, &match?({:ok, _, _}, &1))
+        {count, newest_comment_datetime(comments), collect_publish_result(results)}
 
       {:error, reason} ->
         Logger.warning("GithubCommentsPoller issue comments failed: issue=#{target} reason=#{inspect(reason)}")
@@ -216,16 +216,19 @@ defmodule Aiur.Events.GithubCommentsPoller do
   defp poll_pr_issue_comments(target, pr_number, since, repo, opts) do
     case Client.fetch_issue_comments(pr_number, Keyword.put(opts, :since, since)) do
       {:ok, comments} ->
-        count =
+        results =
           comments
           |> Enum.reject(&CommentFilter.agent_workpad?/1)
           |> Enum.map(&publish_pr_issue_comment(target, pr_number, &1, repo))
-          |> Enum.count(&match?({:ok, _, _}, &1))
 
-        {count, newest_comment_datetime(comments), :ok}
+        count = Enum.count(results, &match?({:ok, _, _}, &1))
+        {count, newest_comment_datetime(comments), collect_publish_result(results)}
 
       {:error, reason} ->
-        Logger.warning("GithubCommentsPoller PR conversation comments failed: issue=#{target} pr=#{pr_number} reason=#{inspect(reason)}")
+        Logger.warning(
+          "GithubCommentsPoller PR conversation comments failed: " <>
+            "issue=#{target} pr=#{pr_number} reason=#{inspect(reason)}"
+        )
 
         {0, nil, {:error, {:pr_issue_comments, reason}}}
     end
@@ -234,15 +237,17 @@ defmodule Aiur.Events.GithubCommentsPoller do
   defp poll_unaddressed_pr_review_threads(target, pr_number, repo, opts) do
     case Client.fetch_unaddressed_pr_review_thread_comments(pr_number, opts) do
       {:ok, comments} ->
-        count =
+        results =
           comments
           |> Enum.map(&publish_pr_review_comment(target, pr_number, &1, repo))
-          |> Enum.count(&match?({:ok, _, _}, &1))
 
-        {count, :ok}
+        {Enum.count(results, &match?({:ok, _, _}, &1)), collect_publish_result(results)}
 
       {:error, reason} ->
-        Logger.warning("GithubCommentsPoller PR review threads failed: issue=#{target} pr=#{pr_number} reason=#{inspect(reason)}")
+        Logger.warning(
+          "GithubCommentsPoller PR review threads failed: " <>
+            "issue=#{target} pr=#{pr_number} reason=#{inspect(reason)}"
+        )
 
         {0, {:error, {:pr_review_threads, reason}}}
     end
@@ -292,19 +297,36 @@ defmodule Aiur.Events.GithubCommentsPoller do
 
   defp publish_comment(topic, payload, actor, publish_opts) do
     target = Keyword.fetch!(publish_opts, :issue_number)
-    origin = AgentCommentOrigins.origin(target, Map.get(payload, :comment, %{}))
 
-    sanitized =
-      payload
-      |> Map.put(:comment_origin, Atom.to_string(origin))
-      |> Sanitizer.github_payload(actor)
+    case AgentCommentOrigins.origin(target, Map.get(payload, :comment, %{})) do
+      {:ok, origin} ->
+        sanitized =
+          payload
+          |> Map.put(:comment_origin, Atom.to_string(origin))
+          |> Sanitizer.github_payload(actor)
 
-    publish_opts =
-      publish_opts
-      |> Keyword.put(:actor, actor)
-      |> Keyword.put(:bypass_contamination, true)
+        publish_opts =
+          publish_opts
+          |> Keyword.put(:actor, actor)
+          |> Keyword.put(:bypass_contamination, true)
 
-    Publisher.publish(topic, sanitized, publish_opts)
+        Publisher.publish(topic, sanitized, publish_opts)
+
+      {:error, reason} ->
+        Logger.warning(
+          "GithubCommentsPoller deferred comment pending provenance resolution: " <>
+            "issue=#{target} topic=#{topic} reason=#{inspect(reason)}"
+        )
+
+        {:error, {:origin_unresolved, reason}}
+    end
+  end
+
+  defp collect_publish_result(results) do
+    case Enum.find(results, &match?({:error, _}, &1)) do
+      nil -> :ok
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp collect_errors(results) do

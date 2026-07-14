@@ -51,7 +51,9 @@ defmodule Aiur.Codex.DynamicTool.ReviewThreads do
       },
       "terminal_reply_body" => %{
         "type" => "string",
-        "description" => "Exact body of the already-verified terminal agent reply that should be latest before resolving."
+        "description" =>
+          "Exact body of the already-verified terminal agent reply " <>
+            "that should be latest before resolving."
       }
     }
   }
@@ -84,10 +86,14 @@ defmodule Aiur.Codex.DynamicTool.ReviewThreads do
       Keyword.get(opts, :review_thread_replier, &GitHubClient.reply_to_review_thread/3)
 
     origin_transaction = Keyword.get(opts, :agent_comment_origin_transaction, &run_without_lock/1)
+    operation_id = origin_operation_id(opts)
 
     with {:ok, review_thread_id, body} <- normalize_reply_review_thread_arguments(arguments),
+         :ok <- begin_reply_origin(operation_id, opts),
          {:ok, response} <-
-           origin_transaction.(fn -> reply_and_record(review_thread_replier, review_thread_id, body, opts) end) do
+           origin_transaction.(fn ->
+             reply_and_record(review_thread_replier, review_thread_id, body, operation_id, opts)
+           end) do
       Response.build(true, Response.encode_payload(response))
     else
       {:error, reason} ->
@@ -142,25 +148,26 @@ defmodule Aiur.Codex.DynamicTool.ReviewThreads do
   def normalize_resolve_review_thread_arguments(_arguments),
     do: {:error, :invalid_review_thread_resolution_arguments}
 
-  defp record_verified_reply_origin(response, opts) do
-    case Keyword.get(opts, :agent_comment_origin_recorder) do
-      recorder when is_function(recorder, 1) ->
-        with {:ok, published_comment} <- published_comment(response) do
-          record_reply_origin(published_comment, opts)
-        end
-
-      _no_ticket_bound_recorder ->
-        :ok
+  defp record_verified_reply_origin(response, operation_id, opts) do
+    if origin_recorder_configured?(opts) do
+      with {:ok, published_comment} <- published_comment(response) do
+        record_reply_origin(published_comment, operation_id, opts)
+      end
+    else
+      :ok
     end
   end
 
-  defp reply_and_record(review_thread_replier, review_thread_id, body, opts) do
+  defp reply_and_record(review_thread_replier, review_thread_id, body, operation_id, opts) do
     case review_thread_replier.(review_thread_id, body, []) do
       {:ok, response} ->
-        with :ok <- record_verified_reply_origin(response, opts), do: {:ok, response}
+        with :ok <- record_verified_reply_origin(response, operation_id, opts), do: {:ok, response}
 
       {:error, reason} ->
-        with :ok <- record_failed_reply_origin(reason, opts), do: {:error, reason}
+        case record_failed_reply_origin(reason, operation_id, opts) do
+          :ok -> {:error, reason}
+          {:error, _origin_reason} = error -> error
+        end
     end
   end
 
@@ -174,22 +181,38 @@ defmodule Aiur.Codex.DynamicTool.ReviewThreads do
 
   defp published_comment(_response), do: {:error, :published_comment_missing}
 
-  defp record_failed_reply_origin({:review_thread_reply_not_verified, details}, opts) when is_map(details) do
-    case Keyword.get(opts, :agent_comment_origin_recorder) do
-      recorder when is_function(recorder, 1) ->
-        case Map.get(details, :published_comment) || Map.get(details, "published_comment") do
-          %{} = comment -> record_reply_origin(comment, opts)
-          _ -> {:error, {:agent_comment_origin_not_recorded, :published_comment_missing}}
-        end
-
-      _no_ticket_bound_recorder ->
-        :ok
+  defp record_failed_reply_origin({:review_thread_reply_not_verified, details}, operation_id, opts)
+       when is_map(details) do
+    case Map.get(details, :published_comment) || Map.get(details, "published_comment") do
+      %{} = comment -> record_reply_origin(comment, operation_id, opts)
+      _ -> :ok
     end
   end
 
-  defp record_failed_reply_origin(_reason, _opts), do: :ok
+  # A transport failure after request dispatch is ambiguous: GitHub can have
+  # committed the reply even though the client did not receive its identity.
+  # Preserve durable intent for bounded reconciliation rather than allowing a
+  # later poller to classify that reply as trusted external feedback.
+  defp record_failed_reply_origin(_reason, _operation_id, _opts), do: :ok
 
-  defp record_reply_origin(comment, opts) when is_map(comment) do
+  defp record_reply_origin(comment, operation_id, opts) when is_map(comment) do
+    case Keyword.get(opts, :agent_comment_origin_complete) do
+      complete when is_function(complete, 2) ->
+        case complete.(operation_id, comment) do
+          :ok -> :ok
+          {:error, reason} -> {:error, {:agent_comment_origin_not_recorded, reason}}
+          other -> {:error, {:agent_comment_origin_not_recorded, other}}
+        end
+
+      _no_ticket_bound_completer ->
+        record_reply_origin_with_recorder(comment, opts)
+    end
+  end
+
+  defp record_reply_origin(_comment, _operation_id, _opts),
+    do: {:error, {:agent_comment_origin_not_recorded, :published_comment_missing}}
+
+  defp record_reply_origin_with_recorder(comment, opts) do
     case Keyword.get(opts, :agent_comment_origin_recorder) do
       recorder when is_function(recorder, 1) ->
         case recorder.(comment) do
@@ -203,6 +226,23 @@ defmodule Aiur.Codex.DynamicTool.ReviewThreads do
     end
   end
 
-  defp record_reply_origin(_comment, _opts),
-    do: {:error, {:agent_comment_origin_not_recorded, :published_comment_missing}}
+  defp begin_reply_origin(operation_id, opts) do
+    case Keyword.get(opts, :agent_comment_origin_begin) do
+      begin_origin when is_function(begin_origin, 1) -> begin_origin.(operation_id)
+      _no_ticket_bound_begin -> :ok
+    end
+  end
+
+  defp origin_operation_id(opts) do
+    case Keyword.get(opts, :agent_comment_origin_operation_id) do
+      id when is_binary(id) and id != "" -> id
+      id when is_integer(id) -> Integer.to_string(id)
+      _other -> "review-thread-#{System.unique_integer([:positive])}"
+    end
+  end
+
+  defp origin_recorder_configured?(opts) do
+    is_function(Keyword.get(opts, :agent_comment_origin_complete), 2) or
+      is_function(Keyword.get(opts, :agent_comment_origin_recorder), 1)
+  end
 end

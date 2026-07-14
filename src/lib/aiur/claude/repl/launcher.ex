@@ -46,18 +46,19 @@ defmodule Aiur.Claude.Repl.Launcher do
       opts: opts
     }
 
-    # RC sessions emit no structured stdout, so turn detection rides on Claude
-    # lifecycle hooks POSTed to Aiur.HttpServer. Never start RC without that
-    # capability: model:remote tickets and live promotion can opt into RC after
-    # application boot, beyond the launcher's static config compatibility check.
+    # Ticket-scoped REPL sessions need lifecycle hooks before they may execute
+    # commands: both RC and local REPL output can expose a public comment to
+    # the poller before transcript observation would otherwise record it.
+    hooks? = is_binary(Keyword.get(opts, :identifier))
+
     settings_path =
       opts
       |> Keyword.get(:hook_settings_fun, &Command.maybe_hook_settings/2)
-      |> then(& &1.(rc?, Keyword.get(opts, :identifier)))
+      |> then(& &1.(hooks?, Keyword.get(opts, :identifier)))
 
-    if rc? and not is_binary(settings_path) do
-      Logger.error("claude-repl remote-control requires a bound Aiur.HttpServer lifecycle-hook listener")
-      {:error, :remote_control_requires_dashboard}
+    if hooks? and not is_binary(settings_path) do
+      Logger.error("claude-repl ticket session requires a bound Aiur.HttpServer lifecycle-hook listener")
+      {:error, :pre_tool_provenance_unavailable}
     else
       do_start_session(ctx, settings_path)
     end

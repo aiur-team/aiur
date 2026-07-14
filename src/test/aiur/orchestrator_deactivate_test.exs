@@ -548,7 +548,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
                  0
                )
 
-      assert AgentCommentOrigins.origin(identifier, %{"id" => comment_id}) == :agent
+      assert AgentCommentOrigins.origin(identifier, %{"id" => comment_id}) == {:ok, :agent}
 
       :ok = SubscriptionStore.attach(identifier)
       :ok = SubscriptionStore.add_subscription(identifier, "ticket.#{identifier}.#", "test:ci-wait")

@@ -8,6 +8,22 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
   alias Aiur.Issue
   alias Aiur.Workflow
 
+  test "ticket-identified headless sessions fail closed without a pre-tool provenance bridge" do
+    root = Path.join(System.tmp_dir!(), "aiur_claude_provenance_#{System.unique_integer([:positive])}")
+    workspace = Path.join(root, "agent-1")
+    File.mkdir_p!(workspace)
+    on_exit(fn -> File.rm_rf(root) end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_kind: "claude",
+      workspace_root: root,
+      command: "false"
+    )
+
+    assert {:error, :claude_pre_tool_provenance_required} =
+             ClaudeAgent.start_session(workspace, identifier: "test:provenance")
+  end
+
   test "spawned claude shell receives the AIUR_AGENT_WORKSPACE guard var" do
     root = Path.join(System.tmp_dir!(), "aiur_claude_env_#{System.unique_integer([:positive])}")
     workspace = Path.join(root, "agent-1")

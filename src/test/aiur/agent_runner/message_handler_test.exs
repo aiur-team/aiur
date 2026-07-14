@@ -3,6 +3,7 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
 
   alias Aiur.{AgentPubSub, Issue}
   alias Aiur.AgentRunner.MessageHandler
+  alias Aiur.AgentEvents
   alias Aiur.GitHub.AgentCommentOrigins
 
   setup do
@@ -190,8 +191,8 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
                  }
                })
 
-      reader = Task.async(fn -> AgentCommentOrigins.origin(issue.identifier, %{"id" => comment_id}) end)
-      assert Task.yield(reader, 100) == nil
+      assert {:error, {:pending_origin_recovery, _operation_ids}} =
+               AgentCommentOrigins.origin(issue.identifier, %{"id" => comment_id})
 
       assert :ok =
                handler.(%{
@@ -210,7 +211,57 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
                  }
                })
 
-      assert :agent = Task.await(reader, 2_000)
+      assert AgentCommentOrigins.origin(issue.identifier, %{"id" => comment_id}) == {:ok, :agent}
+    end
+
+    test "records a legacy Codex command approval before its public comment starts" do
+      issue = %Issue{id: "gid-mh-legacy", identifier: "MH-legacy"}
+      operation_id = "legacy-public-comment-#{System.unique_integer([:positive])}"
+      handler = MessageHandler.build(nil, issue, nil, nil, "codex")
+
+      assert :ok =
+               handler.(%{
+                 event: :command_execution_preapproved,
+                 payload: %{
+                   id: operation_id,
+                   method: "execCommandApproval",
+                   params: %{command: "gh pr comment 1153 --body 'Resolved.'"}
+                 }
+               })
+
+      assert {:error, {:pending_origin_recovery, [^operation_id]}} =
+               AgentCommentOrigins.origin(issue.identifier, %{"id" => 70_016})
+    end
+
+    test "completes a Claude transcript result from a durable pre-tool operation" do
+      issue = %Issue{id: "gid-mh-claude", identifier: "MH-claude"}
+      operation_id = "toolu-#{System.unique_integer([:positive])}"
+      comment_id = System.unique_integer([:positive])
+
+      assert :ok =
+               AgentCommentOrigins.begin_gh_pr_comment(
+                 issue.identifier,
+                 "gh pr comment 1153 --body 'Resolved.'",
+                 operation_id
+               )
+
+      handler = MessageHandler.build(nil, issue, nil, nil, "claude-repl")
+
+      assert :ok =
+               handler.(%{
+                 event: :transcript,
+                 transcript_event:
+                   AgentEvents.transcript_event(:tool, "tool result",
+                     payload: %{
+                       tool: "result",
+                       output: "https://github.com/owner/repo/pull/1153#issuecomment-#{comment_id}\n",
+                       exit_code: 0,
+                       operation_id: operation_id
+                     }
+                   )
+               })
+
+      assert AgentCommentOrigins.origin(issue.identifier, %{"id" => comment_id}) == {:ok, :agent}
     end
 
     test "keeps a durable agent-origin quarantine after recording failure" do
@@ -271,7 +322,94 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
         end)
 
       assert {:error, {:agent_comment_origin_not_recorded, :disk_full}} = Task.await(task, 2_000)
-      assert AgentCommentOrigins.origin(issue.identifier, %{"id" => comment_id}) == :agent
+
+      assert {:error, {:pending_origin_recovery, _operation_ids}} =
+               AgentCommentOrigins.origin(issue.identifier, %{"id" => comment_id})
+    end
+
+    test "registers Codex session-approved comments that have no approval event" do
+      issue = %Issue{id: "gid-mh-no-approval", identifier: "MH-no-approval"}
+      comment_id = System.unique_integer([:positive])
+      operation_id = "public-comment-no-approval-#{comment_id}"
+      handler = MessageHandler.build(nil, issue, nil, nil, "codex")
+
+      assert :ok =
+               handler.(%{
+                 event: :notification,
+                 payload: %{
+                   method: "item/started",
+                   params: %{
+                     item: %{
+                       id: operation_id,
+                       type: "commandExecution",
+                       command: "gh pr comment 1153 --body 'Resolved without a prompt.'"
+                     }
+                   }
+                 }
+               })
+
+      assert {:error, {:pending_origin_recovery, [^operation_id]}} =
+               AgentCommentOrigins.origin(issue.identifier, %{"id" => comment_id})
+
+      assert :ok =
+               handler.(%{
+                 event: :notification,
+                 payload: %{
+                   method: "item/completed",
+                   params: %{
+                     item: %{
+                       id: operation_id,
+                       type: "commandExecution",
+                       command: "gh pr comment 1153 --body 'Resolved without a prompt.'",
+                       aggregatedOutput: "https://github.com/owner/repo/pull/1153#issuecomment-#{comment_id}\n",
+                       exitCode: 0
+                     }
+                   }
+                 }
+               })
+
+      assert AgentCommentOrigins.origin(issue.identifier, %{"id" => comment_id}) == {:ok, :agent}
+    end
+
+    test "records a visible top-level comment even when a later shell segment fails" do
+      issue = %Issue{id: "gid-mh-partial", identifier: "MH-partial"}
+      comment_id = System.unique_integer([:positive])
+      operation_id = "public-comment-partial-#{comment_id}"
+      handler = MessageHandler.build(nil, issue, nil, nil, "codex")
+
+      assert :ok =
+               handler.(%{
+                 event: :notification,
+                 payload: %{
+                   method: "item/started",
+                   params: %{
+                     item: %{
+                       id: operation_id,
+                       type: "commandExecution",
+                       command: "gh pr comment 1153 --body 'Resolved.'"
+                     }
+                   }
+                 }
+               })
+
+      assert :ok =
+               handler.(%{
+                 event: :notification,
+                 payload: %{
+                   method: "item/completed",
+                   params: %{
+                     item: %{
+                       id: operation_id,
+                       type: "commandExecution",
+                       command: "gh pr comment 1153 --body 'Resolved.'",
+                       aggregatedOutput: "https://github.com/owner/repo/pull/1153#issuecomment-#{comment_id}\n",
+                       exitCode: 1
+                     }
+                   }
+                 }
+               })
+
+      assert AgentCommentOrigins.origin(issue.identifier, %{"id" => comment_id}) == {:ok, :agent}
     end
 
     test "correlates Claude's split Bash command and result notifications" do

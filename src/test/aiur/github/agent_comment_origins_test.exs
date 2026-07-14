@@ -8,15 +8,23 @@ defmodule Aiur.GitHub.AgentCommentOriginsTest do
   setup do
     path = Path.join(System.tmp_dir!(), "aiur-agent-comment-origins-#{System.unique_integer([:positive])}.json")
     previous_path = Application.get_env(:aiur, :agent_comment_origins_path)
+    previous_ttl = Application.get_env(:aiur, :agent_comment_origin_pending_ttl_ms)
     Application.put_env(:aiur, :agent_comment_origins_path, path)
 
     on_exit(fn ->
       File.rm(path)
+      File.rm_rf(path <> ".tickets")
 
       if previous_path do
         Application.put_env(:aiur, :agent_comment_origins_path, previous_path)
       else
         Application.delete_env(:aiur, :agent_comment_origins_path)
+      end
+
+      if previous_ttl do
+        Application.put_env(:aiur, :agent_comment_origin_pending_ttl_ms, previous_ttl)
+      else
+        Application.delete_env(:aiur, :agent_comment_origin_pending_ttl_ms)
       end
     end)
 
@@ -25,9 +33,9 @@ defmodule Aiur.GitHub.AgentCommentOriginsTest do
 
   test "records exact verified comment IDs by ticket and reloads them from disk" do
     assert :ok = AgentCommentOrigins.record("42", %{"id" => 7001})
-    assert AgentCommentOrigins.origin("42", %{"id" => 7001}) == :agent
-    assert AgentCommentOrigins.origin("42", %{"id" => 7002}) == :external
-    assert AgentCommentOrigins.origin("43", %{"id" => 7001}) == :external
+    assert AgentCommentOrigins.origin("42", %{"id" => 7001}) == {:ok, :agent}
+    assert AgentCommentOrigins.origin("42", %{"id" => 7002}) == {:ok, :external}
+    assert AgentCommentOrigins.origin("43", %{"id" => 7001}) == {:ok, :external}
   end
 
   test "filters an atom agent origin through the default comment-context resolver" do
@@ -48,7 +56,12 @@ defmodule Aiur.GitHub.AgentCommentOriginsTest do
   end
 
   test "uses stable decision state across a daemon restart" do
-    decision_dir = Path.join(System.tmp_dir!(), "aiur-agent-comment-origins-state-#{System.unique_integer([:positive])}")
+    decision_dir =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-agent-comment-origins-state-#{System.unique_integer([:positive])}"
+      )
+
     previous_path = Application.get_env(:aiur, :agent_comment_origins_path)
     previous_decision_dir = Application.get_env(:aiur, :decision_state_dir)
 
@@ -75,7 +88,7 @@ defmodule Aiur.GitHub.AgentCommentOriginsTest do
     assert path == Path.join(decision_dir, "agent-comment-origins.json")
     assert :ok = AgentCommentOrigins.record("42", %{"id" => 7004})
 
-    assert :agent =
+    assert {:ok, :agent} =
              Task.async(fn -> AgentCommentOrigins.origin("42", %{"id" => 7004}) end)
              |> Task.await()
   end
@@ -85,7 +98,7 @@ defmodule Aiur.GitHub.AgentCommentOriginsTest do
     output = "https://github.com/its-everdred/aiur/pull/1153#issuecomment-7005\n"
 
     assert :ok = AgentCommentOrigins.record_gh_pr_comment("42", command, output, 0)
-    assert AgentCommentOrigins.origin("42", %{"id" => 7005}) == :agent
+    assert AgentCommentOrigins.origin("42", %{"id" => 7005}) == {:ok, :agent}
   end
 
   test "records a PR conversation comment posted through gh api" do
@@ -93,7 +106,7 @@ defmodule Aiur.GitHub.AgentCommentOriginsTest do
     output = ~s({"html_url":"https://github.com/its-everdred/aiur/pull/1153#issuecomment-7006"}\n)
 
     assert :ok = AgentCommentOrigins.record_gh_pr_comment("42", command, output, 0)
-    assert AgentCommentOrigins.origin("42", %{"id" => 7006}) == :agent
+    assert AgentCommentOrigins.origin("42", %{"id" => 7006}) == {:ok, :agent}
   end
 
   test "records a PR conversation comment posted through a quoted gh api path" do
@@ -101,7 +114,7 @@ defmodule Aiur.GitHub.AgentCommentOriginsTest do
     output = ~s({"id":70061}\n)
 
     assert :ok = AgentCommentOrigins.record_gh_pr_comment("42", command, output, 0)
-    assert AgentCommentOrigins.origin("42", %{"id" => 70_061}) == :agent
+    assert AgentCommentOrigins.origin("42", %{"id" => 70_061}) == {:ok, :agent}
   end
 
   test "records a gh api comment response that returns only its ID" do
@@ -109,10 +122,37 @@ defmodule Aiur.GitHub.AgentCommentOriginsTest do
     output = ~s({"id":7007}\n)
 
     assert :ok = AgentCommentOrigins.record_gh_pr_comment("42", command, output, 0)
-    assert AgentCommentOrigins.origin("42", %{"id" => 7007}) == :agent
+    assert AgentCommentOrigins.origin("42", %{"id" => 7007}) == {:ok, :agent}
   end
 
-  test "does not record unrelated or unsuccessful GitHub commands" do
+  test "records a gh api query response that returns only the exact comment ID" do
+    command = "gh api -XPOST repos/its-everdred/aiur/issues/1153/comments -f body='Resolved.' -q .id"
+
+    assert :ok = AgentCommentOrigins.record_gh_pr_comment("42", command, "7008\n", 0)
+    assert AgentCommentOrigins.origin("42", %{"id" => 7008}) == {:ok, :agent}
+  end
+
+  test "uses only the top-level API mutation identity" do
+    command = "gh api -XPOST repos/its-everdred/aiur/issues/1153/comments -f body='Resolved.'"
+    output = ~s({"id":7009,"user":{"id":7010}}\n)
+
+    assert :ok = AgentCommentOrigins.record_gh_pr_comment("42", command, output, 0)
+    assert AgentCommentOrigins.origin("42", %{"id" => 7009}) == {:ok, :agent}
+    assert AgentCommentOrigins.origin("42", %{"id" => 7010}) == {:ok, :external}
+  end
+
+  test "uses a top-level JSON mutation ID before URLs nested in its response" do
+    command = "gh api -XPOST repos/its-everdred/aiur/issues/1153/comments -f body='Resolved.'"
+
+    output =
+      ~s({"id":7012,"body":"prior https://github.com/owner/repo/pull/1#issuecomment-7013"}\n)
+
+    assert :ok = AgentCommentOrigins.record_gh_pr_comment("42", command, output, 0)
+    assert AgentCommentOrigins.origin("42", %{"id" => 7012}) == {:ok, :agent}
+    assert AgentCommentOrigins.origin("42", %{"id" => 7013}) == {:ok, :external}
+  end
+
+  test "does not record unrelated commands and preserves a visible failed mutation" do
     assert :ignored =
              AgentCommentOrigins.record_gh_pr_comment(
                "42",
@@ -121,7 +161,7 @@ defmodule Aiur.GitHub.AgentCommentOriginsTest do
                0
              )
 
-    assert :ignored =
+    assert :ok =
              AgentCommentOrigins.record_gh_pr_comment(
                "42",
                "gh pr comment 1153 --body 'Resolved the review.'",
@@ -129,7 +169,7 @@ defmodule Aiur.GitHub.AgentCommentOriginsTest do
                1
              )
 
-    assert AgentCommentOrigins.origin("42", %{"id" => 7008}) == :external
+    assert AgentCommentOrigins.origin("42", %{"id" => 7008}) == {:ok, :agent}
   end
 
   test "surfaces a successful PR comment response with no durable identity" do
@@ -142,84 +182,157 @@ defmodule Aiur.GitHub.AgentCommentOriginsTest do
              )
   end
 
+  test "rejects compound public-comment commands before they can create ambiguous provenance" do
+    command = "gh pr comment 1153 --body 'first' && gh pr comment 1153 --body 'second'"
+
+    output =
+      "https://github.com/owner/repo/pull/1153#issuecomment-7011\n" <>
+        "https://github.com/owner/repo/pull/1153#issuecomment-7012\n"
+
+    assert {:error, :unsupported_compound_public_comment_command} =
+             AgentCommentOrigins.record_gh_pr_comment("42", command, output, 0)
+
+    assert {:error, :unsupported_compound_public_comment_command} =
+             AgentCommentOrigins.begin_gh_pr_comment("42", command, "compound-7011")
+  end
+
+  test "does not treat quoted review prose as a shell compound command" do
+    command = "gh pr comment 1153 --body 'Use a | b; keep the existing behavior.'"
+    output = "https://github.com/owner/repo/pull/1153#issuecomment-7014\n"
+
+    assert :ok = AgentCommentOrigins.record_gh_pr_comment("42", command, output, 0)
+    assert AgentCommentOrigins.origin("42", %{"id" => 7014}) == {:ok, :agent}
+  end
+
+  test "rejects public comments hidden behind shell wrappers" do
+    for command <- [
+          "cd src && gh pr comment 1153 --body 'Resolved.'",
+          "env GH_HOST=github.com gh pr comment 1153 --body 'Resolved.'",
+          "sh -c 'gh pr comment 1153 --body \\\"Resolved.\\\"'"
+        ] do
+      assert {:error, :unsupported_compound_public_comment_command} =
+               AgentCommentOrigins.begin_gh_pr_comment("42", command, "wrapped-#{:erlang.phash2(command)}")
+
+      assert {:error, :unsupported_compound_public_comment_command} =
+               AgentCommentOrigins.record_gh_pr_comment("42", command, "7015\n", 0)
+    end
+  end
+
   test "rejects a verified reply without a stable comment ID" do
     assert {:error, :missing_comment_id} = AgentCommentOrigins.record("42", %{})
   end
 
-  test "serializes concurrent writes without dropping either ticket origin" do
-    parent = self()
-
-    start_record = fn ticket, comment_id ->
-      Task.async(fn ->
-        send(parent, {:record_task_ready, self()})
-
-        receive do
-          :record ->
-            AgentCommentOrigins.record(ticket, %{"id" => comment_id},
-              after_load: fn _ticket, _origins ->
-                send(parent, {:origin_store_loaded, self()})
-
-                receive do
-                  :continue -> :ok
-                end
-              end
-            )
-        end
-      end)
-    end
-
-    first = start_record.("42", 7001)
-    second = start_record.("43", 7002)
-
-    assert_receive {:record_task_ready, first_pid}
-    assert_receive {:record_task_ready, second_pid}
-    send(first_pid, :record)
-    send(second_pid, :record)
-
-    assert_receive {:origin_store_loaded, loaded_first}
-    refute_receive {:origin_store_loaded, _other}, 100
-    send(loaded_first, :continue)
-
-    # `:global` retries a contended lock with randomized backoff. The first
-    # writer has returned before this point, but the second may wait briefly
-    # before it acquires the resource and reaches its test hook.
-    assert_receive {:origin_store_loaded, loaded_second}, 2_000
-    send(loaded_second, :continue)
+  test "persists concurrent ticket writes without dropping either origin" do
+    first = Task.async(fn -> AgentCommentOrigins.record("42", %{"id" => 7001}) end)
+    second = Task.async(fn -> AgentCommentOrigins.record("43", %{"id" => 7002}) end)
 
     assert :ok = Task.await(first)
     assert :ok = Task.await(second)
-    assert AgentCommentOrigins.origin("42", %{"id" => 7001}) == :agent
-    assert AgentCommentOrigins.origin("43", %{"id" => 7002}) == :agent
+    assert AgentCommentOrigins.origin("42", %{"id" => 7001}) == {:ok, :agent}
+    assert AgentCommentOrigins.origin("43", %{"id" => 7002}) == {:ok, :agent}
   end
 
-  test "waits for reply origin publication before classifying a visible comment" do
-    parent = self()
+  test "defers classification while a public comment is pending" do
+    assert :ok = AgentCommentOrigins.begin_gh_pr_comment("42", "gh pr comment 1153 --body 'Resolved.'", "pending-7003")
 
-    publisher =
-      Task.async(fn ->
-        AgentCommentOrigins.with_lock(fn ->
-          send(parent, {:reply_visible, self()})
+    assert {:error, {:pending_origin_recovery, ["pending-7003"]}} =
+             AgentCommentOrigins.origin("42", %{"id" => 7003})
 
-          receive do
-            :publish_origin -> AgentCommentOrigins.record("42", %{"id" => 7003})
-          end
-        end)
-      end)
+    assert :ok = AgentCommentOrigins.complete_review_thread_reply("42", "pending-7003", %{"id" => 7003})
+    assert AgentCommentOrigins.origin("42", %{"id" => 7003}) == {:ok, :agent}
+  end
 
-    assert_receive {:reply_visible, publisher_pid}
+  test "fails closed for corrupt durable state" do
+    assert :ok = File.write(Application.fetch_env!(:aiur, :agent_comment_origins_path), "not json")
 
-    reader =
-      Task.async(fn ->
-        origin = AgentCommentOrigins.origin("42", %{"id" => 7003})
-        send(parent, {:origin_classified, origin})
-        origin
-      end)
+    assert {:error, {:store_read_failed, _reason}} =
+             AgentCommentOrigins.origin("42", %{"id" => 7013})
+  end
 
-    refute_receive {:origin_classified, _origin}, 100
-    send(publisher_pid, :publish_origin)
+  test "fails closed for parseable durable state with invalid origins" do
+    path = Application.fetch_env!(:aiur, :agent_comment_origins_path)
+    assert :ok = File.write(path, ~s({"origins":{"42":"not-a-list"},"pending":{}}))
 
-    assert :ok = Task.await(publisher)
-    assert_receive {:origin_classified, :agent}, 2_000
-    assert :agent = Task.await(reader)
+    assert {:error, :invalid_origins} = AgentCommentOrigins.origin("42", %{"id" => 7013})
+  end
+
+  test "fails closed for parseable durable state with an invalid pending operation" do
+    path = Application.fetch_env!(:aiur, :agent_comment_origins_path)
+
+    assert :ok =
+             File.write(
+               path,
+               ~s({"origins":{},"pending":{"42":[{"operation_id":"bad","started_at_ms":"now"}]}})
+             )
+
+    assert {:error, :invalid_pending_operation} =
+             AgentCommentOrigins.origin("42", %{"id" => 7013})
+  end
+
+  test "expires an abandoned pending operation before accepting a distinct human comment" do
+    Application.put_env(:aiur, :agent_comment_origin_pending_ttl_ms, 1)
+
+    assert :ok =
+             AgentCommentOrigins.begin_gh_pr_comment(
+               "42",
+               "gh pr comment 1153 --body 'agent reply'",
+               "abandoned-7014"
+             )
+
+    Process.sleep(2)
+
+    assert AgentCommentOrigins.origin("42", %{"id" => 7015}) == {:ok, :external}
+  end
+
+  test "expires a future-dated pending operation rather than quarantining a ticket forever" do
+    path = Application.fetch_env!(:aiur, :agent_comment_origins_path)
+    far_future = 9_999_999_999_999
+
+    state = %{
+      "origins" => %{},
+      "pending" => %{
+        "42" => [
+          %{
+            "operation_id" => "future",
+            "started_at_ms" => far_future,
+            "kind" => "gh_pr_comment",
+            "command" => "gh pr comment 1153 --body 'Resolved.'",
+            "observed_ids" => []
+          }
+        ]
+      }
+    }
+
+    assert :ok = File.write(path, Jason.encode!(state))
+
+    assert AgentCommentOrigins.origin("42", %{"id" => 7015}) == {:ok, :external}
+  end
+
+  test "recovers a legacy pending operation after restart" do
+    path = Application.fetch_env!(:aiur, :agent_comment_origins_path)
+    assert :ok = File.write(path, ~s({"origins":{},"pending":{"42":["legacy-reply"]}}))
+
+    assert AgentCommentOrigins.origin("42", %{"id" => 7016}) == {:ok, :external}
+  end
+
+  test "keeps a known published review reply agent-origin through a persistence failure and recovery" do
+    operation_id = "review-failure-7017"
+    assert :ok = AgentCommentOrigins.begin_review_thread_reply("42", operation_id)
+
+    assert {:error, :disk_full} =
+             AgentCommentOrigins.complete_review_thread_reply(
+               "42",
+               operation_id,
+               %{"id" => 7017},
+               fn _ticket, _comment -> {:error, :disk_full} end
+             )
+
+    assert AgentCommentOrigins.origin("42", %{"id" => 7017}) == {:ok, :agent}
+
+    Application.put_env(:aiur, :agent_comment_origin_pending_ttl_ms, 1)
+    Process.sleep(2)
+
+    assert AgentCommentOrigins.origin("42", %{"id" => 7017}) == {:ok, :agent}
+    assert AgentCommentOrigins.origin("42", %{"id" => 7018}) == {:ok, :external}
   end
 end

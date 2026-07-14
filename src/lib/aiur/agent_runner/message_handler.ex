@@ -53,7 +53,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
       message = CodingAgent.normalize_event(message, backend)
       observe_lifecycle(issue, backend, message, lifecycle_opts)
       observe_rate_limits(backend, message)
-      origin_result = observe_agent_comment_origin(issue, backend, message, origin_recorder)
+      origin_result = observe_origin_for_issue(issue, backend, message, origin_recorder)
       AgentEventLog.write(workspace, worker_host, message)
       maybe_broadcast_transcript(issue, message, backend, turn_id)
       maybe_broadcast_turn_event(issue, message, turn_id)
@@ -81,7 +81,21 @@ defmodule Aiur.AgentRunner.MessageHandler do
 
   defp observe_rate_limits(_backend, _message), do: :ok
 
-  defp observe_agent_comment_origin(%Issue{identifier: identifier}, backend, message, recorder)
+  @doc false
+  @spec observe_agent_comment_origin(String.t(), String.t(), map()) :: :ok | {:error, term()}
+  def observe_agent_comment_origin(identifier, backend, message)
+      when is_binary(identifier) and is_binary(backend) and is_map(message) do
+    observe_origin_for_issue(
+      %Issue{identifier: identifier},
+      backend,
+      message,
+      &AgentCommentOrigins.record_gh_pr_comment/4
+    )
+  end
+
+  def observe_agent_comment_origin(_identifier, _backend, _message), do: :ok
+
+  defp observe_origin_for_issue(%Issue{identifier: identifier}, backend, message, recorder)
        when is_binary(identifier) and is_function(recorder, 4) do
     case public_comment_preapproval(message, backend) do
       {:ok, command, operation_id} ->
@@ -95,15 +109,12 @@ defmodule Aiur.AgentRunner.MessageHandler do
     end
   end
 
-  defp observe_agent_comment_origin(_issue, _backend, _message, _recorder), do: :ok
+  defp observe_origin_for_issue(_issue, _backend, _message, _recorder), do: :ok
 
   defp observe_started_or_completed_agent_comment_origin(identifier, backend, message, recorder) do
     case public_comment_start(message, backend) do
       {:ok, command, operation_id, approved_operation_id} ->
-        complete_origin_observation(
-          identifier,
-          AgentCommentOrigins.bind_gh_pr_comment_operation(approved_operation_id, command, operation_id)
-        )
+        bind_or_begin_agent_comment_origin(identifier, command, operation_id, approved_operation_id)
 
       {:fallback, command, operation_id} ->
         complete_origin_observation(
@@ -118,7 +129,8 @@ defmodule Aiur.AgentRunner.MessageHandler do
 
   defp observe_completed_agent_comment_origin(identifier, backend, message, recorder) do
     case transcript_event_from(message, backend, nil) do
-      {:ok, %{role: :command, payload: %{command: command, output: output, exit_code: exit_code} = payload}} ->
+      {:ok, %{role: :command, payload: %{command: command, output: output, exit_code: exit_code} = payload}}
+      when is_integer(exit_code) ->
         complete_origin_observation(
           identifier,
           AgentCommentOrigins.complete_gh_pr_comment(
@@ -149,6 +161,20 @@ defmodule Aiur.AgentRunner.MessageHandler do
     end
   end
 
+  # Codex can execute a session-approved command without emitting a new
+  # request-approval notification. Treat its execution boundary as the
+  # acknowledged pre-execution seam when no approval-bound pending operation
+  # exists, so the supported no-approval path cannot skip provenance intent.
+  defp bind_or_begin_agent_comment_origin(identifier, command, operation_id, approved_operation_id) do
+    result =
+      case AgentCommentOrigins.bind_gh_pr_comment_operation(approved_operation_id, command, operation_id) do
+        :ignored -> AgentCommentOrigins.begin_gh_pr_comment(identifier, command, operation_id)
+        bound -> bound
+      end
+
+    complete_origin_observation(identifier, result)
+  end
+
   defp complete_origin_observation(_identifier, result) when result in [:ok, :ignored], do: :ok
 
   defp complete_origin_observation(identifier, {:error, reason}) do
@@ -171,7 +197,8 @@ defmodule Aiur.AgentRunner.MessageHandler do
 
   defp public_comment_preapproval(message, "codex") do
     with "command_execution_preapproved" <- event_kind(message),
-         "item/commandExecution/requestApproval" <- MapAccess.notification_method(message),
+         method when method in ["item/commandExecution/requestApproval", "execCommandApproval"] <-
+           MapAccess.notification_method(message),
          params when is_map(params) <- notification_params(message),
          command when is_binary(command) and command != "" <- get(params, :command),
          operation_id when is_binary(operation_id) and operation_id != "" <- request_operation_id(message) do

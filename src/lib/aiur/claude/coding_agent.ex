@@ -35,6 +35,7 @@ defmodule Aiur.Claude.CodingAgent do
     identifier = Keyword.get(opts, :identifier)
 
     with :ok <- validate_workspace_cwd(workspace),
+         :ok <- ensure_pre_tool_provenance(identifier),
          {:ok, port} <- start_port(workspace) do
       metadata = port_metadata(port)
 
@@ -136,6 +137,14 @@ defmodule Aiur.Claude.CodingAgent do
         :ok
     end
   end
+
+  # The app-server protocol has no acknowledged pre-tool execution hook. A
+  # ticket identity would therefore let a public `gh` mutation escape before
+  # durable provenance exists, so fail closed until this backend gains one.
+  defp ensure_pre_tool_provenance(identifier) when is_binary(identifier),
+    do: {:error, :claude_pre_tool_provenance_required}
+
+  defp ensure_pre_tool_provenance(_identifier), do: :ok
 
   defp start_port(workspace) do
     Adapter.start_port(workspace, Aiur.Claude.Config.command())

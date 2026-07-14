@@ -72,9 +72,15 @@ defmodule Aiur.Codex.CodingAgent do
         remote: is_binary(worker_host)
       )
 
-      with {:ok, session_policies} <- session_policies(expanded_workspace, worker_host),
+      with {:ok, configured_policies} <- session_policies(expanded_workspace, worker_host),
+           {session_policies, auto_approve_requests} = provenance_safe_policies(configured_policies),
            {:ok, thread_id, resumed?, rate_limits_supported?} <-
-             Handshake.establish_with_rate_limits(port, expanded_workspace, session_policies, resume_thread_id) do
+             Handshake.establish_with_rate_limits(
+               port,
+               expanded_workspace,
+               session_policies,
+               resume_thread_id
+             ) do
         maybe_observe_rate_limits(port, rate_limits_supported?)
 
         {:ok,
@@ -82,7 +88,7 @@ defmodule Aiur.Codex.CodingAgent do
            port: port,
            metadata: metadata,
            approval_policy: session_policies.approval_policy,
-           auto_approve_requests: session_policies.approval_policy == "never",
+           auto_approve_requests: auto_approve_requests,
            thread_sandbox: session_policies.thread_sandbox,
            turn_sandbox_policy: session_policies.turn_sandbox_policy,
            thread_id: thread_id,
@@ -129,6 +135,15 @@ defmodule Aiur.Codex.CodingAgent do
 
   defp session_policies(workspace, nil), do: Config.codex_runtime_settings(workspace)
   defp session_policies(workspace, worker_host) when is_binary(worker_host), do: Config.codex_runtime_settings(workspace, remote: true)
+
+  # `never` suppresses Codex's pre-execution command boundary. Adapt only that
+  # compatibility mode to request a durable per-command approval; preserve all
+  # explicit operator policies such as on-request and granular unchanged.
+  defp provenance_safe_policies(%{approval_policy: "never"} = session_policies) do
+    {%{session_policies | approval_policy: "untrusted"}, true}
+  end
+
+  defp provenance_safe_policies(session_policies), do: {session_policies, false}
 
   # This is deliberately fail-open: an unavailable account endpoint must not
   # prevent a configured backend from starting. A successful read seeds the

@@ -2,6 +2,26 @@ defmodule Aiur.Claude.HookEventsTest do
   use ExUnit.Case, async: false
 
   alias Aiur.Claude.HookEvents
+  alias Aiur.GitHub.AgentCommentOrigins
+
+  setup do
+    path = Path.join(System.tmp_dir!(), "aiur-hook-event-origins-#{System.unique_integer([:positive])}.json")
+    previous_path = Application.get_env(:aiur, :agent_comment_origins_path)
+    Application.put_env(:aiur, :agent_comment_origins_path, path)
+
+    on_exit(fn ->
+      File.rm(path)
+      File.rm_rf(path <> ".tickets")
+
+      if previous_path do
+        Application.put_env(:aiur, :agent_comment_origins_path, previous_path)
+      else
+        Application.delete_env(:aiur, :agent_comment_origins_path)
+      end
+    end)
+
+    :ok
+  end
 
   describe "normalize/1" do
     test "classifies the lifecycle events and unknowns" do
@@ -9,6 +29,7 @@ defmodule Aiur.Claude.HookEventsTest do
                :user_prompt_submit
 
       assert HookEvents.normalize(%{"hook_event_name" => "PostToolUse"}).event == :post_tool_use
+      assert HookEvents.normalize(%{"hook_event_name" => "PreToolUse"}).event == :pre_tool_use
       assert HookEvents.normalize(%{"hook_event_name" => "Stop"}).event == :stop
       assert HookEvents.normalize(%{"hook_event_name" => "StopFailure"}).event == :stop_failure
       assert HookEvents.normalize(%{"hook_event_name" => "Whatever"}).event == :unknown
@@ -46,6 +67,33 @@ defmodule Aiur.Claude.HookEventsTest do
       # absent / non-binary transcript_path normalizes to nil
       assert HookEvents.normalize(%{"hook_event_name" => "Stop"}).transcript_path == nil
       assert HookEvents.normalize(%{"transcript_path" => 123}).transcript_path == nil
+    end
+  end
+
+  describe "persist_pre_tool_use/2" do
+    test "persists a GitHub comment operation before Claude can run it" do
+      identifier = "MT-HOOK-PRE-#{System.unique_integer([:positive])}"
+      operation_id = "toolu-#{System.unique_integer([:positive])}"
+
+      assert :ok =
+               HookEvents.persist_pre_tool_use(identifier, %{
+                 "hook_event_name" => "PreToolUse",
+                 "tool_name" => "Bash",
+                 "tool_use_id" => operation_id,
+                 "tool_input" => %{"command" => "gh pr comment 1153 --body 'Resolved.'"}
+               })
+
+      assert {:error, {:pending_origin_recovery, [^operation_id]}} =
+               AgentCommentOrigins.origin(identifier, %{"id" => 70_123})
+    end
+
+    test "rejects a public comment without a stable tool operation ID" do
+      assert {:error, :pre_tool_operation_id_missing} =
+               HookEvents.persist_pre_tool_use("MT-HOOK-PRE-MISSING", %{
+                 "hook_event_name" => "PreToolUse",
+                 "tool_name" => "Bash",
+                 "tool_input" => %{"command" => "gh pr comment 1153 --body 'Resolved.'"}
+               })
     end
   end
 

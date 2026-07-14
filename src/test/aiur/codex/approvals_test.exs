@@ -7,7 +7,7 @@ defmodule Aiur.Codex.ApprovalsTest do
   @metadata %{backend: "codex"}
 
   describe "maybe_handle_approval_request/8 — item/commandExecution/requestApproval" do
-    test "auto-approves with acceptForSession when auto_approve_requests is true" do
+    test "auto-approves one command when auto_approve_requests is true" do
       port = open_cat_port()
 
       try do
@@ -26,7 +26,7 @@ defmodule Aiur.Codex.ApprovalsTest do
                  )
 
         frame = read_one_frame(port)
-        assert frame["result"]["decision"] == "acceptForSession"
+        assert frame["result"]["decision"] == "accept"
       after
         Port.close(port)
       end
@@ -82,7 +82,7 @@ defmodule Aiur.Codex.ApprovalsTest do
 
         assert_receive {:preapproved, %{payload: ^payload}}
         frame = read_one_frame(port)
-        assert frame["result"]["decision"] == "acceptForSession"
+        assert frame["result"]["decision"] == "accept"
       after
         Port.close(port)
       end
@@ -166,6 +166,45 @@ defmodule Aiur.Codex.ApprovalsTest do
 
         frame = read_one_frame(port)
         assert frame["result"]["decision"] == "approved_for_session"
+      after
+        Port.close(port)
+      end
+    end
+
+    test "publishes pre-execution provenance before accepting a public comment" do
+      port = open_cat_port()
+      test_pid = self()
+
+      try do
+        payload = %{
+          "id" => "legacy-preapprove",
+          "method" => "execCommandApproval",
+          "params" => %{"command" => "gh pr comment 1153 --body 'Resolved.'"}
+        }
+
+        on_message = fn
+          %{event: :command_execution_preapproved} = message ->
+            send(test_pid, {:legacy_preapproved, message})
+            :ok
+
+          _message ->
+            :ok
+        end
+
+        assert :approved =
+                 Approvals.maybe_handle_approval_request(
+                   port,
+                   "execCommandApproval",
+                   payload,
+                   Jason.encode!(payload),
+                   on_message,
+                   @metadata,
+                   fn _tool, _args -> %{} end,
+                   true
+                 )
+
+        assert_receive {:legacy_preapproved, %{payload: ^payload}}
+        assert read_one_frame(port)["result"]["decision"] == "approved_for_session"
       after
         Port.close(port)
       end

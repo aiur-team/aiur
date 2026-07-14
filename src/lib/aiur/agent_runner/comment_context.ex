@@ -49,7 +49,11 @@ defmodule Aiur.AgentRunner.CommentContext do
         {comments, latest_workpad_comment_datetime(comments)}
 
       {:error, reason} ->
-        Logger.warning("comment_context fetch_failed topic=ticket.#{identifier}.issue.commented reason=#{inspect(reason)}")
+        Logger.warning(
+          "comment_context fetch_failed topic=ticket.#{identifier}.issue.commented " <>
+            "reason=#{inspect(reason)}"
+        )
+
         {[], nil}
     end
   end
@@ -131,14 +135,18 @@ defmodule Aiur.AgentRunner.CommentContext do
         comments_to_events(comments, topic, identifier, origin_resolver)
 
       {:error, reason} ->
-        Logger.warning("comment_context fetch_failed topic=#{topic} source=unaddressed_review_threads reason=#{inspect(reason)}")
+        Logger.warning(
+          "comment_context fetch_failed topic=#{topic} source=unaddressed_review_threads " <>
+            "reason=#{inspect(reason)}"
+        )
+
         []
     end
   end
 
   defp comments_to_events(comments, topic, identifier, origin_resolver) when is_list(comments) do
     comments
-    |> Enum.map(&comment_context_event(topic, identifier, &1, origin_resolver))
+    |> Enum.flat_map(&comment_context_event(topic, identifier, &1, origin_resolver))
     |> Enum.reject(&agent_authored_comment_context_event?/1)
   end
 
@@ -213,27 +221,37 @@ defmodule Aiur.AgentRunner.CommentContext do
 
   defp comment_context_event(topic, identifier, comment, origin_resolver) do
     author = comment_author(comment)
-    comment_origin = comment_origin(identifier, comment, origin_resolver)
 
-    payload =
-      %{
-        comment: comment,
-        source: :github,
-        author: author,
-        author_trusted?: Map.get(comment, :authoritative, false),
-        comment_origin: comment_origin
-      }
-      |> Sanitizer.scrub()
+    with {:ok, comment_origin} <- comment_origin(identifier, comment, origin_resolver) do
+      payload =
+        %{
+          comment: comment,
+          source: :github,
+          author: author,
+          author_trusted?: Map.get(comment, :authoritative, false),
+          comment_origin: comment_origin
+        }
+        |> Sanitizer.scrub()
 
-    summary = get_in(payload, [:comment, "body"]) || get_in(payload, [:comment, :body]) || ""
+      summary = get_in(payload, [:comment, "body"]) || get_in(payload, [:comment, :body]) || ""
 
-    payload
-    |> Map.merge(%{
-      id: comment_event_id(comment),
-      topic: topic,
-      summary: summary,
-      message: summary
-    })
+      [
+        Map.merge(payload, %{
+          id: comment_event_id(comment),
+          topic: topic,
+          summary: summary,
+          message: summary
+        })
+      ]
+    else
+      {:error, reason} ->
+        Logger.warning(
+          "comment_context deferred unresolved comment origin: " <>
+            "identifier=#{identifier} reason=#{inspect(reason)}"
+        )
+
+        []
+    end
   end
 
   defp comment_author(comment) when is_map(comment) do
@@ -258,9 +276,16 @@ defmodule Aiur.AgentRunner.CommentContext do
 
   defp comment_origin(identifier, comment, resolver) when is_function(resolver, 2) do
     case resolver.(identifier, comment) do
-      :agent -> "agent"
-      "agent" -> "agent"
-      _ -> "external"
+      {:ok, :agent} -> {:ok, "agent"}
+      {:ok, "agent"} -> {:ok, "agent"}
+      {:ok, :external} -> {:ok, "external"}
+      {:ok, "external"} -> {:ok, "external"}
+      :agent -> {:ok, "agent"}
+      "agent" -> {:ok, "agent"}
+      :external -> {:ok, "external"}
+      "external" -> {:ok, "external"}
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:invalid_origin_resolver_result, other}}
     end
   rescue
     error ->
@@ -269,10 +294,10 @@ defmodule Aiur.AgentRunner.CommentContext do
           "identifier=#{identifier} reason=#{Exception.message(error)}"
       )
 
-      "external"
+      {:error, :origin_resolver_exception}
   end
 
-  defp comment_origin(_identifier, _comment, _resolver), do: "external"
+  defp comment_origin(_identifier, _comment, _resolver), do: {:error, :invalid_origin_resolver}
 
   defp comment_body(comment) when is_map(comment) do
     Map.get(comment, "body") || Map.get(comment, :body) || ""

@@ -4,11 +4,11 @@ defmodule Aiur.Claude.HookSettingsTest do
   alias Aiur.Claude.HookSettings
 
   describe "settings/2" do
-    test "wires all four lifecycle hooks to the agent's endpoint" do
+    test "wires lifecycle and fail-closed pre-tool hooks to the agent's endpoint" do
       settings = HookSettings.settings("101", "http://127.0.0.1:4000")
 
       assert settings["hooks"] |> Map.keys() |> Enum.sort() ==
-               ["PostToolUse", "Stop", "StopFailure", "UserPromptSubmit"]
+               ["PostToolUse", "PreToolUse", "Stop", "StopFailure", "UserPromptSubmit"]
 
       command =
         settings["hooks"]["StopFailure"]
@@ -33,6 +33,17 @@ defmodule Aiur.Claude.HookSettingsTest do
       # trailing slash on the base url is normalized (no `//api/v1`)
       assert command =~ "/api/v1/MT-9/claude-hook"
       refute command =~ "//api/v1"
+    end
+  end
+
+  describe "pre_tool_hook_command/2" do
+    test "rejects a tool when the provenance endpoint is unavailable" do
+      command = HookSettings.pre_tool_hook_command("MT-10", "http://127.0.0.1:4000/")
+
+      assert command =~ "-f"
+      assert command =~ "-m 2"
+      assert command =~ "/api/v1/MT-10/claude-hook"
+      assert String.ends_with?(command, "|| exit 2; exit 0")
     end
   end
 

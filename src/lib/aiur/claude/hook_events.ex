@@ -24,11 +24,13 @@ defmodule Aiur.Claude.HookEvents do
 
   require Logger
 
+  alias Aiur.GitHub.AgentCommentOrigins
+  alias Aiur.GitHub.AgentCommentOrigins.Command
   alias Aiur.Orchestrator
 
   @pubsub Aiur.PubSub
 
-  @type kind :: :user_prompt_submit | :post_tool_use | :stop | :stop_failure | :unknown
+  @type kind :: :pre_tool_use | :user_prompt_submit | :post_tool_use | :stop | :stop_failure | :unknown
 
   @type event :: %{
           event: kind(),
@@ -37,6 +39,8 @@ defmodule Aiur.Claude.HookEvents do
           prompt: String.t() | nil,
           message: String.t() | nil,
           tool_name: String.t() | nil,
+          tool_input: map() | nil,
+          tool_use_id: String.t() | nil,
           transcript_path: String.t() | nil,
           raw: map()
         }
@@ -79,6 +83,41 @@ defmodule Aiur.Claude.HookEvents do
 
   def dispatch(_identifier, _raw), do: :ok
 
+  @doc "Persist GitHub-comment intent synchronously at Claude's PreToolUse boundary."
+  @spec persist_pre_tool_use(String.t(), map()) :: :ok | {:error, term()}
+  def persist_pre_tool_use(identifier, raw) when is_binary(identifier) and is_map(raw) do
+    event = normalize(raw)
+
+    case {event.event, event.tool_name, event.tool_input} do
+      {:pre_tool_use, "Bash", %{"command" => command}} when is_binary(command) and command != "" ->
+        persist_pre_tool_command(identifier, command, event.tool_use_id)
+
+      _other ->
+        :ok
+    end
+  end
+
+  def persist_pre_tool_use(_identifier, _raw), do: {:error, :invalid_pre_tool_use}
+
+  defp persist_pre_tool_command(identifier, command, operation_id) do
+    case {Command.classify(command), operation_id} do
+      {:comment, operation_id} when is_binary(operation_id) and operation_id != "" ->
+        case AgentCommentOrigins.begin_gh_pr_comment(identifier, command, operation_id) do
+          result when result in [:ok, :ignored] -> :ok
+          {:error, _reason} = error -> error
+        end
+
+      {:comment, _missing_operation_id} ->
+        {:error, :pre_tool_operation_id_missing}
+
+      {:unsupported_compound, _operation_id} ->
+        {:error, :unsupported_compound_public_comment_command}
+
+      {:ignored, _operation_id} ->
+        :ok
+    end
+  end
+
   @doc "Map a raw claude hook payload to the normalized `event/0` shape."
   @spec normalize(map()) :: event()
   def normalize(raw) when is_map(raw) do
@@ -89,11 +128,14 @@ defmodule Aiur.Claude.HookEvents do
       prompt: string_or_nil(Map.get(raw, "prompt")),
       message: string_or_nil(Map.get(raw, "last_assistant_message")),
       tool_name: string_or_nil(Map.get(raw, "tool_name")),
+      tool_input: map_or_nil(Map.get(raw, "tool_input")),
+      tool_use_id: string_or_nil(Map.get(raw, "tool_use_id")),
       transcript_path: string_or_nil(Map.get(raw, "transcript_path")),
       raw: raw
     }
   end
 
+  defp classify("PreToolUse"), do: :pre_tool_use
   defp classify("UserPromptSubmit"), do: :user_prompt_submit
   defp classify("PostToolUse"), do: :post_tool_use
   defp classify("Stop"), do: :stop
@@ -102,6 +144,8 @@ defmodule Aiur.Claude.HookEvents do
 
   defp string_or_nil(value) when is_binary(value), do: value
   defp string_or_nil(_), do: nil
+  defp map_or_nil(value) when is_map(value), do: value
+  defp map_or_nil(_), do: nil
 
   # Best-effort liveness ping to the orchestrator's stall watchdog. Guarded so
   # a missing orchestrator (early boot / tests) can never crash the hook path.

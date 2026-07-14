@@ -72,6 +72,7 @@ defmodule Aiur.Claude.Repl.LauncherTest do
           tmux: tmux,
           process_reaper: reaper,
           identifier: "930",
+          hook_settings_fun: fn true, "930" -> "/tmp/aiur-hooks-930.json" end,
           model: "claude-sonnet-5",
           window_name: "aiur-repl-test",
           projects_dir: "/nonexistent"
@@ -145,11 +146,11 @@ defmodule Aiur.Claude.Repl.LauncherTest do
     assert {:error, :remote_control_unavailable} = Task.await(task, 2_000)
   end
 
-  test "RC spawn fails before opening a pane when the lifecycle-hook listener is unavailable", %{tmux: tmux} do
-    assert {:error, :remote_control_requires_dashboard} =
+  test "ticket-scoped spawn fails before opening a pane when lifecycle hooks are unavailable", %{tmux: tmux} do
+    assert {:error, :pre_tool_provenance_unavailable} =
              Launcher.start_session(Path.expand(System.tmp_dir!()),
                tmux: tmux,
-               remote_control: true,
+               remote_control: false,
                identifier: "1077",
                hook_settings_fun: fn true, "1077" -> nil end
              )

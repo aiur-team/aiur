@@ -123,6 +123,32 @@ defmodule Aiur.Codex.DynamicTool.ReviewThreadsTest do
       assert_received {:recorded_origin, %{"id" => 701}}
     end
 
+    test "persists reply intent before publishing and finalizes the exact mutation identity" do
+      test_pid = self()
+
+      response =
+        ReviewThreads.execute(
+          "aiur_reply_review_thread",
+          %{"review_thread_id" => "PRRT_pending", "body" => "Fixed."},
+          agent_comment_origin_operation_id: "reply-pending-704",
+          agent_comment_origin_begin: fn operation_id ->
+            send(test_pid, {:origin_begin, operation_id})
+            :ok
+          end,
+          agent_comment_origin_complete: fn operation_id, comment ->
+            send(test_pid, {:origin_complete, operation_id, comment})
+            :ok
+          end,
+          review_thread_replier: fn _id, _body, _opts ->
+            assert_received {:origin_begin, "reply-pending-704"}
+            {:ok, %{verified: true, published_comment: %{"id" => 704}}}
+          end
+        )
+
+      assert response["success"] == true
+      assert_received {:origin_complete, "reply-pending-704", %{"id" => 704}}
+    end
+
     test "keeps reply publication and origin recording in one transaction" do
       test_pid = self()
 
