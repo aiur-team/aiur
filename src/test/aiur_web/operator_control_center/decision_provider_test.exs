@@ -142,6 +142,79 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProviderTest do
     end
   end
 
+  test "provider projects ticket fields and excludes unsafe ticket links and source identities", %{store: store} do
+    secret = "ghp_" <> String.duplicate("b", 36)
+    decision = request!(store, "ticket-source-projection", ~U[2026-07-13 08:00:00Z])
+
+    assert {:ok, %{decision: safe_detail}} =
+             DecisionProvider.detail(decision.decision_id, decision_store: store, decision_metrics: make_ref())
+
+    assert safe_detail.ticket == @ticket
+    assert safe_detail.source == %{agent_id: "agent-1088"}
+
+    unsafe_urls = [
+      "https://operator:password@example.test/issues/1088",
+      "https://example.test/issues/1088?capability=private",
+      "https://example.test/issues/1088#capability=private"
+    ]
+
+    unsafe_agent_ids = [
+      secret,
+      "operator@example.test",
+      "eyJheader.payload.signature"
+    ]
+
+    for unsafe_url <- unsafe_urls, unsafe_agent_id <- unsafe_agent_ids do
+      :sys.replace_state(store, fn state ->
+        update_in(state, [:current, decision.decision_id], fn current ->
+          %{
+            current
+            | ticket:
+                Map.merge(current.ticket, %{
+                  url: unsafe_url,
+                  account_id: "account-private",
+                  capability_url: "https://example.test/issues/1088?capability=private"
+                }),
+              source:
+                Map.merge(current.source, %{
+                  agent_id: unsafe_agent_id,
+                  account_id: "account-private",
+                  session_id: "session-private"
+                })
+          }
+        end)
+      end)
+
+      assert {:ok, %{decision: detail}} =
+               DecisionProvider.detail(decision.decision_id,
+                 decision_store: store,
+                 decision_metrics: make_ref()
+               )
+
+      assert {:ok, %{decisions: [row]}} =
+               DecisionProvider.list(%{"limit" => 1},
+                 decision_store: store,
+                 decision_metrics: make_ref()
+               )
+
+      assert detail.ticket == %{identifier: "1088", title: "Retained Decisions", url: nil}
+      assert detail.source == %{agent_id: nil}
+      assert row.ticket == detail.ticket
+      assert row.source == detail.source
+
+      for private_value <- [
+            "operator:password",
+            "capability=private",
+            "account-private",
+            "session-private",
+            unsafe_agent_id
+          ] do
+        refute inspect(detail) =~ private_value
+        refute inspect(row) =~ private_value
+      end
+    end
+  end
+
   test "list fetches latency only for the bounded returned page", %{store: store} do
     oldest = request!(store, "metrics-oldest", ~U[2026-07-13 08:00:00Z])
     middle = request!(store, "metrics-middle", ~U[2026-07-13 08:01:00Z])

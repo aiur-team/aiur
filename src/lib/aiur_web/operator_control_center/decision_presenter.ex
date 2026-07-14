@@ -6,9 +6,12 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
   display-only summary and never advances either canonical axis.
   """
 
-  alias Aiur.Decision
+  alias Aiur.{Decision, SecretRedactor}
 
   @urgency_rank %{low: 0, normal: 1, high: 2, critical: 3}
+  @identity_max 256
+  @opaque_identity ~r/\A[A-Za-z0-9][A-Za-z0-9._:-]*\z/
+  @jwt ~r/\AeyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\z/
 
   @spec rows([Decision.t()]) :: [map()]
   def rows(decisions) when is_list(decisions) do
@@ -50,7 +53,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
     %{
       decision_id: decision.decision_id,
       version: decision.version,
-      ticket: decision.ticket,
+      ticket: safe_ticket(decision.ticket),
       source: safe_source(decision.source),
       kind: decision.kind,
       authority: decision.authority,
@@ -150,7 +153,43 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
     end
   end
 
-  defp safe_source(source) when is_map(source), do: %{agent_id: Map.get(source, :agent_id)}
+  defp safe_ticket(ticket) when is_map(ticket) do
+    %{
+      identifier: Map.get(ticket, :identifier),
+      title: Map.get(ticket, :title),
+      url: safe_ticket_url(Map.get(ticket, :url))
+    }
+  end
+
+  defp safe_ticket(_ticket), do: %{identifier: nil, title: nil, url: nil}
+
+  defp safe_ticket_url(value) when is_binary(value) do
+    case URI.parse(value) do
+      %URI{scheme: scheme, host: host, userinfo: userinfo, query: query, fragment: fragment}
+      when scheme in ["http", "https"] and is_binary(host) and userinfo in [nil, ""] and
+             query in [nil, ""] and fragment in [nil, ""] ->
+        value
+
+      _uri ->
+        nil
+    end
+  end
+
+  defp safe_ticket_url(_value), do: nil
+
+  defp safe_source(source) when is_map(source), do: %{agent_id: safe_agent_id(Map.get(source, :agent_id))}
+  defp safe_source(_source), do: %{agent_id: nil}
+
+  defp safe_agent_id(value) when is_binary(value) do
+    if byte_size(value) <= @identity_max and
+         SecretRedactor.redact(value) == value and
+         not Regex.match?(@jwt, value) and
+         Regex.match?(@opaque_identity, value) do
+      value
+    end
+  end
+
+  defp safe_agent_id(_value), do: nil
 
   defp safe_actor(actor) when is_map(actor), do: %{kind: Map.get(actor, :kind)}
   defp safe_actor(_actor), do: nil
