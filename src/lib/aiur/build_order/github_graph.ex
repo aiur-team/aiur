@@ -12,8 +12,8 @@ defmodule Aiur.BuildOrder.GitHubGraph do
     SelectedRoot
   }
 
-  alias Aiur.GitHub.{Errors, Transport}
   alias Aiur.{GitHub, TrackerIdentity}
+  alias Aiur.GitHub.{Errors, Transport}
 
   @root_label "build-order"
   @member_limit 100
