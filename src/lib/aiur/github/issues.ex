@@ -4,7 +4,7 @@ defmodule Aiur.GitHub.Issues do
   """
 
   require Logger
-  alias Aiur.{Config, GitHub, Issue}
+  alias Aiur.{Config, GitHub, Issue, TrackerIdentity}
   alias Aiur.GitHub.{Errors, Labels, StatePolicy, Transport}
 
   @spec fetch_candidate_issues(keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
@@ -180,7 +180,7 @@ defmodule Aiur.GitHub.Issues do
   end
 
   @spec normalize_issue(map(), String.t(), String.t(), String.t()) :: Issue.t()
-  def normalize_issue(gh_issue, _owner, _repo, prefix) when is_map(gh_issue) do
+  def normalize_issue(gh_issue, owner, repo, prefix) when is_map(gh_issue) do
     number = gh_issue["number"]
     labels = gh_issue["labels"] || []
     label_names = Enum.map(labels, &(&1["name"] || ""))
@@ -188,6 +188,7 @@ defmodule Aiur.GitHub.Issues do
     %Issue{
       id: to_string(number),
       identifier: to_string(number),
+      tracker_identity: tracker_identity(gh_issue, owner, repo),
       title: gh_issue["title"],
       description: gh_issue["body"],
       priority: extract_priority(label_names),
@@ -265,4 +266,24 @@ defmodule Aiur.GitHub.Issues do
     do: String.downcase(String.trim(label))
 
   defp normalize_label_name(_label), do: ""
+
+  defp tracker_identity(gh_issue, owner, repo) do
+    case GitHub.Config.configured_repo() do
+      {:ok, {configured_owner, configured_repo}} ->
+        case TrackerIdentity.from_github(gh_issue, {configured_owner, configured_repo}, {owner, repo}) do
+          {:ok, identity} ->
+            identity
+
+          {:error, reason} ->
+            TrackerIdentity.unjoinable(reason,
+              owner: configured_owner,
+              repository: configured_repo,
+              identifier: Map.get(gh_issue, "number")
+            )
+        end
+
+      {:error, reason} ->
+        TrackerIdentity.unjoinable(reason, identifier: Map.get(gh_issue, "number"))
+    end
+  end
 end

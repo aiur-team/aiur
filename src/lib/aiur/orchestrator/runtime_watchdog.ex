@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
 
   require Logger
 
-  alias Aiur.Config
+  alias Aiur.{Config, Issue}
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{AgentTeardown, PauseResume, RetryEngine, State}
 
@@ -205,6 +205,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
       |> AgentTeardown.terminate_running_issue(issue_id, false)
       |> RetryEngine.schedule_issue_retry(issue_id, next_attempt, %{
         identifier: identifier,
+        tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
         error: "stalled for #{elapsed_ms}ms without codex activity"
       })
     else
