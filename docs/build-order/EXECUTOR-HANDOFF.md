@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 15:10 PDT)
+## Live Executor state (updated 2026-07-14 16:30 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -1312,6 +1312,22 @@ Terra; never dispatch Claude.
     The measurement contract and a single next-phase exact-head/delta-review
     experiment are recorded in `progress-calibration.md`; do not rewrite active
     workers' guidance mid-phase or create a new in-scope ticket yet.
+176. The Executor diagnosed another live comment-driven wake failure without
+    filing a duplicate. Existing P1 #1151 owns the end-to-end defect; #1162 is
+    its lower-level completed-turn accounting companion. Trusted review
+    comments `4974791267` on BO-010/#1097 and `4974846435` on DASH-002/#1109
+    were accepted by GitHub and followed by `agent:rework` transitions, but
+    neither comment ID reached the durable agent log and both rows remained
+    `working / turn completed`. Direct Executor messages and rework-to-rework
+    label recycling also failed to start a new provider turn. Older comment
+    events are present in both logs, bounding this to stale completed-runner
+    replacement rather than a blanket GitHub listener outage. Comment
+    `4974965328` records the normalized diagnosis and binding post-merge proof
+    on #1151. Until that fix lands, recover only the affected ticket by
+    reaching a truly paused/deactivated runtime state before restoring its
+    preserved rework state; scheduler saturation can delay the control RPC, so
+    confirm daemon health and avoid restarting the healthy fleet merely for a
+    transient timeout.
 
 At 15:10 PDT the core graph is 6/54 accepted. Every currently
 dependency-ready implementation/rework lane is active, in terminal-CI handoff,
