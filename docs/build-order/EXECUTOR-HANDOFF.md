@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 13:43 PDT)
+## Live Executor state (updated 2026-07-14 14:20 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -17,24 +17,29 @@ repository root against `main`; current accepted `main` is
 Executor rule, and the hard ten-minute capacity audit. The core
 program is 6/54 merged with 48 remaining.
 
-The recorded runtime session ceiling is 15 workers, governed by Aiur's
-effective-slot controller and shared build gates. The operator target is
+The recorded and live runtime session ceiling is 15 workers, governed by
+Aiur's effective-slot controller and shared build gates. The operator target is
 10–15+ useful agents whenever dependency width and measured
-CPU/memory/provider/review capacity permit. Sustained load above 37 on 12 CPUs
-triggered the documented measured-pressure exception: the live ceiling is
-temporarily 10 and restores to 15 after two consecutive ten-minute audits
-below load 18. Nine Aiur workspaces were live at the 13:41 snapshot: core
-#1088/#1091/#1097/#1103 and Ad Hoc #1148/#1151/#1154/#1161/#1162. Six were
-doing implementation/rework while three were consuming terminal CI or label
-handoff packets; three independent Executor review lanes were also staffed.
-This is the measured CPU limit, not an arbitrary worker cap. #1146 is
+CPU/memory/provider/review capacity permit. The temporary ceiling of 10 was
+restored to 15 after the 13:43 and 13:53 ten-minute audits both measured load
+below 18. A 14:03 build spike reached load 41 without memory pressure; by the
+14:13 hard audit load was 10.89 with about 21.6 GiB available, so the Executor
+kept the safety ceiling at 15 and recovered the completed-turn rework rows
+#1097/#1148/#1162. At 14:19 all three were genuinely turning alongside
+#1109/#1151, #1091 remained in fresh CI, and three independent Executor review
+lanes were staffed. #1161 was then explicitly deactivated before requeueing its
+single current-head Dialyzer repair. This is measured scheduling, not an
+arbitrary worker cap. #1146 is
 preserved but paused because its wrong-base behavior is
 contained by current config, while #1151's CI-wake defect is actively
 recurring. Build-gate P1 #1154 remains in the current Ad Hoc wave because
-namespace-local lease IDs directly blocked core verification. Token
-measurement #1171 ran only in genuine spare capacity and is paused again while
-core/P1 pressure is high; #1169/#1170 remain undispatched behind their required
-multi-hour measurement gates.
+namespace-local lease IDs directly blocked core verification. Token measurement
+#1171 completed without another model turn: the Executor ran all three ccusage
+views, recorded the non-empty Claude/Codex baseline in comment `4974061960`,
+and closed the measurement-only ticket. The no-change window began at 14:14
+PDT; #1169 remains undispatched until a fresh delta is captured no earlier than
+18:14 PDT, and #1170 remains gated behind the separate post-Serena measurement
+window.
 #1090,
 #1093, #1108, #1111, #1123, and #1130 remain
 protected behind #1161's workspace-replacement fix. Unrelated #855 stays
@@ -1235,20 +1240,56 @@ Terra; never dispatch Claude.
     fetched `origin/main`; its only dirt is the expected generated Hex cache and
     untracked build marker. Do not rebuild it merely because those generated
     artifacts exist.
+165. The 13:43 and 13:53 hard capacity audits both measured load below the
+    recorded restoration threshold, so the Executor restored the live ceiling
+    from 10 to 15. The later 14:03 spike to load 41 was allowed to drain without
+    killing useful workers; by 14:13 load was 10.89 with about 21.6 GiB
+    available. Keep the ceiling at 15 and let the load/build gates regulate
+    admission unless a new measured bottleneck names a different temporary
+    restoration condition.
+166. Dual exact-head review rejected green DASH-002/#1109 head `9938fd71` with
+    five contained persistence, crash-safety, corruption-redaction, bounded-
+    record, and bounded-idle-sweep failures. Comment `4973838136` returned the
+    single packet to the existing ticket, and its Terra worker is actively
+    repairing it; no follow-up ticket was created.
+167. BO-010/#1097 exact head `216e0503` retained exactly two additive protected
+    compile-time resource allowlist lines. The Executor inspected that patch,
+    recorded exact-head approval in comment `4974008003`, and re-applied
+    `regression-suite-change`; the worker still owns the independent lint
+    failure, and any later push invalidates the approval.
+168. Token baseline #1171 completed at 14:14 PDT without consuming another
+    model turn. Comment `4974061960` records non-empty daily, session, per-agent,
+    per-model, and cache split values for Claude and Codex. The ticket is closed;
+    #1169 and #1170 remain undispatched, with the earliest Serena delta decision
+    at 18:14 PDT after four hours of unchanged fleet behavior.
+169. The completed-turn handoff defect recurred on red-CI #1097/#1148/#1162:
+    pause-overlay recovery alone left all three counted as working after their
+    turns ended. The Executor removed their active state until Aiur deactivated
+    the preserved generations, then re-added `agent:rework`; all three launched
+    fresh Sol/Terra turns at 14:17–14:18. This is live evidence for existing
+    #1162/#1151, not authority for another ticket.
+170. Workspace-safety #1161 advanced from reviewed head `f52329b4` to
+    `8951a2f1`, invalidating both old exact-head reviews. Its new test job passed,
+    but Dialyzer found one impossible guard in
+    `codex/app_server_port.ex:137`; comment `4974085019` routed that exact
+    current-head repair. The old findings are evidence only until a fresh green
+    head receives two new independent reviews.
 
-At 13:43 PDT the core graph is 6/54 accepted. Every currently
+At 14:20 PDT the core graph is 6/54 accepted. Every currently
 dependency-ready implementation/rework lane is active, in terminal-CI handoff,
-or staffed for exact review. The configured ceiling is 15, the measured live
-ceiling is temporarily 10, nine Aiur workspaces are live, and three independent
-review lanes are staffed. The remaining shortfall is CPU/build pressure and the
-#1161 workspace gate rather than an intentional low cap.
+or staffed for exact review. The configured and live ceiling is 15. Five
+workers were actively turning at the latest verified snapshot, #1091 remained
+in fresh CI, #1161 was being rearmed for its one Dialyzer repair, and three
+independent review lanes were staffed. The remaining shortfall is the #1161
+workspace gate, current CI/review tails, and measured build pressure rather than
+an intentional low cap.
 #1090, #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds
 until #1161 lands.
 The most recent phase preview remains the percentage authority until its next
 meaningful refresh; do not replace emitted estimates with guesses during
-review/rework. Host load is volatile between roughly 17 and 27 with about
-20–21 GiB available; preserve the cap-restore gate and prefer logs/GitHub
-evidence after a control-RPC timeout. No additional core ticket is safely
+review/rework. Host load remains volatile but was about 15 with roughly 21 GiB
+available at the 14:19 snapshot; prefer logs/GitHub evidence after a control-RPC
+timeout. No additional core ticket is safely
 dependency-ready outside the held/gated set. Treat completed turns, stale
 bases, and green builds with unmet acceptance criteria as pending Executor
 work, not merge-ready truth.
