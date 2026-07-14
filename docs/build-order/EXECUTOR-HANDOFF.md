@@ -450,11 +450,25 @@ to a safe range.
     `e3935534` records BO-017 as 100% merged and publishes the latest emitted
     estimates; DASH-006's restart reset to 20% is intentionally preserved as
     calibration evidence.
+46. BO-002/#1091 pushed lint-clean exact head `31116ae5` and released its
+    worker slot into CI, which Aiur immediately backfilled with DASH-004/#1111.
+    Three independent exact-head reviews then found contained acceptance gaps:
+    cross-page `totalCount` drift could publish a partial graph, canonical
+    duplicate identities could evade whole-struct comparison, malformed
+    lifecycle state could publish as complete, an unlabeled issue could pass as
+    the selected root, failure evidence could erase observed counts, and the
+    required selected-root 0/101/drift proofs were absent. With machine load
+    above the 12-core count,
+    the Executor did not raise concurrency; it paused DASH-004 at its durable
+    60% checkpoint and resumed critical-path BO-002 in the same sixth slot.
+    Preview state reflects that swap without changing either ticket's emitted
+    percentage.
 
-At 00:44 PDT the core graph is 4/54 merged. Core
+At 00:56 PDT the core graph is 4/54 merged. Core
 #1088/#1089/#1090/#1091/#1096 and direct blocker #1030 occupy the six measured
-slots. #1111 plus direct P1 #1151 await later measured slots, and newly-ready
-#1108 remains queued behind that bounded rework. #1103/#1123 remain paused.
+slots. #1111 is intentionally paused behind the critical-path review rework;
+direct P1 #1151 and newly-ready #1108 remain queued behind that bounded
+rework. #1103/#1123 remain paused.
 Treat
 completed turns, stale bases, and green builds with unmet acceptance criteria
 as pending Executor work, not merge-ready truth.
