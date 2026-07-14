@@ -80,7 +80,7 @@ defmodule Aiur.AppServer.RpcTest do
     end
 
     test "keeps an ordinary response after a missing sensitive response" do
-      port = script_port("sleep 0.05; printf '%s\\n' '{\"id\":6,\"result\":{\"ok\":true}}'")
+      port = script_port(~S|sleep 0.05; printf '%s\n' '{"id":6,"result":{"ok":true}}'|)
       on_exit(fn -> Rpc.clear_late_sensitive_responses(port) end)
 
       assert {:error, :response_timeout} =

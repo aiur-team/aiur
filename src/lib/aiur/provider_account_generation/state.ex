@@ -81,7 +81,8 @@ defmodule Aiur.ProviderAccountGeneration.State do
   defdelegate owner_down(state, monitor), to: Tombstones, as: :retire_monitored
 
   defp valid_transition?(state, provider, backend, binding, opts) do
-    valid_observation?(provider, backend, binding, opts) and Registry.authorized_transition?(state, provider, backend, binding, opts)
+    valid_observation?(provider, backend, binding, opts) and
+      Registry.authorized_transition?(state, provider, backend, binding, opts)
   end
 
   defp valid_invalidation?(state, provider, backend, binding, opts) do

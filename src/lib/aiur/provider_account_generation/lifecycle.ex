@@ -9,7 +9,9 @@ defmodule Aiur.ProviderAccountGeneration.Lifecycle do
 
     case Registry.entry(state, entry_key) do
       %{snapshot: %{generation: generation} = snapshot} = entry when is_binary(generation) ->
-        if Validation.same_binding_continuity?(opts), do: {snapshot, [], state}, else: replace_known(state, entry_key, provider, backend, opts, owner_pid, entry, :rotated)
+        if Validation.same_binding_continuity?(opts),
+          do: {snapshot, [], state},
+          else: replace_known(state, entry_key, provider, backend, opts, owner_pid, entry, :rotated)
 
       _ ->
         bind_new(state, entry_key, provider, backend, binding, opts, owner_pid)
@@ -37,7 +39,8 @@ defmodule Aiur.ProviderAccountGeneration.Lifecycle do
     previous_binding = Map.get(opts, :previous_binding)
 
     cond do
-      is_reference(previous_binding) and previous_binding != binding and Validation.continuity?(opts, previous_binding) ->
+      is_reference(previous_binding) and previous_binding != binding and
+          Validation.continuity?(opts, previous_binding) ->
         continue_known(state, entry_key, provider, backend, previous_binding, opts, owner_pid)
 
       is_reference(previous_binding) and previous_binding != binding ->
@@ -58,7 +61,9 @@ defmodule Aiur.ProviderAccountGeneration.Lifecycle do
         {previous, change, topic, state} =
           invalidate(state, provider, backend, previous_binding, %{source: Map.fetch!(opts, :source), reason: :continuity_lost}, owner_pid)
 
-        {snapshot, changes, state} = create_known(state, entry_key, provider, backend, opts, owner_pid, :continued, generation)
+        {snapshot, changes, state} =
+          create_known(state, entry_key, provider, backend, opts, owner_pid, :continued, generation)
+
         {snapshot, add_change(changes, change, topic, previous), state}
 
       _ ->

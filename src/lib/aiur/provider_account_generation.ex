@@ -98,7 +98,8 @@ defmodule Aiur.ProviderAccountGeneration do
   def subscribe(server, provider, backend, binding) do
     {binding, _opts} = unwrap_binding(binding, %{})
 
-    with {:ok, topic} <- safe_call(server, {:subscription_topic, provider, backend, binding}, {:error, :owner_unavailable}) do
+    with {:ok, topic} <-
+           safe_call(server, {:subscription_topic, provider, backend, binding}, {:error, :owner_unavailable}) do
       case Process.whereis(@pubsub) do
         pid when is_pid(pid) -> Phoenix.PubSub.subscribe(@pubsub, topic)
         _ -> :ok

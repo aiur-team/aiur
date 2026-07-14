@@ -824,15 +824,14 @@ defmodule Aiur.AppServerTest do
       assert {:error, _reason} =
                AppServer.start_session(workspace, account_generation_server: owner)
 
-      snapshots =
-        owner
-        |> :sys.get_state()
-        |> Map.fetch!(:entries)
-        |> Map.values()
-        |> Enum.map(& &1.snapshot)
+      assert %{entries: entries, tombstones: tombstones} = :sys.get_state(owner)
+      assert entries == %{}
 
-      assert Enum.any?(snapshots, &match?(%{generation: nil, reason: :continuity_lost}, &1))
-      refute Enum.any?(snapshots, &is_binary(&1.generation))
+      assert [{{:codex, :app_server, binding}, %{generation: nil, reason: :continuity_lost}}] =
+               Map.to_list(tombstones)
+
+      assert %{generation: nil, reason: :continuity_lost} =
+               Aiur.ProviderAccountGeneration.lookup(owner, :codex, :app_server, binding)
     after
       File.rm_rf(test_root)
     end
