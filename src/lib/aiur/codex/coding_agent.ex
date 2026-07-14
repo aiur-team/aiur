@@ -70,6 +70,7 @@ defmodule Aiur.Codex.CodingAgent do
         metadata: metadata,
         account_generation_binding: account_generation.binding,
         account_generation_authority: account_generation.authority,
+        account_generation_context: account_generation.context,
         account_generation_server: account_generation_server
       }
 

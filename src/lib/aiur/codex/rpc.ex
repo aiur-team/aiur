@@ -19,7 +19,8 @@ defmodule Aiur.Codex.Rpc do
   @spec await_response(port(), integer(), non_neg_integer(), keyword()) :: {:ok, map()} | {:error, term()}
   def await_response(port, request_id, timeout_ms, opts \\ []) do
     on_notification = Keyword.get(opts, :on_notification, fn _payload -> :ignore end)
-    AppServerRpc.with_timeout_response(port, request_id, timeout_ms, "", "Codex", on_notification)
+    sensitive_response? = Keyword.get(opts, :sensitive_response?, false)
+    AppServerRpc.with_timeout_response(port, request_id, timeout_ms, "", "Codex", on_notification, sensitive_response?)
   end
 
   @spec startup_response_timeout_ms(non_neg_integer()) :: non_neg_integer()

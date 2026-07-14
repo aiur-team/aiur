@@ -11,6 +11,11 @@ defmodule Aiur.Codex.Handshake do
 
   @account_read_timeout_ms 1_000
   @rate_limits_read_timeout_ms 1_000
+  @account_read_auth_modes %{
+    "amazonBedrock" => "bedrockApiKey",
+    "apiKey" => "apikey",
+    "chatgpt" => "chatgpt"
+  }
 
   @spec establish(port(), Path.t(), map(), String.t() | nil, keyword()) ::
           {:ok, String.t(), boolean()} | {:error, term()}
@@ -146,13 +151,23 @@ defmodule Aiur.Codex.Handshake do
   end
 
   @doc "Read a privacy-reduced account binding seed from the trusted app-server."
-  @spec read_account(port(), keyword()) :: {:ok, map()} | {:error, term()}
+  @spec read_account(port(), keyword()) :: {:ok, %{auth_mode: String.t() | nil}} | {:error, :account_read_failed | :port_closed}
   def read_account(port, opts \\ []) do
     Rpc.send_message(port, Frames.account_read_frame())
-    Rpc.await_response(port, Frames.account_read_id(), @account_read_timeout_ms, opts)
+
+    case Rpc.await_response(port, Frames.account_read_id(), @account_read_timeout_ms, Keyword.put(opts, :sensitive_response?, true)) do
+      {:ok, response} -> {:ok, account_binding_seed(response)}
+      {:error, _reason} -> {:error, :account_read_failed}
+    end
   rescue
     ArgumentError -> {:error, :port_closed}
   end
+
+  defp account_binding_seed(%{"account" => %{"type" => type}}) do
+    %{auth_mode: Map.get(@account_read_auth_modes, type)}
+  end
+
+  defp account_binding_seed(_response), do: %{auth_mode: nil}
 
   @spec start_turn(map(), String.t(), map()) :: {:ok, String.t()} | {:error, term()}
   def start_turn(

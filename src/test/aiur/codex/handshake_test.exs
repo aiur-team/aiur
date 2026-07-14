@@ -1,6 +1,8 @@
 defmodule Aiur.Codex.HandshakeTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias Aiur.Codex.{Frames, Handshake}
 
   @policies %{approval_policy: "never", thread_sandbox: "read-only"}
@@ -67,8 +69,28 @@ defmodule Aiur.Codex.HandshakeTest do
 
       assert {:ok, "thread-1", false, true} = Handshake.establish_with_rate_limits(port, "/ws", @policies, nil)
 
-      assert {:ok, %{"requiresOpenaiAuth" => true, "account" => %{"type" => "chatgpt"}}} =
-               Handshake.read_account(port)
+      assert {:ok, %{auth_mode: "chatgpt"}} = Handshake.read_account(port)
+    end
+
+    test "reduces account/read before its response can cross the Handshake boundary" do
+      raw_identity = "person@example.test credential=super-secret"
+
+      port =
+        script_port("""
+        while IFS= read -r line; do
+          case "$line" in
+            *'"id":5'*)
+              printf '%s\\n' 'error account=#{raw_identity}'
+              printf '%s\\n' '{"id":5,"result":{"requiresOpenaiAuth":true,"account":{"type":"chatgpt","email":"#{raw_identity}","planType":"plus"}}}'
+              exit 0 ;;
+          esac
+        done
+        """)
+
+      log = capture_log(fn -> assert {:ok, %{auth_mode: "chatgpt"}} = Handshake.read_account(port) end)
+
+      refute log =~ raw_identity
+      assert log =~ "Codex sensitive response stream output redacted"
     end
 
     test "routes trusted notifications that arrive while thread startup waits" do

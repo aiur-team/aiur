@@ -32,10 +32,25 @@ defmodule Aiur.AppServer.Rpc do
           {:ok, map()} | {:error, term()}
   def with_timeout_response(port, request_id, timeout_ms, pending_line, backend_label, on_notification)
       when is_function(on_notification, 1) do
+    with_timeout_response(port, request_id, timeout_ms, pending_line, backend_label, on_notification, false)
+  end
+
+  @spec with_timeout_response(
+          port(),
+          integer(),
+          non_neg_integer(),
+          String.t(),
+          String.t(),
+          notification_handler(),
+          boolean()
+        ) ::
+          {:ok, map()} | {:error, term()}
+  def with_timeout_response(port, request_id, timeout_ms, pending_line, backend_label, on_notification, sensitive_response?)
+      when is_function(on_notification, 1) and is_boolean(sensitive_response?) do
     receive do
       {^port, {:data, {:eol, chunk}}} ->
         complete_line = pending_line <> to_string(chunk)
-        handle_response(port, request_id, complete_line, timeout_ms, backend_label, on_notification)
+        handle_response(port, request_id, complete_line, timeout_ms, backend_label, on_notification, sensitive_response?)
 
       {^port, {:data, {:noeol, chunk}}} ->
         with_timeout_response(
@@ -44,7 +59,8 @@ defmodule Aiur.AppServer.Rpc do
           timeout_ms,
           pending_line <> to_string(chunk),
           backend_label,
-          on_notification
+          on_notification,
+          sensitive_response?
         )
 
       {^port, {:exit_status, status}} ->
@@ -64,6 +80,13 @@ defmodule Aiur.AppServer.Rpc do
   @spec handle_response(port(), integer(), binary(), non_neg_integer(), String.t(), notification_handler()) ::
           {:ok, map()} | {:error, term()}
   def handle_response(port, request_id, data, timeout_ms, backend_label, on_notification) when is_function(on_notification, 1) do
+    handle_response(port, request_id, data, timeout_ms, backend_label, on_notification, false)
+  end
+
+  @spec handle_response(port(), integer(), binary(), non_neg_integer(), String.t(), notification_handler(), boolean()) ::
+          {:ok, map()} | {:error, term()}
+  def handle_response(port, request_id, data, timeout_ms, backend_label, on_notification, sensitive_response?)
+      when is_function(on_notification, 1) and is_boolean(sensitive_response?) do
     payload = to_string(data)
 
     case Jason.decode(payload) do
@@ -78,11 +101,11 @@ defmodule Aiur.AppServer.Rpc do
 
       {:ok, %{} = other} ->
         maybe_route_notification(other, on_notification, backend_label)
-        with_timeout_response(port, request_id, timeout_ms, "", backend_label, on_notification)
+        with_timeout_response(port, request_id, timeout_ms, "", backend_label, on_notification, sensitive_response?)
 
       {:error, _} ->
-        log_non_json_stream_line(payload, "response stream", backend_label)
-        with_timeout_response(port, request_id, timeout_ms, "", backend_label, on_notification)
+        log_non_json_stream_line(payload, "response stream", backend_label, sensitive_response?: sensitive_response?)
+        with_timeout_response(port, request_id, timeout_ms, "", backend_label, on_notification, sensitive_response?)
     end
   end
 
@@ -101,7 +124,18 @@ defmodule Aiur.AppServer.Rpc do
   defp describe_message(_payload), do: "message"
 
   @spec log_non_json_stream_line(binary(), String.t(), String.t()) :: :ok | nil
-  def log_non_json_stream_line(data, stream_label, backend_label) do
+  def log_non_json_stream_line(data, stream_label, backend_label), do: log_non_json_stream_line(data, stream_label, backend_label, [])
+
+  @spec log_non_json_stream_line(binary(), String.t(), String.t(), keyword()) :: :ok | nil
+  def log_non_json_stream_line(data, stream_label, backend_label, opts) do
+    if Keyword.get(opts, :sensitive_response?, false) do
+      Logger.warning("#{backend_label} sensitive #{stream_label} output redacted")
+    else
+      log_stream_line(data, stream_label, backend_label)
+    end
+  end
+
+  defp log_stream_line(data, stream_label, backend_label) do
     text =
       data
       |> to_string()

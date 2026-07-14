@@ -11,6 +11,7 @@ defmodule Aiur.Codex.AccountGenerationTest do
     session = %{
       account_generation_binding: account_generation.binding,
       account_generation_authority: account_generation.authority,
+      account_generation_context: account_generation.context,
       account_generation_server: owner
     }
 
@@ -21,10 +22,7 @@ defmodule Aiur.Codex.AccountGenerationTest do
     raw_identity = "person@example.test credential=super-secret"
 
     assert :ok =
-             AccountGeneration.seed_from_account_read(session, %{
-               "requiresOpenaiAuth" => true,
-               "account" => %{"type" => "chatgpt", "email" => raw_identity, "planType" => "plus"}
-             })
+             AccountGeneration.seed_from_account_read(session, %{auth_mode: "chatgpt"})
 
     assert snapshot = ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
     assert is_binary(snapshot.generation)
@@ -70,7 +68,7 @@ defmodule Aiur.Codex.AccountGenerationTest do
   end
 
   test "invalid auth modes and absent startup accounts remain explicitly unknown", %{owner: owner, session: session} do
-    assert :ok = AccountGeneration.seed_from_account_read(session, %{"requiresOpenaiAuth" => true, "account" => nil})
+    assert :ok = AccountGeneration.seed_from_account_read(session, %{auth_mode: nil})
 
     assert %{generation: nil, reason: :no_authenticated_account} =
              ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
@@ -101,9 +99,7 @@ defmodule Aiur.Codex.AccountGenerationTest do
 
   test "unrecognized account notifications invalidate and redact provider payloads", %{owner: owner, session: session} do
     assert :ok =
-             AccountGeneration.seed_from_account_read(session, %{
-               "account" => %{"type" => "chatgpt", "email" => "person@example.test"}
-             })
+             AccountGeneration.seed_from_account_read(session, %{auth_mode: "chatgpt"})
 
     assert {:redacted, details} =
              AccountGeneration.handle_notification(session, "account/futureLifecycle", %{
@@ -128,10 +124,47 @@ defmodule Aiur.Codex.AccountGenerationTest do
     assert %{generation: nil, reason: :continuity_lost} =
              ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
 
+    assert {:redacted, _} =
+             AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "chatgpt"}})
+
+    assert %{generation: nil, reason: :continuity_lost} =
+             ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
+
     GenServer.stop(owner)
 
     assert {:redacted, _} =
              AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "chatgpt"}})
+  end
+
+  test "trusted authenticated evidence re-registers a live session after its owner restarts" do
+    name = :provider_account_generation_restart_test
+    {:ok, owner} = ProviderAccountGeneration.start_link(name: name, mint: sequence_mint())
+
+    on_exit(fn ->
+      if Process.whereis(name), do: GenServer.stop(name)
+    end)
+
+    account_generation = AccountGeneration.new_binding(name)
+
+    session = %{
+      account_generation_binding: account_generation.binding,
+      account_generation_authority: account_generation.authority,
+      account_generation_context: account_generation.context,
+      account_generation_server: name
+    }
+
+    assert {:redacted, _} =
+             AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "chatgpt"}})
+
+    GenServer.stop(owner)
+    {:ok, replacement_owner} = ProviderAccountGeneration.start_link(name: name, mint: sequence_mint())
+
+    assert {:redacted, _} =
+             AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "chatgpt"}})
+
+    assert Enum.any?(:sys.get_state(replacement_owner).entries, fn {_key, entry} ->
+             is_binary(entry.snapshot.generation)
+           end)
   end
 
   defp sequence_mint do
