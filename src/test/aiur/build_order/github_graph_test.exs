@@ -417,7 +417,10 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     explicit_null_parent = Map.put(member(4, root), "parent", nil)
 
     assert {:error, %{error: :structurally_invalid, candidate: selected}} =
-             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, [explicit_null_parent], 1)))
+             GitHubGraph.fetch_selected_root(
+               identity(root),
+               base_opts(selected_response(root, [explicit_null_parent], 1))
+             )
 
     diagnostic_codes =
       Enum.flat_map(selected.members, fn member ->
