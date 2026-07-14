@@ -499,6 +499,9 @@ defmodule Aiur.DecisionProjectionTest do
       assert {:ok, %DecisionEvent{data: %{decision: decoded}}} = DecisionProjection.decode_record(raw)
       assert decoded.provenance.backend == "codex"
 
+      tampered = put_in(raw, ["data", "decision", "provenance", "backend"], "forged")
+      assert DecisionProjection.decode_record(tampered) == {:error, :provenance_hash_mismatch}
+
       old_reader_material = %{
         schema_version: raw["schema_version"],
         event_type: :enriched,

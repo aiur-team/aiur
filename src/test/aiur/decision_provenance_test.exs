@@ -42,6 +42,21 @@ defmodule Aiur.DecisionProvenanceTest do
     assert provenance.resolved_model == nil
   end
 
+  test "restamps trusted struct provenance at acceptance" do
+    assert {:ok, previous} =
+             DecisionProvenance.normalize(
+               %{backend: "codex", session_id: "thread-123", source: "agent_runner"},
+               @captured_at
+             )
+
+    accepted_at = DateTime.add(@captured_at, 60, :second)
+
+    assert {:ok, accepted} = DecisionProvenance.normalize(previous, accepted_at)
+    assert accepted.captured_at == accepted_at
+    assert accepted.backend == previous.backend
+    assert accepted.session_id == previous.session_id
+  end
+
   test "rejects raw session, account, and capability material" do
     assert {:error, {:provenance, {:unknown_fields, ["raw_session"]}}} =
              DecisionProvenance.normalize(
@@ -74,10 +89,14 @@ defmodule Aiur.DecisionProvenanceTest do
 
   test "rejects credential-shaped values in every allowed runtime identity field" do
     credential = "ghp_123456789012345678901234567890123456"
+    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0aHJlYWQiLCJpYXQiOjF9.signature"
 
     for field <- [:agent_family, :backend, :requested_model, :resolved_model, :session_id, :attempt_id] do
       assert {:error, {:provenance, {^field, :redacted_secret}}} =
                DecisionProvenance.normalize(Map.put(%{source: "agent_runner"}, field, credential), @captured_at)
+
+      assert {:error, {:provenance, {^field, :redacted_secret}}} =
+               DecisionProvenance.normalize(Map.put(%{source: "agent_runner"}, field, jwt), @captured_at)
     end
   end
 end

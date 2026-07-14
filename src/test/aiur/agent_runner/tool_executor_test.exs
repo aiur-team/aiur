@@ -311,7 +311,10 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
           backend: "codex",
           model: "gpt-5.6-terra",
           thread_id: "thread-abc",
-          attempt_id: "attempt-123"
+          attempt_id: "attempt-123",
+          account: "operator@example.com",
+          raw_session: %{prompt: "do not persist", credential: "secret"},
+          capability_url: "https://capability.example/token"
         })
 
       executor.("emit_event", %{
@@ -322,7 +325,10 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
           "provenance" => %{
             "backend" => "forged",
             "requested_model" => "forged-model",
-            "session_id" => "forged-session"
+            "session_id" => "forged-session",
+            "account" => "operator@example.com",
+            "raw_session" => %{"prompt" => "do not persist"},
+            "capability_url" => "https://capability.example/token"
           }
         }
       })
@@ -334,6 +340,20 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert decision.provenance.session_id == "thread-abc"
       assert decision.provenance.attempt_id == "attempt-123"
       assert decision.provenance.resolved_model == nil
+
+      assert Aiur.DecisionProvenance.to_json_safe(decision.provenance)
+             |> Map.keys()
+             |> Enum.sort() ==
+               [
+                 "agent_family",
+                 "attempt_id",
+                 "backend",
+                 "captured_at",
+                 "requested_model",
+                 "schema_version",
+                 "session_id",
+                 "source"
+               ]
     end
 
     test "leaves provenance unknown when runner context is unavailable" do

@@ -47,9 +47,16 @@ defmodule Aiur.DecisionProvenance do
   @spec normalize(map() | nil, DateTime.t()) :: {:ok, t() | nil} | {:error, term()}
   def normalize(nil, %DateTime{}), do: {:ok, nil}
 
-  def normalize(%__MODULE__{} = provenance, %DateTime{}) do
-    provenance |> to_json_safe() |> from_json_safe()
+  def normalize(%__MODULE__{schema_version: @schema_version} = provenance, %DateTime{} = captured_at) do
+    runtime =
+      provenance
+      |> to_json_safe()
+      |> Map.drop(["schema_version", "captured_at"])
+
+    normalize(runtime, captured_at)
   end
+
+  def normalize(%__MODULE__{}, %DateTime{}), do: {:error, {:provenance, :unsupported_schema_version}}
 
   def normalize(runtime, %DateTime{} = captured_at) when is_map(runtime) do
     with {:ok, runtime} <- normalize_keys(runtime),
@@ -128,12 +135,17 @@ defmodule Aiur.DecisionProvenance do
     cond do
       byte_size(value) > @identity_max -> {:error, {:provenance, {field, :too_long}}}
       SecretRedactor.redact(value) != value -> {:error, {:provenance, {field, :redacted_secret}}}
+      jwt?(value) -> {:error, {:provenance, {field, :redacted_secret}}}
       Regex.match?(~r/\A[A-Za-z0-9][A-Za-z0-9._:-]*\z/, value) -> {:ok, value}
       true -> {:error, {:provenance, {field, :invalid_format}}}
     end
   end
 
   defp optional_identity(_value, field), do: {:error, {:provenance, {field, :invalid_type}}}
+
+  defp jwt?(value) do
+    Regex.match?(~r/\AeyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\z/, value)
+  end
 
   defp fetch_schema_version(raw) do
     case Map.get(raw, "schema_version", Map.get(raw, :schema_version)) do

@@ -8,7 +8,15 @@ defmodule Aiur.DecisionEvent do
   complete semantic envelope so replay fails closed on tampering.
   """
 
-  alias Aiur.{Decision, DecisionAnswer, DecisionProjection, DecisionProvenance, DecisionRevision, DecisionValidation, SecretRedactor}
+  alias Aiur.{
+    Decision,
+    DecisionAnswer,
+    DecisionProjection,
+    DecisionProvenance,
+    DecisionRevision,
+    DecisionValidation,
+    SecretRedactor
+  }
 
   @schema_version 1
   @identity_max 256
@@ -183,7 +191,8 @@ defmodule Aiur.DecisionEvent do
   end
 
   defp normalize_data(:enriched, raw, decision_id, version, trusted_provenance) when is_map(raw) do
-    with {:ok, decision} <- normalize_enrichment_decision(get(raw, :decision), decision_id, version, trusted_provenance),
+    with {:ok, decision} <-
+           normalize_enrichment_decision(get(raw, :decision), decision_id, version, trusted_provenance),
          {:ok, actor} <- normalize_actor(get(raw, :actor)),
          :ok <- require_supervisor_actor(actor),
          {:ok, expected_version} <- map_required_pos_integer(raw, :expected_version),
