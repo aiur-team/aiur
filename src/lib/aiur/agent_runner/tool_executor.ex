@@ -9,7 +9,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   require Logger
 
   alias Aiur.AgentRunner.SessionLifecycle
-  alias Aiur.{Alerts, Boot, DecisionAttention, DecisionStore, Issue}
+  alias Aiur.{Alerts, Boot, CodingAgent, DecisionAttention, DecisionStore, Issue}
   alias Aiur.Codex.DynamicTool
   alias Aiur.Events.{Publisher, SubscriptionStore}
   alias Aiur.GitHub.{AgentCommentOrigins, IssueDependencies}
@@ -289,6 +289,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
           |> remove_untrusted_decision_identity()
 
         source = trusted_source(app_session)
+        provenance = trusted_provenance(app_session)
 
         request_decision_by_correlation(
           issue,
@@ -296,12 +297,13 @@ defmodule Aiur.AgentRunner.ToolExecutor do
           request_payload,
           ticket,
           source,
+          provenance,
           handlers
         )
     end
   end
 
-  defp request_decision_by_correlation(issue, identifier, request_payload, ticket, source, handlers) do
+  defp request_decision_by_correlation(issue, identifier, request_payload, ticket, source, provenance, handlers) do
     case MapAccess.get(request_payload, :attention_slug) do
       nil ->
         payload =
@@ -309,7 +311,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
           |> remove_attention_slug()
           |> Map.put("source_id", trusted_source_id(identifier, source.session_id, request_payload))
 
-        request_and_format(handlers.decision_requester, payload, ticket: ticket, source: source)
+        request_and_format(handlers.decision_requester, payload, ticket: ticket, source: source, provenance: provenance)
 
       slug when is_binary(slug) ->
         case DecisionAttention.correlation(issue, slug) do
@@ -322,7 +324,8 @@ defmodule Aiur.AgentRunner.ToolExecutor do
             request_and_format(handlers.attention_enricher, payload,
               ticket: ticket,
               source: source,
-              legacy_attention: correlation.legacy_attention
+              legacy_attention: correlation.legacy_attention,
+              provenance: provenance
             )
 
           {:error, reason} ->
@@ -573,6 +576,29 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     }
   end
 
+  # This is deliberately built from the runner-owned session, not from the
+  # agent tool payload. `resolved_model` stays absent because the current
+  # adapters do not expose an authoritative resolved-model fact.
+  defp trusted_provenance(app_session) when is_map(app_session) do
+    backend = Map.get(app_session, :backend)
+    requested_model = Map.get(app_session, :model)
+    session_id = Map.get(app_session, :thread_id)
+    attempt_id = Map.get(app_session, :attempt_id)
+
+    if Enum.any?([backend, requested_model, session_id, attempt_id], &is_binary/1) do
+      %{
+        agent_family: CodingAgent.family_for(backend),
+        backend: backend,
+        requested_model: requested_model,
+        session_id: session_id,
+        attempt_id: attempt_id,
+        source: "agent_runner"
+      }
+    else
+      nil
+    end
+  end
+
   defp observation_provenance(app_session, attempt_id) do
     %{
       run_id: Boot.run_id(),
@@ -583,7 +609,16 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   end
 
   defp remove_untrusted_decision_identity(payload) do
-    Map.drop(payload, [:source_id, "source_id", :decision_id, "decision_id", :legacy_attention, "legacy_attention"])
+    Map.drop(payload, [
+      :source_id,
+      "source_id",
+      :decision_id,
+      "decision_id",
+      :legacy_attention,
+      "legacy_attention",
+      :provenance,
+      "provenance"
+    ])
   end
 
   defp remove_attention_slug(payload), do: Map.drop(payload, [:attention_slug, "attention_slug"])
