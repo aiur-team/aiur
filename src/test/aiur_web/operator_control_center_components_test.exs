@@ -215,6 +215,19 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute html =~ "currently unavailable"
   end
 
+  test "Decision inbox primary filter chips use canonical retained counts" do
+    html =
+      render_inbox(
+        [inbox_decision("dec-overview-only")],
+        :all,
+        %{total: 701, open: 503, blocking: 401}
+      )
+
+    assert html =~ ~r/All\s+<span class="count num">701<\/span>/
+    assert html =~ ~r/Open\s+<span class="count num">503<\/span>/
+    assert html =~ ~r/Blocking\s+<span class="count num">401<\/span>/
+  end
+
   test "renders a writable canonical answer form with destructive confirmation" do
     decision = action_decision(reversibility: :irreversible, kind: "destructive_op")
 
@@ -480,7 +493,15 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     Map.merge(defaults, Map.new(attrs))
   end
 
-  defp render_inbox(decisions, filter) do
+  defp render_inbox(decisions, filter, retained_counts \\ nil) do
+    retained_counts =
+      retained_counts ||
+        %{
+          total: length(decisions),
+          open: Enum.count(decisions, &(&1.decision_status == :open)),
+          blocking: Enum.count(decisions, &(&1.blocking and &1.decision_status == :open))
+        }
+
     render_component(&DecisionInbox.decision_inbox/1, %{
       decisions: decisions,
       selected_decision_id: nil,
@@ -489,7 +510,8 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
       history: [],
       action_states: %{},
       writable: false,
-      provider_health: :ok
+      provider_health: :ok,
+      retained_counts: retained_counts
     })
   end
 end

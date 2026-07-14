@@ -24,6 +24,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
   attr(:action_states, :map, default: %{})
   attr(:writable, :boolean, required: true)
   attr(:provider_health, :any, default: :ok)
+  attr(:retained_counts, :map, required: true)
 
   @spec decision_inbox(map()) :: Phoenix.LiveView.Rendered.t()
   def decision_inbox(assigns) do
@@ -32,7 +33,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
     assigns =
       assigns
       |> assign(:visible_decisions, decisions)
-      |> assign(:counts, filter_counts(assigns.decisions))
+      |> assign(:counts, filter_counts(assigns.decisions, assigns.retained_counts))
       |> assign(:filter_specs, @filter_specs)
 
     ~H"""
@@ -70,7 +71,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
 
   attr(:filter, :string, required: true)
   attr(:label, :string, required: true)
-  attr(:count, :integer, required: true)
+  attr(:count, :any, required: true)
   attr(:active, :boolean, required: true)
   attr(:blocking, :boolean, default: false)
 
@@ -83,22 +84,25 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
       phx-value-filter={@filter}
       aria-pressed={to_string(@active)}
     >
-      {@label} <span class="count num">{@count}</span>
+      {@label} <span class="count num">{count_label(@count)}</span>
     </button>
     """
   end
 
-  defp filter_counts(decisions) do
+  defp filter_counts(decisions, retained_counts) do
     %{
-      all: length(decisions),
-      open: Enum.count(decisions, &open?/1),
-      blocking: Enum.count(decisions, &blocking?/1),
+      all: Map.get(retained_counts, :total),
+      open: Map.get(retained_counts, :open),
+      blocking: Map.get(retained_counts, :blocking),
       undelivered: Enum.count(decisions, &undelivered?/1),
       supervisor: Enum.count(decisions, &supervisor_decision?/1),
       resolved: Enum.count(decisions, &(&1.decision_status == :resolved)),
       superseded: Enum.count(decisions, &Map.get(&1, :superseded?, false))
     }
   end
+
+  defp count_label(count) when is_integer(count), do: count
+  defp count_label(_count), do: "—"
 
   defp filtered(decisions, :open), do: Enum.filter(decisions, &open?/1)
   defp filtered(decisions, :blocking), do: Enum.filter(decisions, &blocking?/1)

@@ -123,7 +123,8 @@ defmodule Aiur.ExtensionsTest do
 
     def handle_call(:retained_counts, _from, decisions) do
       current = Map.new(decisions, &{&1.decision_id, &1})
-      {:reply, RetainedSnapshot.counts(current, :writable), decisions}
+      index = RetainedSnapshot.build_index(current)
+      {:reply, RetainedSnapshot.counts(index, :writable), decisions}
     end
 
     def handle_call(:list, _from, decisions), do: {:reply, decisions, decisions}

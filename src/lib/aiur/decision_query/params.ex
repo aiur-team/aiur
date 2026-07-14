@@ -31,7 +31,8 @@ defmodule Aiur.DecisionQuery.Params do
          {:ok, cursor} <- optional_cursor(normalized["cursor"]),
          {:ok, lifecycle} <- optional_lifecycle(normalized["lifecycle"]),
          {:ok, ticket} <- optional_string(normalized["ticket"], @maximum_search_bytes, :ticket),
-         {:ok, search} <- optional_string(normalized["search"], @maximum_search_bytes, :search) do
+         {:ok, search} <- optional_string(normalized["search"], @maximum_search_bytes, :search),
+         :ok <- distinct_search_inputs(ticket, search) do
       {:ok, %{limit: limit, cursor: cursor, lifecycle: lifecycle, ticket: ticket, search: search}}
     else
       {:error, reason} -> {:error, {:invalid_query, reason}}
@@ -126,6 +127,10 @@ defmodule Aiur.DecisionQuery.Params do
   end
 
   defp optional_string(_value, _maximum, field), do: {:error, {field, :invalid_type}}
+
+  defp distinct_search_inputs(nil, _search), do: :ok
+  defp distinct_search_inputs(_ticket, nil), do: :ok
+  defp distinct_search_inputs(_ticket, _search), do: {:error, {:search, :conflicts_with_ticket}}
 
   defp optional_cursor(nil), do: {:ok, nil}
 

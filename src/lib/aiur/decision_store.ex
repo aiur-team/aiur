@@ -210,7 +210,7 @@ defmodule Aiur.DecisionStore do
 
   @doc "Returns canonical retained open and blocking counts from one serialized store snapshot."
   @spec retained_counts(GenServer.server()) ::
-          {:ok, %{counts: %{open: non_neg_integer(), blocking: non_neg_integer()}, health: term()}}
+          {:ok, %{counts: %{open: non_neg_integer(), blocking: non_neg_integer(), total: non_neg_integer()}, health: term()}}
           | {:error, :store_unavailable}
   def retained_counts(server \\ __MODULE__) do
     GenServer.call(server, :retained_counts)
@@ -377,7 +377,7 @@ defmodule Aiur.DecisionStore do
       projection_path: nil,
       current: %{},
       decision_index: :gb_sets.empty(),
-      retained_index: :gb_sets.empty(),
+      retained_index: RetainedSnapshot.build_index(%{}),
       history: %{},
       audit_history: %{},
       recent_audit: [],
@@ -534,7 +534,7 @@ defmodule Aiur.DecisionStore do
   end
 
   def handle_call(:retained_counts, _from, state) do
-    {:reply, RetainedSnapshot.counts(state.current, state.health), state}
+    {:reply, RetainedSnapshot.counts(state.retained_index, state.health), state}
   end
 
   def handle_call({:recent_decisions, limit}, _from, state) do

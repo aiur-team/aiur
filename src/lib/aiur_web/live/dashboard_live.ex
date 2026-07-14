@@ -194,7 +194,7 @@ defmodule AiurWeb.DashboardLive do
       <Overview.error error={@payload.fleet[:error]} />
 
       <div :if={@live_action in [:decisions, :decision]} class="control-panel">
-        <div :if={partial_detail?(@selected_decision_health)} class="readonly-banner" role="status" aria-live="polite">
+        <div :if={not is_nil(@selected_decision) and partial_detail?(@selected_decision_health)} class="readonly-banner" role="status" aria-live="polite">
           <span aria-hidden="true">◉</span>
           <span><b>Partial retained Decision data.</b> This detail was recovered from the validated audit prefix.</span>
         </div>
@@ -212,6 +212,7 @@ defmodule AiurWeb.DashboardLive do
           action_states={@decision_actions}
           writable={@writable}
           provider_health={@payload.provider_health.decisions}
+          retained_counts={@retained_counts}
         />
       </div>
 
@@ -273,6 +274,7 @@ defmodule AiurWeb.DashboardLive do
         :none -> {nil, :none, nil}
         {:ok, %{decision: decision, health: health}} -> {decision, :available, health}
         {:error, :not_found} -> {nil, :not_found, nil}
+        {:error, {:indeterminate, health}} -> {nil, :indeterminate, health}
         {:error, {:invalid_decision_id, _reason}} -> {nil, :not_found, nil}
         {:error, _reason} -> {nil, :unavailable, nil}
       end
@@ -285,10 +287,14 @@ defmodule AiurWeb.DashboardLive do
   end
 
   defp selected_decision_error_title(:unavailable), do: "Decision unavailable"
+  defp selected_decision_error_title(:indeterminate), do: "Decision presence unknown"
   defp selected_decision_error_title(_status), do: "Decision not found"
 
   defp selected_decision_error_message(:unavailable, decision_id),
     do: "Retained Decision data is currently unavailable for #{decision_id}. The overview remains available."
+
+  defp selected_decision_error_message(:indeterminate, decision_id),
+    do: "#{decision_id} may exist beyond the validated audit prefix, so it cannot be reported as absent. The overview remains available."
 
   defp selected_decision_error_message(_status, decision_id),
     do: "No retained decision matches #{decision_id}."
@@ -300,6 +306,7 @@ defmodule AiurWeb.DashboardLive do
     %{
       open: nil,
       blocking: nil,
+      total: nil,
       health: %{status: :unavailable, label: "Retained Decision counts unavailable"}
     }
   end

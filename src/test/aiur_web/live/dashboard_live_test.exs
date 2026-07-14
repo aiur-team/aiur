@@ -180,7 +180,7 @@ defmodule AiurWeb.DashboardLiveTest do
       fleet_filters: FleetFilters.default(),
       selected_decision_id: selected_decision_id,
       selected_decision: selected_decision,
-      selected_decision_status: if(selected_decision, do: :available, else: :not_found),
+      selected_decision_status: Keyword.get(opts, :selected_decision_status, if(selected_decision, do: :available, else: :not_found)),
       selected_decision_health: Keyword.get(opts, :selected_decision_health)
     }
 
@@ -373,6 +373,40 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ "73 awaiting input in total"
     assert html =~ "Partial retained Decision counts"
     assert html =~ "Partial retained Decision data"
+  end
+
+  test "does not report a missing Decision as absent when retained replay is partial" do
+    fleet_payload = %{
+      generated_at: "2026-07-12T12:00:00Z",
+      counts: %{running: 0, retrying: 0, idle: 0},
+      running: [],
+      retrying: [],
+      idle: [],
+      agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      rate_limits: nil
+    }
+
+    payload =
+      ControlCenterPresenter.state_payload(
+        :unused,
+        1,
+        fleet_fun: fn -> fleet_payload end,
+        decisions_fun: fn -> [] end
+      )
+
+    html =
+      render_payload(fleet_payload,
+        payload: payload,
+        live_action: :decision,
+        selected_decision_id: "dec-maybe-retained",
+        selected_decision_status: :indeterminate,
+        selected_decision_health: %{status: :partial, partial?: true}
+      )
+
+    assert html =~ "Decision presence unknown"
+    assert html =~ "may exist beyond the validated audit prefix"
+    refute html =~ "No retained decision matches"
+    refute html =~ "This detail was recovered from the validated audit prefix"
   end
 
   test "renders durable decision history, honest merge provenance, and the analytics link during a snapshot outage" do

@@ -139,7 +139,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProviderTest do
              DecisionProvider.detail(decision.decision_id, decision_store: store, decision_metrics: make_ref())
 
     assert detail.decision_id == decision.decision_id
-    assert {:error, :not_found} = DecisionProvider.detail("dec_missing", decision_store: store, decision_metrics: make_ref())
+
+    assert {:error, {:indeterminate, %{status: :partial, partial?: true}}} =
+             DecisionProvider.detail("dec_missing", decision_store: store, decision_metrics: make_ref())
   end
 
   test "provider failure preserves retained scope and marks results unavailable" do
@@ -157,7 +159,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProviderTest do
             }} =
              DecisionProvider.list(%{"limit" => 1}, decision_store: unavailable_store, decision_metrics: make_ref())
 
-    assert {:ok, %{open: nil, blocking: nil, health: %{status: :unavailable, partial?: true}}} =
+    assert {:ok, %{open: nil, blocking: nil, total: nil, health: %{status: :unavailable, partial?: true}}} =
              DecisionProvider.counts(decision_store: unavailable_store)
   end
 

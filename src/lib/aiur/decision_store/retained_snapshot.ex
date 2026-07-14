@@ -11,19 +11,21 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
           required(:ticket) => String.t() | nil
         }
 
-  @spec build_index(%{String.t() => Decision.t()}) :: :gb_sets.set()
+  @lifecycle_statuses [:open, :decided, :acknowledged, :resolved]
+  @maximum_prefix_length 200
+
+  @spec build_index(%{String.t() => Decision.t()}) :: map()
   def build_index(current) do
-    current
-    |> Map.values()
-    |> Enum.map(&sort_key/1)
-    |> :gb_sets.from_list()
+    Enum.reduce(current, empty_index(), fn {_decision_id, decision}, index ->
+      add_to_index(index, decision)
+    end)
   end
 
-  @spec update_index(:gb_sets.set(), Decision.t() | nil, Decision.t()) :: :gb_sets.set()
+  @spec update_index(map(), Decision.t() | nil, Decision.t()) :: map()
   def update_index(index, prior, %Decision{} = decision) do
     index
-    |> delete_from_index(prior)
-    |> then(&:gb_sets.add(sort_key(decision), &1))
+    |> remove_from_index(prior)
+    |> add_to_index(decision)
   end
 
   @spec lookup(%{String.t() => Decision.t()}, term(), String.t()) ::
@@ -34,10 +36,10 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
       else: {:error, :store_unavailable}
   end
 
-  @spec query(%{String.t() => Decision.t()}, :gb_sets.set(), term(), query()) ::
+  @spec query(%{String.t() => Decision.t()}, map(), term(), query()) ::
           {:ok, map()} | {:error, :store_unavailable | :invalid_query}
   def query(current, index, health, %{limit: limit} = query)
-      when is_map(current) and is_integer(limit) and limit > 0 do
+      when is_map(current) and is_map(index) and is_integer(limit) and limit > 0 do
     cond do
       not valid_query?(query) ->
         {:error, :invalid_query}
@@ -46,14 +48,15 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
         {:error, :store_unavailable}
 
       true ->
-        snapshot = collect(:gb_sets.iterator(index), current, query, empty_snapshot())
+        candidate_index = index_for(index, query)
+        snapshot = collect(iterator_after(candidate_index, query.cursor), current, limit, query.cursor, empty_snapshot())
 
         {:ok,
          %{
            decisions: Enum.reverse(snapshot.page) |> Enum.take(limit),
            has_next?: snapshot.page_size > limit,
-           total: snapshot.total,
-           counts: snapshot.counts,
+           total: :gb_sets.size(candidate_index),
+           counts: canonical_counts(index),
            health: health
          }}
     end
@@ -61,87 +64,146 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
 
   def query(_current, _index, _health, _query), do: {:error, :invalid_query}
 
-  @spec counts(%{String.t() => Decision.t()}, term()) ::
-          {:ok, %{open: non_neg_integer(), blocking: non_neg_integer(), health: term()}} | {:error, :store_unavailable}
-  def counts(current, health) when is_map(current) do
-    if readable?(health) do
-      {:ok, %{counts: counts_for(Map.values(current)), health: health}}
-    else
-      {:error, :store_unavailable}
-    end
+  @spec counts(map(), term()) :: {:ok, %{counts: map(), health: term()}} | {:error, :store_unavailable}
+  def counts(index, health) when is_map(index) do
+    if readable?(health),
+      do: {:ok, %{counts: canonical_counts(index), health: health}},
+      else: {:error, :store_unavailable}
   end
 
-  defp collect(iterator, current, query, snapshot) do
+  def counts(_index, _health), do: {:error, :store_unavailable}
+
+  defp collect(_iterator, _current, limit, _cursor, snapshot) when snapshot.page_size > limit, do: snapshot
+
+  defp collect(iterator, current, limit, cursor, snapshot) do
     case :gb_sets.next(iterator) do
       {key, next_iterator} ->
         decision = Map.fetch!(current, decision_id(key))
-        snapshot = update_snapshot(snapshot, decision, query)
-        collect(next_iterator, current, query, snapshot)
+
+        snapshot =
+          if after_cursor?(decision, cursor) do
+            %{snapshot | page: [decision | snapshot.page], page_size: snapshot.page_size + 1}
+          else
+            snapshot
+          end
+
+        collect(next_iterator, current, limit, cursor, snapshot)
 
       :none ->
         snapshot
     end
   end
 
-  defp update_snapshot(snapshot, decision, query) do
-    counts = update_counts(snapshot.counts, decision)
+  defp empty_snapshot, do: %{page: [], page_size: 0}
 
-    if matches?(decision, query) do
-      snapshot = %{snapshot | counts: counts, total: snapshot.total + 1}
-
-      if after_cursor?(decision, query.cursor) and snapshot.page_size <= query.limit do
-        %{snapshot | page: [decision | snapshot.page], page_size: snapshot.page_size + 1}
-      else
-        snapshot
-      end
-    else
-      %{snapshot | counts: counts}
-    end
+  defp empty_index do
+    lifecycle = Map.new(@lifecycle_statuses, &{&1, :gb_sets.empty()})
+    %{all: :gb_sets.empty(), lifecycle: lifecycle, tickets: %{}, searches: %{}, counts: %{open: 0, blocking: 0}}
   end
 
-  defp empty_snapshot, do: %{page: [], page_size: 0, total: 0, counts: %{open: 0, blocking: 0}}
+  defp add_to_index(index, %Decision{} = decision) do
+    key = sort_key(decision)
+    ticket_prefixes = ticket_prefixes(decision)
+    search_prefixes = search_prefixes(decision, ticket_prefixes)
 
-  defp counts_for(decisions), do: Enum.reduce(decisions, %{open: 0, blocking: 0}, &update_counts(&2, &1))
+    %{
+      index
+      | all: :gb_sets.add(key, index.all),
+        lifecycle: Map.update!(index.lifecycle, decision.decision_status, &:gb_sets.add(key, &1)),
+        tickets: add_prefixes(index.tickets, ticket_prefixes, decision.decision_status, key),
+        searches: add_prefixes(index.searches, search_prefixes, decision.decision_status, key),
+        counts: increment_counts(index.counts, decision)
+    }
+  end
 
-  defp update_counts(counts, %Decision{decision_status: :open, blocking: blocking}) do
+  defp remove_from_index(index, %Decision{} = decision) do
+    key = sort_key(decision)
+    ticket_prefixes = ticket_prefixes(decision)
+    search_prefixes = search_prefixes(decision, ticket_prefixes)
+
+    %{
+      index
+      | all: :gb_sets.delete_any(key, index.all),
+        lifecycle: Map.update!(index.lifecycle, decision.decision_status, &:gb_sets.delete_any(key, &1)),
+        tickets: remove_prefixes(index.tickets, ticket_prefixes, decision.decision_status, key),
+        searches: remove_prefixes(index.searches, search_prefixes, decision.decision_status, key),
+        counts: decrement_counts(index.counts, decision)
+    }
+  end
+
+  defp remove_from_index(index, _prior), do: index
+
+  defp add_prefixes(index, prefixes, lifecycle, key) do
+    Enum.reduce(prefixes, index, fn prefix, index ->
+      Enum.reduce([nil, lifecycle], index, fn scope, index ->
+        Map.update(index, {scope, prefix}, :gb_sets.add(key, :gb_sets.empty()), &:gb_sets.add(key, &1))
+      end)
+    end)
+  end
+
+  defp remove_prefixes(index, prefixes, lifecycle, key) do
+    Enum.reduce(prefixes, index, fn prefix, index ->
+      Enum.reduce([nil, lifecycle], index, fn scope, index ->
+        Map.update(index, {scope, prefix}, :gb_sets.empty(), &:gb_sets.delete_any(key, &1))
+      end)
+    end)
+  end
+
+  defp increment_counts(counts, %Decision{decision_status: :open, blocking: blocking}) do
     %{counts | open: counts.open + 1, blocking: counts.blocking + if(blocking, do: 1, else: 0)}
   end
 
-  defp update_counts(counts, %Decision{}), do: counts
+  defp increment_counts(counts, %Decision{}), do: counts
 
-  defp matches?(%Decision{} = decision, query) do
-    lifecycle_matches?(decision, query.lifecycle) and
-      optional_match(query.ticket, decision.ticket.identifier) and
-      search_matches?(decision, query.search)
+  defp decrement_counts(counts, %Decision{decision_status: :open, blocking: blocking}) do
+    %{counts | open: counts.open - 1, blocking: counts.blocking - if(blocking, do: 1, else: 0)}
   end
 
-  defp lifecycle_matches?(_decision, nil), do: true
-  defp lifecycle_matches?(decision, lifecycle), do: decision.decision_status == lifecycle
+  defp decrement_counts(counts, %Decision{}), do: counts
 
-  defp optional_match(nil, _actual), do: true
-  defp optional_match(expected, actual) when is_binary(actual), do: String.contains?(String.downcase(actual), String.downcase(expected))
-  defp optional_match(_expected, _actual), do: false
+  defp canonical_counts(index), do: Map.put(index.counts, :total, :gb_sets.size(index.all))
 
-  defp search_matches?(_decision, nil), do: true
-
-  defp search_matches?(decision, search) do
-    needle = String.downcase(search)
-    String.contains?(String.downcase(decision.decision_id), needle) or optional_match(search, decision.ticket.identifier)
-  end
+  defp iterator_after(index, nil), do: :gb_sets.iterator(index)
+  defp iterator_after(index, cursor), do: :gb_sets.iterator_from(sort_key(cursor), index)
 
   defp after_cursor?(_decision, nil), do: true
-  defp after_cursor?(decision, cursor), do: audit_key(decision) < audit_key(cursor)
+  defp after_cursor?(decision, cursor), do: sort_key(decision) > sort_key(cursor)
+
+  defp index_for(index, %{ticket: nil, search: nil, lifecycle: nil}), do: index.all
+  defp index_for(index, %{ticket: nil, search: nil, lifecycle: lifecycle}), do: Map.fetch!(index.lifecycle, lifecycle)
+  defp index_for(index, %{ticket: ticket, search: nil, lifecycle: lifecycle}), do: prefix_index(index.tickets, lifecycle, ticket)
+  defp index_for(index, %{ticket: nil, search: search, lifecycle: lifecycle}), do: prefix_index(index.searches, lifecycle, search)
+
+  defp prefix_index(index, lifecycle, value) do
+    Map.get(index, {lifecycle, String.downcase(value)}, :gb_sets.empty())
+  end
+
+  defp ticket_prefixes(%Decision{ticket: ticket}), do: prefixes(ticket && Map.get(ticket, :identifier))
+
+  defp search_prefixes(decision, ticket_prefixes) do
+    prefixes(decision.decision_id)
+    |> Kernel.++(ticket_prefixes)
+    |> Enum.uniq()
+  end
+
+  defp prefixes(value) when is_binary(value) do
+    value = String.downcase(value)
+    length = min(String.length(value), @maximum_prefix_length)
+
+    if length == 0, do: [], else: Enum.map(1..length, &String.slice(value, 0, &1))
+  end
+
+  defp prefixes(_value), do: []
 
   defp sort_key(%Decision{} = decision) do
     {-DateTime.to_unix(decision.created_at, :microsecond), decision.decision_id}
   end
 
-  defp audit_key(%Decision{} = decision), do: {DateTime.to_unix(decision.created_at, :microsecond), decision.decision_id}
-  defp audit_key(cursor), do: {DateTime.to_unix(cursor.created_at, :microsecond), cursor.decision_id}
-  defp decision_id({_created_at, decision_id}), do: decision_id
+  defp sort_key(%{created_at: %DateTime{} = created_at, decision_id: decision_id}) when is_binary(decision_id) do
+    {-DateTime.to_unix(created_at, :microsecond), decision_id}
+  end
 
-  defp delete_from_index(index, %Decision{} = decision), do: :gb_sets.delete_any(sort_key(decision), index)
-  defp delete_from_index(index, _prior), do: index
+  defp decision_id({_created_at, decision_id}), do: decision_id
 
   defp readable?(:writable), do: true
   defp readable?({:corrupt, _line, _reason}), do: true
@@ -149,15 +211,15 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
 
   defp valid_query?(%{cursor: cursor, lifecycle: lifecycle, search: search, ticket: ticket}) do
     valid_cursor?(cursor) and
-      (is_nil(lifecycle) or lifecycle in [:open, :decided, :acknowledged, :resolved]) and
+      (is_nil(lifecycle) or lifecycle in @lifecycle_statuses) and
       valid_optional_string?(search) and
-      valid_optional_string?(ticket)
+      valid_optional_string?(ticket) and
+      (is_nil(search) or is_nil(ticket))
   end
 
   defp valid_query?(_query), do: false
 
   defp valid_cursor?(nil), do: true
-
   defp valid_cursor?(%{created_at: %DateTime{}, decision_id: decision_id}) when is_binary(decision_id), do: true
   defp valid_cursor?(_cursor), do: false
 

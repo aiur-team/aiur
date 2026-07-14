@@ -20,7 +20,7 @@ defmodule Aiur.DecisionQuery do
 
   @doc "Returns one exact retained Decision without consulting the overview window."
   @spec get(String.t(), keyword()) ::
-          {:ok, map()} | {:error, :not_found | :store_unavailable | {:invalid_decision_id, atom()}}
+          {:ok, map()} | {:error, :not_found | :store_unavailable | {:indeterminate, map()} | {:invalid_decision_id, atom()}}
   def get(decision_id, opts \\ [])
 
   def get(decision_id, opts) when is_list(opts) do
@@ -55,7 +55,7 @@ defmodule Aiur.DecisionQuery do
         {:ok, Map.merge(counts, %{scope: scope(), health: health})}
 
       {:error, :store_unavailable} ->
-        {:ok, %{open: nil, blocking: nil, scope: scope(), health: StoreReader.unavailable_health()}}
+        {:ok, %{open: nil, blocking: nil, total: nil, scope: scope(), health: StoreReader.unavailable_health()}}
     end
   end
 
