@@ -48,6 +48,30 @@ defmodule Aiur.Events.BranchRefStoreTest do
     GenServer.stop(acknowledged)
   end
 
+  test "a matching final unblock stays durable until routing acknowledges it" do
+    path = Path.join(System.tmp_dir!(), "branch-ready-crash-#{System.unique_integer([:positive])}.json")
+    ref = "refs/heads/aiur/99-dependency"
+    sha = String.duplicate("c", 40)
+    metadata = %{ref: ref, sha: sha}
+
+    on_exit(fn -> File.rm(path) end)
+
+    {:ok, first} = BranchRefStore.start_link(name: nil, path: path)
+    assert :ok = BranchRefStore.record(ref, sha, first)
+    assert :ready = BranchRefStore.register_unblock(ref, sha, first)
+    assert BranchRefStore.ready_unblock("99", first) == metadata
+    GenServer.stop(first)
+
+    {:ok, restarted} = BranchRefStore.start_link(name: nil, path: path)
+    assert BranchRefStore.ready_unblock("99", restarted) == metadata
+    assert :ok = BranchRefStore.acknowledge_unblock(ref, sha, restarted)
+    GenServer.stop(restarted)
+
+    {:ok, acknowledged} = BranchRefStore.start_link(name: nil, path: path)
+    assert BranchRefStore.ready_unblock("99", acknowledged) == nil
+    GenServer.stop(acknowledged)
+  end
+
   test "default persistence survives a new launch log root" do
     root = Path.join(System.tmp_dir!(), "branch-state-#{System.unique_integer([:positive])}")
     state_dir = Path.join(root, "stable-instance-project")
@@ -169,6 +193,43 @@ defmodule Aiur.Events.BranchRefStoreTest do
 
     {:ok, restarted} = BranchRefStore.start_link(name: nil, path: path)
     assert BranchRefStore.latest("99", restarted) == %{ref: ref, sha: sha}
+    GenServer.stop(restarted)
+  end
+
+  test "failed branch and unblock writes compose into one durable retry" do
+    root = Path.join(System.tmp_dir!(), "branch-unblock-retry-#{System.unique_integer([:positive])}")
+    blocker = Path.join(root, "not-a-directory")
+    path = Path.join(blocker, "branch-refs.json")
+    ref = "refs/heads/aiur/99-dependency"
+    sha = String.duplicate("e", 40)
+    metadata = %{ref: ref, sha: sha}
+
+    File.mkdir_p!(root)
+    File.mkdir_p!(blocker)
+    on_exit(fn -> File.rm_rf(root) end)
+
+    {:ok, store} = BranchRefStore.start_link(name: nil, path: path)
+    File.rm_rf!(blocker)
+    File.write!(blocker, "blocks mkdir_p")
+
+    assert :error = BranchRefStore.record(ref, sha, store)
+    assert :error = BranchRefStore.register_unblock(ref, sha, store)
+    assert BranchRefStore.latest("99", store) == nil
+    assert BranchRefStore.ready_unblock("99", store) == nil
+
+    File.rm!(blocker)
+    File.mkdir_p!(blocker)
+
+    assert_eventually(fn ->
+      BranchRefStore.latest("99", store) == metadata and
+        BranchRefStore.ready_unblock("99", store) == metadata
+    end)
+
+    GenServer.stop(store)
+
+    {:ok, restarted} = BranchRefStore.start_link(name: nil, path: path)
+    assert BranchRefStore.latest("99", restarted) == metadata
+    assert BranchRefStore.ready_unblock("99", restarted) == metadata
     GenServer.stop(restarted)
   end
 

@@ -147,13 +147,10 @@ defmodule Aiur.Events.BranchRefStore do
     case validated_entry(ref, sha) do
       {:ok, identifier, metadata} ->
         candidate = desired_state(state)
-
-        if Map.get(candidate.refs, identifier) == metadata do
-          persist_reply(candidate, :ready)
-        else
-          pending_unblocks = put_pending(candidate.pending_unblocks, identifier, metadata)
-          candidate |> Map.put(:pending_unblocks, pending_unblocks) |> persist_reply(:pending)
-        end
+        pending_unblocks = put_pending(candidate.pending_unblocks, identifier, metadata)
+        candidate = Map.put(candidate, :pending_unblocks, pending_unblocks)
+        reply = if Map.get(candidate.refs, identifier) == metadata, do: :ready, else: :pending
+        persist_reply(candidate, reply)
 
       :error ->
         {:reply, :error, state}
@@ -284,8 +281,6 @@ defmodule Aiur.Events.BranchRefStore do
   defp decode_pending_unblocks(pending) when is_map(pending) do
     Enum.reduce_while(pending, {:ok, %{}}, &decode_pending_unblock/2)
   end
-
-  defp decode_pending_unblocks(_pending), do: {:error, :invalid_pending_unblocks}
 
   defp decode_pending_unblock({identifier, entries}, {:ok, pending})
        when is_binary(identifier) and is_map(entries) do
