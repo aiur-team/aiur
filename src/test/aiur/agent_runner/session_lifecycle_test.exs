@@ -4,6 +4,7 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
   alias Aiur.AgentRunner.SessionLifecycle
   alias Aiur.Config
   alias Aiur.Issue
+  alias Aiur.Workspace.Ownership
 
   describe "remote_session_backend/2" do
     test "maps remote-control claude to claude-repl and passes other cases through" do
@@ -111,11 +112,11 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
             {"local Codex", %{backend: "codex", metadata: %{codex_app_server_pid: "424242"}}, nil}
           ] do
         ticket = "session-no-pgid-#{System.unique_integer([:positive])}"
-        assert {:ok, lease} = Aiur.Workspace.Ownership.claim(ticket)
-        assert {:ok, active_lease} = Aiur.Workspace.Ownership.activate(lease)
+        assert {:ok, lease} = Ownership.claim(ticket)
+        assert {:ok, active_lease} = Ownership.activate(lease)
 
         assert :ok = SessionLifecycle.track_session_containment(active_lease, session, worker_host), shape
-        assert :ok = Aiur.Workspace.Ownership.release(active_lease)
+        assert :ok = Ownership.release(active_lease)
       end
     end
   end

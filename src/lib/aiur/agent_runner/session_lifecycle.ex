@@ -140,46 +140,47 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
 
     case start_agent_session(workspace, session_opts) do
       {:ok, session} ->
-        with :ok <- track_session_containment(Keyword.get(opts, :workspace_ownership), session, worker_host) do
-          Lifecycle.record(issue.identifier, lifecycle_attempt_id, :agent_spinup, :end, %{
-            operation_id: "session",
-            backend: session_backend,
-            outcome: :success
-          })
+        case track_session_containment(Keyword.get(opts, :workspace_ownership), session, worker_host) do
+          :ok ->
+            Lifecycle.record(issue.identifier, lifecycle_attempt_id, :agent_spinup, :end, %{
+              operation_id: "session",
+              backend: session_backend,
+              outcome: :success
+            })
 
-          # Persist the live session handle so the next aiur restart can resume it.
-          SessionResume.persist_session_handle(session, issue.identifier, worker_host)
+            # Persist the live session handle so the next aiur restart can resume it.
+            SessionResume.persist_session_handle(session, issue.identifier, worker_host)
 
-          SessionResume.log_resume_outcome(issue, session, Keyword.get(session_opts, :resume_thread_id))
+            SessionResume.log_resume_outcome(issue, session, Keyword.get(session_opts, :resume_thread_id))
 
-          report_repl_session(codex_update_recipient, issue, session)
-          report_pause_containment(codex_update_recipient, issue, session)
+            report_repl_session(codex_update_recipient, issue, session)
+            report_pause_containment(codex_update_recipient, issue, session)
 
-          display_tailer = maybe_start_display_tailer(session, issue, rc?)
+            display_tailer = maybe_start_display_tailer(session, issue, rc?)
 
-          # A resumed thread already carries the original task + full prior turn
-          # history, so its first turn must continue rather than replay the
-          # heavyweight cold-start prompt — mirroring the in-process turn N+1 flow.
-          opts = Keyword.put(opts, :resumed, SessionResume.session_resumed?(session))
+            # A resumed thread already carries the original task + full prior turn
+            # history, so its first turn must continue rather than replay the
+            # heavyweight cold-start prompt — mirroring the in-process turn N+1 flow.
+            opts = Keyword.put(opts, :resumed, SessionResume.session_resumed?(session))
 
-          try do
-            TurnLoop.run_turns(
-              session,
-              workspace,
-              issue,
-              codex_update_recipient,
-              opts,
-              issue_state_fetcher,
-              orchestrator,
-              worker_host,
-              1,
-              max_turns
-            )
-          after
-            stop_display_tailer(display_tailer)
-            CodingAgent.stop_session(session)
-          end
-        else
+            try do
+              TurnLoop.run_turns(
+                session,
+                workspace,
+                issue,
+                codex_update_recipient,
+                opts,
+                issue_state_fetcher,
+                orchestrator,
+                worker_host,
+                1,
+                max_turns
+              )
+            after
+              stop_display_tailer(display_tailer)
+              CodingAgent.stop_session(session)
+            end
+
           {:error, _reason} = error ->
             CodingAgent.stop_session(session)
             error

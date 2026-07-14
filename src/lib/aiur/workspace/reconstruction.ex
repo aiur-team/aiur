@@ -183,9 +183,9 @@ defmodule Aiur.Workspace.Reconstruction do
     temporary = log_merge_path(destination)
 
     try do
-      with :ok <- write_merged_log(temporary, previous, destination),
-           :ok <- File.rename(temporary, destination) do
-        :ok
+      case write_merged_log(temporary, previous, destination) do
+        :ok -> File.rename(temporary, destination)
+        {:error, _reason} = error -> error
       end
     after
       File.rm(temporary)
@@ -196,9 +196,9 @@ defmodule Aiur.Workspace.Reconstruction do
     case File.open(temporary, [:write, :binary, :exclusive]) do
       {:ok, output} ->
         try do
-          with :ok <- stream_regular_file(previous, output),
-               :ok <- stream_optional_regular_file(destination, output) do
-            :ok
+          case stream_regular_file(previous, output) do
+            :ok -> stream_optional_regular_file(destination, output)
+            {:error, _reason} = error -> error
           end
         after
           File.close(output)
@@ -241,10 +241,8 @@ defmodule Aiur.Workspace.Reconstruction do
         {:error, reason}
 
       chunk when is_binary(chunk) ->
-        case IO.binwrite(output, chunk) do
-          :ok -> copy_log_chunks(input, output)
-          {:error, reason} -> {:error, reason}
-        end
+        :ok = IO.binwrite(output, chunk)
+        copy_log_chunks(input, output)
     end
   end
 
