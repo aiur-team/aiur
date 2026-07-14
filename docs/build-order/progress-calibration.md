@@ -61,6 +61,53 @@ report, and guidance-version record under the private operator-local directory
 `~/.aiur/analytics/build-order-progress/cohorts/phase-N/`. None of those run
 artifacts belongs in Git.
 
+## Review-latency capture
+
+Preserve review-cycle evidence in the same phase cohort. GitHub is the durable
+lifecycle authority: capture PR open/merge times, commit heads, Actions/check
+start and completion times, issue-label transitions, and the ordinary issue/PR
+comments that carry Executor review packets. Formal GitHub Review objects are
+not sufficient for this run because substantive review is normally delivered
+through ordinary comments. Per-ticket agent logs and workpads supply
+self-review start/end events and attestations; keep their normalized evidence
+with the private cohort before retiring a workspace.
+
+Use these stable measures:
+
+- literal review dwell: `agent:human-review` onset through the next primary
+  state transition;
+- semantic review packet: one deduplicated set of actionable findings against
+  one exact PR head, including packets delivered outside `human-review`;
+- rework turnaround: packet delivery or `agent:rework` onset through the next
+  pushed head and review-ready transition;
+- CI correction episode: one or more contiguous failed heads before the next
+  corrective push; and
+- self-review freshness: whether the remote PR head has a completed worker
+  review receipt and no later content-changing commit.
+
+The 2026-07-14 baseline covered 19 Build Order/Ad Hoc PRs (eight merged and
+eleven open after the merge-boundary snapshot). The seven fully audited merged
+PRs had median human-review-to-rework latency of 9m39s and median PR lifetime of
+2h16m37s, while 15 CI correction episodes took a median 34m59s to reach the
+next attempt. All seven still received a semantic correction after reporting
+self-review. The open long tail had median age 11h46m, 149 observed pushed
+heads, 76 failed heads, 47 human-review entries, 42 literal
+review-to-rework transitions, and at least 86 actionable Executor packets.
+Only 34 packets were associated with `human-review`; label-only analytics
+therefore materially undercount review. Across a representative freshness
+audit, only two of seven long-running PRs had a completed worker review on
+their current head, versus four of five short controls.
+
+At the next phase boundary, test one minimal guidance change on tickets that
+have not started: keep early draft PR creation and CI parallelism; require one
+full `ce-code-review`, then require a focused delta review after every later
+content-changing push before `ci-wait` or `human-review`. Record a compact
+receipt such as `kind`, `base_sha`, `head_sha`, `result`, and
+`changes_after=none`. A CI rerun without a new commit does not invalidate the
+receipt. Compare current-head coverage, semantic packets, review/rework cycles,
+CI correction episodes, and total delivery time with this baseline before
+making another guidance change.
+
 Never reinterpret already-running tickets under new guidance. Do not stop
 already-running next-phase work, delay newly-ready dependencies, or serialize
 the dependency graph for this experiment; analysis follows merge completion

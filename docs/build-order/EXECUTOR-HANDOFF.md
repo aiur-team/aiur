@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 14:42 PDT)
+## Live Executor state (updated 2026-07-14 15:10 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -13,8 +13,9 @@ truth and supersedes stale pre-run wording later in the document.
 #1084 with 54 members #1085–#1138 and 107 exact blocker relations. The historical
 receipt gate remains operator-overridden for this run. Aiur is running from the
 repository root against `main`; current accepted `main` is
-`0f8a3e13`, including BO-009/#1096, the binding maximum-useful-concurrency
-Executor rule, and the hard ten-minute capacity audit. The core
+`6be98db8`, including paused-label startup fix #1148, BO-009/#1096, the
+binding maximum-useful-concurrency Executor rule, and the hard ten-minute
+capacity audit. The core
 program is 6/54 merged with 48 remaining.
 
 The recorded runtime session ceiling is 15 workers, governed by
@@ -1297,8 +1298,22 @@ Terra; never dispatch Claude.
     12 cores with about 21 GiB still available, so no further ticket was
     admitted even though the ceiling remained 15. This is the required
     measured-machine bottleneck, not an arbitrary agent cap.
+175. Paused-label startup fix #1148/PR #1173 passed fresh CI and two clean
+    independent exact-head reviews, then squash-merged at 14:55 PDT as current
+    `main` `6be98db8`; the prewarm mirror was verified at the same head. At
+    15:02 the Executor recycled completed-turn rows #1091/#1109/#1161/#1162,
+    restoring ten genuine Aiur workers without raising the configured ceiling.
+    A lifecycle audit of eight merged and eleven open run PRs showed that
+    reviewer dwell is not the dominant long-tail delay: audited merged review
+    turnaround had a 9m39s median, versus 34m59s from a failed CI episode to the
+    next attempt, while open PRs accumulated repeated pushes, failed heads, and
+    semantic rework. Only two of seven representative long PRs had a completed
+    worker self-review on the current head versus four of five short controls.
+    The measurement contract and a single next-phase exact-head/delta-review
+    experiment are recorded in `progress-calibration.md`; do not rewrite active
+    workers' guidance mid-phase or create a new in-scope ticket yet.
 
-At 14:42 PDT the core graph is 6/54 accepted. Every currently
+At 15:10 PDT the core graph is 6/54 accepted. Every currently
 dependency-ready implementation/rework lane is active, in terminal-CI handoff,
 or staffed for exact review. The configured and live ceiling is 15. Five
 workers were actively turning at the previous snapshot; seven are now
