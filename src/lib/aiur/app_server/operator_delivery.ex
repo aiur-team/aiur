@@ -93,7 +93,9 @@ defmodule Aiur.AppServer.OperatorDelivery do
         state.backend.metadata_from_message(session.port, payload)
       )
 
-      {:continue, TurnState.record_accepted_provider_turn(next_state, turn)}
+      next_state
+      |> TurnState.record_accepted_provider_turn(turn)
+      |> TurnState.maybe_finish_after_pending_response()
     end
   end
 

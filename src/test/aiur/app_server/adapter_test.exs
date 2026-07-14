@@ -181,6 +181,28 @@ defmodule Aiur.AppServer.AdapterTest do
     assert_receive {:accepted, "turn-accepted-only"}
   end
 
+  test "run_turn completes from a terminal response without a later lifecycle frame" do
+    port = cat_port()
+    parent = self()
+
+    Process.put(
+      {CodexLifecycleBackend, :pending_operator_requests},
+      pending_operator_request(79, parent)
+    )
+
+    terminal_response = %{
+      "id" => 79,
+      "result" => %{"turn" => %{"id" => "turn-1", "status" => "completed"}}
+    }
+
+    send_frames(port, [terminal_response])
+
+    assert {:ok, %{result: :turn_completed}} =
+             Adapter.run_turn(CodexLifecycleBackend, session(port), "prompt", issue(), [])
+
+    assert_receive {:accepted, "turn-1"}
+  end
+
   test "run_turn rejects late response and start registration for a retired ID" do
     port = cat_port()
     parent = self()

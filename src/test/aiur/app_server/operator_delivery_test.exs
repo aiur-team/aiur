@@ -150,6 +150,18 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
     assert state.outstanding_turns == 1
   end
 
+  test "claimed terminal Codex response retires matching active work and finishes" do
+    pending = %{
+      99 => %{on_success: fn _ -> :ok end, on_failure: fn _ -> :ok end}
+    }
+
+    state = state(%{pending_operator_requests: pending})
+    payload = %{"result" => %{"turn" => %{"id" => "turn-1", "status" => "completed"}}}
+
+    assert {:ok, :turn_completed} =
+             OperatorDelivery.handle_pending_operator_response(session(), state, payload, "{}", 99)
+  end
+
   test "claimed response for a retired provider turn invokes failure instead of success" do
     parent = self()
 

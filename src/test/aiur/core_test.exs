@@ -1872,7 +1872,7 @@ defmodule Aiur.CoreTest do
           *'"method":"turn/start"'*)
             turn_count=$((turn_count + 1))
             printf '{"id":3,"result":{"turn":{"id":"turn-cont-%s"}}}\\n' "$turn_count"
-            printf '%s\\n' '{"method":"turn/completed"}'
+            printf '{"method":"turn/completed","params":{"turn":{"id":"turn-cont-%s","status":"completed"}}}\\n' "$turn_count"
             ;;
         esac
       done
@@ -1999,12 +1999,12 @@ defmodule Aiur.CoreTest do
             ;;
           4)
             printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-queue-1"}}}'
-            printf '%s\\n' '{"method":"turn/completed"}'
+            printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-queue-1","status":"completed"}}}'
             ;;
           *)
             if printf '%s' "$line" | grep -q '"method":"turn/start"'; then
               printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-queue-2"}}}'
-              printf '%s\\n' '{"method":"turn/completed"}'
+              printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-queue-2","status":"completed"}}}'
             fi
             ;;
         esac
@@ -3089,7 +3089,7 @@ defmodule Aiur.CoreTest do
                 ;;
               4)
                 printf '{"id":%s,"result":{"turn":{"id":"turn-def"}}}\\n' "$request_id"
-                printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
+                printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-def","status":"completed"}}}'
                 exit 0
                 ;;
             esac
@@ -3247,7 +3247,7 @@ defmodule Aiur.CoreTest do
             ;;
           5)
             printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-max-2"}}}'
-            printf '%s\\n' '{"method":"turn/completed"}'
+            printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-max-2","status":"completed"}}}'
             ;;
         esac
       done
