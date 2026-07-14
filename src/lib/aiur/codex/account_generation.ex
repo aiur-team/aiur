@@ -71,7 +71,7 @@ defmodule Aiur.Codex.AccountGeneration do
 
   @spec process_stopped(map()) :: :ok
   def process_stopped(session) when is_map(session) do
-    lose_continuity(session, :continuity_lost)
+    retire_binding(session, :continuity_lost)
     clear_binding_context(session)
     :ok
   end
@@ -110,6 +110,18 @@ defmodule Aiur.Codex.AccountGeneration do
          :ok <- recover_retained_binding(server, binding, authority, topic) do
       transition.(server, binding, authority)
     end
+
+    :ok
+  end
+
+  defp retire_binding(session, reason) do
+    with_recovered_binding(session, fn server, binding, authority ->
+      ProviderAccountGeneration.retire(server, :codex, :app_server, binding,
+        source: :codex_app_server,
+        reason: reason,
+        authority: authority
+      )
+    end)
 
     :ok
   end
@@ -193,5 +205,8 @@ defmodule Aiur.Codex.AccountGeneration do
 
   defp account_updated_auth_mode(_payload), do: :error
 
-  defp redacted_message(method), do: %{payload: %{"method" => method, "params" => %{}}, raw: nil}
+  defp redacted_message(method), do: %{payload: %{"method" => redacted_method(method), "params" => %{}}, raw: nil}
+
+  defp redacted_method(method) when method in [@account_updated, @token_refresh, @rate_limits_updated], do: method
+  defp redacted_method(<<"account/", _rest::binary>>), do: "account/unknown"
 end

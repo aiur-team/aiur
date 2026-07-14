@@ -78,6 +78,34 @@ defmodule Aiur.AppServer.RpcTest do
       exit_port = script_port("exit 7")
       assert {:error, {:port_exit, 7}} = Rpc.with_timeout_response(exit_port, 42, 1_000, "", "Test")
     end
+
+    test "keeps an ordinary response after a missing sensitive response" do
+      port = script_port("sleep 0.05; printf '%s\\n' '{\"id\":6,\"result\":{\"ok\":true}}'")
+      on_exit(fn -> Rpc.clear_late_sensitive_responses(port) end)
+
+      assert {:error, :response_timeout} =
+               Rpc.with_timeout_response(port, 5, 10, "", "Test", fn _payload -> :ignore end, true)
+
+      assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 6, 1_000, "", "Test")
+    end
+
+    test "quarantines malformed late sensitive output without suppressing a later valid response" do
+      secret = "person@example.test credential=super-secret"
+
+      port =
+        script_port("""
+        sleep 0.05
+        printf '%s\\n' 'late account=#{secret}'
+        printf '%s\\n' '{"id":6,"result":{"ok":true}}'
+        """)
+
+      on_exit(fn -> Rpc.clear_late_sensitive_responses(port) end)
+
+      assert {:error, :response_timeout} =
+               Rpc.with_timeout_response(port, 5, 10, "", "Test", fn _payload -> :ignore end, true)
+
+      assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 6, 1_000, "", "Test")
+    end
   end
 
   defp script_port(command) do

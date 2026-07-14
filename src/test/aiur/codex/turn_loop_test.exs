@@ -1,16 +1,28 @@
 defmodule Aiur.Codex.TurnLoopTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias Aiur.Codex.{AccountGeneration, CodingAgent, TurnLoop}
   alias Aiur.ProviderAccountGeneration
 
   describe "handle_method/5 terminal turn events" do
     test "turn/completed emits before completing the turn" do
       port = open_cat_port()
-      payload = %{"method" => "turn/completed", "params" => %{"turn" => %{"status" => "completed"}}}
+
+      payload = %{
+        "method" => "turn/completed",
+        "params" => %{"turn" => %{"status" => "completed"}}
+      }
 
       assert {:ok, :turn_completed} =
-               TurnLoop.handle_method(%{port: port}, base_state(), payload, Jason.encode!(payload), "turn/completed")
+               TurnLoop.handle_method(
+                 %{port: port},
+                 base_state(),
+                 payload,
+                 Jason.encode!(payload),
+                 "turn/completed"
+               )
 
       assert_received {:event, :turn_completed}
       close_port(port)
@@ -18,11 +30,22 @@ defmodule Aiur.Codex.TurnLoopTest do
 
     test "turn/completed with interrupted status uses interrupted routing" do
       port = open_cat_port()
-      payload = %{"method" => "turn/completed", "params" => %{"turn" => %{"status" => "interrupted"}}}
+
+      payload = %{
+        "method" => "turn/completed",
+        "params" => %{"turn" => %{"status" => "interrupted"}}
+      }
+
       state = %{base_state() | interrupt_action: :operator_message}
 
       assert {:ok, :turn_interrupted_for_operator_message} =
-               TurnLoop.handle_method(%{port: port}, state, payload, Jason.encode!(payload), "turn/completed")
+               TurnLoop.handle_method(
+                 %{port: port},
+                 state,
+                 payload,
+                 Jason.encode!(payload),
+                 "turn/completed"
+               )
 
       assert_received {:event, :turn_completed}
       close_port(port)
@@ -37,12 +60,21 @@ defmodule Aiur.Codex.TurnLoopTest do
       state = %{
         base_state()
         | pending_operator_requests: %{
-            10 => %{on_success: fn _ -> :ok end, on_failure: fn reason -> send(test_pid, {:failed, reason}) end}
+            10 => %{
+              on_success: fn _ -> :ok end,
+              on_failure: fn reason -> send(test_pid, {:failed, reason}) end
+            }
           }
       }
 
       assert {:error, {:turn_failed, ^params}} =
-               TurnLoop.handle_method(%{port: port}, state, payload, Jason.encode!(payload), "turn/failed")
+               TurnLoop.handle_method(
+                 %{port: port},
+                 state,
+                 payload,
+                 Jason.encode!(payload),
+                 "turn/failed"
+               )
 
       assert_received {:failed, {:turn_failed, ^params}}
       assert_received {:event, :turn_failed}
@@ -56,7 +88,13 @@ defmodule Aiur.Codex.TurnLoopTest do
       state = %{base_state() | pause_request_id: 55, current_turn_id: "turn-1"}
 
       assert {:paused, %{request_id: 55, turn_id: "turn-1", details: ^params}} =
-               TurnLoop.handle_method(%{port: port}, state, payload, Jason.encode!(payload), "turn/cancelled")
+               TurnLoop.handle_method(
+                 %{port: port},
+                 state,
+                 payload,
+                 Jason.encode!(payload),
+                 "turn/cancelled"
+               )
 
       assert_received {:event, :turn_cancelled}
       close_port(port)
@@ -68,7 +106,13 @@ defmodule Aiur.Codex.TurnLoopTest do
       payload = %{"method" => "turn/cancelled", "params" => params}
 
       assert {:error, {:turn_cancelled, ^params}} =
-               TurnLoop.handle_method(%{port: port}, base_state(), payload, Jason.encode!(payload), "turn/cancelled")
+               TurnLoop.handle_method(
+                 %{port: port},
+                 base_state(),
+                 payload,
+                 Jason.encode!(payload),
+                 "turn/cancelled"
+               )
 
       assert_received {:event, :turn_cancelled}
       close_port(port)
@@ -78,11 +122,26 @@ defmodule Aiur.Codex.TurnLoopTest do
   describe "handle_method/5 generic method routing" do
     test "auto-approved tool calls send the tool result and continue" do
       port = open_cat_port()
-      payload = %{"method" => "item/tool/call", "id" => 77, "params" => %{"tool" => "aiur.echo", "arguments" => %{}}}
-      state = %{base_state() | tool_executor: fn "aiur.echo", %{} -> %{"success" => true, "output" => "ok"} end}
+
+      payload = %{
+        "method" => "item/tool/call",
+        "id" => 77,
+        "params" => %{"tool" => "aiur.echo", "arguments" => %{}}
+      }
+
+      state = %{
+        base_state()
+        | tool_executor: fn "aiur.echo", %{} -> %{"success" => true, "output" => "ok"} end
+      }
 
       assert {:continue, _state} =
-               TurnLoop.handle_method(%{port: port}, state, payload, Jason.encode!(payload), "item/tool/call")
+               TurnLoop.handle_method(
+                 %{port: port},
+                 state,
+                 payload,
+                 Jason.encode!(payload),
+                 "item/tool/call"
+               )
 
       frame = read_one_frame(port)
       assert frame == %{"id" => 77, "result" => %{"success" => true, "output" => "ok"}}
@@ -91,19 +150,43 @@ defmodule Aiur.Codex.TurnLoopTest do
     end
 
     @tag :tmp_dir
-    test "auto-approved tool calls spill oversized results into the session workspace", %{tmp_dir: tmp_dir} do
+    test "auto-approved tool calls spill oversized results into the session workspace", %{
+      tmp_dir: tmp_dir
+    } do
       {_output, 0} = System.cmd("git", ["init", "-q"], cd: tmp_dir)
       port = open_cat_port()
       output = String.duplicate("x", 100 * 1024 + 1)
-      payload = %{"method" => "item/tool/call", "id" => 78, "params" => %{"tool" => "aiur.echo", "arguments" => %{}}}
-      state = %{base_state() | tool_executor: fn "aiur.echo", %{} -> %{"success" => true, "output" => output} end}
+
+      payload = %{
+        "method" => "item/tool/call",
+        "id" => 78,
+        "params" => %{"tool" => "aiur.echo", "arguments" => %{}}
+      }
+
+      state = %{
+        base_state()
+        | tool_executor: fn "aiur.echo", %{} -> %{"success" => true, "output" => output} end
+      }
 
       assert {:continue, _state} =
-               TurnLoop.handle_method(%{port: port, workspace: tmp_dir}, state, payload, Jason.encode!(payload), "item/tool/call")
+               TurnLoop.handle_method(
+                 %{port: port, workspace: tmp_dir},
+                 state,
+                 payload,
+                 Jason.encode!(payload),
+                 "item/tool/call"
+               )
 
       frame = read_one_frame(port)
       assert get_in(frame, ["result", "success"])
-      assert [path] = Regex.run(~r/saved as JSON to (.+)\. Read the file/, get_in(frame, ["result", "output"]), capture: :all_but_first)
+
+      assert [path] =
+               Regex.run(
+                 ~r/saved as JSON to (.+)\. Read the file/,
+                 get_in(frame, ["result", "output"]),
+                 capture: :all_but_first
+               )
+
       assert Jason.decode!(File.read!(path))["output"] == output
       close_port(port)
     end
@@ -112,10 +195,20 @@ defmodule Aiur.Codex.TurnLoopTest do
       port = open_cat_port()
       payload = %{"method" => "session/configured", "params" => %{}}
       test_pid = self()
-      state = %{base_state() | on_message: fn message -> send(test_pid, {:full_event, message}) end}
+
+      state = %{
+        base_state()
+        | on_message: fn message -> send(test_pid, {:full_event, message}) end
+      }
 
       assert {:continue, _state} =
-               TurnLoop.handle_method(%{port: port, workspace: "/secret/workspace"}, state, payload, Jason.encode!(payload), payload["method"])
+               TurnLoop.handle_method(
+                 %{port: port, workspace: "/secret/workspace"},
+                 state,
+                 payload,
+                 Jason.encode!(payload),
+                 payload["method"]
+               )
 
       assert_received {:full_event, message}
       refute Map.has_key?(message, :workspace)
@@ -125,10 +218,21 @@ defmodule Aiur.Codex.TurnLoopTest do
 
     test "approval-required requests return an approval error" do
       port = open_cat_port()
-      payload = %{"method" => "item/commandExecution/requestApproval", "id" => 88, "params" => %{}}
+
+      payload = %{
+        "method" => "item/commandExecution/requestApproval",
+        "id" => 88,
+        "params" => %{}
+      }
 
       assert {:error, {:approval_required, ^payload}} =
-               TurnLoop.handle_method(%{port: port}, base_state(), payload, Jason.encode!(payload), payload["method"])
+               TurnLoop.handle_method(
+                 %{port: port},
+                 base_state(),
+                 payload,
+                 Jason.encode!(payload),
+                 payload["method"]
+               )
 
       assert_received {:event, :approval_required}
       close_port(port)
@@ -139,7 +243,13 @@ defmodule Aiur.Codex.TurnLoopTest do
       payload = %{"method" => "turn/input_required", "params" => %{"requiresInput" => true}}
 
       assert {:error, {:turn_input_required, ^payload}} =
-               TurnLoop.handle_method(%{port: port}, base_state(), payload, Jason.encode!(payload), payload["method"])
+               TurnLoop.handle_method(
+                 %{port: port},
+                 base_state(),
+                 payload,
+                 Jason.encode!(payload),
+                 payload["method"]
+               )
 
       assert_received {:event, :turn_input_required}
       close_port(port)
@@ -150,7 +260,13 @@ defmodule Aiur.Codex.TurnLoopTest do
       payload = %{"method" => "session/configured", "params" => %{}}
 
       assert {:continue, _state} =
-               TurnLoop.handle_method(%{port: port}, base_state(), payload, Jason.encode!(payload), payload["method"])
+               TurnLoop.handle_method(
+                 %{port: port},
+                 base_state(),
+                 payload,
+                 Jason.encode!(payload),
+                 payload["method"]
+               )
 
       assert_received {:event, :notification}
       close_port(port)
@@ -196,7 +312,9 @@ defmodule Aiur.Codex.TurnLoopTest do
       assert message.payload == %{"method" => "account/updated", "params" => %{}}
       refute Map.has_key?(message, :usage)
       refute inspect(message) =~ secret
+
       assert is_binary(ProviderAccountGeneration.lookup(owner, :codex, :app_server, binding).generation)
+
       close_port(port)
     end
 
@@ -234,12 +352,96 @@ defmodule Aiur.Codex.TurnLoopTest do
       assert_receive {:full_event, message}
       assert message.event == :notification
       assert message.raw == nil
-      assert message.payload == %{"method" => "account/futureLifecycle", "params" => %{}}
+      assert message.payload == %{"method" => "account/unknown", "params" => %{}}
       refute inspect(message) =~ secret
 
       assert %{generation: nil, reason: :untrusted_lifecycle} =
                ProviderAccountGeneration.lookup(owner, :codex, :app_server, binding)
 
+      close_port(port)
+    end
+
+    test "unknown account lifecycle methods cannot reach logs, events, or outcomes" do
+      port = open_cat_port()
+      owner = start_owner(clock: fn -> ~U[2026-07-13 12:00:00Z] end)
+      account_generation = AccountGeneration.new_binding(owner)
+      secret = "person@example.test credential=super-secret"
+      method = "account/#{secret}"
+
+      state = %{
+        base_state()
+        | on_message: fn message -> send(self(), {:full_event, message}) end
+      }
+
+      payload = %{"method" => method, "params" => %{"email" => secret, "credential" => secret}}
+
+      {result, log} =
+        with_log(fn ->
+          TurnLoop.handle_method(
+            %{
+              port: port,
+              account_generation_binding: account_generation.binding,
+              account_generation_authority: account_generation.authority,
+              account_generation_server: owner
+            },
+            state,
+            payload,
+            Jason.encode!(payload),
+            method
+          )
+        end)
+
+      assert {:continue, _state} = result
+      assert_receive {:full_event, message}
+      assert message.payload == %{"method" => "account/unknown", "params" => %{}}
+      refute inspect(message) =~ secret
+      refute inspect(result) =~ secret
+      refute log =~ secret
+      close_port(port)
+    end
+
+    test "paused account RPC frames cannot reach generic approval handling" do
+      port = open_cat_port()
+      owner = start_owner(clock: fn -> ~U[2026-07-13 12:00:00Z] end)
+      account_generation = AccountGeneration.new_binding(owner)
+      secret = "person@example.test credential=super-secret"
+      method = "account/#{secret}"
+
+      state = %{
+        base_state()
+        | pause_request_id: 42,
+          on_message: fn message -> send(self(), {:full_event, message}) end
+      }
+
+      payload = %{
+        "id" => 17,
+        "method" => method,
+        "params" => %{"email" => secret, "credential" => secret}
+      }
+
+      {result, log} =
+        with_log(fn ->
+          TurnLoop.handle_method(
+            %{
+              port: port,
+              account_generation_binding: account_generation.binding,
+              account_generation_authority: account_generation.authority,
+              account_generation_server: owner
+            },
+            state,
+            payload,
+            Jason.encode!(payload),
+            method
+          )
+        end)
+
+      assert {:continue, _state} = result
+      assert_receive {:full_event, message}
+      assert message.event == :notification
+      assert message.payload == %{"method" => "account/unknown", "params" => %{}}
+      refute inspect(message) =~ secret
+      refute inspect(result) =~ secret
+      refute log =~ secret
       close_port(port)
     end
   end
@@ -258,17 +460,33 @@ defmodule Aiur.Codex.TurnLoopTest do
       }
 
       assert {:paused, %{kind: :usage_limit_exhausted, reset_hint: "11:43 PM"}} =
-               TurnLoop.handle_method(%{port: port}, base_state(), payload, Jason.encode!(payload), "error")
+               TurnLoop.handle_method(
+                 %{port: port},
+                 base_state(),
+                 payload,
+                 Jason.encode!(payload),
+                 "error"
+               )
 
       close_port(port)
     end
 
     test "ordinary unretryable errors end the turn hard" do
       port = open_cat_port()
-      payload = %{"method" => "error", "params" => %{"willRetry" => false, "message" => "bwrap refused"}}
+
+      payload = %{
+        "method" => "error",
+        "params" => %{"willRetry" => false, "message" => "bwrap refused"}
+      }
 
       assert {:error, {:turn_unretryable, "error: bwrap refused"}} =
-               TurnLoop.handle_method(%{port: port}, base_state(), payload, Jason.encode!(payload), "error")
+               TurnLoop.handle_method(
+                 %{port: port},
+                 base_state(),
+                 payload,
+                 Jason.encode!(payload),
+                 "error"
+               )
 
       close_port(port)
     end
@@ -284,7 +502,13 @@ defmodule Aiur.Codex.TurnLoopTest do
         end)
 
       assert {:continue, %{turn_started?: true}} =
-               TurnLoop.handle_method(%{port: port}, state, payload, Jason.encode!(payload), "turn/started")
+               TurnLoop.handle_method(
+                 %{port: port},
+                 state,
+                 payload,
+                 Jason.encode!(payload),
+                 "turn/started"
+               )
 
       assert_received {:checkpoint, %{kind: :notification, method: "turn/started"}}
       close_port(port)
@@ -292,10 +516,20 @@ defmodule Aiur.Codex.TurnLoopTest do
 
     test "idle status completes only after turn_started is true" do
       port = open_cat_port()
-      payload = %{"method" => "thread/status/changed", "params" => %{"status" => %{"type" => "idle"}}}
+
+      payload = %{
+        "method" => "thread/status/changed",
+        "params" => %{"status" => %{"type" => "idle"}}
+      }
 
       assert {:continue, _state} =
-               TurnLoop.handle_method(%{port: port}, base_state(), payload, Jason.encode!(payload), payload["method"])
+               TurnLoop.handle_method(
+                 %{port: port},
+                 base_state(),
+                 payload,
+                 Jason.encode!(payload),
+                 payload["method"]
+               )
 
       assert {:ok, :turn_completed} =
                TurnLoop.handle_method(
@@ -313,10 +547,22 @@ defmodule Aiur.Codex.TurnLoopTest do
       port = open_cat_port()
 
       assert {:continue, _state} =
-               TurnLoop.handle_method(%{port: port}, base_state(), %{"method" => "error"}, ~s({"method":"error"}), "error")
+               TurnLoop.handle_method(
+                 %{port: port},
+                 base_state(),
+                 %{"method" => "error"},
+                 ~s({"method":"error"}),
+                 "error"
+               )
 
       assert {:continue, _state} =
-               TurnLoop.handle_method(%{port: port}, base_state(), %{"method" => "mcp/event"}, ~s({"method":"mcp/event"}), "mcp/event")
+               TurnLoop.handle_method(
+                 %{port: port},
+                 base_state(),
+                 %{"method" => "mcp/event"},
+                 ~s({"method":"mcp/event"}),
+                 "mcp/event"
+               )
 
       close_port(port)
     end
@@ -326,10 +572,14 @@ defmodule Aiur.Codex.TurnLoopTest do
     test "emits malformed only for JSON-like protocol lines" do
       port = open_cat_port()
 
-      assert {:continue, _state} = TurnLoop.handle_malformed(base_state(), "plain text warning", port)
+      assert {:continue, _state} =
+               TurnLoop.handle_malformed(base_state(), "plain text warning", port)
+
       refute_received {:event, :malformed}
 
-      assert {:continue, _state} = TurnLoop.handle_malformed(base_state(), "  {\"method\":\"turn/completed\"", port)
+      assert {:continue, _state} =
+               TurnLoop.handle_malformed(base_state(), "  {\"method\":\"turn/completed\"", port)
+
       assert_received {:event, :malformed}
 
       assert {:continue, _state} = TurnLoop.handle_malformed(base_state(), " [not-json", port)

@@ -118,7 +118,7 @@ defmodule Aiur.Codex.AccountGenerationTest do
                "params" => %{"email" => "person@example.test", "credential" => "super-secret"}
              })
 
-    assert details == %{payload: %{"method" => "account/futureLifecycle", "params" => %{}}, raw: nil}
+    assert details == %{payload: %{"method" => "account/unknown", "params" => %{}}, raw: nil}
 
     assert %{generation: nil, reason: :untrusted_lifecycle} =
              ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
@@ -146,6 +146,34 @@ defmodule Aiur.Codex.AccountGenerationTest do
 
     assert {:redacted, _} =
              AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "chatgpt"}})
+  end
+
+  test "process teardown revokes a copied session before another process can rebind it", %{owner: owner, session: session} do
+    assert {:redacted, _} =
+             AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "chatgpt"}})
+
+    original = ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
+    copied_session = Map.delete(session, :account_generation_context)
+
+    assert :ok = AccountGeneration.process_stopped(session)
+
+    parent = self()
+
+    spawn(fn ->
+      result =
+        AccountGeneration.handle_notification(copied_session, "account/updated", %{
+          "params" => %{"authMode" => "chatgpt"}
+        })
+
+      send(parent, {:copied_session_result, result})
+    end)
+
+    assert_receive {:copied_session_result, {:redacted, _}}
+
+    assert %{generation: nil, reason: :continuity_lost} =
+             ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
+
+    refute ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding).generation == original.generation
   end
 
   test "trusted authenticated evidence restores the binding retained by session consumers after its owner restarts" do

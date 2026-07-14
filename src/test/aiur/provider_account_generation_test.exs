@@ -275,6 +275,36 @@ defmodule Aiur.ProviderAccountGenerationTest do
     end
   end
 
+  test "retiring final bindings prevents resurrection and bounds retained tombstones" do
+    owner = start_owner(mint: sequence_mint(self()), tombstone_limit: 2, clock: fn -> @clock end)
+
+    Enum.each(1..3, fn _index ->
+      binding = issued_binding(owner)
+
+      assert {:ok, %{generation: generation}} =
+               ProviderAccountGeneration.bind(owner, :codex, :app_server, binding,
+                 source: :codex_app_server,
+                 auth_mode: "chatgpt"
+               )
+
+      assert is_binary(generation)
+
+      assert {:ok, %{generation: nil, reason: :continuity_lost}} =
+               ProviderAccountGeneration.retire(owner, :codex, :app_server, binding,
+                 source: :codex_app_server,
+                 reason: :continuity_lost
+               )
+
+      assert {:error, :owner_unavailable} =
+               ProviderAccountGeneration.recover_binding(owner, :codex, :app_server, binding)
+    end)
+
+    assert %{entries: entries, tombstones: tombstones, tombstone_order: tombstone_order} = :sys.get_state(owner)
+    assert entries == %{}
+    assert map_size(tombstones) == 2
+    assert length(tombstone_order) == 2
+  end
+
   test "subscription topics are exact-binding capabilities", %{owner: owner} do
     first_binding = issued_binding(owner)
     second_binding = issued_binding(owner)
@@ -349,6 +379,12 @@ defmodule Aiur.ProviderAccountGenerationTest do
     assert %{change: :invalidated, reason: :continuity_lost, generation: nil} = invalidated
     assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, binding).generation == nil
     refute snapshot.generation == ProviderAccountGeneration.lookup(owner, :codex, :app_server, binding).generation
+
+    binding_ref = binding.binding
+
+    assert %{entries: entries, tombstones: tombstones} = :sys.get_state(owner)
+    assert entries == %{}
+    assert %{generation: nil, reason: :continuity_lost} = tombstones[{:codex, :app_server, binding_ref}]
   end
 
   test "owner outages fail open as an explicit unknown snapshot", %{owner: owner} do

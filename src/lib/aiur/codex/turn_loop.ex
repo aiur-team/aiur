@@ -9,8 +9,21 @@ defmodule Aiur.Codex.TurnLoop do
   alias Aiur.Codex.{AccountGeneration, Approvals, NotificationPolicy, TurnEvents}
 
   @spec handle_method(map(), map(), map(), String.t(), String.t()) :: term()
-  def handle_method(session, state, %{"method" => "turn/completed"} = payload, payload_string, _method) do
-    emit_turn_event(state.on_message, :turn_completed, payload, payload_string, session.port, payload)
+  def handle_method(
+        session,
+        state,
+        %{"method" => "turn/completed"} = payload,
+        payload_string,
+        _method
+      ) do
+    emit_turn_event(
+      state.on_message,
+      :turn_completed,
+      payload,
+      payload_string,
+      session.port,
+      payload
+    )
 
     case TurnState.turn_completion_status(payload) do
       "interrupted" -> TurnState.continue_after_turn_interrupted(state, payload)
@@ -18,15 +31,43 @@ defmodule Aiur.Codex.TurnLoop do
     end
   end
 
-  def handle_method(session, state, %{"method" => "turn/failed", "params" => params} = payload, payload_string, _method) do
+  def handle_method(
+        session,
+        state,
+        %{"method" => "turn/failed", "params" => params} = payload,
+        payload_string,
+        _method
+      ) do
     emit_turn_event(state.on_message, :turn_failed, payload, payload_string, session.port, params)
-    TurnState.fail_pending_operator_requests(state.pending_operator_requests, {:turn_failed, params})
+
+    TurnState.fail_pending_operator_requests(
+      state.pending_operator_requests,
+      {:turn_failed, params}
+    )
+
     {:error, {:turn_failed, params}}
   end
 
-  def handle_method(session, state, %{"method" => "turn/cancelled", "params" => params} = payload, payload_string, _method) do
-    emit_turn_event(state.on_message, :turn_cancelled, payload, payload_string, session.port, params)
-    TurnState.fail_pending_operator_requests(state.pending_operator_requests, {:turn_cancelled, params})
+  def handle_method(
+        session,
+        state,
+        %{"method" => "turn/cancelled", "params" => params} = payload,
+        payload_string,
+        _method
+      ) do
+    emit_turn_event(
+      state.on_message,
+      :turn_cancelled,
+      payload,
+      payload_string,
+      session.port,
+      params
+    )
+
+    TurnState.fail_pending_operator_requests(
+      state.pending_operator_requests,
+      {:turn_cancelled, params}
+    )
 
     if is_integer(state.pause_request_id) do
       {:paused,
@@ -38,6 +79,16 @@ defmodule Aiur.Codex.TurnLoop do
     else
       {:error, {:turn_cancelled, params}}
     end
+  end
+
+  def handle_method(
+        session,
+        state,
+        %{"method" => <<"account/", _rest::binary>> = method} = payload,
+        _payload_string,
+        _method
+      ) do
+    handle_account_method(session, state, method, payload)
   end
 
   def handle_method(session, state, %{"method" => method} = payload, payload_string, _method)
@@ -81,7 +132,11 @@ defmodule Aiur.Codex.TurnLoop do
     on_message = state.on_message
 
     metadata = TurnEvents.metadata_from_message(port, payload)
-    execution_context = %{workspace: Map.get(session, :workspace), response_id: Map.get(payload, "id")}
+
+    execution_context = %{
+      workspace: Map.get(session, :workspace),
+      response_id: Map.get(payload, "id")
+    }
 
     case Approvals.maybe_handle_approval_request(
            port,
@@ -120,31 +175,95 @@ defmodule Aiur.Codex.TurnLoop do
         {:error, {:approval_required, payload}}
 
       :unhandled ->
-        handle_unhandled_method(session, state, method, payload, payload_string, on_message, metadata)
+        handle_unhandled_method(
+          session,
+          state,
+          method,
+          payload,
+          payload_string,
+          on_message,
+          metadata
+        )
     end
   end
 
   defp pause_latched?(session, state) do
-    is_integer(state.pause_request_id) or Aiur.PauseContainment.paused?(Map.get(session, :containment))
+    is_integer(state.pause_request_id) or
+      Aiur.PauseContainment.paused?(Map.get(session, :containment))
   end
 
-  defp handle_unhandled_method(session, state, method, payload, payload_string, on_message, metadata) do
+  defp handle_unhandled_method(
+         session,
+         state,
+         method,
+         payload,
+         payload_string,
+         on_message,
+         metadata
+       ) do
     if NotificationPolicy.needs_input?(method, payload) do
-      Messages.emit_message(on_message, :turn_input_required, %{payload: payload, raw: payload_string}, metadata)
+      Messages.emit_message(
+        on_message,
+        :turn_input_required,
+        %{payload: payload, raw: payload_string},
+        metadata
+      )
+
       {:error, {:turn_input_required, payload}}
     else
-      emit_notification(on_message, session, method, payload, payload_string, metadata)
-      handle_notification_outcome(session, state, method, payload)
+      case emit_notification(on_message, session, method, payload, payload_string, metadata) do
+        {:account, safe_method} ->
+          handle_account_notification_outcome(session, state, safe_method)
+
+        :ordinary ->
+          handle_notification_outcome(session, state, method, payload)
+      end
     end
   end
 
   defp emit_notification(on_message, session, method, payload, payload_string, metadata) do
     case AccountGeneration.handle_notification(session, method, payload) do
       {:redacted, details} ->
-        Messages.emit_message(on_message, :notification, details, TurnEvents.metadata_from_message(session.port, details.payload))
+        Messages.emit_message(
+          on_message,
+          :notification,
+          details,
+          TurnEvents.metadata_from_message(session.port, details.payload)
+        )
+
+        {:account, details.payload["method"]}
 
       :ignore ->
-        Messages.emit_message(on_message, :notification, %{payload: payload, raw: payload_string}, metadata)
+        Messages.emit_message(
+          on_message,
+          :notification,
+          %{payload: payload, raw: payload_string},
+          metadata
+        )
+
+        :ordinary
+    end
+  end
+
+  defp handle_account_notification_outcome(session, state, safe_method) do
+    checkpoint = NotificationPolicy.checkpoint_for_method(safe_method)
+    {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, checkpoint)}
+  end
+
+  defp handle_account_method(session, state, method, payload) do
+    case AccountGeneration.handle_notification(session, method, payload) do
+      {:redacted, details} ->
+        Messages.emit_message(
+          state.on_message,
+          :notification,
+          details,
+          TurnEvents.metadata_from_message(session.port, details.payload)
+        )
+
+        handle_account_notification_outcome(session, state, details.payload["method"])
+
+      :ignore ->
+        {:continue, state}
     end
   end
 
@@ -167,8 +286,10 @@ defmodule Aiur.Codex.TurnLoop do
 
         {:paused, NotificationPolicy.usage_limit_pause(payload, method)}
 
-      NotificationPolicy.codex_error_method?(method) and NotificationPolicy.unretryable_codex_error?(payload) ->
+      NotificationPolicy.codex_error_method?(method) and
+          NotificationPolicy.unretryable_codex_error?(payload) ->
         Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; willRetry=false, ending turn as unretryable")
+
         {:error, {:turn_unretryable, NotificationPolicy.codex_error_reason(payload, method)}}
 
       NotificationPolicy.turn_started_method?(method) ->
@@ -176,12 +297,16 @@ defmodule Aiur.Codex.TurnLoop do
 
         next_state =
           session
-          |> OperatorDelivery.maybe_process_safe_checkpoint(%{state | turn_started?: true}, checkpoint)
+          |> OperatorDelivery.maybe_process_safe_checkpoint(
+            %{state | turn_started?: true},
+            checkpoint
+          )
 
         {:continue, next_state}
 
       state.turn_started? and NotificationPolicy.thread_idle_status?(method, payload) ->
         Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; treating idle status as turn completion")
+
         TurnState.continue_after_turn_completion(state)
 
       NotificationPolicy.codex_error_method?(method) ->

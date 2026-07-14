@@ -126,8 +126,7 @@ defmodule Aiur.AppServer.TurnLoopTest do
 
     state = state(%{on_message: fn message -> send(parent, {:event, message}) end, timeout_ms: 1})
 
-    assert TurnLoop.receive_loop(%{port: port}, state) ==
-             {:error, :turn_timeout}
+    assert TurnLoop.receive_loop(%{port: port}, state) == {:ok, :done}
 
     refute_receive {:malformed, _payload}
     refute_receive {:event, _event}

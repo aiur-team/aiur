@@ -160,7 +160,8 @@ defmodule Aiur.Codex.HandshakeTest do
 
       log =
         capture_log(fn ->
-          assert {:error, _reason} = Handshake.read_rate_limits(port, on_notification: handler)
+          assert {:ok, %{"primary" => %{"usedPercent" => 100}}} =
+                   Handshake.read_rate_limits(port, on_notification: handler)
         end)
 
       refute_receive {:late_account_payload, _payload}

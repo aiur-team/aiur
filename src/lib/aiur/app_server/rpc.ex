@@ -5,8 +5,7 @@ defmodule Aiur.AppServer.Rpc do
 
   require Logger
 
-  @max_stream_log_bytes 1_000
-  @late_sensitive_response_key {__MODULE__, :late_sensitive_response_ids}
+  alias Aiur.AppServer.Rpc.{SensitiveResponses, Stream}
 
   @spec send_line(port(), map()) :: true
   def send_line(port, message) do
@@ -18,45 +17,15 @@ defmodule Aiur.AppServer.Rpc do
 
   @doc false
   @spec retain_late_sensitive_response(port(), integer()) :: :ok
-  def retain_late_sensitive_response(port, request_id) when is_port(port) and is_integer(request_id) do
-    ids =
-      @late_sensitive_response_key
-      |> Process.get(MapSet.new())
-      |> MapSet.put({port, request_id})
-
-    Process.put(@late_sensitive_response_key, ids)
-    :ok
-  end
+  defdelegate retain_late_sensitive_response(port, request_id), to: SensitiveResponses, as: :retain
 
   @doc false
   @spec clear_late_sensitive_responses(port()) :: :ok
-  def clear_late_sensitive_responses(port) when is_port(port) do
-    ids =
-      @late_sensitive_response_key
-      |> Process.get(MapSet.new())
-      |> MapSet.reject(fn {retained_port, _request_id} -> retained_port == port end)
-
-    if MapSet.size(ids) == 0 do
-      Process.delete(@late_sensitive_response_key)
-    else
-      Process.put(@late_sensitive_response_key, ids)
-    end
-
-    :ok
-  end
+  defdelegate clear_late_sensitive_responses(port), to: SensitiveResponses, as: :clear
 
   @doc false
   @spec discard_late_sensitive_response?(port(), binary() | map()) :: boolean()
-  def discard_late_sensitive_response?(port, data) when is_port(port) do
-    case retained_sensitive_responses(port) do
-      [] ->
-        false
-
-      retained ->
-        clear_matched_sensitive_response(port, data, retained)
-        true
-    end
-  end
+  defdelegate discard_late_sensitive_response?(port, data), to: SensitiveResponses, as: :discard?
 
   @spec with_timeout_response(port(), integer(), non_neg_integer(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
@@ -195,69 +164,13 @@ defmodule Aiur.AppServer.Rpc do
     _ -> Logger.debug("Notification handler failed while waiting for #{backend_label} response")
   end
 
-  defp retained_sensitive_responses(port) do
-    @late_sensitive_response_key
-    |> Process.get(MapSet.new())
-    |> Enum.filter(fn {retained_port, _request_id} -> retained_port == port end)
-  end
-
-  defp clear_matched_sensitive_response(port, %{"id" => request_id}, retained) do
-    if Enum.any?(retained, &(&1 == {port, request_id})) do
-      clear_late_sensitive_response(port, request_id)
-    end
-  end
-
-  defp clear_matched_sensitive_response(port, data, retained) when is_binary(data) do
-    case Jason.decode(data) do
-      {:ok, %{"id" => request_id}} -> clear_matched_sensitive_response(port, %{"id" => request_id}, retained)
-      _ -> :ok
-    end
-  end
-
-  defp clear_matched_sensitive_response(_port, _data, _retained), do: :ok
-
-  defp clear_late_sensitive_response(port, request_id) do
-    ids =
-      @late_sensitive_response_key
-      |> Process.get(MapSet.new())
-      |> MapSet.delete({port, request_id})
-
-    if MapSet.size(ids) == 0 do
-      Process.delete(@late_sensitive_response_key)
-    else
-      Process.put(@late_sensitive_response_key, ids)
-    end
-  end
-
   defp describe_message(%{"method" => method}) when is_binary(method), do: "method #{inspect(method)}"
   defp describe_message(%{"id" => id}), do: "response id #{inspect(id)}"
   defp describe_message(_payload), do: "message"
 
   @spec log_non_json_stream_line(binary(), String.t(), String.t()) :: :ok | nil
-  def log_non_json_stream_line(data, stream_label, backend_label), do: log_non_json_stream_line(data, stream_label, backend_label, [])
+  def log_non_json_stream_line(data, stream_label, backend_label), do: Stream.log_non_json(data, stream_label, backend_label)
 
   @spec log_non_json_stream_line(binary(), String.t(), String.t(), keyword()) :: :ok | nil
-  def log_non_json_stream_line(data, stream_label, backend_label, opts) do
-    if Keyword.get(opts, :sensitive_response?, false) do
-      Logger.warning("#{backend_label} sensitive #{stream_label} output redacted")
-    else
-      log_stream_line(data, stream_label, backend_label)
-    end
-  end
-
-  defp log_stream_line(data, stream_label, backend_label) do
-    text =
-      data
-      |> to_string()
-      |> String.trim()
-      |> String.slice(0, @max_stream_log_bytes)
-
-    if text != "" do
-      if String.match?(text, ~r/\b(error|warn|warning|failed|fatal|panic|exception)\b/i) do
-        Logger.warning("#{backend_label} #{stream_label} output: #{text}")
-      else
-        Logger.debug("#{backend_label} #{stream_label} output: #{text}")
-      end
-    end
-  end
+  def log_non_json_stream_line(data, stream_label, backend_label, opts), do: Stream.log_non_json(data, stream_label, backend_label, opts)
 end
