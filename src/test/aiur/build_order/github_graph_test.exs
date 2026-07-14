@@ -756,6 +756,54 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
              GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_failure_request))
   end
 
+  test "classifies typed GraphQL errors with non-exhausted headers through public graph reads" do
+    rate_limited_catalog = fn _ ->
+      {:ok,
+       %{
+         status: 200,
+         headers: [{"x-ratelimit-remaining", "8"}, {"x-ratelimit-reset", "1"}],
+         body: %{"errors" => [%{"type" => "RATE_LIMITED", "message" => "query quota exhausted"}]}
+       }}
+    end
+
+    assert {:error,
+            %{
+              error: {:github, :rate_limited, %{status: 200, remaining: 8, reset_at: "1970-01-01T00:00:01Z"}},
+              rate_limit: %{remaining: 8, reset_at: "1970-01-01T00:00:01Z"}
+            }} = GitHubGraph.fetch_catalog(base_opts(rate_limited_catalog))
+
+    permission_denied_selected = fn _ ->
+      {:ok,
+       %{
+         status: 200,
+         headers: [{"x-ratelimit-remaining", "0"}, {"x-ratelimit-reset", "1"}],
+         body: %{
+           "errors" => [
+             %{
+               "extensions" => %{"code" => "FORBIDDEN"},
+               "message" => "query access denied"
+             }
+           ]
+         }
+       }}
+    end
+
+    root = root(1)
+
+    assert {:error,
+            %{
+              error: {:github, :permission, %{status: 200, remaining: 0, reset_at: "1970-01-01T00:00:01Z"}},
+              rate_limit: %{remaining: 0, reset_at: "1970-01-01T00:00:01Z"}
+            }} = GitHubGraph.fetch_selected_root(identity(root), base_opts(permission_denied_selected))
+
+    malformed_extension_catalog = fn _ ->
+      {:ok, %{status: 200, body: %{"errors" => [%{"extensions" => "malformed"}]}}}
+    end
+
+    assert {:error, %{error: :graphql_partial, calls: 1, pages: 0}} =
+             GitHubGraph.fetch_catalog(base_opts(malformed_extension_catalog))
+  end
+
   test "the Client facade retains graph contracts and body-free queries" do
     root = root(1)
 

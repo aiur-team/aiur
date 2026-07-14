@@ -92,7 +92,7 @@ defmodule Aiur.GitHub.Errors do
   @spec github_status_error(map()) :: {:github, classification(), map()}
   def github_status_error(%{status: _status} = response), do: classify_error(response)
 
-  @doc "Classifies GraphQL responses with planning-graph rate-limit evidence."
+  @doc "Classifies GraphQL responses with planning-graph provider evidence."
   @spec github_graph_status_error(map()) :: {:github, classification(), map()}
   def github_graph_status_error(%{status: status} = response) do
     detail = Map.put(rate_limit_observation(response), :status, status)
@@ -108,12 +108,50 @@ defmodule Aiur.GitHub.Errors do
 
   defp graph_status_classification(_status, _response), do: :http
 
-  @spec graphql_error(map()) :: {:github, :rate_limited, map()} | :graphql_partial
+  @spec graphql_error(map()) :: {:github, :rate_limited | :permission, map()} | :graphql_partial
   def graphql_error(response) do
-    if rate_limited_response?(response, :unknown) do
-      {:github, :rate_limited, Map.put(rate_limit_observation(response), :status, Map.get(response, :status))}
-    else
-      :graphql_partial
+    case graphql_error_classification(response) do
+      nil -> :graphql_partial
+      classification -> graphql_provider_error(classification, response)
+    end
+  end
+
+  defp graphql_provider_error(classification, response) do
+    {:github, classification, Map.put(rate_limit_observation(response), :status, Map.get(response, :status))}
+  end
+
+  defp graphql_error_classification(response) do
+    cond do
+      graphql_error_code?(response, "RATE_LIMITED") -> :rate_limited
+      graphql_error_code?(response, "FORBIDDEN") -> :permission
+      rate_limited_response?(response, :unknown) or graphql_error_message?(response, "rate limit") -> :rate_limited
+      graphql_error_message?(response, "resource not accessible") -> :permission
+      true -> nil
+    end
+  end
+
+  defp graphql_errors(%{body: %{"errors" => errors}}) when is_list(errors), do: errors
+  defp graphql_errors(_response), do: []
+
+  defp graphql_error_code?(response, code),
+    do: Enum.any?(graphql_errors(response), &(is_map(&1) and code in graphql_error_codes(&1)))
+
+  defp graphql_error_message?(response, message),
+    do: Enum.any?(graphql_errors(response), &(is_map(&1) and String.contains?(graphql_error_message(&1), message)))
+
+  defp graphql_error_codes(error) do
+    [Map.get(error, "type"), Map.get(error, "code"), graphql_extension_code(error)]
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&String.upcase/1)
+  end
+
+  defp graphql_extension_code(%{"extensions" => %{} = extensions}), do: Map.get(extensions, "code")
+  defp graphql_extension_code(_error), do: nil
+
+  defp graphql_error_message(error) do
+    case Map.get(error, "message") do
+      message when is_binary(message) -> String.downcase(message)
+      _ -> ""
     end
   end
 
