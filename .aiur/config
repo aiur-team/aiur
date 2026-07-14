@@ -1,6 +1,6 @@
 tracker:
   kind: github
-  base_branch: v2
+  base_branch: main
   active_states:
     - todo
     - in-progress
