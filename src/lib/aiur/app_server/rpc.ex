@@ -6,6 +6,7 @@ defmodule Aiur.AppServer.Rpc do
   require Logger
 
   @max_stream_log_bytes 1_000
+  @late_sensitive_response_key {__MODULE__, :late_sensitive_response_ids}
 
   @spec send_line(port(), map()) :: true
   def send_line(port, message) do
@@ -14,6 +15,48 @@ defmodule Aiur.AppServer.Rpc do
   end
 
   @type notification_handler :: (map() -> :handled | :ignore)
+
+  @doc false
+  @spec retain_late_sensitive_response(port(), integer()) :: :ok
+  def retain_late_sensitive_response(port, request_id) when is_port(port) and is_integer(request_id) do
+    ids =
+      @late_sensitive_response_key
+      |> Process.get(MapSet.new())
+      |> MapSet.put({port, request_id})
+
+    Process.put(@late_sensitive_response_key, ids)
+    :ok
+  end
+
+  @doc false
+  @spec clear_late_sensitive_responses(port()) :: :ok
+  def clear_late_sensitive_responses(port) when is_port(port) do
+    ids =
+      @late_sensitive_response_key
+      |> Process.get(MapSet.new())
+      |> MapSet.reject(fn {retained_port, _request_id} -> retained_port == port end)
+
+    if MapSet.size(ids) == 0 do
+      Process.delete(@late_sensitive_response_key)
+    else
+      Process.put(@late_sensitive_response_key, ids)
+    end
+
+    :ok
+  end
+
+  @doc false
+  @spec discard_late_sensitive_response?(port(), binary() | map()) :: boolean()
+  def discard_late_sensitive_response?(port, data) when is_port(port) do
+    case retained_sensitive_responses(port) do
+      [] ->
+        false
+
+      retained ->
+        clear_matched_sensitive_response(port, data, retained)
+        true
+    end
+  end
 
   @spec with_timeout_response(port(), integer(), non_neg_integer(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
@@ -51,15 +94,27 @@ defmodule Aiur.AppServer.Rpc do
       {^port, {:data, {:eol, chunk}}} ->
         complete_line = pending_line <> to_string(chunk)
 
-        handle_response(
-          port,
-          request_id,
-          complete_line,
-          timeout_ms,
-          backend_label,
-          on_notification,
-          sensitive_response?
-        )
+        if discard_late_sensitive_response?(port, complete_line) do
+          with_timeout_response(
+            port,
+            request_id,
+            timeout_ms,
+            "",
+            backend_label,
+            on_notification,
+            sensitive_response?
+          )
+        else
+          handle_response(
+            port,
+            request_id,
+            complete_line,
+            timeout_ms,
+            backend_label,
+            on_notification,
+            sensitive_response?
+          )
+        end
 
       {^port, {:data, {:noeol, chunk}}} ->
         with_timeout_response(
@@ -76,6 +131,10 @@ defmodule Aiur.AppServer.Rpc do
         {:error, {:port_exit, status}}
     after
       timeout_ms ->
+        if sensitive_response? do
+          retain_late_sensitive_response(port, request_id)
+        end
+
         {:error, :response_timeout}
     end
   end
@@ -134,6 +193,40 @@ defmodule Aiur.AppServer.Rpc do
     end
   rescue
     _ -> Logger.debug("Notification handler failed while waiting for #{backend_label} response")
+  end
+
+  defp retained_sensitive_responses(port) do
+    @late_sensitive_response_key
+    |> Process.get(MapSet.new())
+    |> Enum.filter(fn {retained_port, _request_id} -> retained_port == port end)
+  end
+
+  defp clear_matched_sensitive_response(port, %{"id" => request_id}, retained) do
+    if Enum.any?(retained, &(&1 == {port, request_id})) do
+      clear_late_sensitive_response(port, request_id)
+    end
+  end
+
+  defp clear_matched_sensitive_response(port, data, retained) when is_binary(data) do
+    case Jason.decode(data) do
+      {:ok, %{"id" => request_id}} -> clear_matched_sensitive_response(port, %{"id" => request_id}, retained)
+      _ -> :ok
+    end
+  end
+
+  defp clear_matched_sensitive_response(_port, _data, _retained), do: :ok
+
+  defp clear_late_sensitive_response(port, request_id) do
+    ids =
+      @late_sensitive_response_key
+      |> Process.get(MapSet.new())
+      |> MapSet.delete({port, request_id})
+
+    if MapSet.size(ids) == 0 do
+      Process.delete(@late_sensitive_response_key)
+    else
+      Process.put(@late_sensitive_response_key, ids)
+    end
   end
 
   defp describe_message(%{"method" => method}) when is_binary(method), do: "method #{inspect(method)}"

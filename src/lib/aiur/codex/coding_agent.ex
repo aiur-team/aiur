@@ -30,7 +30,8 @@ defmodule Aiur.Codex.CodingAgent do
           thread_id: String.t(),
           resumed: boolean(),
           workspace: Path.t(),
-          account_generation_binding: reference()
+          account_generation_binding: reference(),
+          account_generation_topic: String.t()
         }
   @dialyzer {:nowarn_function, run: 4}
   @spec run(Path.t(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
@@ -71,6 +72,7 @@ defmodule Aiur.Codex.CodingAgent do
         account_generation_binding: account_generation.binding,
         account_generation_authority: account_generation.authority,
         account_generation_context: account_generation.context,
+        account_generation_topic: account_generation.topic,
         account_generation_server: account_generation_server
       }
 
@@ -229,6 +231,7 @@ defmodule Aiur.Codex.CodingAgent do
   defp cleanup_session_port(port, containment) do
     AppServerPort.stop_port(port)
   after
+    Rpc.clear_late_sensitive_responses(port)
     PauseContainment.unregister(containment)
   end
 

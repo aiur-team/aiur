@@ -93,6 +93,80 @@ defmodule Aiur.Codex.HandshakeTest do
       assert log =~ "Codex sensitive response stream output redacted"
     end
 
+    test "quarantines a valid account/read response that arrives after its timeout" do
+      raw_identity = "person@example.test credential=super-secret"
+
+      port =
+        script_port("""
+        while IFS= read -r line; do
+          case "$line" in
+            *'"id":5'*)
+              sleep 1.1
+              late_response='{"id":5,"result":{"requiresOpenaiAuth":true,"account":{"type":"chatgpt","email":"'
+              late_response="${late_response}#{raw_identity}"
+              late_response="${late_response}"'","planType":"plus"}}}'
+              printf '%s\\n' "$late_response" ;;
+            *'"id":4'*)
+              printf '%s\\n' '{"id":4,"result":{"rateLimits":{"primary":{"usedPercent":100}}}}'
+              exit 0 ;;
+          esac
+        done
+        """)
+
+      test_pid = self()
+
+      handler = fn payload ->
+        send(test_pid, {:late_account_payload, payload})
+        :handled
+      end
+
+      assert {:error, :account_read_failed} = Handshake.read_account(port)
+
+      log =
+        capture_log(fn ->
+          assert {:ok, %{"primary" => %{"usedPercent" => 100}}} =
+                   Handshake.read_rate_limits(port, on_notification: handler)
+        end)
+
+      refute_receive {:late_account_payload, _payload}
+      refute log =~ raw_identity
+    end
+
+    test "quarantines malformed late account/read stream output instead of logging it" do
+      raw_identity = "person@example.test credential=super-secret"
+
+      port =
+        script_port("""
+        while IFS= read -r line; do
+          case "$line" in
+            *'"id":5'*)
+              sleep 1.1
+              printf '%s\\n' 'malformed delayed account=#{raw_identity}' ;;
+            *'"id":4'*)
+              printf '%s\\n' '{"id":4,"result":{"rateLimits":{"primary":{"usedPercent":100}}}}'
+              exit 0 ;;
+          esac
+        done
+        """)
+
+      test_pid = self()
+
+      handler = fn payload ->
+        send(test_pid, {:late_account_payload, payload})
+        :handled
+      end
+
+      assert {:error, :account_read_failed} = Handshake.read_account(port)
+
+      log =
+        capture_log(fn ->
+          assert {:error, _reason} = Handshake.read_rate_limits(port, on_notification: handler)
+        end)
+
+      refute_receive {:late_account_payload, _payload}
+      refute log =~ raw_identity
+    end
+
     test "routes trusted notifications that arrive while thread startup waits" do
       port =
         script_port("""

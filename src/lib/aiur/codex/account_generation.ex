@@ -13,7 +13,7 @@ defmodule Aiur.Codex.AccountGeneration do
           binding: reference(),
           authority: reference(),
           context: reference(),
-          topic: String.t() | nil
+          topic: String.t()
         }
 
   @spec new_binding(GenServer.server()) :: binding_context()
@@ -21,7 +21,7 @@ defmodule Aiur.Codex.AccountGeneration do
     binding =
       case ProviderAccountGeneration.issue_binding(server, :codex, :app_server) do
         {:ok, binding} -> binding
-        {:error, _reason} -> %{binding: make_ref(), authority: make_ref(), topic: nil}
+        {:error, _reason} -> %{binding: make_ref(), authority: make_ref(), topic: mint_topic()}
       end
 
     context = make_ref()
@@ -77,90 +77,88 @@ defmodule Aiur.Codex.AccountGeneration do
   end
 
   defp bind_account(session, auth_mode) do
-    case binding_context(session) do
-      {:ok, server, binding, authority} ->
-        case ProviderAccountGeneration.bind(server, :codex, :app_server, binding,
-               source: :codex_app_server,
-               auth_mode: auth_mode,
-               authority: authority
-             ) do
-          {:ok, %{reason: :owner_unavailable}} -> recover_and_bind(session, server, auth_mode)
-          _ -> :ok
-        end
-
-      :error ->
-        :ok
-    end
-  end
-
-  defp recover_and_bind(%{account_generation_context: context}, server, auth_mode) when is_reference(context) do
-    with {:ok, %{binding: binding, authority: authority, topic: topic}} <- current_binding_context(context),
-         :ok <-
-           ProviderAccountGeneration.recover_binding(
-             server,
-             :codex,
-             :app_server,
-             %{binding: binding, authority: authority, topic: topic}
-           ) do
+    with_recovered_binding(session, fn server, binding, authority ->
       ProviderAccountGeneration.bind(server, :codex, :app_server, binding,
         source: :codex_app_server,
         auth_mode: auth_mode,
         authority: authority
       )
-    end
-
-    :ok
+    end)
   end
 
-  defp recover_and_bind(_session, _server, _auth_mode), do: :ok
-
   defp confirm_account_binding(session) do
-    with {:ok, server, binding, authority} <- binding_context(session) do
+    with_recovered_binding(session, fn server, binding, authority ->
       ProviderAccountGeneration.confirm(server, :codex, :app_server, binding,
         source: :codex_app_server,
         authority: authority
       )
-    end
-
-    :ok
+    end)
   end
 
   defp lose_continuity(session, reason) do
-    with {:ok, server, binding, authority} <- binding_context(session) do
+    with_recovered_binding(session, fn server, binding, authority ->
       ProviderAccountGeneration.invalidate(server, :codex, :app_server, binding,
         source: :codex_app_server,
         reason: reason,
         authority: authority
       )
+    end)
+  end
+
+  defp with_recovered_binding(session, transition) when is_function(transition, 3) do
+    with {:ok, server, binding, authority, topic} <- binding_context(session),
+         :ok <- recover_retained_binding(server, binding, authority, topic) do
+      transition.(server, binding, authority)
     end
 
     :ok
   end
 
+  defp recover_retained_binding(server, binding, authority, topic) when is_binary(topic) do
+    ProviderAccountGeneration.recover_binding(server, :codex, :app_server, %{
+      binding: binding,
+      authority: authority,
+      topic: topic
+    })
+  end
+
+  defp recover_retained_binding(_server, _binding, _authority, _topic), do: :ok
+
   defp binding_context(session) do
     case Map.fetch(session, :account_generation_context) do
       {:ok, context} when is_reference(context) ->
-        context
-        |> current_binding_context()
-        |> binding_context_from(session)
+        case current_binding_context(context) do
+          {:ok, _binding} = binding -> binding_context_from(binding, session)
+          :cleared -> :error
+          :error -> fallback_binding_context(session)
+        end
 
       _ ->
-        binding_context_from(
-          {Map.get(session, :account_generation_binding), Map.get(session, :account_generation_authority)},
-          session
-        )
+        fallback_binding_context(session)
     end
   end
 
-  defp binding_context_from({:ok, %{binding: binding, authority: authority}}, session),
-    do: binding_context_from({binding, authority}, session)
+  defp fallback_binding_context(session) do
+    binding_context_from(
+      %{
+        binding: Map.get(session, :account_generation_binding),
+        authority: Map.get(session, :account_generation_authority),
+        topic: Map.get(session, :account_generation_topic)
+      },
+      session
+    )
+  end
+
+  defp binding_context_from({:ok, binding}, session), do: binding_context_from(binding, session)
 
   defp binding_context_from(:error, _session), do: :error
 
-  defp binding_context_from({binding, authority}, session) do
+  defp binding_context_from(%{binding: binding, authority: authority} = context, session) do
     case {binding, authority} do
       {binding, authority} when is_reference(binding) and is_reference(authority) ->
-        {:ok, Map.get(session, :account_generation_server, ProviderAccountGeneration), binding, authority}
+        server = Map.get(session, :account_generation_server, ProviderAccountGeneration)
+        topic = Map.get(context, :topic)
+        {:ok, server, binding, authority, topic}
 
       _ ->
         :error
@@ -173,17 +171,22 @@ defmodule Aiur.Codex.AccountGeneration do
       when is_reference(binding) and is_reference(authority) and is_binary(topic) ->
         {:ok, %{binding: binding, authority: authority, topic: topic}}
 
+      :cleared ->
+        :cleared
+
       _ ->
         :error
     end
   end
 
   defp clear_binding_context(%{account_generation_context: context}) when is_reference(context),
-    do: Process.delete(context_key(context))
+    do: Process.put(context_key(context), :cleared)
 
   defp clear_binding_context(_session), do: :ok
 
   defp context_key(context), do: {__MODULE__, :binding_context, context}
+
+  defp mint_topic, do: Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
 
   defp account_updated_auth_mode(%{"params" => %{"authMode" => nil}}), do: :logout
 

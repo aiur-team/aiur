@@ -157,19 +157,12 @@ defmodule Aiur.ProviderAccountGeneration do
 
   def handle_call({:recover_binding, provider, backend, binding, authority, topic}, _from, state) do
     if valid_scope?(provider, backend) and is_reference(binding) and is_reference(authority) and is_binary(topic) do
-      {entry, state} = ensure_entry(state, provider, backend, binding)
-
-      case entry.authority do
-        nil ->
-          state =
-            put_entry(state, entry_key(provider, backend, binding), %{entry | authority: authority, topic: topic})
-
+      case recover_entry(state, provider, backend, binding, authority, topic) do
+        {:ok, changes, state} ->
+          broadcast_changes(changes)
           {:reply, :ok, state}
 
-        ^authority ->
-          {:reply, :ok, state}
-
-        _other ->
+        :error ->
           {:reply, {:error, :owner_unavailable}, state}
       end
     else
@@ -179,8 +172,13 @@ defmodule Aiur.ProviderAccountGeneration do
 
   def handle_call({:subscription_topic, provider, backend, binding}, _from, state) do
     if valid_scope?(provider, backend) and is_reference(binding) do
-      {entry, state} = ensure_entry(state, provider, backend, binding)
-      {:reply, {:ok, entry.topic}, state}
+      case Map.get(state.entries, entry_key(provider, backend, binding)) do
+        %{authority: authority, topic: topic} when is_reference(authority) and is_binary(topic) ->
+          {:reply, {:ok, topic}, state}
+
+        _ ->
+          {:reply, {:error, :owner_unavailable}, state}
+      end
     else
       {:reply, {:error, :invalid_binding}, state}
     end
@@ -240,8 +238,8 @@ defmodule Aiur.ProviderAccountGeneration do
     key = entry_key(provider, backend, binding)
 
     case Map.get(state.entries, key) do
-      %{snapshot: %{generation: generation} = snapshot, auth_mode: existing_mode} = entry when is_binary(generation) ->
-        if same_auth_mode?(existing_mode, Map.get(opts, :auth_mode)) do
+      %{snapshot: %{generation: generation} = snapshot} = entry when is_binary(generation) ->
+        if same_binding_continuity_proven?(opts) do
           {snapshot, [], state}
         else
           replace_known_entry(state, key, provider, backend, opts, owner_pid, entry, :rotated)
@@ -358,9 +356,16 @@ defmodule Aiur.ProviderAccountGeneration do
   defp invalidate_entry(state, provider, backend, binding, opts, owner_pid) do
     key = entry_key(provider, backend, binding)
     {entry, state} = ensure_entry(state, provider, backend, binding)
+    reason = effective_invalidation_reason(entry.snapshot, Map.fetch!(opts, :reason))
 
-    snapshot = unknown_snapshot(provider, backend, Map.fetch!(opts, :source), Map.fetch!(opts, :reason), state.clock.())
-    change = if is_binary(entry.snapshot.generation), do: :invalidated, else: nil
+    snapshot =
+      if is_nil(entry.snapshot.generation) and entry.snapshot.reason == reason do
+        entry.snapshot
+      else
+        unknown_snapshot(provider, backend, Map.fetch!(opts, :source), reason, state.clock.())
+      end
+
+    change = if is_binary(entry.snapshot.generation) or entry.snapshot.reason != reason, do: :invalidated
 
     entry =
       entry
@@ -407,6 +412,35 @@ defmodule Aiur.ProviderAccountGeneration do
 
       entry ->
         {entry, state}
+    end
+  end
+
+  defp recover_entry(state, provider, backend, binding, authority, topic) do
+    key = entry_key(provider, backend, binding)
+
+    case Map.get(state.entries, key) do
+      nil ->
+        snapshot = unknown_snapshot(provider, backend, :unavailable, :never_observed, nil)
+
+        entry = %{
+          snapshot: snapshot,
+          topic: topic,
+          auth_mode: nil,
+          authority: authority,
+          monitor: nil
+        }
+
+        {:ok, [{topic, snapshot, :recovered}], put_entry(state, key, entry)}
+
+      %{authority: nil} = entry ->
+        recovered = %{entry | authority: authority, topic: topic}
+        {:ok, [{topic, recovered.snapshot, :recovered}], put_entry(state, key, recovered)}
+
+      %{authority: ^authority} ->
+        {:ok, [], state}
+
+      _entry ->
+        :error
     end
   end
 
@@ -539,10 +573,13 @@ defmodule Aiur.ProviderAccountGeneration do
     Map.get(opts, :continuity) == :proven and Map.get(opts, :previous_binding) == previous_binding
   end
 
-  defp same_auth_mode?(nil, _incoming), do: true
-  defp same_auth_mode?(_existing, nil), do: true
-  defp same_auth_mode?(mode, mode), do: true
-  defp same_auth_mode?(_existing, _incoming), do: false
+  defp same_binding_continuity_proven?(opts), do: Map.get(opts, :continuity) == :proven
+
+  defp effective_invalidation_reason(%{generation: nil, reason: reason}, :continuity_lost)
+       when reason in [:logout, :unsupported_auth_mode],
+       do: reason
+
+  defp effective_invalidation_reason(_snapshot, reason), do: reason
 
   defp maybe_add_change(changes, nil, _topic, _snapshot), do: changes
   defp maybe_add_change(changes, change, topic, snapshot), do: changes ++ [{topic, snapshot, change}]

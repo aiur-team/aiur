@@ -3,7 +3,7 @@ defmodule Aiur.AppServer.TurnLoop do
   Shared blocking receive loop for app-server turns.
   """
 
-  alias Aiur.AppServer.{Interrupts, Messages, OperatorDelivery}
+  alias Aiur.AppServer.{Interrupts, Messages, OperatorDelivery, Rpc}
 
   @spec receive_loop(map(), map()) :: term()
   def receive_loop(%{port: port} = session, state) do
@@ -58,12 +58,16 @@ defmodule Aiur.AppServer.TurnLoop do
     on_message = state.on_message
     payload_string = to_string(data)
 
-    case Jason.decode(payload_string) do
-      {:ok, payload} ->
-        handle_decoded_incoming(session, state, payload, payload_string, port, on_message)
+    if Rpc.discard_late_sensitive_response?(port, payload_string) do
+      {:continue, state}
+    else
+      case Jason.decode(payload_string) do
+        {:ok, payload} ->
+          handle_decoded_incoming(session, state, payload, payload_string, port, on_message)
 
-      {:error, _reason} ->
-        state.backend.handle_malformed(state, payload_string, port)
+        {:error, _reason} ->
+          state.backend.handle_malformed(state, payload_string, port)
+      end
     end
   end
 

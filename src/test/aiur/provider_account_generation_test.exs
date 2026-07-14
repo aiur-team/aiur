@@ -34,7 +34,11 @@ defmodule Aiur.ProviderAccountGenerationTest do
     assert_received :minted
 
     assert {:ok, repeated_bind} =
-             ProviderAccountGeneration.bind(owner, :codex, :app_server, binding, source: :codex_app_server, auth_mode: "chatgpt")
+             ProviderAccountGeneration.bind(owner, :codex, :app_server, binding,
+               source: :codex_app_server,
+               auth_mode: "chatgpt",
+               continuity: :proven
+             )
 
     assert repeated_bind == bound
 
@@ -80,7 +84,7 @@ defmodule Aiur.ProviderAccountGenerationTest do
     refute old.generation == meter_generation(owner, binding)
   end
 
-  test "stable duplicate auth observations retain one generation and a proven replacement carries it", %{owner: owner} do
+  test "only explicit trusted continuity retains one generation across repeated auth observations", %{owner: owner} do
     first_binding = issued_binding(owner)
     replacement_binding = issued_binding(owner)
 
@@ -93,7 +97,8 @@ defmodule Aiur.ProviderAccountGenerationTest do
     assert {:ok, duplicate} =
              ProviderAccountGeneration.bind(owner, :codex, :app_server, first_binding,
                source: :codex_app_server,
-               auth_mode: "chatgpt"
+               auth_mode: "chatgpt",
+               continuity: :proven
              )
 
     assert duplicate == first
@@ -126,6 +131,33 @@ defmodule Aiur.ProviderAccountGenerationTest do
              )
 
     refute replacement.generation == first.generation
+  end
+
+  test "same-mode evidence rotates unless the trusted owner proves continuity", %{owner: owner} do
+    binding = issued_binding(owner)
+
+    assert {:ok, first} =
+             ProviderAccountGeneration.bind(owner, :codex, :app_server, binding,
+               source: :codex_app_server,
+               auth_mode: "chatgpt"
+             )
+
+    assert {:ok, replacement} =
+             ProviderAccountGeneration.bind(owner, :codex, :app_server, binding,
+               source: :codex_app_server,
+               auth_mode: "chatgpt"
+             )
+
+    refute replacement.generation == first.generation
+
+    assert {:ok, continued} =
+             ProviderAccountGeneration.bind(owner, :codex, :app_server, binding,
+               source: :codex_app_server,
+               auth_mode: "chatgpt",
+               continuity: :proven
+             )
+
+    assert continued == replacement
   end
 
   test "a consumer with only a lookup binding cannot mutate a trusted lifecycle generation", %{owner: owner} do
@@ -261,6 +293,39 @@ defmodule Aiur.ProviderAccountGenerationTest do
     refute_receive {:provider_account_generation_changed, _event}
   end
 
+  test "subscribers cannot attach to a replacement topic before retained recovery" do
+    name = :provider_account_generation_subscription_recovery_test
+    mint = sequence_mint(self())
+    {:ok, owner} = ProviderAccountGeneration.start_link(name: name, mint: mint)
+
+    on_exit(fn -> stop_named_owner(name) end)
+
+    binding = issued_binding(owner)
+    original_topic = binding.topic
+
+    GenServer.stop(owner)
+    {:ok, replacement_owner} = ProviderAccountGeneration.start_link(name: name, mint: mint)
+
+    assert {:error, :owner_unavailable} =
+             ProviderAccountGeneration.subscribe(replacement_owner, :codex, :app_server, binding.binding)
+
+    assert :ok = ProviderAccountGeneration.recover_binding(replacement_owner, :codex, :app_server, binding)
+    assert :ok = ProviderAccountGeneration.subscribe(replacement_owner, :codex, :app_server, binding.binding)
+
+    assert {:ok, %{generation: generation}} =
+             ProviderAccountGeneration.bind(replacement_owner, :codex, :app_server, binding,
+               source: :codex_app_server,
+               auth_mode: "chatgpt"
+             )
+
+    assert_receive {:provider_account_generation_changed, %{change: :bound, generation: ^generation}}
+
+    binding_ref = binding.binding
+
+    assert %{entries: %{{:codex, :app_server, ^binding_ref} => %{topic: ^original_topic}}} =
+             :sys.get_state(replacement_owner)
+  end
+
   test "an owning process dying invalidates and publishes its former binding", %{owner: owner} do
     binding = issued_binding(owner)
     parent = self()
@@ -378,5 +443,14 @@ defmodule Aiur.ProviderAccountGenerationTest do
       send(test_pid, :minted)
       "generation-#{value}"
     end
+  end
+
+  defp stop_named_owner(name) do
+    case Process.whereis(name) do
+      pid when is_pid(pid) -> GenServer.stop(pid)
+      _ -> :ok
+    end
+  catch
+    :exit, _reason -> :ok
   end
 end
