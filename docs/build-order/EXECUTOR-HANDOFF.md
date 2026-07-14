@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-13 21:57 PDT)
+## Live Executor state (updated 2026-07-13 22:10 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -240,7 +240,7 @@ to a safe range.
     version boundary; never serialize the graph for the experiment.
 24. The preview now carries a sixth **Ad Hoc** epic for tickets created during
     execution without changing the approved 54-ticket denominator. Current
-    members are #1139, #1140, #1142, #1146, #1148, #1149, #1151, and #1152;
+    members are #1139, #1140, #1142, #1146, #1148, #1149, #1151, #1152, and #1154;
     all carry `build-lane:adhoc`. Assign `phase:N` only when an ad hoc ticket is
     actually picked up, using the closest active phase; #1139 and #1151 are
     Phase 1, while deferred/untriaged tickets remain phase-unassigned and render
@@ -267,6 +267,18 @@ to a safe range.
     decision; keep #1123 paused until it is ratified and its deleted-inode
     workspace is repaired. No Claude execution or token use is required for
     the gate or its synthetic compatibility fixture.
+27. At 22:08 PDT the Executor correlated the repeated fleet build spikes to a
+    direct sandbox/build-gate defect. Aiur exported
+    `AIUR_BUILD_GATE_DIR=~/.aiur/build-gate`, but that directory was absent
+    from the live Codex `workspaceWrite` writable roots. Agent Mix commands on
+    at least #1088 and #1151 therefore failed their queue-record write with
+    `EROFS`; `build_gate.bash` reported `queue_record_failed` and failed open,
+    silently bypassing `max_concurrent_builds: 2`. Dead queue/phase records are
+    secondary debris, not the causal defect. P1 Ad Hoc #1154 owns the durable
+    sandbox-policy, failure-mode, cleanup, and regression fix. It remains
+    phase-unassigned and undispatched while host load is elevated. The root
+    dogfood config has a local-only, uncommitted writable-root containment for
+    this host; do not copy its machine path into portable defaults.
 
 At 21:57 PDT the core graph is 2/54 merged. Four core Terra workers are
 reported working (#1085, #1088, #1104, and #1111); #1089 and #1090 were
