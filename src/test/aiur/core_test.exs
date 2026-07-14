@@ -2162,7 +2162,13 @@ defmodule Aiur.CoreTest do
       )
 
       orchestrator_name = Module.concat(__MODULE__, :CompletedCodexReplacementOrchestrator)
-      {:ok, orchestrator_pid} = Orchestrator.start_link(name: orchestrator_name)
+      {:ok, orchestrator_pid} = Orchestrator.start_link(name: orchestrator_name, schedule_initial_poll?: false)
+      initial_state = :sys.get_state(orchestrator_pid)
+
+      assert is_nil(initial_state.tick_timer_ref)
+      assert is_nil(initial_state.tick_token)
+      assert is_nil(initial_state.next_poll_due_at_ms)
+
       {:ok, old_worker} = Task.Supervisor.start_child(Aiur.TaskSupervisor, fn -> Process.sleep(:infinity) end)
       old_ref = Process.monitor(old_worker)
 
