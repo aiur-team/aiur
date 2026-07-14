@@ -11,7 +11,9 @@ defmodule Aiur.BuildGate do
   alias Aiur.PathSafety
 
   @default_timeout_seconds 900
-  @recovery "repair the configured build-gate directory and retry, or explicitly disable the gate with agent.max_concurrent_builds: 0"
+  @recovery "repair the configured build-gate directory and retry, or fully disable build admission with " <>
+              "agent.max_concurrent_builds: 0, agent.build_start_stagger_seconds: 0, and " <>
+              "agent.min_free_memory_mb omitted"
 
   @type status :: %{
           required(:enabled?) => boolean(),
@@ -204,21 +206,43 @@ defmodule Aiur.BuildGate do
     rm -f -- "$3" || exit 77
     """
 
-    case System.cmd(shell, ["-c", script, "aiur-build-gate-status", lock_path, flock, cleanup_path], stderr_to_stdout: true) do
-      {_output, 0} -> :unlocked
-      {_output, 75} -> :locked
-      {output, status} -> {:error, %{status: status, output: String.trim(output)}}
+    with :ok <- regular_or_missing(lock_path) do
+      args = ["-c", script, "aiur-build-gate-status", lock_path, flock, cleanup_path]
+
+      case System.cmd(shell, args, stderr_to_stdout: true) do
+        {_output, 0} -> :unlocked
+        {_output, 75} -> :locked
+        {output, status} -> {:error, %{status: status, output: String.trim(output)}}
+      end
     end
   rescue
     error -> {:error, Exception.message(error)}
   end
 
   defp maybe_metadata_issue(issues, path) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :regular}} -> read_metadata_issue(issues, path)
+      {:ok, %File.Stat{type: type}} -> [status_issue(:metadata_not_regular, path, type) | issues]
+      {:error, :enoent} -> issues
+      {:error, reason} -> [status_issue(:metadata_unreadable, path, reason) | issues]
+    end
+  end
+
+  defp read_metadata_issue(issues, path) do
     case File.read(path) do
       {:ok, "version=2\n" <> _rest} -> issues
       {:error, :enoent} -> issues
       {:ok, _contents} -> [status_issue(:invalid_metadata, path) | issues]
       {:error, reason} -> [status_issue(:metadata_unreadable, path, reason) | issues]
+    end
+  end
+
+  defp regular_or_missing(path) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :regular}} -> :ok
+      {:ok, %File.Stat{type: type}} -> {:error, %{reason: :not_regular, type: type}}
+      {:error, :enoent} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 

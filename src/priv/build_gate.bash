@@ -14,17 +14,26 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     local reason=$1 path=${2:-unknown}
 
     aiur_build_gate_log \
-      "gate_error reason=$reason path=$path status=125 recovery=repair_gate_or_set_max_concurrent_builds_0"
+      "gate_error reason=$reason path=$path status=125" \
+      "recovery=repair_gate_or_disable_all_build_admission" \
+      "disable=max_concurrent_builds_0,build_start_stagger_seconds_0,min_free_memory_mb_unset"
     return 125
   }
 
   aiur_build_gate_linux_locks() {
+    local platform
+
     case ${AIUR_BUILD_GATE_LEASE_STRATEGY:-auto} in
       linux) return 0 ;;
       pid) return 1 ;;
     esac
 
-    [[ $(uname -s 2>/dev/null) == Linux ]]
+    if ! platform=$(uname -s 2>/dev/null); then
+      aiur_build_gate_fail "platform_detection_failed" "uname"
+      return 125
+    fi
+
+    [[ $platform == Linux ]]
   }
 
   aiur_build_gate_needs_slot() {
@@ -297,6 +306,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
 
   aiur_build_gate_publish_owner_v2() {
     local gate_dir=$1 owner_path=$2 token=$3 phase=$4 owner_pid=$5 owner_pgid=$6 command=$7
+    local holder_pid=${8:-0} command_pgid=${9:-0}
     local owner_candidate
 
     owner_candidate=$(mktemp "$gate_dir/.owner-v2.XXXXXXXXXX" 2>/dev/null) || {
@@ -304,8 +314,10 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
       return 125
     }
 
-    if ! printf 'version=2\ntoken=%s\npid=%s\npgid=%s\nphase=%s\ncommand=%s\n' \
-      "$token" "$owner_pid" "$owner_pgid" "$phase" "$command" >"$owner_candidate"; then
+    if ! printf \
+      'version=2\ntoken=%s\npid=%s\npgid=%s\nholder_pid=%s\ncommand_pgid=%s\nphase=%s\ncommand=%s\n' \
+      "$token" "$owner_pid" "$owner_pgid" "$holder_pid" "$command_pgid" "$phase" "$command" \
+      >"$owner_candidate"; then
       rm -f "$owner_candidate" 2>/dev/null || true
       aiur_build_gate_fail "owner_write_failed" "$owner_path"
       return 125
@@ -325,6 +337,48 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
       aiur_build_gate_fail "owner_release_failed" "$owner_path"
       return 125
     fi
+  }
+
+  aiur_build_gate_hold_linux_lease() {
+    local python_binary=$1 ready_path=$2 started_path=$3 command_pid_path=$4
+    local status_path=$5 owner_path=$6 token=$7 parent_pid=$8 slot_fd=$9
+    local holder_script
+    shift 9
+
+    # A Linux subreaper becomes the parent of daemonized Mix descendants. It
+    # owns the slot descriptor, reports the direct command status promptly,
+    # then keeps the lease until every adopted descendant has exited.
+    holder_script="$(dirname "${BASH_SOURCE[0]}")/build_gate_holder.py"
+
+    exec "$python_binary" "$holder_script" "$ready_path" "$started_path" "$command_pid_path" \
+      "$status_path" "$owner_path" "$token" "$parent_pid" "$slot_fd" "$@"
+  }
+
+  aiur_build_gate_wait_for_holder_file() {
+    local path=$1 holder_pid=$2 attempt
+
+    for ((attempt = 0; attempt < 100; attempt++)); do
+      [[ -f $path ]] && return 0
+      kill -0 "$holder_pid" 2>/dev/null || break
+      sleep 0.01
+    done
+
+    return 1
+  }
+
+  aiur_build_gate_wait_for_command_status() {
+    local status_path=$1 holder_pid=$2 status
+
+    while :; do
+      if IFS= read -r status 2>/dev/null <"$status_path" &&
+        [[ $status =~ ^[0-9]+\ [01]$ ]]; then
+        printf '%s\n' "$status"
+        return 0
+      fi
+
+      kill -0 "$holder_pid" 2>/dev/null || return 1
+      sleep 0.01
+    done
   }
 
   aiur_build_gate_wait_for_phase_start_linux() {
@@ -378,7 +432,10 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     if ! now=$(aiur_build_gate_now_seconds); then
       aiur_build_gate_release_linux_owner "$owner_path" || true
       exec {phase_fd}>&-
-      aiur_build_gate_log "gate_error reason=phase_clock_unavailable status=125 recovery=repair_gate_or_set_max_concurrent_builds_0"
+      aiur_build_gate_log \
+        "gate_error reason=phase_clock_unavailable status=125" \
+        "recovery=repair_gate_or_disable_all_build_admission" \
+        "disable=max_concurrent_builds_0,build_start_stagger_seconds_0,min_free_memory_mb_unset"
       return 125
     fi
 
@@ -419,7 +476,10 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
       if ! now=$(aiur_build_gate_now_seconds); then
         aiur_build_gate_release_linux_owner "$owner_path" || true
         exec {phase_fd}>&-
-        aiur_build_gate_log "gate_error reason=phase_clock_unavailable status=125 recovery=repair_gate_or_set_max_concurrent_builds_0"
+        aiur_build_gate_log \
+          "gate_error reason=phase_clock_unavailable status=125" \
+          "recovery=repair_gate_or_disable_all_build_admission" \
+          "disable=max_concurrent_builds_0,build_start_stagger_seconds_0,min_free_memory_mb_unset"
         return 125
       fi
 
@@ -444,6 +504,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
 
   aiur_build_gate_maybe_wait_for_phase_start() {
     local gate_dir=$1 phase=$2 slots=$3 stagger_seconds=$4 deadline=$5
+    local strategy_result
 
     if ((stagger_seconds == 0 || slots == 1)); then
       return 0
@@ -453,8 +514,14 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
       aiur_build_gate_wait_for_phase_start_linux \
         "$gate_dir" "$phase" "$stagger_seconds" "$deadline"
     else
-      aiur_build_gate_wait_for_phase_start_pid \
-        "$gate_dir" "$phase" "$stagger_seconds" "$deadline"
+      strategy_result=$?
+
+      if ((strategy_result == 1)); then
+        aiur_build_gate_wait_for_phase_start_pid \
+          "$gate_dir" "$phase" "$stagger_seconds" "$deadline"
+      else
+        return "$strategy_result"
+      fi
     fi
   }
 
@@ -676,12 +743,14 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     local timeout_seconds=${AIUR_BUILD_GATE_TIMEOUT_SECONDS:-900}
     local min_free_memory_mb=${AIUR_MIN_FREE_MEMORY_MB:-0}
     local queue_dir locks_dir queue_candidate queue_file queue_token queue_fd
+    local command_pid_file="" command_status_file="" holder_ready_file="" holder_started_file=""
+    local command_pgid holder_pid parent_pid python_binary retained status
     local deadline slot slot_lock slot_owner slot_fd lock_result owner_pid owner_pgid token result pacing_result
     local available_memory_mb memory_deferred=0 memory_unavailable_logged=0
 
     # Keep descriptor allocation local to this subshell and independent of an
-    # invoking agent shell's shopt state. The opened slot descriptor remains
-    # inheritable by Mix and all of its descendants.
+    # invoking agent shell's shopt state. The opened slot descriptor is handed
+    # only to the dedicated lease holder.
     shopt -u varredir_close
 
     if [[ ! $slots =~ ^[0-9]+$ ]] ||
@@ -701,6 +770,15 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     if [[ -z $(type -P mktemp) ]]; then
       aiur_build_gate_fail "mktemp_unavailable" "$gate_dir"
       return 125
+    fi
+
+    if ((slots > 0)); then
+      python_binary=$(type -P python3)
+
+      if [[ -z $python_binary ]]; then
+        aiur_build_gate_fail "lease_holder_runtime_unavailable" "$gate_dir"
+        return 125
+      fi
     fi
 
     queue_dir="$gate_dir/queue"
@@ -735,11 +813,13 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     [[ $owner_pid =~ ^[1-9][0-9]*$ ]] || owner_pid=${BASHPID:-$$}
     owner_pgid=${AIUR_BUILD_GATE_DIAGNOSTIC_PGID:-}
 
-    if [[ ! $owner_pgid =~ ^[1-9][0-9]*$ ]]; then
-      owner_pgid=$(ps -o pgid= -p "${BASHPID:-$$}" 2>/dev/null)
+    if [[ ! $owner_pgid =~ ^[1-9][0-9]*$ ]] &&
+      owner_pgid=$(ps -o pgid= -p "${BASHPID:-$$}" 2>/dev/null); then
       owner_pgid=${owner_pgid//[[:space:]]/}
       [[ $owner_pgid =~ ^[1-9][0-9]*$ ]] || owner_pgid=0
     fi
+
+    [[ $owner_pgid =~ ^[1-9][0-9]*$ ]] || owner_pgid=0
 
     queue_token=${queue_candidate##*/}
     queue_token=${queue_token#.queue-v2.}
@@ -845,7 +925,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
           token="$queue_token.$slot.$RANDOM"
 
           if ! aiur_build_gate_publish_owner_v2 \
-            "$gate_dir" "$slot_owner" "$token" "$phase" "$owner_pid" "$owner_pgid" "$*"; then
+            "$gate_dir" "$slot_owner" "$token" "$phase" "$owner_pid" "$owner_pgid" "$*" 0 0; then
             exec {slot_fd}>&-
             rm -f "$queue_file" 2>/dev/null || true
             exec {queue_fd}>&-
@@ -882,20 +962,98 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
             return "$pacing_result"
           fi
 
-          if "$executable" "$@"; then
-            result=0
-          else
-            result=$?
+          if ! command_pid_file=$(mktemp "$gate_dir/.command-v2.XXXXXXXXXX" 2>/dev/null) ||
+            ! command_status_file=$(mktemp "$gate_dir/.status-v2.XXXXXXXXXX" 2>/dev/null) ||
+            ! holder_ready_file=$(mktemp "$gate_dir/.holder-ready-v2.XXXXXXXXXX" 2>/dev/null) ||
+            ! holder_started_file=$(mktemp "$gate_dir/.holder-started-v2.XXXXXXXXXX" 2>/dev/null); then
+            rm -f "$command_pid_file" "$command_status_file" \
+              "$holder_ready_file" "$holder_started_file" 2>/dev/null || true
+            aiur_build_gate_release_linux_owner "$slot_owner" || true
+            exec {slot_fd}>&-
+            aiur_build_gate_fail "lease_holder_metadata_failed" "$gate_dir"
+            return 125
           fi
 
-          if ! aiur_build_gate_release_linux_owner "$slot_owner"; then
-            result=125
+          rm -f "$command_pid_file" "$command_status_file" \
+            "$holder_ready_file" "$holder_started_file" 2>/dev/null || true
+          parent_pid=${BASHPID:-$$}
+
+          aiur_build_gate_hold_linux_lease \
+            "$python_binary" "$holder_ready_file" "$holder_started_file" \
+            "$command_pid_file" "$command_status_file" "$slot_owner" "$token" \
+            "$parent_pid" "$slot_fd" "$executable" "$@" &
+          holder_pid=$!
+
+          if ! aiur_build_gate_wait_for_holder_file "$holder_started_file" "$holder_pid"; then
+            wait "$holder_pid" 2>/dev/null || true
+            rm -f "$command_pid_file" "$command_status_file" \
+              "$holder_ready_file" "$holder_started_file" 2>/dev/null || true
+            aiur_build_gate_release_linux_owner "$slot_owner" || true
+            exec {slot_fd}>&-
+            aiur_build_gate_fail "lease_holder_start_failed" "$gate_dir"
+            return 125
           fi
 
-          # Do not explicitly unlock: descendants inherit this open file
-          # description and retain capacity until every copy closes.
+          if ! aiur_build_gate_publish_owner_v2 \
+            "$gate_dir" "$slot_owner" "$token" "$phase" "$owner_pid" "$owner_pgid" "$*" \
+            "$holder_pid" 0; then
+            kill "$holder_pid" 2>/dev/null || true
+            wait "$holder_pid" 2>/dev/null || true
+            rm -f "$command_pid_file" "$command_status_file" \
+              "$holder_ready_file" "$holder_started_file" 2>/dev/null || true
+            aiur_build_gate_release_linux_owner "$slot_owner" || true
+            exec {slot_fd}>&-
+            return 125
+          fi
+
+          if ! : >"$holder_ready_file"; then
+            kill "$holder_pid" 2>/dev/null || true
+            wait "$holder_pid" 2>/dev/null || true
+            rm -f "$command_pid_file" "$command_status_file" \
+              "$holder_ready_file" "$holder_started_file" 2>/dev/null || true
+            aiur_build_gate_release_linux_owner "$slot_owner" || true
+            exec {slot_fd}>&-
+            aiur_build_gate_fail "lease_holder_ready_failed" "$holder_ready_file"
+            return 125
+          fi
+
+          if ! aiur_build_gate_wait_for_holder_file "$command_pid_file" "$holder_pid" ||
+            ! IFS= read -r command_pgid <"$command_pid_file" ||
+            [[ ! $command_pgid =~ ^[1-9][0-9]*$ ]]; then
+            exec {slot_fd}>&-
+            aiur_build_gate_fail "command_process_group_unavailable" "$gate_dir"
+            return 125
+          fi
+
+          if ! aiur_build_gate_publish_owner_v2 \
+            "$gate_dir" "$slot_owner" "$token" "$phase" "$owner_pid" "$owner_pgid" "$*" \
+            "$holder_pid" "$command_pgid"; then
+            exec {slot_fd}>&-
+            return 125
+          fi
+
+          # The subreaper now owns the lock independently from BEAM and will
+          # retain it across process-group changes and double-forked children.
           exec {slot_fd}>&-
-          aiur_build_gate_log "released slot=$slot status=$result"
+
+          if ! status=$(
+            aiur_build_gate_wait_for_command_status "$command_status_file" "$holder_pid"
+          ); then
+            aiur_build_gate_fail "lease_holder_status_failed" "$gate_dir"
+            return 125
+          fi
+          rm -f "$command_status_file" 2>/dev/null || true
+          result=${status%% *}
+          retained=${status##* }
+
+          if ((retained == 1)); then
+            aiur_build_gate_log \
+              "lease_retained slot=$slot status=$result holder_pid=$holder_pid command_pgid=$command_pgid"
+          else
+            wait "$holder_pid" 2>/dev/null || true
+            aiur_build_gate_log "released slot=$slot status=$result"
+          fi
+
           return "$result"
         else
           lock_result=$?
@@ -923,10 +1081,18 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
   )
 
   aiur_build_gate_run() {
+    local strategy_result
+
     if aiur_build_gate_linux_locks; then
       aiur_build_gate_run_linux "$@"
     else
-      aiur_build_gate_run_pid "$@"
+      strategy_result=$?
+
+      if ((strategy_result == 1)); then
+        aiur_build_gate_run_pid "$@"
+      else
+        return "$strategy_result"
+      fi
     fi
   }
 

@@ -82,11 +82,13 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 
 Enabled local Codex `workspaceWrite` turns preserve configured/workspace/Git roots and
 also grant the canonical shared build-gate directory. Gate coordination failures return
-status `125` without running Mix. Repair the reported directory or `flock` dependency and
+status `125` without running Mix. Repair the reported directory, `flock`, or `python3`
+subreaper dependency and
 restart/re-dispatch agents. If `aiur status` reports `BUILD GATE DEGRADED`, first stop the
 old fleet and confirm no old Mix verification is live, then clear only the reported legacy
-records. Setting `agent.max_concurrent_builds: 0` is an explicit opt-out that removes the
-fleet cap; it is never an automatic error fallback.
+records. To disable build admission completely, set `agent.max_concurrent_builds: 0`, set
+`agent.build_start_stagger_seconds: 0`, and omit `agent.min_free_memory_mb`. This explicit
+opt-out removes every build safeguard; it is never an automatic error fallback.
 
 ## agent.claude
 

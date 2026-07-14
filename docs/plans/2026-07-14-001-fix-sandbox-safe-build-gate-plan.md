@@ -23,7 +23,7 @@ Codex `workspaceWrite` turns currently omit the daemon-exported build-gate direc
 
 *This plan was authored without synchronous user confirmation. The items below are agent inferences that fill gaps in the input — un-validated bets that should be reviewed before implementation proceeds.*
 
-- Linux hosts running the Codex PID sandbox provide the packaged `flock` utility; a missing Linux locking primitive should fail closed rather than fall back to namespace-unsafe PID ownership.
+- Linux hosts running the Codex PID sandbox provide `flock` and `python3` with `prctl`; a missing locking or subreaper primitive should fail closed rather than fall back to namespace-unsafe PID ownership.
 - Non-Linux local hosts may retain the current PID/PGID ownership strategy because they do not expose Linux PID namespaces, while remote-worker policy and environment behavior remain unchanged.
 - Existing pre-v2 lease debris cannot be proven live from an arbitrary sandbox; it should be reported with a bounded manual recovery path rather than guessed stale.
 
@@ -76,7 +76,7 @@ Codex `workspaceWrite` turns currently omit the daemon-exported build-gate direc
 
 - **Prepare the gate root before a local Codex turn:** Canonicalize, create, and probe the configured directory before adding it to `writableRoots`. Return a structured startup error when the host path is invalid or unwritable instead of sending a frame that cannot honor the gate.
 - **Augment only enabled local `workspaceWrite` policies:** Feed the canonical gate root through the existing append-unique policy machinery. Remote and future/non-write policy shapes retain their current contract.
-- **Use inherited advisory locks as Linux liveness proof:** A held file descriptor is kernel-global across PID namespaces and stays live in Mix descendants. The hook must establish its own inheritable descriptor semantics instead of depending on the caller's `varredir_close` shell option. PID/PGID fields remain diagnostic only and never decide Linux reclamation or status.
+- **Use holder-owned advisory locks as Linux liveness proof:** A held file descriptor is kernel-global across PID namespaces. A dedicated subreaper owns it, launches Mix, and retains it until detached descendants exit. PID/PGID fields remain diagnostic only and never decide Linux reclamation or status.
 - **Publish queue identity atomically:** Generate unique queue/owner candidates with exclusive temporary creation, lock before publication, and rename into visibility. Identical namespace-local PIDs therefore cannot collide.
 - **Fail closed on coordination failures:** Missing Linux lock support, directory/record publication failures, invalid ownership state, and phase-lock errors return a stable nonzero status without invoking Mix. The transcript names the recovery action; timeouts keep their existing bounded status.
 - **Treat legacy metadata conservatively:** Automatically remove unlocked v2 metadata. Report pre-v2 slot/phase records as blocking legacy debris until the operator confirms no old build is running and clears it, avoiding false liveness decisions from host PID 2 or PGID 1.
@@ -137,9 +137,9 @@ Codex `workspaceWrite` turns currently omit the daemon-exported build-gate direc
 
 **Approach:**
 - On Linux, hold queue, numbered-slot, and phase ownership with advisory locks on persistent descriptors; record random publication tokens plus diagnostic namespace-local PID/PGID values.
-- Establish hook-owned, inheritable lock descriptors even when the invoking shell enabled `varredir_close`; let Mix descendants inherit the slot descriptor and release by closing the wrapper's descriptor rather than explicitly unlocking the shared open-file description.
+- Hand each acquired slot descriptor to a dedicated subreaper even when the invoking shell enabled `varredir_close`; the holder launches Mix, reports its status, and releases only after adopted descendants exit.
 - Determine Linux status from lock contention, remove unlocked v2 queue/owner metadata, and surface legacy or unreadable metadata as a degraded status instead of counting host-visible PID collisions as active.
-- Retain the existing PID/PGID strategy only for non-Linux hosts, and make missing Linux lock support or any coordination-write failure fail closed with a stable status and recovery message.
+- Retain the existing PID/PGID strategy only for non-Linux hosts, and make missing Linux lock/subreaper support or any coordination-write failure fail closed with a stable status and recovery message.
 
 **Execution note:** Extend the fake Mix harness first with deterministic local-PID overrides and descendant processes; avoid synthetic CPU load.
 
@@ -149,10 +149,10 @@ Codex `workspaceWrite` turns currently omit the daemon-exported build-gate direc
 - Happy path: direct and mise-wrapped Mix commands acquire/release a Linux lock and preserve the real command status.
 - Integration: more parallel shells than capacity never exceed the configured number of concurrently-running fake Mix commands.
 - Namespace edge case: two concurrent shells publish the same diagnostic local PID but receive distinct queue identities and serialize correctly at capacity one.
-- Descendant edge case: with `varredir_close` initially enabled, a fake Mix wrapper exits after spawning a child; the hook-owned inherited descriptor keeps the slot active until the child closes it.
+- Descendant edge case: with `varredir_close` initially enabled, a real Mix VM exits after spawning a detached child; the subreaper keeps the slot active until that child exits.
 - Recovery: unlocked queue/slot-owner/phase-owner metadata is removed and omitted from counts; a currently locked owner remains active even when its diagnostic PID is `2` or PGID is `1`.
 - Legacy recovery: pre-v2 records produce one actionable degraded status and block admission rather than being guessed live or stale.
-- Error paths: unwritable directories, failed candidate publication, missing Linux `flock`, and unavailable phase ownership do not run fake Mix and return the documented gate-failure status promptly.
+- Error paths: unwritable directories, failed candidate publication, missing Linux `flock`/`python3`, and unavailable phase ownership do not run fake Mix and return the documented gate-failure status promptly.
 - Compatibility: disabled gating installs no hook; a forced non-Linux strategy retains PID/PGID descendant behavior.
 
 **Verification:** Lock contention, status, and fake Mix timing agree on live capacity without consulting Linux PIDs, and every gate-structure error is fail-closed.
@@ -176,14 +176,14 @@ Codex `workspaceWrite` turns currently omit the daemon-exported build-gate direc
 **Approach:**
 - Specify that enabled local Codex `workspaceWrite` frames include the canonical gate directory and that coordination errors fail the requested Mix command.
 - Document the stable error status, status diagnostics, restart/re-dispatch requirement, and safe legacy-debris recovery sequence after confirming no old Mix process is active.
-- Keep `max_concurrent_builds: 0` documented as a deliberate operator opt-out, not an automatic fallback for errors.
+- Document the deliberate full opt-out: set both build settings to `0` and omit `min_free_memory_mb`; do not use it as an automatic fallback for errors.
 
 **Patterns to follow:** Existing configuration reference tables and adjacent build-cap/start-stagger operational notes.
 
 **Test scenarios:**
 - Test expectation: none — this unit changes explanatory contract text and examples; behavior is covered in U1/U2.
 
-**Verification:** The config reference and runbook identify both recovery options: repair/clear the gate and retry, or explicitly disable it with awareness that the fleet cap is removed.
+**Verification:** The config reference and runbook identify both recovery options: repair/clear the gate and retry, or explicitly disable every admission mode with awareness that the fleet safeguards are removed.
 
 ---
 
@@ -191,7 +191,7 @@ Codex `workspaceWrite` turns currently omit the daemon-exported build-gate direc
 
 - **Interaction graph:** Local Codex policy resolution prepares and grants the same path that `AgentEnvironment` exports; Codex and Claude shell commands continue to share the Bash gate, while remote workers remain outside it.
 - **Error propagation:** Host preflight errors stop Codex session startup with structured context; shell coordination errors return a stable nonzero command status; underlying Mix statuses remain unchanged after acquisition.
-- **State lifecycle risks:** Kernel lock lifetime replaces cross-namespace PID guesses. Metadata becomes advisory and reclaimable; descendant-held descriptors deliberately extend slot lifetime.
+- **State lifecycle risks:** Kernel lock lifetime replaces cross-namespace PID guesses. Metadata becomes advisory and reclaimable; a subreaper deliberately extends slot lifetime across detached descendants.
 - **API surface parity:** Only Codex has an OS sandbox frame to augment. Other local backends keep the shared hook and fail-closed lease behavior without receiving Codex-specific policy changes.
 - **Integration coverage:** A captured JSON-RPC frame proves policy wiring, while parallel real shells prove the cap rather than only testing map helpers.
 - **Unchanged invariants:** Ordinary shell commands, remote-worker paths, disabled gate configuration, memory admission semantics, and non-`workspaceWrite` policies retain their current behavior.

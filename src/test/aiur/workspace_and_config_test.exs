@@ -2866,6 +2866,8 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     assert recovery =~ "repair"
     assert recovery =~ "max_concurrent_builds: 0"
+    assert recovery =~ "build_start_stagger_seconds: 0"
+    assert recovery =~ "min_free_memory_mb omitted"
 
     write_workflow_file!(Workflow.workflow_file_path(),
       max_concurrent_builds: 2,
