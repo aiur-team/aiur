@@ -679,14 +679,44 @@ or Terra; never dispatch Claude.
     and ETA. After decision 79, #1130's live checkout was replaced by
     scaffolding-only contents, so the Executor paused it as another occurrence
     of P1 #1161 and recycled only its stranded provider process.
+81. The applekid tracker token exhausted its REST window through 05:51:47 PDT.
+    Local Codex turns, Executor GitHub reads, and exact-head reviews continued;
+    the Executor recycled only two confirmed finalization wedges and did not
+    restart the daemon. The inherited token was healthy by the reset, tracker
+    polling recovered naturally, and #1096, #1151, and top-priority #1161 all
+    received fresh Sol/Terra generations.
+82. BO-009/#1096 reached full green CI on current `main`, but two independent
+    exact-head reviews found eight contained protocol/platform defects: lane
+    order still depended on request order, self-loop coverage was missing,
+    authenticated assets were publicly cacheable, main-thread size bounds ran
+    after serialization, request IDs were not generation-bound, sparse arrays
+    bypassed validation, reply geometry/diagnostics were under-validated, and
+    audited asset bytes lacked an EOL contract. All eight were returned to the
+    existing worker in issue comment `4969297192`; no new ticket was created.
+83. BO-002/#1091 pushed current-main rework head `c039eba3` and BO-016/#1103
+    pushed current-main security rework head `4b6e5221`; both are in fresh CI.
+    BO-016 is fully green and has entered a new dual exact-head review. The
+    first DASH-006/#1088 re-review is clean at green head `b96c32ac`; its second
+    independent review is still running.
+84. DASH-004/#1111 completed a broad contained rework but left the validated
+    source/test tree uncommitted after mistaking an earlier protected-regression
+    branch delta for immutable baseline content. The Executor directed a
+    byte-for-byte restore from current `origin/main`, then added
+    `agent:paused` to protect the large dirty checkout from P1 #1161. Resume
+    only after #1161 lands; do not reprovision or discard this workspace.
+85. Ad Hoc #1162 pushed green current-main interruption-ordering head
+    `99732697`. Its attempted CI-wait transition was immediately displaced by
+    the still-unfixed self-comment wake path owned by active #1151, so the
+    Executor applied `agent:ci-wait + agent:paused`, removed the redundant
+    generic `model:codex` label, and started the first exact-head re-review.
 
-At 05:30 PDT the core graph is 5/54 accepted. The fleet is at its temporary
-eight-worker ceiling; #1091 has entered contained rework, P1 #1161 remains
-retry-queued for the next slot, and #1093/#1108/#1130 stay on workspace-race
-holds until it lands. Host load is below the hard ceiling but CPU idle is only
-7%, so there is no safe extra slot. Treat completed turns, stale bases, and
-green builds with unmet acceptance criteria as pending Executor work, not
-merge-ready truth.
+At 05:58 PDT the core graph is 5/54 accepted. Five Aiur workers plus three
+independent reviewers occupy the useful execution/review width; #1093, #1108,
+#1111, and #1130 stay on workspace-race holds until active P1 #1161 lands.
+Host load is 16 with 37% instantaneous CPU idle, but no additional core ticket
+is dependency-ready outside the held/gated set. Treat completed turns, stale
+bases, and green builds with unmet acceptance criteria as pending Executor
+work, not merge-ready truth.
 
 **Read-first map for this run:** `README.md` (pack index) →
 `08-implementation-pointers.md` (verified per-ticket file/module/function
