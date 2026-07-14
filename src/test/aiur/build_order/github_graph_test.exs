@@ -111,6 +111,89 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
              GitHubGraph.fetch_catalog(base_opts(malformed))
   end
 
+  test "classifies malformed HTTP-200 envelopes as provider schema failures" do
+    root = root(1)
+
+    for response <- [
+          %{status: 200, body: "unexpected scalar"},
+          %{status: 200, body: []},
+          %{status: 200, body: nil},
+          %{status: 200},
+          %{status: 200, body: %{"errors" => "unexpected scalar"}},
+          %{status: 200, body: %{"data" => %{"repository" => %{}}, "errors" => "unexpected scalar"}},
+          %{status: 200, body: %{"errors" => nil}},
+          %{status: 200, body: %{"errors" => %{}}},
+          %{status: 200, body: %{"errors" => ["unexpected scalar"]}},
+          %{status: 200, body: %{"errors" => []}}
+        ] do
+      request_fun = fn _request -> {:ok, response} end
+
+      assert {:error, %{error: :schema, calls: 1, pages: 0, candidate: nil, diagnostics: catalog_diagnostics}} =
+               GitHubGraph.fetch_catalog(base_opts(request_fun))
+
+      assert :provider_schema in Enum.map(catalog_diagnostics, & &1.code)
+
+      assert {:error, %{error: :schema, calls: 1, pages: 0, candidate: nil, diagnostics: selected_diagnostics}} =
+               GitHubGraph.fetch_selected_root(identity(root), base_opts(request_fun))
+
+      assert :provider_schema in Enum.map(selected_diagnostics, & &1.code)
+    end
+  end
+
+  test "retains rate-limit observations for malformed HTTP-200 envelopes" do
+    response = %{
+      status: 200,
+      headers: [{"x-ratelimit-remaining", "0"}, {"x-ratelimit-reset", "1783987200"}],
+      body: "unexpected scalar"
+    }
+
+    assert {:error, %{error: :schema, rate_limit: %{remaining: 0, reset_at: "2026-07-14T00:00:00Z"}}} =
+             GitHubGraph.fetch_catalog(base_opts(fn _request -> {:ok, response} end))
+  end
+
+  test "fails closed on malformed HTTP-200 headers" do
+    root = root(1)
+
+    for headers <- [nil, "malformed"] do
+      response = %{status: 200, headers: headers, body: "unexpected scalar"}
+      request_fun = fn _request -> {:ok, response} end
+
+      assert {:error, %{error: :schema, calls: 1, pages: 0, candidate: nil, diagnostics: catalog_diagnostics}} =
+               GitHubGraph.fetch_catalog(base_opts(request_fun))
+
+      assert :provider_schema in Enum.map(catalog_diagnostics, & &1.code)
+
+      assert {:error, %{error: :schema, calls: 1, pages: 0, candidate: nil, diagnostics: selected_diagnostics}} =
+               GitHubGraph.fetch_selected_root(identity(root), base_opts(request_fun))
+
+      assert :provider_schema in Enum.map(selected_diagnostics, & &1.code)
+    end
+  end
+
+  test "fails closed on malformed nested GraphQL data for catalog and selected roots" do
+    root = root(1)
+
+    for body <- [
+          %{},
+          %{"data" => nil},
+          %{"data" => []},
+          %{"data" => %{"repository" => []}},
+          %{"data" => %{"repository" => "invalid"}}
+        ] do
+      response = graphql_response(body)
+
+      assert {:error, %{error: :schema, calls: 1, pages: 1, candidate: nil, diagnostics: catalog_diagnostics}} =
+               GitHubGraph.fetch_catalog(base_opts(response))
+
+      assert :provider_schema in Enum.map(catalog_diagnostics, & &1.code)
+
+      assert {:error, %{error: :schema, calls: 1, pages: 1, candidate: nil, diagnostics: selected_diagnostics}} =
+               GitHubGraph.fetch_selected_root(identity(root), base_opts(response))
+
+      assert :provider_schema in Enum.map(selected_diagnostics, & &1.code)
+    end
+  end
+
   test "fails closed on nullable GraphQL nodes in every planning connection" do
     assert {:error, %{error: :schema, candidate: nil}} =
              GitHubGraph.fetch_catalog(base_opts(catalog_response([nil], 1)))
@@ -458,6 +541,20 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
              )
 
     assert length(selected.members) == 2
+  end
+
+  test "rejects a selected root duplicated as an executable member" do
+    root = root(1)
+    root_as_member = member(1, root)
+
+    assert {:error, %{error: :duplicate_identity, candidate: selected}} =
+             GitHubGraph.fetch_selected_root(
+               identity(root),
+               base_opts(selected_response(root, [root_as_member], 1))
+             )
+
+    [selected_member] = selected.members
+    assert selected_member.identity == selected.root.identity
   end
 
   test "classifies a unique member with no canonical identity as structurally invalid" do

@@ -43,5 +43,6 @@ defmodule Aiur.BuildOrder.ProviderResultTest do
   test "malformed provider response shapes become a schema category" do
     assert ProviderResult.failed(:invalid_connection).error == :schema
     assert ProviderResult.failed(:invalid_root).error == :schema
+    assert ProviderResult.failed(:invalid_graphql_response).error == :schema
   end
 end

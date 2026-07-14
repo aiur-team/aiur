@@ -79,7 +79,7 @@ defmodule Aiur.BuildOrder.ProviderResult do
 
   defp safe_error(:graphql_partial), do: :graphql_partial
   defp safe_error({:github_graphql_errors, _errors}), do: :graphql_partial
-  defp safe_error(reason) when reason in [:invalid_connection, :invalid_root], do: :schema
+  defp safe_error(reason) when reason in [:invalid_connection, :invalid_graphql_response, :invalid_root], do: :schema
   defp safe_error(reason) when is_atom(reason), do: reason
   defp safe_error(_reason), do: :provider_error
 end

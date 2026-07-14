@@ -261,7 +261,7 @@ defmodule Aiur.BuildOrder.GitHubGraph do
       not RootSummary.valid?(root) ->
         failure(:structurally_invalid, state, candidate: selected)
 
-      duplicate_members?(members) ->
+      duplicate_candidate_identities?(root, members) ->
         failure(:duplicate_identity, state,
           candidate: selected,
           diagnostics: [Diagnostic.new(:duplicate_identity)]
@@ -522,8 +522,8 @@ defmodule Aiur.BuildOrder.GitHubGraph do
 
   defp duplicate_root?(root, roots), do: Enum.count(roots, &same_identity?(&1.identity, root.identity)) > 1
 
-  defp duplicate_members?(members) do
-    identity_keys = members |> Enum.map(&identity_key(&1.identity)) |> Enum.reject(&is_nil/1)
+  defp duplicate_candidate_identities?(root, members) do
+    identity_keys = [root.identity | Enum.map(members, & &1.identity)] |> Enum.map(&identity_key/1) |> Enum.reject(&is_nil/1)
     length(identity_keys) != MapSet.size(MapSet.new(identity_keys))
   end
 
@@ -586,10 +586,10 @@ defmodule Aiur.BuildOrder.GitHubGraph do
 
   defp root_fingerprint(root), do: Map.drop(root, ["subIssues"])
 
-  defp catalog_connection(body), do: get_in(body, ["data", "repository", "issues"]) |> connection_value()
+  defp catalog_connection(body), do: nested_value(body, ["data", "repository", "issues"]) |> connection_value()
 
   defp selected_connection(body) do
-    case get_in(body, ["data", "repository", "issue"]) do
+    case nested_value(body, ["data", "repository", "issue"]) do
       %{} = root ->
         case Map.get(root, "subIssues") do
           %{} = connection -> {:ok, root, connection}
@@ -603,6 +603,17 @@ defmodule Aiur.BuildOrder.GitHubGraph do
 
   defp connection_value(%{} = connection), do: {:ok, connection}
   defp connection_value(_connection), do: {:error, :invalid_connection}
+
+  defp nested_value(value, []), do: value
+
+  defp nested_value(%{} = value, [key | rest]) do
+    case Map.fetch(value, key) do
+      {:ok, nested} -> nested_value(nested, rest)
+      :error -> nil
+    end
+  end
+
+  defp nested_value(_value, _keys), do: nil
 
   defp connection(%{"nodes" => nodes, "totalCount" => total, "pageInfo" => page_info})
        when is_list(nodes) and is_integer(total) and total >= 0 and is_map(page_info) do
@@ -678,7 +689,7 @@ defmodule Aiur.BuildOrder.GitHubGraph do
 
   defp failure_diagnostics(:invalid_planning_bounds), do: [Diagnostic.new(:invalid_planning_bounds)]
 
-  defp failure_diagnostics(reason) when reason in [:invalid_connection, :invalid_root],
+  defp failure_diagnostics(reason) when reason in [:invalid_connection, :invalid_graphql_response, :invalid_root],
     do: [Diagnostic.new(:provider_schema)]
 
   defp failure_diagnostics(reason) when reason in [:invalid_catalog, :structurally_invalid], do: []

@@ -117,6 +117,29 @@ defmodule Aiur.GitHub.TransportTest do
     assert Transport.header(headers, "x-ratelimit-remaining") == "99"
   end
 
+  test "rejects malformed HTTP-200 GraphQL envelopes" do
+    for response <- [
+          %{status: 200, body: "unexpected scalar"},
+          %{status: 200, body: []},
+          %{status: 200, body: nil},
+          %{status: 200},
+          %{status: 200, body: %{"errors" => "unexpected scalar"}},
+          %{status: 200, body: %{"data" => %{"repository" => %{}}, "errors" => "unexpected scalar"}},
+          %{status: 200, body: %{"errors" => nil}},
+          %{status: 200, body: %{"errors" => %{}}},
+          %{status: 200, body: %{"errors" => ["unexpected scalar"]}},
+          %{status: 200, body: %{"errors" => []}}
+        ] do
+      request_fun = fn _request -> {:ok, response} end
+
+      assert {:error, :invalid_graphql_response, ^response} =
+               Transport.github_graphql_response(request_fun, "token", "query", %{})
+
+      assert {:error, :invalid_graphql_response} =
+               Transport.github_graphql(request_fun, "token", "query", %{})
+    end
+  end
+
   test "fetches JSON lists and classifies failures" do
     ok = fn %{method: :get, url: "https://example.test", token: "token"} ->
       {:ok, %{status: 200, body: [%{"name" => "file"}]}}
@@ -142,6 +165,7 @@ defmodule Aiur.GitHub.TransportTest do
     assert Transport.poll_interval(headers) == 15
     assert Transport.poll_interval([]) == 60
     assert Transport.header(%{"etag" => ["abc"]}, "ETag") == "abc"
+    assert Transport.header(nil, "etag") == nil
   end
 
   test "conditionally puts query params" do

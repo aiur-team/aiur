@@ -106,7 +106,10 @@ defmodule Aiur.GitHub.Transport do
       {:ok, body, _response} ->
         {:ok, body}
 
-      {:error, _reason, %{status: 200, body: %{"errors" => errors}}} ->
+      {:error, :invalid_graphql_response, _response} ->
+        {:error, :invalid_graphql_response}
+
+      {:error, _reason, %{status: 200, body: %{"errors" => errors}}} when is_list(errors) ->
         {:error, {:github_graphql_errors, errors}}
 
       {:error, {:github, _classification, _detail}, %{status: _status} = response} ->
@@ -123,11 +126,16 @@ defmodule Aiur.GitHub.Transport do
     body = %{"query" => query, "variables" => variables}
 
     case request_fun.(%{method: :post, url: @graphql_url, token: token, body: body}) do
-      {:ok, %{status: 200, body: %{"errors" => _errors}} = response} ->
-        {:error, Errors.graphql_error(response), response}
+      {:ok, %{status: 200, body: %{"errors" => errors}} = response} ->
+        if valid_graphql_errors?(errors),
+          do: {:error, Errors.graphql_error(response), response},
+          else: {:error, :invalid_graphql_response, response}
 
       {:ok, %{status: 200, body: response} = transport_response} when is_map(response) ->
         {:ok, response, transport_response}
+
+      {:ok, %{status: 200} = response} ->
+        {:error, :invalid_graphql_response, response}
 
       {:ok, %{status: _status} = response} ->
         {:error, Errors.github_graph_status_error(response), response}
@@ -136,6 +144,9 @@ defmodule Aiur.GitHub.Transport do
         {:error, Errors.classify_error({:error, reason}), nil}
     end
   end
+
+  defp valid_graphql_errors?(errors) when is_list(errors) and errors != [], do: Enum.all?(errors, &is_map/1)
+  defp valid_graphql_errors?(_errors), do: false
 
   @spec fetch_json_list(function(), String.t(), String.t()) :: {:ok, [term()]} | {:error, term()}
   def fetch_json_list(request_fun, token, url) do
@@ -184,7 +195,7 @@ defmodule Aiur.GitHub.Transport do
   def maybe_put_query(query, _key, nil), do: query
   def maybe_put_query(query, key, value), do: Map.put(query, key, value)
 
-  @spec header(list() | map(), String.t()) :: term() | nil
+  @spec header(term(), String.t()) :: term() | nil
   def header(headers, name) when is_list(headers) do
     name_down = String.downcase(name)
 
@@ -208,6 +219,8 @@ defmodule Aiur.GitHub.Transport do
       end
     end)
   end
+
+  def header(_headers, _name), do: nil
 
   @spec poll_interval(list() | map()) :: pos_integer()
   def poll_interval(headers) do
