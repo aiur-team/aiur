@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 10:27 PDT)
+## Live Executor state (updated 2026-07-14 10:52 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -16,12 +16,13 @@ repository root against `main`; current accepted `main` is
 `b506146534f1ea1c9be5ee5b2a683683e8e2bf04`, including BO-009/#1096. The core
 program is 6/54 merged with 48 remaining.
 
-The measured runtime envelope is an eight-worker ceiling governed by Aiur's
-effective-slot controller. After the operator's 10:15 PDT quota reset, six
-implementation/rework workers are live on #1088, #1097, #1109, #1151, #1161,
-and #1162. Green current-main #1091 is held outside provider capacity for two
-independent exact-head reviews; #1103 has published its current-main merge and
-is held for fresh CI. #1090,
+The runtime session ceiling is 15 workers, governed by Aiur's effective-slot
+controller and shared build gates. The operator target is 10–15+ useful agents
+whenever dependency width and measured CPU/memory/provider/review capacity
+permit. Four implementation/rework workers are live on #1091, #1097, #1109,
+and #1161; #1103 is returning immediately from completed dual review to rework.
+Green #1088 and green reliability heads #1151/#1162 are consuming independent
+background review lanes rather than implementation slots. #1090,
 #1093, #1108, #1111, #1123, and #1130 remain
 protected behind #1161's workspace-replacement fix. Unrelated #855 stays
 paused and consumes no provider capacity. All providers are Codex Sol or
@@ -1024,17 +1025,34 @@ Terra; never dispatch Claude.
     observed. Keep the adaptive 2–20 minute event-first cadence, record every
     wake outcome, and reserve forced checks for five-minute reporting
     boundaries.
+132. Six concurrent Elixir gates briefly drove load to 62 on the 12-core host.
+    The Executor removed one orphaned read-only diagnostic process and lowered
+    the runtime ceiling to six without interrupting any worker. When load fell
+    to 14 with 20 GiB available, the operator clarified that future Executors
+    must continuously target 10–15+ useful agents and saturate CPU or the next
+    measured bottleneck. The ceiling was restored to 15. Any future reduction
+    is temporary, must name a restoration threshold, and must be reversed as
+    soon as it clears; do not let a defensive cap become the steady state.
+133. BO-016/#1103 passed current-main CI at `cd0fec80`, then both exact-head
+    reviews reproduced three P1s: timeout cleanup can crash the cache and lose
+    LKG when `Aiur.TaskSupervisor` restarts, PEM/URI-userinfo credentials still
+    cross Snapshot/PubSub, and structural local paths including `file://` and
+    `/nix/store` survive redaction. One reviewer also confirmed the raw-input
+    limit is checked only after redaction. Comment `4972295749` consolidates
+    the bounded rework; return #1103 to a fresh worker immediately.
 
-At 10:27 PDT the core graph is 6/54 accepted. Six intended Codex workers are
-actively turning, two background reviewers are auditing green current-main
-#1091, and #1103 is in fresh current-main CI.
+At 10:52 PDT the core graph is 6/54 accepted. Four Aiur workers are actively
+turning, #1103 is re-entering rework as the fifth, and all available background
+review slots are assigned to green heads. The configured ceiling is 15; the
+shortfall is the finite ready graph plus the #1161 workspace gate, not an
+intentional low cap.
 #1090, #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds
 until #1161 lands.
-The latest agent-emitted progress evidence is 1088=70, 1091=90, 1096=100
-(merged), 1097=50, 1103=80, 1109=60, 1151=70, 1161=60, and 1162=80.
-Concurrent test and Dialyzer work briefly raised host load above 23 while
-memory remained healthy, so retain the eight-worker ceiling and prefer
-logs/GitHub evidence after a control-RPC timeout. No additional core ticket is safely
+The latest agent-emitted progress evidence is 1088=80, 1091=60, 1096=100
+(merged), 1097=50, 1103=80, 1109=70, 1151=70, 1161=60, and 1162=80.
+Concurrent test and Dialyzer work briefly raised host load to 62 while memory
+remained healthy; the burst has drained and the session ceiling is restored to
+15. Prefer logs/GitHub evidence after a control-RPC timeout. No additional core ticket is safely
 dependency-ready outside the held/gated set. Treat completed turns, stale
 bases, and green builds with unmet acceptance criteria as pending Executor
 work, not merge-ready truth.
