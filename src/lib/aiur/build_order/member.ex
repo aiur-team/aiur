@@ -243,6 +243,7 @@ defmodule Aiur.BuildOrder.Member do
             :duplicate_identity,
             :invalid_identity,
             :invalid_dependency,
+            :invalid_endpoint_locator,
             :invalid_member,
             :invalid_label_connection,
             :invalid_lifecycle,

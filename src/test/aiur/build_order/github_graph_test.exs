@@ -481,6 +481,60 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     assert Enum.map(members, & &1.identity.identifier) == ["2", "3"]
   end
 
+  test "rejects native dependency endpoints with a matching node ID but contradictory locators" do
+    root = root(1)
+
+    for {locator, endpoint} <- contradictory_locators(root) do
+      child = member(2, root, blocked_by: [endpoint])
+
+      assert {:error, %{error: :structurally_invalid, candidate: selected}} =
+               GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, [child], 1)))
+
+      [selected_member] = selected.members
+      [dependency] = selected_member.dependencies
+      assert :invalid_endpoint_locator in Enum.map(dependency.diagnostics, & &1.code)
+      assert :invalid_endpoint_locator in Enum.map(selected_member.diagnostics, & &1.code)
+
+      if locator in [:database_id, :number] do
+        refute :invalid_url in Enum.map(dependency.diagnostics, & &1.code)
+      end
+    end
+  end
+
+  test "rejects native dependency endpoints that contradict a canonical member locator" do
+    root = root(1)
+    canonical_member = member(3, root)
+
+    for {_locator, endpoint} <- contradictory_locators(canonical_member) do
+      child = member(2, root, blocking: [endpoint])
+
+      assert {:error, %{error: :structurally_invalid, candidate: selected}} =
+               GitHubGraph.fetch_selected_root(
+                 identity(root),
+                 base_opts(selected_response(root, [child, canonical_member], 2))
+               )
+
+      [selected_child, _canonical_member] = selected.members
+      [dependency] = selected_child.dependencies
+      assert :invalid_endpoint_locator in Enum.map(dependency.diagnostics, & &1.code)
+      assert :invalid_endpoint_locator in Enum.map(selected_child.diagnostics, & &1.code)
+    end
+  end
+
+  test "rejects parent endpoints with a matching node ID but contradictory locators" do
+    root = root(1)
+
+    for {_locator, parent} <- contradictory_locators(root) do
+      child = member(2, root) |> Map.put("parent", parent)
+
+      assert {:error, %{error: :structurally_invalid, candidate: selected}} =
+               GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, [child], 1)))
+
+      [selected_member] = selected.members
+      assert :invalid_endpoint_locator in Enum.map(selected_member.diagnostics, & &1.code)
+    end
+  end
+
   test "uses case-insensitive repository names for native identity joins" do
     root = root(1)
 
@@ -1114,6 +1168,16 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
 
   defp endpoint_from(node) do
     Map.take(node, ["id", "databaseId", "number", "url", "repository"])
+  end
+
+  defp contradictory_locators(root) do
+    endpoint = endpoint_from(root)
+
+    [
+      {:database_id, Map.put(endpoint, "databaseId", 999)},
+      {:number, endpoint |> Map.put("number", 999) |> Map.put("url", "https://github.com/owner/repo/issues/999")},
+      {:url, Map.put(endpoint, "url", "https://github.com/owner/repo/issues/999")}
+    ]
   end
 
   defp identity(node) do

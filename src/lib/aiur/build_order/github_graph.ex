@@ -2,6 +2,7 @@ defmodule Aiur.BuildOrder.GitHubGraph do
   @moduledoc "Bounded, body-free GitHub reads for Build Order planning candidates."
 
   alias Aiur.BuildOrder.{
+    Bounded,
     Catalog,
     Dependency,
     Diagnostic,
@@ -254,8 +255,8 @@ defmodule Aiur.BuildOrder.GitHubGraph do
 
   defp selected_result(root_node, member_nodes, repository, state) do
     root = root_node |> root_summary(repository) |> validate_root_label()
-    members = Enum.map(member_nodes, &member(&1, repository, root.identity))
-    members = validate_internal_dependencies(members, root.identity)
+    members = Enum.map(member_nodes, &member(&1, repository, root))
+    members = validate_internal_dependencies(members, root)
     selected = SelectedRoot.new(root, members, ProviderHealth.new(1, :healthy, true))
 
     cond do
@@ -306,7 +307,7 @@ defmodule Aiur.BuildOrder.GitHubGraph do
     ])
   end
 
-  defp member(node, repository, root_identity) do
+  defp member(node, repository, root) do
     {identity, identity_diagnostic} = node_identity(node, repository)
     {parent, parent_diagnostic} = parent_identity(node, repository)
     {labels, labels_diagnostic} = labels(node)
@@ -331,7 +332,7 @@ defmodule Aiur.BuildOrder.GitHubGraph do
     |> append_diagnostics([
       identity_diagnostic,
       parent_diagnostic,
-      direct_parent_diagnostic(parent, root_identity),
+      direct_parent_diagnostic(parent, Map.get(node, "parent"), root),
       lifecycle_diagnostic(node),
       labels_diagnostic,
       created_diagnostic,
@@ -390,33 +391,49 @@ defmodule Aiur.BuildOrder.GitHubGraph do
   defp invalid_dependency?(%Dependency{kind: :unknown}, _identity_diagnostic), do: true
   defp invalid_dependency?(_dependency, _identity_diagnostic), do: true
 
-  defp validate_internal_dependencies(members, root_identity) do
-    identities =
-      members
-      |> Enum.map(&identity_key(&1.identity))
-      |> Enum.reject(&is_nil/1)
-      |> MapSet.new()
+  defp validate_internal_dependencies(members, root) do
+    locators = canonical_locators(root, members)
+    Enum.map(members, &validate_member_dependencies(&1, locators))
+  end
 
-    identities =
-      if TrackerIdentity.joinable?(root_identity) do
-        MapSet.put(identities, identity_key(root_identity))
-      else
-        identities
-      end
+  defp validate_member_dependencies(%Member{} = member, locators) do
+    {dependencies, diagnostics} =
+      Enum.map_reduce(member.dependencies, [], fn dependency, diagnostics ->
+        case native_dependency_status(dependency, locators) do
+          :ok ->
+            {dependency, diagnostics}
 
-    Enum.map(members, fn member ->
-      if Enum.any?(member.dependencies, &unresolved_internal?(&1, identities)) do
-        append_diagnostics(member, [Diagnostic.new(:unresolved_internal_dependency)])
-      else
-        member
+          :unresolved ->
+            {dependency, [Diagnostic.new(:unresolved_internal_dependency) | diagnostics]}
+
+          :contradictory ->
+            dependency = append_diagnostics(dependency, [Diagnostic.new(:invalid_endpoint_locator)])
+            {dependency, [Diagnostic.new(:invalid_endpoint_locator) | diagnostics]}
+        end
+      end)
+
+    %{member | dependencies: dependencies}
+    |> append_diagnostics(diagnostics |> Enum.reverse() |> Enum.uniq())
+  end
+
+  defp native_dependency_status(%Dependency{kind: :native, identity: identity, url: url}, locators) do
+    case Map.fetch(locators, identity_key(identity)) do
+      {:ok, canonical} -> if locator_matches?(identity, url, canonical), do: :ok, else: :contradictory
+      :error -> :unresolved
+    end
+  end
+
+  defp native_dependency_status(_dependency, _locators), do: :ok
+
+  defp canonical_locators(root, members) do
+    [root | members]
+    |> Enum.reduce(%{}, fn record, locators ->
+      case identity_key(record.identity) do
+        nil -> locators
+        key -> Map.put_new(locators, key, %{identity: record.identity, url: record.url})
       end
     end)
   end
-
-  defp unresolved_internal?(%Dependency{kind: :native, identity: identity}, identities),
-    do: not MapSet.member?(identities, identity_key(identity))
-
-  defp unresolved_internal?(_dependency, _identities), do: false
 
   defp node_identity(node, repository) do
     case endpoint_identity(node, repository) do
@@ -501,9 +518,51 @@ defmodule Aiur.BuildOrder.GitHubGraph do
     end
   end
 
-  defp direct_parent_diagnostic(parent, root) do
-    if same_identity?(parent, root), do: nil, else: Diagnostic.new(:invalid_member)
+  defp direct_parent_diagnostic(
+         %TrackerIdentity{} = parent,
+         parent_node,
+         %RootSummary{identity: %TrackerIdentity{} = root_identity, url: root_url}
+       ) do
+    cond do
+      not same_identity?(parent, root_identity) ->
+        Diagnostic.new(:invalid_member)
+
+      locator_matches?(parent, endpoint_url(parent_node), %{identity: root_identity, url: root_url}) ->
+        nil
+
+      true ->
+        Diagnostic.new(:invalid_endpoint_locator)
+    end
   end
+
+  defp direct_parent_diagnostic(_parent, _parent_node, _root), do: Diagnostic.new(:invalid_member)
+
+  defp locator_matches?(
+         %TrackerIdentity{} = endpoint,
+         endpoint_url,
+         %{identity: %TrackerIdentity{} = canonical, url: canonical_url}
+       ) do
+    endpoint.database_id == canonical.database_id and
+      endpoint.identifier == canonical.identifier and
+      same_issue_url?(endpoint_url, endpoint, canonical_url)
+  end
+
+  defp locator_matches?(_endpoint, _endpoint_url, _canonical), do: false
+
+  defp same_issue_url?(endpoint_url, endpoint, canonical_url) do
+    with {:ok, endpoint_url} <- Bounded.github_issue_url_for(endpoint_url, endpoint),
+         {:ok, endpoint_reference} <- Bounded.github_issue_reference(endpoint_url),
+         {:ok, canonical_reference} <- Bounded.github_issue_reference(canonical_url) do
+      endpoint_reference.kind == canonical_reference.kind and
+        endpoint_reference.identifier == canonical_reference.identifier and
+        Bounded.same_repository?(endpoint_reference, canonical_reference)
+    else
+      _ -> false
+    end
+  end
+
+  defp endpoint_url(node) when is_map(node), do: Map.get(node, "url")
+  defp endpoint_url(_node), do: nil
 
   defp append_diagnostics(%{diagnostics: existing_diagnostics} = record, additions) do
     additions = Enum.reject(additions, &is_nil/1)
