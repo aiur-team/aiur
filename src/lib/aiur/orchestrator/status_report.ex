@@ -158,6 +158,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     %{
       issue_id: issue_id,
       identifier: metadata.identifier,
+      tracker_identity: Issue.tracker_identity(metadata.issue),
       state: metadata.issue.state,
       tag: State.issue_tag(metadata.issue),
       title: Map.get(metadata.issue, :title),
@@ -197,6 +198,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       attempt: attempt,
       due_in_ms: max(0, due_at_ms - now_ms),
       identifier: identifier,
+      tracker_identity: Map.get(retry, :tracker_identity) || Issue.tracker_identity(issue),
       state: issue && issue.state,
       tag: issue && State.issue_tag(issue),
       title: issue && issue.title,
@@ -241,6 +243,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     %{
       issue_id: issue.id,
       identifier: identifier,
+      tracker_identity: Issue.tracker_identity(issue),
       state: issue.state,
       tag: State.issue_tag(issue),
       title: issue.title,
@@ -312,6 +315,7 @@ defmodule Aiur.Orchestrator.StatusReport do
             AgentEvents.agent_summary(identifier, :queued, 0, %{
               tag: tag,
               title: title,
+              tracker_identity: retry_tracker_identity(state, identifier) || Issue.tracker_identity(issue),
               work_state: idle_issue_work_state(issue),
               pause_reason: idle_issue_pause_reason(issue)
             })
@@ -320,6 +324,7 @@ defmodule Aiur.Orchestrator.StatusReport do
             AgentEvents.agent_summary(identifier, :running, 0, %{
               tag: tag,
               title: title,
+              tracker_identity: Issue.tracker_identity(Map.get(entry, :issue)),
               runtime_seconds: State.effective_runtime_seconds(entry, now),
               turn_count: Map.get(entry, :turn_count, 0),
               work_state: get_in(entry, [:control, :status]) || :working,
@@ -348,6 +353,7 @@ defmodule Aiur.Orchestrator.StatusReport do
             AgentEvents.agent_summary(identifier, :running, 0, %{
               tag: State.issue_tag(Map.get(entry, :issue)),
               title: get_in(entry, [:issue, Access.key(:title)]),
+              tracker_identity: Issue.tracker_identity(Map.get(entry, :issue)),
               runtime_seconds: State.effective_runtime_seconds(entry, now),
               turn_count: Map.get(entry, :turn_count, 0),
               work_state: get_in(entry, [:control, :status]) || :working,
@@ -415,6 +421,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     %{
       issue_id: issue_id,
       identifier: identifier,
+      tracker_identity: Issue.tracker_identity(issue),
       state: if(work_state == :paused, do: :paused, else: :running),
       work_state: work_state,
       tracker_state: Map.get(issue, :state),
@@ -452,6 +459,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     %{
       issue_id: Map.get(issue, :id),
       identifier: identifier,
+      tracker_identity: retry_tracker_identity(state, identifier) || Issue.tracker_identity(issue),
       state: :idle,
       tracker_state: Map.get(issue, :state),
       tracker_paused: Issue.paused?(issue),
@@ -475,6 +483,14 @@ defmodule Aiur.Orchestrator.StatusReport do
   end
 
   defp idle_queue_depth(_state, _identifier), do: 0
+
+  defp retry_tracker_identity(%State{} = state, identifier) when is_binary(identifier) do
+    Enum.find_value(state.retry_attempts, fn {_issue_id, retry} ->
+      if Map.get(retry, :identifier) == identifier, do: Map.get(retry, :tracker_identity)
+    end)
+  end
+
+  defp retry_tracker_identity(_state, _identifier), do: nil
 
   defp idle_issue_work_state(%Issue{} = issue) do
     if Issue.paused?(issue), do: :paused, else: :idle

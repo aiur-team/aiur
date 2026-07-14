@@ -142,6 +142,7 @@ defmodule Aiur.GitHub.IssuesTest do
     test "maps github issue fields to Issue struct" do
       gh = %{
         "number" => 10,
+        "node_id" => "I_kwDOIssue10",
         "title" => "Test issue",
         "body" => "body text",
         "html_url" => "https://github.com/owner/repo/issues/10",
@@ -155,11 +156,45 @@ defmodule Aiur.GitHub.IssuesTest do
       issue = Issues.normalize_issue(gh, "owner", "repo", "sym")
 
       assert issue.id == "10"
+
+      assert %{status: :joinable, kind: :github, owner: "owner", repository: "repo", provider_id: "I_kwDOIssue10", identifier: "10"} =
+               issue.tracker_identity
+
       assert issue.title == "Test issue"
       assert issue.priority == 1
       assert issue.state == "todo"
       assert issue.assignee_id == "alice"
       assert issue.paused == false
+    end
+
+    test "marks repository-mismatched and missing-node responses explicitly nonjoinable" do
+      mismatched = %{
+        "number" => 14,
+        "node_id" => "I_kwDOIssue14",
+        "repository_url" => "https://api.github.com/repos/other/repo",
+        "labels" => []
+      }
+
+      missing_node = %{"number" => 15, "title" => "Legacy response", "labels" => []}
+
+      assert %{status: :unjoinable, reason: :repository_mismatch} =
+               Issues.normalize_issue(mismatched, "owner", "repo", "sym").tracker_identity
+
+      assert %{status: :unjoinable, reason: :missing_provider_identity, identifier: "15"} =
+               Issues.normalize_issue(missing_node, "owner", "repo", "sym").tracker_identity
+    end
+
+    test "does not use the current checkout when repository configuration is absent" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: nil,
+        tracker_label_prefix: "sym"
+      )
+
+      issue = %{"number" => 16, "node_id" => "I_kwDOIssue16", "labels" => []}
+
+      assert %{status: :unjoinable, reason: :missing_configured_repository} =
+               Issues.normalize_issue(issue, "owner", "repo", "sym").tracker_identity
     end
 
     test "marks closed issues with Closed state" do

@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.RetryEngineTest do
   use Aiur.TestSupport
 
-  alias Aiur.Issue
+  alias Aiur.{Issue, TrackerIdentity}
   alias Aiur.Orchestrator.RetryEngine
   alias Aiur.Orchestrator.State
 
@@ -86,7 +86,8 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
             error: "boom",
             retry_poll_failures: 0,
             worker_host: nil,
-            workspace_path: nil
+            workspace_path: nil,
+            tracker_identity: tracker_identity("repo#1")
           }
         }
       }
@@ -96,6 +97,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
 
       assert metadata.identifier == "repo#1"
       assert metadata.error == "boom"
+      assert metadata.tracker_identity == tracker_identity("repo#1")
       refute Map.has_key?(next_state.retry_attempts, "issue-1")
     end
 
@@ -113,6 +115,45 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       state = %State{retry_attempts: %{}}
       assert RetryEngine.pop_retry_attempt_state(state, "issue-x", make_ref()) == :missing
     end
+  end
+
+  describe "schedule_issue_retry/4" do
+    test "retains the prior identity across a retry/session reschedule" do
+      identity = tracker_identity("repo#2")
+
+      state = %State{
+        retry_attempts: %{
+          "issue-2" => %{
+            attempt: 1,
+            timer_ref: nil,
+            tracker_identity: identity
+          }
+        }
+      }
+
+      next =
+        RetryEngine.schedule_issue_retry(state, "issue-2", 1, %{
+          identifier: "repo#2",
+          delay_type: :continuation
+        })
+
+      retry = next.retry_attempts["issue-2"]
+      assert retry.tracker_identity == identity
+      Process.cancel_timer(retry.timer_ref)
+    end
+  end
+
+  defp tracker_identity(identifier) do
+    %TrackerIdentity{
+      version: 1,
+      status: :joinable,
+      kind: :github,
+      owner: "owner",
+      repository: "repo",
+      provider_id: "I_kwDO#{identifier}",
+      identifier: identifier,
+      reason: nil
+    }
   end
 
   describe "complete_issue/2" do

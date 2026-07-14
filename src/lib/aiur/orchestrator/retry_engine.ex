@@ -67,6 +67,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
               |> complete_issue(issue_id)
               |> schedule_issue_retry(issue_id, 1, %{
                 identifier: running_entry.identifier,
+                tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
                 delay_type: :continuation,
                 worker_host: Map.get(running_entry, :worker_host),
                 workspace_path: Map.get(running_entry, :workspace_path)
@@ -80,6 +81,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
               schedule_issue_retry(state, issue_id, next_attempt, %{
                 identifier: running_entry.identifier,
+                tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
                 error: "agent exited: #{inspect(reason)}",
                 worker_host: Map.get(running_entry, :worker_host),
                 workspace_path: Map.get(running_entry, :workspace_path)
@@ -151,6 +153,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
     error = pick_retry_error(previous_retry, metadata)
     worker_host = pick_retry_worker_host(previous_retry, metadata)
     workspace_path = pick_retry_workspace_path(previous_retry, metadata)
+    tracker_identity = pick_retry_tracker_identity(previous_retry, metadata)
     old_timer = Map.get(previous_retry, :timer_ref)
     retry_poll_failures = pick_retry_poll_failures(previous_retry, metadata)
 
@@ -223,7 +226,8 @@ defmodule Aiur.Orchestrator.RetryEngine do
               error: error,
               retry_poll_failures: retry_poll_failures,
               worker_host: worker_host,
-              workspace_path: workspace_path
+              workspace_path: workspace_path,
+              tracker_identity: tracker_identity
             })
       }
     end
@@ -244,7 +248,8 @@ defmodule Aiur.Orchestrator.RetryEngine do
           error: Map.get(retry_entry, :error),
           retry_poll_failures: Map.get(retry_entry, :retry_poll_failures),
           worker_host: Map.get(retry_entry, :worker_host),
-          workspace_path: Map.get(retry_entry, :workspace_path)
+          workspace_path: Map.get(retry_entry, :workspace_path),
+          tracker_identity: Map.get(retry_entry, :tracker_identity)
         }
 
         {:ok, attempt, metadata, %{state | retry_attempts: Map.delete(state.retry_attempts, issue_id)}}
@@ -498,6 +503,10 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   defp pick_retry_workspace_path(previous_retry, metadata) do
     metadata[:workspace_path] || Map.get(previous_retry, :workspace_path)
+  end
+
+  defp pick_retry_tracker_identity(previous_retry, metadata) do
+    metadata[:tracker_identity] || Map.get(previous_retry, :tracker_identity)
   end
 
   defp find_issue_by_id(issues, issue_id) when is_binary(issue_id) do
