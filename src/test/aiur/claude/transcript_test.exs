@@ -49,6 +49,7 @@ defmodule Aiur.Claude.TranscriptTest do
       assert event.payload.command == "git status --short"
       assert event.payload.title == "git status --short"
       assert event.payload.output == ""
+      assert event.payload.operation_id == "tu_1"
     end
 
     test "Edit tool_call → :tool with file-edit title and diff input" do
@@ -131,6 +132,8 @@ defmodule Aiur.Claude.TranscriptTest do
       assert event.role == :tool
       assert event.payload.output == "?? test-sandbox/\n"
       assert event.payload.title == "tool result"
+      assert event.payload.operation_id == "tu_1"
+      assert event.payload.exit_code == 0
     end
 
     test "errored tool_result marks the title" do
@@ -146,6 +149,8 @@ defmodule Aiur.Claude.TranscriptTest do
       assert {:ok, event} = Transcript.extract(message, nil)
       assert event.role == :tool
       assert event.payload.title == "tool result (error)"
+      assert event.payload.operation_id == "tu_9"
+      assert event.payload.exit_code == 1
     end
 
     test "item/progress streaming deltas are skipped" do

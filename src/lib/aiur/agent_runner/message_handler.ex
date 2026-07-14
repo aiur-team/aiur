@@ -35,7 +35,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
           String.t() | nil,
           keyword() | nil
         ) ::
-          (map() -> :ok)
+          (map() -> :ok | {:error, term()})
   def build(recipient, issue, workspace, worker_host, backend, turn_id, lifecycle_opts) do
     lifecycle_opts = lifecycle_opts || []
 
@@ -85,8 +85,10 @@ defmodule Aiur.AgentRunner.MessageHandler do
        when is_binary(identifier) and is_function(recorder, 4) do
     case public_comment_start(message, backend) do
       {:ok, command, operation_id} ->
-        AgentCommentOrigins.begin_gh_pr_comment(identifier, command, operation_id)
-        |> complete_origin_observation(identifier)
+        complete_origin_observation(
+          identifier,
+          AgentCommentOrigins.begin_gh_pr_comment(identifier, command, operation_id)
+        )
 
       :skip ->
         observe_completed_agent_comment_origin(identifier, backend, message, recorder)
@@ -98,26 +100,30 @@ defmodule Aiur.AgentRunner.MessageHandler do
   defp observe_completed_agent_comment_origin(identifier, backend, message, recorder) do
     case transcript_event_from(message, backend, nil) do
       {:ok, %{role: :command, payload: %{command: command, output: output, exit_code: exit_code} = payload}} ->
-        AgentCommentOrigins.complete_gh_pr_comment(
+        complete_origin_observation(
           identifier,
-          Map.get(payload, :operation_id),
-          command,
-          output,
-          exit_code,
-          recorder
+          AgentCommentOrigins.complete_gh_pr_comment(
+            identifier,
+            Map.get(payload, :operation_id),
+            command,
+            output,
+            exit_code,
+            recorder
+          )
         )
-        |> complete_origin_observation(identifier)
 
       {:ok, %{role: :tool, payload: %{tool: "result", output: output, exit_code: exit_code} = payload}} ->
-        AgentCommentOrigins.complete_gh_pr_comment(
+        complete_origin_observation(
           identifier,
-          Map.get(payload, :operation_id),
-          nil,
-          output,
-          exit_code,
-          recorder
+          AgentCommentOrigins.complete_gh_pr_comment(
+            identifier,
+            Map.get(payload, :operation_id),
+            nil,
+            output,
+            exit_code,
+            recorder
+          )
         )
-        |> complete_origin_observation(identifier)
 
       _ ->
         :ok

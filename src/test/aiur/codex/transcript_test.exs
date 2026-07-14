@@ -28,6 +28,7 @@ defmodule Aiur.Codex.TranscriptTest do
           params: %{
             turnId: "turn-bbb",
             item: %{
+              id: "cmd-1",
               type: "commandExecution",
               command: "/bin/bash -lc \"git status --short\"",
               commandActions: [%{command: "git status --short"}],
@@ -47,6 +48,7 @@ defmodule Aiur.Codex.TranscriptTest do
       assert event.payload.output == "?? test-sandbox/\n"
       assert event.payload.workdir == "/home/dev/repo"
       assert event.payload.title == "git status --short"
+      assert event.payload.operation_id == "cmd-1"
       assert event.turn_id == "turn-bbb"
     end
 

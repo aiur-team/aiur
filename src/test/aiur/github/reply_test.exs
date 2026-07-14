@@ -172,6 +172,72 @@ defmodule Aiur.GitHub.ReviewThreads.ReplyTest do
                )
     end
 
+    test "retains a mutation comment when GraphQL returns data with errors" do
+      request_fun = fn %{method: :post, url: "https://api.github.com/graphql", body: body} ->
+        assert body["query"] =~ "addPullRequestReviewThreadReply"
+
+        {:ok,
+         %{
+           status: 200,
+           body: %{
+             "data" => %{
+               "addPullRequestReviewThreadReply" => %{
+                 "comment" => review_thread_comment(2, "aiur-bot", "Done.")
+               }
+             },
+             "errors" => [%{"message" => "secondary mutation warning"}]
+           }
+         }}
+      end
+
+      assert {:error, {:review_thread_reply_not_verified, %{published_comment: %{"id" => 2}, reason: {:github_graphql_errors, [_]}}}} =
+               Reply.reply_to_review_thread("PRRT_partial", "Done.",
+                 request_fun: request_fun,
+                 bot_account: "aiur-bot",
+                 attempts: 1,
+                 retry_delay_ms: 0
+               )
+    end
+
+    test "rejects a later same-login comment whose identity differs from the mutation" do
+      request_fun = fn %{method: :post, url: "https://api.github.com/graphql", body: body} ->
+        cond do
+          body["query"] =~ "addPullRequestReviewThreadReply" ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "data" => %{
+                   "addPullRequestReviewThreadReply" => %{
+                     "comment" => review_thread_comment(2, "shared-login", "Done.")
+                   }
+                 }
+               }
+             }}
+
+          body["query"] =~ "query AiurReviewThread" ->
+            review_thread_node_response("PRRT_identity", [
+              review_thread_comment(1, "owner", "please fix"),
+              review_thread_comment(2, "shared-login", "Done."),
+              review_thread_comment(3, "shared-login", "Done.")
+            ])
+        end
+      end
+
+      assert {:error,
+              {:review_thread_reply_not_verified,
+               %{
+                 published_comment: %{"id" => 2},
+                 reason: {:review_thread_latest_comment_identity_mismatch, %{actual: %{"id" => 3}}}
+               }}} =
+               Reply.reply_to_review_thread("PRRT_identity", "Done.",
+                 request_fun: request_fun,
+                 bot_account: "shared-login",
+                 attempts: 1,
+                 retry_delay_ms: 0
+               )
+    end
+
     test "sleep_fun is injectable and called with linear backoff" do
       parent = self()
 

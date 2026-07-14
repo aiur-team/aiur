@@ -98,7 +98,7 @@ defmodule Aiur.Codex.DynamicTool.ReviewThreadsTest do
       assert Jason.decode!(response["output"]) == %{"verified" => true}
     end
 
-    test "records the exact verified comment before returning success" do
+    test "records the mutation identity rather than a later verification comment" do
       test_pid = self()
 
       response =
@@ -110,7 +110,7 @@ defmodule Aiur.Codex.DynamicTool.ReviewThreadsTest do
              %{
                verified: true,
                published_comment: %{"id" => 701},
-               verification: %{"latest_comment" => %{"id" => 701}}
+               verification: %{"latest_comment" => %{"id" => 702}}
              }}
           end,
           agent_comment_origin_recorder: fn comment ->

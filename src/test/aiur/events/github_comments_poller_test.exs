@@ -251,6 +251,77 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
     stop_codeowners(codeowners)
   end
 
+  test "publishes a later trusted human reply from the same review thread" do
+    agent_comment_id = System.unique_integer([:positive])
+    human_comment_id = agent_comment_id + 1
+    :ok = AgentCommentOrigins.record("42", %{"id" => agent_comment_id})
+    :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+    codeowners = ensure_codeowners!("* @its-everdred\n")
+    {:ok, poll_count} = Agent.start_link(fn -> 0 end)
+
+    request_fun = fn %{url: url} ->
+      cond do
+        String.contains?(url, "/issues/42/comments?") ->
+          {:ok, %{status: 200, body: []}}
+
+        String.contains?(url, "/pulls?") ->
+          {:ok, %{status: 200, body: [%{"number" => 77}]}}
+
+        String.contains?(url, "/issues/77/comments?") ->
+          {:ok, %{status: 200, body: []}}
+
+        String.contains?(url, "/graphql") ->
+          count = Agent.get_and_update(poll_count, fn current -> {current, current + 1} end)
+
+          comments =
+            if count == 0 do
+              [review_thread_comment(agent_comment_id, "its-everdred", "agent reply")]
+            else
+              [
+                review_thread_comment(agent_comment_id, "its-everdred", "agent reply"),
+                review_thread_comment(human_comment_id, "its-everdred", "human follow-up")
+              ]
+            end
+
+          review_threads_response([
+            %{
+              "id" => "PRRT_shared_login",
+              "isResolved" => false,
+              "path" => "lib/app.ex",
+              "line" => 12,
+              "comments" => %{"nodes" => comments}
+            }
+          ])
+      end
+    end
+
+    assert {:ok, _} =
+             GithubCommentsPoller.poll(["42"],
+               since: "2026-06-25T00:00:00Z",
+               repo: "owner/repo",
+               request_fun: request_fun
+             )
+
+    assert_receive {:event, %{comment_origin: "agent", comment: %{"id" => ^agent_comment_id}}}, 500
+
+    assert {:ok, _} =
+             GithubCommentsPoller.poll(["42"],
+               since: "2026-06-25T00:00:00Z",
+               repo: "owner/repo",
+               request_fun: request_fun
+             )
+
+    assert_receive {:event,
+                    %{
+                      author_trusted?: true,
+                      comment_origin: "external",
+                      comment: %{"id" => ^human_comment_id}
+                    }},
+                   500
+
+    stop_codeowners(codeowners)
+  end
+
   test "polls open PR conversation comments and publishes issue.commented under ticket id" do
     :ok = Exchange.subscribe("ticket.42.issue.commented")
     codeowners = ensure_codeowners!("* @its-everdred\n")

@@ -1,8 +1,27 @@
 defmodule Aiur.AgentRunner.MessageHandlerTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Aiur.{AgentPubSub, Issue}
   alias Aiur.AgentRunner.MessageHandler
+  alias Aiur.GitHub.AgentCommentOrigins
+
+  setup do
+    path = Path.join(System.tmp_dir!(), "aiur-message-handler-origins-#{System.unique_integer([:positive])}.json")
+    previous_path = Application.get_env(:aiur, :agent_comment_origins_path)
+    Application.put_env(:aiur, :agent_comment_origins_path, path)
+
+    on_exit(fn ->
+      File.rm(path)
+
+      if previous_path do
+        Application.put_env(:aiur, :agent_comment_origins_path, previous_path)
+      else
+        Application.delete_env(:aiur, :agent_comment_origins_path)
+      end
+    end)
+
+    :ok
+  end
 
   describe "build/6" do
     test "treats nil lifecycle options as an empty option list" do
@@ -137,6 +156,126 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
       })
 
       assert_receive {:comment_origin, "MH-09", "gh pr comment 1153 --body 'Resolved.'", _output, 0}
+    end
+
+    test "holds top-level comment classification until the exact origin is persisted" do
+      issue = %Issue{id: "gid-mh-atomic", identifier: "MH-atomic"}
+      comment_id = System.unique_integer([:positive])
+      operation_id = "public-comment-#{comment_id}"
+      handler = MessageHandler.build(nil, issue, nil, nil, "codex")
+
+      assert :ok =
+               handler.(%{
+                 event: :notification,
+                 payload: %{
+                   method: "item/started",
+                   params: %{
+                     item: %{
+                       id: operation_id,
+                       type: "commandExecution",
+                       command: "gh pr comment 1153 --body 'Resolved.'"
+                     }
+                   }
+                 }
+               })
+
+      reader = Task.async(fn -> AgentCommentOrigins.origin(issue.identifier, %{"id" => comment_id}) end)
+      assert Task.yield(reader, 100) == nil
+
+      assert :ok =
+               handler.(%{
+                 event: :notification,
+                 payload: %{
+                   method: "item/completed",
+                   params: %{
+                     item: %{
+                       id: operation_id,
+                       type: "commandExecution",
+                       command: "gh pr comment 1153 --body 'Resolved.'",
+                       aggregatedOutput: "https://github.com/owner/repo/pull/1153#issuecomment-#{comment_id}\n",
+                       exitCode: 0
+                     }
+                   }
+                 }
+               })
+
+      assert :agent = Task.await(reader, 2_000)
+    end
+
+    test "correlates Claude's split Bash command and result notifications" do
+      issue = %Issue{id: "gid-mh-claude", identifier: "MH-claude"}
+      test_pid = self()
+
+      handler =
+        MessageHandler.build(nil, issue, nil, nil, "claude", nil,
+          agent_comment_origin_recorder: fn ticket, command, output, exit_code ->
+            send(test_pid, {:comment_origin, ticket, command, output, exit_code})
+            :ok
+          end
+        )
+
+      assert :ok =
+               handler.(%{
+                 event: :notification,
+                 payload: %{
+                   method: "item/created",
+                   params: %{
+                     item: %{
+                       id: "claude-comment-command",
+                       tool_use_id: "claude-comment-command",
+                       type: "tool_call",
+                       name: "Bash",
+                       input: %{command: "gh pr comment 1153 --body 'Resolved.'"}
+                     }
+                   }
+                 }
+               })
+
+      assert :ok =
+               handler.(%{
+                 event: :notification,
+                 payload: %{
+                   method: "item/created",
+                   params: %{
+                     item: %{
+                       id: "claude-comment-result",
+                       tool_use_id: "claude-comment-command",
+                       type: "tool_result",
+                       content: "https://github.com/owner/repo/pull/1153#issuecomment-7010\n",
+                       is_error: false
+                     }
+                   }
+                 }
+               })
+
+      assert_receive {:comment_origin, "MH-claude", "gh pr comment 1153 --body 'Resolved.'", _output, 0}
+    end
+
+    test "returns an actionable error when a visible public comment cannot be recorded" do
+      issue = %Issue{id: "gid-mh-origin-error", identifier: "MH-origin-error"}
+
+      handler =
+        MessageHandler.build(nil, issue, nil, nil, "codex", nil,
+          agent_comment_origin_recorder: fn _ticket, _command, _output, _exit_code ->
+            {:error, :disk_full}
+          end
+        )
+
+      assert {:error, {:agent_comment_origin_not_recorded, :disk_full}} =
+               handler.(%{
+                 event: :notification,
+                 payload: %{
+                   method: "item/completed",
+                   params: %{
+                     item: %{
+                       type: "commandExecution",
+                       command: "gh pr comment 1153 --body 'Resolved.'",
+                       aggregatedOutput: "https://github.com/owner/repo/pull/1153#issuecomment-7011\n",
+                       exitCode: 0
+                     }
+                   }
+                 }
+               })
     end
   end
 
