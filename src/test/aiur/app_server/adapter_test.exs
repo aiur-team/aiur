@@ -2,6 +2,7 @@ defmodule Aiur.AppServer.AdapterTest do
   use ExUnit.Case, async: true
 
   alias Aiur.AppServer.Adapter
+  alias Aiur.Codex.{Interrupts, TurnLoop}
 
   defmodule StubBackend do
     @behaviour Aiur.AppServer.Adapter
@@ -57,14 +58,14 @@ defmodule Aiur.AppServer.AdapterTest do
       }
     end
 
-    def handle_interrupt_error(state, error), do: Aiur.Codex.Interrupts.handle_interrupt_error(state, error)
+    def handle_interrupt_error(state, error), do: Interrupts.handle_interrupt_error(state, error)
 
     def handle_method(session, state, payload, payload_string, method) do
-      Aiur.Codex.TurnLoop.handle_method(session, state, payload, payload_string, method)
+      TurnLoop.handle_method(session, state, payload, payload_string, method)
     end
 
     def handle_malformed(state, payload_string, port) do
-      Aiur.Codex.TurnLoop.handle_malformed(state, payload_string, port)
+      TurnLoop.handle_malformed(state, payload_string, port)
     end
   end
 

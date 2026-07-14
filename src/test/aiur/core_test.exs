@@ -2093,7 +2093,6 @@ defmodule Aiur.CoreTest do
       trace_file = Path.join(test_root, "codex.trace")
       rework_started = Path.join(test_root, "rework.started")
       rework_release = Path.join(test_root, "rework.release")
-      after_run_done = Path.join(test_root, "after-run.done")
 
       File.mkdir_p!(template_repo)
       File.write!(Path.join(template_repo, "README.md"), "# test")
@@ -2158,7 +2157,6 @@ defmodule Aiur.CoreTest do
         tracker_terminal_states: ["done", "cancelled", "canceled"],
         workspace_root: workspace_root,
         hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
-        hook_after_run: "touch #{after_run_done}",
         codex_command: "#{codex_binary} app-server",
         max_turns: 1
       )
@@ -2236,6 +2234,8 @@ defmodule Aiur.CoreTest do
       assert replacement.pid != old_worker
       assert is_reference(replacement.ref)
       assert replacement.ref != old_ref
+      replacement_pid = replacement.pid
+      completion_ref = Process.monitor(replacement_pid)
 
       assert wait_for_path(rework_started, 15_000)
 
@@ -2248,7 +2248,9 @@ defmodule Aiur.CoreTest do
       assert :sys.get_state(orchestrator_pid).running[issue.id].pid == replacement.pid
 
       File.touch!(rework_release)
-      assert wait_for_path(after_run_done, 15_000)
+
+      assert_receive {:DOWN, ^completion_ref, :process, ^replacement_pid, :normal},
+                     15_000
 
       finished = :sys.get_state(orchestrator_pid)
       assert finished.queue_store.items[item_id].status == :consumed
