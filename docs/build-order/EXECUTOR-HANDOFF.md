@@ -244,9 +244,10 @@ to a safe range.
     version boundary; never serialize the graph for the experiment.
 24. The preview now carries a sixth **Ad Hoc** epic for tickets created during
     execution without changing the approved 54-ticket denominator. Current
-    members are #1139, #1140, #1142, #1146, #1148, #1149, #1151, #1152, and #1154;
+    members are #1139, #1140, #1142, #1146, #1148, #1149, #1151, #1152,
+    #1154, #1161, and #1162;
     all carry `build-lane:adhoc`. Assign `phase:N` only when an ad hoc ticket is
-    actually picked up, using the closest active phase; #1139 and #1151 are
+    actually picked up, using the closest active phase; #1139, #1151, and #1162 are
     Phase 1, while deferred/untriaged tickets remain phase-unassigned and render
     in the preview's TBD row. Repeat this labeling and preview update for every
     new run-created ticket.
@@ -560,13 +561,31 @@ to a safe range.
     assign the closest active phase only when safe capacity actually picks it
     up.
 
-At 02:38 PDT the core graph is 4/54 accepted. Core
-#1089/#1090/#1091/#1096/#1103/#1111 are resident Codex workers, DASH-006/#1088
-is in CI wait, DASH-001/#1108 is cleanly requeued after workspace quarantine,
-and Ad Hoc #1151 is paused after focused rework routing. Direct blocker #1030
-and DASH-019/#1123 remain held for a safe slot. Host load is near the hard
-envelope, so dependency-ready and requeued work must wait rather than forcing
-another concurrent setup/build wave.
+60. A production queue-drain audit correlated four stranded Codex workers
+    (#1088, #1091, #1096, and #1111) with the same lifecycle defect: each
+    runner remained inside `Aiur.AppServer.TurnLoop.receive_loop/2` after the
+    provider emitted idle plus `turn/completed`, while 8–12 operator messages
+    accumulated. Aiur seeds one outstanding turn and increments the counter for
+    every successful operator `turn/start`; multiple deliveries during one
+    provider turn can therefore leave a positive counter after the provider's
+    finite completion signals. Phase 1 P1 Ad Hoc #1162 owns the durable fix and
+    system regression. A daemon restart is recovery only; perform it at a safe
+    checkpoint for the actively turning #1090 and #1103, then verify queued
+    rework drains and #1162 is dispatched.
+61. Two independent exact-head reviews returned Ad Hoc #1151/PR #1153 to
+    rework despite green CI. The consolidated contract covers restart-stable
+    origin persistence, post-mutation verification failures, top-level PR
+    comments, atomic completed-runner replacement, pre-queue origin filtering,
+    bootstrap filtering, and the binding reply→CI-wait→poller end-to-end test.
+
+At 03:01 PDT the core graph is 4/54 accepted. Core
+#1088/#1090/#1091/#1096/#1103/#1111 are resident Codex workers, but #1088,
+#1091, #1096, and #1111 are stranded behind #1162's diagnosed completion-
+accounting defect. DASH-017/#1089 is paused for dual exact-head review,
+DASH-001/#1108 is cleanly requeued after workspace quarantine, and Ad Hoc
+#1151 is in dual-review rework. Direct blocker #1030 and DASH-019/#1123 remain
+held. Restart only when #1090 and #1103 reach safe turn boundaries, then restore
+the maximum safe fleet without changing the 54-ticket denominator.
 Treat
 completed turns, stale bases, and green builds with unmet acceptance criteria
 as pending Executor work, not merge-ready truth.
