@@ -69,6 +69,40 @@ defmodule Aiur.DogfoodHooksTest do
     assert File.read!(log_path) == "prior agent transcript\n"
   end
 
+  test "before_run reconstructs a nested workspace without touching its parent repo", context do
+    parent = Path.join(context.test_root, "parent-repo")
+    workspace = Path.join([parent, "tickets", "1054"])
+    parent_file = Path.join(parent, "PARENT.md")
+    log_path = Path.join([workspace, "logs", "agent.md"])
+
+    git!(["init", "--quiet", "--initial-branch=parent-main", parent])
+    git!(["-C", parent, "config", "user.name", "Test User"])
+    git!(["-C", parent, "config", "user.email", "test@example.com"])
+    git!(["-C", parent, "remote", "add", "origin", context.origin])
+    File.write!(Path.join(parent, ".gitignore"), "tickets/\n")
+    File.write!(parent_file, "parent tree\n")
+    git!(["-C", parent, "add", ".gitignore", "PARENT.md"])
+    git!(["-C", parent, "commit", "--quiet", "-m", "parent tree"])
+
+    File.mkdir_p!(Path.dirname(log_path))
+    File.write!(log_path, "prior agent transcript\n")
+
+    parent_head = git!(["-C", parent, "rev-parse", "HEAD"])
+    assert String.trim(git!(["-C", workspace, "rev-parse", "--show-toplevel"])) == parent
+
+    assert_hook_ok!("before_run", workspace, context.origin)
+
+    assert File.dir?(Path.join(workspace, ".git"))
+    assert current_branch!(workspace) == ticket_branch()
+    assert File.read!(Path.join(workspace, "README.md")) == "stable one\n"
+    assert File.read!(log_path) == "prior agent transcript\n"
+
+    assert current_branch!(parent) == "parent-main"
+    assert git!(["-C", parent, "rev-parse", "HEAD"]) == parent_head
+    assert File.read!(parent_file) == "parent tree\n"
+    assert String.trim(git!(["-C", parent, "status", "--short"])) == ""
+  end
+
   test "before_run reports reconstruction failure and restores logs", context do
     workspace = Path.join(context.test_root, "failed-reconstruction")
     log_path = Path.join([workspace, "logs", "agent.md"])

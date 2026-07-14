@@ -38,7 +38,12 @@ after_create: |
 before_run: |
   set -e
   base_branch="${THIS_BASE_BRANCH:-main}"
-  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  workspace_root="$(pwd -P)"
+  git_toplevel="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+  if [ -n "$git_toplevel" ]; then
+    git_toplevel="$(CDPATH= cd "$git_toplevel" && pwd -P)"
+  fi
+  if [ -z "$git_toplevel" ] || [ "$git_toplevel" != "$workspace_root" ]; then
     logs_backup=""
     restore_logs() {
       if [ -n "$logs_backup" ] && [ -d "$logs_backup" ]; then
