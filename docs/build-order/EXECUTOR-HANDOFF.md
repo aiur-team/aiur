@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-13 22:10 PDT)
+## Live Executor state (updated 2026-07-13 22:22 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -279,14 +279,32 @@ to a safe range.
     phase-unassigned and undispatched while host load is elevated. The root
     dogfood config has a local-only, uncommitted writable-root containment for
     this host; do not copy its machine path into portable defaults.
+28. At 22:12 PDT the Executor performed a controlled root-level restart to load
+    current `main` plus that containment. New Codex thread settings prove the
+    canonical build-gate path is now writable alongside workspace and Git roots;
+    the fleet is pinned to Codex 5.6 Sol, and `aiurdev status` reports the shared
+    gate enforcing 2/2 active builds. Startup reproduced #1148 by stripping the
+    `agent:paused` overrides from #1103/#1123; both labels were restored before
+    re-admission. The scheduler also admitted unrelated legacy #855 during its
+    AIMD ramp, so the Executor paused it immediately rather than spend a Build
+    Order slot. #1030 and #1054 were admitted first to land the two known
+    workspace-bootstrap blockers; #1054 was explicitly stopped from pushing a
+    stale 407-file local tree and directed to transplant only its bounded issue
+    changes onto `b24e0d72`.
+29. Independent review of #1151/PR #1153 rejected exact head `ad64fc5e` despite
+    green CI. Its `:global.trans` key reused the pathname as requester identity,
+    allowing parallel provenance writers to enter together and lose a record;
+    generation-time telemetry enrichment also bypassed the central provenance
+    predicate. Both focused findings were posted to the existing PR and queued
+    to the existing worker with concurrency and telemetry regressions required.
+    This is contained #1151 rework, not a new ticket.
 
-At 21:57 PDT the core graph is 2/54 merged. Four core Terra workers are
-reported working (#1085, #1088, #1104, and #1111); #1089 and #1090 were
-cooperatively recycled after completed turns failed to consume durable rework
-directives, and will re-enter under measured capacity. #1103 and #1123 remain
-paused, while direct P1 #1151 is actively refreshing outside the core
-denominator. Treat completed turns, stale bases, and green builds with unmet
-acceptance criteria as pending Executor work, not merge-ready truth.
+At 22:22 PDT the core graph is 2/54 merged. Five useful agents are active under
+the measured load envelope: direct workspace blockers #1030/#1054 and core
+#1085/#1088/#1089. #1090, #1104, #1111, and direct P1 #1151 retain their work
+and await re-admission; #1103/#1123 remain paused. Treat completed turns, stale
+bases, and green builds with unmet acceptance criteria as pending Executor
+work, not merge-ready truth.
 
 **Read-first map for this run:** `README.md` (pack index) →
 `08-implementation-pointers.md` (verified per-ticket file/module/function
