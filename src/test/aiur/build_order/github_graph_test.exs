@@ -21,6 +21,19 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     assert :invalid_title in Enum.map(invalid.diagnostics, & &1.code)
   end
 
+  test "keeps a catalog root missing its required parent key visible but invalid" do
+    valid = root(1)
+    missing_parent = Map.delete(root(2), "parent")
+
+    assert {:ok, %{candidate: catalog}} =
+             GitHubGraph.fetch_catalog(base_opts(catalog_response([valid, missing_parent], 2)))
+
+    [valid_entry, invalid_entry] = catalog.entries
+    assert {:ok, _root} = Catalog.select(catalog, valid_entry.identity)
+    assert {:structurally_invalid, ^invalid_entry} = Catalog.select(catalog, invalid_entry.identity)
+    assert :invalid_identity in Enum.map(invalid_entry.diagnostics, & &1.code)
+  end
+
   test "keeps an unlabeled catalog root visible but structurally invalid" do
     valid = root(1)
     unlabeled = root(2) |> Map.put("labels", labels([]))
@@ -401,10 +414,10 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     [member] = selected.members
     assert :invalid_dependency in Enum.map(member.diagnostics, & &1.code)
 
-    missing_parent = Map.put(member(4, root), "parent", nil)
+    explicit_null_parent = Map.put(member(4, root), "parent", nil)
 
     assert {:error, %{error: :structurally_invalid, candidate: selected}} =
-             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, [missing_parent], 1)))
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, [explicit_null_parent], 1)))
 
     diagnostic_codes =
       Enum.flat_map(selected.members, fn member ->
@@ -412,6 +425,25 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
       end)
 
     assert :invalid_member in diagnostic_codes
+    refute :invalid_identity in diagnostic_codes
+
+    missing_parent = Map.delete(member(5, root), "parent")
+
+    assert {:error, %{error: :structurally_invalid, candidate: selected}} =
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, [missing_parent], 1)))
+
+    [member] = selected.members
+    assert :invalid_identity in Enum.map(member.diagnostics, & &1.code)
+  end
+
+  test "rejects a selected root missing its required parent key" do
+    root = root(1)
+    missing_parent = Map.delete(root, "parent")
+
+    assert {:error, %{error: :structurally_invalid, candidate: selected}} =
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(missing_parent, [], 0)))
+
+    assert :invalid_identity in Enum.map(selected.root.diagnostics, & &1.code)
   end
 
   test "detects a missing internal endpoint and accepts a cycle when every endpoint is present" do

@@ -451,12 +451,15 @@ defmodule Aiur.BuildOrder.GitHubGraph do
 
   defp endpoint_identity(_node, _fallback_repository), do: {nil, Diagnostic.new(:invalid_identity)}
 
-  defp parent_identity(node, repository) do
-    case Map.get(node, "parent") do
-      nil -> {nil, nil}
-      parent -> endpoint_identity(parent, repository)
+  defp parent_identity(node, repository) when is_map(node) do
+    case Map.fetch(node, "parent") do
+      {:ok, nil} -> {nil, nil}
+      {:ok, parent} -> endpoint_identity(parent, repository)
+      :error -> {nil, Diagnostic.new(:invalid_identity)}
     end
   end
+
+  defp parent_identity(_node, _repository), do: {nil, Diagnostic.new(:invalid_identity)}
 
   defp repository_from_node(%{"repository" => %{"name" => repository, "owner" => %{"login" => owner}}}, _fallback)
        when is_binary(owner) and is_binary(repository),
