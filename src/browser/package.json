@@ -1,0 +1,17 @@
+{
+  "name": "aiur-liveview-browser-harness",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "fixture:server": "node scripts/start-fixture.mjs",
+    "test": "npm run test:harness && npm run test:smoke",
+    "test:smoke": "node scripts/run-browser-tests.mjs tests/liveview-smoke.spec.mjs",
+    "test:harness": "node scripts/run-browser-tests.mjs tests/harness-failures.spec.mjs",
+    "verify:failure-artifacts": "node scripts/verify-failure-artifacts.mjs"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.11.3",
+    "@playwright/test": "1.61.1"
+  }
+}
