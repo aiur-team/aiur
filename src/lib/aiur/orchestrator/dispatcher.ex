@@ -487,7 +487,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host, runner) do
-    lifecycle_attempt_id = TelemetryLifecycle.new_attempt_id(issue.identifier)
+    lifecycle_attempt_id = TelemetryLifecycle.new_attempt_id(dispatch_attempt_ticket(issue))
 
     if TelemetryLifecycle.enabled?() do
       TelemetryLifecycle.record(issue.identifier, lifecycle_attempt_id, :dispatch, :point, %{
@@ -559,6 +559,13 @@ defmodule Aiur.Orchestrator.Dispatcher do
           worker_host: worker_host
         })
     end
+  end
+
+  defp dispatch_attempt_ticket(%Issue{identifier: identifier}) when is_binary(identifier), do: identifier
+  defp dispatch_attempt_ticket(%Issue{id: issue_id}) when is_binary(issue_id), do: issue_id
+
+  defp dispatch_attempt_ticket(_issue) do
+    10 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false)
   end
 
   defp record_rework_resume(%Issue{} = issue, attempt_id) do

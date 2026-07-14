@@ -217,10 +217,15 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
       start_fun = fn _workspace, _opts -> {:ok, %{model: "gpt-5.6-terra", thread_id: "thread-dispatch"}} end
 
+      {_session_backend, _remote_control?, session_opts} =
+        SessionLifecycle.resolve_session_options(issue, runner_opts, nil)
+
+      assert Keyword.fetch!(session_opts, :attempt_id) == attempt_id
+
       assert {:ok, session} =
                SessionLifecycle.start_agent_session(
                  "/ws",
-                 [backend: "codex", model: "gpt-5.6-terra", attempt_id: attempt_id],
+                 session_opts,
                  start_fun
                )
 
@@ -234,6 +239,28 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
       [decision] = Aiur.DecisionStore.list() |> Enum.filter(&(&1.ticket.identifier == identifier))
       assert decision.provenance.attempt_id == attempt_id
+    end
+
+    test "identifier-less dispatch uses the stable issue ID for its attempt identity" do
+      issue_id = "memory-dispatch-#{System.unique_integer([:positive])}"
+      issue = %Issue{id: issue_id, identifier: nil, state: "todo", selected_backend: "codex"}
+      test_pid = self()
+
+      refute TelemetryLifecycle.enabled?()
+
+      runner = fn dispatched_issue, recipient, opts ->
+        send(test_pid, {:agent_runner_run, dispatched_issue, recipient, opts})
+        :ok
+      end
+
+      state = %State{max_concurrent_agents: 1, effective_concurrent_agents: 1}
+
+      next_state = Dispatcher.do_dispatch_issue(state, issue, nil, nil, runner: runner)
+
+      assert_receive {:agent_runner_run, ^issue, _recipient, runner_opts}
+      assert attempt_id = Keyword.fetch!(runner_opts, :telemetry_attempt_id)
+      assert String.starts_with?(attempt_id, "#{issue_id}:")
+      assert get_in(next_state.running, [issue.id, :telemetry_attempt_id]) == attempt_id
     end
   end
 
