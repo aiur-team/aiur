@@ -1,0 +1,2 @@
+# Preserve the audited ELK runtime exactly as shipped by its pinned package.
+src/priv/static/vendor/elk/0.11.1/elk-worker.min.js -whitespace
