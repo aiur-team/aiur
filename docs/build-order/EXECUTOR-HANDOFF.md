@@ -746,15 +746,43 @@ dispatch Claude.
     started. All eight intended Codex workers now have fresh generations. Restore
     the recorded active-state labels only after #1161 merges; never restore them
     merely because the daemon restarted cleanly.
+91. A host-capacity audit found three `agent-browser` daemon/browser trees
+    orphaned to PID 1 for 8–12 hours, including renderers consuming roughly
+    48–66% CPU each. The Executor terminated only those proven orphan parent
+    daemons, recovered roughly 2.5–3 GB of RAM, preserved every current worker,
+    and recorded sanitized evidence on deferred Ad Hoc #1142 in comment
+    `4969926684`. This is capacity evidence for the existing deferred ticket,
+    not authority to dispatch it or create another issue.
+92. DASH-006/#1088 reached fully green current-main head `20c5f74b`. One exact-
+    head reviewer was clean; the independent reviewer found that a same-ID
+    bounded-overview row could render an older Decision while answer/revision
+    commands targeted the newer retained version. The contained P1 and two
+    version-collision regressions are routed in issue comment `4970048063`.
+    The old worker had already consumed all 12 continuation turns waiting for a
+    terminal CI event that GitHub had completed but Aiur never delivered, so
+    the Executor cycled only #1088's active-state label to force a replaceable
+    fresh generation. #1151 already owns the self-comment/CI-wake lifecycle;
+    do not file a duplicate.
+93. Ad Hoc #1162 pushed exact head `86e979e1`, but fresh CI disproved the
+    worker's load-only classification: lint found six nested-module alias
+    violations, and full coverage left queued rework `:delivered` instead of
+    `:consumed` in the ticket's core completed-runner replacement regression.
+    The bounded fix packet is issue comment `4970116310`. The Executor is
+    cycling only #1162's completed generation before returning it to rework;
+    preserve both the new pause path and the pre-existing exactly-once drain
+    contract, and create no additional ticket.
 
-At 06:39 PDT the core graph is 5/54 accepted. Eight Aiur tickets have fresh
-Codex implementation/rework generations; #1093, #1108, #1111, and #1130 stay on
-workspace-race holds until #1161 lands. The preview percentages were refreshed
-from emitted `progress.checkin` evidence (including 1088=80, 1091=90,
-1096=80, 1103=60, 1109=100, 1151=50, 1161=100, and 1162=90), not inferred from
-card color. No additional core ticket is safely dependency-ready outside the
-held/gated set. Treat completed turns, stale bases, and green builds with unmet
-acceptance criteria as pending Executor work, not merge-ready truth.
+At 07:10 PDT the core graph is 5/54 accepted. Six Codex workers are productive;
+#1088 and #1162 are cycling completed generations into the remaining two slots.
+#1093, #1108, #1111, and #1130 stay on workspace-race holds until #1161 lands.
+The latest emitted progress evidence remains 1088=80, 1091=90, 1096=80,
+1103=60, 1109=100, 1151=50, and 1162=90; #1161's new rework generation has
+since emitted 4/10, superseding its stale pre-review 100% estimate. Host load is
+scheduler-saturated by productive Mix gates, so retain the eight-worker ceiling
+and prefer logs/GitHub evidence after a control-RPC timeout. No additional core
+ticket is safely dependency-ready outside the held/gated set. Treat completed
+turns, stale bases, and green builds with unmet acceptance criteria as pending
+Executor work, not merge-ready truth.
 
 **Read-first map for this run:** `README.md` (pack index) →
 `08-implementation-pointers.md` (verified per-ticket file/module/function
