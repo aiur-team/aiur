@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 11:22 PDT)
+## Live Executor state (updated 2026-07-14 11:27 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -20,13 +20,15 @@ program is 6/54 merged with 48 remaining.
 The runtime session ceiling is 15 workers, governed by Aiur's effective-slot
 controller and shared build gates. The operator target is 10–15+ useful agents
 whenever dependency width and measured CPU/memory/provider/review capacity
-permit. Seven implementation/rework lanes are active on core
-#1088/#1091/#1097/#1109 and Ad Hoc #1151/#1154/#1161; BO-016/#1103 and Ad Hoc
-#1162 are yielding provider capacity while exact-head CI runs. #1109 is in
+permit. All nine currently dependency-ready implementation/rework lanes are
+active on core #1088/#1091/#1097/#1103/#1109 and Ad Hoc
+#1151/#1154/#1161/#1162. #1109 is in
 ticket-scoped recovery from a completed-turn wedge after its red CI packet was
 not consumed. BO-002/#1091 passed CI at `35bec1cd`, but the Executor rejected
 the head before review because current accepted `main` was not its ancestor;
-it is actively merging `69a53b99` and will require fresh CI. Build-gate P1
+it has pushed current-main head `5396c659` and is in fresh CI. BO-016/#1103
+and completed-turn #1162 are performing the same one-time current-main refresh
+before fresh CI. Build-gate P1
 #1154 is in the current Ad Hoc wave because namespace-local lease IDs directly
 blocked core verification.
 #1090,
@@ -1093,12 +1095,25 @@ Terra; never dispatch Claude.
     `4972541722`, returned the ticket to rework, and messaged the live worker to
     merge current main and produce a new exact-head CI result. Green stale-base
     CI never consumes review capacity or merge authority.
+142. The same current-main ancestry gate rejected BO-016/#1103 head
+    `f09ff6b9` after green CI and completed-turn #1162 head `3bafcf31` while its
+    final test job was still running. Both received durable issue comments,
+    direct messages, and fresh rework turns to merge `69a53b99`; no reviewers
+    were spent on stale heads. With those turns active, every one of the nine
+    dependency-ready lanes is staffed.
+143. The 11:26 hourly Executor retrospective found an action-dense hour: review
+    and red-CI packets were routed, stale-base gates prevented wasted reviews,
+    completed workers were recovered, the maximum-useful-concurrency rule was
+    made binding, and the handoff/preview were refreshed. Its durable history
+    contains two action wakes and no no-action wakes, so retain the event-first
+    adaptive 2–20 minute cadence, five-minute reporting boundary, and separate
+    hourly audit unchanged.
 
-At 11:22 PDT the core graph is 6/54 accepted. Seven implementation/rework
-lanes are active, while #1103 and #1162 yield provider capacity during CI and
-#1109 remains in targeted completed-runner recovery. The configured ceiling is
-15; the shortfall is the finite ready graph, shared build capacity, and the
-#1161 workspace gate, not an intentional low cap.
+At 11:27 PDT the core graph is 6/54 accepted. All nine currently
+dependency-ready implementation/rework lanes are active, including #1109's
+targeted completed-runner recovery. The configured ceiling is 15; the shortfall
+is the finite ready graph, shared build capacity, and the #1161 workspace gate,
+not an intentional low cap.
 #1090, #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds
 until #1161 lands.
 The latest agent-emitted progress evidence is 1088=70, 1091=60, 1096=100
