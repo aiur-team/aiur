@@ -86,7 +86,7 @@ defmodule AiurWeb.StaticAssets do
     with {:ok, manifest} <- read_layout_manifest(),
          assets when is_map(assets) <- Map.get(manifest, "assets"),
          true <- manifest["schema"] == 1,
-         true <- Map.keys(assets) |> MapSet.new() == MapSet.new(Enum.map(@layout_asset_definitions, fn {_key, %{name: name}} -> name end)),
+         true <- MapSet.equal?(MapSet.new(Map.keys(assets)), MapSet.new(Enum.map(@layout_asset_definitions, fn {_key, %{name: name}} -> name end))),
          {:ok, verified_assets} <- verify_layout_assets(assets),
          true <- get_in(verified_assets, ["worker", "engineUrl"]) == get_in(verified_assets, ["engine", "url"]) do
       {:ok, verified_assets}
@@ -131,11 +131,11 @@ defmodule AiurWeb.StaticAssets do
   defp valid_layout_asset?(_asset, _definition), do: false
 
   defp expected_asset_keys?(asset, %{name: "worker"}) do
-    MapSet.new(Map.keys(asset)) == MapSet.new(["engineUrl", "file", "sha256", "bytes", "contentType", "url"])
+    MapSet.equal?(MapSet.new(Map.keys(asset)), MapSet.new(["engineUrl", "file", "sha256", "bytes", "contentType", "url"]))
   end
 
   defp expected_asset_keys?(asset, _definition) do
-    MapSet.new(Map.keys(asset)) == MapSet.new(["file", "sha256", "bytes", "contentType", "url"])
+    MapSet.equal?(MapSet.new(Map.keys(asset)), MapSet.new(["file", "sha256", "bytes", "contentType", "url"]))
   end
 
   defp matches_asset_file?(asset, %{file: file}), do: asset["file"] == file
