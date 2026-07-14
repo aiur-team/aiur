@@ -206,7 +206,7 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
       <div class="hd-mark">A</div>
       <div>
         <h1>Build Order — plan preview</h1>
-        <div class="sub">its-everdred/aiur : aiur-dashboard-program · 54 core members + 9 ad hoc · plan v1 · researched @ 9849f329</div>
+        <div class="sub">its-everdred/aiur : aiur-dashboard-program · 54 core members + 12 ad hoc · plan v1 · researched @ 9849f329</div>
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:.8rem">
@@ -242,32 +242,32 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
 <script>
 const RUN = {
   phase: 1,
-  updated: "2026-07-14 04:16 PDT",
+  updated: "2026-07-14 04:46 PDT",
   tickets: {
     "BO-004": {state:"merged", progress:100, issue:1086},
     "BO-008": {state:"merged", progress:100, issue:1087},
-    "DASH-006": {state:"rework active", progress:70, issue:1088},
-    "DASH-017": {state:"rework active", progress:60, issue:1089},
-    "DASH-018": {state:"dual-review rework active", progress:80, issue:1090},
+    "DASH-006": {state:"P2 review rework active", progress:90, issue:1088},
+    "DASH-017": {state:"merged", progress:100, issue:1089},
+    "DASH-018": {state:"CI rework active", progress:80, issue:1090},
     "BO-001": {state:"merged", progress:100, issue:1085},
-    "BO-016": {state:"CI rework active", progress:70, issue:1103},
+    "BO-016": {state:"exact-head review queued", progress:95, issue:1103},
     "BO-017": {state:"merged", progress:100, issue:1104},
     "DASH-001": {state:"workspace recovery queued", progress:0, issue:1108},
-    "DASH-004": {state:"CI/review", progress:80, issue:1111},
+    "DASH-004": {state:"rework active", progress:70, issue:1111},
     "DASH-019": {state:"gate/workspace paused", progress:0, issue:1123},
-    "BO-002": {state:"rework active", progress:20, issue:1091},
-    "BO-009": {state:"rework active", progress:60, issue:1096},
+    "BO-002": {state:"dual exact-head review", progress:95, issue:1091},
+    "BO-009": {state:"dual-review rework active", progress:80, issue:1096},
     "ADHOC-1139": {state:"closed", progress:100, issue:1139},
     "ADHOC-1140": {state:"deferred", progress:0, issue:1140},
     "ADHOC-1142": {state:"deferred", progress:0, issue:1142},
     "ADHOC-1146": {state:"deferred", progress:0, issue:1146},
     "ADHOC-1148": {state:"deferred", progress:0, issue:1148},
     "ADHOC-1149": {state:"deferred", progress:0, issue:1149},
-    "ADHOC-1151": {state:"dual-review rework queued", progress:90, issue:1151},
+    "ADHOC-1151": {state:"P1 rework active", progress:70, issue:1151},
     "ADHOC-1152": {state:"deferred", progress:0, issue:1152},
     "ADHOC-1154": {state:"deferred P1", progress:0, issue:1154},
-    "ADHOC-1161": {state:"P1 working", progress:20, issue:1161},
-    "ADHOC-1162": {state:"P1 CI wait", progress:80, issue:1162},
+    "ADHOC-1161": {state:"P1 CI wait", progress:90, issue:1161},
+    "ADHOC-1162": {state:"P1 exact-head review", progress:95, issue:1162},
     "ADHOC-1164": {state:"closed duplicate of #1154", progress:0, issue:1164}
   }
 };
@@ -349,8 +349,8 @@ function buildGraph(rootEl, pack, title, cap){
       html += `<div class="bo-cell">` + cell.map(t=>{
         const ready = t.deps.every(d=>RUN.tickets[d]?.state==="merged");
         const live = RUN.tickets[t.id];
-        const completed = live && ["merged","closed"].includes(live.state);
-        const active = live && ["working","CI green","CI wait","rework"].includes(live.state);
+        const completed = live && (live.state === "merged" || live.state.startsWith("closed"));
+        const active = live && !completed && /(working|active|rework|CI|review)/i.test(live.state);
         const nodeClass = completed ? " is-merged" : active ? " is-working" : !live && ready ? " is-ready" : "";
         const stateCopy = live ? `${live.progress}% · ${live.state}` : ready ? "dependency-ready" : "blocked ×"+t.deps.length;
         const xdeps = t.deps.filter(d=>byId[d] && byId[d].pack!==pack);
@@ -515,13 +515,13 @@ document.addEventListener("keydown",e=>{ if(e.key==="Escape") drawer.classList.r
   const pts = T.reduce((s,t)=>s+t.cx,0);
   const coreRun = T.map(t=>RUN.tickets[t.id]).filter(Boolean);
   const allRun = Object.values(RUN.tickets);
-  const working = allRun.filter(t=>t.state==="working");
-  const ci = allRun.filter(t=>t.state==="CI green" || t.state==="CI wait");
+  const working = allRun.filter(t=>/(working|active|rework)/i.test(t.state));
+  const ci = allRun.filter(t=>/(CI|review)/i.test(t.state) && t.state!=="merged");
   const merged = coreRun.filter(t=>t.state==="merged");
   const paused = allRun.filter(t=>t.state.includes("paused"));
   const activeCore = coreRun.length-merged.length;
   const aggregate = Math.round(coreRun.reduce((sum,t)=>sum+t.progress,0)/coreRun.length);
-  const phaseState = `${working.length} Codex agents working${ci.length ? ` · ${ci.length} CI green` : ""} · ${merged.length} core merged`;
+  const phaseState = `${working.length} active/rework${ci.length ? ` · ${ci.length} CI/review` : ""} · ${merged.length} core merged`;
   document.getElementById("runSnapshot").innerHTML = `
     <div class="run-primary"><span class="run-kicker">Phase ${RUN.phase} live</span><span class="run-copy">${phaseState} · ${aggregate}% average agent check-in progress</span></div>
     <div class="run-meta"><span>${paused.length} paused · ${ADHOC_TICKETS.length} ad hoc tracked outside the core denominator</span><span>snapshot ${RUN.updated}</span></div>`;
