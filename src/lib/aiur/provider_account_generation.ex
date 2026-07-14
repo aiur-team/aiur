@@ -157,7 +157,8 @@ defmodule Aiur.ProviderAccountGeneration do
   end
 
   def handle_call({:bind, provider, backend, binding, opts}, from, state) do
-    if valid_observation?(provider, backend, binding, opts) and authorized_transition?(state.entries, provider, backend, binding, opts) do
+    if valid_observation?(provider, backend, binding, opts) and
+         authorized_transition?(state.entries, provider, backend, binding, opts) do
       {snapshot, changes, state} = bind_entry(state, provider, backend, binding, opts, caller_pid(from))
       broadcast_changes(changes)
       {:reply, {:ok, snapshot}, state}
@@ -428,8 +429,6 @@ defmodule Aiur.ProviderAccountGeneration do
         %{entry | monitor: {Process.monitor(owner_pid), owner_pid}}
     end
   end
-
-  defp monitor_owner(entry, _owner_pid), do: entry
 
   defp caller_pid({pid, _tag}) when is_pid(pid), do: pid
 
