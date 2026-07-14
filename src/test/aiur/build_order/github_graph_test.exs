@@ -171,7 +171,12 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     assert {:error, %{error: :structurally_invalid, candidate: selected}} =
              GitHubGraph.fetch_selected_root(1, base_opts(selected_response(root, [missing_parent], 1)))
 
-    assert :invalid_member in Enum.flat_map(selected.members, &Enum.map(&1.diagnostics, fn diagnostic -> diagnostic.code end))
+    diagnostic_codes =
+      Enum.flat_map(selected.members, fn member ->
+        Enum.map(member.diagnostics, fn diagnostic -> diagnostic.code end)
+      end)
+
+    assert :invalid_member in diagnostic_codes
   end
 
   test "detects a missing internal endpoint and accepts a cycle when every endpoint is present" do
@@ -208,7 +213,12 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
 
   test "uses case-insensitive repository names for native identity joins" do
     root = root(1)
-    mixed_case_root = root |> endpoint_from() |> put_in(["repository", "owner", "login"], "OWNER") |> put_in(["repository", "name"], "REPO")
+
+    mixed_case_root =
+      root
+      |> endpoint_from()
+      |> put_in(["repository", "owner", "login"], "OWNER")
+      |> put_in(["repository", "name"], "REPO")
 
     child =
       member(2, root, blocking: [mixed_case_root])
@@ -222,9 +232,20 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
   end
 
   defp base_opts(response_or_request_fun, overrides \\ []) do
-    request_fun = if is_function(response_or_request_fun, 1), do: response_or_request_fun, else: queued_responses([response_or_request_fun])
+    request_fun =
+      if is_function(response_or_request_fun, 1) do
+        response_or_request_fun
+      else
+        queued_responses([response_or_request_fun])
+      end
 
-    [repository: @repository, request_fun: request_fun, root_limit: 100, page_budget: 4, call_budget: 4]
+    [
+      repository: @repository,
+      request_fun: request_fun,
+      root_limit: 100,
+      page_budget: 4,
+      call_budget: 4
+    ]
     |> Keyword.merge(overrides)
   end
 

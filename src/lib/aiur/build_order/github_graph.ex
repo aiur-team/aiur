@@ -1,15 +1,41 @@
 defmodule Aiur.BuildOrder.GitHubGraph do
   @moduledoc "Bounded, body-free GitHub reads for Build Order planning candidates."
 
-  alias Aiur.{GitHub, TrackerIdentity}
-  alias Aiur.BuildOrder.{Catalog, Dependency, Diagnostic, Member, ProviderHealth, ProviderResult, RootSummary, SelectedRoot}
+  alias Aiur.BuildOrder.{
+    Catalog,
+    Dependency,
+    Diagnostic,
+    Member,
+    ProviderHealth,
+    ProviderResult,
+    RootSummary,
+    SelectedRoot
+  }
+
   alias Aiur.GitHub.{Errors, Transport}
+  alias Aiur.{GitHub, TrackerIdentity}
 
   @root_label "build-order"
   @member_limit 100
   @connection_limit 100
   @max_page_budget 4
   @max_call_budget 4
+
+  defmodule Paging do
+    @moduledoc false
+
+    defstruct [
+      :repository,
+      :token,
+      :limits,
+      :limit,
+      :root_number,
+      :root,
+      cursor: nil,
+      seen_cursors: MapSet.new(),
+      nodes: []
+    ]
+  end
 
   @catalog_query """
   query AiurBuildOrderCatalog($owner: String!, $repo: String!, $cursor: String, $pageSize: Int!) {
@@ -70,7 +96,9 @@ defmodule Aiur.BuildOrder.GitHubGraph do
          {:ok, limits} <- limits(opts) do
       state = initial_state(opts)
 
-      case catalog_pages(repository, token, limits, state, nil, MapSet.new(), []) do
+      paging = new_paging(repository, token, limits, limits.root_limit)
+
+      case catalog_pages(paging, state) do
         {:ok, nodes, state} -> catalog_result(nodes, repository, state)
         {:error, reason, state} -> failure(reason, state)
       end
@@ -87,7 +115,9 @@ defmodule Aiur.BuildOrder.GitHubGraph do
          {:ok, limits} <- limits(opts) do
       state = initial_state(opts)
 
-      case selected_pages(repository, token, number, limits, state, nil, nil, MapSet.new(), []) do
+      paging = new_paging(repository, token, limits, @member_limit, number)
+
+      case selected_pages(paging, state) do
         {:ok, root_node, member_nodes, state} -> selected_result(root_node, member_nodes, repository, state)
         {:error, reason, state} -> failure(reason, state)
       end
@@ -96,116 +126,103 @@ defmodule Aiur.BuildOrder.GitHubGraph do
     end
   end
 
-  defp catalog_pages(repository, token, limits, state, cursor, seen_cursors, acc) do
-    case request_page(state, token, @catalog_query, catalog_variables(repository, cursor, limits)) do
-      {:ok, body, next_state} ->
-        with {:ok, connection} <- catalog_connection(body),
-             {:ok, nodes, total, page_info} <- connection(connection) do
-          collect_pages(
-            nodes,
-            total,
-            page_info,
-            limits.root_limit,
-            repository,
-            token,
-            limits,
-            next_state,
-            cursor,
-            seen_cursors,
-            acc,
-            fn repository, token, limits, state, cursor, seen_cursors, nodes ->
-              catalog_pages(repository, token, limits, state, cursor, seen_cursors, nodes)
-            end,
-            :catalog_overflow
-          )
-        else
-          {:error, reason} -> {:error, reason, next_state}
-        end
-
-      {:error, reason, failed_state} ->
-        {:error, reason, failed_state}
+  defp catalog_pages(paging, state) do
+    case request_catalog_page(paging, state) do
+      {:ok, body, next_state} -> catalog_response(body, paging, next_state)
+      {:error, reason, failed_state} -> {:error, reason, failed_state}
     end
   end
 
-  defp selected_pages(repository, token, number, limits, state, cursor, root_node, seen_cursors, acc) do
-    case request_page(state, token, @selected_root_query, selected_variables(repository, number, cursor, limits)) do
-      {:ok, body, next_state} ->
-        with {:ok, fetched_root, connection} <- selected_connection(body),
-             :ok <- same_root?(root_node, fetched_root),
-             {:ok, nodes, total, page_info} <- connection(connection) do
-          collect_pages(
-            nodes,
-            total,
-            page_info,
-            @member_limit,
-            repository,
-            token,
-            limits,
-            next_state,
-            cursor,
-            seen_cursors,
-            acc,
-            fn repository, token, limits, state, cursor, seen_cursors, nodes ->
-              case selected_pages(repository, token, number, limits, state, cursor, fetched_root, seen_cursors, nodes) do
-                {:ok, _root, members, next_state} -> {:ok, members, next_state}
-                {:error, reason, failed_state} -> {:error, reason, failed_state}
-              end
-            end,
-            :member_overflow
-          )
-          |> selected_page_result(fetched_root)
-        else
-          {:error, reason} -> {:error, reason, next_state}
-        end
-
-      {:error, reason, failed_state} ->
-        {:error, reason, failed_state}
+  defp catalog_response(body, paging, state) do
+    with {:ok, connection} <- catalog_connection(body),
+         {:ok, nodes, total, page_info} <- connection(connection) do
+      catalog_page_result(advance_page(paging, nodes, total, page_info, state))
+    else
+      {:error, reason} -> {:error, reason, state}
     end
   end
 
+  defp selected_pages(paging, state) do
+    case request_selected_page(paging, state) do
+      {:ok, body, next_state} -> selected_response(body, paging, next_state)
+      {:error, reason, failed_state} -> {:error, reason, failed_state}
+    end
+  end
+
+  defp selected_response(body, paging, state) do
+    with {:ok, fetched_root, connection} <- selected_connection(body),
+         :ok <- same_root?(paging.root, fetched_root),
+         {:ok, nodes, total, page_info} <- connection(connection) do
+      paging = %{paging | root: fetched_root}
+      selected_page_result(advance_page(paging, nodes, total, page_info, state), fetched_root)
+    else
+      {:error, reason} -> {:error, reason, state}
+    end
+  end
+
+  defp catalog_page_result({:next, paging, state}), do: catalog_pages(paging, state)
+  defp catalog_page_result({:ok, nodes, state}), do: {:ok, nodes, state}
+  defp catalog_page_result({:error, reason, state}), do: {:error, reason, state}
+
+  defp selected_page_result({:next, paging, state}, _root), do: selected_pages(paging, state)
   defp selected_page_result({:ok, nodes, state}, root), do: {:ok, root, nodes, state}
   defp selected_page_result({:error, reason, state}, _root), do: {:error, reason, state}
 
-  defp collect_pages(
-         nodes,
-         total,
-         page_info,
-         limit,
-         repository,
-         token,
-         limits,
-         state,
-         _cursor,
-         seen_cursors,
-         acc,
-         recurse,
-         overflow_code
-       ) do
-    all_nodes = acc ++ nodes
+  defp advance_page(paging, nodes, total, page_info, state) do
+    paging = %{paging | nodes: paging.nodes ++ nodes}
 
-    cond do
-      total > limit or length(all_nodes) > limit ->
-        {:error, overflow_code, state}
-
-      page_info.has_next? and length(all_nodes) >= limit ->
-        {:error, overflow_code, state}
-
-      page_info.has_next? and state.pages >= limits.page_budget ->
-        {:error, :page_budget_exhausted, state}
-
-      page_info.has_next? ->
-        with {:ok, next_cursor} <- next_cursor(page_info, seen_cursors) do
-          recurse.(repository, token, limits, state, next_cursor, MapSet.put(seen_cursors, next_cursor), all_nodes)
-        else
-          {:error, reason} -> {:error, reason, state}
-        end
-
-      length(all_nodes) == total ->
-        {:ok, all_nodes, state}
-
-      true ->
-        {:error, :pagination_mismatch, state}
+    case page_status(paging, total, page_info, state) do
+      :overflow -> {:error, overflow_code(paging), state}
+      :page_budget_exhausted -> {:error, :page_budget_exhausted, state}
+      :complete -> {:ok, paging.nodes, state}
+      :next -> advance_cursor(paging, page_info, state)
+      :pagination_mismatch -> {:error, :pagination_mismatch, state}
     end
+  end
+
+  defp page_status(paging, total, page_info, state) do
+    cond do
+      page_overflow?(paging, total, page_info) -> :overflow
+      page_info.has_next? and state.pages >= paging.limits.page_budget -> :page_budget_exhausted
+      page_info.has_next? -> :next
+      length(paging.nodes) == total -> :complete
+      true -> :pagination_mismatch
+    end
+  end
+
+  defp page_overflow?(paging, total, page_info) do
+    total > paging.limit or
+      length(paging.nodes) > paging.limit or
+      (page_info.has_next? and length(paging.nodes) >= paging.limit)
+  end
+
+  defp advance_cursor(paging, page_info, state) do
+    case next_cursor(page_info, paging.seen_cursors) do
+      {:ok, cursor} ->
+        next_paging = %{
+          paging
+          | cursor: cursor,
+            seen_cursors: MapSet.put(paging.seen_cursors, cursor)
+        }
+
+        {:next, next_paging, state}
+
+      {:error, reason} ->
+        {:error, reason, state}
+    end
+  end
+
+  defp overflow_code(%Paging{root_number: nil}), do: :catalog_overflow
+  defp overflow_code(%Paging{}), do: :member_overflow
+
+  defp request_catalog_page(paging, state) do
+    variables = catalog_variables(paging.repository, paging.cursor, paging.limits)
+    request_page(state, paging.token, @catalog_query, variables)
+  end
+
+  defp request_selected_page(paging, state) do
+    variables = selected_variables(paging.repository, paging.root_number, paging.cursor, paging.limits)
+    request_page(state, paging.token, @selected_root_query, variables)
   end
 
   defp catalog_result(nodes, repository, state) do
@@ -250,18 +267,26 @@ defmodule Aiur.BuildOrder.GitHubGraph do
     {created_at, created_diagnostic} = timestamp(node, "createdAt")
     {updated_at, updated_diagnostic} = timestamp(node, "updatedAt")
 
-    RootSummary.new(%{
-      identity: identity,
-      title: Map.get(node, "title"),
-      url: Map.get(node, "url"),
-      parent_identity: parent,
-      state: Map.get(node, "state"),
-      state_reason: Map.get(node, "stateReason"),
-      labels: labels,
-      created_at: created_at,
-      updated_at: updated_at
-    })
-    |> append_diagnostics([identity_diagnostic, parent_diagnostic, labels_diagnostic, created_diagnostic, updated_diagnostic])
+    summary =
+      RootSummary.new(%{
+        identity: identity,
+        title: Map.get(node, "title"),
+        url: Map.get(node, "url"),
+        parent_identity: parent,
+        state: Map.get(node, "state"),
+        state_reason: Map.get(node, "stateReason"),
+        labels: labels,
+        created_at: created_at,
+        updated_at: updated_at
+      })
+
+    append_diagnostics(summary, [
+      identity_diagnostic,
+      parent_diagnostic,
+      labels_diagnostic,
+      created_diagnostic,
+      updated_diagnostic
+    ])
   end
 
   defp member(node, repository, root_identity) do
@@ -317,8 +342,18 @@ defmodule Aiur.BuildOrder.GitHubGraph do
   end
 
   defp validate_internal_dependencies(members, root_identity) do
-    identities = members |> Enum.map(&identity_key(&1.identity)) |> Enum.reject(&is_nil/1) |> MapSet.new()
-    identities = if TrackerIdentity.joinable?(root_identity), do: MapSet.put(identities, identity_key(root_identity)), else: identities
+    identities =
+      members
+      |> Enum.map(&identity_key(&1.identity))
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new()
+
+    identities =
+      if TrackerIdentity.joinable?(root_identity) do
+        MapSet.put(identities, identity_key(root_identity))
+      else
+        identities
+      end
 
     Enum.map(members, fn member ->
       if Enum.any?(member.dependencies, &unresolved_internal?(&1, identities)) do
@@ -523,13 +558,33 @@ defmodule Aiur.BuildOrder.GitHubGraph do
      )}
   end
 
-  defp failure_diagnostics(reason) when reason in [:call_budget_exhausted, :catalog_overflow, :member_overflow, :page_budget_exhausted, :pagination_mismatch],
-    do: [Diagnostic.new(reason)]
+  defp failure_diagnostics(reason)
+       when reason in [
+              :call_budget_exhausted,
+              :catalog_overflow,
+              :member_overflow,
+              :page_budget_exhausted,
+              :pagination_mismatch
+            ],
+       do: [Diagnostic.new(reason)]
 
   defp failure_diagnostics(:invalid_planning_bounds), do: [Diagnostic.new(:invalid_planning_bounds)]
-  defp failure_diagnostics(reason) when reason in [:invalid_connection, :invalid_root], do: [Diagnostic.new(:provider_schema)]
+
+  defp failure_diagnostics(reason) when reason in [:invalid_connection, :invalid_root],
+    do: [Diagnostic.new(:provider_schema)]
+
   defp failure_diagnostics(reason) when reason in [:invalid_catalog, :structurally_invalid], do: []
   defp failure_diagnostics(_reason), do: [Diagnostic.new(:provider_unavailable)]
+
+  defp new_paging(repository, token, limits, limit, root_number \\ nil) do
+    %Paging{
+      repository: repository,
+      token: token,
+      limits: limits,
+      limit: limit,
+      root_number: root_number
+    }
+  end
 
   defp initial_state(opts) do
     %{
@@ -562,7 +617,11 @@ defmodule Aiur.BuildOrder.GitHubGraph do
       call_budget: option_or_config(opts, :call_budget, &GitHub.Config.planning_call_budget/0)
     }
 
-    if valid_limits?(limits), do: {:ok, Map.put(limits, :page_size, page_size(limits, @member_limit))}, else: {:error, :invalid_planning_bounds}
+    if valid_limits?(limits) do
+      {:ok, Map.put(limits, :page_size, page_size(limits, @member_limit))}
+    else
+      {:error, :invalid_planning_bounds}
+    end
   end
 
   defp valid_limits?(%{root_limit: roots, page_budget: pages, call_budget: calls}) do
@@ -608,7 +667,10 @@ defmodule Aiur.BuildOrder.GitHubGraph do
 
   defp positive_number(_value), do: {:error, :invalid_root}
 
-  defp same_repository?(%TrackerIdentity{owner: owner, repository: repository}, {expected_owner, expected_repository}) do
+  defp same_repository?(
+         %TrackerIdentity{owner: owner, repository: repository},
+         {expected_owner, expected_repository}
+       ) do
     String.downcase(owner) == String.downcase(expected_owner) and
       String.downcase(repository) == String.downcase(expected_repository)
   end

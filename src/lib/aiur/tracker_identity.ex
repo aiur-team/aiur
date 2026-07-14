@@ -10,7 +10,18 @@ defmodule Aiur.TrackerIdentity do
   @version 1
   @max_provider_id_bytes 512
 
-  @derive {Jason.Encoder, only: [:version, :status, :kind, :owner, :repository, :provider_id, :database_id, :identifier, :reason]}
+  @derive {Jason.Encoder,
+           only: [
+             :version,
+             :status,
+             :kind,
+             :owner,
+             :repository,
+             :provider_id,
+             :database_id,
+             :identifier,
+             :reason
+           ]}
   defstruct version: @version,
             status: :unjoinable,
             kind: nil,
