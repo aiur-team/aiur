@@ -384,6 +384,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
 
       schedule_retry.(state, issue.id, next_attempt, %{
         identifier: issue.identifier,
+        tracker_identity: Issue.tracker_identity(issue),
         error: "backend redispatch did not start",
         worker_host: worker_host,
         workspace_path: Map.get(running_entry, :workspace_path)
