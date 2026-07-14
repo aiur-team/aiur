@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 08:34 PDT)
+## Live Executor state (updated 2026-07-14 08:40 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -20,8 +20,9 @@ The measured runtime envelope is an eight-worker ceiling governed by Aiur's
 effective-slot controller. Six quota-paused Codex workers (#1088, #1091,
 #1096, #1103, #1151, and #1161) were explicitly resumed after the operator's
 08:31 PDT quota reset and are confirmed productive. #1162 owns one newly
-routed dual-review P1 and has taken the seventh effective slot; #1109 remains
-in dual exact-head review. #1090, #1093, #1108, #1111, #1123, and #1130 remain
+routed dual-review P1 and has taken the seventh effective slot; #1109 owns a
+newly routed three-finding review packet and has taken the eighth slot. #1090,
+#1093, #1108, #1111, #1123, and #1130 remain
 protected behind #1161's workspace-replacement fix. Unrelated #855 stays
 paused and consumes no provider capacity. All providers are Codex Sol or
 Terra; never dispatch Claude.
@@ -866,10 +867,17 @@ Terra; never dispatch Claude.
     and later reported as ordinary completion. The consolidated packet is in
     issue comment `4970988944`; preserve pause across both response/idle event
     orders and prove the Adapter plus real AgentRunner boundaries on #1162.
+108. DASH-002/#1109 reached green exact head `027218cb`, but both independent
+    reviewers reproduced two P1s: corrupt-journal quarantine loses its
+    validated prefix after a second same-run restart, and normal PR-merged plus
+    retry-terminal teardown bypasses terminal persistence. One review also
+    found that nested checkpoint members accept content-bearing extra keys,
+    violating this ticket's exact content-free security contract. The
+    consolidated three-finding packet is in issue comment `4971048783`; #1109
+    is in rework and no follow-up ticket was created.
 
-At 08:34 PDT the core graph is 5/54 accepted. Seven Codex workers are productive;
-#1162 has taken the seventh effective slot, while #1109 is in dual exact-head
-review.
+At 08:40 PDT the core graph is 5/54 accepted. All eight intended Codex slots are
+productive; #1162 and #1109 occupy the two newest rework generations.
 #1090, #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds
 until #1161 lands.
 The latest emitted progress evidence is 1088=30, 1091=70, 1096=80,
