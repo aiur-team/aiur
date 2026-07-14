@@ -75,6 +75,18 @@ and memory has ample headroom, so adding unrelated work would reduce throughput.
    are saturated; the Executor auto-retargets any recurrence and may activate
    #1146 only in genuine spare capacity without displacing ready critical-path
    work.
+9. At 19:23 PDT the Executor found the concrete override: both live configs
+   already said `tracker.base_branch: main`, but the dogfood `.aiur/hooks`
+   fetched/checked out/merged hard-coded `v2` and `.aiur/prompt.md` explicitly
+   instructed agents to open PRs against `v2`. Both live copies were corrected;
+   hooks now consume injected `THIS_BASE_BRANCH` with a `main` fallback. The
+   isolated fix was shell-validated and pushed directly to `main` as
+   `e27e96db7d5326d5744ec5bcca40ce32b0d8812f`. The running prewarm checkout
+   then fetched/reset to that SHA and rewrote `.aiur-base-built` after the
+   commit timestamp, proving refresh plus rebuild on a live `main` advance.
+   Keep #1146 open until the next agent-created PR targets `main` without
+   intervention; do not claim automatic wrong-base repair from configuration
+   inspection alone.
 
 At 19:06 PDT the five event-reported percentages are BO-004 70%, BO-008 70%,
 DASH-006 70%, DASH-017 50%, and DASH-018 70% (66% ticket-average). DASH-018
