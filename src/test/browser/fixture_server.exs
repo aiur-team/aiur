@@ -219,6 +219,8 @@ defmodule Aiur.BrowserHarness.FixtureEndpoint do
 end
 
 defmodule Aiur.BrowserHarness.FixtureServer do
+  alias Aiur.BrowserHarness.FixtureEndpoint
+
   @port System.fetch_env!("AIUR_BROWSER_PORT") |> String.to_integer()
 
   def run do
@@ -244,7 +246,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
       check_origin: false
     )
 
-    {:ok, _} = Aiur.BrowserHarness.FixtureEndpoint.start_link()
+    {:ok, _} = FixtureEndpoint.start_link()
     IO.puts("Aiur browser harness fixture ready at http://127.0.0.1:#{@port}")
     Process.sleep(:infinity)
   end

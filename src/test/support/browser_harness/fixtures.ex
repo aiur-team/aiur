@@ -36,7 +36,15 @@ defmodule Aiur.BrowserHarness.Fixtures do
     fixture(:catalog, nodes, edges, Enum.map(roots, & &1.id), [])
   end
 
-  @spec scenario(:dag | :cycle | :self_loop | :external_endpoint | :missing_endpoint | :invalid | :degraded) :: fixture()
+  @spec scenario(
+          :dag
+          | :cycle
+          | :self_loop
+          | :external_endpoint
+          | :missing_endpoint
+          | :invalid
+          | :degraded
+        ) :: fixture()
   def scenario(:dag) do
     nodes = nodes(20)
 
@@ -51,7 +59,14 @@ defmodule Aiur.BrowserHarness.Fixtures do
 
   def scenario(:cycle) do
     nodes = nodes(3)
-    fixture(:cycle, nodes, [edge(node_id(1), node_id(2)), edge(node_id(2), node_id(3)), edge(node_id(3), node_id(1))], root_ids(nodes), [])
+
+    fixture(
+      :cycle,
+      nodes,
+      [edge(node_id(1), node_id(2)), edge(node_id(2), node_id(3)), edge(node_id(3), node_id(1))],
+      root_ids(nodes),
+      []
+    )
   end
 
   def scenario(:self_loop) do
@@ -69,10 +84,14 @@ defmodule Aiur.BrowserHarness.Fixtures do
     fixture(:missing_endpoint, nodes, [edge(node_id(1), "missing:fixture-node")], root_ids(nodes), [])
   end
 
-  def scenario(:invalid), do: fixture(:invalid, [], [], [], [%{code: :invalid_fixture, message: "synthetic invalid fixture"}])
+  def scenario(:invalid),
+    do: fixture(:invalid, [], [], [], [%{code: :invalid_fixture, message: "synthetic invalid fixture"}])
 
   def scenario(:degraded),
-    do: fixture(:degraded, nodes(20), linear_edges(nodes(20)), root_ids(nodes(20)), [%{code: :degraded_fixture, message: "synthetic degraded fixture"}])
+    do:
+      fixture(:degraded, nodes(20), linear_edges(nodes(20)), root_ids(nodes(20)), [
+        %{code: :degraded_fixture, message: "synthetic degraded fixture"}
+      ])
 
   @spec live_updates() :: %{initial: fixture(), next: fixture(), sequence: [fixture()]}
   def live_updates do

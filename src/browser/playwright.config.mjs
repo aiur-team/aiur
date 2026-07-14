@@ -28,7 +28,7 @@ export default defineConfig({
     cwd: '.',
     url: `http://127.0.0.1:${port}/health`,
     reuseExistingServer: false,
-    timeout: 30_000,
+    timeout: 60_000,
     stdout: 'pipe',
     stderr: 'pipe'
   }

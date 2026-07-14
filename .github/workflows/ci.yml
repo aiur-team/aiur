@@ -163,3 +163,4 @@ jobs:
           name: browser-harness-artifacts
           path: src/browser/.artifacts-run-*/
           if-no-files-found: ignore
+          include-hidden-files: true
