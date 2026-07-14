@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 06:24 PDT)
+## Live Executor state (updated 2026-07-14 06:39 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -19,8 +19,8 @@ program is 5/54 merged with 49 remaining.
 The measured runtime envelope is eight workers. #1088/DASH-006,
 #1096/BO-009, and #1109/DASH-002 have fresh implementation/CI work;
 #1091/BO-002 and #1103/BO-016 are receiving contained exact-head review rework.
-#1151 has a fresh CI head, #1162 is fixing its dual-review P1, and green P1
-#1161 is in dual exact-head review. #1093, #1108, #1111, and #1130 remain
+#1151 is fixing its CI regression, #1162 is fixing its dual-review P1, and P1
+#1161 is fixing its second dual-review packet. #1093, #1108, #1111, and #1130 remain
 protected behind #1161's workspace-replacement fix; #1123 remains GATE-003
 held. Do not add a ninth worker. All providers are Codex Sol or Terra; never
 dispatch Claude.
@@ -730,10 +730,25 @@ dispatch Claude.
     06:13 hourly monitoring retrospective was action-dense (four of five wakes
     produced work); retain event-driven wakes and the 60-second quiet ceiling,
     and avoid polling while exact-head reviewers are the only outstanding work.
+90. Both #1161 reviews rejected `e612dbd9`: partial/unborn Git workspaces were
+    accepted as ready, logs-only reconstruction was incompatible with generated
+    hooks and concurrent log writes, Registry ownership could disappear while
+    reparented Codex descendants still used the cwd, and contention became a
+    one-second retry/thrash loop with unbalanced setup telemetry. The contained
+    packet is issue comment `4969737562`. At the same time, seven slots remained
+    falsely `running` at completed turns and queued Executor messages could not
+    start a new turn; pause/resume also hit #1162's no-active-turn race. The
+    Executor made deliberate holds restart-safe by temporarily removing their
+    active-state labels while retaining `agent:paused` (#1090=rework,
+    #1093=todo, #1108=in-progress, #1111=rework, #1123=rework,
+    #1130=in-progress), restarted Aiur from the repository root, and explicitly
+    resumed #1088, #1091, #1096, #1103, #1109, and #1151 after #1161/#1162
+    started. All eight intended Codex workers now have fresh generations. Restore
+    the recorded active-state labels only after #1161 merges; never restore them
+    merely because the daemon restarted cleanly.
 
-At 06:24 PDT the core graph is 5/54 accepted. Seven Aiur tickets are in active
-implementation, CI, or rework and two independent #1161 reviewers occupy the
-useful execution/review width; #1093, #1108, #1111, and #1130 stay on
+At 06:39 PDT the core graph is 5/54 accepted. Eight Aiur tickets have fresh
+Codex implementation/rework generations; #1093, #1108, #1111, and #1130 stay on
 workspace-race holds until #1161 lands. The preview percentages were refreshed
 from emitted `progress.checkin` evidence (including 1088=80, 1091=90,
 1096=80, 1103=60, 1109=100, 1151=50, 1161=100, and 1162=90), not inferred from
