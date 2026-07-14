@@ -140,21 +140,38 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     assert_receive {:detail_subscribed, ^second_subscriber}
     assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, first)
 
-    assert_receive {:detail_update, ^first_subscriber, {:ticket_detail_updated, %State{health: :healthy, identity: ^first}}}
-    assert_receive {:detail_update, ^second_subscriber, {:ticket_detail_updated, %State{health: :healthy, identity: ^first}}}
+    assert_receive {:detail_update, ^first_subscriber, {:ticket_detail_updated, first_update}}
+    assert %State{generation: 1, health: :healthy, identity: ^first} = first_update
+
+    assert_receive {:detail_update, ^second_subscriber, {:ticket_detail_updated, second_update}}
+    assert %State{generation: 1, health: :healthy, identity: ^first} = second_update
 
     assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, second)
 
     assert_receive {
       :detail_update,
       ^first_subscriber,
-      {:ticket_detail_updated, %State{generation: 1, health: :unavailable, detail: nil, identity: ^first, failure: %Failure{kind: :evicted}}}
+      {:ticket_detail_updated,
+       %State{
+         generation: 1,
+         health: :unavailable,
+         detail: nil,
+         identity: ^first,
+         failure: %Failure{kind: :evicted}
+       }}
     }
 
     assert_receive {
       :detail_update,
       ^second_subscriber,
-      {:ticket_detail_updated, %State{generation: 1, health: :unavailable, detail: nil, identity: ^first, failure: %Failure{kind: :evicted}}}
+      {:ticket_detail_updated,
+       %State{
+         generation: 1,
+         health: :unavailable,
+         detail: nil,
+         identity: ^first,
+         failure: %Failure{kind: :evicted}
+       }}
     }
 
     assert {:ok, %State{health: :unavailable, detail: nil}} = TicketDetailCache.current(cache, first)
@@ -261,12 +278,15 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     assert_receive {:reader_started, reader_pid}
     ref = inflight_ref(cache, identity)
 
-    assert_receive {:ticket_detail_updated, %State{generation: 1, health: :unavailable, failure: %Failure{kind: :timeout}}}
+    assert_receive {:ticket_detail_updated, state}
+    assert %State{generation: 1, health: :unavailable, failure: %Failure{kind: :timeout}} = state
     refute Process.alive?(reader_pid)
 
     send(cache, {ref, {:ok, snapshot(identity, "late")}})
     refute_receive {:ticket_detail_updated, %State{detail: %Snapshot{title: "late"}}}
-    assert {:ok, %State{health: :unavailable, failure: %Failure{kind: :timeout}}} = TicketDetailCache.current(cache, identity)
+
+    assert {:ok, %State{health: :unavailable, failure: %Failure{kind: :timeout}}} =
+             TicketDetailCache.current(cache, identity)
   end
 
   test "keeps last-known-good detail stale when a refresh task times out" do
@@ -300,7 +320,10 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     assert_receive {:ticket_detail_updated, %State{generation: 1, health: :healthy, detail: %Snapshot{title: "first"}}}
 
     Agent.update(clock, fn _ -> 2 end)
-    assert {:ok, %State{generation: 2, health: :stale, detail: %Snapshot{title: "first"}}} = TicketDetailCache.request(cache, identity)
+
+    assert {:ok, %State{generation: 2, health: :stale, detail: %Snapshot{title: "first"}}} =
+             TicketDetailCache.request(cache, identity)
+
     assert_receive {:reader_started, reader_pid}
     ref = inflight_ref(cache, identity)
 
@@ -368,7 +391,13 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
   end
 
   test "does not let direct startup options exceed cache hard bounds" do
-    {:ok, cache} = start_cache(freshness_ms: 300_001, refresh_timeout_ms: 30_001, max_entries: 101, max_description_bytes: 16_385)
+    {:ok, cache} =
+      start_cache(
+        freshness_ms: 300_001,
+        refresh_timeout_ms: 30_001,
+        max_entries: 101,
+        max_description_bytes: 16_385
+      )
 
     assert %{
              freshness_ms: 30_000,

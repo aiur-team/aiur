@@ -69,7 +69,7 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
        next_generation: 1,
        configured_repo: Keyword.get(opts, :configured_repo),
        freshness_ms: bounded_positive_option(opts, :freshness_ms, @default_freshness_ms, @max_freshness_ms),
-       refresh_timeout_ms: bounded_positive_option(opts, :refresh_timeout_ms, @default_refresh_timeout_ms, @max_refresh_timeout_ms),
+       refresh_timeout_ms: refresh_timeout_ms(opts),
        max_entries: bounded_positive_option(opts, :max_entries, @default_max_entries, @max_entries),
        max_description_bytes:
          bounded_positive_option(
@@ -295,7 +295,12 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
   defp unavailable_state(identity), do: %State{identity: identity, generation: :unknown, health: :unavailable}
 
   defp evicted_state(entry) do
-    %State{identity: entry.identity, generation: entry.generation, health: :unavailable, failure: %Failure{kind: :evicted}}
+    %State{
+      identity: entry.identity,
+      generation: entry.generation,
+      health: :unavailable,
+      failure: %Failure{kind: :evicted}
+    }
   end
 
   defp health(nil, _failure, _entry, _state), do: :unavailable
@@ -325,6 +330,10 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
       value when is_integer(value) and value > 0 and value <= maximum -> value
       _ -> default
     end
+  end
+
+  defp refresh_timeout_ms(opts) do
+    bounded_positive_option(opts, :refresh_timeout_ms, @default_refresh_timeout_ms, @max_refresh_timeout_ms)
   end
 
   defp runtime_options(opts) do
