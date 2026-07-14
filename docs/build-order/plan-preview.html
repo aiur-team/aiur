@@ -227,6 +227,7 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
   <footer>
     Data: docs/build-order/build-order.json (branch build-order-research), one consolidated Build Order per operator direction 2026-07-13.
     Rows are dependency waves (longest blocker path); dashed edges are still blocking and solid green edges have cleared after merge.
+    Green “dependency-ready” cards have cleared native blockers only; Executor capacity, host load, serialization conflicts, and paused state still govern dispatch.
     Core epics are plan-graph / runtime / dashboard-ui / accounting / platform. The Ad Hoc epic tracks tickets created during execution without changing the approved 54-ticket denominator; phase is assigned when a ticket is picked up.
     The per-phase and per-epic breakdowns are part of the real page design — owned by ticket BO-020.
     Click any card for details · drag to pan · buttons to zoom.
@@ -344,7 +345,7 @@ function buildGraph(rootEl, pack, title, cap){
         const completed = live && ["merged","closed"].includes(live.state);
         const active = live && ["working","CI green","CI wait","rework"].includes(live.state);
         const nodeClass = completed ? " is-merged" : active ? " is-working" : !live && ready ? " is-ready" : "";
-        const stateCopy = live ? `${live.progress}% · ${live.state}` : ready ? "ready" : "blocked ×"+t.deps.length;
+        const stateCopy = live ? `${live.progress}% · ${live.state}` : ready ? "dependency-ready" : "blocked ×"+t.deps.length;
         const xdeps = t.deps.filter(d=>byId[d] && byId[d].pack!==pack);
         return `<button class="bo-node${nodeClass}" data-id="${t.id}" id="node-${t.id}" aria-label="${t.issue_title}">
           <div class="bo-node-top"><span class="bo-ic">${ICONS[t.lane]}</span>
