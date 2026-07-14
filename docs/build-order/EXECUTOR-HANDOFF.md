@@ -804,13 +804,35 @@ dispatch Claude.
     defect, including a normal worker result for the malformed input. The
     consolidated contained packet is issue comment `4970450763`; #1096 is back
     in rework and no follow-up ticket was created.
+98. DASH-006/#1088 reached green current-main head `d434a293`, but dual exact-
+    head review found four remaining P1s: capability-bearing artifact URLs
+    escaped presentation, canonical safe DASH-017 provenance was truncated, an
+    authoritative selected detail disappeared under a stale lifecycle filter,
+    and answer/revision draft state survived same-ID version changes. The
+    contained packet is issue comment `4970590437`; #1088 is back in rework.
+99. The first #1088 replacement consumed its older CI handoff instead of the
+    newer review comment, then left conflicting `agent:human-review` and
+    `agent:in-progress` labels. The Executor restored a single `agent:rework`
+    state and started a fresh generation. Treat this ordering failure as more
+    evidence for active Ad Hoc #1151, not authority for another issue.
+100. BO-016/#1103 reached green current-main head `f4a7679d`, but dual exact-
+    head review found incomplete assignment/JSON-header credential redaction,
+    cache exit and LKG loss when refresh task startup is unavailable, uncovered
+    common local-path roots, and acceptance of noncanonical repository URLs.
+    All four are routed in issue comment `4970663636`; #1103 is back in rework.
+101. Workspace-safety #1161's replacement reconciled against a stale CI-wait
+    workpad even though head `eebea883` had terminal red CI: fourteen common-
+    path lifecycle/reconstruction failures and seven owned lint findings. The
+    Executor made the failure packet durable in issue comment `4970685110`,
+    recycled only the completed provider generation, and preserved the daemon,
+    branch, and protected regression tests.
 
-At 07:25 PDT the core graph is 5/54 accepted. Six Codex workers are productive;
-#1088 and #1162 are cycling completed generations into the remaining two slots.
-#1093, #1108, #1111, and #1130 stay on workspace-race holds until #1161 lands.
-The latest emitted progress evidence remains 1088=80, 1091=90, 1096=80,
-1103=60, 1109=100, 1151=50, and 1162=90; #1161's new rework generation has
-since emitted 4/10, superseding its stale pre-review 100% estimate. Host load is
+At 08:05 PDT the core graph is 5/54 accepted. Five Codex workers are productive;
+#1091 and #1096 are in fresh CI, while #1151 is in dual exact-head review.
+#1090, #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds
+until #1161 lands.
+The latest emitted progress evidence is 1088=30, 1091=70, 1096=80,
+1103=70, 1109=70, 1151=90, 1161=90, and 1162=80. Host load is
 scheduler-saturated by productive Mix gates, so retain the eight-worker ceiling
 and prefer logs/GitHub evidence after a control-RPC timeout. No additional core
 ticket is safely dependency-ready outside the held/gated set. Treat completed
