@@ -98,7 +98,7 @@ defmodule Aiur.Workspace.Provisioner do
         record_prewarm_point(lifecycle, :existing, :skipped)
         {:ok, workspace, false}
 
-      incomplete_workspace?(workspace) ->
+      File.dir?(workspace) and incomplete_workspace?(workspace) ->
         record_prewarm_point(lifecycle, :incomplete, :rebuild)
         {:ok, workspace, true}
 
@@ -128,7 +128,7 @@ defmodule Aiur.Workspace.Provisioner do
       Checkout.valid_workspace?(workspace) ->
         {:ok, workspace, false}
 
-      incomplete_workspace?(workspace) ->
+      File.dir?(workspace) and incomplete_workspace?(workspace) ->
         {:ok, workspace, true}
 
       File.dir?(workspace) ->
