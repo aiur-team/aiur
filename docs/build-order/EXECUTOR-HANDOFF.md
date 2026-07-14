@@ -112,6 +112,16 @@ so the controller—not an arbitrary Executor cap—is the remaining admission g
     `https://github.com/its-everdred/aiur/pull/1145#issuecomment-4964932068`;
     #1087 returned to `agent:rework` rather than merging a green-but-incomplete
     harness. Keep all fixes on #1087; do not file five follow-up tickets.
+12. At 20:05 PDT Claude refreshed the committed OCC design and plan preview
+    with complexity-weighted phase-progress bars. Operator direction assigns
+    this only to later-phase #1107/BO-020; it does not alter Phase 1 dispatch.
+    BO-020 now points at the prototype `.bo-prog` / `renderBoSummary` reference,
+    consumes BO-007 authoritative progress, preserves unknown/stale states, and
+    renders `sum(complexity * progress) / sum(complexity)` with color-independent
+    accessible text. Analytics is intentionally excluded and cannot become a
+    ticket or acceptance dependency. The prototype's CDN-loaded d3 remains
+    non-authoritative; production layout stays within BO-009/BO-010's vendored
+    platform contract.
 
 At 19:48 PDT the five latest event-reported percentages are BO-004 70%, BO-008
 90%, DASH-006 90%, DASH-017 90%, and DASH-018 70% (82% ticket-average). All

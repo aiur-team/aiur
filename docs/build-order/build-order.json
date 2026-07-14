@@ -4670,13 +4670,14 @@
    "discovered_from": null,
    "title": "Render plan phase and epic breakdowns",
    "document": "tickets/BO-020-render-plan-breakdowns.md",
-   "outcome": "Executors see per-phase and per-epic member counts and complexity-point weights for the selected Build Order on the page, grounded in the same validated graph generation.",
+   "outcome": "Executors see per-phase and per-epic member counts, complexity-point weights, and complexity-weighted live phase completion for the selected Build Order, grounded in validated planning and runtime snapshots.",
    "scope": [
     "Render per-phase and per-epic breakdowns (counts, point totals, point-weighted bars, member IDs) plus a compact plan KPI strip from the BO-003 snapshot",
-    "Update with graph generations, preserve stale/unavailable states, and keep accessible table semantics without stealing graph focus"
+    "Render the refreshed prototype's phase-progress summary with segment width weighted by phase complexity and completion equal to sum(complexity * authoritative progress) / sum(complexity)",
+    "Update with graph and BO-007 runtime generations, preserve unknown/stale/unavailable states, and keep accessible table/progress semantics without stealing graph focus"
    ],
    "non_goals": [
-    "Usage, token, or cost data and any editing or filtering controls",
+    "Usage, token, cost, or intentionally excluded Analytics data and any editing or filtering controls",
     "Per-ticket detail, navigation, layout, interaction, or scale-budget changes"
    ],
    "phase_hint": 6,
@@ -4703,7 +4704,7 @@
    "external_gates": [],
    "read_surfaces": [
     "BO-003 validated graph snapshot",
-    "BO-007 readiness facts"
+    "BO-007 joined readiness and authoritative runtime progress facts"
    ],
    "write_surfaces": [
     "Build Order page summary component",
@@ -4711,7 +4712,7 @@
     "summary component and browser tests"
    ],
    "contract_surfaces": [
-    "plan phase/epic breakdown presentation"
+    "plan phase/epic breakdown and complexity-weighted phase-progress presentation"
    ],
    "safety_surfaces": [
     "planning-fact presentation integrity"
@@ -4719,8 +4720,8 @@
    "conflict_exceptions": [],
    "acceptance": {
     "agent_gate": [
-     "Component tests cover 0/1/N snapshots, missing/duplicate phase or lane metadata as warning buckets, point totals, ready counts, and degraded stale states",
-     "Browser tests cover desktop and 390px presentation, table semantics, and unaffected graph keyboard interaction"
+     "Component tests cover 0/1/N snapshots, missing/duplicate phase or lane metadata as warning buckets, point totals, ready counts, weighted phase-progress math, and degraded or unknown stale states",
+     "Browser tests cover desktop and 390px presentation, accessible table/progress semantics, color-independent values, and unaffected graph keyboard interaction"
     ],
     "at_merge_gate": [
      "Build Order page, component, browser, accessibility, and full repository CI gates pass with BO-012 graph behavior unchanged"

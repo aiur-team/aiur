@@ -28,9 +28,10 @@
 
 Executors see, on the Build Order page itself, how the selected plan
 distributes across phases and epics — ticket counts and complexity-point
-totals with point-weighted bars — so heavier phases and lanes are visible at
-a glance and expectations about which phases take longer are grounded in the
-plan's own weights.
+totals with point-weighted bars — plus complexity-weighted live completion for
+each populated rollout phase, so heavier phases and lanes are visible at a
+glance and expectations about which phases take longer are grounded in the
+plan's own weights and authoritative runtime progress.
 
 ## Context and evidence
 
@@ -40,7 +41,9 @@ real Build Order page, not a one-off visualization. No existing ticket owns
 plan-summary presentation: BO-012 ships the minimum graph, BO-013 owns graph
 interaction/accessibility hardening, BO-014 owns scale proofs, and the
 companion run/usage summaries (DASH-022/DASH-031) cover a different data
-domain entirely.
+domain entirely. The refreshed committed OCC mock adds a Build Order summary
+strip with complexity-weighted phase progress; this ticket owns that later-phase
+presentation together with the existing phase/epic breakdowns.
 
 ## Scope
 
@@ -52,9 +55,15 @@ domain entirely.
 - Render a compact plan KPI strip: total members and points, ready-at-start
   count (members with no unsatisfied blockers), and longest dependency-chain
   length.
-- Update reactively when the graph generation changes. Unknown, stale, or
-  degraded generations show the same named stale/unavailable state as the
-  graph — never zeros or an empty healthy table.
+- Render one progress segment for each populated rollout phase. Segment width
+  is weighted by that phase's total complexity points, and completion is
+  `sum(member complexity * authoritative progress) / sum(member complexity)`.
+  Show the numeric percentage and completed/total point context; use the
+  refreshed mock's red-to-green hue only as decorative reinforcement.
+- Update reactively when the graph generation or BO-007 joined runtime snapshot
+  changes. Unknown, stale, or degraded planning/runtime inputs show the same
+  named unknown/stale/unavailable state as the graph and ticket activity —
+  never zero completion or an empty healthy table.
 - Use accessible table semantics (real tables with headers and captions);
   bars are decorative reinforcement with the numeric values always present
   as text. Present phase as a rollout hint (DEC-010) — the breakdown must
@@ -66,6 +75,8 @@ domain entirely.
 ## Non-goals
 
 - Usage, token, or cost data (companion accounting tickets own that domain).
+- Analytics navigation, assets, or data; Analytics is intentionally excluded
+  from this program.
 - Editing, filtering, or re-grouping controls beyond expand/collapse.
 - Per-ticket detail or navigation (BO-016/BO-018/BO-011 own ticket context).
 - Changing graph layout, interaction, or scale budgets (BO-010/013/014).
@@ -85,6 +96,9 @@ style.
 - Point totals sum the members' single complexity values; a member with
   missing/duplicate metadata appears in an explicit warning bucket and is
   excluded from totals rather than guessed.
+- Phase progress consumes BO-007's joined authoritative progress and preserves
+  its freshness/unknown semantics. Missing progress is not coerced to zero,
+  and a terminal completion is never inferred from a percentage.
 - Phase remains a rollout hint (DEC-010); nothing in the breakdown implies
   phase-based readiness or gating.
 - Unknown/stale/degraded generations present the named stale/unavailable
@@ -100,6 +114,13 @@ style.
   in a browser; it renders this pack's real data) demonstrates
   the intended layout: two side-by-side tables — Phase | count | points |
   bar | tickets and Epic | count | points | tickets — plus a KPI strip.
+- The refreshed prototype
+  (`docs/build-order/prototype/Aiur Operator Control Center.html`) is the visual
+  reference for the summary strip: inspect `.bo-prog`, `.bo-prog-seg`, and
+  `renderBoSummary`. Preserve the weighted-width and weighted-completion
+  semantics, but implement them from trusted BO-007 data rather than copying
+  prototype fixture logic. Production segments represent rollout
+  `phase_hint`, not a readiness gate.
 - CSS lives with the Build Order route styles; note `dashboard.css` is
   embedded at compile time via `@external_resource`, so CSS edits require a
   recompile to observe.
@@ -112,8 +133,13 @@ style.
   missing/duplicate metadata (rendered as an explicit warning bucket, never
   a crash or silent drop), point totals, ready-at-start counts, and the
   degraded-generation stale state.
+- Presenter/component tests prove weighted segment widths and
+  `sum(complexity * progress) / sum(complexity)` completion, including mixed
+  complexity, 0/100 boundaries, unknown/stale progress, and terminal outcomes
+  that disagree with a stale percentage.
 - Browser tests cover desktop and 390 px presentation, table semantics under
-  a screen reader, and that graph keyboard interaction is unaffected.
+  a screen reader, named progress values that do not rely on color, and that
+  graph keyboard interaction is unaffected.
 
 ### At-merge gate
 
@@ -130,6 +156,8 @@ style.
 
 - Degraded or unavailable snapshots keep the named stale/unavailable state;
   the breakdown never presents an empty plan as healthy.
+- Unknown/stale runtime progress stays visibly unknown/stale and is never
+  rendered as `0%`; hue and bar length are never the only status encoding.
 - No new data sources, persistence, or migration; renders only normalized
   planning facts already on the page.
 - Tables use semantic markup with textual values; color/bars are never the
@@ -137,10 +165,12 @@ style.
 
 ## Surfaces
 
-- Reads: BO-003 validated graph snapshot; BO-007 readiness facts.
+- Reads: BO-003 validated graph snapshot; BO-007 joined readiness and runtime
+  progress facts.
 - Writes: Build Order page summary component, route CSS, component and
   browser tests.
-- Contracts: plan phase/epic breakdown presentation.
+- Contracts: plan phase/epic breakdown and complexity-weighted phase-progress
+  presentation.
 
 ## Sibling boundaries and open gates
 
