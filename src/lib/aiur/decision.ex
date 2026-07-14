@@ -32,6 +32,8 @@ defmodule Aiur.Decision do
       never controls audit order or notification age.
     * `legacy_attention` — optional trusted `%{slug, topic}` provenance for a
       Decision projected from the pre-OCC attention path.
+    * `provenance` — optional `Aiur.DecisionProvenance` captured from trusted
+      runtime/session context when this Decision version was accepted.
     * `content_hash` — hash of the normalized payload (excludes
       `decision_id`/`version`/`created_at`), used for dedup/idempotency.
     * `decision_status` — `:open | :decided | :acknowledged | :resolved`.
@@ -126,6 +128,7 @@ defmodule Aiur.Decision do
           created_at: DateTime.t(),
           source_created_at: DateTime.t() | nil,
           legacy_attention: legacy_attention() | nil,
+          provenance: Aiur.DecisionProvenance.t() | nil,
           content_hash: String.t(),
           decision_status: decision_status(),
           delivery_status: delivery_status(),
@@ -170,6 +173,7 @@ defmodule Aiur.Decision do
                 consequence_of_delay: nil,
                 source_created_at: nil,
                 legacy_attention: nil,
+                provenance: nil,
                 decision_status: :open,
                 delivery_status: :not_dispatched,
                 answer: nil,
