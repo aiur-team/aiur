@@ -42,10 +42,9 @@ defmodule Aiur.DecisionQuery.Params do
 
   @spec normalize_decision_id(term()) :: {:ok, String.t()} | {:error, {:invalid_decision_id, atom()}}
   def normalize_decision_id(decision_id) when is_binary(decision_id) do
-    cond do
-      not String.valid?(decision_id) -> {:error, {:invalid_decision_id, :malformed}}
-      true -> validate_decision_id(decision_id, String.trim(decision_id))
-    end
+    if String.valid?(decision_id),
+      do: validate_decision_id(decision_id, String.trim(decision_id)),
+      else: {:error, {:invalid_decision_id, :malformed}}
   end
 
   def normalize_decision_id(_decision_id), do: {:error, {:invalid_decision_id, :invalid_type}}

@@ -11,7 +11,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProvider do
   alias Aiur.{DecisionMetrics, DecisionQuery}
   alias AiurWeb.OperatorControlCenter.DecisionPresenter
 
-  @spec detail(String.t(), keyword()) :: {:ok, map()} | {:error, :not_found | :store_unavailable | {:invalid_decision_id, atom()}}
+  @spec detail(String.t(), keyword()) ::
+          {:ok, map()} | {:error, :not_found | :store_unavailable | {:invalid_decision_id, atom()}}
   def detail(decision_id, opts \\ []) when is_list(opts) do
     with {:ok, result} <- DecisionQuery.get(decision_id, store: store(opts)) do
       {snapshots, latency_health} = latency_for(result.decision.decision_id, metrics(opts))

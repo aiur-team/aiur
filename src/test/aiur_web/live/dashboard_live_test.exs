@@ -548,7 +548,11 @@ defmodule AiurWeb.DashboardLiveTest do
     orchestrator_name = Module.concat(__MODULE__, :RetainedDetailOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :RetainedDetailStore)
 
-    store = start_decision_store(decision_store_name, fn _decision, _opts -> {:ok, %{status: :accepted, item: %{id: 507}}} end)
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 507}}}
+      end)
+
     oldest = request_dashboard_decision(store, "retained-oldest", "reversible", now: ~U[2026-07-13 08:00:00Z])
 
     for index <- 1..50 do

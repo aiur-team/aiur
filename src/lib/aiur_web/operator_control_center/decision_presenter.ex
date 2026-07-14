@@ -151,7 +151,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
   end
 
   defp safe_source(source) when is_map(source), do: %{agent_id: Map.get(source, :agent_id)}
-  defp safe_source(_source), do: %{agent_id: nil}
 
   defp safe_actor(actor) when is_map(actor), do: %{kind: Map.get(actor, :kind)}
   defp safe_actor(_actor), do: nil
@@ -182,8 +181,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
     |> Map.put(:actor, safe_actor(Map.get(fact, :actor)))
   end
 
-  defp safe_lifecycle_fact(_fact), do: nil
-
   defp safe_follow_ups(follow_ups) when is_map(follow_ups) do
     Map.new(follow_ups, fn {action_id, follow_up} ->
       safe =
@@ -194,8 +191,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
       {action_id, safe}
     end)
   end
-
-  defp safe_follow_ups(_follow_ups), do: %{}
 
   defp safe_provenance(provenance) when is_map(provenance) do
     Map.take(provenance, [:backend, :requested_model, :resolved_model, :attempt_id])

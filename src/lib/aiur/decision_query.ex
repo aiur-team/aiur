@@ -13,7 +13,8 @@ defmodule Aiur.DecisionQuery do
   alias Aiur.DecisionQuery.{Params, StoreReader}
 
   @doc "Returns one exact retained Decision without consulting the overview window."
-  @spec get(String.t(), keyword()) :: {:ok, map()} | {:error, :not_found | :store_unavailable | {:invalid_decision_id, atom()}}
+  @spec get(String.t(), keyword()) ::
+          {:ok, map()} | {:error, :not_found | :store_unavailable | {:invalid_decision_id, atom()}}
   def get(decision_id, opts \\ [])
 
   def get(decision_id, opts) when is_list(opts) do
