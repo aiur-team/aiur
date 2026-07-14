@@ -64,6 +64,7 @@ defmodule Aiur.CodingAgent do
       "codex" => %{
         adapter: Aiur.Codex.CodingAgent,
         transcript: Aiur.Codex.Transcript,
+        family: "codex",
         can_interrupt: true,
         safe_checkpoints: [:notification, :tool_result],
         remote_control: false,
@@ -85,6 +86,7 @@ defmodule Aiur.CodingAgent do
       "claude" => %{
         adapter: Aiur.Claude.CodingAgent,
         transcript: Aiur.Claude.Transcript,
+        family: "claude",
         can_interrupt: true,
         safe_checkpoints: [:notification],
         remote_control: true,
@@ -109,6 +111,7 @@ defmodule Aiur.CodingAgent do
       "claude-repl" => %{
         adapter: Aiur.Claude.ReplAgent,
         transcript: Aiur.Claude.Transcript,
+        family: "claude",
         # Executor messages are typed straight into the live pane and the
         # agent's native input queue folds them in, so there is no
         # checkpoint to hold at — `safe_checkpoints` stays empty and
@@ -144,6 +147,15 @@ defmodule Aiur.CodingAgent do
   @doc "Known backend keys, derived from the registry."
   @spec known_backends() :: [backend()]
   def known_backends, do: Map.keys(backends())
+
+  @doc "Stable agent family for trusted Decision provenance, if the backend is known."
+  @spec family_for(backend()) :: String.t() | nil
+  def family_for(backend) do
+    case Map.fetch(backends(), backend) do
+      {:ok, entry} -> Map.get(entry, :family)
+      :error -> nil
+    end
+  end
 
   @doc """
   The valid reasoning-effort values for a backend, derived from the
