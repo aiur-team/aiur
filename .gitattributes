@@ -1,0 +1,10 @@
+# Preserve every byte that participates in a content-addressed layout asset.
+src/browser/layout/aiur-layout-worker.js text eol=lf
+src/browser/layout/aiur-layout-client.js text eol=lf
+src/priv/static/vendor/elk/0.11.1/elk-worker.min.js -text
+src/priv/static/vendor/elk/0.11.1/aiur-layout-worker.js text eol=lf
+src/priv/static/vendor/elk/0.11.1/aiur-layout-client.js text eol=lf
+src/priv/static/vendor/elk/0.11.1/LICENSE.md -text
+src/priv/static/vendor/elk/0.11.1/manifest.json text eol=lf
+src/priv/static/vendor/elk/0.11.1/PROVENANCE.md text eol=lf
+src/priv/static/vendor/elk/0.11.1/SOURCE.md text eol=lf
