@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 05:19 PDT)
+## Live Executor state (updated 2026-07-14 06:24 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -16,15 +16,14 @@ repository root against `main`; current accepted `main` is
 `4f49e0a1d3c88054905b2edbaa6a3a1ffa2b7a10`, including DASH-017/#1089. The core
 program is 5/54 merged with 49 remaining.
 
-The measured runtime envelope is temporarily eight workers. #1109/DASH-002 and
-#1130/DASH-026 are now productive; #1093/BO-005 is suppressed after two
-workspace-replacement races and waits for P1 #1161. #1091/BO-002 and
-#1103/BO-016 completed dual review and are in bounded rework; #1162 is actively
-fixing its own dual-review P1, while #1161 is retry-queued for capacity. #1108
-remains recovery held and #1123 remains GATE-003 held. Host load remains above
-the documented hard ceiling during overlapping builds, so do not add a ninth
-worker until load falls or an active worker drains. All providers are Codex Sol
-or Terra; never dispatch Claude.
+The measured runtime envelope is eight workers. #1088/DASH-006,
+#1096/BO-009, and #1109/DASH-002 have fresh implementation/CI work;
+#1091/BO-002 and #1103/BO-016 are receiving contained exact-head review rework.
+#1151 has a fresh CI head, #1162 is fixing its dual-review P1, and green P1
+#1161 is in dual exact-head review. #1093, #1108, #1111, and #1130 remain
+protected behind #1161's workspace-replacement fix; #1123 remains GATE-003
+held. Do not add a ninth worker. All providers are Codex Sol or Terra; never
+dispatch Claude.
 
 **Current operating decisions:**
 
@@ -709,14 +708,38 @@ or Terra; never dispatch Claude.
     the still-unfixed self-comment wake path owned by active #1151, so the
     Executor applied `agent:ci-wait + agent:paused`, removed the redundant
     generic `model:codex` label, and started the first exact-head re-review.
+86. Both exact-head #1162 reviews converged on the remaining no-active-turn
+    pause race: `Interrupts.handle_interrupt_error/2` still cleared the original
+    `:pause` action after deferred idle and returned ordinary completion. The
+    Executor routed the single contained receive-loop regression packet at
+    issue comment `4969528392`, removed the review hold, and dispatched the
+    existing Terra worker. No new ticket was created.
+87. BO-016/#1103 dual review of green head `4b6e5221` found six contained
+    contract defects: structured credential redaction, omitted-body schema
+    handling, eviction notification, hung-refresh timeout, URL-safe repository
+    identity, and bounded retry-after values. The consolidated rework packet is
+    issue comment `4969611318`; all fixes remain on #1103.
+88. BO-002/#1091 had one clean exact-head review, while the independent second
+    review found that HTTP-200 GraphQL `RATE_LIMITED` errors bypass reset-aware
+    handling and become generic partial data. The Executor verified the branch
+    behavior and returned only that P1 (plus its promised `FORBIDDEN` taxonomy
+    regression) in issue comment `4969623352`.
+89. Workspace-safety P1 #1161 pushed current-main head `e612dbd9`, and fresh CI
+    is fully green. Two independent exact-head reviews are active; keep the four
+    workspace-race holds in place until this head is reviewed and merged. The
+    06:13 hourly monitoring retrospective was action-dense (four of five wakes
+    produced work); retain event-driven wakes and the 60-second quiet ceiling,
+    and avoid polling while exact-head reviewers are the only outstanding work.
 
-At 05:58 PDT the core graph is 5/54 accepted. Five Aiur workers plus three
-independent reviewers occupy the useful execution/review width; #1093, #1108,
-#1111, and #1130 stay on workspace-race holds until active P1 #1161 lands.
-Host load is 16 with 37% instantaneous CPU idle, but no additional core ticket
-is dependency-ready outside the held/gated set. Treat completed turns, stale
-bases, and green builds with unmet acceptance criteria as pending Executor
-work, not merge-ready truth.
+At 06:24 PDT the core graph is 5/54 accepted. Seven Aiur tickets are in active
+implementation, CI, or rework and two independent #1161 reviewers occupy the
+useful execution/review width; #1093, #1108, #1111, and #1130 stay on
+workspace-race holds until #1161 lands. The preview percentages were refreshed
+from emitted `progress.checkin` evidence (including 1088=80, 1091=90,
+1096=80, 1103=60, 1109=100, 1151=50, 1161=100, and 1162=90), not inferred from
+card color. No additional core ticket is safely dependency-ready outside the
+held/gated set. Treat completed turns, stale bases, and green builds with unmet
+acceptance criteria as pending Executor work, not merge-ready truth.
 
 **Read-first map for this run:** `README.md` (pack index) →
 `08-implementation-pointers.md` (verified per-ticket file/module/function
