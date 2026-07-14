@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-13 23:35 PDT)
+## Live Executor state (updated 2026-07-13 23:36 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -355,6 +355,13 @@ to a safe range.
     SessionLifecycle/after-run, exception-safe turn closure, and sequential-
     turn, paused-session, and owner-death regressions. This is the existing
     blocker ticket, not a reason to expand scope.
+35. The 23:36 PDT hard hourly retrospective recorded four action wakes
+    (workspace-fix merge/restart, stale-runner recovery/backfill, and the two
+    review-driven rework packets) plus one isolated no-action 60-second CI
+    poll. There were no repeated no-action signatures, so cadence remains
+    unchanged rather than tuning from one sample. The next independent hourly
+    review is due around 00:36 PDT; immediate event/attention wakes remain in
+    force.
 
 At 23:28 PDT the core graph is 3/54 merged. Core
 #1089/#1090/#1091/#1096/#1104 are active, #1030 is in contained rework, and
