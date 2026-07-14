@@ -28,6 +28,7 @@ defmodule Aiur.BuildOrder.LifecycleTest do
     for {state, reason, valid?} <- [
           {"OPEN", nil, true},
           {"OPEN", "REOPENED", true},
+          {"OPEN", "UNRECOGNIZED", false},
           {"CLOSED", "COMPLETED", true},
           {"CLOSED", "NOT_PLANNED", true},
           {"CLOSED", "DUPLICATE", true},

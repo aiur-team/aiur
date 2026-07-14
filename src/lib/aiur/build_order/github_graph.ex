@@ -297,7 +297,7 @@ defmodule Aiur.BuildOrder.GitHubGraph do
     append_diagnostics(summary, [
       identity_diagnostic,
       parent_diagnostic,
-      lifecycle_diagnostic(Map.get(node, "state"), Map.get(node, "stateReason")),
+      lifecycle_diagnostic(node),
       labels_diagnostic,
       created_diagnostic,
       updated_diagnostic
@@ -330,7 +330,7 @@ defmodule Aiur.BuildOrder.GitHubGraph do
       identity_diagnostic,
       parent_diagnostic,
       direct_parent_diagnostic(parent, root_identity),
-      lifecycle_diagnostic(Map.get(node, "state"), Map.get(node, "stateReason")),
+      lifecycle_diagnostic(node),
       labels_diagnostic,
       created_diagnostic,
       updated_diagnostic,
@@ -476,8 +476,10 @@ defmodule Aiur.BuildOrder.GitHubGraph do
       else: append_diagnostics(root, [Diagnostic.new(:missing_root_label)])
   end
 
-  defp lifecycle_diagnostic(state, reason) do
-    if Lifecycle.valid?(Lifecycle.from_github(state, reason)),
+  defp lifecycle_diagnostic(node) do
+    lifecycle = Lifecycle.from_github(Map.get(node, "state"), Map.get(node, "stateReason"))
+
+    if Map.has_key?(node, "state") and Map.has_key?(node, "stateReason") and Lifecycle.valid?(lifecycle),
       do: nil,
       else: Diagnostic.new(:invalid_lifecycle)
   end

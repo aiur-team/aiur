@@ -322,6 +322,36 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     assert :invalid_lifecycle in Enum.map(selected.root.diagnostics, & &1.code)
   end
 
+  test "rejects missing and invalid OPEN state reasons while accepting an explicit null" do
+    root = root(1)
+
+    assert {:ok, %{candidate: %{root: accepted_root}}} =
+             GitHubGraph.fetch_selected_root(1, base_opts(selected_response(root, [], 0)))
+
+    assert %{state: :open, state_reason: :none} = accepted_root.lifecycle
+
+    for malformed_root <- [
+          Map.delete(root, "stateReason"),
+          Map.put(root, "stateReason", "UNRECOGNIZED")
+        ] do
+      assert {:error, %{error: :structurally_invalid, candidate: selected}} =
+               GitHubGraph.fetch_selected_root(1, base_opts(selected_response(malformed_root, [], 0)))
+
+      assert :invalid_lifecycle in Enum.map(selected.root.diagnostics, & &1.code)
+    end
+
+    for malformed_member <- [
+          member(2, root) |> Map.delete("stateReason"),
+          member(2, root) |> Map.put("stateReason", "UNRECOGNIZED")
+        ] do
+      assert {:error, %{error: :structurally_invalid, candidate: selected}} =
+               GitHubGraph.fetch_selected_root(1, base_opts(selected_response(root, [malformed_member], 1)))
+
+      [selected_member] = selected.members
+      assert :invalid_lifecycle in Enum.map(selected_member.diagnostics, & &1.code)
+    end
+  end
+
   test "requires the selected root to retain its controlled root label" do
     unlabeled_root = root(1) |> Map.put("labels", labels([]))
 
