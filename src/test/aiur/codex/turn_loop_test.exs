@@ -52,9 +52,10 @@ defmodule Aiur.Codex.TurnLoopTest do
       port = open_cat_port()
       params = %{"reason" => "operator pause"}
       payload = %{"method" => "turn/cancelled", "params" => params}
-      state = %{base_state() | pause_request_id: 55, current_turn_id: "turn-1"}
+      control = %{request_id: 55, generation: 9}
+      state = %{base_state() | pause_request_id: control, current_turn_id: "turn-1"}
 
-      assert {:paused, %{request_id: 55, turn_id: "turn-1", details: ^params}} =
+      assert {:paused, %{control: ^control, turn_id: "turn-1", details: ^params}} =
                TurnLoop.handle_method(%{port: port}, state, payload, Jason.encode!(payload), "turn/cancelled")
 
       assert_received {:event, :turn_cancelled}

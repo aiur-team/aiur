@@ -22,6 +22,12 @@ defmodule Aiur.AppServer.TurnLoop do
       {^port, {:exit_status, status}} ->
         {:error, {:port_exit, status}}
 
+      {:pause_agent, request_id, generation} when is_integer(request_id) and is_integer(generation) ->
+        case Interrupts.handle_pause_request(session, state, %{request_id: request_id, generation: generation}) do
+          {:continue, next_state} -> receive_loop(session, next_state)
+          result -> result
+        end
+
       {:pause_agent, request_id} when is_integer(request_id) ->
         case Interrupts.handle_pause_request(session, state, request_id) do
           {:continue, next_state} -> receive_loop(session, next_state)

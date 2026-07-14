@@ -35,13 +35,45 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
       pid: self(),
       ref: make_ref(),
       identifier: identifier,
-      issue: %Issue{id: issue_id, identifier: identifier, state: "In Progress", title: nil},
-      control: %{can_interrupt: true, safe_checkpoints: [:notification], status: status},
+      issue: %Issue{
+        id: issue_id,
+        identifier: identifier,
+        state: "In Progress",
+        title: nil,
+        tracker_identity: tracker_identity(identifier)
+      },
+      control: %{
+        can_interrupt: true,
+        safe_checkpoints: [:notification],
+        status: status,
+        application_confirmation: :confirmed,
+        generation: 1,
+        version: 0
+      },
       session_id: "thread-#{identifier}",
       agent_input_tokens: 0,
       agent_output_tokens: 0,
       agent_total_tokens: 0,
       started_at: DateTime.utc_now()
+    }
+  end
+
+  defp tracker_identity(identifier) do
+    identity_identifier =
+      case Regex.run(~r/\d+$/, identifier) do
+        [number] -> number
+        nil -> "1"
+      end
+
+    %Aiur.TrackerIdentity{
+      version: 1,
+      status: :joinable,
+      kind: :github,
+      owner: "owner",
+      repository: "repo",
+      provider_id: "I_kwDO#{identifier}",
+      identifier: identity_identifier,
+      reason: nil
     }
   end
 
@@ -246,14 +278,19 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
   end
 
   describe "pause/resume semantics" do
-    test "pause.request parks a working entry and stamps paused_at" do
+    test "pause.request changes state only after matching worker evidence" do
+      write_workflow_file!(Workflow.workflow_file_path(), tracker_api_token: nil)
       name = Module.concat(__MODULE__, :PauseRequest)
       pid = start_orchestrator(name)
       entry = running_entry("l7", "L7", :working)
       :sys.replace_state(pid, &%{&1 | running: %{"l7" => entry}})
 
       assert {:ok, request_id} = Orchestrator.pause_agent(name, "L7")
-      assert_receive {:pause_agent, ^request_id}, 2000
+      assert_receive {:pause_agent, ^request_id, 1}, 2000
+      entry = :sys.get_state(pid).running["l7"]
+      assert get_in(entry, [:control, :status]) == :working
+
+      send(pid, {:worker_control_state, "l7", :paused, %{request_id: request_id, generation: 1}})
       entry = :sys.get_state(pid).running["l7"]
       assert get_in(entry, [:control, :status]) == :paused
       assert %DateTime{} = entry.paused_at
@@ -272,7 +309,7 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
       :sys.replace_state(pid, &%{&1 | session_max_concurrent_agents: 1, running: %{"l9" => entry}})
 
       assert {:ok, :resumed} = Orchestrator.resume_agent(name, "L9")
-      assert_receive {:resume_agent, request_id} when is_integer(request_id), 2000
+      assert_receive {:resume_agent, request_id, 1} when is_integer(request_id), 2000
     end
 
     test "resume is refused when active count already fills the cap" do
@@ -332,7 +369,8 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
       log =
         capture_log(fn ->
           send(pid, {:worker_control_state, "l16", :paused, %{request_id: :containment}})
-          assert_receive {:resume_agent, _}, 2_000
+          assert_receive {:resume_agent, request_id, generation}, 2_000
+          send(pid, {:worker_control_state, "l16", :working, %{request_id: request_id, generation: generation}})
         end)
 
       resumed = :sys.get_state(pid).running["l16"]
@@ -399,8 +437,23 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
       entry = running_entry("l15", "L15", :paused) |> Map.merge(%{started_at: old_started, paused_reason: :max_agent_duration})
       state = base_state(running: %{"l15" => entry})
 
-      {{:ok, :resumed}, operator_state} = Orchestrator.resume_paused_issue_for_test(state, entry, true)
-      {{:ok, :resumed}, auto_state} = Orchestrator.resume_paused_issue_for_test(state, entry, false)
+      {{:ok, :resumed}, operator_pending} = Orchestrator.resume_paused_issue_for_test(state, entry, true)
+      assert_receive {:resume_agent, operator_request_id, operator_generation}
+
+      assert {:noreply, operator_state} =
+               Orchestrator.handle_info(
+                 {:worker_control_state, "l15", :working, %{request_id: operator_request_id, generation: operator_generation}},
+                 operator_pending
+               )
+
+      {{:ok, :resumed}, auto_pending} = Orchestrator.resume_paused_issue_for_test(state, entry, false)
+      assert_receive {:resume_agent, auto_request_id, auto_generation}
+
+      assert {:noreply, auto_state} =
+               Orchestrator.handle_info(
+                 {:worker_control_state, "l15", :working, %{request_id: auto_request_id, generation: auto_generation}},
+                 auto_pending
+               )
 
       assert DateTime.diff(DateTime.utc_now(), operator_state.running["l15"].started_at, :second) in 0..2
       assert auto_state.running["l15"].started_at == old_started

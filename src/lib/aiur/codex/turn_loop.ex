@@ -28,10 +28,10 @@ defmodule Aiur.Codex.TurnLoop do
     emit_turn_event(state.on_message, :turn_cancelled, payload, payload_string, session.port, params)
     TurnState.fail_pending_operator_requests(state.pending_operator_requests, {:turn_cancelled, params})
 
-    if is_integer(state.pause_request_id) do
+    if not is_nil(state.pause_request_id) do
       {:paused,
        %{
-         request_id: state.pause_request_id,
+         control: state.pause_request_id,
          turn_id: state.current_turn_id,
          details: params
        }}
@@ -125,7 +125,7 @@ defmodule Aiur.Codex.TurnLoop do
   end
 
   defp pause_latched?(session, state) do
-    is_integer(state.pause_request_id) or Aiur.PauseContainment.paused?(Map.get(session, :containment))
+    not is_nil(state.pause_request_id) or Aiur.PauseContainment.paused?(Map.get(session, :containment))
   end
 
   defp handle_unhandled_method(session, state, method, payload, payload_string, on_message, metadata) do

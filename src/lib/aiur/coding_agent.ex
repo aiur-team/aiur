@@ -66,6 +66,7 @@ defmodule Aiur.CodingAgent do
         transcript: Aiur.Codex.Transcript,
         can_interrupt: true,
         safe_checkpoints: [:notification, :tool_result],
+        control_application_confirmation: :confirmed,
         remote_control: false,
         # The codex app-server can rejoin a prior thread across an aiur restart
         # via `thread/resume` against its on-disk rollout, so a respawned
@@ -87,6 +88,7 @@ defmodule Aiur.CodingAgent do
         transcript: Aiur.Claude.Transcript,
         can_interrupt: true,
         safe_checkpoints: [:notification],
+        control_application_confirmation: :confirmed,
         remote_control: true,
         # Remote control physically runs on the persistent-REPL transport,
         # so an RC-promoted claude issue dispatches claude-repl (carrying
@@ -118,6 +120,7 @@ defmodule Aiur.CodingAgent do
         can_interrupt: true,
         safe_checkpoints: [],
         immediate_delivery: true,
+        control_application_confirmation: :confirmed,
         remote_control: true,
         # A tmux/RC start failure must never strand an issue: a failed
         # claude-repl spawn falls back once to the headless claude
@@ -406,6 +409,15 @@ defmodule Aiur.CodingAgent do
   @doc "Delivery-policy default: whether the backend supports Executor interrupts."
   @spec can_interrupt?(backend()) :: boolean()
   def can_interrupt?(backend), do: fetch_backend!(backend).can_interrupt
+
+  @doc "Whether the backend can emit correlated worker-application evidence for unit controls."
+  @spec control_application_confirmation(backend()) :: :confirmed | :request_only | :unsupported
+  def control_application_confirmation(backend) do
+    case Map.fetch(backends(), backend) do
+      {:ok, entry} -> Map.get(entry, :control_application_confirmation, :request_only)
+      :error -> :unsupported
+    end
+  end
 
   @doc "Delivery-policy default: which checkpoint kinds are safe to deliver on."
   @spec safe_checkpoints(backend()) :: [atom()]

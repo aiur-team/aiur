@@ -180,10 +180,31 @@ defmodule Aiur.AgentRunner do
 
   defp wait_for_before_run_resume(issue, codex_update_recipient, reason) do
     receive do
+      {:pause_agent, request_id, generation} when is_integer(request_id) and is_integer(generation) ->
+        Logger.info("Agent already paused before run for #{issue_context(issue)} request_id=#{request_id}")
+
+        MessageHandler.send_control_state(codex_update_recipient, issue, :paused, %{
+          kind: :before_run_failure,
+          request_id: request_id,
+          generation: generation
+        })
+
+        wait_for_before_run_resume(issue, codex_update_recipient, reason)
+
       {:pause_agent, request_id} when is_integer(request_id) ->
         Logger.info("Agent already paused before run for #{issue_context(issue)} request_id=#{request_id}")
         MessageHandler.send_control_state(codex_update_recipient, issue, :paused, %{kind: :before_run_failure})
         wait_for_before_run_resume(issue, codex_update_recipient, reason)
+
+      {:resume_agent, request_id, generation} when is_integer(request_id) and is_integer(generation) ->
+        Logger.info("Resuming agent after before_run failure for #{issue_context(issue)} request_id=#{request_id}")
+
+        MessageHandler.send_control_state(codex_update_recipient, issue, :working, %{
+          request_id: request_id,
+          generation: generation
+        })
+
+        :resume_after_before_run_pause
 
       {:resume_agent, request_id} when is_integer(request_id) ->
         Logger.info("Resuming agent after before_run failure for #{issue_context(issue)} request_id=#{request_id}")

@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.State do
   """
 
   alias Aiur.{AgentQueueStore, Issue}
-  alias Aiur.Orchestrator.{PauseResume, StatusReport}
+  alias Aiur.Orchestrator.{ControlLifecycle, PauseResume, StatusReport}
 
   @type t :: %__MODULE__{
           poll_interval_ms: integer() | nil,
@@ -45,7 +45,8 @@ defmodule Aiur.Orchestrator.State do
           github_comment_issue_updated_at: map(),
           github_command_scan_since: String.t() | nil,
           github_connectivity: map(),
-          github_poll_delays: map()
+          github_poll_delays: map(),
+          control_lifecycle: ControlLifecycle.t()
         }
 
   defstruct [
@@ -79,7 +80,8 @@ defmodule Aiur.Orchestrator.State do
     github_comment_issue_updated_at: %{},
     github_command_scan_since: nil,
     github_connectivity: %{},
-    github_poll_delays: %{}
+    github_poll_delays: %{},
+    control_lifecycle: %ControlLifecycle{}
   ]
 
   @spec handle_worker_runtime_info(t(), String.t(), map()) :: {:noreply, t()}

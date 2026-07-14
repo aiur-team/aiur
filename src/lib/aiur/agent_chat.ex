@@ -5,7 +5,7 @@ defmodule Aiur.AgentChat do
 
   require Logger
 
-  alias Aiur.{AgentEvents, AgentPubSub, OperatorWaitLog, Orchestrator, PauseContainment}
+  alias Aiur.{AgentEvents, AgentPubSub, OperatorWaitLog, Orchestrator}
   alias Aiur.Opencode.SlotRegistry
 
   @spec send(String.t(), String.t()) :: {:ok, integer()} | {:error, term()}
@@ -51,7 +51,7 @@ defmodule Aiur.AgentChat do
   end
 
   @spec pane_interrupt(String.t()) ::
-          {:ok, :interrupted | :paused | :close_pane | :send_interrupt} | {:error, term()}
+          {:ok, :interrupted | :pause_requested | :paused | :close_pane | :send_interrupt} | {:error, term()}
   def pane_interrupt(pane_id) when is_binary(pane_id) do
     {via, result} =
       case SlotRegistry.find_by_pane_id(pane_id) do
@@ -69,7 +69,6 @@ defmodule Aiur.AgentChat do
 
   @spec pause(String.t()) :: {:ok, integer()} | {:error, term()}
   def pause(issue_identifier) when is_binary(issue_identifier) do
-    _ = PauseContainment.arm(issue_identifier)
     Orchestrator.pause_agent(issue_identifier)
   end
 
@@ -78,8 +77,19 @@ defmodule Aiur.AgentChat do
     Orchestrator.resume_agent(issue_identifier)
   end
 
+  @spec request_control(String.t(), :pause | :resume, pos_integer()) :: {:ok, pos_integer()} | {:error, term()}
+  def request_control(issue_identifier, action, request_id)
+      when is_binary(issue_identifier) and action in [:pause, :resume] and is_integer(request_id) and request_id > 0 do
+    Orchestrator.request_control(issue_identifier, action, request_id)
+  end
+
   @spec capabilities(String.t()) :: {:ok, map()} | {:error, term()}
   def capabilities(issue_identifier) when is_binary(issue_identifier) do
     Orchestrator.control_capabilities(issue_identifier)
+  end
+
+  @spec control_lifecycle(String.t()) :: {:ok, map()} | {:error, term()}
+  def control_lifecycle(issue_identifier) when is_binary(issue_identifier) do
+    Orchestrator.control_lifecycle(issue_identifier)
   end
 end

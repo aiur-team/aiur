@@ -13,9 +13,11 @@ defmodule Aiur.Orchestrator.OperatorMessages.CapabilitiesTest do
              accepted_delivery_policies: [:checkpoint],
              can_interrupt: false,
              immediate_delivery: false,
+             pending_control: nil,
              queue_depth: 0,
              safe_checkpoints: [],
-             status: :working
+             status: :working,
+             unit_control: :unsupported
            }
   end
 
@@ -36,9 +38,11 @@ defmodule Aiur.Orchestrator.OperatorMessages.CapabilitiesTest do
              accepted_delivery_policies: [:checkpoint, :interrupt],
              can_interrupt: true,
              immediate_delivery: false,
+             pending_control: nil,
              queue_depth: 2,
              safe_checkpoints: [:notification, :tool_result],
-             status: :sleeping
+             status: :sleeping,
+             unit_control: :request_only
            }
   end
 
@@ -47,6 +51,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.CapabilitiesTest do
       state_with_running_entry("42", %{
         can_interrupt: true,
         immediate_delivery: true,
+        application_confirmation: :confirmed,
         safe_checkpoints: [:notification],
         status: :working
       })
@@ -54,7 +59,8 @@ defmodule Aiur.Orchestrator.OperatorMessages.CapabilitiesTest do
     assert %{
              accepted_delivery_policies: [:immediate],
              can_interrupt: true,
-             immediate_delivery: true
+             immediate_delivery: true,
+             unit_control: :confirmed
            } = Capabilities.issue_control_capabilities(state, "42")
   end
 

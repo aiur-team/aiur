@@ -193,13 +193,23 @@ defmodule Aiur.Claude.Repl.TranscriptTurn do
             await_turn(session, tailer, turn_id, deadline, poll_ms, on_operator, pause_confirm_ms)
 
           # A failed interrupt still parks — the Executor asked for a pause.
-          {:pause_agent, request_id} when is_integer(request_id) ->
+          {:pause_agent, request_id, generation} when is_integer(request_id) and is_integer(generation) ->
             case OperatorInject.interrupt(session) do
               :ok ->
                 :ok
 
               {:error, reason} ->
                 Logger.warning("repl_pause interrupt_failed turn_id=#{turn_id} reason=#{inspect(reason)}")
+            end
+
+            confirm_deadline = System.monotonic_time(:millisecond) + pause_confirm_ms
+            await_pause_confirm(tailer, turn_id, confirm_deadline, poll_ms)
+            {:paused, %{request_id: request_id, generation: generation, kind: :operator_pause}}
+
+          {:pause_agent, request_id} when is_integer(request_id) ->
+            case OperatorInject.interrupt(session) do
+              :ok -> :ok
+              {:error, reason} -> Logger.warning("repl_pause interrupt_failed turn_id=#{turn_id} reason=#{inspect(reason)}")
             end
 
             confirm_deadline = System.monotonic_time(:millisecond) + pause_confirm_ms

@@ -104,12 +104,21 @@ defmodule Aiur.OrchestratorStatusTest do
       pid: pid,
       ref: make_ref(),
       identifier: identifier,
-      issue: %Issue{id: issue_id, identifier: identifier, state: "In Progress", title: title},
+      issue: %Issue{
+        id: issue_id,
+        identifier: identifier,
+        state: "In Progress",
+        title: title,
+        tracker_identity: tracker_identity(identifier)
+      },
       worker_host: worker_host,
       control: %{
         can_interrupt: true,
         safe_checkpoints: [:notification],
-        status: status
+        status: status,
+        application_confirmation: :confirmed,
+        generation: 1,
+        version: 0
       },
       codex_app_server_pid: nil,
       codex_process_group_id: nil,
@@ -125,6 +134,12 @@ defmodule Aiur.OrchestratorStatusTest do
   end
 
   defp tracker_identity(identifier) do
+    identity_identifier =
+      case Regex.run(~r/\d+$/, identifier) do
+        [number] -> number
+        nil -> "1"
+      end
+
     %TrackerIdentity{
       version: 1,
       status: :joinable,
@@ -132,7 +147,7 @@ defmodule Aiur.OrchestratorStatusTest do
       owner: "owner",
       repository: "repo",
       provider_id: "I_kwDO#{identifier}",
-      identifier: identifier,
+      identifier: identity_identifier,
       reason: nil
     }
   end
@@ -607,29 +622,25 @@ defmodule Aiur.OrchestratorStatusTest do
     end)
 
     assert {:ok, request_id} = Orchestrator.pause_agent(orchestrator_name, "repo#47")
-    assert_receive {:pause_agent, ^request_id}, 500
+    assert_receive {:pause_agent, ^request_id, 1}, 500
 
-    # Optimistic flip: the row reads :paused immediately from the operator
-    # action, before the worker's async :worker_control_state confirmation —
-    # so pressing space pauses the agent at any moment, even mid-spin-up.
-    #
-    # Each transition is read through `wait_for_status`, which retries the
-    # `status` GenServer.call through transient :timeout. The pause/resume state
-    # is set synchronously inside its handle_call before reply, so the value is
-    # authoritative the instant the call returns — the only failure mode was the
-    # 1s call timing out under CPU contention, which retrying absorbs. Mailbox
-    # FIFO also guarantees the status read after the async :worker_control_state
-    # send is processed *after* that message, so the read is properly ordered.
-    assert [%{identifier: "repo#47", state: :paused}] =
-             wait_for_status(orchestrator_name, &match?([%{identifier: "repo#47", state: :paused}], &1))
+    # Admission only proves routing. The authoritative state remains working
+    # until evidence identifies this exact request and worker generation.
+    assert [%{identifier: "repo#47", state: :running}] =
+             wait_for_status(orchestrator_name, &match?([%{identifier: "repo#47", state: :running}], &1))
 
-    send(pid, {:worker_control_state, "issue-round-trip", :paused})
+    send(pid, {:worker_control_state, "issue-round-trip", :paused, %{request_id: request_id, generation: 1}})
 
     assert [%{identifier: "repo#47", state: :paused}] =
              wait_for_status(orchestrator_name, &match?([%{identifier: "repo#47", state: :paused}], &1))
 
     assert {:ok, :resumed} = Orchestrator.resume_agent(orchestrator_name, "repo#47")
-    assert_receive {:resume_agent, resume_request_id} when is_integer(resume_request_id), 500
+    assert_receive {:resume_agent, resume_request_id, 1} when is_integer(resume_request_id), 500
+
+    assert [%{identifier: "repo#47", state: :paused}] =
+             wait_for_status(orchestrator_name, &match?([%{identifier: "repo#47", state: :paused}], &1))
+
+    send(pid, {:worker_control_state, "issue-round-trip", :working, %{request_id: resume_request_id, generation: 1}})
 
     assert [%{identifier: "repo#47", state: :running}] =
              wait_for_status(orchestrator_name, &match?([%{identifier: "repo#47", state: :running}], &1))
@@ -681,7 +692,10 @@ defmodule Aiur.OrchestratorStatusTest do
     end)
 
     assert {:ok, :resumed} = Orchestrator.resume_agent(orchestrator_name, "MT-PAUSED")
-    assert_receive {:resume_agent, request_id} when is_integer(request_id), 500
+    assert_receive {:resume_agent, request_id, 1} when is_integer(request_id), 500
+    assert %{active: 1, paused: 1, max: 2} = Orchestrator.max_concurrent_agents(orchestrator_name)
+
+    send(pid, {:worker_control_state, "issue-paused", :working, %{request_id: request_id, generation: 1}})
     assert %{active: 2, paused: 0, max: 2} = Orchestrator.max_concurrent_agents(orchestrator_name)
   end
 
@@ -783,7 +797,10 @@ defmodule Aiur.OrchestratorStatusTest do
     end)
 
     assert {:ok, :resumed} = Orchestrator.resume_agent(orchestrator_name, "MT-PAUSED")
-    assert_receive {:resume_agent, request_id} when is_integer(request_id), 500
+    assert_receive {:resume_agent, request_id, 1} when is_integer(request_id), 500
+    assert %{active: 0, paused: 1, max: 1} = Orchestrator.max_concurrent_agents(orchestrator_name)
+
+    send(pid, {:worker_control_state, "issue-paused", :working, %{request_id: request_id, generation: 1}})
     assert %{active: 1, paused: 0, max: 1} = Orchestrator.max_concurrent_agents(orchestrator_name)
   end
 
@@ -1953,10 +1970,18 @@ defmodule Aiur.OrchestratorStatusTest do
               pid: worker_pid,
               ref: make_ref(),
               identifier: "MT-CHAT",
-              issue: %Issue{id: "issue-chat", identifier: "MT-CHAT", state: "In Progress"},
+              issue: %Issue{
+                id: "issue-chat",
+                identifier: "MT-CHAT",
+                state: "In Progress",
+                tracker_identity: tracker_identity("MT-CHAT")
+              },
               control: %{
                 can_interrupt: true,
                 safe_checkpoints: [:notification, :tool_result],
+                application_confirmation: :confirmed,
+                generation: 1,
+                version: 0,
                 status: :working
               },
               session_id: "thread-chat-turn-chat",
@@ -1987,7 +2012,7 @@ defmodule Aiur.OrchestratorStatusTest do
             }} = Orchestrator.control_capabilities(orchestrator_name, "MT-CHAT")
 
     assert {:ok, pause_request_id} = Orchestrator.pause_agent(orchestrator_name, "MT-CHAT")
-    assert_receive {:pause_agent, ^pause_request_id}
+    assert_receive {:pause_agent, ^pause_request_id, _generation}
 
     assert {:ok, interrupt_request_id} =
              Orchestrator.send_operator_message(
@@ -3040,7 +3065,13 @@ defmodule Aiur.OrchestratorStatusTest do
              )
 
     assert is_integer(request_id)
-    assert_receive {:resume_agent, _resume_request_id}, 500
+    assert_receive {:resume_agent, resume_request_id, generation}, 500
+
+    status = Orchestrator.max_concurrent_agents(orchestrator_name)
+    assert status.active == 0
+    assert status.paused == 1
+
+    send(pid, {:worker_control_state, "issue-paused", :working, %{request_id: resume_request_id, generation: generation}})
 
     status = Orchestrator.max_concurrent_agents(orchestrator_name)
     assert status.active == 1

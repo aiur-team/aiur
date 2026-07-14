@@ -6,7 +6,6 @@ defmodule Aiur.Orchestrator.Interrupts do
 
   alias Aiur.Claude.ReplAgent
   alias Aiur.Opencode.ActiveTurns
-  alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{OperatorMessages, PauseResume, State}
 
   @spec interrupt_agent(String.t()) :: :ok | {:error, term()}
@@ -18,22 +17,22 @@ defmodule Aiur.Orchestrator.Interrupts do
     do: control_api_call(server, {:interrupt_agent, issue_identifier})
 
   @spec pane_interrupt(String.t()) ::
-          {:ok, :interrupted | :paused | :close_pane | :send_interrupt} | {:error, term()}
+          {:ok, :interrupted | :pause_requested | :paused | :close_pane | :send_interrupt} | {:error, term()}
   def pane_interrupt(issue_identifier),
     do: pane_interrupt(Aiur.Orchestrator, issue_identifier)
 
   @spec pane_interrupt(GenServer.server(), String.t()) ::
-          {:ok, :interrupted | :paused | :close_pane | :send_interrupt} | {:error, term()}
+          {:ok, :interrupted | :pause_requested | :paused | :close_pane | :send_interrupt} | {:error, term()}
   def pane_interrupt(server, issue_identifier),
     do: control_api_call(server, {:pane_interrupt, issue_identifier})
 
   @spec pane_interrupt_by_pane_id(String.t()) ::
-          {:ok, :interrupted | :paused | :close_pane | :send_interrupt} | {:error, term()}
+          {:ok, :interrupted | :pause_requested | :paused | :close_pane | :send_interrupt} | {:error, term()}
   def pane_interrupt_by_pane_id(pane_id),
     do: pane_interrupt_by_pane_id(Aiur.Orchestrator, pane_id)
 
   @spec pane_interrupt_by_pane_id(GenServer.server(), String.t()) ::
-          {:ok, :interrupted | :paused | :close_pane | :send_interrupt} | {:error, term()}
+          {:ok, :interrupted | :pause_requested | :paused | :close_pane | :send_interrupt} | {:error, term()}
   def pane_interrupt_by_pane_id(server, pane_id) when is_binary(pane_id),
     do: control_api_call(server, {:pane_interrupt_by_pane_id, pane_id})
 
@@ -146,17 +145,14 @@ defmodule Aiur.Orchestrator.Interrupts do
     {{:ok, :interrupted}, state}
   end
 
-  # Optimistically flip the entry to `:paused` (mirrors `maybe_pause_on_request`)
-  # so a second Ctrl+C reads the agent as paused and closes the pane. An idle
-  # agent emits no `:worker_control_state :paused` confirmation, so depending on
-  # that async signal alone would strand the agent reporting `:pause` forever
-  # and the close branch would never be reachable. The queued control message
-  # still drives the worker loop when it is mid-turn; its reply is ignored
-  # because the optimistic transition is the source of truth for the UI.
-  defp perform_pane_interrupt(:pause, state, entry, issue_identifier, _pane_id) do
-    _ = PauseResume.send_pause_control_message(state, issue_identifier)
-    paused_entry = Map.put(entry, :paused_reason, :pane_ctrl_c)
-    {{:ok, :paused}, Orchestrator.transition_control_status(state, paused_entry, :paused, "pane.ctrl_c.pause")}
+  # A Ctrl+C pause shares the worker-confirmed control lifecycle. Returning
+  # `:pause_requested` keeps the pane open without presenting the agent as
+  # paused before its current worker generation acknowledges the transition.
+  defp perform_pane_interrupt(:pause, state, _entry, issue_identifier, _pane_id) do
+    case PauseResume.pause_agent_reply(state, issue_identifier) do
+      {{:ok, _request_id}, state} -> {{:ok, :pause_requested}, state}
+      {error, state} -> {error, state}
+    end
   end
 
   defp control_api_call(server, request) do

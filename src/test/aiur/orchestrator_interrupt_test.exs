@@ -1,6 +1,7 @@
 defmodule Aiur.OrchestratorInterruptTest do
   use Aiur.TestSupport
 
+  alias Aiur.TrackerIdentity
   alias Aiur.Opencode.ActiveTurns
 
   defp running_entry(identifier, extra \\ %{}) do
@@ -9,8 +10,21 @@ defmodule Aiur.OrchestratorInterruptTest do
         pid: self(),
         ref: make_ref(),
         identifier: identifier,
-        issue: %Issue{id: identifier, identifier: identifier, state: "In Progress", title: "Issue #{identifier}"},
-        control: %{can_interrupt: true, safe_checkpoints: [], status: :working}
+        issue: %Issue{
+          id: identifier,
+          identifier: identifier,
+          state: "In Progress",
+          title: "Issue #{identifier}",
+          tracker_identity: tracker_identity(identifier)
+        },
+        control: %{
+          can_interrupt: true,
+          safe_checkpoints: [],
+          application_confirmation: :confirmed,
+          generation: 101,
+          version: 0,
+          status: :working
+        }
       },
       extra
     )
@@ -19,8 +33,20 @@ defmodule Aiur.OrchestratorInterruptTest do
   setup do
     pid = Process.whereis(Orchestrator)
     original = :sys.get_state(pid)
+    store_path = Path.join(System.tmp_dir!(), "aiur_interrupt_controls_#{System.unique_integer([:positive])}.json")
+    previous_store_path = Application.get_env(:aiur, :control_lifecycle_store_path)
+    Application.put_env(:aiur, :control_lifecycle_store_path, store_path)
     :sys.replace_state(pid, fn state -> %{state | running: %{}} end)
-    on_exit(fn -> if Process.alive?(pid), do: :sys.replace_state(pid, fn _ -> original end) end)
+
+    on_exit(fn ->
+      if is_nil(previous_store_path),
+        do: Application.delete_env(:aiur, :control_lifecycle_store_path),
+        else: Application.put_env(:aiur, :control_lifecycle_store_path, previous_store_path)
+
+      File.rm(store_path)
+      if Process.alive?(pid), do: :sys.replace_state(pid, fn _ -> original end)
+    end)
+
     {:ok, orchestrator: pid}
   end
 
@@ -81,17 +107,23 @@ defmodule Aiur.OrchestratorInterruptTest do
       assert {:error, :not_running} = Orchestrator.pane_interrupt("MISSING")
     end
 
-    test "pane-less backend pauses on first press, then closes on the second",
+    test "pane-less backend reports pause requested until matching worker evidence applies it",
          %{orchestrator: pid} do
-      # Codex/opencode agents have no REPL pane to hardware-interrupt, but a
-      # Ctrl+C must not nuke the pane on the first press. The first press
-      # pauses (pane stays open); a second press on the paused agent closes.
+      # Codex/opencode agents have no REPL pane to hardware-interrupt. The
+      # first Ctrl+C routes a correlated pause and keeps the agent working
+      # until that worker generation confirms the transition.
+      entry = running_entry("codex-1")
+
       :sys.replace_state(pid, fn state ->
-        %{state | running: %{"codex-1" => running_entry("codex-1")}}
+        %{state | running: %{"codex-1" => entry}}
       end)
 
-      assert {:ok, :paused} = Orchestrator.pane_interrupt("codex-1")
-      assert get_in(:sys.get_state(pid).running, ["codex-1", :control, :status]) == :paused
+      assert {:ok, :pause_requested} = Orchestrator.pane_interrupt("codex-1")
+      assert get_in(:sys.get_state(pid).running, ["codex-1", :control, :status]) == :working
+      assert_receive {:pause_agent, request_id, 101}
+
+      send(pid, {:worker_control_state, "codex-1", :paused, %{request_id: request_id, generation: 101}})
+      assert eventually(fn -> get_in(:sys.get_state(pid).running, ["codex-1", :control, :status]) == :paused end)
 
       assert {:ok, :close_pane} = Orchestrator.pane_interrupt("codex-1")
     end
@@ -130,24 +162,16 @@ defmodule Aiur.OrchestratorInterruptTest do
       assert {:ok, :close_pane} = Orchestrator.pane_interrupt("repl-1")
     end
 
-    test "pausing a working REPL agent flips status so a second press closes the pane",
+    test "pausing a working REPL agent remains requested until worker confirmation",
          %{orchestrator: pid} do
       entry =
-        running_entry("repl-1", %{
-          repl_pane_id: "%9",
-          control: %{can_interrupt: true, safe_checkpoints: [], status: :working}
-        })
+        running_entry("repl-1")
+        |> Map.put(:repl_pane_id, "%9")
 
       :sys.replace_state(pid, fn state -> %{state | running: %{"repl-1" => entry}} end)
 
-      # First Ctrl+C on a working, queue-empty agent pauses it and flips the
-      # recorded status optimistically — an idle agent emits no async
-      # worker confirmation, so the close branch would otherwise be unreachable.
-      assert {:ok, :paused} = Orchestrator.pane_interrupt("repl-1")
-      assert get_in(:sys.get_state(pid).running, ["repl-1", :control, :status]) == :paused
-
-      # Second Ctrl+C, now that the agent reads as paused, closes the pane.
-      assert {:ok, :close_pane} = Orchestrator.pane_interrupt("repl-1")
+      assert {:ok, :pause_requested} = Orchestrator.pane_interrupt("repl-1")
+      assert get_in(:sys.get_state(pid).running, ["repl-1", :control, :status]) == :working
     end
 
     test "queued message on a REPL agent never closes the pane even if the interrupt fails",
@@ -160,10 +184,8 @@ defmodule Aiur.OrchestratorInterruptTest do
       # propagate the error, which the bridge controller maps to :close_pane
       # and the helper turns into a kill-pane, dropping the queued input.
       entry =
-        running_entry("repl-1", %{
-          repl_pane_id: "%9",
-          control: %{can_interrupt: true, safe_checkpoints: [], status: :working}
-        })
+        running_entry("repl-1")
+        |> Map.put(:repl_pane_id, "%9")
 
       :sys.replace_state(pid, fn state ->
         {queue_store, _item} =
@@ -192,21 +214,42 @@ defmodule Aiur.OrchestratorInterruptTest do
       # the bridge collapsed to a raw kill-pane on the first press. This maps
       # the pane back to its running entry so the pause→close flow applies.
       entry =
-        running_entry("repl-1", %{
-          repl_pane_id: "%9",
-          control: %{can_interrupt: true, safe_checkpoints: [], status: :working}
-        })
+        running_entry("repl-1")
+        |> Map.put(:repl_pane_id, "%9")
 
       :sys.replace_state(pid, fn state -> %{state | running: %{"repl-1" => entry}} end)
 
-      assert {:ok, :paused} = Orchestrator.pane_interrupt_by_pane_id("%9")
-      assert get_in(:sys.get_state(pid).running, ["repl-1", :control, :status]) == :paused
-
-      assert {:ok, :close_pane} = Orchestrator.pane_interrupt_by_pane_id("%9")
+      assert {:ok, :pause_requested} = Orchestrator.pane_interrupt_by_pane_id("%9")
+      assert get_in(:sys.get_state(pid).running, ["repl-1", :control, :status]) == :working
     end
 
     test "unknown pane reports no_pane_agent" do
       assert {:error, :no_pane_agent} = Orchestrator.pane_interrupt_by_pane_id("%nope")
+    end
+  end
+
+  defp tracker_identity(identifier) do
+    %TrackerIdentity{
+      version: 1,
+      status: :joinable,
+      kind: :github,
+      owner: "its-everdred",
+      repository: "aiur",
+      provider_id: "I_kwDO#{identifier}",
+      identifier: "101",
+      reason: nil
+    }
+  end
+
+  defp eventually(fun, attempts \\ 30)
+  defp eventually(_fun, 0), do: false
+
+  defp eventually(fun, attempts) do
+    if fun.() do
+      true
+    else
+      Process.sleep(10)
+      eventually(fun, attempts - 1)
     end
   end
 end

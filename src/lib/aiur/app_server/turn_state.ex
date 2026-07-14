@@ -38,12 +38,12 @@ defmodule Aiur.AppServer.TurnState do
     }
 
     cond do
-      is_integer(state.pause_request_id) ->
+      not is_nil(state.pause_request_id) ->
         fail_pending_operator_requests(next_state.pending_operator_requests, {:turn_interrupted, payload})
 
         {:paused,
          %{
-           request_id: state.pause_request_id,
+           control: state.pause_request_id,
            turn_id: state.current_turn_id,
            details: payload
          }}

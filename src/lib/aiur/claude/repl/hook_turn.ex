@@ -135,13 +135,21 @@ defmodule Aiur.Claude.Repl.HookTurn do
 
           # Pause request: interrupt the live REPL turn (Ctrl+C to the pane) and
           # park as paused. Claude does not fire a terminal hook for user interrupts.
-          {:pause_agent, request_id} when is_integer(request_id) ->
+          {:pause_agent, request_id, generation} when is_integer(request_id) and is_integer(generation) ->
             case OperatorInject.interrupt(loop.session) do
               :ok ->
                 :ok
 
               {:error, reason} ->
                 Logger.warning("repl_pause interrupt_failed reason=#{inspect(reason)}")
+            end
+
+            {:paused, %{request_id: request_id, generation: generation, kind: :operator_pause}}
+
+          {:pause_agent, request_id} when is_integer(request_id) ->
+            case OperatorInject.interrupt(loop.session) do
+              :ok -> :ok
+              {:error, reason} -> Logger.warning("repl_pause interrupt_failed reason=#{inspect(reason)}")
             end
 
             {:paused, %{request_id: request_id}}

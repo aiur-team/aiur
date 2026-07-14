@@ -34,9 +34,25 @@ defmodule Aiur.AgentRunner.QueueDrain do
         codex_update_recipient
       ) do
     receive do
-      {:pause_agent, request_id} when is_integer(request_id) ->
+      {:pause_agent, request_id, generation} when is_integer(request_id) and is_integer(generation) ->
         Logger.info("Agent already paused for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{request_id}")
 
+        MessageHandler.send_control_state(codex_update_recipient, issue, :paused, %{
+          kind: :operator_pause,
+          request_id: request_id,
+          generation: generation
+        })
+
+        wait_for_operator_message(
+          app_session,
+          issue,
+          message_handler,
+          orchestrator,
+          codex_update_recipient
+        )
+
+      {:pause_agent, request_id} when is_integer(request_id) ->
+        Logger.info("Agent already paused for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{request_id}")
         MessageHandler.send_control_state(codex_update_recipient, issue, :paused)
 
         wait_for_operator_message(
@@ -99,9 +115,25 @@ defmodule Aiur.AgentRunner.QueueDrain do
           deliver_now?
         )
 
-      {:pause_agent, request_id} when is_integer(request_id) ->
+      {:pause_agent, request_id, generation} when is_integer(request_id) and is_integer(generation) ->
         Logger.info("Agent already paused for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{request_id}")
 
+        MessageHandler.send_control_state(codex_update_recipient, issue, :paused, %{
+          kind: :operator_pause,
+          request_id: request_id,
+          generation: generation
+        })
+
+        wait_for_operator_message(
+          app_session,
+          issue,
+          message_handler,
+          orchestrator,
+          codex_update_recipient
+        )
+
+      {:pause_agent, request_id} when is_integer(request_id) ->
+        Logger.info("Agent already paused for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{request_id}")
         MessageHandler.send_control_state(codex_update_recipient, issue, :paused)
 
         wait_for_operator_message(
@@ -112,7 +144,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
           codex_update_recipient
         )
 
-      {:resume_agent, request_id} when is_integer(request_id) ->
+      {:resume_agent, request_id, generation} when is_integer(request_id) and is_integer(generation) ->
         Logger.info("Resuming paused agent for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{request_id}")
 
         # A stale containment latch makes the next app-server turn return an
@@ -120,10 +152,28 @@ defmodule Aiur.AgentRunner.QueueDrain do
         # after the orchestrator admitted this resume, so an Executor pause
         # remains protected until an actual resume reaches the worker.
         _ = PauseContainment.release_target(issue.identifier)
-        MessageHandler.send_control_state(codex_update_recipient, issue, :working)
+
+        MessageHandler.send_control_state(codex_update_recipient, issue, :working, %{
+          request_id: request_id,
+          generation: generation
+        })
+
         # An explicit resume drains the agent queue so restored items
         # land in the same turn instead of being deferred until the next
         # checkpoint of an initial-prompt turn.
+        claim_and_run_or_continue(
+          app_session,
+          issue,
+          message_handler,
+          orchestrator,
+          codex_update_recipient
+        )
+
+      {:resume_agent, request_id} when is_integer(request_id) ->
+        Logger.info("Resuming paused agent for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{request_id}")
+        _ = PauseContainment.release_target(issue.identifier)
+        MessageHandler.send_control_state(codex_update_recipient, issue, :working)
+
         claim_and_run_or_continue(
           app_session,
           issue,
