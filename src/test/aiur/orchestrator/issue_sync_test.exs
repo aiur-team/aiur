@@ -131,7 +131,10 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         fn _identity, _lifecycle -> {:error, :disk_full} end,
         MapSet.new(["done", "cancelled"]),
         fn status -> send(parent, {:freshness, status}) end,
-        fn _identity, pending? -> send(parent, {:terminal_verification_pending, pending?}) end
+        fn _identity, pending? ->
+          send(parent, {:terminal_verification_pending, pending?})
+          :ok
+        end
       )
 
     assert_receive {:freshness, :unavailable}
@@ -145,7 +148,10 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         fn _identity, _lifecycle -> :ok end,
         MapSet.new(["done", "cancelled"]),
         fn _status -> :ok end,
-        fn _identity, pending? -> send(parent, {:terminal_verification_pending, pending?}) end
+        fn _identity, pending? ->
+          send(parent, {:terminal_verification_pending, pending?})
+          :ok
+        end
       )
 
     assert resolved.last_polled_issues == %{}

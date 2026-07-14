@@ -393,7 +393,7 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
 
     sentinel = "ghp_terminal_verification_sentinel"
     marker = Path.join(Path.dirname(checkpoint_path(dir)), "membership.terminal-verification.json")
-    assert :ok = File.write(marker, String.duplicate(sentinel, 100))
+    assert :ok = File.write(marker, String.duplicate(sentinel, 200))
 
     recovered = start_store!(dir)
     snapshot = Store.snapshot(server: recovered)
