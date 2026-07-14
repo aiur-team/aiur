@@ -218,12 +218,10 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
   end
 
   defp start_task(state, identity) do
-    try do
-      {:ok, Task.Supervisor.async_nolink(state.task_supervisor, fn -> read(state, identity) end)}
-    catch
-      :exit, _reason -> :error
-      :error, _reason -> :error
-    end
+    {:ok, Task.Supervisor.async_nolink(state.task_supervisor, fn -> read(state, identity) end)}
+  catch
+    :exit, _reason -> :error
+    :error, _reason -> :error
   end
 
   defp read(%{reader: reader}, identity) when is_function(reader, 1), do: reader.(identity)
