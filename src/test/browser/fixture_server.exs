@@ -237,6 +237,12 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     live("/fixture", Aiur.BrowserHarness.FixtureLive, :index)
   end
 
+  # Route vendor assets through the production router so browser tests exercise
+  # the same authenticated controller and content-addressed paths as a release.
+  scope "/" do
+    forward("/", AiurWeb.Router)
+  end
+
   defp require_fixture_access(conn, opts), do: FixtureAuth.require_access(conn, opts)
 end
 
@@ -260,6 +266,9 @@ defmodule Aiur.BrowserHarness.FixtureServer do
   def run do
     {:ok, _} = Application.ensure_all_started(:bandit)
     {:ok, _} = Application.ensure_all_started(:phoenix_live_view)
+
+    System.put_env("AIUR_DASHBOARD_USERNAME", "browser_fixture")
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "browser_fixture_password")
 
     {:ok, _} =
       Supervisor.start_link(
