@@ -13,7 +13,7 @@
 | Asset | SHA-256 | Bytes | Local URL |
 | --- | --- | ---: | --- |
 | engine | `458fbe927f19d11d8d054e34b7587011b9a4d1ecbdfb688b60e491fbdfb2a8d7` | 1593716 | `/vendor/layout/elk-0.11.1/458fbe927f19d11d8d054e34b7587011b9a4d1ecbdfb688b60e491fbdfb2a8d7/elk-worker.min.js` |
-| worker | `7413e5e4a57279281bba75440420a083022954c8bf6b107df6a8fc20eb30c33a` | 16389 | `/vendor/layout/worker-v1/7413e5e4a57279281bba75440420a083022954c8bf6b107df6a8fc20eb30c33a/aiur-layout-worker.js` |
-| client | `186efc12223cddbca336fe2e3bf8223dca2a6dccd1ece7f3511d17e66dd1b0cc` | 15439 | `/vendor/layout/client-v1/186efc12223cddbca336fe2e3bf8223dca2a6dccd1ece7f3511d17e66dd1b0cc/aiur-layout-client.js` |
+| worker | `d66fbfcfa98828e7f53728852fd22603422423b856924085b1e86477dfaa4ef5` | 17076 | `/vendor/layout/worker-v1/d66fbfcfa98828e7f53728852fd22603422423b856924085b1e86477dfaa4ef5/aiur-layout-worker.js` |
+| client | `d02e197e052d28e36c96aa163e019d271e5c6ca3ae101490f60ce2c3c67c3a10` | 16230 | `/vendor/layout/client-v1/d02e197e052d28e36c96aa163e019d271e5c6ca3ae101490f60ce2c3c67c3a10/aiur-layout-client.js` |
 
 Run `npm run vendor:elk` from `src/browser` after an approved dependency upgrade. Run `npm run check:elk` to verify the committed runtime bytes and metadata.

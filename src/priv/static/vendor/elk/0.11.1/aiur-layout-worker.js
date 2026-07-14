@@ -1,11 +1,14 @@
 const PROTOCOL_VERSION = 1
 const MAX_REQUEST_BYTES = 256 * 1024
+const MAX_RESPONSE_BYTES = 256 * 1024
 const MAX_NODES = 100
 const MAX_EDGES = 1_000
 const MAX_CONSTRAINTS = 100
 const MAX_OPTIONS = 8
 const MAX_SECTIONS = 16
-const MAX_POINTS = 64
+const MAX_SECTION_POINTS = 64
+const MAX_BEND_POINTS = MAX_SECTION_POINTS - 2
+const MAX_ROUTE_POINTS = 8_000
 const MAX_DIAGNOSTICS = 10
 const MAX_DIMENSION = 4_096
 const MAX_COORDINATE = 4_095
@@ -122,7 +125,7 @@ function errorEnvelope(identity, code) {
   }
 }
 
-function serializedRequestSize(value) {
+function serializedPayloadSize(value) {
   try {
     return new TextEncoder().encode(JSON.stringify(value)).byteLength
   } catch (_error) {
@@ -169,7 +172,7 @@ function validateRequest(value) {
     options: validateOptions(value.options ?? {})
   }
 
-  if (serializedRequestSize(request) > MAX_REQUEST_BYTES) throw protocolError("invalid_request")
+  if (serializedPayloadSize(request) > MAX_REQUEST_BYTES) throw protocolError("invalid_request")
   return request
 }
 
@@ -248,7 +251,7 @@ async function layout(request) {
 
 async function loadEngine() {
   if (!enginePromise) {
-    enginePromise = Promise.resolve().then(() => {
+    const pendingEngine = Promise.resolve().then(() => {
       const resolved = engineAssetUrl()
 
       importScripts(resolved.href)
@@ -258,6 +261,11 @@ async function loadEngine() {
       const dispatch = self.onmessage
       self.onmessage = null
       return inlineEngine(dispatch)
+    })
+
+    enginePromise = pendingEngine
+    pendingEngine.catch(() => {
+      if (enginePromise === pendingEngine) enginePromise = undefined
     })
   }
 
@@ -411,13 +419,14 @@ function normalizeLayout(request, result) {
   const resultNodes = new Map(result.children.map((node) => [node.id, node]))
   const resultEdges = new Map(result.edges.map((edge) => [edge.id, edge]))
   const nodes = request.nodes.map((node) => normalizeNode(node, resultNodes.get(node.id)))
-  const edges = request.edges.map((edge) => normalizeEdge(edge, resultEdges.get(edge.id)))
+  const geometry = { routePoints: 0 }
+  const edges = request.edges.map((edge) => normalizeEdge(edge, resultEdges.get(edge.id), geometry))
   const externalStubs = request.nodes.filter((node) => node.stub).length
   const diagnostics = externalStubs === 0 ? [] : [{ code: "external_stubs", count: externalStubs }]
 
   if (diagnostics.length > MAX_DIAGNOSTICS) throw protocolError("invalid_engine_output")
 
-  return {
+  const response = {
     type: "result",
     version: PROTOCOL_VERSION,
     requestId: request.requestId,
@@ -426,6 +435,10 @@ function normalizeLayout(request, result) {
     edges,
     diagnostics
   }
+
+  if (serializedPayloadSize(response) > MAX_RESPONSE_BYTES) throw protocolError("layout_overflow")
+
+  return response
 }
 
 function validateResultIdentities(resultEntries, requestEntries) {
@@ -455,22 +468,26 @@ function normalizeNode(node, result) {
   }
 }
 
-function normalizeEdge(edge, result) {
+function normalizeEdge(edge, result, geometry) {
   if (!isPlainRecord(result)) throw protocolError("invalid_engine_output")
 
   const sections = result.sections ?? []
   if (!denseArray(sections, MAX_SECTIONS)) throw protocolError("invalid_engine_output")
 
-  return { id: edge.id, sections: sections.map(normalizeSection) }
+  return { id: edge.id, sections: sections.map((section) => normalizeSection(section, geometry)) }
 }
 
-function normalizeSection(section) {
+function normalizeSection(section, geometry) {
   if (!isPlainRecord(section) || !isPlainRecord(section.startPoint) || !isPlainRecord(section.endPoint)) {
     throw protocolError("invalid_engine_output")
   }
 
   const bendPoints = section.bendPoints ?? []
-  if (!denseArray(bendPoints, MAX_POINTS)) throw protocolError("invalid_engine_output")
+  if (!denseArray(bendPoints, MAX_BEND_POINTS)) throw protocolError("invalid_engine_output")
+
+  const pointCount = bendPoints.length + 2
+  if (geometry.routePoints + pointCount > MAX_ROUTE_POINTS) throw protocolError("layout_overflow")
+  geometry.routePoints += pointCount
 
   return {
     startPoint: normalizePoint(section.startPoint),

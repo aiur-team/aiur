@@ -729,7 +729,7 @@ test('worker validates direct boundary and client response matrices before geome
         ['nonFiniteCoordinate', (response) => { response.nodes[0].x = NaN }],
         ['outOfRangeCoordinate', (response) => { response.nodes[0].y = 4_097 }],
         ['excessSections', (response) => { response.edges[0].sections = Array.from({ length: 17 }, () => section) }],
-        ['excessPoints', (response) => { response.edges[0].sections = [{ ...section, bendPoints: Array.from({ length: 65 }, () => ({ x: 1, y: 1 })) }] }],
+        ['excessPoints', (response) => { response.edges[0].sections = [{ ...section, bendPoints: Array.from({ length: 63 }, () => ({ x: 1, y: 1 })) }] }],
         ['excessDiagnostics', (response) => { response.diagnostics = Array.from({ length: 11 }, () => ({ code: 'external_stubs', count: 1 })) }],
         ['balancedResultNodeHole', (response) => { response.nodes = balancedHole(response.nodes) }],
         ['balancedResultEdgeHole', (response) => { response.edges = balancedHole(response.edges) }],
@@ -738,7 +738,11 @@ test('worker validates direct boundary and client response matrices before geome
         ['balancedPointHole', (response) => { response.edges[0].sections = [{ ...section, bendPoints: balancedHole([{ x: 1, y: 1 }]) }] }]
       ].map(async ([name, mutate]) => [name, await responseWith(mutate)])))
 
-      return { direct, preflight, invalidPosts, malformedResponses }
+      const maximumSection = await responseWith((response) => {
+        response.edges[0].sections = [{ ...section, bendPoints: Array.from({ length: 62 }, () => ({ x: 1, y: 1 })) }]
+      })
+
+      return { direct, preflight, invalidPosts, malformedResponses, maximumSection }
     }, { urls, request: layoutRequest(2, { generation: 14 }) })
 
     expect(result.direct.unsupportedVersion).toMatchObject({ type: 'error', error: { code: 'unsupported_version' } })
@@ -753,6 +757,8 @@ test('worker validates direct boundary and client response matrices before geome
     for (const response of Object.values(result.malformedResponses)) {
       expect(response).toMatchObject({ type: 'error', error: { code: 'malformed_response' } })
     }
+    expect(result.maximumSection.type).toBe('result')
+    expect(result.maximumSection.edges[0].sections[0].bendPoints).toHaveLength(62)
   } finally {
     await context.close()
   }
@@ -776,6 +782,8 @@ test('worker rejects malformed engine identities and denied subresources with re
       case '14': edges.push({ ...edges[0] }); break;
       case '15': edges.pop(); break;
       case '16': edges.push({ id: 'edge_99', sections: [] }); break;
+      case '17': edges[0] = { ...edges[0], sections: [{ startPoint: { x: 0, y: 0 }, bendPoints: Array.from({ length: 62 }, () => ({ x: 0, y: 0 })), endPoint: { x: 1, y: 1 } }] }; break;
+      case '18': edges[0] = { ...edges[0], sections: [{ startPoint: { x: 0, y: 0 }, bendPoints: Array.from({ length: 63 }, () => ({ x: 0, y: 0 })), endPoint: { x: 1, y: 1 } }] }; break;
     }
     self.postMessage({ id: data.id, data: { children, edges } });
   };`
@@ -784,7 +792,7 @@ test('worker rejects malformed engine identities and denied subresources with re
     await context.route(urls.engine, (route) => route.fulfill({ contentType: 'application/javascript', body: malformedEngine }))
     await openFixture(page)
 
-    const malformed = await page.evaluate(async (payload) => {
+    const engineOutput = await page.evaluate(async (payload) => {
       const directWorkerRequest = (request) => new Promise((resolve, reject) => {
         const worker = new Worker(`${payload.urls.worker}?engine=${encodeURIComponent(payload.urls.engine)}`)
         worker.addEventListener('message', (event) => {
@@ -798,16 +806,25 @@ test('worker rejects malformed engine identities and denied subresources with re
         worker.postMessage(request)
       })
 
-      return Promise.all([11, 12, 13, 14, 15, 16].map(async (seed) => directWorkerRequest({
+      const responseFor = (seed) => directWorkerRequest({
         ...payload.request,
         requestId: `request_${seed}_2`,
         generation: seed,
         options: { ...payload.request.options, randomSeed: seed }
-      })))
+      })
+
+      return {
+        malformed: await Promise.all([11, 12, 13, 14, 15, 16].map(responseFor)),
+        maximumSection: await responseFor(17),
+        excessPoints: await responseFor(18)
+      }
     }, { urls, request: layoutRequest(2, { generation: 10 }) })
 
-    expect(malformed).toHaveLength(6)
-    expect(malformed.every((response) => response.error?.code === 'invalid_engine_output')).toBe(true)
+    expect(engineOutput.malformed).toHaveLength(6)
+    expect(engineOutput.malformed.every((response) => response.error?.code === 'invalid_engine_output')).toBe(true)
+    expect(engineOutput.maximumSection).toMatchObject({ type: 'result', requestId: 'request_17_2', generation: 17 })
+    expect(engineOutput.maximumSection.edges[0].sections[0].bendPoints).toHaveLength(62)
+    expect(engineOutput.excessPoints).toMatchObject({ type: 'error', error: { code: 'invalid_engine_output' } })
     expect(pageErrors).toEqual([])
   } finally {
     await context.close()
@@ -816,35 +833,153 @@ test('worker rejects malformed engine identities and denied subresources with re
   const recoveryContext = await browser.newContext({ httpCredentials: dashboardCredentials })
   const recoveryPage = await recoveryContext.newPage()
   const recoveryErrors = []
+  let engineRequests = 0
   recoveryPage.on('pageerror', (error) => recoveryErrors.push(error.message))
 
   try {
+    await recoveryContext.route(urls.engine, (route) => {
+      engineRequests += 1
+      return engineRequests === 1
+        ? route.fulfill({ status: 404, contentType: 'application/javascript', body: '' })
+        : route.continue()
+    })
     await openFixture(recoveryPage)
 
     const result = await recoveryPage.evaluate(async (payload) => {
       const { createLayoutWorkerClient } = await import(payload.urls.client)
       const deniedDigest = '0'.repeat(64)
       const deniedWorkerUrl = payload.urls.worker.replace(/[a-f0-9]{64}/, deniedDigest)
-      const deniedEngineUrl = payload.urls.engine.replace(/[a-f0-9]{64}/, deniedDigest)
       const deniedWorker = createLayoutWorkerClient({ workerUrl: deniedWorkerUrl, engineUrl: payload.urls.engine })
-      const deniedEngine = createLayoutWorkerClient({ workerUrl: payload.urls.worker, engineUrl: deniedEngineUrl })
+      const deniedEngine = createLayoutWorkerClient({ workerUrl: payload.urls.worker, engineUrl: payload.urls.engine })
       const workerResponse = await deniedWorker.layout(payload.request)
       const engineResponse = await deniedEngine.layout(payload.request)
       deniedWorker.dispose()
+      const recovery = await deniedEngine.layout({ ...payload.request, requestId: 'request_18_2', generation: 18 })
       deniedEngine.dispose()
-
-      const recovered = createLayoutWorkerClient({ workerUrl: payload.urls.worker, engineUrl: payload.urls.engine })
-      const recovery = await recovered.layout(payload.request)
-      recovered.dispose()
       return { workerResponse, engineResponse, recovery }
     }, { urls, request: layoutRequest(2, { generation: 17 }) })
 
     expect(result.workerResponse).toMatchObject({ type: 'error', requestId: 'request_17_2', generation: 17, error: { code: 'worker_failed' } })
     expect(result.engineResponse).toMatchObject({ type: 'error', requestId: 'request_17_2', generation: 17, error: { code: 'engine_failed' } })
-    expect(result.recovery).toMatchObject({ type: 'result', requestId: 'request_17_2', generation: 17 })
+    expect(result.recovery).toMatchObject({ type: 'result', requestId: 'request_18_2', generation: 18 })
+    expect(engineRequests).toBe(2)
     expect(JSON.stringify([result.workerResponse, result.engineResponse]).length).toBeLessThan(512)
     expect(recoveryErrors).toEqual([])
   } finally {
     await recoveryContext.close()
+  }
+})
+
+test('worker and client bound aggregate route geometry without delaying bounded responses', async ({ browser }) => {
+  const urls = await layoutAssetUrls()
+  const context = await browser.newContext({ httpCredentials: dashboardCredentials })
+  const page = await context.newPage()
+  const pageErrors = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
+
+  const oversizedEngine = `self.onmessage = ({ data }) => {
+    if (data.cmd === 'register') { self.postMessage({ id: data.id, data: {} }); return; }
+    const section = { startPoint: { x: 0, y: 0 }, bendPoints: Array.from({ length: 7 }, () => ({ x: 0, y: 0 })), endPoint: { x: 1, y: 1 } };
+    self.postMessage({ id: data.id, data: {
+      children: data.graph.children.map((node, index) => ({ id: node.id, x: index, y: index })),
+      edges: data.graph.edges.map((edge) => ({ id: edge.id, sections: [section] }))
+    } });
+  };`
+
+  try {
+    await context.route(urls.engine, (route) => route.fulfill({ contentType: 'application/javascript', body: oversizedEngine }))
+    await openFixture(page)
+
+    const result = await page.evaluate(async (payload) => {
+      const { createLayoutWorkerClient } = await import(payload.urls.client)
+      const workerUrl = `${payload.urls.worker}?engine=${encodeURIComponent(payload.urls.engine)}`
+      const maximumRequest = {
+        ...payload.request,
+        requestId: 'request_19_100',
+        generation: 19,
+        constraints: { lanes: [{ index: 0 }], phases: [{ index: 0 }] },
+        nodes: Array.from({ length: 100 }, (_, index) => ({ id: `node_${index}`, width: 1, height: 1, lane: 0, phase: 0 })),
+        edges: Array.from({ length: 1_000 }, (_, index) => ({ id: `edge_${index}`, source: 'node_0', target: 'node_1' }))
+      }
+      const directWorkerRequest = (candidate) => new Promise((resolve, reject) => {
+        const worker = new Worker(workerUrl)
+        worker.addEventListener('message', (event) => {
+          worker.terminate()
+          resolve(event.data)
+        }, { once: true })
+        worker.addEventListener('error', (event) => {
+          worker.terminate()
+          reject(new Error(event.message || 'direct worker failed'))
+        }, { once: true })
+        worker.postMessage(candidate)
+      })
+      const workerOverflow = await directWorkerRequest(maximumRequest)
+      const boundedSection = {
+        startPoint: { x: 1, y: 1 },
+        bendPoints: Array.from({ length: 6 }, () => ({ x: 1, y: 1 })),
+        endPoint: { x: 2, y: 2 }
+      }
+
+      class MaximumShapeWorker {
+        constructor() { this.listeners = new Map() }
+        addEventListener(name, callback) { this.listeners.set(name, callback) }
+        postMessage(candidate) {
+          const response = {
+            type: 'result',
+            version: 1,
+            requestId: candidate.requestId,
+            generation: candidate.generation,
+            nodes: candidate.nodes.map((node) => ({ id: node.id, x: 1, y: 1, width: node.width, height: node.height })),
+            edges: candidate.edges.map((edge) => ({ id: edge.id, sections: [boundedSection] })),
+            diagnostics: []
+          }
+          queueMicrotask(() => this.listeners.get('message')?.({ data: response }))
+        }
+        terminate() {}
+      }
+
+      const client = createLayoutWorkerClient({ workerUrl: payload.urls.worker, engineUrl: payload.urls.engine, WorkerConstructor: MaximumShapeWorker })
+      const startedAt = performance.now()
+      const boundedResponse = await client.layout(maximumRequest)
+      const elapsed = performance.now() - startedAt
+      client.dispose()
+
+      class OverBudgetShapeWorker {
+        constructor() { this.listeners = new Map() }
+        addEventListener(name, callback) { this.listeners.set(name, callback) }
+        postMessage(candidate) {
+          const response = {
+            type: 'result',
+            version: 1,
+            requestId: candidate.requestId,
+            generation: candidate.generation,
+            nodes: candidate.nodes.map((node) => ({ id: node.id, x: 1, y: 1, width: node.width, height: node.height })),
+            edges: candidate.edges.map((edge, index) => ({
+              id: edge.id,
+              sections: [{ ...boundedSection, bendPoints: Array.from({ length: index === candidate.edges.length - 1 ? 7 : 6 }, () => ({ x: 1, y: 1 })) }]
+            })),
+            diagnostics: []
+          }
+          queueMicrotask(() => this.listeners.get('message')?.({ data: response }))
+        }
+        terminate() {}
+      }
+
+      const overBudgetClient = createLayoutWorkerClient({ workerUrl: payload.urls.worker, engineUrl: payload.urls.engine, WorkerConstructor: OverBudgetShapeWorker })
+      const overBudgetResponse = await overBudgetClient.layout(maximumRequest)
+      overBudgetClient.dispose()
+      return { workerOverflow, boundedResponse, overBudgetResponse, elapsed }
+    }, { urls, request: layoutRequest(2, { generation: 19 }) })
+
+    expect(result.workerOverflow).toMatchObject({ type: 'error', error: { code: 'layout_overflow' } })
+    expect(result.boundedResponse).toMatchObject({ type: 'result', requestId: 'request_19_100', generation: 19 })
+    expect(result.boundedResponse.nodes).toHaveLength(100)
+    expect(result.boundedResponse.edges).toHaveLength(1_000)
+    expect(result.boundedResponse.edges.every((edge) => edge.sections[0].bendPoints.length === 6)).toBe(true)
+    expect(result.overBudgetResponse).toMatchObject({ type: 'error', error: { code: 'malformed_response' } })
+    expect(result.elapsed).toBeLessThan(1_000)
+    expect(pageErrors).toEqual([])
+  } finally {
+    await context.close()
   }
 })

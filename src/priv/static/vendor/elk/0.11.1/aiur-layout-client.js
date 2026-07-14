@@ -2,12 +2,15 @@ export const LAYOUT_PROTOCOL_VERSION = 1
 
 const REQUEST_TIMEOUT_MS = 5_000
 const MAX_REQUEST_BYTES = 256 * 1024
+const MAX_RESPONSE_BYTES = 256 * 1024
 const MAX_NODES = 100
 const MAX_EDGES = 1_000
 const MAX_CONSTRAINTS = 100
 const MAX_OPTIONS = 8
 const MAX_SECTIONS = 16
-const MAX_POINTS = 64
+const MAX_SECTION_POINTS = 64
+const MAX_BEND_POINTS = MAX_SECTION_POINTS - 2
+const MAX_ROUTE_POINTS = 8_000
 const MAX_DIAGNOSTICS = 10
 const MAX_DIMENSION = 4_096
 const generatedIdPatterns = {
@@ -131,6 +134,9 @@ export function createLayoutWorkerClient(options = {}) {
     }
 
     settle(key, response)
+    if (response.type === "error" && (response.error.code === "engine_failed" || response.error.code === "engine_unavailable")) {
+      restart("worker_failed")
+    }
   }
 
   function settle(key, response) {
@@ -226,7 +232,7 @@ function normalizeRequest(value) {
     options
   }
 
-  return serializedRequestSize(request) > MAX_REQUEST_BYTES ? null : request
+  return serializedPayloadSize(request) > MAX_REQUEST_BYTES ? null : request
 }
 
 function normalizeConstraints(value) {
@@ -295,7 +301,8 @@ function validResponse(value, entry) {
 function validResult(value, request) {
   if (!hasOnlyKeys(value, new Set(["type", "version", "requestId", "generation", "nodes", "edges", "diagnostics"]))) return false
   if (!denseArray(value.nodes, MAX_NODES) || !denseArray(value.edges, MAX_EDGES) || !denseArray(value.diagnostics, MAX_DIAGNOSTICS)) return false
-  if (!value.nodes.every(validResultNode) || !value.edges.every(validResultEdge) || !value.diagnostics.every(validDiagnostic)) return false
+  if (!value.nodes.every(validResultNode) || !validResultEdges(value.edges) || !value.diagnostics.every(validDiagnostic)) return false
+  if (serializedPayloadSize(value) > MAX_RESPONSE_BYTES) return false
 
   if (!sameIds(value.nodes, request.nodes) || !sameIds(value.edges, request.edges)) return false
 
@@ -310,14 +317,30 @@ function validResultNode(value) {
     positiveDimension(value.width) && positiveDimension(value.height)
 }
 
-function validResultEdge(value) {
-  return isRecord(value) && hasOnlyKeys(value, new Set(["id", "sections"])) && validId(value.id, "edge_") &&
-    denseArray(value.sections, MAX_SECTIONS) && value.sections.every(validSection)
+function validResultEdges(edges) {
+  let routePoints = 0
+
+  for (const edge of edges) {
+    if (!isRecord(edge) || !hasOnlyKeys(edge, new Set(["id", "sections"])) || !validId(edge.id, "edge_") || !denseArray(edge.sections, MAX_SECTIONS)) {
+      return false
+    }
+
+    for (const section of edge.sections) {
+      if (!isRecord(section) || !hasOnlyKeys(section, new Set(["startPoint", "bendPoints", "endPoint"])) || !denseArray(section.bendPoints, MAX_BEND_POINTS)) {
+        return false
+      }
+
+      routePoints += section.bendPoints.length + 2
+      if (routePoints > MAX_ROUTE_POINTS || !validSection(section)) return false
+    }
+  }
+
+  return true
 }
 
 function validSection(value) {
   return isRecord(value) && hasOnlyKeys(value, new Set(["startPoint", "bendPoints", "endPoint"])) &&
-    validPoint(value.startPoint) && denseArray(value.bendPoints, MAX_POINTS) &&
+    validPoint(value.startPoint) && denseArray(value.bendPoints, MAX_BEND_POINTS) &&
     value.bendPoints.every(validPoint) && validPoint(value.endPoint)
 }
 
@@ -342,7 +365,7 @@ function sameIds(result, request) {
   return resultIds.size === result.length && resultIds.size === request.length && request.every(({ id }) => resultIds.has(id))
 }
 
-function serializedRequestSize(value) {
+function serializedPayloadSize(value) {
   try {
     return new TextEncoder().encode(JSON.stringify(value)).byteLength
   } catch (_error) {
