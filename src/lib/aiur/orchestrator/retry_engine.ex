@@ -121,6 +121,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
   def wait_for_workspace_ownership(%State{} = state, issue_id, identifier, owner, wait)
       when is_binary(issue_id) and is_binary(identifier) and wait in [:waiting, :available] do
     running_entry = Map.get(state.running, issue_id)
+    workspace_ownership = state.dispatch_recovery.workspace_ownership
 
     if is_reference(Map.get(running_entry || %{}, :ref)) do
       Process.demonitor(running_entry.ref, [:flush])
@@ -131,9 +132,9 @@ defmodule Aiur.Orchestrator.RetryEngine do
     # retry left by an early :DOWN as well as the live entry; contention is an
     # orchestrator precondition, never a successful agent completion.
     workspace_ownership = %{
-      state.workspace_ownership
+      workspace_ownership
       | waits:
-          Map.put(state.workspace_ownership.waits, identifier, %{
+          Map.put(workspace_ownership.waits, identifier, %{
             issue_id: issue_id,
             identifier: identifier,
             owner: owner,
@@ -147,7 +148,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
       |> Map.put(:running, Map.delete(state.running, issue_id))
       |> Map.put(:claimed, MapSet.put(state.claimed, issue_id))
       |> Map.put(:completed, MapSet.delete(state.completed, issue_id))
-      |> Map.put(:workspace_ownership, workspace_ownership)
+      |> put_in([Access.key(:dispatch_recovery), Access.key(:workspace_ownership)], workspace_ownership)
 
     if wait == :available, do: release_workspace_wait(waiting_state, identifier), else: waiting_state
   end
@@ -169,21 +170,23 @@ defmodule Aiur.Orchestrator.RetryEngine do
   @doc false
   @spec release_workspace_wait(State.t(), String.t()) :: State.t()
   def release_workspace_wait(%State{} = state, identifier) when is_binary(identifier) do
-    case Map.pop(state.workspace_ownership.waits, identifier) do
+    workspace_ownership = state.dispatch_recovery.workspace_ownership
+
+    case Map.pop(workspace_ownership.waits, identifier) do
       {nil, _workspace_waits} ->
         state
 
       {%{issue_id: issue_id}, workspace_waits} ->
         workspace_ownership = %{
-          state.workspace_ownership
+          workspace_ownership
           | waits: workspace_waits,
-            ready: MapSet.put(state.workspace_ownership.ready, issue_id)
+            ready: MapSet.put(workspace_ownership.ready, issue_id)
         }
 
         %{
           state
           | claimed: MapSet.delete(state.claimed, issue_id),
-            workspace_ownership: workspace_ownership
+            dispatch_recovery: %{state.dispatch_recovery | workspace_ownership: workspace_ownership}
         }
     end
   end

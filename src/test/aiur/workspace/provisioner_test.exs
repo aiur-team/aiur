@@ -61,6 +61,17 @@ defmodule Aiur.Workspace.ProvisionerTest do
     assert File.read!(sentinel) == "wip"
   end
 
+  test "an incomplete Git checkout is reused but still requires bootstrap" do
+    workspace = Path.join(System.tmp_dir!(), "prov_unborn_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(workspace)
+    {_output, 0} = System.cmd("git", ["init", "--quiet", workspace], stderr_to_stdout: true)
+
+    on_exit(fn -> File.rm_rf!(workspace) end)
+
+    assert {:ok, ^workspace, false} = Provisioner.ensure_workspace(workspace, nil)
+    assert Provisioner.bootstrap_required?(workspace, nil, false)
+  end
+
   test "ensure_workspace/5 marks a logs-only directory for initial provisioning" do
     workspace = Path.join(System.tmp_dir!(), "prov_logs_only_#{System.unique_integer([:positive])}")
     log_path = Path.join([workspace, "logs", "agent.md"])

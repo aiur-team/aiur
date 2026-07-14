@@ -6,6 +6,11 @@ defmodule Aiur.Orchestrator.State do
   alias Aiur.{AgentQueueStore, Issue}
   alias Aiur.Orchestrator.{PauseResume, StatusReport}
 
+  @default_dispatch_recovery %{
+    workspace_ownership: %{waits: %{}, ready: MapSet.new()},
+    codex_thrash_budget: %{}
+  }
+
   @type t :: %__MODULE__{
           poll_interval_ms: integer() | nil,
           max_concurrent_agents: integer() | nil,
@@ -32,9 +37,11 @@ defmodule Aiur.Orchestrator.State do
           running: map(),
           completed: MapSet.t(),
           claimed: MapSet.t(),
-          workspace_ownership: %{waits: map(), ready: MapSet.t()},
+          dispatch_recovery: %{
+            workspace_ownership: %{waits: map(), ready: MapSet.t()},
+            codex_thrash_budget: map()
+          },
           retry_attempts: map(),
-          codex_thrash_budget: map(),
           model_fallback_waiting: MapSet.t(),
           agent_totals: map() | nil,
           agent_rate_limits: map() | nil,
@@ -67,9 +74,8 @@ defmodule Aiur.Orchestrator.State do
     running: %{},
     completed: MapSet.new(),
     claimed: MapSet.new(),
-    workspace_ownership: %{waits: %{}, ready: MapSet.new()},
+    dispatch_recovery: @default_dispatch_recovery,
     retry_attempts: %{},
-    codex_thrash_budget: %{},
     model_fallback_waiting: MapSet.new(),
     agent_totals: nil,
     agent_rate_limits: nil,

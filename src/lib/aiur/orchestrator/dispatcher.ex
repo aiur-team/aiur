@@ -234,14 +234,15 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp dispatch_after_workspace_wait_or_thrash_check(state, selected_issue, attempt, preferred_worker_host, opts) do
     runner = Keyword.get(opts, :runner, &AgentRunner.run/3)
+    workspace_ownership = state.dispatch_recovery.workspace_ownership
 
-    if MapSet.member?(state.workspace_ownership.ready, selected_issue.id) do
+    if MapSet.member?(workspace_ownership.ready, selected_issue.id) do
       workspace_ownership = %{
-        state.workspace_ownership
-        | ready: MapSet.delete(state.workspace_ownership.ready, selected_issue.id)
+        workspace_ownership
+        | ready: MapSet.delete(workspace_ownership.ready, selected_issue.id)
       }
 
-      state = %{state | workspace_ownership: workspace_ownership}
+      state = put_in(state.dispatch_recovery.workspace_ownership, workspace_ownership)
       dispatch_to_worker(state, selected_issue, attempt, preferred_worker_host, runner)
     else
       case check_thrash_budget(state, selected_issue.id, System.monotonic_time(:millisecond)) do
@@ -316,7 +317,11 @@ defmodule Aiur.Orchestrator.Dispatcher do
   def check_thrash_budget(%State{} = state, issue_id, now_ms) do
     entry = next_thrash_budget_entry(state, issue_id, now_ms)
 
-    state = %{state | codex_thrash_budget: Map.put(state.codex_thrash_budget, issue_id, entry)}
+    state =
+      put_in(
+        state.dispatch_recovery.codex_thrash_budget,
+        Map.put(state.dispatch_recovery.codex_thrash_budget, issue_id, entry)
+      )
 
     if entry.count > Config.codex_thrash_max_per_window() do
       {:trip, state}
@@ -328,7 +333,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   defp next_thrash_budget_entry(state, issue_id, now_ms) do
     window_ms = Config.codex_thrash_window_seconds() * 1_000
 
-    case Map.get(state.codex_thrash_budget, issue_id) do
+    case Map.get(state.dispatch_recovery.codex_thrash_budget, issue_id) do
       %{window_start_ms: start, count: count} when now_ms - start < window_ms ->
         %{window_start_ms: start, count: count + 1}
 
@@ -339,7 +344,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   @spec reset_thrash_budget(State.t(), String.t()) :: State.t()
   def reset_thrash_budget(%State{} = state, issue_id) do
-    %{state | codex_thrash_budget: Map.delete(state.codex_thrash_budget, issue_id)}
+    put_in(
+      state.dispatch_recovery.codex_thrash_budget,
+      Map.delete(state.dispatch_recovery.codex_thrash_budget, issue_id)
+    )
   end
 
   @spec revalidate_issue_for_dispatch(Issue.t(), function(), MapSet.t()) ::
@@ -482,7 +490,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp trip_thrash_breaker(%State{} = state, issue) do
-    count = get_in(state.codex_thrash_budget, [issue.id, :count]) || 0
+    count = get_in(state.dispatch_recovery.codex_thrash_budget, [issue.id, :count]) || 0
 
     Logger.warning("Codex thrash detected: issue_id=#{issue.id} issue_identifier=#{issue.identifier} restarts=#{count} window_seconds=#{Config.codex_thrash_window_seconds()}; skipping dispatch")
 

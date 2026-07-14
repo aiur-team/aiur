@@ -23,6 +23,13 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     :ok
   end
 
+  defp dispatch_recovery(codex_thrash_budget) do
+    %{
+      workspace_ownership: %{waits: %{}, ready: MapSet.new()},
+      codex_thrash_budget: codex_thrash_budget
+    }
+  end
+
   describe "CPU headroom recovery integration" do
     test "a second CPU sample re-ramps and consumes restored slots in the same poll" do
       write_workflow_file!(Workflow.workflow_file_path(),
@@ -134,7 +141,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
   describe "check_thrash_budget/3" do
     test "counts dispatches within window and trips over the threshold" do
-      state = %State{codex_thrash_budget: %{}}
+      state = %State{}
       issue_id = "issue-1"
       now_ms = 0
       # Default threshold is 6; 7 calls should trip
@@ -147,49 +154,46 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         end)
 
       assert result == :trip
-      assert get_in(state.codex_thrash_budget, [issue_id, :count]) == 7
+      assert get_in(state.dispatch_recovery.codex_thrash_budget, [issue_id, :count]) == 7
     end
 
     test "resets the window when enough time has lapsed" do
       state = %State{
-        codex_thrash_budget: %{
-          "issue-1" => %{window_start_ms: 0, count: 10}
-        }
+        dispatch_recovery: dispatch_recovery(%{"issue-1" => %{window_start_ms: 0, count: 10}})
       }
 
       # 61_000ms > default 60-second window
       assert {:ok, next_state} =
                Dispatcher.check_thrash_budget(state, "issue-1", 61_000)
 
-      assert get_in(next_state.codex_thrash_budget, ["issue-1", :count]) == 1
-      assert get_in(next_state.codex_thrash_budget, ["issue-1", :window_start_ms]) == 61_000
+      assert get_in(next_state.dispatch_recovery.codex_thrash_budget, ["issue-1", :count]) == 1
+      assert get_in(next_state.dispatch_recovery.codex_thrash_budget, ["issue-1", :window_start_ms]) == 61_000
     end
 
     test "accumulates count within the same window" do
       state = %State{
-        codex_thrash_budget: %{
-          "issue-1" => %{window_start_ms: 0, count: 2}
-        }
+        dispatch_recovery: dispatch_recovery(%{"issue-1" => %{window_start_ms: 0, count: 2}})
       }
 
       assert {:ok, next_state} = Dispatcher.check_thrash_budget(state, "issue-1", 1_000)
-      assert get_in(next_state.codex_thrash_budget, ["issue-1", :count]) == 3
+      assert get_in(next_state.dispatch_recovery.codex_thrash_budget, ["issue-1", :count]) == 3
     end
   end
 
   describe "reset_thrash_budget/2" do
     test "removes the entry for the given issue_id" do
       state = %State{
-        codex_thrash_budget: %{
-          "issue-1" => %{window_start_ms: 0, count: 5},
-          "issue-2" => %{window_start_ms: 0, count: 1}
-        }
+        dispatch_recovery:
+          dispatch_recovery(%{
+            "issue-1" => %{window_start_ms: 0, count: 5},
+            "issue-2" => %{window_start_ms: 0, count: 1}
+          })
       }
 
       result = Dispatcher.reset_thrash_budget(state, "issue-1")
 
-      refute Map.has_key?(result.codex_thrash_budget, "issue-1")
-      assert Map.has_key?(result.codex_thrash_budget, "issue-2")
+      refute Map.has_key?(result.dispatch_recovery.codex_thrash_budget, "issue-1")
+      assert Map.has_key?(result.dispatch_recovery.codex_thrash_budget, "issue-2")
     end
   end
 
@@ -316,22 +320,20 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       }
 
       assert :ok = Dispatcher.redispatch_ready?(state, issue, "worker-a", now_ms: 1_000)
-      assert state.codex_thrash_budget == %{}
+      assert state.dispatch_recovery.codex_thrash_budget == %{}
     end
 
     test "rejects a swap before teardown when the next restart would trip thrash protection" do
       issue = %Issue{id: "issue-1", identifier: "repo#1", selected_backend: "claude"}
 
       state = %State{
-        codex_thrash_budget: %{
-          issue.id => %{window_start_ms: 0, count: 6}
-        }
+        dispatch_recovery: dispatch_recovery(%{issue.id => %{window_start_ms: 0, count: 6}})
       }
 
       assert {:error, :thrash_circuit_open} =
                Dispatcher.redispatch_ready?(state, issue, nil, now_ms: 1_000)
 
-      assert get_in(state.codex_thrash_budget, [issue.id, :count]) == 6
+      assert get_in(state.dispatch_recovery.codex_thrash_budget, [issue.id, :count]) == 6
     end
 
     test "does not silently migrate a remote workspace when its worker is unavailable" do

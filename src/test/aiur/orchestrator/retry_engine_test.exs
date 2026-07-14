@@ -247,7 +247,10 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
         retry_attempts: %{
           issue_id => %{timer_ref: timer_ref, retry_token: retry_token, attempt: 1}
         },
-        codex_thrash_budget: %{issue_id => %{window_start_ms: 0, count: 4}}
+        dispatch_recovery: %{
+          workspace_ownership: %{waits: %{}, ready: MapSet.new()},
+          codex_thrash_budget: %{issue_id => %{window_start_ms: 0, count: 4}}
+        }
       }
 
       waiting =
@@ -264,15 +267,15 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       refute MapSet.member?(waiting.completed, issue_id)
       assert MapSet.member?(waiting.claimed, issue_id)
 
-      assert waiting.workspace_ownership.waits[identifier].owner ==
+      assert waiting.dispatch_recovery.workspace_ownership.waits[identifier].owner ==
                {:ok, %{generation: 7, phase: :active}}
 
-      assert waiting.codex_thrash_budget == state.codex_thrash_budget
+      assert waiting.dispatch_recovery.codex_thrash_budget == state.dispatch_recovery.codex_thrash_budget
 
       ready = RetryEngine.release_workspace_wait(waiting, identifier)
       refute MapSet.member?(ready.claimed, issue_id)
-      assert MapSet.member?(ready.workspace_ownership.ready, issue_id)
-      assert ready.codex_thrash_budget == state.codex_thrash_budget
+      assert MapSet.member?(ready.dispatch_recovery.workspace_ownership.ready, issue_id)
+      assert ready.dispatch_recovery.codex_thrash_budget == state.dispatch_recovery.codex_thrash_budget
 
       Process.exit(runner, :kill)
       assert_receive {:DOWN, ^exit_ref, :process, ^runner, :killed}, 2_000

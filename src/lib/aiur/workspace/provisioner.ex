@@ -98,6 +98,10 @@ defmodule Aiur.Workspace.Provisioner do
         record_prewarm_point(lifecycle, :existing, :skipped)
         {:ok, workspace, false}
 
+      File.dir?(workspace) and git_metadata_present?(workspace) ->
+        record_prewarm_point(lifecycle, :existing, :skipped)
+        {:ok, workspace, false}
+
       File.dir?(workspace) and incomplete_workspace?(workspace) ->
         record_prewarm_point(lifecycle, :incomplete, :rebuild)
         {:ok, workspace, true}
@@ -126,6 +130,9 @@ defmodule Aiur.Workspace.Provisioner do
   def ensure_workspace(workspace, nil) do
     cond do
       Checkout.valid_workspace?(workspace) ->
+        {:ok, workspace, false}
+
+      File.dir?(workspace) and git_metadata_present?(workspace) ->
         {:ok, workspace, false}
 
       File.dir?(workspace) and incomplete_workspace?(workspace) ->
@@ -202,6 +209,17 @@ defmodule Aiur.Workspace.Provisioner do
   def incomplete_workspace?(_workspace), do: true
 
   @doc false
+  @spec bootstrap_required?(Path.t(), worker_host(), boolean() | :materialized) :: boolean()
+  def bootstrap_required?(_workspace, _worker_host, true), do: true
+  def bootstrap_required?(_workspace, _worker_host, :materialized), do: false
+
+  # A pre-existing `.git` entry is an honest `created?: false` outcome even if
+  # its checkout is unusable. Keep the stricter checkout predicate for deciding
+  # whether it still needs the staged after_create reconstruction.
+  def bootstrap_required?(workspace, nil, false), do: incomplete_workspace?(workspace)
+  def bootstrap_required?(_workspace, worker_host, false) when is_binary(worker_host), do: false
+
+  @doc false
   @spec parse_remote_workspace_output(iodata()) ::
           {:ok, Path.t(), boolean()} | {:error, term()}
   def parse_remote_workspace_output(output) do
@@ -266,6 +284,8 @@ defmodule Aiur.Workspace.Provisioner do
     File.mkdir_p!(workspace)
     {:ok, workspace, true}
   end
+
+  defp git_metadata_present?(workspace), do: File.exists?(Path.join(workspace, ".git"))
 
   # When pre-warm is enabled and the shared base is ready, materialize the
   # workspace from it (copy-on-write where the filesystem supports it, carrying

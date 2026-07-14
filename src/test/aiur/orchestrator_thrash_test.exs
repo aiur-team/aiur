@@ -33,13 +33,13 @@ defmodule Aiur.OrchestratorThrashTest do
 
       # Once the window elapses the issue gets a fresh budget.
       assert {:ok, state} = run(state, @window_ms + 1)
-      assert get_in(state.codex_thrash_budget, [@issue_id, :count]) == 1
+      assert get_in(state.dispatch_recovery.codex_thrash_budget, [@issue_id, :count]) == 1
     end
 
     test "counts accumulate only within the active window" do
       assert {:ok, state} = run(%Orchestrator.State{}, 0)
       assert {:ok, state} = run(state, @window_ms - 1)
-      assert get_in(state.codex_thrash_budget, [@issue_id, :count]) == 2
+      assert get_in(state.dispatch_recovery.codex_thrash_budget, [@issue_id, :count]) == 2
     end
   end
 end
