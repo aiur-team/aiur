@@ -71,28 +71,30 @@ defmodule Aiur.AppServer.OperatorDelivery do
          payload_string,
          request_id,
          on_success,
-         _on_failure,
+         on_failure,
          pending_operator_requests
        ) do
-    TurnState.safe_invoke_success_callback(on_success, %{
-      request_id: request_id,
-      turn_id: turn_id,
-      payload: payload
-    })
+    next_state = %{state | pending_operator_requests: pending_operator_requests}
 
-    Messages.emit_message(
-      state.on_message,
-      :operator_turn_started,
-      %{payload: payload, raw: payload_string},
-      state.backend.metadata_from_message(session.port, payload)
-    )
+    if TurnState.provider_turn_retired?(state, turn_id) do
+      TurnState.safe_invoke_failure_callback(on_failure, {:provider_turn_retired, turn_id})
+      TurnState.maybe_finish_after_pending_response(next_state)
+    else
+      TurnState.safe_invoke_success_callback(on_success, %{
+        request_id: request_id,
+        turn_id: turn_id,
+        payload: payload
+      })
 
-    next_state =
-      state
-      |> Map.put(:pending_operator_requests, pending_operator_requests)
-      |> TurnState.register_provider_turn(turn)
+      Messages.emit_message(
+        state.on_message,
+        :operator_turn_started,
+        %{payload: payload, raw: payload_string},
+        state.backend.metadata_from_message(session.port, payload)
+      )
 
-    {:continue, next_state}
+      {:continue, TurnState.record_accepted_provider_turn(next_state, turn)}
+    end
   end
 
   defp handle_claimed_operator_response(

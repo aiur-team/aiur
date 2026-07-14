@@ -12,9 +12,9 @@ defmodule Aiur.Codex.Interrupts do
     if NotificationPolicy.no_active_turn_error?(error) do
       # Codex says "no active turn to interrupt" (-32600). The turn
       # ended on its own between us deciding to interrupt and codex
-      # processing the request. There's nothing left to interrupt —
-      # treat it the same as a successful interrupt so the Executor
-      # message / pause request gets handled on the next cycle.
+      # processing the request. This response is terminal proof even
+      # when no idle notification follows, so route the accepted action
+      # through the interrupted-turn boundary immediately.
       # Without this, the AgentRunner Task crashes with
       # `{:turn_interrupt_failed, ...}` and the orchestrator dumps a
       # `system:` line into the chat pane (recurrent issue
@@ -27,10 +27,8 @@ defmodule Aiur.Codex.Interrupts do
     end
   end
 
-  defp continue_after_no_active_turn(
-         %{interrupt_action: :pause} = state,
-         error
-       ) do
+  defp continue_after_no_active_turn(%{interrupt_action: action} = state, error)
+       when action in [:pause, :operator_message] do
     next_state = %{state | pending_interrupt_request_id: nil}
 
     TurnState.continue_after_turn_interrupted(next_state, %{
@@ -40,12 +38,8 @@ defmodule Aiur.Codex.Interrupts do
   end
 
   defp continue_after_no_active_turn(state, _error) do
-    next_state = %{state | pending_interrupt_request_id: nil, interrupt_action: nil}
-
-    if Map.get(state, :interrupt_idle_seen?, false) do
-      TurnState.complete_all_provider_turns(next_state)
-    else
-      {:continue, next_state}
-    end
+    state
+    |> Map.put(:pending_interrupt_request_id, nil)
+    |> TurnState.complete_all_provider_turns()
   end
 end

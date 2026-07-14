@@ -2280,11 +2280,21 @@ defmodule Aiur.CoreTest do
     end
   end
 
-  test "agent runner interrupts an active turn and drains the operator message as the next turn" do
+  test "agent runner drains an interrupting operator message after interrupted completion" do
+    assert_agent_runner_interrupt_operator(:interrupted_completion)
+  end
+
+  test "agent runner drains an interrupting operator message after response-only no-active-turn" do
+    assert_agent_runner_interrupt_operator(:no_active_turn)
+  end
+
+  defp assert_agent_runner_interrupt_operator(interrupt_outcome) do
+    outcome_name = Atom.to_string(interrupt_outcome)
+
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-agent-runner-interrupt-operator-#{System.unique_integer([:positive])}"
+        "aiur-elixir-agent-runner-interrupt-operator-#{outcome_name}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -2332,8 +2342,7 @@ defmodule Aiur.CoreTest do
             ;;
           *'"method":"turn/interrupt"'*)
             request_id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
-            printf '{"id":%s,"result":{}}\\n' "$request_id"
-            printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"interrupted"}}}'
+      #{operator_interrupt_frames(interrupt_outcome)}
             ;;
         esac
       done
@@ -2351,16 +2360,24 @@ defmodule Aiur.CoreTest do
         max_turns: 2
       )
 
-      orchestrator_name = Module.concat(__MODULE__, :InterruptOperatorOrchestrator)
+      orchestrator_name =
+        Module.concat(
+          __MODULE__,
+          "InterruptOperator#{Macro.camelize(outcome_name)}Orchestrator"
+        )
+
       {:ok, orchestrator_pid} = Orchestrator.start_link(name: orchestrator_name)
 
       on_exit(fn ->
         if Process.alive?(orchestrator_pid), do: Process.exit(orchestrator_pid, :normal)
       end)
 
+      issue_id = "issue-interrupt-operator-#{outcome_name}"
+      identifier = "MT-INTERRUPT-OPERATOR-#{String.upcase(outcome_name)}"
+
       issue = %Issue{
-        id: "issue-interrupt-operator",
-        identifier: "MT-253",
+        id: issue_id,
+        identifier: identifier,
         title: "Interrupt with operator message",
         description: "Stop the active turn and deliver the operator input next",
         state: "In Progress",
@@ -2380,11 +2397,11 @@ defmodule Aiur.CoreTest do
           )
         end)
 
-      assert_receive {:codex_worker_update, "issue-interrupt-operator", %{event: :session_started}}, 5_000
+      assert_receive {:codex_worker_update, ^issue_id, %{event: :session_started}}, 5_000
 
       :sys.replace_state(orchestrator_pid, fn state ->
         {queue_store, item} =
-          Aiur.AgentQueue.operator_message("MT-253", "stop and answer this", delivery_policy: :interrupt)
+          Aiur.AgentQueue.operator_message(identifier, "stop and answer this", delivery_policy: :interrupt)
           |> then(&Aiur.AgentQueueStore.enqueue(state.queue_store, &1))
 
         send(test_pid, {:queued_request_id, item.id})
@@ -2392,7 +2409,7 @@ defmodule Aiur.CoreTest do
       end)
 
       assert_receive {:queued_request_id, request_id}
-      send(task.pid, {:agent_queue_updated, "MT-253", request_id, true})
+      send(task.pid, {:agent_queue_updated, identifier, request_id, true})
 
       assert {:ok, :ok} = Task.yield(task, 15_000)
 
@@ -2417,11 +2434,24 @@ defmodule Aiur.CoreTest do
       assert length(turn_texts) == 2
       assert Enum.at(turn_texts, 0) =~ "You are an agent for this repository."
       assert Enum.at(turn_texts, 1) == "stop and answer this"
-      assert :empty == OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-253")
+      assert :empty == OperatorMessages.claim_next_queue_item(orchestrator_name, identifier)
     after
       System.delete_env("SYMP_TEST_CODEX_TRACE")
       File.rm_rf(test_root)
     end
+  end
+
+  defp operator_interrupt_frames(:interrupted_completion) do
+    """
+            printf '{"id":%s,"result":{}}\\n' "$request_id"
+            printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"interrupted"}}}'
+    """
+  end
+
+  defp operator_interrupt_frames(:no_active_turn) do
+    """
+            printf '{"id":%s,"error":{"code":-32600,"message":"no active turn"}}\\n' "$request_id"
+    """
   end
 
   test "agent runner delivers queued operator messages from a sub-turn checkpoint" do
@@ -2467,13 +2497,13 @@ defmodule Aiur.CoreTest do
           *'"method":"turn/start"'*)
             if [ "$first_turn_started" -eq 0 ]; then
               first_turn_started=1
-              printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-checkpoint-main"}}}'
+              request_id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
+              printf '{"id":%s,"result":{"turn":{"id":"turn-checkpoint-main"}}}\\n' "$request_id"
               printf '%s\\n' '{"method":"turn/plan/updated","params":{"plan":[{"step":"keep going"}]}}'
             else
               request_id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
-              printf '{"id":%s,"result":{"turn":{"id":"turn-checkpoint-followup"}}}\\n' "$request_id"
-              printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
-              printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
+              printf '{"id":%s,"result":{"turn":{"id":"turn-accepted-steering","status":"inProgress"}}}\\n' "$request_id"
+              printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-checkpoint-main","status":"completed"}}}'
               exit 0
             fi
             ;;

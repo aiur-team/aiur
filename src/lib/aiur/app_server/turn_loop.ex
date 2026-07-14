@@ -3,7 +3,7 @@ defmodule Aiur.AppServer.TurnLoop do
   Shared blocking receive loop for app-server turns.
   """
 
-  alias Aiur.AppServer.{Interrupts, Messages, OperatorDelivery}
+  alias Aiur.AppServer.{Interrupts, Messages, OperatorDelivery, TurnState}
 
   @spec receive_loop(map(), map()) :: term()
   def receive_loop(%{port: port} = session, state) do
@@ -67,9 +67,9 @@ defmodule Aiur.AppServer.TurnLoop do
     end
   end
 
-  defp handle_decoded_incoming(_session, state, %{"id" => request_id, "result" => _}, _payload_string, _port, _on_message)
+  defp handle_decoded_incoming(_session, state, %{"id" => request_id, "result" => _} = payload, _payload_string, _port, _on_message)
        when request_id == state.pending_interrupt_request_id do
-    {:continue, %{state | pending_interrupt_request_id: nil}}
+    TurnState.acknowledge_interrupt(state, payload)
   end
 
   defp handle_decoded_incoming(_session, state, %{"id" => request_id, "error" => error}, _payload_string, _port, _on_message)

@@ -154,8 +154,13 @@ defmodule Aiur.Codex.CodingAgent do
   def loop_state_extras(session) do
     %{
       active_turn_ids: MapSet.new(),
+      accepted_turn_ids: MapSet.new(),
+      retired_turn_ids: MapSet.new(),
+      anonymous_completion_consumed?: false,
       auto_approve_requests: session.auto_approve_requests,
-      turn_started?: false
+      turn_started?: false,
+      interrupt_acknowledged?: false,
+      interrupt_idle_seen?: false
     }
   end
 

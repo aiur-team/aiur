@@ -311,7 +311,9 @@ defmodule Aiur.Codex.TurnLoopTest do
       assert {:continue, idle_state} =
                TurnLoop.handle_method(%{port: port}, state, idle, Jason.encode!(idle), idle["method"])
 
-      assert Map.delete(idle_state, :interrupt_idle_seen?) == state
+      assert Map.drop(idle_state, [:interrupt_idle_seen?, :interrupt_idle_payload]) ==
+               Map.drop(state, [:interrupt_idle_seen?, :interrupt_idle_payload])
+
       assert idle_state.interrupt_idle_seen?
 
       interrupted = turn_completed_payload("turn-1", "interrupted")
@@ -342,7 +344,9 @@ defmodule Aiur.Codex.TurnLoopTest do
       assert {:continue, idle_state} =
                TurnLoop.handle_method(%{port: port}, state, idle, Jason.encode!(idle), idle["method"])
 
-      assert Map.delete(idle_state, :interrupt_idle_seen?) == state
+      assert Map.drop(idle_state, [:interrupt_idle_seen?, :interrupt_idle_payload]) ==
+               Map.drop(state, [:interrupt_idle_seen?, :interrupt_idle_payload])
+
       assert idle_state.interrupt_idle_seen?
 
       interrupted = turn_completed_payload("turn-1", "interrupted")
@@ -405,6 +409,11 @@ defmodule Aiur.Codex.TurnLoopTest do
       current_turn_id: "turn-1",
       turn_started?: false,
       active_turn_ids: MapSet.new(["turn-1"]),
+      accepted_turn_ids: MapSet.new(),
+      retired_turn_ids: MapSet.new(),
+      anonymous_completion_consumed?: false,
+      interrupt_acknowledged?: false,
+      interrupt_idle_seen?: false,
       backend: CodingAgent
     }
   end

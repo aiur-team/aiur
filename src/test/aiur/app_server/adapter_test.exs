@@ -47,6 +47,8 @@ defmodule Aiur.AppServer.AdapterTest do
           :idle_first -> [idle, no_active_turn]
           :response_first -> [no_active_turn, idle]
           :response_only -> [no_active_turn]
+          :idle_then_ack -> [idle, %{"id" => request_id, "result" => %{}}]
+          :ack_then_idle -> [%{"id" => request_id, "result" => %{}}, idle]
         end
 
       Enum.each(frames, fn payload ->
@@ -62,8 +64,47 @@ defmodule Aiur.AppServer.AdapterTest do
     def loop_state_extras(_session) do
       %{
         active_turn_ids: MapSet.new(),
+        accepted_turn_ids: MapSet.new(),
+        retired_turn_ids: MapSet.new(),
+        anonymous_completion_consumed?: false,
         auto_approve_requests: true,
-        turn_started?: true
+        turn_started?: true,
+        interrupt_acknowledged?: false,
+        interrupt_idle_seen?: false
+      }
+    end
+
+    def handle_interrupt_error(state, error), do: Interrupts.handle_interrupt_error(state, error)
+
+    def handle_method(session, state, payload, payload_string, method) do
+      TurnLoop.handle_method(session, state, payload, payload_string, method)
+    end
+
+    def handle_malformed(state, payload_string, port) do
+      TurnLoop.handle_malformed(state, payload_string, port)
+    end
+  end
+
+  defmodule CodexLifecycleBackend do
+    @behaviour Aiur.AppServer.Adapter
+
+    def backend_label, do: "Codex"
+    def send_frame(_port, _frame), do: :ok
+    def metadata_from_message(_port, _payload), do: %{}
+    def start_turn(session, _prompt, _issue), do: session.start_turn_result
+
+    def loop_state_extras(_session) do
+      %{
+        active_turn_ids: MapSet.new(),
+        accepted_turn_ids: MapSet.new(),
+        retired_turn_ids: MapSet.new(),
+        anonymous_completion_consumed?: false,
+        auto_approve_requests: true,
+        turn_started?: false,
+        interrupt_acknowledged?: false,
+        interrupt_idle_seen?: false,
+        pending_operator_requests: Process.get({__MODULE__, :pending_operator_requests}, %{}),
+        timeout_ms: 100
       }
     end
 
@@ -107,6 +148,99 @@ defmodule Aiur.AppServer.AdapterTest do
 
   test "run_turn preserves pause when no idle follows a no-active-turn interrupt response" do
     assert_deferred_idle_pause(:response_only, 43)
+  end
+
+  test "run_turn reconciles a successful pause acknowledgement after idle" do
+    assert_deferred_idle_pause(:idle_then_ack, 44)
+  end
+
+  test "run_turn reconciles idle after a successful pause acknowledgement" do
+    assert_deferred_idle_pause(:ack_then_idle, 45)
+  end
+
+  test "run_turn does not promote accepted steering response IDs without turn/started" do
+    port = cat_port()
+    parent = self()
+
+    Process.put(
+      {CodexLifecycleBackend, :pending_operator_requests},
+      pending_operator_request(77, parent)
+    )
+
+    response = %{
+      "id" => 77,
+      "result" => %{"turn" => %{"id" => "turn-accepted-only", "status" => "inProgress"}}
+    }
+
+    parent_completed = turn_completed("turn-1")
+    send_frames(port, [response, parent_completed])
+
+    assert {:ok, %{result: :turn_completed}} =
+             Adapter.run_turn(CodexLifecycleBackend, session(port), "prompt", issue(), [])
+
+    assert_receive {:accepted, "turn-accepted-only"}
+  end
+
+  test "run_turn rejects late response and start registration for a retired ID" do
+    port = cat_port()
+    parent = self()
+
+    Process.put(
+      {CodexLifecycleBackend, :pending_operator_requests},
+      pending_operator_request(78, parent)
+    )
+
+    completed_before_registration = turn_completed("turn-late")
+
+    late_response = %{
+      "id" => 78,
+      "result" => %{"turn" => %{"id" => "turn-late", "status" => "inProgress"}}
+    }
+
+    late_started = %{
+      "method" => "turn/started",
+      "params" => %{"turn" => %{"id" => "turn-late", "status" => "inProgress"}}
+    }
+
+    send_frames(port, [completed_before_registration, late_response, late_started, turn_completed("turn-1")])
+
+    assert {:ok, %{result: :turn_completed}} =
+             Adapter.run_turn(CodexLifecycleBackend, session(port), "prompt", issue(), [])
+
+    assert_receive {:failed, {:provider_turn_retired, "turn-late"}}
+    refute_receive {:accepted, "turn-late"}
+  end
+
+  test "run_turn consumes duplicate anonymous completions only once" do
+    port = cat_port()
+    parent = self()
+
+    child_started = %{
+      "method" => "turn/started",
+      "params" => %{"turn" => %{"id" => "turn-child", "status" => "inProgress"}}
+    }
+
+    anonymous_completed = %{"method" => "turn/completed", "params" => %{"turn" => %{"status" => "completed"}}}
+
+    send_frames(port, [
+      child_started,
+      anonymous_completed,
+      anonymous_completed,
+      turn_completed("turn-child")
+    ])
+
+    assert {:ok, %{result: :turn_completed}} =
+             Adapter.run_turn(
+               CodexLifecycleBackend,
+               session(port),
+               "prompt",
+               issue(),
+               on_message: fn message -> send(parent, {:lifecycle_event, message.event}) end
+             )
+
+    assert_receive {:lifecycle_event, :turn_completed}
+    assert_receive {:lifecycle_event, :turn_completed}
+    assert_receive {:lifecycle_event, :turn_completed}
   end
 
   defp assert_deferred_idle_pause(order, request_id) do
@@ -179,6 +313,28 @@ defmodule Aiur.AppServer.AdapterTest do
   end
 
   defp issue, do: %{id: 123, identifier: "ISSUE-1", title: "Test issue"}
+
+  defp pending_operator_request(request_id, parent) do
+    %{
+      request_id => %{
+        on_success: fn payload -> send(parent, {:accepted, payload.turn_id}) end,
+        on_failure: fn reason -> send(parent, {:failed, reason}) end
+      }
+    }
+  end
+
+  defp turn_completed(turn_id) do
+    %{
+      "method" => "turn/completed",
+      "params" => %{"turn" => %{"id" => turn_id, "status" => "completed"}}
+    }
+  end
+
+  defp send_frames(port, frames) do
+    Enum.each(frames, fn payload ->
+      send(self(), {port, {:data, {:eol, Jason.encode!(payload)}}})
+    end)
+  end
 
   defp cat_port do
     port =

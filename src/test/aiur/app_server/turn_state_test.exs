@@ -27,7 +27,7 @@ defmodule Aiur.AppServer.TurnStateTest do
 
   test "provider turn tracking is unique, status-aware, and seeded with the parent" do
     state =
-      state(%{active_turn_ids: MapSet.new()})
+      tracked_state(%{active_turn_ids: MapSet.new()})
       |> TurnState.initialize_turn_tracking()
 
     assert state.active_turn_ids == MapSet.new(["turn-1"])
@@ -41,9 +41,57 @@ defmodule Aiur.AppServer.TurnStateTest do
     assert state.outstanding_turns == 2
   end
 
+  test "accepted provider turns become active only after turn/started" do
+    state =
+      tracked_state()
+      |> TurnState.record_accepted_provider_turn(%{"id" => "turn-accepted", "status" => "inProgress"})
+
+    assert state.active_turn_ids == MapSet.new(["turn-1"])
+    assert state.accepted_turn_ids == MapSet.new(["turn-accepted"])
+    assert state.outstanding_turns == 1
+
+    state = TurnState.register_provider_turn(state, %{"id" => "turn-accepted", "status" => "inProgress"})
+
+    assert state.active_turn_ids == MapSet.new(["turn-1", "turn-accepted"])
+    assert state.accepted_turn_ids == MapSet.new()
+    assert state.outstanding_turns == 2
+  end
+
+  test "parent completion retires accepted turns that never started" do
+    state = %{
+      tracked_state()
+      | accepted_turn_ids: MapSet.new(["turn-response-1", "turn-response-2"])
+    }
+
+    parent_completed = %{"params" => %{"turn" => %{"id" => "turn-1"}}}
+
+    assert {:ok, :turn_completed} = TurnState.continue_after_turn_completion(state, parent_completed)
+  end
+
+  test "retired IDs cannot be resurrected by late responses or starts" do
+    state = %{
+      tracked_state()
+      | active_turn_ids: MapSet.new(["turn-1", "turn-other"]),
+        outstanding_turns: 2
+    }
+
+    completed_before_start = %{"params" => %{"turn" => %{"id" => "turn-late"}}}
+
+    assert {:continue, state} =
+             TurnState.continue_after_turn_completion(state, completed_before_start)
+
+    state = TurnState.record_accepted_provider_turn(state, %{"id" => "turn-late", "status" => "inProgress"})
+    state = TurnState.register_provider_turn(state, %{"id" => "turn-late", "status" => "inProgress"})
+
+    assert state.active_turn_ids == MapSet.new(["turn-1", "turn-other"])
+    assert state.accepted_turn_ids == MapSet.new()
+    assert state.retired_turn_ids == MapSet.new(["turn-late"])
+    assert state.outstanding_turns == 2
+  end
+
   test "provider completions retire only the matching active turn" do
     state =
-      state(%{active_turn_ids: MapSet.new(["turn-1", "turn-2"]), outstanding_turns: 2})
+      tracked_state(%{active_turn_ids: MapSet.new(["turn-1", "turn-2"]), outstanding_turns: 2})
 
     parent_completed = %{"params" => %{"turn" => %{"id" => "turn-1"}}}
 
@@ -63,6 +111,37 @@ defmodule Aiur.AppServer.TurnStateTest do
     assert {:ok, :turn_completed} = TurnState.continue_after_turn_completion(duplicate_state, child_completed)
   end
 
+  test "anonymous completion fallback retires one deterministic turn only once" do
+    state =
+      tracked_state(%{active_turn_ids: MapSet.new(["turn-1", "turn-2"]), outstanding_turns: 2})
+
+    assert {:continue, state} = TurnState.continue_after_turn_completion(state, %{})
+    assert state.active_turn_ids == MapSet.new(["turn-2"])
+    assert state.anonymous_completion_consumed?
+
+    assert {:continue, duplicate_state} = TurnState.continue_after_turn_completion(state, %{})
+    assert duplicate_state.active_turn_ids == MapSet.new(["turn-2"])
+    assert duplicate_state.outstanding_turns == 1
+
+    child_completed = %{"params" => %{"turn" => %{"id" => "turn-2"}}}
+    assert {:ok, :turn_completed} = TurnState.continue_after_turn_completion(duplicate_state, child_completed)
+  end
+
+  test "anonymous completion cannot retire identified child work after the parent retired" do
+    state =
+      tracked_state(%{active_turn_ids: MapSet.new(["turn-1", "turn-child"]), outstanding_turns: 2})
+
+    parent_completed = %{"params" => %{"turn" => %{"id" => "turn-1"}}}
+    assert {:continue, state} = TurnState.continue_after_turn_completion(state, parent_completed)
+
+    assert {:continue, state} = TurnState.continue_after_turn_completion(state, %{})
+    assert state.active_turn_ids == MapSet.new(["turn-child"])
+    assert state.anonymous_completion_consumed?
+
+    child_completed = %{"params" => %{"turn" => %{"id" => "turn-child"}}}
+    assert {:ok, :turn_completed} = TurnState.continue_after_turn_completion(state, child_completed)
+  end
+
   test "provider idle completes all active turns and fails pending requests" do
     parent = self()
 
@@ -71,7 +150,7 @@ defmodule Aiur.AppServer.TurnStateTest do
     }
 
     state =
-      state(%{
+      tracked_state(%{
         active_turn_ids: MapSet.new(["turn-1", "turn-2"]),
         outstanding_turns: 2,
         pending_operator_requests: pending
@@ -117,6 +196,18 @@ defmodule Aiur.AppServer.TurnStateTest do
         pending_interrupt_request_id: nil,
         interrupt_action: nil
       },
+      overrides
+    )
+  end
+
+  defp tracked_state(overrides \\ %{}) do
+    Map.merge(
+      state(%{
+        active_turn_ids: MapSet.new(["turn-1"]),
+        accepted_turn_ids: MapSet.new(),
+        retired_turn_ids: MapSet.new(),
+        anonymous_completion_consumed?: false
+      }),
       overrides
     )
   end

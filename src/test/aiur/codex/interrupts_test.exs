@@ -52,10 +52,16 @@ defmodule Aiur.Codex.InterruptsTest do
       assert_receive {:failed, {:turn_interrupted, %{"error" => ^error}}}
     end
 
-    test "treats no active turn messages as successful interrupts" do
-      state = %{pending_interrupt_request_id: 456, interrupt_action: :operator_message}
+    test "treats no active turn messages as a terminal operator-message boundary" do
+      state = %{
+        pending_interrupt_request_id: 456,
+        interrupt_action: :operator_message,
+        outstanding_turns: 1,
+        pending_operator_requests: %{},
+        pause_request_id: nil
+      }
 
-      assert {:continue, %{pending_interrupt_request_id: nil, interrupt_action: nil}} =
+      assert {:ok, :turn_interrupted_for_operator_message} =
                Interrupts.handle_interrupt_error(state, %{"message" => "there is no active turn to interrupt"})
     end
 

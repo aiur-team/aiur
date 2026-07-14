@@ -20,7 +20,68 @@ defmodule Aiur.AppServer.TurnState do
   def initialize_turn_tracking(state), do: state
 
   @doc false
+  @spec record_accepted_provider_turn(map(), map()) :: map()
+  def record_accepted_provider_turn(
+        %{
+          active_turn_ids: %MapSet{} = active_turn_ids,
+          accepted_turn_ids: %MapSet{} = accepted_turn_ids,
+          retired_turn_ids: %MapSet{} = retired_turn_ids
+        } = state,
+        %{"id" => turn_id} = turn
+      )
+      when is_binary(turn_id) do
+    cond do
+      not active_provider_turn?(turn) ->
+        %{
+          state
+          | accepted_turn_ids: MapSet.delete(accepted_turn_ids, turn_id),
+            retired_turn_ids: MapSet.put(retired_turn_ids, turn_id)
+        }
+
+      MapSet.member?(active_turn_ids, turn_id) or MapSet.member?(retired_turn_ids, turn_id) ->
+        state
+
+      true ->
+        %{state | accepted_turn_ids: MapSet.put(accepted_turn_ids, turn_id)}
+    end
+  end
+
+  def record_accepted_provider_turn(state, turn), do: register_provider_turn(state, turn)
+
+  @doc false
+  @spec provider_turn_retired?(map(), String.t()) :: boolean()
+  def provider_turn_retired?(%{retired_turn_ids: %MapSet{} = retired_turn_ids}, turn_id)
+      when is_binary(turn_id) do
+    MapSet.member?(retired_turn_ids, turn_id)
+  end
+
+  def provider_turn_retired?(_state, _turn_id), do: false
+
+  @doc false
   @spec register_provider_turn(map(), map()) :: map()
+  def register_provider_turn(
+        %{
+          active_turn_ids: %MapSet{} = active_turn_ids,
+          accepted_turn_ids: %MapSet{} = accepted_turn_ids,
+          retired_turn_ids: %MapSet{} = retired_turn_ids
+        } = state,
+        %{"id" => turn_id} = turn
+      )
+      when is_binary(turn_id) do
+    cond do
+      not active_provider_turn?(turn) ->
+        retire_identified_provider_turn(state, turn_id)
+
+      MapSet.member?(retired_turn_ids, turn_id) ->
+        state
+
+      true ->
+        state
+        |> Map.put(:accepted_turn_ids, MapSet.delete(accepted_turn_ids, turn_id))
+        |> put_active_turn_ids(MapSet.put(active_turn_ids, turn_id))
+    end
+  end
+
   def register_provider_turn(%{active_turn_ids: %MapSet{} = active_turn_ids} = state, %{"id" => turn_id} = turn)
       when is_binary(turn_id) do
     if active_provider_turn?(turn) do
@@ -46,6 +107,21 @@ defmodule Aiur.AppServer.TurnState do
 
   @spec continue_after_turn_completion(map(), map()) ::
           {:ok, :turn_completed} | {:continue, map()}
+  def continue_after_turn_completion(
+        %{
+          active_turn_ids: %MapSet{},
+          accepted_turn_ids: %MapSet{},
+          retired_turn_ids: %MapSet{}
+        } = state,
+        payload
+      ) do
+    {next_state, retired_turn_id} = retire_provider_completion(state, provider_turn_id(payload))
+
+    next_state
+    |> maybe_retire_unstarted_accepted_turns(retired_turn_id)
+    |> finish_or_continue()
+  end
+
   def continue_after_turn_completion(%{active_turn_ids: %MapSet{} = active_turn_ids} = state, payload) do
     next_active_turn_ids = retire_provider_turn(active_turn_ids, provider_turn_id(payload))
     state |> put_active_turn_ids(next_active_turn_ids) |> finish_or_continue()
@@ -55,6 +131,22 @@ defmodule Aiur.AppServer.TurnState do
 
   @doc false
   @spec complete_all_provider_turns(map()) :: {:ok, :turn_completed} | {:continue, map()}
+  def complete_all_provider_turns(
+        %{
+          active_turn_ids: %MapSet{} = active_turn_ids,
+          accepted_turn_ids: %MapSet{} = accepted_turn_ids,
+          retired_turn_ids: %MapSet{} = retired_turn_ids
+        } = state
+      ) do
+    next_state = %{
+      state
+      | accepted_turn_ids: MapSet.new(),
+        retired_turn_ids: retired_turn_ids |> MapSet.union(active_turn_ids) |> MapSet.union(accepted_turn_ids)
+    }
+
+    next_state |> put_active_turn_ids(MapSet.new()) |> finish_or_continue()
+  end
+
   def complete_all_provider_turns(%{active_turn_ids: %MapSet{}} = state) do
     state |> put_active_turn_ids(MapSet.new()) |> finish_or_continue()
   end
@@ -78,11 +170,10 @@ defmodule Aiur.AppServer.TurnState do
   @spec continue_after_turn_interrupted(map(), map()) ::
           {:paused, map()} | {:ok, :turn_interrupted_for_operator_message} | {:error, term()}
   def continue_after_turn_interrupted(state, payload) do
-    next_state = %{
+    next_state =
       state
-      | outstanding_turns: max(state.outstanding_turns - 1, 0),
-        pending_interrupt_request_id: nil
-    }
+      |> retire_all_provider_work()
+      |> Map.put(:pending_interrupt_request_id, nil)
 
     cond do
       is_integer(state.pause_request_id) ->
@@ -103,6 +194,31 @@ defmodule Aiur.AppServer.TurnState do
         fail_pending_operator_requests(next_state.pending_operator_requests, {:turn_interrupted, payload})
         {:error, {:turn_interrupted, payload}}
     end
+  end
+
+  @doc false
+  @spec acknowledge_interrupt(map(), map()) ::
+          {:paused, map()} | {:ok, :turn_interrupted_for_operator_message} | {:continue, map()}
+  def acknowledge_interrupt(%{interrupt_acknowledged?: _acknowledged?} = state, payload) do
+    state
+    |> Map.put(:pending_interrupt_request_id, nil)
+    |> Map.put(:interrupt_acknowledged?, true)
+    |> Map.put(:interrupt_acknowledgement, payload)
+    |> reconcile_interrupt_handshake()
+  end
+
+  def acknowledge_interrupt(state, _payload) do
+    {:continue, %{state | pending_interrupt_request_id: nil}}
+  end
+
+  @doc false
+  @spec observe_interrupt_idle(map(), map()) ::
+          {:paused, map()} | {:ok, :turn_interrupted_for_operator_message} | {:continue, map()}
+  def observe_interrupt_idle(state, payload) do
+    state
+    |> Map.put(:interrupt_idle_seen?, true)
+    |> Map.put(:interrupt_idle_payload, payload)
+    |> reconcile_interrupt_handshake()
   end
 
   @spec maybe_finish_after_pending_response(map()) ::
@@ -129,6 +245,51 @@ defmodule Aiur.AppServer.TurnState do
   defp provider_turn_id(%{"turn" => %{"id" => turn_id}}) when is_binary(turn_id), do: turn_id
   defp provider_turn_id(_payload), do: nil
 
+  defp retire_provider_completion(state, turn_id) when is_binary(turn_id) do
+    {retire_identified_provider_turn(state, turn_id), turn_id}
+  end
+
+  defp retire_provider_completion(%{anonymous_completion_consumed?: true} = state, nil), do: {state, nil}
+
+  defp retire_provider_completion(%{active_turn_ids: active_turn_ids} = state, nil) do
+    turn_id = anonymous_completion_target(active_turn_ids, state.current_turn_id)
+    consumed_state = %{state | anonymous_completion_consumed?: true}
+
+    case turn_id do
+      nil -> {consumed_state, nil}
+      turn_id -> {retire_identified_provider_turn(consumed_state, turn_id), turn_id}
+    end
+  end
+
+  defp retire_identified_provider_turn(
+         %{
+           active_turn_ids: active_turn_ids,
+           accepted_turn_ids: accepted_turn_ids,
+           retired_turn_ids: retired_turn_ids
+         } = state,
+         turn_id
+       ) do
+    state
+    |> Map.put(:accepted_turn_ids, MapSet.delete(accepted_turn_ids, turn_id))
+    |> Map.put(:retired_turn_ids, MapSet.put(retired_turn_ids, turn_id))
+    |> put_active_turn_ids(MapSet.delete(active_turn_ids, turn_id))
+  end
+
+  defp maybe_retire_unstarted_accepted_turns(state, retired_turn_id)
+       when retired_turn_id == state.current_turn_id do
+    %{
+      state
+      | accepted_turn_ids: MapSet.new(),
+        retired_turn_ids: MapSet.union(state.retired_turn_ids, state.accepted_turn_ids)
+    }
+  end
+
+  defp maybe_retire_unstarted_accepted_turns(state, _retired_turn_id), do: state
+
+  defp anonymous_completion_target(active_turn_ids, current_turn_id) do
+    if MapSet.member?(active_turn_ids, current_turn_id), do: current_turn_id
+  end
+
   defp retire_provider_turn(active_turn_ids, turn_id) when is_binary(turn_id) do
     MapSet.delete(active_turn_ids, turn_id)
   end
@@ -142,6 +303,40 @@ defmodule Aiur.AppServer.TurnState do
 
   defp put_active_turn_ids(state, active_turn_ids) do
     %{state | active_turn_ids: active_turn_ids, outstanding_turns: MapSet.size(active_turn_ids)}
+  end
+
+  defp retire_all_provider_work(
+         %{
+           active_turn_ids: active_turn_ids,
+           accepted_turn_ids: accepted_turn_ids,
+           retired_turn_ids: retired_turn_ids
+         } = state
+       ) do
+    %{
+      state
+      | active_turn_ids: MapSet.new(),
+        accepted_turn_ids: MapSet.new(),
+        retired_turn_ids: retired_turn_ids |> MapSet.union(active_turn_ids) |> MapSet.union(accepted_turn_ids),
+        outstanding_turns: 0
+    }
+  end
+
+  defp retire_all_provider_work(state) do
+    %{state | outstanding_turns: max(state.outstanding_turns - 1, 0)}
+  end
+
+  defp reconcile_interrupt_handshake(state) do
+    if state.interrupt_action in [:pause, :operator_message] and
+         Map.get(state, :interrupt_acknowledged?, false) and
+         Map.get(state, :interrupt_idle_seen?, false) do
+      continue_after_turn_interrupted(state, %{
+        "status" => "interrupted",
+        "acknowledgement" => Map.get(state, :interrupt_acknowledgement),
+        "idle" => Map.get(state, :interrupt_idle_payload)
+      })
+    else
+      {:continue, state}
+    end
   end
 
   @spec safe_invoke_success_callback((term() -> term()), term()) :: term() | :ok
