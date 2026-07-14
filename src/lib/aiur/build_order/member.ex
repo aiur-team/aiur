@@ -151,7 +151,8 @@ defmodule Aiur.BuildOrder.Member do
 
     diagnostics =
       Enum.reject(
-        [identity_diagnostic(identity), title_diagnostic, url_diagnostic] ++ marker_diagnostics ++ dependency_diagnostics,
+        [identity_diagnostic(identity), title_diagnostic, url_diagnostic] ++
+          marker_diagnostics ++ dependency_diagnostics,
         &is_nil/1
       )
 
@@ -200,7 +201,12 @@ defmodule Aiur.BuildOrder.Member do
   defp activity(%{activity: %Activity{} = activity}), do: activity
 
   defp activity(attributes),
-    do: Activity.new(Map.get(attributes, :execution_state), Map.get(attributes, :agent_stage), Map.get(attributes, :progress))
+    do:
+      Activity.new(
+        Map.get(attributes, :execution_state),
+        Map.get(attributes, :agent_stage),
+        Map.get(attributes, :progress)
+      )
 
   defp dependencies(attributes) do
     {dependencies, malformed} =
