@@ -13,6 +13,7 @@ tracker:
   github:
     repo: its-everdred/aiur
     label_prefix: agent
+    bot_account: its-applekid
 polling:
   interval_seconds: 5
 max_vertical_panes: 3
