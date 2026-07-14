@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 09:21 PDT)
+## Live Executor state (updated 2026-07-14 10:27 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -13,15 +13,15 @@ truth and supersedes stale pre-run wording later in the document.
 #1084 with 54 members #1085–#1138 and 107 exact blocker relations. The historical
 receipt gate remains operator-overridden for this run. Aiur is running from the
 repository root against `main`; current accepted `main` is
-`4f49e0a1d3c88054905b2edbaa6a3a1ffa2b7a10`, including DASH-017/#1089. The core
-program is 5/54 merged with 49 remaining.
+`b506146534f1ea1c9be5ee5b2a683683e8e2bf04`, including BO-009/#1096. The core
+program is 6/54 merged with 48 remaining.
 
 The measured runtime envelope is an eight-worker ceiling governed by Aiur's
-effective-slot controller. After the operator's 08:31 PDT quota reset, all
-eight intended tickets are again advancing: #1091 and #1151 have live Codex
-repair turns; #1088, #1103, #1109, #1161, and #1162 have fresh heads in CI;
-and green #1096 is in dual independent external review with its completed
-runtime generation explicitly held. #1090,
+effective-slot controller. After the operator's 10:15 PDT quota reset, six
+implementation/rework workers are live on #1088, #1097, #1109, #1151, #1161,
+and #1162. Green current-main #1091 is held outside provider capacity for two
+independent exact-head reviews; #1103 has published its current-main merge and
+is held for fresh CI. #1090,
 #1093, #1108, #1111, #1123, and #1130 remain
 protected behind #1161's workspace-replacement fix. Unrelated #855 stays
 paused and consumes no provider capacity. All providers are Codex Sol or
@@ -984,19 +984,57 @@ Terra; never dispatch Claude.
     of the newer terminal packet, so comment `4965195685` was updated to make
     the three owned repairs authoritative before a ticket-scoped recycle. This
     is additional evidence for active #1162, not a new issue.
+126. BO-010/#1097 initially started without a Git checkout. The Executor paused
+    only that ticket, materialized its canonical workspace from the prewarmed
+    base at exact current `main`, preserved its logs, and created branch
+    `aiur/1097-bo-bo-010-build`. Resuming the old provider generation then
+    failed with `invalid cwd` because it retained the removed inode; comment
+    `4971941425` records that direct recurrence for #1161. A fresh Terra
+    generation now owns the repaired workspace and is implementing normally.
+127. Both independent reviews of DASH-002/#1109 head `9aa45db0` confirmed two
+    P1s: corrupt-checkpoint quarantine can precede durable degraded-state
+    persistence, and the initial zero-delay poll can still escape the queue
+    test's freeze helper. They also recorded stale-base and idle-terminal
+    persistence gaps. The consolidated contained packet is comment
+    `4971925799`; a fresh worker is repairing those findings without a new
+    ticket.
+128. BO-002/#1091 merged current `main`, pushed `d384f538`, and passed every
+    required CI job. `origin/main` is its ancestor and two independent
+    exact-head reviews are running. BO-016/#1103 merged current `main`, pushed
+    `cd0fec80`, and entered fresh CI after its sanitizer repairs. Neither
+    completed generation consumes an implementation slot while those external
+    gates run.
+129. The operator reset the Codex quota at 10:15 PDT. Aiur observed Codex
+    available again (weekly usage 13% at 10:23), but completed generations for
+    #1088, #1151, and #1162 did not consume direct messages. The Executor
+    deactivated and restarted only those ticket generations on their preserved
+    workspaces; all six actionable workers are now live on Sol/Terra and Claude
+    remains unused. #1091 is intentionally in a non-active human-review state
+    while external review owns its gate.
+130. The live daemon twice crashed and restarted `Aiur.IssueLog` while
+    formatting an attention-event source map through `String.Chars` at
+    `issue_log.ex:390`. Agents continued and durable ticket logs remained
+    available. This is a reproducible P2/P3 observability defect under the
+    current evidence, so scope freeze records it here rather than filing or
+    dispatching another Build Order blocker; promote only if it loses evidence
+    or blocks dashboard acceptance.
+131. The 10:26 hourly Executor retrospective found an action-dense interval:
+    BO-009 merged, BO-010 was recovered, dual-review findings were routed, and
+    the quota-reset fleet was restored. No repeated monitoring-only period was
+    observed. Keep the adaptive 2–20 minute event-first cadence, record every
+    wake outcome, and reserve forced checks for five-minute reporting
+    boundaries.
 
-At 10:02 PDT the core graph is 6/54 accepted. Four intended Codex workers are
-actively turning, #1151 is rework-queued with a corrected Workpad, and two
-background reviewers are auditing #1109 after finishing #1096; the third slot
-is reserved for the next exact-green head.
+At 10:27 PDT the core graph is 6/54 accepted. Six intended Codex workers are
+actively turning, two background reviewers are auditing green current-main
+#1091, and #1103 is in fresh current-main CI.
 #1090, #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds
 until #1161 lands.
-The latest agent-emitted progress evidence is 1088=80, 1091=60, 1096=100
-(merged), 1103=70, 1109=90, 1151=90, 1161=20, and 1162=80. #1097 has a live
-worker but no emitted percentage yet, so the preview names that state instead
-of inventing progress. Build-gate load remains the measured capacity
-constraint, so retain the eight-worker ceiling and prefer logs/GitHub evidence
-after a control-RPC timeout. No additional core ticket is safely
+The latest agent-emitted progress evidence is 1088=70, 1091=90, 1096=100
+(merged), 1097=50, 1103=80, 1109=60, 1151=70, 1161=60, and 1162=80.
+Concurrent test and Dialyzer work briefly raised host load above 23 while
+memory remained healthy, so retain the eight-worker ceiling and prefer
+logs/GitHub evidence after a control-RPC timeout. No additional core ticket is safely
 dependency-ready outside the held/gated set. Treat completed turns, stale
 bases, and green builds with unmet acceptance criteria as pending Executor
 work, not merge-ready truth.
