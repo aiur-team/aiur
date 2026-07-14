@@ -126,17 +126,12 @@ defmodule Aiur.Orchestrator.OperatorMessages do
       AgentQueue.coordination_event(identifier, :events_digest, body, delivery_opts)
       |> then(&Aiur.AgentQueueStore.enqueue(state.queue_store, &1))
 
-    next_state = %{state | queue_store: queue_store}
+    next_state =
+      %{state | queue_store: queue_store}
+      |> maybe_replace_completed_runner(running_entry)
 
-    case running_entry do
-      nil ->
-        :ok
-
-      running_entry ->
-        DeliveryPolicy.notify_running_queue_update(running_entry, item)
-    end
-
-    maybe_replace_completed_runner(next_state, running_entry)
+    notify_current_running_queue_update(next_state, identifier, item)
+    next_state
   end
 
   # The orchestrator may queue a terminal CI event synchronously before it
@@ -480,19 +475,20 @@ defmodule Aiur.Orchestrator.OperatorMessages do
 
   defp finish_operator_enqueue(state, running_entry, attrs, %{mode: :plain}) do
     {queue_store, item} = AgentQueueStore.enqueue(state.queue_store, attrs)
-    DeliveryPolicy.notify_running_queue_update(running_entry, item)
     next_state = maybe_replace_completed_runner(%{state | queue_store: queue_store}, running_entry)
+    notify_current_running_queue_update(next_state, item.target_issue_identifier, item)
     {{:ok, item.id}, next_state}
   end
 
   defp finish_operator_enqueue(state, running_entry, attrs, %{mode: :correlated} = request) do
     case AgentQueueStore.enqueue_correlated(state.queue_store, attrs, retry_failed: request.retry_failed) do
       {:ok, queue_store, item, status} ->
+        next_state = maybe_replace_completed_runner(%{state | queue_store: queue_store}, running_entry)
+
         if status in [:accepted, :retried] do
-          DeliveryPolicy.notify_running_queue_update(running_entry, item)
+          notify_current_running_queue_update(next_state, item.target_issue_identifier, item)
         end
 
-        next_state = maybe_replace_completed_runner(%{state | queue_store: queue_store}, running_entry)
         {{:ok, %{status: status, item: item}}, next_state}
 
       {:error, _reason} = error ->
@@ -516,6 +512,16 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   end
 
   defp maybe_replace_completed_runner(state, _running_entry), do: state
+
+  defp notify_current_running_queue_update(state, identifier, item) do
+    case State.find_running_by_identifier(state.running, identifier) do
+      running_entry when is_map(running_entry) ->
+        DeliveryPolicy.notify_running_queue_update(running_entry, item)
+
+      nil ->
+        :ok
+    end
+  end
 
   @spec maybe_emit_agent_control_alert(atom(), atom(), map()) :: :ok
   def maybe_emit_agent_control_alert(

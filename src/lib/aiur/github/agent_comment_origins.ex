@@ -9,9 +9,48 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
   @max_origins_per_ticket 100
 
   @doc false
-  @spec with_lock((-> term())) :: term()
+  @spec with_lock((-> term())) :: term() | {:error, term()}
   def with_lock(fun) when is_function(fun, 0) do
-    path = path_for()
+    with {:ok, path} <- path_for() do
+      with_lock(path, fun)
+    end
+  end
+
+  @doc false
+  @spec record_gh_pr_comment(String.t() | integer(), String.t(), String.t(), integer() | term()) ::
+          :ok | :ignored | {:error, term()}
+  def record_gh_pr_comment(ticket, command, output, exit_code)
+      when is_binary(command) and is_binary(output) and exit_code == 0 do
+    with true <- agent_comment_command?(command),
+         {:ok, comment_id} <- gh_comment_id_from_output(output) do
+      Logger.info("Recording agent-authored PR conversation comment: ticket=#{ticket} comment_id=#{comment_id}")
+      record(ticket, %{"id" => comment_id})
+    else
+      false ->
+        :ignored
+
+      {:error, reason} ->
+        Logger.warning(
+          "Agent PR comment completed without durable origin: " <>
+            "ticket=#{inspect(ticket)} reason=#{inspect(reason)}"
+        )
+
+        {:error, reason}
+    end
+  end
+
+  def record_gh_pr_comment(_ticket, _command, _output, _exit_code), do: :ignored
+
+  @doc false
+  @spec path_for() :: {:ok, Path.t()} | {:error, term()}
+  def path_for do
+    case Application.get_env(:aiur, :agent_comment_origins_path) do
+      path when is_binary(path) and path != "" -> {:ok, path}
+      _ -> stable_path_for()
+    end
+  end
+
+  defp with_lock(path, fun) do
     lock_marker = {__MODULE__, path}
 
     if Process.get(lock_marker) == true do
@@ -36,9 +75,10 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
   @doc false
   @spec record(String.t() | integer(), map(), keyword()) :: :ok | {:error, term()}
   def record(ticket, verified_comment, opts) when is_map(verified_comment) and is_list(opts) do
-    with {:ok, ticket} <- normalize_ticket(ticket),
+    with {:ok, path} <- path_for(),
+         {:ok, ticket} <- normalize_ticket(ticket),
          {:ok, comment_id} <- comment_id(verified_comment) do
-      persist(ticket, comment_id, opts)
+      persist(path, ticket, comment_id, opts)
     end
   end
 
@@ -46,9 +86,10 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
 
   @spec origin(String.t() | integer(), map()) :: :agent | :external
   def origin(ticket, comment) when is_map(comment) do
-    with {:ok, ticket} <- normalize_ticket(ticket),
+    with {:ok, path} <- path_for(),
+         {:ok, ticket} <- normalize_ticket(ticket),
          {:ok, comment_id} <- comment_id(comment),
-         {:ok, origins} <- with_lock(&load_origins/0) do
+         {:ok, origins} <- with_lock(path, fn -> load_origins(path) end) do
       if comment_id in Map.get(origins, ticket, []), do: :agent, else: :external
     else
       {:error, reason} ->
@@ -63,19 +104,12 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
 
   def origin(_ticket, _comment), do: :external
 
-  @doc false
-  @spec path_for() :: Path.t()
-  def path_for do
-    Application.get_env(:aiur, :agent_comment_origins_path) ||
-      Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.agent-comment-origins.json")
-  end
-
-  defp persist(ticket, comment_id, opts) do
-    with_lock(fn ->
-      with {:ok, origins} <- load_origins() do
+  defp persist(path, ticket, comment_id, opts) do
+    with_lock(path, fn ->
+      with {:ok, origins} <- load_origins(path) do
         run_after_load_hook(Keyword.get(opts, :after_load), ticket, origins)
         ids = [comment_id | Map.get(origins, ticket, [])] |> Enum.uniq() |> Enum.take(@max_origins_per_ticket)
-        JsonStore.write!(path_for(), %{"origins" => Map.put(origins, ticket, ids)})
+        JsonStore.write!(path, %{"origins" => Map.put(origins, ticket, ids)})
         :ok
       end
     end)
@@ -91,7 +125,13 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
   defp restore_lock_marker(lock_marker, :unset), do: Process.delete(lock_marker)
   defp restore_lock_marker(lock_marker, previous), do: Process.put(lock_marker, previous)
 
-  defp load_origins(path \\ path_for()) do
+  defp stable_path_for do
+    with {:ok, state_dir} <- Paths.decision_state_dir() do
+      {:ok, Path.join(state_dir, "agent-comment-origins.json")}
+    end
+  end
+
+  defp load_origins(path) do
     case JsonStore.read(path, %{}) do
       {:ok, %{} = persisted} -> {:ok, normalize_origins(Map.get(persisted, "origins", %{}))}
       {:ok, _other} -> {:error, :invalid_store_shape}
@@ -141,6 +181,28 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
 
       _other ->
         {:error, :missing_comment_id}
+    end
+  end
+
+  defp agent_comment_command?(command) do
+    gh_pr_comment?(command) or gh_api_comment_post?(command)
+  end
+
+  defp gh_pr_comment?(command) do
+    Regex.match?(~r/(?:\A|[^[:alnum:]_])gh\s+pr\s+comment(?:\s|\z)/, command)
+  end
+
+  defp gh_api_comment_post?(command) do
+    Regex.match?(~r/(?:\A|[^[:alnum:]_])gh\s+api(?:\s|\z)/, command) and
+      Regex.match?(~r{/issues/\d+/comments(?:\s|\z)}, command) and
+      Regex.match?(~r/(?:--method|-X)\s*=?\s*POST\b/i, command)
+  end
+
+  defp gh_comment_id_from_output(output) do
+    case Regex.run(~r/#issuecomment-(\d+)\b/, output) ||
+           Regex.run(~r/"id"\s*:\s*(\d+)\b/, output) do
+      [_, comment_id] -> {:ok, comment_id}
+      _ -> {:error, :gh_pr_comment_id_missing}
     end
   end
 end

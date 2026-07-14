@@ -484,16 +484,28 @@ defmodule Aiur.AgentQueueStore do
       next_store =
         store_acc
         |> put_item(updated)
-        |> maybe_append_pending_after_restore(updated)
+        |> maybe_restore_pending_id(updated)
 
       {next_store, [updated | updated_items]}
     end)
     |> then(fn {updated_store, updated_items} -> {updated_store, Enum.reverse(updated_items)} end)
   end
 
-  defp maybe_append_pending_after_restore(store, %AgentQueueItem{status: :pending, target_issue_identifier: target, id: id}) do
-    append_pending_id(store, target, id)
+  defp maybe_restore_pending_id(
+         %__MODULE__{} = store,
+         %AgentQueueItem{status: :pending, target_issue_identifier: target, id: id}
+       ) do
+    pending_ids = Map.get(store.pending_ids_by_target, target, [])
+
+    restored_pending_ids =
+      [id | pending_ids]
+      |> Enum.uniq()
+      |> Enum.map(&Map.fetch!(store.items, &1))
+      |> sort_items()
+      |> Enum.map(& &1.id)
+
+    %{store | pending_ids_by_target: Map.put(store.pending_ids_by_target, target, restored_pending_ids)}
   end
 
-  defp maybe_append_pending_after_restore(store, _item), do: store
+  defp maybe_restore_pending_id(store, _item), do: store
 end

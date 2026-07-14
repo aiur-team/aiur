@@ -13,6 +13,7 @@ defmodule Aiur.AgentRunner.CommentContext do
 
   alias Aiur.AgentRunner.BootstrapDigest
   alias Aiur.Events.{IdGenerator, Sanitizer}
+  alias Aiur.GitHub.AgentCommentOrigins
   alias Aiur.{Issue, Tracker}
 
   @doc """
@@ -28,13 +29,14 @@ defmodule Aiur.AgentRunner.CommentContext do
   def events(%Issue{identifier: identifier}, fetchers)
       when is_binary(identifier) do
     {issue_comments, cutoff} = issue_comment_context(identifier, fetchers)
+    origin_resolver = Map.get(fetchers, :comment_origin_resolver, &AgentCommentOrigins.origin/2)
 
     issue_events =
       issue_comments
       |> comments_after_workpad(cutoff)
-      |> comments_to_events("ticket.#{identifier}.issue.commented")
+      |> comments_to_events("ticket.#{identifier}.issue.commented", identifier, origin_resolver)
 
-    pr_events = pr_comment_context_events(identifier, fetchers, cutoff)
+    pr_events = pr_comment_context_events(identifier, fetchers, cutoff, origin_resolver)
 
     Enum.uniq_by(issue_events ++ pr_events, &BootstrapDigest.bootstrap_event_key/1)
   end
@@ -52,29 +54,40 @@ defmodule Aiur.AgentRunner.CommentContext do
     end
   end
 
-  defp pr_comment_context_events(identifier, fetchers, cutoff) do
+  defp pr_comment_context_events(identifier, fetchers, cutoff, origin_resolver) do
     case fetchers.open_pr.(identifier) do
-      {:ok, %{} = pr} -> pr_comment_context_events_for_pr(identifier, pr_number(pr), fetchers, cutoff)
-      {:ok, nil} -> []
-      {:error, reason} -> log_comment_context_open_pr_failed(identifier, reason)
+      {:ok, %{} = pr} ->
+        pr_comment_context_events_for_pr(identifier, pr_number(pr), fetchers, cutoff, origin_resolver)
+
+      {:ok, nil} ->
+        []
+
+      {:error, reason} ->
+        log_comment_context_open_pr_failed(identifier, reason)
     end
   end
 
-  defp pr_comment_context_events_for_pr(_identifier, nil, _fetchers, _cutoff), do: []
+  defp pr_comment_context_events_for_pr(_identifier, nil, _fetchers, _cutoff, _origin_resolver), do: []
 
-  defp pr_comment_context_events_for_pr(identifier, pr_number, fetchers, cutoff) do
+  defp pr_comment_context_events_for_pr(identifier, pr_number, fetchers, cutoff, origin_resolver) do
     fetch_comment_events(
       "ticket.#{identifier}.issue.commented",
+      identifier,
+      origin_resolver,
       fn -> fetchers.issue_comments.(pr_number) end,
       cutoff
     ) ++
       fetch_comment_events(
         "ticket.#{identifier}.pr.review_comment",
+        identifier,
+        origin_resolver,
         fn -> fetchers.pr_review_comments.(pr_number) end,
         cutoff
       ) ++
       fetch_unaddressed_review_thread_events(
         "ticket.#{identifier}.pr.review_comment",
+        identifier,
+        origin_resolver,
         Map.get(fetchers, :unaddressed_pr_review_thread_comments),
         pr_number
       )
@@ -90,16 +103,18 @@ defmodule Aiur.AgentRunner.CommentContext do
       issue_comments: &Tracker.fetch_classified_issue_comments/1,
       open_pr: &Tracker.fetch_open_pull_request_for_branch/1,
       pr_review_comments: &Tracker.fetch_classified_pr_review_comments/1,
-      unaddressed_pr_review_thread_comments: &Tracker.fetch_unaddressed_pr_review_thread_comments/1
+      unaddressed_pr_review_thread_comments: &Tracker.fetch_unaddressed_pr_review_thread_comments/1,
+      comment_origin_resolver: &AgentCommentOrigins.origin/2
     }
   end
 
-  defp fetch_comment_events(topic, fetch_fun, cutoff) when is_function(fetch_fun, 0) do
+  defp fetch_comment_events(topic, identifier, origin_resolver, fetch_fun, cutoff)
+       when is_function(fetch_fun, 0) do
     case fetch_fun.() do
       {:ok, comments} when is_list(comments) ->
         comments
         |> comments_after_workpad(cutoff)
-        |> comments_to_events(topic)
+        |> comments_to_events(topic, identifier, origin_resolver)
 
       {:error, reason} ->
         Logger.warning("comment_context fetch_failed topic=#{topic} reason=#{inspect(reason)}")
@@ -107,13 +122,13 @@ defmodule Aiur.AgentRunner.CommentContext do
     end
   end
 
-  defp fetch_unaddressed_review_thread_events(_topic, nil, _pr_number), do: []
+  defp fetch_unaddressed_review_thread_events(_topic, _identifier, _origin_resolver, nil, _pr_number), do: []
 
-  defp fetch_unaddressed_review_thread_events(topic, fetch_fun, pr_number)
+  defp fetch_unaddressed_review_thread_events(topic, identifier, origin_resolver, fetch_fun, pr_number)
        when is_function(fetch_fun, 1) do
     case fetch_fun.(pr_number) do
       {:ok, comments} when is_list(comments) ->
-        comments_to_events(comments, topic)
+        comments_to_events(comments, topic, identifier, origin_resolver)
 
       {:error, reason} ->
         Logger.warning("comment_context fetch_failed topic=#{topic} source=unaddressed_review_threads reason=#{inspect(reason)}")
@@ -121,8 +136,10 @@ defmodule Aiur.AgentRunner.CommentContext do
     end
   end
 
-  defp comments_to_events(comments, topic) when is_list(comments) do
-    Enum.map(comments, &comment_context_event(topic, &1))
+  defp comments_to_events(comments, topic, identifier, origin_resolver) when is_list(comments) do
+    comments
+    |> Enum.map(&comment_context_event(topic, identifier, &1, origin_resolver))
+    |> Enum.reject(&agent_authored_comment_context_event?/1)
   end
 
   defp comments_after_workpad(comments, nil) when is_list(comments) do
@@ -194,15 +211,17 @@ defmodule Aiur.AgentRunner.CommentContext do
 
   defp parse_comment_datetime(_value), do: nil
 
-  defp comment_context_event(topic, comment) do
+  defp comment_context_event(topic, identifier, comment, origin_resolver) do
     author = comment_author(comment)
+    comment_origin = comment_origin(identifier, comment, origin_resolver)
 
     payload =
       %{
         comment: comment,
         source: :github,
         author: author,
-        author_trusted?: Map.get(comment, :authoritative, false)
+        author_trusted?: Map.get(comment, :authoritative, false),
+        comment_origin: comment_origin
       }
       |> Sanitizer.scrub()
 
@@ -225,6 +244,34 @@ defmodule Aiur.AgentRunner.CommentContext do
   end
 
   defp comment_author(_comment), do: nil
+
+  defp agent_authored_comment_context_event?(%{comment_origin: "agent"} = event) do
+    Logger.info(
+      "comment_context ignored agent-authored comment: " <>
+        "topic=#{event.topic} comment_id=#{event.id}"
+    )
+
+    true
+  end
+
+  defp agent_authored_comment_context_event?(_event), do: false
+
+  defp comment_origin(identifier, comment, resolver) when is_function(resolver, 2) do
+    case resolver.(identifier, comment) do
+      "agent" -> "agent"
+      _ -> "external"
+    end
+  rescue
+    error ->
+      Logger.warning(
+        "comment_context origin lookup failed: " <>
+          "identifier=#{identifier} reason=#{Exception.message(error)}"
+      )
+
+      "external"
+  end
+
+  defp comment_origin(_identifier, _comment, _resolver), do: "external"
 
   defp comment_body(comment) when is_map(comment) do
     Map.get(comment, "body") || Map.get(comment, :body) || ""

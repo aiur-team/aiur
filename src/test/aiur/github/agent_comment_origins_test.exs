@@ -28,6 +28,63 @@ defmodule Aiur.GitHub.AgentCommentOriginsTest do
     assert AgentCommentOrigins.origin("43", %{"id" => 7001}) == :external
   end
 
+  test "uses stable decision state across a daemon restart" do
+    decision_dir = Path.join(System.tmp_dir!(), "aiur-agent-comment-origins-state-#{System.unique_integer([:positive])}")
+    previous_path = Application.get_env(:aiur, :agent_comment_origins_path)
+    previous_decision_dir = Application.get_env(:aiur, :decision_state_dir)
+
+    Application.delete_env(:aiur, :agent_comment_origins_path)
+    Application.put_env(:aiur, :decision_state_dir, decision_dir)
+
+    on_exit(fn ->
+      File.rm_rf(decision_dir)
+
+      if previous_path do
+        Application.put_env(:aiur, :agent_comment_origins_path, previous_path)
+      else
+        Application.delete_env(:aiur, :agent_comment_origins_path)
+      end
+
+      if previous_decision_dir do
+        Application.put_env(:aiur, :decision_state_dir, previous_decision_dir)
+      else
+        Application.delete_env(:aiur, :decision_state_dir)
+      end
+    end)
+
+    assert {:ok, path} = AgentCommentOrigins.path_for()
+    assert path == Path.join(decision_dir, "agent-comment-origins.json")
+    assert :ok = AgentCommentOrigins.record("42", %{"id" => 7004})
+
+    assert :agent =
+             Task.async(fn -> AgentCommentOrigins.origin("42", %{"id" => 7004}) end)
+             |> Task.await()
+  end
+
+  test "records a top-level PR conversation comment from gh output" do
+    command = "gh pr comment 1153 --body 'Resolved the review.'"
+    output = "https://github.com/its-everdred/aiur/pull/1153#issuecomment-7005\n"
+
+    assert :ok = AgentCommentOrigins.record_gh_pr_comment("42", command, output, 0)
+    assert AgentCommentOrigins.origin("42", %{"id" => 7005}) == :agent
+  end
+
+  test "records a PR conversation comment posted through gh api" do
+    command = "gh api --method POST repos/its-everdred/aiur/issues/1153/comments -f body='Resolved the review.'"
+    output = ~s({"html_url":"https://github.com/its-everdred/aiur/pull/1153#issuecomment-7006"}\n)
+
+    assert :ok = AgentCommentOrigins.record_gh_pr_comment("42", command, output, 0)
+    assert AgentCommentOrigins.origin("42", %{"id" => 7006}) == :agent
+  end
+
+  test "records a gh api comment response that returns only its ID" do
+    command = "gh api -XPOST repos/its-everdred/aiur/issues/1153/comments -f body='Resolved the review.'"
+    output = ~s({"id":7007}\n)
+
+    assert :ok = AgentCommentOrigins.record_gh_pr_comment("42", command, output, 0)
+    assert AgentCommentOrigins.origin("42", %{"id" => 7007}) == :agent
+  end
+
   test "rejects a verified reply without a stable comment ID" do
     assert {:error, :missing_comment_id} = AgentCommentOrigins.record("42", %{})
   end

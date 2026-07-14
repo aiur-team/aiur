@@ -102,7 +102,8 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
           review_thread_id: context.thread_id,
           attempts: attempt,
           reason: reason,
-          mutation_response: context.mutation_body
+          mutation_response: context.mutation_body,
+          published_comment: context.published_comment
         }}}
     end
   end
@@ -123,6 +124,7 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
            review_thread_id: context.thread_id,
            attempt: attempt,
            mutation_response: context.mutation_body,
+           published_comment: context.published_comment,
            verification: verification
          }}
 
@@ -156,9 +158,21 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
       body: body,
       max_attempts: max_attempts,
       opts: opts,
-      mutation_body: mutation_body
+      mutation_body: mutation_body,
+      published_comment: published_comment(mutation_body)
     }
   end
+
+  @doc false
+  @spec published_comment(map()) :: map() | nil
+  def published_comment(mutation_body) when is_map(mutation_body) do
+    case get_in(mutation_body, ["data", "addPullRequestReviewThreadReply", "comment"]) do
+      %{} = comment -> ReviewThreads.normalize_verified_thread_comment(comment)
+      _ -> nil
+    end
+  end
+
+  def published_comment(_mutation_body), do: nil
 
   @spec add_review_thread_reply(function(), String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}

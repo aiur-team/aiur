@@ -269,6 +269,34 @@ defmodule Aiur.Events.SubscriptionStoreTest do
   end
 
   describe "cursor redelivery defense" do
+    test "durably marked agent comments advance the cursor without queueing a wake", %{identifier: id} do
+      test_pid = self()
+
+      SubscriptionStore.set_enqueue_fn(fn _id, event ->
+        send(test_pid, {:enqueued, event})
+        :ok
+      end)
+
+      :ok = SubscriptionStore.attach(id)
+      :ok = SubscriptionStore.add_subscription(id, "ticket.555.#", "test")
+      [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
+
+      send(pid, {
+        :event,
+        %{
+          id: 1_501,
+          topic: "ticket.555.pr.review_comment",
+          author_trusted?: true,
+          comment_origin: "agent"
+        }
+      })
+
+      refute_receive {:enqueued, %{id: 1_501}}, 100
+      assert SubscriptionStore.snapshot(id).last_seen_event_id == 1_501
+
+      SubscriptionStore.set_enqueue_fn(nil)
+    end
+
     test "events with id <= last_seen_event_id are dropped on handle_info", %{identifier: id} do
       test_pid = self()
 

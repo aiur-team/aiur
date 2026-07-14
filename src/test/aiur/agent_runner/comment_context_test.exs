@@ -189,6 +189,39 @@ defmodule Aiur.AgentRunner.CommentContextTest do
   end
 
   describe "events/2 comment normalisation" do
+    test "excludes durable agent-authored comments while retaining trusted shared-login comments" do
+      issue = %Issue{identifier: "CC-ORIGIN", id: "gid-cc-origin"}
+
+      agent_comment = %{
+        "id" => 71,
+        "body" => "agent review-resolution reply",
+        "updated_at" => "2025-07-01T00:00:00Z",
+        "user" => %{"login" => "shared-login"},
+        :authoritative => true
+      }
+
+      human_comment = %{
+        "id" => 72,
+        "body" => "human follow-up",
+        "updated_at" => "2025-07-02T00:00:00Z",
+        "user" => %{"login" => "shared-login"},
+        :authoritative => true
+      }
+
+      fetchers = %{
+        issue_comments: fn _ -> {:ok, [agent_comment, human_comment]} end,
+        open_pr: fn _ -> {:ok, nil} end,
+        pr_review_comments: fn _ -> {:ok, []} end,
+        unaddressed_pr_review_thread_comments: fn _ -> {:ok, []} end,
+        comment_origin_resolver: fn _identifier, comment ->
+          if comment["id"] == 71, do: "agent", else: "external"
+        end
+      }
+
+      assert [%{id: 72, author_trusted?: true, comment_origin: "external"}] =
+               CommentContext.events(issue, fetchers)
+    end
+
     test "generates an integer id for a non-integer comment id and extracts the author login" do
       issue = %Issue{identifier: "CC-20", id: "gid-cc20"}
 

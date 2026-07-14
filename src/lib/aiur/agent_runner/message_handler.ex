@@ -7,6 +7,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
   """
 
   alias Aiur.{AgentEventLog, AgentEvents, AgentPubSub, CodingAgent, Issue, ModelAvailability}
+  alias Aiur.GitHub.AgentCommentOrigins
   alias Aiur.Protocol.MapAccess
   alias Aiur.RunTelemetry.Lifecycle
 
@@ -25,10 +26,14 @@ defmodule Aiur.AgentRunner.MessageHandler do
         Keyword.put_new(lifecycle_opts, :tracker, make_ref())
       end
 
+    origin_recorder =
+      Keyword.get(lifecycle_opts, :agent_comment_origin_recorder, &AgentCommentOrigins.record_gh_pr_comment/4)
+
     fn message ->
       message = CodingAgent.normalize_event(message, backend)
       observe_lifecycle(issue, backend, message, lifecycle_opts)
       observe_rate_limits(backend, message)
+      observe_agent_comment_origin(issue, backend, message, origin_recorder)
       AgentEventLog.write(workspace, worker_host, message)
       maybe_broadcast_transcript(issue, message, backend, turn_id)
       maybe_broadcast_turn_event(issue, message, turn_id)
@@ -51,6 +56,20 @@ defmodule Aiur.AgentRunner.MessageHandler do
 
   defp observe_rate_limits(backend, %{rate_limits: limits}) when is_map(limits), do: ModelAvailability.observe(backend, limits)
   defp observe_rate_limits(_backend, _message), do: :ok
+
+  defp observe_agent_comment_origin(%Issue{identifier: identifier}, backend, message, recorder)
+       when is_binary(identifier) and is_function(recorder, 4) do
+    case transcript_event_from(message, backend, nil) do
+      {:ok, %{role: :command, payload: %{command: command, output: output, exit_code: exit_code}}} ->
+        _ = recorder.(identifier, command, output, exit_code)
+        :ok
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp observe_agent_comment_origin(_issue, _backend, _message, _recorder), do: :ok
 
   defp maybe_broadcast_transcript(%Issue{identifier: identifier}, message, backend, turn_id)
        when is_binary(identifier) do

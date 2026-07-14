@@ -102,6 +102,35 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
 
       assert_receive {:lifecycle, :lifecycle, %{event: "build_test", boundary: "start", operation_id: "cmd-1"}, _opts}
     end
+
+    test "records successful gh pr comments against the active ticket" do
+      issue = %Issue{id: "gid-mh-09", identifier: "MH-09"}
+
+      handler =
+        MessageHandler.build(nil, issue, nil, nil, "codex", nil,
+          agent_comment_origin_recorder: fn ticket, command, output, exit_code ->
+            send(self(), {:comment_origin, ticket, command, output, exit_code})
+            :ok
+          end
+        )
+
+      handler.(%{
+        event: :notification,
+        payload: %{
+          method: "item/completed",
+          params: %{
+            item: %{
+              type: "commandExecution",
+              command: "gh pr comment 1153 --body 'Resolved.'",
+              aggregatedOutput: "https://github.com/its-everdred/aiur/pull/1153#issuecomment-7006\n",
+              exitCode: 0
+            }
+          }
+        }
+      })
+
+      assert_receive {:comment_origin, "MH-09", "gh pr comment 1153 --body 'Resolved.'", _output, 0}
+    end
   end
 
   describe "send_control_state/3" do

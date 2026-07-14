@@ -27,15 +27,24 @@ defmodule Aiur.Orchestrator.CommentWake do
           pos_integer()
         ) :: State.t()
   def maybe_reactivate_on_comment(%State{} = state, issue_number, source, event, attempt \\ 1) do
-    case State.find_running_by_identifier(state.running, issue_number) do
-      # An already-running entry (PR-anchored or legacy) resumes its SAME
-      # session — a follow-up comment on a PR-anchored agent's PR resolves here
-      # (identifier == to_string(pr#)) and never re-dispatches.
-      running_entry when is_map(running_entry) ->
-        reactivate_if_deactivated(state, running_entry, issue_number, source, event)
+    if agent_authored_comment?(event) do
+      Logger.info(
+        "#{source} ignored agent-authored comment before queue/replacement: " <>
+          "issue_identifier=#{issue_number}"
+      )
 
-      _ ->
-        PrAnchored.maybe_route_pr_anchored_or_legacy(state, issue_number, source, event, attempt)
+      state
+    else
+      case State.find_running_by_identifier(state.running, issue_number) do
+        # An already-running entry (PR-anchored or legacy) resumes its SAME
+        # session — a follow-up comment on a PR-anchored agent's PR resolves here
+        # (identifier == to_string(pr#)) and never re-dispatches.
+        running_entry when is_map(running_entry) ->
+          reactivate_if_deactivated(state, running_entry, issue_number, source, event)
+
+        _ ->
+          PrAnchored.maybe_route_pr_anchored_or_legacy(state, issue_number, source, event, attempt)
+      end
     end
   end
 

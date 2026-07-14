@@ -145,12 +145,8 @@ defmodule Aiur.Codex.DynamicTool.ReviewThreads do
   defp record_verified_reply_origin(response, opts) do
     case Keyword.get(opts, :agent_comment_origin_recorder) do
       recorder when is_function(recorder, 1) ->
-        with {:ok, latest_comment} <- latest_verified_comment(response),
-             :ok <- recorder.(latest_comment) do
-          :ok
-        else
-          {:error, reason} -> {:error, {:agent_comment_origin_not_recorded, reason}}
-          other -> {:error, {:agent_comment_origin_not_recorded, other}}
+        with {:ok, latest_comment} <- latest_verified_comment(response) do
+          record_reply_origin(latest_comment, opts)
         end
 
       _no_ticket_bound_recorder ->
@@ -159,9 +155,12 @@ defmodule Aiur.Codex.DynamicTool.ReviewThreads do
   end
 
   defp reply_and_record(review_thread_replier, review_thread_id, body, opts) do
-    with {:ok, response} <- review_thread_replier.(review_thread_id, body, []),
-         :ok <- record_verified_reply_origin(response, opts) do
-      {:ok, response}
+    case review_thread_replier.(review_thread_id, body, []) do
+      {:ok, response} ->
+        with :ok <- record_verified_reply_origin(response, opts), do: {:ok, response}
+
+      {:error, reason} ->
+        with :ok <- record_failed_reply_origin(reason, opts), do: {:error, reason}
     end
   end
 
@@ -175,4 +174,36 @@ defmodule Aiur.Codex.DynamicTool.ReviewThreads do
   end
 
   defp latest_verified_comment(_response), do: {:error, :verified_comment_missing}
+
+  defp record_failed_reply_origin({:review_thread_reply_not_verified, details}, opts) when is_map(details) do
+    case Keyword.get(opts, :agent_comment_origin_recorder) do
+      recorder when is_function(recorder, 1) ->
+        case Map.get(details, :published_comment) || Map.get(details, "published_comment") do
+          %{} = comment -> record_reply_origin(comment, opts)
+          _ -> {:error, {:agent_comment_origin_not_recorded, :published_comment_missing}}
+        end
+
+      _no_ticket_bound_recorder ->
+        :ok
+    end
+  end
+
+  defp record_failed_reply_origin(_reason, _opts), do: :ok
+
+  defp record_reply_origin(comment, opts) when is_map(comment) do
+    case Keyword.get(opts, :agent_comment_origin_recorder) do
+      recorder when is_function(recorder, 1) ->
+        case recorder.(comment) do
+          :ok -> :ok
+          {:error, reason} -> {:error, {:agent_comment_origin_not_recorded, reason}}
+          other -> {:error, {:agent_comment_origin_not_recorded, other}}
+        end
+
+      _no_ticket_bound_recorder ->
+        :ok
+    end
+  end
+
+  defp record_reply_origin(_comment, _opts),
+    do: {:error, {:agent_comment_origin_not_recorded, :published_comment_missing}}
 end

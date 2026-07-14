@@ -359,8 +359,17 @@ defmodule Aiur.Orchestrator.PauseResume do
 
     _ = Aiur.PauseContainment.release_target(issue.identifier || issue.id)
 
+    {queue_store, restored_items} = Aiur.AgentQueueStore.restore_delivered(state.queue_store, issue.identifier)
+
+    if restored_items != [] do
+      Logger.info(
+        "Restored retiring completed-runner deliveries: " <>
+          "issue_identifier=#{issue.identifier} item_ids=#{inspect(Enum.map(restored_items, & &1.id))}"
+      )
+    end
+
     next_state =
-      state
+      %{state | queue_store: queue_store}
       |> AgentTeardown.terminate_running_issue(issue_id, false)
       |> dispatch_fun.(issue, nil, worker_host)
 

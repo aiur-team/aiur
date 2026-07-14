@@ -2551,6 +2551,8 @@ defmodule Aiur.OrchestratorStatusTest do
                body: "Please address the review feedback."
              })
 
+    identifier = issue.identifier
+    refute_receive {:agent_queue_updated, ^identifier, ^item_id, _}, 100
     refute Process.alive?(old_worker)
 
     state = :sys.get_state(pid)
@@ -2794,6 +2796,10 @@ defmodule Aiur.OrchestratorStatusTest do
         body: %{text: "second"}
       })
 
+    {queue_store, delivered} = AgentQueueStore.claim_next_deliverable(queue_store, issue.identifier)
+    assert delivered.id == first.id
+    assert delivered.status == :delivered
+
     state = %State{
       running: %{issue.id => entry},
       claimed: MapSet.new([issue.id]),
@@ -2825,6 +2831,7 @@ defmodule Aiur.OrchestratorStatusTest do
     assert restored.completion_totals_recorded
     assert MapSet.member?(next.claimed, issue.id)
     assert next.queue_store.pending_ids_by_target[issue.identifier] == [first.id, second.id]
+    assert next.queue_store.items[first.id].status == :pending
     refute Map.has_key?(next.retry_attempts, issue.id)
 
     first_totals = next.agent_totals

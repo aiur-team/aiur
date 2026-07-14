@@ -4,8 +4,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
   alias Aiur.AgentPubSub
   alias Aiur.AgentQueueStore
   alias Aiur.CIApprovalStore
-  alias Aiur.Events.{Exchange, SubscriptionStore}
-  alias Aiur.GitHub.CodeOwners
+  alias Aiur.Events.{Exchange, GithubCommentsPoller, SubscriptionStore}
+  alias Aiur.GitHub.{AgentCommentOrigins, CodeOwners}
   alias Aiur.Issue
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator
@@ -514,6 +514,126 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       assert ci_failure_topic in topics
       assert_receive {:ci_failure_enqueued, ^identifier, %{topic: ^ci_failure_topic}}, 500
+    end
+
+    test "agent PR comment stays in CI wait and a later failure wakes the ticket exactly once" do
+      identifier = "ci-self-comment-#{System.unique_integer([:positive])}"
+      comment_id = System.unique_integer([:positive])
+      origin_path = Path.join(System.tmp_dir!(), "aiur-ci-self-comment-origin-#{comment_id}.json")
+      issue = %Issue{id: identifier, identifier: identifier, state: "ci-wait", title: "Awaiting CI"}
+      test_pid = self()
+      previous_origin_path = Application.get_env(:aiur, :agent_comment_origins_path)
+      trust_state = trust_authors!(["shared-login"])
+
+      Application.put_env(:aiur, :agent_comment_origins_path, origin_path)
+
+      SubscriptionStore.set_enqueue_fn(fn target, event ->
+        send(test_pid, {:ci_wait_queue_event, target, event})
+        :ok
+      end)
+
+      on_exit(fn ->
+        SubscriptionStore.set_enqueue_fn(nil)
+        SubscriptionStore.stop(identifier)
+        restore_trust!(trust_state)
+        restore_application_env(:agent_comment_origins_path, previous_origin_path)
+        File.rm(origin_path)
+      end)
+
+      assert :ok =
+               AgentCommentOrigins.record_gh_pr_comment(
+                 identifier,
+                 "gh pr comment 123 --body 'resolved'",
+                 "https://github.com/owner/repo/pull/123#issuecomment-#{comment_id}\n",
+                 0
+               )
+
+      assert AgentCommentOrigins.origin(identifier, %{"id" => comment_id}) == :agent
+
+      :ok = SubscriptionStore.attach(identifier)
+      :ok = SubscriptionStore.add_subscription(identifier, "ticket.#{identifier}.#", "test:ci-wait")
+
+      request_fun = fn %{url: url} ->
+        cond do
+          String.contains?(url, "/issues/#{identifier}/comments?") ->
+            {:ok, %{status: 200, body: []}}
+
+          String.contains?(url, "/pulls?") ->
+            {:ok, %{status: 200, body: [%{"number" => 123}]}}
+
+          String.contains?(url, "/issues/123/comments?") ->
+            {:ok,
+             %{
+               status: 200,
+               body: [
+                 %{
+                   "id" => comment_id,
+                   "body" => "resolved",
+                   "updated_at" => "2026-07-14T03:12:48Z",
+                   "user" => %{"login" => "shared-login"}
+                 }
+               ]
+             }}
+
+          String.contains?(url, "/graphql") ->
+            empty_review_threads_response()
+        end
+      end
+
+      assert {:ok, %{count: 1}} =
+               GithubCommentsPoller.poll([identifier],
+                 since: "2026-07-14T03:11:49Z",
+                 repo: "owner/repo",
+                 request_fun: request_fun
+               )
+
+      refute_receive {:ci_wait_queue_event, ^identifier, %{comment_origin: "agent"}}, 200
+      assert is_integer(SubscriptionStore.snapshot(identifier).last_seen_event_id)
+
+      state =
+        CiLifecycle.poll_github_ci(empty_orchestrator_state(),
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
+          ci_poller: fn [^identifier], _opts ->
+            {:ok,
+             %{
+               results: [
+                 %{
+                   target: identifier,
+                   decision: :failed,
+                   head_sha: "self-comment-followed-by-failure",
+                   pr_number: 123,
+                   failures: [%{name: "lint", result: "failure", excerpt: "lint failed"}]
+                 }
+               ],
+               errors: []
+             }}
+          end
+        )
+
+      ci_topic = "ticket.#{identifier}.ci.failed"
+      assert_receive {:ci_wait_queue_event, ^identifier, %{topic: ^ci_topic}}, 500
+
+      _deduped_state =
+        CiLifecycle.poll_github_ci(state,
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
+          ci_poller: fn [^identifier], _opts ->
+            {:ok,
+             %{
+               results: [
+                 %{
+                   target: identifier,
+                   decision: :failed,
+                   head_sha: "self-comment-followed-by-failure",
+                   pr_number: 123,
+                   failures: [%{name: "lint", result: "failure", excerpt: "lint failed"}]
+                 }
+               ],
+               errors: []
+             }}
+          end
+        )
+
+      refute_receive {:ci_wait_queue_event, ^identifier, %{topic: ^ci_topic}}, 200
     end
 
     test "stale repeated CI failures publish one wake event per head" do

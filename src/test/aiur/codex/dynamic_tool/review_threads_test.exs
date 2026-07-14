@@ -163,6 +163,44 @@ defmodule Aiur.Codex.DynamicTool.ReviewThreadsTest do
       assert Jason.decode!(response["output"])["error"]["reason"] == "agent_comment_origin_not_recorded"
     end
 
+    test "records a published reply when verification fails after the GitHub mutation" do
+      test_pid = self()
+      verification_failure = %{published_comment: %{"id" => 703}, reason: :verification_timeout}
+
+      response =
+        ReviewThreads.execute(
+          "aiur_reply_review_thread",
+          %{"review_thread_id" => "PRRT_origin", "body" => "Fixed."},
+          review_thread_replier: fn _id, _body, _opts ->
+            {:error, {:review_thread_reply_not_verified, verification_failure}}
+          end,
+          agent_comment_origin_recorder: fn comment ->
+            send(test_pid, {:recorded_origin_after_verify_failure, comment})
+            :ok
+          end
+        )
+
+      assert response["success"] == false
+      assert_received {:recorded_origin_after_verify_failure, %{"id" => 703}}
+    end
+
+    test "surfaces persistence failure after a published but unverified reply" do
+      verification_failure = %{published_comment: %{"id" => 704}, reason: :verification_timeout}
+
+      response =
+        ReviewThreads.execute(
+          "aiur_reply_review_thread",
+          %{"review_thread_id" => "PRRT_origin", "body" => "Fixed."},
+          review_thread_replier: fn _id, _body, _opts ->
+            {:error, {:review_thread_reply_not_verified, verification_failure}}
+          end,
+          agent_comment_origin_recorder: fn _comment -> {:error, :disk_full} end
+        )
+
+      assert response["success"] == false
+      assert Jason.decode!(response["output"])["error"]["reason"] == "agent_comment_origin_not_recorded"
+    end
+
     test "review_thread_reply_not_verified renders failure" do
       response =
         ReviewThreads.execute(

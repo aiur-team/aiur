@@ -163,7 +163,7 @@ defmodule Aiur.GitHub.ReviewThreads.ReplyTest do
         end
       end
 
-      assert {:error, {:review_thread_reply_not_verified, _}} =
+      assert {:error, {:review_thread_reply_not_verified, %{published_comment: %{"id" => 2}}}} =
                Reply.reply_to_review_thread("PRRT_fail", "Done.",
                  request_fun: request_fun,
                  bot_account: "aiur-bot",

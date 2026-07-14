@@ -59,6 +59,7 @@ defmodule Aiur.Events.SubscriptionStore do
   alias Aiur.Config.Paths
   alias Aiur.Events.{DebugLog, Exchange, IdGenerator}
   alias Aiur.JsonStore
+  alias Aiur.Orchestrator.CommentWake
 
   @registry Aiur.Events.SubscriptionStoreRegistry
   @supervisor Aiur.Events.SubscriptionStoreSupervisor
@@ -341,7 +342,7 @@ defmodule Aiur.Events.SubscriptionStore do
       # Redelivery after restart — already consumed.
       {:noreply, state}
     else
-      enqueue_event(state.identifier, event)
+      maybe_enqueue_event(state.identifier, event)
       Aiur.IssueLog.record_event(state.identifier, :consumed, event)
       topic = Map.get(event, :topic) || Map.get(event, "topic") || "(unknown)"
 
@@ -391,6 +392,32 @@ defmodule Aiur.Events.SubscriptionStore do
         end
     end
   end
+
+  defp maybe_enqueue_event(identifier, event) do
+    if agent_authored_comment_event?(event) do
+      Logger.info(
+        "SubscriptionStore ignored agent-authored comment before queueing: " <>
+          "identifier=#{identifier} topic=#{event_topic(event)}"
+      )
+    else
+      enqueue_event(identifier, event)
+    end
+  end
+
+  defp agent_authored_comment_event?(event) when is_map(event) do
+    CommentWake.agent_authored_comment?(event) and comment_event_topic?(event_topic(event))
+  end
+
+  defp agent_authored_comment_event?(_event), do: false
+
+  defp comment_event_topic?(topic) when is_binary(topic) do
+    String.ends_with?(topic, ".issue.commented") or
+      String.ends_with?(topic, ".pr.review_comment")
+  end
+
+  defp comment_event_topic?(_topic), do: false
+
+  defp event_topic(event), do: Map.get(event, :topic) || Map.get(event, "topic") || "(unknown)"
 
   @impl true
   def terminate(_reason, state) do
