@@ -32,6 +32,17 @@ defmodule Aiur.TrackerIdentityTest do
     refute first == second
   end
 
+  test "canonicalizes joinable GitHub identities as case-insensitive keys" do
+    issue = %{"node_id" => "I_kwDOExample", "number" => 42}
+
+    assert {:ok, identity} = TrackerIdentity.from_github(issue, @configured, @configured)
+
+    mixed_case = %{identity | owner: "Owner", repository: "Repo"}
+
+    assert {:github, "owner", "repo", "I_kwDOExample"} == TrackerIdentity.github_key(mixed_case)
+    assert nil == TrackerIdentity.github_key(TrackerIdentity.unjoinable(:legacy))
+  end
+
   test "rejects request and response repositories that differ from configuration" do
     issue = %{
       "node_id" => "I_kwDOExample",
