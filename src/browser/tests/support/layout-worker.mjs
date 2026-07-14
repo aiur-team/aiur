@@ -31,7 +31,7 @@ export function layoutRequest(count, { generation = 1, cycle = false, externalSt
   }))
   const edges = nodes.slice(1).map((node, index) => ({ id: `edge_${index}`, source: `node_${index}`, target: node.id }))
 
-  if (cycle && count > 1) edges.push({ id: `edge_cycle`, source: nodes.at(-1).id, target: nodes[0].id })
+  if (cycle && count > 1) edges.push({ id: `edge_${edges.length}`, source: nodes.at(-1).id, target: nodes[0].id })
 
   return {
     type: 'layout',

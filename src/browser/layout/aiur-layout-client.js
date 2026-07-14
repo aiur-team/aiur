@@ -10,6 +10,11 @@ const MAX_SECTIONS = 16
 const MAX_POINTS = 64
 const MAX_DIAGNOSTICS = 10
 const MAX_DIMENSION = 4_096
+const generatedIdPatterns = {
+  request_: /^request_[1-9][0-9]*_[0-9]+$/,
+  node_: /^node_[0-9]+$/,
+  edge_: /^edge_[0-9]+$/
+}
 const errorMessages = {
   asset_url_invalid: "Layout assets are unavailable.",
   invalid_request: "Layout request is invalid.",
@@ -352,7 +357,7 @@ function requestKey(identity) {
 }
 
 function validId(value, prefix) {
-  return typeof value === "string" && value.length <= 64 && new RegExp(`^${prefix}[a-z0-9_]+$`).test(value)
+  return typeof value === "string" && value.length <= 64 && generatedIdPatterns[prefix]?.test(value) === true
 }
 
 function isRecord(value) {

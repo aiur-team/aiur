@@ -21,4 +21,4 @@ npm run check:elk
 
 `vendor:elk` copies only the approved engine, license, authored worker, and DOM-free client. `check:elk` compares the committed engine/license to the exact lockfile package, checks hashes and size bounds, rejects source maps, and verifies each public URL changes with its bytes.
 
-An ELK upgrade must be reviewed as a protocol/runtime change: verify the release, license, integrity, size, browser-worker fixtures, and packaged-release check before changing the pin. The release workflow runs `packaging/scripts/check-layout-assets-release.mjs` against both the OTP release and copied platform package.
+An ELK upgrade must be reviewed as a protocol/runtime change: verify the release, license, integrity, size, browser-worker fixtures, and packaged-release check before changing the pin. PR CI builds an actual production OTP release, validates both its and the copied platform package's asset records, then loads the packaged Worker offline under a self-only CSP. The release workflow repeats the asset validation for every publishable target.

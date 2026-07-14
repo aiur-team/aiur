@@ -9,6 +9,11 @@ const MAX_POINTS = 64
 const MAX_DIAGNOSTICS = 10
 const MAX_DIMENSION = 4_096
 const MAX_COORDINATE = 4_095
+const generatedIdPatterns = {
+  request_: /^request_[1-9][0-9]*_[0-9]+$/,
+  node_: /^node_[0-9]+$/,
+  edge_: /^edge_[0-9]+$/
+}
 
 const errorMessages = {
   engine_failed: "Layout engine could not compute geometry.",
@@ -59,7 +64,7 @@ function hasOnlyKeys(value, allowed) {
 }
 
 function isOpaqueId(value, prefix) {
-  return typeof value === "string" && value.length <= 64 && new RegExp(`^${prefix}[a-z0-9_]+$`).test(value)
+  return typeof value === "string" && value.length <= 64 && generatedIdPatterns[prefix]?.test(value) === true
 }
 
 function safeIdentity(value) {
