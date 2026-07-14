@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-13 19:48 PDT)
+## Live Executor state (updated 2026-07-13 20:46 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -170,13 +170,33 @@ so the controller—not an arbitrary Executor cap—is the remaining admission g
     was absent. The consolidated packet is at
     `https://github.com/its-everdred/aiur/pull/1144#issuecomment-4965131360`;
     keep all fixes on #1088.
+18. At 20:34 PDT the Executor diagnosed a production CI-wake loss on
+    #1087/#1145. The agent posted its review-resolution PR comment under the
+    same `its-everdred` GitHub login used by the operator, and CODEOWNERS
+    correctly marked that login trusted. Because `github.bot_account` is unset
+    (setting it to the shared login would also suppress real operator comments),
+    Aiur treated the agent's own reply as new human feedback and moved the
+    ticket `ci-wait -> rework` at 03:13:02Z, nine seconds before lint failed at
+    03:13:12Z. `CiLifecycle` polls only `ci-wait` and `human-review`, so no
+    `ticket.1087.ci.failed` event was emitted. P1 bug #1151 owns the bounded
+    origin/provenance regression and was dispatched into the genuinely free
+    fifth Terra slot; it is outside the 54-ticket Build Order denominator. The
+    immediate recovery also exposed a wedged completed-turn runner: an Executor
+    message and progress event remained queued while control reported "already
+    running." A cooperative `pause 1087` followed by `resume 1087` invoked the
+    fallback descendant reap, restarted the same workspace/session, and
+    delivered the queued lint repair. Use this contained recovery before
+    considering manual code edits, and retain #1151's regression ordering:
+    agent reply -> CI wait -> self-comment ingestion -> later CI failure.
 
-At 19:48 PDT the five latest event-reported percentages are BO-004 70%, BO-008
-90%, DASH-006 90%, DASH-017 90%, and DASH-018 70% (82% ticket-average). All
-five remain unmerged; #1087 is explicitly in review-driven rework and the
-other four workers retain their CI/fix ownership. The Executor begins
-independent review only when a branch stabilizes and never treats an in-flight
-draft or a green build with unmet acceptance criteria as merge-ready.
+At 20:46 PDT all five Phase-1 tickets remain unmerged. #1086/#1143 is green and
+in focused post-rework review; #1087/#1145 is applying its single delivered
+lint repair after the contained restart; #1088/#1144 is still implementing its
+review packet; #1089/#1147 and #1090/#1141 are in rework/CI convergence.
+Direct blocker #1151 occupies the spare fifth live slot while #1086 is
+deactivated for review. The Executor begins independent review only when a
+branch stabilizes and never treats an in-flight draft or a green build with
+unmet acceptance criteria as merge-ready.
 
 **Read-first map for this run:** `README.md` (pack index) →
 `08-implementation-pointers.md` (verified per-ticket file/module/function
