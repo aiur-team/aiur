@@ -74,10 +74,9 @@ defmodule AiurWeb.StaticAssets do
   end
 
   defp read_static_module(asset_path) do
-    with {:ok, body} <- File.read(Application.app_dir(:aiur, asset_path)) do
-      {:ok, "application/javascript", body}
-    else
-      _ -> :error
+    case File.read(Application.app_dir(:aiur, asset_path)) do
+      {:ok, body} -> {:ok, "application/javascript", body}
+      {:error, _reason} -> :error
     end
   end
 
