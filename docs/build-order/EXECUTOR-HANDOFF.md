@@ -485,12 +485,41 @@ to a safe range.
     emitted core estimates are DASH-006 70%, DASH-017 70%, DASH-018 80%,
     BO-002 30%, BO-009 80%, and DASH-004 50%. Preview state uses those emitted
     estimates and keeps landed-but-reopened DASH-017 out of the accepted count.
+50. Subsequent exact-head review kept four superficially green tickets inside
+    their original acceptance boundary. #1030 still allowed external agent
+    runtimes to survive an `ActiveTurns` restart and allowed an interloper to
+    own the replacement ETS table. DASH-018 recovery stranded the session's
+    original consumer binding and misclassified nullable Codex `authMode` as
+    unsupported instead of logout. Ad Hoc #1151 used a non-unique
+    `:global.trans/2` requester, could lose concurrent origin-ledger writes,
+    still lacked the reproduced stale-working wake repair, and let telemetry
+    reclassify stored agent replies as external. All findings remain on their
+    owning tickets; none produced a new issue.
+51. BO-009/#1096 opened PR #1158 at `dc2d7fbe`. Vendor pin, integrity, license,
+    hashes, and byte sizes are correct, but full CI caught a forbidden
+    compile-time `__DIR__` manifest path. Review also reproduced a
+    credential-shaped opaque ID crossing the geometry-only worker boundary and
+    found that packaged-release/offline and responsiveness tests did not prove
+    their production claims. The worker must use release-safe runtime
+    resolution without editing the regression guard, enforce non-semantic IDs,
+    and strengthen the two acceptance proofs on the same ticket.
+52. DASH-017 follow-up PR #1159 at `6f3bf461` correctly mints attempt IDs when
+    telemetry is disabled and passed full CI, but its test manually constructed
+    the dispatcher output. Review requires the actual telemetry-disabled
+    dispatch/run-option-to-Decision path so the production wiring cannot
+    regress while the test stays green. BO-002 then pushed its real five-
+    invariant repair head `6d897e34`; review and the remaining CI tail now run
+    against that head rather than the earlier main-only merge.
+53. The 01:35 PDT progress capture retained 298 normalized samples. Latest
+    emitted estimates are DASH-006 80%, DASH-017 90%, DASH-018 100%, BO-002
+    80%, BO-009 80%, and DASH-004 70%. DASH-018's reported 100% remains visible
+    beside blocking review rework as intentional phase-end calibration data.
 
-At 01:14 PDT the core graph is 4/54 accepted. Core
-#1088/#1089/#1090/#1091/#1096/#1111 occupy six productive slots; direct
-blocker #1030 is in fresh green CI/review and Ad Hoc #1151 is in CI/review
-outside those coding slots. #1108 remains tracker-paused after its contained
-controlled error. #1103/#1123 remain paused.
+At 01:36 PDT the core graph is 4/54 accepted. Core
+#1030/#1088/#1089/#1090/#1091/#1111 and Ad Hoc #1151 occupy the current
+counted generations; BO-009 awaits the next released coding slot while its
+review runs. #1108 remains tracker-paused after its contained controlled
+error. #1103/#1123 remain paused.
 Treat
 completed turns, stale bases, and green builds with unmet acceptance criteria
 as pending Executor work, not merge-ready truth.
