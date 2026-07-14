@@ -202,6 +202,8 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
   use Phoenix.Router
   import Phoenix.LiveView.Router
 
+  alias Aiur.BrowserHarness.FixtureAuth
+
   pipeline :browser do
     plug(:accepts, ["html"])
     plug(:fetch_session)
@@ -235,7 +237,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     live("/fixture", Aiur.BrowserHarness.FixtureLive, :index)
   end
 
-  defp require_fixture_access(conn, opts), do: Aiur.BrowserHarness.FixtureAuth.require_access(conn, opts)
+  defp require_fixture_access(conn, opts), do: FixtureAuth.require_access(conn, opts)
 end
 
 defmodule Aiur.BrowserHarness.FixtureEndpoint do
