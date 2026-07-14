@@ -1,7 +1,8 @@
 defmodule Aiur.DecisionQueryTest do
   use ExUnit.Case, async: false
+  use ExUnitProperties
 
-  alias Aiur.{DecisionQuery, DecisionStore}
+  alias Aiur.{DecisionQuery, DecisionStore, DecisionValidation}
   alias Aiur.DecisionStore.RetainedSnapshot
 
   @ticket %{identifier: "1088", title: "Retained Decisions", url: "https://example.test/issues/1088"}
@@ -16,7 +17,11 @@ defmodule Aiur.DecisionQueryTest do
     def init(opts), do: {:ok, %{decision: Keyword.fetch!(opts, :decision), report: Keyword.fetch!(opts, :report)}}
 
     @impl true
-    def handle_call({:retained_lookup, decision_id}, _from, %{decision: %{decision_id: decision_id} = decision} = state) do
+    def handle_call(
+          {:retained_lookup, decision_id},
+          _from,
+          %{decision: %{decision_id: decision_id} = decision} = state
+        ) do
       send(state.report, {:atomic_snapshot, :lookup})
       {:reply, {:ok, %{decision: decision, health: :writable}}, state}
     end
@@ -42,7 +47,13 @@ defmodule Aiur.DecisionQueryTest do
 
     def handle_call(:retained_counts, _from, %{decision: decision} = state) do
       send(state.report, {:atomic_snapshot, :counts})
-      {:reply, {:ok, %{counts: %{open: 1, blocking: if(decision.blocking, do: 1, else: 0), total: 1}, health: :writable}}, state}
+
+      {:reply,
+       {:ok,
+        %{
+          counts: %{open: 1, blocking: if(decision.blocking, do: 1, else: 0), total: 1},
+          health: :writable
+        }}, state}
     end
 
     def handle_call(request, _from, state) do
@@ -110,14 +121,53 @@ defmodule Aiur.DecisionQueryTest do
 
     _later = request!(store, "later", ~U[2026-07-13 08:03:00Z])
 
-    assert {:ok, page_two} = DecisionQuery.list(%{"limit" => 1, "cursor" => page_one.pagination.next_cursor}, store: store)
+    assert {:ok, page_two} =
+             DecisionQuery.list(
+               %{"limit" => 1, "cursor" => page_one.pagination.next_cursor},
+               store: store
+             )
+
     assert [next] = page_two.decisions
     assert next.decision_id == second.decision_id
 
-    assert {:ok, page_three} = DecisionQuery.list(%{"limit" => 1, "cursor" => page_two.pagination.next_cursor}, store: store)
+    assert {:ok, page_three} =
+             DecisionQuery.list(
+               %{"limit" => 1, "cursor" => page_two.pagination.next_cursor},
+               store: store
+             )
+
     assert [oldest] = page_three.decisions
     assert oldest.decision_id == first.decision_id
     assert MapSet.size(MapSet.new([newest.decision_id, next.decision_id, oldest.decision_id])) == 3
+  end
+
+  test "cursor pages preserve first accepted audit order after update and replay", %{store: store} do
+    first = request!(store, "stable-first", ~U[2026-07-13 08:00:00Z])
+    middle = request!(store, "stable-middle", ~U[2026-07-13 08:01:00Z])
+    third = request!(store, "stable-third", ~U[2026-07-13 08:02:00Z])
+
+    assert {:ok, %{decisions: [page_one], pagination: %{next_cursor: cursor}}} =
+             DecisionQuery.list(%{"limit" => 1}, store: store)
+
+    assert page_one.decision_id == third.decision_id
+
+    updated = request!(store, "stable-middle", ~U[2026-07-13 08:03:00Z], version: 2)
+    assert updated.version == 2
+
+    assert {:ok, %{decisions: [page_two]}} =
+             DecisionQuery.list(%{"limit" => 1, "cursor" => cursor}, store: store)
+
+    assert page_two.decision_id == middle.decision_id
+
+    GenServer.stop(store)
+    {:ok, replayed} = DecisionStore.start_link(name: nil, filesystem_sync_fun: fn -> :ok end)
+
+    on_exit(fn ->
+      if Process.alive?(replayed), do: GenServer.stop(replayed)
+    end)
+
+    assert %{ids: ids} = traverse_pages(replayed, 1)
+    assert ids == [third.decision_id, middle.decision_id, first.decision_id]
   end
 
   test "cursor pages retain every equal-timestamp Decision in canonical ID order", %{store: store} do
@@ -132,7 +182,9 @@ defmodule Aiur.DecisionQueryTest do
       |> Enum.sort_by(& &1.decision_id)
       |> Enum.map(& &1.decision_id)
 
-    assert {:ok, %{decisions: first_page, pagination: %{next_cursor: cursor}}} = DecisionQuery.list(%{"limit" => 2}, store: store)
+    assert {:ok, %{decisions: first_page, pagination: %{next_cursor: cursor}}} =
+             DecisionQuery.list(%{"limit" => 2}, store: store)
+
     assert Enum.map(first_page, & &1.decision_id) == Enum.take(expected_ids, 2)
 
     assert {:ok, %{decisions: second_page, pagination: %{next_cursor: nil}}} =
@@ -142,7 +194,9 @@ defmodule Aiur.DecisionQueryTest do
     assert Enum.map(first_page ++ second_page, & &1.decision_id) == expected_ids
   end
 
-  test "query filters search only retained identifiers and tickets, and counts use all retained Decisions", %{store: store} do
+  test "query filters retained identifiers and tickets while counts cover all Decisions", %{
+    store: store
+  } do
     open = request!(store, "open", ~U[2026-07-13 08:00:00Z], blocking: true)
     resolved = request!(store, "resolved", ~U[2026-07-13 08:01:00Z], blocking: true)
 
@@ -164,7 +218,19 @@ defmodule Aiur.DecisionQueryTest do
     assert {:ok, %{pagination: %{total: 1}}} =
              DecisionQuery.list(%{"search" => search}, store: store)
 
-    assert {:ok, %{open: 1, blocking: 1, scope: %{label: "All retained decisions"}}} = DecisionQuery.counts(store: store)
+    assert {:ok, %{open: 1, blocking: 1, scope: %{label: "All retained decisions"}}} =
+             DecisionQuery.counts(store: store)
+  end
+
+  test "filtered continuation pages omit totals unless the full candidate set was scanned", %{store: store} do
+    request!(store, "filtered-first", ~U[2026-07-13 08:00:00Z])
+    request!(store, "filtered-second", ~U[2026-07-13 08:01:00Z])
+
+    assert {:ok, %{pagination: %{next_cursor: cursor}}} =
+             DecisionQuery.list(%{"limit" => 1, "search" => "dec_"}, store: store)
+
+    assert {:ok, %{pagination: %{next_cursor: nil, total: nil}}} =
+             DecisionQuery.list(%{"limit" => 1, "search" => "dec_", "cursor" => cursor}, store: store)
   end
 
   test "invalid retained-query input is rejected without broadening the result", %{store: store} do
@@ -188,8 +254,20 @@ defmodule Aiur.DecisionQueryTest do
     assert {:error, {:invalid_decision_id, :malformed}} = DecisionQuery.get(<<255>>, store: store)
   end
 
-  test "store-native retained query rejects malformed snapshots without crashing the store", %{store: store} do
-    assert {:error, :invalid_query} = DecisionStore.retained_query(%{limit: 1}, store)
+  test "store-native retained query enforces provider input bounds", %{store: store} do
+    valid = %{limit: 1, cursor: nil, lifecycle: nil, search: nil, ticket: nil}
+    assert {:ok, %{decisions: []}} = DecisionStore.retained_query(valid, store)
+
+    for params <- [
+          %{valid | limit: 101},
+          %{valid | search: String.duplicate("a", 201)},
+          %{valid | ticket: String.duplicate("a", 201)},
+          %{valid | cursor: "not-a-cursor"},
+          %{valid | search: "dec", ticket: "1088"}
+        ] do
+      assert {:error, :invalid_query} = DecisionStore.retained_query(params, store)
+    end
+
     assert Process.alive?(store)
   end
 
@@ -211,6 +289,38 @@ defmodule Aiur.DecisionQueryTest do
 
     assert {:ok, %{decisions: [], has_next?: false, total: 0}} =
              RetainedSnapshot.query(%{}, index, :writable, no_match_query)
+  end
+
+  test "fixed search buckets bound nonmatching candidate work without prefix amplification", %{store: store} do
+    [template] = generated_decisions([{0, :open}])
+
+    decisions =
+      for index <- 1..1_001 do
+        %{template | decision_id: "dec_search-#{index}", source_id: "search-#{index}"}
+      end
+
+    current = Map.new(decisions, &{&1.decision_id, &1})
+    index = RetainedSnapshot.build_index(current)
+
+    assert map_size(index.searches) <= 6
+
+    query = %{limit: 1, cursor: nil, lifecycle: nil, search: "dec_missing", ticket: nil}
+
+    assert {:ok, %{decisions: [], total: nil, partial?: true}} =
+             RetainedSnapshot.query(current, index, :writable, query)
+
+    :sys.replace_state(store, fn state ->
+      %{state | current: current, retained_index: index}
+    end)
+
+    assert {:ok,
+            %{
+              decisions: [],
+              partial_results?: true,
+              pagination: %{total: nil, label: label}
+            }} = DecisionQuery.list(%{"limit" => 1, "search" => "dec_missing"}, store: store)
+
+    assert label =~ "Partial retained Decision page"
   end
 
   test "counts distinguish partial retained data from an unavailable store", %{store: store} do
@@ -298,7 +408,10 @@ defmodule Aiur.DecisionQueryTest do
     assert {:ok, %{open: 1, blocking: 1}} = DecisionQuery.counts(store: store)
   end
 
-  test "replayed corrupt-prefix snapshots keep valid details partial and missing IDs distinct", %{store: store, dir: dir} do
+  test "replayed corrupt prefixes retain valid details and distinguish missing IDs", %{
+    store: store,
+    dir: dir
+  } do
     decision = request!(store, "replay-prefix", ~U[2026-07-13 08:00:00Z])
     GenServer.stop(store)
 
@@ -342,6 +455,82 @@ defmodule Aiur.DecisionQueryTest do
     refute_receive {:split_read_attempted, _request}
   end
 
+  property "generated retained pages preserve lifecycle audit order without duplicates", %{store: store} do
+    statuses = [:open, :decided, :acknowledged, :resolved]
+
+    check all(
+            specs <- list_of(tuple({integer(0..4), member_of(statuses)}), min_length: 1, max_length: 30),
+            limit <- integer(1..5),
+            selected <- integer(0..100),
+            max_runs: 10
+          ) do
+      decisions = generated_decisions(specs)
+      current = Map.new(decisions, &{&1.decision_id, &1})
+      lifecycle = specs |> Enum.at(rem(selected, length(specs))) |> elem(1)
+
+      :sys.replace_state(store, fn state ->
+        %{
+          state
+          | current: current,
+            retained_index: RetainedSnapshot.build_index(current),
+            decision_index: :gb_sets.empty()
+        }
+      end)
+
+      expected =
+        decisions
+        |> Enum.filter(&(&1.decision_status == lifecycle))
+        |> Enum.sort_by(&audit_key/1)
+        |> Enum.map(& &1.decision_id)
+
+      actual = traverse_filtered_pages(store, %{"lifecycle" => Atom.to_string(lifecycle)}, limit)
+
+      assert actual == expected
+      assert MapSet.size(MapSet.new(actual)) == length(actual)
+    end
+  end
+
+  property "generated invalid query inputs never broaden a retained-store read", %{store: store} do
+    check all(
+            oversized <- string(:alphanumeric, min_length: 201, max_length: 240),
+            invalid_limit <- one_of([integer(-100..0), integer(101..1_000)]),
+            max_runs: 10
+          ) do
+      for params <- [
+            %{"limit" => invalid_limit},
+            %{"search" => oversized},
+            %{"ticket" => oversized},
+            %{"search" => String.slice(oversized, 0, 3), "ticket" => "1088"}
+          ] do
+        assert {:error, {:invalid_query, _reason}} = DecisionQuery.list(params, store: store)
+      end
+    end
+  end
+
+  property "generated direct lookup ignores the priority overview index", %{store: store} do
+    check all(
+            offsets <- list_of(integer(0..30), min_length: 51, max_length: 70),
+            selected <- integer(0..100),
+            max_runs: 10
+          ) do
+      decisions = generated_decisions(Enum.map(offsets, &{&1, :open}))
+      current = Map.new(decisions, &{&1.decision_id, &1})
+      target = Enum.at(decisions, rem(selected, length(decisions)))
+
+      :sys.replace_state(store, fn state ->
+        %{
+          state
+          | current: current,
+            retained_index: RetainedSnapshot.build_index(current),
+            decision_index: :gb_sets.empty()
+        }
+      end)
+
+      assert {:ok, %{decision: retained}} = DecisionQuery.get(target.decision_id, store: store)
+      assert retained.decision_id == target.decision_id
+    end
+  end
+
   defp request!(store, source_id, now, attrs \\ []) do
     payload = %{
       "source_id" => source_id,
@@ -350,6 +539,12 @@ defmodule Aiur.DecisionQueryTest do
       "urgency" => "normal",
       "reversibility" => "reversible"
     }
+
+    payload =
+      case Keyword.get(attrs, :version) do
+        nil -> payload
+        version -> Map.put(payload, "version", version)
+      end
 
     assert {:ok, %{decision: decision}} =
              DecisionStore.request(payload, [ticket: @ticket, source: @source, now: now], store)
@@ -368,6 +563,44 @@ defmodule Aiur.DecisionQueryTest do
       nil -> %{ids: ids, totals: Enum.reverse(totals)}
       next_cursor -> traverse_pages(store, limit, next_cursor, ids, totals)
     end
+  end
+
+  defp traverse_filtered_pages(store, filters, limit, cursor \\ nil, ids \\ []) do
+    params =
+      filters
+      |> Map.put("limit", limit)
+      |> then(fn params -> if(cursor, do: Map.put(params, "cursor", cursor), else: params) end)
+
+    assert {:ok, page} = DecisionQuery.list(params, store: store)
+    ids = ids ++ Enum.map(page.decisions, & &1.decision_id)
+
+    case page.pagination.next_cursor do
+      nil -> ids
+      next_cursor -> traverse_filtered_pages(store, filters, limit, next_cursor, ids)
+    end
+  end
+
+  defp generated_decisions(specs) do
+    specs
+    |> Enum.with_index()
+    |> Enum.map(fn {{offset, status}, index} ->
+      payload = %{
+        "source_id" => "property-#{index}",
+        "question" => "Should generated Decision #{index} ship?",
+        "blocking" => rem(index, 2) == 0,
+        "urgency" => "normal",
+        "reversibility" => "reversible"
+      }
+
+      assert {:ok, decision} =
+               DecisionValidation.normalize(payload,
+                 ticket: @ticket,
+                 source: @source,
+                 now: DateTime.add(~U[2026-07-13 08:00:00Z], offset, :second)
+               )
+
+      %{decision | decision_status: status}
+    end)
   end
 
   defp audit_key(decision), do: {-DateTime.to_unix(decision.created_at, :microsecond), decision.decision_id}

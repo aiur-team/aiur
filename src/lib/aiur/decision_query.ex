@@ -9,7 +9,7 @@ defmodule Aiur.DecisionQuery do
   cursor boundary.
   """
 
-  alias Aiur.{Decision, DecisionStore}
+  alias Aiur.DecisionStore
   alias Aiur.DecisionQuery.{Params, StoreReader}
 
   @default_store DecisionStore
@@ -20,7 +20,12 @@ defmodule Aiur.DecisionQuery do
 
   @doc "Returns one exact retained Decision without consulting the overview window."
   @spec get(String.t(), keyword()) ::
-          {:ok, map()} | {:error, :not_found | :store_unavailable | {:indeterminate, map()} | {:invalid_decision_id, atom()}}
+          {:ok, map()}
+          | {:error,
+             :not_found
+             | :store_unavailable
+             | {:indeterminate, map()}
+             | {:invalid_decision_id, atom()}}
   def get(decision_id, opts \\ [])
 
   def get(decision_id, opts) when is_list(opts) do
@@ -61,30 +66,28 @@ defmodule Aiur.DecisionQuery do
 
   defp store(opts), do: Keyword.get(opts, :store, @default_store)
 
-  defp next_cursor([], _has_next?), do: nil
-  defp next_cursor(_items, false), do: nil
+  defp next_cursor(_key, false), do: nil
+  defp next_cursor(nil, true), do: nil
 
-  defp next_cursor(items, true) do
-    items
-    |> List.last()
-    |> cursor_for()
+  defp next_cursor({created_at, decision_id}, true) do
+    %{created_at: DateTime.from_unix!(-created_at, :microsecond), decision_id: decision_id}
     |> encode_cursor()
   end
 
-  defp cursor_for(%Decision{} = decision), do: %{created_at: decision.created_at, decision_id: decision.decision_id}
-
   defp retained_page(snapshot, query, health) do
+    partial? = health.partial? or Map.get(snapshot, :partial?, false)
+
     %{
       decisions: snapshot.decisions,
       scope: scope(),
       health: health,
-      partial_results?: health.partial?,
+      partial_results?: partial?,
       pagination: %{
         limit: query.limit,
         cursor: query.cursor && encode_cursor(query.cursor),
-        next_cursor: next_cursor(snapshot.decisions, snapshot.has_next?),
+        next_cursor: next_cursor(Map.get(snapshot, :next_key), snapshot.has_next?),
         total: snapshot.total,
-        label: pagination_label(query.limit, snapshot.has_next?)
+        label: pagination_label(query.limit, snapshot.has_next?, partial?)
       },
       filters: Map.take(query, [:lifecycle, :search, :ticket]),
       counts: snapshot.counts
@@ -110,13 +113,25 @@ defmodule Aiur.DecisionQuery do
 
   defp encode_cursor(cursor) do
     cursor
-    |> then(fn value -> %{"created_at" => DateTime.to_iso8601(value.created_at), "decision_id" => value.decision_id} end)
+    |> then(fn value ->
+      %{
+        "created_at" => DateTime.to_iso8601(value.created_at),
+        "decision_id" => value.decision_id
+      }
+    end)
     |> Jason.encode!()
     |> Base.url_encode64(padding: false)
   end
 
   defp scope, do: %{kind: :retained, label: "All retained decisions"}
 
-  defp pagination_label(limit, true), do: "Retained Decision page of up to #{limit}; more results are available"
-  defp pagination_label(limit, false), do: "Final retained Decision page of up to #{limit}"
+  defp pagination_label(limit, _has_next?, true) do
+    "Partial retained Decision page of up to #{limit}; refine the filter for complete results"
+  end
+
+  defp pagination_label(limit, true, false) do
+    "Retained Decision page of up to #{limit}; more results are available"
+  end
+
+  defp pagination_label(limit, false, false), do: "Final retained Decision page of up to #{limit}"
 end

@@ -52,6 +52,7 @@ defmodule Aiur.DecisionStore do
   }
 
   alias Aiur.DecisionStore.RetainedSnapshot
+  alias Aiur.DecisionQuery.Params, as: DecisionQueryParams
   alias Aiur.Events.{IdGenerator, Publisher}
 
   @ndjson_filename "decisions.ndjson"
@@ -210,7 +211,15 @@ defmodule Aiur.DecisionStore do
 
   @doc "Returns canonical retained open and blocking counts from one serialized store snapshot."
   @spec retained_counts(GenServer.server()) ::
-          {:ok, %{counts: %{open: non_neg_integer(), blocking: non_neg_integer(), total: non_neg_integer()}, health: term()}}
+          {:ok,
+           %{
+             counts: %{
+               open: non_neg_integer(),
+               blocking: non_neg_integer(),
+               total: non_neg_integer()
+             },
+             health: term()
+           }}
           | {:error, :store_unavailable}
   def retained_counts(server \\ __MODULE__) do
     GenServer.call(server, :retained_counts)
@@ -333,7 +342,7 @@ defmodule Aiur.DecisionStore do
           projection_path: projection_path,
           current: current,
           decision_index: build_decision_index(current),
-          retained_index: RetainedSnapshot.build_index(current),
+          retained_index: RetainedSnapshot.build_index(current, history),
           # The store keeps histories newest-first so every accepted append is
           # O(1). The public history call reverses them back to audit order.
           history: reverse_histories(history),
@@ -530,7 +539,13 @@ defmodule Aiur.DecisionStore do
   end
 
   def handle_call({:retained_query, query}, _from, state) do
-    {:reply, RetainedSnapshot.query(state.current, state.retained_index, state.health, query), state}
+    reply =
+      case DecisionQueryParams.parse(query) do
+        {:ok, normalized} -> RetainedSnapshot.query(state.current, state.retained_index, state.health, normalized)
+        {:error, _reason} -> {:error, :invalid_query}
+      end
+
+    {:reply, reply, state}
   end
 
   def handle_call(:retained_counts, _from, state) do

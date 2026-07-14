@@ -134,6 +134,14 @@ defmodule Aiur.DecisionQuery.Params do
 
   defp optional_cursor(nil), do: {:ok, nil}
 
+  defp optional_cursor(%{created_at: %DateTime{} = created_at, decision_id: decision_id}) do
+    with {:ok, normalized_id} <- normalize_decision_id(decision_id) do
+      {:ok, %{created_at: created_at, decision_id: normalized_id}}
+    else
+      _invalid -> {:error, {:cursor, :invalid}}
+    end
+  end
+
   defp optional_cursor(cursor) when is_binary(cursor) and byte_size(cursor) <= @maximum_cursor_bytes do
     with {:ok, decoded} <- Base.url_decode64(cursor, padding: false),
          {:ok, %{"created_at" => created_at, "decision_id" => decision_id}} <- Jason.decode(decoded),
