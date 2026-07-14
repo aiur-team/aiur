@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-13 23:17 PDT)
+## Live Executor state (updated 2026-07-13 23:22 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -229,9 +229,10 @@ to a safe range.
     incident and widens after steady state.
 23. Progress-estimate capture is committed on this branch at `b5aecac1` and
     writes only normalized percentage/timestamp/lifecycle facts to private
-    operator-local NDJSON. The 23:06 PDT scan retained 179 samples. Latest
-    emitted estimates are DASH-006 100%, DASH-017 80%, DASH-018 70%, BO-017
-    80%, and DASH-004 60%; verified BO-001 remains 100% merged. Preserve the
+    operator-local NDJSON. The 23:22 PDT scan retained 184 samples. Latest
+    emitted estimates are DASH-006 50%, DASH-017 20%, DASH-018 40%, BO-002
+    10%, BO-017 80%, and DASH-004 60%; BO-009 has not emitted a check-in yet,
+    and verified BO-001 remains 100% merged. Preserve the earlier
     DASH-006 100% sample even though independent review subsequently returned
     it to rework: that mismatch is phase-end calibration evidence, not a reason
     to rewrite history.
@@ -327,14 +328,18 @@ to a safe range.
     restarted release uses the canonical issue workspace, Codex 5.6 Sol/Terra,
     and the local `/home/orangekid/.aiur/build-gate` writable-root containment;
     do not commit that machine path into portable defaults. Admission is
-    ramping rather than cold-starting the full queue simultaneously: #1030,
-    #1088, #1089, and #1090 were active at the 23:17 snapshot, with the next
-    useful ticket filling the remaining safe slot as load permits.
+    ramping rather than cold-starting the full queue simultaneously. At 23:22
+    all six admitted slots are real, active workers: blocker #1030, Phase-1
+    rework #1088/#1089/#1090, critical-path #1091/BO-002, and #1096/BO-009.
+    #1088 initially retained its pre-fix invalid-cwd runner; a deliberate
+    pause, observed paused state, and resume created a fresh productive turn.
+    Load briefly reached 20.2 during the ramp, so cap 6 remains the measured
+    ceiling until the launch/build spike decays.
 
-At 23:17 PDT the core graph is 3/54 merged. Core #1088/#1089/#1090 are active,
-#1030 is in contained rework, #1104/#1111 and direct P1 #1151 await the next
-measured slots, and newly-ready #1091/#1096/#1108 remain queued behind that
-bounded rework. #1103/#1123 remain paused. Treat
+At 23:22 PDT the core graph is 3/54 merged. Core
+#1088/#1089/#1090/#1091/#1096 are active, #1030 is in contained rework, and
+#1104/#1111 plus direct P1 #1151 await the next measured slots; newly-ready
+#1108 remains queued behind that bounded rework. #1103/#1123 remain paused. Treat
 completed turns, stale bases, and green builds with unmet acceptance criteria
 as pending Executor work, not merge-ready truth.
 
