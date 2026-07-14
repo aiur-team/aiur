@@ -60,6 +60,13 @@ and memory has ample headroom, so adding unrelated work would reduce throughput.
    `prewarm.poll_seconds` is zero, each tracker dispatch cycle calls
    `RepoBase.refresh_async/0`; after every merge verify the base fetches,
    rebuilds, and reaches the new `main` before newly-ready dispatch begins.
+7. At 19:13 PDT the adaptive watcher caught #1088's operator-decision alert:
+   PR #1144 had opened against legacy `v2`, producing 429 unrelated files.
+   The Executor auto-retargeted it through the REST API to authorized `main`,
+   reducing the diff to 12 files, recorded the decision on #1088, and messaged
+   the worker to rerun scoped validation and resolve the attention. This is the
+   canonical response when a branch is based on current `main` but GitHub PR
+   creation inherits the repository's legacy default base.
 
 At 19:06 PDT the five event-reported percentages are BO-004 70%, BO-008 70%,
 DASH-006 70%, DASH-017 50%, and DASH-018 70% (66% ticket-average). DASH-018
