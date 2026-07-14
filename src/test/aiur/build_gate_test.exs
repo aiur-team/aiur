@@ -282,8 +282,10 @@ defmodule Aiur.BuildGateTest do
     if match?({:unix, :linux}, :os.type()) and File.dir?("/sys/kernel") do
       gate_dir = Path.join("/sys/kernel", "aiur-build-gate-#{System.unique_integer([:positive])}")
 
-      assert {:error, {:build_gate_unavailable, %{operation: :create_directory, path: ^gate_dir, reason: reason, recovery: recovery}}} =
+      assert {:error, {:build_gate_unavailable, details}} =
                BuildGate.prepare_writable_root(gate_dir: gate_dir)
+
+      assert %{operation: :create_directory, path: ^gate_dir, reason: reason, recovery: recovery} = details
 
       assert reason in [:eacces, :eperm, :erofs]
       assert recovery =~ "repair"

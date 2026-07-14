@@ -161,15 +161,7 @@ defmodule Aiur.BuildGate do
       {:ok, entries} ->
         entries
         |> Enum.filter(&String.starts_with?(&1, "lease-v2-"))
-        |> Enum.reduce({0, []}, fn entry, {queued, issues} ->
-          path = Path.join(queue_dir, entry)
-
-          case probe_lock(path, path, shell, flock) do
-            :locked -> {queued + 1, maybe_metadata_issue(issues, path)}
-            :unlocked -> {queued, issues}
-            {:error, reason} -> {queued, [status_issue(:lock_probe_failed, path, reason) | issues]}
-          end
-        end)
+        |> Enum.reduce({0, []}, &count_queue_entry(&1, &2, queue_dir, shell, flock))
         |> then(fn {queued, issues} -> {queued, Enum.reverse(issues)} end)
 
       {:error, :enoent} ->
@@ -177,6 +169,16 @@ defmodule Aiur.BuildGate do
 
       {:error, reason} ->
         {0, [status_issue(:queue_unreadable, queue_dir, reason)]}
+    end
+  end
+
+  defp count_queue_entry(entry, {queued, issues}, queue_dir, shell, flock) do
+    path = Path.join(queue_dir, entry)
+
+    case probe_lock(path, path, shell, flock) do
+      :locked -> {queued + 1, maybe_metadata_issue(issues, path)}
+      :unlocked -> {queued, issues}
+      {:error, reason} -> {queued, [status_issue(:lock_probe_failed, path, reason) | issues]}
     end
   end
 
