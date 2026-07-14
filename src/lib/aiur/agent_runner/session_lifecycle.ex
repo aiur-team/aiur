@@ -76,15 +76,9 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     issue_state_fetcher = Keyword.get(opts, :issue_state_fetcher, &Tracker.fetch_issue_states_by_ids/1)
     orchestrator = Keyword.get(opts, :orchestrator, Aiur.Orchestrator)
 
-    backend = CodingAgent.backend_for(issue)
-    model = CodingAgent.model_for(issue)
-    effort = CodingAgent.effort_for(issue)
-
-    rc? =
-      (CodingAgent.remote_control_forced?(issue) or CodingAgent.routing_remote?(issue) or
-         Config.agent_remote_control?()) and CodingAgent.remote_control?(backend)
-
-    session_backend = remote_session_backend(backend, rc?)
+    {session_backend, rc?, session_opts} = resolve_session_options(issue, opts, worker_host)
+    model = Keyword.fetch!(session_opts, :model)
+    effort = Keyword.fetch!(session_opts, :effort)
 
     Logger.info("Resolved backend for #{Aiur.AgentRunner.issue_context(issue)} backend=#{session_backend} model=#{inspect(model)} effort=#{inspect(effort)} remote_control=#{rc?}")
 
@@ -92,25 +86,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
       Aiur.Orchestrator.ensure_remote_control_trust(orchestrator, ws)
     end)
 
-    # Rejoin the prior agent thread across an aiur restart instead of cold-
-    # starting a fresh conversation that re-discovers the work (issue #378).
-    # Only a resumable, local backend with a persisted handle qualifies; any
-    # miss degrades silently to a clean start.
-    resume_thread_id = SessionResume.load_resume_thread_id(session_backend, worker_host, issue.identifier)
     lifecycle_attempt_id = Keyword.get(opts, :telemetry_attempt_id)
-
-    session_opts =
-      [
-        backend: session_backend,
-        model: model,
-        effort: effort,
-        worker_host: worker_host,
-        remote_control: rc?,
-        identifier: issue.identifier,
-        attempt_id: lifecycle_attempt_id
-      ]
-      |> maybe_put_rc_name(rc?, issue)
-      |> SessionResume.maybe_put_resume_thread_id(resume_thread_id)
 
     Lifecycle.record(issue.identifier, lifecycle_attempt_id, :agent_spinup, :start, %{
       operation_id: "session",
@@ -130,7 +106,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
         # Persist the live session handle so the next aiur restart can resume it.
         SessionResume.persist_session_handle(session, issue.identifier, worker_host)
 
-        SessionResume.log_resume_outcome(issue, session, resume_thread_id)
+        SessionResume.log_resume_outcome(issue, session, Keyword.get(session_opts, :resume_thread_id))
 
         report_repl_session(codex_update_recipient, issue, session)
         report_pause_containment(codex_update_recipient, issue, session)
@@ -170,6 +146,42 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
 
         error
     end
+  end
+
+  @doc false
+  @spec resolve_session_options(Issue.t(), keyword(), worker_host()) ::
+          {String.t(), boolean(), keyword()}
+  def resolve_session_options(issue, opts, worker_host) do
+    backend = CodingAgent.backend_for(issue)
+    model = CodingAgent.model_for(issue)
+    effort = CodingAgent.effort_for(issue)
+
+    rc? =
+      (CodingAgent.remote_control_forced?(issue) or CodingAgent.routing_remote?(issue) or
+         Config.agent_remote_control?()) and CodingAgent.remote_control?(backend)
+
+    session_backend = remote_session_backend(backend, rc?)
+
+    # Rejoin the prior agent thread across an aiur restart instead of cold-
+    # starting a fresh conversation that re-discovers the work (issue #378).
+    # Only a resumable, local backend with a persisted handle qualifies; any
+    # miss degrades silently to a clean start.
+    resume_thread_id = SessionResume.load_resume_thread_id(session_backend, worker_host, issue.identifier)
+
+    session_opts =
+      [
+        backend: session_backend,
+        model: model,
+        effort: effort,
+        worker_host: worker_host,
+        remote_control: rc?,
+        identifier: issue.identifier,
+        attempt_id: Keyword.get(opts, :telemetry_attempt_id)
+      ]
+      |> maybe_put_rc_name(rc?, issue)
+      |> SessionResume.maybe_put_resume_thread_id(resume_thread_id)
+
+    {session_backend, rc?, session_opts}
   end
 
   # Mirror the full claude transcript into the opencode pane for an RC claude-repl
