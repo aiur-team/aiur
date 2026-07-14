@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-13 20:46 PDT)
+## Live Executor state (updated 2026-07-13 21:05 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -21,17 +21,15 @@ Because execution has now legitimately mutated issue lifecycle state, the old
 OPEN publication snapshot is historical evidence and must not be presented as
 a fresh executable receipt.
 
-Aiur is running against current `main` from an isolated Executor checkout.
-Phase 1 has five dependency-ready Terra workers: #1086 BO-004, #1087 BO-008,
-#1088 DASH-006, #1089 DASH-017, and #1090 DASH-018. The initial cap of five
-matched the graph's ready width; it is not a program ceiling. At every readiness
-transition, set concurrency toward the full ready width when measured CPU,
-memory, file-descriptor, build-gate, serialization, and model capacity permit.
-After a contained restart, only those five BO tickets are routable. The load
-controller restarted at an effective width of two and admitted #1086 and #1087;
-the configured/session cap remains five and must ramp toward every ready ticket
-as measured load permits. At this snapshot load is 3.86 with 23 GiB available,
-so the controller—not an arbitrary Executor cap—is the remaining admission gate.
+Aiur is running against current `main` from the repository root. Phase 1 has one
+merged ticket (#1086/BO-004), one code-approved ticket completing the stale-base
+gate (#1087/BO-008), and three active Terra workers (#1088/DASH-006,
+#1089/DASH-017, and #1090/DASH-018). Direct P1 blocker #1151 uses the genuinely
+available fifth slot but is outside the 54-ticket denominator. Runtime capacity
+is 16; the initial width of five matched the graph's ready width and is not a
+program ceiling. At every readiness transition, set concurrency toward the full
+ready width when measured CPU, memory, file-descriptor, build-gate,
+serialization, and model capacity permit.
 
 **Current operating decisions:**
 
@@ -59,7 +57,7 @@ so the controller—not an arbitrary Executor cap—is the remaining admission g
    is active operationally but it also has no dispatch label.
 5. Maintain this handoff whenever an operator directive, execution override,
    capacity decision, discovered blocker, or validation authority changes.
-6. The prewarm base currently equals live `origin/main` at `e27e96db`. Although
+6. The prewarm base currently equals live `origin/main` at `97518e96`. Although
    `prewarm.poll_seconds` is zero, each tracker dispatch cycle calls
    `RepoBase.refresh_async/0`; after every merge verify the base fetches,
    rebuilds, and reaches the new `main` before newly-ready dispatch begins.
@@ -188,15 +186,28 @@ so the controller—not an arbitrary Executor cap—is the remaining admission g
     delivered the queued lint repair. Use this contained recovery before
     considering manual code edits, and retain #1151's regression ordering:
     agent reply -> CI wait -> self-comment ingestion -> later CI failure.
+19. At 20:54 PDT the Executor restarted Aiur from the repository root so the
+    engine loaded the operator's root `.env`. Agent GitHub operations now use
+    `its-applekid`, while Executor shell operations remain `its-everdred`;
+    `tracker.github.bot_account: its-applekid` suppresses only actual bot
+    self-comments. The config and prewarm base were pushed/refreshed to
+    `97518e96`. Deferred enhancement #1152 owns an `aiur init` question that
+    explains and writes this setting; it has no dispatch label because it does
+    not block the finite Build Order.
+20. At 21:01 PDT #1086/BO-004 was squash-merged after focused post-rework
+    review. The Build Order preview was refreshed at `10464902` with real
+    100/90/60/50/60 Phase-1 check-ins, merged-card rendering, and cleared-edge
+    rendering; its Tailscale listener remains on port 4180. #1087/BO-008 is
+    code-approved and all-green, but its head predates current `main`, so the
+    Executor returned it to its existing agent for a merge-based current-main
+    update and fresh CI rather than bypass the stale-base gate.
 
-At 20:46 PDT all five Phase-1 tickets remain unmerged. #1086/#1143 is green and
-in focused post-rework review; #1087/#1145 is applying its single delivered
-lint repair after the contained restart; #1088/#1144 is still implementing its
-review packet; #1089/#1147 and #1090/#1141 are in rework/CI convergence.
-Direct blocker #1151 occupies the spare fifth live slot while #1086 is
-deactivated for review. The Executor begins independent review only when a
-branch stabilizes and never treats an in-flight draft or a green build with
-unmet acceptance criteria as merge-ready.
+At 21:05 PDT Phase 1 is 1/5 merged. #1087 is code-approved and waiting only on
+its current-main merge plus fresh CI; #1088, #1089, and #1090 are actively
+implementing their existing review packets; #1151 is actively fixing the
+self-comment provenance defect. The Executor begins independent review only
+when a branch stabilizes and never treats an in-flight draft, a stale branch,
+or a green build with unmet acceptance criteria as merge-ready.
 
 **Read-first map for this run:** `README.md` (pack index) →
 `08-implementation-pointers.md` (verified per-ticket file/module/function
