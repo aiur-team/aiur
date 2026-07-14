@@ -427,11 +427,33 @@ to a safe range.
     `efb505e2` publishes the latest emitted values. BO-002 still reported 20%
     despite reaching CI; preserve that discrepancy for the phase-end status
     calibration analysis rather than rewriting the historical estimate.
+43. BO-017/#1104 converged at exact head `c35d27ca`: QueueDrain retained the
+    original lifecycle attempt through every queued/resumed turn, the stronger
+    duplicate/out-of-order/restart gates landed, all required CI passed, and
+    three exact-head review lenses were clean. The Executor squash-merged PR
+    #1156 to `main` as `d3d6999ac0ef9848423ab58b42c4542f2317c4e8` and the
+    issue closed. Core progress is therefore 4/54; BO-005, DASH-002, DASH-008,
+    and DASH-026 are dependency-ready once the bounded rework queue permits.
+44. By 00:38 PDT five of six counted app-server generations had completed
+    turns without rearming after durable rework/CI transitions; only BO-009 was
+    still producing events. Every stale ticket had a fully pushed owned tree,
+    and BO-009's uncommitted tree was durable, so the Executor performed a
+    controlled root restart. BO-009 reported expected `port_exit: 0`; its full
+    staged/unstaged tree remained intact and #1096 was returned from
+    `agent:error` to rework with a durable recovery note. After BO-017 merged,
+    the root fast-forwarded and rebuilt once more on `d3d6999a`. Startup pause
+    stripping was contained by immediately restoring #855/#1103/#1123, then
+    explicit issue-level resume restored six Codex Sol/Terra workers:
+    #1030/#1088/#1089/#1090/#1091/#1096. Do not interpret the controlled
+    BO-009 port exit as an implementation defect.
+45. The 00:44 PDT sampler retained 245 normalized samples. Preview commit
+    `e3935534` records BO-017 as 100% merged and publishes the latest emitted
+    estimates; DASH-006's restart reset to 20% is intentionally preserved as
+    calibration evidence.
 
-At 00:27 PDT the core graph is 3/54 merged. Core
-#1088/#1089/#1091/#1096/#1104 and direct blocker #1030 occupy the six measured
-slots; #1090 is currently requeued behind them after the stale-generation
-recycle. #1111 plus direct P1 #1151 await later measured slots, and newly-ready
+At 00:44 PDT the core graph is 4/54 merged. Core
+#1088/#1089/#1090/#1091/#1096 and direct blocker #1030 occupy the six measured
+slots. #1111 plus direct P1 #1151 await later measured slots, and newly-ready
 #1108 remains queued behind that bounded rework. #1103/#1123 remain paused.
 Treat
 completed turns, stale bases, and green builds with unmet acceptance criteria
