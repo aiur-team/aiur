@@ -650,61 +650,34 @@ defmodule Aiur.DecisionEvent do
   end
 
   defp decode_snapshot_provenance(raw, type, event_id, run_id, decision_id, decision_version, occurred_at) do
-    case snapshot_event_id_status(event_id) do
+    context = %{
+      type: type,
+      event_id: event_id,
+      run_id: run_id,
+      decision_id: decision_id,
+      decision_version: decision_version,
+      occurred_at: occurred_at
+    }
+
+    case snapshot_event_id_status(context.event_id) do
       :marked ->
-        decode_marked_snapshot_provenance(
-          raw,
-          type,
-          event_id,
-          run_id,
-          decision_id,
-          decision_version,
-          occurred_at
-        )
+        decode_marked_snapshot_provenance(raw, context)
 
       :malformed_marker ->
         {:error, :invalid_provenance_event_id}
 
       :legacy ->
-        decode_legacy_or_bound_snapshot_provenance(
-          raw,
-          type,
-          event_id,
-          run_id,
-          decision_id,
-          decision_version,
-          occurred_at
-        )
+        decode_legacy_or_bound_snapshot_provenance(raw, context)
     end
   end
 
-  defp decode_marked_snapshot_provenance(raw, type, event_id, run_id, decision_id, decision_version, occurred_at) do
+  defp decode_marked_snapshot_provenance(raw, context) do
     case {get(raw, :provenance_state), get(raw, :provenance), get(raw, :provenance_hash)} do
       {"captured", provenance, hash} ->
-        decode_bound_snapshot_provenance(
-          provenance,
-          hash,
-          "captured",
-          type,
-          event_id,
-          run_id,
-          decision_id,
-          decision_version,
-          occurred_at
-        )
+        decode_bound_snapshot_provenance(provenance, hash, "captured", context)
 
       {"unknown", nil, hash} ->
-        decode_bound_snapshot_provenance(
-          nil,
-          hash,
-          "unknown",
-          type,
-          event_id,
-          run_id,
-          decision_id,
-          decision_version,
-          occurred_at
-        )
+        decode_bound_snapshot_provenance(nil, hash, "unknown", context)
 
       {nil, nil, nil} ->
         {:error, :provenance_binding_missing}
@@ -717,15 +690,7 @@ defmodule Aiur.DecisionEvent do
     end
   end
 
-  defp decode_legacy_or_bound_snapshot_provenance(
-         raw,
-         type,
-         event_id,
-         run_id,
-         decision_id,
-         decision_version,
-         occurred_at
-       ) do
+  defp decode_legacy_or_bound_snapshot_provenance(raw, context) do
     case {get(raw, :provenance_state), get(raw, :provenance), get(raw, :provenance_hash)} do
       {nil, nil, nil} ->
         {:ok, nil}
@@ -734,216 +699,68 @@ defmodule Aiur.DecisionEvent do
         {:error, :provenance_state_missing}
 
       {nil, provenance, hash} ->
-        decode_legacy_snapshot_provenance(
-          provenance,
-          hash,
-          type,
-          event_id,
-          run_id,
-          decision_id,
-          decision_version,
-          occurred_at
-        )
+        decode_legacy_snapshot_provenance(provenance, hash, context)
 
       {"captured", provenance, hash} ->
-        decode_bound_snapshot_provenance(
-          provenance,
-          hash,
-          "captured",
-          type,
-          event_id,
-          run_id,
-          decision_id,
-          decision_version,
-          occurred_at
-        )
+        decode_bound_snapshot_provenance(provenance, hash, "captured", context)
 
       {"unknown", nil, hash} ->
-        decode_bound_snapshot_provenance(
-          nil,
-          hash,
-          "unknown",
-          type,
-          event_id,
-          run_id,
-          decision_id,
-          decision_version,
-          occurred_at
-        )
+        decode_bound_snapshot_provenance(nil, hash, "unknown", context)
 
       {_state, _provenance, _hash} ->
         {:error, :invalid_provenance_binding}
     end
   end
 
-  defp decode_legacy_snapshot_provenance(
-         nil,
-         _hash,
-         _type,
-         _event_id,
-         _run_id,
-         _decision_id,
-         _decision_version,
-         _occurred_at
-       ),
-       do: {:error, :provenance_hash_without_provenance}
+  defp decode_legacy_snapshot_provenance(nil, _hash, _context),
+    do: {:error, :provenance_hash_without_provenance}
 
-  defp decode_legacy_snapshot_provenance(
-         _provenance,
-         nil,
-         _type,
-         _event_id,
-         _run_id,
-         _decision_id,
-         _decision_version,
-         _occurred_at
-       ),
-       do: {:error, :provenance_hash_missing}
+  defp decode_legacy_snapshot_provenance(_provenance, nil, _context),
+    do: {:error, :provenance_hash_missing}
 
-  defp decode_legacy_snapshot_provenance(
-         provenance,
-         hash,
-         type,
-         event_id,
-         run_id,
-         decision_id,
-         decision_version,
-         occurred_at
-       )
+  defp decode_legacy_snapshot_provenance(provenance, hash, context)
        when is_map(provenance) and is_binary(hash) and hash != "" do
     with {:ok, provenance} <- DecisionProvenance.from_json_safe(provenance),
-         :ok <-
-           verify_provenance_hash(
-             type,
-             event_id,
-             run_id,
-             decision_id,
-             decision_version,
-             occurred_at,
-             provenance,
-             nil,
-             hash
-           ) do
+         :ok <- verify_provenance_hash(context, provenance, nil, hash) do
       {:ok, provenance}
     end
   end
 
-  defp decode_legacy_snapshot_provenance(
-         _provenance,
-         _hash,
-         _type,
-         _event_id,
-         _run_id,
-         _decision_id,
-         _decision_version,
-         _occurred_at
-       ),
-       do: {:error, :invalid_provenance_binding}
+  defp decode_legacy_snapshot_provenance(_provenance, _hash, _context),
+    do: {:error, :invalid_provenance_binding}
 
-  defp decode_bound_snapshot_provenance(
-         nil,
-         _hash,
-         "captured",
-         _type,
-         _event_id,
-         _run_id,
-         _decision_id,
-         _decision_version,
-         _occurred_at
-       ),
-       do: {:error, :provenance_missing}
+  defp decode_bound_snapshot_provenance(nil, _hash, "captured", _context),
+    do: {:error, :provenance_missing}
 
-  defp decode_bound_snapshot_provenance(
-         provenance,
-         hash,
-         state,
-         type,
-         event_id,
-         run_id,
-         decision_id,
-         decision_version,
-         occurred_at
-       )
+  defp decode_bound_snapshot_provenance(provenance, hash, state, context)
        when state == "captured" and is_map(provenance) and is_binary(hash) and hash != "" do
     with {:ok, provenance} <- DecisionProvenance.from_json_safe(provenance),
-         :ok <-
-           verify_provenance_hash(
-             type,
-             event_id,
-             run_id,
-             decision_id,
-             decision_version,
-             occurred_at,
-             provenance,
-             state,
-             hash
-           ) do
+         :ok <- verify_provenance_hash(context, provenance, state, hash) do
       {:ok, provenance}
     end
   end
 
-  defp decode_bound_snapshot_provenance(
-         nil,
-         hash,
-         "unknown",
-         type,
-         event_id,
-         run_id,
-         decision_id,
-         decision_version,
-         occurred_at
-       )
+  defp decode_bound_snapshot_provenance(nil, hash, "unknown", context)
        when is_binary(hash) and hash != "" do
-    with :ok <-
-           verify_provenance_hash(
-             type,
-             event_id,
-             run_id,
-             decision_id,
-             decision_version,
-             occurred_at,
-             nil,
-             "unknown",
-             hash
-           ) do
+    with :ok <- verify_provenance_hash(context, nil, "unknown", hash) do
       {:ok, nil}
     end
   end
 
-  defp decode_bound_snapshot_provenance(
-         _provenance,
-         _hash,
-         _state,
-         _type,
-         _event_id,
-         _run_id,
-         _decision_id,
-         _decision_version,
-         _occurred_at
-       ),
-       do: {:error, :invalid_provenance_binding}
+  defp decode_bound_snapshot_provenance(_provenance, _hash, _state, _context),
+    do: {:error, :invalid_provenance_binding}
 
-  defp verify_provenance_hash(
-         type,
-         event_id,
-         run_id,
-         decision_id,
-         decision_version,
-         occurred_at,
-         provenance,
-         state,
-         persisted_hash
-       ) do
+  defp verify_provenance_hash(context, provenance, state, persisted_hash) do
     actual_hash =
       DecisionValidation.content_hash(
         %{
           schema_version: @schema_version,
-          event_type: type,
-          event_id: event_id,
-          run_id: run_id,
-          decision_id: decision_id,
-          decision_version: decision_version,
-          occurred_at: DateTime.to_iso8601(occurred_at),
+          event_type: context.type,
+          event_id: context.event_id,
+          run_id: context.run_id,
+          decision_id: context.decision_id,
+          decision_version: context.decision_version,
+          occurred_at: DateTime.to_iso8601(context.occurred_at),
           provenance: provenance && DecisionProvenance.to_json_safe(provenance)
         }
         |> maybe_put_provenance_state(state)
