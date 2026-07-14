@@ -1,7 +1,7 @@
 ---
 title: "feat: Configured-repository ticket detail"
 type: feat
-status: active
+status: complete
 date: 2026-07-14
 origin: docs/brainstorms/2026-07-12-build-order-requirements.md
 deepened: 2026-07-14
