@@ -9,7 +9,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   require Logger
 
   alias Aiur.AgentRunner.SessionLifecycle
-  alias Aiur.{Alerts, DecisionAttention, DecisionStore, Issue}
+  alias Aiur.{Alerts, Boot, DecisionAttention, DecisionStore, Issue}
   alias Aiur.Codex.DynamicTool
   alias Aiur.Events.{Publisher, SubscriptionStore}
   alias Aiur.GitHub.IssueDependencies
@@ -65,7 +65,11 @@ defmodule Aiur.AgentRunner.ToolExecutor do
             worker_host: worker_host,
             reason: reason,
             needs_attention: needs_attention,
-            severity: severity
+            severity: severity,
+            observation_identity: Issue.tracker_identity(issue),
+            observation_source: %{kind: :agent_alert, name: name},
+            observation_provenance: observation_provenance(app_session),
+            occurred_at: DateTime.utc_now()
           )
         end,
         event_publisher: fn name, message, payload ->
@@ -211,7 +215,14 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
     log_decision_projection_failure(decision_projection, topic)
 
-    case Publisher.publish(topic, event_payload) do
+    case Publisher.publish(
+           topic,
+           event_payload,
+           identity: Issue.tracker_identity(issue),
+           observation_source: %{kind: :agent_event, name: name},
+           observation_provenance: observation_provenance(app_session),
+           occurred_at: DateTime.utc_now()
+         ) do
       {:ok, id, _subscribers} ->
         sync_decision_resolution(issue, name, payload, handlers.attention_resolver)
 
@@ -527,6 +538,14 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       agent_id: SessionLifecycle.session_backend(app_session),
       session_id: Map.get(app_session, :thread_id),
       event_id: stringify_invocation_id(invocation_id())
+    }
+  end
+
+  defp observation_provenance(app_session) do
+    %{
+      run_id: Boot.run_id(),
+      session_id: Map.get(app_session, :thread_id),
+      source_event_id: stringify_invocation_id(invocation_id())
     }
   end
 

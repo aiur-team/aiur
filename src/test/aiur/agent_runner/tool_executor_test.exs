@@ -4,7 +4,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
   import ExUnit.CaptureLog
 
   alias Aiur.AgentRunner.ToolExecutor
-  alias Aiur.{DecisionStore, Issue}
+  alias Aiur.{DecisionStore, Issue, TrackerIdentity}
   alias Aiur.Events.{Exchange, SubscriptionStore}
 
   describe "build/3" do
@@ -103,6 +103,33 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert_receive {:event, event}, 2_000
       assert event.topic =~ "ticket."
       assert event["name"] == "unblocked"
+    end
+
+    test "progress events carry the trusted issue identity and safe invocation provenance" do
+      identifier = "TE-observation-#{System.unique_integer([:positive])}"
+
+      {:ok, identity} =
+        TrackerIdentity.from_github(
+          %{"node_id" => "I_kwDOObservation", "number" => 42},
+          {"owner", "repo"},
+          {"owner", "repo"}
+        )
+
+      # Keep :id nil so this focused producer test is independent of the
+      # shared Publisher tracked-set fixture; the BO-004 identity is explicit.
+      issue = %Issue{identifier: identifier, tracker_identity: identity}
+      executor = ToolExecutor.build(issue, nil, nil, %{thread_id: "session-observation"})
+      :ok = Exchange.subscribe("ticket.#{identifier}.agent.progress")
+
+      ToolExecutor.execute(executor, "emit_event", %{"name" => "progress", "message" => "private", "payload" => %{"percent" => 50}}, "tool-observation")
+
+      assert_receive {:event, %{ticket_observation: observation}}, 2_000
+      assert observation.status == :joinable
+      assert observation.tracker_identity == identity
+      assert observation.attributes == %{percent: 50}
+      assert observation.provenance.session_id == "session-observation"
+      assert observation.provenance.source_event_id == "tool-observation"
+      refute Jason.encode!(observation) =~ "private"
     end
 
     test "attention events create and resolve a durable decision attention" do

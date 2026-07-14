@@ -40,6 +40,7 @@ defmodule Aiur.Events.Publisher do
 
   alias Aiur.Events.{DebugLog, Exchange, IdGenerator}
   alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.TicketObservation
 
   @table __MODULE__.Dedup
   # 1-hour dedup window. GitHub's Events API returns the same event
@@ -105,7 +106,12 @@ defmodule Aiur.Events.Publisher do
 
       true ->
         id = IdGenerator.next_id()
-        event = Map.merge(payload, %{id: id, topic: topic})
+
+        event =
+          payload
+          |> Map.merge(%{id: id, topic: topic})
+          |> Map.put(:ticket_observation, ticket_observation(payload, id, opts))
+
         subscribers = Exchange.publish(topic, event)
         record_emit_marker(topic, event, opts)
         DebugLog.broadcast(:publish, topic, id: id, body: payload)
@@ -126,7 +132,11 @@ defmodule Aiur.Events.Publisher do
           {:ok, pos_integer(), non_neg_integer()}
   def publish_persisted(topic, payload, id, opts \\ [])
       when is_binary(topic) and is_map(payload) and is_integer(id) do
-    event = Map.merge(payload, %{id: id, topic: topic})
+    event =
+      payload
+      |> Map.merge(%{id: id, topic: topic})
+      |> Map.put(:ticket_observation, ticket_observation(payload, id, opts))
+
     subscribers = Exchange.publish(topic, event)
     record_emit_marker(topic, event, opts)
     DebugLog.broadcast(:publish, topic, id: id, body: payload)
@@ -140,6 +150,43 @@ defmodule Aiur.Events.Publisher do
   # ticket-namespace prefix a caller builds the topic with.
   defp durable_decision_topic?(topic) do
     Enum.any?(@durable_decision_names, &(topic == &1 or String.ends_with?(topic, ".#{&1}")))
+  end
+
+  # Compatibility boundary: every event gains an envelope, but legacy callers
+  # remain explicitly unattributed. Identity is accepted only through a trusted
+  # producer option; topic, issue number, and payload are never identity input.
+  defp ticket_observation(payload, id, opts) do
+    opts
+    |> observation_options(id)
+    |> then(&TicketObservation.normalize(payload, &1))
+  end
+
+  defp observation_options(opts, id) do
+    [event_id: id, observed_at: observation_time(opts)]
+    |> copy_option(opts, :identity, :identity)
+    |> copy_option(opts, :observation_source, :source)
+    |> copy_option(opts, :observation_provenance, :provenance)
+    |> copy_option(opts, :occurred_at, :occurred_at)
+    |> copy_option(opts, :observed_at, :observed_at)
+    |> copy_option(opts, :observation_clock, :clock)
+    |> copy_option(opts, :payload_version, :payload_version)
+  end
+
+  defp observation_time(opts) do
+    case Keyword.get(opts, :observation_clock, &DateTime.utc_now/0) do
+      clock when is_function(clock, 0) -> clock.()
+      _clock -> nil
+    end
+  rescue
+    _error -> nil
+  end
+
+  defp copy_option(accumulator, opts, source_key, destination_key) do
+    if Keyword.has_key?(opts, source_key) do
+      Keyword.put(accumulator, destination_key, Keyword.fetch!(opts, source_key))
+    else
+      accumulator
+    end
   end
 
   defp record_emit_marker(topic, event, opts) do
