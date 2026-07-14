@@ -9,8 +9,8 @@ defmodule Aiur.DecisionQuery do
   cursor boundary.
   """
 
-  alias Aiur.DecisionStore
   alias Aiur.DecisionQuery.{Params, StoreReader}
+  alias Aiur.DecisionStore
 
   @default_store DecisionStore
 

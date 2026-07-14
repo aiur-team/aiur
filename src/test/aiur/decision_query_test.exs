@@ -507,6 +507,24 @@ defmodule Aiur.DecisionQueryTest do
     end
   end
 
+  property "generated malformed cursors reject before querying the retained store", %{store: store} do
+    decision = request!(store, "cursor-boundary", ~U[2026-07-13 08:00:00Z])
+    {:ok, boundary_store} = AtomicSnapshotStore.start_link(decision: decision, report: self())
+
+    on_exit(fn ->
+      if Process.alive?(boundary_store), do: GenServer.stop(boundary_store)
+    end)
+
+    check all(cursor <- malformed_cursor(), max_runs: 10) do
+      params = %{"cursor" => cursor}
+
+      assert {:error, {:invalid_query, _reason}} = DecisionQuery.list(params, store: boundary_store)
+      assert {:error, :invalid_query} = DecisionStore.retained_query(params, store)
+      assert Process.alive?(store)
+      refute_receive {:atomic_snapshot, :query}
+    end
+  end
+
   property "generated direct lookup ignores the priority overview index", %{store: store} do
     check all(
             offsets <- list_of(integer(0..30), min_length: 51, max_length: 70),
@@ -601,6 +619,44 @@ defmodule Aiur.DecisionQueryTest do
 
       %{decision | decision_status: status}
     end)
+  end
+
+  defp malformed_cursor do
+    valid_timestamp = "2026-07-13T08:00:00Z"
+    valid_decision_id = "dec_cursor-boundary"
+
+    one_of([
+      map(string(:alphanumeric, min_length: 0, max_length: 100), &("!" <> &1)),
+      constant(encode_cursor_payload([])),
+      constant(encode_cursor_payload(true)),
+      constant(encode_cursor_payload("cursor")),
+      map(one_of([integer(), boolean(), constant(nil)]), fn created_at ->
+        encode_cursor_payload(%{"created_at" => created_at, "decision_id" => valid_decision_id})
+      end),
+      map(string(:alphanumeric, min_length: 1, max_length: 30), fn created_at ->
+        encode_cursor_payload(%{"created_at" => created_at, "decision_id" => valid_decision_id})
+      end),
+      map(
+        one_of([
+          integer(),
+          boolean(),
+          constant(nil),
+          constant(""),
+          string(:alphanumeric, min_length: 257, max_length: 260)
+        ]),
+        fn decision_id ->
+          encode_cursor_payload(%{"created_at" => valid_timestamp, "decision_id" => decision_id})
+        end
+      ),
+      constant(encode_cursor_payload(%{"created_at" => valid_timestamp})),
+      constant(encode_cursor_payload(%{"decision_id" => valid_decision_id}))
+    ])
+  end
+
+  defp encode_cursor_payload(payload) do
+    payload
+    |> Jason.encode!()
+    |> Base.url_encode64(padding: false)
   end
 
   defp audit_key(decision), do: {-DateTime.to_unix(decision.created_at, :microsecond), decision.decision_id}

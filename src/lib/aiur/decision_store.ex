@@ -51,8 +51,8 @@ defmodule Aiur.DecisionStore do
     SecretRedactor
   }
 
-  alias Aiur.DecisionStore.RetainedSnapshot
   alias Aiur.DecisionQuery.Params, as: DecisionQueryParams
+  alias Aiur.DecisionStore.RetainedSnapshot
   alias Aiur.Events.{IdGenerator, Publisher}
 
   @ndjson_filename "decisions.ndjson"

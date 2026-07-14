@@ -99,16 +99,12 @@ defmodule Aiur.DecisionStore.RetainedIndex do
   end
 
   defp remove_buckets(index, buckets, key) do
-    Enum.reduce(buckets, index, fn bucket, index ->
-      case Map.fetch(index, bucket) do
-        {:ok, entries} ->
-          entries = :gb_sets.delete_any(key, entries)
-          if :gb_sets.is_empty(entries), do: Map.delete(index, bucket), else: Map.put(index, bucket, entries)
+    Enum.reduce(buckets, index, &remove_bucket(&2, &1, key))
+  end
 
-        :error ->
-          index
-      end
-    end)
+  defp remove_bucket(index, bucket, key) do
+    entries = :gb_sets.delete_any(key, Map.get(index, bucket, :gb_sets.empty()))
+    if :gb_sets.is_empty(entries), do: Map.delete(index, bucket), else: Map.put(index, bucket, entries)
   end
 
   defp bucket_entries(index, value), do: Map.get(index, bucket(value), :gb_sets.empty())
