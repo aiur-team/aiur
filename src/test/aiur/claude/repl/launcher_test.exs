@@ -17,6 +17,10 @@ defmodule Aiur.Claude.Repl.LauncherTest do
     send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n#{body}%end 1 1 0\n"})
   end
 
+  defp respond_error(tmux, body) do
+    send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%error 1 1 0\n#{body}%end 1 1 0\n"})
+  end
+
   # Drain capture-pane polls (no ready prompt) until kill-pane arrives.
   defp drain_until_kill(tmux, pane, task) do
     receive do
@@ -49,7 +53,41 @@ defmodule Aiur.Claude.Repl.LauncherTest do
     assert String.starts_with?(cmd, "new-window")
     respond(tmux, "%10\n")
 
+    assert_receive {:tmux_mock_out, "display-message -p -t %10 \#{pane_pid}"}, 1_000
+    respond(tmux, "5050\n")
+
     drain_until_kill(tmux, "%10", task)
+  end
+
+  test "readiness failure retains early containment when tmux cannot kill the pane", %{tmux: tmux} do
+    parent = self()
+    ws = Path.expand(System.tmp_dir!())
+
+    task =
+      Task.async(fn ->
+        Launcher.start_session(ws,
+          tmux: tmux,
+          window_name: "aiur-repl-test",
+          ready_timeout_ms: 0,
+          projects_dir: "/nonexistent",
+          on_provider_started: fn provider -> send(parent, {:provider_started, provider}) end
+        )
+      end)
+
+    assert_receive {:tmux_mock_out, "new-window" <> _}, 1_000
+    respond(tmux, "%11\n")
+
+    assert_receive {:tmux_mock_out, "display-message -p -t %11 \#{pane_pid}"}, 1_000
+    respond(tmux, "5050\n")
+    assert_receive {:provider_started, %{root_pid: 5050}}, 1_000
+
+    assert_receive {:tmux_mock_out, "capture-pane -p -t %11"}, 1_000
+    respond(tmux, "still booting\n")
+
+    assert_receive {:tmux_mock_out, "kill-pane -t %11"}, 1_000
+    respond_error(tmux, "permission denied\n")
+
+    assert {:error, {:repl_cleanup_failed, _reason}} = Task.await(task, 2_000)
   end
 
   test "ready non-RC spawn returns session with backend=claude-repl and registers both ProcessReaper keys", %{
@@ -84,11 +122,11 @@ defmodule Aiur.Claude.Repl.LauncherTest do
     refute String.contains?(cmd, "--remote-control")
     respond(tmux, "%20\n")
 
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %20"}, 1_000
-    respond(tmux, "❯\n")
-
     assert_receive {:tmux_mock_out, "display-message -p -t %20 \#{pane_pid}"}, 1_000
     respond(tmux, "5050\n")
+
+    assert_receive {:tmux_mock_out, "capture-pane -p -t %20"}, 1_000
+    respond(tmux, "❯\n")
 
     assert {:ok, session} = Task.await(task, 2_000)
     assert session.backend == "claude-repl"
@@ -127,12 +165,11 @@ defmodule Aiur.Claude.Repl.LauncherTest do
     assert String.contains?(cmd, "--remote-control")
     respond(tmux, "%30\n")
 
+    assert_receive {:tmux_mock_out, "display-message -p -t %30 \#{pane_pid}"}, 1_000
+    respond(tmux, "2147480000\n")
+
     assert_receive {:tmux_mock_out, "capture-pane -p -t %30"}, 1_000
     respond(tmux, "❯\n")
-
-    assert_receive {:tmux_mock_out, "display-message -p -t %30 \#{pane_pid}"}, 1_000
-    # Safe dead pid
-    respond(tmux, "2147480000\n")
 
     # RC evidence scan: no banner
     assert_receive {:tmux_mock_out, "capture-pane -p -t %30"}, 1_000

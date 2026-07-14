@@ -12,7 +12,6 @@ defmodule Aiur.Claude.Repl.Launcher do
   alias Aiur.Claude.Repl.Command
   alias Aiur.Claude.Repl.RcAttach
   alias Aiur.Claude.Repl.Reaper
-  alias Aiur.Codex.AppServerPort
   alias Aiur.{ProcessReaper, Tmux}
 
   @ready_prompt "❯"
@@ -97,7 +96,9 @@ defmodule Aiur.Claude.Repl.Launcher do
 
     case Tmux.new_hidden_window(ctx.tmux, ctx.window_name, command) do
       {:ok, pane_id} ->
-        finish_start(ctx, pane_id)
+        os_pid = pane_pid(ctx.tmux, pane_id)
+        notify_provider_started(ctx, os_pid)
+        finish_start(ctx, pane_id, os_pid)
 
       {:error, _reason} = err ->
         err
@@ -110,7 +111,6 @@ defmodule Aiur.Claude.Repl.Launcher do
     provider =
       if is_integer(os_pid) and os_pid > 0 do
         %{root_pid: os_pid}
-        |> maybe_put_process_group(AppServerPort.process_group_for_pid(os_pid))
       else
         %{}
       end
@@ -118,24 +118,18 @@ defmodule Aiur.Claude.Repl.Launcher do
     callback.(provider)
   end
 
-  defp maybe_put_process_group(provider, group) when is_integer(group) and group > 0,
-    do: Map.put(provider, :process_group_id, group)
+  defp pane_pid(tmux, pane_id) do
+    case Tmux.pane_pid(tmux, pane_id) do
+      {:ok, pid} -> pid
+      _ -> nil
+    end
+  end
 
-  defp maybe_put_process_group(provider, _group), do: provider
-
-  defp finish_start(%{tmux: tmux, opts: opts} = ctx, pane_id) do
+  defp finish_start(%{tmux: tmux, opts: opts} = ctx, pane_id, os_pid) do
     timeout = Keyword.get(opts, :ready_timeout_ms, @ready_timeout_ms)
 
     case await_ready(tmux, pane_id, timeout) do
       :ok ->
-        os_pid =
-          case Tmux.pane_pid(tmux, pane_id) do
-            {:ok, pid} -> pid
-            _ -> nil
-          end
-
-        notify_provider_started(ctx, os_pid)
-
         Aiur.Perf.event(:repl_agent_ready,
           workspace: ctx.workspace,
           pane_id: pane_id,
@@ -152,9 +146,13 @@ defmodule Aiur.Claude.Repl.Launcher do
         build_ready_session(ctx, pane_id, os_pid)
 
       {:error, :repl_not_ready} = err ->
-        # Readiness failed but the pane exists — kill it so nothing leaks.
-        Tmux.kill_pane(tmux, pane_id)
-        err
+        # Containment was registered as soon as the pane existed. Do not fall
+        # back into the same workspace when tmux refuses its cleanup request:
+        # the guardian must retain and reap that known root first.
+        case Tmux.kill_pane(tmux, pane_id) do
+          :ok -> err
+          {:error, reason} -> {:error, {:repl_cleanup_failed, reason}}
+        end
     end
   end
 
@@ -172,13 +170,16 @@ defmodule Aiur.Claude.Repl.Launcher do
         {:ok, repl_session(ctx, pane_id, os_pid, url)}
 
       nil ->
-        Tmux.kill_pane(ctx.tmux, pane_id)
-        RemoteControl.graceful_kill_tree(os_pid)
+        case Tmux.kill_pane(ctx.tmux, pane_id) do
+          :ok ->
+            RemoteControl.graceful_kill_tree(os_pid)
+            Aiur.Perf.event(:repl_agent_rc_unavailable, workspace: ctx.workspace, pane_id: pane_id)
+            Logger.warning("claude-repl remote-control did not attach; degrading to non-RC backend")
+            {:error, :remote_control_unavailable}
 
-        Aiur.Perf.event(:repl_agent_rc_unavailable, workspace: ctx.workspace, pane_id: pane_id)
-        Logger.warning("claude-repl remote-control did not attach; degrading to non-RC backend")
-
-        {:error, :remote_control_unavailable}
+          {:error, reason} ->
+            {:error, {:repl_cleanup_failed, reason}}
+        end
     end
   end
 

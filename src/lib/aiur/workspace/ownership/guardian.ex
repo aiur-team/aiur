@@ -5,6 +5,8 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   alias Aiur.Workspace.Ownership
 
   @reap_retry_ms 1_000
+  @remote_reap_retry_ms 1_000
+  @remote_reap_max_attempts 5
 
   @spec start(pid(), String.t(), pos_integer(), pid() | atom(), keyword()) :: pid()
   def start(owner, ticket, generation, registry, opts) do
@@ -38,6 +40,9 @@ defmodule Aiur.Workspace.Ownership.Guardian do
           root_reap_fun: Keyword.get(opts, :root_reap_fun, &RemoteControl.graceful_kill_tree/1),
           root_alive_fun: Keyword.get(opts, :root_alive_fun, &RemoteControl.process_alive?/1),
           reaping?: false,
+          remote_reap_attempts: 0,
+          remote_reap_retry_ms: Keyword.get(opts, :remote_reap_retry_ms, @remote_reap_retry_ms),
+          remote_reap_max_attempts: Keyword.get(opts, :remote_reap_max_attempts, @remote_reap_max_attempts),
           release_requested?: false
         })
 
@@ -111,6 +116,9 @@ defmodule Aiur.Workspace.Ownership.Guardian do
       :workspace_guardian_retry_reap ->
         maybe_release_or_reap(%{state | reaping?: false})
 
+      :workspace_guardian_retry_remote_reap ->
+        maybe_release_or_reap(%{state | reaping?: false})
+
       _other ->
         loop(state)
     end
@@ -153,7 +161,11 @@ defmodule Aiur.Workspace.Ownership.Guardian do
     do: release_guardian(state)
 
   defp maybe_release_or_reap(%{provider: %{remote: true}} = state) do
-    loop(update_phase(state, :reaping))
+    if state.remote_reap_attempts >= state.remote_reap_max_attempts do
+      release_guardian(state)
+    else
+      schedule_remote_reap_retry(state)
+    end
   end
 
   defp maybe_release_or_reap(%{provider: %{process_group_id: group}} = state)
@@ -194,6 +206,16 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   defp schedule_reap_retry(state) do
     Process.send_after(self(), :workspace_guardian_retry_reap, @reap_retry_ms)
     loop(%{state | reaping?: true})
+  end
+
+  # A remote provider cannot be inspected or killed from this host. Keep its
+  # generation exclusive for a bounded grace period after the local owner dies,
+  # then recover the registry entry instead of stranding every replacement
+  # claim until a daemon restart.
+  defp schedule_remote_reap_retry(state) do
+    state = update_phase(state, :reaping)
+    Process.send_after(self(), :workspace_guardian_retry_remote_reap, state.remote_reap_retry_ms)
+    loop(%{state | reaping?: true, remote_reap_attempts: state.remote_reap_attempts + 1})
   end
 
   defp release_guardian(state) do

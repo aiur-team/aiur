@@ -101,4 +101,22 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
       assert SessionLifecycle.session_backend(%{}) == Config.agent_kind()
     end
   end
+
+  describe "workspace containment" do
+    test "accepts every valid session shape when local process-group discovery is unavailable" do
+      for {shape, session, worker_host} <- [
+            {"headless Claude", %{backend: "claude", metadata: %{claude_app_server_pid: "424242"}}, nil},
+            {"Claude REPL", %{backend: "claude-repl", os_pid: 424_242}, nil},
+            {"remote Codex", %{backend: "codex", metadata: %{codex_app_server_pid: "424242"}}, "worker-a"},
+            {"local Codex", %{backend: "codex", metadata: %{codex_app_server_pid: "424242"}}, nil}
+          ] do
+        ticket = "session-no-pgid-#{System.unique_integer([:positive])}"
+        assert {:ok, lease} = Aiur.Workspace.Ownership.claim(ticket)
+        assert {:ok, active_lease} = Aiur.Workspace.Ownership.activate(lease)
+
+        assert :ok = SessionLifecycle.track_session_containment(active_lease, session, worker_host), shape
+        assert :ok = Aiur.Workspace.Ownership.release(active_lease)
+      end
+    end
+  end
 end

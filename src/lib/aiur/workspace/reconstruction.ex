@@ -1,6 +1,12 @@
 defmodule Aiur.Workspace.Reconstruction do
   @moduledoc false
 
+  @log_copy_chunk_size 64 * 1024
+
+  @doc false
+  @spec log_copy_chunk_size() :: pos_integer()
+  def log_copy_chunk_size, do: @log_copy_chunk_size
+
   @spec run(Path.t(), (Path.t() -> :ok | {:error, term()})) :: :ok | {:error, term()}
   def run(workspace, prepare) when is_binary(workspace) and is_function(prepare, 1) do
     stage_root = sibling_path(workspace, "stage")
@@ -168,10 +174,77 @@ defmodule Aiur.Workspace.Reconstruction do
   end
 
   defp append_previous_log(previous, destination) do
-    with {:ok, previous_contents} <- File.read(previous),
-         {:ok, staged_contents} <- read_optional_regular_file(destination),
-         :ok <- ensure_safe_log_directory(Path.dirname(destination)) do
-      File.write(destination, previous_contents <> staged_contents)
+    with :ok <- ensure_safe_log_directory(Path.dirname(destination)) do
+      atomically_merge_log_files(previous, destination)
+    end
+  end
+
+  defp atomically_merge_log_files(previous, destination) do
+    temporary = log_merge_path(destination)
+
+    try do
+      with :ok <- write_merged_log(temporary, previous, destination),
+           :ok <- File.rename(temporary, destination) do
+        :ok
+      end
+    after
+      File.rm(temporary)
+    end
+  end
+
+  defp write_merged_log(temporary, previous, destination) do
+    case File.open(temporary, [:write, :binary, :exclusive]) do
+      {:ok, output} ->
+        try do
+          with :ok <- stream_regular_file(previous, output),
+               :ok <- stream_optional_regular_file(destination, output) do
+            :ok
+          end
+        after
+          File.close(output)
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp stream_optional_regular_file(path, output) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :regular}} -> stream_regular_file(path, output)
+      {:error, :enoent} -> :ok
+      {:ok, _stat} -> {:error, :unsafe_log_destination}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp stream_regular_file(path, output) do
+    case File.open(path, [:read, :binary]) do
+      {:ok, input} ->
+        try do
+          copy_log_chunks(input, output)
+        after
+          File.close(input)
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp copy_log_chunks(input, output) do
+    case IO.binread(input, @log_copy_chunk_size) do
+      :eof ->
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
+
+      chunk when is_binary(chunk) ->
+        case IO.binwrite(output, chunk) do
+          :ok -> copy_log_chunks(input, output)
+          {:error, reason} -> {:error, reason}
+        end
     end
   end
 
@@ -199,15 +272,6 @@ defmodule Aiur.Workspace.Reconstruction do
     end
   end
 
-  defp read_optional_regular_file(path) do
-    case File.lstat(path) do
-      {:ok, %File.Stat{type: :regular}} -> File.read(path)
-      {:error, :enoent} -> {:ok, ""}
-      {:ok, _stat} -> {:error, :unsafe_log_destination}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
   defp cleanup_stage(stage, error) do
     File.rm_rf!(stage)
     error
@@ -218,5 +282,12 @@ defmodule Aiur.Workspace.Reconstruction do
     basename = Path.basename(workspace)
     token = System.unique_integer([:positive, :monotonic])
     Path.join(parent, ".#{basename}.aiur-#{kind}-#{token}")
+  end
+
+  defp log_merge_path(destination) do
+    parent = Path.dirname(destination)
+    basename = Path.basename(destination)
+    token = System.unique_integer([:positive, :monotonic])
+    Path.join(parent, ".#{basename}.aiur-log-merge-#{token}")
   end
 end

@@ -74,6 +74,25 @@ defmodule Aiur.Workspace.ReconstructionTest do
     assert File.read!(Path.join([workspace, "logs", "provider", "custom.trace"])) == "before\nafter\n"
   end
 
+  test "streams logs larger than the copy chunk during promotion", %{workspace: workspace} do
+    log = Path.join([workspace, "logs", "provider", "large.trace"])
+    chunk = Reconstruction.log_copy_chunk_size()
+    previous_size = write_repeated!(log, "before\n", chunk * 128)
+
+    assert :ok =
+             Reconstruction.run(workspace, fn stage ->
+               staged_log = Path.join([stage, "logs", "provider", "large.trace"])
+               staged_size = write_repeated!(staged_log, "after\n", chunk * 128)
+               send(self(), {:staged_size, staged_size})
+               :ok
+             end)
+
+    assert_receive {:staged_size, staged_size}
+    assert {:ok, %File.Stat{size: size}} = File.stat(log)
+    assert size == previous_size + staged_size
+    assert File.ls!(Path.dirname(workspace)) == [Path.basename(workspace)]
+  end
+
   test "rejects a staged logs symlink instead of following it during promotion", %{root: root, workspace: workspace} do
     source_log = Path.join([workspace, "logs", "agent.md"])
     outside = Path.join(root, "outside")
@@ -126,5 +145,12 @@ defmodule Aiur.Workspace.ReconstructionTest do
 
     assert File.read!(Path.join([workspace, "logs", "agent.md"])) =~
              "first pickup survived fallback"
+  end
+
+  defp write_repeated!(path, line, minimum_size) do
+    File.mkdir_p!(Path.dirname(path))
+    chunk = String.duplicate(line, div(minimum_size, byte_size(line)) + 1)
+    File.write!(path, chunk)
+    byte_size(chunk)
   end
 end
