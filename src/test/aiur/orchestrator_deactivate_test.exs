@@ -9,8 +9,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
   alias Aiur.Issue
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{CiLifecycle, CommandScan, CommentPolling, DispatchPolicy}
-  alias Aiur.Orchestrator.{EventTopics, PauseResume, PrAnchored, PushRouting, Reconciler}
+  alias Aiur.Orchestrator.{CiLifecycle, CommandScan, CommentPolling, Dispatcher, DispatchPolicy, State}
+  alias Aiur.Orchestrator.{EventTopics, PrAnchored, PushRouting, Reconciler}
   alias Aiur.Orchestrator.{RuntimeWatchdog, Slots}
   alias Aiur.SessionHandle
 
@@ -1877,7 +1877,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert next.running[issue_id].issue.paused
     end
 
-    test "startup clears an unowned pause override so the ticket can be redispatched" do
+    test "initial dispatch keeps paused active tickets suppressed" do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "memory",
         tracker_active_states: ["todo", "in-progress", "rework", "merging"],
@@ -1885,28 +1885,54 @@ defmodule Aiur.OrchestratorDeactivateTest do
       )
 
       previous_recipient = Application.get_env(:aiur, :memory_tracker_recipient)
+      previous_issues = Application.get_env(:aiur, :memory_tracker_issues)
       Application.put_env(:aiur, :memory_tracker_recipient, self())
 
       on_exit(fn ->
-        if previous_recipient,
-          do: Application.put_env(:aiur, :memory_tracker_recipient, previous_recipient),
-          else: Application.delete_env(:aiur, :memory_tracker_recipient)
+        restore_application_env(:memory_tracker_recipient, previous_recipient)
+        restore_application_env(:memory_tracker_issues, previous_issues)
       end)
 
-      issue = %Issue{
-        id: "issue-startup-paused",
-        identifier: "PAUSE-STARTUP",
-        state: "in-progress",
-        paused: true,
-        labels: ["agent:in-progress", "agent:paused"]
+      issues =
+        for state_name <- ["todo", "in-progress", "rework", "merging"] do
+          %Issue{
+            id: "issue-startup-paused-#{state_name}",
+            identifier: "PAUSE-STARTUP-#{state_name}",
+            state: state_name,
+            title: "Paused #{state_name}",
+            paused: true,
+            labels: ["agent:#{state_name}", "agent:paused"]
+          }
+        end
+
+      Application.put_env(:aiur, :memory_tracker_issues, issues)
+
+      state = %State{
+        initial_dispatch_cycle: true,
+        max_concurrent_agents: 4,
+        effective_concurrent_agents: 4
       }
 
-      state = %Orchestrator.State{initial_dispatch_cycle: true, running: %{}}
+      next = Dispatcher.maybe_dispatch(state)
 
-      assert [recovered] = PauseResume.recover_startup_pause_overrides(state, [issue])
-      assert_receive {:memory_tracker_remove_label, "PAUSE-STARTUP", "agent:paused"}
-      refute recovered.paused
-      refute "agent:paused" in recovered.labels
+      refute next.initial_dispatch_cycle
+      assert next.running == %{}
+      assert next.claimed == MapSet.new()
+      refute_receive {:memory_tracker_remove_label, _, "agent:paused"}
+
+      for issue <- issues do
+        assert recovered = next.last_polled_issues[issue.id]
+        assert recovered.paused
+        assert "agent:paused" in recovered.labels
+
+        unpaused_issue = %{issue | paused: false, labels: ["agent:#{issue.state}"]}
+
+        assert DispatchPolicy.candidate_issue?(
+                 unpaused_issue,
+                 DispatchPolicy.active_state_set(),
+                 DispatchPolicy.terminal_state_set()
+               )
+      end
     end
 
     test "removing the override does not resume a manually paused agent" do
