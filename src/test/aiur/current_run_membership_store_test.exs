@@ -260,6 +260,31 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
     assert [_quarantined] = Path.wildcard(checkpoint <> ".corrupt-*")
   end
 
+  test "an invalid degraded marker never exposes its content through public health", %{dir: dir} do
+    pid = start_store!(dir)
+    assert {:ok, %{generation: 1}} = observe(pid, identity(), :queued)
+    stop(pid)
+
+    marker = Path.join(Path.dirname(checkpoint_path(dir)), "membership.degraded.json")
+
+    marker_record = %{
+      "version" => 1,
+      "run_id" => @run_id,
+      "reason" => "ghp_credential_shaped_sentinel",
+      "title" => "private title"
+    }
+
+    assert :ok = File.write(marker, Jason.encode!(marker_record))
+
+    recovered = start_store!(dir)
+    snapshot = Store.snapshot(server: recovered)
+
+    assert snapshot.health == {:unavailable, "membership recovery marker is invalid"}
+    assert snapshot.health_message == "current-run membership is unavailable"
+    refute snapshot.health_message =~ "ghp_"
+    refute snapshot.health_message =~ "private title"
+  end
+
   test "append failure leaves membership read-only until recovery validates the journal", %{dir: dir} do
     {:ok, mode} = Agent.start_link(fn -> :fail end)
 

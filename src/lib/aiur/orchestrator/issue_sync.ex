@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   All functions execute inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{AgentQueue, AgentQueueStore, Alerts, Issue, Tracker, TrackerIdentity}
+  alias Aiur.{AgentQueue, AgentQueueStore, Alerts, CurrentRunMembership, Issue, Tracker, TrackerIdentity}
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, MembershipLifecycle, OperatorMessages, Slots, State}
 
@@ -15,7 +15,8 @@ defmodule Aiur.Orchestrator.IssueSync do
       issues,
       &Tracker.fetch_issue_states_by_ids/1,
       &MembershipLifecycle.observe/2,
-      DispatchPolicy.terminal_state_set()
+      DispatchPolicy.terminal_state_set(),
+      &CurrentRunMembership.mark_reconciled/1
     )
   end
 
@@ -56,17 +57,48 @@ defmodule Aiur.Orchestrator.IssueSync do
       )
       when is_list(issues) and is_function(fetch_issue_states_fun, 1) and is_function(observe_membership_fun, 2) and
              is_struct(terminal_states, MapSet) do
+    sync_polled_issue_state(
+      state,
+      issues,
+      fetch_issue_states_fun,
+      observe_membership_fun,
+      terminal_states,
+      &CurrentRunMembership.mark_reconciled/1
+    )
+  end
+
+  @doc false
+  @spec sync_polled_issue_state(
+          State.t(),
+          list(),
+          ([String.t()] -> {:ok, [term()]} | {:error, term()}),
+          (TrackerIdentity.t(), atom() -> term()),
+          MapSet.t(),
+          (:fresh | :unavailable -> term())
+        ) :: State.t()
+  def sync_polled_issue_state(
+        %State{} = state,
+        issues,
+        fetch_issue_states_fun,
+        observe_membership_fun,
+        terminal_states,
+        mark_reconciled_fun
+      )
+      when is_list(issues) and is_function(fetch_issue_states_fun, 1) and is_function(observe_membership_fun, 2) and
+             is_struct(terminal_states, MapSet) and is_function(mark_reconciled_fun, 1) do
     previous_issues = state.last_polled_issues
     current_issues = issues_by_id(issues)
 
-    record_disappearing_idle_terminals(
-      state,
-      previous_issues,
-      current_issues,
-      fetch_issue_states_fun,
-      observe_membership_fun,
-      terminal_states
-    )
+    retained_issues =
+      record_disappearing_idle_terminals(
+        state,
+        previous_issues,
+        current_issues,
+        fetch_issue_states_fun,
+        observe_membership_fun,
+        terminal_states,
+        mark_reconciled_fun
+      )
 
     state =
       Enum.reduce(issues, state, fn issue, state_acc ->
@@ -77,7 +109,7 @@ defmodule Aiur.Orchestrator.IssueSync do
         |> emit_dependency_transition_events(previous_issue, issue)
       end)
 
-    %{state | last_polled_issues: current_issues}
+    %{state | last_polled_issues: retained_issues}
   end
 
   defp issues_by_id(issues) do
@@ -93,7 +125,8 @@ defmodule Aiur.Orchestrator.IssueSync do
          current_issues,
          fetch_issue_states_fun,
          observe_membership_fun,
-         terminal_states
+         terminal_states,
+         mark_reconciled_fun
        ) do
     disappearing_idle_issue_ids =
       previous_issues
@@ -104,12 +137,19 @@ defmodule Aiur.Orchestrator.IssueSync do
           Map.has_key?(state.retry_attempts, issue_id)
       end)
 
-    record_refreshed_terminal_membership(
-      disappearing_idle_issue_ids,
-      fetch_issue_states_fun,
-      observe_membership_fun,
-      terminal_states
-    )
+    case record_refreshed_terminal_membership(
+           disappearing_idle_issue_ids,
+           fetch_issue_states_fun,
+           observe_membership_fun,
+           terminal_states
+         ) do
+      :ok ->
+        current_issues
+
+      :unavailable ->
+        _ = mark_reconciled_fun.(:unavailable)
+        Map.merge(current_issues, Map.take(previous_issues, disappearing_idle_issue_ids))
+    end
   end
 
   defp record_refreshed_terminal_membership(
@@ -140,7 +180,7 @@ defmodule Aiur.Orchestrator.IssueSync do
         end)
 
       _result ->
-        :ok
+        :unavailable
     end
   end
 

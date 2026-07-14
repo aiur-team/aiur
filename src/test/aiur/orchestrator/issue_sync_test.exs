@@ -75,6 +75,41 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     assert refreshed_state.last_polled_issues == %{}
   end
 
+  test "retries an idle terminal verification after a transient by-id failure" do
+    previous_issue = issue("45", "in-progress")
+    state = %State{last_polled_issues: %{"45" => previous_issue}}
+    parent = self()
+
+    unavailable =
+      IssueSync.sync_polled_issue_state(
+        state,
+        [],
+        fn ["45"] -> {:error, :temporarily_unavailable} end,
+        fn _identity, _lifecycle -> flunk("must not record membership before verification") end,
+        MapSet.new(["done", "cancelled"]),
+        fn :unavailable -> send(parent, :membership_freshness_unavailable) end
+      )
+
+    assert_receive :membership_freshness_unavailable
+    assert unavailable.last_polled_issues == %{"45" => previous_issue}
+
+    recovered =
+      IssueSync.sync_polled_issue_state(
+        unavailable,
+        [],
+        fn ["45"] -> {:ok, [%{previous_issue | state: "done"}]} end,
+        fn identity, lifecycle ->
+          send(parent, {:membership_observed, identity, lifecycle})
+          :ok
+        end,
+        MapSet.new(["done", "cancelled"]),
+        fn _status -> :ok end
+      )
+
+    assert_receive {:membership_observed, %TrackerIdentity{provider_id: "node-45"}, :completed}
+    assert recovered.last_polled_issues == %{}
+  end
+
   defp issue(id, state) do
     %Issue{
       id: id,

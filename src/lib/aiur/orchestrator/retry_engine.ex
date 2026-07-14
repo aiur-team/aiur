@@ -267,9 +267,13 @@ defmodule Aiur.Orchestrator.RetryEngine do
       {:ok, state} ->
         case Tracker.fetch_candidate_issues() do
           {:ok, issues} ->
-            issues
-            |> find_issue_by_id(issue_id)
-            |> handle_retry_issue_lookup(state, issue_id, attempt, metadata)
+            case fetch_retry_issue(issues, issue_id, &Tracker.fetch_issue_states_by_ids/1) do
+              {:ok, issue} ->
+                handle_retry_issue_lookup(issue, state, issue_id, attempt, metadata)
+
+              {:error, reason} ->
+                {:noreply, handle_retry_poll_failure(state, issue_id, attempt, metadata, reason)}
+            end
 
           {:error, reason} ->
             {:noreply, handle_retry_poll_failure(state, issue_id, attempt, metadata, reason)}
@@ -287,6 +291,27 @@ defmodule Aiur.Orchestrator.RetryEngine do
   @spec release_issue_claim(State.t(), String.t()) :: State.t()
   def release_issue_claim(%State{} = state, issue_id) do
     %{state | claimed: MapSet.delete(state.claimed, issue_id)}
+  end
+
+  @doc false
+  @spec fetch_retry_issue(
+          [term()],
+          String.t(),
+          ([String.t()] -> {:ok, [term()]} | {:error, term()})
+        ) :: {:ok, Issue.t() | nil} | {:error, term()}
+  def fetch_retry_issue(candidate_issues, issue_id, fetch_issue_states_by_ids_fun)
+      when is_list(candidate_issues) and is_binary(issue_id) and is_function(fetch_issue_states_by_ids_fun, 1) do
+    case find_issue_by_id(candidate_issues, issue_id) do
+      %Issue{} = issue ->
+        {:ok, issue}
+
+      nil ->
+        case fetch_issue_states_by_ids_fun.([issue_id]) do
+          {:ok, issues} when is_list(issues) -> {:ok, find_issue_by_id(issues, issue_id)}
+          {:error, reason} -> {:error, reason}
+          result -> {:error, {:invalid_retry_issue_lookup, result}}
+        end
+    end
   end
 
   @spec retry_delay(integer(), map()) :: non_neg_integer()

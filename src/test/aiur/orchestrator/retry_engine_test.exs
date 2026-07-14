@@ -251,6 +251,51 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
   end
 
   describe "handle_retry_issue_lookup/6" do
+    test "fetches and records a terminal retry ticket when active candidates omit it" do
+      terminal = %Issue{
+        id: "issue-terminal",
+        identifier: "27",
+        state: "done",
+        tracker_identity: tracker_identity("27")
+      }
+
+      state = %State{claimed: MapSet.new([terminal.id])}
+      parent = self()
+      identity = terminal.tracker_identity
+
+      assert {:ok, ^terminal} =
+               RetryEngine.fetch_retry_issue([], terminal.id, fn ["issue-terminal"] ->
+                 {:ok, [terminal]}
+               end)
+
+      assert {:noreply, next_state} =
+               RetryEngine.handle_retry_issue_lookup(
+                 terminal,
+                 state,
+                 terminal.id,
+                 1,
+                 %{worker_host: nil},
+                 terminal_states: MapSet.new(["done"]),
+                 observe_membership_fun: fn identity, lifecycle ->
+                   send(parent, {:membership_recorded, identity, lifecycle})
+                   :ok
+                 end,
+                 cleanup_terminal_issue_artifacts_fun: fn _identifier, _worker_host ->
+                   assert_receive {:membership_recorded, ^identity, :completed}
+                   :ok
+                 end
+               )
+
+      refute MapSet.member?(next_state.claimed, terminal.id)
+    end
+
+    test "reports a failed by-id retry lookup instead of releasing the claim" do
+      assert {:error, :temporarily_unavailable} =
+               RetryEngine.fetch_retry_issue([], "issue-terminal", fn ["issue-terminal"] ->
+                 {:error, :temporarily_unavailable}
+               end)
+    end
+
     test "records terminal membership before cleanup and claim release" do
       issue = %Issue{
         id: "issue-terminal",
