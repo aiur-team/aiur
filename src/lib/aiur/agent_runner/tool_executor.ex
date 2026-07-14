@@ -556,8 +556,6 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     end
   end
 
-  defp trusted_provenance(_app_session), do: nil
-
   defp remove_untrusted_decision_identity(payload) do
     Map.drop(payload, [
       :source_id,
