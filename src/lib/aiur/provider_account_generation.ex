@@ -274,7 +274,12 @@ defmodule Aiur.ProviderAccountGeneration do
     case Process.whereis(@pubsub) do
       pid when is_pid(pid) ->
         event = Map.put(snapshot, :change, change)
-        Phoenix.PubSub.broadcast(@pubsub, topic(snapshot.provider, snapshot.backend), {:provider_account_generation_changed, event})
+
+        Phoenix.PubSub.broadcast(
+          @pubsub,
+          topic(snapshot.provider, snapshot.backend),
+          {:provider_account_generation_changed, event}
+        )
 
       _ ->
         :ok
