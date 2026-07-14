@@ -8,6 +8,8 @@ defmodule Aiur.Init.TemplatesTest do
     assert Templates.aiurhooks_template() =~ "after_create:"
     assert Templates.aiurhooks_template() =~ "AIUR_TICKET_BRANCH"
     assert Templates.aiurhooks_template() =~ "origin/$AIUR_TICKET_BRANCH"
+    assert Templates.aiurhooks_template() =~ "Aiur must stage incomplete workspace reconstruction"
+    refute Templates.aiurhooks_template() =~ "find . -mindepth 1 -maxdepth 1 -exec rm -rf"
     assert Templates.prompt_file_template() =~ "{{REPO}}"
     assert Templates.prompt_file_template() =~ "actual validated ref supplied by the event payload"
     assert Templates.env_content() == "GITHUB_TOKEN=\n"

@@ -5,6 +5,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   alias Aiur.AgentRunner.{SessionResume, TurnLoop}
   alias Aiur.Claude.DisplayTailer
   alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Workspace.Ownership
   @type worker_host :: String.t() | nil
   # The live session's OS-level runtime (REPL pane + agent os pid, or the
   # headless wrapper's bash pid) is owned by this runner task. An
@@ -68,6 +69,24 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   end
 
   defp headless_os_pid(_session), do: nil
+
+  defp process_group_id(%{metadata: metadata}) when is_map(metadata) do
+    case Map.get(metadata, :agent_process_group_id) do
+      process_group_id when is_integer(process_group_id) and process_group_id > 0 ->
+        process_group_id
+
+      process_group_id when is_binary(process_group_id) ->
+        case Integer.parse(process_group_id) do
+          {value, ""} when value > 0 -> value
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp process_group_id(_session), do: nil
   @doc false
   @spec run_session(Path.t(), Issue.t(), pid() | nil, keyword(), worker_host()) ::
           :ok | {:completed, Issue.t()} | {:error, term()}
@@ -97,6 +116,8 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
 
     case start_agent_session(workspace, session_opts) do
       {:ok, session} ->
+        :ok = Ownership.track_process_group(Keyword.get(opts, :workspace_ownership), process_group_id(session))
+
         Lifecycle.record(issue.identifier, lifecycle_attempt_id, :agent_spinup, :end, %{
           operation_id: "session",
           backend: session_backend,

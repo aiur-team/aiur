@@ -52,4 +52,19 @@ defmodule Aiur.Workspace.MaterializeTest do
     assert File.dir?(workspace)
     assert File.exists?(Path.join(workspace, "README.md"))
   end
+
+  test "materialization atomically replaces a logs-only workspace without losing the event stream", %{
+    tmp: tmp,
+    base: base
+  } do
+    workspace = Path.join(tmp, "logs-only")
+    log_path = Path.join([workspace, "logs", "agent.ndjson"])
+    File.mkdir_p!(Path.dirname(log_path))
+    File.write!(log_path, "{\"event\":\"alert\"}\n")
+
+    assert :ok = Materialize.materialize_from_base(base, workspace)
+
+    assert File.exists?(Path.join(workspace, "README.md"))
+    assert File.read!(log_path) == "{\"event\":\"alert\"}\n"
+  end
 end

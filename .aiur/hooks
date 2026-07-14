@@ -8,31 +8,15 @@ after_create: |
   if [ -n "$git_toplevel" ]; then
     git_toplevel="$(CDPATH= cd "$git_toplevel" && pwd -P)"
   fi
-  if [ "$git_toplevel" = "$workspace_root" ]; then
+  if [ "$git_toplevel" = "$workspace_root" ] &&
+     git rev-parse --verify HEAD >/dev/null 2>&1 &&
+     git status --porcelain >/dev/null 2>&1; then
     exit 0
   fi
-  logs_backup=""
-  restore_logs() {
-    if [ -n "$logs_backup" ] && [ -d "$logs_backup" ]; then
-      mkdir -p logs
-      cp -a "$logs_backup"/. logs/
-      rm -rf "$logs_backup"
-      logs_backup=""
-    fi
-  }
-  finish_reconstruction() {
-    status="$1"
-    if [ "$status" -ne 0 ]; then
-      find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-    fi
-    restore_logs
-  }
-  trap 'status=$?; finish_reconstruction "$status"; trap - 0; exit "$status"' 0
-  if [ -d logs ]; then
-    logs_backup="$(mktemp -d "${TMPDIR:-/tmp}/aiur-workspace-logs.XXXXXX")"
-    cp -a logs/. "$logs_backup"/
+  if [ -n "$(find . -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+    echo "Aiur must stage incomplete workspace reconstruction before after_create runs." >&2
+    exit 66
   fi
-  find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
   git clone "$THIS_REPOSITORY_URL" .
   git fetch origin "$base_branch"
   if git show-ref --verify --quiet "refs/remotes/origin/$AIUR_TICKET_BRANCH"; then
@@ -65,8 +49,6 @@ after_create: |
       bash -c 'cd src && mise exec -- mix local.hex --force --if-missing && mise exec -- mix local.rebar --force --if-missing && mise exec -- mix deps.get && mise exec -- mix compile' \
       2>&1 | tail -200 || true
   fi
-  restore_logs
-  trap - 0
 before_run: |
   set -e
   base_branch="${THIS_BASE_BRANCH:-main}"
@@ -75,29 +57,13 @@ before_run: |
   if [ -n "$git_toplevel" ]; then
     git_toplevel="$(CDPATH= cd "$git_toplevel" && pwd -P)"
   fi
-  if [ -z "$git_toplevel" ] || [ "$git_toplevel" != "$workspace_root" ]; then
-    logs_backup=""
-    restore_logs() {
-      if [ -n "$logs_backup" ] && [ -d "$logs_backup" ]; then
-        mkdir -p logs
-        cp -a "$logs_backup"/. logs/
-        rm -rf "$logs_backup"
-        logs_backup=""
-      fi
-    }
-    finish_reconstruction() {
-      status="$1"
-      if [ "$status" -ne 0 ]; then
-        find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-      fi
-      restore_logs
-    }
-    trap 'status=$?; finish_reconstruction "$status"; trap - 0; exit "$status"' 0
-    if [ -d logs ]; then
-      logs_backup="$(mktemp -d "${TMPDIR:-/tmp}/aiur-workspace-logs.XXXXXX")"
-      cp -a logs/. "$logs_backup"/
+  if [ -z "$git_toplevel" ] || [ "$git_toplevel" != "$workspace_root" ] ||
+     ! git rev-parse --verify HEAD >/dev/null 2>&1 ||
+     ! git status --porcelain >/dev/null 2>&1; then
+    if [ -n "$(find . -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+      echo "Aiur must stage incomplete workspace reconstruction before before_run runs." >&2
+      exit 66
     fi
-    find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
     git clone "$THIS_REPOSITORY_URL" .
     git fetch origin "$base_branch"
     if git show-ref --verify --quiet "refs/remotes/origin/$AIUR_TICKET_BRANCH"; then
@@ -105,8 +71,6 @@ before_run: |
     else
       git checkout -B "$AIUR_TICKET_BRANCH" "origin/$base_branch"
     fi
-    restore_logs
-    trap - 0
   else
     git fetch origin
     if ! git diff --quiet -- . ':(exclude).aiur-hex' ':(exclude)logs' ||

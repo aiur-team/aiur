@@ -6,7 +6,7 @@ defmodule Aiur.Workspace.Hooks do
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Tracker, as: GitHubTracker
-  alias Aiur.Workspace.{Context, Remote}
+  alias Aiur.Workspace.{Context, Reconstruction, Remote}
 
   @spec run_after_create(Path.t(), map(), boolean() | :materialized, String.t() | nil) ::
           :ok | {:error, term()}
@@ -20,7 +20,9 @@ defmodule Aiur.Workspace.Hooks do
             :ok
 
           command ->
-            run_hook(command, workspace, issue_context, "after_create", worker_host)
+            Reconstruction.run(workspace, fn stage ->
+              run_hook(command, stage, issue_context, "after_create", worker_host)
+            end)
         end
 
       # Materialized from the warm base — aiur already populated + branched the

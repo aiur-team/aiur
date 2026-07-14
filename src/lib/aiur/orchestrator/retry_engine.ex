@@ -117,6 +117,70 @@ defmodule Aiur.Orchestrator.RetryEngine do
   end
 
   @doc false
+  @spec wait_for_workspace_ownership(State.t(), String.t(), String.t(), term(), :waiting | :available) :: State.t()
+  def wait_for_workspace_ownership(%State{} = state, issue_id, identifier, owner, wait)
+      when is_binary(issue_id) and is_binary(identifier) and wait in [:waiting, :available] do
+    running_entry = Map.get(state.running, issue_id)
+
+    if is_reference(Map.get(running_entry || %{}, :ref)) do
+      Process.demonitor(running_entry.ref, [:flush])
+    end
+
+    # The runner's contention message and its Task :DOWN originate from
+    # different processes, so either may arrive first. Clear a continuation
+    # retry left by an early :DOWN as well as the live entry; contention is an
+    # orchestrator precondition, never a successful agent completion.
+    waiting_state =
+      state
+      |> cancel_pending_retry(issue_id)
+      |> Map.put(:running, Map.delete(state.running, issue_id))
+      |> Map.put(:claimed, MapSet.put(state.claimed, issue_id))
+      |> Map.put(:completed, MapSet.delete(state.completed, issue_id))
+      |> Map.put(
+        :workspace_waits,
+        Map.put(state.workspace_waits, identifier, %{
+          issue_id: issue_id,
+          identifier: identifier,
+          owner: owner,
+          worker_host: Map.get(running_entry || %{}, :worker_host)
+        })
+      )
+
+    if wait == :available, do: release_workspace_wait(waiting_state, identifier), else: waiting_state
+  end
+
+  defp cancel_pending_retry(state, issue_id) do
+    case Map.pop(state.retry_attempts, issue_id) do
+      {nil, _retry_attempts} ->
+        %{state | retry_attempts: Map.delete(state.retry_attempts, issue_id)}
+
+      {%{timer_ref: timer_ref}, retry_attempts} when is_reference(timer_ref) ->
+        Process.cancel_timer(timer_ref)
+        %{state | retry_attempts: retry_attempts}
+
+      {_retry, retry_attempts} ->
+        %{state | retry_attempts: retry_attempts}
+    end
+  end
+
+  @doc false
+  @spec release_workspace_wait(State.t(), String.t()) :: State.t()
+  def release_workspace_wait(%State{} = state, identifier) when is_binary(identifier) do
+    case Map.pop(state.workspace_waits, identifier) do
+      {nil, _workspace_waits} ->
+        state
+
+      {%{issue_id: issue_id}, workspace_waits} ->
+        %{
+          state
+          | workspace_waits: workspace_waits,
+            claimed: MapSet.delete(state.claimed, issue_id),
+            workspace_wait_ready: MapSet.put(state.workspace_wait_ready, issue_id)
+        }
+    end
+  end
+
+  @doc false
   @spec preserve_running_issue_on_external_error(State.t(), Issue.t()) :: State.t()
   def preserve_running_issue_on_external_error(%State{} = state, %Issue{} = issue) do
     previous_state =

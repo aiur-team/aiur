@@ -89,6 +89,16 @@ defmodule Aiur.AgentRunner do
 
       {:error, {:workspace_owned, owner}} ->
         record_workspace_ownership_conflict(issue, opts, owner)
+        record_workspace_setup_end(issue, opts, :contended, :workspace_owned)
+
+        wait =
+          if is_pid(codex_update_recipient) do
+            Ownership.wait_for_release(issue.identifier, codex_update_recipient)
+          else
+            :waiting
+          end
+
+        notify_workspace_contention(codex_update_recipient, issue, owner, wait)
         :ok
     end
   end
@@ -158,7 +168,14 @@ defmodule Aiur.AgentRunner do
         record_workspace_setup_end(issue, opts, :success, nil)
         :ok = BootstrapDigest.maybe_attach_universal_subscriptions(issue)
         :ok = BootstrapDigest.maybe_enqueue_bootstrap_digest(issue)
-        SessionLifecycle.run_session(workspace, issue, codex_update_recipient, opts, worker_host)
+
+        SessionLifecycle.run_session(
+          workspace,
+          issue,
+          codex_update_recipient,
+          Keyword.put(opts, :workspace_ownership, active_ownership),
+          worker_host
+        )
 
       {:error, reason} ->
         record_workspace_setup_end(issue, opts, :failed, reason)
@@ -218,6 +235,13 @@ defmodule Aiur.AgentRunner do
       %{outcome: :contended}
     )
   end
+
+  defp notify_workspace_contention(recipient, issue, owner, wait) when is_pid(recipient) do
+    send(recipient, {:workspace_setup_contended, issue.id, issue.identifier, owner, wait})
+    :ok
+  end
+
+  defp notify_workspace_contention(_recipient, _issue, _owner, _wait), do: :ok
 
   defp begin_workspace_setup_retry(issue, opts) do
     operation_id = "workspace:#{System.unique_integer([:positive, :monotonic])}"

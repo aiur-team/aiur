@@ -57,6 +57,18 @@ defmodule Aiur.Orchestrator do
       when is_binary(issue_id) and is_map(runtime_info),
       do: State.handle_worker_runtime_info(state, issue_id, runtime_info)
 
+  def handle_info({:workspace_setup_contended, issue_id, identifier, owner, wait}, state)
+      when is_binary(issue_id) and is_binary(identifier) and wait in [:waiting, :available] do
+    state = RetryEngine.wait_for_workspace_ownership(state, issue_id, identifier, owner, wait)
+    StatusReport.notify_dashboard(state)
+    {:noreply, state}
+  end
+
+  def handle_info({:workspace_ownership_available, identifier}, state) when is_binary(identifier) do
+    state = RetryEngine.release_workspace_wait(state, identifier)
+    {:noreply, Lifecycle.schedule_tick(state, 0)}
+  end
+
   def handle_info({:repl_session_runtime, issue_id, info}, state)
       when is_binary(issue_id) and is_map(info),
       do: State.handle_repl_session_runtime(state, issue_id, info)

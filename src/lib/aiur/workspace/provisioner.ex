@@ -181,7 +181,9 @@ defmodule Aiur.Workspace.Provisioner do
   # Other existing non-Git paths retain the long-standing reuse contract: they
   # may have been initialized by a user-provided after_create hook that does
   # not itself create a Git checkout.
-  defp incomplete_workspace?(workspace) do
+  @doc false
+  @spec incomplete_workspace?(Path.t()) :: boolean()
+  def incomplete_workspace?(workspace) when is_binary(workspace) do
     case File.ls(workspace) do
       {:ok, []} ->
         true
@@ -196,6 +198,8 @@ defmodule Aiur.Workspace.Provisioner do
         true
     end
   end
+
+  def incomplete_workspace?(_workspace), do: true
 
   @doc false
   @spec parse_remote_workspace_output(iodata()) ::

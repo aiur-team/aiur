@@ -3,7 +3,7 @@ defmodule Aiur.Workspace.Refresh do
 
   require Logger
   alias Aiur.Config
-  alias Aiur.Workspace.{BootstrapImage, Context, GitMetadata, Hooks, Ownership, Provisioner}
+  alias Aiur.Workspace.{BootstrapImage, Context, GitMetadata, Hooks, Ownership, Provisioner, Reconstruction}
 
   @spec run(Path.t(), map() | String.t() | nil, String.t() | nil) :: :ok | {:error, term()}
   def run(workspace, issue_or_identifier, worker_host \\ nil) when is_binary(workspace) do
@@ -56,7 +56,7 @@ defmodule Aiur.Workspace.Refresh do
       not stale_leftover_refresh_refusal?(reason) ->
         error
 
-      Ownership.active?(issue_context.issue_identifier) ->
+      Ownership.protected?(issue_context.issue_identifier) ->
         Logger.warning(
           "Refusing stale workspace recreation while an active generation owns it #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=#{Context.worker_host_for_log(worker_host)}"
         )
@@ -110,7 +110,13 @@ defmodule Aiur.Workspace.Refresh do
   defp run_before_run_command(nil, _workspace, _issue_context, _worker_host), do: :ok
 
   defp run_before_run_command(command, workspace, issue_context, worker_host) do
-    Hooks.run_hook(command, workspace, issue_context, "before_run", worker_host)
+    if Provisioner.incomplete_workspace?(workspace) do
+      Reconstruction.run(workspace, fn stage ->
+        Hooks.run_hook(command, stage, issue_context, "before_run", worker_host)
+      end)
+    else
+      Hooks.run_hook(command, workspace, issue_context, "before_run", worker_host)
+    end
   end
 
   defp stale_leftover_refresh_refusal?({:workspace_hook_failed, "before_run", 65, _output}),

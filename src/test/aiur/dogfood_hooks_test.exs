@@ -1,6 +1,8 @@
 defmodule Aiur.DogfoodHooksTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.Workspace.Reconstruction
+
   @hooks_path Path.expand("../../../.aiur/hooks", __DIR__)
   @config_path Path.expand("../../../.aiur/config", __DIR__)
   @prompt_path Path.expand("../../../.aiur/prompt.md", __DIR__)
@@ -28,6 +30,8 @@ defmodule Aiur.DogfoodHooksTest do
     hooks = dogfood_hooks!()
     assert hooks["after_create"] =~ ~s(base_branch="${THIS_BASE_BRANCH:-main}")
     assert hooks["before_run"] =~ ~s(base_branch="${THIS_BASE_BRANCH:-main}")
+    refute File.read!(@hooks_path) =~ "find . -mindepth 1 -maxdepth 1 -exec rm -rf"
+    refute File.read!(@hooks_path) =~ "logs_backup="
     refute File.read!(@hooks_path) =~ "origin/v2"
 
     prompt = File.read!(@prompt_path)
@@ -61,7 +65,7 @@ defmodule Aiur.DogfoodHooksTest do
     File.mkdir_p!(Path.dirname(log_path))
     File.write!(log_path, "prior agent transcript\n")
 
-    assert_hook_ok!("before_run", workspace, context.origin)
+    assert_staged_hook_ok!("before_run", workspace, context.origin)
 
     assert File.dir?(Path.join(workspace, ".git"))
     assert current_branch!(workspace) == ticket_branch()
@@ -75,7 +79,7 @@ defmodule Aiur.DogfoodHooksTest do
     File.mkdir_p!(Path.dirname(log_path))
     File.write!(log_path, "prior agent transcript\n")
 
-    assert_hook_ok!("after_create", workspace, context.origin)
+    assert_staged_hook_ok!("after_create", workspace, context.origin)
 
     assert File.dir?(Path.join(workspace, ".git"))
     assert current_branch!(workspace) == ticket_branch()
@@ -90,8 +94,7 @@ defmodule Aiur.DogfoodHooksTest do
     File.write!(log_path, "prior agent transcript\n")
 
     missing_origin = Path.join(context.test_root, "missing-origin.git")
-    {output, status} = run_hook("after_create", workspace, missing_origin)
-
+    assert {:error, {:hook_failed, output, status}} = run_staged_hook("after_create", workspace, missing_origin)
     refute status == 0, output
     refute File.dir?(Path.join(workspace, ".git"))
     assert File.read!(log_path) == "prior agent transcript\n"
@@ -119,7 +122,7 @@ defmodule Aiur.DogfoodHooksTest do
     parent_head = git!(["-C", parent, "rev-parse", "HEAD"])
     assert String.trim(git!(["-C", workspace, "rev-parse", "--show-toplevel"])) == parent
 
-    assert_hook_ok!("before_run", workspace, context.origin)
+    assert_staged_hook_ok!("before_run", workspace, context.origin)
 
     assert File.dir?(Path.join(workspace, ".git"))
     assert current_branch!(workspace) == ticket_branch()
@@ -139,8 +142,7 @@ defmodule Aiur.DogfoodHooksTest do
     File.write!(log_path, "prior agent transcript\n")
 
     missing_origin = Path.join(context.test_root, "missing-origin.git")
-    {output, status} = run_hook("before_run", workspace, missing_origin)
-
+    assert {:error, {:hook_failed, output, status}} = run_staged_hook("before_run", workspace, missing_origin)
     refute status == 0, output
     refute File.dir?(Path.join(workspace, ".git"))
     assert File.read!(log_path) == "prior agent transcript\n"
@@ -153,6 +155,16 @@ defmodule Aiur.DogfoodHooksTest do
 
     assert current_branch!(workspace) == "main"
     assert_hook_ok!("before_run", workspace, context.origin)
+
+    assert current_branch!(workspace) == ticket_branch()
+    assert File.read!(Path.join(workspace, "README.md")) == "stable one\n"
+  end
+
+  test "before_run reconstructs an unborn git init without accepting it as a checkout", context do
+    workspace = Path.join(context.test_root, "unborn-git-init")
+    git!(["init", "--quiet", "--initial-branch=main", workspace])
+
+    assert_staged_hook_ok!("before_run", workspace, context.origin)
 
     assert current_branch!(workspace) == ticket_branch()
     assert File.read!(Path.join(workspace, "README.md")) == "stable one\n"
@@ -233,6 +245,19 @@ defmodule Aiur.DogfoodHooksTest do
   defp assert_hook_ok!(name, workspace, origin) do
     {output, status} = run_hook(name, workspace, origin)
     assert status == 0, output
+  end
+
+  defp assert_staged_hook_ok!(name, workspace, origin) do
+    assert :ok = run_staged_hook(name, workspace, origin)
+  end
+
+  defp run_staged_hook(name, workspace, origin) do
+    Reconstruction.run(workspace, fn stage ->
+      case run_hook(name, stage, origin) do
+        {_output, 0} -> :ok
+        {output, status} -> {:error, {:hook_failed, output, status}}
+      end
+    end)
   end
 
   defp run_hook(name, workspace, origin) do

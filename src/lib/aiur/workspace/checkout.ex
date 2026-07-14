@@ -3,15 +3,18 @@ defmodule Aiur.Workspace.Checkout do
 
   alias Aiur.{PathSafety, RepoBase, TicketBranch}
 
-  @doc "Returns whether `workspace` is a checkout rooted at that exact path."
+  @doc "Returns whether `workspace` is a usable checkout rooted at that exact path."
   @spec valid_workspace?(Path.t()) :: boolean()
   def valid_workspace?(workspace) when is_binary(workspace) do
     with true <- File.dir?(workspace),
          {git_toplevel, 0} <-
            System.cmd("git", ["-C", workspace, "rev-parse", "--show-toplevel"], stderr_to_stdout: true),
          {:ok, canonical_workspace} <- PathSafety.canonicalize(workspace),
-         {:ok, canonical_git_toplevel} <- PathSafety.canonicalize(String.trim(git_toplevel)) do
-      canonical_workspace == canonical_git_toplevel
+         {:ok, canonical_git_toplevel} <- PathSafety.canonicalize(String.trim(git_toplevel)),
+         true <- canonical_workspace == canonical_git_toplevel,
+         {_head, 0} <- System.cmd("git", ["-C", workspace, "rev-parse", "--verify", "HEAD"], stderr_to_stdout: true),
+         {_status, 0} <- System.cmd("git", ["-C", workspace, "status", "--porcelain"], stderr_to_stdout: true) do
+      true
     else
       _ -> false
     end

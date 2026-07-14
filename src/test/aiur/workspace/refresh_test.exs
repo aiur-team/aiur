@@ -29,6 +29,26 @@ defmodule Aiur.Workspace.RefreshTest do
     assert :ok = Refresh.run(workspace, issue_context, nil)
   end
 
+  test "run/3 stages a logs-only workspace before before_run and preserves prior logs", %{
+    workspace: workspace,
+    test_root: test_root
+  } do
+    log_path = Path.join([workspace, "logs", "agent.md"])
+    File.mkdir_p!(Path.dirname(log_path))
+    File.write!(log_path, "prior transcript\n")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      workspace_root: test_root,
+      hook_before_run: "git init --quiet -b main && git config user.email t@example.com && git config user.name T && touch rebuilt && git add rebuilt && git commit --quiet -m rebuilt"
+    )
+
+    issue_context = %{issue_id: 1, issue_identifier: "test", issue_state: nil, issue_labels: [], pr_head_ref: nil}
+    assert :ok = Refresh.run(workspace, issue_context, nil)
+
+    assert File.exists?(Path.join(workspace, "rebuilt"))
+    assert File.read!(log_path) == "prior transcript\n"
+  end
+
   test "run/3 exit-65 on todo dispatch recreates workspace and re-runs before_run", %{workspace: workspace, test_root: test_root} do
     sentinel = Path.join(workspace, "leftover-sentinel")
     File.write!(sentinel, "leftover")

@@ -216,6 +216,66 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
     end
   end
 
+  describe "workspace ownership contention" do
+    test "parks a contender without consuming retry or thrash budget when its runner exits first" do
+      issue_id = "issue-ownership"
+      identifier = "repo#ownership"
+
+      runner =
+        spawn(fn ->
+          receive do
+            :stop -> :ok
+          end
+        end)
+
+      ref = Process.monitor(runner)
+      retry_token = make_ref()
+      timer_ref = Process.send_after(self(), :unexpected_retry, 60_000)
+
+      state = %State{
+        running: %{
+          issue_id => %{
+            pid: runner,
+            ref: ref,
+            identifier: identifier,
+            worker_host: "worker-a"
+          }
+        },
+        completed: MapSet.new([issue_id]),
+        claimed: MapSet.new([issue_id]),
+        retry_attempts: %{
+          issue_id => %{timer_ref: timer_ref, retry_token: retry_token, attempt: 1}
+        },
+        codex_thrash_budget: %{issue_id => %{window_start_ms: 0, count: 4}}
+      }
+
+      waiting =
+        RetryEngine.wait_for_workspace_ownership(
+          state,
+          issue_id,
+          identifier,
+          {:ok, %{generation: 7, phase: :active}},
+          :waiting
+        )
+
+      refute Map.has_key?(waiting.running, issue_id)
+      refute Map.has_key?(waiting.retry_attempts, issue_id)
+      refute MapSet.member?(waiting.completed, issue_id)
+      assert MapSet.member?(waiting.claimed, issue_id)
+      assert waiting.workspace_waits[identifier].owner == {:ok, %{generation: 7, phase: :active}}
+      assert waiting.codex_thrash_budget == state.codex_thrash_budget
+
+      ready = RetryEngine.release_workspace_wait(waiting, identifier)
+      refute MapSet.member?(ready.claimed, issue_id)
+      assert MapSet.member?(ready.workspace_wait_ready, issue_id)
+      assert ready.codex_thrash_budget == state.codex_thrash_budget
+
+      Process.exit(runner, :kill)
+      assert_receive {:DOWN, ^ref, :process, ^runner, :killed}, 2_000
+      refute_receive :unexpected_retry
+    end
+  end
+
   describe "preserve_running_issue_on_external_error/2" do
     test "refreshes the issue while preserving the live runner and claim" do
       issue_id = "issue-error"
