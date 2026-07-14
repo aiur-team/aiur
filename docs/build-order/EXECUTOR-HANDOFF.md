@@ -134,6 +134,18 @@ so the controller—not an arbitrary Executor cap—is the remaining admission g
     At the same snapshot #1086/#1143 and #1090/#1141 are green and in dual
     Executor review, #1088/#1144 is rerunning its failed test, and #1087/#1145
     remains in its existing review-driven rework.
+14. At 20:16 PDT the operator added a hard hourly retrospective to the adaptive
+    Executor monitor. Immediate event/attention wakes and the adaptive quiet
+    ceiling remain in force, but neither resets this independent one-hour due
+    time. Every audit records an `action` or `no-action` reason; once per hour
+    the Executor reviews the preceding hour's wake/outcome history, identifies
+    redundant/no-action checks that a more specific Aiur/event-bus notification
+    could replace, and records one small cadence/trigger adjustment or an
+    explicit unchanged decision. Do not overfit isolated misses. At BO-015,
+    synthesize repeated evidence into at most one or two deferred Aiur
+    notification/polling issues under the normal scope circuit breaker; these
+    optimizations cannot delay Build Order acceptance. This run's first hard
+    retrospective is due at 21:16 PDT.
 
 At 19:48 PDT the five latest event-reported percentages are BO-004 70%, BO-008
 90%, DASH-006 90%, DASH-017 90%, and DASH-018 70% (82% ticket-average). All
