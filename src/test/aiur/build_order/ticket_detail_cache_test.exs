@@ -232,10 +232,16 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
         "curl -H 'X-Api-Key: curl-key' https://example.test\n" <>
         ~s([{"Cookie", "header-list-cookie"}]) <>
         "\nGITHUB_TOKEN=assignment-token\n" <>
+        "password=plain-password\nDB_PASSWORD=assignment-password\npasswd: header-password\n" <>
+        ~s({"passphrase":"structured-passphrase","private_key":"structured-private-key"}) <>
+        "\n" <>
         ~s([["Authorization", "bracket-pair-secret"]]) <>
         "\n" <>
         ~s([[&quot;Cookie&quot;, &quot;entity-pair-secret&quot;]]) <>
-        " /root/.ssh/id_ed25519 /var/lib/aiur/private.db /workspace/project/secret.txt"
+        "\n" <>
+        ~s([["private-key", "pair-private-key"]]) <>
+        " /root/.ssh/id_ed25519 /var/lib/aiur/private.db /workspace/project/secret.txt " <>
+        "/etc/passwd /opt/aiur/private.env"
 
     {:ok, cache} =
       start_cache(
@@ -261,11 +267,19 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     refute description =~ "curl-key"
     refute description =~ "header-list-cookie"
     refute description =~ "assignment-token"
+    refute description =~ "plain-password"
+    refute description =~ "assignment-password"
+    refute description =~ "header-password"
+    refute description =~ "structured-passphrase"
+    refute description =~ "structured-private-key"
     refute description =~ "bracket-pair-secret"
     refute description =~ "entity-pair-secret"
+    refute description =~ "pair-private-key"
     refute description =~ "/root/.ssh/id_ed25519"
     refute description =~ "/var/lib/aiur/private.db"
     refute description =~ "/workspace/project/secret.txt"
+    refute description =~ "/etc/passwd"
+    refute description =~ "/opt/aiur/private.env"
   end
 
   test "survives task-supervisor outage, preserves LKG, and recovers on a later demand" do

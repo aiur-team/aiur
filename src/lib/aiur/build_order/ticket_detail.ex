@@ -14,28 +14,34 @@ defmodule Aiur.BuildOrder.TicketDetail do
 
   @default_max_description_bytes 16_384
   @max_retry_after_seconds 60
+  @sensitive_key_pattern """
+  (?:
+    authorization
+    | proxy-authorization
+    | cookie
+    | set-cookie
+    | [a-z0-9_-]{0,100}(?:
+        token
+        | secret
+        | api[-_]?key
+        | credential
+        | password
+        | passwd
+        | passphrase
+        | private[-_]?key
+      )[a-z0-9_-]{0,100}
+  )
+  """
   @credential_header_pattern ~r{
     ^\s*
-    (?:
-      authorization
-      | proxy-authorization
-      | cookie
-      | set-cookie
-      | [a-z0-9_-]*(?:token|secret|api[-_]?key|credential)[a-z0-9_-]*
-    )
+    #{@sensitive_key_pattern}
     \s*:
     \s*[^\r\n]*
   }imux
   @structured_credential_pattern ~r/
     (?:
       (?:"|')?
-      (?:
-        authorization
-        | proxy-authorization
-        | cookie
-        | set-cookie
-        | [a-z0-9_-]{0,100}(?:token|secret|api[-_]?key|credential)[a-z0-9_-]{0,100}
-      )
+      #{@sensitive_key_pattern}
       (?:"|')?
       \s*(?::|=>)\s*
       (?:"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|[^,\]\}\r\n]+)
@@ -43,25 +49,13 @@ defmodule Aiur.BuildOrder.TicketDetail do
     |
     (?:
       \{\s*(?:"|')
-      (?:
-        authorization
-        | proxy-authorization
-        | cookie
-        | set-cookie
-        | [a-z0-9_-]{0,100}(?:token|secret|api[-_]?key|credential)[a-z0-9_-]{0,100}
-      )
+      #{@sensitive_key_pattern}
       (?:"|')\s*,\s*(?:"(?:\\.|[^"])*"|'(?:\\.|[^'])*')\s*\}
     )
   /iux
   @credential_assignment_pattern ~r/
     (?:"|'|&quot;)?
-    (?:
-      authorization
-      | proxy-authorization
-      | cookie
-      | set-cookie
-      | [a-z0-9_-]{0,100}(?:token|secret|api[-_]?key|credential)[a-z0-9_-]{0,100}
-    )
+    #{@sensitive_key_pattern}
     (?:"|'|&quot;)?
     \s*=\s*
     (?:"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|&quot;[^\r\n]*?&quot;|[^\s,;\]\}\r\n]+)
@@ -69,13 +63,7 @@ defmodule Aiur.BuildOrder.TicketDetail do
   @credential_header_pair_pattern ~r/
     \[\s*
     (?:"|'|&quot;)?
-    (?:
-      authorization
-      | proxy-authorization
-      | cookie
-      | set-cookie
-      | [a-z0-9_-]{0,100}(?:token|secret|api[-_]?key|credential)[a-z0-9_-]{0,100}
-    )
+    #{@sensitive_key_pattern}
     (?:"|'|&quot;)?
     \s*,\s*
     (?:"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|&quot;[^\r\n]*?&quot;|[^\]\r\n]+)
@@ -83,13 +71,7 @@ defmodule Aiur.BuildOrder.TicketDetail do
   /iux
   @curl_credential_header_pattern ~r/
     (?:-H|--header)\s+(?:"|')
-    (?:
-      authorization
-      | proxy-authorization
-      | cookie
-      | set-cookie
-      | [a-z0-9_-]{0,100}(?:token|secret|api[-_]?key|credential)[a-z0-9_-]{0,100}
-    )
+    #{@sensitive_key_pattern}
     \s*:\s*.*?(?:"|')
   /iux
   @credential_pattern ~r/\b(?:bearer|basic)\s+[^\s,;]+/iu
@@ -401,7 +383,12 @@ defmodule Aiur.BuildOrder.TicketDetail do
   defp redact_local_paths(value) do
     value =
       Regex.replace(
-        ~r{(?<![A-Za-z0-9._-])(?:~|/)(?:Users|home|private|tmp|root|var/lib|workspace)/[^\s"')\],\}]+}u,
+        ~r{
+          (?<![A-Za-z0-9._/-])
+          (?:~|/)
+          (?:Users|home|private|tmp|root|var|workspace|etc|opt|usr|srv|run|mnt|media|Volumes|proc|sys|dev)
+          /[^\s"')\],\}]+
+        }ux,
         value,
         "[REDACTED:local_path]"
       )

@@ -188,7 +188,8 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
 
     body =
       "token ghp_abcdefghijklmnopqrstuvwxyz0123456789 and /home/alice/private.txt " <>
-        "/root/.ssh/id_ed25519 /var/lib/aiur/private.db /workspace/project/secret.txt"
+        "/root/.ssh/id_ed25519 /var/lib/aiur/private.db /workspace/project/secret.txt " <>
+        "/etc/passwd /opt/aiur/private.env"
 
     assert {:ok, %Snapshot{description: description}} =
              TicketDetail.fetch(identity,
@@ -203,11 +204,13 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
     refute description =~ "/root/.ssh/id_ed25519"
     refute description =~ "/var/lib/aiur/private.db"
     refute description =~ "/workspace/project/secret.txt"
+    refute description =~ "/etc/passwd"
+    refute description =~ "/opt/aiur/private.env"
   end
 
   test "preserves ordinary URL and path text while redacting local paths" do
     identity = identity(42, "I42")
-    body = "https://example.test/root/path and docs/root/path and error:/root/.ssh/id_ed25519"
+    body = "https://example.test/etc/passwd and docs/etc/passwd and error:/root/.ssh/id_ed25519"
 
     assert {:ok, %Snapshot{description: description}} =
              TicketDetail.fetch(identity,
@@ -217,8 +220,8 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
                end
              )
 
-    assert description =~ "https://example.test/root/path"
-    assert description =~ "docs/root/path"
+    assert description =~ "https://example.test/etc/passwd"
+    assert description =~ "docs/etc/passwd"
     refute description =~ "/root/.ssh/id_ed25519"
   end
 
@@ -234,9 +237,14 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
         "curl --header 'Cookie: curl-cookie' https://example.test\n" <>
         ~s([{"Proxy-Authorization", "Basic header-list-secret"}]) <>
         "\nGITHUB_TOKEN=assignment-token\napi_key = assignment-api-key\n" <>
+        "password=plain-password\nDB_PASSWORD=assignment-password\npasswd: header-password\n" <>
+        ~s({"passphrase":"structured-passphrase","private_key":"structured-private-key"}) <>
+        "\n" <>
         ~s([["Authorization", "bracket-pair-secret"]]) <>
         "\n" <>
-        ~s([[&quot;Cookie&quot;, &quot;entity-pair-secret&quot;]])
+        ~s([[&quot;Cookie&quot;, &quot;entity-pair-secret&quot;]]) <>
+        "\n" <>
+        ~s([["private-key", "pair-private-key"]])
 
     assert {:ok, %Snapshot{description: description}} =
              TicketDetail.fetch(identity,
@@ -254,8 +262,14 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
     refute description =~ "header-list-secret"
     refute description =~ "assignment-token"
     refute description =~ "assignment-api-key"
+    refute description =~ "plain-password"
+    refute description =~ "assignment-password"
+    refute description =~ "header-password"
+    refute description =~ "structured-passphrase"
+    refute description =~ "structured-private-key"
     refute description =~ "bracket-pair-secret"
     refute description =~ "entity-pair-secret"
+    refute description =~ "pair-private-key"
   end
 
   test "maps not-found and rate-limit errors without response content" do
