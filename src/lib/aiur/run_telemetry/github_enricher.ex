@@ -234,15 +234,31 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
       case fetch_all(url, request_fun, token, opts) do
         {:ok, comments} ->
           normalized =
-            Enum.flat_map(comments, fn comment ->
-              comment_event(comment, ticket, topic_suffix, trusted_author_fun, comment_origin_resolver)
-            end)
+            comment_events_for_ticket(
+              comments,
+              ticket,
+              topic_suffix,
+              trusted_author_fun,
+              comment_origin_resolver
+            )
 
           {events ++ normalized, warnings}
 
         {:error, reason} ->
           {events, warnings ++ [warning(endpoint, reason)]}
       end
+    end)
+  end
+
+  defp comment_events_for_ticket(
+         comments,
+         ticket,
+         topic_suffix,
+         trusted_author_fun,
+         comment_origin_resolver
+       ) do
+    Enum.flat_map(comments, fn comment ->
+      comment_event(comment, ticket, topic_suffix, trusted_author_fun, comment_origin_resolver)
     end)
   end
 

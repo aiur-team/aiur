@@ -74,7 +74,9 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicy do
   @doc false
   @spec completed_turn_replacement_required?(map() | nil) :: boolean()
   def completed_turn_replacement_required?(running_entry) do
-    State.active_running_entry?(running_entry) and completed_turn_event?(running_entry) and no_active_turn?(running_entry)
+    State.active_running_entry?(running_entry) and
+      completed_turn_event?(running_entry) and
+      no_active_turn?(running_entry)
   end
 
   @doc false
