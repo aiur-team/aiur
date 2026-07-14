@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-13 22:25 PDT)
+## Live Executor state (updated 2026-07-13 22:51 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -298,13 +298,29 @@ to a safe range.
     predicate. Both focused findings were posted to the existing PR and queued
     to the existing worker with concurrency and telemetry regressions required.
     This is contained #1151 rework, not a new ticket.
+30. The 22:34 PDT hourly retrospective found two action wakes and zero
+    no-action wakes in its measured hour, so the Executor retained the short
+    incident cadence rather than widening during active rework/CI transitions.
+    Independent reviews then returned bounded rework to #1030, #1088, #1089,
+    and #1151 without filing follow-up tickets. The completed-runner rearm wedge
+    recurred on #1030/#1088; normal pause-override recovery restarted #1030,
+    while #1088 required reaping one verified idle app-server generation before
+    requeue. Treat this as operational evidence for the existing monitoring and
+    runner-recovery work, not a reason to expand the current feature scope.
+31. At 22:50 PDT #1085/BO-001 was squash-merged as
+    `6446dc6cfe24c51d67ff0be577a4486adfb6ccfe` after exact head `4f965f5d`
+    passed all fresh CI, contained both prior review fixes, received a clean
+    independent re-review, and proved current `main` ancestry. The root checkout
+    fast-forwarded without disturbing its local dogfood config. Main-advancement
+    directives were queued to active branches before their next push, including
+    #1054's bounded linked-worktree candidate.
 
-At 22:22 PDT the core graph is 2/54 merged. Five useful agents are active under
-the measured load envelope: direct workspace blockers #1030/#1054 and core
-#1085/#1088/#1089. #1090, #1104, #1111, and direct P1 #1151 retain their work
-and await re-admission; #1103/#1123 remain paused. Treat completed turns, stale
-bases, and green builds with unmet acceptance criteria as pending Executor
-work, not merge-ready truth.
+At 22:51 PDT the core graph is 3/54 merged. Direct workspace blocker #1054 and
+core #1089/#1090/#1111 are actively working; #1030 is in contained rework,
+#1088 is requeued with its review packet, #1104 is in fresh CI/review, and
+direct P1 #1151 awaits measured capacity. #1103/#1123 remain paused. Treat
+completed turns, stale bases, and green builds with unmet acceptance criteria
+as pending Executor work, not merge-ready truth.
 
 **Read-first map for this run:** `README.md` (pack index) →
 `08-implementation-pointers.md` (verified per-ticket file/module/function
