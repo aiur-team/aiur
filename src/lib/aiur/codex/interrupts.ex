@@ -19,7 +19,7 @@ defmodule Aiur.Codex.Interrupts do
       # triggered by U5's reactivation flow, where a fresh agent
       # task receives an Executor-queue update before its first
       # codex turn has spawned).
-      {:continue, %{state | pending_interrupt_request_id: nil}}
+      {:continue, %{state | pending_interrupt_request_id: nil, interrupt_action: nil}}
     else
       {:error, {:turn_interrupt_failed, error}}
     end
