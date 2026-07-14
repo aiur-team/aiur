@@ -1,10 +1,9 @@
 # Token-Usage Reduction — Research Spike
 
-> **Status:** living document. **Part 1** below (the four-tool program + first-pass
-> optimization angles) is complete and adversarially verified. **Part 2 — additional
-> "new options"** (provider pricing tiers, prompt compression, response/tool-result
-> caching, deterministic pre-computation, cross-agent memory, rework economics, frontier
-> techniques) is pending a running research pass and will be appended.
+> **Status:** complete. Three adversarially-verified research workflows (37 agents,
+> ~1.68M tokens, 0 errors). **Part 1** covers the four-tool program + first-pass angles.
+> **Part 2** covers additional new options and a billing-model reframing that
+> reprioritizes the whole effort toward cutting wasted turns and whole re-runs.
 
 **Scope:** the 4-tool program (ccusage, Serena, context-mode, caveman) **plus** other
 optimization angles, evaluated against our *actual* fleet. Two adversarially-verified
@@ -184,10 +183,116 @@ URLs for every claim are in the raw workflow transcripts.
 
 ---
 
-## Part 2 — additional new options
+## Part 2 — additional new options (verified)
 
-_Pending: a running research pass (`token-optimization-new-options`) is hunting for
-options beyond the four tools and the angles above — provider pricing tiers (Flex/Batch),
-prompt compression of the instruction surface (LLMLingua), response/tool-result caching,
-deterministic pre-computation ("code answers, not the model"), cross-agent shared memory,
-and rework-cycle economics. This section will be filled in when it lands._
+A third workflow (12 agents) hunted for options **beyond** the four tools and the Part 1
+angles, and adversarially verified the top claims. It surfaced a reframing that changes how
+to think about the whole program, plus a set of fleet-native levers that fit better than
+two of the original tools.
+
+### The reframing: our cost is a weekly quota, not $/token
+
+**[verified]** Our `~/.codex/auth.json` is `auth_mode=chatgpt` with `OPENAI_API_KEY=null` —
+the fleet bills through a **ChatGPT-subscription rate-limit quota** (5-hour rolling + weekly
+cap), not metered per-token API spend. Consequences, all verified against primary sources:
+
+- **OpenAI Flex / `service_tier` (~50% off) is a NO-OP for us** and is **struck** from the
+  program. Flex requires metered API-key billing; the only tier reachable under chatgpt auth
+  is "Fast", which *costs 2–2.5× more*. Even under API-key auth, `service_tier=flex` has open
+  silent-ignore bugs (#26604). → Add a cost-hygiene guard that no profile sets
+  `service_tier="fast"` (the opposite-direction trap on the same config key).
+- Since 2026-04-02 the quota accounting **aligns with token usage** — cached input ~10×
+  discounted, **output ~6× pricier** than fresh input (Codex rate card; *not* the unrelated
+  "Workspace Agents" product a blog conflated it with **[corrected]**). So the cost driver is
+  **fresh output/reasoning tokens**, reinforcing Part 1's #1 lever (reasoning-effort).
+- **Reducing the NUMBER of runs/turns** is the highest-leverage new target — not because turn
+  count is billed directly, but because **every fresh run re-pays the uncached first-turn
+  overhead** (system prompt + skills + tool manifests, ~2–5k tokens) that within-session prefix
+  caching otherwise amortizes. This *also* rehabilitates Part 1's skill-slimming lever: a
+  smaller always-loaded surface is paid uncached on turn 1 of every run **[corrected: input
+  compression is complementary, not "worthless"]**.
+- Headroom: `model-usage.json` ≈ 8/100 weekly used — efficiency/scale work, not a fire.
+
+### New top picks — cut wasted turns and whole re-runs (the real quota sink)
+
+All verified against our code; all low effort; ordered by leverage.
+
+1. **Rework continuation prompt + distilled hand-off (HIGH / low).** `turn_prompt.ex` today has
+   only *cold* and *resume-after-restart* branches — **[verified: no rework branch]** — so a
+   rework whose codex thread-resume has degraded gets the *identical cold prompt* and re-runs
+   ce-brainstorm + ce-plan off the same complexity label: a full ~12-turn re-run, the single
+   biggest quota sink. Add an `issue.state=="rework"` first-turn branch that forbids re-planning,
+   points at the existing `## Agent Workpad`, and injects (as a turn-1 **suffix**, after the
+   cached prefix) the unresolved review-thread bodies + a ~30-line deterministic workpad
+   distillation. Escape hatch: may re-plan if it records why.
+2. **Preserve the codex rollout + CoW worktree across the human-review dwell (HIGH / low).**
+   Resume needs the thread's on-disk rollout in `~/.codex`; a ticket can sit in human-review for
+   hours while 16 agents churn threads. **[verified mixed]** the rollout is retained *indefinitely
+   today* (nothing evicts it — no tunable policy exists, feature-request #6015 is open) and
+   `thread/resume` is a real app-server method — so don't reap the CoW worktree on
+   deactivation-to-review, **pin `$CODEX_HOME` to a persistent path**, and add a retention ceiling
+   (`~/.codex` is already 11 GB+). Compounds with #1 (turns cold reworks into cheap resumes).
+3. **Deterministic affected-test selection (HIGH / low).** `prompt.md` tells the *agent* to reason
+   over the diff each turn to pick affected tests — a deterministic transform run at model price
+   that also risks **under-selection → CI-red → whole-ticket rework**. Replace with a
+   `scripts/affected-tests` helper: diff → `src/lib/aiur/X.ex → test/aiur/X_test.exs` (near-1:1)
+   expanded via `mix xref graph --sink`, complemented by `mix test --stale`. **[verified mixed]**
+   `--stale` *does* track runtime module refs (better than feared) but has real blind spots for
+   **Gettext `.po` files** (need `@external_resource`) and **`Application.get_env` runtime config**
+   — keep the diff→file map primary and validate those two gaps against our suite. `make ci` stays
+   the authoritative full gate, bounding under-selection.
+4. **Workspace pre-commit hook (MEDIUM / low).** No git hooks exist today **[verified]**. The agent
+   manually runs `mix format` and is told to read `.formatter.exs`/Credo config for a
+   lint-clean-first-pass — prevention work at model price. Install a `pre-commit` (via the hooks
+   `after_create`) running `mix format` (write-then-restage) + `mix compile --warnings-as-errors`
+   so every commit is auto-clean; keep Credo CI-only; don't fight the `before_run` exit-65 guard.
+5. **Git-progress stall watchdog (MEDIUM / low).** `runtime_watchdog.ex` caps only on wall-clock +
+   codex-stream inactivity **[verified]**, so an agent that streams continuously but produces no
+   commits burns to `max_turns:12` / 240 min then gets re-dispatched (maybe cold). Sample `git diff
+   --shortstat` between turns; if no advance across K turns while codex streams, **pause + flag the
+   Executor** (never auto-kill — false-positive on legitimate deep-analysis turns).
+
+### Medium picks (second wave)
+
+- **Batch multi-persona review into one rework trigger** — `comment_wake.ex` flips idle→rework per
+  trusted comment with no debounce, so trickled multi-persona feedback re-engages the agent
+  repeatedly (each risking a cold re-run). Hold until all persona passes post, flip once.
+- **Pre-PR acceptance self-verify gate** — agent checks its diff against the ticket's explicit
+  acceptance-criteria bullets (aiur-build produces them) before human-review, raising first-shot
+  acceptance. Value tracks upstream planning quality.
+- **`docs/solutions` pull-on-demand learnings** — `ce-compound` + `docs/solutions/` are named but
+  not operationalized; populate distilled solved-problem docs agents grep only when relevant (zero
+  prompt tokens until read; rides the warm base). Gate writes to one writer at merge.
+- **Deterministic gotcha-cards** keyed by label/touched-files, injected as a per-ticket suffix
+  (never the shared prefix — no cross-agent cache invalidation). The hand-built `MEMORY.md` proves
+  the pattern.
+- **Complexity-scaled turn/duration caps** (`max_turns_by_complexity`) so a stuck complexity:1
+  ticket caps at ~3 turns instead of 12.
+- **Dialyzer core/local PLT split** — audit whether prewarm shares only the core PLT while each
+  rework rebuilds the local PLT redundantly; split + incrementally cache.
+- **Curated architecture/onboarding map** (small, stable) to collapse first-run "where is X" grep
+  exploration — a small AGENTS.md append (stays in the prefix cache) or a warm-base file (pull,
+  zero tokens until read). Needs refresh discipline.
+- **PR-body scaffold** prefilled from labels to satisfy the `pr_body.check` validator (there's a
+  latent template-vs-dev-loop conflict that can bounce PRs to rework).
+
+### Evaluated and down-ranked
+
+- **Prompt compression (LLMLingua-2)** of the instruction/skill surface: a *one-time offline* pass
+  could shave the always-loaded prefix, but risks corrupting code/paths and the gain is modest
+  given within-session prefix caching; per-request runtime compression adds a model call and busts
+  the cache. Prefer plain skill-slimming (Part 1 #5).
+- **Semantic/exact response caching** (GPTCache/Helicone): near-worthless for a coding agent where
+  every context is near-unique. Tool-result memoization (compile/dialyzer) is the only slice with
+  value, folded into the dialyzer-PLT pick above.
+- **Batch API**: structurally incompatible with the live tool-calling turn loop.
+
+### Updated program (folding in Part 2)
+
+The four-tool program stands (ccusage → context-mode/Serena trials, **caveman dropped**), but the
+**highest-leverage work is now the turn/run-reduction picks above** — most of which are small,
+verified changes to our own harness (`turn_prompt.ex`, hooks, watchdog, a test-selection script)
+rather than third-party installs. Suggested order once the ccusage baseline exists: reasoning-effort
+discrepancy fix → rework-continuation prompt (#1) + rollout preservation (#2) → affected-test
+selection (#3) + pre-commit hook (#4) → stall watchdog (#5) → second-wave picks. context-mode and
+Serena remain gated trials per Part 1.
