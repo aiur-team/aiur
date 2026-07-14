@@ -1,0 +1,43 @@
+defmodule Aiur.BuildOrder.Diagnostic do
+  @moduledoc """
+  A bounded, accessible explanation of a Build Order contract concern.
+
+  Diagnostics deliberately contain a stable code and controlled text rather
+  than the untrusted provider value that caused the concern.
+  """
+
+  @type code :: atom()
+
+  @type t :: %__MODULE__{code: code(), text: String.t()}
+
+  defstruct [:code, :text]
+
+  @spec new(code()) :: t()
+  def new(code) when is_atom(code), do: %__MODULE__{code: code, text: text_for(code)}
+
+  defp text_for(:ambiguous_complexity), do: "Complexity label is ambiguous."
+  defp text_for(:ambiguous_lane), do: "Build lane label is ambiguous."
+  defp text_for(:ambiguous_marker), do: "Planning marker is ambiguous."
+  defp text_for(:ambiguous_phase), do: "Phase label is ambiguous."
+  defp text_for(:catalog_overflow), do: "Too many catalog roots were supplied."
+  defp text_for(:external_dependency), do: "Dependency is outside the configured repository."
+  defp text_for(:invalid_dependency), do: "Dependency data is unavailable."
+  defp text_for(:invalid_complexity), do: "Complexity label is invalid."
+  defp text_for(:invalid_identity), do: "Repository-qualified identity is invalid."
+  defp text_for(:invalid_label), do: "Planning label is invalid."
+  defp text_for(:invalid_lane), do: "Build lane label is invalid."
+  defp text_for(:invalid_marker), do: "Planning marker is invalid."
+  defp text_for(:invalid_member), do: "Member data is unavailable."
+  defp text_for(:invalid_phase), do: "Phase label is invalid."
+  defp text_for(:invalid_root), do: "Root data is unavailable."
+  defp text_for(:invalid_title), do: "Title is unavailable."
+  defp text_for(:invalid_url), do: "GitHub URL is unavailable."
+  defp text_for(:labels_overflow), do: "Too many labels were supplied."
+  defp text_for(:member_overflow), do: "Too many direct members were supplied."
+  defp text_for(:missing_complexity), do: "Complexity label is missing."
+  defp text_for(:missing_lane), do: "Build lane label is missing."
+  defp text_for(:missing_phase), do: "Phase label is missing."
+  defp text_for(:root_has_parent), do: "A Build Order root cannot have a parent."
+  defp text_for(:unsafe_external_url), do: "External dependency URL is unavailable."
+  defp text_for(_code), do: "Build Order data is unavailable."
+end
