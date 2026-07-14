@@ -564,8 +564,7 @@ defmodule Aiur.BuildOrder.GitHubGraph do
 
   defp same_requested_root?(_fetched, _requested), do: false
 
-  defp root_fingerprint(root) when is_map(root), do: Map.drop(root, ["subIssues"])
-  defp root_fingerprint(_root), do: nil
+  defp root_fingerprint(root), do: Map.drop(root, ["subIssues"])
 
   defp catalog_connection(body), do: get_in(body, ["data", "repository", "issues"]) |> connection_value()
 
