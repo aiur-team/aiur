@@ -67,8 +67,17 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
 
     Agent.update(clock, fn _ -> 11 end)
 
-    assert {:ok, %State{health: :stale, detail: %Snapshot{title: "first"}}} = TicketDetailCache.request(cache, identity)
-    assert_receive {:ticket_detail_updated, %State{health: :stale, detail: %Snapshot{title: "first"}, failure: %Failure{kind: :timeout}}}
+    assert {:ok, %State{health: :stale, detail: %Snapshot{title: "first"}}} =
+             TicketDetailCache.request(cache, identity)
+
+    assert_receive {
+      :ticket_detail_updated,
+      %State{
+        health: :stale,
+        detail: %Snapshot{title: "first"},
+        failure: %Failure{kind: :timeout}
+      }
+    }
   end
 
   test "reports a cold failure as unavailable rather than fabricating detail" do
@@ -77,7 +86,11 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
 
     assert :ok = TicketDetailCache.subscribe(cache, identity)
     assert {:ok, %State{health: :unavailable, detail: nil}} = TicketDetailCache.request(cache, identity)
-    assert_receive {:ticket_detail_updated, %State{health: :unavailable, detail: nil, failure: %Failure{kind: :not_found}}}
+
+    assert_receive {
+      :ticket_detail_updated,
+      %State{health: :unavailable, detail: nil, failure: %Failure{kind: :not_found}}
+    }
   end
 
   test "recovers from a cold failure only after a later successful demand" do
@@ -145,7 +158,14 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     assert :ok = TicketDetailCache.subscribe(cache, identity)
     assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, identity)
 
-    assert_receive {:ticket_detail_updated, %State{health: :unavailable, detail: nil, failure: %Failure{kind: :provider_identity_mismatch}}}
+    assert_receive {
+      :ticket_detail_updated,
+      %State{
+        health: :unavailable,
+        detail: nil,
+        failure: %Failure{kind: :provider_identity_mismatch}
+      }
+    }
   end
 
   test "ignores a delayed completion from an older generation" do
