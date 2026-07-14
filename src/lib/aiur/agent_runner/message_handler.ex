@@ -13,8 +13,14 @@ defmodule Aiur.AgentRunner.MessageHandler do
   alias Aiur.Protocol.MapAccess
   alias Aiur.RunTelemetry.Lifecycle
 
-  @spec build(pid() | nil, Issue.t(), Path.t() | nil, String.t() | nil, String.t(), String.t() | nil) ::
-          (map() -> :ok | {:error, term()})
+  @spec build(
+          pid() | nil,
+          Issue.t(),
+          Path.t() | nil,
+          String.t() | nil,
+          String.t(),
+          String.t() | nil
+        ) :: (map() -> :ok | {:error, term()})
   def build(recipient, issue, workspace, worker_host, backend, turn_id \\ nil) do
     build(recipient, issue, workspace, worker_host, backend, turn_id, [])
   end
