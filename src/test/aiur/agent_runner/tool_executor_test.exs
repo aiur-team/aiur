@@ -1,10 +1,10 @@
 defmodule Aiur.AgentRunner.ToolExecutorTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
 
   alias Aiur.AgentRunner.ToolExecutor
-  alias Aiur.{DecisionStore, Issue, TrackerIdentity}
+  alias Aiur.{Boot, DecisionStore, Issue, TrackerIdentity}
   alias Aiur.Events.{Exchange, SubscriptionStore}
 
   describe "build/3" do
@@ -173,6 +173,46 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert retry.provenance.session_id == "session-retry"
       assert first.provenance.source_event_id == "tool-first"
       assert retry.provenance.source_event_id == "tool-retry"
+    end
+
+    test "producer observations retain identity across a Boot restart" do
+      identifier = "TE-observation-restart-#{System.unique_integer([:positive])}"
+
+      {:ok, identity} =
+        TrackerIdentity.from_github(
+          %{"node_id" => "I_kwDOObservationRestart", "number" => 42},
+          {"owner", "repo"},
+          {"owner", "repo"}
+        )
+
+      topic = "ticket.#{identifier}.agent.progress.checkin"
+      issue = %{identifier: identifier, tracker_identity: identity}
+      :ok = Exchange.subscribe(topic)
+
+      publish = fn session_id, attempt, invocation_id ->
+        executor = ToolExecutor.build(issue, nil, nil, %{thread_id: session_id}, attempt_id: attempt)
+
+        ToolExecutor.execute(
+          executor,
+          "emit_event",
+          %{"name" => "progress.checkin", "message" => "private", "payload" => %{"percent" => 60}},
+          invocation_id
+        )
+
+        assert_receive {:event, %{ticket_observation: observation}}, 2_000
+        observation
+      end
+
+      first = publish.("session-before-restart", 1, "tool-before-restart")
+      assert :ok = Boot.remark()
+      restarted = publish.("session-after-restart", 2, "tool-after-restart")
+
+      assert first.tracker_identity == restarted.tracker_identity
+      refute first.provenance.run_id == restarted.provenance.run_id
+      assert first.provenance.attempt == 1
+      assert restarted.provenance.attempt == 2
+      assert first.provenance.session_id == "session-before-restart"
+      assert restarted.provenance.session_id == "session-after-restart"
     end
 
     test "alerts attach typed stage and safe evidence observations with retry provenance" do

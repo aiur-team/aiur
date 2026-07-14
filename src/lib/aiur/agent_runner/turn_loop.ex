@@ -116,7 +116,8 @@ defmodule Aiur.AgentRunner.TurnLoop do
                  issue,
                  message_handler,
                  orchestrator,
-                 codex_update_recipient
+                 codex_update_recipient,
+                 opts
                ) do
           finalize_turn_completion(turn_context, app_session, turn_session)
         end
@@ -240,7 +241,8 @@ defmodule Aiur.AgentRunner.TurnLoop do
     %{
       issue: issue,
       orchestrator: orchestrator,
-      codex_update_recipient: codex_update_recipient
+      codex_update_recipient: codex_update_recipient,
+      opts: opts
     } = turn_context
 
     with :ok <-
@@ -249,7 +251,8 @@ defmodule Aiur.AgentRunner.TurnLoop do
              issue,
              message_handler,
              orchestrator,
-             codex_update_recipient
+             codex_update_recipient,
+             opts
            ) do
       continue_after_resume(turn_context, app_session)
     end

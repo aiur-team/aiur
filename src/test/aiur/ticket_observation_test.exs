@@ -67,25 +67,40 @@ defmodule Aiur.TicketObservationTest do
     refute first.tracker_identity == second.tracker_identity
   end
 
-  test "preserves explicit time semantics for malformed, duplicate, and out-of-order observations" do
+  test "preserves explicit time semantics for malformed, duplicate, and delayed observations" do
     malformed =
       TicketObservation.normalize(%{},
         occurred_at: "not-a-timestamp",
         observed_at: "also-not-a-timestamp"
       )
 
-    earlier = TicketObservation.normalize(%{}, event_id: 73, occurred_at: "2026-07-13T11:59:00Z", observed_at: "2026-07-13T12:00:04Z")
-    later = TicketObservation.normalize(%{}, event_id: 74, occurred_at: "2026-07-13T12:01:00Z", observed_at: "2026-07-13T12:00:05Z")
+    first = TicketObservation.normalize(%{}, event_id: 73, occurred_at: "2026-07-13T12:00:00Z", observed_at: "2026-07-13T12:00:01Z")
+
+    duplicate =
+      TicketObservation.normalize(%{},
+        event_id: 73,
+        occurred_at: "2026-07-13T12:00:00Z",
+        observed_at: "2026-07-13T12:00:02Z"
+      )
+
+    delayed =
+      TicketObservation.normalize(%{},
+        event_id: 74,
+        occurred_at: "2026-07-13T11:59:00Z",
+        observed_at: "2026-07-13T12:00:03Z"
+      )
 
     assert malformed.occurred_at == nil
     assert malformed.observed_at == nil
-    assert earlier.occurred_at < later.occurred_at
-    assert earlier.observed_at < later.observed_at
-    assert earlier.event_id != later.event_id
+    assert duplicate.event_id == first.event_id
+    assert duplicate.occurred_at == first.occurred_at
+    assert duplicate.observed_at > first.observed_at
+    assert delayed.occurred_at < first.occurred_at
+    assert delayed.observed_at > first.observed_at
     assert TicketObservation.normalize(%{}).observed_at == nil
   end
 
-  test "keeps identity stable across retries without retaining restart state" do
+  test "keeps identity stable across retries" do
     first =
       TicketObservation.normalize(%{"percent" => 50},
         identity: identity(),
@@ -102,14 +117,10 @@ defmodule Aiur.TicketObservationTest do
         provenance: %{attempt: 2, session_id: "session-retry", source_event_id: "call-1"}
       )
 
-    restarted = TicketObservation.normalize(%{}, identity: identity())
-
     assert first.tracker_identity == retry.tracker_identity
     assert first.provenance.attempt == 1
     assert retry.provenance.attempt == 2
     assert first.provenance.session_id != retry.provenance.session_id
-    assert restarted.provenance == %{}
-    assert restarted.attributes == %{}
   end
 
   test "redacts unsafe source names and provenance while retaining typed stage attributes" do

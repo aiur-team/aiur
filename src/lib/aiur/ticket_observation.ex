@@ -100,7 +100,11 @@ defmodule Aiur.TicketObservation do
   @spec producer_inventory() :: [map()]
   def producer_inventory do
     [
-      %{producer: :agent_event, identity: :trusted_when_available, observations: [:progress, :progress_checkin, :progress_phase]},
+      %{
+        producer: :agent_event,
+        identity: :trusted_when_available,
+        observations: [:progress, :progress_checkin, :progress_phase]
+      },
       %{producer: :agent_alert, identity: :trusted_when_available, observations: [:active_stage, :safe_alert_evidence]},
       %{producer: :publisher_compatibility, identity: :unattributed, observations: [:legacy]}
     ]

@@ -48,6 +48,15 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       attention_resolver: Keyword.get(opts, :attention_resolver, &DecisionAttention.resolve/2)
     }
 
+    event_context = %{
+      app_session: app_session,
+      attempt_id: attempt_id,
+      event_handlers: event_handlers,
+      issue: issue,
+      worker_host: worker_host,
+      workspace: workspace
+    }
+
     fn tool, arguments ->
       DynamicTool.execute(
         tool,
@@ -75,7 +84,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
           )
         end,
         event_publisher: fn name, message, payload ->
-          emit_agent_event(issue, workspace, worker_host, app_session, attempt_id, event_handlers, name, message, payload)
+          emit_agent_event(event_context, name, message, payload)
         end,
         subscriber: fn pattern -> subscribe_for_issue(issue, pattern) end,
         unsubscriber: fn pattern -> unsubscribe_for_issue(issue, pattern) end,
@@ -179,16 +188,27 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   # service — everything else keeps the existing generic publish path
   # below unchanged. `Publisher.publish/3` itself also rejects this topic
   # family, so this is the sole production ingress, not just a preference.
-  defp emit_agent_event(issue, _workspace, _worker_host, app_session, _attempt_id, handlers, "decision.requested", message, payload) do
+  defp emit_agent_event(
+         %{app_session: app_session, event_handlers: handlers, issue: issue},
+         "decision.requested",
+         message,
+         payload
+       ) do
     request_decision(issue, app_session, handlers, message, payload)
   end
 
-  defp emit_agent_event(issue, _workspace, _worker_host, app_session, _attempt_id, handlers, name, message, payload)
+  defp emit_agent_event(
+         %{app_session: app_session, event_handlers: handlers, issue: issue},
+         name,
+         message,
+         payload
+       )
        when name in ["decision.acknowledged", "decision.resolved"] do
     record_decision_lifecycle(issue, app_session, handlers.decision_lifecycle_recorder, name, message, payload)
   end
 
-  defp emit_agent_event(issue, workspace, worker_host, app_session, attempt_id, handlers, name, message, payload) do
+  defp emit_agent_event(event_context, name, message, payload) do
+    %{app_session: app_session, attempt_id: attempt_id, event_handlers: handlers, issue: issue} = event_context
     identifier = issue_identifier(issue)
 
     topic =
@@ -206,8 +226,8 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     decision_projection =
       prepare_decision_attention(
         issue,
-        workspace,
-        worker_host,
+        event_context.workspace,
+        event_context.worker_host,
         app_session,
         handlers.attention_opener,
         name,
