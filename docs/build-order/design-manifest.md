@@ -2,6 +2,18 @@
 
 **Imported:** 2026-07-12
 
+**Refreshed:** 2026-07-13 — re-pulled the latest prototype from the Claude Design
+project (source etag `1783996988320902`). Headline change: a new **build-order
+summary** with complexity-weighted **phase-progress bars**. The **Analytics surface
+is intentionally excluded** per operator direction — the `assets/analytics.js` loader
+was removed and the asset is not vendored; the Analytics nav renders an empty
+placeholder (its render call is guarded on `window.AiurAnalytics`). Analytics is out
+of scope and must not be pulled into any ticket.
+
+> The **Confirmed prototype inventory** and **Known prototype/spec drift** sections
+> below predate this refresh and describe the earlier import — re-audit them against
+> the refreshed prototype before relying on them.
+
 **Import commit:** `777cbabbd8baa80482f409f23a71e6ece3787dc9`
 
 **Original project:** `https://claude.ai/design/p/5e62b9a9-39c1-4ca2-9a76-6dff123a088c?file=Aiur+Operator+Control+Center.html`
@@ -16,7 +28,7 @@ choosing whichever is easier to implement.
 
 | File | SHA-256 |
 |---|---|
-| `prototype/Aiur Operator Control Center.html` | `23b527eade8c2fad7d37957c248be709091dfd112bbc6e13c6d76cd092d663a3` |
+| `prototype/Aiur Operator Control Center.html` | `0afe7e5e89de1b5de23bf278f7d02335969533fee81634008339169d87e6190e` |
 | `prototype/feature-constraints.md` | `49e068d4999d62197dbd1d5c0438db21a25cd1b5873fb959a58a7e0388c7829a` |
 | `prototype/README.md` | `f1f6e95194166edc779f0727a7e1a8571c5763a143c27156f105d9e79bea7cd8` |
 | `prototype/assets/aiur-logo.png` | `8a6ed8b69be413ba771bb003d7212ee3635a219e6d2abb7d18f64a40ad23fda0` |
