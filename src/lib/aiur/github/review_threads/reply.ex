@@ -68,6 +68,17 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
         )
         |> verify_after_review_thread_reply(attempt)
 
+      {:error, {:github_graphql_errors, errors, mutation_body}} ->
+        {:error,
+         {:review_thread_reply_not_verified,
+          %{
+            review_thread_id: thread_id,
+            attempts: attempt,
+            reason: {:github_graphql_errors, errors},
+            mutation_response: mutation_body,
+            published_comment: published_comment(mutation_body)
+          }}}
+
       {:error, reason} ->
         Logger.warning("GitHub review thread reply mutation failed: #{inspect(reason)}")
 
@@ -115,7 +126,8 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
            context.token,
            context.thread_id,
            context.body,
-           context.opts
+           context.opts,
+           context.published_comment
          ) do
       {:ok, verification} ->
         {:ok,
@@ -177,15 +189,15 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
   @spec add_review_thread_reply(function(), String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
   def add_review_thread_reply(request_fun, token, thread_id, body) do
-    Transport.github_graphql(request_fun, token, @reply_review_thread_mutation, %{
+    Transport.github_graphql_with_partial(request_fun, token, @reply_review_thread_mutation, %{
       "threadId" => thread_id,
       "body" => body
     })
   end
 
-  @spec verify_review_thread_reply(function(), String.t(), String.t(), String.t(), keyword()) ::
+  @spec verify_review_thread_reply(function(), String.t(), String.t(), String.t(), keyword(), map() | nil) ::
           {:ok, map()} | {:error, term()}
-  def verify_review_thread_reply(request_fun, token, thread_id, body, opts) do
+  def verify_review_thread_reply(request_fun, token, thread_id, body, opts, published_comment \\ nil) do
     case ReviewThreads.fetch_review_thread(request_fun, token, thread_id) do
       {:ok, thread_body} ->
         Logger.info("GitHub review thread reply verification response: #{inspect(thread_body)}")
@@ -196,7 +208,8 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
           body,
           request_fun,
           token,
-          opts
+          opts,
+          published_comment
         )
 
       {:error, reason} ->
@@ -210,10 +223,11 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
           String.t(),
           function(),
           String.t(),
-          keyword()
+          keyword(),
+          map() | nil
         ) ::
           {:ok, map()} | {:error, term()}
-  def verify_latest_review_thread_comment(thread_body, thread_id, body, request_fun, token, opts) do
+  def verify_latest_review_thread_comment(thread_body, thread_id, body, request_fun, token, opts, published_comment \\ nil) do
     latest =
       thread_body
       |> ReviewThreads.review_thread_from_body()
@@ -230,6 +244,9 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
 
         Map.get(latest, "body") != body ->
           latest_comment_body_mismatch(body, latest)
+
+        not exact_published_comment?(published_comment, latest) ->
+          latest_comment_identity_mismatch(published_comment, latest)
 
         true ->
           {:ok,
@@ -261,6 +278,16 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
     {:error, {:review_thread_latest_comment_body_mismatch, detail}}
   end
 
+  @spec latest_comment_identity_mismatch(map() | nil, map()) :: {:error, term()}
+  def latest_comment_identity_mismatch(published_comment, latest) do
+    {:error,
+     {:review_thread_latest_comment_identity_mismatch,
+      %{
+        expected: ReviewThreads.normalize_verified_thread_comment(published_comment || %{}),
+        actual: ReviewThreads.normalize_verified_thread_comment(latest)
+      }}}
+  end
+
   @spec retryable_review_thread_verification_error?(term()) :: boolean()
   def retryable_review_thread_verification_error?({:github, kind, _detail})
       when kind in [:dns, :timeout, :tls, :transport, :rate_limited],
@@ -272,10 +299,33 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
   def retryable_review_thread_verification_error?({:review_thread_latest_comment_body_mismatch, _}),
     do: true
 
+  def retryable_review_thread_verification_error?({:review_thread_latest_comment_identity_mismatch, _}),
+    do: true
+
   def retryable_review_thread_verification_error?(:review_thread_latest_comment_missing),
     do: true
 
   def retryable_review_thread_verification_error?(_reason), do: false
+
+  defp exact_published_comment?(nil, _latest), do: true
+
+  defp exact_published_comment?(published_comment, latest) when is_map(published_comment) and is_map(latest) do
+    expected = ReviewThreads.normalize_verified_thread_comment(published_comment)
+    actual = ReviewThreads.normalize_verified_thread_comment(latest)
+
+    cond do
+      is_binary(expected["node_id"]) and expected["node_id"] != "" ->
+        expected["node_id"] == actual["node_id"]
+
+      not is_nil(expected["id"]) ->
+        expected["id"] == actual["id"]
+
+      true ->
+        false
+    end
+  end
+
+  defp exact_published_comment?(_published_comment, _latest), do: false
   @spec sleep_review_thread_retry(keyword(), pos_integer()) :: term()
   def sleep_review_thread_retry(opts, attempt) do
     delay_ms = normalize_non_negative_integer(Keyword.get(opts, :retry_delay_ms), 250) * attempt

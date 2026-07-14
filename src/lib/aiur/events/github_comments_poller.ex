@@ -286,11 +286,6 @@ defmodule Aiur.Events.GithubCommentsPoller do
     )
   end
 
-  defp pr_review_comment_dedup_key(repo, pr_number, %{"review_thread_id" => thread_id})
-       when is_binary(thread_id) and thread_id != "" do
-    GithubKeys.review_thread_dedup_key(repo, pr_number, thread_id)
-  end
-
   defp pr_review_comment_dedup_key(repo, pr_number, comment) when is_map(comment) do
     GithubKeys.comment_dedup_key(repo, "pr_review_comment", pr_number, Map.get(comment, "id"))
   end

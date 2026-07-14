@@ -258,6 +258,7 @@ defmodule Aiur.AgentRunner.CommentContext do
 
   defp comment_origin(identifier, comment, resolver) when is_function(resolver, 2) do
     case resolver.(identifier, comment) do
+      :agent -> "agent"
       "agent" -> "agent"
       _ -> "external"
     end

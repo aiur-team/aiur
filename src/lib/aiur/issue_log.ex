@@ -160,7 +160,8 @@ defmodule Aiur.IssueLog do
       ts: ts,
       summary: summary,
       source: flags |> Map.get("src") |> maybe_atomize_source(),
-      author_trusted?: flags |> Map.get("trust") |> maybe_atomize_bool()
+      author_trusted?: flags |> Map.get("trust") |> maybe_atomize_bool(),
+      comment_origin: Map.get(flags, "origin")
     }
   end
 
@@ -376,6 +377,7 @@ defmodule Aiur.IssueLog do
       []
       |> append_flag("src", event_field(event, :source, nil))
       |> append_flag("trust", event_field(event, :author_trusted?, nil))
+      |> append_flag("origin", event_field(event, :comment_origin, nil))
       |> Enum.join(" ")
 
     if flags == "", do: "", else: " " <> flags

@@ -8,6 +8,8 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
 
   @max_origins_per_ticket 100
 
+  @type pending_public_comment :: %{path: Path.t(), command: String.t(), lock_marker: term()}
+
   @doc false
   @spec with_lock((-> term())) :: term() | {:error, term()}
   def with_lock(fun) when is_function(fun, 0) do
@@ -42,6 +44,49 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
   def record_gh_pr_comment(_ticket, _command, _output, _exit_code), do: :ignored
 
   @doc false
+  @spec begin_gh_pr_comment(String.t() | integer(), String.t(), String.t()) ::
+          :ignored | :ok | {:error, term()}
+  def begin_gh_pr_comment(ticket, command, operation_id)
+      when is_binary(command) and is_binary(operation_id) and operation_id != "" do
+    with true <- agent_comment_command?(command),
+         {:ok, path} <- path_for() do
+      begin_public_comment_lock(ticket, command, operation_id, path)
+    else
+      false -> :ignored
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def begin_gh_pr_comment(_ticket, _command, _operation_id), do: :ignored
+
+  @doc false
+  @spec complete_gh_pr_comment(
+          String.t() | integer(),
+          String.t() | nil,
+          String.t() | nil,
+          String.t(),
+          integer() | term(),
+          (String.t() | integer(), String.t(), String.t(), integer() | term() -> term())
+        ) :: term()
+  def complete_gh_pr_comment(ticket, operation_id, command, output, exit_code, recorder)
+      when is_binary(output) and is_function(recorder, 4) do
+    case pop_pending_public_comment(operation_id) do
+      %{} = pending ->
+        try do
+          recorder.(ticket, pending.command, output, exit_code)
+        after
+          release_public_comment_lock(pending)
+        end
+
+      nil when is_binary(command) ->
+        recorder.(ticket, command, output, exit_code)
+
+      nil ->
+        :ignored
+    end
+  end
+
+  @doc false
   @spec path_for() :: {:ok, Path.t()} | {:error, term()}
   def path_for do
     case Application.get_env(:aiur, :agent_comment_origins_path) do
@@ -67,6 +112,42 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
         end
       end)
     end
+  end
+
+  defp begin_public_comment_lock(_ticket, command, operation_id, path) do
+    lock_marker = {__MODULE__, path}
+    pending_key = pending_public_comment_key(operation_id)
+
+    if Process.get(pending_key) do
+      {:error, :public_comment_operation_already_pending}
+    else
+      case :global.set_lock({lock_marker, self()}, [node()]) do
+        true ->
+          Process.put(lock_marker, true)
+          Process.put(pending_key, %{path: path, command: command, lock_marker: lock_marker})
+          :ok
+
+        false ->
+          {:error, :public_comment_origin_lock_unavailable}
+      end
+    end
+  end
+
+  defp pop_pending_public_comment(operation_id) when is_binary(operation_id) do
+    pending_key = pending_public_comment_key(operation_id)
+    pending = Process.get(pending_key)
+    Process.delete(pending_key)
+    pending
+  end
+
+  defp pop_pending_public_comment(_operation_id), do: nil
+
+  defp pending_public_comment_key(operation_id), do: {__MODULE__, :pending_public_comment, operation_id}
+
+  defp release_public_comment_lock(%{lock_marker: lock_marker}) do
+    Process.delete(lock_marker)
+    :global.del_lock({lock_marker, self()}, [node()])
+    :ok
   end
 
   @spec record(String.t() | integer(), map()) :: :ok | {:error, term()}

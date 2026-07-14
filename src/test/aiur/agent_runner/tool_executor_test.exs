@@ -41,7 +41,12 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       executor =
         ToolExecutor.build(issue, nil, nil, %{},
           review_thread_replier: fn _id, _body, _opts ->
-            {:ok, %{verified: true, verification: %{"latest_comment" => %{"id" => 702}}}}
+            {:ok,
+             %{
+               verified: true,
+               published_comment: %{"id" => 702},
+               verification: %{"latest_comment" => %{"id" => 702}}
+             }}
           end,
           agent_comment_origin_recorder: fn ticket, comment ->
             send(test_pid, {:recorded_origin, ticket, comment})

@@ -269,7 +269,7 @@ defmodule Aiur.GitHub.ReviewThreads do
   def normalize_verified_thread_comment(comment) when is_map(comment) do
     %{
       "id" => Map.get(comment, "databaseId") || Map.get(comment, "id"),
-      "node_id" => Map.get(comment, "id"),
+      "node_id" => Map.get(comment, "node_id") || Map.get(comment, "id"),
       "body" => Map.get(comment, "body") || "",
       "created_at" => Map.get(comment, "createdAt"),
       "updated_at" => Map.get(comment, "updatedAt") || Map.get(comment, "createdAt"),

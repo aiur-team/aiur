@@ -111,9 +111,9 @@ defmodule Aiur.IssueLogEventHistoryTest do
     assert [%{id: 5, topic: "ticket.99.branch.push", summary: ""}] = events
   end
 
-  test "parses src= and trust= flags into typed event fields", %{identifier: id} do
+  test "parses src=, trust=, and origin= flags into typed event fields", %{identifier: id} do
     write_log(id, [
-      "2026-05-27T10:00:00Z [event:emit] id=7 src=github trust=true ticket.99.issue.commented: comment body",
+      "2026-05-27T10:00:00Z [event:emit] id=7 src=github trust=true origin=agent ticket.99.issue.commented: comment body",
       "2026-05-27T10:00:01Z [event:emit] id=8 src=github trust=false ticket.99.issue.commented: comment body",
       "2026-05-27T10:00:02Z [event:emit] id=9 ticket.99.branch.push: push abc"
     ])
@@ -121,7 +121,7 @@ defmodule Aiur.IssueLogEventHistoryTest do
     events = Aiur.IssueLog.event_history(id)
 
     assert [
-             %{id: 7, source: :github, author_trusted?: true},
+             %{id: 7, source: :github, author_trusted?: true, comment_origin: "agent"},
              %{id: 8, source: :github, author_trusted?: false},
              %{id: 9, source: nil, author_trusted?: nil}
            ] = events

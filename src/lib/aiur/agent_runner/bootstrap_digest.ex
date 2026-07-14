@@ -12,6 +12,7 @@ defmodule Aiur.AgentRunner.BootstrapDigest do
 
   alias Aiur.AgentRunner.{CommentContext, EventsDigest}
   alias Aiur.Events.{SubscriptionStore, Topic, UniversalSubscriptions}
+  alias Aiur.Orchestrator.CommentWake
   alias Aiur.{Issue, IssueLog}
 
   @doc false
@@ -32,6 +33,7 @@ defmodule Aiur.AgentRunner.BootstrapDigest do
 
     events =
       (replay_events ++ comment_events)
+      |> filter_replay_events()
       |> Enum.uniq_by(&bootstrap_event_key/1)
       |> Enum.sort_by(&EventsDigest.event_field(&1, :id))
 
@@ -39,6 +41,12 @@ defmodule Aiur.AgentRunner.BootstrapDigest do
   end
 
   def maybe_enqueue_bootstrap_digest(_issue), do: :ok
+
+  @doc false
+  @spec filter_replay_events([map()]) :: [map()]
+  def filter_replay_events(events) when is_list(events) do
+    Enum.reject(events, &ignored_agent_comment_replay?/1)
+  end
 
   # At runner start, every agent auto-subscribes to:
   # - `system.<base>.branch.push` so it sees base-branch movement
@@ -99,6 +107,19 @@ defmodule Aiur.AgentRunner.BootstrapDigest do
   end
 
   defp comment_event_id_or_nil(_comment), do: nil
+
+  defp ignored_agent_comment_replay?(event) when is_map(event) do
+    CommentWake.agent_authored_comment?(event) and comment_event_topic?(EventsDigest.event_field(event, :topic))
+  end
+
+  defp ignored_agent_comment_replay?(_event), do: false
+
+  defp comment_event_topic?(topic) when is_binary(topic) do
+    String.ends_with?(topic, ".issue.commented") or
+      String.ends_with?(topic, ".pr.review_comment")
+  end
+
+  defp comment_event_topic?(_topic), do: false
 
   defp bootstrap_cursor_for_log(%{last_seen_event_id: cursor}) when is_integer(cursor), do: cursor
   defp bootstrap_cursor_for_log(_snapshot), do: nil

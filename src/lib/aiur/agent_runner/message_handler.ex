@@ -6,12 +6,15 @@ defmodule Aiur.AgentRunner.MessageHandler do
   subscribers, and reports worker state to the orchestrator recipient.
   """
 
+  require Logger
+
   alias Aiur.{AgentEventLog, AgentEvents, AgentPubSub, CodingAgent, Issue, ModelAvailability}
   alias Aiur.GitHub.AgentCommentOrigins
   alias Aiur.Protocol.MapAccess
   alias Aiur.RunTelemetry.Lifecycle
 
-  @spec build(pid() | nil, Issue.t(), Path.t() | nil, String.t() | nil, String.t(), String.t() | nil) :: (map() -> :ok)
+  @spec build(pid() | nil, Issue.t(), Path.t() | nil, String.t() | nil, String.t(), String.t() | nil) ::
+          (map() -> :ok | {:error, term()})
   def build(recipient, issue, workspace, worker_host, backend, turn_id \\ nil) do
     build(recipient, issue, workspace, worker_host, backend, turn_id, [])
   end
@@ -44,11 +47,12 @@ defmodule Aiur.AgentRunner.MessageHandler do
       message = CodingAgent.normalize_event(message, backend)
       observe_lifecycle(issue, backend, message, lifecycle_opts)
       observe_rate_limits(backend, message)
-      observe_agent_comment_origin(issue, backend, message, origin_recorder)
+      origin_result = observe_agent_comment_origin(issue, backend, message, origin_recorder)
       AgentEventLog.write(workspace, worker_host, message)
       maybe_broadcast_transcript(issue, message, backend, turn_id)
       maybe_broadcast_turn_event(issue, message, turn_id)
       send_codex_update(recipient, issue, message)
+      origin_result
     end
   end
 
@@ -65,22 +69,103 @@ defmodule Aiur.AgentRunner.MessageHandler do
 
   defp observe_lifecycle(_issue, _backend, _message, _lifecycle_opts), do: :ok
 
-  defp observe_rate_limits(backend, %{rate_limits: limits}) when is_map(limits), do: ModelAvailability.observe(backend, limits)
+  defp observe_rate_limits(backend, %{rate_limits: limits}) when is_map(limits) do
+    ModelAvailability.observe(backend, limits)
+  end
+
   defp observe_rate_limits(_backend, _message), do: :ok
 
   defp observe_agent_comment_origin(%Issue{identifier: identifier}, backend, message, recorder)
        when is_binary(identifier) and is_function(recorder, 4) do
+    case public_comment_start(message, backend) do
+      {:ok, command, operation_id} ->
+        AgentCommentOrigins.begin_gh_pr_comment(identifier, command, operation_id)
+        |> complete_origin_observation(identifier)
+
+      :skip ->
+        observe_completed_agent_comment_origin(identifier, backend, message, recorder)
+    end
+  end
+
+  defp observe_agent_comment_origin(_issue, _backend, _message, _recorder), do: :ok
+
+  defp observe_completed_agent_comment_origin(identifier, backend, message, recorder) do
     case transcript_event_from(message, backend, nil) do
-      {:ok, %{role: :command, payload: %{command: command, output: output, exit_code: exit_code}}} ->
-        _ = recorder.(identifier, command, output, exit_code)
-        :ok
+      {:ok, %{role: :command, payload: %{command: command, output: output, exit_code: exit_code} = payload}} ->
+        AgentCommentOrigins.complete_gh_pr_comment(
+          identifier,
+          Map.get(payload, :operation_id),
+          command,
+          output,
+          exit_code,
+          recorder
+        )
+        |> complete_origin_observation(identifier)
+
+      {:ok, %{role: :tool, payload: %{tool: "result", output: output, exit_code: exit_code} = payload}} ->
+        AgentCommentOrigins.complete_gh_pr_comment(
+          identifier,
+          Map.get(payload, :operation_id),
+          nil,
+          output,
+          exit_code,
+          recorder
+        )
+        |> complete_origin_observation(identifier)
 
       _ ->
         :ok
     end
   end
 
-  defp observe_agent_comment_origin(_issue, _backend, _message, _recorder), do: :ok
+  defp complete_origin_observation(_identifier, result) when result in [:ok, :ignored], do: :ok
+
+  defp complete_origin_observation(identifier, {:error, reason}) do
+    Logger.error(
+      "Agent-authored GitHub comment origin was not recorded: " <>
+        "identifier=#{identifier} reason=#{inspect(reason)}"
+    )
+
+    {:error, {:agent_comment_origin_not_recorded, reason}}
+  end
+
+  defp complete_origin_observation(identifier, other) do
+    Logger.error(
+      "Agent-authored GitHub comment origin recorder returned an invalid result: " <>
+        "identifier=#{identifier} result=#{inspect(other)}"
+    )
+
+    {:error, {:agent_comment_origin_not_recorded, other}}
+  end
+
+  defp public_comment_start(message, backend) when backend in ["claude", "claude-repl"] do
+    with "item/created" <- MapAccess.notification_method(message),
+         item when is_map(item) <- MapAccess.notification_item(message),
+         "tool_call" <- get(item, :type),
+         "Bash" <- get(item, :name),
+         input when is_map(input) <- get(item, :input),
+         command when is_binary(command) and command != "" <- get(input, :command),
+         operation_id when is_binary(operation_id) and operation_id != "" <-
+           get(item, :tool_use_id) || get(item, :id) do
+      {:ok, command, operation_id}
+    else
+      _ -> :skip
+    end
+  end
+
+  defp public_comment_start(message, "codex") do
+    with "item/started" <- MapAccess.notification_method(message),
+         item when is_map(item) <- MapAccess.notification_item(message),
+         "commandExecution" <- get(item, :type),
+         command when is_binary(command) and command != "" <- get(item, :command),
+         operation_id when is_binary(operation_id) and operation_id != "" <- get(item, :id) do
+      {:ok, command, operation_id}
+    else
+      _ -> :skip
+    end
+  end
+
+  defp public_comment_start(_message, _backend), do: :skip
 
   defp maybe_broadcast_transcript(%Issue{identifier: identifier}, message, backend, turn_id)
        when is_binary(identifier) do

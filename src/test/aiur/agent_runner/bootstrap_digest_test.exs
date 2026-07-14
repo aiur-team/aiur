@@ -56,4 +56,28 @@ defmodule Aiur.AgentRunner.BootstrapDigestTest do
       assert BootstrapDigest.bootstrap_event_key(event) == {"ticket.42.issue.commented", 7}
     end
   end
+
+  describe "filter_replay_events/1" do
+    test "drops persisted agent comments while retaining a later trusted human reply" do
+      events = [
+        %{
+          id: 10,
+          topic: "ticket.42.pr.review_comment",
+          source: :github,
+          author_trusted?: true,
+          comment_origin: "agent"
+        },
+        %{
+          id: 11,
+          topic: "ticket.42.pr.review_comment",
+          source: :github,
+          author_trusted?: true,
+          comment_origin: "external"
+        },
+        %{id: 12, topic: "ticket.42.branch.push", source: :github, comment_origin: "agent"}
+      ]
+
+      assert Enum.map(BootstrapDigest.filter_replay_events(events), & &1.id) == [11, 12]
+    end
+  end
 end

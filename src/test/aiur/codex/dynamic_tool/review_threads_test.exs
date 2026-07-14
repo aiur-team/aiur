@@ -106,7 +106,12 @@ defmodule Aiur.Codex.DynamicTool.ReviewThreadsTest do
           "aiur_reply_review_thread",
           %{"review_thread_id" => "PRRT_origin", "body" => "Fixed."},
           review_thread_replier: fn _id, _body, _opts ->
-            {:ok, %{verified: true, verification: %{"latest_comment" => %{"id" => 701}}}}
+            {:ok,
+             %{
+               verified: true,
+               published_comment: %{"id" => 701},
+               verification: %{"latest_comment" => %{"id" => 701}}
+             }}
           end,
           agent_comment_origin_recorder: fn comment ->
             send(test_pid, {:recorded_origin, comment})
@@ -133,7 +138,13 @@ defmodule Aiur.Codex.DynamicTool.ReviewThreadsTest do
           end,
           review_thread_replier: fn _id, _body, _opts ->
             send(test_pid, :reply_published)
-            {:ok, %{verified: true, verification: %{"latest_comment" => %{"id" => 702}}}}
+
+            {:ok,
+             %{
+               verified: true,
+               published_comment: %{"id" => 702},
+               verification: %{"latest_comment" => %{"id" => 702}}
+             }}
           end,
           agent_comment_origin_recorder: fn comment ->
             send(test_pid, {:origin_recorded, comment})
@@ -154,7 +165,12 @@ defmodule Aiur.Codex.DynamicTool.ReviewThreadsTest do
           "aiur_reply_review_thread",
           %{"review_thread_id" => "PRRT_origin", "body" => "Fixed."},
           review_thread_replier: fn _id, _body, _opts ->
-            {:ok, %{verified: true, verification: %{"latest_comment" => %{"id" => 701}}}}
+            {:ok,
+             %{
+               verified: true,
+               published_comment: %{"id" => 701},
+               verification: %{"latest_comment" => %{"id" => 701}}
+             }}
           end,
           agent_comment_origin_recorder: fn _comment -> {:error, :disk_full} end
         )

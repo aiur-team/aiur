@@ -102,11 +102,24 @@ defmodule Aiur.GitHub.Transport do
 
   @spec github_graphql(function(), String.t(), String.t(), map()) :: {:ok, map()} | {:error, term()}
   def github_graphql(request_fun, token, query, variables) do
+    case github_graphql_with_partial(request_fun, token, query, variables) do
+      {:error, {:github_graphql_errors, errors, _response}} ->
+        {:error, {:github_graphql_errors, errors}}
+
+      result ->
+        result
+    end
+  end
+
+  @doc false
+  @spec github_graphql_with_partial(function(), String.t(), String.t(), map()) ::
+          {:ok, map()} | {:error, term()}
+  def github_graphql_with_partial(request_fun, token, query, variables) do
     body = %{"query" => query, "variables" => variables}
 
     case request_fun.(%{method: :post, url: @graphql_url, token: token, body: body}) do
-      {:ok, %{status: 200, body: %{"errors" => errors}}} ->
-        {:error, {:github_graphql_errors, errors}}
+      {:ok, %{status: 200, body: %{"errors" => errors} = response}} ->
+        {:error, {:github_graphql_errors, errors, response}}
 
       {:ok, %{status: 200, body: response}} when is_map(response) ->
         {:ok, response}

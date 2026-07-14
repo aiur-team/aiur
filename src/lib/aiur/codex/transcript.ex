@@ -91,7 +91,14 @@ defmodule Aiur.Codex.Transcript do
           do: "#{command} [exit=#{exit_code}]",
           else: command
 
-      %{command: command, output: output, title: title, workdir: cwd, exit_code: exit_code}
+      %{
+        command: command,
+        output: output,
+        title: title,
+        workdir: cwd,
+        exit_code: exit_code,
+        operation_id: get(item, :id)
+      }
     else
       _ -> nil
     end

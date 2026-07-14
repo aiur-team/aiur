@@ -9,11 +9,12 @@ date: 2026-07-13
 
 ## Summary
 
-Record the exact GitHub comment verified after an agent replies to a review
-thread, then carry that provenance into inbound comment events. Comment wake
-routes will ignore only those recorded agent replies. A fresh trusted comment
-from the same shared GitHub login remains actionable, so CODEOWNERS trust and
-the normal human-comment wake path stay intact.
+Record the exact GitHub comment identity at every agent-owned public-write
+boundary, then carry the durable provenance through bootstrap, live polling,
+publisher replay, and wake routing. Comment wake routes will ignore only those
+recorded agent replies. A fresh trusted comment from the same shared GitHub
+login remains actionable, so CODEOWNERS trust and the normal human-comment
+wake path stay intact.
 
 ---
 
@@ -29,6 +30,15 @@ the normal human-comment wake path stay intact.
   logs without relying on comment-body heuristics.
 - R5. The regression must reproduce reply, CI wait, self-comment ingestion,
   then later CI failure.
+- R6. Bootstrap and replay paths must treat the production `:agent` origin as
+  non-actionable while retaining external comments from the shared login.
+- R7. A successful public comment write cannot become visible to the poller
+  before its identity is durably recorded; an origin persistence failure must
+  be surfaced as actionable.
+- R8. Codex, Claude, review-thread, and partial GraphQL reply paths must retain
+  the exact mutation identity rather than inferring it from a later fetch.
+- R9. A self-comment must not suppress a later human reply in the same review
+  thread, and publisher replay must reapply the canonical origin guard.
 
 ---
 
@@ -40,6 +50,8 @@ the normal human-comment wake path stay intact.
   suppress all comments from the shared login.
 - Do not change CI terminal-event deduplication; preserve the existing
   ticket/outcome/head behavior once the issue remains eligible for polling.
+- Preserve the existing nil-lifecycle, queue-drain, failed-reply, and
+  completed-runner repairs already on this branch.
 
 ### Deferred to Follow-Up Work
 
@@ -57,6 +69,14 @@ the normal human-comment wake path stay intact.
   where that verified result can be recorded before success reaches the agent.
 - `src/lib/aiur/events/github_comments_poller.ex` constructs the inbound
   issue, PR-conversation, and review-thread comment events.
+- `src/lib/aiur/agent_runner/comment_context.ex` rebuilds comment context on
+  bootstrap and must normalize the same durable origin shape as live polling.
+- `src/lib/aiur/agent_runner/message_handler.ex` observes Codex and Claude
+  command streams, while `src/lib/aiur/agent_runner/tool_executor.ex` binds
+  ticket-local origin persistence.
+- `src/lib/aiur/events/publisher.ex` and
+  `src/lib/aiur/events/subscription_store.ex` form the persisted/replayed
+  inbound-delivery boundary.
 - `src/lib/aiur/orchestrator/comment_wake.ex` makes the trusted-comment
   transition decision; `pr_anchored.ex` and delivery policy reuse its trust
   predicates.
@@ -75,6 +95,8 @@ the normal human-comment wake path stay intact.
 | Persist the record before reporting the reply tool as successful | A restart or poll between reply and lifecycle transition must not lose the guard. |
 | Attach a positive `agent` origin marker only to exact recorded comments | Unrecorded same-login comments continue through existing CODEOWNERS trust. |
 | Centralize comment actionability in `CommentWake` | All lifecycle and routing callers apply the same provenance rule and log reason. |
+| Preserve mutation identities across every public-write path | Later shared-login comments must never be mistaken for the agent write. |
+| Treat origin persistence failure as a failed agent write | A visible but unrecorded comment is unsafe to report as a successful operation. |
 
 ---
 
@@ -87,14 +109,14 @@ context, not code to reproduce.*
 ```mermaid
 sequenceDiagram
   participant Agent
-  participant ReplyTool
+  participant WriteBoundary
   participant OriginStore
   participant Poller
   participant Wake
   participant CI
 
-  Agent->>ReplyTool: verified review reply
-  ReplyTool->>OriginStore: persist ticket + comment identity
+  Agent->>WriteBoundary: comment or review reply
+  WriteBoundary->>OriginStore: persist exact mutation identity before release
   Poller->>OriginStore: resolve inbound comment identity
   OriginStore-->>Poller: agent origin marker
   Poller->>Wake: trusted comment event with provenance
@@ -111,13 +133,13 @@ sequenceDiagram
 **Goal:** Durably associate a ticket with the exact comment GitHub verified as
 an agent-authored reply.
 
-**Requirements:** R1, R2, R4
+**Requirements:** R1, R2, R4, R6, R9
 
 **Dependencies:** None
 
 **Files:**
 
-- Create: `src/lib/aiur/github/agent_comment_origins.ex`
+- Modify: `src/lib/aiur/github/agent_comment_origins.ex`
 - Modify: `src/lib/aiur.ex`
 - Modify: `src/lib/aiur/codex/dynamic_tool/review_threads.ex`
 - Test: `src/test/aiur/github/agent_comment_origins_test.exs`
@@ -148,17 +170,23 @@ GitHub actor as a discriminator.
 **Goal:** Make agent origin observable on GitHub comment events and prevent it
 from taking any trusted-human wake route.
 
-**Requirements:** R1, R2, R4
+**Requirements:** R1, R2, R4, R6, R9
 
 **Dependencies:** U1
 
 **Files:**
 
 - Modify: `src/lib/aiur/events/github_comments_poller.ex`
+- Modify: `src/lib/aiur/agent_runner/comment_context.ex`
+- Modify: `src/lib/aiur/events/publisher.ex`
+- Modify: `src/lib/aiur/events/subscription_store.ex`
 - Modify: `src/lib/aiur/orchestrator/comment_wake.ex`
 - Modify: `src/lib/aiur/orchestrator/pr_anchored.ex`
 - Modify: `src/lib/aiur/orchestrator/operator_messages/delivery_policy.ex`
 - Test: `src/test/aiur/events/github_comments_poller_test.exs`
+- Test: `src/test/aiur/agent_runner/comment_context_test.exs`
+- Test: `src/test/aiur/events/publisher_test.exs`
+- Test: `src/test/aiur/events/subscription_store_test.exs`
 - Test: `src/test/aiur/orchestrator/comment_wake_test.exs`
 
 **Approach:** Resolve the inbound comment against durable provenance and add an
@@ -216,6 +244,82 @@ comment-wake regressions.
 
 **Verification:** Focused lifecycle tests prove one delivery for the retained
 CI-wait ticket and preserve the trusted-human transition.
+
+### U4. Make top-level comment writes atomic and backend-neutral
+
+**Goal:** Persist exact provenance for top-level comment writes before the
+poller can observe them, including Claude's split command/result stream.
+
+**Requirements:** R1, R4, R7, R8
+
+**Dependencies:** U1
+
+**Files:**
+
+- Modify: `src/lib/aiur/agent_runner/message_handler.ex`
+- Modify: `src/lib/aiur/agent_runner/tool_executor.ex`
+- Modify: `src/lib/aiur/github/agent_comment_origins.ex`
+- Test: `src/test/aiur/agent_runner/message_handler_test.exs`
+- Test: `src/test/aiur/agent_runner/tool_executor_test.exs`
+- Test: `src/test/aiur/github/agent_comment_origins_test.exs`
+
+**Approach:** Introduce one ticket-bound public-write seam that correlates
+command intent with its completion identity for both backend event shapes. Keep
+the origin lock across mutation visibility and durable persistence, and return
+an actionable failure whenever the public write cannot be recorded.
+
+**Patterns to follow:** `Aiur.GitHub.AgentCommentOrigins.with_lock/1` and the
+backend-neutral transcript extraction boundary.
+
+**Test scenarios:**
+
+- Integration: a successful top-level comment is persisted before a concurrent
+  poller classification proceeds.
+- Error path: parsing or persistence failure after a visible comment produces
+  an explicit agent-visible failure.
+- Integration: split Claude Bash command and result notifications correlate to
+  the same exact persisted comment identity.
+
+**Verification:** No supported backend can report a public comment success
+without a durable, ticket-scoped identity record.
+
+### U5. Preserve exact review-thread mutation identities
+
+**Goal:** Record the mutation-returned review reply identity through partial
+GraphQL success and read-after-write verification without capturing a later
+human comment.
+
+**Requirements:** R1, R2, R7, R8, R9
+
+**Dependencies:** U1, U4
+
+**Files:**
+
+- Modify: `src/lib/aiur/github/review_threads/reply.ex`
+- Modify: `src/lib/aiur/codex/dynamic_tool/review_threads.ex`
+- Modify: `src/lib/aiur/github/review_threads.ex`
+- Test: `src/test/aiur/github/reply_test.exs`
+- Test: `src/test/aiur/codex/dynamic_tool/review_threads_test.exs`
+- Test: `src/test/aiur/events/github_comments_poller_test.exs`
+
+**Approach:** Carry `published_comment` from GraphQL mutation data even when
+errors are present, record that identity before exposing verification failure,
+and compare verification against the mutation identity rather than whichever
+comment happens to be latest.
+
+**Patterns to follow:** the existing failed-reply provenance result and
+`ReviewThreads.Reply.published_comment/1` normalization.
+
+**Test scenarios:**
+
+- Error path: mutation data plus GraphQL errors still records the visible reply
+  identity before returning the failure.
+- Race: a later shared-login human comment is not recorded as agent origin.
+- Integration: an ignored agent reply followed by a human reply in the same
+  thread leaves the human reply actionable.
+
+**Verification:** Review-thread retries, partial success, and later human
+replies preserve exact provenance and trusted-human wake behavior.
 
 ---
 

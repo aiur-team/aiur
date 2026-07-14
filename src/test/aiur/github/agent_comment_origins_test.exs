@@ -1,7 +1,9 @@
 defmodule Aiur.GitHub.AgentCommentOriginsTest do
   use ExUnit.Case, async: false
 
+  alias Aiur.AgentRunner.CommentContext
   alias Aiur.GitHub.AgentCommentOrigins
+  alias Aiur.Issue
 
   setup do
     path = Path.join(System.tmp_dir!(), "aiur-agent-comment-origins-#{System.unique_integer([:positive])}.json")
@@ -26,6 +28,23 @@ defmodule Aiur.GitHub.AgentCommentOriginsTest do
     assert AgentCommentOrigins.origin("42", %{"id" => 7001}) == :agent
     assert AgentCommentOrigins.origin("42", %{"id" => 7002}) == :external
     assert AgentCommentOrigins.origin("43", %{"id" => 7001}) == :external
+  end
+
+  test "filters an atom agent origin through the default comment-context resolver" do
+    issue = %Issue{identifier: "42", id: "gid-42"}
+    agent_comment = %{"id" => 7010, "body" => "agent reply", :authoritative => true}
+    human_comment = %{"id" => 7011, "body" => "human follow-up", :authoritative => true}
+
+    assert :ok = AgentCommentOrigins.record("42", agent_comment)
+
+    fetchers = %{
+      issue_comments: fn _ -> {:ok, [agent_comment, human_comment]} end,
+      open_pr: fn _ -> {:ok, nil} end,
+      pr_review_comments: fn _ -> {:ok, []} end,
+      unaddressed_pr_review_thread_comments: fn _ -> {:ok, []} end
+    }
+
+    assert [%{id: 7011, comment_origin: "external"}] = CommentContext.events(issue, fetchers)
   end
 
   test "uses stable decision state across a daemon restart" do

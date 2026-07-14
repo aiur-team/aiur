@@ -145,8 +145,8 @@ defmodule Aiur.Codex.DynamicTool.ReviewThreads do
   defp record_verified_reply_origin(response, opts) do
     case Keyword.get(opts, :agent_comment_origin_recorder) do
       recorder when is_function(recorder, 1) ->
-        with {:ok, latest_comment} <- latest_verified_comment(response) do
-          record_reply_origin(latest_comment, opts)
+        with {:ok, published_comment} <- published_comment(response) do
+          record_reply_origin(published_comment, opts)
         end
 
       _no_ticket_bound_recorder ->
@@ -166,14 +166,13 @@ defmodule Aiur.Codex.DynamicTool.ReviewThreads do
 
   defp run_without_lock(fun), do: fun.()
 
-  defp latest_verified_comment(response) when is_map(response) do
-    verification = Map.get(response, :verification) || Map.get(response, "verification") || %{}
-    latest_comment = Map.get(verification, "latest_comment") || Map.get(verification, :latest_comment)
+  defp published_comment(response) when is_map(response) do
+    comment = Map.get(response, :published_comment) || Map.get(response, "published_comment")
 
-    if is_map(latest_comment), do: {:ok, latest_comment}, else: {:error, :verified_comment_missing}
+    if is_map(comment), do: {:ok, comment}, else: {:error, :published_comment_missing}
   end
 
-  defp latest_verified_comment(_response), do: {:error, :verified_comment_missing}
+  defp published_comment(_response), do: {:error, :published_comment_missing}
 
   defp record_failed_reply_origin({:review_thread_reply_not_verified, details}, opts) when is_map(details) do
     case Keyword.get(opts, :agent_comment_origin_recorder) do

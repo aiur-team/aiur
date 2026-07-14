@@ -233,7 +233,13 @@ defmodule Aiur.Claude.Transcript do
          AgentEvents.transcript_event(:command, command,
            timestamp: timestamp,
            turn_id: turn_id,
-           payload: %{command: command, output: "", title: command, workdir: workdir}
+           payload: %{
+             command: command,
+             output: "",
+             title: command,
+             workdir: workdir,
+             operation_id: tool_use_id(item)
+           }
          )}
 
       name in @edit_tools ->
@@ -265,7 +271,14 @@ defmodule Aiur.Claude.Transcript do
          AgentEvents.transcript_event(:tool, title,
            timestamp: timestamp,
            turn_id: turn_id,
-           payload: %{tool: "result", input: %{}, output: content, title: title}
+           payload: %{
+             tool: "result",
+             input: %{},
+             output: content,
+             title: title,
+             operation_id: tool_use_id(item),
+             exit_code: if(get(item, :is_error), do: 1, else: 0)
+           }
          )}
 
       _ ->
@@ -294,6 +307,13 @@ defmodule Aiur.Claude.Transcript do
   defp bash_command(input) do
     case get(input, :command) do
       command when is_binary(command) and command != "" -> command
+      _ -> nil
+    end
+  end
+
+  defp tool_use_id(item) do
+    case get(item, :tool_use_id) || get(item, :id) do
+      id when is_binary(id) and id != "" -> id
       _ -> nil
     end
   end
