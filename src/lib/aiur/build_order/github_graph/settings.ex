@@ -105,12 +105,10 @@ defmodule Aiur.BuildOrder.GitHubGraph.Settings do
 
   @spec requested_root(term(), repository()) :: {:ok, TrackerIdentity.t()} | {:error, :invalid_requested_root}
   def requested_root(%TrackerIdentity{} = root, repository) do
-    with true <- TrackerIdentity.joinable?(root),
-         true <- same_repository?(root, repository),
-         {:ok, _number} <- positive_number(root.identifier) do
+    if valid_requested_root?(root, repository) do
       {:ok, root}
     else
-      _ -> {:error, :invalid_requested_root}
+      {:error, :invalid_requested_root}
     end
   end
 
@@ -155,6 +153,12 @@ defmodule Aiur.BuildOrder.GitHubGraph.Settings do
   end
 
   defp same_repository?(_root, _repository), do: false
+
+  defp valid_requested_root?(root, repository) do
+    TrackerIdentity.joinable?(root) and
+      same_repository?(root, repository) and
+      match?({:ok, _number}, positive_number(root.identifier))
+  end
 
   defp configured_options?(opts, repository, limits) do
     [
