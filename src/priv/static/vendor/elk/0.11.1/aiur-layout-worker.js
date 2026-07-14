@@ -70,6 +70,23 @@ function isOpaqueId(value, prefix) {
   return typeof value === "string" && value.length <= 64 && generatedIdPatterns[prefix]?.test(value) === true
 }
 
+function requestGeneration(requestId) {
+  const match = typeof requestId === "string" ? /^request_([1-9][0-9]*)_[0-9]+$/.exec(requestId) : null
+  const generation = match ? Number(match[1]) : null
+  return Number.isSafeInteger(generation) ? generation : null
+}
+
+function validRequestIdentity(requestId, generation) {
+  return isOpaqueId(requestId, "request_") &&
+    Number.isSafeInteger(generation) &&
+    generation > 0 &&
+    requestGeneration(requestId) === generation
+}
+
+function denseArray(value) {
+  return Array.isArray(value) && Object.keys(value).length === value.length
+}
+
 function safeIdentity(value) {
   if (!isPlainRecord(value)) return { requestId: null, generation: null }
 
@@ -108,17 +125,17 @@ function serializedRequestSize(value) {
 }
 
 function validateRequest(value) {
-  if (!isPlainRecord(value) || serializedRequestSize(value) > MAX_REQUEST_BYTES) throw protocolError("invalid_request")
+  if (!isPlainRecord(value)) throw protocolError("invalid_request")
 
   const allowed = new Set(["type", "version", "requestId", "generation", "nodes", "edges", "constraints", "options"])
 
   if (!hasOnlyKeys(value, allowed) || value.type !== "layout") throw protocolError("invalid_request")
   if (value.version !== PROTOCOL_VERSION) throw protocolError("unsupported_version")
-  if (!isOpaqueId(value.requestId, "request_") || !Number.isSafeInteger(value.generation) || value.generation < 1) {
+  if (!validRequestIdentity(value.requestId, value.generation)) {
     throw protocolError("invalid_request")
   }
 
-  if (!Array.isArray(value.nodes) || value.nodes.length > MAX_NODES || !Array.isArray(value.edges) || value.edges.length > MAX_EDGES) {
+  if (!denseArray(value.nodes) || value.nodes.length > MAX_NODES || !denseArray(value.edges) || value.edges.length > MAX_EDGES) {
     throw protocolError("invalid_request")
   }
 
@@ -135,13 +152,19 @@ function validateRequest(value) {
     throw protocolError("invalid_request")
   }
 
-  return {
+  const request = {
+    type: "layout",
+    version: PROTOCOL_VERSION,
     requestId: value.requestId,
     generation: value.generation,
     nodes,
     edges,
+    constraints: { lanes: constraints.lanes, phases: constraints.phases },
     options: validateOptions(value.options ?? {})
   }
+
+  if (serializedRequestSize(request) > MAX_REQUEST_BYTES) throw protocolError("invalid_request")
+  return request
 }
 
 function validateConstraints(value) {
@@ -152,11 +175,11 @@ function validateConstraints(value) {
 
   if (lanes.length + phases.length > MAX_CONSTRAINTS) throw protocolError("invalid_request")
 
-  return { lanes: new Set(lanes), phases: new Set(phases) }
+  return { lanes, phases, laneIndexes: new Set(lanes), phaseIndexes: new Set(phases) }
 }
 
 function validateConstraintList(value) {
-  if (!Array.isArray(value)) throw protocolError("invalid_request")
+  if (!denseArray(value)) throw protocolError("invalid_request")
 
   const indexes = value.map((entry) => {
     if (!isPlainRecord(entry) || !hasOnlyKeys(entry, new Set(["index"])) || !Number.isInteger(entry.index) || entry.index < 0 || entry.index >= MAX_CONSTRAINTS) {
@@ -182,8 +205,8 @@ function validateNode(value, constraints) {
   const lane = value.lane ?? null
   const phase = value.phase ?? null
 
-  if (lane !== null && (!Number.isInteger(lane) || !constraints.lanes.has(lane))) throw protocolError("invalid_request")
-  if (phase !== null && (!Number.isInteger(phase) || !constraints.phases.has(phase))) throw protocolError("invalid_request")
+  if (lane !== null && (!Number.isInteger(lane) || !constraints.laneIndexes.has(lane))) throw protocolError("invalid_request")
+  if (phase !== null && (!Number.isInteger(phase) || !constraints.phaseIndexes.has(phase))) throw protocolError("invalid_request")
   if (value.stub !== undefined && typeof value.stub !== "boolean") throw protocolError("invalid_request")
 
   return { id: value.id, width: value.width, height: value.height, lane, phase, stub: value.stub === true }
@@ -320,19 +343,19 @@ function toElkGraph(request) {
       "elk.randomSeed": String(options.randomSeed ?? 1),
       "elk.layered.thoroughness": String(options.thoroughness ?? 7),
       "elk.layered.considerModelOrder.strategy": modelOrderStrategy(options),
-      "elk.layered.considerModelOrder.components": "FORCE_MODEL_ORDER",
+      "elk.layered.considerModelOrder.components": "GROUP_MODEL_ORDER",
       "elk.layered.considerModelOrder.groupModelOrder.cmGroupOrderStrategy": "ENFORCED",
       "elk.layered.nodePlacement.favorStraightEdges": String(options.favorStraightEdges ?? true),
       "elk.partitioning.activate": "true",
-      "elk.separateConnectedComponents": "false"
+      "elk.separateConnectedComponents": "true"
     },
-    children: request.nodes.map((node) => ({
+    children: orderedNodes(request.nodes).map((node) => ({
       id: node.id,
       width: node.width,
       height: node.height,
       layoutOptions: partitionOptions(node)
     })),
-    edges: request.edges.map((edge) => ({ id: edge.id, sources: [edge.source], targets: [edge.target] }))
+    edges: orderedEdges(request.edges).map((edge) => ({ id: edge.id, sources: [edge.source], targets: [edge.target] }))
   }
 }
 
@@ -350,8 +373,31 @@ function partitionOptions(node) {
   }
 }
 
+function orderedNodes(nodes) {
+  return [...nodes].sort((left, right) =>
+    constraintOrder(left.phase) - constraintOrder(right.phase) ||
+      constraintOrder(left.lane) - constraintOrder(right.lane) ||
+      compareGeneratedIds(left.id, right.id)
+  )
+}
+
+function constraintOrder(value) {
+  return value ?? -1
+}
+
+function compareGeneratedIds(left, right) {
+  const leftSuffix = left.slice(left.lastIndexOf("_") + 1).replace(/^0+(?=\d)/, "")
+  const rightSuffix = right.slice(right.lastIndexOf("_") + 1).replace(/^0+(?=\d)/, "")
+
+  return leftSuffix.length - rightSuffix.length || leftSuffix.localeCompare(rightSuffix) || left.localeCompare(right)
+}
+
+function orderedEdges(edges) {
+  return [...edges].sort((left, right) => compareGeneratedIds(left.id, right.id))
+}
+
 function normalizeLayout(request, result) {
-  if (!isPlainRecord(result) || !Array.isArray(result.children) || !Array.isArray(result.edges)) throw protocolError("invalid_engine_output")
+  if (!isPlainRecord(result) || !denseArray(result.children) || !denseArray(result.edges)) throw protocolError("invalid_engine_output")
 
   const resultNodes = new Map(result.children.map((node) => [node.id, node]))
   const resultEdges = new Map(result.edges.map((edge) => [edge.id, edge]))
@@ -389,7 +435,7 @@ function normalizeEdge(edge, result) {
   if (!isPlainRecord(result)) throw protocolError("invalid_engine_output")
 
   const sections = result.sections ?? []
-  if (!Array.isArray(sections) || sections.length > MAX_SECTIONS) throw protocolError("invalid_engine_output")
+  if (!denseArray(sections) || sections.length > MAX_SECTIONS) throw protocolError("invalid_engine_output")
 
   return { id: edge.id, sections: sections.map(normalizeSection) }
 }
@@ -400,7 +446,7 @@ function normalizeSection(section) {
   }
 
   const bendPoints = section.bendPoints ?? []
-  if (!Array.isArray(bendPoints) || bendPoints.length > MAX_POINTS) throw protocolError("invalid_engine_output")
+  if (!denseArray(bendPoints) || bendPoints.length > MAX_POINTS) throw protocolError("invalid_engine_output")
 
   return {
     startPoint: normalizePoint(section.startPoint),

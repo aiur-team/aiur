@@ -920,7 +920,7 @@ defmodule Aiur.ExtensionsTest do
       conn = get(build_conn(), url)
       assert response(conn, 200) != ""
       assert Plug.Conn.get_resp_header(conn, "content-type") == ["application/javascript; charset=utf-8"]
-      assert Plug.Conn.get_resp_header(conn, "cache-control") == ["public, max-age=31536000, immutable"]
+      assert Plug.Conn.get_resp_header(conn, "cache-control") == ["private, max-age=31536000, immutable"]
     end
 
     assert response(get(build_conn(), "/vendor/layout/worker-v1/not-a-digest/aiur-layout-worker.js"), 404) == "Not Found"

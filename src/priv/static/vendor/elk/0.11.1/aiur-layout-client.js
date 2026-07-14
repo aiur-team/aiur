@@ -195,12 +195,12 @@ function validIdentity(identity) {
 }
 
 function normalizeRequest(value) {
-  if (!isRecord(value) || serializedRequestSize(value) > MAX_REQUEST_BYTES) return null
+  if (!isRecord(value)) return null
 
   const allowed = new Set(["type", "version", "requestId", "generation", "nodes", "edges", "constraints", "options"])
   if (!hasOnlyKeys(value, allowed) || value.type !== "layout" || value.version !== LAYOUT_PROTOCOL_VERSION) return null
-  if (!validId(value.requestId, "request_") || !Number.isSafeInteger(value.generation) || value.generation < 1) return null
-  if (!Array.isArray(value.nodes) || value.nodes.length > MAX_NODES || !Array.isArray(value.edges) || value.edges.length > MAX_EDGES) return null
+  if (!validRequestIdentity(value.requestId, value.generation)) return null
+  if (!denseArray(value.nodes) || value.nodes.length > MAX_NODES || !denseArray(value.edges) || value.edges.length > MAX_EDGES) return null
 
   const constraints = normalizeConstraints(value.constraints ?? {})
   if (!constraints) return null
@@ -215,7 +215,7 @@ function normalizeRequest(value) {
   const options = normalizeOptions(value.options ?? {})
   if (!options) return null
 
-  return {
+  const request = {
     type: "layout",
     version: LAYOUT_PROTOCOL_VERSION,
     requestId: value.requestId,
@@ -225,6 +225,8 @@ function normalizeRequest(value) {
     constraints: { lanes: constraints.lanes, phases: constraints.phases },
     options
   }
+
+  return serializedRequestSize(request) > MAX_REQUEST_BYTES ? null : request
 }
 
 function normalizeConstraints(value) {
@@ -238,7 +240,7 @@ function normalizeConstraints(value) {
 }
 
 function normalizeConstraintList(value) {
-  if (!Array.isArray(value)) return null
+  if (!denseArray(value)) return null
 
   const entries = value.map((entry) => {
     if (!isRecord(entry) || !hasOnlyKeys(entry, new Set(["index"])) || !Number.isInteger(entry.index) || entry.index < 0 || entry.index >= MAX_CONSTRAINTS) return null
@@ -292,10 +294,14 @@ function validResponse(value, entry) {
 
 function validResult(value, request) {
   if (!hasOnlyKeys(value, new Set(["type", "version", "requestId", "generation", "nodes", "edges", "diagnostics"]))) return false
-  if (!Array.isArray(value.nodes) || value.nodes.length > MAX_NODES || !Array.isArray(value.edges) || value.edges.length > MAX_EDGES || !Array.isArray(value.diagnostics) || value.diagnostics.length > MAX_DIAGNOSTICS) return false
+  if (!denseArray(value.nodes) || value.nodes.length > MAX_NODES || !denseArray(value.edges) || value.edges.length > MAX_EDGES || !denseArray(value.diagnostics) || value.diagnostics.length > MAX_DIAGNOSTICS) return false
   if (!value.nodes.every(validResultNode) || !value.edges.every(validResultEdge) || !value.diagnostics.every(validDiagnostic)) return false
 
-  return sameIds(value.nodes, request.nodes) && sameIds(value.edges, request.edges)
+  if (!sameIds(value.nodes, request.nodes) || !sameIds(value.edges, request.edges)) return false
+
+  const requestedNodes = new Map(request.nodes.map((node) => [node.id, node]))
+  return value.nodes.every((node) => node.width === requestedNodes.get(node.id)?.width && node.height === requestedNodes.get(node.id)?.height) &&
+    validDiagnostics(value.diagnostics, request.nodes)
 }
 
 function validResultNode(value) {
@@ -306,12 +312,12 @@ function validResultNode(value) {
 
 function validResultEdge(value) {
   return isRecord(value) && hasOnlyKeys(value, new Set(["id", "sections"])) && validId(value.id, "edge_") &&
-    Array.isArray(value.sections) && value.sections.length <= MAX_SECTIONS && value.sections.every(validSection)
+    denseArray(value.sections) && value.sections.length <= MAX_SECTIONS && value.sections.every(validSection)
 }
 
 function validSection(value) {
   return isRecord(value) && hasOnlyKeys(value, new Set(["startPoint", "bendPoints", "endPoint"])) &&
-    validPoint(value.startPoint) && Array.isArray(value.bendPoints) && value.bendPoints.length <= MAX_POINTS &&
+    validPoint(value.startPoint) && denseArray(value.bendPoints) && value.bendPoints.length <= MAX_POINTS &&
     value.bendPoints.every(validPoint) && validPoint(value.endPoint)
 }
 
@@ -322,6 +328,13 @@ function validPoint(value) {
 function validDiagnostic(value) {
   return isRecord(value) && hasOnlyKeys(value, new Set(["code", "count"])) && value.code === "external_stubs" &&
     Number.isInteger(value.count) && value.count >= 1 && value.count <= MAX_NODES
+}
+
+function validDiagnostics(diagnostics, nodes) {
+  const externalStubs = nodes.filter((node) => node.stub).length
+  return externalStubs === 0
+    ? diagnostics.length === 0
+    : diagnostics.length === 1 && diagnostics[0].code === "external_stubs" && diagnostics[0].count === externalStubs
 }
 
 function sameIds(result, request) {
@@ -365,6 +378,23 @@ function requestKey(identity) {
 
 function validId(value, prefix) {
   return typeof value === "string" && value.length <= 64 && generatedIdPatterns[prefix]?.test(value) === true
+}
+
+function requestGeneration(requestId) {
+  const match = typeof requestId === "string" ? /^request_([1-9][0-9]*)_[0-9]+$/.exec(requestId) : null
+  const generation = match ? Number(match[1]) : null
+  return Number.isSafeInteger(generation) ? generation : null
+}
+
+function validRequestIdentity(requestId, generation) {
+  return validId(requestId, "request_") &&
+    Number.isSafeInteger(generation) &&
+    generation > 0 &&
+    requestGeneration(requestId) === generation
+}
+
+function denseArray(value) {
+  return Array.isArray(value) && Object.keys(value).length === value.length
 }
 
 function isRecord(value) {

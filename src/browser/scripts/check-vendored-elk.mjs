@@ -1,7 +1,10 @@
 import { createHash } from 'node:crypto'
-import { readdir, readFile } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { cp, mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 
 const ELK_VERSION = '0.11.1'
 const ELK_INTEGRITY = 'sha512-zxxR9k+rx5ktMwT/FwyLdPCrq7xN6e4VGGHH8hA01vVYKjTFik7nHOxBnAYtrgYUB1RpAiLvA1/U2YraWxyKKg=='
@@ -10,6 +13,18 @@ const sourceRoot = path.resolve(browserRoot, '..')
 const vendorRoot = path.join(sourceRoot, 'priv', 'static', 'vendor', 'elk', ELK_VERSION)
 const packageRoot = path.join(browserRoot, 'node_modules', 'elkjs')
 const layoutSourceRoot = path.join(browserRoot, 'layout')
+const repositoryRoot = path.resolve(sourceRoot, '..')
+const execFileAsync = promisify(execFile)
+const lineEndingPaths = [
+  'src/browser/layout/aiur-layout-worker.js',
+  'src/browser/layout/aiur-layout-client.js',
+  'src/priv/static/vendor/elk/0.11.1/elk-worker.min.js',
+  'src/priv/static/vendor/elk/0.11.1/aiur-layout-worker.js',
+  'src/priv/static/vendor/elk/0.11.1/aiur-layout-client.js',
+  'src/priv/static/vendor/elk/0.11.1/LICENSE.md',
+  'src/priv/static/vendor/elk/0.11.1/manifest.json',
+  'src/priv/static/vendor/elk/0.11.1/PROVENANCE.md'
+]
 
 const sha256 = (body) => createHash('sha256').update(body).digest('hex')
 
@@ -55,9 +70,55 @@ async function main() {
   verifyAsset(manifest.assets?.worker, worker, 'worker-v1', 'aiur-layout-worker.js')
   verifyAsset(manifest.assets?.client, client, 'client-v1', 'aiur-layout-client.js')
   assert(manifest.assets.worker.engineUrl === manifest.assets.engine.url, 'worker must import the manifest engine URL')
+  await verifyLineEndingContract([sourceWorker, sourceClient, engine, license, worker, client, Buffer.from(manifestText), Buffer.from(provenance)])
 
   for (const value of [manifest.engine.integrity, manifest.assets.engine.sha256, manifest.assets.worker.sha256, manifest.assets.client.sha256]) {
     assert(provenance.includes(value), 'provenance must record every integrity value')
+  }
+}
+
+async function verifyLineEndingContract(javascriptAssets) {
+  const attributes = await readFile(path.join(repositoryRoot, '.gitattributes'), 'utf8')
+  const requiredRules = [
+    'src/browser/layout/aiur-layout-worker.js text eol=lf',
+    'src/browser/layout/aiur-layout-client.js text eol=lf',
+    'src/priv/static/vendor/elk/0.11.1/elk-worker.min.js -text',
+    'src/priv/static/vendor/elk/0.11.1/aiur-layout-worker.js text eol=lf',
+    'src/priv/static/vendor/elk/0.11.1/aiur-layout-client.js text eol=lf',
+    'src/priv/static/vendor/elk/0.11.1/LICENSE.md -text',
+    'src/priv/static/vendor/elk/0.11.1/manifest.json text eol=lf',
+    'src/priv/static/vendor/elk/0.11.1/PROVENANCE.md text eol=lf'
+  ]
+
+  for (const rule of requiredRules) assert(attributes.includes(rule), `missing EOL preservation rule: ${rule}`)
+  for (const body of javascriptAssets) assert(!body.includes(0x0d), 'autocrlf checkout changed an audited JavaScript asset')
+  await verifyAutocrlfCheckout()
+}
+
+async function verifyAutocrlfCheckout() {
+  const checkout = await mkdtemp(path.join(tmpdir(), 'aiur-layout-eol-'))
+
+  try {
+    await Promise.all([
+      cp(path.join(repositoryRoot, '.gitattributes'), path.join(checkout, '.gitattributes')),
+      ...lineEndingPaths.map(async (relativePath) => {
+        const destination = path.join(checkout, relativePath)
+        await mkdir(path.dirname(destination), { recursive: true })
+        await cp(path.join(repositoryRoot, relativePath), destination)
+      })
+    ])
+    await execFileAsync('git', ['init', '--quiet'], { cwd: checkout })
+    await execFileAsync('git', ['add', '.'], { cwd: checkout })
+    await execFileAsync('git', ['-c', 'user.name=Layout EOL Check', '-c', 'user.email=layout-eol@example.invalid', 'commit', '--quiet', '-m', 'Preserve layout bytes'], { cwd: checkout })
+    await execFileAsync('git', ['config', 'core.autocrlf', 'true'], { cwd: checkout })
+    await execFileAsync('git', ['checkout', '--force', 'HEAD'], { cwd: checkout })
+
+    for (const relativePath of lineEndingPaths) {
+      const body = await readFile(path.join(checkout, relativePath))
+      assert(!body.includes(0x0d), `autocrlf checkout changed ${relativePath}`)
+    }
+  } finally {
+    await rm(checkout, { recursive: true, force: true })
   }
 }
 

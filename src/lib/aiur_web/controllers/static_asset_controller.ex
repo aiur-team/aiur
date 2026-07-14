@@ -25,7 +25,7 @@ defmodule AiurWeb.StaticAssetController do
 
   @spec layout_asset(Conn.t(), map()) :: Conn.t()
   def layout_asset(conn, %{"version" => version, "digest" => digest, "asset" => asset}) do
-    serve(conn, "/vendor/layout/#{version}/#{digest}/#{asset}", immutable?: true)
+    serve(conn, "/vendor/layout/#{version}/#{digest}/#{asset}", immutable?: true, private?: true)
   end
 
   defp serve(conn, path, options \\ []) do
@@ -42,6 +42,8 @@ defmodule AiurWeb.StaticAssetController do
   end
 
   defp cache_control(options) do
-    if Keyword.get(options, :immutable?, false), do: "public, max-age=31536000, immutable", else: "public, max-age=31536000"
+    visibility = if Keyword.get(options, :private?, false), do: "private", else: "public"
+    immutable = if Keyword.get(options, :immutable?, false), do: ", immutable", else: ""
+    "#{visibility}, max-age=31536000#{immutable}"
   end
 end
