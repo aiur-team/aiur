@@ -7,7 +7,8 @@ defmodule Aiur.Orchestrator.MembershipLifecycle do
 
   @membership_observe_timeout 5_000
 
-  @spec record(term(), atom(), (TrackerIdentity.t(), atom() -> term())) :: :ok
+  @spec record(term(), atom(), (TrackerIdentity.t(), atom() -> term())) ::
+          :ok | {:error, :membership_observation_failed}
   def record(issue, lifecycle, observe_membership_fun \\ &observe/2)
 
   def record(%Issue{} = issue, lifecycle, observe_membership_fun)
@@ -16,17 +17,17 @@ defmodule Aiur.Orchestrator.MembershipLifecycle do
       %TrackerIdentity{} = identity ->
         if TrackerIdentity.joinable?(identity),
           do: safely_observe(observe_membership_fun, identity, lifecycle),
-          else: :ok
+          else: {:error, :membership_observation_failed}
 
       _ ->
-        :ok
+        {:error, :membership_observation_failed}
     end
   end
 
-  def record(_issue, _lifecycle, _observe_membership_fun), do: :ok
+  def record(_issue, _lifecycle, _observe_membership_fun), do: {:error, :membership_observation_failed}
 
   @doc false
-  @spec observe(TrackerIdentity.t(), atom()) :: :ok
+  @spec observe(TrackerIdentity.t(), atom()) :: :ok | {:error, :membership_observation_failed}
   def observe(identity, lifecycle) do
     case CurrentRunMembership.observe(identity, lifecycle,
            source: :tracker,
@@ -36,14 +37,17 @@ defmodule Aiur.Orchestrator.MembershipLifecycle do
         :ok
 
       {:error, reason} ->
-        Logger.warning("aiur_current_run_membership phase=lifecycle_observation_failed reason=#{inspect(reason)}")
+        log_observation_failure(reason)
+        {:error, :membership_observation_failed}
     end
   rescue
     error ->
-      Logger.warning("aiur_current_run_membership phase=lifecycle_observation_failed error=#{Exception.message(error)}")
+      log_observation_failure(error)
+      {:error, :membership_observation_failed}
   catch
     kind, reason ->
-      Logger.warning("aiur_current_run_membership phase=lifecycle_observation_failed reason=#{inspect({kind, reason})}")
+      log_observation_failure({kind, reason})
+      {:error, :membership_observation_failed}
   end
 
   @doc false
@@ -65,16 +69,24 @@ defmodule Aiur.Orchestrator.MembershipLifecycle do
         :ok
 
       {:error, reason} ->
-        Logger.warning("aiur_current_run_membership phase=lifecycle_observation_failed reason=#{inspect(reason)}")
+        log_observation_failure(reason)
+        {:error, :membership_observation_failed}
 
       result ->
-        Logger.warning("aiur_current_run_membership phase=lifecycle_observation_failed result=#{inspect(result)}")
+        log_observation_failure(result)
+        {:error, :membership_observation_failed}
     end
   rescue
     error ->
-      Logger.warning("aiur_current_run_membership phase=lifecycle_observation_failed error=#{Exception.message(error)}")
+      log_observation_failure(error)
+      {:error, :membership_observation_failed}
   catch
     kind, reason ->
-      Logger.warning("aiur_current_run_membership phase=lifecycle_observation_failed reason=#{inspect({kind, reason})}")
+      log_observation_failure({kind, reason})
+      {:error, :membership_observation_failed}
+  end
+
+  defp log_observation_failure(_reason) do
+    Logger.warning("aiur_current_run_membership phase=lifecycle_observation_failed code=membership_observation_failed")
   end
 end

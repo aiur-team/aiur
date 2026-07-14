@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.Reconciler do
 
   require Logger
 
-  alias Aiur.{Issue, Tracker, TrackerIdentity}
+  alias Aiur.{CurrentRunMembership, Issue, Tracker, TrackerIdentity}
   alias Aiur.Orchestrator
 
   alias Aiur.Orchestrator.{
@@ -80,7 +80,8 @@ defmodule Aiur.Orchestrator.Reconciler do
       state,
       active_states,
       terminal_states,
-      &MembershipLifecycle.observe/2
+      &MembershipLifecycle.observe/2,
+      &CurrentRunMembership.mark_reconciled/1
     )
   end
 
@@ -100,6 +101,43 @@ defmodule Aiur.Orchestrator.Reconciler do
         observe_membership_fun
       )
       when is_function(observe_membership_fun, 2) do
+    reconcile_issue_state(
+      issue,
+      state,
+      active_states,
+      terminal_states,
+      observe_membership_fun,
+      &CurrentRunMembership.mark_reconciled/1
+    )
+  end
+
+  def reconcile_issue_state(
+        _issue,
+        state,
+        _active_states,
+        _terminal_states,
+        _observe_membership_fun
+      ),
+      do: state
+
+  @doc false
+  @spec reconcile_issue_state(
+          Issue.t() | term(),
+          State.t(),
+          MapSet.t(),
+          MapSet.t(),
+          (TrackerIdentity.t(), atom() -> term()),
+          (:fresh | :unavailable -> term())
+        ) :: State.t()
+  def reconcile_issue_state(
+        %Issue{} = issue,
+        state,
+        active_states,
+        terminal_states,
+        observe_membership_fun,
+        mark_reconciled_fun
+      )
+      when is_function(observe_membership_fun, 2) and is_function(mark_reconciled_fun, 1) do
     cond do
       DispatchPolicy.terminal_issue_state?(issue.state, terminal_states) ->
         Logger.info([
@@ -110,13 +148,21 @@ defmodule Aiur.Orchestrator.Reconciler do
           "; stopping active agent"
         ])
 
-        record_membership(
-          issue,
-          MembershipLifecycle.terminal_lifecycle(issue.state),
-          observe_membership_fun
-        )
+        case record_membership(
+               issue,
+               MembershipLifecycle.terminal_lifecycle(issue.state),
+               observe_membership_fun
+             ) do
+          :ok ->
+            if safely_set_terminal_verification_pending(issue.tracker_identity, false) == :ok do
+              Orchestrator.terminate_running_issue(state, issue.id, true)
+            else
+              mark_membership_unavailable(state, mark_reconciled_fun, issue.tracker_identity)
+            end
 
-        Orchestrator.terminate_running_issue(state, issue.id, true)
+          {:error, :membership_observation_failed} ->
+            mark_membership_unavailable(state, mark_reconciled_fun, issue.tracker_identity)
+        end
 
       !DispatchPolicy.issue_routable_to_worker?(issue) ->
         Logger.info([
@@ -164,12 +210,34 @@ defmodule Aiur.Orchestrator.Reconciler do
         state,
         _active_states,
         _terminal_states,
-        _observe_membership_fun
+        _observe_membership_fun,
+        _mark_reconciled_fun
       ),
       do: state
 
   defp record_membership(%Issue{} = issue, lifecycle, observe_membership_fun) do
     MembershipLifecycle.record(issue, lifecycle, observe_membership_fun)
+  end
+
+  defp mark_membership_unavailable(state, mark_reconciled_fun, identity) do
+    _ = safely_set_terminal_verification_pending(identity, true)
+    _ = mark_reconciled_fun.(:unavailable)
+    state
+  rescue
+    _error -> state
+  catch
+    _kind, _reason -> state
+  end
+
+  defp safely_set_terminal_verification_pending(identity, pending?) do
+    case CurrentRunMembership.set_terminal_verification_pending(identity, pending?) do
+      :ok -> :ok
+      _ -> :error
+    end
+  rescue
+    _error -> :error
+  catch
+    _kind, _reason -> :error
   end
 
   @spec maybe_reactivate_or_refresh(State.t(), Issue.t()) :: State.t()

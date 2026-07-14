@@ -1,8 +1,8 @@
 defmodule Aiur.CurrentRunMembership.CheckpointTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.CurrentRunMembership.{Event, Projection}
-  alias Aiur.CurrentRunMembership.Store.Checkpoint
+  alias Aiur.CurrentRunMembership.{Event, Event.Codec, Projection}
+  alias Aiur.CurrentRunMembership.Store.{Checkpoint, FileOps}
   alias Aiur.TrackerIdentity
 
   @run_id "checkpoint-codec-test"
@@ -17,6 +17,15 @@ defmodule Aiur.CurrentRunMembership.CheckpointTest do
     record = record |> Map.put("members", members) |> Map.put("checksum", checksum(record, members))
 
     assert {:error, :invalid_checkpoint} = Checkpoint.from_record(record, @run_id)
+  end
+
+  test "refuses an oversized checkpoint before it can replace replayable recovery data" do
+    oversized = %{"members" => [String.duplicate("x", Codec.max_checkpoint_bytes())]}
+    path = Path.join(System.tmp_dir!(), "aiur-oversized-checkpoint-#{System.unique_integer([:positive])}")
+
+    assert {:error, :record_too_large} = Codec.validate_checkpoint_record_size(oversized)
+    assert {:error, :record_too_large} = FileOps.write_checkpoint(path, oversized)
+    refute File.exists?(path)
   end
 
   defp checksum(record, members) do

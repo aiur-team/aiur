@@ -44,7 +44,11 @@ defmodule Aiur.CurrentRunMembership.Event do
         checksum: nil
       }
 
-      {:ok, %{event | checksum: checksum(event)}}
+      event = %{event | checksum: checksum(event)}
+
+      with :ok <- Codec.validate_recovery_record_size(to_record(event)) do
+        {:ok, event}
+      end
     end
   end
 

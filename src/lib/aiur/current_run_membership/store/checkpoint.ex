@@ -1,7 +1,7 @@
 defmodule Aiur.CurrentRunMembership.Store.Checkpoint do
   @moduledoc false
 
-  alias Aiur.CurrentRunMembership.Projection
+  alias Aiur.CurrentRunMembership.{Event.Codec, Projection}
 
   @version 1
   @record_keys ~w(checksum generation members run_id version)
@@ -12,14 +12,8 @@ defmodule Aiur.CurrentRunMembership.Store.Checkpoint do
       {:error, :enoent} ->
         :missing
 
-      {:ok, %File.Stat{type: :regular}} ->
-        with {:ok, contents} <- File.read(path),
-             {:ok, record} <- Jason.decode(contents),
-             {:ok, projection} <- from_record(record, run_id) do
-          {:ok, projection}
-        else
-          {:error, reason} -> {:corrupt, reason}
-        end
+      {:ok, %File.Stat{type: :regular, size: size}} ->
+        load_regular_checkpoint(path, run_id, size)
 
       {:ok, %File.Stat{type: :symlink}} ->
         {:corrupt, :symlink_rejected}
@@ -29,6 +23,20 @@ defmodule Aiur.CurrentRunMembership.Store.Checkpoint do
 
       {:error, reason} ->
         {:corrupt, {:unreadable, reason}}
+    end
+  end
+
+  defp load_regular_checkpoint(path, run_id, size) do
+    if size <= Codec.max_checkpoint_bytes() do
+      with {:ok, contents} <- File.read(path),
+           {:ok, record} <- Jason.decode(contents),
+           {:ok, projection} <- from_record(record, run_id) do
+        {:ok, projection}
+      else
+        {:error, reason} -> {:corrupt, reason}
+      end
+    else
+      {:corrupt, :record_too_large}
     end
   end
 

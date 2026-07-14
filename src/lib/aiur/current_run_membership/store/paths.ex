@@ -20,7 +20,8 @@ defmodule Aiur.CurrentRunMembership.Store.Paths do
          run_leaf: run_leaf(run_id),
          journal_path: journal_path,
          checkpoint_path: Path.join(run_dir, "membership.checkpoint.json"),
-         degraded_path: Path.join(run_dir, "membership.degraded.json")
+         degraded_path: Path.join(run_dir, "membership.degraded.json"),
+         terminal_verification_path: Path.join(run_dir, "membership.terminal-verification.json")
        }}
     end
   end

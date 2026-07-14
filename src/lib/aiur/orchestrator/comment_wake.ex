@@ -10,7 +10,7 @@ defmodule Aiur.Orchestrator.CommentWake do
 
   alias Aiur.Alerts
   alias Aiur.Events.UniversalSubscriptions
-  alias Aiur.{Issue, Tracker}
+  alias Aiur.{CurrentRunMembership, Issue, Tracker}
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, PrAnchored, State}
   alias Aiur.RunTelemetry.Lifecycle
@@ -52,14 +52,30 @@ defmodule Aiur.Orchestrator.CommentWake do
     terminate_running_issue_fun =
       Keyword.get(opts, :terminate_running_issue_fun, &Orchestrator.terminate_running_issue/3)
 
+    mark_reconciled_fun =
+      Keyword.get(opts, :mark_reconciled_fun, &CurrentRunMembership.mark_reconciled/1)
+
+    set_terminal_verification_pending_fun =
+      Keyword.get(opts, :set_terminal_verification_pending_fun, &CurrentRunMembership.set_terminal_verification_pending/2)
+
     case update_issue_state_fun.(to_string(identifier), "done") do
       :ok ->
-        clear_session_handle_fun.(identifier)
-
         case State.find_running_by_identifier(state.running, identifier) do
           %{issue: %Issue{id: issue_id} = issue} ->
-            MembershipLifecycle.record(issue, :completed, observe_membership_fun)
-            terminate_running_issue_fun.(state, issue_id, true)
+            case MembershipLifecycle.record(issue, :completed, observe_membership_fun) do
+              :ok ->
+                if safely_set_terminal_verification_pending(set_terminal_verification_pending_fun, issue.tracker_identity, false) == :ok do
+                  clear_session_handle_fun.(identifier)
+                  terminate_running_issue_fun.(state, issue_id, true)
+                else
+                  safely_mark_membership_unavailable(mark_reconciled_fun, set_terminal_verification_pending_fun, issue.tracker_identity)
+                  state
+                end
+
+              {:error, :membership_observation_failed} ->
+                safely_mark_membership_unavailable(mark_reconciled_fun, set_terminal_verification_pending_fun, issue.tracker_identity)
+                state
+            end
 
           _ ->
             state
@@ -70,6 +86,27 @@ defmodule Aiur.Orchestrator.CommentWake do
 
         state
     end
+  end
+
+  defp safely_mark_membership_unavailable(mark_reconciled_fun, set_terminal_verification_pending_fun, identity) do
+    _ = safely_set_terminal_verification_pending(set_terminal_verification_pending_fun, identity, true)
+    _ = mark_reconciled_fun.(:unavailable)
+    :ok
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
+  end
+
+  defp safely_set_terminal_verification_pending(set_terminal_verification_pending_fun, identity, pending?) do
+    case set_terminal_verification_pending_fun.(identity, pending?) do
+      :ok -> :ok
+      _ -> :error
+    end
+  rescue
+    _error -> :error
+  catch
+    _kind, _reason -> :error
   end
 
   @doc false

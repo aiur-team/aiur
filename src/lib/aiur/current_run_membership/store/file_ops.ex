@@ -1,10 +1,18 @@
 defmodule Aiur.CurrentRunMembership.Store.FileOps do
   @moduledoc false
 
+  alias Aiur.CurrentRunMembership.Event.Codec
   alias Aiur.Fs
 
   @spec write_checkpoint(String.t(), map()) :: :ok | {:error, term()}
-  def write_checkpoint(path, record), do: atomic_write(path, Jason.encode!(record))
+  def write_checkpoint(path, record) do
+    with :ok <- Codec.validate_checkpoint_record_size(record),
+         {:ok, contents} <- Jason.encode(record) do
+      atomic_write(path, contents)
+    else
+      {:error, _reason} = error -> error
+    end
+  end
 
   @spec clear_journal(String.t()) :: :ok | {:error, term()}
   def clear_journal(path), do: atomic_write(path, "")

@@ -2,8 +2,8 @@ defmodule Aiur.CurrentRunMembership.Store.Recovery do
   @moduledoc false
 
   alias Aiur.{Config, DecisionLog, Fs}
-  alias Aiur.CurrentRunMembership.{Event, Projection}
-  alias Aiur.CurrentRunMembership.Store.{Checkpoint, FileOps, Marker, Paths, Runtime}
+  alias Aiur.CurrentRunMembership.{Event, Event.Codec, Projection}
+  alias Aiur.CurrentRunMembership.Store.{Checkpoint, FileOps, Marker, Paths, Runtime, TerminalVerification}
 
   @checkpoint_interval 32
 
@@ -16,6 +16,7 @@ defmodule Aiur.CurrentRunMembership.Store.Recovery do
       checkpoint_interval: checkpoint_interval(Keyword.get(opts, :checkpoint_interval, @checkpoint_interval)),
       sync_fun: Keyword.get(opts, :filesystem_sync_fun, &Fs.sync_filesystem/0),
       degraded_marker_fun: Keyword.get(opts, :degraded_marker_fun, &Marker.write/4),
+      terminal_verification_marker_fun: Keyword.get(opts, :terminal_verification_marker_fun, &TerminalVerification.write/4),
       quarantine_fun: Keyword.get(opts, :quarantine_fun, &FileOps.quarantine/1),
       clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
       cleanup_fun: Keyword.get(opts, :cleanup_fun, &Paths.cleanup_obsolete_runs/2)
@@ -54,25 +55,31 @@ defmodule Aiur.CurrentRunMembership.Store.Recovery do
       journal_event_count: 0,
       sync_fun: persistence.sync_fun,
       degraded_marker_fun: persistence.degraded_marker_fun,
+      terminal_verification_marker_fun: persistence.terminal_verification_marker_fun,
       quarantine_fun: persistence.quarantine_fun,
       cleanup_fun: persistence.cleanup_fun,
       clock: persistence.clock,
       recovered_at: persistence.clock.(),
       reconciliation: %{status: :unavailable, reconciled_at: nil},
+      terminal_verification_pending?: false,
+      terminal_verification_pending_keys: MapSet.new(),
+      terminal_verification_path: nil,
       writable?: false,
-      health: {:unavailable, reason}
+      health: Runtime.public_health({:unavailable, reason})
     }
   end
 
   defp load(paths, run_id, persistence) do
     checkpoint = Checkpoint.load(paths.checkpoint_path, run_id)
     marker = Marker.load(paths.degraded_path, run_id)
+    terminal_verification = TerminalVerification.load(paths.terminal_verification_path, run_id)
     {projection, checkpoint_health, writable?} = checkpoint_projection(checkpoint, run_id)
 
     {projection, journal_health, journal_writable?, journal_event_count} =
       replay_journal(paths.journal_path, run_id, projection)
 
-    health = boot_health(marker, checkpoint_health, journal_health)
+    health = boot_health(marker, checkpoint_health, journal_health, terminal_verification)
+    pending_keys = terminal_verification_pending_keys(terminal_verification)
 
     state = %{
       run_id: run_id,
@@ -83,6 +90,7 @@ defmodule Aiur.CurrentRunMembership.Store.Recovery do
       journal_path: paths.journal_path,
       checkpoint_path: paths.checkpoint_path,
       degraded_path: paths.degraded_path,
+      terminal_verification_path: paths.terminal_verification_path,
       append_fun: persistence.append_fun,
       checkpoint_fun: persistence.checkpoint_fun,
       clear_journal_fun: persistence.clear_journal_fun,
@@ -90,21 +98,27 @@ defmodule Aiur.CurrentRunMembership.Store.Recovery do
       journal_event_count: journal_event_count,
       sync_fun: persistence.sync_fun,
       degraded_marker_fun: persistence.degraded_marker_fun,
+      terminal_verification_marker_fun: persistence.terminal_verification_marker_fun,
       quarantine_fun: persistence.quarantine_fun,
       cleanup_fun: persistence.cleanup_fun,
       clock: persistence.clock,
       recovered_at: persistence.clock.(),
       reconciliation: Runtime.initial_reconciliation(projection),
-      writable?: writable? and journal_writable? and marker == :absent,
-      health: health
+      terminal_verification_pending?: MapSet.size(pending_keys) > 0,
+      terminal_verification_pending_keys: pending_keys,
+      writable?: writable? and journal_writable? and marker == :absent and match?({:ok, _pending_keys}, terminal_verification),
+      health: Runtime.public_health(health)
     }
 
     state = maybe_quarantine_recovery_artifacts(state, checkpoint, journal_health)
 
     if state.health == :healthy do
       case state.cleanup_fun.(state.runs_dir, state.run_leaf) do
-        :ok -> state
-        {:error, reason} -> %{state | health: {:degraded, {:cleanup_failed, reason}}}
+        :ok ->
+          state
+
+        {:error, reason} ->
+          %{state | health: Runtime.public_health({:degraded, {:cleanup_failed, reason}})}
       end
     else
       state
@@ -126,7 +140,10 @@ defmodule Aiur.CurrentRunMembership.Store.Recovery do
       end
     end
 
-    case DecisionLog.replay(path, validator) do
+    case DecisionLog.replay(path, validator,
+           max_file_bytes: Codec.max_journal_bytes(),
+           max_record_bytes: Codec.max_recovery_record_bytes()
+         ) do
       {:ok, events, nil} ->
         {replay_events(projection, events), :healthy, true, length(events)}
 
@@ -147,12 +164,18 @@ defmodule Aiur.CurrentRunMembership.Store.Recovery do
     end)
   end
 
-  defp boot_health(:absent, :healthy, :healthy), do: :healthy
-  defp boot_health({:degraded, reason}, _checkpoint_health, _journal_health), do: {:degraded, reason}
-  defp boot_health({:unavailable, reason}, _checkpoint_health, _journal_health), do: {:unavailable, reason}
-  defp boot_health(:absent, {:degraded, reason}, _journal_health), do: {:degraded, reason}
-  defp boot_health(:absent, :healthy, {:unavailable, reason}), do: {:unavailable, reason}
-  defp boot_health(:absent, :healthy, {:degraded, reason}), do: {:degraded, reason}
+  defp terminal_verification_pending_keys({:ok, pending_keys}), do: pending_keys
+  defp terminal_verification_pending_keys({:error, _reason}), do: MapSet.new()
+
+  defp boot_health(_marker, _checkpoint_health, _journal_health, {:error, reason}),
+    do: {:unavailable, reason}
+
+  defp boot_health(:absent, :healthy, :healthy, _terminal_verification), do: :healthy
+  defp boot_health({:degraded, reason}, _checkpoint_health, _journal_health, _terminal_verification), do: {:degraded, reason}
+  defp boot_health({:unavailable, reason}, _checkpoint_health, _journal_health, _terminal_verification), do: {:unavailable, reason}
+  defp boot_health(:absent, {:degraded, reason}, _journal_health, _terminal_verification), do: {:degraded, reason}
+  defp boot_health(:absent, :healthy, {:unavailable, reason}, _terminal_verification), do: {:unavailable, reason}
+  defp boot_health(:absent, :healthy, {:degraded, reason}, _terminal_verification), do: {:degraded, reason}
 
   defp maybe_quarantine_recovery_artifacts(state, {:corrupt, reason}, _journal_health) do
     degrade_and_quarantine(state, state.checkpoint_path, {:checkpoint_corrupt, reason})
@@ -168,14 +191,21 @@ defmodule Aiur.CurrentRunMembership.Store.Recovery do
         degrade_and_quarantine(state, state.journal_path, elem(health, 1))
 
       {:error, reason} ->
-        %{state | health: {:unavailable, {:journal_prefix_checkpoint_failed, reason}}, writable?: false}
+        %{
+          state
+          | health: Runtime.public_health({:unavailable, {:journal_prefix_checkpoint_failed, reason}}),
+            writable?: false
+        }
     end
   end
 
   defp maybe_quarantine_recovery_artifacts(state, _checkpoint, _journal_health), do: state
 
   defp checkpoint_validated_journal_prefix(state) do
-    with :ok <- state.checkpoint_fun.(state.checkpoint_path, Checkpoint.record(state.projection)),
+    checkpoint = Checkpoint.record(state.projection)
+
+    with :ok <- Codec.validate_checkpoint_record_size(checkpoint),
+         :ok <- state.checkpoint_fun.(state.checkpoint_path, checkpoint),
          :ok <- FileOps.ensure_regular_file(state.checkpoint_path),
          :ok <- FileOps.sync_recovery_entry(state.sync_fun) do
       :ok
@@ -190,14 +220,22 @@ defmodule Aiur.CurrentRunMembership.Store.Recovery do
       :ok ->
         case state.quarantine_fun.(path) do
           :ok ->
-            %{state | health: {:degraded, reason}, writable?: false}
+            %{state | health: Runtime.public_health({:degraded, reason}), writable?: false}
 
           {:error, quarantine_reason} ->
-            %{state | health: {:unavailable, {:quarantine_failed, quarantine_reason}}, writable?: false}
+            %{
+              state
+              | health: Runtime.public_health({:unavailable, {:quarantine_failed, quarantine_reason}}),
+                writable?: false
+            }
         end
 
       {:error, marker_reason} ->
-        %{state | health: {:unavailable, {:degraded_marker_failed, marker_reason}}, writable?: false}
+        %{
+          state
+          | health: Runtime.public_health({:unavailable, {:degraded_marker_failed, marker_reason}}),
+            writable?: false
+        }
     end
   end
 

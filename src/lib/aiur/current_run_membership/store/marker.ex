@@ -4,18 +4,19 @@ defmodule Aiur.CurrentRunMembership.Store.Marker do
   alias Aiur.CurrentRunMembership.Store.FileOps
 
   @record_keys ~w(reason run_id version)
+  @max_marker_bytes 1_024
   @reasons %{
     checkpoint_corrupt: "checkpoint_corrupt",
     journal_corrupt: "journal_corrupt"
   }
 
-  @spec load(String.t(), String.t()) :: :absent | {:degraded, atom()} | {:unavailable, String.t()}
+  @spec load(String.t(), String.t()) :: :absent | {:degraded, atom()} | {:unavailable, atom()}
   def load(path, run_id) do
     case File.lstat(path) do
       {:error, :enoent} ->
         :absent
 
-      {:ok, %File.Stat{type: :regular}} ->
+      {:ok, %File.Stat{type: :regular, size: size}} when size <= @max_marker_bytes ->
         with {:ok, contents} <- File.read(path),
              {:ok, record} <- Jason.decode(contents),
              @record_keys <- record |> Map.keys() |> Enum.sort(),
@@ -23,11 +24,14 @@ defmodule Aiur.CurrentRunMembership.Store.Marker do
              {:ok, marker_reason} <- parse_reason(reason) do
           {:degraded, marker_reason}
         else
-          _ -> {:unavailable, "membership recovery marker is invalid"}
+          _ -> {:unavailable, :invalid_degraded_marker}
         end
 
+      {:ok, %File.Stat{type: :regular}} ->
+        {:unavailable, :degraded_marker_too_large}
+
       _ ->
-        {:unavailable, "membership recovery marker is unreadable"}
+        {:unavailable, :degraded_marker_unreadable}
     end
   end
 

@@ -113,6 +113,51 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
     assert %{freshness: %{reconciled_at: ^later}} = Store.snapshot(server: pid)
   end
 
+  test "pending terminal verification prevents a generic reconciliation from reporting fresh", %{dir: dir} do
+    pid = start_store!(dir)
+
+    assert :ok = Store.set_terminal_verification_pending(identity(), true, pid)
+    assert :ok = Store.mark_reconciled(:fresh, pid)
+
+    assert %{freshness: %{status: :unavailable, terminal_verification_pending?: true}} =
+             Store.snapshot(server: pid)
+
+    assert :ok = Store.set_terminal_verification_pending(identity(), false, pid)
+    assert :ok = Store.mark_reconciled(:fresh, pid)
+    assert %{freshness: %{status: :fresh, terminal_verification_pending?: false}} = Store.snapshot(server: pid)
+  end
+
+  test "pending terminal verification survives a membership process restart", %{dir: dir} do
+    first = start_store!(dir)
+    assert :ok = Store.set_terminal_verification_pending(identity(), true, first)
+    stop(first)
+
+    recovered = start_store!(dir)
+    assert :ok = Store.mark_reconciled(:fresh, recovered)
+
+    assert %{freshness: %{status: :unavailable, terminal_verification_pending?: true}} =
+             Store.snapshot(server: recovered)
+  end
+
+  test "resolving another terminal identity cannot clear an outstanding verification", %{dir: dir} do
+    first = identity("owner", "repo", "I-first", "1")
+    second = identity("owner", "repo", "I-second", "2")
+    pid = start_store!(dir)
+
+    assert :ok = Store.set_terminal_verification_pending(first, true, pid)
+    assert :ok = Store.set_terminal_verification_pending(second, true, pid)
+    assert :ok = Store.set_terminal_verification_pending(second, false, pid)
+    assert :ok = Store.mark_reconciled(:fresh, pid)
+
+    assert %{freshness: %{status: :unavailable, terminal_verification_pending?: true}} =
+             Store.snapshot(server: pid)
+
+    crash(pid)
+    recovered = start_store!(dir)
+    assert :ok = Store.mark_reconciled(:fresh, recovered)
+    assert %{freshness: %{status: :unavailable, terminal_verification_pending?: true}} = Store.snapshot(server: recovered)
+  end
+
   test "a new run cannot inherit a prior run's members", %{dir: dir} do
     first = start_store!(dir, @run_id)
     assert {:ok, %{generation: 1}} = observe(first, identity(), :queued)
@@ -158,6 +203,62 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
              Store.snapshot(server: recovered)
 
     assert member.lifecycle == :queued
+  end
+
+  test "corrupt recovery contents never reach health or PubSub", %{dir: dir} do
+    first = start_store!(dir)
+    assert {:ok, _} = observe(first, identity(), :queued)
+    stop(first)
+
+    sentinel = "ghp_checkpoint_recovery_sentinel"
+    assert :ok = File.write(checkpoint_path(dir), "{\"contents\":\"#{sentinel}\"")
+
+    assert :ok = CurrentRunMembership.subscribe()
+    on_exit(fn -> Phoenix.PubSub.unsubscribe(Aiur.PubSub, "current-run-membership:changed") end)
+
+    recovered = start_store!(dir)
+    snapshot = Store.snapshot(server: recovered)
+
+    assert_receive {:current_run_membership_health_changed, payload}
+
+    for public_surface <- [snapshot, Store.health(recovered), payload] do
+      refute inspect(public_surface) =~ sentinel
+    end
+  end
+
+  test "corrupt journal contents never reach health or PubSub", %{dir: dir} do
+    first = start_store!(dir)
+    assert {:ok, _} = observe(first, identity(), :queued)
+    stop(first)
+
+    sentinel = "ghp_journal_recovery_sentinel"
+    assert :ok = File.write(journal_path(dir), "{\"contents\":\"#{sentinel}\"}\n")
+
+    assert :ok = CurrentRunMembership.subscribe()
+    on_exit(fn -> Phoenix.PubSub.unsubscribe(Aiur.PubSub, "current-run-membership:changed") end)
+
+    recovered = start_store!(dir)
+    snapshot = Store.snapshot(server: recovered)
+
+    assert_receive {:current_run_membership_health_changed, payload}
+
+    for public_surface <- [snapshot, Store.health(recovered), payload] do
+      refute inspect(public_surface) =~ sentinel
+    end
+  end
+
+  test "oversized journal records are rejected before JSON decoding", %{dir: dir} do
+    first = start_store!(dir)
+    assert {:ok, _} = observe(first, identity(), :queued)
+    stop(first)
+
+    oversized_record = String.duplicate("x", 4_097) <> "\n"
+    assert :ok = File.write(journal_path(dir), oversized_record)
+
+    recovered = start_store!(dir)
+
+    assert %{health: {:degraded, {:journal_corrupt, 1, :record_too_large}}} =
+             Store.snapshot(server: recovered)
   end
 
   test "a failed degraded marker write preserves a corrupt checkpoint across later restarts", %{dir: dir} do
@@ -279,10 +380,26 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
     recovered = start_store!(dir)
     snapshot = Store.snapshot(server: recovered)
 
-    assert snapshot.health == {:unavailable, "membership recovery marker is invalid"}
+    assert snapshot.health == {:unavailable, :recovery_unavailable}
     assert snapshot.health_message == "current-run membership is unavailable"
     refute snapshot.health_message =~ "ghp_"
     refute snapshot.health_message =~ "private title"
+  end
+
+  test "an oversized terminal-verification marker is unavailable without exposing its contents", %{dir: dir} do
+    pid = start_store!(dir)
+    assert {:ok, _} = observe(pid, identity(), :queued)
+    stop(pid)
+
+    sentinel = "ghp_terminal_verification_sentinel"
+    marker = Path.join(Path.dirname(checkpoint_path(dir)), "membership.terminal-verification.json")
+    assert :ok = File.write(marker, String.duplicate(sentinel, 100))
+
+    recovered = start_store!(dir)
+    snapshot = Store.snapshot(server: recovered)
+
+    assert snapshot.health == {:unavailable, :terminal_verification_marker_too_large}
+    refute inspect(snapshot) =~ sentinel
   end
 
   test "append failure leaves membership read-only until recovery validates the journal", %{dir: dir} do
@@ -353,6 +470,19 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
     assert %{generation: 0, members: [], health: {:degraded, {:checkpoint_failed, :rename_failed}}} =
              Store.snapshot(server: pid)
 
+    stop(pid)
+
+    recovered = start_store!(dir)
+    assert %{generation: 1, health: :healthy, members: [%{lifecycle: :queued}]} = Store.snapshot(server: recovered)
+  end
+
+  test "a checkpoint size refusal retains the journal instead of clearing recovery state", %{dir: dir} do
+    pid = start_store!(dir, @run_id, checkpoint_fun: fn _path, _record -> {:error, :record_too_large} end)
+
+    assert {:error, {:membership_persistence_failed, {:checkpoint_failed, :record_too_large}}} =
+             observe(pid, identity(), :queued)
+
+    assert File.read!(journal_path(dir)) != ""
     stop(pid)
 
     recovered = start_store!(dir)

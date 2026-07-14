@@ -38,7 +38,10 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
                  %State{running: %{"issue-terminal" => %{issue: issue}}},
                  MapSet.new(["in-progress"]),
                  MapSet.new(["done"]),
-                 fn observed_identity, lifecycle -> send(parent, {observed_identity, lifecycle}) end
+                 fn observed_identity, lifecycle ->
+                   send(parent, {observed_identity, lifecycle})
+                   :ok
+                 end
                )
 
       assert_received {^identity, :completed}
@@ -60,7 +63,10 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
         %State{},
         MapSet.new(["in-progress"]),
         MapSet.new(["cancelled"]),
-        fn observed_identity, lifecycle -> send(parent, {observed_identity, lifecycle}) end
+        fn observed_identity, lifecycle ->
+          send(parent, {observed_identity, lifecycle})
+          :ok
+        end
       )
 
       assert_received {^identity, :cancelled}
@@ -78,7 +84,10 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
         %State{},
         MapSet.new(["in-progress"]),
         MapSet.new(),
-        fn observed_identity, lifecycle -> send(parent, {observed_identity, lifecycle}) end
+        fn observed_identity, lifecycle ->
+          send(parent, {observed_identity, lifecycle})
+          :ok
+        end
       )
 
       assert_received {^identity, :replaced}

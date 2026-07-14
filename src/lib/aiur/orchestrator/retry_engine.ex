@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
   require Logger
   import Bitwise, only: [<<<: 2]
 
-  alias Aiur.{Alerts, Config, Issue, Tracker}
+  alias Aiur.{Alerts, Config, CurrentRunMembership, Issue, Tracker}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.Dispatcher
@@ -228,7 +228,8 @@ defmodule Aiur.Orchestrator.RetryEngine do
               retry_poll_failures: retry_poll_failures,
               worker_host: worker_host,
               workspace_path: workspace_path,
-              tracker_identity: tracker_identity
+              tracker_identity: tracker_identity,
+              terminal_membership_pending?: metadata[:terminal_membership_pending?] == true
             })
       }
     end
@@ -236,7 +237,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   @spec failure_retry?(map()) :: boolean()
   def failure_retry?(metadata) when is_map(metadata) do
-    Map.get(metadata, :delay_type) not in [:continuation, :capacity_wait, :precondition]
+    Map.get(metadata, :delay_type) not in [:continuation, :capacity_wait, :precondition, :terminal_verification]
   end
 
   @spec pop_retry_attempt_state(State.t(), String.t(), reference()) ::
@@ -251,7 +252,8 @@ defmodule Aiur.Orchestrator.RetryEngine do
           retry_poll_failures: Map.get(retry_entry, :retry_poll_failures),
           worker_host: Map.get(retry_entry, :worker_host),
           workspace_path: Map.get(retry_entry, :workspace_path),
-          tracker_identity: Map.get(retry_entry, :tracker_identity)
+          tracker_identity: Map.get(retry_entry, :tracker_identity),
+          terminal_membership_pending?: Map.get(retry_entry, :terminal_membership_pending?, false)
         }
 
         {:ok, attempt, metadata, %{state | retry_attempts: Map.delete(state.retry_attempts, issue_id)}}
@@ -421,7 +423,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
       "Retry poll failed for issue_id=#{issue_id} issue_identifier=#{identifier} retry_poll_failure=#{retry_poll_failures}/#{@max_retry_poll_failures} agent_attempt=#{attempt} tracker_error=#{inspect(reason)}"
     )
 
-    if retry_poll_failures >= @max_retry_poll_failures do
+    if retry_poll_failures >= @max_retry_poll_failures and not metadata[:terminal_membership_pending?] do
       emit_retry_poll_exhausted_alert(issue_id, identifier, attempt, reason, metadata)
       release_issue_claim(state, issue_id)
     else
@@ -432,7 +434,8 @@ defmodule Aiur.Orchestrator.RetryEngine do
         Map.merge(metadata, %{
           delay_type: :precondition,
           error: "retry poll failed: #{inspect(reason)}",
-          retry_poll_failures: retry_poll_failures
+          retry_poll_failures: retry_poll_failures,
+          terminal_membership_pending?: metadata[:terminal_membership_pending?] == true
         })
       )
     end
@@ -482,18 +485,35 @@ defmodule Aiur.Orchestrator.RetryEngine do
         &Orchestrator.cleanup_terminal_issue_artifacts/2
       )
 
+    mark_reconciled_fun =
+      Keyword.get(opts, :mark_reconciled_fun, &CurrentRunMembership.mark_reconciled/1)
+
+    set_terminal_verification_pending_fun =
+      Keyword.get(opts, :set_terminal_verification_pending_fun, &CurrentRunMembership.set_terminal_verification_pending/2)
+
     cond do
       DispatchPolicy.terminal_issue_state?(issue.state, terminal_states) ->
         Logger.info("Issue state is terminal: issue_id=#{issue_id} issue_identifier=#{issue.identifier} state=#{issue.state}; removing associated workspace")
 
-        MembershipLifecycle.record(
-          issue,
-          MembershipLifecycle.terminal_lifecycle(issue.state),
-          observe_membership_fun
-        )
+        case MembershipLifecycle.record(
+               issue,
+               MembershipLifecycle.terminal_lifecycle(issue.state),
+               observe_membership_fun
+             ) do
+          :ok ->
+            case safely_set_terminal_verification_pending(set_terminal_verification_pending_fun, issue.tracker_identity, false) do
+              :ok ->
+                cleanup_terminal_issue_artifacts_fun.(issue.identifier, metadata[:worker_host])
+                {:noreply, release_issue_claim(state, issue_id)}
 
-        cleanup_terminal_issue_artifacts_fun.(issue.identifier, metadata[:worker_host])
-        {:noreply, release_issue_claim(state, issue_id)}
+              :error ->
+                {:noreply, schedule_terminal_verification_retry(state, issue, issue_id, attempt, metadata)}
+            end
+
+          {:error, :membership_observation_failed} ->
+            safely_mark_membership_unavailable(mark_reconciled_fun, set_terminal_verification_pending_fun, issue.tracker_identity)
+            {:noreply, schedule_terminal_verification_retry(state, issue, issue_id, attempt, metadata)}
+        end
 
       Orchestrator.retry_candidate_issue?(issue, terminal_states) ->
         handle_active_retry(state, issue, attempt, metadata)
@@ -505,9 +525,25 @@ defmodule Aiur.Orchestrator.RetryEngine do
     end
   end
 
-  def handle_retry_issue_lookup(nil, state, issue_id, _attempt, _metadata, _opts) do
-    Logger.debug("Issue no longer visible, removing claim issue_id=#{issue_id}")
-    {:noreply, release_issue_claim(state, issue_id)}
+  def handle_retry_issue_lookup(nil, state, issue_id, attempt, metadata, _opts) do
+    if metadata[:terminal_membership_pending?] do
+      Logger.warning("Terminal membership is still pending for unavailable retry issue_id=#{issue_id}; retaining claim")
+
+      {:noreply,
+       schedule_issue_retry(
+         state,
+         issue_id,
+         attempt,
+         Map.merge(metadata, %{
+           delay_type: :terminal_verification,
+           error: "terminal membership verification could not refetch issue",
+           terminal_membership_pending?: true
+         })
+       )}
+    else
+      Logger.debug("Issue no longer visible, removing claim issue_id=#{issue_id}")
+      {:noreply, release_issue_claim(state, issue_id)}
+    end
   end
 
   defp handle_active_retry(state, issue, attempt, metadata) do
@@ -531,6 +567,42 @@ defmodule Aiur.Orchestrator.RetryEngine do
          })
        )}
     end
+  end
+
+  defp schedule_terminal_verification_retry(state, issue, issue_id, attempt, metadata) do
+    schedule_issue_retry(
+      state,
+      issue_id,
+      attempt,
+      Map.merge(metadata, %{
+        identifier: issue.identifier,
+        tracker_identity: Issue.tracker_identity(issue),
+        error: "terminal membership persistence failed",
+        delay_type: :terminal_verification,
+        terminal_membership_pending?: true
+      })
+    )
+  end
+
+  defp safely_mark_membership_unavailable(mark_reconciled_fun, set_terminal_verification_pending_fun, identity) do
+    _ = safely_set_terminal_verification_pending(set_terminal_verification_pending_fun, identity, true)
+    _ = mark_reconciled_fun.(:unavailable)
+    :ok
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
+  end
+
+  defp safely_set_terminal_verification_pending(set_terminal_verification_pending_fun, identity, pending?) do
+    case set_terminal_verification_pending_fun.(identity, pending?) do
+      :ok -> :ok
+      _ -> :error
+    end
+  rescue
+    _error -> :error
+  catch
+    _kind, _reason -> :error
   end
 
   defp normalize_retry_poll_failures(failures) when is_integer(failures) and failures > 0,

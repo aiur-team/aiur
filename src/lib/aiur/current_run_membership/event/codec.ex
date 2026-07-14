@@ -8,6 +8,20 @@ defmodule Aiur.CurrentRunMembership.Event.Codec do
   @sources [:status_report, :tracker]
   @record_keys ~w(checksum identity lifecycle observed_at run_id source version)
   @identity_record_keys ~w(identifier kind owner provider_id reason repository status version)
+  @max_identity_scalar_bytes 512
+  @max_checksum_bytes 128
+  @max_recovery_record_bytes 4_096
+  @max_journal_bytes 4_000_000
+  @max_checkpoint_bytes 4_000_000
+
+  @spec max_recovery_record_bytes() :: pos_integer()
+  def max_recovery_record_bytes, do: @max_recovery_record_bytes
+
+  @spec max_journal_bytes() :: pos_integer()
+  def max_journal_bytes, do: @max_journal_bytes
+
+  @spec max_checkpoint_bytes() :: pos_integer()
+  def max_checkpoint_bytes, do: @max_checkpoint_bytes
 
   @spec validate_attributes(term(), term(), term(), term(), term()) :: :ok | {:error, atom()}
   def validate_attributes(run_id, identity, lifecycle, source, observed_at) do
@@ -17,6 +31,16 @@ defmodule Aiur.CurrentRunMembership.Event.Codec do
          :ok <- valid_source(source) do
       valid_observed_at(observed_at)
     end
+  end
+
+  @spec validate_recovery_record_size(map()) :: :ok | {:error, :record_too_large}
+  def validate_recovery_record_size(record) when is_map(record) do
+    validate_encoded_size(record, @max_recovery_record_bytes)
+  end
+
+  @spec validate_checkpoint_record_size(map()) :: :ok | {:error, :record_too_large}
+  def validate_checkpoint_record_size(record) when is_map(record) do
+    validate_encoded_size(record, @max_checkpoint_bytes)
   end
 
   @spec from_record(term()) ::
@@ -33,11 +57,14 @@ defmodule Aiur.CurrentRunMembership.Event.Codec do
   def from_record(record) when is_map(record) do
     with @record_keys <- record |> Map.keys() |> Enum.sort(),
          @version <- Map.get(record, "version"),
+         :ok <- valid_run_id(Map.get(record, "run_id")),
          {:ok, identity} <- identity_from_record(Map.get(record, "identity")),
          {:ok, lifecycle} <- parse_lifecycle(Map.get(record, "lifecycle")),
          {:ok, source} <- parse_source(Map.get(record, "source")),
          {:ok, observed_at} <- parse_observed_at(Map.get(record, "observed_at")),
-         checksum when is_binary(checksum) <- Map.get(record, "checksum") do
+         checksum = Map.get(record, "checksum"),
+         :ok <- valid_checksum(checksum),
+         :ok <- validate_recovery_record_size(record) do
       {:ok,
        %{
          run_id: Map.get(record, "run_id"),
@@ -73,11 +100,40 @@ defmodule Aiur.CurrentRunMembership.Event.Codec do
   end
 
   defp valid_run_id(_run_id), do: {:error, :invalid_run_id}
-  defp valid_identity(identity), do: if(TrackerIdentity.joinable?(identity), do: :ok, else: {:error, :unjoinable_identity})
+
+  defp valid_identity(%TrackerIdentity{} = identity) do
+    with true <- TrackerIdentity.joinable?(identity),
+         :ok <- valid_identity_scalar(identity.owner),
+         :ok <- valid_identity_scalar(identity.repository),
+         :ok <- valid_identity_scalar(identity.provider_id),
+         :ok <- valid_identity_scalar(identity.identifier) do
+      :ok
+    else
+      false -> {:error, :unjoinable_identity}
+      {:error, _reason} -> {:error, :identity_too_large}
+    end
+  end
+
+  defp valid_identity(_identity), do: {:error, :unjoinable_identity}
+
+  defp valid_identity_scalar(value) when is_binary(value) and byte_size(value) in 1..@max_identity_scalar_bytes,
+    do: :ok
+
+  defp valid_identity_scalar(_value), do: {:error, :identity_too_large}
+
+  defp valid_checksum(value) when is_binary(value) and byte_size(value) in 1..@max_checksum_bytes, do: :ok
+  defp valid_checksum(_value), do: {:error, :invalid_checksum}
   defp valid_lifecycle(lifecycle), do: if(lifecycle in @lifecycles, do: :ok, else: {:error, :invalid_lifecycle})
   defp valid_source(source), do: if(source in @sources, do: :ok, else: {:error, :invalid_source})
   defp valid_observed_at(%DateTime{utc_offset: 0, std_offset: 0}), do: :ok
   defp valid_observed_at(_observed_at), do: {:error, :invalid_observed_at}
+
+  defp validate_encoded_size(record, max_bytes) do
+    case Jason.encode(record) do
+      {:ok, encoded} when byte_size(encoded) <= max_bytes -> :ok
+      _ -> {:error, :record_too_large}
+    end
+  end
 
   defp parse_lifecycle(value) when is_binary(value) do
     Enum.find_value(@lifecycles, {:error, :invalid_lifecycle}, fn lifecycle ->

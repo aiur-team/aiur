@@ -25,7 +25,9 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
           send(parent, {:membership_observed, identity, lifecycle})
           :ok
         end,
-        MapSet.new(["done", "cancelled"])
+        MapSet.new(["done", "cancelled"]),
+        fn _status -> :ok end,
+        fn _identity, _pending? -> :ok end
       )
 
     assert_receive {:membership_observed, %TrackerIdentity{provider_id: "node-42"}, :completed}
@@ -47,7 +49,9 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
           send(parent, {:membership_observed, identity, lifecycle})
           :ok
         end,
-        MapSet.new(["done", "cancelled"])
+        MapSet.new(["done", "cancelled"]),
+        fn _status -> :ok end,
+        fn _identity, _pending? -> :ok end
       )
 
     assert_receive {:membership_observed, %TrackerIdentity{provider_id: "node-43"}, :cancelled}
@@ -68,11 +72,13 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
           send(parent, {:membership_observed, identity, lifecycle})
           :ok
         end,
-        MapSet.new(["done", "cancelled"])
+        MapSet.new(["done", "cancelled"]),
+        fn _status -> :ok end,
+        fn _identity, _pending? -> :ok end
       )
 
     refute_receive {:membership_observed, _, _}
-    assert refreshed_state.last_polled_issues == %{}
+    assert refreshed_state.last_polled_issues == %{"44" => previous_issue}
   end
 
   test "retries an idle terminal verification after a transient by-id failure" do
@@ -87,7 +93,8 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         fn ["45"] -> {:error, :temporarily_unavailable} end,
         fn _identity, _lifecycle -> flunk("must not record membership before verification") end,
         MapSet.new(["done", "cancelled"]),
-        fn :unavailable -> send(parent, :membership_freshness_unavailable) end
+        fn :unavailable -> send(parent, :membership_freshness_unavailable) end,
+        fn _identity, _pending? -> :ok end
       )
 
     assert_receive :membership_freshness_unavailable
@@ -103,11 +110,90 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
           :ok
         end,
         MapSet.new(["done", "cancelled"]),
-        fn _status -> :ok end
+        fn _status -> :ok end,
+        fn _identity, _pending? -> :ok end
       )
 
     assert_receive {:membership_observed, %TrackerIdentity{provider_id: "node-45"}, :completed}
     assert recovered.last_polled_issues == %{}
+  end
+
+  test "retains a terminal ticket when membership persistence rejects its observation" do
+    previous_issue = issue("46", "in-progress")
+    state = %State{last_polled_issues: %{"46" => previous_issue}}
+    parent = self()
+
+    pending =
+      IssueSync.sync_polled_issue_state(
+        state,
+        [],
+        fn ["46"] -> {:ok, [%{previous_issue | state: "done"}]} end,
+        fn _identity, _lifecycle -> {:error, :disk_full} end,
+        MapSet.new(["done", "cancelled"]),
+        fn status -> send(parent, {:freshness, status}) end,
+        fn _identity, pending? -> send(parent, {:terminal_verification_pending, pending?}) end
+      )
+
+    assert_receive {:freshness, :unavailable}
+    assert pending.last_polled_issues == %{"46" => previous_issue}
+
+    resolved =
+      IssueSync.sync_polled_issue_state(
+        pending,
+        [],
+        fn ["46"] -> {:ok, [%{previous_issue | state: "done"}]} end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done", "cancelled"]),
+        fn _status -> :ok end,
+        fn _identity, pending? -> send(parent, {:terminal_verification_pending, pending?}) end
+      )
+
+    assert resolved.last_polled_issues == %{}
+  end
+
+  test "isolates an unavailable projection marker while retaining terminal verification" do
+    previous_issue = issue("47", "in-progress")
+    state = %State{last_polled_issues: %{"47" => previous_issue}}
+    parent = self()
+
+    result =
+      IssueSync.sync_polled_issue_state(
+        state,
+        [],
+        fn ["47"] -> {:error, :temporarily_unavailable} end,
+        fn _identity, _lifecycle -> flunk("must not observe without a tracker result") end,
+        MapSet.new(["done", "cancelled"]),
+        fn :unavailable -> exit(:noproc) end,
+        fn _identity, pending? -> send(parent, {:terminal_verification_pending, pending?}) end
+      )
+
+    assert result.last_polled_issues == %{"47" => previous_issue}
+  end
+
+  test "chunks disappearing idle verification across polls" do
+    previous_issues =
+      for id <- 1..250, into: %{}, do: {Integer.to_string(id), issue(Integer.to_string(id), "in-progress")}
+
+    parent = self()
+    state = %State{last_polled_issues: previous_issues}
+
+    result =
+      IssueSync.sync_polled_issue_state(
+        state,
+        [],
+        fn ids ->
+          send(parent, {:verified_ids, ids})
+          {:ok, []}
+        end,
+        fn _identity, _lifecycle -> flunk("absent tickets cannot be inferred terminal") end,
+        MapSet.new(["done", "cancelled"]),
+        fn _status -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    assert_receive {:verified_ids, ids}
+    assert length(ids) == 25
+    assert map_size(result.last_polled_issues) == 250
   end
 
   defp issue(id, state) do

@@ -49,6 +49,12 @@ defmodule Aiur.CurrentRunMembership.Store do
     GenServer.call(server, {:mark_reconciled, status})
   end
 
+  @spec set_terminal_verification_pending(TrackerIdentity.t(), boolean(), GenServer.server()) :: :ok | {:error, :terminal_verification_marker_failed}
+  def set_terminal_verification_pending(identity, pending?, server \\ __MODULE__)
+      when is_struct(identity, TrackerIdentity) and is_boolean(pending?) do
+    GenServer.call(server, {:set_terminal_verification_pending, identity, pending?})
+  end
+
   @impl true
   def init(opts) do
     run_id = Keyword.get(opts, :run_id, Boot.run_id())
@@ -91,5 +97,12 @@ defmodule Aiur.CurrentRunMembership.Store do
 
   def handle_call({:mark_reconciled, status}, _from, state) do
     {:reply, :ok, Runtime.mark_reconciled(state, status)}
+  end
+
+  def handle_call({:set_terminal_verification_pending, identity, pending?}, _from, state) do
+    case Runtime.set_terminal_verification_pending(state, identity, pending?) do
+      {:ok, next_state} -> {:reply, :ok, next_state}
+      {:error, reason, next_state} -> {:reply, {:error, reason}, next_state}
+    end
   end
 end

@@ -8,6 +8,8 @@ defmodule Aiur.Orchestrator.IssueSync do
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, MembershipLifecycle, OperatorMessages, Slots, State}
 
+  @idle_terminal_verification_batch_size 25
+
   @spec sync_polled_issue_state(State.t(), list()) :: State.t()
   def sync_polled_issue_state(%State{} = state, issues) when is_list(issues) do
     sync_polled_issue_state(
@@ -63,7 +65,8 @@ defmodule Aiur.Orchestrator.IssueSync do
       fetch_issue_states_fun,
       observe_membership_fun,
       terminal_states,
-      &CurrentRunMembership.mark_reconciled/1
+      &CurrentRunMembership.mark_reconciled/1,
+      &CurrentRunMembership.set_terminal_verification_pending/2
     )
   end
 
@@ -86,6 +89,39 @@ defmodule Aiur.Orchestrator.IssueSync do
       )
       when is_list(issues) and is_function(fetch_issue_states_fun, 1) and is_function(observe_membership_fun, 2) and
              is_struct(terminal_states, MapSet) and is_function(mark_reconciled_fun, 1) do
+    sync_polled_issue_state(
+      state,
+      issues,
+      fetch_issue_states_fun,
+      observe_membership_fun,
+      terminal_states,
+      mark_reconciled_fun,
+      &CurrentRunMembership.set_terminal_verification_pending/2
+    )
+  end
+
+  @doc false
+  @spec sync_polled_issue_state(
+          State.t(),
+          list(),
+          ([String.t()] -> {:ok, [term()]} | {:error, term()}),
+          (TrackerIdentity.t(), atom() -> term()),
+          MapSet.t(),
+          (:fresh | :unavailable -> term()),
+          (TrackerIdentity.t(), boolean() -> term())
+        ) :: State.t()
+  def sync_polled_issue_state(
+        %State{} = state,
+        issues,
+        fetch_issue_states_fun,
+        observe_membership_fun,
+        terminal_states,
+        mark_reconciled_fun,
+        set_terminal_verification_pending_fun
+      )
+      when is_list(issues) and is_function(fetch_issue_states_fun, 1) and is_function(observe_membership_fun, 2) and
+             is_struct(terminal_states, MapSet) and is_function(mark_reconciled_fun, 1) and
+             is_function(set_terminal_verification_pending_fun, 2) do
     previous_issues = state.last_polled_issues
     current_issues = issues_by_id(issues)
 
@@ -97,7 +133,8 @@ defmodule Aiur.Orchestrator.IssueSync do
         fetch_issue_states_fun,
         observe_membership_fun,
         terminal_states,
-        mark_reconciled_fun
+        mark_reconciled_fun,
+        set_terminal_verification_pending_fun
       )
 
     state =
@@ -126,7 +163,8 @@ defmodule Aiur.Orchestrator.IssueSync do
          fetch_issue_states_fun,
          observe_membership_fun,
          terminal_states,
-         mark_reconciled_fun
+         mark_reconciled_fun,
+         set_terminal_verification_pending_fun
        ) do
     disappearing_idle_issue_ids =
       previous_issues
@@ -136,51 +174,86 @@ defmodule Aiur.Orchestrator.IssueSync do
           Map.has_key?(state.running, issue_id) or
           Map.has_key?(state.retry_attempts, issue_id)
       end)
+      |> Enum.sort()
 
-    case record_refreshed_terminal_membership(
-           disappearing_idle_issue_ids,
-           fetch_issue_states_fun,
-           observe_membership_fun,
-           terminal_states
-         ) do
-      :ok ->
-        current_issues
+    pending_issue_ids =
+      record_refreshed_terminal_membership(
+        disappearing_idle_issue_ids,
+        fetch_issue_states_fun,
+        observe_membership_fun,
+        terminal_states,
+        set_terminal_verification_pending_fun
+      )
 
-      :unavailable ->
-        _ = mark_reconciled_fun.(:unavailable)
-        Map.merge(current_issues, Map.take(previous_issues, disappearing_idle_issue_ids))
-    end
+    retain_pending_terminal_verification(
+      pending_issue_ids,
+      mark_reconciled_fun,
+      set_terminal_verification_pending_fun
+    )
+
+    Map.merge(current_issues, Map.take(previous_issues, pending_issue_ids))
   end
 
   defp record_refreshed_terminal_membership(
          [],
          _fetch_issue_states_fun,
          _observe_membership_fun,
-         _terminal_states
+         _terminal_states,
+         _set_terminal_verification_pending_fun
        ),
-       do: :ok
+       do: []
 
   defp record_refreshed_terminal_membership(
          issue_ids,
          fetch_issue_states_fun,
          observe_membership_fun,
-         terminal_states
+         terminal_states,
+         set_terminal_verification_pending_fun
        ) do
-    disappeared_issue_ids = MapSet.new(issue_ids)
+    {verification_issue_ids, deferred_issue_ids} =
+      Enum.split(issue_ids, @idle_terminal_verification_batch_size)
 
-    case fetch_issue_states_fun.(issue_ids) do
+    disappeared_issue_ids = MapSet.new(verification_issue_ids)
+
+    case fetch_issue_states_fun.(verification_issue_ids) do
       {:ok, refreshed_issues} when is_list(refreshed_issues) ->
-        Enum.each(refreshed_issues, fn issue ->
-          record_refreshed_terminal_member(
-            issue,
-            disappeared_issue_ids,
-            observe_membership_fun,
-            terminal_states
+        returned_issue_ids =
+          refreshed_issues
+          |> Enum.flat_map(fn
+            %Issue{id: issue_id} when is_binary(issue_id) -> [issue_id]
+            _issue -> []
+          end)
+          |> MapSet.new()
+
+        failed_issue_ids =
+          Enum.reduce(
+            refreshed_issues,
+            MapSet.difference(disappeared_issue_ids, returned_issue_ids),
+            fn issue, failed_issue_ids ->
+              case record_refreshed_terminal_member(
+                     issue,
+                     disappeared_issue_ids,
+                     observe_membership_fun,
+                     terminal_states,
+                     set_terminal_verification_pending_fun
+                   ) do
+                :ok ->
+                  MapSet.delete(failed_issue_ids, issue.id)
+
+                :not_terminal ->
+                  MapSet.delete(failed_issue_ids, issue.id)
+
+                {:error, _reason} ->
+                  _ = safely_set_terminal_verification_pending(set_terminal_verification_pending_fun, issue.tracker_identity, true)
+                  MapSet.put(failed_issue_ids, issue.id)
+              end
+            end
           )
-        end)
+
+        MapSet.to_list(failed_issue_ids) ++ deferred_issue_ids
 
       _result ->
-        :unavailable
+        verification_issue_ids ++ deferred_issue_ids
     end
   end
 
@@ -188,15 +261,27 @@ defmodule Aiur.Orchestrator.IssueSync do
          %Issue{id: issue_id} = issue,
          disappeared_issue_ids,
          observe_membership_fun,
-         terminal_states
+         terminal_states,
+         set_terminal_verification_pending_fun
        ) do
     if MapSet.member?(disappeared_issue_ids, issue_id) and
          DispatchPolicy.terminal_issue_state?(issue.state, terminal_states) do
-      MembershipLifecycle.record(
-        issue,
-        MembershipLifecycle.terminal_lifecycle(issue.state),
-        observe_membership_fun
-      )
+      case MembershipLifecycle.record(
+             issue,
+             MembershipLifecycle.terminal_lifecycle(issue.state),
+             observe_membership_fun
+           ) do
+        :ok ->
+          case safely_set_terminal_verification_pending(set_terminal_verification_pending_fun, issue.tracker_identity, false) do
+            :ok -> :ok
+            :error -> {:error, :terminal_verification_marker_failed}
+          end
+
+        error ->
+          error
+      end
+    else
+      :not_terminal
     end
   end
 
@@ -204,9 +289,41 @@ defmodule Aiur.Orchestrator.IssueSync do
          _issue,
          _disappeared_issue_ids,
          _observe_membership_fun,
-         _terminal_states
+         _terminal_states,
+         _set_terminal_verification_pending_fun
        ),
-       do: :ok
+       do: :not_terminal
+
+  defp retain_pending_terminal_verification([], _mark_reconciled_fun, _set_terminal_verification_pending_fun), do: :ok
+
+  defp retain_pending_terminal_verification(
+         pending_issue_ids,
+         mark_reconciled_fun,
+         _set_terminal_verification_pending_fun
+       )
+       when is_list(pending_issue_ids) do
+    safely_mark_reconciled(mark_reconciled_fun, :unavailable)
+  end
+
+  defp safely_set_terminal_verification_pending(set_terminal_verification_pending_fun, identity, pending?) do
+    case set_terminal_verification_pending_fun.(identity, pending?) do
+      :ok -> :ok
+      _ -> :error
+    end
+  rescue
+    _error -> :error
+  catch
+    _kind, _reason -> :error
+  end
+
+  defp safely_mark_reconciled(mark_reconciled_fun, status) do
+    _ = mark_reconciled_fun.(status)
+    :ok
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
+  end
 
   defp emit_dependency_transition_events(%State{} = state, previous_issue, %Issue{} = issue) do
     if is_nil(previous_issue) do

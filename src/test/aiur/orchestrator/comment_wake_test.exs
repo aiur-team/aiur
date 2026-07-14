@@ -139,6 +139,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
             send(parent, {:membership_recorded, identity, lifecycle})
             :ok
           end,
+          set_terminal_verification_pending_fun: fn _identity, _pending? -> :ok end,
           terminate_running_issue_fun: fn current_state, issue_id, true ->
             assert_receive {:membership_recorded, ^identity, :completed}
             %{current_state | running: Map.delete(current_state.running, issue_id), claimed: MapSet.new()}
