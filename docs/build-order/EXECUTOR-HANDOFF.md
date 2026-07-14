@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 12:40 PDT)
+## Live Executor state (updated 2026-07-14 13:06 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -13,22 +13,26 @@ truth and supersedes stale pre-run wording later in the document.
 #1084 with 54 members #1085–#1138 and 107 exact blocker relations. The historical
 receipt gate remains operator-overridden for this run. Aiur is running from the
 repository root against `main`; current accepted `main` is
-`69a53b99`, including BO-009/#1096 and the binding maximum-useful-concurrency
-Executor rule. The core
+`0f8a3e13`, including BO-009/#1096, the binding maximum-useful-concurrency
+Executor rule, and the hard ten-minute capacity audit. The core
 program is 6/54 merged with 48 remaining.
 
-The runtime session ceiling is 15 workers, governed by Aiur's effective-slot
-controller and shared build gates. The operator target is 10–15+ useful agents
-whenever dependency width and measured CPU/memory/provider/review capacity
-permit. Seven dependency-ready Aiur implementation or rework lanes are
-currently active: core #1091/#1097/#1103/#1109 and Ad Hoc
-#1154/#1161/#1162. Core #1088 and Ad Hoc #1151 released their provider slots
-while fresh CI runs. Dual review of #1162 finished and its three-finding packet
-is already an active rework lane; external review capacity is intentionally
-idle only until the next exact head is green. Build-gate P1 #1154 is in the
-current Ad Hoc wave because namespace-local lease IDs directly blocked core
-verification. P2 token-accounting issue #1171 is explicitly paused/deferred
-and does not count as an unused in-boundary lane.
+The recorded runtime session ceiling is 15 workers, governed by Aiur's
+effective-slot controller and shared build gates. The operator target is
+10–15+ useful agents whenever dependency width and measured
+CPU/memory/provider/review capacity permit. Sustained load above 37 on 12 CPUs
+triggered the documented measured-pressure exception: the live ceiling is
+temporarily 10 and restores to 15 after two consecutive ten-minute audits
+below load 18. Nine useful workers are currently active on core
+#1088/#1091/#1097/#1103/#1109 and Ad Hoc #1148/#1161/#1162 plus one slot
+in transition; #1151 and #1154 are the next priority rework lanes as capacity
+drains. #1146 is preserved but paused because its wrong-base behavior is
+contained by current config, while #1151's CI-wake defect is actively
+recurring. Build-gate P1 #1154 remains in the current Ad Hoc wave because
+namespace-local lease IDs directly blocked core verification. Token
+measurement #1171 ran only in genuine spare capacity and is paused again while
+core/P1 pressure is high; #1169/#1170 remain undispatched behind their required
+multi-hour measurement gates.
 #1090,
 #1093, #1108, #1111, #1123, and #1130 remain
 protected behind #1161's workspace-replacement fix. Unrelated #855 stays
@@ -1170,8 +1174,42 @@ Terra; never dispatch Claude.
     core tickets remain protected behind #1161 and must be dispatched
     immediately when it merges; never keep completed or CI-wait agents alive
     merely to make the count appear larger.
+154. The operator required a hard ten-minute maximum-concurrency reminder.
+    The durable aiur-run contract landed on `main` as `0f8a3e13`; the current
+    user timer is `aiur-executor-capacity-audit.timer`, and its latest/history
+    evidence lives under `~/.aiur/executor-capacity-audit/`. The first timer
+    exposed the cwd-keyed control identity and then a scheduler-saturated RPC;
+    the local audit now runs from the repository root and reports control-RPC
+    unavailability as unknown rather than falsely recording zero workers.
+155. Claude's token-reduction sequencing was read and acknowledged in
+    `AGENT-CHAT.md` (`aca28fc0`): #1171 ccusage baseline/ledger first, then a
+    multi-hour measurement window, then #1169 Serena, another measurement
+    window, then #1170 context-mode. #1171 used a genuine spare slot briefly
+    and was paused again when core/P1 work needed capacity; #1169/#1170 remain
+    undispatched.
+156. Repeated P1s #1146 and #1148 were promoted from the deferred Ad Hoc
+    ledger when useful concurrency was below target. When sustained host load
+    reached 49/41/37 on 12 CPUs, the Executor temporarily lowered the ceiling
+    from 15 to 10 (`11 active, draining`) with an explicit restore condition:
+    two consecutive ten-minute audits below load 18. Memory remained healthy
+    at roughly 19–20 GiB available. #1146 is now paused/preserved so actively
+    recurring #1151 rework takes priority.
+157. Dual exact-head review rejected green Ad Hoc #1151 head `6c5ee79f` with
+    five P1 provenance/crash-window failures plus the 479-line global-storage
+    architecture gate. The consolidated packet is issue comment `4973409783`;
+    #1151 is queued for rework and must merge current `main` before fresh CI.
+158. A read-only preflight of workspace-safety #1161's dirty WIP found six
+    still-open blockers: generation-bound waiter release, fail-closed provider
+    registration, descendant/tmux containment, real DOWN-first retry envelope
+    and host pinning, guardian-authoritative telemetry, and destination-log
+    symlink containment. Comment `4973411674` routed these before push; no new
+    issue was created.
+159. Current-main and fresh-CI packets remain contained: #1103 lint plus base
+    gate (`4973449689`), green-but-stale #1091 (`4973454872`), #1109
+    (`4973455500`), and #1154 (`4973456502`). The cap queues these transitions
+    by priority rather than adding more simultaneous builds under CPU pressure.
 
-At 12:40 PDT the core graph is 6/54 accepted. Every currently
+At 13:06 PDT the core graph is 6/54 accepted. Every currently
 dependency-ready implementation/rework lane is active or in CI; the configured
 ceiling is 15 and seven Aiur workers are doing useful work. Reviewer capacity
 is reserved for the next green exact head. The remaining shortfall is the
