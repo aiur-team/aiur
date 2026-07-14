@@ -28,7 +28,7 @@ defmodule Aiur.Codex.Interrupts do
   end
 
   defp continue_after_no_active_turn(
-         %{interrupt_action: :pause, interrupt_idle_seen?: true} = state,
+         %{interrupt_action: :pause} = state,
          error
        ) do
     next_state = %{state | pending_interrupt_request_id: nil}

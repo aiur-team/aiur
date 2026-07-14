@@ -4,6 +4,27 @@ defmodule Aiur.Codex.InterruptsTest do
   alias Aiur.Codex.Interrupts
 
   describe "handle_interrupt_error/2" do
+    test "preserves a pause when no-active-turn arrives before idle" do
+      error = %{"code" => -32_600}
+
+      state = %{
+        active_turn_ids: MapSet.new(["turn-1"]),
+        outstanding_turns: 1,
+        pending_operator_requests: %{},
+        pending_interrupt_request_id: 122,
+        interrupt_action: :pause,
+        pause_request_id: 6,
+        current_turn_id: "turn-1"
+      }
+
+      assert {:paused,
+              %{
+                request_id: 6,
+                turn_id: "turn-1",
+                details: %{"error" => ^error, "status" => "interrupted"}
+              }} = Interrupts.handle_interrupt_error(state, error)
+    end
+
     test "preserves a deferred-idle pause when the interrupt finds no active turn" do
       parent = self()
       error = %{"code" => -32_600}

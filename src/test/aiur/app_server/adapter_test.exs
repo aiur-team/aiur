@@ -42,8 +42,17 @@ defmodule Aiur.AppServer.AdapterTest do
       idle = %{"method" => "thread/status/changed", "params" => %{"status" => %{"type" => "idle"}}}
       no_active_turn = %{"id" => request_id, "error" => %{"code" => -32_600, "message" => "no active turn"}}
 
-      send(self(), {port, {:data, {:eol, Jason.encode!(idle)}}})
-      send(self(), {port, {:data, {:eol, Jason.encode!(no_active_turn)}}})
+      frames =
+        case Process.get({__MODULE__, :interrupt_event_order}, :idle_first) do
+          :idle_first -> [idle, no_active_turn]
+          :response_first -> [no_active_turn, idle]
+          :response_only -> [no_active_turn]
+        end
+
+      Enum.each(frames, fn payload ->
+        send(self(), {port, {:data, {:eol, Jason.encode!(payload)}}})
+      end)
+
       :ok
     end
 
@@ -89,12 +98,25 @@ defmodule Aiur.AppServer.AdapterTest do
   end
 
   test "run_turn preserves pause after idle and a no-active-turn interrupt response" do
+    assert_deferred_idle_pause(:idle_first, 41)
+  end
+
+  test "run_turn preserves pause when a no-active-turn interrupt response precedes idle" do
+    assert_deferred_idle_pause(:response_first, 42)
+  end
+
+  test "run_turn preserves pause when no idle follows a no-active-turn interrupt response" do
+    assert_deferred_idle_pause(:response_only, 43)
+  end
+
+  defp assert_deferred_idle_pause(order, request_id) do
     port = cat_port()
-    send(self(), {:pause_agent, 41})
+    Process.put({DeferredIdlePauseBackend, :interrupt_event_order}, order)
+    send(self(), {:pause_agent, request_id})
 
     assert {:paused,
             %{
-              request_id: 41,
+              request_id: ^request_id,
               turn_id: "turn-1",
               session_id: "thread-1-turn-1"
             }} = Adapter.run_turn(DeferredIdlePauseBackend, session(port), "prompt", issue(), [])

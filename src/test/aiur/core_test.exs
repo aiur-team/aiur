@@ -2844,10 +2844,24 @@ defmodule Aiur.CoreTest do
   end
 
   test "agent runner remains paused when idle precedes a no-active-turn interrupt response" do
+    assert_agent_runner_pause_no_active_turn(:idle_first)
+  end
+
+  test "agent runner remains paused when a no-active-turn interrupt response precedes idle" do
+    assert_agent_runner_pause_no_active_turn(:response_first)
+  end
+
+  test "agent runner remains paused when no idle follows a no-active-turn interrupt response" do
+    assert_agent_runner_pause_no_active_turn(:response_only)
+  end
+
+  defp assert_agent_runner_pause_no_active_turn(event_order) do
+    order_name = Atom.to_string(event_order)
+
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-agent-runner-pause-no-active-turn-#{System.unique_integer([:positive])}"
+        "aiur-elixir-agent-runner-pause-no-active-turn-#{order_name}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -2887,8 +2901,7 @@ defmodule Aiur.CoreTest do
             ;;
           *'"method":"turn/interrupt"'*)
             request_id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
-            printf '%s\\n' '{"method":"thread/status/changed","params":{"status":{"type":"idle"}}}'
-            printf '{"id":%s,"error":{"code":-32600,"message":"no active turn"}}\\n' "$request_id"
+      #{no_active_turn_interrupt_frames(event_order)}
             ;;
         esac
       done
@@ -2906,16 +2919,23 @@ defmodule Aiur.CoreTest do
         max_turns: 2
       )
 
-      orchestrator_name = Module.concat(__MODULE__, :PauseNoActiveTurnOrchestrator)
+      orchestrator_name =
+        Module.concat(
+          __MODULE__,
+          "PauseNoActiveTurn#{Macro.camelize(order_name)}Orchestrator"
+        )
+
       {:ok, orchestrator_pid} = Orchestrator.start_link(name: orchestrator_name)
 
       on_exit(fn ->
         if Process.alive?(orchestrator_pid), do: Process.exit(orchestrator_pid, :normal)
       end)
 
+      issue_id = "issue-pause-no-active-turn-#{order_name}"
+
       issue = %Issue{
-        id: "issue-pause-no-active-turn",
-        identifier: "MT-PAUSE-NO-ACTIVE",
+        id: issue_id,
+        identifier: "MT-PAUSE-NO-ACTIVE-#{String.upcase(order_name)}",
         title: "Preserve pause at a completed turn boundary",
         description: "do not continue after Codex reports no active turn",
         state: "In Progress",
@@ -2935,7 +2955,7 @@ defmodule Aiur.CoreTest do
           )
         end)
 
-      assert_receive {:codex_worker_update, "issue-pause-no-active-turn",
+      assert_receive {:codex_worker_update, ^issue_id,
                       %{
                         event: :notification,
                         payload: %{"method" => "turn/started"}
@@ -2944,7 +2964,7 @@ defmodule Aiur.CoreTest do
 
       send(task.pid, {:pause_agent, 93})
 
-      assert_receive {:worker_control_state, "issue-pause-no-active-turn", :paused, %{request_id: 93, turn_id: "turn-main"}},
+      assert_receive {:worker_control_state, ^issue_id, :paused, %{request_id: 93, turn_id: "turn-main"}},
                      5_000
 
       refute Task.yield(task, 100)
@@ -2961,6 +2981,26 @@ defmodule Aiur.CoreTest do
       System.delete_env("SYMP_TEST_CODEX_TRACE")
       File.rm_rf(test_root)
     end
+  end
+
+  defp no_active_turn_interrupt_frames(:idle_first) do
+    """
+            printf '%s\\n' '{"method":"thread/status/changed","params":{"status":{"type":"idle"}}}'
+            printf '{"id":%s,"error":{"code":-32600,"message":"no active turn"}}\\n' "$request_id"
+    """
+  end
+
+  defp no_active_turn_interrupt_frames(:response_first) do
+    """
+            printf '{"id":%s,"error":{"code":-32600,"message":"no active turn"}}\\n' "$request_id"
+            printf '%s\\n' '{"method":"thread/status/changed","params":{"status":{"type":"idle"}}}'
+    """
+  end
+
+  defp no_active_turn_interrupt_frames(:response_only) do
+    """
+            printf '{"id":%s,"error":{"code":-32600,"message":"no active turn"}}\\n' "$request_id"
+    """
   end
 
   test "agent runner processes restored and newly-queued operator input on explicit resume after pause" do
