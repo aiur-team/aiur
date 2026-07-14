@@ -34,6 +34,19 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     assert :missing_root_label in Enum.map(unlabeled_entry.diagnostics, & &1.code)
   end
 
+  test "keeps a catalog root with an incomplete label connection visible" do
+    valid = root(1)
+    malformed = root(2) |> Map.put("labels", connection([], 1, []))
+
+    assert {:ok, %{candidate: catalog}} =
+             GitHubGraph.fetch_catalog(base_opts(catalog_response([valid, malformed], 2)))
+
+    [valid_entry, invalid_entry] = catalog.entries
+    assert {:ok, _root} = Catalog.select(catalog, valid_entry.identity)
+    assert {:structurally_invalid, ^invalid_entry} = Catalog.select(catalog, invalid_entry.identity)
+    assert :incomplete_labels in Enum.map(invalid_entry.diagnostics, & &1.code)
+  end
+
   test "accepts the exact default root bound without per-root reads" do
     roots = Enum.map(1..100, &root/1)
 
@@ -96,6 +109,37 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
 
     assert {:error, %{error: :schema, calls: 1, pages: 1, candidate: nil}} =
              GitHubGraph.fetch_catalog(base_opts(malformed))
+  end
+
+  test "fails closed on nullable GraphQL nodes in every planning connection" do
+    assert {:error, %{error: :schema, candidate: nil}} =
+             GitHubGraph.fetch_catalog(base_opts(catalog_response([nil], 1)))
+
+    root = root(1)
+
+    assert {:error, %{error: :schema, candidate: nil}} =
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, [nil], 1)))
+
+    root_with_null_label = Map.put(root, "labels", connection([nil], 1, []))
+
+    assert {:error, %{error: :structurally_invalid, candidate: selected}} =
+             GitHubGraph.fetch_selected_root(
+               identity(root),
+               base_opts(selected_response(root_with_null_label, [], 0))
+             )
+
+    assert :invalid_label_connection in Enum.map(selected.root.diagnostics, & &1.code)
+
+    child_with_null_dependency = member(2, root) |> Map.put("blockedBy", connection([nil], 1, []))
+
+    assert {:error, %{error: :structurally_invalid, candidate: selected}} =
+             GitHubGraph.fetch_selected_root(
+               identity(root),
+               base_opts(selected_response(root, [child_with_null_dependency], 1))
+             )
+
+    [selected_member] = selected.members
+    assert :connection_overflow in Enum.map(selected_member.diagnostics, & &1.code)
   end
 
   test "fetches a complete direct-member graph at the exact member bound without N plus one calls" do
@@ -343,6 +387,36 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     assert :duplicate_identity in Enum.map(member.diagnostics, & &1.code)
   end
 
+  test "rejects duplicate canonical external endpoints without losing their classification" do
+    root = root(1)
+    external = endpoint(44, "other", "repo")
+    child = member(2, root, blocked_by: [external, external])
+
+    assert {:error, %{error: :structurally_invalid, candidate: selected}} =
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, [child], 1)))
+
+    [member] = selected.members
+    assert Enum.all?(member.dependencies, &(&1.kind == :external))
+    assert :duplicate_identity in Enum.map(member.diagnostics, & &1.code)
+  end
+
+  test "rejects external dependency endpoints without joinable identities" do
+    root = root(1)
+    malformed_external = %{"url" => "https://github.com/other/repo/issues/44"}
+    child = member(2, root, blocked_by: [malformed_external])
+
+    assert {:error, %{error: :structurally_invalid, candidate: selected}} =
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, [child], 1)))
+
+    [member] = selected.members
+    [dependency] = member.dependencies
+    assert dependency.kind == :external
+    assert dependency.identity == nil
+    assert :external_dependency in Enum.map(dependency.diagnostics, & &1.code)
+    assert :invalid_identity in Enum.map(dependency.diagnostics, & &1.code)
+    assert :invalid_dependency in Enum.map(member.diagnostics, & &1.code)
+  end
+
   test "fails closed when a selected-member page changes the reported total" do
     root = root(1)
 
@@ -384,6 +458,45 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
              )
 
     assert length(selected.members) == 2
+  end
+
+  test "classifies a unique member with no canonical identity as structurally invalid" do
+    root = root(1)
+
+    for missing_identity <- [
+          member(2, root) |> Map.delete("id"),
+          member(2, root) |> Map.delete("repository")
+        ] do
+      assert {:error, %{error: :structurally_invalid, candidate: selected}} =
+               GitHubGraph.fetch_selected_root(
+                 identity(root),
+                 base_opts(selected_response(root, [missing_identity], 1))
+               )
+
+      [selected_member] = selected.members
+      assert :invalid_identity in Enum.map(selected_member.diagnostics, & &1.code)
+    end
+  end
+
+  test "retains label-specific diagnostics for incomplete label connections" do
+    root = root(1)
+
+    for {labels, diagnostic} <- [
+          {:missing, :invalid_label_connection},
+          {%{}, :invalid_label_connection},
+          {connection([], 1, []), :incomplete_labels},
+          {connection([], 101, has_next?: true, cursor: "label-page-2"), :labels_overflow}
+        ] do
+      malformed_root = if labels == :missing, do: Map.delete(root, "labels"), else: Map.put(root, "labels", labels)
+
+      assert {:error, %{error: :structurally_invalid, candidate: selected}} =
+               GitHubGraph.fetch_selected_root(
+                 identity(root),
+                 base_opts(selected_response(malformed_root, [], 0))
+               )
+
+      assert diagnostic in Enum.map(selected.root.diagnostics, & &1.code)
+    end
   end
 
   test "fails closed on malformed root and member lifecycle facts" do

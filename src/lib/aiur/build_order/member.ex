@@ -244,9 +244,12 @@ defmodule Aiur.BuildOrder.Member do
             :invalid_identity,
             :invalid_dependency,
             :invalid_member,
+            :invalid_label_connection,
             :invalid_lifecycle,
             :invalid_title,
             :invalid_url,
+            :incomplete_labels,
+            :labels_overflow,
             :unresolved_internal_dependency
           ]
 

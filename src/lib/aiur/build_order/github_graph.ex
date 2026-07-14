@@ -356,15 +356,19 @@ defmodule Aiur.BuildOrder.GitHubGraph do
        when total <= @connection_limit and not page_info.has_next? and length(nodes) == total do
     {dependencies, malformed_endpoint?} =
       Enum.map_reduce(nodes, false, fn endpoint, malformed? ->
-        {identity, _diagnostic} = endpoint_identity(endpoint, repository)
-        dependency = Dependency.new(configured_identity, identity, Map.get(endpoint, "url"), direction)
-        {dependency, malformed? or invalid_native_dependency?(dependency) or dependency.kind == :unknown}
+        {identity, identity_diagnostic} = endpoint_identity(endpoint, repository)
+
+        dependency =
+          Dependency.new(configured_identity, identity, Map.get(endpoint, "url"), direction)
+          |> append_diagnostics([identity_diagnostic])
+
+        {dependency, malformed? or invalid_dependency?(dependency, identity_diagnostic)}
       end)
 
     diagnostic =
       cond do
         malformed_endpoint? -> Diagnostic.new(:invalid_dependency)
-        duplicate_native_dependencies?(dependencies) -> Diagnostic.new(:duplicate_identity)
+        duplicate_dependencies?(dependencies) -> Diagnostic.new(:duplicate_identity)
         true -> nil
       end
 
@@ -374,11 +378,16 @@ defmodule Aiur.BuildOrder.GitHubGraph do
   defp dependencies_from_connection(_nodes, total, _page_info, _repository, _configured_identity, _direction),
     do: {[], total, Diagnostic.new(:connection_overflow)}
 
-  defp invalid_native_dependency?(%Dependency{kind: :native, diagnostics: diagnostics}) do
+  defp invalid_dependency?(%Dependency{kind: :native, diagnostics: diagnostics}, _identity_diagnostic) do
     Enum.any?(diagnostics, &(&1.code == :invalid_url))
   end
 
-  defp invalid_native_dependency?(_dependency), do: false
+  defp invalid_dependency?(%Dependency{kind: :external, identity: identity}, identity_diagnostic) do
+    not is_nil(identity_diagnostic) or not TrackerIdentity.joinable?(identity)
+  end
+
+  defp invalid_dependency?(%Dependency{kind: :unknown}, _identity_diagnostic), do: true
+  defp invalid_dependency?(_dependency, _identity_diagnostic), do: true
 
   defp validate_internal_dependencies(members, root_identity) do
     identities =
@@ -456,12 +465,22 @@ defmodule Aiur.BuildOrder.GitHubGraph do
 
   defp labels(node) do
     with {:ok, connection} <- Map.fetch(node, "labels"),
-         {:ok, nodes, total, page_info} <- connection(connection),
-         true <- total <= @connection_limit and not page_info.has_next? and length(nodes) == total,
-         true <- Enum.all?(nodes, &is_binary(Map.get(&1, "name"))) do
-      {Enum.map(nodes, &Map.fetch!(&1, "name")), nil}
+         {:ok, nodes, total, page_info} <- connection(connection) do
+      cond do
+        total > @connection_limit or page_info.has_next? ->
+          {[], Diagnostic.new(:labels_overflow)}
+
+        length(nodes) != total ->
+          {[], Diagnostic.new(:incomplete_labels)}
+
+        Enum.all?(nodes, &is_binary(Map.get(&1, "name"))) ->
+          {Enum.map(nodes, &Map.fetch!(&1, "name")), nil}
+
+        true ->
+          {[], Diagnostic.new(:invalid_label_connection)}
+      end
     else
-      _ -> {[], Diagnostic.new(:invalid_dependency)}
+      _ -> {[], Diagnostic.new(:invalid_label_connection)}
     end
   end
 
@@ -504,8 +523,8 @@ defmodule Aiur.BuildOrder.GitHubGraph do
   defp duplicate_root?(root, roots), do: Enum.count(roots, &same_identity?(&1.identity, root.identity)) > 1
 
   defp duplicate_members?(members) do
-    identity_keys = Enum.map(members, &identity_key(&1.identity))
-    Enum.any?(identity_keys, &is_nil/1) or length(identity_keys) != MapSet.size(MapSet.new(identity_keys))
+    identity_keys = members |> Enum.map(&identity_key(&1.identity)) |> Enum.reject(&is_nil/1)
+    length(identity_keys) != MapSet.size(MapSet.new(identity_keys))
   end
 
   defp same_identity?(%TrackerIdentity{} = left, %TrackerIdentity{} = right) do
@@ -525,13 +544,14 @@ defmodule Aiur.BuildOrder.GitHubGraph do
 
   defp identity_key(_identity), do: nil
 
-  defp duplicate_native_dependencies?(dependencies) do
+  defp duplicate_dependencies?(dependencies) do
     keys =
       dependencies
-      |> Enum.filter(&(&1.kind == :native))
+      |> Enum.filter(&(&1.kind in [:native, :external]))
       |> Enum.map(&identity_key(&1.identity))
+      |> Enum.reject(&is_nil/1)
 
-    Enum.any?(keys, &is_nil/1) or length(keys) != MapSet.size(MapSet.new(keys))
+    length(keys) != MapSet.size(MapSet.new(keys))
   end
 
   defp selected_root_page(%Paging{root: nil, requested_root: requested_root} = paging, fetched_root) do
@@ -588,7 +608,8 @@ defmodule Aiur.BuildOrder.GitHubGraph do
        when is_list(nodes) and is_integer(total) and total >= 0 and is_map(page_info) do
     with has_next when is_boolean(has_next) <- Map.get(page_info, "hasNextPage"),
          end_cursor <- Map.get(page_info, "endCursor"),
-         true <- is_nil(end_cursor) or is_binary(end_cursor) do
+         true <- is_nil(end_cursor) or is_binary(end_cursor),
+         true <- Enum.all?(nodes, &is_map/1) do
       {:ok, nodes, total, %{has_next?: has_next, end_cursor: end_cursor}}
     else
       _ -> {:error, :invalid_connection}
