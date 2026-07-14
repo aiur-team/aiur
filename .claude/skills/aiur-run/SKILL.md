@@ -108,6 +108,25 @@ The timer and alert path are additive: an urgent alert is handled immediately,
 while the cadence still provides a quiet-state floor. Do not depend on PR or
 agent-completion events as the only wake-up mechanism.
 
+### Ten-minute capacity audit — required
+
+Arm a hard capacity reminder every ten minutes, independent of the adaptive
+status cadence and event-driven wakes. At each tick, count only useful live
+implementation/rework and independent review lanes; record CI-wait, paused,
+deactivated, dependency-blocked, and completed rows separately. Capture the
+configured ceiling, current effective/live count, load versus CPU count,
+available memory, build serialization, provider quota, and review capacity.
+When useful concurrency is below the operator target, record the exact limiting
+gate and take the highest-leverage in-scope action immediately: dispatch ready
+work, staff review, recover a worker, or work the highest-fan-out unblocker.
+Never satisfy the reminder by waking blocked/CI tickets or promoting deferred
+P2/P3 scope merely to increase the count.
+
+The ten-minute audit is an internal scheduling control, not a requirement to
+send the user a redundant status message. Preserve its latest result and due
+time in the run's monitoring state so an Executor handoff cannot silently lose
+the timer.
+
 ### Hourly monitoring retrospective — required
 
 Arm a second, hard one-hour cadence when monitoring starts. This is not another
