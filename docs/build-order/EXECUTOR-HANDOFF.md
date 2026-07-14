@@ -67,6 +67,14 @@ and memory has ample headroom, so adding unrelated work would reduce throughput.
    the worker to rerun scoped validation and resolve the attention. This is the
    canonical response when a branch is based on current `main` but GitHub PR
    creation inherits the repository's legacy default base.
+8. The same defect reproduced on PRs #1143/#1086 and #1145/#1087. Both were
+   REST-retargeted to `main` and reduced to scoped 13-file and 23-file diffs;
+   the workers retain their real lint/browser-test rework. P1 issue #1146 owns
+   a durable fix that carries `tracker.base_branch` through agent PR creation.
+   It has no dispatch label while CPU, build slots, and all five agent slots
+   are saturated; the Executor auto-retargets any recurrence and may activate
+   #1146 only in genuine spare capacity without displacing ready critical-path
+   work.
 
 At 19:06 PDT the five event-reported percentages are BO-004 70%, BO-008 70%,
 DASH-006 70%, DASH-017 50%, and DASH-018 70% (66% ticket-average). DASH-018
