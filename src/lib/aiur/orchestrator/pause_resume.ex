@@ -146,20 +146,6 @@ defmodule Aiur.Orchestrator.PauseResume do
     end
   end
 
-  @spec recover_startup_pause_overrides(State.t(), [term()]) :: [term()]
-  def recover_startup_pause_overrides(
-        %State{initial_dispatch_cycle: true} = state,
-        issues
-      )
-      when is_list(issues) do
-    Enum.map(issues, fn
-      %Issue{} = issue -> recover_startup_pause_override(state, issue)
-      issue -> issue
-    end)
-  end
-
-  def recover_startup_pause_overrides(_state, issues), do: issues
-
   # Wake a `:deactivated` running entry: flip its control status to
   # `:working`, re-add the id to the publisher tracked set, and spawn
   # a fresh agent task on the same issue. Mirrors `resume_paused_issue`
@@ -713,27 +699,6 @@ defmodule Aiur.Orchestrator.PauseResume do
         else
           {{:error, :dispatch_failed}, next_state}
         end
-    end
-  end
-
-  defp recover_startup_pause_override(%State{} = state, %Issue{} = issue) do
-    active_states = DispatchPolicy.active_state_set()
-
-    if Issue.paused?(issue) and
-         DispatchPolicy.active_issue_state?(issue.state, active_states) and
-         not Map.has_key?(state.running, issue.id) do
-      case clear_pause_override(issue) do
-        {:ok, cleared_issue} ->
-          Logger.info("Recovered stale pause override on startup: #{State.issue_context(issue)}")
-          cleared_issue
-
-        {:error, reason} ->
-          Logger.warning("Startup pause override recovery deferred: #{State.issue_context(issue)} reason=#{inspect(reason)}")
-
-          issue
-      end
-    else
-      issue
     end
   end
 
