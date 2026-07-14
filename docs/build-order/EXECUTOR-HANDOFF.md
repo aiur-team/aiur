@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 11:27 PDT)
+## Live Executor state (updated 2026-07-14 12:01 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -20,17 +20,16 @@ program is 6/54 merged with 48 remaining.
 The runtime session ceiling is 15 workers, governed by Aiur's effective-slot
 controller and shared build gates. The operator target is 10–15+ useful agents
 whenever dependency width and measured CPU/memory/provider/review capacity
-permit. All nine currently dependency-ready implementation/rework lanes are
-active on core #1088/#1091/#1097/#1103/#1109 and Ad Hoc
-#1151/#1154/#1161/#1162. #1109 is in
-ticket-scoped recovery from a completed-turn wedge after its red CI packet was
-not consumed. BO-002/#1091 passed CI at `35bec1cd`, but the Executor rejected
-the head before review because current accepted `main` was not its ancestor;
-it has pushed current-main head `5396c659` and is in fresh CI. BO-016/#1103
-and completed-turn #1162 are performing the same one-time current-main refresh
-before fresh CI. Build-gate P1
-#1154 is in the current Ad Hoc wave because namespace-local lease IDs directly
-blocked core verification.
+permit. Ten useful lanes are currently staffed: seven Aiur implementation or
+rework workers on core #1091/#1097/#1103 and Ad Hoc
+#1151/#1154/#1161/#1162, plus three independent review agents split across
+green current-main core heads #1088 and #1109. BO-002/#1091 is decomposing its
+oversized GitHub graph module and repairing two exact-response validation gaps.
+BO-010/#1097 is repairing its owned browser-harness failure. BO-016/#1103 and
+completed-turn #1162 are applying newly consolidated dual-review packets.
+Build-gate P1 #1154 is in the current Ad Hoc wave because namespace-local lease
+IDs directly blocked core verification. P2 token-accounting issue #1171 is
+explicitly paused/deferred and does not count as an unused in-boundary lane.
 #1090,
 #1093, #1108, #1111, #1123, and #1130 remain
 protected behind #1161's workspace-replacement fix. Unrelated #855 stays
@@ -246,7 +245,7 @@ Terra; never dispatch Claude.
 24. The preview now carries a sixth **Ad Hoc** epic for tickets created during
     execution without changing the approved 54-ticket denominator. Current
     members are #1139, #1140, #1142, #1146, #1148, #1149, #1151, #1152,
-    #1154, #1161, #1162, and closed duplicate #1164; all carry
+    #1154, #1161, #1162, closed duplicate #1164, and deferred #1171; all carry
     `build-lane:adhoc`. Assign `phase:N` only when an ad hoc ticket is actually
     picked up, using the closest active phase, then freeze that assignment;
     #1139, #1151, #1161, and #1162 are Phase 1, while deferred, untriaged, or
@@ -1109,21 +1108,59 @@ Terra; never dispatch Claude.
     adaptive 2–20 minute cadence, five-minute reporting boundary, and separate
     hourly audit unchanged.
 
-At 11:27 PDT the core graph is 6/54 accepted. All nine currently
-dependency-ready implementation/rework lanes are active, including #1109's
-targeted completed-runner recovery. The configured ceiling is 15; the shortfall
-is the finite ready graph, shared build capacity, and the #1161 workspace gate,
-not an intentional low cap.
+144. At 11:46 PDT the daemon service token exhausted its GitHub REST quota
+    while reprovisioning BO-002/#1091. This was not a Codex usage limit and did
+    not justify a fleet restart: existing workers and reviews continued, the
+    Executor waited for the recorded reset, then confirmed 4,286 requests
+    remaining and #1091 immediately resumed on its preserved workspace.
+145. Dual exact-head review rejected green Ad Hoc #1162 head `eab7abde`: both
+    reviewers independently reproduced accepted-but-unstarted steering IDs,
+    interrupt-acknowledgement plus idle deadlock, response-only no-active-turn
+    operator-message delay, late lifecycle resurrection, and duplicate
+    ID-less completion retirement. Comment `4972852380` contains the single
+    five-finding repair packet; #1162 is actively reworking it.
+146. Dual exact-head review rejected green BO-016/#1103 head `cef18861`: a
+    repository switch could publish stale detail, structural credentials and
+    private keys still escaped redaction, UNC/singleton sensitive paths were
+    public, oversized identifiers bypassed an early bound, and one regression
+    violated the repository receive-timeout minimum. Comment `4972872096`
+    contains the single six-finding repair packet; the stale `agent:ci-wait`
+    label was removed and #1103 is actively reworking it.
+147. BO-010/#1097 head `67c058ed` received a narrowly approved regression-guard
+    override because its protected-file diff only added the new DOM/SVG
+    adapter paths required by the ticket. Fresh CI then found a real owned
+    browser failure: a denied/malformed layout-engine response rendered as a
+    normal result instead of `engine_failed`. Comment `4972778850` routes the
+    repair to #1097; an empty terminal turn required a ticket-scoped active-
+    state recycle, which successfully reprovisioned the preserved workspace.
+148. Ad Hoc #1151 moved new stale-CI-rewake coverage into the protected
+    lifecycle regression suite and therefore failed the immutable regression
+    guard. The Executor refused an override because this coverage can live in
+    an ordinary comment-wake test, and comment `4972802896` directs the worker
+    to restore the protected file exactly and move the additive test. This is
+    contained rework, not a new issue.
+149. At 12:01 PDT the run has seven live Aiur workers plus three live external
+    reviewers, with the runtime ceiling still 15. Every dependency-ready core
+    implementation/rework lane is staffed; review capacity is saturated on
+    #1088 and #1109, while six additional core tickets remain intentionally
+    held behind #1161. Deferred P2 #1171 is not valid filler. Recompute and
+    dispatch the six-ticket fan-out immediately after #1161 merges.
+
+At 12:01 PDT the core graph is 6/54 accepted. Every currently dependency-ready
+implementation/rework lane is active or in dual exact-head review. The
+configured ceiling is 15; seven Aiur workers and three review agents provide
+ten useful lanes, and the remaining shortfall is the finite ready graph, shared
+build capacity, and the #1161 workspace gate rather than an intentional low
+cap.
 #1090, #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds
 until #1161 lands.
-The latest agent-emitted progress evidence is 1088=70, 1091=60, 1096=100
-(merged), 1097=50, 1103=80, 1109=70, 1151=70, 1161=70, and 1162=80.
-Concurrent test and Dialyzer work briefly raised host load to 62 while memory
-remained healthy; the burst has drained and the session ceiling is restored to
-15. Prefer logs/GitHub evidence after a control-RPC timeout. No additional core ticket is safely
-dependency-ready outside the held/gated set. Treat completed turns, stale
-bases, and green builds with unmet acceptance criteria as pending Executor
-work, not merge-ready truth.
+The most recent phase preview remains the percentage authority until its next
+meaningful refresh; do not replace emitted estimates with guesses during
+review/rework. Host load is approximately 9–14 with roughly 21 GiB available,
+and the session ceiling remains 15. Prefer logs/GitHub evidence after a
+control-RPC timeout. No additional core ticket is safely dependency-ready
+outside the held/gated set. Treat completed turns, stale bases, and green builds
+with unmet acceptance criteria as pending Executor work, not merge-ready truth.
 
 **Read-first map for this run:** `README.md` (pack index) →
 `08-implementation-pointers.md` (verified per-ticket file/module/function
