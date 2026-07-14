@@ -6,6 +6,50 @@ defmodule Aiur.DecisionQueryTest do
   @ticket %{identifier: "1088", title: "Retained Decisions", url: "https://example.test/issues/1088"}
   @source %{agent_id: "agent-1088", session_id: "session-private", event_id: nil}
 
+  defmodule AtomicSnapshotStore do
+    use GenServer
+
+    def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
+
+    @impl true
+    def init(opts), do: {:ok, %{decision: Keyword.fetch!(opts, :decision), report: Keyword.fetch!(opts, :report)}}
+
+    @impl true
+    def handle_call({:retained_lookup, decision_id}, _from, %{decision: %{decision_id: decision_id} = decision} = state) do
+      send(state.report, {:atomic_snapshot, :lookup})
+      {:reply, {:ok, %{decision: decision, health: :writable}}, state}
+    end
+
+    def handle_call({:retained_lookup, _decision_id}, _from, state) do
+      send(state.report, {:atomic_snapshot, :lookup})
+      {:reply, {:ok, %{decision: nil, health: :writable}}, state}
+    end
+
+    def handle_call({:retained_query, _query}, _from, %{decision: decision} = state) do
+      send(state.report, {:atomic_snapshot, :query})
+
+      {:reply,
+       {:ok,
+        %{
+          decisions: [decision],
+          has_next?: false,
+          total: 1,
+          counts: %{open: 1, blocking: if(decision.blocking, do: 1, else: 0)},
+          health: :writable
+        }}, state}
+    end
+
+    def handle_call(:retained_counts, _from, %{decision: decision} = state) do
+      send(state.report, {:atomic_snapshot, :counts})
+      {:reply, {:ok, %{counts: %{open: 1, blocking: if(decision.blocking, do: 1, else: 0)}, health: :writable}}, state}
+    end
+
+    def handle_call(request, _from, state) do
+      send(state.report, {:split_read_attempted, request})
+      {:reply, {:error, :simulated_restart}, state}
+    end
+  end
+
   setup do
     original_override = Application.get_env(:aiur, :decision_state_dir)
     dir = Path.join(System.tmp_dir!(), "aiur-decision-query-#{System.unique_integer([:positive])}")
@@ -24,7 +68,18 @@ defmodule Aiur.DecisionQueryTest do
       File.rm_rf!(dir)
     end)
 
-    %{store: store}
+    %{store: store, dir: dir}
+  end
+
+  test "default retained reads target the canonical Aiur DecisionStore" do
+    assert DecisionQuery.default_store() == Aiur.DecisionStore
+
+    assert {:error, :not_found} = DecisionQuery.get("dec-default-path-missing")
+    assert {:ok, %{decisions: decisions}} = DecisionQuery.list(%{"limit" => 1})
+    assert is_list(decisions)
+    assert {:ok, %{open: open, blocking: blocking}} = DecisionQuery.counts()
+    assert is_integer(open)
+    assert is_integer(blocking)
   end
 
   test "exact lookup reaches an old retained Decision outside the priority overview", %{store: store} do
@@ -105,6 +160,11 @@ defmodule Aiur.DecisionQueryTest do
     assert {:error, {:invalid_decision_id, :malformed}} = DecisionQuery.get(<<255>>, store: store)
   end
 
+  test "store-native retained query rejects malformed snapshots without crashing the store", %{store: store} do
+    assert {:error, :invalid_query} = DecisionStore.retained_query(%{limit: 1}, store)
+    assert Process.alive?(store)
+  end
+
   test "counts distinguish partial retained data from an unavailable store", %{store: store} do
     request!(store, "partial", ~U[2026-07-13 08:00:00Z])
 
@@ -128,6 +188,101 @@ defmodule Aiur.DecisionQueryTest do
     assert {:error, :store_unavailable} = DecisionQuery.get("dec_missing", store: make_ref())
   end
 
+  test "generative page traversal preserves audit order without duplicates for bounded inputs", %{store: store} do
+    decisions =
+      for index <- 1..17 do
+        request!(store, "generated-#{index}", DateTime.add(~U[2026-07-13 08:00:00Z], index, :second))
+      end
+
+    expected = decisions |> Enum.sort_by(&audit_key/1, :desc) |> Enum.map(& &1.decision_id)
+
+    for limit <- [1, 2, 3, 7, 17, 100] do
+      assert %{ids: ids, totals: totals} = traverse_pages(store, limit)
+      assert ids == expected
+      assert MapSet.size(MapSet.new(ids)) == length(ids)
+      assert Enum.uniq(totals) == [length(expected)]
+    end
+
+    for params <- [
+          %{"limit" => -1},
+          %{"limit" => "1.0"},
+          %{"cursor" => String.duplicate("a", 1_025)},
+          %{"search" => String.duplicate("a", 201)},
+          %{"ticket" => String.duplicate("a", 201)},
+          %{"search" => "\u0000"}
+        ] do
+      assert {:error, {:invalid_query, _reason}} = DecisionQuery.list(params, store: store)
+    end
+  end
+
+  test "lifecycle pages preserve the same audit ordering and canonical counts", %{store: store} do
+    oldest = request!(store, "resolved-oldest", ~U[2026-07-13 08:00:00Z], blocking: true)
+    open = request!(store, "open-middle", ~U[2026-07-13 08:01:00Z], blocking: true)
+    newest = request!(store, "resolved-newest", ~U[2026-07-13 08:02:00Z])
+
+    :sys.replace_state(store, fn state ->
+      current =
+        state.current
+        |> Map.update!(oldest.decision_id, &%{&1 | decision_status: :resolved})
+        |> Map.update!(newest.decision_id, &%{&1 | decision_status: :resolved})
+
+      %{state | current: current}
+    end)
+
+    assert {:ok, %{decisions: [resolved_newest, resolved_oldest], pagination: %{total: 2}}} =
+             DecisionQuery.list(%{"lifecycle" => "resolved"}, store: store)
+
+    assert [resolved_newest.decision_id, resolved_oldest.decision_id] == [newest.decision_id, oldest.decision_id]
+
+    assert {:ok, %{decisions: [open_row], pagination: %{total: 1}}} =
+             DecisionQuery.list(%{"lifecycle" => "open"}, store: store)
+
+    assert open_row.decision_id == open.decision_id
+    assert {:ok, %{open: 1, blocking: 1}} = DecisionQuery.counts(store: store)
+  end
+
+  test "replayed corrupt-prefix snapshots keep valid details partial and missing IDs distinct", %{store: store, dir: dir} do
+    decision = request!(store, "replay-prefix", ~U[2026-07-13 08:00:00Z])
+    GenServer.stop(store)
+
+    File.write!(Path.join(dir, "decisions.ndjson"), "not json at all\n", [:append])
+    {:ok, replayed} = DecisionStore.start_link(name: nil, filesystem_sync_fun: fn -> :ok end)
+
+    on_exit(fn ->
+      if Process.alive?(replayed), do: GenServer.stop(replayed)
+    end)
+
+    assert {:ok, %{decision: retained, health: %{status: :partial, partial?: true}}} =
+             DecisionQuery.get(decision.decision_id, store: replayed)
+
+    assert retained.decision_id == decision.decision_id
+    assert {:error, :not_found} = DecisionQuery.get("dec_missing", store: replayed)
+
+    assert {:ok, %{health: %{status: :partial}, partial_results?: true, pagination: %{total: 1}}} =
+             DecisionQuery.list(%{}, store: replayed)
+  end
+
+  test "atomic retained snapshots avoid a health/read restart race", %{store: store} do
+    decision = request!(store, "atomic-snapshot", ~U[2026-07-13 08:00:00Z], blocking: true)
+    {:ok, snapshot_store} = AtomicSnapshotStore.start_link(decision: decision, report: self())
+
+    assert {:ok, %{decision: retained}} = DecisionQuery.get(decision.decision_id, store: snapshot_store)
+    assert retained.decision_id == decision.decision_id
+    assert {:ok, %{decisions: [listed]}} = DecisionQuery.list(%{"limit" => 1}, store: snapshot_store)
+    assert listed.decision_id == decision.decision_id
+
+    assert {:ok, %{counts: %{open: 1, blocking: 1}, health: :writable}} =
+             DecisionStore.retained_counts(snapshot_store)
+
+    assert {:ok, %{open: 1, blocking: 1}} = DecisionQuery.counts(store: snapshot_store)
+
+    assert_receive {:atomic_snapshot, :lookup}
+    assert_receive {:atomic_snapshot, :query}
+    assert_receive {:atomic_snapshot, :counts}
+    assert_receive {:atomic_snapshot, :counts}
+    refute_receive {:split_read_attempted, _request}
+  end
+
   defp request!(store, source_id, now, attrs \\ []) do
     payload = %{
       "source_id" => source_id,
@@ -142,4 +297,19 @@ defmodule Aiur.DecisionQueryTest do
 
     decision
   end
+
+  defp traverse_pages(store, limit, cursor \\ nil, ids \\ [], totals \\ []) do
+    params = if cursor, do: %{"limit" => limit, "cursor" => cursor}, else: %{"limit" => limit}
+    assert {:ok, page} = DecisionQuery.list(params, store: store)
+
+    ids = ids ++ Enum.map(page.decisions, & &1.decision_id)
+    totals = [page.pagination.total | totals]
+
+    case page.pagination.next_cursor do
+      nil -> %{ids: ids, totals: Enum.reverse(totals)}
+      next_cursor -> traverse_pages(store, limit, next_cursor, ids, totals)
+    end
+  end
+
+  defp audit_key(decision), do: {DateTime.to_unix(decision.created_at, :microsecond), decision.decision_id}
 end

@@ -37,7 +37,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProvider do
 
   def list(params, opts) when is_map(params) and is_list(opts) do
     with {:ok, result} <- DecisionQuery.list(params, store: store(opts)) do
-      {snapshots, latency_health} = latency_snapshots(metrics(opts))
+      {snapshots, latency_health} = latency_for_ids(Enum.map(result.decisions, & &1.decision_id), metrics(opts))
 
       rows =
         result.decisions
@@ -64,10 +64,17 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProvider do
     end
   end
 
-  defp latency_snapshots(metrics) do
-    case safe_metrics_call(fn -> DecisionMetrics.snapshots(metrics) end) do
-      snapshots when is_map(snapshots) -> {snapshots, :ok}
-      _unavailable -> {%{}, :unavailable}
+  defp latency_for_ids(decision_ids, metrics) do
+    Enum.reduce(decision_ids, {%{}, :ok}, fn decision_id, {snapshots, health} ->
+      merge_latency_snapshot(decision_id, metrics, snapshots, health)
+    end)
+  end
+
+  defp merge_latency_snapshot(decision_id, metrics, snapshots, health) do
+    case safe_metrics_call(fn -> DecisionMetrics.snapshot(decision_id, metrics) end) do
+      {:ok, snapshot} when is_map(snapshot) -> {Map.put(snapshots, decision_id, snapshot), health}
+      {:error, :not_found} -> {snapshots, health}
+      _unavailable -> {snapshots, :unavailable}
     end
   end
 

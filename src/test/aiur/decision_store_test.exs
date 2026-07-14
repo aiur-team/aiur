@@ -4,6 +4,7 @@ defmodule Aiur.DecisionStoreTest do
   import ExUnit.CaptureLog
 
   alias Aiur.{AlertFeed, Boot, DecisionEvent, DecisionHistory, DecisionLog, DecisionPubSub, DecisionStore}
+  alias Aiur.DecisionStore.RetainedSnapshot
   alias Aiur.Events.{Exchange, IdGenerator}
   alias AiurWeb.ControlCenterPresenter
 
@@ -63,12 +64,15 @@ defmodule Aiur.DecisionStoreTest do
       |> Enum.map(&decision_index_key(&1.data))
       |> :gb_sets.from_list()
 
+    retained_index = RetainedSnapshot.build_index(current)
+
     :sys.replace_state(pid, fn state ->
       %{
         state
         | audit_history: Map.new(records, &{&1.decision_id, [&1]}),
           current: current,
           decision_index: decision_index,
+          retained_index: retained_index,
           recent_audit: records |> Enum.reverse() |> Enum.take(50)
       }
     end)
@@ -92,6 +96,14 @@ defmodule Aiur.DecisionStoreTest do
 
     assert MapSet.new(payload.decisions, & &1.decision_id) ==
              MapSet.new(10_000..9_951//-1, &"dec-#{&1}")
+
+    assert {:ok, %{decisions: page, has_next?: true, total: 10_000, counts: %{open: 10_000, blocking: 0}}} =
+             DecisionStore.retained_query(
+               %{limit: 2, cursor: nil, lifecycle: nil, search: nil, ticket: nil},
+               pid
+             )
+
+    assert length(page) == 2
   end
 
   test "resolving a cached decision backfills the untouched 51st open decision", %{dir: dir} do

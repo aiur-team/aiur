@@ -51,6 +51,7 @@ defmodule Aiur.DecisionStore do
     SecretRedactor
   }
 
+  alias Aiur.DecisionStore.RetainedSnapshot
   alias Aiur.Events.{IdGenerator, Publisher}
 
   @ndjson_filename "decisions.ndjson"
@@ -194,6 +195,27 @@ defmodule Aiur.DecisionStore do
     GenServer.call(server, :list)
   end
 
+  @doc "Returns one exact retained Decision and its health from one serialized store snapshot."
+  @spec retained_lookup(String.t(), GenServer.server()) ::
+          {:ok, %{decision: Decision.t() | nil, health: term()}} | {:error, :store_unavailable}
+  def retained_lookup(decision_id, server \\ __MODULE__) when is_binary(decision_id) do
+    GenServer.call(server, {:retained_lookup, decision_id})
+  end
+
+  @doc "Returns a bounded retained Decision page, exact filtered total, and canonical counts atomically."
+  @spec retained_query(map(), GenServer.server()) :: {:ok, map()} | {:error, :store_unavailable | :invalid_query}
+  def retained_query(query, server \\ __MODULE__) when is_map(query) do
+    GenServer.call(server, {:retained_query, query})
+  end
+
+  @doc "Returns canonical retained open and blocking counts from one serialized store snapshot."
+  @spec retained_counts(GenServer.server()) ::
+          {:ok, %{counts: %{open: non_neg_integer(), blocking: non_neg_integer()}, health: term()}}
+          | {:error, :store_unavailable}
+  def retained_counts(server \\ __MODULE__) do
+    GenServer.call(server, :retained_counts)
+  end
+
   @doc "Returns a bounded dashboard window, prioritizing unresolved and blocking Decisions."
   @spec recent_decisions(non_neg_integer(), GenServer.server()) :: [Decision.t()]
   def recent_decisions(limit \\ @recent_decision_limit, server \\ __MODULE__)
@@ -311,6 +333,7 @@ defmodule Aiur.DecisionStore do
           projection_path: projection_path,
           current: current,
           decision_index: build_decision_index(current),
+          retained_index: RetainedSnapshot.build_index(current),
           # The store keeps histories newest-first so every accepted append is
           # O(1). The public history call reverses them back to audit order.
           history: reverse_histories(history),
@@ -354,6 +377,7 @@ defmodule Aiur.DecisionStore do
       projection_path: nil,
       current: %{},
       decision_index: :gb_sets.empty(),
+      retained_index: :gb_sets.empty(),
       history: %{},
       audit_history: %{},
       recent_audit: [],
@@ -499,6 +523,18 @@ defmodule Aiur.DecisionStore do
 
   def handle_call(:list, _from, state) do
     {:reply, Map.values(state.current), state}
+  end
+
+  def handle_call({:retained_lookup, decision_id}, _from, state) do
+    {:reply, RetainedSnapshot.lookup(state.current, state.health, decision_id), state}
+  end
+
+  def handle_call({:retained_query, query}, _from, state) do
+    {:reply, RetainedSnapshot.query(state.current, state.retained_index, state.health, query), state}
+  end
+
+  def handle_call(:retained_counts, _from, state) do
+    {:reply, RetainedSnapshot.counts(state.current, state.health), state}
   end
 
   def handle_call({:recent_decisions, limit}, _from, state) do
@@ -985,6 +1021,7 @@ defmodule Aiur.DecisionStore do
           state
           | current: Map.put(state.current, current.decision_id, updated),
             decision_index: update_decision_index(state.decision_index, current, updated),
+            retained_index: RetainedSnapshot.update_index(state.retained_index, current, updated),
             history: Map.update(state.history, current.decision_id, [event.data.decision], &[event.data.decision | &1]),
             audit_history: Map.update(state.audit_history, current.decision_id, [event], &(&1 ++ [event])),
             recent_audit: remember_recent_audit(state.recent_audit, event)
@@ -1258,6 +1295,12 @@ defmodule Aiur.DecisionStore do
                 Map.get(state.current, decision.decision_id),
                 current
               ),
+            retained_index:
+              RetainedSnapshot.update_index(
+                state.retained_index,
+                Map.get(state.current, decision.decision_id),
+                current
+              ),
             history: Map.update(state.history, decision.decision_id, [decision], &[decision | &1]),
             audit_history: Map.update(state.audit_history, decision.decision_id, [event], &(&1 ++ [event])),
             recent_audit: remember_recent_audit(state.recent_audit, event)
@@ -1303,6 +1346,7 @@ defmodule Aiur.DecisionStore do
         state
         | current: Map.put(state.current, decision.decision_id, updated),
           decision_index: update_decision_index(state.decision_index, decision, updated),
+          retained_index: RetainedSnapshot.update_index(state.retained_index, decision, updated),
           audit_history: Map.update(state.audit_history, decision.decision_id, [event], &(&1 ++ [event])),
           recent_audit: remember_recent_audit(state.recent_audit, event)
       }

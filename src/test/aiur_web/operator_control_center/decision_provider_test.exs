@@ -7,6 +7,21 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProviderTest do
   @ticket %{identifier: "1088", title: "Retained Decisions", url: "https://example.test/issues/1088"}
   @source %{agent_id: "agent-1088", session_id: "session-private", event_id: "event-private"}
 
+  defmodule TargetedMetrics do
+    use GenServer
+
+    def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
+
+    @impl true
+    def init(opts), do: {:ok, %{snapshots: Keyword.fetch!(opts, :snapshots), report: Keyword.fetch!(opts, :report)}}
+
+    @impl true
+    def handle_call({:snapshot, decision_id}, _from, state) do
+      send(state.report, {:metric_snapshot, decision_id})
+      {:reply, Map.fetch(state.snapshots, decision_id), state}
+    end
+  end
+
   setup do
     original_override = Application.get_env(:aiur, :decision_state_dir)
     dir = Path.join(System.tmp_dir!(), "aiur-decision-provider-#{System.unique_integer([:positive])}")
@@ -51,7 +66,14 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProviderTest do
               actor: %{kind: :agent, id: "account-private"},
               source: %{agent_id: "agent-1088", session_id: "session-private", invocation_id: "invocation-private"},
               occurred_at: ~U[2026-07-13 08:01:00Z]
-            }
+            },
+            source:
+              Map.merge(current.source, %{
+                account_id: "account-private",
+                capability_url: "https://github.com/its-everdred/aiur?capability=private",
+                credential: secret,
+                prompt: "raw system prompt"
+              })
         }
       end)
     end)
@@ -70,10 +92,54 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProviderTest do
 
     assert {:ok, %{decisions: [row]}} = DecisionProvider.list(%{"limit" => 1}, decision_store: store, decision_metrics: make_ref())
     assert row.source == detail.source
-    refute inspect(row) =~ "session-private"
-    refute inspect(row) =~ "event-private"
-    refute inspect(row) =~ "account-private"
-    refute inspect(row) =~ "invocation-private"
+
+    for private_value <- [
+          "session-private",
+          "event-private",
+          "account-private",
+          "invocation-private",
+          "raw system prompt",
+          "https://github.com/its-everdred/aiur?capability=private",
+          secret
+        ] do
+      refute inspect(detail) =~ private_value
+      refute inspect(row) =~ private_value
+    end
+  end
+
+  test "list fetches latency only for the bounded returned page", %{store: store} do
+    oldest = request!(store, "metrics-oldest", ~U[2026-07-13 08:00:00Z])
+    middle = request!(store, "metrics-middle", ~U[2026-07-13 08:01:00Z])
+    newest = request!(store, "metrics-newest", ~U[2026-07-13 08:02:00Z])
+
+    {:ok, metrics} =
+      TargetedMetrics.start_link(
+        snapshots: %{
+          oldest.decision_id => %{decision_id: oldest.decision_id},
+          middle.decision_id => %{decision_id: middle.decision_id},
+          newest.decision_id => %{decision_id: newest.decision_id}
+        },
+        report: self()
+      )
+
+    assert {:ok, %{decisions: [row], pagination: %{total: 3}}} =
+             DecisionProvider.list(%{"limit" => 1}, decision_store: store, decision_metrics: metrics)
+
+    assert row.decision_id == newest.decision_id
+    assert_receive {:metric_snapshot, newest_id}
+    assert newest_id == newest.decision_id
+    refute_receive {:metric_snapshot, _other_id}
+  end
+
+  test "exact retained detail keeps partial health without turning a missing ID into an outage", %{store: store} do
+    decision = request!(store, "partial-detail", ~U[2026-07-13 08:00:00Z])
+    :sys.replace_state(store, &Map.put(&1, :health, {:corrupt, 2, :invalid_record}))
+
+    assert {:ok, %{decision: detail, health: %{status: :partial, partial?: true}}} =
+             DecisionProvider.detail(decision.decision_id, decision_store: store, decision_metrics: make_ref())
+
+    assert detail.decision_id == decision.decision_id
+    assert {:error, :not_found} = DecisionProvider.detail("dec_missing", decision_store: store, decision_metrics: make_ref())
   end
 
   test "provider failure preserves retained scope and marks results unavailable" do
@@ -93,5 +159,21 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProviderTest do
 
     assert {:ok, %{open: nil, blocking: nil, health: %{status: :unavailable, partial?: true}}} =
              DecisionProvider.counts(decision_store: unavailable_store)
+  end
+
+  defp request!(store, source_id, now) do
+    assert {:ok, %{decision: decision}} =
+             DecisionStore.request(
+               %{
+                 "source_id" => source_id,
+                 "question" => "Should #{source_id} ship?",
+                 "blocking" => false,
+                 "reversibility" => "reversible"
+               },
+               [ticket: @ticket, source: @source, now: now],
+               store
+             )
+
+    decision
   end
 end

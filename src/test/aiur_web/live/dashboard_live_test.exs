@@ -180,7 +180,8 @@ defmodule AiurWeb.DashboardLiveTest do
       fleet_filters: FleetFilters.default(),
       selected_decision_id: selected_decision_id,
       selected_decision: selected_decision,
-      selected_decision_status: if(selected_decision, do: :available, else: :not_found)
+      selected_decision_status: if(selected_decision, do: :available, else: :not_found),
+      selected_decision_health: Keyword.get(opts, :selected_decision_health)
     }
 
     assigns
@@ -329,6 +330,49 @@ defmodule AiurWeb.DashboardLiveTest do
     assert detail_html =~ "&lt;script&gt;alert(&#39;no&#39;)&lt;/script&gt;"
     refute detail_html =~ "<script>alert('no')</script>"
     assert detail_html =~ "Read-only mode · mutation controls are hidden."
+  end
+
+  test "renders canonical retained counts and warns when retained detail data is partial" do
+    fleet_payload = %{
+      generated_at: "2026-07-12T12:00:00Z",
+      counts: %{running: 0, retrying: 0, idle: 0},
+      running: [],
+      retrying: [],
+      idle: [],
+      agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      rate_limits: nil
+    }
+
+    decision = dashboard_decision("dec-partial-retained")
+
+    merge_snapshot = %{
+      merges: [],
+      health: :ready,
+      reconciliation: %{status: :complete, partial?: false}
+    }
+
+    payload =
+      fleet_payload
+      |> ControlCenterPresenter.compose([decision], [], merge_snapshot)
+      |> Map.put(:retained_counts, %{
+        open: 73,
+        blocking: 4,
+        scope: %{kind: :retained, label: "All retained decisions"},
+        health: %{status: :partial, partial?: true, label: "Partial retained Decision data"}
+      })
+
+    html =
+      render_payload(fleet_payload,
+        payload: payload,
+        live_action: :decision,
+        selected_decision_id: decision.decision_id,
+        selected_decision_health: %{status: :partial, partial?: true}
+      )
+
+    assert html =~ "4 decisions are blocking agents"
+    assert html =~ "73 awaiting input in total"
+    assert html =~ "Partial retained Decision counts"
+    assert html =~ "Partial retained Decision data"
   end
 
   test "renders durable decision history, honest merge provenance, and the analytics link during a snapshot outage" do
@@ -577,6 +621,25 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ oldest.decision_id
     assert html =~ "Should the dashboard ship this change?"
     refute html =~ "Decision not found"
+  end
+
+  test "a missing Decision URL stays distinct from a retained-store outage" do
+    orchestrator_name = Module.concat(__MODULE__, :MissingRetainedDetailOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :MissingRetainedDetailStore)
+
+    start_decision_store(decision_store_name, fn _decision, _opts -> {:ok, %{status: :accepted, item: %{id: 508}}} end)
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name
+    )
+
+    {:ok, _view, html} = live(build_conn(), "/decisions/dec-retained-missing")
+    assert html =~ "Decision not found"
+    assert html =~ "No retained decision matches dec-retained-missing."
+    refute html =~ "Decision unavailable"
   end
 
   test "malformed filter and agent-log events do not crash the dashboard" do

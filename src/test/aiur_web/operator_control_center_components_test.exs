@@ -172,15 +172,24 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert filtered_html =~ "AIUR-5"
   end
 
-  test "decision banner targets an open decision and hides when none await input" do
+  test "decision banner uses canonical retained counts and hides when none await input" do
     answered = %{decision_id: "dec-answered", blocking: true, lifecycle: :resolved}
     open = %{decision_id: "dec-open", blocking: false, lifecycle: :recorded}
 
-    html = render_component(&Overview.decisions_banner/1, %{decisions: [answered, open]})
-    empty_html = render_component(&Overview.decisions_banner/1, %{decisions: [answered]})
+    html =
+      render_component(&Overview.decisions_banner/1, %{
+        decisions: [answered, open],
+        retained_counts: %{open: 1, blocking: 0, health: %{status: :available}}
+      })
 
-    assert html =~ ~s(href="/decisions/dec-open")
-    refute html =~ ~s(href="/decisions/dec-answered")
+    empty_html =
+      render_component(&Overview.decisions_banner/1, %{
+        decisions: [answered],
+        retained_counts: %{open: 0, blocking: 0, health: %{status: :available}}
+      })
+
+    assert html =~ ~s(href="/decisions")
+    assert html =~ "1 decision is awaiting you"
     refute empty_html =~ "decisions-banner"
   end
 

@@ -9,8 +9,14 @@ defmodule Aiur.DecisionQuery do
   cursor boundary.
   """
 
-  alias Aiur.Decision
+  alias Aiur.{Decision, DecisionStore}
   alias Aiur.DecisionQuery.{Params, StoreReader}
+
+  @default_store DecisionStore
+
+  @doc false
+  @spec default_store() :: module()
+  def default_store, do: @default_store
 
   @doc "Returns one exact retained Decision without consulting the overview window."
   @spec get(String.t(), keyword()) ::
@@ -32,8 +38,8 @@ defmodule Aiur.DecisionQuery do
 
   def list(params, opts) when is_map(params) and is_list(opts) do
     with {:ok, query} <- Params.parse(params) do
-      case StoreReader.read_all(store(opts)) do
-        {:ok, decisions, health} -> {:ok, retained_page(decisions, query, health)}
+      case StoreReader.read_query(query, store(opts)) do
+        {:ok, snapshot, health} -> {:ok, retained_page(snapshot, query, health)}
         {:error, :store_unavailable} -> {:ok, unavailable_page(query)}
       end
     end
@@ -44,56 +50,16 @@ defmodule Aiur.DecisionQuery do
   @doc "Returns canonical retained open and blocking counts with retention health."
   @spec counts(keyword()) :: {:ok, map()}
   def counts(opts \\ []) when is_list(opts) do
-    case StoreReader.read_all(store(opts)) do
-      {:ok, decisions, health} ->
-        open = Enum.filter(decisions, &(&1.decision_status == :open))
-
-        {:ok,
-         %{
-           open: length(open),
-           blocking: Enum.count(open, & &1.blocking),
-           scope: scope(),
-           health: health
-         }}
+    case StoreReader.read_counts(store(opts)) do
+      {:ok, counts, health} ->
+        {:ok, Map.merge(counts, %{scope: scope(), health: health})}
 
       {:error, :store_unavailable} ->
         {:ok, %{open: nil, blocking: nil, scope: scope(), health: StoreReader.unavailable_health()}}
     end
   end
 
-  defp store(opts), do: Keyword.get(opts, :store, DecisionStore)
-
-  defp matches?(%Decision{} = decision, query) do
-    lifecycle_matches?(decision, query.lifecycle) and
-      optional_match(query.ticket, decision.ticket.identifier) and
-      search_matches?(decision, query.search)
-  end
-
-  defp lifecycle_matches?(_decision, nil), do: true
-  defp lifecycle_matches?(decision, lifecycle), do: decision.decision_status == lifecycle
-
-  defp optional_match(nil, _actual), do: true
-  defp optional_match(expected, actual) when is_binary(actual), do: String.contains?(String.downcase(actual), String.downcase(expected))
-  defp optional_match(_expected, _actual), do: false
-
-  defp search_matches?(_decision, nil), do: true
-
-  defp search_matches?(decision, search) do
-    needle = String.downcase(search)
-    String.contains?(String.downcase(decision.decision_id), needle) or optional_match(search, decision.ticket.identifier)
-  end
-
-  defp sort_key(%Decision{} = decision) do
-    {DateTime.to_unix(decision.created_at, :microsecond), decision.decision_id}
-  end
-
-  defp after_cursor(decisions, nil), do: decisions
-  defp after_cursor(decisions, cursor), do: Enum.filter(decisions, &(sort_key(&1) < cursor_key(cursor)))
-  defp cursor_key(cursor), do: {DateTime.to_unix(cursor.created_at, :microsecond), cursor.decision_id}
-
-  defp split_page(decisions, limit) do
-    {Enum.take(decisions, limit), length(decisions) > limit}
-  end
+  defp store(opts), do: Keyword.get(opts, :store, @default_store)
 
   defp next_cursor([], _has_next?), do: nil
   defp next_cursor(_items, false), do: nil
@@ -107,24 +73,21 @@ defmodule Aiur.DecisionQuery do
 
   defp cursor_for(%Decision{} = decision), do: %{created_at: decision.created_at, decision_id: decision.decision_id}
 
-  defp retained_page(decisions, query, health) do
-    retained = decisions |> Enum.filter(&matches?(&1, query)) |> Enum.sort_by(&sort_key/1, :desc)
-    page = retained |> after_cursor(query.cursor) |> Enum.take(query.limit + 1)
-    {items, has_next?} = split_page(page, query.limit)
-
+  defp retained_page(snapshot, query, health) do
     %{
-      decisions: items,
+      decisions: snapshot.decisions,
       scope: scope(),
       health: health,
       partial_results?: health.partial?,
       pagination: %{
         limit: query.limit,
         cursor: query.cursor && encode_cursor(query.cursor),
-        next_cursor: next_cursor(items, has_next?),
-        total: length(retained),
-        label: pagination_label(query.limit, has_next?)
+        next_cursor: next_cursor(snapshot.decisions, snapshot.has_next?),
+        total: snapshot.total,
+        label: pagination_label(query.limit, snapshot.has_next?)
       },
-      filters: Map.take(query, [:lifecycle, :search, :ticket])
+      filters: Map.take(query, [:lifecycle, :search, :ticket]),
+      counts: snapshot.counts
     }
   end
 

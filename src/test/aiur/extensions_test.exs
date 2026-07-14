@@ -93,6 +93,8 @@ defmodule Aiur.ExtensionsTest do
   defmodule StaticDecisionStore do
     use GenServer
 
+    alias Aiur.DecisionStore.RetainedSnapshot
+
     def start_link(opts) do
       name = Keyword.fetch!(opts, :name)
       GenServer.start_link(__MODULE__, Keyword.fetch!(opts, :decisions), name: name)
@@ -105,6 +107,23 @@ defmodule Aiur.ExtensionsTest do
         nil -> {:reply, {:error, :not_found}, decisions}
         decision -> {:reply, {:ok, decision}, decisions}
       end
+    end
+
+    def handle_call({:retained_lookup, decision_id}, _from, decisions) do
+      decision = Enum.find(decisions, &(&1.decision_id == decision_id))
+      {:reply, {:ok, %{decision: decision, health: :writable}}, decisions}
+    end
+
+    def handle_call({:retained_query, query}, _from, decisions) do
+      current = Map.new(decisions, &{&1.decision_id, &1})
+      index = RetainedSnapshot.build_index(current)
+
+      {:reply, RetainedSnapshot.query(current, index, :writable, query), decisions}
+    end
+
+    def handle_call(:retained_counts, _from, decisions) do
+      current = Map.new(decisions, &{&1.decision_id, &1})
+      {:reply, RetainedSnapshot.counts(current, :writable), decisions}
     end
 
     def handle_call(:list, _from, decisions), do: {:reply, decisions, decisions}

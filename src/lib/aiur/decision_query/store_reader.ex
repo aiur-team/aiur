@@ -13,37 +13,40 @@ defmodule Aiur.DecisionQuery.StoreReader do
   @spec read_one(String.t(), GenServer.server()) ::
           {:ok, Decision.t(), health()} | {:error, :not_found | :store_unavailable}
   def read_one(decision_id, store) do
-    with {:ok, health} <- read_health(store),
-         result <- safe_store_call(fn -> DecisionStore.get(decision_id, store) end) do
-      case result do
-        {:ok, %Decision{} = decision} -> {:ok, decision, health}
-        {:error, :not_found} when health.status == :available -> {:error, :not_found}
-        _other -> {:error, :store_unavailable}
-      end
+    case safe_store_call(fn -> DecisionStore.retained_lookup(decision_id, store) end) do
+      {:ok, %{decision: %Decision{} = decision, health: store_health}} -> {:ok, decision, health(store_health)}
+      {:ok, %{decision: nil}} -> {:error, :not_found}
+      _unavailable -> {:error, :store_unavailable}
     end
   end
 
-  @spec read_all(GenServer.server()) :: {:ok, [Decision.t()], health()} | {:error, :store_unavailable}
-  def read_all(store) do
-    with {:ok, health} <- read_health(store),
-         decisions when is_list(decisions) <- safe_store_call(fn -> DecisionStore.list(store) end) do
-      {:ok, decisions, health}
-    else
-      _invalid -> {:error, :store_unavailable}
+  @spec read_query(map(), GenServer.server()) :: {:ok, map(), health()} | {:error, :store_unavailable}
+  def read_query(query, store) do
+    case safe_store_call(fn -> DecisionStore.retained_query(query, store) end) do
+      {:ok, %{decisions: decisions, counts: counts, health: store_health} = snapshot}
+      when is_list(decisions) and is_map(counts) ->
+        {:ok, Map.drop(snapshot, [:health]), health(store_health)}
+
+      _unavailable ->
+        {:error, :store_unavailable}
+    end
+  end
+
+  @spec read_counts(GenServer.server()) :: {:ok, map(), health()} | {:error, :store_unavailable}
+  def read_counts(store) do
+    case safe_store_call(fn -> DecisionStore.retained_counts(store) end) do
+      {:ok, %{counts: %{open: open, blocking: blocking}, health: store_health}}
+      when is_integer(open) and is_integer(blocking) ->
+        {:ok, %{open: open, blocking: blocking}, health(store_health)}
+
+      _unavailable ->
+        {:error, :store_unavailable}
     end
   end
 
   @spec unavailable_health() :: health()
   def unavailable_health do
     %{status: :unavailable, partial?: true, reason: :retained_store_unavailable, label: "Retained Decision data unavailable"}
-  end
-
-  defp read_health(store) do
-    case safe_store_call(fn -> DecisionStore.health(store) end) do
-      :writable -> {:ok, available_health()}
-      {:corrupt, _count, _reason} -> {:ok, partial_health()}
-      _unavailable -> {:error, :store_unavailable}
-    end
   end
 
   defp safe_store_call(fun) do
@@ -61,4 +64,8 @@ defmodule Aiur.DecisionQuery.StoreReader do
   defp partial_health do
     %{status: :partial, partial?: true, reason: :retained_store_partial, label: "Partial retained Decision data"}
   end
+
+  defp health(:writable), do: available_health()
+  defp health({:corrupt, _line, _reason}), do: partial_health()
+  defp health(_unavailable), do: unavailable_health()
 end
