@@ -3,7 +3,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
   import ExUnit.CaptureLog
 
-  alias Aiur.AgentRunner.ToolExecutor
+  alias Aiur.AgentRunner.{SessionLifecycle, ToolExecutor}
   alias Aiur.{DecisionStore, Issue}
   alias Aiur.Events.{Exchange, SubscriptionStore}
 
@@ -300,6 +300,88 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert decision.ticket.identifier == identifier
       assert decision.source.agent_id == "codex"
       assert decision.source.session_id == "thread-abc"
+    end
+
+    test "captures only trusted runtime/session provenance" do
+      identifier = "TE-decision-provenance-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{
+          backend: "codex",
+          model: "gpt-5.6-terra",
+          thread_id: "thread-abc",
+          attempt_id: "attempt-123"
+        })
+
+      executor.("emit_event", %{
+        "name" => "decision.requested",
+        "message" => "Use the trusted session?",
+        "payload" => %{
+          "blocking" => true,
+          "provenance" => %{
+            "backend" => "forged",
+            "requested_model" => "forged-model",
+            "session_id" => "forged-session"
+          }
+        }
+      })
+
+      [decision] = Aiur.DecisionStore.list() |> Enum.filter(&(&1.ticket.identifier == identifier))
+      assert decision.provenance.agent_family == "codex"
+      assert decision.provenance.backend == "codex"
+      assert decision.provenance.requested_model == "gpt-5.6-terra"
+      assert decision.provenance.session_id == "thread-abc"
+      assert decision.provenance.attempt_id == "attempt-123"
+      assert decision.provenance.resolved_model == nil
+    end
+
+    test "leaves provenance unknown when runner context is unavailable" do
+      identifier = "TE-decision-provenance-unknown-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      executor = ToolExecutor.build(issue, nil, nil, %{})
+
+      executor.("emit_event", %{
+        "name" => "decision.requested",
+        "message" => "Accept without runtime context?",
+        "payload" => %{"blocking" => true}
+      })
+
+      [decision] = Aiur.DecisionStore.list() |> Enum.filter(&(&1.ticket.identifier == identifier))
+      assert decision.provenance == nil
+    end
+
+    test "captures the actual fallback backend rather than the failed transport" do
+      identifier = "TE-decision-provenance-fallback-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+
+      start_fun = fn _workspace, opts ->
+        case Keyword.fetch!(opts, :backend) do
+          "claude-repl" -> {:error, :repl_not_ready}
+          "claude" -> {:ok, %{model: "sonnet", thread_id: "thread-fallback"}}
+        end
+      end
+
+      assert {:ok, session} =
+               SessionLifecycle.start_agent_session(
+                 "/ws",
+                 [backend: "claude-repl", model: "sonnet", attempt_id: "attempt-fallback"],
+                 start_fun
+               )
+
+      executor = ToolExecutor.build(issue, nil, nil, session)
+
+      executor.("emit_event", %{
+        "name" => "decision.requested",
+        "message" => "Use the active backend?",
+        "payload" => %{"blocking" => true}
+      })
+
+      [decision] = Aiur.DecisionStore.list() |> Enum.filter(&(&1.ticket.identifier == identifier))
+      assert decision.provenance.agent_family == "claude"
+      assert decision.provenance.backend == "claude"
+      assert decision.provenance.requested_model == "sonnet"
+      assert decision.provenance.attempt_id == "attempt-fallback"
     end
 
     test "an omitted payload question falls back to the tool message" do

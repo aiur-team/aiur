@@ -10,7 +10,7 @@ defmodule Aiur.DecisionHistory do
   be human or supervising-agent decisions.
   """
 
-  alias Aiur.{Decision, DecisionEvent, DecisionRevision, DecisionStore}
+  alias Aiur.{Decision, DecisionDelegation, DecisionEvent, DecisionProvenance, DecisionRevision, DecisionStore}
 
   @default_limit 50
   @actor_types %{
@@ -88,6 +88,13 @@ defmodule Aiur.DecisionHistory do
 
   @doc "Projects one canonical history record into the Executor-facing shape."
   @spec project_record(map()) :: map()
+  def project_record(%DecisionEvent{type: :requested, data: %Decision{} = decision} = event) do
+    decision
+    |> project_record()
+    |> Map.put(:changed_at, DateTime.to_iso8601(event.occurred_at))
+    |> Map.put(:source_version, event.decision_version)
+  end
+
   def project_record(%DecisionEvent{} = event), do: project_event(event, %{}, %{})
 
   def project_record(record) when is_map(record) do
@@ -104,6 +111,7 @@ defmodule Aiur.DecisionHistory do
       decision_id: value(record, :decision_id),
       ticket: ticket(value(record, :ticket)),
       question: value(record, :question),
+      provenance: provenance(value(record, :provenance)),
       source_version: version,
       changed_at: changed_at(record, answer, revision, follow_up),
       change: change,
@@ -114,6 +122,7 @@ defmodule Aiur.DecisionHistory do
       revision_result: first_value([value(record, :revision_result), value(revision, :result)]),
       choice: choice(record, answer, revision_answer),
       rationale: first_value([value(record, :rationale), value(revision, :reason), value(answer, :rationale)]),
+      supervisor_basis: supervisor_basis(answer, revision_answer),
       dispatch_result: value(record, :dispatch_result),
       acknowledgement_result: value(record, :acknowledgement_result),
       revision_of: revision_of,
@@ -150,6 +159,7 @@ defmodule Aiur.DecisionHistory do
       decision_version: event.decision_version,
       ticket: context && context.ticket,
       question: context && context.question,
+      provenance: context && provenance(value(context, :provenance)),
       recorded_at: event.occurred_at,
       event_kind: event.type
     }
@@ -387,6 +397,32 @@ defmodule Aiur.DecisionHistory do
     if not is_nil(value(record, :prior_action_id)) and is_integer(value(record, :sequence)),
       do: record,
       else: nil
+  end
+
+  defp provenance(nil), do: nil
+
+  defp provenance(%DecisionProvenance{} = provenance), do: DecisionProvenance.to_json_safe(provenance)
+
+  defp provenance(raw) when is_map(raw) do
+    case DecisionProvenance.from_json_safe(raw) do
+      {:ok, provenance} -> DecisionProvenance.to_json_safe(provenance)
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp provenance(_raw), do: nil
+
+  defp supervisor_basis(answer, revision_answer) do
+    case first_value([value(answer, :supervisor_basis), value(revision_answer, :supervisor_basis)]) do
+      basis when is_map(basis) ->
+        case DecisionDelegation.validate_basis(basis) do
+          {:ok, normalized} -> DecisionDelegation.to_json_safe(normalized)
+          {:error, _reason} -> nil
+        end
+
+      _other ->
+        nil
+    end
   end
 
   defp map_value(map, key) do

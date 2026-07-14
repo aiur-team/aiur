@@ -147,6 +147,38 @@ defmodule Aiur.DecisionProjectionTest do
       assert decoded.content_hash == decision.content_hash
     end
 
+    test "trusted runtime provenance survives the round trip and is event-hash protected" do
+      provenance = %{
+        agent_family: "codex",
+        backend: "codex",
+        requested_model: "gpt-5.6-terra",
+        session_id: "thread-123",
+        attempt_id: "attempt-456",
+        source: "agent_runner"
+      }
+
+      decision = build_decision(%{"source_id" => "trusted-provenance"}, provenance: provenance)
+      raw = persisted_raw(decision)
+
+      assert {:ok, decoded} = DecisionProjection.decode_record(raw)
+      assert decoded.provenance.backend == "codex"
+      assert decoded.provenance.session_id == "thread-123"
+
+      assert {:ok, request_event} =
+               DecisionEvent.new(:requested, decision.decision_id, decision.version, decision,
+                 event_id: "evt-provenance",
+                 run_id: "run-provenance",
+                 now: ~U[2026-07-13 12:01:00Z]
+               )
+
+      tampered =
+        request_event
+        |> DecisionEvent.to_json_safe()
+        |> put_in(["data", "provenance", "backend"], "forged")
+
+      assert DecisionProjection.decode_record(tampered) == {:error, :event_content_hash_mismatch}
+    end
+
     test "records written before legacy provenance existed keep their content hash" do
       decision = build_decision(%{"source_id" => "pre-occ-2"})
       raw = persisted_raw(decision)
@@ -219,10 +251,19 @@ defmodule Aiur.DecisionProjectionTest do
 
     test "lifecycle events keep decision and delivery state independent" do
       request =
-        build_decision(%{
-          "source_id" => "lifecycle-1",
-          "options" => [%{"id" => "ship", "label" => "Ship it"}]
-        })
+        build_decision(
+          %{
+            "source_id" => "lifecycle-1",
+            "options" => [%{"id" => "ship", "label" => "Ship it"}]
+          },
+          provenance: %{
+            backend: "codex",
+            requested_model: "gpt-5.6-terra",
+            session_id: "thread-123",
+            attempt_id: "attempt-456",
+            source: "agent_runner"
+          }
+        )
 
       accepted = answer(request)
 
@@ -249,6 +290,8 @@ defmodule Aiur.DecisionProjectionTest do
       assert [%{attempt_id: "attempt-1", queue_item_id: 17, status: :delivered}] = current.dispatch_attempts
       assert current.acknowledgement.action_id == accepted.action_id
       assert current.resolution.action_id == accepted.action_id
+      assert current.provenance.backend == "codex"
+      assert current.provenance.session_id == "thread-123"
       assert length(result.audit_history[request.decision_id]) == 6
     end
 
@@ -397,6 +440,38 @@ defmodule Aiur.DecisionProjectionTest do
       assert [%{attempt_id: "attempt-1"}] = updated.dispatch_attempts
       assert Enum.map(result.history[request.decision_id], & &1.version) == [1, 2]
       assert List.last(result.audit_history[request.decision_id]).data.actor == enrichment.actor
+    end
+
+    test "rejects an enrichment that changes captured provenance" do
+      request =
+        build_decision(
+          %{"source_id" => "provenance-immutable"},
+          provenance: %{backend: "codex", session_id: "thread-123", source: "agent_runner"}
+        )
+
+      tampered = %{
+        request
+        | version: 2,
+          provenance: %{request.provenance | backend: "forged"}
+      }
+
+      assert {:ok, enrichment} =
+               DecisionEvent.new(
+                 :enriched,
+                 request.decision_id,
+                 2,
+                 %{
+                   decision: tampered,
+                   actor: %{kind: :supervisor, id: "supervising-agent"},
+                   expected_version: 1
+                 },
+                 event_id: "evt-provenance-tampered",
+                 run_id: "run-provenance-tampered",
+                 now: ~U[2026-07-13 12:01:00Z]
+               )
+
+      assert {_, {:corrupt, 2, {:invalid_transition, :enrichment_forbidden_change}}} =
+               DecisionProjection.reduce_checked([request, enrichment])
     end
 
     test "a revision preserves the original answer and advances the active action" do

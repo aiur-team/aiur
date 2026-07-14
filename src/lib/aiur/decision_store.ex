@@ -2585,7 +2585,13 @@ defmodule Aiur.DecisionStore do
   defp put_audit_context(payload, state, decision_id, version) do
     case request_version(state, decision_id, version) || Map.get(state.current, decision_id) do
       %Decision{} = decision ->
-        context = %{version: decision.version, ticket: decision.ticket, question: decision.question}
+        context = %{
+          version: decision.version,
+          ticket: decision.ticket,
+          question: decision.question,
+          provenance: decision.provenance
+        }
+
         contexts = Map.update(payload.contexts, decision_id, %{version => context}, &Map.put(&1, version, context))
         %{payload | contexts: contexts}
 

@@ -870,6 +870,33 @@ defmodule Aiur.DecisionStoreTest do
       assert DecisionStore.health(pid2) == :writable
     end
 
+    test "trusted provenance remains attached to its accepted version after replay", %{dir: dir} do
+      pid1 = start_store!(dir)
+
+      provenance = %{
+        agent_family: "codex",
+        backend: "codex",
+        requested_model: "gpt-5.6-terra",
+        session_id: "thread-123",
+        attempt_id: "attempt-456",
+        source: "agent_runner"
+      }
+
+      assert {:ok, %{decision: accepted}} =
+               request(pid1, %{"question" => "Keep runtime facts?", "blocking" => true}, provenance: provenance)
+
+      GenServer.stop(pid1)
+      pid2 = start_store!(dir)
+
+      assert {:ok, replayed} = DecisionStore.get(accepted.decision_id, pid2)
+      assert replayed.provenance == accepted.provenance
+      assert {:ok, [^replayed]} = DecisionStore.history(accepted.decision_id, pid2)
+
+      assert [history] = DecisionHistory.list(server: pid2, limit: 1)
+      assert history.provenance["backend"] == "codex"
+      assert history.provenance["session_id"] == "thread-123"
+    end
+
     test "a decision with an artifact survives restart without being flagged as corrupt", %{dir: dir} do
       pid1 = start_store!(dir)
 

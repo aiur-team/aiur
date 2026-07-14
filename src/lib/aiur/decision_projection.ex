@@ -10,7 +10,7 @@ defmodule Aiur.DecisionProjection do
   returns the usable prefix plus its exact corrupt line.
   """
 
-  alias Aiur.{Decision, DecisionAnswer, DecisionEvent, DecisionRevision, DecisionValidation}
+  alias Aiur.{Decision, DecisionAnswer, DecisionEvent, DecisionProvenance, DecisionRevision, DecisionValidation}
 
   @type projection :: %{
           current: %{String.t() => Decision.t()},
@@ -38,14 +38,16 @@ defmodule Aiur.DecisionProjection do
          {:ok, version} <- fetch_pos_integer(raw, "version", :version),
          {:ok, persisted_decision_id} <- fetch_string(raw, "decision_id", :decision_id),
          {:ok, persisted_content_hash} <- fetch_string(raw, "content_hash", :content_hash),
-         {:ok, created_at} <- fetch_timestamp(raw, "created_at", :created_at) do
+         {:ok, created_at} <- fetch_timestamp(raw, "created_at", :created_at),
+         {:ok, provenance} <- decode_provenance(Map.get(raw, "provenance", Map.get(raw, :provenance))) do
       replay_payload = Map.put(raw, "created_at", Map.get(raw, "source_created_at"))
 
       case DecisionValidation.normalize(replay_payload,
              ticket: ticket,
              source: source,
              now: created_at,
-             legacy_attention: Map.get(raw, "legacy_attention")
+             legacy_attention: Map.get(raw, "legacy_attention"),
+             provenance: provenance
            ) do
         {:ok, decision} -> verify_request_hash(decision, persisted_decision_id, version, persisted_content_hash)
         {:error, reason} -> {:error, reason}
@@ -189,7 +191,8 @@ defmodule Aiur.DecisionProjection do
       :question,
       :created_at,
       :source_created_at,
-      :legacy_attention
+      :legacy_attention,
+      :provenance
     ]
 
     if Map.take(current, immutable_fields) == Map.take(candidate, immutable_fields) do
@@ -713,6 +716,7 @@ defmodule Aiur.DecisionProjection do
       "resolutions" => stringify_action_map(decision.resolutions, &fact_to_json_safe/1)
     }
     |> maybe_put_legacy_attention(decision.legacy_attention)
+    |> maybe_put_provenance(decision.provenance)
   end
 
   @doc "Normalized request-shaped content for adapter-owned enrichment merges."
@@ -819,6 +823,15 @@ defmodule Aiur.DecisionProjection do
   defp maybe_put_legacy_attention(map, legacy_attention) do
     Map.put(map, "legacy_attention", stringify_keys(legacy_attention))
   end
+
+  defp maybe_put_provenance(map, nil), do: map
+
+  defp maybe_put_provenance(map, provenance) do
+    Map.put(map, "provenance", DecisionProvenance.to_json_safe(provenance))
+  end
+
+  defp decode_provenance(nil), do: {:ok, nil}
+  defp decode_provenance(provenance), do: DecisionProvenance.from_json_safe(provenance)
 
   defp maybe_put_source_created_at(payload, nil), do: payload
 
