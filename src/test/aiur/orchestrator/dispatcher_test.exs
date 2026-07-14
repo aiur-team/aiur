@@ -3,7 +3,9 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
   import ExUnit.CaptureLog
 
+  alias Aiur.AgentRunner.{SessionLifecycle, ToolExecutor}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, State}
+  alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
   setup do
     previous_meminfo = Application.get_env(:aiur, :meminfo_source_override)
@@ -188,6 +190,50 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
       refute Map.has_key?(result.codex_thrash_budget, "issue-1")
       assert Map.has_key?(result.codex_thrash_budget, "issue-2")
+    end
+  end
+
+  describe "dispatch attempt provenance" do
+    test "telemetry-disabled dispatch options reach accepted Decision provenance" do
+      identifier = "dispatcher-decision-#{System.unique_integer([:positive])}"
+      issue = %Issue{id: identifier, identifier: identifier, state: "todo", selected_backend: "codex"}
+      test_pid = self()
+
+      refute TelemetryLifecycle.enabled?()
+
+      runner = fn dispatched_issue, recipient, opts ->
+        send(test_pid, {:agent_runner_run, dispatched_issue, recipient, opts})
+        :ok
+      end
+
+      state = %State{max_concurrent_agents: 1, effective_concurrent_agents: 1}
+
+      next_state = Dispatcher.do_dispatch_issue(state, issue, nil, nil, runner: runner)
+
+      assert_receive {:agent_runner_run, ^issue, _recipient, runner_opts}
+      assert attempt_id = Keyword.fetch!(runner_opts, :telemetry_attempt_id)
+      assert is_binary(attempt_id)
+      assert get_in(next_state.running, [issue.id, :telemetry_attempt_id]) == attempt_id
+
+      start_fun = fn _workspace, _opts -> {:ok, %{model: "gpt-5.6-terra", thread_id: "thread-dispatch"}} end
+
+      assert {:ok, session} =
+               SessionLifecycle.start_agent_session(
+                 "/ws",
+                 [backend: "codex", model: "gpt-5.6-terra", attempt_id: attempt_id],
+                 start_fun
+               )
+
+      executor = ToolExecutor.build(issue, nil, nil, session)
+
+      assert executor.("emit_event", %{
+               "name" => "decision.requested",
+               "message" => "Keep the dispatch attempt?",
+               "payload" => %{"blocking" => true}
+             })["success"] == true
+
+      [decision] = Aiur.DecisionStore.list() |> Enum.filter(&(&1.ticket.identifier == identifier))
+      assert decision.provenance.attempt_id == attempt_id
     end
   end
 

@@ -204,6 +204,12 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   @spec do_dispatch_issue(State.t(), term(), term(), term()) :: State.t()
   def do_dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host) do
+    do_dispatch_issue(state, issue, attempt, preferred_worker_host, [])
+  end
+
+  @doc false
+  @spec do_dispatch_issue(State.t(), term(), term(), term(), keyword()) :: State.t()
+  def do_dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host, opts) when is_list(opts) do
     case CodingAgent.select_for_dispatch(issue) do
       {:all_limited, candidates} ->
         if MapSet.member?(state.model_fallback_waiting, issue.id) do
@@ -223,8 +229,17 @@ defmodule Aiur.Orchestrator.Dispatcher do
         state = %{state | model_fallback_waiting: MapSet.delete(state.model_fallback_waiting, selected_issue.id)}
 
         case check_thrash_budget(state, selected_issue.id, System.monotonic_time(:millisecond)) do
-          {:trip, tripped_state} -> trip_thrash_breaker(tripped_state, selected_issue)
-          {:ok, budgeted_state} -> dispatch_to_worker(budgeted_state, selected_issue, attempt, preferred_worker_host)
+          {:trip, tripped_state} ->
+            trip_thrash_breaker(tripped_state, selected_issue)
+
+          {:ok, budgeted_state} ->
+            dispatch_to_worker(
+              budgeted_state,
+              selected_issue,
+              attempt,
+              preferred_worker_host,
+              Keyword.get(opts, :runner, &AgentRunner.run/3)
+            )
         end
     end
   end
@@ -442,7 +457,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
        ),
        do: index
 
-  defp dispatch_to_worker(%State{} = state, issue, attempt, preferred_worker_host) do
+  defp dispatch_to_worker(%State{} = state, issue, attempt, preferred_worker_host, runner) do
     recipient = self()
 
     case Slots.select_worker_host(state, preferred_worker_host) do
@@ -452,7 +467,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         state
 
       worker_host ->
-        spawn_issue_on_worker_host(state, issue, attempt, recipient, worker_host)
+        spawn_issue_on_worker_host(state, issue, attempt, recipient, worker_host, runner)
     end
   end
 
@@ -471,14 +486,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
     state
   end
 
-  @doc false
-  @spec dispatch_attempt_id(String.t()) :: String.t()
-  def dispatch_attempt_id(issue_identifier) when is_binary(issue_identifier) do
-    TelemetryLifecycle.new_attempt_id(issue_identifier)
-  end
-
-  defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host) do
-    lifecycle_attempt_id = dispatch_attempt_id(issue.identifier)
+  defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host, runner) do
+    lifecycle_attempt_id = TelemetryLifecycle.new_attempt_id(issue.identifier)
 
     if TelemetryLifecycle.enabled?() do
       TelemetryLifecycle.record(issue.identifier, lifecycle_attempt_id, :dispatch, :point, %{
@@ -490,7 +499,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end
 
     case Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
-           AgentRunner.run(issue, recipient,
+           runner.(issue, recipient,
              attempt: attempt,
              telemetry_attempt_id: lifecycle_attempt_id,
              worker_host: worker_host,
