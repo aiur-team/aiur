@@ -577,15 +577,32 @@ to a safe range.
     origin persistence, post-mutation verification failures, top-level PR
     comments, atomic completed-runner replacement, pre-queue origin filtering,
     bootstrap filtering, and the binding reply→CI-wait→poller end-to-end test.
+62. Phase 1 P1 #1162 reproduced the logs-only workspace race on first pickup:
+    `before_run` failed, the transient workspace contained only agent logs, and
+    the directory then disappeared. This is a new production occurrence of
+    existing Ad Hoc #1161, not a new ticket. #1161 was promoted to Phase 1 and
+    `agent:todo`; after the safe daemon restart both #1161 and #1162 provisioned
+    complete git workspaces and began Codex Terra/Sol turns successfully.
+63. At 03:21 PDT the Executor restarted Aiur from the repository root in
+    background debug mode after #1090 and #1103 had committed and pushed all
+    source changes. The non-loopback dashboard correctly refused to bind until
+    local gitignored basic-auth credentials were restored; never copy those
+    credentials into this handoff, issues, commits, or logs. The authenticated
+    dashboard is live on the configured Tailscale address and the debug run now
+    preserves `aiur.log` plus telemetry evidence.
+64. Unrelated deferred reliability issue #855 still carried stale
+    `agent:in-progress`, so startup restored it as a reserved paused row. The
+    Executor moved it to `agent:human-review`; it is deactivated, consumes no
+    worker or reserved capacity, and must not re-enter the Build Order run.
 
-At 03:01 PDT the core graph is 4/54 accepted. Core
-#1088/#1090/#1091/#1096/#1103/#1111 are resident Codex workers, but #1088,
-#1091, #1096, and #1111 are stranded behind #1162's diagnosed completion-
-accounting defect. DASH-017/#1089 is paused for dual exact-head review,
-DASH-001/#1108 is cleanly requeued after workspace quarantine, and Ad Hoc
-#1151 is in dual-review rework. Direct blocker #1030 and DASH-019/#1123 remain
-held. Restart only when #1090 and #1103 reach safe turn boundaries, then restore
-the maximum safe fleet without changing the 54-ticket denominator.
+At 03:29 PDT the core graph is 4/54 accepted. The recovered adaptive fleet is
+at seven active Build Order workers with no reserved paused slots:
+#1088/#1089/#1090/#1091/#1096 plus Phase 1 Ad Hoc #1161/#1162. The soft
+envelope continues to grow toward 16 while measured load remains below the
+configured target. #1103 has a persisted PR and exact lint/Dialyzer rework
+contract; #1111, #1108, and #1151 are the next eligible tickets. DASH-019/#1123
+remains intentionally held. Every live provider is Codex Sol or Terra; do not
+dispatch Claude.
 Treat
 completed turns, stale bases, and green builds with unmet acceptance criteria
 as pending Executor work, not merge-ready truth.
