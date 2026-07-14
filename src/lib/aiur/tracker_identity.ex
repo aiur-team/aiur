@@ -137,6 +137,16 @@ defmodule Aiur.TrackerIdentity do
 
   def joinable?(_identity), do: false
 
+  @doc false
+  @spec github_key(term()) :: {:github, String.t(), String.t(), String.t()} | nil
+  def github_key(%__MODULE__{} = identity) do
+    if joinable?(identity) do
+      {:github, String.downcase(identity.owner), String.downcase(identity.repository), identity.provider_id}
+    end
+  end
+
+  def github_key(_identity), do: nil
+
   defp normalize_repository({owner, repository}, reason) do
     with {:ok, owner} <- repository_part(owner),
          {:ok, repository} <- repository_part(repository) do

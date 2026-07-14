@@ -179,6 +179,42 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
              GitHubGraph.fetch_catalog(base_opts(malformed))
   end
 
+  test "rejects omitted terminal PageInfo cursors for outer and inner connections" do
+    root = root(1)
+
+    catalog = without_terminal_cursor(catalog_response([root], 1), ["data", "repository", "issues"])
+
+    assert {:error, %{error: :schema, calls: 1, pages: 1, candidate: nil, diagnostics: catalog_diagnostics}} =
+             GitHubGraph.fetch_catalog(base_opts(catalog))
+
+    assert :provider_schema in Enum.map(catalog_diagnostics, & &1.code)
+
+    selected = without_terminal_cursor(selected_response(root, [], 0), ["data", "repository", "issue", "subIssues"])
+
+    assert {:error, %{error: :schema, calls: 1, pages: 1, candidate: nil, diagnostics: selected_diagnostics}} =
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected))
+
+    assert :provider_schema in Enum.map(selected_diagnostics, & &1.code)
+
+    malformed_root = Map.update!(root, "labels", &without_terminal_cursor/1)
+
+    assert {:error, %{error: :structurally_invalid, candidate: selected}} =
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(malformed_root, [], 0)))
+
+    assert :invalid_label_connection in Enum.map(selected.root.diagnostics, & &1.code)
+
+    for {key, count_key} <- [{"blockedBy", :blocked_by}, {"blocking", :blocking}] do
+      child = Map.put(member(2, root), key, dependency_connection([endpoint(9)]) |> without_terminal_cursor())
+
+      assert {:error, %{error: :structurally_invalid, candidate: selected}} =
+               GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, [child], 1)))
+
+      [selected_member] = selected.members
+      assert selected_member.connection_counts[count_key] == 1
+      assert :connection_overflow in Enum.map(selected_member.diagnostics, & &1.code)
+    end
+  end
+
   test "classifies malformed HTTP-200 envelopes as provider schema failures" do
     root = root(1)
 
@@ -1132,6 +1168,14 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
         "endCursor" => Keyword.get(opts, :cursor)
       }
     }
+  end
+
+  defp without_terminal_cursor({:ok, %{body: body} = response}, path) do
+    {:ok, %{response | body: update_in(body, path, &without_terminal_cursor/1)}}
+  end
+
+  defp without_terminal_cursor(connection) do
+    update_in(connection, ["pageInfo"], &Map.delete(&1, "endCursor"))
   end
 
   defp root(number) do

@@ -174,6 +174,15 @@ defmodule Aiur.BuildOrder.CatalogTest do
     assert {:ok, ^valid} = Catalog.select(catalog, relocated)
   end
 
+  test "catalog lookup case-folds canonical GitHub repository identity" do
+    valid = root(1)
+    mixed_case = %{valid.identity | owner: "Owner", repository: "Repo"}
+    catalog = Catalog.new([valid], ProviderHealth.new(1, :healthy, true))
+
+    assert TrackerIdentity.joinable?(mixed_case)
+    assert {:ok, ^valid} = Catalog.select(catalog, mixed_case)
+  end
+
   test "record constructors reject untyped inputs without raising" do
     assert %{identity: nil, diagnostics: diagnostics} = RootSummary.new(:invalid)
     assert :invalid_identity in Enum.map(diagnostics, & &1.code)
