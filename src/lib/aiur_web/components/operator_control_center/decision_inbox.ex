@@ -16,6 +16,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
   ]
 
   attr(:decisions, :list, required: true)
+  attr(:selected_decision, :map, default: nil)
   attr(:selected_decision_id, :string, default: nil)
   attr(:filter, :atom, default: :all)
   attr(:now, :any, required: true)
@@ -26,7 +27,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
 
   @spec decision_inbox(map()) :: Phoenix.LiveView.Rendered.t()
   def decision_inbox(assigns) do
-    decisions = filtered(assigns.decisions, assigns.filter)
+    decisions = assigns.decisions |> filtered(assigns.filter) |> include_selected(assigns.selected_decision)
 
     assigns =
       assigns
@@ -106,6 +107,12 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
   defp filtered(decisions, :resolved), do: Enum.filter(decisions, &(&1.decision_status == :resolved))
   defp filtered(decisions, :superseded), do: Enum.filter(decisions, &Map.get(&1, :superseded?, false))
   defp filtered(decisions, _filter), do: decisions
+
+  defp include_selected(decisions, nil), do: decisions
+
+  defp include_selected(decisions, selected) do
+    if Enum.any?(decisions, &(&1.decision_id == selected.decision_id)), do: decisions, else: [selected | decisions]
+  end
 
   defp open?(decision), do: decision.decision_status == :open
   defp blocking?(decision), do: decision.blocking and open?(decision)

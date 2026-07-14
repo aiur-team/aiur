@@ -6,7 +6,7 @@ defmodule AiurWeb.DashboardLive do
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
   alias Aiur.{AgentChat, DecisionPubSub}
-  alias AiurWeb.{ControlCenterPresenter, Endpoint, ObservabilityPubSub}
+  alias AiurWeb.{Endpoint, ObservabilityPubSub}
 
   alias AiurWeb.OperatorControlCenter.{
     AgentLogModal,
@@ -48,6 +48,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:writable, dashboard_writable?())
       |> assign(:decision_filter, :all)
       |> assign(:fleet_filters, FleetFilters.default())
+      |> assign(:selected_decision_status, :none)
       |> assign_selected_decision(params["decision_id"])
       |> PayloadLoader.mark_loaded()
 
@@ -188,11 +189,12 @@ defmodule AiurWeb.DashboardLive do
 
       <div :if={@live_action in [:decisions, :decision]} class="control-panel">
         <div :if={@live_action == :decision and is_nil(@selected_decision)} class="error-card" role="alert">
-          <h2>Decision not found</h2>
-          <p>No current decision matches <span class="mono">{@selected_decision_id}</span>.</p>
+          <h2>{selected_decision_error_title(@selected_decision_status)}</h2>
+          <p>{selected_decision_error_message(@selected_decision_status, @selected_decision_id)}</p>
         </div>
         <DecisionInbox.decision_inbox
           decisions={@payload.decisions}
+          selected_decision={@selected_decision}
           selected_decision_id={@selected_decision_id}
           filter={@decision_filter}
           now={@now}
@@ -256,14 +258,28 @@ defmodule AiurWeb.DashboardLive do
   end
 
   defp assign_selected_decision(socket, decision_id) do
-    selected =
-      case ControlCenterPresenter.find_decision(socket.assigns.payload, decision_id) do
-        {:ok, decision} -> decision
-        :error -> nil
+    {selected, status} =
+      case PayloadLoader.detail(decision_id) do
+        :none -> {nil, :none}
+        {:ok, %{decision: decision}} -> {decision, :available}
+        {:error, :not_found} -> {nil, :not_found}
+        {:error, _reason} -> {nil, :unavailable}
       end
 
-    socket |> assign(:selected_decision_id, decision_id) |> assign(:selected_decision, selected)
+    socket
+    |> assign(:selected_decision_id, decision_id)
+    |> assign(:selected_decision, selected)
+    |> assign(:selected_decision_status, status)
   end
+
+  defp selected_decision_error_title(:unavailable), do: "Decision unavailable"
+  defp selected_decision_error_title(_status), do: "Decision not found"
+
+  defp selected_decision_error_message(:unavailable, decision_id),
+    do: "Retained Decision data is currently unavailable for #{decision_id}. The overview remains available."
+
+  defp selected_decision_error_message(_status, decision_id),
+    do: "No retained decision matches #{decision_id}."
 
   defp normalize_filter(filter) when is_atom(filter) and filter in @decision_filters, do: filter
 

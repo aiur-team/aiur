@@ -98,6 +98,9 @@ defmodule AiurWeb.DashboardLiveTest do
     end
 
     @impl true
+    def handle_call(:health, _from, state), do: {:reply, :writable, state}
+    def handle_call({:get, decision_id}, _from, %{decision: %{decision_id: decision_id} = decision} = state), do: {:reply, {:ok, decision}, state}
+    def handle_call({:get, _decision_id}, _from, state), do: {:reply, {:error, :not_found}, state}
     def handle_call(:list, _from, state), do: {:reply, [state.decision], state}
     def handle_call({:recent_decisions, _limit}, _from, state), do: {:reply, [state.decision], state}
     def handle_call(:all_history, _from, state), do: {:reply, %{state.decision.decision_id => [state.decision]}, state}
@@ -129,6 +132,9 @@ defmodule AiurWeb.DashboardLiveTest do
     end
 
     @impl true
+    def handle_call(:health, _from, state), do: {:reply, :writable, state}
+    def handle_call({:get, decision_id}, _from, %{decision: %{decision_id: decision_id} = decision} = state), do: {:reply, {:ok, decision}, state}
+    def handle_call({:get, _decision_id}, _from, state), do: {:reply, {:error, :not_found}, state}
     def handle_call(:list, _from, state), do: {:reply, [state.decision], state}
     def handle_call({:recent_decisions, _limit}, _from, state), do: {:reply, [state.decision], state}
     def handle_call(:all_history, _from, state), do: {:reply, %{state.decision.decision_id => [state.decision]}, state}
@@ -173,7 +179,8 @@ defmodule AiurWeb.DashboardLiveTest do
       decision_filter: :all,
       fleet_filters: FleetFilters.default(),
       selected_decision_id: selected_decision_id,
-      selected_decision: selected_decision
+      selected_decision: selected_decision,
+      selected_decision_status: if(selected_decision, do: :available, else: :not_found)
     }
 
     assigns
@@ -535,6 +542,37 @@ defmodule AiurWeb.DashboardLiveTest do
     |> render_click()
 
     assert_patch(view, "/decisions?filter=blocking")
+  end
+
+  test "a direct Decision URL resolves a retained record outside the 50-item overview" do
+    orchestrator_name = Module.concat(__MODULE__, :RetainedDetailOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :RetainedDetailStore)
+
+    store = start_decision_store(decision_store_name, fn _decision, _opts -> {:ok, %{status: :accepted, item: %{id: 507}}} end)
+    oldest = request_dashboard_decision(store, "retained-oldest", "reversible", now: ~U[2026-07-13 08:00:00Z])
+
+    for index <- 1..50 do
+      request_dashboard_decision(
+        store,
+        "retained-newer-#{index}",
+        "reversible",
+        now: DateTime.add(oldest.created_at, index, :second)
+      )
+    end
+
+    refute Enum.any?(DecisionStore.recent_decisions(50, store), &(&1.decision_id == oldest.decision_id))
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name
+    )
+
+    {:ok, _view, html} = live(build_conn(), "/decisions/#{oldest.decision_id}")
+    assert html =~ oldest.decision_id
+    assert html =~ "Should the dashboard ship this change?"
+    refute html =~ "Decision not found"
   end
 
   test "malformed filter and agent-log events do not crash the dashboard" do
@@ -1830,7 +1868,7 @@ defmodule AiurWeb.DashboardLiveTest do
     start_supervised!({DecisionStore, Keyword.merge(defaults, opts)})
   end
 
-  defp request_dashboard_decision(store, source_id, reversibility \\ "reversible") do
+  defp request_dashboard_decision(store, source_id, reversibility \\ "reversible", opts \\ []) do
     assert {:ok, %{decision: decision}} =
              DecisionStore.request(
                %{
@@ -1848,14 +1886,17 @@ defmodule AiurWeb.DashboardLiveTest do
                  ],
                  "recommendation" => %{"option_id" => "ship", "reason" => "Checks are green"}
                },
-               [
-                 ticket: %{
-                   identifier: "AIUR-987",
-                   title: "Operator Control Center",
-                   url: "https://example.test/issues/987"
-                 },
-                 source: %{agent_id: "agent-987", session_id: "session-987", event_id: "event-#{source_id}"}
-               ],
+               Keyword.merge(
+                 [
+                   ticket: %{
+                     identifier: "AIUR-987",
+                     title: "Operator Control Center",
+                     url: "https://example.test/issues/987"
+                   },
+                   source: %{agent_id: "agent-987", session_id: "session-987", event_id: "event-#{source_id}"}
+                 ],
+                 opts
+               ),
                store
              )
 

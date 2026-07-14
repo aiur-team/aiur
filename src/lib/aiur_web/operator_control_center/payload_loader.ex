@@ -4,6 +4,7 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
   import Phoenix.Component, only: [assign: 3]
 
   alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, Endpoint}
+  alias AiurWeb.OperatorControlCenter.DecisionProvider
 
   @reload_debounce_ms 50
   @reload_min_interval_ms 400
@@ -17,6 +18,20 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
       server -> fetch_cached(server, mode, providers)
     end
   end
+
+  @spec detail(String.t() | nil) :: {:ok, map()} | {:error, term()} | :none
+  def detail(nil), do: :none
+
+  def detail(decision_id) when is_binary(decision_id) do
+    {_orchestrator, decision_store, decision_metrics, _recent_merge_store, _snapshot_timeout_ms} = providers()
+
+    DecisionProvider.detail(decision_id,
+      decision_store: decision_store,
+      decision_metrics: decision_metrics
+    )
+  end
+
+  def detail(_decision_id), do: {:error, :not_found}
 
   @spec mark_loaded(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   def mark_loaded(socket) do

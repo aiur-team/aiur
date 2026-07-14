@@ -13,16 +13,35 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
   @spec rows([Decision.t()]) :: [map()]
   def rows(decisions) when is_list(decisions) do
     decisions
-    |> Enum.flat_map(&isolated_row/1)
+    |> Enum.flat_map(&present/1)
     |> Enum.sort_by(&sort_key/1)
   end
 
-  defp isolated_row(decision) do
+  @doc "Maps one retained Decision into the safe dashboard row contract."
+  @spec present(Decision.t()) :: [map()]
+  def present(%Decision{} = decision) do
     [row(decision)]
   rescue
     _error -> []
   catch
     _kind, _reason -> []
+  end
+
+  def present(_decision), do: []
+
+  @doc "Attaches the same redacted latency status used by overview and detail rows."
+  @spec attach_latency([map()], map(), :ok | :unavailable) :: [map()]
+  def attach_latency(decisions, snapshots, :ok) when is_list(decisions) and is_map(snapshots) do
+    Enum.map(decisions, fn decision ->
+      case Map.get(snapshots, decision.decision_id) do
+        snapshot when is_map(snapshot) -> Map.put(decision, :latency, %{status: :available, snapshot: snapshot})
+        _missing -> Map.put(decision, :latency, %{status: :missing, snapshot: nil})
+      end
+    end)
+  end
+
+  def attach_latency(decisions, _snapshots, health) when is_list(decisions) do
+    Enum.map(decisions, &Map.put(&1, :latency, %{status: health, snapshot: nil}))
   end
 
   defp row(%Decision{} = decision) do
@@ -32,7 +51,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
       decision_id: decision.decision_id,
       version: decision.version,
       ticket: decision.ticket,
-      source: decision.source,
+      source: safe_source(decision.source),
       kind: decision.kind,
       authority: decision.authority,
       urgency: decision.urgency,
@@ -57,11 +76,12 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
       revision_sequence: decision.revision_sequence,
       revisions: Enum.map(decision.revisions, &revision_row(&1, decision.revision_outcomes)),
       revision_result: decision.revision_result,
-      revision_follow_ups: decision.revision_follow_ups,
       superseded?: decision.revision_sequence > 0,
-      dispatch_attempts: decision.dispatch_attempts,
-      acknowledgement: decision.acknowledgement,
-      resolution: decision.resolution,
+      dispatch_attempts: Enum.map(decision.dispatch_attempts, &safe_dispatch_attempt/1),
+      acknowledgement: safe_lifecycle_fact(decision.acknowledgement),
+      resolution: safe_lifecycle_fact(decision.resolution),
+      revision_follow_ups: safe_follow_ups(decision.revision_follow_ups),
+      provenance: safe_provenance(Map.get(decision, :provenance)),
       retryable: retryable?(decision),
       failure_reason: failure_reason(decision),
       lifecycle: lifecycle(decision)
@@ -88,7 +108,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
       selected_option_id: answer.selected_option_id,
       custom_response: answer.custom_response,
       rationale: answer.rationale,
-      actor: answer.actor,
+      actor: safe_actor(answer.actor),
+      supervisor_basis: answer.supervisor_basis,
       accepted_at: answer.accepted_at
     }
   end
@@ -128,6 +149,59 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
       _attempt -> nil
     end
   end
+
+  defp safe_source(source) when is_map(source), do: %{agent_id: Map.get(source, :agent_id)}
+  defp safe_source(_source), do: %{agent_id: nil}
+
+  defp safe_actor(actor) when is_map(actor), do: %{kind: Map.get(actor, :kind)}
+  defp safe_actor(_actor), do: nil
+
+  defp safe_dispatch_attempt(attempt) when is_map(attempt) do
+    Map.take(attempt, [
+      :action_id,
+      :attempt_id,
+      :queue_item_id,
+      :status,
+      :attempted_at,
+      :queued_at,
+      :delivered_at,
+      :restored_at,
+      :consumed_at,
+      :failed_at,
+      :failure_reason_class
+    ])
+  end
+
+  defp safe_dispatch_attempt(_attempt), do: %{}
+
+  defp safe_lifecycle_fact(nil), do: nil
+
+  defp safe_lifecycle_fact(fact) when is_map(fact) do
+    fact
+    |> Map.take([:action_id, :occurred_at])
+    |> Map.put(:actor, safe_actor(Map.get(fact, :actor)))
+  end
+
+  defp safe_lifecycle_fact(_fact), do: nil
+
+  defp safe_follow_ups(follow_ups) when is_map(follow_ups) do
+    Map.new(follow_ups, fn {action_id, follow_up} ->
+      safe =
+        follow_up
+        |> Map.take([:action_id, :slug, :question, :required_at, :handled_at])
+        |> Map.put(:handled_by, safe_actor(Map.get(follow_up, :handled_by)))
+
+      {action_id, safe}
+    end)
+  end
+
+  defp safe_follow_ups(_follow_ups), do: %{}
+
+  defp safe_provenance(provenance) when is_map(provenance) do
+    Map.take(provenance, [:backend, :requested_model, :resolved_model, :attempt_id])
+  end
+
+  defp safe_provenance(_provenance), do: nil
 
   defp sort_key(decision) do
     {
