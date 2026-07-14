@@ -47,23 +47,7 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
         {:reply, {:error, failure}, state}
 
       {:ok, identity, repository, state, updates} ->
-        case Policy.ensure_entry(state, identity) do
-          {:error, %Failure{} = failure} ->
-            broadcast_all(updates)
-            {:reply, {:error, failure}, state}
-
-          {:ok, state, evictions} ->
-            broadcast_all(updates ++ evictions)
-            {entry, state} = Policy.touch(state, identity)
-
-            if Policy.fresh?(entry, state) or entry.inflight do
-              {:reply, {:ok, Policy.state_for(entry, state)}, state}
-            else
-              {entry, state, refresh_updates} = TaskLifecycle.start_refresh(entry, state, repository)
-              broadcast_all(refresh_updates)
-              {:reply, {:ok, Policy.state_for(entry, state)}, state}
-            end
-        end
+        request_detail(state, identity, repository, updates)
     end
   end
 
@@ -101,6 +85,29 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
       {:ok, identity, _repository, state, updates} ->
         broadcast_all(updates)
         {:reply, {:ok, Policy.current(state, identity)}, state}
+    end
+  end
+
+  defp request_detail(state, identity, repository, updates) do
+    case Policy.ensure_entry(state, identity) do
+      {:error, %Failure{} = failure} ->
+        broadcast_all(updates)
+        {:reply, {:error, failure}, state}
+
+      {:ok, state, evictions} ->
+        broadcast_all(updates ++ evictions)
+        {entry, state} = Policy.touch(state, identity)
+        refresh_or_reply(entry, state, repository)
+    end
+  end
+
+  defp refresh_or_reply(entry, state, repository) do
+    if Policy.fresh?(entry, state) or entry.inflight do
+      {:reply, {:ok, Policy.state_for(entry, state)}, state}
+    else
+      {entry, state, updates} = TaskLifecycle.start_refresh(entry, state, repository)
+      broadcast_all(updates)
+      {:reply, {:ok, Policy.state_for(entry, state)}, state}
     end
   end
 

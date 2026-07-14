@@ -21,7 +21,13 @@ defmodule Aiur.BuildOrder.TicketDetailCache.Options do
       configured_repo: Keyword.get(opts, :configured_repo),
       active_repository: :unknown,
       freshness_ms: bounded_positive_option(opts, :freshness_ms, @default_freshness_ms, @max_freshness_ms),
-      refresh_timeout_ms: bounded_positive_option(opts, :refresh_timeout_ms, @default_refresh_timeout_ms, @max_refresh_timeout_ms),
+      refresh_timeout_ms:
+        bounded_positive_option(
+          opts,
+          :refresh_timeout_ms,
+          @default_refresh_timeout_ms,
+          @max_refresh_timeout_ms
+        ),
       max_entries: bounded_positive_option(opts, :max_entries, @default_max_entries, @max_entries),
       max_description_bytes:
         bounded_positive_option(

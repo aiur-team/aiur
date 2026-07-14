@@ -50,13 +50,11 @@ defmodule Aiur.BuildOrder.TicketDetail.Repository do
   end
 
   defp configured_repository_result(repository) when is_function(repository, 0) do
-    try do
-      repository.() |> configured_repository_result()
-    rescue
-      _error -> {:error, %Failure{kind: :configuration}}
-    catch
-      _kind, _reason -> {:error, %Failure{kind: :configuration}}
-    end
+    repository.() |> configured_repository_result()
+  rescue
+    _error -> {:error, %Failure{kind: :configuration}}
+  catch
+    _kind, _reason -> {:error, %Failure{kind: :configuration}}
   end
 
   defp configured_repository_result({:ok, repository}), do: configured_repository_result(repository)

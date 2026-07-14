@@ -303,12 +303,17 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     }
 
     assert {:error, %Failure{kind: :nonfetchable_repository}} = TicketDetailCache.current(cache, identity)
-    assert {:ok, %State{identity: ^switched_identity, health: :unavailable}} = TicketDetailCache.current(cache, switched_identity)
+
+    assert {:ok, %State{identity: ^switched_identity, health: :unavailable}} =
+             TicketDetailCache.current(cache, switched_identity)
+
     assert %{entries: %{}} = :sys.get_state(cache)
 
     Agent.update(repository, fn _repository -> @configured end)
 
-    assert {:ok, %State{identity: ^identity, health: :unavailable, detail: nil}} = TicketDetailCache.current(cache, identity)
+    assert {:ok, %State{identity: ^identity, health: :unavailable, detail: nil}} =
+             TicketDetailCache.current(cache, identity)
+
     assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, identity)
     assert_receive {:ticket_detail_updated, %State{health: :healthy, detail: %Snapshot{title: "second"}}}
     assert Agent.get(attempts, & &1) == 2

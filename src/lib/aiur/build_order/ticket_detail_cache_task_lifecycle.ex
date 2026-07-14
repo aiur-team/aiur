@@ -13,24 +13,51 @@ defmodule Aiur.BuildOrder.TicketDetailCache.TaskLifecycle do
 
     case start_task(state, entry.identity, repository) do
       {:ok, task} ->
-        timeout_ref = Process.send_after(self(), {:refresh_timeout, task.ref, generation}, state.refresh_timeout_ms)
+        timeout_ref =
+          Process.send_after(
+            self(),
+            {:refresh_timeout, task.ref, generation},
+            state.refresh_timeout_ms
+          )
 
         entry = %{
           entry
           | generation: generation,
             last_attempt_at: now,
-            inflight: %{generation: generation, pid: task.pid, ref: task.ref, repository: repository, timeout_ref: timeout_ref}
+            inflight: %{
+              generation: generation,
+              pid: task.pid,
+              ref: task.ref,
+              repository: repository,
+              timeout_ref: timeout_ref
+            }
         }
 
         state =
-          %{state | next_generation: generation + 1, entries: Map.put(state.entries, Policy.cache_key(entry.identity), entry)}
+          %{
+            state
+            | next_generation: generation + 1,
+              entries: Map.put(state.entries, Policy.cache_key(entry.identity), entry)
+          }
           |> put_in([:inflight_by_ref, task.ref], Policy.cache_key(entry.identity))
 
         {entry, state, []}
 
       :error ->
-        entry = %{entry | generation: generation, last_attempt_at: now, failure: %Failure{kind: :transport}, inflight: nil}
-        state = %{state | next_generation: generation + 1, entries: Map.put(state.entries, Policy.cache_key(entry.identity), entry)}
+        entry = %{
+          entry
+          | generation: generation,
+            last_attempt_at: now,
+            failure: %Failure{kind: :transport},
+            inflight: nil
+        }
+
+        state = %{
+          state
+          | next_generation: generation + 1,
+            entries: Map.put(state.entries, Policy.cache_key(entry.identity), entry)
+        }
+
         {entry, state, [Policy.state_for(entry, state)]}
     end
   end
@@ -72,7 +99,15 @@ defmodule Aiur.BuildOrder.TicketDetailCache.TaskLifecycle do
 
   defp apply_entry_completion(key, ref, result, state) do
     case Map.fetch(state.entries, key) do
-      {:ok, %{inflight: %{ref: ^ref, generation: generation, repository: repository, timeout_ref: timeout_ref}} = entry} ->
+      {:ok,
+       %{
+         inflight: %{
+           ref: ^ref,
+           generation: generation,
+           repository: repository,
+           timeout_ref: timeout_ref
+         }
+       } = entry} ->
         Process.cancel_timer(timeout_ref)
 
         if repository_matches_active?(repository, state.active_repository) do
@@ -90,12 +125,13 @@ defmodule Aiur.BuildOrder.TicketDetailCache.TaskLifecycle do
   end
 
   defp start_task(state, identity, repository) do
-    try do
-      {:ok, Task.Supervisor.async_nolink(state.task_supervisor, fn -> read(state, identity, repository) end)}
-    catch
-      :exit, _reason -> :error
-      :error, _reason -> :error
-    end
+    {:ok,
+     Task.Supervisor.async_nolink(state.task_supervisor, fn ->
+       read(state, identity, repository)
+     end)}
+  catch
+    :exit, _reason -> :error
+    :error, _reason -> :error
   end
 
   defp read(%{reader: reader}, identity, _repository) when is_function(reader, 1), do: reader.(identity)
