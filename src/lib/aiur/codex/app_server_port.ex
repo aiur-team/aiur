@@ -134,9 +134,6 @@ defmodule Aiur.Codex.AppServerPort do
           _ -> nil
         end
 
-      value when is_integer(value) and value > 0 ->
-        value
-
       _ ->
         nil
     end
