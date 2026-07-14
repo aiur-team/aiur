@@ -255,7 +255,13 @@ defmodule Aiur.Alerts do
       "topic" => topic
     }
 
-    Publisher.publish(topic, payload, issue_number: issue_number_for(opts))
+    Publisher.publish(topic, payload,
+      issue_number: issue_number_for(opts),
+      identity: Keyword.get(opts, :observation_identity),
+      observation_source: Keyword.get(opts, :observation_source),
+      observation_provenance: Keyword.get(opts, :observation_provenance),
+      occurred_at: Keyword.get(opts, :occurred_at)
+    )
 
     :ok
   rescue
