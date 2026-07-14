@@ -39,6 +39,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   @spec build(Issue.t(), Path.t() | nil, String.t() | nil, map(), keyword()) :: (String.t(), map() -> map())
   def build(issue, workspace, worker_host, app_session \\ %{}, opts \\ []) do
     origin_recorder = Keyword.get(opts, :agent_comment_origin_recorder, &AgentCommentOrigins.record/2)
+    origin_transaction = Keyword.get(opts, :agent_comment_origin_transaction, &AgentCommentOrigins.with_lock/1)
     attempt_id = Keyword.get(opts, :attempt_id)
 
     event_handlers = %{
@@ -63,7 +64,8 @@ defmodule Aiur.AgentRunner.ToolExecutor do
         [
           agent_comment_origin_recorder: fn comment ->
             origin_recorder.(issue_number_of(issue), comment)
-          end
+          end,
+          agent_comment_origin_transaction: origin_transaction
         ] ++ Keyword.take(opts, [:review_thread_replier, :review_thread_resolver])
 
       DynamicTool.execute(

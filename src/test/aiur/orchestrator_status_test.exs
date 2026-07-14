@@ -2620,11 +2620,10 @@ defmodule Aiur.OrchestratorStatusTest do
     issue_id = issue.id
     assert_receive {:memory_tracker_state_update, ^issue_id, "rework"}
 
-    refute Process.alive?(old_worker)
-
     state = :sys.get_state(pid)
     replacement = Map.fetch!(state.running, issue.id)
 
+    refute Process.alive?(old_worker)
     assert is_pid(replacement.pid)
     assert Process.alive?(replacement.pid)
     assert replacement.pid != old_worker

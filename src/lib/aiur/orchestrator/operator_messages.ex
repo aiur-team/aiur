@@ -500,7 +500,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     end
   end
 
-  defp maybe_replace_completed_runner(state, running_entry) do
+  defp maybe_replace_completed_runner(state, running_entry) when is_map(running_entry) do
     case Map.get(running_entry, :issue) do
       %Aiur.Issue{} = issue ->
         running_entry =
@@ -514,6 +514,8 @@ defmodule Aiur.Orchestrator.OperatorMessages do
         state
     end
   end
+
+  defp maybe_replace_completed_runner(state, _running_entry), do: state
 
   @spec maybe_emit_agent_control_alert(atom(), atom(), map()) :: :ok
   def maybe_emit_agent_control_alert(

@@ -77,4 +77,35 @@ defmodule Aiur.GitHub.AgentCommentOriginsTest do
     assert AgentCommentOrigins.origin("42", %{"id" => 7001}) == :agent
     assert AgentCommentOrigins.origin("43", %{"id" => 7002}) == :agent
   end
+
+  test "waits for reply origin publication before classifying a visible comment" do
+    parent = self()
+
+    publisher =
+      Task.async(fn ->
+        AgentCommentOrigins.with_lock(fn ->
+          send(parent, {:reply_visible, self()})
+
+          receive do
+            :publish_origin -> AgentCommentOrigins.record("42", %{"id" => 7003})
+          end
+        end)
+      end)
+
+    assert_receive {:reply_visible, publisher_pid}
+
+    reader =
+      Task.async(fn ->
+        origin = AgentCommentOrigins.origin("42", %{"id" => 7003})
+        send(parent, {:origin_classified, origin})
+        origin
+      end)
+
+    refute_receive {:origin_classified, _origin}, 100
+    send(publisher_pid, :publish_origin)
+
+    assert :ok = Task.await(publisher)
+    assert_receive {:origin_classified, :agent}, 2_000
+    assert :agent = Task.await(reader)
+  end
 end

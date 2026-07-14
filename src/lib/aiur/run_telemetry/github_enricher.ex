@@ -35,17 +35,17 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
           boundary_events = Enum.flat_map(matched, &pull_events/1)
 
           {comment_events, warnings} =
-            comment_events(
-              owner,
-              name,
-              ticket_set,
-              matched,
-              request_fun,
-              token,
-              trusted_author_fun,
-              comment_origin_resolver,
-              opts
-            )
+            comment_events(%{
+              owner: owner,
+              name: name,
+              ticket_set: ticket_set,
+              matched: matched,
+              request_fun: request_fun,
+              token: token,
+              trusted_author_fun: trusted_author_fun,
+              comment_origin_resolver: comment_origin_resolver,
+              opts: opts
+            })
 
           %{
             events: normalize_events(boundary_events ++ comment_events),
@@ -202,7 +202,17 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
     }
   end
 
-  defp comment_events(owner, name, ticket_set, matched, request_fun, token, trusted_author_fun, comment_origin_resolver, opts) do
+  defp comment_events(%{
+         owner: owner,
+         name: name,
+         ticket_set: ticket_set,
+         matched: matched,
+         request_fun: request_fun,
+         token: token,
+         trusted_author_fun: trusted_author_fun,
+         comment_origin_resolver: comment_origin_resolver,
+         opts: opts
+       }) do
     ticket_requests =
       Enum.map(ticket_set, fn ticket ->
         {comments_url(owner, name, ticket), :ticket_comments, ticket, "issue.commented"}
@@ -223,7 +233,11 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
     |> Enum.reduce({[], []}, fn {url, endpoint, ticket, topic_suffix}, {events, warnings} ->
       case fetch_all(url, request_fun, token, opts) do
         {:ok, comments} ->
-          normalized = Enum.flat_map(comments, &comment_event(&1, ticket, topic_suffix, trusted_author_fun, comment_origin_resolver))
+          normalized =
+            Enum.flat_map(comments, fn comment ->
+              comment_event(comment, ticket, topic_suffix, trusted_author_fun, comment_origin_resolver)
+            end)
+
           {events ++ normalized, warnings}
 
         {:error, reason} ->

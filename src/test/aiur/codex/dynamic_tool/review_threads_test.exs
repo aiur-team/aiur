@@ -118,6 +118,36 @@ defmodule Aiur.Codex.DynamicTool.ReviewThreadsTest do
       assert_received {:recorded_origin, %{"id" => 701}}
     end
 
+    test "keeps reply publication and origin recording in one transaction" do
+      test_pid = self()
+
+      response =
+        ReviewThreads.execute(
+          "aiur_reply_review_thread",
+          %{"review_thread_id" => "PRRT_transaction", "body" => "Fixed."},
+          agent_comment_origin_transaction: fn operation ->
+            send(test_pid, :origin_transaction_started)
+            result = operation.()
+            send(test_pid, :origin_transaction_finished)
+            result
+          end,
+          review_thread_replier: fn _id, _body, _opts ->
+            send(test_pid, :reply_published)
+            {:ok, %{verified: true, verification: %{"latest_comment" => %{"id" => 702}}}}
+          end,
+          agent_comment_origin_recorder: fn comment ->
+            send(test_pid, {:origin_recorded, comment})
+            :ok
+          end
+        )
+
+      assert response["success"] == true
+      assert_received :origin_transaction_started
+      assert_received :reply_published
+      assert_received {:origin_recorded, %{"id" => 702}}
+      assert_received :origin_transaction_finished
+    end
+
     test "returns a failure when a verified reply cannot be recorded" do
       response =
         ReviewThreads.execute(

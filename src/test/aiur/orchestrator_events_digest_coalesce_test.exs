@@ -96,6 +96,14 @@ defmodule Aiur.OrchestratorEventsDigestCoalesceTest do
     assert AgentQueueStore.list_pending(next.queue_store, "99") == []
   end
 
+  test "enqueue safely accepts an idle digest with no running entry" do
+    idle_event = event(11)
+
+    state = OperatorMessages.enqueue_event_digest_item(%State{}, "99", [idle_event], idle_event)
+
+    assert [%{body: %{events: [^idle_event]}}] = AgentQueueStore.list_pending(state.queue_store, "99")
+  end
+
   test "comment events dedupe by comment id when event ids differ" do
     store =
       AgentQueueStore.new()

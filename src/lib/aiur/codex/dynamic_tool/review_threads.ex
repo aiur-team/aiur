@@ -83,9 +83,11 @@ defmodule Aiur.Codex.DynamicTool.ReviewThreads do
     review_thread_replier =
       Keyword.get(opts, :review_thread_replier, &GitHubClient.reply_to_review_thread/3)
 
+    origin_transaction = Keyword.get(opts, :agent_comment_origin_transaction, &run_without_lock/1)
+
     with {:ok, review_thread_id, body} <- normalize_reply_review_thread_arguments(arguments),
-         {:ok, response} <- review_thread_replier.(review_thread_id, body, []),
-         :ok <- record_verified_reply_origin(response, opts) do
+         {:ok, response} <-
+           origin_transaction.(fn -> reply_and_record(review_thread_replier, review_thread_id, body, opts) end) do
       Response.build(true, Response.encode_payload(response))
     else
       {:error, reason} ->
@@ -155,6 +157,15 @@ defmodule Aiur.Codex.DynamicTool.ReviewThreads do
         :ok
     end
   end
+
+  defp reply_and_record(review_thread_replier, review_thread_id, body, opts) do
+    with {:ok, response} <- review_thread_replier.(review_thread_id, body, []),
+         :ok <- record_verified_reply_origin(response, opts) do
+      {:ok, response}
+    end
+  end
+
+  defp run_without_lock(fun), do: fun.()
 
   defp latest_verified_comment(response) when is_map(response) do
     verification = Map.get(response, :verification) || Map.get(response, "verification") || %{}
