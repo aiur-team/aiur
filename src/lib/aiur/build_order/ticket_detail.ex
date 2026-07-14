@@ -13,6 +13,7 @@ defmodule Aiur.BuildOrder.TicketDetail do
   alias Aiur.GitHub.Issues
 
   @default_max_description_bytes 16_384
+  @max_retry_after_seconds 60
   @credential_header_pattern ~r{
     ^\s*
     (?:
@@ -25,6 +26,44 @@ defmodule Aiur.BuildOrder.TicketDetail do
     \s*:
     \s*[^\r\n]*
   }imux
+  @structured_credential_pattern ~r/
+    (?:
+      (?:"|')?
+      (?:
+        authorization
+        | proxy-authorization
+        | cookie
+        | set-cookie
+        | [a-z0-9_-]{0,100}(?:token|secret|api[-_]?key|credential)[a-z0-9_-]{0,100}
+      )
+      (?:"|')?
+      \s*(?::|=>)\s*
+      (?:"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|[^,\]\}\r\n]+)
+    )
+    |
+    (?:
+      \{\s*(?:"|')
+      (?:
+        authorization
+        | proxy-authorization
+        | cookie
+        | set-cookie
+        | [a-z0-9_-]{0,100}(?:token|secret|api[-_]?key|credential)[a-z0-9_-]{0,100}
+      )
+      (?:"|')\s*,\s*(?:"(?:\\.|[^"])*"|'(?:\\.|[^'])*')\s*\}
+    )
+  /iux
+  @curl_credential_header_pattern ~r/
+    (?:-H|--header)\s+(?:"|')
+    (?:
+      authorization
+      | proxy-authorization
+      | cookie
+      | set-cookie
+      | [a-z0-9_-]{0,100}(?:token|secret|api[-_]?key|credential)[a-z0-9_-]{0,100}
+    )
+    \s*:\s*.*?(?:"|')
+  /iux
   @credential_pattern ~r/\b(?:bearer|basic)\s+[^\s,;]+/iu
 
   defmodule Failure do
@@ -43,6 +82,7 @@ defmodule Aiur.BuildOrder.TicketDetail do
             | :nonfetchable_repository
             | :configuration
             | :capacity
+            | :evicted
 
     @type t :: %__MODULE__{kind: kind(), retry_after: pos_integer() | nil}
 
@@ -91,6 +131,10 @@ defmodule Aiur.BuildOrder.TicketDetail do
   @spec default_max_description_bytes() :: pos_integer()
   def default_max_description_bytes, do: @default_max_description_bytes
 
+  @doc "Maximum provider Retry-After retained in a public detail failure, in seconds."
+  @spec max_retry_after_seconds() :: pos_integer()
+  def max_retry_after_seconds, do: @max_retry_after_seconds
+
   @spec fetch(TrackerIdentity.t(), keyword()) :: result()
   def fetch(identity, opts \\ []) do
     with {:ok, identity, configured_repository} <- fetchable_identity(identity, opts),
@@ -135,7 +179,8 @@ defmodule Aiur.BuildOrder.TicketDetail do
          :ok <- matching_provider_identity?(identity, raw_issue),
          :ok <- matching_number?(identity, raw_issue),
          {:ok, title} <- title(raw_issue["title"]),
-         {:ok, description} <- description(raw_issue["body"], max_description_bytes),
+         {:ok, body} <- required_body(raw_issue),
+         {:ok, description} <- description(body, max_description_bytes),
          {:ok, url} <- configured_issue_url(raw_issue["html_url"], identity),
          {:ok, lifecycle} <- lifecycle(raw_issue["state"], raw_issue["state_reason"]),
          {:ok, created_at} <- timestamp(raw_issue["created_at"]),
@@ -154,6 +199,7 @@ defmodule Aiur.BuildOrder.TicketDetail do
        }}
     else
       {:error, %Failure{} = failure} -> {:error, failure}
+      :schema -> {:error, %Failure{kind: :schema}}
       :provider_identity_mismatch -> {:error, %Failure{kind: :provider_identity_mismatch}}
       _ -> {:error, %Failure{kind: :validation}}
     end
@@ -169,9 +215,11 @@ defmodule Aiur.BuildOrder.TicketDetail do
 
   defp configured_identity(identity, opts) do
     with {:ok, configured_repository} <- configured_repository(opts),
+         :ok <- valid_repository_components(identity),
          true <- same_repository?(identity, configured_repository) do
       {:ok, identity, configured_repository}
     else
+      :invalid_repository_component -> {:error, %Failure{kind: :nonfetchable_repository}}
       false -> {:error, %Failure{kind: :nonfetchable_repository}}
       {:error, %Failure{} = failure} -> {:error, failure}
     end
@@ -180,10 +228,11 @@ defmodule Aiur.BuildOrder.TicketDetail do
   defp configured_repository_result({:ok, repository}), do: configured_repository_result(repository)
 
   defp configured_repository_result({owner, repository}) when is_binary(owner) and is_binary(repository) do
-    if owner != "" and repository != "" do
+    with {:ok, owner} <- Bounded.github_repository_component(owner),
+         {:ok, repository} <- Bounded.github_repository_component(repository) do
       {:ok, {owner, repository}}
     else
-      {:error, %Failure{kind: :configuration}}
+      _ -> {:error, %Failure{kind: :configuration}}
     end
   end
 
@@ -192,6 +241,15 @@ defmodule Aiur.BuildOrder.TicketDetail do
   defp same_repository?(%TrackerIdentity{owner: owner, repository: repository}, {configured_owner, configured_repository}) do
     String.downcase(owner) == String.downcase(configured_owner) and
       String.downcase(repository) == String.downcase(configured_repository)
+  end
+
+  defp valid_repository_components(%TrackerIdentity{owner: owner, repository: repository}) do
+    with {:ok, _owner} <- Bounded.github_repository_component(owner),
+         {:ok, _repository} <- Bounded.github_repository_component(repository) do
+      :ok
+    else
+      _ -> :invalid_repository_component
+    end
   end
 
   defp issue_response?(%{"pull_request" => pull_request}) when not is_nil(pull_request), do: {:error, %Failure{kind: :schema}}
@@ -256,6 +314,13 @@ defmodule Aiur.BuildOrder.TicketDetail do
 
   defp description(_value, _max_bytes), do: {:error, %Failure{kind: :validation}}
 
+  defp required_body(raw_issue) do
+    case Map.fetch(raw_issue, "body") do
+      {:ok, body} -> {:ok, body}
+      :error -> :schema
+    end
+  end
+
   defp description_limit(opts) do
     case Keyword.get(opts, :max_description_bytes, @default_max_description_bytes) do
       bytes when is_integer(bytes) and bytes > 0 and bytes <= @default_max_description_bytes -> bytes
@@ -288,6 +353,8 @@ defmodule Aiur.BuildOrder.TicketDetail do
   end
 
   defp redact_credentials(value) do
+    value = Regex.replace(@curl_credential_header_pattern, value, "[REDACTED:credential]")
+    value = Regex.replace(@structured_credential_pattern, value, "[REDACTED:credential]")
     value = Regex.replace(@credential_header_pattern, value, "[REDACTED:credential]")
     Regex.replace(@credential_pattern, value, "[REDACTED:credential]")
   end
@@ -326,7 +393,7 @@ defmodule Aiur.BuildOrder.TicketDetail do
   end
 
   defp failure_from({:github, :auth, _detail}), do: %Failure{kind: :auth}
-  defp failure_from({:github, :rate_limited, detail}), do: %Failure{kind: :rate_limited, retry_after: positive_integer(detail[:retry_after])}
+  defp failure_from({:github, :rate_limited, detail}), do: %Failure{kind: :rate_limited, retry_after: bounded_retry_after(detail[:retry_after])}
   defp failure_from({:github, :timeout, _detail}), do: %Failure{kind: :timeout}
   defp failure_from({:github, _kind, %{status: 404}}), do: %Failure{kind: :not_found}
   defp failure_from({:github, _kind, %{status: 403}}), do: %Failure{kind: :permission}
@@ -334,6 +401,6 @@ defmodule Aiur.BuildOrder.TicketDetail do
   defp failure_from(:invalid_github_issue_response), do: %Failure{kind: :schema}
   defp failure_from(_reason), do: %Failure{kind: :transport}
 
-  defp positive_integer(value) when is_integer(value) and value > 0, do: value
-  defp positive_integer(_value), do: nil
+  defp bounded_retry_after(value) when is_integer(value) and value > 0, do: min(value, @max_retry_after_seconds)
+  defp bounded_retry_after(_value), do: nil
 end

@@ -4,6 +4,9 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
 
   The cache is deliberately in-memory. After restart, a ticket remains
   unavailable until a newly requested, complete detail read succeeds.
+
+  Every refresh has a bounded deadline scoped to its identity and generation.
+  A timed-out task is terminated and cannot later replace the timeout result.
   """
 
   use GenServer
@@ -12,8 +15,10 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
   alias Aiur.BuildOrder.TicketDetail.{Failure, Snapshot, State}
 
   @default_freshness_ms 30_000
+  @default_refresh_timeout_ms 30_000
   @default_max_entries 32
   @max_freshness_ms 300_000
+  @max_refresh_timeout_ms 30_000
   @max_entries 100
 
   @type entry :: %{
@@ -24,7 +29,7 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
           last_access_ms: integer(),
           last_success_ms: integer() | nil,
           last_attempt_at: DateTime.t() | nil,
-          inflight: %{generation: pos_integer(), ref: reference()} | nil
+          inflight: %{generation: pos_integer(), pid: pid(), ref: reference(), timeout_ref: reference()} | nil
         }
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -64,6 +69,7 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
        next_generation: 1,
        configured_repo: Keyword.get(opts, :configured_repo),
        freshness_ms: bounded_positive_option(opts, :freshness_ms, @default_freshness_ms, @max_freshness_ms),
+       refresh_timeout_ms: bounded_positive_option(opts, :refresh_timeout_ms, @default_refresh_timeout_ms, @max_refresh_timeout_ms),
        max_entries: bounded_positive_option(opts, :max_entries, @default_max_entries, @max_entries),
        max_description_bytes:
          bounded_positive_option(
@@ -119,6 +125,10 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
     {:noreply, apply_completion(ref, {:error, %Failure{kind: :transport}}, state)}
   end
 
+  def handle_info({:refresh_timeout, ref, generation}, state) when is_reference(ref) and is_integer(generation) do
+    {:noreply, timeout_refresh(ref, generation, state)}
+  end
+
   def handle_info(_message, state), do: {:noreply, state}
 
   defp ensure_entry(state, identity) do
@@ -151,8 +161,12 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
     |> Enum.reject(fn {_key, entry} -> entry.inflight end)
     |> Enum.min_by(fn {_key, entry} -> entry.last_access_ms end, fn -> nil end)
     |> case do
-      {key, _entry} -> {:ok, %{state | entries: Map.delete(state.entries, key)}}
-      nil -> {:error, %Failure{kind: :capacity}}
+      {key, entry} ->
+        broadcast_state(evicted_state(entry), state)
+        {:ok, %{state | entries: Map.delete(state.entries, key)}}
+
+      nil ->
+        {:error, %Failure{kind: :capacity}}
     end
   end
 
@@ -165,9 +179,15 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
   defp start_refresh(entry, state) do
     generation = state.next_generation
     task = Task.Supervisor.async_nolink(state.task_supervisor, fn -> read(state, entry.identity) end)
+    timeout_ref = Process.send_after(self(), {:refresh_timeout, task.ref, generation}, state.refresh_timeout_ms)
     now = now(state)
 
-    entry = %{entry | generation: generation, last_attempt_at: now, inflight: %{generation: generation, ref: task.ref}}
+    entry = %{
+      entry
+      | generation: generation,
+        last_attempt_at: now,
+        inflight: %{generation: generation, pid: task.pid, ref: task.ref, timeout_ref: timeout_ref}
+    }
 
     state =
       %{state | next_generation: generation + 1, entries: Map.put(state.entries, cache_key(entry.identity), entry)}
@@ -195,7 +215,8 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
 
   defp apply_entry_completion(key, ref, result, state) do
     case Map.fetch(state.entries, key) do
-      {:ok, %{inflight: %{ref: ^ref, generation: generation}} = entry} ->
+      {:ok, %{inflight: %{ref: ^ref, generation: generation, timeout_ref: timeout_ref}} = entry} ->
+        Process.cancel_timer(timeout_ref)
         entry = complete_entry(entry, result, state, generation)
         state = %{state | entries: Map.put(state.entries, key, entry)}
         broadcast(entry, state)
@@ -203,6 +224,24 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
 
       _ ->
         state
+    end
+  end
+
+  defp timeout_refresh(ref, generation, state) do
+    case Map.get(state.inflight_by_ref, ref) do
+      nil ->
+        state
+
+      key ->
+        case Map.get(state.entries, key) do
+          %{inflight: %{ref: ^ref, generation: ^generation, pid: pid}} ->
+            _ = Task.Supervisor.terminate_child(state.task_supervisor, pid)
+            Process.demonitor(ref, [:flush])
+            apply_completion(ref, {:error, %Failure{kind: :timeout}}, state)
+
+          _ ->
+            state
+        end
     end
   end
 
@@ -254,14 +293,23 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
   end
 
   defp unavailable_state(identity), do: %State{identity: identity, generation: :unknown, health: :unavailable}
+
+  defp evicted_state(entry) do
+    %State{identity: entry.identity, generation: entry.generation, health: :unavailable, failure: %Failure{kind: :evicted}}
+  end
+
   defp health(nil, _failure, _entry, _state), do: :unavailable
   defp health(%Snapshot{}, failure, _entry, _state) when not is_nil(failure), do: :stale
   defp health(%Snapshot{}, _failure, entry, state) when is_map(state), do: if(fresh?(entry, state), do: :healthy, else: :stale)
   defp health(%Snapshot{}, _failure, _entry, _state), do: :healthy
 
   defp broadcast(entry, state) do
+    broadcast_state(state_for(entry, state), state)
+  end
+
+  defp broadcast_state(snapshot, _state) do
     if Process.whereis(Aiur.PubSub) do
-      Phoenix.PubSub.broadcast(Aiur.PubSub, topic(entry.identity), {:ticket_detail_updated, state_for(entry, state)})
+      Phoenix.PubSub.broadcast(Aiur.PubSub, topic(snapshot.identity), {:ticket_detail_updated, snapshot})
     end
   end
 

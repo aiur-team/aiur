@@ -125,6 +125,41 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     assert {:ok, %State{health: :unavailable, detail: nil}} = TicketDetailCache.current(cache, first)
   end
 
+  test "notifies every subscriber before evicting a completed entry" do
+    parent = self()
+    first = identity(1, "I1")
+    second = identity(2, "I2")
+
+    {:ok, cache} =
+      start_cache(max_entries: 1, reader: fn identity -> {:ok, snapshot(identity, identity.identifier)} end)
+
+    first_subscriber = subscribe_and_forward(cache, first, parent)
+    second_subscriber = subscribe_and_forward(cache, first, parent)
+
+    assert_receive {:detail_subscribed, ^first_subscriber}
+    assert_receive {:detail_subscribed, ^second_subscriber}
+    assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, first)
+
+    assert_receive {:detail_update, ^first_subscriber, {:ticket_detail_updated, %State{health: :healthy, identity: ^first}}}
+    assert_receive {:detail_update, ^second_subscriber, {:ticket_detail_updated, %State{health: :healthy, identity: ^first}}}
+
+    assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, second)
+
+    assert_receive {
+      :detail_update,
+      ^first_subscriber,
+      {:ticket_detail_updated, %State{generation: 1, health: :unavailable, detail: nil, identity: ^first, failure: %Failure{kind: :evicted}}}
+    }
+
+    assert_receive {
+      :detail_update,
+      ^second_subscriber,
+      {:ticket_detail_updated, %State{generation: 1, health: :unavailable, detail: nil, identity: ^first, failure: %Failure{kind: :evicted}}}
+    }
+
+    assert {:ok, %State{health: :unavailable, detail: nil}} = TicketDetailCache.current(cache, first)
+  end
+
   test "does not evict an in-flight identity to exceed the configured capacity" do
     parent = self()
     first = identity(1, "I1")
@@ -168,13 +203,17 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     }
   end
 
-  test "publishes credential-sanitized detail without the raw provider body" do
+  test "publishes structured credential-sanitized detail without the raw provider body" do
     identity = identity(42, "I42")
 
     body =
       "Authorization: Bearer not-a-known-prefix-secret\n" <>
         "Cookie: private-session-cookie\n" <>
-        "inline Basic dXNlcjpwYXNzd29yZA=="
+        "inline Basic dXNlcjpwYXNzd29yZA==\n" <>
+        ~s({"Authorization":"Bearer json-secret"}) <>
+        "\n" <>
+        "curl -H 'X-Api-Key: curl-key' https://example.test\n" <>
+        ~s([{"Cookie", "header-list-cookie"}])
 
     {:ok, cache} =
       start_cache(
@@ -196,6 +235,83 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     refute description =~ "not-a-known-prefix-secret"
     refute description =~ "private-session-cookie"
     refute description =~ "dXNlcjpwYXNzd29yZA=="
+    refute description =~ "json-secret"
+    refute description =~ "curl-key"
+    refute description =~ "header-list-cookie"
+  end
+
+  test "times out cold demand, terminates its task, and ignores late completion" do
+    parent = self()
+    identity = identity(42, "I42")
+
+    {:ok, cache} =
+      start_cache(
+        refresh_timeout_ms: 20,
+        reader: fn _identity ->
+          send(parent, {:reader_started, self()})
+
+          receive do
+            :finish -> {:ok, snapshot(identity, "late")}
+          end
+        end
+      )
+
+    assert :ok = TicketDetailCache.subscribe(cache, identity)
+    assert {:ok, %State{generation: 1, health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert_receive {:reader_started, reader_pid}
+    ref = inflight_ref(cache, identity)
+
+    assert_receive {:ticket_detail_updated, %State{generation: 1, health: :unavailable, failure: %Failure{kind: :timeout}}}
+    refute Process.alive?(reader_pid)
+
+    send(cache, {ref, {:ok, snapshot(identity, "late")}})
+    refute_receive {:ticket_detail_updated, %State{detail: %Snapshot{title: "late"}}}
+    assert {:ok, %State{health: :unavailable, failure: %Failure{kind: :timeout}}} = TicketDetailCache.current(cache, identity)
+  end
+
+  test "keeps last-known-good detail stale when a refresh task times out" do
+    parent = self()
+    identity = identity(42, "I42")
+    {:ok, clock} = Agent.start_link(fn -> 0 end)
+    {:ok, attempts} = Agent.start_link(fn -> 0 end)
+
+    {:ok, cache} =
+      start_cache(
+        freshness_ms: 1,
+        refresh_timeout_ms: 20,
+        clock_ms: fn -> Agent.get(clock, & &1) end,
+        reader: fn _identity ->
+          case Agent.get_and_update(attempts, fn attempt -> {attempt + 1, attempt + 1} end) do
+            1 ->
+              {:ok, snapshot(identity, "first")}
+
+            2 ->
+              send(parent, {:reader_started, self()})
+
+              receive do
+                :finish -> {:ok, snapshot(identity, "late")}
+              end
+          end
+        end
+      )
+
+    assert :ok = TicketDetailCache.subscribe(cache, identity)
+    assert {:ok, %State{generation: 1, health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert_receive {:ticket_detail_updated, %State{generation: 1, health: :healthy, detail: %Snapshot{title: "first"}}}
+
+    Agent.update(clock, fn _ -> 2 end)
+    assert {:ok, %State{generation: 2, health: :stale, detail: %Snapshot{title: "first"}}} = TicketDetailCache.request(cache, identity)
+    assert_receive {:reader_started, reader_pid}
+    ref = inflight_ref(cache, identity)
+
+    assert_receive {
+      :ticket_detail_updated,
+      %State{generation: 2, health: :stale, detail: %Snapshot{title: "first"}, failure: %Failure{kind: :timeout}}
+    }
+
+    refute Process.alive?(reader_pid)
+    send(cache, {ref, {:ok, snapshot(identity, "late")}})
+    refute_receive {:ticket_detail_updated, %State{detail: %Snapshot{title: "late"}}}
   end
 
   test "ignores a delayed completion from an older generation" do
@@ -252,10 +368,11 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
   end
 
   test "does not let direct startup options exceed cache hard bounds" do
-    {:ok, cache} = start_cache(freshness_ms: 300_001, max_entries: 101, max_description_bytes: 16_385)
+    {:ok, cache} = start_cache(freshness_ms: 300_001, refresh_timeout_ms: 30_001, max_entries: 101, max_description_bytes: 16_385)
 
     assert %{
              freshness_ms: 30_000,
+             refresh_timeout_ms: 30_000,
              max_entries: 32,
              max_description_bytes: 16_384
            } = :sys.get_state(cache)
@@ -324,5 +441,21 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
       Enum.find_value(entries, fn {_key, entry} -> if entry.identity == identity, do: entry end)
 
     ref
+  end
+
+  defp subscribe_and_forward(cache, identity, parent) do
+    spawn_link(fn ->
+      :ok = TicketDetailCache.subscribe(cache, identity)
+      send(parent, {:detail_subscribed, self()})
+      forward_detail_updates(parent)
+    end)
+  end
+
+  defp forward_detail_updates(parent) do
+    receive do
+      {:ticket_detail_updated, %State{} = state} ->
+        send(parent, {:detail_update, self(), {:ticket_detail_updated, state}})
+        forward_detail_updates(parent)
+    end
   end
 end

@@ -29,6 +29,22 @@ defmodule Aiur.BuildOrder.Bounded do
     end
   end
 
+  @doc """
+  Validates one owner or repository component used to construct a GitHub URL.
+
+  These values are interpolated into outbound provider requests, so whitespace,
+  URL delimiters, and traversal-shaped components fail closed.
+  """
+  @spec github_repository_component(term()) :: {:ok, String.t()} | :error
+  def github_repository_component(value) do
+    with {:ok, component} <- text(value, 100),
+         true <- valid_path_part?(component) do
+      {:ok, component}
+    else
+      _ -> :error
+    end
+  end
+
   @spec same_repository?(term(), term()) :: boolean()
   def same_repository?(%{owner: owner, repository: repository}, %{
         owner: other_owner,
@@ -78,6 +94,6 @@ defmodule Aiur.BuildOrder.Bounded do
 
   defp github_issue_path?(_path), do: false
 
-  defp valid_path_part?(part), do: Regex.match?(~r/^[A-Za-z0-9_.-]{1,100}$/, part)
+  defp valid_path_part?(part), do: part not in [".", ".."] and Regex.match?(~r/^[A-Za-z0-9_.-]{1,100}$/, part)
   defp positive_number?(value), do: Regex.match?(~r/^[1-9][0-9]{0,18}$/, value)
 end

@@ -80,6 +80,24 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
              )
   end
 
+  test "rejects malformed repository components before the request function is invoked" do
+    for {field, value} <- [owner: "owner name", owner: "owner?query", repository: "repo#fragment", repository: ".."] do
+      malformed = Map.put(identity(42, "I42"), field, value)
+
+      assert {:error, %Failure{kind: :nonfetchable_repository}} =
+               TicketDetail.fetch(malformed,
+                 configured_repo: @configured,
+                 request_fun: fn _request -> flunk("transport must not be called") end
+               )
+    end
+
+    assert {:error, %Failure{kind: :configuration}} =
+             TicketDetail.fetch(identity(42, "I42"),
+               configured_repo: {"owner?query", "repo"},
+               request_fun: fn _request -> flunk("transport must not be called") end
+             )
+  end
+
   test "rejects an unjoinable identity before transport work" do
     identity = TrackerIdentity.unjoinable(:legacy, owner: "owner", repository: "repo", identifier: 42)
 
@@ -125,13 +143,19 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
              )
   end
 
-  test "keeps an absent body distinct from a malformed description" do
+  test "keeps an explicit absent body distinct from a partial or malformed description" do
     identity = identity(42, "I42")
 
     assert {:ok, %Snapshot{description: nil}} =
              TicketDetail.fetch(identity,
                configured_repo: @configured,
                request_fun: fn _request -> {:ok, %{status: 200, body: Map.put(issue(42, "I42"), "body", nil)}} end
+             )
+
+    assert {:error, %Failure{kind: :schema}} =
+             TicketDetail.fetch(identity,
+               configured_repo: @configured,
+               request_fun: fn _request -> {:ok, %{status: 200, body: Map.delete(issue(42, "I42"), "body")}} end
              )
 
     assert {:error, %Failure{kind: :validation}} =
@@ -158,13 +182,17 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
     refute description =~ "/home/alice/private.txt"
   end
 
-  test "redacts sensitive headers and generic credentials before snapshot storage" do
+  test "redacts structured sensitive headers and generic credentials before snapshot storage" do
     identity = identity(42, "I42")
 
     body =
       "Authorization: Bearer not-a-known-prefix-secret\n" <>
         "X-Api-Key: unrecognized-api-key\n" <>
-        "inline Basic dXNlcjpwYXNzd29yZA=="
+        "inline Basic dXNlcjpwYXNzd29yZA==\n" <>
+        ~s({"Authorization":"Bearer json-secret","headers":{"X-Api-Key":"json-key"}}) <>
+        "\n" <>
+        "curl --header 'Cookie: curl-cookie' https://example.test\n" <>
+        ~s([{"Proxy-Authorization", "Basic header-list-secret"}])
 
     assert {:ok, %Snapshot{description: description}} =
              TicketDetail.fetch(identity,
@@ -176,6 +204,10 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
     refute description =~ "not-a-known-prefix-secret"
     refute description =~ "unrecognized-api-key"
     refute description =~ "dXNlcjpwYXNzd29yZA=="
+    refute description =~ "json-secret"
+    refute description =~ "json-key"
+    refute description =~ "curl-cookie"
+    refute description =~ "header-list-secret"
   end
 
   test "maps not-found and rate-limit errors without response content" do
@@ -192,6 +224,21 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
                configured_repo: @configured,
                request_fun: fn _request -> {:ok, %{status: 429, headers: [{"retry-after", "30"}], body: %{"message" => "limit"}}} end
              )
+  end
+
+  test "clamps provider retry hints to the documented public bound" do
+    identity = identity(42, "I42")
+    maximum = TicketDetail.max_retry_after_seconds()
+
+    for {retry_after, expected} <- [{maximum, maximum}, {maximum + 1, maximum}, {9_999_999, maximum}] do
+      assert {:error, %Failure{kind: :rate_limited, retry_after: ^expected}} =
+               TicketDetail.fetch(identity,
+                 configured_repo: @configured,
+                 request_fun: fn _request ->
+                   {:ok, %{status: 429, headers: [{"retry-after", Integer.to_string(retry_after)}], body: %{"message" => "limit"}}}
+                 end
+               )
+    end
   end
 
   test "preserves structured provider failures without provider payloads" do
