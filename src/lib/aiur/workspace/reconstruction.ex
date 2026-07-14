@@ -9,21 +9,22 @@ defmodule Aiur.Workspace.Reconstruction do
 
   @spec run(Path.t(), (Path.t() -> :ok | {:error, term()})) :: :ok | {:error, term()}
   def run(workspace, prepare) when is_binary(workspace) and is_function(prepare, 1) do
-    stage = sibling_path(workspace, "stage")
+    stage_root = sibling_path(workspace, "stage")
+    stage = Path.join(stage_root, Path.basename(workspace))
 
     try do
       File.mkdir_p!(Path.dirname(workspace))
-      File.rm_rf!(stage)
+      File.rm_rf!(stage_root)
       File.mkdir_p!(stage)
 
       case prepare.(stage) do
-        :ok -> promote(stage, workspace)
-        {:error, _reason} = error -> cleanup_stage(stage, error)
-        other -> cleanup_stage(stage, {:error, {:invalid_reconstruction_result, other}})
+        :ok -> promote(stage, stage_root, workspace)
+        {:error, _reason} = error -> cleanup_stage(stage_root, error)
+        other -> cleanup_stage(stage_root, {:error, {:invalid_reconstruction_result, other}})
       end
     rescue
       error ->
-        File.rm_rf(stage)
+        File.rm_rf(stage_root)
         {:error, error}
     end
   end
@@ -34,12 +35,14 @@ defmodule Aiur.Workspace.Reconstruction do
     :global.trans({__MODULE__, Path.expand(workspace)}, fun)
   end
 
-  defp promote(stage, workspace) do
+  defp promote(stage, stage_root, workspace) do
     with_log_lock(workspace, fn ->
       backup = sibling_path(workspace, "previous")
       File.rm_rf!(backup)
 
-      promote_stage(stage, workspace, backup)
+      result = promote_stage(stage, workspace, backup)
+      File.rm_rf!(stage_root)
+      result
     end)
   end
 

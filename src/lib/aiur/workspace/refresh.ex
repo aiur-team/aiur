@@ -109,14 +109,19 @@ defmodule Aiur.Workspace.Refresh do
 
   defp run_before_run_command(nil, _workspace, _issue_context, _worker_host), do: :ok
 
-  defp run_before_run_command(command, workspace, issue_context, worker_host) do
+  defp run_before_run_command(command, workspace, issue_context, nil) do
     if Provisioner.incomplete_workspace?(workspace) do
       Reconstruction.run(workspace, fn stage ->
-        Hooks.run_hook(command, stage, issue_context, "before_run", worker_host)
+        Hooks.run_hook(command, stage, issue_context, "before_run", nil)
       end)
     else
-      Hooks.run_hook(command, workspace, issue_context, "before_run", worker_host)
+      Hooks.run_hook(command, workspace, issue_context, "before_run", nil)
     end
+  end
+
+  defp run_before_run_command(command, workspace, issue_context, worker_host)
+       when is_binary(worker_host) do
+    Hooks.run_hook(command, workspace, issue_context, "before_run", worker_host)
   end
 
   defp stale_leftover_refresh_refusal?({:workspace_hook_failed, "before_run", 65, _output}),

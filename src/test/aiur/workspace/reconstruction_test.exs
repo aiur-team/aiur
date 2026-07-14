@@ -46,4 +46,14 @@ defmodule Aiur.Workspace.ReconstructionTest do
     assert log =~ "during failed reconstruction"
     assert File.ls!(root) == ["ticket"]
   end
+
+  test "keeps the workspace leaf name inside its sibling stage", %{workspace: workspace} do
+    assert :ok =
+             Reconstruction.run(workspace, fn stage ->
+               assert Path.basename(stage) == Path.basename(workspace)
+               refute Path.dirname(stage) == Path.dirname(workspace)
+               File.write!(Path.join(stage, "README.md"), "rebuilt\n")
+               :ok
+             end)
+  end
 end

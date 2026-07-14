@@ -192,7 +192,7 @@ defmodule Aiur.Workspace.Provisioner do
         true
 
       {:ok, entries} ->
-        ".git" in entries
+        ".git" in entries and not Checkout.valid_workspace?(workspace)
 
       {:error, _reason} ->
         true

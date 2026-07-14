@@ -13,20 +13,26 @@ defmodule Aiur.Workspace.Hooks do
   def run_after_create(workspace, issue_context, created?, worker_host) do
     hooks = Config.settings!().hooks
 
-    case {created?, hooks.after_create} do
-      {true, nil} ->
-        :ok
+    run_after_create_hook(hooks.after_create, workspace, issue_context, created?, worker_host)
+  end
 
-      {true, command} ->
-        Reconstruction.run(workspace, fn stage ->
-          run_hook(command, stage, issue_context, "after_create", worker_host)
-        end)
+  # Materialized from the warm base — aiur already populated + branched the
+  # workspace, so the cold-clone after_create hook must NOT run.
+  defp run_after_create_hook(_command, _workspace, _issue_context, created?, _worker_host)
+       when created? != true,
+       do: :ok
 
-      # Materialized from the warm base — aiur already populated + branched the
-      # workspace, so the cold-clone after_create hook must NOT run.
-      _ ->
-        :ok
-    end
+  defp run_after_create_hook(nil, _workspace, _issue_context, true, _worker_host), do: :ok
+
+  defp run_after_create_hook(command, workspace, issue_context, true, nil) do
+    Reconstruction.run(workspace, fn stage ->
+      run_hook(command, stage, issue_context, "after_create", nil)
+    end)
+  end
+
+  defp run_after_create_hook(command, workspace, issue_context, true, worker_host)
+       when is_binary(worker_host) do
+    run_hook(command, workspace, issue_context, "after_create", worker_host)
   end
 
   @spec run_after_run(Path.t(), map() | String.t() | nil, String.t() | nil) :: :ok
