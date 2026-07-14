@@ -16,7 +16,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
     DispatchPolicy,
     IssueSync,
     Lifecycle,
-    PauseResume,
     PrAnchored,
     Reconciler,
     Slots,
@@ -65,8 +64,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
     case Tracker.fetch_candidate_issues() do
       {:ok, issues} ->
-        issues = PauseResume.recover_startup_pause_overrides(state, issues)
-
         state =
           state
           |> IssueSync.sync_polled_issue_state(issues)
