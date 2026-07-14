@@ -59,17 +59,21 @@ defmodule Aiur.OrchestratorDeactivateTest do
     def fetch_candidate_issues, do: {:ok, []}
 
     def update_issue_state(issue_id, state_name) do
-      recipient = Application.get_env(:aiur, :flaky_rework_recipient)
-      pid = Application.fetch_env!(:aiur, :flaky_rework_agent)
+      if self() == Application.get_env(:aiur, :flaky_rework_owner) do
+        recipient = Application.get_env(:aiur, :flaky_rework_recipient)
+        pid = Application.fetch_env!(:aiur, :flaky_rework_agent)
 
-      if is_pid(recipient) do
-        send(recipient, {:flaky_rework_update, issue_id, state_name})
+        if is_pid(recipient) do
+          send(recipient, {:flaky_rework_update, issue_id, state_name})
+        end
+
+        Agent.get_and_update(pid, fn
+          [result | rest] -> {result, rest}
+          [] -> {:ok, []}
+        end)
+      else
+        {:error, :unexpected_test_caller}
       end
-
-      Agent.get_and_update(pid, fn
-        [result | rest] -> {result, rest}
-        [] -> {:ok, []}
-      end)
     end
   end
 
@@ -3019,6 +3023,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       previous_github_client = Application.get_env(:aiur, :github_client_module)
       previous_recipient = Application.get_env(:aiur, :flaky_rework_recipient)
       previous_agent = Application.get_env(:aiur, :flaky_rework_agent)
+      previous_owner = Application.get_env(:aiur, :flaky_rework_owner)
       previous_delay = Application.get_env(:aiur, :comment_rework_retry_delay_ms)
       previous_max = Application.get_env(:aiur, :comment_rework_max_attempts)
       {:ok, agent} = Agent.start_link(fn -> [{:error, {:github_api_status, 502}}, :ok] end)
@@ -3032,11 +3037,18 @@ defmodule Aiur.OrchestratorDeactivateTest do
           tracker_terminal_states: ["done", "cancelled", "canceled"]
         )
 
-        Application.put_env(:aiur, :github_client_module, FlakyReworkGitHubClient)
         Application.put_env(:aiur, :flaky_rework_recipient, self())
         Application.put_env(:aiur, :flaky_rework_agent, agent)
+        Application.put_env(:aiur, :flaky_rework_owner, self())
+        Application.put_env(:aiur, :github_client_module, FlakyReworkGitHubClient)
         Application.put_env(:aiur, :comment_rework_retry_delay_ms, 1)
         Application.put_env(:aiur, :comment_rework_max_attempts, 3)
+
+        assert {:error, :unexpected_test_caller} =
+                 Task.async(fn ->
+                   FlakyReworkGitHubClient.update_issue_state("unrelated", "rework")
+                 end)
+                 |> Task.await()
 
         state = %Orchestrator.State{
           running: %{},
@@ -3095,6 +3107,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         restore_application_env(:github_client_module, previous_github_client)
         restore_application_env(:flaky_rework_recipient, previous_recipient)
         restore_application_env(:flaky_rework_agent, previous_agent)
+        restore_application_env(:flaky_rework_owner, previous_owner)
         restore_application_env(:comment_rework_retry_delay_ms, previous_delay)
         restore_application_env(:comment_rework_max_attempts, previous_max)
 
