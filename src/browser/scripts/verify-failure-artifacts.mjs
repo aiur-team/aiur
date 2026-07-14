@@ -4,7 +4,7 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { artifactFiles, writeSanitizedDiagnostic } from './artifact-sanitizer.mjs'
+import { artifactFiles, writeSanitizedDiagnostic, zipEntryContents } from './artifact-sanitizer.mjs'
 import { allocatePort, runBrowserTests } from './run-browser-tests.mjs'
 
 const browserRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -41,16 +41,33 @@ async function main() {
     const result = await runBrowserTests(['tests/failure-evidence.spec.mjs', 'tests/timeout-evidence.spec.mjs'], {
       ...process.env,
       AIUR_BROWSER_ARTIFACT_DIR: evidenceRoot,
+      AIUR_BROWSER_SENTINEL: sentinel,
       AIUR_BROWSER_KEEP_ARTIFACTS: '1'
     })
 
     assert.notEqual(result.code, 0, 'the failure-evidence probe must fail intentionally')
-    const files = await artifactFiles(evidenceRoot)
-    assert(files.some((file) => file.endsWith('trace.zip')), 'expected a failure trace')
-    assert(files.some((file) => file.endsWith('.png')), 'expected a failure screenshot')
+    assert.equal(path.dirname(result.artifactRoot), evidenceRoot, 'runner must create a run-owned artifact child')
+    const files = await artifactFiles(result.artifactRoot)
+    const trace = files.find((file) => file.endsWith('trace.zip'))
+    const screenshots = files.filter((file) => file.endsWith('.png'))
+
+    assert(trace, 'expected a failure trace')
+    assert(screenshots.length > 0, 'expected a failure screenshot')
+    assert(files.every((file) => !file.endsWith('.webm')), 'video evidence must not be retained or uploaded')
+
+    const traceContents = await zipEntryContents(trace)
+    const traceText = Buffer.concat(traceContents.map((entry) => entry.contents)).toString('utf8')
+
+    assert.doesNotMatch(traceText, new RegExp(sentinel), 'trace URL and DOM evidence must exclude parent sentinels')
+
+    for (const screenshot of screenshots) {
+      const contents = await readFile(screenshot)
+      assert.equal(contents.includes(Buffer.from(sentinel)), false, 'screenshot evidence must exclude parent sentinels')
+    }
+
     await assertPortReleased(result.port)
     const disposition = preserveEvidence ? 'Retained' : 'Verified'
-    process.stdout.write(`${disposition} sanitized failure evidence at ${evidenceRoot}\n`)
+    process.stdout.write(`${disposition} sanitized failure evidence at ${result.artifactRoot}\n`)
   } finally {
     if (!preserveEvidence) await rm(root, { recursive: true, force: true })
   }

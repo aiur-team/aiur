@@ -1,17 +1,15 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
-import { assertControlsRemainReachable, assertNoDocumentOverflow, captureConfiguredScreenshot, openFixture, reconnectLiveView } from './support/browser-helpers.mjs'
+import { assertControlsRemainReachable, assertFixtureAccessDenied, assertNoDocumentOverflow, captureConfiguredScreenshot, openFixture, reconnectLiveView } from './support/browser-helpers.mjs'
 import { assertMeasurementBudget, measureBrowserWork } from './support/measurements.mjs'
 
-test('synthetic LiveView covers navigation, modes, hooks, inputs, and updates', async ({ page }, testInfo) => {
+test('synthetic LiveView requires authentication and covers navigation, modes, hooks, inputs, and updates', async ({ page }, testInfo) => {
+  await assertFixtureAccessDenied(page)
   await openFixture(page, 'read_only')
   await expect(page.locator('#mode-status')).toHaveText('read_only')
 
   await page.getByRole('button', { name: 'Details' }).click()
   await expect(page).toHaveURL(/\?view=details/)
-
-  await page.getByRole('button', { name: 'Writable' }).click()
-  await expect(page.locator('#mode-status')).toHaveText('writable')
 
   await page.mouse.click(0, 0)
   await page.getByRole('button', { name: 'Pointer input' }).click()
@@ -65,12 +63,40 @@ test('synthetic fixture reconnects LiveView and passes automated accessibility c
 
 test('browser measurements use monotonic samples after warmup', async ({ page }) => {
   await openFixture(page)
-  const measurement = await measureBrowserWork(page, { warmups: 2, repetitions: 4 })
+  await page.evaluate(() => {
+    const target = document.querySelector('#graph-content')
+
+    window.__aiurBrowserHarnessOperations = {
+      redraw(index) {
+        target.dataset.revision = String(index)
+        target.textContent = `Synthetic redraw ${index}`
+        target.style.transform = `translateX(${index % 2}px)`
+      },
+      slow() {
+        const until = performance.now() + 25
+
+        while (performance.now() < until) {}
+      },
+      long() {
+        const until = performance.now() + 60
+
+        while (performance.now() < until) {}
+      }
+    }
+  })
+
+  const measurement = await measureBrowserWork(page, { operation: 'redraw', warmups: 2, repetitions: 4 })
 
   expect(measurement.warmups).toBe(2)
   expect(measurement.samples).toHaveLength(4)
-  expect(measurement.samples.every((sample) => sample >= 0)).toBe(true)
+  expect(measurement.samples.every((sample) => sample.layoutLatencyMs >= 0 && sample.mainThreadMs >= 0)).toBe(true)
   expect(Array.isArray(measurement.longTasks)).toBe(true)
   // This validates the measurement primitive, not BO-014's product budget.
-  assertMeasurementBudget(measurement, { maxSampleMs: 1_000 })
+  assertMeasurementBudget(measurement, { maxLayoutLatencyMs: 1_000, maxMainThreadMs: 1_000, maxCoalescedUpdates: 10, maxLongTaskMs: 1_000 })
+
+  const slowMeasurement = await measureBrowserWork(page, { operation: 'slow', warmups: 0, repetitions: 1 })
+  expect(() => assertMeasurementBudget(slowMeasurement, { maxMainThreadMs: 5 })).toThrow(/main-thread work/)
+
+  const longMeasurement = await measureBrowserWork(page, { operation: 'long', warmups: 0, repetitions: 1 })
+  expect(() => assertMeasurementBudget(longMeasurement, { maxMainThreadMs: 5 })).toThrow(/main-thread work/)
 })

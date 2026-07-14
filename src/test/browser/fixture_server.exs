@@ -51,13 +51,13 @@ defmodule Aiur.BrowserHarness.FixtureLive do
   alias Aiur.BrowserHarness.Fixtures
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(_params, %{"fixture_access" => access}, socket) do
     fixture = Fixtures.graph(20)
 
     {:ok,
      socket
      |> assign(:fixture, fixture)
-     |> assign(:mode, :read_only)
+     |> assign(:mode, access)
      |> assign(:theme, :light)
      |> assign(:interaction, "Awaiting input")
      |> assign(:view, :overview)
@@ -73,11 +73,8 @@ defmodule Aiur.BrowserHarness.FixtureLive do
 
   @impl true
   def handle_event("navigate", %{"view" => view}, socket) when view in ["overview", "details"] do
-    {:noreply, push_patch(socket, to: "/?view=#{view}")}
+    {:noreply, push_patch(socket, to: "/fixture?view=#{view}")}
   end
-
-  def handle_event("set-mode", %{"mode" => "writable"}, socket), do: {:noreply, assign(socket, :mode, :writable)}
-  def handle_event("set-mode", _params, socket), do: {:noreply, assign(socket, :mode, :read_only)}
 
   def handle_event("set-theme", %{"theme" => "dark"}, socket), do: {:noreply, assign(socket, :theme, :dark)}
   def handle_event("set-theme", _params, socket), do: {:noreply, assign(socket, :theme, :light)}
@@ -115,11 +112,7 @@ defmodule Aiur.BrowserHarness.FixtureLive do
 
       <section aria-labelledby="mode-title">
         <h2 id="mode-title">Synthetic mode</h2>
-        <div class="controls">
-          <button id="read-only-mode" type="button" phx-click="set-mode" phx-value-mode="read_only">Read only</button>
-          <button id="writable-mode" type="button" phx-click="set-mode" phx-value-mode="writable">Writable</button>
-          <span id="mode-status">{@mode}</span>
-        </div>
+        <p id="mode-status">{@mode}</p>
       </section>
 
       <section aria-labelledby="input-title">
@@ -147,6 +140,33 @@ defmodule Aiur.BrowserHarness.FixtureLive do
       </section>
     </main>
     """
+  end
+end
+
+defmodule Aiur.BrowserHarness.FixtureAuth do
+  use Phoenix.Controller, formats: []
+
+  import Plug.Conn
+
+  @access_modes ~w(read_only writable)
+
+  def authenticate(conn, %{"mode" => mode}) when mode in @access_modes do
+    conn
+    |> put_session("fixture_access", mode)
+    |> redirect(to: "/fixture")
+  end
+
+  def authenticate(conn, _params), do: send_resp(conn, 404, "unknown synthetic fixture access mode")
+
+  def require_access(conn, _opts) do
+    if get_session(conn, "fixture_access") in @access_modes do
+      conn
+    else
+      conn
+      |> put_resp_content_type("text/plain")
+      |> send_resp(401, "synthetic fixture authentication required")
+      |> halt()
+    end
   end
 end
 
@@ -190,6 +210,10 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     plug(:put_secure_browser_headers)
   end
 
+  pipeline :fixture_access do
+    plug(:require_fixture_access)
+  end
+
   scope "/" do
     get("/health", Aiur.BrowserHarness.FixtureAssets, :health)
     get("/assets/phoenix_html.js", Aiur.BrowserHarness.FixtureAssets, :phoenix_html)
@@ -202,14 +226,22 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
   scope "/" do
     pipe_through(:browser)
 
-    live("/", Aiur.BrowserHarness.FixtureLive, :index)
+    get("/auth/:mode", Aiur.BrowserHarness.FixtureAuth, :authenticate)
   end
+
+  scope "/" do
+    pipe_through([:browser, :fixture_access])
+
+    live("/fixture", Aiur.BrowserHarness.FixtureLive, :index)
+  end
+
+  defp require_fixture_access(conn, opts), do: Aiur.BrowserHarness.FixtureAuth.require_access(conn, opts)
 end
 
 defmodule Aiur.BrowserHarness.FixtureEndpoint do
   use Phoenix.Endpoint, otp_app: :aiur
 
-  @session_options [store: :cookie, key: "_aiur_browser_harness", signing_salt: "browser-harness"]
+  @session_options [store: :cookie, key: "_aiur_browser_harness", signing_salt: "browser-harness", http_only: true, same_site: "Lax"]
 
   socket("/live", Phoenix.LiveView.Socket, websocket: [connect_info: [session: @session_options]], longpoll: false)
 

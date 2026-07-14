@@ -1,11 +1,11 @@
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:net'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { sanitizeArtifactRoot, syntheticFixtureEnvironment } from './artifact-sanitizer.mjs'
+import { browserChildEnvironment, sanitizeArtifactRoot } from './artifact-sanitizer.mjs'
 
 const browserRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const allocatedPorts = new Set()
@@ -33,37 +33,48 @@ export async function allocatePort() {
   return port
 }
 
+export async function createArtifactRoot(environment = process.env) {
+  const configuredParent = environment.AIUR_BROWSER_ARTIFACT_DIR
+  const parent = configuredParent || browserRoot
+  const prefix = configuredParent ? path.join(parent, 'run-') : path.join(parent, '.artifacts-run-')
+
+  await mkdir(parent, { recursive: true })
+  return mkdtemp(prefix)
+}
+
 export async function runBrowserTests(args, environment = process.env) {
   const port = await allocatePort()
-  const artifactRoot = environment.AIUR_BROWSER_ARTIFACT_DIR ?? await mkdtemp(path.join(browserRoot, '.artifacts-run-'))
+  const artifactRoot = await createArtifactRoot(environment)
   const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx'
-  const fixtureEnvironment = syntheticFixtureEnvironment({ ...environment, AIUR_BROWSER_PORT: String(port) })
-  const childEnvironment = {
-    ...environment,
-    ...fixtureEnvironment,
+  const childEnvironment = browserChildEnvironment(environment, {
+    AIUR_BROWSER_PORT: String(port),
     AIUR_BROWSER_ARTIFACT_DIR: artifactRoot,
     AIUR_BROWSER_SCREENSHOTS: environment.AIUR_BROWSER_SCREENSHOTS ?? '',
     CI: environment.CI ?? ''
-  }
-
-  const result = await new Promise((resolve, reject) => {
-    const child = spawn(npx, ['playwright', 'test', ...args], {
-      cwd: browserRoot,
-      env: childEnvironment,
-      stdio: 'inherit'
-    })
-
-    child.once('error', reject)
-    child.once('exit', (code, signal) => resolve({ code, signal }))
   })
 
-  await sanitizeArtifactRoot(artifactRoot, environment)
+  let result
 
-  const retainArtifacts = result.code !== 0 || environment.AIUR_BROWSER_SCREENSHOTS === '1' || environment.AIUR_BROWSER_KEEP_ARTIFACTS === '1'
+  try {
+    result = await new Promise((resolve, reject) => {
+      const child = spawn(npx, ['playwright', 'test', ...args], {
+        cwd: browserRoot,
+        env: childEnvironment,
+        stdio: 'inherit'
+      })
 
-  if (!retainArtifacts) await rm(artifactRoot, { recursive: true, force: true })
+      child.once('error', reject)
+      child.once('exit', (code, signal) => resolve({ code, signal }))
+    })
 
-  return { ...result, artifactRoot, port }
+    return { ...result, artifactRoot, port }
+  } finally {
+    await sanitizeArtifactRoot(artifactRoot, environment)
+
+    const retainArtifacts = !result || result.code !== 0 || result.signal || environment.AIUR_BROWSER_SCREENSHOTS === '1' || environment.AIUR_BROWSER_KEEP_ARTIFACTS === '1'
+
+    if (!retainArtifacts) await rm(artifactRoot, { recursive: true, force: true })
+  }
 }
 
 async function main() {

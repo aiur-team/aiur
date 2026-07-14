@@ -462,9 +462,12 @@ npx playwright install chromium # one-time local browser download
 npm test
 ```
 
-`npm test` runs the harness primitives followed by the LiveView smoke. Failures
-retain sanitized Playwright traces, screenshots, and video beneath
-`src/browser/.artifacts-run-*`; successful runs remove their artifacts. Set
+`npm test` runs the harness primitives followed by the LiveView smoke. The
+fixture requires a synthetic, HttpOnly session path for read-only or writable
+access; it never accepts or exposes production credentials. Failures retain
+sanitized Playwright traces and screenshots beneath `src/browser/.artifacts-run-*`;
+video and other unverified binary formats are deleted before CI upload.
+Successful runs remove only their run-owned artifact child. Set
 `AIUR_BROWSER_SCREENSHOTS=1` to retain configured smoke screenshots. To prove
 the failure-evidence path locally, run:
 
@@ -473,9 +476,11 @@ AIUR_BROWSER_KEEP_ARTIFACTS=1 npm run verify:failure-artifacts
 ```
 
 That command deliberately fails one assertion, verifies a trace and screenshot
-were captured and that diagnostics are redacted, then prints the retained
-temporary artifact directory for inspection. The CI job caches the downloaded
-Playwright browser using `src/browser/package-lock.json` as its cache key.
+were captured, proves a parent-process sentinel is absent from trace, URL, DOM,
+and screenshot evidence, and verifies port release before printing the retained
+temporary artifact directory for inspection. The CI job runs that proof and
+caches the downloaded Playwright browser using `src/browser/package-lock.json`
+as its cache key.
 Playwright Test 1.61.1 (Apache-2.0) and `@axe-core/playwright` 4.11.3
 (MPL-2.0) are pinned in that lockfile. The smoke's broad harness liveness check
 is not a product-performance budget; BO-014 owns those thresholds.

@@ -1,14 +1,26 @@
 import { expect } from '@playwright/test'
 
+const fixtureAccessModes = new Set(['read_only', 'writable'])
+
+export async function assertFixtureAccessDenied(page) {
+  const response = await page.goto('/fixture')
+
+  expect(response?.status()).toBe(401)
+  await expect(page.getByText('synthetic fixture authentication required')).toBeVisible()
+}
+
 export async function openFixture(page, mode = 'read_only') {
-  await page.goto('/')
+  if (!fixtureAccessModes.has(mode)) throw new Error(`unsupported synthetic fixture access mode: ${mode}`)
+
+  await page.goto(`/auth/${mode}`)
+  await expect(page).toHaveURL(/\/fixture$/)
   await expect(page.locator('[data-fixture-ready="true"]')).toBeVisible()
   await expect(page.locator('#worker-status')).toHaveAttribute('data-worker-ready', 'true')
+  await expect(page.locator('#mode-status')).toHaveText(mode)
 
-  if (mode === 'writable') {
-    await page.getByRole('button', { name: 'Writable' }).click()
-    await expect(page.locator('#mode-status')).toHaveText('writable')
-  }
+  const session = (await page.context().cookies()).find((cookie) => cookie.name === '_aiur_browser_harness')
+
+  expect(session).toMatchObject({ httpOnly: true, sameSite: 'Lax' })
 }
 
 export async function assertNoDocumentOverflow(page) {

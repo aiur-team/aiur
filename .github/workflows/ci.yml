@@ -156,6 +156,9 @@ jobs:
       - name: Run browser, accessibility, and performance smoke
         working-directory: src/browser
         run: npm test
+      - name: Verify browser failure evidence, redaction, and teardown
+        working-directory: src/browser
+        run: npm run verify:failure-artifacts
       - name: Upload browser failure evidence
         if: failure()
         uses: actions/upload-artifact@v4

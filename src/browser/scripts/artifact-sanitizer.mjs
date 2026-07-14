@@ -1,14 +1,42 @@
-import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
+import { inflateRaw } from 'node:zlib'
+import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { promisify } from 'node:util'
 
 const sensitiveEnvironmentNames = ['AIUR_DASHBOARD_PASSWORD', 'AIUR_DASHBOARD_USERNAME', 'AIUR_SUPERVISOR_TOKEN', 'GITHUB_TOKEN']
 const textExtensions = new Set(['.json', '.log', '.md', '.txt'])
+const retainedBinaryExtensions = new Set(['.png', '.zip'])
+const inheritedRuntimeNames = [
+  'CI',
+  'HEX_HOME',
+  'HOME',
+  'LANG',
+  'LC_ALL',
+  'MIX_HOME',
+  'MISE_CACHE_DIR',
+  'MISE_CONFIG_ROOT',
+  'MISE_DATA_DIR',
+  'MISE_TRUSTED_CONFIG_PATHS',
+  'PATH',
+  'PLAYWRIGHT_BROWSERS_PATH',
+  'SSL_CERT_FILE',
+  'TMPDIR'
+]
+const inflateRawAsync = promisify(inflateRaw)
 
 export function syntheticFixtureEnvironment(environment = process.env) {
   return {
     AIUR_BROWSER_PORT: environment.AIUR_BROWSER_PORT ?? '',
     AIUR_BROWSER_FIXTURE_MODE: environment.AIUR_BROWSER_FIXTURE_MODE ?? 'synthetic'
   }
+}
+
+export function browserRuntimeEnvironment(environment = process.env) {
+  return Object.fromEntries(inheritedRuntimeNames.flatMap((name) => environment[name] ? [[name, environment[name]]] : []))
+}
+
+export function browserChildEnvironment(environment = process.env, overrides = {}) {
+  return { ...browserRuntimeEnvironment(environment), ...syntheticFixtureEnvironment(environment), ...overrides }
 }
 
 export function sanitizeDiagnostic(value, environment = process.env) {
@@ -39,9 +67,15 @@ export async function sanitizeArtifactRoot(root, environment = process.env) {
 
     if (entry.isDirectory()) {
       await sanitizeArtifactRoot(location, environment)
-    } else if (entry.isFile() && textExtensions.has(path.extname(entry.name))) {
-      const contents = await readFile(location, 'utf8')
-      await writeFile(location, sanitizeDiagnostic(contents, environment))
+    } else if (entry.isFile()) {
+      const extension = path.extname(entry.name)
+
+      if (textExtensions.has(extension)) {
+        const contents = await readFile(location, 'utf8')
+        await writeFile(location, sanitizeDiagnostic(contents, environment))
+      } else if (!retainedBinaryExtensions.has(extension)) {
+        await rm(location, { force: true })
+      }
     }
   }))
 
@@ -63,4 +97,46 @@ export async function artifactFiles(root) {
   }
 
   return files
+}
+
+export async function zipEntryContents(location) {
+  const archive = await readFile(location)
+  const endOfCentralDirectory = findEndOfCentralDirectory(archive)
+  const entryCount = archive.readUInt16LE(endOfCentralDirectory + 10)
+  let offset = archive.readUInt32LE(endOfCentralDirectory + 16)
+  const entries = []
+
+  for (let index = 0; index < entryCount; index += 1) {
+    if (archive.readUInt32LE(offset) !== 0x02014b50) throw new Error(`invalid ZIP central directory in ${location}`)
+
+    const compression = archive.readUInt16LE(offset + 10)
+    const compressedSize = archive.readUInt32LE(offset + 20)
+    const filenameLength = archive.readUInt16LE(offset + 28)
+    const extraLength = archive.readUInt16LE(offset + 30)
+    const commentLength = archive.readUInt16LE(offset + 32)
+    const localHeaderOffset = archive.readUInt32LE(offset + 42)
+    const name = archive.subarray(offset + 46, offset + 46 + filenameLength).toString('utf8')
+    const dataOffset = localHeaderOffset + 30 + archive.readUInt16LE(localHeaderOffset + 26) + archive.readUInt16LE(localHeaderOffset + 28)
+    const compressed = archive.subarray(dataOffset, dataOffset + compressedSize)
+
+    if (archive.readUInt32LE(localHeaderOffset) !== 0x04034b50) throw new Error(`invalid ZIP local header in ${location}`)
+
+    const contents = compression === 0 ? compressed : compression === 8 ? await inflateRawAsync(compressed) : null
+
+    if (contents) entries.push({ name, contents })
+
+    offset += 46 + filenameLength + extraLength + commentLength
+  }
+
+  return entries
+}
+
+function findEndOfCentralDirectory(archive) {
+  const minimumOffset = Math.max(0, archive.length - 65_557)
+
+  for (let offset = archive.length - 22; offset >= minimumOffset; offset -= 1) {
+    if (archive.readUInt32LE(offset) === 0x06054b50) return offset
+  }
+
+  throw new Error('ZIP end of central directory not found')
 }
