@@ -1,7 +1,7 @@
 ---
 title: "feat: Propagate ticket observation envelopes"
 type: feat
-status: active
+status: completed
 date: 2026-07-13
 origin: docs/brainstorms/2026-07-12-build-order-requirements.md
 ---
@@ -136,7 +136,7 @@ flowchart LR
 - Modify: `src/lib/aiur/events/publisher.ex`
 - Test: `src/test/aiur/events/publisher_test.exs`
 
-**Approach:** Once an event ID is assigned, attach the normalized envelope from optional trusted producer metadata. Publishers with no metadata receive an explicit unattributed envelope; persisted decision publishing continues its existing durability path.
+**Approach:** Once an event ID is assigned, attach the normalized envelope from optional trusted producer metadata. Reserve both atom and string forms of the envelope key before merging untrusted payloads so a caller cannot produce duplicate JSON keys or override the trusted envelope. The Publisher's injectable observation clock is the sole source of ingestion time; producer metadata may provide only source occurrence time. Publishers with no metadata receive an explicit unattributed envelope; persisted decision publishing continues its existing durability path.
 
 **Patterns to follow:**
 - `src/lib/aiur/events/publisher.ex`
@@ -147,6 +147,8 @@ flowchart LR
 - Compatibility: SubscriptionStore/IssueLog-required `id`, `topic`, and message fields remain unchanged.
 - Edge case: legacy topic, bare number, path-like payload, or active-workflow-like text cannot qualify identity.
 - Integration: malformed producer metadata and duplicate/out-of-order publications remain publishable and explicitly nonjoinable.
+- Security: atom- and string-keyed `ticket_observation` payload attempts are discarded before publication and a JSON encode/decode round trip retains only the trusted envelope.
+- Time ownership: a caller-supplied observed timestamp cannot override the Publisher's injected observation clock; malformed clock output remains unknown.
 
 **Verification:** All current generic and persisted publication semantics remain intact while envelope classification is present.
 
@@ -166,7 +168,7 @@ flowchart LR
 - Test: `src/test/aiur/agent_runner/tool_executor_test.exs`
 - Test: `src/test/aiur/alerts_test.exs`
 
-**Approach:** Mark agent progress/check-in events with the trusted Issue identity plus run/session/tool-call provenance. Mark phase alerts with their trusted Issue identity and safe stage/evidence classification. Preserve their existing topics and free-form legacy payloads, but never promote that prose into the envelope.
+**Approach:** Mark agent progress/check-in events with the trusted Issue identity plus run, turn-attempt, session, and tool-call provenance. Mark phase alerts with the same trusted issue/run/attempt/session/tool context and safe stage/evidence classification. Preserve their existing topics and free-form legacy payloads, but never promote that prose into the envelope.
 
 **Patterns to follow:**
 - `src/lib/aiur/agent_runner/tool_executor.ex`

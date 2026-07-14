@@ -107,10 +107,7 @@ defmodule Aiur.Events.Publisher do
       true ->
         id = IdGenerator.next_id()
 
-        event =
-          payload
-          |> Map.merge(%{id: id, topic: topic})
-          |> Map.put(:ticket_observation, ticket_observation(payload, id, opts))
+        event = event_with_observation(topic, payload, id, opts)
 
         subscribers = Exchange.publish(topic, event)
         record_emit_marker(topic, event, opts)
@@ -132,10 +129,7 @@ defmodule Aiur.Events.Publisher do
           {:ok, pos_integer(), non_neg_integer()}
   def publish_persisted(topic, payload, id, opts \\ [])
       when is_binary(topic) and is_map(payload) and is_integer(id) do
-    event =
-      payload
-      |> Map.merge(%{id: id, topic: topic})
-      |> Map.put(:ticket_observation, ticket_observation(payload, id, opts))
+    event = event_with_observation(topic, payload, id, opts)
 
     subscribers = Exchange.publish(topic, event)
     record_emit_marker(topic, event, opts)
@@ -161,14 +155,19 @@ defmodule Aiur.Events.Publisher do
     |> then(&TicketObservation.normalize(payload, &1))
   end
 
+  defp event_with_observation(topic, payload, id, opts) do
+    payload
+    |> Map.drop([:ticket_observation, "ticket_observation"])
+    |> Map.merge(%{id: id, topic: topic})
+    |> Map.put(:ticket_observation, ticket_observation(payload, id, opts))
+  end
+
   defp observation_options(opts, id) do
     [event_id: id, observed_at: observation_time(opts)]
     |> copy_option(opts, :identity, :identity)
     |> copy_option(opts, :observation_source, :source)
     |> copy_option(opts, :observation_provenance, :provenance)
     |> copy_option(opts, :occurred_at, :occurred_at)
-    |> copy_option(opts, :observed_at, :observed_at)
-    |> copy_option(opts, :observation_clock, :clock)
     |> copy_option(opts, :payload_version, :payload_version)
   end
 
