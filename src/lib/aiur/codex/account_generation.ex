@@ -151,8 +151,6 @@ defmodule Aiur.Codex.AccountGeneration do
 
   defp binding_context_from({:ok, binding}, session), do: binding_context_from(binding, session)
 
-  defp binding_context_from(:error, _session), do: :error
-
   defp binding_context_from(%{binding: binding, authority: authority} = context, session) do
     case {binding, authority} do
       {binding, authority} when is_reference(binding) and is_reference(authority) ->
