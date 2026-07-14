@@ -116,13 +116,11 @@ defmodule Aiur.AgentRunner do
   end
 
   defp run_before_run_hook(workspace, issue, opts, worker_host) do
-    try do
-      workspace_before_run_fun(opts).(workspace, issue, worker_host)
-    catch
-      kind, reason ->
-        workspace_after_run_fun(opts).(workspace, issue, worker_host)
-        :erlang.raise(kind, reason, __STACKTRACE__)
-    end
+    workspace_before_run_fun(opts).(workspace, issue, worker_host)
+  catch
+    kind, reason ->
+      workspace_after_run_fun(opts).(workspace, issue, worker_host)
+      :erlang.raise(kind, reason, __STACKTRACE__)
   end
 
   defp complete_worker_attempt(
