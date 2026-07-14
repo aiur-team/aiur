@@ -3,6 +3,8 @@ defmodule Aiur.GitHub.PullRequests do
   GitHub pull request domain.
   """
 
+  require Logger
+
   alias Aiur.{Codeowners, TicketBranch}
   alias Aiur.GitHub.{Comments, Errors, Transport}
 
@@ -232,6 +234,130 @@ defmodule Aiur.GitHub.PullRequests do
       end
     end
   end
+
+  @doc """
+  Ensures an open pull request targets the configured integration branch.
+
+  A matching pull request is read-only. A mismatch is repaired with GitHub's
+  pull-request REST endpoint and accepted only when the response confirms the
+  requested base, preserving every other pull-request field (including draft
+  state). Failures retain the observed and expected branches for an actionable
+  CI handoff.
+  """
+  @spec ensure_base_branch(map(), String.t(), keyword()) ::
+          {:ok, :unchanged | :repaired} | {:error, term()}
+  def ensure_base_branch(pr, expected_base, opts \\ [])
+
+  def ensure_base_branch(
+        %{"number" => number, "base" => %{"ref" => current_base}},
+        expected_base,
+        opts
+      )
+      when is_binary(current_base) and is_binary(expected_base) and expected_base != "" do
+    with {:ok, pr_number} <- positive_integer(number) do
+      if current_base == expected_base do
+        Logger.debug("Pull request base verified: pr=#{pr_number} base=#{inspect(expected_base)} action=unchanged")
+
+        {:ok, :unchanged}
+      else
+        repair_base_branch(pr_number, current_base, expected_base, opts)
+      end
+    end
+  end
+
+  def ensure_base_branch(pr, expected_base, _opts)
+      when not is_binary(expected_base) or expected_base == "" do
+    {:error, {:invalid_pull_request_base_branch, expected_base, Map.get(pr, "number")}}
+  end
+
+  def ensure_base_branch(pr, expected_base, _opts) do
+    {:error, {:pull_request_base_unavailable, %{pr_number: Map.get(pr, "number"), expected_base: expected_base}}}
+  end
+
+  defp repair_base_branch(pr_number, current_base, expected_base, opts) do
+    Logger.warning("Pull request base mismatch: pr=#{pr_number} current=#{inspect(current_base)} expected=#{inspect(expected_base)} action=repair")
+
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}"
+
+      request_fun.(%{
+        method: :patch,
+        url: url,
+        token: token,
+        body: %{"base" => expected_base}
+      })
+      |> handle_base_repair_response(pr_number, current_base, expected_base)
+    else
+      {:error, reason} ->
+        base_repair_error(pr_number, current_base, expected_base, reason)
+    end
+  end
+
+  defp handle_base_repair_response(
+         {:ok, %{status: 200, body: %{"base" => %{"ref" => expected_base}}}},
+         pr_number,
+         _current_base,
+         expected_base
+       ) do
+    Logger.info("Pull request base repaired: pr=#{pr_number} base=#{inspect(expected_base)} action=repaired")
+    {:ok, :repaired}
+  end
+
+  defp handle_base_repair_response(
+         {:ok, %{status: 200, body: body}},
+         pr_number,
+         current_base,
+         expected_base
+       ) do
+    base_repair_error(
+      pr_number,
+      current_base,
+      expected_base,
+      {:repair_not_confirmed, get_in(body, ["base", "ref"])}
+    )
+  end
+
+  defp handle_base_repair_response(
+         {:ok, %{status: _status} = response},
+         pr_number,
+         current_base,
+         expected_base
+       ) do
+    base_repair_error(pr_number, current_base, expected_base, Errors.github_status_error(response))
+  end
+
+  defp handle_base_repair_response({:error, reason}, pr_number, current_base, expected_base) do
+    base_repair_error(
+      pr_number,
+      current_base,
+      expected_base,
+      Errors.classify_error({:error, reason})
+    )
+  end
+
+  defp base_repair_error(pr_number, current_base, expected_base, reason) do
+    {:error,
+     {:pull_request_base_repair_failed,
+      %{
+        pr_number: pr_number,
+        current_base: current_base,
+        expected_base: expected_base,
+        reason: reason
+      }}}
+  end
+
+  defp positive_integer(value) when is_integer(value) and value > 0, do: {:ok, value}
+
+  defp positive_integer(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {number, ""} when number > 0 -> {:ok, number}
+      _ -> {:error, {:invalid_pull_request_number, value}}
+    end
+  end
+
+  defp positive_integer(value), do: {:error, {:invalid_pull_request_number, value}}
 
   @spec fetch_classified_pr_review_comments(String.t() | integer(), keyword()) ::
           {:ok, [map()]} | {:error, term()}

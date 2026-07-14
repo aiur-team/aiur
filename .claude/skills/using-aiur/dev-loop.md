@@ -4,6 +4,13 @@
 
 The branch already exists when your workspace boots. Read it with `git branch --show-current` and push or open the PR against that exact ref. New tickets use the generated readable Aiur branch; existing legacy and PR-anchored heads remain unchanged. Do not rename it or reconstruct one from the issue number. The numeric `ticket.<N>.branch.push` event key remains stable even when the actual branch has a suffix.
 
+The agent environment also carries the active workflow's authoritative
+integration branch as `AIUR_BASE_BRANCH`. It comes from the configured
+`tracker.base_branch`, not GitHub's repository default or `origin/HEAD`. Require
+it to be nonempty, include the branch name in durable workpad/PR handoff notes,
+and pass it explicitly on every PR creation or retarget operation. Do not log
+the surrounding environment or machine-local configuration.
+
 **The workspace `.git` directory is writable from this sandbox. If a `git`
 command claims the index is read-only ("Could not write index", "Unable to
 lock", "cannot create FETCH_HEAD"), do NOT clone a recovery checkout into
@@ -50,8 +57,13 @@ matching branch, and exits non-zero when no branch or more than one branch exist
    Claude, Codex, AI, models, or "generated with" in commit messages or PR
    descriptions — keep them plain and human.
 6. Push to the exact branch returned by `git branch --show-current`.
-7. **Open the PR as a draft** with that branch as `--head` (not ready for
-   review yet).
+7. **Open the PR as a draft** with that branch as `--head` and the authoritative
+   integration branch as `--base`: `gh pr create --draft --head "$branch"
+   --base "$AIUR_BASE_BRANCH" ...` (not ready for review yet). If a PR already
+   exists, read its `baseRefName` before CI handoff. Leave a matching base
+   unchanged; if it differs, PATCH only the PR's `base` through GitHub's pull
+   request REST endpoint, then re-fetch and verify `baseRefName`. Stop with the
+   observed branch, expected branch, and repair error if verification fails.
 8. **Self-review the draft PR with `ce-code-review`** against the diff you just
    pushed.
 9. Implement any issues `ce-code-review` surfaces (commit + push the fixes).

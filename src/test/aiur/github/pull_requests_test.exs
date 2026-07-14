@@ -62,6 +62,68 @@ defmodule Aiur.GitHub.PullRequestsTest do
     end
   end
 
+  describe "ensure_base_branch/3" do
+    test "leaves a correctly targeted pull request unchanged" do
+      request_fun = fn _request -> flunk("a matching base must not call GitHub") end
+
+      pr = %{
+        "number" => 42,
+        "draft" => true,
+        "base" => %{"ref" => "main"}
+      }
+
+      assert {:ok, :unchanged} =
+               PullRequests.ensure_base_branch(pr, "main", request_fun: request_fun)
+    end
+
+    test "repairs only the base of a pre-existing draft pull request" do
+      request_fun = fn %{method: :patch, url: url, body: body} ->
+        assert String.ends_with?(url, "/repos/owner/repo/pulls/1144")
+        assert body == %{"base" => "main"}
+
+        {:ok,
+         %{
+           status: 200,
+           body: %{
+             "number" => 1144,
+             "draft" => true,
+             "base" => %{"ref" => "main"}
+           }
+         }}
+      end
+
+      pr = %{
+        "number" => 1144,
+        "draft" => true,
+        "base" => %{"ref" => "v2"}
+      }
+
+      assert {:ok, :repaired} =
+               PullRequests.ensure_base_branch(pr, "main", request_fun: request_fun)
+    end
+
+    test "returns observed and expected bases when repair fails" do
+      request_fun = fn %{method: :patch, body: %{"base" => "main"}} ->
+        {:ok, %{status: 422, body: %{"message" => "base is invalid"}}}
+      end
+
+      pr = %{
+        "number" => 1145,
+        "draft" => true,
+        "base" => %{"ref" => "v2"}
+      }
+
+      assert {:error,
+              {:pull_request_base_repair_failed,
+               %{
+                 pr_number: 1145,
+                 current_base: "v2",
+                 expected_base: "main",
+                 reason: {:github, :http, %{status: 422}}
+               }}} = PullRequests.ensure_base_branch(pr, "main", request_fun: request_fun)
+    end
+  end
+
   describe "pull_request_has_label?/2" do
     test "returns true when PR carries the label" do
       pr = %{"labels" => [%{"name" => "agent:watch"}]}

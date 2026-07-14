@@ -10,6 +10,7 @@ defmodule Aiur.Events.GithubCIPoller do
 
   require Logger
 
+  alias Aiur.Config
   alias Aiur.GitHub.Client
 
   @type target :: String.t() | integer()
@@ -96,41 +97,95 @@ defmodule Aiur.Events.GithubCIPoller do
 
   defp poll_open_pull_request(target, pr, opts) do
     with {:ok, pr_number} <- positive_integer(Map.get(pr, "number")),
-         {:ok, head_sha} <- head_sha(pr),
-         {:ok, %{check_runs: check_runs, commit_status: commit_status}} <-
-           Client.fetch_commit_ci_status(head_sha, opts) do
-      poll_current_head_result(target, pr_number, head_sha, check_runs, commit_status, opts)
+         {:ok, head_sha} <- head_sha(pr) do
+      expected_base = expected_base_branch(opts)
+
+      case Client.ensure_pull_request_base(pr, expected_base, opts) do
+        {:ok, :unchanged} ->
+          poll_open_pull_request_ci(target, pr_number, head_sha, opts)
+
+        {:ok, :repaired} ->
+          base_branch_repaired(target, pr_number, head_sha, expected_base)
+
+        {:error, reason} ->
+          base_branch_failure(target, pr_number, head_sha, expected_base, reason)
+      end
     else
       {:error, reason} -> poll_error(target, reason)
+    end
+  end
+
+  defp poll_open_pull_request_ci(target, pr_number, head_sha, opts) do
+    case Client.fetch_commit_ci_status(head_sha, opts) do
+      {:ok, %{check_runs: check_runs, commit_status: commit_status}} ->
+        poll_current_head_result(target, pr_number, head_sha, check_runs, commit_status, opts)
+
+      {:error, reason} ->
+        poll_error(target, reason)
     end
   end
 
   defp poll_current_head_result(target, pr_number, observed_head_sha, check_runs, commit_status, opts) do
     case Client.fetch_open_pull_request_for_branch(target, opts) do
       {:ok, current_pr} when is_map(current_pr) ->
-        case head_sha(current_pr) do
-          {:ok, ^observed_head_sha} ->
-            evaluate(check_runs, commit_status)
-            |> Map.merge(%{target: target, pr_number: pr_number, head_sha: observed_head_sha})
-
-          {:ok, current_head_sha} ->
-            %{
-              target: target,
-              pr_number: pr_number,
-              head_sha: current_head_sha,
-              decision: :pending,
-              pending_reason: :head_changed
-            }
-
-          {:error, reason} ->
-            poll_error(target, reason)
-        end
+        poll_current_pull_request_result(
+          target,
+          pr_number,
+          current_pr,
+          observed_head_sha,
+          check_runs,
+          commit_status,
+          opts
+        )
 
       {:ok, nil} ->
         %{target: target, decision: :pending, pending_reason: :open_pr_no_longer_visible}
 
       {:error, reason} ->
         poll_error(target, {:pr_recheck, reason})
+    end
+  end
+
+  defp poll_current_pull_request_result(
+         target,
+         pr_number,
+         current_pr,
+         observed_head_sha,
+         check_runs,
+         commit_status,
+         opts
+       ) do
+    expected_base = expected_base_branch(opts)
+
+    case Client.ensure_pull_request_base(current_pr, expected_base, opts) do
+      {:ok, :unchanged} ->
+        current_head_result(target, pr_number, current_pr, observed_head_sha, check_runs, commit_status)
+
+      {:ok, :repaired} ->
+        base_branch_repaired(target, pr_number, observed_head_sha, expected_base)
+
+      {:error, reason} ->
+        base_branch_failure(target, pr_number, observed_head_sha, expected_base, reason)
+    end
+  end
+
+  defp current_head_result(target, pr_number, current_pr, observed_head_sha, check_runs, commit_status) do
+    case head_sha(current_pr) do
+      {:ok, ^observed_head_sha} ->
+        evaluate(check_runs, commit_status)
+        |> Map.merge(%{target: target, pr_number: pr_number, head_sha: observed_head_sha})
+
+      {:ok, current_head_sha} ->
+        %{
+          target: target,
+          pr_number: pr_number,
+          head_sha: current_head_sha,
+          decision: :pending,
+          pending_reason: :head_changed
+        }
+
+      {:error, reason} ->
+        poll_error(target, reason)
     end
   end
 
@@ -232,6 +287,74 @@ defmodule Aiur.Events.GithubCIPoller do
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 == ""))
     |> Enum.uniq()
+  end
+
+  defp expected_base_branch(opts) do
+    case Keyword.fetch(opts, :base_branch) do
+      {:ok, branch} when is_binary(branch) and branch != "" -> branch
+      _ -> Config.base_branch()
+    end
+  end
+
+  defp base_branch_failure(target, pr_number, head_sha, expected_base, reason) do
+    excerpt = base_branch_failure_message(pr_number, expected_base, reason)
+
+    Logger.warning("GithubCIPoller rejected pull request base: issue=#{target} reason=#{inspect(reason)}")
+
+    %{
+      target: target,
+      pr_number: pr_number,
+      head_sha: head_sha,
+      decision: :failed,
+      failures: [
+        %{
+          name: "pull request base branch",
+          kind: "pull_request",
+          result: "repair_failed",
+          excerpt: excerpt
+        }
+      ]
+    }
+  end
+
+  defp base_branch_repaired(target, pr_number, head_sha, expected_base) do
+    Logger.warning(
+      "GithubCIPoller repaired pull request base: issue=#{target} pr=#{pr_number} " <>
+        "expected_base=#{inspect(expected_base)} action=ci_revalidation_required"
+    )
+
+    %{
+      target: target,
+      pr_number: pr_number,
+      head_sha: head_sha,
+      decision: :failed,
+      failures: [
+        %{
+          name: "pull request base branch",
+          kind: "pull_request",
+          result: "repaired",
+          excerpt:
+            "Pull request ##{pr_number} was retargeted to configured tracker.base_branch " <>
+              "#{inspect(expected_base)}. CI recorded before the repair is not valid for the new base; " <>
+              "rerun CI or push a follow-up commit, then verify baseRefName before handoff."
+        }
+      ]
+    }
+  end
+
+  defp base_branch_failure_message(
+         pr_number,
+         expected_base,
+         {:pull_request_base_repair_failed, details}
+       ) do
+    "Pull request ##{pr_number} targets #{inspect(details.current_base)}; " <>
+      "configured tracker.base_branch is #{inspect(expected_base)}. Automatic REST retarget failed: " <>
+      "#{inspect(details.reason)}. Retarget only the PR base, then verify baseRefName before retrying CI."
+  end
+
+  defp base_branch_failure_message(pr_number, expected_base, reason) do
+    "Pull request ##{pr_number} base could not be verified against configured tracker.base_branch " <>
+      "#{inspect(expected_base)}: #{inspect(reason)}. Verify baseRefName or retarget only the PR base before retrying CI."
   end
 
   defp positive_integer(value) when is_integer(value) and value > 0, do: {:ok, value}

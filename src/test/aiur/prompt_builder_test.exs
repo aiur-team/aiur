@@ -1,6 +1,8 @@
 defmodule Aiur.PromptBuilderTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias Aiur.Issue
   alias Aiur.PromptBuilder
   alias Aiur.Workflow
@@ -117,6 +119,25 @@ defmodule Aiur.PromptBuilderTest do
     prompt = PromptBuilder.build_prompt(issue([]))
 
     assert String.contains?(prompt, "using-aiur")
+  end
+
+  @tag config: """
+       tracker:
+         kind: github
+         base_branch: integration
+         github:
+           repo: owner/repo
+       agent:
+         kind: codex
+       """
+  test "identifies the configured integration branch as authoritative" do
+    {prompt, log} = with_log(fn -> PromptBuilder.build_prompt(issue([])) end)
+
+    assert prompt =~ "configured `tracker.base_branch` is `integration`"
+    assert prompt =~ ~s(--base "$AIUR_BASE_BRANCH")
+    assert prompt =~ "never from `origin/HEAD`"
+    assert log =~ "Authoritative integration branch"
+    assert log =~ ~s(tracker.base_branch="integration")
   end
 
   @tag config: @config

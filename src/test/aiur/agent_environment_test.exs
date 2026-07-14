@@ -108,7 +108,7 @@ defmodule Aiur.AgentEnvironmentTest do
     end
 
     test "exposes per-workspace hex/mix homes and the agent-workspace marker" do
-      env = AgentEnvironment.workspace_env("/work/aiur/440")
+      env = AgentEnvironment.workspace_env("/work/aiur/440", base_branch: "integration")
 
       assert {~c"HEX_HOME", ~c"/work/aiur/440/.aiur-hex"} =
                List.keyfind(env, ~c"HEX_HOME", 0)
@@ -118,6 +118,9 @@ defmodule Aiur.AgentEnvironmentTest do
 
       assert {~c"AIUR_AGENT_WORKSPACE", ~c"/work/aiur/440"} =
                List.keyfind(env, ~c"AIUR_AGENT_WORKSPACE", 0)
+
+      assert {~c"AIUR_BASE_BRANCH", ~c"integration"} =
+               List.keyfind(env, ~c"AIUR_BASE_BRANCH", 0)
 
       assert {~c"AIUR_AGENT_MIX_SCHEDULERS", ~c"4"} =
                List.keyfind(env, ~c"AIUR_AGENT_MIX_SCHEDULERS", 0)
@@ -156,11 +159,15 @@ defmodule Aiur.AgentEnvironmentTest do
 
   describe "workspace_env_export_prefix/1" do
     test "exports MISE_TRUSTED_CONFIG_PATHS pointed at the workspace root" do
-      prefix = AgentEnvironment.workspace_env_export_prefix("/work/aiur/440")
+      prefix =
+        AgentEnvironment.workspace_env_export_prefix("/work/aiur/440",
+          base_branch: "integration"
+        )
 
       assert prefix =~ "MISE_TRUSTED_CONFIG_PATHS='/work/aiur/440'"
       assert prefix =~ "AIUR_AGENT_MIX_SCHEDULERS='4'"
       assert prefix =~ "ELIXIR_ERL_OPTIONS='+S 4:4'"
+      assert prefix =~ "AIUR_BASE_BRANCH='integration'"
       refute prefix =~ "elixir/mise.toml"
     end
 
