@@ -1,8 +1,73 @@
 defmodule Aiur.AgentRunnerTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.AgentRunner
-  alias Aiur.Orchestrator
+  alias Aiur.{AgentRunner, Issue, Orchestrator}
+
+  describe "active-turn workspace deferral" do
+    test "parks the duplicate runner without entering session lifecycle" do
+      parent = self()
+      issue = %Issue{id: "issue-1030", identifier: "AIUR-1030", title: "Protect workspace"}
+
+      runner =
+        Task.async(fn ->
+          AgentRunner.run_worker_attempt_once_for_test(
+            "/tmp/unused-active-turn-workspace",
+            issue,
+            parent,
+            workspace_before_run_fun: fn _workspace, _issue, _worker_host ->
+              {:defer, :active_turn}
+            end,
+            active_turn_wait_fun: fn identifier ->
+              send(parent, {:duplicate_parked, self(), identifier})
+
+              receive do
+                :release_duplicate -> :ok
+              end
+            end,
+            session_run_fun: fn _workspace, _issue, _recipient, _opts, _worker_host ->
+              send(parent, :session_started)
+              :ok
+            end,
+            workspace_after_run_fun: fn _workspace, _issue, _worker_host ->
+              send(parent, :after_run_started)
+              :ok
+            end
+          )
+        end)
+
+      assert_receive {:duplicate_parked, runner_pid, "AIUR-1030"}, 2_000
+      refute Task.yield(runner, 100)
+      refute_received :session_started
+      refute_received :after_run_started
+
+      send(runner_pid, :release_duplicate)
+      assert Task.await(runner, 2_000) == :ok
+      refute_received :session_started
+      refute_received :after_run_started
+    end
+
+    test "preserves after-run cleanup when before-run raises" do
+      parent = self()
+      issue = %Issue{id: "issue-cleanup", identifier: "AIUR-CLEANUP", title: "Clean up"}
+
+      assert_raise RuntimeError, "before-run exploded", fn ->
+        AgentRunner.run_worker_attempt_once_for_test(
+          "/tmp/unused-before-run-error-workspace",
+          issue,
+          parent,
+          workspace_before_run_fun: fn _workspace, _issue, _worker_host ->
+            raise "before-run exploded"
+          end,
+          workspace_after_run_fun: fn _workspace, _issue, _worker_host ->
+            send(parent, :after_run_started)
+            :ok
+          end
+        )
+      end
+
+      assert_received :after_run_started
+    end
+  end
 
   # Regression: open_aiur_turn_streams posted the `__aiur_turn__:<id>`
   # marker SYNCHRONOUSLY in a for-loop, one POST per attached

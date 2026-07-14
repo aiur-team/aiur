@@ -81,6 +81,29 @@ defmodule Aiur.AgentRunner.TurnStreamsTest do
   end
 
   describe "workspace exclusion" do
+    test "inactive waiters remain parked until every active turn closes" do
+      identifier = "TS-await-#{System.unique_integer([:positive])}"
+      parent = self()
+
+      :ok = ActiveTurns.put(identifier, "tONE")
+      :ok = ActiveTurns.put(identifier, "tTWO")
+
+      waiter =
+        Task.async(fn ->
+          :ok = ActiveTurns.await_inactive(identifier)
+          send(parent, :turns_inactive)
+        end)
+
+      refute_receive :turns_inactive, 100
+
+      :ok = ActiveTurns.mark_closed(identifier, "tONE", :done)
+      refute_receive :turns_inactive, 100
+
+      :ok = ActiveTurns.mark_closed(identifier, "tTWO", :done)
+      assert_receive :turns_inactive, 2_000
+      assert Task.await(waiter) == :turns_inactive
+    end
+
     test "turn registration waits for the same identifier's workspace operation" do
       identifier = "TS-lock-#{System.unique_integer([:positive])}"
       parent = self()

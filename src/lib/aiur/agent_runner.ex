@@ -8,7 +8,7 @@ defmodule Aiur.AgentRunner do
   alias Aiur.{AgentEventLog, CodingAgent, Config, Issue, IssueLog, Tracker, Workspace}
   alias Aiur.AgentRunner.{BootstrapDigest, CommentContext, EventsDigest, MessageHandler, QueueDrain}
   alias Aiur.AgentRunner.{SessionLifecycle, SessionResume, TurnLoop, TurnPrompt, TurnStreams}
-  alias Aiur.Opencode.ApiClient
+  alias Aiur.Opencode.{ActiveTurns, ApiClient}
   alias Aiur.RunTelemetry.Lifecycle
 
   @type worker_host :: String.t() | nil
@@ -99,14 +99,55 @@ defmodule Aiur.AgentRunner do
   end
 
   defp run_worker_attempt_once(workspace, issue, codex_update_recipient, opts, worker_host) do
+    case run_before_run_hook(workspace, issue, opts, worker_host) do
+      {:defer, :active_turn} ->
+        park_duplicate_active_turn(issue, opts)
+
+      before_run_result ->
+        complete_worker_attempt(
+          before_run_result,
+          workspace,
+          issue,
+          codex_update_recipient,
+          opts,
+          worker_host
+        )
+    end
+  end
+
+  defp run_before_run_hook(workspace, issue, opts, worker_host) do
+    try do
+      workspace_before_run_fun(opts).(workspace, issue, worker_host)
+    catch
+      kind, reason ->
+        workspace_after_run_fun(opts).(workspace, issue, worker_host)
+        :erlang.raise(kind, reason, __STACKTRACE__)
+    end
+  end
+
+  defp complete_worker_attempt(
+         before_run_result,
+         workspace,
+         issue,
+         codex_update_recipient,
+         opts,
+         worker_host
+       ) do
     result =
       try do
-        case Workspace.run_before_run_hook(workspace, issue, worker_host) do
+        case before_run_result do
           :ok ->
             record_workspace_setup_end(issue, opts, :success, nil)
             :ok = BootstrapDigest.maybe_attach_universal_subscriptions(issue)
             :ok = BootstrapDigest.maybe_enqueue_bootstrap_digest(issue)
-            SessionLifecycle.run_session(workspace, issue, codex_update_recipient, opts, worker_host)
+
+            session_run_fun(opts).(
+              workspace,
+              issue,
+              codex_update_recipient,
+              opts,
+              worker_host
+            )
 
           {:error, {:workspace_hook_failed, "before_run", status, output} = reason} ->
             record_workspace_setup_end(issue, opts, :failed, status)
@@ -117,7 +158,7 @@ defmodule Aiur.AgentRunner do
             {:error, reason}
         end
       after
-        Workspace.run_after_run_hook(workspace, issue, worker_host)
+        workspace_after_run_fun(opts).(workspace, issue, worker_host)
       end
 
     case result do
@@ -131,6 +172,30 @@ defmodule Aiur.AgentRunner do
         other
     end
   end
+
+  defp park_duplicate_active_turn(issue, opts) do
+    record_workspace_setup_end(issue, opts, :deferred, :active_turn)
+
+    Logger.info("Parking duplicate agent run while active turn holds checkout for #{issue_context(issue)}")
+
+    :ok = active_turn_wait_fun(opts).(issue.identifier)
+
+    Logger.info("Active turn closed; terminating parked duplicate agent run for #{issue_context(issue)}")
+
+    :ok
+  end
+
+  defp workspace_before_run_fun(opts),
+    do: Keyword.get(opts, :workspace_before_run_fun, &Workspace.run_before_run_hook/3)
+
+  defp workspace_after_run_fun(opts),
+    do: Keyword.get(opts, :workspace_after_run_fun, &Workspace.run_after_run_hook/3)
+
+  defp session_run_fun(opts),
+    do: Keyword.get(opts, :session_run_fun, &SessionLifecycle.run_session/5)
+
+  defp active_turn_wait_fun(opts),
+    do: Keyword.get(opts, :active_turn_wait_fun, &ActiveTurns.await_inactive/1)
 
   defp publish_completed_boundary(codex_update_recipient, issue) do
     # This runs only after the mandatory after_run hook above has returned.
@@ -211,6 +276,12 @@ defmodule Aiur.AgentRunner do
   @spec current_comment_context_events_for_test(Issue.t(), map()) :: [map()]
   def current_comment_context_events_for_test(issue, fetchers) when is_map(fetchers) do
     CommentContext.events(issue, fetchers)
+  end
+
+  @doc false
+  @spec run_worker_attempt_once_for_test(Path.t(), Issue.t(), pid() | nil, keyword()) :: term()
+  def run_worker_attempt_once_for_test(workspace, issue, recipient, opts \\ []) do
+    run_worker_attempt_once(workspace, issue, recipient, opts, nil)
   end
 
   @doc false

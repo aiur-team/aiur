@@ -61,13 +61,16 @@ defmodule Aiur.Opencode.ActiveTurns do
   @spec mark_closed(String.t(), String.t(), term()) :: :ok
   def mark_closed(identifier, aiur_turn_id, reason)
       when is_binary(identifier) and is_binary(aiur_turn_id) do
-    with_identifier_lock(identifier, fn ->
-      ensure_table()
-      prior_pid = current_subscriber_pid({identifier, aiur_turn_id})
-      :ets.insert(@table, {{identifier, aiur_turn_id}, {:closed, reason}, prior_pid})
-      schedule_cleanup({identifier, aiur_turn_id})
-      :ok
-    end)
+    :ok =
+      with_identifier_lock(identifier, fn ->
+        ensure_table()
+        prior_pid = current_subscriber_pid({identifier, aiur_turn_id})
+        :ets.insert(@table, {{identifier, aiur_turn_id}, {:closed, reason}, prior_pid})
+        schedule_cleanup({identifier, aiur_turn_id})
+        :ok
+      end)
+
+    notify_inactive_waiters(identifier)
   end
 
   @doc """
@@ -87,6 +90,19 @@ defmodule Aiur.Opencode.ActiveTurns do
         _turn_ids -> {:error, :active_turn}
       end
     end)
+  end
+
+  @doc """
+  Wait until every live turn for `identifier` has closed.
+
+  A duplicate runner uses this after workspace setup returns
+  `{:defer, :active_turn}`. Keeping that runner parked until the existing turn
+  closes avoids both concurrent sessions and a tight continuation-dispatch
+  loop.
+  """
+  @spec await_inactive(String.t()) :: :ok
+  def await_inactive(identifier) when is_binary(identifier) do
+    GenServer.call(__MODULE__, {:await_inactive, identifier}, :infinity)
   end
 
   @doc """
@@ -150,7 +166,19 @@ defmodule Aiur.Opencode.ActiveTurns do
   @impl true
   def init(_opts) do
     ensure_table()
-    {:ok, %{}}
+    {:ok, %{inactive_waiters: %{}}}
+  end
+
+  @impl true
+  def handle_call({:await_inactive, identifier}, from, state) do
+    case active_turn_ids(identifier) do
+      [] ->
+        {:reply, :ok, state}
+
+      _turn_ids ->
+        waiters = Map.update(state.inactive_waiters, identifier, [from], &[from | &1])
+        {:noreply, %{state | inactive_waiters: waiters}}
+    end
   end
 
   @impl true
@@ -177,9 +205,29 @@ defmodule Aiur.Opencode.ActiveTurns do
     {:noreply, state}
   end
 
+  def handle_info({:turn_state_changed, identifier}, state) do
+    case {active_turn_ids(identifier), Map.pop(state.inactive_waiters, identifier)} do
+      {[], {waiters, remaining}} when is_list(waiters) ->
+        Enum.each(waiters, &GenServer.reply(&1, :ok))
+        {:noreply, %{state | inactive_waiters: remaining}}
+
+      _other ->
+        {:noreply, state}
+    end
+  end
+
   defp schedule_cleanup(key) do
     case Process.whereis(__MODULE__) do
       pid when is_pid(pid) -> Process.send_after(pid, {:cleanup, key}, @cleanup_after_ms)
+      _ -> :ok
+    end
+
+    :ok
+  end
+
+  defp notify_inactive_waiters(identifier) do
+    case Process.whereis(__MODULE__) do
+      pid when is_pid(pid) -> send(pid, {:turn_state_changed, identifier})
       _ -> :ok
     end
 

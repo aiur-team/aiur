@@ -6,7 +6,8 @@ defmodule Aiur.Workspace.Refresh do
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Workspace.{BootstrapImage, Context, GitMetadata, Hooks, Provisioner}
 
-  @spec run(Path.t(), map() | String.t() | nil, String.t() | nil) :: :ok | {:error, term()}
+  @spec run(Path.t(), map() | String.t() | nil, String.t() | nil) ::
+          :ok | {:defer, :active_turn} | {:error, term()}
   def run(workspace, issue_or_identifier, worker_host \\ nil) when is_binary(workspace) do
     issue_context =
       issue_or_identifier
@@ -26,7 +27,7 @@ defmodule Aiur.Workspace.Refresh do
           "Skipping before_run workspace refresh: active turn holds checkout #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=#{Context.worker_host_for_log(worker_host)}"
         )
 
-        :ok
+        {:defer, :active_turn}
     end
   end
 

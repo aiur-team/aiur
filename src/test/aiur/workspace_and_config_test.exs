@@ -513,7 +513,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
       :ok = ActiveTurns.put(identifier, turn_id)
 
-      assert :ok = Workspace.run_before_run_hook(workspace, issue)
+      assert {:defer, :active_turn} = Workspace.run_before_run_hook(workspace, issue)
       assert ActiveTurns.lookup(identifier, turn_id) == :active
       assert File.read!(Path.join(workspace, "README.md")) == "dirty\n"
       assert File.dir?(Path.join(workspace, ".git"))

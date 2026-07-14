@@ -77,7 +77,7 @@ defmodule Aiur.Workspace do
   end
 
   @spec run_before_run_hook(Path.t(), map() | String.t() | nil, worker_host()) ::
-          :ok | {:error, term()}
+          :ok | {:defer, :active_turn} | {:error, term()}
   def run_before_run_hook(workspace, issue_or_identifier, worker_host \\ nil)
       when is_binary(workspace),
       do: Refresh.run(workspace, issue_or_identifier, worker_host)
