@@ -104,9 +104,11 @@ defmodule Aiur.CurrentRunMembership.Store.Recovery do
       clock: persistence.clock,
       recovered_at: persistence.clock.(),
       reconciliation: Runtime.initial_reconciliation(projection),
-      terminal_verification_pending?: TerminalVerification.pending?(pending_keys),
+      terminal_verification_pending?: terminal_verification_pending?(terminal_verification),
       terminal_verification_pending_keys: pending_keys,
-      writable?: writable? and journal_writable? and marker == :absent and match?({:ok, _pending_keys}, terminal_verification),
+      writable?:
+        writable? and journal_writable? and marker == :absent and
+          match?({:ok, _pending_keys, _pending?}, terminal_verification),
       health: Runtime.public_health(health)
     }
 
@@ -164,8 +166,11 @@ defmodule Aiur.CurrentRunMembership.Store.Recovery do
     end)
   end
 
-  defp terminal_verification_pending_keys({:ok, pending_keys}), do: pending_keys
+  defp terminal_verification_pending_keys({:ok, pending_keys, _pending?}), do: pending_keys
   defp terminal_verification_pending_keys({:error, _reason}), do: MapSet.new()
+
+  defp terminal_verification_pending?({:ok, _pending_keys, pending?}), do: pending?
+  defp terminal_verification_pending?({:error, _reason}), do: false
 
   defp boot_health(_marker, _checkpoint_health, _journal_health, {:error, reason}),
     do: {:unavailable, reason}

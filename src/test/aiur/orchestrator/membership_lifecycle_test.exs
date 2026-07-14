@@ -8,7 +8,7 @@ defmodule Aiur.Orchestrator.MembershipLifecycleTest do
 
   test "does not log recovery artifact contents when an observation fails" do
     sentinel = "ghp_membership_lifecycle_sentinel"
-    {:error, decode_error} = Jason.decode("{\"contents\":\"#{sentinel}\"")
+    {:error, decode_error} = Jason.decode(~s({"contents":"#{sentinel}"))
 
     log =
       capture_log(fn ->

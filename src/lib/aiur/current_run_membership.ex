@@ -38,8 +38,11 @@ defmodule Aiur.CurrentRunMembership do
   def mark_reconciled(status), do: Store.mark_reconciled(status)
 
   @doc false
-  @spec set_terminal_verification_pending(TrackerIdentity.t(), boolean()) :: :ok | {:error, :terminal_verification_marker_failed}
-  def set_terminal_verification_pending(identity, pending?), do: Store.set_terminal_verification_pending(identity, pending?)
+  @spec set_terminal_verification_pending(TrackerIdentity.t(), boolean()) ::
+          :ok | {:error, :terminal_verification_marker_failed}
+  def set_terminal_verification_pending(identity, pending?) do
+    Store.set_terminal_verification_pending(identity, pending?)
+  end
 
   @spec subscribe() :: :ok | {:error, term()}
   def subscribe, do: Phoenix.PubSub.subscribe(@pubsub, @topic)

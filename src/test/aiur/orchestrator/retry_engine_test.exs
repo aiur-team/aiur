@@ -352,7 +352,9 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
                  terminal_states: MapSet.new(["done"]),
                  observe_membership_fun: fn _identity, _lifecycle -> {:error, :disk_full} end,
                  mark_reconciled_fun: fn status -> send(parent, {:freshness, status}) end,
-                 set_terminal_verification_pending_fun: fn _identity, pending? -> send(parent, {:terminal_verification_pending, pending?}) end,
+                 set_terminal_verification_pending_fun: fn _identity, pending? ->
+                   send(parent, {:terminal_verification_pending, pending?})
+                 end,
                  cleanup_terminal_issue_artifacts_fun: fn _identifier, _worker_host ->
                    flunk("must not clean up before terminal membership persists")
                  end

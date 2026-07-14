@@ -155,7 +155,9 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
     crash(pid)
     recovered = start_store!(dir)
     assert :ok = Store.mark_reconciled(:fresh, recovered)
-    assert %{freshness: %{status: :unavailable, terminal_verification_pending?: true}} = Store.snapshot(server: recovered)
+
+    assert %{freshness: %{status: :unavailable, terminal_verification_pending?: true}} =
+             Store.snapshot(server: recovered)
   end
 
   test "a new run cannot inherit a prior run's members", %{dir: dir} do

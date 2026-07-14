@@ -489,31 +489,25 @@ defmodule Aiur.Orchestrator.RetryEngine do
       Keyword.get(opts, :mark_reconciled_fun, &CurrentRunMembership.mark_reconciled/1)
 
     set_terminal_verification_pending_fun =
-      Keyword.get(opts, :set_terminal_verification_pending_fun, &CurrentRunMembership.set_terminal_verification_pending/2)
+      Keyword.get(
+        opts,
+        :set_terminal_verification_pending_fun,
+        &CurrentRunMembership.set_terminal_verification_pending/2
+      )
 
     cond do
       DispatchPolicy.terminal_issue_state?(issue.state, terminal_states) ->
-        Logger.info("Issue state is terminal: issue_id=#{issue_id} issue_identifier=#{issue.identifier} state=#{issue.state}; removing associated workspace")
-
-        case MembershipLifecycle.record(
-               issue,
-               MembershipLifecycle.terminal_lifecycle(issue.state),
-               observe_membership_fun
-             ) do
-          :ok ->
-            case safely_set_terminal_verification_pending(set_terminal_verification_pending_fun, issue.tracker_identity, false) do
-              :ok ->
-                cleanup_terminal_issue_artifacts_fun.(issue.identifier, metadata[:worker_host])
-                {:noreply, release_issue_claim(state, issue_id)}
-
-              :error ->
-                {:noreply, schedule_terminal_verification_retry(state, issue, issue_id, attempt, metadata)}
-            end
-
-          {:error, :membership_observation_failed} ->
-            safely_mark_membership_unavailable(mark_reconciled_fun, set_terminal_verification_pending_fun, issue.tracker_identity)
-            {:noreply, schedule_terminal_verification_retry(state, issue, issue_id, attempt, metadata)}
-        end
+        handle_terminal_retry_issue(
+          state,
+          issue,
+          issue_id,
+          attempt,
+          metadata,
+          observe_membership_fun,
+          cleanup_terminal_issue_artifacts_fun,
+          mark_reconciled_fun,
+          set_terminal_verification_pending_fun
+        )
 
       Orchestrator.retry_candidate_issue?(issue, terminal_states) ->
         handle_active_retry(state, issue, attempt, metadata)
@@ -527,7 +521,10 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   def handle_retry_issue_lookup(nil, state, issue_id, attempt, metadata, _opts) do
     if metadata[:terminal_membership_pending?] do
-      Logger.warning("Terminal membership is still pending for unavailable retry issue_id=#{issue_id}; retaining claim")
+      Logger.warning(
+        "Terminal membership is still pending for unavailable retry issue_id=#{issue_id}; " <>
+          "retaining claim"
+      )
 
       {:noreply,
        schedule_issue_retry(
@@ -544,6 +541,92 @@ defmodule Aiur.Orchestrator.RetryEngine do
       Logger.debug("Issue no longer visible, removing claim issue_id=#{issue_id}")
       {:noreply, release_issue_claim(state, issue_id)}
     end
+  end
+
+  defp handle_terminal_retry_issue(
+         state,
+         issue,
+         issue_id,
+         attempt,
+         metadata,
+         observe_membership_fun,
+         cleanup_terminal_issue_artifacts_fun,
+         mark_reconciled_fun,
+         set_terminal_verification_pending_fun
+       ) do
+    Logger.info(
+      "Issue state is terminal: issue_id=#{issue_id} issue_identifier=#{issue.identifier} " <>
+        "state=#{issue.state}; removing associated workspace"
+    )
+
+    case MembershipLifecycle.record(
+           issue,
+           MembershipLifecycle.terminal_lifecycle(issue.state),
+           observe_membership_fun
+         ) do
+      :ok ->
+        finish_terminal_retry_issue(
+          state,
+          issue,
+          issue_id,
+          attempt,
+          metadata,
+          cleanup_terminal_issue_artifacts_fun,
+          set_terminal_verification_pending_fun
+        )
+
+      {:error, :membership_observation_failed} ->
+        retain_terminal_retry_claim(
+          state,
+          issue,
+          issue_id,
+          attempt,
+          metadata,
+          mark_reconciled_fun,
+          set_terminal_verification_pending_fun
+        )
+    end
+  end
+
+  defp finish_terminal_retry_issue(
+         state,
+         issue,
+         issue_id,
+         attempt,
+         metadata,
+         cleanup_terminal_issue_artifacts_fun,
+         set_terminal_verification_pending_fun
+       ) do
+    case safely_set_terminal_verification_pending(
+           set_terminal_verification_pending_fun,
+           issue.tracker_identity,
+           false
+         ) do
+      :ok ->
+        cleanup_terminal_issue_artifacts_fun.(issue.identifier, metadata[:worker_host])
+        {:noreply, release_issue_claim(state, issue_id)}
+
+      :error ->
+        {:noreply, schedule_terminal_verification_retry(state, issue, issue_id, attempt, metadata)}
+    end
+  end
+
+  defp retain_terminal_retry_claim(
+         state,
+         issue,
+         issue_id,
+         attempt,
+         metadata,
+         mark_reconciled_fun,
+         set_terminal_verification_pending_fun
+       ) do
+    safely_mark_membership_unavailable(
+      mark_reconciled_fun,
+      set_terminal_verification_pending_fun,
+      issue.tracker_identity
+    )
+
+    {:noreply, schedule_terminal_verification_retry(state, issue, issue_id, attempt, metadata)}
   end
 
   defp handle_active_retry(state, issue, attempt, metadata) do

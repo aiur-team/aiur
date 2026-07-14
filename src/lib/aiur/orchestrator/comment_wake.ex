@@ -9,8 +9,11 @@ defmodule Aiur.Orchestrator.CommentWake do
   import Bitwise, only: [<<<: 2]
 
   alias Aiur.Alerts
+  alias Aiur.CurrentRunMembership
   alias Aiur.Events.UniversalSubscriptions
-  alias Aiur.{CurrentRunMembership, Issue, Tracker, TrackerIdentity}
+  alias Aiur.Issue
+  alias Aiur.Tracker
+  alias Aiur.TrackerIdentity
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, PrAnchored, State}
   alias Aiur.RunTelemetry.Lifecycle
@@ -60,32 +63,123 @@ defmodule Aiur.Orchestrator.CommentWake do
 
     case update_issue_state_fun.(to_string(identifier), "done") do
       :ok ->
-        case State.find_running_by_identifier(state.running, identifier) do
-          %{issue: %Issue{id: issue_id} = issue} ->
-            case MembershipLifecycle.record(issue, :completed, observe_membership_fun) do
-              :ok ->
-                if safely_set_terminal_verification_pending(set_terminal_verification_pending_fun, issue.tracker_identity, false) == :ok do
-                  clear_session_handle_fun.(identifier)
-                  terminate_running_issue_fun.(state, issue_id, true)
-                else
-                  safely_mark_membership_unavailable(mark_reconciled_fun, set_terminal_verification_pending_fun, issue.tracker_identity)
-                  state
-                end
-
-              {:error, :membership_observation_failed} ->
-                safely_mark_membership_unavailable(mark_reconciled_fun, set_terminal_verification_pending_fun, issue.tracker_identity)
-                state
-            end
-
-          _ ->
-            state
-        end
+        complete_merged_issue(
+          state,
+          identifier,
+          clear_session_handle_fun,
+          observe_membership_fun,
+          terminate_running_issue_fun,
+          mark_reconciled_fun,
+          set_terminal_verification_pending_fun
+        )
 
       {:error, reason} ->
         Logger.warning("PR merge terminal transition skipped: issue_identifier=#{identifier} reason=#{inspect(reason)}")
 
         state
     end
+  end
+
+  defp complete_merged_issue(
+         state,
+         identifier,
+         clear_session_handle_fun,
+         observe_membership_fun,
+         terminate_running_issue_fun,
+         mark_reconciled_fun,
+         set_terminal_verification_pending_fun
+       ) do
+    case State.find_running_by_identifier(state.running, identifier) do
+      %{issue: %Issue{} = issue} ->
+        record_merged_issue_terminal(
+          state,
+          identifier,
+          issue,
+          clear_session_handle_fun,
+          observe_membership_fun,
+          terminate_running_issue_fun,
+          mark_reconciled_fun,
+          set_terminal_verification_pending_fun
+        )
+
+      _ ->
+        state
+    end
+  end
+
+  defp record_merged_issue_terminal(
+         state,
+         identifier,
+         issue,
+         clear_session_handle_fun,
+         observe_membership_fun,
+         terminate_running_issue_fun,
+         mark_reconciled_fun,
+         set_terminal_verification_pending_fun
+       ) do
+    case MembershipLifecycle.record(issue, :completed, observe_membership_fun) do
+      :ok ->
+        finalize_merged_issue_terminal(
+          state,
+          identifier,
+          issue,
+          clear_session_handle_fun,
+          terminate_running_issue_fun,
+          mark_reconciled_fun,
+          set_terminal_verification_pending_fun
+        )
+
+      {:error, :membership_observation_failed} ->
+        retain_merged_issue_for_terminal_verification(
+          state,
+          issue,
+          mark_reconciled_fun,
+          set_terminal_verification_pending_fun
+        )
+    end
+  end
+
+  defp finalize_merged_issue_terminal(
+         state,
+         identifier,
+         issue,
+         clear_session_handle_fun,
+         terminate_running_issue_fun,
+         mark_reconciled_fun,
+         set_terminal_verification_pending_fun
+       ) do
+    case safely_set_terminal_verification_pending(
+           set_terminal_verification_pending_fun,
+           issue.tracker_identity,
+           false
+         ) do
+      :ok ->
+        clear_session_handle_fun.(identifier)
+        terminate_running_issue_fun.(state, issue.id, true)
+
+      :error ->
+        retain_merged_issue_for_terminal_verification(
+          state,
+          issue,
+          mark_reconciled_fun,
+          set_terminal_verification_pending_fun
+        )
+    end
+  end
+
+  defp retain_merged_issue_for_terminal_verification(
+         state,
+         issue,
+         mark_reconciled_fun,
+         set_terminal_verification_pending_fun
+       ) do
+    safely_mark_membership_unavailable(
+      mark_reconciled_fun,
+      set_terminal_verification_pending_fun,
+      issue.tracker_identity
+    )
+
+    state
   end
 
   defp safely_mark_membership_unavailable(mark_reconciled_fun, set_terminal_verification_pending_fun, identity) do

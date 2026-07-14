@@ -12,8 +12,11 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
   @spec handle_observation(Event.t(), map()) :: {:reply, term(), map()}
   def handle_observation(event, state) do
     case Projection.apply(state.projection, event) do
-      {:accepted, projection} -> persist(event, projection, state)
-      {:ignored, reason, _projection} -> {:reply, {:ok, %{status: reason, generation: state.projection.generation}}, state}
+      {:accepted, projection} ->
+        persist(event, projection, state)
+
+      {:ignored, reason, _projection} ->
+        {:reply, {:ok, %{status: reason, generation: state.projection.generation}}, state}
     end
   end
 
@@ -43,18 +46,21 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
     state
   end
 
-  @spec set_terminal_verification_pending(map(), TrackerIdentity.t(), boolean()) :: {:ok, map()} | {:error, term(), map()}
+  @spec set_terminal_verification_pending(map(), TrackerIdentity.t(), boolean()) ::
+          {:ok, map()} | {:error, term(), map()}
   def set_terminal_verification_pending(state, identity, pending?) do
-    with {:ok, key} <- TerminalVerification.pending_key(identity) do
-      pending_keys = update_pending_keys(state.terminal_verification_pending_keys, key, pending?)
+    case TerminalVerification.pending_key(identity) do
+      {:ok, key} ->
+        pending_keys = update_pending_keys(state.terminal_verification_pending_keys, key, pending?)
 
-      if pending_keys == state.terminal_verification_pending_keys do
-        {:ok, state}
-      else
-        persist_terminal_verification_pending(state, pending_keys)
-      end
-    else
-      {:error, _reason} -> terminal_verification_marker_failed(state, :invalid_identity)
+        if pending_keys == state.terminal_verification_pending_keys do
+          {:ok, state}
+        else
+          persist_terminal_verification_pending(state, pending_keys)
+        end
+
+      {:error, _reason} ->
+        terminal_verification_marker_failed(state, :invalid_identity)
     end
   end
 
@@ -111,13 +117,27 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
   def public_health({:degraded, {:journal_corrupt, line, reason}}) when is_integer(line) and line > 0, do: {:degraded, {:journal_corrupt, line, recovery_reason(reason)}}
 
   def public_health({:degraded, {operation, reason}})
-      when operation in [:append_failed, :checkpoint_failed, :checkpoint_entry_sync_failed, :journal_compaction_failed, :cleanup_failed, :terminal_verification_marker_failed],
+      when operation in [
+             :append_failed,
+             :checkpoint_failed,
+             :checkpoint_entry_sync_failed,
+             :journal_compaction_failed,
+             :cleanup_failed,
+             :terminal_verification_marker_failed
+           ],
       do: {:degraded, {operation, persistence_reason(reason)}}
 
   def public_health({:degraded, _}), do: {:degraded, :recovery_degraded}
 
   def public_health({:unavailable, {operation, reason}})
-      when operation in [:path_unresolved, :prepare_failed, :journal_unreadable, :journal_prefix_checkpoint_failed, :degraded_marker_failed, :quarantine_failed],
+      when operation in [
+             :path_unresolved,
+             :prepare_failed,
+             :journal_unreadable,
+             :journal_prefix_checkpoint_failed,
+             :degraded_marker_failed,
+             :quarantine_failed
+           ],
       do: {:unavailable, {operation, persistence_reason(reason)}}
 
   def public_health({:unavailable, reason}) when reason in [:terminal_verification_marker_invalid, :terminal_verification_marker_too_large], do: {:unavailable, reason}
@@ -132,7 +152,12 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
 
   defp persist_appended_event(event, projection, state) do
     state = %{state | journal_event_count: state.journal_event_count + 1}
-    if state.journal_event_count >= state.checkpoint_interval, do: persist_checkpoint(event, projection, state), else: finish_journal_append(event, projection, state)
+
+    if state.journal_event_count >= state.checkpoint_interval do
+      persist_checkpoint(event, projection, state)
+    else
+      finish_journal_append(event, projection, state)
+    end
   end
 
   defp finish_journal_append(event, projection, state) do
@@ -150,8 +175,11 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
          :ok <- FileOps.sync_recovery_entry(state.sync_fun) do
       finish_checkpoint(event, %{state | projection: projection, health: persisted_health(state.health)})
     else
-      {:error, :checkpoint_entry_sync_failed, reason} -> persist_failed(%{state | writable?: false}, {:checkpoint_entry_sync_failed, reason})
-      {:error, reason} -> persist_failed(%{state | writable?: false}, {:checkpoint_failed, reason})
+      {:error, :checkpoint_entry_sync_failed, reason} ->
+        persist_failed(%{state | writable?: false}, {:checkpoint_entry_sync_failed, reason})
+
+      {:error, reason} ->
+        persist_failed(%{state | writable?: false}, {:checkpoint_failed, reason})
     end
   end
 
@@ -180,7 +208,12 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
   defp update_pending_keys(pending_keys, key, false), do: MapSet.delete(pending_keys, key)
 
   defp persist_terminal_verification_pending(state, pending_keys) do
-    case state.terminal_verification_marker_fun.(state.terminal_verification_path, state.run_id, pending_keys, state.sync_fun) do
+    case state.terminal_verification_marker_fun.(
+           state.terminal_verification_path,
+           state.run_id,
+           pending_keys,
+           state.sync_fun
+         ) do
       :ok ->
         state = %{
           state

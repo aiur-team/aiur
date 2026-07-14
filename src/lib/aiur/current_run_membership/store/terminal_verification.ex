@@ -9,11 +9,12 @@ defmodule Aiur.CurrentRunMembership.Store.TerminalVerification do
   @version 1
   @unqualified_observation_key "unqualified_terminal_observation"
 
-  @spec load(String.t(), String.t()) :: {:ok, MapSet.t(String.t())} | {:error, atom()}
+  @spec load(String.t(), String.t()) ::
+          {:ok, MapSet.t(String.t()), boolean()} | {:error, atom()}
   def load(path, run_id) do
     case File.lstat(path) do
       {:error, :enoent} ->
-        {:ok, MapSet.new()}
+        {:ok, MapSet.new(), false}
 
       {:ok, %File.Stat{type: :regular, size: size}} ->
         if size <= Codec.max_recovery_record_bytes() do
@@ -68,7 +69,8 @@ defmodule Aiur.CurrentRunMembership.Store.TerminalVerification do
          {:ok, %{"run_id" => ^run_id, "version" => @version, "pending_keys" => pending_keys} = record} <- Jason.decode(contents),
          @record_keys <- record |> Map.keys() |> Enum.sort(),
          true <- valid_pending_keys?(pending_keys) do
-      {:ok, MapSet.new(pending_keys)}
+      pending_keys = MapSet.new(pending_keys)
+      {:ok, pending_keys, pending?(pending_keys)}
     else
       _ -> {:error, :terminal_verification_marker_invalid}
     end

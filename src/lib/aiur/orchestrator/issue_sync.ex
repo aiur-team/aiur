@@ -230,23 +230,18 @@ defmodule Aiur.Orchestrator.IssueSync do
             refreshed_issues,
             MapSet.difference(disappeared_issue_ids, returned_issue_ids),
             fn issue, failed_issue_ids ->
-              case record_refreshed_terminal_member(
-                     issue,
-                     disappeared_issue_ids,
-                     observe_membership_fun,
-                     terminal_states,
-                     set_terminal_verification_pending_fun
-                   ) do
-                :ok ->
-                  MapSet.delete(failed_issue_ids, issue.id)
-
-                :not_terminal ->
-                  MapSet.delete(failed_issue_ids, issue.id)
-
-                {:error, _reason} ->
-                  _ = safely_set_terminal_verification_pending(set_terminal_verification_pending_fun, issue.tracker_identity, true)
-                  MapSet.put(failed_issue_ids, issue.id)
-              end
+              issue
+              |> record_refreshed_terminal_member(
+                disappeared_issue_ids,
+                observe_membership_fun,
+                terminal_states,
+                set_terminal_verification_pending_fun
+              )
+              |> retain_refreshed_terminal_verification(
+                failed_issue_ids,
+                issue,
+                set_terminal_verification_pending_fun
+              )
             end
           )
 
@@ -258,28 +253,18 @@ defmodule Aiur.Orchestrator.IssueSync do
   end
 
   defp record_refreshed_terminal_member(
-         %Issue{id: issue_id} = issue,
+         %Issue{id: _issue_id} = issue,
          disappeared_issue_ids,
          observe_membership_fun,
          terminal_states,
          set_terminal_verification_pending_fun
        ) do
-    if MapSet.member?(disappeared_issue_ids, issue_id) and
-         DispatchPolicy.terminal_issue_state?(issue.state, terminal_states) do
-      case MembershipLifecycle.record(
-             issue,
-             MembershipLifecycle.terminal_lifecycle(issue.state),
-             observe_membership_fun
-           ) do
-        :ok ->
-          case safely_set_terminal_verification_pending(set_terminal_verification_pending_fun, issue.tracker_identity, false) do
-            :ok -> :ok
-            :error -> {:error, :terminal_verification_marker_failed}
-          end
-
-        error ->
-          error
-      end
+    if terminal_disappearing_issue?(issue, disappeared_issue_ids, terminal_states) do
+      record_and_clear_refreshed_terminal(
+        issue,
+        observe_membership_fun,
+        set_terminal_verification_pending_fun
+      )
     else
       :not_terminal
     end
@@ -293,6 +278,69 @@ defmodule Aiur.Orchestrator.IssueSync do
          _set_terminal_verification_pending_fun
        ),
        do: :not_terminal
+
+  defp retain_refreshed_terminal_verification(
+         result,
+         failed_issue_ids,
+         issue,
+         _set_terminal_verification_pending_fun
+       )
+       when result in [:ok, :not_terminal] do
+    MapSet.delete(failed_issue_ids, issue.id)
+  end
+
+  defp retain_refreshed_terminal_verification(
+         {:error, _reason},
+         failed_issue_ids,
+         issue,
+         set_terminal_verification_pending_fun
+       ) do
+    _ =
+      safely_set_terminal_verification_pending(
+        set_terminal_verification_pending_fun,
+        issue.tracker_identity,
+        true
+      )
+
+    MapSet.put(failed_issue_ids, issue.id)
+  end
+
+  defp terminal_disappearing_issue?(issue, disappeared_issue_ids, terminal_states) do
+    MapSet.member?(disappeared_issue_ids, issue.id) and
+      DispatchPolicy.terminal_issue_state?(issue.state, terminal_states)
+  end
+
+  defp record_and_clear_refreshed_terminal(
+         issue,
+         observe_membership_fun,
+         set_terminal_verification_pending_fun
+       ) do
+    case MembershipLifecycle.record(
+           issue,
+           MembershipLifecycle.terminal_lifecycle(issue.state),
+           observe_membership_fun
+         ) do
+      :ok ->
+        clear_refreshed_terminal_verification(
+          issue,
+          set_terminal_verification_pending_fun
+        )
+
+      error ->
+        error
+    end
+  end
+
+  defp clear_refreshed_terminal_verification(issue, set_terminal_verification_pending_fun) do
+    case safely_set_terminal_verification_pending(
+           set_terminal_verification_pending_fun,
+           issue.tracker_identity,
+           false
+         ) do
+      :ok -> :ok
+      :error -> {:error, :terminal_verification_marker_failed}
+    end
+  end
 
   defp retain_pending_terminal_verification([], _mark_reconciled_fun, _set_terminal_verification_pending_fun), do: :ok
 
