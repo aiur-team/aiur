@@ -1,13 +1,15 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync, chmodSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync, chmodSync, cpSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const script = fileURLToPath(new URL("../assemble-platform-package.mjs", import.meta.url));
+const layoutCheck = fileURLToPath(new URL("../check-layout-assets-release.mjs", import.meta.url));
 const repoRoot = path.resolve(fileURLToPath(new URL("../../..", import.meta.url)));
 const platformDir = path.join(repoRoot, "packaging", "npm", "platform");
+const vendorSource = path.join(repoRoot, "src", "priv", "static", "vendor", "elk", "0.11.1");
 
 let releaseDir;
 const cleanupTargets = [];
@@ -19,6 +21,7 @@ function makeFixtureRelease() {
   chmodSync(path.join(dir, "bin", "aiur"), 0o755);
   mkdirSync(path.join(dir, "releases"), { recursive: true });
   writeFileSync(path.join(dir, "releases", "start_erl.data"), "16.4 0.1.1\n");
+  cpSync(vendorSource, path.join(dir, "lib", "aiur-0.1.1", "priv", "static", "vendor", "elk", "0.11.1"), { recursive: true });
   return dir;
 }
 
@@ -77,4 +80,40 @@ test("npm pack --dry-run lists the release binary and license files", () => {
   expect(listing).toContain("release/bin/aiur");
   expect(listing).toContain("LICENSE");
   expect(listing).toContain("NOTICE");
+});
+
+test("platform copy retains the locally vendored layout runtime and evidence", () => {
+  cleanupTargets.push("linux-x64");
+  const out = run(["--release", releaseDir, "--target", "linux-x64", "--version", "0.1.1"]).stdout.trim();
+  const packagedRelease = path.join(out, "release");
+  const check = spawnSync(process.execPath, [layoutCheck, "--release", packagedRelease], { encoding: "utf8" });
+
+  expect(check.status).toBe(0);
+  expect(check.stdout).toContain("priv/static/vendor/elk/0.11.1");
+  expect(existsSync(path.join(packagedRelease, "lib", "aiur-0.1.1", "priv", "static", "vendor", "elk", "0.11.1", "manifest.json"))).toBe(true);
+  expect(existsSync(path.join(packagedRelease, "lib", "aiur-0.1.1", "priv", "static", "vendor", "elk", "0.11.1", "SOURCE.md"))).toBe(true);
+});
+
+test("release integrity check rejects a tampered layout asset", () => {
+  const vendor = path.join(releaseDir, "lib", "aiur-0.1.1", "priv", "static", "vendor", "elk", "0.11.1");
+  const manifest = JSON.parse(readFileSync(path.join(vendor, "manifest.json"), "utf8"));
+  writeFileSync(path.join(vendor, manifest.assets.engine.file), "tampered");
+
+  const check = spawnSync(process.execPath, [layoutCheck, "--release", releaseDir], { encoding: "utf8" });
+
+  expect(check.status).not.toBe(0);
+  expect(check.stderr).toContain("does not match its recorded SHA-256");
+});
+
+test("release integrity check rejects missing or non-content-addressed asset records", () => {
+  const vendor = path.join(releaseDir, "lib", "aiur-0.1.1", "priv", "static", "vendor", "elk", "0.11.1");
+  const manifestPath = path.join(vendor, "manifest.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  manifest.assets.client.url = "/vendor/layout/client-v1/not-a-digest/aiur-layout-client.js";
+  writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`);
+
+  const check = spawnSync(process.execPath, [layoutCheck, "--release", releaseDir], { encoding: "utf8" });
+
+  expect(check.status).not.toBe(0);
+  expect(check.stderr).toContain("URL is not content-addressed");
 });
