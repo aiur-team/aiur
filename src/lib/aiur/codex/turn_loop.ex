@@ -175,8 +175,7 @@ defmodule Aiur.Codex.TurnLoop do
         {:continue, next_state}
 
       idle_after_turn_started?(state, method, payload) ->
-        Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; treating idle status as turn completion")
-        TurnState.complete_all_provider_turns(state)
+        handle_idle_notification(state, method, payload)
 
       NotificationPolicy.codex_error_method?(method) ->
         Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}")
@@ -192,5 +191,16 @@ defmodule Aiur.Codex.TurnLoop do
 
   defp idle_after_turn_started?(state, method, payload) do
     state.turn_started? and NotificationPolicy.thread_idle_status?(method, payload)
+  end
+
+  defp handle_idle_notification(%{interrupt_action: action} = state, method, payload)
+       when action in [:pause, :operator_message] do
+    Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; awaiting paired interrupted completion")
+    {:continue, state}
+  end
+
+  defp handle_idle_notification(state, method, payload) do
+    Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; treating idle status as turn completion")
+    TurnState.complete_all_provider_turns(state)
   end
 end

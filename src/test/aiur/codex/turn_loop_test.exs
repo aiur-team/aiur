@@ -275,6 +275,63 @@ defmodule Aiur.Codex.TurnLoopTest do
       close_port(port)
     end
 
+    test "idle waits for paired interrupted completion while pause is pending" do
+      port = open_cat_port()
+      idle = %{"method" => "thread/status/changed", "params" => %{"status" => %{"type" => "idle"}}}
+
+      state = %{
+        base_state()
+        | turn_started?: true,
+          pause_request_id: 7,
+          pending_interrupt_request_id: 42,
+          interrupt_action: :pause
+      }
+
+      assert {:continue, ^state} =
+               TurnLoop.handle_method(%{port: port}, state, idle, Jason.encode!(idle), idle["method"])
+
+      interrupted = turn_completed_payload("turn-1", "interrupted")
+
+      assert {:paused, %{request_id: 7, turn_id: "turn-1", details: ^interrupted}} =
+               TurnLoop.handle_method(
+                 %{port: port},
+                 state,
+                 interrupted,
+                 Jason.encode!(interrupted),
+                 interrupted["method"]
+               )
+
+      close_port(port)
+    end
+
+    test "idle waits for paired interrupted completion for operator delivery" do
+      port = open_cat_port()
+      idle = %{"method" => "thread/status/changed", "params" => %{"status" => %{"type" => "idle"}}}
+
+      state = %{
+        base_state()
+        | turn_started?: true,
+          pending_interrupt_request_id: 43,
+          interrupt_action: :operator_message
+      }
+
+      assert {:continue, ^state} =
+               TurnLoop.handle_method(%{port: port}, state, idle, Jason.encode!(idle), idle["method"])
+
+      interrupted = turn_completed_payload("turn-1", "interrupted")
+
+      assert {:ok, :turn_interrupted_for_operator_message} =
+               TurnLoop.handle_method(
+                 %{port: port},
+                 state,
+                 interrupted,
+                 Jason.encode!(interrupted),
+                 interrupted["method"]
+               )
+
+      close_port(port)
+    end
+
     test "retryable errors and debug notifications continue through safe checkpoints" do
       port = open_cat_port()
 
@@ -325,10 +382,10 @@ defmodule Aiur.Codex.TurnLoopTest do
     }
   end
 
-  defp turn_completed_payload(turn_id) do
+  defp turn_completed_payload(turn_id, status \\ "completed") do
     %{
       "method" => "turn/completed",
-      "params" => %{"turn" => %{"id" => turn_id, "status" => "completed"}}
+      "params" => %{"turn" => %{"id" => turn_id, "status" => status}}
     }
   end
 
