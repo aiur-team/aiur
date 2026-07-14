@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 11:13 PDT)
+## Live Executor state (updated 2026-07-14 11:22 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -20,12 +20,15 @@ program is 6/54 merged with 48 remaining.
 The runtime session ceiling is 15 workers, governed by Aiur's effective-slot
 controller and shared build gates. The operator target is 10–15+ useful agents
 whenever dependency width and measured CPU/memory/provider/review capacity
-permit. Eight useful implementation/rework workers are allocated to core
-#1088/#1097/#1103/#1109 and Ad Hoc #1151/#1154/#1161/#1162; #1109 is in
+permit. Seven implementation/rework lanes are active on core
+#1088/#1091/#1097/#1109 and Ad Hoc #1151/#1154/#1161; BO-016/#1103 and Ad Hoc
+#1162 are yielding provider capacity while exact-head CI runs. #1109 is in
 ticket-scoped recovery from a completed-turn wedge after its red CI packet was
-not consumed. BO-002/#1091 published `35bec1cd` and correctly moved outside
-worker capacity while fresh CI runs. Build-gate P1 #1154 is in the current Ad
-Hoc wave because namespace-local lease IDs directly blocked core verification.
+not consumed. BO-002/#1091 passed CI at `35bec1cd`, but the Executor rejected
+the head before review because current accepted `main` was not its ancestor;
+it is actively merging `69a53b99` and will require fresh CI. Build-gate P1
+#1154 is in the current Ad Hoc wave because namespace-local lease IDs directly
+blocked core verification.
 #1090,
 #1093, #1108, #1111, #1123, and #1130 remain
 protected behind #1161's workspace-replacement fix. Unrelated #855 stays
@@ -1071,12 +1074,31 @@ Terra; never dispatch Claude.
     plus idle-only never settles, and late start frames can resurrect completed
     IDs. Comment `4972451049` contains the bounded lifecycle matrix; #1162 is
     actively turning. These findings directly match #1109's live wedge.
+139. The binding maximum-useful-concurrency rule landed on accepted `main` as
+    `69a53b99`: every Executor now starts from the recorded safe maximum,
+    continuously fills dependency-ready implementation and review lanes,
+    lowers the runtime ceiling only for a measured bottleneck with an explicit
+    restoration condition, and immediately restores it when that condition
+    clears. Do not confuse blocked/CI-wait tickets with useful utilization, but
+    also do not let a defensive cap silently become the steady state.
+140. #1151 reproduced the exact review/CI ordering defect it is repairing: its
+    worker pushed a current-main-only refresh and changed its Workpad to CI wait
+    seconds before comment `4972454499` delivered the later dual-review packet.
+    The Executor repaired the authoritative Workpad, returned the issue to
+    rework, and confirmed a fresh Terra turn is applying all four findings.
+    This is production evidence for #1151/#1162, not authority for a duplicate.
+141. BO-002/#1091 finished all-green CI at `35bec1cd`, but
+    `git merge-base --is-ancestor origin/main HEAD` failed against accepted
+    `main` `69a53b99`. The Executor withheld dual review, posted durable comment
+    `4972541722`, returned the ticket to rework, and messaged the live worker to
+    merge current main and produce a new exact-head CI result. Green stale-base
+    CI never consumes review capacity or merge authority.
 
-At 11:13 PDT the core graph is 6/54 accepted. Eight useful Aiur lanes are
-allocated, #1091 is outside worker capacity in fresh CI, and #1109 is in
-targeted completed-runner recovery. The configured ceiling is 15; the
-shortfall is the finite ready graph plus the #1161 workspace gate, not an
-intentional low cap.
+At 11:22 PDT the core graph is 6/54 accepted. Seven implementation/rework
+lanes are active, while #1103 and #1162 yield provider capacity during CI and
+#1109 remains in targeted completed-runner recovery. The configured ceiling is
+15; the shortfall is the finite ready graph, shared build capacity, and the
+#1161 workspace gate, not an intentional low cap.
 #1090, #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds
 until #1161 lands.
 The latest agent-emitted progress evidence is 1088=70, 1091=60, 1096=100
