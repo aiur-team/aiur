@@ -230,9 +230,13 @@ defmodule Aiur.Orchestrator.Reconciler do
   end
 
   defp safely_set_terminal_verification_pending(identity, pending?) do
-    case CurrentRunMembership.set_terminal_verification_pending(identity, pending?) do
-      :ok -> :ok
-      _ -> :error
+    if match?(%TrackerIdentity{}, identity) and TrackerIdentity.joinable?(identity) do
+      case CurrentRunMembership.set_terminal_verification_pending(identity, pending?) do
+        :ok -> :ok
+        _ -> :error
+      end
+    else
+      :ok
     end
   rescue
     _error -> :error

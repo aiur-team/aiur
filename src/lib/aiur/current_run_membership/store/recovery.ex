@@ -104,7 +104,7 @@ defmodule Aiur.CurrentRunMembership.Store.Recovery do
       clock: persistence.clock,
       recovered_at: persistence.clock.(),
       reconciliation: Runtime.initial_reconciliation(projection),
-      terminal_verification_pending?: MapSet.size(pending_keys) > 0,
+      terminal_verification_pending?: TerminalVerification.pending?(pending_keys),
       terminal_verification_pending_keys: pending_keys,
       writable?: writable? and journal_writable? and marker == :absent and match?({:ok, _pending_keys}, terminal_verification),
       health: Runtime.public_health(health)

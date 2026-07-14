@@ -10,7 +10,7 @@ defmodule Aiur.CurrentRunMembership.Store.Marker do
     journal_corrupt: "journal_corrupt"
   }
 
-  @spec load(String.t(), String.t()) :: :absent | {:degraded, atom()} | {:unavailable, atom()}
+  @spec load(String.t(), String.t()) :: :absent | {:degraded, atom()} | {:unavailable, String.t()}
   def load(path, run_id) do
     case File.lstat(path) do
       {:error, :enoent} ->
@@ -24,14 +24,14 @@ defmodule Aiur.CurrentRunMembership.Store.Marker do
              {:ok, marker_reason} <- parse_reason(reason) do
           {:degraded, marker_reason}
         else
-          _ -> {:unavailable, :invalid_degraded_marker}
+          _ -> {:unavailable, "membership recovery marker is invalid"}
         end
 
       {:ok, %File.Stat{type: :regular}} ->
-        {:unavailable, :degraded_marker_too_large}
+        {:unavailable, "membership recovery marker is invalid"}
 
       _ ->
-        {:unavailable, :degraded_marker_unreadable}
+        {:unavailable, "membership recovery marker is invalid"}
     end
   end
 

@@ -40,9 +40,12 @@ defmodule Aiur.CurrentRunMembership.Store.TerminalVerification do
   def pending_key(_identity) do
     {:ok,
      @unqualified_observation_key
-     |> :crypto.hash(:sha256)
+     |> then(&:crypto.hash(:sha256, &1))
      |> Base.encode16(case: :lower)}
   end
+
+  @spec pending?(MapSet.t(String.t())) :: boolean()
+  def pending?(pending_keys), do: MapSet.size(pending_keys) > 0
 
   @spec write(String.t(), String.t(), MapSet.t(String.t()), (-> term())) :: :ok | {:error, term()}
   def write(path, run_id, pending_keys, sync_fun) when is_struct(pending_keys, MapSet) do

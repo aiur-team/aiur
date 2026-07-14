@@ -17,14 +17,14 @@ defmodule Aiur.Orchestrator.MembershipLifecycle do
       %TrackerIdentity{} = identity ->
         if TrackerIdentity.joinable?(identity),
           do: safely_observe(observe_membership_fun, identity, lifecycle),
-          else: {:error, :membership_observation_failed}
+          else: :ok
 
       _ ->
-        {:error, :membership_observation_failed}
+        :ok
     end
   end
 
-  def record(_issue, _lifecycle, _observe_membership_fun), do: {:error, :membership_observation_failed}
+  def record(_issue, _lifecycle, _observe_membership_fun), do: :ok
 
   @doc false
   @spec observe(TrackerIdentity.t(), atom()) :: :ok | {:error, :membership_observation_failed}

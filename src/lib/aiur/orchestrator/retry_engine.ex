@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
   require Logger
   import Bitwise, only: [<<<: 2]
 
-  alias Aiur.{Alerts, Config, CurrentRunMembership, Issue, Tracker}
+  alias Aiur.{Alerts, Config, CurrentRunMembership, Issue, Tracker, TrackerIdentity}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.Dispatcher
@@ -595,9 +595,13 @@ defmodule Aiur.Orchestrator.RetryEngine do
   end
 
   defp safely_set_terminal_verification_pending(set_terminal_verification_pending_fun, identity, pending?) do
-    case set_terminal_verification_pending_fun.(identity, pending?) do
-      :ok -> :ok
-      _ -> :error
+    if match?(%TrackerIdentity{}, identity) and TrackerIdentity.joinable?(identity) do
+      case set_terminal_verification_pending_fun.(identity, pending?) do
+        :ok -> :ok
+        _ -> :error
+      end
+    else
+      :ok
     end
   rescue
     _error -> :error

@@ -182,7 +182,12 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
   defp persist_terminal_verification_pending(state, pending_keys) do
     case state.terminal_verification_marker_fun.(state.terminal_verification_path, state.run_id, pending_keys, state.sync_fun) do
       :ok ->
-        state = %{state | terminal_verification_pending_keys: pending_keys, terminal_verification_pending?: MapSet.size(pending_keys) > 0}
+        state = %{
+          state
+          | terminal_verification_pending_keys: pending_keys,
+            terminal_verification_pending?: TerminalVerification.pending?(pending_keys)
+        }
+
         notify(state, nil)
         {:ok, state}
 
@@ -226,7 +231,8 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
               :enoent,
               :eacces,
               :enospc
-            ], do: reason
+            ],
+       do: reason
 
   defp persistence_reason(_), do: :persistence_failure
   defp persistence_failure_reason({:degraded, reason}), do: reason

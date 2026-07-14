@@ -10,7 +10,7 @@ defmodule Aiur.Orchestrator.CommentWake do
 
   alias Aiur.Alerts
   alias Aiur.Events.UniversalSubscriptions
-  alias Aiur.{CurrentRunMembership, Issue, Tracker}
+  alias Aiur.{CurrentRunMembership, Issue, Tracker, TrackerIdentity}
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, PrAnchored, State}
   alias Aiur.RunTelemetry.Lifecycle
@@ -98,7 +98,21 @@ defmodule Aiur.Orchestrator.CommentWake do
     _kind, _reason -> :ok
   end
 
-  defp safely_set_terminal_verification_pending(set_terminal_verification_pending_fun, identity, pending?) do
+  defp safely_set_terminal_verification_pending(
+         set_terminal_verification_pending_fun,
+         %TrackerIdentity{} = identity,
+         pending?
+       ) do
+    if TrackerIdentity.joinable?(identity) do
+      invoke_terminal_verification_marker(set_terminal_verification_pending_fun, identity, pending?)
+    else
+      :ok
+    end
+  end
+
+  defp safely_set_terminal_verification_pending(_set_terminal_verification_pending_fun, _identity, _pending?), do: :ok
+
+  defp invoke_terminal_verification_marker(set_terminal_verification_pending_fun, identity, pending?) do
     case set_terminal_verification_pending_fun.(identity, pending?) do
       :ok -> :ok
       _ -> :error
