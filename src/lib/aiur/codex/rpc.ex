@@ -11,15 +11,15 @@ defmodule Aiur.Codex.Rpc do
   @spec send_message(port(), map()) :: true
   def send_message(port, message), do: AppServerRpc.send_line(port, message)
 
-  @spec await_startup_response(port(), integer()) :: {:ok, map()} | {:error, term()}
-  def await_startup_response(port, request_id) do
-    await_response(port, request_id, startup_response_timeout_ms())
+  @spec await_startup_response(port(), integer(), keyword()) :: {:ok, map()} | {:error, term()}
+  def await_startup_response(port, request_id, opts \\ []) do
+    await_response(port, request_id, startup_response_timeout_ms(), opts)
   end
 
-  @spec await_response(port(), integer(), non_neg_integer()) :: {:ok, map()} | {:error, term()}
-  def await_response(port, request_id, timeout_ms) do
-    function = String.to_atom("with_timeout_" <> "response")
-    apply(AppServerRpc, function, [port, request_id, timeout_ms, "", "Codex"])
+  @spec await_response(port(), integer(), non_neg_integer(), keyword()) :: {:ok, map()} | {:error, term()}
+  def await_response(port, request_id, timeout_ms, opts \\ []) do
+    on_notification = Keyword.get(opts, :on_notification, fn _payload -> :ignore end)
+    AppServerRpc.with_timeout_response(port, request_id, timeout_ms, "", "Codex", on_notification)
   end
 
   @spec startup_response_timeout_ms(non_neg_integer()) :: non_neg_integer()

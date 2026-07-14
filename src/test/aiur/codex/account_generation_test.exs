@@ -6,9 +6,24 @@ defmodule Aiur.Codex.AccountGenerationTest do
 
   setup do
     owner = start_owner(mint: sequence_mint(), clock: fn -> ~U[2026-07-13 12:00:00Z] end)
-
     session = %{account_generation_binding: AccountGeneration.new_binding(), account_generation_server: owner}
     %{owner: owner, session: session}
+  end
+
+  test "account/read seeds the trusted startup binding without retaining identity payloads", %{owner: owner, session: session} do
+    raw_identity = "person@example.test credential=super-secret"
+
+    assert :ok =
+             AccountGeneration.seed_from_account_read(session, %{
+               "requiresOpenaiAuth" => true,
+               "account" => %{"type" => "chatgpt", "email" => raw_identity, "planType" => "plus"}
+             })
+
+    assert snapshot = ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
+    assert is_binary(snapshot.generation)
+    assert snapshot.source == :codex_app_server
+    refute inspect(snapshot) =~ raw_identity
+    refute inspect(:sys.get_state(owner)) =~ raw_identity
   end
 
   test "account updates create a shared generation and emit only a redacted audit message", %{owner: owner, session: session} do
@@ -22,32 +37,51 @@ defmodule Aiur.Codex.AccountGenerationTest do
     assert {:redacted, details} = AccountGeneration.handle_notification(session, "account/updated", payload)
     assert details == %{payload: %{"method" => "account/updated", "params" => %{}}, raw: nil}
 
-    assert snapshot =
-             ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
-
+    assert snapshot = ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
     assert is_binary(snapshot.generation)
     refute inspect(details) =~ raw_identity
     refute inspect(:sys.get_state(owner)) =~ raw_identity
   end
 
-  test "token refresh confirms rather than rotates a known binding", %{owner: owner, session: session} do
+  test "duplicate and out-of-order account updates are stable, while a trusted mode change rotates", %{owner: owner, session: session} do
     assert {:redacted, _} =
              AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "chatgpt"}})
 
     first = ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
 
-    assert {:redacted, %{} = details} =
-             AccountGeneration.handle_notification(session, "account/chatgptAuthTokens/refresh", %{"params" => %{}})
+    assert {:redacted, _} =
+             AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "chatgpt"}})
 
-    assert details.raw == nil
     assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding) == first
+
+    assert {:redacted, _} =
+             AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "apikey"}})
+
+    current = ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
+    refute current.generation == first.generation
   end
 
-  test "quota updates are not account lifecycle evidence", %{owner: owner, session: session} do
+  test "invalid auth modes and absent startup accounts remain explicitly unknown", %{owner: owner, session: session} do
+    assert :ok = AccountGeneration.seed_from_account_read(session, %{"requiresOpenaiAuth" => true, "account" => nil})
+
+    assert %{generation: nil, reason: :no_authenticated_account} =
+             ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
+
+    assert {:redacted, _} =
+             AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "unknown-mode"}})
+
+    assert %{generation: nil, reason: :unsupported_auth_mode} =
+             ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
+  end
+
+  test "token refresh and quota updates do not rotate a known binding", %{owner: owner, session: session} do
     assert {:redacted, _} =
              AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "chatgpt"}})
 
     first = ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
+
+    assert {:redacted, %{raw: nil}} =
+             AccountGeneration.handle_notification(session, "account/chatgptAuthTokens/refresh", %{"params" => %{}})
 
     assert :ignore =
              AccountGeneration.handle_notification(session, "account/rateLimits/updated", %{
@@ -57,41 +91,19 @@ defmodule Aiur.Codex.AccountGenerationTest do
     assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding) == first
   end
 
-  test "a later trusted account update rotates the active binding", %{owner: owner, session: session} do
-    assert {:redacted, _} =
-             AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "chatgpt"}})
-
-    first = ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
-
-    assert {:redacted, _} =
-             AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "chatgpt"}})
-
-    current = ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
-    refute current.generation == first.generation
-  end
-
-  test "malformed account evidence invalidates a known binding", %{owner: owner, session: session} do
-    assert {:redacted, _} =
-             AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "chatgpt"}})
-
-    assert {:redacted, _} = AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{}})
-
-    snapshot = ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
-    assert snapshot.generation == nil
-    assert snapshot.reason == :no_trusted_binding
-  end
-
-  test "process teardown loses continuity and unrelated notifications are ignored", %{owner: owner, session: session} do
-    assert :ignore = AccountGeneration.handle_notification(session, "thread/status/changed", %{"params" => %{}})
-
+  test "process teardown loses continuity and owner outages do not prevent cleanup", %{owner: owner, session: session} do
     assert {:redacted, _} =
              AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "chatgpt"}})
 
     assert :ok = AccountGeneration.process_stopped(session)
 
-    snapshot = ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
-    assert snapshot.generation == nil
-    assert snapshot.reason == :no_trusted_binding
+    assert %{generation: nil, reason: :continuity_lost} =
+             ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
+
+    GenServer.stop(owner)
+
+    assert {:redacted, _} =
+             AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "chatgpt"}})
   end
 
   defp sequence_mint do

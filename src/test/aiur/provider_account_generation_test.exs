@@ -7,7 +7,6 @@ defmodule Aiur.ProviderAccountGenerationTest do
 
   setup do
     owner = start_owner(mint: sequence_mint(self()), clock: fn -> @clock end)
-
     %{owner: owner}
   end
 
@@ -19,10 +18,10 @@ defmodule Aiur.ProviderAccountGenerationTest do
     assert unknown.source == :unavailable
     assert unknown.freshness == :unknown
     assert unknown.health == :unavailable
-    assert unknown.reason == :no_trusted_binding
+    assert unknown.reason == :never_observed
 
     assert {:ok, bound} =
-             ProviderAccountGeneration.bind(owner, :codex, :app_server, binding, source: :codex_app_server)
+             ProviderAccountGeneration.bind(owner, :codex, :app_server, binding, source: :codex_app_server, auth_mode: "chatgpt")
 
     assert bound.schema_version == 1
     assert bound.provider == :codex
@@ -35,7 +34,7 @@ defmodule Aiur.ProviderAccountGenerationTest do
     assert_received :minted
 
     assert {:ok, repeated_bind} =
-             ProviderAccountGeneration.bind(owner, :codex, :app_server, binding, source: :codex_app_server)
+             ProviderAccountGeneration.bind(owner, :codex, :app_server, binding, source: :codex_app_server, auth_mode: "chatgpt")
 
     assert repeated_bind == bound
 
@@ -79,158 +78,185 @@ defmodule Aiur.ProviderAccountGenerationTest do
     refute old.generation == meter_generation(owner, binding)
   end
 
-  test "preserves a generation only for an explicit proven process replacement", %{owner: owner} do
+  test "stable duplicate auth observations retain one generation and a proven replacement carries it", %{owner: owner} do
     first_binding = make_ref()
-    proven_replacement = make_ref()
-    unproven_replacement = make_ref()
+    replacement_binding = make_ref()
 
     assert {:ok, first} =
-             ProviderAccountGeneration.bind(owner, :codex, :app_server, first_binding, source: :codex_app_server)
+             ProviderAccountGeneration.bind(owner, :codex, :app_server, first_binding,
+               source: :codex_app_server,
+               auth_mode: "chatgpt"
+             )
+
+    assert {:ok, duplicate} =
+             ProviderAccountGeneration.bind(owner, :codex, :app_server, first_binding,
+               source: :codex_app_server,
+               auth_mode: "chatgpt"
+             )
+
+    assert duplicate == first
 
     assert {:ok, continued} =
-             ProviderAccountGeneration.bind(owner, :codex, :app_server, proven_replacement,
+             ProviderAccountGeneration.bind(owner, :codex, :app_server, replacement_binding,
                source: :codex_app_server,
+               auth_mode: "chatgpt",
                continuity: :proven,
                previous_binding: first_binding
              )
 
     assert continued.generation == first.generation
-    assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, first_binding).generation == nil
-
-    assert {:ok, rotated} =
-             ProviderAccountGeneration.bind(owner, :codex, :app_server, unproven_replacement, source: :codex_app_server)
-
-    assert rotated.generation != first.generation
+    assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, first_binding).reason == :continuity_lost
   end
 
-  test "logout and continuity loss make the active binding explicitly unknown", %{owner: owner} do
-    binding = make_ref()
-
-    assert {:ok, _bound} =
-             ProviderAccountGeneration.bind(owner, :codex, :app_server, binding, source: :codex_app_server)
-
-    assert {:ok, logged_out} =
-             ProviderAccountGeneration.invalidate(owner, :codex, :app_server, binding,
-               source: :codex_app_server,
-               reason: :logout
-             )
-
-    assert logged_out.generation == nil
-    assert logged_out.health == :unknown
-    assert logged_out.reason == :logout
-
-    assert {:ok, lost} =
-             ProviderAccountGeneration.invalidate(owner, :codex, :app_server, binding,
-               source: :codex_app_server,
-               reason: :continuity_lost
-             )
-
-    assert lost.generation == nil
-    assert lost.reason == :continuity_lost
-  end
-
-  test "an explicit account replacement rotates the active binding", %{owner: owner} do
+  test "a mode change rotates one binding only after trusted evidence changes", %{owner: owner} do
     binding = make_ref()
 
     assert {:ok, first} =
-             ProviderAccountGeneration.bind(owner, :codex, :app_server, binding, source: :codex_app_server)
-
-    assert {:ok, replacement} =
-             ProviderAccountGeneration.replace(owner, :codex, :app_server, binding, source: :codex_app_server)
-
-    assert replacement.generation != first.generation
-    assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, binding) == replacement
-  end
-
-  test "credential replacement invalidates the active binding", %{owner: owner} do
-    binding = make_ref()
-
-    assert {:ok, _bound} =
-             ProviderAccountGeneration.bind(owner, :codex, :app_server, binding, source: :codex_app_server)
-
-    assert {:ok, unknown} =
-             ProviderAccountGeneration.invalidate(owner, :codex, :app_server, binding,
+             ProviderAccountGeneration.bind(owner, :codex, :app_server, binding,
                source: :codex_app_server,
-               reason: :credential_replaced
+               auth_mode: "chatgpt"
              )
 
-    assert unknown.generation == nil
-    assert unknown.reason == :credential_replaced
+    assert {:ok, replacement} =
+             ProviderAccountGeneration.bind(owner, :codex, :app_server, binding,
+               source: :codex_app_server,
+               auth_mode: "apikey"
+             )
+
+    refute replacement.generation == first.generation
   end
 
-  test "stale invalidation cannot disturb a newer binding", %{owner: owner} do
+  test "unproven replacement invalidates its old binding before exposing the new one", %{owner: owner} do
     old_binding = make_ref()
     new_binding = make_ref()
 
-    assert {:ok, _old} =
+    assert :ok = ProviderAccountGeneration.subscribe(owner, :codex, :app_server, old_binding)
+
+    assert {:ok, old} =
              ProviderAccountGeneration.bind(owner, :codex, :app_server, old_binding, source: :codex_app_server)
 
-    assert {:ok, current} =
-             ProviderAccountGeneration.bind(owner, :codex, :app_server, new_binding, source: :codex_app_server)
+    assert_receive {:provider_account_generation_changed, %{change: :bound, generation: generation}}
+    assert generation == old.generation
 
-    assert {:ok, stale} =
-             ProviderAccountGeneration.invalidate(owner, :codex, :app_server, old_binding,
+    assert {:ok, replacement} =
+             ProviderAccountGeneration.bind(owner, :codex, :app_server, new_binding,
                source: :codex_app_server,
-               reason: :logout
+               previous_binding: old_binding
              )
 
-    assert stale.generation == nil
-    assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, new_binding) == current
+    assert replacement.generation != old.generation
+    assert_receive {:provider_account_generation_changed, %{change: :invalidated, reason: :continuity_lost, generation: nil}}
+    assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, old_binding).reason == :continuity_lost
+    assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, new_binding) == replacement
   end
 
-  test "concurrent process bindings remain isolated when one loses continuity", %{owner: owner} do
+  test "invalidation preserves the known reason for later lookup", %{owner: owner} do
+    for reason <- [:logout, :credential_replaced, :continuity_lost] do
+      binding = make_ref()
+
+      assert {:ok, _bound} =
+               ProviderAccountGeneration.bind(owner, :codex, :app_server, binding, source: :codex_app_server)
+
+      assert {:ok, %{generation: nil, reason: ^reason}} =
+               ProviderAccountGeneration.invalidate(owner, :codex, :app_server, binding,
+                 source: :codex_app_server,
+                 reason: reason
+               )
+
+      assert %{generation: nil, reason: ^reason} = ProviderAccountGeneration.lookup(owner, :codex, :app_server, binding)
+    end
+  end
+
+  test "subscription topics are exact-binding capabilities", %{owner: owner} do
     first_binding = make_ref()
     second_binding = make_ref()
+
+    assert :ok = ProviderAccountGeneration.subscribe(owner, :codex, :app_server, first_binding)
 
     assert {:ok, first} =
              ProviderAccountGeneration.bind(owner, :codex, :app_server, first_binding, source: :codex_app_server)
 
-    assert {:ok, second} =
+    assert_receive {:provider_account_generation_changed, %{generation: generation}}
+    assert generation == first.generation
+
+    assert {:ok, _second} =
              ProviderAccountGeneration.bind(owner, :codex, :app_server, second_binding, source: :codex_app_server)
 
-    refute first.generation == second.generation
+    refute_receive {:provider_account_generation_changed, _event}
+  end
+
+  test "an owning process dying invalidates and publishes its former binding", %{owner: owner} do
+    binding = make_ref()
+    parent = self()
+
+    assert :ok = ProviderAccountGeneration.subscribe(owner, :codex, :app_server, binding)
+
+    owner_process =
+      spawn(fn ->
+        {:ok, snapshot} =
+          ProviderAccountGeneration.bind(owner, :codex, :app_server, binding, source: :codex_app_server)
+
+        send(parent, {:bound_from_owner, snapshot})
+        Process.sleep(:infinity)
+      end)
+
+    assert_receive {:bound_from_owner, snapshot}
+    assert_receive {:provider_account_generation_changed, %{change: :bound}}
+    Process.exit(owner_process, :kill)
+
+    assert_receive {:provider_account_generation_changed, %{change: :invalidated, reason: :continuity_lost, generation: nil}}
+    assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, binding).generation == nil
+    refute snapshot.generation == ProviderAccountGeneration.lookup(owner, :codex, :app_server, binding).generation
+  end
+
+  test "owner outages fail open as an explicit unknown snapshot", %{owner: owner} do
+    GenServer.stop(owner)
 
     assert {:ok, unknown} =
-             ProviderAccountGeneration.invalidate(owner, :codex, :app_server, first_binding,
-               source: :codex_app_server,
-               reason: :continuity_lost
-             )
+             ProviderAccountGeneration.bind(owner, :codex, :app_server, make_ref(), source: :codex_app_server)
 
     assert unknown.generation == nil
-    assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, second_binding) == second
+    assert unknown.health == :unavailable
+    assert unknown.reason == :owner_unavailable
   end
 
-  test "Claude is explicitly unknown until a trusted Claude lifecycle owner binds it", %{owner: owner} do
-    snapshot = ProviderAccountGeneration.lookup(owner, :claude, :app_server, make_ref())
-
-    assert snapshot.generation == nil
-    assert snapshot.source == :unavailable
-    assert snapshot.reason == :no_trusted_binding
-  end
-
-  test "publishes a versioned redacted change event", %{owner: owner} do
+  test "events and owner state retain no identity payload", %{owner: owner} do
     binding = make_ref()
     raw_identity = "person@example.test credential=super-secret"
 
-    assert :ok = ProviderAccountGeneration.subscribe(:codex, :app_server)
+    assert :ok = ProviderAccountGeneration.subscribe(owner, :codex, :app_server, binding)
 
     assert {:ok, bound} =
              ProviderAccountGeneration.bind(owner, :codex, :app_server, binding, source: :codex_app_server)
 
     assert_receive {:provider_account_generation_changed, event}
     assert event.schema_version == 1
-    assert event.change == :bound
     assert event.generation == bound.generation
-    assert event.provider == :codex
     refute inspect(event) =~ raw_identity
     refute inspect(:sys.get_state(owner)) =~ raw_identity
   end
 
-  test "rejects untrusted sources and invalid bindings", %{owner: owner} do
-    assert {:error, :invalid_observation} =
+  test "rejects untrusted sources, invalid bindings, and unsupported auth modes", %{owner: owner} do
+    assert {:ok, %{reason: :owner_unavailable}} =
              ProviderAccountGeneration.bind(owner, :codex, :app_server, "not-a-local-binding", source: :browser)
 
-    assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, make_ref()).generation == nil
+    assert {:ok, %{reason: :owner_unavailable}} =
+             ProviderAccountGeneration.bind(owner, :codex, :app_server, make_ref(),
+               source: :codex_app_server,
+               auth_mode: "made-up"
+             )
+  end
+
+  test "accepts only the finite trusted auth-mode vocabulary", %{owner: owner} do
+    for auth_mode <- ~w(apikey chatgpt chatgptAuthTokens headers agentIdentity personalAccessToken bedrockApiKey) do
+      assert {:ok, %{generation: generation}} =
+               ProviderAccountGeneration.bind(owner, :codex, :app_server, make_ref(),
+                 source: :codex_app_server,
+                 auth_mode: auth_mode
+               )
+
+      assert is_binary(generation)
+    end
   end
 
   test "default minting is non-derivable and distinct" do

@@ -5,7 +5,7 @@ defmodule Aiur.Codex.CodingAgent do
   @behaviour Aiur.AppServer.Adapter
 
   require Logger
-  alias Aiur.AppServer.{Adapter, Rpc}
+  alias Aiur.AppServer.{Adapter, Messages, Rpc}
 
   alias Aiur.Codex.{
     AccountGeneration,
@@ -54,13 +54,24 @@ defmodule Aiur.Codex.CodingAgent do
     model = Keyword.get(opts, :model)
     effort = Keyword.get(opts, :effort)
     resume_thread_id = Keyword.get(opts, :resume_thread_id)
-
     identifier = Keyword.get(opts, :identifier)
+    on_message = Keyword.get(opts, :on_message, &Messages.default_on_message/1)
+    account_generation_server = Keyword.get(opts, :account_generation_server, Aiur.ProviderAccountGeneration)
 
     with {:ok, expanded_workspace} <- AppServerPort.validate_workspace_cwd(workspace, worker_host),
          {:ok, port} <- AppServerPort.start_port(expanded_workspace, worker_host, model, effort) do
       metadata = AppServerPort.port_metadata(port, worker_host)
       containment = register_pause_containment(identifier, metadata, expanded_workspace)
+
+      lifecycle_session = %{
+        port: port,
+        metadata: metadata,
+        account_generation_binding: AccountGeneration.new_binding(),
+        account_generation_server: account_generation_server
+      }
+
+      notification_handler = lifecycle_notification_handler(lifecycle_session, on_message)
+      handshake_opts = [on_notification: notification_handler]
 
       # Local spawns run bash -lc "codex … app-server"; a remote spawn's
       # local pid is the ssh client, so the cmdline guard expects that.
@@ -76,11 +87,13 @@ defmodule Aiur.Codex.CodingAgent do
 
       with {:ok, session_policies} <- session_policies(expanded_workspace, worker_host),
            {:ok, thread_id, resumed?, rate_limits_supported?} <-
-             Handshake.establish_with_rate_limits(port, expanded_workspace, session_policies, resume_thread_id) do
-        maybe_observe_rate_limits(port, rate_limits_supported?)
+             Handshake.establish_with_rate_limits(port, expanded_workspace, session_policies, resume_thread_id, handshake_opts) do
+        maybe_observe_rate_limits(port, rate_limits_supported?, handshake_opts)
+        maybe_seed_account(port, lifecycle_session, handshake_opts)
 
         {:ok,
-         %{
+         lifecycle_session
+         |> Map.merge(%{
            port: port,
            metadata: metadata,
            approval_policy: session_policies.approval_policy,
@@ -93,12 +106,11 @@ defmodule Aiur.Codex.CodingAgent do
            containment: containment,
            worker_host: worker_host,
            model: model,
-           account_generation_binding: AccountGeneration.new_binding()
-         }}
+           account_generation_notification_handler: notification_handler
+         })}
       else
         {:error, reason} ->
-          AppServerPort.stop_port(port)
-          PauseContainment.unregister(containment)
+          cleanup_session_port(port, containment)
           {:error, reason}
       end
     end
@@ -121,9 +133,11 @@ defmodule Aiur.Codex.CodingAgent do
 
   @impl Aiur.CodingAgent.Backend
   def stop_session(%{port: port} = session) when is_port(port) do
-    AccountGeneration.process_stopped(session)
-    AppServerPort.stop_port(port)
-    PauseContainment.unregister(Map.get(session, :containment))
+    try do
+      AccountGeneration.process_stopped(session)
+    after
+      cleanup_session_port(port, Map.get(session, :containment))
+    end
   end
 
   @impl Aiur.CodingAgent.Backend
@@ -134,18 +148,24 @@ defmodule Aiur.Codex.CodingAgent do
   defp session_policies(workspace, nil), do: Config.codex_runtime_settings(workspace)
   defp session_policies(workspace, worker_host) when is_binary(worker_host), do: Config.codex_runtime_settings(workspace, remote: true)
 
-  # This is deliberately fail-open: an unavailable account endpoint must not
-  # prevent a configured backend from starting. A successful read seeds the
-  # same durable ledger that rolling rate-limit notifications update later.
-  defp observe_rate_limits(port) do
-    case Handshake.read_rate_limits(port) do
+  # This is deliberately fail-open: a rate-limit endpoint cannot prevent a
+  # configured backend from starting.
+  defp observe_rate_limits(port, handshake_opts) do
+    case Handshake.read_rate_limits(port, handshake_opts) do
       {:ok, rate_limits} -> ModelAvailability.observe("codex", rate_limits)
-      {:error, reason} -> Logger.debug("Codex account/rateLimits/read unavailable: #{inspect(reason)}")
+      {:error, _reason} -> Logger.debug("Codex account/rateLimits/read unavailable")
     end
   end
 
-  defp maybe_observe_rate_limits(port, true), do: observe_rate_limits(port)
-  defp maybe_observe_rate_limits(_port, false), do: :ok
+  defp maybe_observe_rate_limits(port, true, handshake_opts), do: observe_rate_limits(port, handshake_opts)
+  defp maybe_observe_rate_limits(_port, false, _handshake_opts), do: :ok
+
+  defp maybe_seed_account(port, lifecycle_session, handshake_opts) do
+    case Handshake.read_account(port, handshake_opts) do
+      {:ok, account_response} -> AccountGeneration.seed_from_account_read(lifecycle_session, account_response)
+      {:error, _reason} -> Logger.debug("Codex account/read unavailable")
+    end
+  end
 
   @impl Aiur.AppServer.Adapter
   @doc false
@@ -194,4 +214,29 @@ defmodule Aiur.Codex.CodingAgent do
   end
 
   defp register_pause_containment(_identifier, _metadata, _workspace), do: nil
+
+  defp cleanup_session_port(port, containment) do
+    try do
+      AppServerPort.stop_port(port)
+    after
+      PauseContainment.unregister(containment)
+    end
+  end
+
+  defp lifecycle_notification_handler(session, on_message) do
+    fn
+      %{"method" => method} = payload when is_binary(method) ->
+        case AccountGeneration.handle_notification(session, method, payload) do
+          {:redacted, details} ->
+            Messages.emit_message(on_message, :notification, details, TurnEvents.metadata_from_message(session.port, payload))
+            :handled
+
+          :ignore ->
+            :ignore
+        end
+
+      _payload ->
+        :ignore
+    end
+  end
 end

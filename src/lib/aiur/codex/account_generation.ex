@@ -6,15 +6,22 @@ defmodule Aiur.Codex.AccountGeneration do
   @account_updated "account/updated"
   @token_refresh "account/chatgptAuthTokens/refresh"
 
+  @account_read_auth_modes %{
+    "amazonBedrock" => "bedrockApiKey",
+    "apiKey" => "apikey",
+    "chatgpt" => "chatgpt"
+  }
+
+  @account_updated_auth_modes ~w(apikey chatgpt chatgptAuthTokens headers agentIdentity personalAccessToken bedrockApiKey)
+
   @spec new_binding() :: reference()
   def new_binding, do: make_ref()
 
   @spec handle_notification(map(), String.t(), map()) :: :ignore | {:redacted, map()}
   def handle_notification(session, @account_updated, payload) when is_map(session) and is_map(payload) do
-    if authenticated_account_update?(payload) do
-      replace_account_binding(session)
-    else
-      lose_continuity(session)
+    case account_updated_auth_mode(payload) do
+      {:ok, auth_mode} -> bind_account(session, auth_mode)
+      :error -> lose_continuity(session, :unsupported_auth_mode)
     end
 
     {:redacted, redacted_message(@account_updated)}
@@ -27,15 +34,31 @@ defmodule Aiur.Codex.AccountGeneration do
 
   def handle_notification(_session, _method, _payload), do: :ignore
 
-  @spec process_stopped(map()) :: :ok
-  def process_stopped(session) when is_map(session) do
-    lose_continuity(session)
+  @doc "Seeds the binding from the trusted account/read response without retaining it."
+  @spec seed_from_account_read(map(), map()) :: :ok
+  def seed_from_account_read(session, response) when is_map(session) and is_map(response) do
+    case account_read_auth_mode(response) do
+      {:ok, auth_mode} -> bind_account(session, auth_mode)
+      :error -> lose_continuity(session, :no_authenticated_account)
+    end
+
     :ok
   end
 
-  defp replace_account_binding(session) do
+  def seed_from_account_read(_session, _response), do: :ok
+
+  @spec process_stopped(map()) :: :ok
+  def process_stopped(session) when is_map(session) do
+    lose_continuity(session, :continuity_lost)
+    :ok
+  end
+
+  defp bind_account(session, auth_mode) do
     with {:ok, server, binding} <- binding_context(session) do
-      ProviderAccountGeneration.replace(server, :codex, :app_server, binding, source: :codex_app_server)
+      ProviderAccountGeneration.bind(server, :codex, :app_server, binding,
+        source: :codex_app_server,
+        auth_mode: auth_mode
+      )
     end
 
     :ok
@@ -49,11 +72,11 @@ defmodule Aiur.Codex.AccountGeneration do
     :ok
   end
 
-  defp lose_continuity(session) do
+  defp lose_continuity(session, reason) do
     with {:ok, server, binding} <- binding_context(session) do
       ProviderAccountGeneration.invalidate(server, :codex, :app_server, binding,
         source: :codex_app_server,
-        reason: :continuity_lost
+        reason: reason
       )
     end
 
@@ -67,12 +90,19 @@ defmodule Aiur.Codex.AccountGeneration do
     end
   end
 
-  defp authenticated_account_update?(payload) do
-    case get_in(payload, ["params", "authMode"]) do
-      auth_mode when is_binary(auth_mode) -> String.trim(auth_mode) != ""
-      _ -> false
+  defp account_updated_auth_mode(%{"params" => %{"authMode" => auth_mode}}) when auth_mode in @account_updated_auth_modes,
+    do: {:ok, auth_mode}
+
+  defp account_updated_auth_mode(_payload), do: :error
+
+  defp account_read_auth_mode(%{"account" => %{"type" => type}}) do
+    case Map.fetch(@account_read_auth_modes, type) do
+      {:ok, auth_mode} -> {:ok, auth_mode}
+      :error -> :error
     end
   end
+
+  defp account_read_auth_mode(_response), do: :error
 
   defp redacted_message(method), do: %{payload: %{"method" => method, "params" => %{}}, raw: nil}
 end

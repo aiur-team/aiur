@@ -2,8 +2,9 @@ defmodule Aiur.Codex.CodingAgentTest do
   use ExUnit.Case, async: true
 
   alias Aiur.AppServer.Rpc, as: AppServerRpc
-  alias Aiur.Codex.{CodingAgent, Frames, Handshake}
+  alias Aiur.Codex.{AccountGeneration, CodingAgent, Frames, Handshake}
   alias Aiur.Codex.Rpc, as: CodexRpc
+  alias Aiur.ProviderAccountGeneration
 
   @pgrep_skip_reason Aiur.TestSupport.pgrep_skip_reason()
 
@@ -42,6 +43,27 @@ defmodule Aiur.Codex.CodingAgentTest do
 
       refute os_alive?(bash_pid)
       refute os_alive?(child_pid)
+    end
+
+    test "still closes the app-server port when the account-generation owner is unavailable" do
+      {:ok, owner} = ProviderAccountGeneration.start_link(name: nil)
+
+      port =
+        Port.open(
+          {:spawn_executable, String.to_charlist(System.find_executable("cat"))},
+          [:binary, :exit_status]
+        )
+
+      GenServer.stop(owner)
+
+      assert :ok =
+               CodingAgent.stop_session(%{
+                 port: port,
+                 account_generation_server: owner,
+                 account_generation_binding: AccountGeneration.new_binding()
+               })
+
+      assert :undefined = :erlang.port_info(port)
     end
   end
 

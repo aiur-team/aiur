@@ -53,6 +53,24 @@ defmodule Aiur.AppServer.RpcTest do
       assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 42, 1_000, "", "Test")
     end
 
+    test "routes a lifecycle notification that arrives before its awaited response" do
+      command = """
+      printf '%s\\n' '{"method":"account/updated","params":{"authMode":"chatgpt","email":"person@example.test"}}'
+      printf '%s\\n' '{"id":42,"result":{"ok":true}}'
+      """
+
+      port = script_port(command)
+      test_pid = self()
+
+      handler = fn %{"method" => method, "params" => %{"authMode" => auth_mode}} ->
+        send(test_pid, {:routed_lifecycle, method, auth_mode})
+        :handled
+      end
+
+      assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 42, 1_000, "", "Test", handler)
+      assert_receive {:routed_lifecycle, "account/updated", "chatgpt"}
+    end
+
     test "returns timeout and port exit errors" do
       idle_port = script_port("sleep 0.2")
       assert {:error, :response_timeout} = Rpc.with_timeout_response(idle_port, 42, 20, "", "Test")
