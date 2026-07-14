@@ -87,6 +87,9 @@ The Executor continuously:
 6. captures newly discovered work and Aiur defects without losing provenance;
 7. leaves a durable decision and incident trail that another Executor can
    resume.
+8. reviews its own structured monitoring wake/outcome history once per hour,
+   records avoidable no-action checks and small evidence-based cadence/trigger
+   adjustments, and remains available without polling merely to appear active.
 
 ## Capacity policy
 
@@ -193,6 +196,18 @@ A resumable handoff contains:
 - integration/acceptance owner and remaining evidence;
 - the last deliberate capacity setting and why.
 - the deferred findings ledger and ticket-creation circuit-breaker state.
+- the stable monitoring run ID, hourly retrospective log location, last
+  completed review, current adaptive cadence/trigger settings, and any repeated
+  notification gap reserved for terminal synthesis. Preserve the ID only
+  across handoffs of the same run; a later run receives a new ID.
+
+The one-hour retrospective is a hard cadence independent of ordinary wakeups.
+Review the preceding hour, not merely the latest poll. Classify each wake as
+useful/actionable or no-action/redundant, avoid overfitting isolated events, and
+record either one small adjustment or an explicit unchanged decision. At the
+run's capstone, convert only repeated, well-evidenced gaps into at most one or
+two deferred Aiur optimization issues under the existing publication authority;
+never let this instrumentation expand the active feature boundary.
 
 A successful run is terminal only when the agreed scope is implemented,
 independently reviewed, green against the current configured base, merged under
