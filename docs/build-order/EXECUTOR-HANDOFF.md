@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 08:57 PDT)
+## Live Executor state (updated 2026-07-14 09:21 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -18,10 +18,10 @@ program is 5/54 merged with 49 remaining.
 
 The measured runtime envelope is an eight-worker ceiling governed by Aiur's
 effective-slot controller. After the operator's 08:31 PDT quota reset, all
-eight intended Codex tickets are again represented in the live control plane:
-#1088, #1096, #1103, #1109, #1151, #1161, and #1162 are actively turning,
-while #1091 finished its repair turn, pushed green exact head `93179654`, and
-is in dual independent exact-head review. #1090,
+eight intended tickets are again advancing: #1091 and #1151 have live Codex
+repair turns; #1088, #1103, #1109, #1161, and #1162 have fresh heads in CI;
+and green #1096 is in dual independent external review with its completed
+runtime generation explicitly held. #1090,
 #1093, #1108, #1111, #1123, and #1130 remain
 protected behind #1161's workspace-replacement fix. Unrelated #855 stays
 paused and consumes no provider capacity. All providers are Codex Sol or
@@ -893,14 +893,51 @@ Terra; never dispatch Claude.
     restart; the new Terra generation started at 08:54 PDT and is actively
     repairing both failures. This recovery preserved all other workers and the
     dirty #1161 workspace.
+111. BO-002/#1091 reached all-green exact head `93179654`. One independent
+    review was clean; the second reproduced one P2 acceptance blocker:
+    `parent_identity/2` used `Map.get/2`, making a missing required root
+    `parent` key indistinguishable from an explicit `null`. The contained
+    `Map.fetch/2` plus selected-root/catalog-sibling regression packet is in
+    issue comment `4971378655`. #1091 is back in a fresh Terra rework turn; no
+    follow-up ticket was created.
+112. Three fresh heads terminated with contained owned CI repairs. DASH-006
+    #1088/`10c24530` has one unreachable-pattern Dialyzer finding
+    (`4971361862`); BO-016 #1103/`a80691a1` has one implicit-`try` Credo finding
+    and one opaque-bitstring Dialyzer finding (`4971268463`); Ad Hoc
+    #1151/`7f09a44c` has alias ordering, two impossible message-handler branches,
+    and one GitHub-client error-contract assertion (`4971327769`). All three
+    packets stayed on their existing tickets. #1088 and #1151 required
+    ticket-scoped stale-generation recycling; #1103 resumed from its preserved
+    local repair commit. #1088 has since pushed `959a7bc5` and #1103 has pushed
+    `416161c4`; both are in fresh CI while #1151 remains actively repairing.
+113. DASH-002/#1109 pushed `18bd791f`, workspace-safety #1161 pushed
+    `abd8e040`, and interruption accounting #1162 pushed `374c1bae`. Each is in
+    event-driven CI wait. Their paused control rows are intentional resource
+    release, not quota exhaustion or stuck agents.
+114. BO-009/#1096 reached all-green exact head `2e01fb0f`. Its completed
+    generation still retained an effective slot while two background reviewers
+    ran, starving #1088's retry. The Executor removed the stale active-state
+    label and retained `agent:paused` as an explicit external-review hold. This
+    supplies review parallelism without spending a provider slot; restore an
+    active state only if review returns contained rework.
+115. #1088's first recycled generation attempted to return a successful
+    `progress.checkin` tool result through an already-closed app-server port,
+    raised `port_command` `:badarg`, and entered retry. This is directly within
+    active #1162's completed-worker replacement contract, so production evidence
+    was attached there in comment `4971444982` rather than spawning another
+    reliability issue. The replacement #1088 generation is productive.
+116. The 09:16 hourly retrospective measured four Executor wakes in the prior
+    hour: three produced concrete recovery/routing actions and one was a known
+    scheduler-saturation RPC timeout. No no-action pattern repeated, so the
+    adaptive 2–20 minute event-first cadence remains unchanged.
 
-At 08:57 PDT the core graph is 5/54 accepted. Seven intended Codex workers are
-actively turning, and #1091's implementation turn has cleanly yielded to two
-background exact-head reviewers after fresh all-green CI.
+At 09:21 PDT the core graph is 5/54 accepted. Two intended Codex workers are
+actively turning, five fresh heads are in CI, and #1096 is consuming two
+background review slots without consuming an Aiur provider slot.
 #1090, #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds
 until #1161 lands.
-The latest emitted progress evidence is 1088=30, 1091=70, 1096=80,
-1103=70, 1109=70, 1151=90, 1161=90, and 1162=80. Host load remains
+The latest agent-emitted progress evidence is 1088=80, 1091=70, 1096=90,
+1103=90, 1109=40, 1151=70, 1161=80, and 1162=80. Host load remains
 scheduler-saturated by productive Mix gates, so retain the eight-worker ceiling
 and prefer logs/GitHub evidence after a control-RPC timeout. No additional core
 ticket is safely dependency-ready outside the held/gated set. Treat completed
