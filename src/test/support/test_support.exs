@@ -57,8 +57,10 @@ defmodule Aiur.TestSupport do
         # `max_restarts` and takes the whole `:aiur` app down — the #589 cascade.
         previous_workflow_file_path = Application.get_env(:aiur, :workflow_file_path)
         previous_log_file = Application.get_env(:aiur, :log_file)
+        previous_build_gate_dir = Application.get_env(:aiur, :build_gate_dir_override)
 
         File.mkdir_p!(workflow_root)
+        Application.put_env(:aiur, :build_gate_dir_override, Path.join(workflow_root, "build-gate"))
         workflow_file = Path.join(workflow_root, ".aiurconfig")
         write_workflow_file!(workflow_file)
         Workflow.set_workflow_file_path(workflow_file)
@@ -93,6 +95,11 @@ defmodule Aiur.TestSupport do
           case previous_log_file do
             nil -> Application.delete_env(:aiur, :log_file)
             path -> Application.put_env(:aiur, :log_file, path)
+          end
+
+          case previous_build_gate_dir do
+            nil -> Application.delete_env(:aiur, :build_gate_dir_override)
+            path -> Application.put_env(:aiur, :build_gate_dir_override, path)
           end
 
           Application.delete_env(:aiur, :server_port_override)

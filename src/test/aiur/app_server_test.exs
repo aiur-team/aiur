@@ -1428,8 +1428,10 @@ defmodule Aiur.AppServerTest do
   end
 
   defp expected_runtime_policy(%{"type" => "workspaceWrite"} = policy, workspace) do
-    Map.update(policy, "writableRoots", [workspace], fn roots ->
-      if workspace in roots, do: roots, else: roots ++ [workspace]
+    Enum.reduce([workspace, Aiur.BuildGate.gate_dir()], policy, fn root, acc ->
+      Map.update(acc, "writableRoots", [root], fn roots ->
+        if root in roots, do: roots, else: roots ++ [root]
+      end)
     end)
   end
 

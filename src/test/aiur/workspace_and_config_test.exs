@@ -146,6 +146,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       assert cache_root in runtime_settings.turn_sandbox_policy["writableRoots"]
       assert canonical_workspace in runtime_settings.turn_sandbox_policy["writableRoots"]
       assert canonical_git_dir in runtime_settings.turn_sandbox_policy["writableRoots"]
+      assert Aiur.BuildGate.gate_dir() in runtime_settings.turn_sandbox_policy["writableRoots"]
 
       File.write!(codex_binary, """
       #!/bin/sh
@@ -2777,7 +2778,11 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
       assert runtime_settings.turn_sandbox_policy == %{
                "type" => "workspaceWrite",
-               "writableRoots" => ["relative/path", canonical_issue_workspace],
+               "writableRoots" => [
+                 "relative/path",
+                 canonical_issue_workspace,
+                 Aiur.BuildGate.gate_dir()
+               ],
                "networkAccess" => true
              }
 
@@ -2798,6 +2803,88 @@ defmodule Aiur.WorkspaceAndConfigTest do
     after
       File.rm_rf(test_root)
     end
+  end
+
+  test "local Codex runtime preflights the enabled build-gate root" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-runtime-build-gate-#{System.unique_integer([:positive])}"
+      )
+
+    previous_gate_dir = Application.get_env(:aiur, :build_gate_dir_override)
+
+    on_exit(fn ->
+      case previous_gate_dir do
+        nil -> Application.delete_env(:aiur, :build_gate_dir_override)
+        path -> Application.put_env(:aiur, :build_gate_dir_override, path)
+      end
+
+      File.rm_rf(test_root)
+    end)
+
+    workspace = Path.join(test_root, "workspace")
+    user_root = Path.join(test_root, "user-root")
+    gate_dir = Path.join(test_root, "shared-gate")
+    File.mkdir_p!(workspace)
+    File.mkdir_p!(user_root)
+    Application.put_env(:aiur, :build_gate_dir_override, gate_dir)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      workspace_root: workspace,
+      max_concurrent_builds: 2,
+      codex_turn_sandbox_policy: %{
+        type: "workspaceWrite",
+        writableRoots: [user_root]
+      }
+    )
+
+    assert {:ok, runtime_settings} = Config.codex_runtime_settings(workspace)
+    assert {:ok, canonical_workspace} = Aiur.PathSafety.canonicalize(workspace)
+    assert {:ok, canonical_gate_dir} = Aiur.PathSafety.canonicalize(gate_dir)
+
+    assert runtime_settings.turn_sandbox_policy["writableRoots"] == [
+             user_root,
+             canonical_workspace,
+             canonical_gate_dir
+           ]
+
+    assert File.dir?(gate_dir)
+
+    invalid_gate_path = Path.join(test_root, "not-a-directory")
+    File.write!(invalid_gate_path, "regular file")
+    Application.put_env(:aiur, :build_gate_dir_override, invalid_gate_path)
+
+    assert {:error,
+            {:build_gate_unavailable,
+             %{
+               operation: :create_directory,
+               path: ^invalid_gate_path,
+               reason: :enotdir,
+               recovery: recovery
+             }}} = Config.codex_runtime_settings(workspace)
+
+    assert recovery =~ "repair"
+    assert recovery =~ "max_concurrent_builds: 0"
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      max_concurrent_builds: 2,
+      codex_turn_sandbox_policy: %{
+        type: "futureSandbox",
+        nested: %{flag: true}
+      }
+    )
+
+    assert {:ok, future_settings} = Config.codex_runtime_settings(workspace)
+
+    assert future_settings.turn_sandbox_policy == %{
+             "type" => "futureSandbox",
+             "nested" => %{"flag" => true}
+           }
+
+    write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_builds: 0)
+    assert {:ok, disabled_settings} = Config.codex_runtime_settings(workspace)
+    refute invalid_gate_path in disabled_settings.turn_sandbox_policy["writableRoots"]
   end
 
   test "path safety returns errors for invalid path segments" do
@@ -2951,6 +3038,19 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
       assert {:error, {:unsafe_turn_sandbox_policy, {:invalid_workspace_root, 123}}} =
                Schema.resolve_runtime_turn_sandbox_policy(settings, 123)
+
+      assert {:error, {:unsafe_turn_sandbox_policy, {:invalid_writable_roots, :not_a_list}}} =
+               Schema.resolve_runtime_turn_sandbox_policy(
+                 settings,
+                 issue_workspace,
+                 additional_writable_roots: :not_a_list
+               )
+
+      assert {:error, {:unsafe_turn_sandbox_policy, {:invalid_writable_roots, :not_a_list}}} =
+               Config.codex_runtime_settings(
+                 issue_workspace,
+                 additional_writable_roots: :not_a_list
+               )
     after
       File.rm_rf(test_root)
     end

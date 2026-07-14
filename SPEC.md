@@ -440,6 +440,16 @@ Fields:
 - `max_concurrent_agents` (integer)
   - Default: `10`
   - Changes SHOULD be re-applied at runtime and affect subsequent dispatch decisions.
+- `max_concurrent_builds` (non-negative integer)
+  - Default: `2`.
+  - Caps agent-launched `mix compile` and `mix test` commands across local workspaces for
+    the current OS user. `0` deliberately disables this concurrency cap.
+  - When enabled, implementations MUST fail a gated Mix command without invoking Mix if
+    the shared gate directory or lease mechanism is unavailable. The failure MUST be
+    bounded and identify how to repair or deliberately disable the gate.
+  - Linux lease liveness MUST NOT depend on sandbox-local PID/PGID values. Those values
+    MAY be retained as diagnostics, but shared ownership and reclamation require a
+    host-stable primitive.
 - `max_turns` (positive integer)
   - Default: `20`
   - Limits the number of coding-agent turns within one worker session.
@@ -485,9 +495,11 @@ fields locally if they want stricter startup checks.
 - `turn_sandbox_policy` (Codex `SandboxPolicy` value)
   - Default: implementation-defined.
   - When the value is a Codex `workspaceWrite` policy, implementations MUST add the
-    runtime issue workspace to `writableRoots` before starting a turn. Existing roots
-    are preserved. This keeps agent-visible Git metadata writable even when the
-    workflow config supplies extra explicit roots.
+    runtime issue workspace to `writableRoots` before starting a turn. When the local
+    build gate is enabled, implementations MUST also prepare and add its canonical
+    shared directory. Existing roots and writable Git metadata roots are preserved.
+    This keeps both agent-visible Git metadata and shared leases writable even when
+    the workflow config supplies extra explicit roots.
   - Non-`workspaceWrite` policy types are passed through unchanged.
 - `turn_timeout_ms` (integer)
   - Default: `3600000` (1 hour)

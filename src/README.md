@@ -406,9 +406,21 @@ path parameter and is never browser-cacheable.
   while ordinary editing, Git, and model work continue. Set it to `0` to remove
   the concurrency cap; a configured memory floor or start stagger remains active
   independently.
+  Local Codex `workspaceWrite` turns add the canonical `~/.aiur/build-gate` directory
+  to `writableRoots` without replacing configured, workspace, or writable Git roots.
+  Linux admission uses inherited file locks, so sandbox-local PID/PGID values are
+  diagnostic only and Mix descendants keep their slot until they exit.
   Agent transcripts emit
   `aiur_build_gate` queue/acquire/release/timeout signals, and `aiur status` reports
   active or queued contention.
+- Gate coordination errors return status `125` without invoking Mix. Repair the path
+  named by the error (directory type, ownership, permissions, or missing `flock`) and
+  restart/re-dispatch the affected agents. `BUILD GATE DEGRADED` means legacy or
+  unreadable metadata needs attention. Stop/re-dispatch the old fleet, confirm no old
+  `mix compile` or `mix test` process is still running, then remove only the reported
+  legacy records and retry. Do not delete legacy records while old builds may still be
+  live. As a deliberate emergency opt-out, set `agent.max_concurrent_builds: 0` and
+  restart/re-dispatch, understanding that this removes the fleet concurrency cap.
 - `agent.build_start_stagger_seconds` optionally separates admitted local `mix compile`
   and `mix test` starts at their actual heavy-command boundary. It defaults to `0`
   (disabled); this repository's dogfood workflow uses `5`. The memory floor runs

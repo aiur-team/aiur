@@ -4,6 +4,7 @@ defmodule Aiur.Config do
   legacy `.aiurconfig`).
   """
 
+  alias Aiur.BuildGate
   alias Aiur.Config.Schema
   alias Aiur.Config.Schema.AgentValidation
   alias Aiur.Workflow
@@ -484,16 +485,58 @@ defmodule Aiur.Config do
   def codex_runtime_settings(workspace \\ nil, opts \\ []) do
     with {:ok, settings} <- settings(),
          {:ok, approval_policy} <-
-           validate_codex_approval_policy(settings.agent.codex.approval_policy) do
-      with {:ok, turn_sandbox_policy} <-
-             Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, opts) do
-        {:ok,
-         %{
-           approval_policy: approval_policy,
-           thread_sandbox: settings.agent.codex.thread_sandbox,
-           turn_sandbox_policy: turn_sandbox_policy
-         }}
-      end
+           validate_codex_approval_policy(settings.agent.codex.approval_policy),
+         {:ok, turn_sandbox_policy} <- codex_runtime_turn_sandbox_policy(settings, workspace, opts) do
+      {:ok,
+       %{
+         approval_policy: approval_policy,
+         thread_sandbox: settings.agent.codex.thread_sandbox,
+         turn_sandbox_policy: turn_sandbox_policy
+       }}
+    end
+  end
+
+  defp codex_runtime_turn_sandbox_policy(settings, workspace, opts) do
+    with {:ok, turn_sandbox_policy} <-
+           Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, opts) do
+      maybe_add_build_gate_root(turn_sandbox_policy, settings, workspace, opts)
+    end
+  end
+
+  defp maybe_add_build_gate_root(turn_sandbox_policy, settings, workspace, opts) do
+    gate_opts = [
+      slots: settings.agent.max_concurrent_builds,
+      stagger_seconds: settings.agent.build_start_stagger_seconds,
+      min_free_memory_mb: settings.agent.min_free_memory_mb
+    ]
+
+    cond do
+      Keyword.get(opts, :remote, false) ->
+        {:ok, turn_sandbox_policy}
+
+      not BuildGate.enabled?(gate_opts) ->
+        {:ok, turn_sandbox_policy}
+
+      not workspace_write_policy?(turn_sandbox_policy) ->
+        {:ok, turn_sandbox_policy}
+
+      true ->
+        with {:ok, additional_roots} <- additional_writable_roots(opts),
+             {:ok, gate_dir} <- BuildGate.prepare_writable_root() do
+          sandbox_opts = Keyword.put(opts, :additional_writable_roots, additional_roots ++ [gate_dir])
+          Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, sandbox_opts)
+        end
+    end
+  end
+
+  defp workspace_write_policy?(policy) do
+    (Map.get(policy, "type") || Map.get(policy, :type)) == "workspaceWrite"
+  end
+
+  defp additional_writable_roots(opts) do
+    case Keyword.get(opts, :additional_writable_roots, []) do
+      roots when is_list(roots) -> {:ok, roots}
+      roots -> {:error, {:unsafe_turn_sandbox_policy, {:invalid_writable_roots, roots}}}
     end
   end
 
