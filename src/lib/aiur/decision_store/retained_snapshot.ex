@@ -10,6 +10,9 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
   @type query :: %{
           required(:limit) => pos_integer(),
           required(:cursor) => %{created_at: DateTime.t(), decision_id: String.t()} | nil,
+          optional(:authority) => Decision.authority() | nil,
+          optional(:blocking) => boolean() | nil,
+          optional(:kind) => String.t() | nil,
           required(:lifecycle) => Decision.decision_status() | nil,
           required(:search) => String.t() | nil,
           required(:ticket) => String.t() | nil
@@ -66,41 +69,43 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
        has_next?: has_next?(snapshot, query.limit),
        total: total_for(total, snapshot, query),
        partial?: snapshot.capped?,
+       partial_reason: if(snapshot.capped?, do: :retained_query_scan_capped),
        counts: RetainedIndex.canonical_counts(index),
        health: health
      }}
   end
 
-  defp query_plan(index, %{ticket: ticket, lifecycle: lifecycle}) when is_binary(ticket) do
+  defp query_plan(index, query) do
+    candidate = candidate(index, query)
+
     %{
-      candidate: RetainedIndex.ticket(index, ticket),
-      matcher: &ticket_match?(&1, ticket, lifecycle),
-      max_reads: @maximum_candidate_reads,
-      total: nil
+      candidate: candidate,
+      matcher: &query_match?(&1, query),
+      max_reads: max_reads(query),
+      total: exact_total(candidate, query)
     }
   end
 
-  defp query_plan(index, %{search: search, lifecycle: lifecycle}) when is_binary(search) do
-    %{
-      candidate: RetainedIndex.search(index, search),
-      matcher: &search_match?(&1, search, lifecycle),
-      max_reads: @maximum_candidate_reads,
-      total: nil
-    }
+  defp candidate(index, %{ticket: ticket}) when is_binary(ticket), do: RetainedIndex.ticket(index, ticket)
+  defp candidate(index, %{search: search}) when is_binary(search), do: RetainedIndex.search(index, search)
+
+  defp candidate(index, %{lifecycle: lifecycle}) when lifecycle in @lifecycle_statuses,
+    do: RetainedIndex.lifecycle(index, lifecycle)
+
+  defp candidate(index, _query), do: RetainedIndex.all(index)
+
+  defp max_reads(%{ticket: ticket}) when is_binary(ticket), do: @maximum_candidate_reads
+  defp max_reads(%{search: search}) when is_binary(search), do: @maximum_candidate_reads
+  defp max_reads(_query), do: :infinity
+
+  defp exact_total(candidate, query) do
+    if has_secondary_filter?(query), do: nil, else: :gb_sets.size(candidate)
   end
 
-  defp query_plan(index, %{lifecycle: nil}) do
-    %{
-      candidate: RetainedIndex.all(index),
-      matcher: fn _ -> true end,
-      max_reads: :infinity,
-      total: :gb_sets.size(RetainedIndex.all(index))
-    }
-  end
-
-  defp query_plan(index, %{lifecycle: lifecycle}) do
-    candidate = RetainedIndex.lifecycle(index, lifecycle)
-    %{candidate: candidate, matcher: fn _ -> true end, max_reads: :infinity, total: :gb_sets.size(candidate)}
+  defp has_secondary_filter?(query) do
+    is_binary(Map.get(query, :ticket)) or is_binary(Map.get(query, :search)) or
+      not is_nil(Map.get(query, :authority)) or not is_nil(Map.get(query, :blocking)) or
+      not is_nil(Map.get(query, :kind))
   end
 
   defp collect(candidate, current, query, matcher, max_reads) do
@@ -179,14 +184,30 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
     end
   end
 
-  defp ticket_match?(decision, ticket, lifecycle) do
-    lifecycle_match?(decision, lifecycle) and starts_with?(ticket_identifier(decision), ticket)
+  defp query_match?(decision, query) do
+    lifecycle_match?(decision, Map.get(query, :lifecycle)) and
+      ticket_match?(decision, Map.get(query, :ticket)) and
+      search_match?(decision, Map.get(query, :search)) and
+      optional_match?(decision.authority, Map.get(query, :authority)) and
+      optional_match?(decision.blocking, Map.get(query, :blocking)) and
+      kind_match?(decision.kind, Map.get(query, :kind))
   end
 
-  defp search_match?(decision, search, lifecycle) do
-    lifecycle_match?(decision, lifecycle) and
-      (starts_with?(decision.decision_id, search) or starts_with?(ticket_identifier(decision), search))
+  defp ticket_match?(_decision, nil), do: true
+  defp ticket_match?(decision, ticket), do: starts_with?(ticket_identifier(decision), ticket)
+
+  defp search_match?(_decision, nil), do: true
+
+  defp search_match?(decision, search) do
+    starts_with?(decision.decision_id, search) or starts_with?(ticket_identifier(decision), search)
   end
+
+  defp optional_match?(_actual, nil), do: true
+  defp optional_match?(actual, expected), do: actual == expected
+
+  defp kind_match?(_actual, nil), do: true
+  defp kind_match?(nil, _expected), do: false
+  defp kind_match?(actual, expected), do: String.downcase(String.trim(actual)) == expected
 
   defp lifecycle_match?(_decision, nil), do: true
   defp lifecycle_match?(decision, lifecycle), do: decision.decision_status == lifecycle
@@ -224,9 +245,12 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
   defp readable?({:corrupt, _line, _reason}), do: true
   defp readable?(_health), do: false
 
-  defp valid_query?(%{cursor: cursor, lifecycle: lifecycle, search: search, ticket: ticket}) do
+  defp valid_query?(%{cursor: cursor, lifecycle: lifecycle, search: search, ticket: ticket} = query) do
     valid_cursor?(cursor) and
       (is_nil(lifecycle) or lifecycle in @lifecycle_statuses) and
+      valid_optional_authority?(Map.get(query, :authority)) and
+      valid_optional_boolean?(Map.get(query, :blocking)) and
+      valid_optional_string?(Map.get(query, :kind)) and
       valid_optional_string?(search) and
       valid_optional_string?(ticket) and
       (is_nil(search) or is_nil(ticket))
@@ -236,6 +260,10 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
   defp valid_cursor?(nil), do: true
   defp valid_cursor?(%{created_at: %DateTime{}, decision_id: decision_id}) when is_binary(decision_id), do: true
   defp valid_cursor?(_cursor), do: false
+  defp valid_optional_authority?(nil), do: true
+  defp valid_optional_authority?(authority), do: authority in Decision.authorities()
+  defp valid_optional_boolean?(nil), do: true
+  defp valid_optional_boolean?(value), do: is_boolean(value)
   defp valid_optional_string?(nil), do: true
   defp valid_optional_string?(value), do: is_binary(value) and String.valid?(value)
 end

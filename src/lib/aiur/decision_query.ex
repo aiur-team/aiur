@@ -76,20 +76,23 @@ defmodule Aiur.DecisionQuery do
 
   defp retained_page(snapshot, query, health) do
     partial? = health.partial? or Map.get(snapshot, :partial?, false)
+    partial_reason = partial_reason(health, snapshot)
 
     %{
       decisions: snapshot.decisions,
       scope: scope(),
       health: health,
       partial_results?: partial?,
+      partial_reason: partial_reason,
       pagination: %{
         limit: query.limit,
         cursor: query.cursor && encode_cursor(query.cursor),
         next_cursor: next_cursor(Map.get(snapshot, :next_key), snapshot.has_next?),
         total: snapshot.total,
-        label: pagination_label(query.limit, snapshot.has_next?, partial?)
+        partial_reason: partial_reason,
+        label: pagination_label(query.limit, snapshot.has_next?, partial_reason)
       },
-      filters: Map.take(query, [:lifecycle, :search, :ticket]),
+      filters: Map.take(query, [:authority, :blocking, :kind, :lifecycle, :search, :ticket]),
       counts: snapshot.counts
     }
   end
@@ -100,14 +103,16 @@ defmodule Aiur.DecisionQuery do
       scope: scope(),
       health: StoreReader.unavailable_health(),
       partial_results?: true,
+      partial_reason: :retained_store_unavailable,
       pagination: %{
         limit: query.limit,
         cursor: query.cursor && encode_cursor(query.cursor),
         next_cursor: nil,
         total: nil,
+        partial_reason: :retained_store_unavailable,
         label: "Retained Decision page unavailable"
       },
-      filters: Map.take(query, [:lifecycle, :search, :ticket])
+      filters: Map.take(query, [:authority, :blocking, :kind, :lifecycle, :search, :ticket])
     }
   end
 
@@ -125,13 +130,24 @@ defmodule Aiur.DecisionQuery do
 
   defp scope, do: %{kind: :retained, label: "All retained decisions"}
 
-  defp pagination_label(limit, _has_next?, true) do
+  defp partial_reason(%{reason: :retained_store_partial}, _snapshot), do: :retained_store_partial
+
+  defp partial_reason(_health, %{partial_reason: :retained_query_scan_capped}),
+    do: :retained_query_scan_capped
+
+  defp partial_reason(_health, _snapshot), do: nil
+
+  defp pagination_label(limit, _has_next?, :retained_store_partial) do
+    "Partial retained Decision page of up to #{limit}; retained audit data is corrupt, so refining filters cannot make results complete"
+  end
+
+  defp pagination_label(limit, _has_next?, :retained_query_scan_capped) do
     "Partial retained Decision page of up to #{limit}; refine the filter for complete results"
   end
 
-  defp pagination_label(limit, true, false) do
+  defp pagination_label(limit, true, nil) do
     "Retained Decision page of up to #{limit}; more results are available"
   end
 
-  defp pagination_label(limit, false, false), do: "Final retained Decision page of up to #{limit}"
+  defp pagination_label(limit, false, nil), do: "Final retained Decision page of up to #{limit}"
 end

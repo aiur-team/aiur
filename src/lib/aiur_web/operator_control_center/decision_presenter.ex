@@ -10,7 +10,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
 
   @urgency_rank %{low: 0, normal: 1, high: 2, critical: 3}
   @identity_max 256
-  @opaque_identity ~r/\A[A-Za-z0-9][A-Za-z0-9._:-]*\z/
+  @canonical_agent_id ~r/\A(?:(?:agent|example-agent)-[A-Za-z0-9][A-Za-z0-9._-]*|codex|claude(?:-repl)?|legacy_attention)\z/
   @jwt ~r/\AeyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\z/
 
   @spec rows([Decision.t()]) :: [map()]
@@ -181,7 +181,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
     if byte_size(value) <= @identity_max and
          SecretRedactor.redact(value) == value and
          not Regex.match?(@jwt, value) and
-         Regex.match?(@opaque_identity, value) do
+         Regex.match?(@canonical_agent_id, value) do
       value
     end
   end

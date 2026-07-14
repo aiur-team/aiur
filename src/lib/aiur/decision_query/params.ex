@@ -1,12 +1,14 @@
 defmodule Aiur.DecisionQuery.Params do
   @moduledoc false
 
+  alias Aiur.Decision
+
   @default_limit 25
   @maximum_limit 100
   @maximum_cursor_bytes 1_024
   @maximum_decision_id_bytes 256
   @maximum_search_bytes 200
-  @query_fields ~w(cursor lifecycle limit search ticket)
+  @query_fields ~w(authority blocking cursor kind lifecycle limit search ticket)
   @lifecycle_by_name %{
     "open" => :open,
     "decided" => :decided,
@@ -19,6 +21,9 @@ defmodule Aiur.DecisionQuery.Params do
   @type t :: %{
           limit: pos_integer(),
           cursor: cursor() | nil,
+          authority: Decision.authority() | nil,
+          blocking: boolean() | nil,
+          kind: String.t() | nil,
           lifecycle: :open | :decided | :acknowledged | :resolved | nil,
           search: String.t() | nil,
           ticket: String.t() | nil
@@ -29,11 +34,24 @@ defmodule Aiur.DecisionQuery.Params do
     with {:ok, normalized} <- normalize_param_keys(params),
          {:ok, limit} <- bounded_integer(normalized["limit"], @default_limit, 1, @maximum_limit, :limit),
          {:ok, cursor} <- optional_cursor(normalized["cursor"]),
+         {:ok, authority} <- optional_authority(normalized["authority"]),
+         {:ok, blocking} <- optional_boolean(normalized["blocking"]),
+         {:ok, kind} <- optional_kind(normalized["kind"]),
          {:ok, lifecycle} <- optional_lifecycle(normalized["lifecycle"]),
          {:ok, ticket} <- optional_string(normalized["ticket"], @maximum_search_bytes, :ticket),
          {:ok, search} <- optional_string(normalized["search"], @maximum_search_bytes, :search),
          :ok <- distinct_search_inputs(ticket, search) do
-      {:ok, %{limit: limit, cursor: cursor, lifecycle: lifecycle, ticket: ticket, search: search}}
+      {:ok,
+       %{
+         limit: limit,
+         cursor: cursor,
+         authority: authority,
+         blocking: blocking,
+         kind: kind,
+         lifecycle: lifecycle,
+         ticket: ticket,
+         search: search
+       }}
     else
       {:error, reason} -> {:error, {:invalid_query, reason}}
     end
@@ -108,6 +126,38 @@ defmodule Aiur.DecisionQuery.Params do
   end
 
   defp optional_lifecycle(_value), do: {:error, {:lifecycle, :invalid}}
+
+  defp optional_authority(nil), do: {:ok, nil}
+
+  defp optional_authority(value) when is_atom(value) do
+    if value in Decision.authorities(), do: {:ok, value}, else: {:error, {:authority, :invalid}}
+  end
+
+  defp optional_authority(value) when is_binary(value) do
+    case Enum.find(Decision.authorities(), &(Atom.to_string(&1) == value)) do
+      nil -> {:error, {:authority, :invalid}}
+      authority -> {:ok, authority}
+    end
+  end
+
+  defp optional_authority(_value), do: {:error, {:authority, :invalid}}
+
+  defp optional_boolean(nil), do: {:ok, nil}
+  defp optional_boolean(true), do: {:ok, true}
+  defp optional_boolean(false), do: {:ok, false}
+  defp optional_boolean("true"), do: {:ok, true}
+  defp optional_boolean("false"), do: {:ok, false}
+  defp optional_boolean(_value), do: {:error, {:blocking, :invalid}}
+
+  defp optional_kind(nil), do: {:ok, nil}
+
+  defp optional_kind(value) when is_binary(value) do
+    with {:ok, kind} <- optional_string(value, @maximum_search_bytes, :kind) do
+      {:ok, String.downcase(kind)}
+    end
+  end
+
+  defp optional_kind(_value), do: {:error, {:kind, :invalid_type}}
 
   defp optional_string(nil, _maximum, _field), do: {:ok, nil}
 

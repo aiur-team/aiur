@@ -161,6 +161,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProviderTest do
     unsafe_agent_ids = [
       secret,
       "operator@example.test",
+      "operator:password",
       "eyJheader.payload.signature"
     ]
 

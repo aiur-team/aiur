@@ -319,7 +319,8 @@ defmodule Aiur.DecisionQueryTest do
             %{
               decisions: [],
               partial_results?: true,
-              pagination: %{next_cursor: next_cursor, total: nil, label: label}
+              partial_reason: :retained_query_scan_capped,
+              pagination: %{next_cursor: next_cursor, total: nil, partial_reason: :retained_query_scan_capped, label: label}
             }} = DecisionQuery.list(%{"limit" => 1, "search" => "dec_missing"}, store: store)
 
     assert is_binary(next_cursor)
@@ -463,8 +464,15 @@ defmodule Aiur.DecisionQueryTest do
     assert {:error, {:indeterminate, %{status: :partial, partial?: true}}} =
              DecisionQuery.get("dec_missing", store: replayed)
 
-    assert {:ok, %{health: %{status: :partial}, partial_results?: true, pagination: %{total: 1}}} =
-             DecisionQuery.list(%{}, store: replayed)
+    assert {:ok,
+            %{
+              health: %{status: :partial},
+              partial_results?: true,
+              partial_reason: :retained_store_partial,
+              pagination: %{total: 1, partial_reason: :retained_store_partial, label: label}
+            }} = DecisionQuery.list(%{}, store: replayed)
+
+    assert label =~ "retained audit data is corrupt"
   end
 
   test "atomic retained snapshots avoid a health/read restart race", %{store: store} do

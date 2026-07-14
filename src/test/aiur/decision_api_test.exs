@@ -7,6 +7,46 @@ defmodule Aiur.DecisionApiTest do
   @source %{agent_id: "agent-1", session_id: "session-1", event_id: nil}
   @policy %{allowed_kinds: ["architecture"], allow_non_reversible: false}
 
+  defmodule RetainedOnlyStore do
+    use GenServer
+
+    def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
+
+    @impl true
+    def init(opts) do
+      {:ok, %{decision: Keyword.fetch!(opts, :decision), report: Keyword.fetch!(opts, :report)}}
+    end
+
+    @impl true
+    def handle_call({:retained_query, _query}, _from, %{decision: decision} = state) do
+      send(state.report, {:retained_api_read, :query})
+
+      {:reply,
+       {:ok,
+        %{
+          decisions: [decision],
+          has_next?: false,
+          next_key: nil,
+          total: 1,
+          partial?: false,
+          partial_reason: nil,
+          counts: %{open: 1, blocking: if(decision.blocking, do: 1, else: 0), total: 1},
+          health: :writable
+        }}, state}
+    end
+
+    def handle_call({:retained_lookup, decision_id}, _from, %{decision: decision} = state) do
+      send(state.report, {:retained_api_read, :lookup})
+      found = if decision_id == decision.decision_id, do: decision
+      {:reply, {:ok, %{decision: found, health: :writable}}, state}
+    end
+
+    def handle_call(request, _from, state) do
+      send(state.report, {:unexpected_store_read, request})
+      {:reply, {:error, :unsupported}, state}
+    end
+  end
+
   setup do
     original_override = Application.get_env(:aiur, :decision_state_dir)
     dir = Path.join(System.tmp_dir!(), "aiur-decision-api-#{System.unique_integer([:positive])}")
@@ -32,7 +72,7 @@ defmodule Aiur.DecisionApiTest do
     %{store: store}
   end
 
-  test "list returns deterministic canonical projections with current policy evaluation", %{store: store} do
+  test "list returns cursor-stable canonical projections with current policy evaluation", %{store: store} do
     older =
       request!(store, "architecture", :supervisor_allowed,
         source_id: "older",
@@ -46,9 +86,17 @@ defmodule Aiur.DecisionApiTest do
       )
 
     assert {:ok, payload} =
-             DecisionApi.list(%{"limit" => "1", "offset" => "0"}, store: store, policy: @policy)
+             DecisionApi.list(%{"limit" => "1"}, store: store, policy: @policy)
 
-    assert payload["pagination"] == %{"limit" => 1, "next_offset" => 1, "offset" => 0, "total" => 2}
+    assert %{
+             "limit" => 1,
+             "cursor" => nil,
+             "next_cursor" => cursor,
+             "total" => 2,
+             "partial_reason" => nil
+           } = payload["pagination"]
+
+    assert is_binary(cursor)
     assert [encoded] = payload["decisions"]
     assert encoded["decision_id"] == newer.decision_id
     assert encoded["question"] == newer.question
@@ -56,9 +104,9 @@ defmodule Aiur.DecisionApiTest do
     assert encoded["supervisor_policy"]["reasons"] == ["human_required", "kind_not_allowed"]
 
     assert {:ok, second_page} =
-             DecisionApi.list(%{limit: 1, offset: 1}, store: store, policy: @policy)
+             DecisionApi.list(%{limit: 1, cursor: cursor}, store: store, policy: @policy)
 
-    assert second_page["pagination"]["next_offset"] == nil
+    assert second_page["pagination"]["next_cursor"] == nil
     assert [encoded_older] = second_page["decisions"]
     assert encoded_older["decision_id"] == older.decision_id
     assert encoded_older["supervisor_policy"]["allowed"]
@@ -66,7 +114,7 @@ defmodule Aiur.DecisionApiTest do
     refute Map.has_key?(encoded_older["supervisor_policy"], "allowed_kinds")
   end
 
-  test "list validates and applies only the documented filters", %{store: store} do
+  test "list preserves retained policy filters without offset pagination", %{store: store} do
     architecture =
       request!(store, "Architecture", :supervisor_preferred,
         source_id: "architecture",
@@ -97,7 +145,7 @@ defmodule Aiur.DecisionApiTest do
 
     invalid_params = [
       %{"limit" => 0},
-      %{"limit" => 201},
+      %{"limit" => 101},
       %{"offset" => -1},
       %{"blocking" => "yes"},
       %{"authority" => "future"},
@@ -112,7 +160,57 @@ defmodule Aiur.DecisionApiTest do
                DecisionApi.list(params, store: store, policy: @policy)
     end
 
-    assert length(DecisionStore.list(store)) == 1
+    assert {:ok, %{counts: %{total: 1}}} = DecisionStore.retained_counts(store)
+  end
+
+  test "cursor pages do not duplicate or skip when an insertion arrives between API reads", %{store: store} do
+    oldest = request!(store, "architecture", :supervisor_allowed, source_id: "cursor-oldest", now: ~U[2026-07-12 10:00:00Z])
+    middle = request!(store, "architecture", :supervisor_allowed, source_id: "cursor-middle", now: ~U[2026-07-12 10:01:00Z])
+    newest = request!(store, "architecture", :supervisor_allowed, source_id: "cursor-newest", now: ~U[2026-07-12 10:02:00Z])
+
+    assert {:ok, %{"decisions" => [first], "pagination" => %{"next_cursor" => cursor}}} =
+             DecisionApi.list(%{"limit" => 1}, store: store, policy: @policy)
+
+    assert first["decision_id"] == newest.decision_id
+
+    _later =
+      request!(store, "architecture", :supervisor_allowed,
+        source_id: "cursor-later",
+        now: ~U[2026-07-12 10:03:00Z]
+      )
+
+    assert {:ok, %{"decisions" => [second], "pagination" => %{"next_cursor" => next_cursor}}} =
+             DecisionApi.list(%{"limit" => 1, "cursor" => cursor}, store: store, policy: @policy)
+
+    assert second["decision_id"] == middle.decision_id
+
+    assert {:ok, %{"decisions" => [third], "pagination" => %{"next_cursor" => nil}}} =
+             DecisionApi.list(%{"limit" => 1, "cursor" => next_cursor}, store: store, policy: @policy)
+
+    assert third["decision_id"] == oldest.decision_id
+    assert MapSet.size(MapSet.new([first["decision_id"], second["decision_id"], third["decision_id"]])) == 3
+  end
+
+  test "list and get use bounded retained-store reads", %{store: store} do
+    decision = request!(store, "architecture", :supervisor_allowed, source_id: "retained-only")
+    {:ok, retained_store} = RetainedOnlyStore.start_link(decision: decision, report: self())
+
+    on_exit(fn ->
+      if Process.alive?(retained_store), do: GenServer.stop(retained_store)
+    end)
+
+    assert {:ok, %{"decisions" => [listed]}} =
+             DecisionApi.list(%{"limit" => 1}, store: retained_store, policy: @policy)
+
+    assert listed["decision_id"] == decision.decision_id
+
+    assert {:ok, fetched} =
+             DecisionApi.get(decision.decision_id, store: retained_store, policy: @policy)
+
+    assert fetched["decision_id"] == decision.decision_id
+    assert_receive {:retained_api_read, :query}
+    assert_receive {:retained_api_read, :lookup}
+    refute_receive {:unexpected_store_read, _request}
   end
 
   test "get returns one canonical projection and preserves not-found", %{store: store} do
