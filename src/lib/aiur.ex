@@ -155,6 +155,7 @@ defmodule Aiur.Application do
       Aiur.Events.Exchange,
       if(debug?, do: Aiur.RunTelemetry.Supervisor),
       Aiur.Events.Publisher,
+      Aiur.ProviderAccountGeneration,
       Aiur.DecisionStore,
       {Aiur.DecisionMetrics.Writer, path: Aiur.DecisionMetrics.metrics_file()},
       Aiur.DecisionMetrics,

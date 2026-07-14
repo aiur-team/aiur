@@ -1,7 +1,8 @@
 defmodule Aiur.Codex.TurnLoopTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.Codex.{CodingAgent, TurnLoop}
+  alias Aiur.Codex.{AccountGeneration, CodingAgent, TurnLoop}
+  alias Aiur.ProviderAccountGeneration
 
   describe "handle_method/5 terminal turn events" do
     test "turn/completed emits before completing the turn" do
@@ -154,6 +155,42 @@ defmodule Aiur.Codex.TurnLoopTest do
       assert_received {:event, :notification}
       close_port(port)
     end
+
+    test "account lifecycle notifications are redacted before the message callback" do
+      port = open_cat_port()
+
+      owner = start_owner(clock: fn -> ~U[2026-07-13 12:00:00Z] end)
+
+      binding = AccountGeneration.new_binding()
+      secret = "person@example.test credential=super-secret"
+
+      state = %{
+        base_state()
+        | on_message: fn message -> send(self(), {:full_event, message}) end
+      }
+
+      payload = %{
+        "method" => "account/updated",
+        "params" => %{"authMode" => "chatgpt", "email" => secret, "credential" => secret}
+      }
+
+      assert {:continue, _state} =
+               TurnLoop.handle_method(
+                 %{port: port, account_generation_binding: binding, account_generation_server: owner},
+                 state,
+                 payload,
+                 Jason.encode!(payload),
+                 payload["method"]
+               )
+
+      assert_receive {:full_event, message}
+      assert message.event == :notification
+      assert message.raw == nil
+      assert message.payload == %{"method" => "account/updated", "params" => %{}}
+      refute inspect(message) =~ secret
+      assert is_binary(ProviderAccountGeneration.lookup(owner, :codex, :app_server, binding).generation)
+      close_port(port)
+    end
   end
 
   describe "notification outcome routing" do
@@ -268,6 +305,11 @@ defmodule Aiur.Codex.TurnLoopTest do
       turn_started?: false,
       backend: CodingAgent
     }
+  end
+
+  defp start_owner(opts) do
+    {:ok, owner} = ProviderAccountGeneration.start_link(Keyword.put(opts, :name, nil))
+    owner
   end
 
   defp open_cat_port do

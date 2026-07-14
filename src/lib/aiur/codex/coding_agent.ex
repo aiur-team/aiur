@@ -8,6 +8,7 @@ defmodule Aiur.Codex.CodingAgent do
   alias Aiur.AppServer.{Adapter, Rpc}
 
   alias Aiur.Codex.{
+    AccountGeneration,
     AppServerPort,
     EventNormalizer,
     Handshake,
@@ -28,7 +29,8 @@ defmodule Aiur.Codex.CodingAgent do
           turn_sandbox_policy: map(),
           thread_id: String.t(),
           resumed: boolean(),
-          workspace: Path.t()
+          workspace: Path.t(),
+          account_generation_binding: reference()
         }
   @dialyzer {:nowarn_function, run: 4}
   @spec run(Path.t(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
@@ -90,7 +92,8 @@ defmodule Aiur.Codex.CodingAgent do
            workspace: expanded_workspace,
            containment: containment,
            worker_host: worker_host,
-           model: model
+           model: model,
+           account_generation_binding: AccountGeneration.new_binding()
          }}
       else
         {:error, reason} ->
@@ -118,6 +121,7 @@ defmodule Aiur.Codex.CodingAgent do
 
   @impl Aiur.CodingAgent.Backend
   def stop_session(%{port: port} = session) when is_port(port) do
+    AccountGeneration.process_stopped(session)
     AppServerPort.stop_port(port)
     PauseContainment.unregister(Map.get(session, :containment))
   end

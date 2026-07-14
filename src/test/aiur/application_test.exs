@@ -93,6 +93,7 @@ defmodule Aiur.ApplicationTest do
       Aiur.ProcessReaper,
       Aiur.PauseContainment,
       Aiur.AgentResourceGuard,
+      Aiur.ProviderAccountGeneration,
       Aiur.DecisionMetrics.Writer,
       Aiur.DecisionMetrics,
       Aiur.GitHub.CodeOwners,

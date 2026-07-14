@@ -6,7 +6,7 @@ defmodule Aiur.Codex.TurnLoop do
   require Logger
 
   alias Aiur.AppServer.{Messages, OperatorDelivery, Rpc, TurnState}
-  alias Aiur.Codex.{Approvals, NotificationPolicy, TurnEvents}
+  alias Aiur.Codex.{AccountGeneration, Approvals, NotificationPolicy, TurnEvents}
 
   @spec handle_method(map(), map(), map(), String.t(), String.t()) :: term()
   def handle_method(session, state, %{"method" => "turn/completed"} = payload, payload_string, _method) do
@@ -133,9 +133,19 @@ defmodule Aiur.Codex.TurnLoop do
       Messages.emit_message(on_message, :turn_input_required, %{payload: payload, raw: payload_string}, metadata)
       {:error, {:turn_input_required, payload}}
     else
-      Messages.emit_message(on_message, :notification, %{payload: payload, raw: payload_string}, metadata)
+      emit_notification(on_message, session, method, payload, payload_string, metadata)
       handle_notification_outcome(session, state, method, payload)
     end
+  end
+
+  defp emit_notification(on_message, session, method, payload, payload_string, metadata) do
+    details =
+      case AccountGeneration.handle_notification(session, method, payload) do
+        {:redacted, details} -> details
+        :ignore -> %{payload: payload, raw: payload_string}
+      end
+
+    Messages.emit_message(on_message, :notification, details, metadata)
   end
 
   # Surface error-class notifications at info level with the full payload
