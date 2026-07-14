@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-13 21:42 PDT)
+## Live Executor state (updated 2026-07-13 21:57 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -21,8 +21,10 @@ Because execution has now legitimately mutated issue lifecycle state, the old
 OPEN publication snapshot is historical evidence and must not be presented as
 a fresh executable receipt.
 
-Aiur is running against `main` from the repository root. Phase 1 has two merged
-tickets (#1086/BO-004 and #1087/BO-008), three original rework tickets
+Aiur is running against `main` from the repository root. Current `main` is
+`b24e0d7248ace9b53f98802042aae700e73d3316`, which includes the independently
+re-reviewed hourly Executor-retrospective helper from PR #1150. Phase 1 has
+two merged tickets (#1086/BO-004 and #1087/BO-008), three original rework tickets
 (#1088/DASH-006, #1089/DASH-017, and #1090/DASH-018), and three recovered
 post-BO-004 workers (#1085/BO-001, #1104/BO-017, and #1111/DASH-004). #1103 is
 paused on a deleted-inode workspace generation; #1123 is paused on both the
@@ -241,12 +243,35 @@ to a safe range.
     Phase 1, while deferred/untriaged tickets remain phase-unassigned and render
     in the preview's TBD row. Repeat this labeling and preview update for every
     new run-created ticket.
+25. At 21:56 PDT PR #1150 passed fresh exact-head CI on current `main`, its
+    abandoned-lock regression received an independent clean re-review, and the
+    Executor squash-merged it as
+    `b24e0d7248ace9b53f98802042aae700e73d3316`. This is monitoring/runbook
+    infrastructure, not a Build Order member and not #1149; do not count it in
+    either the 54-ticket denominator or the Ad Hoc ticket lane.
+26. GATE-003 research found a secure Aiur-only DASH-019 path with no
+    `aiur-claude` source change: a dedicated loopback OTLP HTTP/JSON logs
+    receiver, independent of dashboard enablement, with one unguessable
+    capability per registered worker generation. Aiur injects endpoint and
+    static auth headers into both the published `aiur-claude@1.0.0` child
+    environment and direct REPL/Remote Control launches; the receiver
+    authenticates before body read/decode, accepts only logs and allowlisted
+    `claude_code.api_request`, and bounds body, connection, rate, replay, and
+    sensitive attributes. Exact compatibility evidence pins Aiur
+    `db340dcbf51dfaf66814ab457c3e08e4f7b2b38f`, adapter source
+    `0f4bea8c08e101fd970dd31b62dba6c5f83bba31`, published adapter 1.0.0, and
+    Claude Code 2.1.208. This architecture selection remains an explicit human
+    decision; keep #1123 paused until it is ratified and its deleted-inode
+    workspace is repaired. No Claude execution or token use is required for
+    the gate or its synthetic compatibility fixture.
 
-At 21:42 PDT the core graph is 2/54 merged. Six Terra workers are reported as
-working (#1085, #1088, #1089, #1090, #1104, #1111); #1103 and #1123 remain
-paused, and #1151 is in CI wait outside the core denominator. Treat completed
-turns, stale bases, and green builds with unmet acceptance criteria as pending
-Executor work, not merge-ready truth.
+At 21:57 PDT the core graph is 2/54 merged. Four core Terra workers are
+reported working (#1085, #1088, #1104, and #1111); #1089 and #1090 were
+cooperatively recycled after completed turns failed to consume durable rework
+directives, and will re-enter under measured capacity. #1103 and #1123 remain
+paused, while direct P1 #1151 is actively refreshing outside the core
+denominator. Treat completed turns, stale bases, and green builds with unmet
+acceptance criteria as pending Executor work, not merge-ready truth.
 
 **Read-first map for this run:** `README.md` (pack index) →
 `08-implementation-pointers.md` (verified per-ticket file/module/function
