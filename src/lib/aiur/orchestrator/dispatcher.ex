@@ -471,12 +471,16 @@ defmodule Aiur.Orchestrator.Dispatcher do
     state
   end
 
-  defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host) do
-    lifecycle_attempt_id =
-      if TelemetryLifecycle.enabled?(),
-        do: TelemetryLifecycle.new_attempt_id(issue.identifier)
+  @doc false
+  @spec dispatch_attempt_id(String.t()) :: String.t()
+  def dispatch_attempt_id(issue_identifier) when is_binary(issue_identifier) do
+    TelemetryLifecycle.new_attempt_id(issue_identifier)
+  end
 
-    if lifecycle_attempt_id do
+  defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host) do
+    lifecycle_attempt_id = dispatch_attempt_id(issue.identifier)
+
+    if TelemetryLifecycle.enabled?() do
       TelemetryLifecycle.record(issue.identifier, lifecycle_attempt_id, :dispatch, :point, %{
         outcome: :requested,
         worker_host: worker_host,

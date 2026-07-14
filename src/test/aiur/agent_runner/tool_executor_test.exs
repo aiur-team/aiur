@@ -6,6 +6,8 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
   alias Aiur.AgentRunner.{SessionLifecycle, ToolExecutor}
   alias Aiur.{Boot, DecisionStore, Issue, TrackerIdentity}
   alias Aiur.Events.{Exchange, SubscriptionStore}
+  alias Aiur.Orchestrator.Dispatcher
+  alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
   describe "build/3" do
     test "returns a 2-arity closure" do
@@ -553,9 +555,13 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert decision.provenance == nil
     end
 
-    test "captures the actual fallback backend rather than the failed transport" do
+    test "non-debug dispatch attempts survive runner session setup into Decisions" do
       identifier = "TE-decision-provenance-fallback-#{System.unique_integer([:positive])}"
       issue = %Issue{identifier: identifier}
+      refute TelemetryLifecycle.enabled?()
+
+      attempt_id = Dispatcher.dispatch_attempt_id(identifier)
+      assert String.starts_with?(attempt_id, "#{identifier}:")
 
       start_fun = fn _workspace, opts ->
         case Keyword.fetch!(opts, :backend) do
@@ -567,7 +573,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert {:ok, session} =
                SessionLifecycle.start_agent_session(
                  "/ws",
-                 [backend: "claude-repl", model: "sonnet", attempt_id: "attempt-fallback"],
+                 [backend: "claude-repl", model: "sonnet", attempt_id: attempt_id],
                  start_fun
                )
 
@@ -583,7 +589,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert decision.provenance.agent_family == "claude"
       assert decision.provenance.backend == "claude"
       assert decision.provenance.requested_model == "sonnet"
-      assert decision.provenance.attempt_id == "attempt-fallback"
+      assert decision.provenance.attempt_id == attempt_id
     end
 
     test "an omitted payload question falls back to the tool message" do
