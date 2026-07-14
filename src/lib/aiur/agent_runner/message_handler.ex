@@ -17,17 +17,16 @@ defmodule Aiur.AgentRunner.MessageHandler do
   end
 
   @doc false
-  @spec build(pid() | nil, Issue.t(), Path.t() | nil, String.t() | nil, String.t(), String.t() | nil, keyword()) ::
+  @spec build(pid() | nil, Issue.t(), Path.t() | nil, String.t() | nil, String.t(), String.t() | nil, keyword() | nil) ::
           (map() -> :ok)
-  def build(recipient, issue, workspace, worker_host, backend, turn_id, nil) do
-    build(recipient, issue, workspace, worker_host, backend, turn_id, [])
-  end
+  def build(recipient, issue, workspace, worker_host, backend, turn_id, lifecycle_opts) do
+    lifecycle_opts = lifecycle_opts || []
 
-  def build(recipient, issue, workspace, worker_host, backend, turn_id, lifecycle_opts)
-      when is_list(lifecycle_opts) do
     lifecycle_opts =
       if Lifecycle.enabled?(lifecycle_opts) do
         Keyword.put_new(lifecycle_opts, :tracker, make_ref())
+      else
+        lifecycle_opts
       end
 
     origin_recorder =

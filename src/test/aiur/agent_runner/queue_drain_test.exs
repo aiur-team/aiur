@@ -183,7 +183,10 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
       :ok = Exchange.subscribe("ticket.#{identifier}.agent.progress.checkin")
 
       run_turn = fn _session, _text, _issue, opts ->
+        on_message = Keyword.fetch!(opts, :on_message)
         executor = Keyword.fetch!(opts, :tool_executor)
+
+        assert :ok = on_message.(%{event: :agent_message, body: "queued turn started"})
 
         assert ToolExecutor.execute(
                  executor,
