@@ -347,7 +347,7 @@ function toElkGraph(request) {
       "elk.layered.considerModelOrder.groupModelOrder.cmGroupOrderStrategy": "ENFORCED",
       "elk.layered.nodePlacement.favorStraightEdges": String(options.favorStraightEdges ?? true),
       "elk.partitioning.activate": "true",
-      "elk.separateConnectedComponents": "true"
+      "elk.separateConnectedComponents": "false"
     },
     children: orderedNodes(request.nodes).map((node) => ({
       id: node.id,
