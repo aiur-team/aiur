@@ -9,7 +9,9 @@ defmodule Aiur.Codex.AccountGeneration do
 
   @account_updated_auth_modes ~w(apikey chatgpt chatgptAuthTokens headers agentIdentity personalAccessToken bedrockApiKey)
 
-  @spec new_binding(GenServer.server()) :: ProviderAccountGeneration.lifecycle_binding()
+  @type binding_context :: %{binding: reference(), authority: reference(), context: reference()}
+
+  @spec new_binding(GenServer.server()) :: binding_context()
   def new_binding(server \\ ProviderAccountGeneration) do
     binding =
       case ProviderAccountGeneration.issue_binding(server, :codex, :app_server) do

@@ -50,7 +50,16 @@ defmodule Aiur.AppServer.Rpc do
     receive do
       {^port, {:data, {:eol, chunk}}} ->
         complete_line = pending_line <> to_string(chunk)
-        handle_response(port, request_id, complete_line, timeout_ms, backend_label, on_notification, sensitive_response?)
+
+        handle_response(
+          port,
+          request_id,
+          complete_line,
+          timeout_ms,
+          backend_label,
+          on_notification,
+          sensitive_response?
+        )
 
       {^port, {:data, {:noeol, chunk}}} ->
         with_timeout_response(
@@ -83,7 +92,15 @@ defmodule Aiur.AppServer.Rpc do
     handle_response(port, request_id, data, timeout_ms, backend_label, on_notification, false)
   end
 
-  @spec handle_response(port(), integer(), binary(), non_neg_integer(), String.t(), notification_handler(), boolean()) ::
+  @spec handle_response(
+          port(),
+          integer(),
+          binary(),
+          non_neg_integer(),
+          String.t(),
+          notification_handler(),
+          boolean()
+        ) ::
           {:ok, map()} | {:error, term()}
   def handle_response(port, request_id, data, timeout_ms, backend_label, on_notification, sensitive_response?)
       when is_function(on_notification, 1) and is_boolean(sensitive_response?) do

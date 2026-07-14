@@ -151,7 +151,8 @@ defmodule Aiur.Codex.Handshake do
   end
 
   @doc "Read a privacy-reduced account binding seed from the trusted app-server."
-  @spec read_account(port(), keyword()) :: {:ok, %{auth_mode: String.t() | nil}} | {:error, :account_read_failed | :port_closed}
+  @spec read_account(port(), keyword()) ::
+          {:ok, %{auth_mode: String.t() | nil}} | {:error, :account_read_failed | :port_closed}
   def read_account(port, opts \\ []) do
     Rpc.send_message(port, Frames.account_read_frame())
 
