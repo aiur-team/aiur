@@ -121,6 +121,12 @@ count detached from ready work.
   workspace, CI, review, quota, CPU, memory, or serialization—and work the
   highest-fan-out unblocker. After each merge or gate transition, recompute and
   dispatch the entire newly ready batch immediately.
+- Independently of event wakes and adaptive polling, run a hard ten-minute
+  capacity audit. Record useful implementation/review lanes separately from
+  CI-wait, paused, deactivated, completed, and dependency-blocked rows, plus
+  ceiling, CPU/load, available memory, build serialization, provider quota,
+  and review capacity. A below-target audit must name the limiting gate and
+  trigger the highest-leverage in-scope scheduling or recovery action.
 - Prefer runtime overrides to editing committed configuration during a run.
 - Record material cap changes and their observed reason.
 
@@ -213,6 +219,8 @@ A resumable handoff contains:
   completed review, current adaptive cadence/trigger settings, and any repeated
   notification gap reserved for terminal synthesis. Preserve the ID only
   across handoffs of the same run; a later run receives a new ID.
+- the ten-minute capacity timer identity, latest audit path/timestamp, current
+  useful count versus target, and last below-target limiting gate/action.
 
 The one-hour retrospective is a hard cadence independent of ordinary wakeups.
 Review the preceding hour, not merely the latest poll. Classify each wake as
