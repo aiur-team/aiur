@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 08:40 PDT)
+## Live Executor state (updated 2026-07-14 08:57 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -17,11 +17,11 @@ repository root against `main`; current accepted `main` is
 program is 5/54 merged with 49 remaining.
 
 The measured runtime envelope is an eight-worker ceiling governed by Aiur's
-effective-slot controller. Six quota-paused Codex workers (#1088, #1091,
-#1096, #1103, #1151, and #1161) were explicitly resumed after the operator's
-08:31 PDT quota reset and are confirmed productive. #1162 owns one newly
-routed dual-review P1 and has taken the seventh effective slot; #1109 owns a
-newly routed three-finding review packet and has taken the eighth slot. #1090,
+effective-slot controller. After the operator's 08:31 PDT quota reset, all
+eight intended Codex tickets are again represented in the live control plane:
+#1088, #1096, #1103, #1109, #1151, #1161, and #1162 are actively turning,
+while #1091 finished its repair turn, pushed green exact head `93179654`, and
+is in dual independent exact-head review. #1090,
 #1093, #1108, #1111, #1123, and #1130 remain
 protected behind #1161's workspace-replacement fix. Unrelated #855 stays
 paused and consumes no provider capacity. All providers are Codex Sol or
@@ -875,13 +875,32 @@ Terra; never dispatch Claude.
     violating this ticket's exact content-free security contract. The
     consolidated three-finding packet is in issue comment `4971048783`; #1109
     is in rework and no follow-up ticket was created.
+109. #1109 exposed the known self-comment/stale-resume lifecycle owned by
+    active Ad Hoc #1151: after the Executor's rework comment and label change,
+    a resumed provider received an older CI-rewake handoff, restored human
+    review without changing the head, and never observed the new review comment.
+    Exact label/event timestamps and provider-log evidence are attached to
+    #1151 in comment `4971112197`. The Executor promoted the rework packet into
+    #1109's authoritative Workpad, restored `agent:rework`, sent a direct
+    control message, and confirmed the replacement generation working. Do not
+    file a duplicate lifecycle ticket.
+110. Workspace-safety #1161 pushed exact head `36a0d0b2`; terminal CI found two
+    owned failures: the existing-checkout lifecycle regression returned
+    `created?: true`, and `Aiur.Orchestrator.State` crossed Credo's 31-field
+    limit. The packet is in issue comment `4971161717` and the authoritative
+    Workpad. Because the completed provider did not consume the direct message,
+    the Executor used targeted pause/fallback reap/resume rather than a daemon
+    restart; the new Terra generation started at 08:54 PDT and is actively
+    repairing both failures. This recovery preserved all other workers and the
+    dirty #1161 workspace.
 
-At 08:40 PDT the core graph is 5/54 accepted. All eight intended Codex slots are
-productive; #1162 and #1109 occupy the two newest rework generations.
+At 08:57 PDT the core graph is 5/54 accepted. Seven intended Codex workers are
+actively turning, and #1091's implementation turn has cleanly yielded to two
+background exact-head reviewers after fresh all-green CI.
 #1090, #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds
 until #1161 lands.
 The latest emitted progress evidence is 1088=30, 1091=70, 1096=80,
-1103=70, 1109=70, 1151=90, 1161=90, and 1162=80. Host load is
+1103=70, 1109=70, 1151=90, 1161=90, and 1162=80. Host load remains
 scheduler-saturated by productive Mix gates, so retain the eight-worker ceiling
 and prefer logs/GitHub evidence after a control-RPC timeout. No additional core
 ticket is safely dependency-ready outside the held/gated set. Treat completed
