@@ -148,6 +148,7 @@ defmodule Aiur.Application do
       Aiur.ProcessReaper,
       Aiur.PauseContainment,
       Aiur.AgentResourceGuard,
+      {Registry, keys: :unique, name: Aiur.Workspace.Ownership.Registry},
       {Task.Supervisor, name: Aiur.TaskSupervisor},
       Aiur.WorkflowStore,
       Aiur.RepoBase,

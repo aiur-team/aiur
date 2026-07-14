@@ -1,7 +1,23 @@
 defmodule Aiur.Workspace.Checkout do
   @moduledoc "Git branch selection for a freshly materialized workspace: live-origin-tip aiur/<id> vs PR-anchored head ref, plus the shared branch query."
 
-  alias Aiur.{RepoBase, TicketBranch}
+  alias Aiur.{PathSafety, RepoBase, TicketBranch}
+
+  @doc "Returns whether `workspace` is a checkout rooted at that exact path."
+  @spec valid_workspace?(Path.t()) :: boolean()
+  def valid_workspace?(workspace) when is_binary(workspace) do
+    with true <- File.dir?(workspace),
+         {git_toplevel, 0} <-
+           System.cmd("git", ["-C", workspace, "rev-parse", "--show-toplevel"], stderr_to_stdout: true),
+         {:ok, canonical_workspace} <- PathSafety.canonicalize(workspace),
+         {:ok, canonical_git_toplevel} <- PathSafety.canonicalize(String.trim(git_toplevel)) do
+      canonical_workspace == canonical_git_toplevel
+    else
+      _ -> false
+    end
+  end
+
+  def valid_workspace?(_workspace), do: false
 
   @spec checkout_fresh_branch(Path.t()) :: :ok | {:error, term()}
   # Branch the agent's `aiur/<id>` off the LIVE `origin/<base>` tip rather than the

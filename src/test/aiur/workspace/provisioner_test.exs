@@ -49,9 +49,9 @@ defmodule Aiur.Workspace.ProvisionerTest do
              Provisioner.parse_remote_workspace_output(bad)
   end
 
-  test "ensure_workspace/2 on an existing directory returns false and preserves contents" do
+  test "ensure_workspace/2 on a valid existing checkout returns false and preserves contents" do
     tmp = Path.join(System.tmp_dir!(), "prov_#{System.unique_integer([:positive])}")
-    File.mkdir_p!(tmp)
+    init_repo!(tmp)
     sentinel = Path.join(tmp, "sentinel.txt")
     File.write!(sentinel, "wip")
 
@@ -59,6 +59,20 @@ defmodule Aiur.Workspace.ProvisionerTest do
 
     assert {:ok, ^tmp, false} = Provisioner.ensure_workspace(tmp, nil)
     assert File.read!(sentinel) == "wip"
+  end
+
+  test "ensure_workspace/5 marks a logs-only directory for initial provisioning" do
+    workspace = Path.join(System.tmp_dir!(), "prov_logs_only_#{System.unique_integer([:positive])}")
+    log_path = Path.join([workspace, "logs", "agent.md"])
+    File.mkdir_p!(Path.dirname(log_path))
+    File.write!(log_path, "preserve this transcript\n")
+
+    on_exit(fn -> File.rm_rf!(workspace) end)
+
+    assert {:ok, ^workspace, true} =
+             Provisioner.ensure_workspace(workspace, nil, nil, "aiur/123-workspace-recovery", nil)
+
+    assert File.read!(log_path) == "preserve this transcript\n"
   end
 
   test "ensure_workspace/2 on a stale plain file replaces it and returns created? true" do

@@ -238,6 +238,10 @@ defmodule Aiur.AgentRunnerTest do
       assert AgentRunner.transient_run_error?(:prompt_not_delivered)
     end
 
+    test "an overlapping workspace generation exits cleanly without spending retry budget" do
+      assert AgentRunner.transient_run_error?({:workspace_owned, {:ok, %{generation: 7}}})
+    end
+
     test "a genuine agent failure is NOT transient so it still surfaces as a hard error" do
       refute AgentRunner.transient_run_error?(:no_transcript)
       refute AgentRunner.transient_run_error?({:workspace_prepare_failed, :enoent})

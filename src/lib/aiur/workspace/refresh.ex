@@ -3,7 +3,7 @@ defmodule Aiur.Workspace.Refresh do
 
   require Logger
   alias Aiur.Config
-  alias Aiur.Workspace.{BootstrapImage, Context, GitMetadata, Hooks, Provisioner}
+  alias Aiur.Workspace.{BootstrapImage, Context, GitMetadata, Hooks, Ownership, Provisioner}
 
   @spec run(Path.t(), map() | String.t() | nil, String.t() | nil) :: :ok | {:error, term()}
   def run(workspace, issue_or_identifier, worker_host \\ nil) when is_binary(workspace) do
@@ -55,6 +55,13 @@ defmodule Aiur.Workspace.Refresh do
 
       not stale_leftover_refresh_refusal?(reason) ->
         error
+
+      Ownership.active?(issue_context.issue_identifier) ->
+        Logger.warning(
+          "Refusing stale workspace recreation while an active generation owns it #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=#{Context.worker_host_for_log(worker_host)}"
+        )
+
+        {:error, {:workspace_owned, Ownership.current(issue_context.issue_identifier)}}
 
       # A fresh todo dispatch that lands on a dirty *leftover* workspace
       # (#577): the dirty content is not this agent's WIP, so recreate the

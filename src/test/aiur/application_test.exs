@@ -161,6 +161,24 @@ defmodule Aiur.ApplicationTest do
       end
     end
 
+    test "workspace ownership registry starts before runner tasks" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        specs = AiurApp.child_specs(opts)
+        task_supervisor = Enum.find_index(specs, &match?({Task.Supervisor, _}, &1))
+
+        ownership_registry =
+          Enum.find_index(specs, fn
+            {Registry, registry_opts} -> Keyword.get(registry_opts, :name) == Aiur.Workspace.Ownership.Registry
+            _other -> false
+          end)
+
+        assert ownership_registry < task_supervisor
+      end
+    end
+
     test "TrackedSet owner starts before Orchestrator in both shapes" do
       for opts <- [
             [interactive_cli?: true, headless?: false, dashboard?: true],

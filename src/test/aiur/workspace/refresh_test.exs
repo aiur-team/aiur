@@ -2,7 +2,7 @@ defmodule Aiur.Workspace.RefreshTest do
   use Aiur.TestSupport
 
   alias Aiur.Workflow
-  alias Aiur.Workspace.Refresh
+  alias Aiur.Workspace.{Ownership, Refresh}
 
   setup do
     test_root = Path.join(System.tmp_dir!(), "refresh_test_#{System.unique_integer([:positive])}")
@@ -44,6 +44,25 @@ defmodule Aiur.Workspace.RefreshTest do
     # Recreation happens: sentinel gone, before_run fails again → error propagates
     assert {:error, _} = Refresh.run(workspace, issue, nil)
     refute File.exists?(sentinel)
+  end
+
+  test "active ownership refuses stale-todo recreation without touching the workspace", %{workspace: workspace} do
+    ticket = "refresh-active-#{System.unique_integer([:positive])}"
+    sentinel = Path.join(workspace, "live-wip")
+    File.write!(sentinel, "keep\n")
+    error = {:error, {:workspace_hook_failed, "before_run", 65, ""}}
+    issue_context = %{issue_id: 1, issue_identifier: ticket, issue_state: "todo", issue_labels: [], pr_head_ref: nil}
+
+    assert {:ok, lease} = Ownership.claim(ticket)
+    assert {:ok, _active_lease} = Ownership.activate(lease)
+
+    on_exit(fn -> Ownership.release(lease) end)
+
+    assert {:error, {:workspace_owned, {:ok, %{generation: generation, phase: :active}}}} =
+             Refresh.maybe_recreate_stale_workspace(error, elem(error, 1), "exit 65", workspace, issue_context, nil)
+
+    assert generation == lease.generation
+    assert File.read!(sentinel) == "keep\n"
   end
 
   test "run/3 preserves an established ticket branch when recreation follows a title edit", %{

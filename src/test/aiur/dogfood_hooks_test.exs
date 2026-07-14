@@ -69,6 +69,35 @@ defmodule Aiur.DogfoodHooksTest do
     assert File.read!(log_path) == "prior agent transcript\n"
   end
 
+  test "after_create reconstructs a log-only workspace and preserves its logs", context do
+    workspace = Path.join(context.test_root, "after-create-log-only")
+    log_path = Path.join([workspace, "logs", "agent.md"])
+    File.mkdir_p!(Path.dirname(log_path))
+    File.write!(log_path, "prior agent transcript\n")
+
+    assert_hook_ok!("after_create", workspace, context.origin)
+
+    assert File.dir?(Path.join(workspace, ".git"))
+    assert current_branch!(workspace) == ticket_branch()
+    assert File.read!(Path.join(workspace, "README.md")) == "stable one\n"
+    assert File.read!(log_path) == "prior agent transcript\n"
+  end
+
+  test "after_create restores logs when reconstruction fails", context do
+    workspace = Path.join(context.test_root, "after-create-failed-reconstruction")
+    log_path = Path.join([workspace, "logs", "agent.md"])
+    File.mkdir_p!(Path.dirname(log_path))
+    File.write!(log_path, "prior agent transcript\n")
+
+    missing_origin = Path.join(context.test_root, "missing-origin.git")
+    {output, status} = run_hook("after_create", workspace, missing_origin)
+
+    refute status == 0, output
+    refute File.dir?(Path.join(workspace, ".git"))
+    assert File.read!(log_path) == "prior agent transcript\n"
+    assert File.ls!(workspace) == ["logs"]
+  end
+
   test "before_run reconstructs a nested workspace without touching its parent repo", context do
     parent = Path.join(context.test_root, "parent-repo")
     workspace = Path.join([parent, "tickets", "1054"])
@@ -115,6 +144,7 @@ defmodule Aiur.DogfoodHooksTest do
     refute status == 0, output
     refute File.dir?(Path.join(workspace, ".git"))
     assert File.read!(log_path) == "prior agent transcript\n"
+    assert File.ls!(workspace) == ["logs"]
   end
 
   test "before_run recovers a clean partial clone onto the ticket branch", context do

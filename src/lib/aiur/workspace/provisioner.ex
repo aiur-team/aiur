@@ -94,9 +94,13 @@ defmodule Aiur.Workspace.Provisioner do
   def ensure_workspace(workspace, nil, pr_head_ref, branch_name, lifecycle)
       when is_binary(branch_name) do
     cond do
-      File.dir?(workspace) ->
+      Checkout.valid_workspace?(workspace) ->
         record_prewarm_point(lifecycle, :existing, :skipped)
         {:ok, workspace, false}
+
+      File.dir?(workspace) ->
+        record_prewarm_point(lifecycle, :incomplete, :rebuild)
+        {:ok, workspace, true}
 
       File.exists?(workspace) ->
         File.rm_rf!(workspace)
@@ -117,8 +121,11 @@ defmodule Aiur.Workspace.Provisioner do
           {:ok, Path.t(), boolean() | :materialized} | {:error, term()}
   def ensure_workspace(workspace, nil) do
     cond do
-      File.dir?(workspace) ->
+      Checkout.valid_workspace?(workspace) ->
         {:ok, workspace, false}
+
+      File.dir?(workspace) ->
+        {:ok, workspace, true}
 
       File.exists?(workspace) ->
         File.rm_rf!(workspace)
