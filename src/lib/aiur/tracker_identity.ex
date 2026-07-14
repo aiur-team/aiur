@@ -106,9 +106,11 @@ defmodule Aiur.TrackerIdentity do
         owner: owner,
         repository: repository,
         provider_id: provider_id,
-        identifier: identifier
+        identifier: identifier,
+        reason: nil
       }) do
-    with {:ok, _repository} <- normalize_repository({owner, repository}, :invalid_configured_repository),
+    with {:ok, {^owner, ^repository}} <-
+           normalize_repository({owner, repository}, :invalid_configured_repository),
          {:ok, _provider_id} <- provider_id(provider_id),
          {:ok, ^identifier} <- display_identifier(identifier) do
       true

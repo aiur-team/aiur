@@ -137,7 +137,7 @@ defmodule AiurWeb.PresenterTest do
     assert idle_row.tracker_identity == idle_identity
   end
 
-  test "omits identity from an ambiguous identifier route" do
+  test "rejects an ambiguous identifier route before projecting nested lifecycle state" do
     orchestrator_name = Module.concat(__MODULE__, :AmbiguousIdentityOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
@@ -163,8 +163,7 @@ defmodule AiurWeb.PresenterTest do
       %{state | running: %{"issue-first" => first, "issue-second" => second}}
     end)
 
-    assert {:ok, payload} = Presenter.issue_payload(identifier, orchestrator_name, 1_000)
-    refute Map.has_key?(payload, :tracker_identity)
+    assert {:error, :issue_not_found} = Presenter.issue_payload(identifier, orchestrator_name, 1_000)
   end
 
   test "open_decision_count reuses the existing SubscriptionStore open-attentions count" do

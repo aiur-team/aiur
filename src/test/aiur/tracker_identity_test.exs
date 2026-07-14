@@ -98,11 +98,26 @@ defmodule Aiur.TrackerIdentityTest do
       identifier: "42"
     }
 
+    contradictory = %TrackerIdentity{
+      version: 1,
+      status: :joinable,
+      kind: :github,
+      owner: "owner",
+      repository: "repo",
+      provider_id: "I_kwDOExample",
+      identifier: "42",
+      reason: :repository_mismatch
+    }
+
+    noncanonical = %{contradictory | owner: " owner ", reason: nil}
+
     refute TrackerIdentity.joinable?(nil)
     assert Issue.tracker_identity(%Issue{id: "linear-id", identifier: "LIN-42"}) == nil
     refute TrackerIdentity.joinable?(legacy)
     refute TrackerIdentity.joinable?(mismatch)
     refute TrackerIdentity.joinable?(malformed)
+    refute TrackerIdentity.joinable?(contradictory)
+    refute TrackerIdentity.joinable?(noncanonical)
     assert mismatch.identifier == "42"
   end
 end

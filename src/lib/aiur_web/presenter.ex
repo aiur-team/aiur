@@ -170,19 +170,18 @@ defmodule AiurWeb.Presenter do
         idle_matches = Enum.filter(Map.get(snapshot, :idle, []), &(&1.identifier == issue_identifier))
         entries = running_matches ++ retry_matches ++ idle_matches
 
-        case entries do
-          [] ->
-            {:error, :issue_not_found}
-
-          _ ->
-            {:ok,
-             issue_payload_body(
-               issue_identifier,
-               List.first(running_matches),
-               List.first(retry_matches),
-               List.first(idle_matches),
-               consistent_tracker_identity(entries)
-             )}
+        with [_issue_id] <- Enum.uniq_by(entries, & &1.issue_id),
+             {:ok, tracker_identity} <- consistent_tracker_identity(entries) do
+          {:ok,
+           issue_payload_body(
+             issue_identifier,
+             List.first(running_matches),
+             List.first(retry_matches),
+             List.first(idle_matches),
+             tracker_identity
+           )}
+        else
+          _ -> {:error, :issue_not_found}
         end
 
       _ ->
@@ -236,8 +235,8 @@ defmodule AiurWeb.Presenter do
 
   defp consistent_tracker_identity(entries) do
     case entries |> Enum.map(&Map.get(&1, :tracker_identity)) |> Enum.uniq() do
-      [identity] when not is_nil(identity) -> identity
-      _ -> nil
+      [identity] -> {:ok, identity}
+      _ -> :error
     end
   end
 
