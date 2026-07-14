@@ -548,12 +548,25 @@ to a safe range.
     independent exact-head review waves run in isolated report-only
     worktrees; review capacity, not another implementation turn, is now the
     fastest route to the next critical-path merge.
+59. DASH-001/#1108 reproduced a workspace-provisioning race already seen in
+    BO-016/#1103: a logs-only directory was accepted as an existing workspace,
+    source and `.git` appeared during repair, then vanished underneath the live
+    Codex process, which terminated with `invalid cwd`. The Executor preserved
+    checksummed logs, quarantined the source-free workspace, and performed one
+    bounded `agent:todo` requeue; capacity/load still gates its next dispatch.
+    P1 Ad Hoc #1161 owns the bounded durable fix—single provisioning ownership,
+    atomic logs-preserving repair before provider startup, and overlapping
+    retry/resume regressions. It deliberately has no `phase:N` or `agent:todo`;
+    assign the closest active phase only when safe capacity actually picks it
+    up.
 
-At 02:15 PDT the core graph is 4/54 accepted. Core
-#1088/#1090/#1096/#1108/#1111 and Ad Hoc #1151 are active Codex workers;
-BO-002/#1091 is paused for exact-head independent review, DASH-017/#1089 is in
-human review at a fresh all-green head, and direct blocker #1030 is
-deactivated pending the next safe slot. #1103/#1123 remain paused.
+At 02:38 PDT the core graph is 4/54 accepted. Core
+#1089/#1090/#1091/#1096/#1103/#1111 are resident Codex workers, DASH-006/#1088
+is in CI wait, DASH-001/#1108 is cleanly requeued after workspace quarantine,
+and Ad Hoc #1151 is paused after focused rework routing. Direct blocker #1030
+and DASH-019/#1123 remain held for a safe slot. Host load is near the hard
+envelope, so dependency-ready and requeued work must wait rather than forcing
+another concurrent setup/build wave.
 Treat
 completed turns, stale bases, and green builds with unmet acceptance criteria
 as pending Executor work, not merge-ready truth.
