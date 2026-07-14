@@ -54,13 +54,30 @@ defmodule Aiur.DecisionEnrichmentTest do
 
     forbidden_fields = ~w(
       actor authority blocking content_hash created_at decision_id kind question
-      reversibility schema_version source source_created_at source_id ticket urgency version
+      provenance reversibility schema_version source source_created_at source_id ticket urgency version
     )
 
     for field <- forbidden_fields do
       assert {:error, {:enrichment_invalid, {:forbidden_fields, [^field]}}} =
                normalize(current, %{field => "attempted replacement"})
     end
+  end
+
+  test "preserves trusted provenance across an enrichment" do
+    current =
+      current_decision(
+        provenance: %{
+          agent_family: "codex",
+          backend: "codex",
+          requested_model: "gpt-5.6",
+          session_id: "thread-123",
+          attempt_id: "attempt-123",
+          source: "agent_runner"
+        }
+      )
+
+    assert {:ok, enrichment} = normalize(current, %{"context" => %{"short_summary" => "Updated safely"}})
+    assert enrichment.decision.provenance == current.provenance
   end
 
   test "rejects unknown or ambiguous fields at every supported nested boundary" do
@@ -257,7 +274,7 @@ defmodule Aiur.DecisionEnrichmentTest do
     assert enriched.resolutions == %{answer.action_id => resolution}
   end
 
-  defp current_decision do
+  defp current_decision(opts \\ []) do
     payload = %{
       "source_id" => "decision-enrichment",
       "question" => "Which scope should own this?",
@@ -272,7 +289,12 @@ defmodule Aiur.DecisionEnrichmentTest do
       "options" => [%{"id" => "original", "label" => "Original option"}]
     }
 
-    {:ok, decision} = DecisionValidation.normalize(payload, ticket: @ticket, source: @source, now: ~U[2026-07-12 10:00:00Z])
+    {:ok, decision} =
+      DecisionValidation.normalize(
+        payload,
+        Keyword.merge([ticket: @ticket, source: @source, now: ~U[2026-07-12 10:00:00Z]], opts)
+      )
+
     %{decision | version: 3}
   end
 

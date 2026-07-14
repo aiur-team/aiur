@@ -69,6 +69,7 @@ defmodule Aiur.CodingAgent.Backend do
   @type capabilities :: %{
           required(:adapter) => module(),
           required(:transcript) => module(),
+          required(:family) => String.t(),
           required(:can_interrupt) => boolean(),
           required(:safe_checkpoints) => [atom()],
           optional(:control_application_confirmation) => :confirmed | :request_only | :unsupported,

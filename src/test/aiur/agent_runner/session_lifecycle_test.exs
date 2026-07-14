@@ -70,13 +70,13 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
         end
       end
 
-      assert {:ok, %{backend: "codex"}} =
-               SessionLifecycle.start_agent_session("/ws", [backend: "codex", model: nil], start_fun)
+      assert {:ok, %{backend: "codex", attempt_id: "attempt-codex"}} =
+               SessionLifecycle.start_agent_session("/ws", [backend: "codex", model: nil, attempt_id: "attempt-codex"], start_fun)
 
-      assert {:ok, %{backend: "claude"}} =
+      assert {:ok, %{backend: "claude", attempt_id: "attempt-claude"}} =
                SessionLifecycle.start_agent_session(
                  "/ws",
-                 [backend: "claude-repl", model: "opus", remote_control: true],
+                 [backend: "claude-repl", model: "opus", remote_control: true, attempt_id: "attempt-claude"],
                  start_fun
                )
 

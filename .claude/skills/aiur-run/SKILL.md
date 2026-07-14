@@ -105,6 +105,46 @@ The timer and alert path are additive: an urgent alert is handled immediately,
 while the cadence still provides a quiet-state floor. Do not depend on PR or
 agent-completion events as the only wake-up mechanism.
 
+### Hourly monitoring retrospective — required
+
+Arm a second, hard one-hour cadence when monitoring starts. This is not another
+full status poll: once per hour, review the prior hour of the Executor's own
+structured wake/outcome log and identify observations that resulted in no
+action, duplicated a prior check, or could have been replaced by a specific
+Aiur/event-bus notification. Record useful versus no-action wake counts, the
+repeated reason signatures, and one small cadence/trigger adjustment or
+`unchanged` with rationale. Do not require clairvoyance and do not optimize one
+isolated miss; tune only from repeated evidence.
+
+Use the bundled helper when a native monitor does not already provide the same
+durable summary:
+
+```bash
+RETRO="<loaded-aiur-run-skill>/scripts/executor-retrospective.sh"
+export AIUR_EXECUTOR_RUN_ID="<stable-build-order-or-run-id>"
+"$RETRO" arm
+"$RETRO" observe action "reviewed-green-pr"
+"$RETRO" observe no-action "ci-still-pending"
+"$RETRO" due
+"$RETRO" summarize
+"$RETRO" record "<assessment>" "<adjustment-or-unchanged>"
+```
+
+Choose the stable run ID once and preserve it across Executor handoffs of that
+same run; never reuse it for a later run. Every event-driven or quiet audit must
+call `observe action|no-action <reason>` with a concise reason; otherwise the
+hourly review has no trustworthy denominator. Event-driven wakes remain
+immediate, and the ordinary adaptive quiet ceiling remains a safety floor. The
+hourly review is due even during a quiet run and must not be reset by routine
+wakes.
+
+At the terminal capstone, synthesize the retrospective history. Create at most
+one or two evidence-backed Aiur follow-ups for repeated notification gaps or
+avoidable polling classes, under the run's normal issue-authority and
+scope-growth rules. Do not file a ticket from a single no-action poll, and do
+not promote these optimizations into the active feature boundary unless they
+are direct P0/P1 blockers.
+
 ## 5. Drive the run
 
 On every observation:

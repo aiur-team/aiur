@@ -206,6 +206,13 @@ defmodule Aiur.CodingAgentTest do
       assert CodingAgent.transcript_module("claude-repl") == Aiur.Claude.Transcript
     end
 
+    test "family_for keeps transport names separate from agent family" do
+      assert CodingAgent.family_for("codex") == "codex"
+      assert CodingAgent.family_for("claude") == "claude"
+      assert CodingAgent.family_for("claude-repl") == "claude"
+      assert CodingAgent.family_for("unknown") == nil
+    end
+
     test "delivery-policy defaults come from the registry" do
       assert CodingAgent.can_interrupt?("codex")
       assert CodingAgent.safe_checkpoints("codex") == [:notification, :tool_result]

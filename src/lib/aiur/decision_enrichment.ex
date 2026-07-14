@@ -13,7 +13,7 @@ defmodule Aiur.DecisionEnrichment do
   @allowed_fields ~w(artifacts consequence_of_delay context options recommendation)
   @forbidden_fields ~w(
     actor authority blocking content_hash created_at decision_id kind question
-    reversibility schema_version source source_created_at source_id ticket urgency version
+    provenance reversibility schema_version source source_created_at source_id ticket urgency version
   )
   @context_fields ~w(long_context_markdown short_summary)
   @option_fields ~w(benefits description drawbacks id label risk)
@@ -211,7 +211,8 @@ defmodule Aiur.DecisionEnrichment do
       ticket: current.ticket,
       source: current.source,
       now: now,
-      legacy_attention: current.legacy_attention
+      legacy_attention: current.legacy_attention,
+      provenance: current.provenance
     ]
     |> maybe_put_safe_roots(opts)
   end
