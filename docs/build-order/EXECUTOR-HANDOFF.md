@@ -529,12 +529,31 @@ to a safe range.
     history had not been fed, so the adjustment is now binding: record every
     monitoring outcome and prefer shell/event waits during CI/review tails
     while retaining the operator's five-minute status reports.
+56. At 02:04 PDT the static preview's green `ready` label caused an operator to
+    reasonably read native dependency readiness as active dispatch. The
+    preview now says `dependency-ready` and explicitly records that host load,
+    Aiur capacity, declared serialization, and paused state still gate a
+    worker. This is presentation clarification, not a change to the approved
+    dependency graph or 54-ticket denominator.
+57. The host briefly reached load 54 on 12 cores while five workers overlapped
+    Mix test, Dialyzer, and release builds. The Executor held new dispatch
+    until load fell below the configured hard gate, then restored the one
+    independent candidate: DASH-001/#1108 moved from the controlled
+    `agent:error` + `agent:paused` hold to `agent:todo` and Aiur started its
+    Codex Terra worker at 02:15 PDT. BO-005, BO-016, DASH-002, and DASH-026
+    remain dependency-ready but serialize with active DASH-018 and must not be
+    fanned out merely to increase the worker count.
+58. BO-002/#1091 pushed exact head `3ed5a427` with fresh all-green CI after
+    repairing OPEN lifecycle validation. Its worker remains paused while two
+    independent exact-head review waves run in isolated report-only
+    worktrees; review capacity, not another implementation turn, is now the
+    fastest route to the next critical-path merge.
 
-At 01:53 PDT the core graph is 4/54 accepted. Core
-#1088/#1090/#1091/#1096/#1111 and Ad Hoc #1151 are productive Codex workers;
-DASH-017 remains paused with bounded test rework queued, and direct blocker
-#1030 is deactivated pending the next free slot. #1108 remains tracker-paused
-after its contained controlled error. #1103/#1123 remain paused.
+At 02:15 PDT the core graph is 4/54 accepted. Core
+#1088/#1090/#1096/#1108/#1111 and Ad Hoc #1151 are active Codex workers;
+BO-002/#1091 is paused for exact-head independent review, DASH-017/#1089 is in
+human review at a fresh all-green head, and direct blocker #1030 is
+deactivated pending the next safe slot. #1103/#1123 remain paused.
 Treat
 completed turns, stale bases, and green builds with unmet acceptance criteria
 as pending Executor work, not merge-ready truth.
