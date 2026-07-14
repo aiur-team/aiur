@@ -144,8 +144,10 @@ so the controller—not an arbitrary Executor cap—is the remaining admission g
     explicit unchanged decision. Do not overfit isolated misses. At BO-015,
     synthesize repeated evidence into at most one or two deferred Aiur
     notification/polling issues under the normal scope circuit breaker; these
-    optimizations cannot delay Build Order acceptance. This run's first hard
-    retrospective is due at 21:16 PDT.
+    optimizations cannot delay Build Order acceptance. The run-isolated helper
+    and durable `/aiur-run` contract are in PR #1150; this run uses stable ID
+    `aiur-dashboard-program-20260713` and its first isolated retrospective is
+    due at 21:30 PDT.
 15. Dual review returned #1086/#1143 to rework for three contained repository-
     identity gaps: ambiguous bare-number API results leaked one arbitrary
     nested identity, noncanonical/contradictory structs could be marked
@@ -161,6 +163,13 @@ so the controller—not an arbitrary Executor cap—is the remaining admission g
     single consolidated packet is at
     `https://github.com/its-everdred/aiur/pull/1141#issuecomment-4965072012`;
     #1090 resumed. Do not split these findings into new tickets.
+17. Dual review returned #1088/#1144 to rework despite green CI: the default
+    query path named the wrong store module, response paging still performed
+    unbounded store/metrics reads, partial detail health was hidden, canonical
+    counts did not reach the UI, and required property/replay/security coverage
+    was absent. The consolidated packet is at
+    `https://github.com/its-everdred/aiur/pull/1144#issuecomment-4965131360`;
+    keep all fixes on #1088.
 
 At 19:48 PDT the five latest event-reported percentages are BO-004 70%, BO-008
 90%, DASH-006 90%, DASH-017 90%, and DASH-018 70% (82% ticket-average). All
