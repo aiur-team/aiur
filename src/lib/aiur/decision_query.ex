@@ -9,7 +9,7 @@ defmodule Aiur.DecisionQuery do
   cursor boundary.
   """
 
-  alias Aiur.DecisionQuery.{Params, StoreReader}
+  alias Aiur.DecisionQuery.{Cursor, Params, StoreReader}
   alias Aiur.DecisionStore
 
   @default_store DecisionStore
@@ -71,7 +71,7 @@ defmodule Aiur.DecisionQuery do
 
   defp next_cursor({created_at, decision_id}, true) do
     %{created_at: DateTime.from_unix!(-created_at, :microsecond), decision_id: decision_id}
-    |> encode_cursor()
+    |> Cursor.encode()
   end
 
   defp retained_page(snapshot, query, health) do
@@ -86,7 +86,7 @@ defmodule Aiur.DecisionQuery do
       partial_reason: partial_reason,
       pagination: %{
         limit: query.limit,
-        cursor: query.cursor && encode_cursor(query.cursor),
+        cursor: query.cursor && Cursor.encode(query.cursor),
         next_cursor: next_cursor(Map.get(snapshot, :next_key), snapshot.has_next?),
         total: snapshot.total,
         partial_reason: partial_reason,
@@ -106,7 +106,7 @@ defmodule Aiur.DecisionQuery do
       partial_reason: :retained_store_unavailable,
       pagination: %{
         limit: query.limit,
-        cursor: query.cursor && encode_cursor(query.cursor),
+        cursor: query.cursor && Cursor.encode(query.cursor),
         next_cursor: nil,
         total: nil,
         partial_reason: :retained_store_unavailable,
@@ -114,18 +114,6 @@ defmodule Aiur.DecisionQuery do
       },
       filters: Map.take(query, [:authority, :blocking, :kind, :lifecycle, :search, :ticket])
     }
-  end
-
-  defp encode_cursor(cursor) do
-    cursor
-    |> then(fn value ->
-      %{
-        "created_at" => DateTime.to_iso8601(value.created_at),
-        "decision_id" => value.decision_id
-      }
-    end)
-    |> Jason.encode!()
-    |> Base.url_encode64(padding: false)
   end
 
   defp scope, do: %{kind: :retained, label: "All retained decisions"}

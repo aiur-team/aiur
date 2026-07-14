@@ -99,8 +99,16 @@ List supports only these optional query fields:
 
 Unknown or malformed filters fail instead of broadening the result. Records are
 ordered by canonical `created_at` descending, then Decision ID, and include a
-bounded pagination envelope. Both reads reuse `DecisionProjection`'s redacted
-request and lifecycle JSON; there is no API-specific copy of canonical state.
+bounded pagination envelope with `limit`, `offset`, `next_offset`, and `total`.
+The v1 offset contract remains supported over the retained store. For stable
+pagination during insertion, clients may opt into `cursor` pagination instead;
+cursor mode cannot be combined with `offset`, uses its own bounded retained-query
+filters (`lifecycle` and `search` included), and returns `cursor` plus
+`next_cursor` alongside retained health and partial-result metadata. A bounded
+filtered scan may report a `nil` total and partial status rather than presenting
+an incomplete page as a complete global result. Both reads reuse
+`DecisionProjection`'s redacted request and lifecycle JSON; there is no
+API-specific copy of canonical state.
 
 ## Enrich
 

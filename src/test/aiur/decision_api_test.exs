@@ -114,7 +114,56 @@ defmodule Aiur.DecisionApiTest do
     refute Map.has_key?(encoded_older["supervisor_policy"], "allowed_kinds")
   end
 
-  test "list preserves retained policy filters without offset pagination", %{store: store} do
+  test "v1 list preserves documented offset defaults and bounds", %{store: store} do
+    oldest =
+      request!(store, "architecture", :supervisor_allowed,
+        source_id: "legacy-oldest",
+        now: ~U[2026-07-12 10:00:00Z]
+      )
+
+    middle =
+      request!(store, "architecture", :supervisor_allowed,
+        source_id: "legacy-middle",
+        now: ~U[2026-07-12 10:01:00Z]
+      )
+
+    newest =
+      request!(store, "architecture", :supervisor_allowed,
+        source_id: "legacy-newest",
+        now: ~U[2026-07-12 10:02:00Z]
+      )
+
+    assert {:ok, default_page} = DecisionApi.list(%{}, store: store, policy: @policy)
+
+    assert %{"limit" => 50, "offset" => 0, "next_offset" => nil, "total" => 3} =
+             default_page["pagination"]
+
+    assert Enum.map(default_page["decisions"], & &1["decision_id"]) == [
+             newest.decision_id,
+             middle.decision_id,
+             oldest.decision_id
+           ]
+
+    assert {:ok, max_page} =
+             DecisionApi.list(%{"limit" => "200", "offset" => "1"}, store: store, policy: @policy)
+
+    assert %{"limit" => 200, "offset" => 1, "next_offset" => nil, "total" => 3} =
+             max_page["pagination"]
+
+    assert Enum.map(max_page["decisions"], & &1["decision_id"]) == [
+             middle.decision_id,
+             oldest.decision_id
+           ]
+
+    assert {:ok, offset_page} =
+             DecisionApi.list(%{"limit" => "1", "offset" => "1"}, store: store, policy: @policy)
+
+    assert %{"limit" => 1, "offset" => 1, "next_offset" => 2} = offset_page["pagination"]
+    assert [offset_decision] = offset_page["decisions"]
+    assert offset_decision["decision_id"] == middle.decision_id
+  end
+
+  test "list preserves retained policy filters through offset-compatible page reads", %{store: store} do
     architecture =
       request!(store, "Architecture", :supervisor_preferred,
         source_id: "architecture",
@@ -145,8 +194,9 @@ defmodule Aiur.DecisionApiTest do
 
     invalid_params = [
       %{"limit" => 0},
-      %{"limit" => 101},
+      %{"limit" => 201},
       %{"offset" => -1},
+      %{"offset" => 1_000_001},
       %{"blocking" => "yes"},
       %{"authority" => "future"},
       %{"ticket" => ""},

@@ -3,6 +3,7 @@ defmodule Aiur.DecisionQueryTest do
   use ExUnitProperties
 
   alias Aiur.{DecisionQuery, DecisionStore, DecisionValidation}
+  alias Aiur.DecisionQuery.Cursor
   alias Aiur.DecisionStore.RetainedSnapshot
 
   @ticket %{identifier: "1088", title: "Retained Decisions", url: "https://example.test/issues/1088"}
@@ -194,6 +195,12 @@ defmodule Aiur.DecisionQueryTest do
     assert Enum.map(first_page ++ second_page, & &1.decision_id) == expected_ids
   end
 
+  test "cursor helper round trips stable retained ordering keys" do
+    cursor = %{created_at: ~U[2026-07-13 08:00:00Z], decision_id: "dec_cursor-round-trip"}
+
+    assert {:ok, ^cursor} = cursor |> Cursor.encode() |> Cursor.parse()
+  end
+
   test "query filters retained identifiers and tickets while counts cover all Decisions", %{
     store: store
   } do
@@ -360,6 +367,66 @@ defmodule Aiur.DecisionQueryTest do
              RetainedSnapshot.query(current, index, :writable, %{query | cursor: cursor})
 
     assert retained.decision_id == matching.decision_id
+  end
+
+  test "authority, blocking, and kind scans cap no-match reads and resume rare matches" do
+    [template] = generated_decisions([{0, :open}])
+
+    for {field, expected, nonmatching_value} <- [
+          {:authority, :supervisor_allowed, :human_required},
+          {:blocking, true, false},
+          {:kind, "product", "architecture"}
+        ] do
+      nonmatching =
+        for index <- 1..1_001 do
+          template
+          |> Map.put(:decision_id, "dec_#{field}-#{index}")
+          |> Map.put(:source_id, "#{field}-#{index}")
+          |> Map.put(:created_at, DateTime.add(template.created_at, index, :second))
+          |> Map.put(field, nonmatching_value)
+        end
+
+      no_match_current = Map.new(nonmatching, &{&1.decision_id, &1})
+      no_match_index = RetainedSnapshot.build_index(no_match_current)
+
+      query =
+        %{limit: 1, cursor: nil, lifecycle: nil, search: nil, ticket: nil}
+        |> Map.put(field, expected)
+
+      assert {:ok,
+              %{
+                decisions: [],
+                has_next?: true,
+                next_key: {next_created_at, next_id},
+                total: nil,
+                partial?: true,
+                partial_reason: :retained_query_scan_capped
+              }} = RetainedSnapshot.query(no_match_current, no_match_index, :writable, query)
+
+      assert next_id == "dec_#{field}-2"
+
+      matching =
+        template
+        |> Map.put(:decision_id, "dec_#{field}-match")
+        |> Map.put(:source_id, "#{field}-match")
+        |> Map.put(field, expected)
+
+      current = Map.new([matching | nonmatching], &{&1.decision_id, &1})
+      index = RetainedSnapshot.build_index(current)
+
+      assert {:ok, %{decisions: [], partial?: true}} =
+               RetainedSnapshot.query(current, index, :writable, query)
+
+      cursor = %{
+        created_at: DateTime.from_unix!(-next_created_at, :microsecond),
+        decision_id: next_id
+      }
+
+      assert {:ok, %{decisions: [retained], has_next?: false, partial?: false}} =
+               RetainedSnapshot.query(current, index, :writable, %{query | cursor: cursor})
+
+      assert retained.decision_id == matching.decision_id
+    end
   end
 
   test "counts distinguish partial retained data from an unavailable store", %{store: store} do

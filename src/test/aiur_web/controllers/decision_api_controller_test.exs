@@ -39,6 +39,21 @@ defmodule AiurWeb.DecisionApiControllerTest do
     assert_receive {:decision_api_called, :get, ["dec_known", _opts]}
   end
 
+  test "v1 list forwards documented offset pagination unchanged" do
+    Process.put({FakeDecisionApi, :list}, {:ok, %{"decisions" => [], "pagination" => %{"offset" => 50}}})
+
+    response =
+      DecisionApiController.index(api_conn(:get), %{
+        "limit" => "200",
+        "offset" => "50",
+        "ticket" => "1088"
+      })
+
+    assert response.status == 200
+
+    assert_receive {:decision_api_called, :list, [%{"limit" => "200", "offset" => "50", "ticket" => "1088"}, _opts]}
+  end
+
   test "mutations keep the path identity authoritative and preserve service status" do
     cases = [
       {:enrich, :enrich, %{"status" => "accepted"}, 202},

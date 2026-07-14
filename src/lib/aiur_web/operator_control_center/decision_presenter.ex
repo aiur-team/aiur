@@ -6,12 +6,10 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
   display-only summary and never advances either canonical axis.
   """
 
-  alias Aiur.{Decision, SecretRedactor}
+  alias Aiur.Decision
+  alias AiurWeb.OperatorControlCenter.DecisionSanitizer
 
   @urgency_rank %{low: 0, normal: 1, high: 2, critical: 3}
-  @identity_max 256
-  @canonical_agent_id ~r/\A(?:(?:agent|example-agent)-[A-Za-z0-9][A-Za-z0-9._-]*|codex|claude(?:-repl)?|legacy_attention)\z/
-  @jwt ~r/\AeyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\z/
 
   @spec rows([Decision.t()]) :: [map()]
   def rows(decisions) when is_list(decisions) do
@@ -53,8 +51,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
     %{
       decision_id: decision.decision_id,
       version: decision.version,
-      ticket: safe_ticket(decision.ticket),
-      source: safe_source(decision.source),
+      ticket: DecisionSanitizer.ticket(decision.ticket),
+      source: DecisionSanitizer.source(decision.source),
       kind: decision.kind,
       authority: decision.authority,
       urgency: decision.urgency,
@@ -68,7 +66,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
       options: Enum.map(decision.options, &option_row/1),
       recommendation: decision.recommendation,
       consequence_of_delay: decision.consequence_of_delay,
-      artifacts: safe_artifacts(decision.artifacts),
+      artifacts: DecisionSanitizer.artifacts(decision.artifacts),
       created_at: decision.created_at,
       source_created_at: decision.source_created_at,
       decision_status: decision.decision_status,
@@ -80,11 +78,11 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
       revisions: Enum.map(decision.revisions, &revision_row(&1, decision.revision_outcomes)),
       revision_result: decision.revision_result,
       superseded?: decision.revision_sequence > 0,
-      dispatch_attempts: Enum.map(decision.dispatch_attempts, &safe_dispatch_attempt/1),
-      acknowledgement: safe_lifecycle_fact(decision.acknowledgement),
-      resolution: safe_lifecycle_fact(decision.resolution),
-      revision_follow_ups: safe_follow_ups(decision.revision_follow_ups),
-      provenance: safe_provenance(Map.get(decision, :provenance)),
+      dispatch_attempts: Enum.map(decision.dispatch_attempts, &DecisionSanitizer.dispatch_attempt/1),
+      acknowledgement: DecisionSanitizer.lifecycle_fact(decision.acknowledgement),
+      resolution: DecisionSanitizer.lifecycle_fact(decision.resolution),
+      revision_follow_ups: DecisionSanitizer.follow_ups(decision.revision_follow_ups),
+      provenance: DecisionSanitizer.provenance(Map.get(decision, :provenance)),
       retryable: retryable?(decision),
       failure_reason: failure_reason(decision),
       lifecycle: lifecycle(decision)
@@ -111,7 +109,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
       selected_option_id: answer.selected_option_id,
       custom_response: answer.custom_response,
       rationale: answer.rationale,
-      actor: safe_actor(answer.actor),
+      actor: DecisionSanitizer.actor(answer.actor),
       supervisor_basis: answer.supervisor_basis,
       accepted_at: answer.accepted_at
     }
@@ -152,115 +150,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
       _attempt -> nil
     end
   end
-
-  defp safe_ticket(ticket) when is_map(ticket) do
-    %{
-      identifier: Map.get(ticket, :identifier),
-      title: Map.get(ticket, :title),
-      url: safe_ticket_url(Map.get(ticket, :url))
-    }
-  end
-
-  defp safe_ticket_url(value) when is_binary(value) do
-    case URI.parse(value) do
-      %URI{scheme: scheme, host: host, userinfo: userinfo, query: query, fragment: fragment}
-      when scheme in ["http", "https"] and is_binary(host) and userinfo in [nil, ""] and
-             query in [nil, ""] and fragment in [nil, ""] ->
-        value
-
-      _uri ->
-        nil
-    end
-  end
-
-  defp safe_ticket_url(_value), do: nil
-
-  defp safe_source(source) when is_map(source), do: %{agent_id: safe_agent_id(Map.get(source, :agent_id))}
-
-  defp safe_agent_id(value) when is_binary(value) do
-    if byte_size(value) <= @identity_max and
-         SecretRedactor.redact(value) == value and
-         not Regex.match?(@jwt, value) and
-         Regex.match?(@canonical_agent_id, value) do
-      value
-    end
-  end
-
-  defp safe_agent_id(_value), do: nil
-
-  defp safe_actor(actor) when is_map(actor), do: %{kind: Map.get(actor, :kind)}
-  defp safe_actor(_actor), do: nil
-
-  defp safe_dispatch_attempt(attempt) when is_map(attempt) do
-    Map.take(attempt, [
-      :action_id,
-      :attempt_id,
-      :queue_item_id,
-      :status,
-      :attempted_at,
-      :queued_at,
-      :delivered_at,
-      :restored_at,
-      :consumed_at,
-      :failed_at,
-      :failure_reason_class
-    ])
-  end
-
-  defp safe_dispatch_attempt(_attempt), do: %{}
-
-  defp safe_lifecycle_fact(nil), do: nil
-
-  defp safe_lifecycle_fact(fact) when is_map(fact) do
-    fact
-    |> Map.take([:action_id, :occurred_at])
-    |> Map.put(:actor, safe_actor(Map.get(fact, :actor)))
-  end
-
-  defp safe_follow_ups(follow_ups) when is_map(follow_ups) do
-    Map.new(follow_ups, fn {action_id, follow_up} ->
-      safe =
-        follow_up
-        |> Map.take([:action_id, :slug, :question, :required_at, :handled_at])
-        |> Map.put(:handled_by, safe_actor(Map.get(follow_up, :handled_by)))
-
-      {action_id, safe}
-    end)
-  end
-
-  defp safe_artifacts(artifacts) when is_list(artifacts) do
-    Enum.flat_map(artifacts, fn
-      %{kind: :path, value: value} when is_binary(value) -> [%{kind: :path, value: value}]
-      %{kind: :url, value: value} when is_binary(value) -> safe_url_artifact(value)
-      _artifact -> []
-    end)
-  end
-
-  defp safe_url_artifact(value) do
-    case URI.parse(value) do
-      %URI{scheme: "https", host: host, userinfo: userinfo, query: query, fragment: fragment}
-      when is_binary(host) and userinfo in [nil, ""] and query in [nil, ""] and fragment in [nil, ""] ->
-        [%{kind: :url, value: value}]
-
-      _uri ->
-        []
-    end
-  end
-
-  defp safe_provenance(provenance) when is_map(provenance) do
-    Map.take(provenance, [
-      :schema_version,
-      :agent_family,
-      :backend,
-      :requested_model,
-      :resolved_model,
-      :attempt_id,
-      :source,
-      :captured_at
-    ])
-  end
-
-  defp safe_provenance(_provenance), do: nil
 
   defp sort_key(decision) do
     {

@@ -14,6 +14,7 @@ defmodule Aiur.DecisionApi do
     DecisionAnswer,
     DecisionAuthority,
     DecisionDelegation,
+    DecisionApi.LegacyPagination,
     DecisionProjection,
     DecisionQuery,
     DecisionRevision,
@@ -30,7 +31,7 @@ defmodule Aiur.DecisionApi do
           | {:invalid_decision_id, atom()}
           | {:invalid_list, term()}
 
-  @doc "Returns a cursor-stable, bounded list of retained Decision projections."
+  @doc "Returns bounded retained Decision projections with v1 offset compatibility."
   @spec list(map(), keyword()) :: {:ok, map()} | {:error, read_error()}
   def list(params \\ %{}, opts \\ [])
 
@@ -218,7 +219,7 @@ defmodule Aiur.DecisionApi do
   defp normalize_decision_id(_decision_id), do: {:error, {:invalid_decision_id, :invalid_type}}
 
   defp retained_list(params, store) do
-    case DecisionQuery.list(params, store: store) do
+    case LegacyPagination.list(params, store) do
       {:ok, %{health: %{status: :unavailable}}} -> {:error, :store_unavailable}
       {:ok, page} -> {:ok, page}
       {:error, {:invalid_query, reason}} -> {:error, {:invalid_list, reason}}
@@ -341,6 +342,8 @@ defmodule Aiur.DecisionApi do
       "partial_reason" => atom_or_nil(page.partial_reason),
       "pagination" => %{
         "limit" => page.pagination.limit,
+        "offset" => Map.get(page.pagination, :offset),
+        "next_offset" => Map.get(page.pagination, :next_offset),
         "cursor" => page.pagination.cursor,
         "next_cursor" => page.pagination.next_cursor,
         "total" => page.pagination.total,
