@@ -67,16 +67,18 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
   def begin_review_thread_reply(_ticket, _operation_id), do: {:error, :invalid_operation_id}
 
   @doc false
+  @spec complete_review_thread_reply(String.t() | integer(), String.t(), map()) ::
+          :ok | {:error, term()}
+  def complete_review_thread_reply(ticket, operation_id, comment) do
+    complete_review_thread_reply(ticket, operation_id, comment, &record/2)
+  end
+
   @spec complete_review_thread_reply(
           String.t() | integer(),
           String.t(),
           map(),
           (String.t() | integer(), map() -> :ok | {:error, term()})
         ) :: :ok | {:error, term()}
-  def complete_review_thread_reply(ticket, operation_id, comment) do
-    complete_review_thread_reply(ticket, operation_id, comment, &record/2)
-  end
-
   def complete_review_thread_reply(ticket, operation_id, comment, recorder)
       when is_function(recorder, 2) and is_binary(operation_id) and is_map(comment) do
     case recorder.(ticket, comment) do

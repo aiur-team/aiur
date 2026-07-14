@@ -323,8 +323,10 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
 
       assert {:error, {:agent_comment_origin_not_recorded, :disk_full}} = Task.await(task, 2_000)
 
+      assert AgentCommentOrigins.origin(issue.identifier, %{"id" => comment_id}) == {:ok, :agent}
+
       assert {:error, {:pending_origin_recovery, _operation_ids}} =
-               AgentCommentOrigins.origin(issue.identifier, %{"id" => comment_id})
+               AgentCommentOrigins.origin(issue.identifier, %{"id" => comment_id + 1})
     end
 
     test "registers Codex session-approved comments that have no approval event" do
