@@ -561,11 +561,22 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end
   end
 
-  defp dispatch_attempt_ticket(%Issue{identifier: identifier}) when is_binary(identifier), do: identifier
-  defp dispatch_attempt_ticket(%Issue{id: issue_id}) when is_binary(issue_id), do: issue_id
+  defp dispatch_attempt_ticket(%Issue{} = issue) do
+    case dispatch_attempt_identity(issue) do
+      identity when is_binary(identity) ->
+        "ticket-" <> (:crypto.hash(:sha256, identity) |> Base.encode16(case: :lower))
 
-  defp dispatch_attempt_ticket(_issue) do
-    10 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false)
+      nil ->
+        "ticket-" <> (10 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false))
+    end
+  end
+
+  # Attempt IDs are retained in Decision provenance, whose identity fields are
+  # deliberately bounded and exclude arbitrary tracker payload. Hash the stable
+  # tracker identity so accepted Decisions keep a collision-resistant correlator
+  # without persisting a raw identifier such as `repo#1` or an overlong value.
+  defp dispatch_attempt_identity(%Issue{identifier: identifier, id: issue_id}) do
+    Enum.find([identifier, issue_id], &(is_binary(&1) and &1 != ""))
   end
 
   defp record_rework_resume(%Issue{} = issue, attempt_id) do
