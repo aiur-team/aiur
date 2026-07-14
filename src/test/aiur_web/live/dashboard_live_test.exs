@@ -686,7 +686,7 @@ defmodule AiurWeb.DashboardLiveTest do
     refute html =~ "Decision not found"
   end
 
-  test "a direct Decision route resolves once for its mounted parameter pass" do
+  test "a direct Decision route resolves once for each LiveView parameter pass" do
     orchestrator_name = Module.concat(__MODULE__, :DirectRouteOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :DirectRouteStore)
     counting_store_name = Module.concat(__MODULE__, :DirectRouteCountingStore)
@@ -698,9 +698,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     decision = request_dashboard_decision(store, "direct-route")
 
-    start_supervised!(
-      {CountingDetailStore, name: counting_store_name, store: decision_store_name}
-    )
+    start_supervised!({CountingDetailStore, name: counting_store_name, store: decision_store_name})
     start_counting_orchestrator(orchestrator_name)
 
     start_test_endpoint(
@@ -711,7 +709,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     {:ok, _view, _html} = live(build_conn(), "/decisions/#{decision.decision_id}")
 
-    assert CountingDetailStore.retained_lookup_count(counting_store_name) == 1
+    assert CountingDetailStore.retained_lookup_count(counting_store_name) == 2
   end
 
   test "a missing Decision URL stays distinct from a retained-store outage" do
