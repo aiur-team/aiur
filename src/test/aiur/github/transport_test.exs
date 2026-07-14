@@ -140,6 +140,25 @@ defmodule Aiur.GitHub.TransportTest do
     end
   end
 
+  test "rejects invalid status shapes and unexpected GraphQL transport results" do
+    for {result, response} <- [
+          {{:ok, %{status: "200", body: %{}}}, %{status: "200", body: %{}}},
+          {{:ok, %{status: nil, body: %{}}}, %{status: nil, body: %{}}},
+          {{:ok, %{status: 700, body: %{}}}, %{status: 700, body: %{}}},
+          {{:ok, %{}}, %{}},
+          {{:ok, "unexpected"}, nil},
+          {:unexpected, nil}
+        ] do
+      request_fun = fn _request -> result end
+
+      assert {:error, :invalid_graphql_response, ^response} =
+               Transport.github_graphql_response(request_fun, "token", "query", %{})
+
+      assert {:error, :invalid_graphql_response} =
+               Transport.github_graphql(request_fun, "token", "query", %{})
+    end
+  end
+
   test "fetches JSON lists and classifies failures" do
     ok = fn %{method: :get, url: "https://example.test", token: "token"} ->
       {:ok, %{status: 200, body: [%{"name" => "file"}]}}

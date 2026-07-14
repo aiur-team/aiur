@@ -11,10 +11,9 @@ defmodule Aiur.BuildOrder.GitHubGraph do
 
   @spec fetch_catalog(keyword()) :: result()
   def fetch_catalog(opts \\ []) do
-    with {:ok, repository} <- Settings.configured_repository(opts),
-         {:ok, token} <- Transport.require_token(opts),
-         {:ok, limits} <- Settings.limits(opts) do
-      state = Settings.initial_state(opts)
+    with {:ok, repository, limits} <- Settings.authority(opts),
+         {:ok, token} <- Transport.require_token(opts) do
+      state = Settings.initial_state(opts, limits)
       paging = Settings.new_paging(repository, token, limits, limits.root_limit)
 
       case Pager.catalog(paging, state) do
@@ -28,11 +27,10 @@ defmodule Aiur.BuildOrder.GitHubGraph do
 
   @spec fetch_selected_root(TrackerIdentity.t(), keyword()) :: result()
   def fetch_selected_root(root, opts \\ []) do
-    with {:ok, repository} <- Settings.configured_repository(opts),
+    with {:ok, repository, limits} <- Settings.authority(opts),
          {:ok, requested_root} <- Settings.requested_root(root, repository),
-         {:ok, token} <- Transport.require_token(opts),
-         {:ok, limits} <- Settings.limits(opts) do
-      state = Settings.initial_state(opts)
+         {:ok, token} <- Transport.require_token(opts) do
+      state = Settings.initial_state(opts, limits)
       paging = Settings.new_paging(repository, token, limits, @member_limit, requested_root)
 
       case Pager.selected(paging, state) do

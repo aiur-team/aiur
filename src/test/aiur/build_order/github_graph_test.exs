@@ -1,7 +1,9 @@
 defmodule Aiur.BuildOrder.GitHubGraphTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
-  alias Aiur.{BuildOrder.Catalog, BuildOrder.GitHubGraph, BuildOrder.ProviderResult, GitHub.Client, TrackerIdentity}
+  alias Aiur.{BuildOrder.Catalog, BuildOrder.ProviderResult, BuildOrder.SelectedRoot, GitHub.Client, TrackerIdentity}
+  alias Aiur.BuildOrder.GitHubGraph, as: ProductionGraph
+  alias Aiur.BuildOrder.GitHubGraph.TestAdapter, as: GitHubGraph
 
   @repository {"owner", "repo"}
 
@@ -441,6 +443,7 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
              )
 
     assert length(selected.members) == 2
+    assert SelectedRoot.status(selected) == :structurally_invalid
 
     missing_endpoint = member(3, root, blocked_by: [%{}])
 
@@ -723,6 +726,7 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
              )
 
     assert length(selected.members) == 2
+    assert SelectedRoot.status(selected) == :structurally_invalid
   end
 
   test "rejects a selected root duplicated as an executable member" do
@@ -737,6 +741,30 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
 
     [selected_member] = selected.members
     assert selected_member.identity == selected.root.identity
+    assert SelectedRoot.status(selected) == :structurally_invalid
+  end
+
+  test "fails closed on duplicate native locator facts across the complete candidate" do
+    root = root(1)
+
+    database_collision = member(2, root) |> Map.put("databaseId", 1)
+    member_collision = member(3, root) |> Map.put("databaseId", 2)
+    number_and_url_collision = member(2, root) |> Map.put("number", 1) |> Map.put("url", root["url"])
+
+    for members <- [[database_collision], [member(2, root), member_collision], [number_and_url_collision]] do
+      assert {:error, %{error: :duplicate_identity, candidate: selected}} =
+               GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, members, length(members))))
+
+      assert SelectedRoot.status(selected) == :structurally_invalid
+    end
+
+    duplicate_root = Map.put(root, "id", "Iowner-repo-other")
+
+    assert {:error, %{error: :duplicate_identity, candidate: catalog}} =
+             GitHubGraph.fetch_catalog(base_opts(catalog_response([root, duplicate_root], 2)))
+
+    [first_entry | _rest] = catalog.entries
+    assert {:provider_unavailable, _root} = Catalog.select(catalog, first_entry.identity)
   end
 
   test "classifies a unique member with no canonical identity as structurally invalid" do
@@ -1084,7 +1112,8 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
   end
 
   test "the Client facade retains graph contracts and body-free queries" do
-    root = root(1)
+    configured_repository = {"test-org", "test-repo"}
+    root = root(1, "test-org", "test-repo")
 
     request_fun = fn %{body: %{"query" => query}} ->
       refute query =~ "body"
@@ -1092,9 +1121,9 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     end
 
     assert {:ok, %{candidate: %{root: %{identity: selected_identity}}}} =
-             Client.fetch_build_order_selected_root(identity(root), base_opts(request_fun))
+             Client.fetch_build_order_selected_root(identity(root, configured_repository), public_opts(request_fun))
 
-    assert selected_identity == identity(root)
+    assert selected_identity == identity(root, configured_repository)
 
     catalog_request_fun = fn %{body: %{"query" => query}} ->
       refute query =~ "body"
@@ -1102,7 +1131,36 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     end
 
     assert {:ok, %{candidate: %{entries: []}}} =
-             Client.fetch_build_order_catalog(base_opts(catalog_request_fun))
+             Client.fetch_build_order_catalog(public_opts(catalog_request_fun))
+  end
+
+  test "public graph reads derive their authority from validated configuration" do
+    foreign_request = fn _request -> flunk("foreign authority must not reach GitHub") end
+
+    assert {:error, %{error: :invalid_planning_authority, calls: 0, pages: 0}} =
+             ProductionGraph.fetch_catalog(repository: {"foreign-owner", "foreign-repo"}, request_fun: foreign_request)
+
+    for invalid_bound <- [[root_limit: 1], [page_budget: 1], [call_budget: 1]] do
+      assert {:error, %{error: :invalid_planning_authority, calls: 0, pages: 0}} =
+               ProductionGraph.fetch_catalog(Keyword.put(invalid_bound, :request_fun, foreign_request))
+    end
+
+    root = root(1, "test-org", "test-repo")
+
+    configured_request = fn %{body: %{"variables" => variables}} ->
+      assert variables["owner"] == "test-org"
+      assert variables["repo"] == "test-repo"
+      catalog_response([root], 1)
+    end
+
+    assert {:ok, %{candidate: %{entries: [_entry]}}} =
+             ProductionGraph.fetch_catalog(
+               repository: {"TEST-ORG", "TEST-REPO"},
+               root_limit: 100,
+               page_budget: 4,
+               call_budget: 4,
+               request_fun: configured_request
+             )
   end
 
   defp base_opts(response_or_request_fun, overrides \\ []) do
@@ -1122,6 +1180,8 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     ]
     |> Keyword.merge(overrides)
   end
+
+  defp public_opts(request_fun), do: [request_fun: request_fun]
 
   defp queued_responses(responses) do
     parent = self()
@@ -1178,8 +1238,8 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     update_in(connection, ["pageInfo"], &Map.delete(&1, "endCursor"))
   end
 
-  defp root(number) do
-    issue_node(number)
+  defp root(number, owner \\ "owner", repo \\ "repo") do
+    issue_node(number, owner, repo)
     |> Map.put("labels", labels(["build-order"]))
   end
 
@@ -1224,7 +1284,7 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     ]
   end
 
-  defp identity(node) do
+  defp identity(node, configured_repository \\ @repository) do
     {:ok, identity} =
       TrackerIdentity.from_github(
         %{
@@ -1233,8 +1293,8 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
           "number" => node["number"],
           "repository" => node["repository"]
         },
-        @repository,
-        @repository
+        configured_repository,
+        configured_repository
       )
 
     identity

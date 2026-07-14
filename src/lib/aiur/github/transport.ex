@@ -137,11 +137,20 @@ defmodule Aiur.GitHub.Transport do
       {:ok, %{status: 200} = response} ->
         {:error, :invalid_graphql_response, response}
 
-      {:ok, %{status: _status} = response} ->
+      {:ok, %{status: status} = response} when is_integer(status) and status in 100..599 ->
         {:error, Errors.github_graph_status_error(response), response}
+
+      {:ok, %{} = response} ->
+        {:error, :invalid_graphql_response, response}
+
+      {:ok, _response} ->
+        {:error, :invalid_graphql_response, nil}
 
       {:error, reason} ->
         {:error, Errors.classify_error({:error, reason}), nil}
+
+      _response ->
+        {:error, :invalid_graphql_response, nil}
     end
   end
 

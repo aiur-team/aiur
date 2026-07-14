@@ -2,6 +2,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.Result do
   @moduledoc false
 
   alias Aiur.BuildOrder.{
+    Bounded,
     Catalog,
     Diagnostic,
     GitHubGraph.Dependencies,
@@ -13,15 +14,18 @@ defmodule Aiur.BuildOrder.GitHubGraph.Result do
     SelectedRoot
   }
 
+  alias Aiur.TrackerIdentity
+
   @spec catalog([map()], {String.t(), String.t()}, map()) :: Aiur.BuildOrder.GitHubGraph.result()
   def catalog(nodes, repository, state) do
     roots = Enum.map(nodes, &Normalizer.root(&1, repository))
-    catalog = Catalog.new(roots, ProviderHealth.new(1, :healthy, true))
 
-    if Enum.any?(roots, &duplicate_root?(&1, roots)) do
-      failure(:invalid_catalog, state, candidate: catalog, diagnostics: [Diagnostic.new(:duplicate_identity)])
+    if duplicate_records?(roots) do
+      duplicate_catalog(roots, state)
     else
-      success(catalog, state)
+      roots
+      |> Catalog.new(healthy_provider())
+      |> success(state)
     end
   end
 
@@ -29,17 +33,14 @@ defmodule Aiur.BuildOrder.GitHubGraph.Result do
   def selected(root_node, member_nodes, repository, state) do
     root = Normalizer.root(root_node, repository)
     members = member_nodes |> Enum.map(&Normalizer.member(&1, repository, root)) |> Dependencies.validate_internal(root)
-    selected = SelectedRoot.new(root, members, ProviderHealth.new(1, :healthy, true))
+    selected = SelectedRoot.new(root, members, healthy_provider())
 
     cond do
       not RootSummary.valid?(root) ->
         failure(:structurally_invalid, state, candidate: selected)
 
       duplicate_candidate_identities?(root, members) ->
-        failure(:duplicate_identity, state,
-          candidate: selected,
-          diagnostics: [Diagnostic.new(:duplicate_identity)]
-        )
+        duplicate_selected(selected, state)
 
       not SelectedRoot.structurally_valid?(selected) ->
         failure(:structurally_invalid, state, candidate: selected)
@@ -85,10 +86,63 @@ defmodule Aiur.BuildOrder.GitHubGraph.Result do
   defp diagnostics(reason) when reason in [:invalid_catalog, :structurally_invalid], do: []
   defp diagnostics(_reason), do: [Diagnostic.new(:provider_unavailable)]
 
-  defp duplicate_root?(root, roots), do: Enum.count(roots, &Endpoint.same?(&1.identity, root.identity)) > 1
+  defp healthy_provider, do: ProviderHealth.new(1, :healthy, true)
+  defp failed_provider, do: ProviderHealth.new(1, :unavailable, false)
 
-  defp duplicate_candidate_identities?(root, members) do
-    keys = [root.identity | Enum.map(members, & &1.identity)] |> Enum.map(&Endpoint.key/1) |> Enum.reject(&is_nil/1)
+  defp duplicate_catalog(roots, state) do
+    catalog =
+      roots
+      |> Catalog.new(failed_provider())
+      |> add_duplicate_diagnostic()
+
+    failure(:duplicate_identity, state, candidate: catalog, diagnostics: [Diagnostic.new(:duplicate_identity)])
+  end
+
+  defp duplicate_selected(selected, state) do
+    candidate = %{selected | provider: failed_provider()} |> add_duplicate_diagnostic()
+    failure(:duplicate_identity, state, candidate: candidate, diagnostics: [Diagnostic.new(:duplicate_identity)])
+  end
+
+  defp add_duplicate_diagnostic(candidate) do
+    %{candidate | diagnostics: [Diagnostic.new(:duplicate_identity) | candidate.diagnostics]}
+  end
+
+  defp duplicate_candidate_identities?(root, members), do: duplicate_records?([root | members])
+
+  defp duplicate_records?(records) do
+    keys = Enum.flat_map(records, &record_keys/1)
     length(keys) != MapSet.size(MapSet.new(keys))
+  end
+
+  defp record_keys(%{identity: %TrackerIdentity{} = identity, url: url}) do
+    identity_keys(identity) ++ normalized_url_key(url)
+  end
+
+  defp record_keys(_record), do: []
+
+  defp identity_keys(identity) do
+    case Endpoint.key(identity) do
+      {:github, owner, repository, provider_id} ->
+        [{:provider_id, owner, repository, provider_id} | locator_keys(identity, owner, repository)]
+
+      nil ->
+        []
+    end
+  end
+
+  defp locator_keys(%TrackerIdentity{database_id: database_id, identifier: identifier}, owner, repository) do
+    database_key = if is_integer(database_id), do: [{:database_id, owner, repository, database_id}], else: []
+    number_key = if is_binary(identifier), do: [{:issue_number, owner, repository, identifier}], else: []
+    database_key ++ number_key
+  end
+
+  defp normalized_url_key(url) do
+    case Bounded.github_issue_reference(url) do
+      {:ok, %{owner: owner, repository: repository, kind: kind, identifier: identifier}} ->
+        [{:url, String.downcase(owner), String.downcase(repository), String.downcase(kind), identifier}]
+
+      :error ->
+        []
+    end
   end
 end

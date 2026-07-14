@@ -35,26 +35,21 @@ defmodule Aiur.BuildOrder.GitHubGraph.Settings do
     ]
   end
 
-  @spec configured_repository(keyword()) :: {:ok, repository()} | {:error, atom()}
-  def configured_repository(opts) do
-    case Keyword.get(opts, :repository) do
-      {owner, repository} when is_binary(owner) and is_binary(repository) and owner != "" and repository != "" ->
-        {:ok, {owner, repository}}
-
-      nil ->
-        GitHub.Config.configured_repo()
-
-      _ ->
-        {:error, :invalid_github_repo}
+  @spec authority(keyword()) :: {:ok, repository(), limits()} | {:error, atom()}
+  def authority(opts) do
+    with {:ok, repository} <- GitHub.Config.configured_repo(),
+         {:ok, limits} <- limits(),
+         :ok <- configured_options?(opts, repository, limits) do
+      {:ok, repository, limits}
     end
   end
 
-  @spec limits(keyword()) :: {:ok, limits()} | {:error, :invalid_planning_bounds}
-  def limits(opts) do
+  @spec limits() :: {:ok, limits()} | {:error, :invalid_planning_bounds}
+  def limits do
     limits = %{
-      root_limit: option_or_config(opts, :root_limit, &GitHub.Config.planning_root_limit/0),
-      page_budget: option_or_config(opts, :page_budget, &GitHub.Config.planning_page_budget/0),
-      call_budget: option_or_config(opts, :call_budget, &GitHub.Config.planning_call_budget/0)
+      root_limit: GitHub.Config.planning_root_limit(),
+      page_budget: GitHub.Config.planning_page_budget(),
+      call_budget: GitHub.Config.planning_call_budget()
     }
 
     if valid_limits?(limits) do
@@ -64,17 +59,20 @@ defmodule Aiur.BuildOrder.GitHubGraph.Settings do
     end
   end
 
-  @spec initial_state(keyword()) :: map()
-  def initial_state(opts) do
+  @spec initial_state(keyword(), limits()) :: map()
+  def initial_state(opts, limits) do
     %{
       request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
       calls: 0,
       pages: 0,
       rate_limit: %{},
-      page_budget: option_or_config(opts, :page_budget, &GitHub.Config.planning_page_budget/0),
-      call_budget: option_or_config(opts, :call_budget, &GitHub.Config.planning_call_budget/0)
+      page_budget: limits.page_budget,
+      call_budget: limits.call_budget
     }
   end
+
+  @spec initial_state(keyword()) :: map()
+  def initial_state(opts), do: %{request_fun: Keyword.get(opts, :request_fun), calls: 0, pages: 0, rate_limit: %{}}
 
   @spec new_paging(repository(), String.t(), limits(), pos_integer(), TrackerIdentity.t() | nil) :: map()
   def new_paging(repository, token, limits, limit, requested_root \\ nil) do
@@ -158,7 +156,36 @@ defmodule Aiur.BuildOrder.GitHubGraph.Settings do
 
   defp same_repository?(_root, _repository), do: false
 
-  defp option_or_config(opts, key, config_fun) do
-    if Keyword.has_key?(opts, key), do: Keyword.fetch!(opts, key), else: config_fun.()
+  defp configured_options?(opts, repository, limits) do
+    with :ok <- repository_option?(opts, repository),
+         :ok <- limit_option?(opts, :root_limit, limits.root_limit),
+         :ok <- limit_option?(opts, :page_budget, limits.page_budget),
+         :ok <- limit_option?(opts, :call_budget, limits.call_budget) do
+      :ok
+    end
+  end
+
+  defp repository_option?(opts, {owner, repository}) do
+    case Keyword.fetch(opts, :repository) do
+      :error ->
+        :ok
+
+      {:ok, {requested_owner, requested_repository}} when is_binary(requested_owner) and is_binary(requested_repository) ->
+        if String.downcase(requested_owner) == String.downcase(owner) and
+             String.downcase(requested_repository) == String.downcase(repository),
+           do: :ok,
+           else: {:error, :invalid_planning_authority}
+
+      _ ->
+        {:error, :invalid_planning_authority}
+    end
+  end
+
+  defp limit_option?(opts, key, configured) do
+    case Keyword.fetch(opts, key) do
+      :error -> :ok
+      {:ok, ^configured} -> :ok
+      _ -> {:error, :invalid_planning_authority}
+    end
   end
 end
