@@ -139,13 +139,13 @@ defmodule Aiur.Codex.TurnLoop do
   end
 
   defp emit_notification(on_message, session, method, payload, payload_string, metadata) do
-    details =
-      case AccountGeneration.handle_notification(session, method, payload) do
-        {:redacted, details} -> details
-        :ignore -> %{payload: payload, raw: payload_string}
-      end
+    case AccountGeneration.handle_notification(session, method, payload) do
+      {:redacted, details} ->
+        Messages.emit_message(on_message, :notification, details, TurnEvents.metadata_from_message(session.port, details.payload))
 
-    Messages.emit_message(on_message, :notification, details, metadata)
+      :ignore ->
+        Messages.emit_message(on_message, :notification, %{payload: payload, raw: payload_string}, metadata)
+    end
   end
 
   # Surface error-class notifications at info level with the full payload

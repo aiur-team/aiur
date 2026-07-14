@@ -145,7 +145,8 @@ defmodule Aiur.ProviderAccountGenerationTest do
              )
 
     assert replacement.generation != old.generation
-    assert_receive {:provider_account_generation_changed, %{change: :invalidated, reason: :continuity_lost, generation: nil}}
+    assert_receive {:provider_account_generation_changed, invalidated}
+    assert %{change: :invalidated, reason: :continuity_lost, generation: nil} = invalidated
     assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, old_binding).reason == :continuity_lost
     assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, new_binding) == replacement
   end
@@ -204,7 +205,8 @@ defmodule Aiur.ProviderAccountGenerationTest do
     assert_receive {:provider_account_generation_changed, %{change: :bound}}
     Process.exit(owner_process, :kill)
 
-    assert_receive {:provider_account_generation_changed, %{change: :invalidated, reason: :continuity_lost, generation: nil}}
+    assert_receive {:provider_account_generation_changed, invalidated}
+    assert %{change: :invalidated, reason: :continuity_lost, generation: nil} = invalidated
     assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, binding).generation == nil
     refute snapshot.generation == ProviderAccountGeneration.lookup(owner, :codex, :app_server, binding).generation
   end

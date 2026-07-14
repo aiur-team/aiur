@@ -21,7 +21,14 @@ defmodule Aiur.AppServer.Rpc do
     with_timeout_response(port, request_id, timeout_ms, pending_line, backend_label, fn _payload -> :ignore end)
   end
 
-  @spec with_timeout_response(port(), integer(), non_neg_integer(), String.t(), String.t(), notification_handler()) ::
+  @spec with_timeout_response(
+          port(),
+          integer(),
+          non_neg_integer(),
+          String.t(),
+          String.t(),
+          notification_handler()
+        ) ::
           {:ok, map()} | {:error, term()}
   def with_timeout_response(port, request_id, timeout_ms, pending_line, backend_label, on_notification)
       when is_function(on_notification, 1) do

@@ -171,7 +171,8 @@ defmodule Aiur.Codex.TurnLoopTest do
 
       payload = %{
         "method" => "account/updated",
-        "params" => %{"authMode" => "chatgpt", "email" => secret, "credential" => secret}
+        "params" => %{"authMode" => "chatgpt", "email" => secret, "credential" => secret},
+        "usage" => %{"email" => secret}
       }
 
       assert {:continue, _state} =
@@ -187,6 +188,7 @@ defmodule Aiur.Codex.TurnLoopTest do
       assert message.event == :notification
       assert message.raw == nil
       assert message.payload == %{"method" => "account/updated", "params" => %{}}
+      refute Map.has_key?(message, :usage)
       refute inspect(message) =~ secret
       assert is_binary(ProviderAccountGeneration.lookup(owner, :codex, :app_server, binding).generation)
       close_port(port)

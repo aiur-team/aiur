@@ -87,7 +87,13 @@ defmodule Aiur.Codex.CodingAgent do
 
       with {:ok, session_policies} <- session_policies(expanded_workspace, worker_host),
            {:ok, thread_id, resumed?, rate_limits_supported?} <-
-             Handshake.establish_with_rate_limits(port, expanded_workspace, session_policies, resume_thread_id, handshake_opts) do
+             Handshake.establish_with_rate_limits(
+               port,
+               expanded_workspace,
+               session_policies,
+               resume_thread_id,
+               handshake_opts
+             ) do
         maybe_observe_rate_limits(port, rate_limits_supported?, handshake_opts)
         maybe_seed_account(port, lifecycle_session, handshake_opts)
 
@@ -133,11 +139,9 @@ defmodule Aiur.Codex.CodingAgent do
 
   @impl Aiur.CodingAgent.Backend
   def stop_session(%{port: port} = session) when is_port(port) do
-    try do
-      AccountGeneration.process_stopped(session)
-    after
-      cleanup_session_port(port, Map.get(session, :containment))
-    end
+    AccountGeneration.process_stopped(session)
+  after
+    cleanup_session_port(port, Map.get(session, :containment))
   end
 
   @impl Aiur.CodingAgent.Backend
@@ -216,11 +220,9 @@ defmodule Aiur.Codex.CodingAgent do
   defp register_pause_containment(_identifier, _metadata, _workspace), do: nil
 
   defp cleanup_session_port(port, containment) do
-    try do
-      AppServerPort.stop_port(port)
-    after
-      PauseContainment.unregister(containment)
-    end
+    AppServerPort.stop_port(port)
+  after
+    PauseContainment.unregister(containment)
   end
 
   defp lifecycle_notification_handler(session, on_message) do
@@ -228,7 +230,7 @@ defmodule Aiur.Codex.CodingAgent do
       %{"method" => method} = payload when is_binary(method) ->
         case AccountGeneration.handle_notification(session, method, payload) do
           {:redacted, details} ->
-            Messages.emit_message(on_message, :notification, details, TurnEvents.metadata_from_message(session.port, payload))
+            Messages.emit_message(on_message, :notification, details, TurnEvents.metadata_from_message(session.port, details.payload))
             :handled
 
           :ignore ->

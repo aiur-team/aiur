@@ -21,7 +21,13 @@ defmodule Aiur.Codex.Handshake do
     end
   end
 
-  @spec establish_with_rate_limits(port(), Path.t(), map(), String.t() | nil, keyword()) ::
+  @spec establish_with_rate_limits(
+          port(),
+          Path.t(),
+          map(),
+          String.t() | nil,
+          keyword()
+        ) ::
           {:ok, String.t(), boolean(), boolean()} | {:error, term()}
   def establish_with_rate_limits(port, workspace, session_policies, resume_thread_id, opts \\ []) do
     with {:ok, initialize_response} <- initialize(port, opts),

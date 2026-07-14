@@ -353,8 +353,6 @@ defmodule Aiur.ProviderAccountGeneration do
     end
   end
 
-  defp monitor_owner(entry, _owner_pid), do: entry
-
   defp caller_pid({pid, _tag}) when is_pid(pid), do: pid
 
   defp known_snapshot(provider, backend, generation, source, observed_at) do
