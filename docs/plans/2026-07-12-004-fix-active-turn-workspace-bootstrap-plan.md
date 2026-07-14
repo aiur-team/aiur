@@ -10,7 +10,7 @@ issue: 1030
 
 ## Summary
 
-Prevent lifecycle refreshes from touching a ticket workspace while an agent turn is live, and prepare genuine replacements beside the canonical checkout before swapping them into place. The change keeps the existing workspace lifecycle and warm-base architecture while closing the destructive race exposed by `todo -> in-progress` reconciliation.
+Prevent lifecycle refreshes from touching a ticket workspace while an agent runner/session generation is live, and prepare genuine replacements beside the canonical checkout before swapping them into place. The change keeps the existing workspace lifecycle and warm-base architecture while closing the destructive race exposed by `todo -> in-progress` reconciliation.
 
 ---
 
@@ -76,8 +76,9 @@ Workspace refresh currently decides whether to recreate from tracker state and h
 
 ## Key Technical Decisions
 
-- Serialize destructive bootstrap decisions and turn registration per ticket, rather than relying on an unlocked ETS lookup that leaves a check-then-act race.
-- Skip the whole before-run hook when another turn is live, because even a nominal refresh can mutate Git metadata beneath that turn.
+- Hold a monitor-backed runner/session generation lease from before workspace setup through `after_run`, rather than releasing exclusion in between turns or while the session is paused.
+- Keep turn registration and destructive bootstrap decisions serialized per ticket as a second boundary around the active stream itself.
+- Park duplicate runners on the exact incumbent generation and terminate them only after that generation releases or its monitored owner exits.
 - Stage materialization as a sibling directory, validate branch checkout there, then replace the canonical directory under the per-ticket exclusion boundary.
 - Preserve and restore the old directory if the final replacement step fails; failed copying or checkout never reaches the swap.
 
@@ -116,8 +117,10 @@ Workspace refresh currently decides whether to recreate from tracker state and h
 
 **Approach:**
 
-- Add a per-identifier critical section shared by turn activation/closure and workspace refresh.
-- Let refresh atomically check for active IDs while holding that critical section; return success without running hooks or finalizers when a live turn exists.
+- Add a per-identifier runner/session generation lease acquired before workspace setup and held through session shutdown plus `after_run`.
+- Monitor the lease owner; owner `DOWN` releases the generation and closes active turn entries that brutal termination left open.
+- Add a per-identifier critical section shared by turn activation/closure and workspace refresh as a defense-in-depth boundary.
+- Let refresh atomically check for active IDs while holding that critical section and return an explicit defer result without running hooks or finalizers.
 - Keep different ticket identifiers independent so one slow bootstrap does not serialize the fleet.
 
 **Execution note:** Start with the lifecycle regression that registers a turn, invokes a stale todo refresh, and proves the hook and recreation path were not entered.
@@ -133,6 +136,9 @@ Workspace refresh currently decides whether to recreate from tracker state and h
 - Happy path: invoke the same refresh with no active turn and assert the existing refresh/recreate behavior still runs.
 - Concurrency: hold the per-ticket bootstrap section and assert turn registration waits until it is released.
 - Edge case: operate on two identifiers and assert one ticket's bootstrap section does not block the other's turn registration.
+- Lifecycle: close turn 1 and open turn 2 while the same runner remains alive; a duplicate stays parked across the gap and through `after_run`.
+- Pause: close the active turn into input-required state and prove the duplicate stays parked for the full paused session.
+- Crash: kill a generation owner with an open turn and prove monitoring closes the turn, releases the lease, and wakes the parked duplicate.
 
 **Verification:**
 
@@ -180,9 +186,9 @@ Workspace refresh currently decides whether to recreate from tracker state and h
 
 ## System-Wide Impact
 
-- **Interaction graph:** `AgentRunner` before-run -> `Workspace.Refresh` -> hook/recreate now coordinates with `TurnStreams` -> `ActiveTurns` for the same identifier.
+- **Interaction graph:** `AgentRunner` generation lease -> workspace setup -> `SessionLifecycle`/`TurnStreams` -> `after_run`; `ActiveTurns` owns the shared lease, active-turn registry, and owner monitor.
 - **Error propagation:** Existing hook and materialization errors remain errors; active-turn skips are intentional success with explicit logging.
-- **State lifecycle risks:** The primary risks are lock leakage, cross-ticket over-serialization, and failed directory promotion; bounded critical sections and rollback-focused tests address them.
+- **State lifecycle risks:** The primary risks are leaked leases after runner death, cross-ticket over-serialization, and failed directory promotion; owner monitoring, per-identifier keys, and rollback-focused tests address them.
 - **API surface parity:** Public workspace entrypoints remain unchanged; new synchronization helpers are internal.
 - **Integration coverage:** Lifecycle tests cover the tracker-state/turn/workspace crossing that isolated materialization tests cannot prove.
 - **Unchanged invariants:** Ticket branch names, canonical workspace paths, remote worker paths, and stale-leftover recreation for inactive tickets remain unchanged.

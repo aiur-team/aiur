@@ -2,46 +2,173 @@ defmodule Aiur.AgentRunnerTest do
   use ExUnit.Case, async: true
 
   alias Aiur.{AgentRunner, Issue, Orchestrator}
+  alias Aiur.AgentRunner.TurnLoop
+  alias Aiur.Opencode.ActiveTurns
+
+  describe "runner generation lease" do
+    test "keeps a duplicate parked across sequential-turn gaps and after-run" do
+      parent = self()
+      identifier = "AIUR-1030-sequential-#{System.unique_integer([:positive])}"
+      issue = %Issue{id: "issue-1030-sequential", identifier: identifier, title: "Sequential turns"}
+
+      incumbent =
+        Task.async(fn ->
+          AgentRunner.run_generation_for_test(issue, fn ->
+            :ok = ActiveTurns.put(identifier, "tONE")
+            send(parent, {:turn_open, self(), 1})
+            assert_receive :close_turn_one, 2_000
+            :ok = ActiveTurns.mark_closed(identifier, "tONE", :done)
+            send(parent, :between_turns)
+
+            assert_receive :open_turn_two, 2_000
+            :ok = ActiveTurns.put(identifier, "tTWO")
+            send(parent, :turn_two_open)
+            assert_receive :close_turn_two, 2_000
+            :ok = ActiveTurns.mark_closed(identifier, "tTWO", :done)
+            send(parent, :after_run_started)
+            assert_receive :finish_after_run, 2_000
+            :ok
+          end)
+        end)
+
+      assert_receive {:turn_open, incumbent_pid, 1}, 2_000
+
+      duplicate = duplicate_generation_task(issue, parent)
+      refute Task.yield(duplicate, 100)
+      refute_received :duplicate_operation_started
+
+      send(incumbent_pid, :close_turn_one)
+      assert_receive :between_turns, 2_000
+      assert ActiveTurns.active_turn_ids(identifier) == []
+      refute Task.yield(duplicate, 100)
+
+      send(incumbent_pid, :open_turn_two)
+      assert_receive :turn_two_open, 2_000
+      refute Task.yield(duplicate, 100)
+
+      send(incumbent_pid, :close_turn_two)
+      assert_receive :after_run_started, 2_000
+      refute Task.yield(duplicate, 100)
+
+      send(incumbent_pid, :finish_after_run)
+      assert Task.await(incumbent, 2_000) == :ok
+      assert Task.await(duplicate, 2_000) == :ok
+      refute_received :duplicate_operation_started
+    end
+
+    test "keeps a duplicate parked while the incumbent session is paused" do
+      parent = self()
+      identifier = "AIUR-1030-paused-#{System.unique_integer([:positive])}"
+      issue = %Issue{id: "issue-1030-paused", identifier: identifier, title: "Paused session"}
+
+      incumbent =
+        Task.async(fn ->
+          AgentRunner.run_generation_for_test(issue, fn ->
+            :ok = ActiveTurns.put(identifier, "tPAUSE")
+            :ok = ActiveTurns.mark_closed(identifier, "tPAUSE", :input_required)
+            send(parent, {:session_paused, self()})
+            assert_receive :resume_session, 2_000
+
+            :ok = ActiveTurns.put(identifier, "tRESUME")
+            send(parent, :resumed_turn_open)
+            assert_receive :finish_resumed_turn, 2_000
+            ActiveTurns.mark_closed(identifier, "tRESUME", :done)
+          end)
+        end)
+
+      assert_receive {:session_paused, incumbent_pid}, 2_000
+      assert ActiveTurns.active_turn_ids(identifier) == []
+
+      duplicate = duplicate_generation_task(issue, parent)
+      refute Task.yield(duplicate, 100)
+      refute_received :duplicate_operation_started
+
+      send(incumbent_pid, :resume_session)
+      assert_receive :resumed_turn_open, 2_000
+      refute Task.yield(duplicate, 100)
+
+      send(incumbent_pid, :finish_resumed_turn)
+      assert Task.await(incumbent, 2_000) == :ok
+      assert Task.await(duplicate, 2_000) == :ok
+      refute_received :duplicate_operation_started
+    end
+
+    test "owner DOWN closes an open turn and releases parked duplicates" do
+      parent = self()
+      identifier = "AIUR-1030-crash-#{System.unique_integer([:positive])}"
+      turn_id = "tCRASH"
+      issue = %Issue{id: "issue-1030-crash", identifier: identifier, title: "Crashed runner"}
+
+      incumbent =
+        spawn(fn ->
+          AgentRunner.run_generation_for_test(issue, fn ->
+            :ok = ActiveTurns.put(identifier, turn_id)
+            send(parent, {:crash_turn_open, self()})
+            Process.sleep(:infinity)
+          end)
+        end)
+
+      incumbent_ref = Process.monitor(incumbent)
+      assert_receive {:crash_turn_open, ^incumbent}, 2_000
+
+      duplicate = duplicate_generation_task(issue, parent)
+      refute Task.yield(duplicate, 100)
+      refute_received :duplicate_operation_started
+
+      Process.exit(incumbent, :kill)
+      assert_receive {:DOWN, ^incumbent_ref, :process, ^incumbent, :killed}, 2_000
+      assert Task.await(duplicate, 2_000) == :ok
+      refute_received :duplicate_operation_started
+
+      assert ActiveTurns.lookup(identifier, turn_id) ==
+               {:closed, {:failed, {:owner_down, :killed}}}
+
+      assert :replacement_started =
+               AgentRunner.run_generation_for_test(issue, fn -> :replacement_started end)
+    end
+
+    test "turn closure records failure when turn work raises" do
+      identifier = "AIUR-1030-raise-#{System.unique_integer([:positive])}"
+      issue = %Issue{id: "issue-1030-raise", identifier: identifier, title: "Raised turn"}
+
+      assert_raise RuntimeError, "turn exploded", fn ->
+        TurnLoop.run_with_turn_stream_for_test(issue, fn ->
+          [turn_id] = ActiveTurns.active_turn_ids(identifier)
+          send(self(), {:raised_turn_id, turn_id})
+          raise "turn exploded"
+        end)
+      end
+
+      assert_received {:raised_turn_id, turn_id}
+
+      assert {:closed, {:failed, {:error, %RuntimeError{message: "turn exploded"}}}} =
+               ActiveTurns.lookup(identifier, turn_id)
+    end
+  end
 
   describe "active-turn workspace deferral" do
-    test "parks the duplicate runner without entering session lifecycle" do
+    test "rejects an unexpected unleased active turn without entering session lifecycle" do
       parent = self()
       issue = %Issue{id: "issue-1030", identifier: "AIUR-1030", title: "Protect workspace"}
 
-      runner =
-        Task.async(fn ->
-          AgentRunner.run_worker_attempt_once_for_test(
-            "/tmp/unused-active-turn-workspace",
-            issue,
-            parent,
-            workspace_before_run_fun: fn _workspace, _issue, _worker_host ->
-              {:defer, :active_turn}
-            end,
-            active_turn_wait_fun: fn identifier ->
-              send(parent, {:duplicate_parked, self(), identifier})
+      assert {:error, :active_turn_without_generation} =
+               AgentRunner.run_worker_attempt_once_for_test(
+                 "/tmp/unused-active-turn-workspace",
+                 issue,
+                 parent,
+                 workspace_before_run_fun: fn _workspace, _issue, _worker_host ->
+                   {:defer, :active_turn}
+                 end,
+                 session_run_fun: fn _workspace, _issue, _recipient, _opts, _worker_host ->
+                   send(parent, :session_started)
+                   :ok
+                 end,
+                 workspace_after_run_fun: fn _workspace, _issue, _worker_host ->
+                   send(parent, :after_run_started)
+                   :ok
+                 end
+               )
 
-              receive do
-                :release_duplicate -> :ok
-              end
-            end,
-            session_run_fun: fn _workspace, _issue, _recipient, _opts, _worker_host ->
-              send(parent, :session_started)
-              :ok
-            end,
-            workspace_after_run_fun: fn _workspace, _issue, _worker_host ->
-              send(parent, :after_run_started)
-              :ok
-            end
-          )
-        end)
-
-      assert_receive {:duplicate_parked, runner_pid, "AIUR-1030"}, 2_000
-      refute Task.yield(runner, 100)
-      refute_received :session_started
-      refute_received :after_run_started
-
-      send(runner_pid, :release_duplicate)
-      assert Task.await(runner, 2_000) == :ok
       refute_received :session_started
       refute_received :after_run_started
     end
@@ -67,6 +194,15 @@ defmodule Aiur.AgentRunnerTest do
 
       assert_received :after_run_started
     end
+  end
+
+  defp duplicate_generation_task(issue, parent) do
+    Task.async(fn ->
+      AgentRunner.run_generation_for_test(issue, fn ->
+        send(parent, :duplicate_operation_started)
+        :ok
+      end)
+    end)
   end
 
   # Regression: open_aiur_turn_streams posted the `__aiur_turn__:<id>`

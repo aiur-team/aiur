@@ -67,33 +67,34 @@ defmodule Aiur.AgentRunner.TurnLoop do
     safe_checkpoint_handler = CheckpointDelivery.safe_checkpoint_handler(issue, orchestrator)
 
     MessageHandler.send_control_state(codex_update_recipient, issue, :working)
-    aiur_turn_id = TurnStreams.open(issue)
-
-    :ok = DynamicTool.reset_turn_quotas()
-
-    lifecycle_attempt_id = Keyword.get(opts, :telemetry_attempt_id)
-    operation_id = "turn:#{turn_number}"
-
-    Lifecycle.record(issue.identifier, lifecycle_attempt_id, :implement, :start, %{
-      operation_id: operation_id,
-      turn_number: turn_number,
-      backend: SessionLifecycle.session_backend(app_session)
-    })
 
     result =
-      CodingAgent.run_turn(
-        app_session,
-        prompt,
-        issue,
-        on_message: message_handler,
-        on_safe_checkpoint: safe_checkpoint_handler,
-        on_operator_message: CheckpointDelivery.operator_immediate_handler(issue, orchestrator),
-        tool_executor: ToolExecutor.build(issue, workspace, worker_host, app_session)
-      )
+      run_with_turn_stream(issue, fn ->
+        :ok = DynamicTool.reset_turn_quotas()
 
-    record_implementation_end(issue, lifecycle_attempt_id, operation_id, turn_number, result)
+        lifecycle_attempt_id = Keyword.get(opts, :telemetry_attempt_id)
+        operation_id = "turn:#{turn_number}"
 
-    TurnStreams.close(issue, aiur_turn_id, turn_done_reason(result))
+        Lifecycle.record(issue.identifier, lifecycle_attempt_id, :implement, :start, %{
+          operation_id: operation_id,
+          turn_number: turn_number,
+          backend: SessionLifecycle.session_backend(app_session)
+        })
+
+        result =
+          CodingAgent.run_turn(
+            app_session,
+            prompt,
+            issue,
+            on_message: message_handler,
+            on_safe_checkpoint: safe_checkpoint_handler,
+            on_operator_message: CheckpointDelivery.operator_immediate_handler(issue, orchestrator),
+            tool_executor: ToolExecutor.build(issue, workspace, worker_host, app_session)
+          )
+
+        record_implementation_end(issue, lifecycle_attempt_id, operation_id, turn_number, result)
+        result
+      end)
 
     case result do
       {:ok, turn_session} ->
@@ -162,6 +163,28 @@ defmodule Aiur.AgentRunner.TurnLoop do
   def turn_done_reason({:paused, _payload}), do: :input_required
   def turn_done_reason({:error, reason}), do: {:failed, reason}
   def turn_done_reason(_), do: :done
+
+  @doc false
+  @spec run_with_turn_stream_for_test(Issue.t(), (-> term())) :: term()
+  def run_with_turn_stream_for_test(issue, operation) when is_function(operation, 0) do
+    run_with_turn_stream(issue, operation)
+  end
+
+  defp run_with_turn_stream(issue, operation) do
+    aiur_turn_id = TurnStreams.open(issue)
+
+    result =
+      try do
+        operation.()
+      catch
+        kind, reason ->
+          TurnStreams.close(issue, aiur_turn_id, {:failed, {kind, reason}})
+          :erlang.raise(kind, reason, __STACKTRACE__)
+      end
+
+    TurnStreams.close(issue, aiur_turn_id, turn_done_reason(result))
+    result
+  end
 
   defp record_implementation_end(issue, attempt_id, operation_id, turn_number, result) do
     {outcome, reason_class} =

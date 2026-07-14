@@ -70,7 +70,15 @@ defmodule Aiur.Opencode.ActiveTurnsTest do
     test "init returns ok state and re-uses existing table" do
       # The Application started the GenServer once already; calling init
       # again should hit the ensure_table fallback (table already exists).
-      assert {:ok, %{}} = ActiveTurns.init([])
+      assert {:ok,
+              %{
+                generation_leases: %{},
+                generation_waiters: %{},
+                inactive_waiters: %{},
+                owner_refs: %{},
+                owners: %{},
+                turn_owners: %{}
+              }} = ActiveTurns.init([])
     end
 
     test "mark_closed is safe when GenServer is not registered" do

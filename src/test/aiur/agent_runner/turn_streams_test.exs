@@ -123,7 +123,10 @@ defmodule Aiur.AgentRunner.TurnStreamsTest do
         Task.async(fn ->
           result = ActiveTurns.put(identifier, "tWAIT")
           send(parent, :turn_registered)
-          result
+
+          receive do
+            :release_turn_owner -> result
+          end
         end)
 
       refute_receive :turn_registered, 100
@@ -131,8 +134,9 @@ defmodule Aiur.AgentRunner.TurnStreamsTest do
       send(workspace_task.pid, :release_workspace)
       assert Task.await(workspace_task) == {:ok, :ok}
       assert_receive :turn_registered, 2_000
-      assert Task.await(turn_task) == :ok
       assert ActiveTurns.lookup(identifier, "tWAIT") == :active
+      send(turn_task.pid, :release_turn_owner)
+      assert Task.await(turn_task) == :ok
     end
 
     test "workspace operations remain independent across identifiers" do

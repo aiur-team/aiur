@@ -18,6 +18,12 @@ defmodule Aiur.AgentRunner do
     # The orchestrator owns host retries so one worker lifetime never hops machines.
     worker_host = selected_worker_host(Keyword.get(opts, :worker_host), Config.settings!().worker.ssh_hosts)
 
+    with_runner_generation(issue, opts, fn ->
+      run_owned_generation(issue, codex_update_recipient, opts, worker_host)
+    end)
+  end
+
+  defp run_owned_generation(issue, codex_update_recipient, opts, worker_host) do
     # Make sure a per-issue file writer is running so this session's
     # transcript and alert events land in <repo>.<issue>.log alongside any
     # earlier session's output.
@@ -38,6 +44,32 @@ defmodule Aiur.AgentRunner do
           raise RuntimeError, "Agent run failed for #{issue_context(issue)}: #{inspect(reason)}"
         end
     end
+  end
+
+  defp with_runner_generation(issue, opts, operation) when is_function(operation, 0) do
+    identifier = issue.identifier
+
+    case runner_generation_acquire_fun(opts).(identifier) do
+      {:ok, token} ->
+        try do
+          operation.()
+        after
+          :ok = runner_generation_release_fun(opts).(identifier, token)
+        end
+
+      {:error, {:generation_active, token}} ->
+        park_duplicate_generation(issue, token, opts)
+    end
+  end
+
+  defp park_duplicate_generation(issue, token, opts) do
+    Logger.info("Parking duplicate agent run while incumbent session owns checkout for #{issue_context(issue)}")
+
+    :ok = runner_generation_wait_fun(opts).(issue.identifier, token)
+
+    Logger.info("Incumbent session ended; terminating parked duplicate agent run for #{issue_context(issue)}")
+
+    :ok
   end
 
   # A mid-turn REPL pane death (`:repl_gone`) is a transient, recoverable
@@ -101,7 +133,7 @@ defmodule Aiur.AgentRunner do
   defp run_worker_attempt_once(workspace, issue, codex_update_recipient, opts, worker_host) do
     case run_before_run_hook(workspace, issue, opts, worker_host) do
       {:defer, :active_turn} ->
-        park_duplicate_active_turn(issue, opts)
+        reject_unleased_active_turn(issue, opts)
 
       before_run_result ->
         complete_worker_attempt(
@@ -171,16 +203,13 @@ defmodule Aiur.AgentRunner do
     end
   end
 
-  defp park_duplicate_active_turn(issue, opts) do
-    record_workspace_setup_end(issue, opts, :deferred, :active_turn)
+  defp reject_unleased_active_turn(issue, opts) do
+    reason = :active_turn_without_generation
+    record_workspace_setup_end(issue, opts, :failed, reason)
 
-    Logger.info("Parking duplicate agent run while active turn holds checkout for #{issue_context(issue)}")
+    Logger.error("Runner generation owns checkout but before_run found another active turn for #{issue_context(issue)}")
 
-    :ok = active_turn_wait_fun(opts).(issue.identifier)
-
-    Logger.info("Active turn closed; terminating parked duplicate agent run for #{issue_context(issue)}")
-
-    :ok
+    {:error, reason}
   end
 
   defp workspace_before_run_fun(opts),
@@ -192,8 +221,14 @@ defmodule Aiur.AgentRunner do
   defp session_run_fun(opts),
     do: Keyword.get(opts, :session_run_fun, &SessionLifecycle.run_session/5)
 
-  defp active_turn_wait_fun(opts),
-    do: Keyword.get(opts, :active_turn_wait_fun, &ActiveTurns.await_inactive/1)
+  defp runner_generation_acquire_fun(opts),
+    do: Keyword.get(opts, :runner_generation_acquire_fun, &ActiveTurns.acquire_generation/1)
+
+  defp runner_generation_release_fun(opts),
+    do: Keyword.get(opts, :runner_generation_release_fun, &ActiveTurns.release_generation/2)
+
+  defp runner_generation_wait_fun(opts),
+    do: Keyword.get(opts, :runner_generation_wait_fun, &ActiveTurns.await_generation/2)
 
   defp publish_completed_boundary(codex_update_recipient, issue) do
     # This runs only after the mandatory after_run hook above has returned.
@@ -280,6 +315,12 @@ defmodule Aiur.AgentRunner do
   @spec run_worker_attempt_once_for_test(Path.t(), Issue.t(), pid() | nil, keyword()) :: term()
   def run_worker_attempt_once_for_test(workspace, issue, recipient, opts \\ []) do
     run_worker_attempt_once(workspace, issue, recipient, opts, nil)
+  end
+
+  @doc false
+  @spec run_generation_for_test(Issue.t(), (-> term()), keyword()) :: term()
+  def run_generation_for_test(issue, operation, opts \\ []) when is_function(operation, 0) do
+    with_runner_generation(issue, opts, operation)
   end
 
   @doc false

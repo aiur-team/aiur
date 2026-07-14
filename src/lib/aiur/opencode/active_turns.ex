@@ -25,14 +25,24 @@ defmodule Aiur.Opencode.ActiveTurns do
   without displacement every reconnect grows another subscriber on the
   agent's PubSub topic — each new broadcast fans out N copies into the
   chat pane.
+
+  ## Runner generations
+
+  A monitor-backed lease spans one runner's complete workspace and session
+  lifetime. Duplicate runners wait on the exact incumbent lease instead of a
+  momentary empty-turn boundary, while owner `DOWN` cleanup closes leaked turn
+  entries before releasing parked duplicates.
   """
 
   use GenServer
+
+  alias Aiur.AgentPubSub
 
   @table __MODULE__
   @cleanup_after_ms 60_000
 
   @type state :: :active | {:closed, term()} | :not_found
+  @type generation_token :: reference()
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -47,8 +57,11 @@ defmodule Aiur.Opencode.ActiveTurns do
       when is_binary(identifier) and is_binary(aiur_turn_id) do
     with_identifier_lock(identifier, fn ->
       ensure_table()
-      :ets.insert(@table, {{identifier, aiur_turn_id}, :active, nil})
-      :ok
+
+      call_or_fallback(
+        {:put, identifier, aiur_turn_id, self()},
+        fn -> put_direct(identifier, aiur_turn_id) end
+      )
     end)
   end
 
@@ -61,16 +74,45 @@ defmodule Aiur.Opencode.ActiveTurns do
   @spec mark_closed(String.t(), String.t(), term()) :: :ok
   def mark_closed(identifier, aiur_turn_id, reason)
       when is_binary(identifier) and is_binary(aiur_turn_id) do
-    :ok =
-      with_identifier_lock(identifier, fn ->
-        ensure_table()
-        prior_pid = current_subscriber_pid({identifier, aiur_turn_id})
-        :ets.insert(@table, {{identifier, aiur_turn_id}, {:closed, reason}, prior_pid})
-        schedule_cleanup({identifier, aiur_turn_id})
-        :ok
-      end)
+    with_identifier_lock(identifier, fn ->
+      ensure_table()
 
-    notify_inactive_waiters(identifier)
+      call_or_fallback(
+        {:mark_closed, identifier, aiur_turn_id, reason},
+        fn -> mark_closed_direct(identifier, aiur_turn_id, reason) end
+      )
+    end)
+  end
+
+  @doc """
+  Acquire the runner/session generation lease for `identifier`.
+
+  Exactly one runner owns the lease at a time. The owner is monitored so a
+  brutal task exit releases the lease and closes any active turns it left
+  behind.
+  """
+  @spec acquire_generation(String.t()) ::
+          {:ok, generation_token()} | {:error, {:generation_active, generation_token()}}
+  def acquire_generation(identifier) when is_binary(identifier) do
+    with_identifier_lock(identifier, fn ->
+      GenServer.call(__MODULE__, {:acquire_generation, identifier, self()})
+    end)
+  end
+
+  @doc "Release a runner/session generation lease owned by the caller."
+  @spec release_generation(String.t(), generation_token()) :: :ok
+  def release_generation(identifier, token)
+      when is_binary(identifier) and is_reference(token) do
+    with_identifier_lock(identifier, fn ->
+      GenServer.call(__MODULE__, {:release_generation, identifier, token, self()})
+    end)
+  end
+
+  @doc "Wait for the exact incumbent runner/session generation to finish."
+  @spec await_generation(String.t(), generation_token()) :: :ok
+  def await_generation(identifier, token)
+      when is_binary(identifier) and is_reference(token) do
+    GenServer.call(__MODULE__, {:await_generation, identifier, token}, :infinity)
   end
 
   @doc """
@@ -95,10 +137,9 @@ defmodule Aiur.Opencode.ActiveTurns do
   @doc """
   Wait until every live turn for `identifier` has closed.
 
-  A duplicate runner uses this after workspace setup returns
-  `{:defer, :active_turn}`. Keeping that runner parked until the existing turn
-  closes avoids both concurrent sessions and a tight continuation-dispatch
-  loop.
+  This is retained for callers that need a turn-boundary wait. Duplicate
+  runners use `await_generation/2` instead so between-turn and paused-session
+  gaps cannot release them early.
   """
   @spec await_inactive(String.t()) :: :ok
   def await_inactive(identifier) when is_binary(identifier) do
@@ -166,7 +207,70 @@ defmodule Aiur.Opencode.ActiveTurns do
   @impl true
   def init(_opts) do
     ensure_table()
-    {:ok, %{inactive_waiters: %{}}}
+    {:ok, empty_state()}
+  end
+
+  @impl true
+  def handle_call({:acquire_generation, identifier, owner}, _from, state) do
+    case Map.get(state.generation_leases, identifier) do
+      nil ->
+        token = make_ref()
+
+        state =
+          state
+          |> ensure_owner_monitor(owner)
+          |> put_generation_lease(identifier, token, owner)
+
+        {:reply, {:ok, token}, state}
+
+      %{token: token} ->
+        {:reply, {:error, {:generation_active, token}}, state}
+    end
+  end
+
+  def handle_call({:release_generation, identifier, token, owner}, _from, state) do
+    state = release_generation_lease(state, identifier, token, owner)
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:await_generation, identifier, token}, from, state) do
+    case Map.get(state.generation_leases, identifier) do
+      %{token: ^token} ->
+        waiters =
+          Map.update(state.generation_waiters, identifier, [{from, token}], fn waiters ->
+            [{from, token} | waiters]
+          end)
+
+        {:noreply, %{state | generation_waiters: waiters}}
+
+      _other ->
+        {:reply, :ok, state}
+    end
+  end
+
+  def handle_call({:put, identifier, aiur_turn_id, owner}, _from, state) do
+    key = {identifier, aiur_turn_id}
+    :ets.insert(@table, {key, :active, nil})
+
+    state =
+      state
+      |> forget_turn_owner(key)
+      |> ensure_owner_monitor(owner)
+      |> put_turn_owner(key, owner)
+
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:mark_closed, identifier, aiur_turn_id, reason}, _from, state) do
+    key = {identifier, aiur_turn_id}
+    mark_closed_entry(key, reason)
+
+    state =
+      state
+      |> forget_turn_owner(key)
+      |> reply_inactive_waiters_if_clear(identifier)
+
+    {:reply, :ok, state}
   end
 
   @impl true
@@ -202,7 +306,7 @@ defmodule Aiur.Opencode.ActiveTurns do
   @impl true
   def handle_info({:cleanup, key}, state) do
     :ets.delete(@table, key)
-    {:noreply, state}
+    {:noreply, forget_turn_owner(state, key)}
   end
 
   def handle_info({:turn_state_changed, identifier}, state) do
@@ -213,6 +317,221 @@ defmodule Aiur.Opencode.ActiveTurns do
 
       _other ->
         {:noreply, state}
+    end
+  end
+
+  def handle_info({:DOWN, ref, :process, owner, reason}, state) do
+    case Map.get(state.owner_refs, ref) do
+      ^owner -> {:noreply, release_owner(state, owner, ref, reason)}
+      _other -> {:noreply, state}
+    end
+  end
+
+  defp empty_state do
+    %{
+      generation_leases: %{},
+      generation_waiters: %{},
+      inactive_waiters: %{},
+      owner_refs: %{},
+      owners: %{},
+      turn_owners: %{}
+    }
+  end
+
+  defp ensure_owner_monitor(state, owner) do
+    case Map.get(state.owners, owner) do
+      nil ->
+        ref = Process.monitor(owner)
+        owner_state = %{generations: MapSet.new(), ref: ref, turns: MapSet.new()}
+
+        %{
+          state
+          | owner_refs: Map.put(state.owner_refs, ref, owner),
+            owners: Map.put(state.owners, owner, owner_state)
+        }
+
+      _owner_state ->
+        state
+    end
+  end
+
+  defp put_generation_lease(state, identifier, token, owner) do
+    owner_state = Map.fetch!(state.owners, owner)
+    owner_state = %{owner_state | generations: MapSet.put(owner_state.generations, identifier)}
+
+    %{
+      state
+      | generation_leases: Map.put(state.generation_leases, identifier, %{owner: owner, token: token}),
+        owners: Map.put(state.owners, owner, owner_state)
+    }
+  end
+
+  defp put_turn_owner(state, key, owner) do
+    owner_state = Map.fetch!(state.owners, owner)
+    owner_state = %{owner_state | turns: MapSet.put(owner_state.turns, key)}
+
+    %{
+      state
+      | owners: Map.put(state.owners, owner, owner_state),
+        turn_owners: Map.put(state.turn_owners, key, owner)
+    }
+  end
+
+  defp release_generation_lease(state, identifier, token, owner) do
+    case Map.get(state.generation_leases, identifier) do
+      %{owner: ^owner, token: ^token} ->
+        state
+        |> Map.update!(:generation_leases, &Map.delete(&1, identifier))
+        |> update_owner(owner, fn owner_state ->
+          %{owner_state | generations: MapSet.delete(owner_state.generations, identifier)}
+        end)
+        |> maybe_drop_owner_monitor(owner)
+        |> reply_generation_waiters(identifier, token)
+
+      _other ->
+        state
+    end
+  end
+
+  defp forget_turn_owner(state, key) do
+    case Map.pop(state.turn_owners, key) do
+      {nil, _turn_owners} ->
+        state
+
+      {owner, turn_owners} ->
+        state
+        |> Map.put(:turn_owners, turn_owners)
+        |> update_owner(owner, fn owner_state ->
+          %{owner_state | turns: MapSet.delete(owner_state.turns, key)}
+        end)
+        |> maybe_drop_owner_monitor(owner)
+    end
+  end
+
+  defp update_owner(state, owner, update) do
+    case Map.fetch(state.owners, owner) do
+      {:ok, owner_state} -> %{state | owners: Map.put(state.owners, owner, update.(owner_state))}
+      :error -> state
+    end
+  end
+
+  defp maybe_drop_owner_monitor(state, owner) do
+    case Map.get(state.owners, owner) do
+      %{generations: generations, turns: turns, ref: ref} ->
+        if MapSet.size(generations) == 0 and MapSet.size(turns) == 0 do
+          Process.demonitor(ref, [:flush])
+
+          %{
+            state
+            | owner_refs: Map.delete(state.owner_refs, ref),
+              owners: Map.delete(state.owners, owner)
+          }
+        else
+          state
+        end
+
+      _other ->
+        state
+    end
+  end
+
+  defp reply_generation_waiters(state, identifier, token) do
+    {waiters, generation_waiters} = Map.pop(state.generation_waiters, identifier, [])
+    {ready, remaining} = Enum.split_with(waiters, fn {_from, waiter_token} -> waiter_token == token end)
+
+    Enum.each(ready, fn {from, _token} -> GenServer.reply(from, :ok) end)
+
+    generation_waiters =
+      if remaining == [],
+        do: generation_waiters,
+        else: Map.put(generation_waiters, identifier, remaining)
+
+    %{state | generation_waiters: generation_waiters}
+  end
+
+  defp reply_inactive_waiters_if_clear(state, identifier) do
+    case {active_turn_ids(identifier), Map.pop(state.inactive_waiters, identifier)} do
+      {[], {waiters, remaining}} when is_list(waiters) ->
+        Enum.each(waiters, &GenServer.reply(&1, :ok))
+        %{state | inactive_waiters: remaining}
+
+      _other ->
+        state
+    end
+  end
+
+  defp release_owner(state, owner, ref, reason) do
+    case Map.get(state.owners, owner) do
+      %{generations: generations, turns: turns} ->
+        state = %{
+          state
+          | owner_refs: Map.delete(state.owner_refs, ref),
+            owners: Map.delete(state.owners, owner)
+        }
+
+        state =
+          Enum.reduce(turns, state, fn {identifier, _aiur_turn_id} = key, acc ->
+            release_owned_turn_after_down(acc, key, identifier, owner, reason)
+          end)
+
+        Enum.reduce(generations, state, fn identifier, acc ->
+          release_owned_generation_after_down(acc, identifier, owner)
+        end)
+
+      _other ->
+        state
+    end
+  end
+
+  defp release_owned_generation_after_down(state, identifier, owner) do
+    case Map.get(state.generation_leases, identifier) do
+      %{owner: ^owner, token: token} ->
+        state
+        |> Map.update!(:generation_leases, &Map.delete(&1, identifier))
+        |> reply_generation_waiters(identifier, token)
+
+      _other ->
+        state
+    end
+  end
+
+  defp release_owned_turn_after_down(state, key, identifier, owner, reason) do
+    case Map.get(state.turn_owners, key) do
+      ^owner ->
+        close_reason = {:failed, {:owner_down, reason}}
+        mark_closed_entry(key, close_reason)
+        AgentPubSub.broadcast_aiur_turn_done(identifier, elem(key, 1), close_reason)
+
+        state
+        |> Map.update!(:turn_owners, &Map.delete(&1, key))
+        |> reply_inactive_waiters_if_clear(identifier)
+
+      _other ->
+        state
+    end
+  end
+
+  defp put_direct(identifier, aiur_turn_id) do
+    :ets.insert(@table, {{identifier, aiur_turn_id}, :active, nil})
+    :ok
+  end
+
+  defp mark_closed_direct(identifier, aiur_turn_id, reason) do
+    mark_closed_entry({identifier, aiur_turn_id}, reason)
+    notify_inactive_waiters(identifier)
+  end
+
+  defp mark_closed_entry(key, reason) do
+    prior_pid = current_subscriber_pid(key)
+    :ets.insert(@table, {key, {:closed, reason}, prior_pid})
+    schedule_cleanup(key)
+    :ok
+  end
+
+  defp call_or_fallback(message, fallback) do
+    case Process.whereis(__MODULE__) do
+      pid when is_pid(pid) -> GenServer.call(pid, message)
+      _other -> fallback.()
     end
   end
 
