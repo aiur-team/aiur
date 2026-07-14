@@ -26,7 +26,7 @@ defmodule AiurWeb.DashboardLive do
   @decision_events DecisionEvents.events()
 
   @impl true
-  def mount(params, _session, socket) do
+  def mount(_params, _session, socket) do
     connected = connected?(socket)
 
     if connected do
@@ -48,8 +48,10 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:writable, dashboard_writable?())
       |> assign(:decision_filter, :all)
       |> assign(:fleet_filters, FleetFilters.default())
+      |> assign(:selected_decision_id, nil)
+      |> assign(:selected_decision, nil)
       |> assign(:selected_decision_status, :none)
-      |> assign_selected_decision(params["decision_id"])
+      |> assign(:selected_decision_health, nil)
       |> PayloadLoader.mark_loaded()
 
     if connected, do: schedule_runtime_tick()

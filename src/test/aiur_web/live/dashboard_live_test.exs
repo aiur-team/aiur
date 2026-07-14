@@ -60,6 +60,35 @@ defmodule AiurWeb.DashboardLiveTest do
     end
   end
 
+  defmodule CountingDetailStore do
+    use GenServer
+
+    def start_link(opts) do
+      GenServer.start_link(__MODULE__, opts, name: Keyword.fetch!(opts, :name))
+    end
+
+    def retained_lookup_count(server), do: GenServer.call(server, :retained_lookup_count)
+
+    @impl true
+    def init(opts) do
+      {:ok, %{store: Keyword.fetch!(opts, :store), retained_lookup_count: 0}}
+    end
+
+    @impl true
+    def handle_call(:retained_lookup_count, _from, state) do
+      {:reply, state.retained_lookup_count, state}
+    end
+
+    def handle_call({:retained_lookup, _decision_id} = request, _from, state) do
+      reply = GenServer.call(state.store, request)
+      {:reply, reply, %{state | retained_lookup_count: state.retained_lookup_count + 1}}
+    end
+
+    def handle_call(request, _from, state) do
+      {:reply, GenServer.call(state.store, request), state}
+    end
+  end
+
   defmodule QueueOrchestrator do
     use GenServer
 
@@ -655,6 +684,34 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ oldest.decision_id
     assert html =~ "Should the dashboard ship this change?"
     refute html =~ "Decision not found"
+  end
+
+  test "a direct Decision route resolves once for its mounted parameter pass" do
+    orchestrator_name = Module.concat(__MODULE__, :DirectRouteOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :DirectRouteStore)
+    counting_store_name = Module.concat(__MODULE__, :DirectRouteCountingStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_071}}}
+      end)
+
+    decision = request_dashboard_decision(store, "direct-route")
+
+    start_supervised!(
+      {CountingDetailStore, name: counting_store_name, store: decision_store_name}
+    )
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: counting_store_name
+    )
+
+    {:ok, _view, _html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+
+    assert CountingDetailStore.retained_lookup_count(counting_store_name) == 1
   end
 
   test "a missing Decision URL stays distinct from a retained-store outage" do
