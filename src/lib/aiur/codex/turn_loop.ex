@@ -174,7 +174,7 @@ defmodule Aiur.Codex.TurnLoop do
 
         {:continue, next_state}
 
-      state.turn_started? and NotificationPolicy.thread_idle_status?(method, payload) ->
+      idle_after_turn_started?(state, method, payload) ->
         Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; treating idle status as turn completion")
         TurnState.complete_all_provider_turns(state)
 
@@ -188,5 +188,9 @@ defmodule Aiur.Codex.TurnLoop do
         checkpoint = NotificationPolicy.checkpoint_for_method(method)
         {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, checkpoint)}
     end
+  end
+
+  defp idle_after_turn_started?(state, method, payload) do
+    state.turn_started? and NotificationPolicy.thread_idle_status?(method, payload)
   end
 end
