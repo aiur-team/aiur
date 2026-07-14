@@ -15,7 +15,7 @@
     --bg: #e7d6b2;
     --bg-2: #e2cfa6;
     --fg: #2a2520;
-    --muted: #756a55;
+    --muted: #5f5645;
     --line: rgba(42, 37, 26, 0.17);
     --accent: #1f57c4;
     --hairline: rgba(42, 37, 26, 0.12);
@@ -361,7 +361,7 @@
       opacity: 1;
       transform: none;
     }
-    /* freeze the operator's input cursor on the static beat frame */
+    /* freeze the Executor’s input cursor on the static beat frame */
     .term-screen .cursor { animation: none; opacity: 1; }
   }
 

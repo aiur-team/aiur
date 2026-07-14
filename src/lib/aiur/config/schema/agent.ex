@@ -82,7 +82,7 @@ defmodule Aiur.Config.Schema.Agent do
     field(:remote_control, :boolean, default: false)
     field(:max_concurrent_agents, :integer, default: 10)
     # Fleet-wide cap for agent-launched `mix compile` / `mix test` commands.
-    # 0 deliberately disables the gate for operators who need unrestricted
+    # 0 deliberately disables the gate for Executors who need unrestricted
     # local verification.
     field(:max_concurrent_builds, :integer, default: 2)
     # Minimum spacing between local Mix compile/test starts when more than one
@@ -120,7 +120,7 @@ defmodule Aiur.Config.Schema.Agent do
     field(:ci_wait_rewake_minutes, :integer, default: 5)
     # Per-scheduler 1-min load ceiling for the dispatch load gate (#465).
     # Enabled by default so high-concurrency runs have protection without
-    # extra operator knowledge; explicit YAML null disables it.
+    # extra Executor knowledge; explicit YAML null disables it.
     field(:max_load_average, :float, default: 1.5)
     # Per-scheduler 1-min load target for the adaptive concurrency envelope.
     # It ramps capacity while below target and backs off before the separate

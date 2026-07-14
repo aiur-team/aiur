@@ -1,0 +1,4 @@
+interface:
+  display_name: "Aiur Build Planner"
+  short_description: "Decompose features into executable Aiur tickets"
+  default_prompt: "Use $aiur-build to research and decompose this feature into an Aiur-ready planning pack."

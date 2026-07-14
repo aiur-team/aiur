@@ -18,7 +18,7 @@ defmodule Aiur.Opencode.ChatCompletions.DeltaRenderer do
   # natively, and a remote-origin (Remote Control app) user message is
   # persisted as a genuine user-role message by `Aiur.Opencode.SessionWriter`
   # so it renders as a user turn — streaming it here would render the
-  # operator's words as assistant speech.
+  # Executor’s words as assistant speech.
   @doc false
   @spec transcript_delta(map(), atom() | nil) :: {:delta, String.t(), atom()} | :drop
   def transcript_delta(%{role: :user}, _last_role), do: :drop

@@ -1,5 +1,9 @@
 # OCC-0 audit and design decisions
 
+> Historical OCC audit artifact. The shipped product is now the **Executor
+> Control Center**; legacy terminology below is preserved for exact contract
+> context.
+
 **Status:** Accepted for OCC implementation
 
 **Date:** 2026-07-12

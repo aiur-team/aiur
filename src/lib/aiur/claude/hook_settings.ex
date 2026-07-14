@@ -5,7 +5,7 @@ defmodule Aiur.Claude.HookSettings do
 
   `claude --settings <file>` ADDS a settings source — it composes with the user's
   own settings/hooks rather than replacing them, so our turn-detection hooks fire
-  alongside whatever the operator already configured.
+  alongside whatever the Executor already configured.
   """
 
   alias Aiur.Config.Paths
@@ -64,21 +64,7 @@ defmodule Aiur.Claude.HookSettings do
   has not bound a port yet. Mirrors `Aiur.PaneManager`'s control-url construction.
   """
   @spec dashboard_url() :: String.t() | nil
-  def dashboard_url do
-    case Aiur.HttpServer.bound_port() do
-      port when is_integer(port) and port > 0 -> "http://#{host()}:#{port}"
-      _ -> nil
-    end
-  rescue
-    _ -> nil
-  end
-
-  defp host do
-    case Aiur.Config.server_host() do
-      h when h in ["0.0.0.0", "::", "", nil] -> "127.0.0.1"
-      h when is_binary(h) -> h
-    end
-  end
+  def dashboard_url, do: Aiur.HttpServer.base_url()
 
   defp slug(identifier), do: Paths.sanitize(identifier)
 

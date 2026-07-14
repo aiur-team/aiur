@@ -20,7 +20,7 @@ defmodule Aiur.AgentEvents do
   Origin of a transcript line. `:user` and `:assistant` are
   conversational turns; `:system` covers contextual/external information
   (intro, errors, status); `:command` is a shell/tool command the agent
-  issues; `:alert` is an operator-facing notification.
+  issues; `:alert` is an Executor-facing notification.
   """
   @type role :: :user | :assistant | :system | :command | :alert | :reasoning | :tool
 
@@ -65,6 +65,7 @@ defmodule Aiur.AgentEvents do
           optional(:work_state) => atom() | String.t(),
           optional(:pause_reason) => atom() | String.t(),
           optional(:tracker_paused) => boolean(),
+          optional(:tracker_identity) => Aiur.TrackerIdentity.t(),
           optional(:backend) => String.t(),
           optional(:model) => String.t()
         }
@@ -88,10 +89,10 @@ defmodule Aiur.AgentEvents do
 
   Tag-to-meaning map:
     * `agent`     — `:assistant` — words from the agent
-    * `user`      — `:user`      — operator's typed message
+    * `user`      — `:user`      — Executor’s typed message
     * `sys`       — `:system`    — external context (intro, errors)
     * `cmd`       — `:command`   — commands the agent runs
-    * `alert`     — `:alert`     — operator-facing notifications
+    * `alert`     — `:alert`     — Executor-facing notifications
     * `reasoning` — `:reasoning` — agent reasoning / thinking blocks
     * `tool`      — `:tool`      — non-shell tool calls (MCP, file edits)
   """
@@ -148,7 +149,8 @@ defmodule Aiur.AgentEvents do
   @doc """
   Build an `agent_summary` map and merge in the optional `extras`
   fields (`:tag`, `:title`, `:runtime_seconds`, `:turn_count`,
-  `:work_state`, `:pause_reason`, `:tracker_paused`, `:backend`, `:model`).
+  `:work_state`, `:pause_reason`, `:tracker_paused`, `:tracker_identity`,
+  `:backend`, `:model`).
   Extras with `nil` values are
   filtered so callers can unconditionally pass `Map.get(entry, :title)`
   (or an unpinned `CodingAgent.model_for/1`) without polluting the
@@ -175,6 +177,7 @@ defmodule Aiur.AgentEvents do
     * `:error`       — `🔴` agent reported an error
     * `:done`        — `🏁` agent has fully finished (turn-completion broadcast reason)
     * `:deactivated` — `🏁` agent has stopped working for this iteration; ticket lives at 100% awaiting reactivation (PR comment, chat input, pause/resume, or label flip back to an active state)
+    * `:completed`   — `⏹️` the runner crossed its final turn boundary and is awaiting replacement or teardown
     * `:sleeping`    — `💤` the agent's chat-completion stream idle-closed (the watchdog saw no transcript activity for its inactivity window); the slot is still held and the next turn flips it back to `:working`
     * anything else (queued, idle, unknown) — `⚫` no live work state
   """
@@ -189,6 +192,8 @@ defmodule Aiur.AgentEvents do
   def state_emoji("done"), do: "🏁"
   def state_emoji(:deactivated), do: "🏁"
   def state_emoji("deactivated"), do: "🏁"
+  def state_emoji(:completed), do: "⏹️"
+  def state_emoji("completed"), do: "⏹️"
   def state_emoji(:sleeping), do: "💤"
   def state_emoji("sleeping"), do: "💤"
   def state_emoji(_), do: "⚫"

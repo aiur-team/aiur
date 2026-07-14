@@ -27,15 +27,29 @@ defmodule Aiur.AgentChatBroadcastTest do
     {:ok, fake} = FakeOrchestrator.start_link(reply)
     Process.register(fake, name)
 
-    ExUnit.Callbacks.on_exit(fn ->
-      if Process.whereis(name) == fake, do: Process.unregister(name)
+    cleanup = fn before_restore -> cleanup_fake_orchestrator(name, fake, original, before_restore) end
+    ExUnit.Callbacks.on_exit(fn -> cleanup.(fn -> :ok end) end)
 
-      if is_pid(original) and Process.alive?(original) and is_nil(Process.whereis(name)) do
+    {fake, cleanup}
+  end
+
+  defp cleanup_fake_orchestrator(name, fake, original, before_restore) do
+    try do
+      GenServer.stop(fake)
+    catch
+      :exit, :noproc -> :ok
+      :exit, {:noproc, _} -> :ok
+    end
+
+    before_restore.()
+
+    if is_pid(original) do
+      try do
         Process.register(original, name)
+      rescue
+        ArgumentError -> :ok
       end
-    end)
-
-    fake
+    end
   end
 
   test "send/2 broadcasts a user-role transcript event when the orchestrator accepts the message" do
@@ -55,8 +69,23 @@ defmodule Aiur.AgentChatBroadcastTest do
   end
 
   test "teardown tolerates the orchestrator registration disappearing" do
-    _fake = with_fake_orchestrator({:ok, 42})
+    original = Process.whereis(Aiur.Orchestrator)
+    {_fake, cleanup} = with_fake_orchestrator({:ok, 42})
 
     Process.unregister(Aiur.Orchestrator)
+    cleanup.(fn -> :ok end)
+
+    assert Process.whereis(Aiur.Orchestrator) == original
+  end
+
+  test "teardown preserves an orchestrator registered while cleanup is running" do
+    {_fake, cleanup} = with_fake_orchestrator({:ok, 42})
+    replacement = spawn(fn -> Process.sleep(:infinity) end)
+
+    cleanup.(fn -> Process.register(replacement, Aiur.Orchestrator) end)
+
+    assert Process.whereis(Aiur.Orchestrator) == replacement
+    Process.unregister(Aiur.Orchestrator)
+    Process.exit(replacement, :kill)
   end
 end

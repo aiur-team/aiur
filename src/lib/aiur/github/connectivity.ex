@@ -4,16 +4,16 @@ defmodule Aiur.GitHub.Connectivity do
   taxonomy (`{:github, classification, detail}`).
 
   GitHub fetch failures used to only `Logger.warning` forever (#617), so an
-  operator never learned that agent workspaces had lost DNS or auth access
+  Executor never learned that agent workspaces had lost DNS or auth access
   while everything quietly stalled. This module turns the *classification* of
-  a failure into an operator-facing decision:
+  a failure into an Executor-facing decision:
 
     * `:dns` / `:timeout` / `:tls` / `:transport` — capped exponential backoff;
       a sustained streak of the *fixable* connectivity class (`:dns`) raises a
-      loud, operator-visible blocker.
+      loud, Executor-visible blocker.
     * `:rate_limited` — honor GitHub's `Retry-After` / `X-Poll-Interval`.
     * `:auth` — escalate immediately (never silently retry an expired token),
-      and a sustained streak raises the same operator-visible blocker.
+      and a sustained streak raises the same Executor-visible blocker.
 
   The streak state is a plain map so each poller can keep it inside its own
   GenServer state. `note_failure/3` is pure and only *returns* the alerts
@@ -21,10 +21,10 @@ defmodule Aiur.GitHub.Connectivity do
   them and derives the normalized backoff delay.
   """
 
-  # Classes that represent a sustained, operator-fixable break in connectivity
+  # Classes that represent a sustained, Executor-fixable break in connectivity
   # or credentials. A streak of these is what we escalate; transient classes
   # (`:timeout`, `:rate_limited`, `:http`, `:tls`, `:transport`) self-heal or
-  # are GitHub-side and would only spam the operator.
+  # are GitHub-side and would only spam the Executor.
   @escalating_classes [:dns, :auth]
 
   @escalation_threshold 3
@@ -37,7 +37,7 @@ defmodule Aiur.GitHub.Connectivity do
   @type streaks :: %{optional(source()) => {classification(), pos_integer()}}
   @type alert :: %{source: source(), classification: classification(), count: pos_integer()}
 
-  @doc "Consecutive same-class failures required before an operator alert fires."
+  @doc "Consecutive same-class failures required before an Executor alert fires."
   @spec escalation_threshold() :: pos_integer()
   def escalation_threshold, do: @escalation_threshold
 
@@ -47,7 +47,7 @@ defmodule Aiur.GitHub.Connectivity do
 
   @doc """
   Records one classified failure for `source`. Returns the updated streak map
-  and a (possibly empty) list of operator alerts that should be emitted now.
+  and a (possibly empty) list of Executor alerts that should be emitted now.
 
   An alert fires exactly once, on the failure that crosses the threshold for a
   sustained `:dns`/`:auth` streak — repeated failures past the threshold stay
@@ -84,7 +84,7 @@ defmodule Aiur.GitHub.Connectivity do
   @doc """
   Shared poller-side fold over one classified failure (dup-infra.md
   cluster 2). Calls `note_failure/3`, emits the
-  `system.github.connectivity_lost` operator blocker for every returned
+  `system.github.connectivity_lost` Executor blocker for every returned
   alert, then derives the next delay from `backoff_ms/3` using the
   source's current streak count, normalizing `:escalate` to
   `max_backoff_ms/0` and any non-integer result to `base_interval_ms`.
@@ -214,7 +214,7 @@ defmodule Aiur.GitHub.Connectivity do
   end
 
   @doc """
-  Builds the operator-facing alert message for an escalated connectivity
+  Builds the Executor-facing alert message for an escalated connectivity
   blocker. Used by pollers to drive `Aiur.Alerts.emit_custom/3`.
   """
   @spec alert_message(alert(), keyword()) :: String.t()
@@ -223,7 +223,7 @@ defmodule Aiur.GitHub.Connectivity do
     repo_suffix = if repo, do: " for #{repo}", else: ""
 
     "GitHub #{classification_phrase(classification)} from #{source}#{repo_suffix}: " <>
-      "#{count} consecutive failures. Agents cannot reach GitHub while the operator shell may. " <>
+      "#{count} consecutive failures. Agents cannot reach GitHub while the Executor shell may. " <>
       "Check DNS/proxy/credentials in the agent workspace environment."
   end
 

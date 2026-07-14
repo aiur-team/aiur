@@ -120,7 +120,7 @@ defmodule Aiur.AgentList.Renderer.EventLine do
   # --- Read events (digest ingestion) ----------------------------------
   # A read entry is the receiver digesting an event from its inbox.
   # The line reads `📄 <receiver> ingested <source>: <publish-verb>"<body>"`
-  # so the operator can see what the agent actually picked up. We
+  # so the Executor can see what the agent actually picked up. We
   # reuse `publish_event_phrase/2` for the verb + body so reads share
   # the same vocabulary as the originating publish line.
   def describe_event(:read, subject_id, source_id, suffix, body)

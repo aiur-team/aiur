@@ -22,9 +22,9 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
   def topbar(assigns) do
     ~H"""
     <header class="topbar">
-      <a class="brand-mini" href="/" aria-label="Aiur Operator Control Center">
+      <a class="brand-mini" href="/" aria-label="Aiur Executor Control Center">
         <img class="brand-mini-logo" src="/aiur-logo.png" alt="" />
-        <span class="brand-wordmark"><b>aiur</b> / operator control</span>
+        <span class="brand-wordmark"><b>aiur</b> / Executor Control Center</span>
       </a>
       <div class="toolbar">
         <span class="status-badge status-badge-live"><span class="status-badge-dot"></span>Live</span>

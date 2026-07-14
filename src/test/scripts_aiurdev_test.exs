@@ -41,6 +41,7 @@ defmodule ScriptsAiurdevTest do
         "    echo \"XDG_STATE_HOME: ${XDG_STATE_HOME:-}\"\n" <>
         "    echo \"XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR:-}\"\n" <>
         "    echo \"AIUR_OPENCODE_BRIDGE_PORT: ${AIUR_OPENCODE_BRIDGE_PORT:-}\"\n" <>
+        "    echo \"OPENCODE_PATH: $(command -v opencode 2>/dev/null || true)\"\n" <>
         "  } >> \"$AIUR_ENGINE_TRACE\"\n" <>
         "fi\n" <>
         ~S|if [ -n "${AIUR_FAKE_ENGINE_TRANSIENT_ONCE:-}" ] && [ ! -e "$AIUR_FAKE_ENGINE_TRANSIENT_ONCE" ]; then| <>
@@ -60,7 +61,8 @@ defmodule ScriptsAiurdevTest do
         "echo \"XDG_CONFIG_HOME: ${XDG_CONFIG_HOME:-}\"\n" <>
         "echo \"XDG_STATE_HOME: ${XDG_STATE_HOME:-}\"\n" <>
         "echo \"XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR:-}\"\n" <>
-        "echo \"AIUR_OPENCODE_BRIDGE_PORT: ${AIUR_OPENCODE_BRIDGE_PORT:-}\"\n"
+        "echo \"AIUR_OPENCODE_BRIDGE_PORT: ${AIUR_OPENCODE_BRIDGE_PORT:-}\"\n" <>
+        "echo \"OPENCODE_PATH: $(command -v opencode 2>/dev/null || true)\"\n"
     )
 
     File.chmod!(engine, 0o755)
@@ -113,11 +115,20 @@ defmodule ScriptsAiurdevTest do
   # `mise exec -- mix aiur.test.reset` runs without a real toolchain.
   defp fake_mise do
     path = Path.join(System.tmp_dir!(), "aiurdev-mise-#{System.unique_integer([:positive])}")
+    opencode_dir = path <> ".opencode"
 
     File.write!(
       path,
       ~S"""
       #!/usr/bin/env bash
+      if [ "${1:-}" = "where" ]; then
+        mkdir -p "${0}.opencode"
+        printf '%s\\n' '#!/usr/bin/env bash' > "${0}.opencode/opencode"
+        chmod +x "${0}.opencode/opencode"
+        echo "${0}.opencode"
+        exit 0
+      fi
+
       echo "MISE: $*"
       echo "MISE_AIUR_AGENT_IR_SANDBOX: ${AIUR_AGENT_IR_SANDBOX:-}"
       echo "MISE_AIUR_BG_STATE_DIR: ${AIUR_BG_STATE_DIR:-}"
@@ -160,7 +171,12 @@ defmodule ScriptsAiurdevTest do
     )
 
     File.chmod!(path, 0o755)
-    on_exit(fn -> File.rm!(path) end)
+
+    on_exit(fn ->
+      File.rm(path)
+      File.rm_rf(opencode_dir)
+    end)
+
     path
   end
 
@@ -221,6 +237,51 @@ defmodule ScriptsAiurdevTest do
 
     refute out =~ "rebuilding"
     refute out =~ "force-rebuild"
+  end
+
+  test "AIUR_SKIP_BUILD still pins opencode for launch paths" do
+    root = fake_repo()
+    mise = fake_mise()
+
+    {out, 0} =
+      run_shim(["--bg"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_SKIP_BUILD", "1"},
+        {"AIUR_MISE_BIN", mise},
+        {"TMUX", nil}
+      ])
+
+    assert out =~ "ENGINE_ARGS: --bg"
+    assert out =~ "OPENCODE_PATH: #{mise}.opencode/opencode"
+  end
+
+  test "control commands do not require a pinned opencode install" do
+    root = fake_repo()
+
+    {out, 0} =
+      run_shim(["status"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_SKIP_BUILD", "1"},
+        {"AIUR_MISE_BIN", Path.join(root, "missing-mise")},
+        {"TMUX", nil}
+      ])
+
+    assert out =~ "ENGINE_ARGS: status"
+  end
+
+  test "launch paths fail closed when pinned opencode is unavailable" do
+    root = fake_repo()
+
+    {out, 64} =
+      run_shim(["--bg"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_SKIP_BUILD", "1"},
+        {"AIUR_MISE_BIN", Path.join(root, "missing-mise")},
+        {"TMUX", nil}
+      ])
+
+    assert out =~ "mise not found"
+    refute out =~ "ENGINE_ARGS:"
   end
 
   test "concurrent stale rebuilds serialize and reuse the completed release" do
@@ -476,11 +537,13 @@ defmodule ScriptsAiurdevTest do
   test "--debug --clear wipes the logs root then execs the engine" do
     root = fake_repo()
     home = sandbox_home()
+    mise = fake_mise()
 
     {out, 0} =
       run_shim(["--debug", "--clear"], [
         {"AIUR_REPO_ROOT", root},
         {"AIUR_SKIP_BUILD", "1"},
+        {"AIUR_MISE_BIN", mise},
         {"TMUX", nil},
         {"HOME", home}
       ])
@@ -569,12 +632,14 @@ defmodule ScriptsAiurdevTest do
   test "agent workspace non-test launch leaves bridge port to runtime selection" do
     root = fake_agent_repo(337)
     trace = engine_trace(root)
+    mise = fake_mise()
 
     {out, 0} =
       run_shim(["--bg", "--debug"], [
         {"AIUR_REPO_ROOT", root},
         {"AIUR_ENGINE_TRACE", trace},
         {"AIUR_SKIP_BUILD", "1"},
+        {"AIUR_MISE_BIN", mise},
         {"TMUX", nil},
         {"AIUR_AGENT_WORKSPACE", root}
       ])

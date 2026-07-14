@@ -39,7 +39,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
       {:error, reason} ->
         # Preserve cached etag so we retry as If-None-Match next tick; the
         # classified failure feeds the escalation policy so a sustained
-        # DNS/auth break surfaces a loud operator blocker (#617).
+        # DNS/auth break surfaces a loud Executor blocker (#617).
         Orchestrator.note_github_connectivity_failure(state, :firehose, reason)
     end
   end

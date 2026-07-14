@@ -121,6 +121,14 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
       assert_receive {:worker_control_state, "gid-sc-02", :working}, 2_000
     end
 
+    test "sends :completed worker_control_state to a pid recipient" do
+      issue = %Issue{id: "gid-sc-completed"}
+
+      MessageHandler.send_control_state(self(), issue, :completed)
+
+      assert_receive {:worker_control_state, "gid-sc-completed", :completed}, 2_000
+    end
+
     test "preserves a worker pause payload" do
       issue = %Issue{id: "gid-sc-03"}
       pause_payload = %{kind: :usage_limit_exhausted, reset_hint: "23:00 UTC"}

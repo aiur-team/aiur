@@ -76,7 +76,7 @@ defmodule Aiur.AgentRunner.BootstrapDigest do
   #
   # Each subscription pattern's `ticket.<N>.…` prefix tells us which
   # publisher log to read. Patterns under `system.…` aren't backed by
-  # an issue log today; they're listed in the residual risks (operator-
+  # an issue log today; they're listed in the residual risks (Executor-
   # facing system events can't be replayed on restart yet).
   defp bootstrap_events(cursor, subscribed_to) do
     patterns = subscribed_to |> Enum.map(&Map.get(&1, "topic")) |> Enum.reject(&is_nil/1)

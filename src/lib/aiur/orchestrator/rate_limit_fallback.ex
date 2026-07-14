@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   `agent.rate_limit_fallback` (default `"claude"`).
 
   A durable `model:claude` label drives existing backend routing, while a
-  second marker records Aiur's ownership so operator-authored overrides remain
+  second marker records Aiur's ownership so Executor-authored overrides remain
   untouched. Headless Claude does not replace codex's resumable session handle,
   and redispatch preserves worker affinity, allowing the original rollout to
   resume after recovery or an Aiur restart.
@@ -384,6 +384,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
 
       schedule_retry.(state, issue.id, next_attempt, %{
         identifier: issue.identifier,
+        tracker_identity: Issue.tracker_identity(issue),
         error: "backend redispatch did not start",
         worker_host: worker_host,
         workspace_path: Map.get(running_entry, :workspace_path)

@@ -1,7 +1,7 @@
 # Phasing & Parallelization
 
 How 30–60 tickets execute safely with ~10 parallel agents per phase, run
-end-to-end by an Opus agent driving `/aiur-loop`, merging into the `v2`
+end-to-end by an Opus agent acting as Executor through `/aiur-run`, merging into the `v2`
 integration branch. Concrete per-ticket tables are **pass 2** (filled during
 ticket generation); this document fixes the model and the rules the human
 checkpoint approves. Generated 2026-07-06.
@@ -10,7 +10,7 @@ checkpoint approves. Generated 2026-07-06.
 
 ## The model
 
-- **A phase = one aiur-loop run.** The Opus agent opens the phase's issues,
+- **A phase = one bounded Executor run.** The Opus agent opens the phase's issues,
   runs the loop, merges PRs into `v2` one at a time, runs phase-exit checks,
   then opens the next phase. Phase count is nominally 3–5 and may grow (the
   brief's wiggle-room clause); the binding constraint is loop-runnability,

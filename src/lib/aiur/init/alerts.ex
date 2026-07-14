@@ -11,7 +11,7 @@ defmodule Aiur.Init.Alerts do
   @alerts_file_name "alerts"
 
   # A final opt-in for cross-platform alert sounds. The first question is the
-  # on/off master switch; on "yes" a second question lets the operator pick the
+  # on/off master switch; on "yes" a second question lets the Executor pick the
   # built-in macOS/Linux OS-default set or the fully customizable topic→sound map
   # — pointing them at the `.aiur/alerts` file init scaffolds so the customization
   # surface is discoverable, not just the on/off setting. Either way init writes
@@ -57,7 +57,7 @@ defmodule Aiur.Init.Alerts do
 
   # The scaffolded config references the alert sound map via `alerts_file: alerts`,
   # so make sure `.aiur/alerts` exists (created from the host's alerts example).
-  # Never clobber an existing one — the operator may have tuned the topic→sound map.
+  # Never clobber an existing one — the Executor may have tuned the topic→sound map.
   @doc false
   @spec ensure_alerts(Aiur.Init.io(), Aiur.Init.deps(), Path.t(), map()) :: :ok
   def ensure_alerts(io, deps, target, alerts) do

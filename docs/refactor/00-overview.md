@@ -3,7 +3,7 @@
 Aiur goes from vibe-coded sprawl to production-ready: **the same complete
 feature set, in dramatically less code** — modular, DRY, extensible, with
 zero feature loss. Aiur's own agents execute the refactor ticket-by-ticket
-via the aiur-loop, orchestrated by an Opus agent, merging into a long-lived
+through the `aiur-run` Executor workflow, driven by an Opus agent and merging into a long-lived
 `v2` integration branch. Authoritative brief:
 `fable-planning-prompt.md`. Spike plan:
 `docs/plans/2026-07-06-001-refactor-production-readiness-planning-spike-plan.md`.
@@ -67,7 +67,7 @@ via the aiur-loop, orchestrated by an Opus agent, merging into a long-lived
 
 ## The Opus agent's mandate (autonomy model)
 
-The agent running `/aiur-loop` for each phase:
+The agent acting as Executor through `/aiur-run` for each phase:
 
 - Uses each phase's aiur run itself as the integration test — a healthy
   fleet on `v2` validates prior merges.
