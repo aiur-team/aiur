@@ -203,7 +203,7 @@ defmodule Aiur.DecisionStore do
     GenServer.call(server, {:retained_lookup, decision_id})
   end
 
-  @doc "Returns a bounded retained Decision page, exact filtered total, and canonical counts atomically."
+  @doc "Returns a bounded retained Decision page, available total metadata, and canonical counts atomically."
   @spec retained_query(map(), GenServer.server()) :: {:ok, map()} | {:error, :store_unavailable | :invalid_query}
   def retained_query(query, server \\ __MODULE__) when is_map(query) do
     GenServer.call(server, {:retained_query, query})

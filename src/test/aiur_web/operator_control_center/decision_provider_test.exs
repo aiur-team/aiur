@@ -18,7 +18,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProviderTest do
     @impl true
     def handle_call({:snapshot, decision_id}, _from, state) do
       send(state.report, {:metric_snapshot, decision_id})
-      {:reply, Map.fetch(state.snapshots, decision_id), state}
+      {:reply, Map.get(state.snapshots, decision_id, {:error, :unavailable}), state}
     end
   end
 
@@ -126,6 +126,22 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProviderTest do
              DecisionProvider.list(%{"limit" => 1}, decision_store: store, decision_metrics: metrics)
 
     assert row.decision_id == newest.decision_id
+    assert_receive {:metric_snapshot, newest_id}
+    assert newest_id == newest.decision_id
+    refute_receive {:metric_snapshot, _other_id}
+  end
+
+  test "list stops latency enrichment after the first unavailable metric snapshot", %{store: store} do
+    request!(store, "metrics-oldest", ~U[2026-07-13 08:00:00Z])
+    request!(store, "metrics-middle", ~U[2026-07-13 08:01:00Z])
+    newest = request!(store, "metrics-newest", ~U[2026-07-13 08:02:00Z])
+
+    {:ok, metrics} = TargetedMetrics.start_link(snapshots: %{}, report: self())
+
+    assert {:ok, %{decisions: rows}} =
+             DecisionProvider.list(%{"limit" => 3}, decision_store: store, decision_metrics: metrics)
+
+    assert Enum.map(rows, & &1.latency) == List.duplicate(%{status: :unavailable, snapshot: nil}, 3)
     assert_receive {:metric_snapshot, newest_id}
     assert newest_id == newest.decision_id
     refute_receive {:metric_snapshot, _other_id}

@@ -204,6 +204,74 @@ The initial retained-query implementation added direct lookup, cursor pages, and
 
 ---
 
+### U4. Continue capped filtered retained pages
+
+**Goal:** Ensure a bounded filtered or search scan can always advance past its
+candidate cap without claiming an incomplete page is final.
+
+**Requirements:** R1, R3, R4
+
+**Dependencies:** U1
+
+**Files:**
+- Modify: `src/lib/aiur/decision_store/retained_snapshot.ex`
+- Test: `src/test/aiur/decision_query_test.exs`
+
+**Approach:**
+- Preserve the final audit key inspected by a capped candidate scan separately
+  from the final returned match. When the cap leaves candidates uninspected,
+  return that inspected key as the continuation and mark the page partial.
+- Retain the existing returned-row continuation when the page reaches its
+  `limit + 1` lookahead before the scan cap.
+
+**Patterns to follow:**
+- The existing `:gb_sets` audit iterator, `partial?` metadata, and encoded
+  retained cursor contract.
+
+**Test scenarios:**
+- Regression: more than 1,000 same-bucket candidates with a matching retained
+  Decision just beyond the cap produce an empty partial first page with a
+  continuation, then return the match on the following page.
+- Edge case: a capped scan with no later candidate remains final rather than
+  creating a spurious continuation.
+
+**Verification:**
+- A bounded filtered traversal cannot strand a valid retained Decision beyond
+  its first candidate window.
+
+### U5. Bound latency enrichment failure
+
+**Goal:** Keep a failed or suspended metrics provider from multiplying the
+retained-page response timeout by its row count.
+
+**Requirements:** R1, R3, R4
+
+**Dependencies:** U2
+
+**Files:**
+- Modify: `src/lib/aiur_web/operator_control_center/decision_provider.ex`
+- Test: `src/test/aiur_web/operator_control_center/decision_provider_test.exs`
+
+**Approach:**
+- Keep per-row latency data when the provider is healthy, but stop further
+  synchronous metric reads after the first unavailable outcome and label the
+  page latency unavailable once.
+
+**Patterns to follow:**
+- Existing `safe_metrics_call/1` fault handling and presenter latency-health
+  composition.
+
+**Test scenarios:**
+- Failure path: an unavailable metrics snapshot receives no calls for subsequent
+  retained rows and returns an unavailable latency state.
+- Happy path: a healthy metrics provider is still called only for the bounded
+  response page and attaches each available snapshot.
+
+**Verification:**
+- A provider failure incurs at most one bounded metrics call per retained page.
+
+---
+
 ## System-Wide Impact
 
 - **Interaction graph:** `DecisionStore` supplies one atomic snapshot to `DecisionQuery`, which remains the sanitizing boundary used by the provider and Dashboard LiveView.

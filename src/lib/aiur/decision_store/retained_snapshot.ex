@@ -62,8 +62,8 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
     {:ok,
      %{
        decisions: snapshot.page |> Enum.reverse() |> Enum.take(query.limit),
-       next_key: snapshot.last_key,
-       has_next?: snapshot.page_size > query.limit,
+       next_key: continuation_key(snapshot),
+       has_next?: has_next?(snapshot, query.limit),
        total: total_for(total, snapshot, query),
        partial?: snapshot.capped?,
        counts: RetainedIndex.canonical_counts(index),
@@ -145,10 +145,11 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
               | page: [decision | snapshot.page],
                 page_size: page_size,
                 matches: snapshot.matches + 1,
+                last_scanned_key: key,
                 last_key: if(page_size <= query.limit, do: key, else: snapshot.last_key)
             }
           else
-            snapshot
+            %{snapshot | last_scanned_key: key}
           end
 
         collect(next_iterator, current, query, matcher, max_reads, snapshot)
@@ -164,6 +165,7 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
       page_size: 0,
       matches: 0,
       reads: 0,
+      last_scanned_key: nil,
       last_key: nil,
       capped?: false,
       exhausted?: false
@@ -195,6 +197,12 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
   defp total_for(nil, %{exhausted?: true, matches: matches}, %{cursor: nil}), do: matches
   defp total_for(nil, _snapshot, _query), do: nil
   defp total_for(total, _snapshot, _query), do: total
+
+  defp continuation_key(%{capped?: true, last_scanned_key: key}), do: key
+  defp continuation_key(%{last_key: key}), do: key
+
+  defp has_next?(%{capped?: true}, _limit), do: true
+  defp has_next?(%{page_size: page_size}, limit), do: page_size > limit
 
   defp cursor_key(nil), do: {-9_223_372_036_854_775_808, ""}
   defp cursor_key(cursor), do: sort_key(cursor)

@@ -306,8 +306,10 @@ defmodule Aiur.DecisionQueryTest do
 
     query = %{limit: 1, cursor: nil, lifecycle: nil, search: "dec_missing", ticket: nil}
 
-    assert {:ok, %{decisions: [], total: nil, partial?: true}} =
+    assert {:ok, %{decisions: [], has_next?: true, next_key: next_key, total: nil, partial?: true}} =
              RetainedSnapshot.query(current, index, :writable, query)
+
+    assert is_tuple(next_key)
 
     :sys.replace_state(store, fn state ->
       %{state | current: current, retained_index: index}
@@ -317,10 +319,41 @@ defmodule Aiur.DecisionQueryTest do
             %{
               decisions: [],
               partial_results?: true,
-              pagination: %{total: nil, label: label}
+              pagination: %{next_cursor: next_cursor, total: nil, label: label}
             }} = DecisionQuery.list(%{"limit" => 1, "search" => "dec_missing"}, store: store)
 
+    assert is_binary(next_cursor)
     assert label =~ "Partial retained Decision page"
+  end
+
+  test "capped filtered scans continue to an exact match beyond the candidate limit", %{store: _store} do
+    [template] = generated_decisions([{0, :open}])
+
+    matching = %{template | decision_id: "dec_match", source_id: "match"}
+
+    nonmatching =
+      for index <- 1..1_000 do
+        %{
+          template
+          | decision_id: "dec_other-#{index}",
+            source_id: "other-#{index}",
+            created_at: DateTime.add(template.created_at, index, :second)
+        }
+      end
+
+    current = Map.new([matching | nonmatching], &{&1.decision_id, &1})
+    index = RetainedSnapshot.build_index(current)
+    query = %{limit: 1, cursor: nil, lifecycle: nil, search: "dec_match", ticket: nil}
+
+    assert {:ok, %{decisions: [], has_next?: true, next_key: {_created_at, "dec_other-1"}, partial?: true}} =
+             RetainedSnapshot.query(current, index, :writable, query)
+
+    cursor = %{created_at: DateTime.add(template.created_at, 1, :second), decision_id: "dec_other-1"}
+
+    assert {:ok, %{decisions: [retained], has_next?: false, partial?: false}} =
+             RetainedSnapshot.query(current, index, :writable, %{query | cursor: cursor})
+
+    assert retained.decision_id == matching.decision_id
   end
 
   test "counts distinguish partial retained data from an unavailable store", %{store: store} do
