@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 13:06 PDT)
+## Live Executor state (updated 2026-07-14 13:43 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -23,10 +23,12 @@ effective-slot controller and shared build gates. The operator target is
 CPU/memory/provider/review capacity permit. Sustained load above 37 on 12 CPUs
 triggered the documented measured-pressure exception: the live ceiling is
 temporarily 10 and restores to 15 after two consecutive ten-minute audits
-below load 18. Nine useful workers are currently active on core
-#1088/#1091/#1097/#1103/#1109 and Ad Hoc #1148/#1161/#1162 plus one slot
-in transition; #1151 and #1154 are the next priority rework lanes as capacity
-drains. #1146 is preserved but paused because its wrong-base behavior is
+below load 18. Nine Aiur workspaces were live at the 13:41 snapshot: core
+#1088/#1091/#1097/#1103 and Ad Hoc #1148/#1151/#1154/#1161/#1162. Six were
+doing implementation/rework while three were consuming terminal CI or label
+handoff packets; three independent Executor review lanes were also staffed.
+This is the measured CPU limit, not an arbitrary worker cap. #1146 is
+preserved but paused because its wrong-base behavior is
 contained by current config, while #1151's CI-wake defect is actively
 recurring. Build-gate P1 #1154 remains in the current Ad Hoc wave because
 namespace-local lease IDs directly blocked core verification. Token
@@ -65,7 +67,7 @@ Terra; never dispatch Claude.
    is active operationally but it also has no dispatch label.
 5. Maintain this handoff whenever an operator directive, execution override,
    capacity decision, discovered blocker, or validation authority changes.
-6. The prewarm base currently equals live `origin/main` at `97518e96`. Although
+6. The prewarm base currently equals live `origin/main` at `0f8a3e13`. Although
    `prewarm.poll_seconds` is zero, each tracker dispatch cycle calls
    `RepoBase.refresh_async/0`; after every merge verify the base fetches,
    rebuilds, and reaches the new `main` before newly-ready dispatch begins.
@@ -1208,22 +1210,48 @@ Terra; never dispatch Claude.
     gate (`4973449689`), green-but-stale #1091 (`4973454872`), #1109
     (`4973455500`), and #1154 (`4973456502`). The cap queues these transitions
     by priority rather than adding more simultaneous builds under CPU pressure.
+160. The 13:33 hard capacity audit recorded load 26.96 on 12 CPUs with roughly
+    21.5 GiB available and correctly skipped the saturated control RPC. Load
+    fell to 17.54 at 13:40, but this is only the first below-18 observation;
+    keep the ceiling at 10 until the next hard audit also satisfies the recorded
+    two-consecutive-audit restore condition.
+161. Both independent exact-head reviews rejected BO-002/#1091 head
+    `8a94c846` despite green current-main CI. Comment `4973750725` routed five
+    contained fixes: configured repository/bounds authority, logical identity
+    collisions, fail-closed duplicate status propagation, total GraphQL
+    response validation, and the two 200-line module violations. The event path
+    woke its Terra worker for rework; no new ticket or scope was added.
+162. Fresh green current-main heads are DASH-006/#1088 `b6a8adfe`,
+    BO-016/#1103 `bd26e982`, build-gate #1154 `7d283949`, workspace-safety
+    #1161 `f52329b4`, and DASH-002/#1109 `9938fd71`. Exact reviewers are active
+    on DASH-002, #1154, and #1161; add the missing independent passes as lanes
+    free, then route contained rework or merge under the normal policy.
+163. The static progress preview was refreshed and published as `63b6ab28`.
+    It uses the latest emitted percentages, attributes #1146/#1148/#1171 to the
+    Phase 1 Ad Hoc pickup wave, and includes gated token experiments #1169 and
+    #1170 without dispatching them. The Tailscale-served page was verified to
+    expose the 13:37 PDT snapshot.
+164. The prewarmed checkout was reverified at exact `0f8a3e13`, matching its
+    fetched `origin/main`; its only dirt is the expected generated Hex cache and
+    untracked build marker. Do not rebuild it merely because those generated
+    artifacts exist.
 
-At 13:06 PDT the core graph is 6/54 accepted. Every currently
-dependency-ready implementation/rework lane is active or in CI; the configured
-ceiling is 15 and seven Aiur workers are doing useful work. Reviewer capacity
-is reserved for the next green exact head. The remaining shortfall is the
-finite ready graph, shared build capacity, and the #1161 workspace gate rather
-than an intentional low cap.
+At 13:43 PDT the core graph is 6/54 accepted. Every currently
+dependency-ready implementation/rework lane is active, in terminal-CI handoff,
+or staffed for exact review. The configured ceiling is 15, the measured live
+ceiling is temporarily 10, nine Aiur workspaces are live, and three independent
+review lanes are staffed. The remaining shortfall is CPU/build pressure and the
+#1161 workspace gate rather than an intentional low cap.
 #1090, #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds
 until #1161 lands.
 The most recent phase preview remains the percentage authority until its next
 meaningful refresh; do not replace emitted estimates with guesses during
-review/rework. Host load is approximately 9–14 with roughly 21 GiB available,
-and the session ceiling remains 15. Prefer logs/GitHub evidence after a
-control-RPC timeout. No additional core ticket is safely dependency-ready
-outside the held/gated set. Treat completed turns, stale bases, and green builds
-with unmet acceptance criteria as pending Executor work, not merge-ready truth.
+review/rework. Host load is volatile between roughly 17 and 27 with about
+20–21 GiB available; preserve the cap-restore gate and prefer logs/GitHub
+evidence after a control-RPC timeout. No additional core ticket is safely
+dependency-ready outside the held/gated set. Treat completed turns, stale
+bases, and green builds with unmet acceptance criteria as pending Executor
+work, not merge-ready truth.
 
 **Read-first map for this run:** `README.md` (pack index) →
 `08-implementation-pointers.md` (verified per-ticket file/module/function
