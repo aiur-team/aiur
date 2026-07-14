@@ -30,6 +30,44 @@ defmodule Aiur.AppServer.AdapterTest do
     end
   end
 
+  defmodule DeferredIdlePauseBackend do
+    @behaviour Aiur.AppServer.Adapter
+
+    def backend_label, do: "Codex"
+
+    def send_frame(port, %{"id" => request_id, "method" => "turn/interrupt"} = frame) do
+      send(self(), {:frame, frame})
+
+      idle = %{"method" => "thread/status/changed", "params" => %{"status" => %{"type" => "idle"}}}
+      no_active_turn = %{"id" => request_id, "error" => %{"code" => -32_600, "message" => "no active turn"}}
+
+      send(self(), {port, {:data, {:eol, Jason.encode!(idle)}}})
+      send(self(), {port, {:data, {:eol, Jason.encode!(no_active_turn)}}})
+      :ok
+    end
+
+    def metadata_from_message(_port, _payload), do: %{}
+    def start_turn(session, _prompt, _issue), do: session.start_turn_result
+
+    def loop_state_extras(_session) do
+      %{
+        active_turn_ids: MapSet.new(),
+        auto_approve_requests: true,
+        turn_started?: true
+      }
+    end
+
+    def handle_interrupt_error(state, error), do: Aiur.Codex.Interrupts.handle_interrupt_error(state, error)
+
+    def handle_method(session, state, payload, payload_string, method) do
+      Aiur.Codex.TurnLoop.handle_method(session, state, payload, payload_string, method)
+    end
+
+    def handle_malformed(state, payload_string, port) do
+      Aiur.Codex.TurnLoop.handle_malformed(state, payload_string, port)
+    end
+  end
+
   test "run_turn returns success with session identifiers" do
     port = cat_port()
     send(self(), {port, {:data, {:eol, Jason.encode!(%{"method" => "turn/completed"})}}})
@@ -47,6 +85,20 @@ defmodule Aiur.AppServer.AdapterTest do
 
     assert {:paused, %{request_id: 1, session_id: "thread-1-turn-1"}} =
              Adapter.run_turn(StubBackend, session(port), "prompt", issue(), [])
+  end
+
+  test "run_turn preserves pause after idle and a no-active-turn interrupt response" do
+    port = cat_port()
+    send(self(), {:pause_agent, 41})
+
+    assert {:paused,
+            %{
+              request_id: 41,
+              turn_id: "turn-1",
+              session_id: "thread-1-turn-1"
+            }} = Adapter.run_turn(DeferredIdlePauseBackend, session(port), "prompt", issue(), [])
+
+    assert_receive {:frame, %{"method" => "turn/interrupt"}}
   end
 
   test "run_turn emits turn_ended_with_error on loop error" do

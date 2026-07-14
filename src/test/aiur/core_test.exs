@@ -2841,6 +2841,126 @@ defmodule Aiur.CoreTest do
     end
   end
 
+  test "agent runner remains paused when idle precedes a no-active-turn interrupt response" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-agent-runner-pause-no-active-turn-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      template_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex.trace")
+
+      File.mkdir_p!(template_repo)
+      File.write!(Path.join(template_repo, "README.md"), "# test")
+      System.cmd("git", ["-C", template_repo, "init", "-b", "main"])
+      System.cmd("git", ["-C", template_repo, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", template_repo, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", template_repo, "add", "README.md"])
+      System.cmd("git", ["-C", template_repo, "commit", "-m", "initial"])
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file="${SYMP_TEST_CODEX_TRACE:-/tmp/codex.trace}"
+
+      while IFS= read -r line; do
+        printf 'JSON:%s\\n' "$line" >> "$trace_file"
+
+        case "$line" in
+          *'"method":"initialize"'*)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          *'"method":"initialized"'*)
+            ;;
+          *'"method":"thread/start"'*)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-pause-no-active"}}}'
+            ;;
+          *'"method":"turn/start"'*)
+            request_id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
+            printf '{"id":%s,"result":{"turn":{"id":"turn-main"}}}\\n' "$request_id"
+            printf '%s\\n' '{"method":"turn/started","params":{"turn":{"id":"turn-main","status":"inProgress"}}}'
+            ;;
+          *'"method":"turn/interrupt"'*)
+            request_id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
+            printf '%s\\n' '{"method":"thread/status/changed","params":{"status":{"type":"idle"}}}'
+            printf '{"id":%s,"error":{"code":-32600,"message":"no active turn"}}\\n' "$request_id"
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+      System.put_env("SYMP_TEST_CODEX_TRACE", trace_file)
+
+      on_exit(fn -> System.delete_env("SYMP_TEST_CODEX_TRACE") end)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 2
+      )
+
+      orchestrator_name = Module.concat(__MODULE__, :PauseNoActiveTurnOrchestrator)
+      {:ok, orchestrator_pid} = Orchestrator.start_link(name: orchestrator_name)
+
+      on_exit(fn ->
+        if Process.alive?(orchestrator_pid), do: Process.exit(orchestrator_pid, :normal)
+      end)
+
+      issue = %Issue{
+        id: "issue-pause-no-active-turn",
+        identifier: "MT-PAUSE-NO-ACTIVE",
+        title: "Preserve pause at a completed turn boundary",
+        description: "do not continue after Codex reports no active turn",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-PAUSE-NO-ACTIVE",
+        labels: []
+      }
+
+      test_pid = self()
+
+      task =
+        Task.async(fn ->
+          AgentRunner.run(
+            issue,
+            test_pid,
+            orchestrator: orchestrator_name,
+            issue_state_fetcher: fn [_issue_id] -> {:ok, [%{issue | state: "Done"}]} end
+          )
+        end)
+
+      assert_receive {:codex_worker_update, "issue-pause-no-active-turn",
+                      %{
+                        event: :notification,
+                        payload: %{"method" => "turn/started"}
+                      }},
+                     15_000
+
+      send(task.pid, {:pause_agent, 93})
+
+      assert_receive {:worker_control_state, "issue-pause-no-active-turn", :paused, %{request_id: 93, turn_id: "turn-main"}},
+                     5_000
+
+      refute Task.yield(task, 100)
+
+      trace = File.read!(trace_file)
+      assert length(Regex.scan(~r/"method":"turn\/start"/, trace)) == 1
+
+      send(task.pid, {:resume_agent, 94})
+      assert {:ok, :ok} = Task.yield(task, 5_000)
+
+      trace = File.read!(trace_file)
+      assert length(Regex.scan(~r/"method":"turn\/start"/, trace)) == 1
+    after
+      System.delete_env("SYMP_TEST_CODEX_TRACE")
+      File.rm_rf(test_root)
+    end
+  end
+
   test "agent runner processes restored and newly-queued operator input on explicit resume after pause" do
     test_root =
       Path.join(
