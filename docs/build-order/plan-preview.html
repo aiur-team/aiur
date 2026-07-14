@@ -255,7 +255,7 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
 <script>
 const RUN = {
   phase: 1,
-  updated: "2026-07-14 11:03 PDT",
+  updated: "2026-07-14 11:13 PDT",
   tickets: {
     "BO-004": {state:"merged", progress:100, issue:1086},
     "BO-008": {state:"merged", progress:100, issue:1087},
@@ -268,11 +268,11 @@ const RUN = {
     "DASH-001": {state:"workspace recovery queued", progress:0, issue:1108},
     "DASH-004": {state:"preserved-WIP hold", progress:90, issue:1111},
     "DASH-019": {state:"gate/workspace paused", progress:0, issue:1123},
-    "BO-002": {state:"canonical endpoint identity rework", progress:60, issue:1091, agent_live:true},
+    "BO-002": {state:"canonical endpoint repair in fresh CI", progress:80, issue:1091},
     "BO-005": {state:"workspace-race hold", progress:0, issue:1093},
     "BO-009": {state:"merged", progress:100, issue:1096},
     "BO-010": {state:"browser coverage correction", progress:50, issue:1097, agent_live:true},
-    "DASH-002": {state:"CI failure repair wake queued", progress:70, issue:1109},
+    "DASH-002": {state:"authoritative red-CI recovery restart", progress:70, issue:1109},
     "DASH-026": {state:"workspace-race hold", progress:0, issue:1130},
     "ADHOC-1139": {state:"closed", progress:100, issue:1139},
     "ADHOC-1140": {state:"deferred", progress:0, issue:1140},
@@ -280,11 +280,11 @@ const RUN = {
     "ADHOC-1146": {state:"deferred", progress:0, issue:1146},
     "ADHOC-1148": {state:"deferred", progress:0, issue:1148},
     "ADHOC-1149": {state:"deferred", progress:0, issue:1149},
-    "ADHOC-1151": {state:"dual exact-head review active", progress:70, issue:1151},
+    "ADHOC-1151": {state:"dual-review provenance rework active", progress:70, issue:1151, agent_live:true},
     "ADHOC-1152": {state:"deferred", progress:0, issue:1152},
-    "ADHOC-1154": {state:"deferred P1", progress:0, issue:1154},
+    "ADHOC-1154": {state:"namespace-safe gate repair active", progress:0, issue:1154, agent_live:true},
     "ADHOC-1161": {state:"full-suite convergence active", progress:70, issue:1161, agent_live:true},
-    "ADHOC-1162": {state:"dual exact-head review active", progress:80, issue:1162},
+    "ADHOC-1162": {state:"dual-review lifecycle rework active", progress:80, issue:1162, agent_live:true},
     "ADHOC-1164": {state:"closed duplicate of #1154", progress:0, issue:1164}
   }
 };
@@ -300,7 +300,7 @@ const ADHOC_TICKETS = [
   {id:"ADHOC-1149",issue:1149,title:"Isolate log capture from GitHub comment polling",issue_title:"#1149 — Isolate log capture from GitHub comment polling",lane:"adhoc",cx:null,deps:[],pack:"all",phase:null,pickup_phase:null,adhoc:true},
   {id:"ADHOC-1151",issue:1151,title:"Keep agent self-comments from evicting CI wait",issue_title:"#1151 — Keep agent self-comments from evicting CI wait",lane:"adhoc",cx:3,deps:[],pack:"all",phase:1,pickup_phase:1,adhoc:true},
   {id:"ADHOC-1152",issue:1152,title:"Configure and explain the GitHub bot account",issue_title:"#1152 — Configure and explain the GitHub bot account",lane:"adhoc",cx:2,deps:[],pack:"all",phase:null,pickup_phase:null,adhoc:true},
-  {id:"ADHOC-1154",issue:1154,title:"Keep the shared build gate inside the Codex sandbox",issue_title:"#1154 — Codex sandbox makes the shared build gate fail open",lane:"adhoc",cx:3,deps:[],pack:"all",phase:null,pickup_phase:null,adhoc:true},
+  {id:"ADHOC-1154",issue:1154,title:"Make shared build-gate leases sandbox-safe",issue_title:"BO: P1 — Make shared build-gate leases sandbox-safe",lane:"adhoc",cx:3,deps:[],pack:"all",phase:1,pickup_phase:1,adhoc:true},
   {id:"ADHOC-1161",issue:1161,title:"Prevent workspace reprovisioning from invalidating live agents",issue_title:"BO: P1 — Prevent workspace reprovisioning from invalidating live agents",lane:"adhoc",cx:3,deps:[],pack:"all",phase:1,pickup_phase:1,adhoc:true},
   {id:"ADHOC-1162",issue:1162,title:"Prevent operator-turn accounting from wedging completed Codex workers",issue_title:"BO: Prevent operator-turn accounting from wedging completed Codex workers",lane:"adhoc",cx:3,deps:[],pack:"all",phase:1,pickup_phase:1,adhoc:true},
   {id:"ADHOC-1164",issue:1164,title:"Recover sandbox-stale build gate leases",issue_title:"BO: Recover sandbox-stale build gate leases",lane:"adhoc",cx:null,deps:[],pack:"all",phase:null,pickup_phase:null,adhoc:true}

@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 10:52 PDT)
+## Live Executor state (updated 2026-07-14 11:13 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -13,16 +13,20 @@ truth and supersedes stale pre-run wording later in the document.
 #1084 with 54 members #1085–#1138 and 107 exact blocker relations. The historical
 receipt gate remains operator-overridden for this run. Aiur is running from the
 repository root against `main`; current accepted `main` is
-`b506146534f1ea1c9be5ee5b2a683683e8e2bf04`, including BO-009/#1096. The core
+`69a53b99`, including BO-009/#1096 and the binding maximum-useful-concurrency
+Executor rule. The core
 program is 6/54 merged with 48 remaining.
 
 The runtime session ceiling is 15 workers, governed by Aiur's effective-slot
 controller and shared build gates. The operator target is 10–15+ useful agents
 whenever dependency width and measured CPU/memory/provider/review capacity
-permit. Four implementation/rework workers are live on #1091, #1097, #1109,
-and #1161; #1103 is returning immediately from completed dual review to rework.
-Green #1088 and green reliability heads #1151/#1162 are consuming independent
-background review lanes rather than implementation slots. #1090,
+permit. Eight useful implementation/rework workers are allocated to core
+#1088/#1097/#1103/#1109 and Ad Hoc #1151/#1154/#1161/#1162; #1109 is in
+ticket-scoped recovery from a completed-turn wedge after its red CI packet was
+not consumed. BO-002/#1091 published `35bec1cd` and correctly moved outside
+worker capacity while fresh CI runs. Build-gate P1 #1154 is in the current Ad
+Hoc wave because namespace-local lease IDs directly blocked core verification.
+#1090,
 #1093, #1108, #1111, #1123, and #1130 remain
 protected behind #1161's workspace-replacement fix. Unrelated #855 stays
 paused and consumes no provider capacity. All providers are Codex Sol or
@@ -1040,16 +1044,43 @@ Terra; never dispatch Claude.
     `/nix/store` survive redaction. One reviewer also confirmed the raw-input
     limit is checked only after redaction. Comment `4972295749` consolidates
     the bounded rework; return #1103 to a fresh worker immediately.
+134. Dual exact-head review rejected green DASH-006/#1088 head `5e85d814`:
+    the public Decision API still bypasses retained cursor/bounded reads,
+    basic-auth-shaped agent identity remains exposable, and corrupt-prefix
+    partial pages prescribe an ineffective filter refinement. Comment
+    `4972363725` consolidates the contained rework; #1088 is actively turning.
+135. DASH-002/#1109 reached terminal red CI at `2594b0d2` with two owned Credo
+    rejects and two membership-store process-death failures. Its completed
+    runner ignored the direct packet and replayed stale CI-wait guidance. The
+    Executor used the proven ticket-scoped pause/fallback-reap recovery and
+    resent comment `4972375941`; do not treat the unchanged red head as CI wait.
+136. The shared build gate exposed a second P1 mode under Codex PID namespaces:
+    sandbox clients publish `pid=2, pgid=1`, collide on `queue/2`, and produce
+    unreclaimable slots because the corresponding host identities are always
+    alive. Host correlation proved slot 1 stale while slot 2 still belonged to
+    #1161, so only slot 1 was reclaimed and #1103 acquired it immediately.
+    Existing #1154 now owns namespace-stable lease identity in addition to its
+    writable-root/fail-closed contract and is dispatched in Phase 1.
+137. Dual review rejected self-comment fix #1151 at `454a07df`: provenance is
+    acquired only after a top-level `gh` mutation may have started, origin
+    persistence failures are discarded by TurnLoop, newer trusted rework does
+    not supersede stale `ci.rewake`, and quoted `gh api` paths evade detection.
+    Comment `4972454499` contains the bounded repair; #1151 is actively turning.
+138. Dual review rejected completed-turn fix #1162 at `376cc03e`: accepted
+    steering response IDs remain outstanding without idle, interrupt success
+    plus idle-only never settles, and late start frames can resurrect completed
+    IDs. Comment `4972451049` contains the bounded lifecycle matrix; #1162 is
+    actively turning. These findings directly match #1109's live wedge.
 
-At 10:52 PDT the core graph is 6/54 accepted. Four Aiur workers are actively
-turning, #1103 is re-entering rework as the fifth, and all available background
-review slots are assigned to green heads. The configured ceiling is 15; the
+At 11:13 PDT the core graph is 6/54 accepted. Eight useful Aiur lanes are
+allocated, #1091 is outside worker capacity in fresh CI, and #1109 is in
+targeted completed-runner recovery. The configured ceiling is 15; the
 shortfall is the finite ready graph plus the #1161 workspace gate, not an
 intentional low cap.
 #1090, #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds
 until #1161 lands.
-The latest agent-emitted progress evidence is 1088=80, 1091=60, 1096=100
-(merged), 1097=50, 1103=80, 1109=70, 1151=70, 1161=60, and 1162=80.
+The latest agent-emitted progress evidence is 1088=70, 1091=60, 1096=100
+(merged), 1097=50, 1103=80, 1109=70, 1151=70, 1161=70, and 1162=80.
 Concurrent test and Dialyzer work briefly raised host load to 62 while memory
 remained healthy; the burst has drained and the session ceiling is restored to
 15. Prefer logs/GitHub evidence after a control-RPC timeout. No additional core ticket is safely
