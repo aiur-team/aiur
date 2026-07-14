@@ -992,7 +992,7 @@ defmodule Aiur.DecisionStore do
         }
         |> repair_projection()
 
-      if next_state.writable?, do: notify_lifecycle(updated, event)
+      if next_state.writable?, do: notify_lifecycle(updated, event, event_id)
       {:reply, {:ok, %{status: :accepted, decision: updated}}, next_state}
     else
       {:error, :not_durable} -> {:reply, {:error, :event_id_not_durable}, state}
@@ -1349,11 +1349,13 @@ defmodule Aiur.DecisionStore do
     end
   end
 
-  defp notify_lifecycle(decision, event) do
+  defp notify_lifecycle(decision, event), do: notify_lifecycle(decision, event, event.event_id)
+
+  defp notify_lifecycle(decision, event, cursor_event_id) do
     topic = "ticket.#{decision.ticket.identifier}.agent.decision.#{lifecycle_slug(event.type)}"
 
     try do
-      Publisher.publish_persisted(topic, DecisionEvent.to_json_safe(event), event.event_id)
+      Publisher.publish_persisted(topic, DecisionEvent.to_json_safe(event), cursor_event_id)
     rescue
       error -> Logger.warning("aiur_decision_store phase=lifecycle_publisher_failed error=#{Exception.message(error)}")
     end

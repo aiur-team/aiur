@@ -7,9 +7,11 @@ defmodule Aiur.DecisionEvent do
   carries the daemon run and reserved event identities, and hashes the
   complete semantic envelope so replay fails closed on tampering.
 
-  Schema-2 request and enrichment snapshots hash an explicit provenance
-  state. This makes a newly written unknown provenance distinct from a
-  provenance-bearing snapshot whose trusted facts were stripped.
+  Newly written request and enrichment snapshots retain the schema-1 wire
+  format so a rollback reader can replay them. Their reserved durable event
+  ID is wrapped in a parsed provenance marker, which makes the binding
+  requirement part of the existing schema-1 hash without changing the event
+  bus cursor contract.
   """
 
   alias Aiur.{
@@ -22,8 +24,9 @@ defmodule Aiur.DecisionEvent do
     SecretRedactor
   }
 
-  @legacy_schema_version 1
-  @schema_version 2
+  @schema_version 1
+  @versioned_snapshot_schema_version 2
+  @provenance_event_id_prefix "decision-provenance-v1:"
   @identity_max 256
   @reason_max 200
   @detail_max 2_000
@@ -46,6 +49,7 @@ defmodule Aiur.DecisionEvent do
   ]
   @transport_types [:dispatch_queued, :revision_dispatched, :delivered, :restored, :consumed, :failed]
   @actor_types [:acknowledged, :resolved]
+  @snapshot_types [:requested, :enriched]
 
   @type type ::
           :requested
@@ -95,8 +99,18 @@ defmodule Aiur.DecisionEvent do
   @doc "Build and validate one trusted lifecycle event before append."
   @spec new(type(), String.t(), pos_integer(), term(), keyword()) :: {:ok, t()} | {:error, term()}
   def new(type, decision_id, decision_version, data, opts) when is_list(opts) do
-    build(schema_version_for(type), type, decision_id, decision_version, data, opts, nil)
+    with {:ok, event_id} <- durable_snapshot_event_id(type, Keyword.fetch!(opts, :event_id)) do
+      build(@schema_version, type, decision_id, decision_version, data, Keyword.put(opts, :event_id, event_id), nil)
+    end
   end
+
+  defp durable_snapshot_event_id(type, event_id) when type in @snapshot_types do
+    if is_integer(event_id) and event_id > 0,
+      do: {:ok, provenance_event_id(event_id)},
+      else: {:error, {:event_id, :snapshot_marker_required}}
+  end
+
+  defp durable_snapshot_event_id(_type, event_id), do: {:ok, event_id}
 
   defp build(schema_version, type, decision_id, decision_version, data, opts, trusted_provenance) do
     event_id = Keyword.fetch!(opts, :event_id)
@@ -408,8 +422,9 @@ defmodule Aiur.DecisionEvent do
     }
   end
 
-  # Schema-1 event hashes deliberately retain their original material. Its
-  # optional provenance binding remains readable for records already written.
+  # Schema-1 event hashes deliberately retain the current-main material. The
+  # separately bound provenance state does not alter what a rollback reader
+  # reconstructs from the Decision snapshot.
   defp legacy_data_to_json_safe(:requested, %Decision{} = decision) do
     data_to_json_safe(:requested, decision)
     |> Map.delete("provenance")
@@ -425,17 +440,17 @@ defmodule Aiur.DecisionEvent do
 
   defp legacy_data_to_json_safe(type, data), do: data_to_json_safe(type, data)
 
-  defp event_hash_data(@legacy_schema_version, type, data), do: legacy_data_to_json_safe(type, data)
+  defp event_hash_data(@schema_version, type, data), do: legacy_data_to_json_safe(type, data)
 
-  defp event_hash_data(@schema_version, type, data),
+  defp event_hash_data(@versioned_snapshot_schema_version, type, data),
     do: data_to_json_safe(type, data) |> maybe_put_provenance_state(type, data)
 
-  defp event_data_to_json_safe(%__MODULE__{schema_version: @legacy_schema_version} = event) do
+  defp event_data_to_json_safe(%__MODULE__{schema_version: @schema_version} = event) do
     data_to_json_safe(event.type, event.data)
-    |> maybe_put_provenance_hash(event.type, event.data, event)
+    |> maybe_put_provenance_binding(event.type, event.data, event)
   end
 
-  defp event_data_to_json_safe(%__MODULE__{schema_version: @schema_version} = event),
+  defp event_data_to_json_safe(%__MODULE__{schema_version: @versioned_snapshot_schema_version} = event),
     do: data_to_json_safe(event.type, event.data) |> maybe_put_provenance_state(event.type, event.data)
 
   defp data_to_json_safe(:requested, %Decision{} = decision), do: DecisionProjection.to_json_safe(decision)
@@ -492,21 +507,19 @@ defmodule Aiur.DecisionEvent do
     }
   end
 
-  defp maybe_put_provenance_hash(data, _type, _event_data, %__MODULE__{data: %Decision{provenance: nil}}), do: data
+  defp maybe_put_provenance_binding(data, type, event_data, %__MODULE__{} = event)
+       when type in [:requested, :enriched] do
+    state = if provenance_for(type, event_data), do: "captured", else: "unknown"
 
-  defp maybe_put_provenance_hash(data, type, event_data, %__MODULE__{} = event) do
-    case provenance_for(type, event_data) do
-      nil ->
-        data
-
-      %DecisionProvenance{} = provenance ->
-        Map.put(
-          data,
-          "provenance_hash",
-          DecisionValidation.content_hash(provenance_material(type, event, provenance))
-        )
-    end
+    data
+    |> Map.put("provenance_state", state)
+    |> Map.put(
+      "provenance_hash",
+      DecisionValidation.content_hash(provenance_material(type, event, provenance_for(type, event_data), state))
+    )
   end
+
+  defp maybe_put_provenance_binding(data, _type, _event_data, _event), do: data
 
   defp provenance_for(:requested, %Decision{} = decision), do: decision.provenance
   defp provenance_for(:enriched, %{decision: %Decision{} = decision}), do: decision.provenance
@@ -519,21 +532,25 @@ defmodule Aiur.DecisionEvent do
 
   defp maybe_put_provenance_state(data, _type, _event_data), do: data
 
-  defp provenance_material(type, event, provenance) do
+  defp maybe_put_provenance_state(data, nil), do: data
+  defp maybe_put_provenance_state(data, state), do: Map.put(data, :provenance_state, state)
+
+  defp provenance_material(type, event, provenance, state) do
     %{
-      schema_version: @legacy_schema_version,
+      schema_version: @schema_version,
       event_type: type,
       event_id: event.event_id,
       run_id: event.run_id,
       decision_id: event.decision_id,
       decision_version: event.decision_version,
       occurred_at: DateTime.to_iso8601(event.occurred_at),
-      provenance: DecisionProvenance.to_json_safe(provenance)
+      provenance: provenance && DecisionProvenance.to_json_safe(provenance)
     }
+    |> maybe_put_provenance_state(state)
   end
 
   defp decode_typed_provenance(
-         @legacy_schema_version,
+         @schema_version,
          :requested,
          data,
          event_id,
@@ -546,7 +563,7 @@ defmodule Aiur.DecisionEvent do
   end
 
   defp decode_typed_provenance(
-         @legacy_schema_version,
+         @schema_version,
          :enriched,
          data,
          event_id,
@@ -557,16 +574,35 @@ defmodule Aiur.DecisionEvent do
        ) do
     with {:ok, decision} <- fetch_map(data, "decision", :decision) do
       decision
+      |> Map.put("provenance_state", get(data, :provenance_state))
       |> Map.put("provenance_hash", get(data, :provenance_hash))
       |> decode_snapshot_provenance(:enriched, event_id, run_id, decision_id, decision_version, occurred_at)
     end
   end
 
-  defp decode_typed_provenance(@schema_version, :requested, data, _event_id, _run_id, _decision_id, _decision_version, _occurred_at) do
+  defp decode_typed_provenance(
+         @versioned_snapshot_schema_version,
+         :requested,
+         data,
+         _event_id,
+         _run_id,
+         _decision_id,
+         _decision_version,
+         _occurred_at
+       ) do
     decode_versioned_snapshot_provenance(data)
   end
 
-  defp decode_typed_provenance(@schema_version, :enriched, data, _event_id, _run_id, _decision_id, _decision_version, _occurred_at) do
+  defp decode_typed_provenance(
+         @versioned_snapshot_schema_version,
+         :enriched,
+         data,
+         _event_id,
+         _run_id,
+         _decision_id,
+         _decision_version,
+         _occurred_at
+       ) do
     with {:ok, decision} <- fetch_map(data, "decision", :decision) do
       decode_versioned_snapshot_provenance(
         decision
@@ -614,52 +650,331 @@ defmodule Aiur.DecisionEvent do
   end
 
   defp decode_snapshot_provenance(raw, type, event_id, run_id, decision_id, decision_version, occurred_at) do
-    case {get(raw, :provenance), get(raw, :provenance_hash)} do
-      {nil, nil} ->
-        {:ok, nil}
+    case snapshot_event_id_status(event_id) do
+      :marked ->
+        decode_marked_snapshot_provenance(
+          raw,
+          type,
+          event_id,
+          run_id,
+          decision_id,
+          decision_version,
+          occurred_at
+        )
 
-      {nil, _hash} ->
-        {:error, :provenance_hash_without_provenance}
+      :malformed_marker ->
+        {:error, :invalid_provenance_event_id}
 
-      {_provenance, nil} ->
-        {:error, :provenance_hash_missing}
+      :legacy ->
+        decode_legacy_or_bound_snapshot_provenance(
+          raw,
+          type,
+          event_id,
+          run_id,
+          decision_id,
+          decision_version,
+          occurred_at
+        )
+    end
+  end
 
-      {provenance, hash} when is_map(provenance) and is_binary(hash) and hash != "" ->
-        with {:ok, provenance} <- DecisionProvenance.from_json_safe(provenance),
-             :ok <-
-               verify_provenance_hash(
-                 type,
-                 event_id,
-                 run_id,
-                 decision_id,
-                 decision_version,
-                 occurred_at,
-                 provenance,
-                 hash
-               ) do
-          {:ok, provenance}
-        end
+  defp decode_marked_snapshot_provenance(raw, type, event_id, run_id, decision_id, decision_version, occurred_at) do
+    case {get(raw, :provenance_state), get(raw, :provenance), get(raw, :provenance_hash)} do
+      {"captured", provenance, hash} ->
+        decode_bound_snapshot_provenance(
+          provenance,
+          hash,
+          "captured",
+          type,
+          event_id,
+          run_id,
+          decision_id,
+          decision_version,
+          occurred_at
+        )
 
-      _other ->
+      {"unknown", nil, hash} ->
+        decode_bound_snapshot_provenance(
+          nil,
+          hash,
+          "unknown",
+          type,
+          event_id,
+          run_id,
+          decision_id,
+          decision_version,
+          occurred_at
+        )
+
+      {nil, nil, nil} ->
+        {:error, :provenance_binding_missing}
+
+      {nil, nil, _hash} ->
+        {:error, :provenance_state_missing}
+
+      {_state, _provenance, _hash} ->
         {:error, :invalid_provenance_binding}
     end
   end
 
-  defp verify_provenance_hash(type, event_id, run_id, decision_id, decision_version, occurred_at, provenance, persisted_hash) do
+  defp decode_legacy_or_bound_snapshot_provenance(
+         raw,
+         type,
+         event_id,
+         run_id,
+         decision_id,
+         decision_version,
+         occurred_at
+       ) do
+    case {get(raw, :provenance_state), get(raw, :provenance), get(raw, :provenance_hash)} do
+      {nil, nil, nil} ->
+        {:ok, nil}
+
+      {nil, nil, _hash} ->
+        {:error, :provenance_state_missing}
+
+      {nil, provenance, hash} ->
+        decode_legacy_snapshot_provenance(
+          provenance,
+          hash,
+          type,
+          event_id,
+          run_id,
+          decision_id,
+          decision_version,
+          occurred_at
+        )
+
+      {"captured", provenance, hash} ->
+        decode_bound_snapshot_provenance(
+          provenance,
+          hash,
+          "captured",
+          type,
+          event_id,
+          run_id,
+          decision_id,
+          decision_version,
+          occurred_at
+        )
+
+      {"unknown", nil, hash} ->
+        decode_bound_snapshot_provenance(
+          nil,
+          hash,
+          "unknown",
+          type,
+          event_id,
+          run_id,
+          decision_id,
+          decision_version,
+          occurred_at
+        )
+
+      {_state, _provenance, _hash} ->
+        {:error, :invalid_provenance_binding}
+    end
+  end
+
+  defp decode_legacy_snapshot_provenance(
+         nil,
+         _hash,
+         _type,
+         _event_id,
+         _run_id,
+         _decision_id,
+         _decision_version,
+         _occurred_at
+       ),
+       do: {:error, :provenance_hash_without_provenance}
+
+  defp decode_legacy_snapshot_provenance(
+         _provenance,
+         nil,
+         _type,
+         _event_id,
+         _run_id,
+         _decision_id,
+         _decision_version,
+         _occurred_at
+       ),
+       do: {:error, :provenance_hash_missing}
+
+  defp decode_legacy_snapshot_provenance(
+         provenance,
+         hash,
+         type,
+         event_id,
+         run_id,
+         decision_id,
+         decision_version,
+         occurred_at
+       )
+       when is_map(provenance) and is_binary(hash) and hash != "" do
+    with {:ok, provenance} <- DecisionProvenance.from_json_safe(provenance),
+         :ok <-
+           verify_provenance_hash(
+             type,
+             event_id,
+             run_id,
+             decision_id,
+             decision_version,
+             occurred_at,
+             provenance,
+             nil,
+             hash
+           ) do
+      {:ok, provenance}
+    end
+  end
+
+  defp decode_legacy_snapshot_provenance(
+         _provenance,
+         _hash,
+         _type,
+         _event_id,
+         _run_id,
+         _decision_id,
+         _decision_version,
+         _occurred_at
+       ),
+       do: {:error, :invalid_provenance_binding}
+
+  defp decode_bound_snapshot_provenance(
+         nil,
+         _hash,
+         "captured",
+         _type,
+         _event_id,
+         _run_id,
+         _decision_id,
+         _decision_version,
+         _occurred_at
+       ),
+       do: {:error, :provenance_missing}
+
+  defp decode_bound_snapshot_provenance(
+         provenance,
+         hash,
+         state,
+         type,
+         event_id,
+         run_id,
+         decision_id,
+         decision_version,
+         occurred_at
+       )
+       when state == "captured" and is_map(provenance) and is_binary(hash) and hash != "" do
+    with {:ok, provenance} <- DecisionProvenance.from_json_safe(provenance),
+         :ok <-
+           verify_provenance_hash(
+             type,
+             event_id,
+             run_id,
+             decision_id,
+             decision_version,
+             occurred_at,
+             provenance,
+             state,
+             hash
+           ) do
+      {:ok, provenance}
+    end
+  end
+
+  defp decode_bound_snapshot_provenance(
+         nil,
+         hash,
+         "unknown",
+         type,
+         event_id,
+         run_id,
+         decision_id,
+         decision_version,
+         occurred_at
+       )
+       when is_binary(hash) and hash != "" do
+    with :ok <-
+           verify_provenance_hash(
+             type,
+             event_id,
+             run_id,
+             decision_id,
+             decision_version,
+             occurred_at,
+             nil,
+             "unknown",
+             hash
+           ) do
+      {:ok, nil}
+    end
+  end
+
+  defp decode_bound_snapshot_provenance(
+         _provenance,
+         _hash,
+         _state,
+         _type,
+         _event_id,
+         _run_id,
+         _decision_id,
+         _decision_version,
+         _occurred_at
+       ),
+       do: {:error, :invalid_provenance_binding}
+
+  defp verify_provenance_hash(
+         type,
+         event_id,
+         run_id,
+         decision_id,
+         decision_version,
+         occurred_at,
+         provenance,
+         state,
+         persisted_hash
+       ) do
     actual_hash =
-      DecisionValidation.content_hash(%{
-        schema_version: @legacy_schema_version,
-        event_type: type,
-        event_id: event_id,
-        run_id: run_id,
-        decision_id: decision_id,
-        decision_version: decision_version,
-        occurred_at: DateTime.to_iso8601(occurred_at),
-        provenance: DecisionProvenance.to_json_safe(provenance)
-      })
+      DecisionValidation.content_hash(
+        %{
+          schema_version: @schema_version,
+          event_type: type,
+          event_id: event_id,
+          run_id: run_id,
+          decision_id: decision_id,
+          decision_version: decision_version,
+          occurred_at: DateTime.to_iso8601(occurred_at),
+          provenance: provenance && DecisionProvenance.to_json_safe(provenance)
+        }
+        |> maybe_put_provenance_state(state)
+      )
 
     if actual_hash == persisted_hash, do: :ok, else: {:error, :provenance_hash_mismatch}
   end
+
+  defp provenance_event_id(reserved_id), do: @provenance_event_id_prefix <> Integer.to_string(reserved_id)
+
+  defp snapshot_event_id_status(event_id) when is_binary(event_id) do
+    cond do
+      match?({:ok, _reserved_id}, parse_provenance_event_id(event_id)) -> :marked
+      String.starts_with?(event_id, @provenance_event_id_prefix) -> :malformed_marker
+      true -> :legacy
+    end
+  end
+
+  defp snapshot_event_id_status(_event_id), do: :legacy
+
+  defp parse_provenance_event_id(@provenance_event_id_prefix <> reserved_id) do
+    case Integer.parse(reserved_id) do
+      {value, ""} when value > 0 ->
+        if reserved_id == Integer.to_string(value), do: {:ok, value}, else: :error
+
+      _other ->
+        :error
+    end
+  end
+
+  defp parse_provenance_event_id(_event_id), do: :error
 
   defp validate_type(type) when type in @types, do: :ok
   defp validate_type(_other), do: {:error, {:event_type, :unknown}}
@@ -670,13 +985,10 @@ defmodule Aiur.DecisionEvent do
       else: {:error, {:slug, :invalid_format}}
   end
 
-  defp schema_version_for(type) when type in [:requested, :enriched], do: @schema_version
-  defp schema_version_for(_type), do: @legacy_schema_version
-
-  defp decode_schema_version(version) when version in [@legacy_schema_version, @schema_version], do: {:ok, version}
+  defp decode_schema_version(version) when version in [@schema_version, @versioned_snapshot_schema_version], do: {:ok, version}
   defp decode_schema_version(_other), do: {:error, {:schema_version, :unsupported}}
 
-  defp validate_schema_for_type(@schema_version, type) when type not in [:requested, :enriched],
+  defp validate_schema_for_type(@versioned_snapshot_schema_version, type) when type not in [:requested, :enriched],
     do: {:error, {:schema_version, :unsupported}}
 
   defp validate_schema_for_type(_schema_version, _type), do: :ok

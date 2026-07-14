@@ -118,7 +118,7 @@ defmodule Aiur.DecisionHistoryTest do
 
     assert {:ok, event} =
              DecisionEvent.new(:requested, decision.decision_id, decision.version, decision,
-               event_id: "evt-history-provenance",
+               event_id: 901,
                run_id: "run-history-provenance",
                now: ~U[2026-07-13 12:01:00Z]
              )

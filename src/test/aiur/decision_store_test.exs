@@ -312,7 +312,9 @@ defmodule Aiur.DecisionStoreTest do
 
       assert record["event_type"] == "requested"
       assert record["run_id"] == Boot.run_id()
-      assert is_integer(record["event_id"])
+      assert "decision-provenance-v1:" <> reserved_event_id = record["event_id"]
+      assert {reserved_id, ""} = Integer.parse(reserved_event_id)
+      assert reserved_id > 0
       assert record["data"]["decision_id"] == decision.decision_id
     end
 
@@ -477,7 +479,16 @@ defmodule Aiur.DecisionStoreTest do
       assert data.expected_version == 1
       assert data.decision.version == 2
 
-      assert_receive {:event, %{topic: "ticket.979.agent.decision.enriched"}}, 500
+      assert_receive {:event,
+                      %{
+                        "event_id" => "decision-provenance-v1:" <> reserved_event_id,
+                        topic: "ticket.979.agent.decision.enriched",
+                        id: cursor_event_id
+                      }},
+                     500
+
+      assert cursor_event_id > 0
+      assert reserved_event_id == Integer.to_string(cursor_event_id)
       assert_receive {:decision_changed, decision_id, 2}, 500
       assert decision_id == v1.decision_id
 
@@ -1804,7 +1815,24 @@ defmodule Aiur.DecisionStoreTest do
       payload = %{"question" => "Deploy now?", "blocking" => true, "source_id" => "retry-1"}
       assert {:ok, %{status: :accepted, decision: decision}} = request(pid, payload)
 
-      assert_receive {:event, %{:topic => "ticket.979.agent.decision.requested", "question" => "Deploy now?"}}, 500
+      assert_receive {:event,
+                      %{
+                        "question" => "Deploy now?",
+                        topic: "ticket.979.agent.decision.requested",
+                        id: cursor_event_id
+                      }},
+                     500
+
+      assert cursor_event_id > 0
+
+      [persisted] =
+        dir
+        |> Path.join("decisions.ndjson")
+        |> File.read!()
+        |> String.split("\n", trim: true)
+        |> Enum.map(&Jason.decode!/1)
+
+      assert persisted["event_id"] == "decision-provenance-v1:" <> Integer.to_string(cursor_event_id)
       assert_receive {:decision_changed, decision_id, 1}, 500
       assert decision_id == decision.decision_id
     end
