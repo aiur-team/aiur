@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-13 23:28 PDT)
+## Live Executor state (updated 2026-07-13 23:35 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -344,6 +344,17 @@ to a safe range.
     Preserve its new replay/security tests, but keep every remaining finding
     on #1088 rather than filing follow-up tickets. Its implementation slot was
     immediately backfilled by #1104/BO-017.
+34. Direct blocker #1030/PR #1039 reached exact all-green head `77ec7b60`, but
+    two independent reviews found the repair still leases individual turns
+    rather than the incumbent runner/session generation. The duplicate can wake
+    in an ordinary between-turn or paused-session gap, and abnormal termination
+    can leave an unmonitored active-turn entry that parks every retry forever.
+    The consolidated packet is at
+    `https://github.com/its-everdred/aiur/pull/1039#issuecomment-4966093657`.
+    Keep #1030 in rework: require a monitor-backed generation lease spanning
+    SessionLifecycle/after-run, exception-safe turn closure, and sequential-
+    turn, paused-session, and owner-death regressions. This is the existing
+    blocker ticket, not a reason to expand scope.
 
 At 23:28 PDT the core graph is 3/54 merged. Core
 #1089/#1090/#1091/#1096/#1104 are active, #1030 is in contained rework, and
