@@ -21,6 +21,19 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     assert :invalid_title in Enum.map(invalid.diagnostics, & &1.code)
   end
 
+  test "keeps an unlabeled catalog root visible but structurally invalid" do
+    valid = root(1)
+    unlabeled = root(2) |> Map.put("labels", labels([]))
+
+    assert {:ok, %{candidate: catalog}} =
+             GitHubGraph.fetch_catalog(base_opts(catalog_response([valid, unlabeled], 2)))
+
+    [valid_entry, unlabeled_entry] = catalog.entries
+    assert {:ok, _root} = Catalog.select(catalog, valid_entry.identity)
+    assert {:structurally_invalid, ^unlabeled_entry} = Catalog.select(catalog, unlabeled_entry.identity)
+    assert :missing_root_label in Enum.map(unlabeled_entry.diagnostics, & &1.code)
+  end
+
   test "accepts the exact default root bound without per-root reads" do
     roots = Enum.map(1..100, &root/1)
 
@@ -229,6 +242,142 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
 
     assert member.parent_identity.owner == "OWNER"
     assert [%{kind: :native}] = member.dependencies
+  end
+
+  test "fails closed when a selected-member page changes the reported total" do
+    root = root(1)
+
+    responses = [
+      selected_response(root, [member(2, root)], 3, has_next?: true, cursor: "member-page-2"),
+      selected_response(root, [member(3, root)], 2)
+    ]
+
+    assert {:error, %{error: :pagination_mismatch, calls: 2, pages: 2, candidate: nil}} =
+             GitHubGraph.fetch_selected_root(
+               1,
+               base_opts(queued_responses(responses), page_budget: 2, call_budget: 2)
+             )
+  end
+
+  test "fails closed when a catalog page changes the reported total" do
+    responses = [
+      catalog_response([root(1)], 3, has_next?: true, cursor: "root-page-2"),
+      catalog_response([root(2)], 2)
+    ]
+
+    assert {:error, %{error: :pagination_mismatch, calls: 2, pages: 2, candidate: nil}} =
+             GitHubGraph.fetch_catalog(base_opts(queued_responses(responses), page_budget: 2, call_budget: 2))
+  end
+
+  test "rejects duplicate members with the same canonical identity" do
+    root = root(1)
+    duplicate = member(2, root)
+
+    same_identity_with_different_casing =
+      duplicate
+      |> put_in(["repository", "owner", "login"], "OWNER")
+      |> put_in(["repository", "name"], "REPO")
+
+    assert {:error, %{error: :duplicate_identity, candidate: selected}} =
+             GitHubGraph.fetch_selected_root(
+               1,
+               base_opts(selected_response(root, [duplicate, same_identity_with_different_casing], 2))
+             )
+
+    assert length(selected.members) == 2
+  end
+
+  test "fails closed on malformed root and member lifecycle facts" do
+    root = root(1)
+
+    missing_root_state = Map.delete(root, "state")
+
+    assert {:error, %{error: :structurally_invalid, candidate: selected}} =
+             GitHubGraph.fetch_selected_root(1, base_opts(selected_response(missing_root_state, [], 0)))
+
+    assert :invalid_lifecycle in Enum.map(selected.root.diagnostics, & &1.code)
+
+    missing_member_state = member(2, root) |> Map.delete("state")
+
+    assert {:error, %{error: :structurally_invalid, candidate: selected}} =
+             GitHubGraph.fetch_selected_root(1, base_opts(selected_response(root, [missing_member_state], 1)))
+
+    assert :invalid_lifecycle in (selected.members
+                                  |> hd()
+                                  |> Map.fetch!(:diagnostics)
+                                  |> Enum.map(& &1.code))
+
+    closed_without_reason = root |> Map.put("state", "CLOSED") |> Map.put("stateReason", nil)
+
+    assert {:error, %{error: :structurally_invalid, candidate: selected}} =
+             GitHubGraph.fetch_selected_root(1, base_opts(selected_response(closed_without_reason, [], 0)))
+
+    assert :invalid_lifecycle in Enum.map(selected.root.diagnostics, & &1.code)
+
+    invalid_root_state = Map.put(root, "state", "UNRECOGNIZED")
+
+    assert {:error, %{error: :structurally_invalid, candidate: selected}} =
+             GitHubGraph.fetch_selected_root(1, base_opts(selected_response(invalid_root_state, [], 0)))
+
+    assert :invalid_lifecycle in Enum.map(selected.root.diagnostics, & &1.code)
+  end
+
+  test "requires the selected root to retain its controlled root label" do
+    unlabeled_root = root(1) |> Map.put("labels", labels([]))
+
+    assert {:error, %{error: :structurally_invalid, candidate: selected}} =
+             GitHubGraph.fetch_selected_root(1, base_opts(selected_response(unlabeled_root, [], 0)))
+
+    assert :missing_root_label in Enum.map(selected.root.diagnostics, & &1.code)
+  end
+
+  test "accepts GitHub reopened lifecycle facts for open roots and members" do
+    reopened_root = root(1) |> Map.put("stateReason", "REOPENED")
+    reopened_member = member(2, reopened_root) |> Map.put("state", "OPEN") |> Map.put("stateReason", "REOPENED")
+
+    assert {:ok, %{candidate: %{root: root, members: [member]}}} =
+             GitHubGraph.fetch_selected_root(1, base_opts(selected_response(reopened_root, [reopened_member], 1)))
+
+    assert %{state: :open, state_reason: :reopened} = root.lifecycle
+    assert %{state: :open, state_reason: :reopened} = member.lifecycle
+  end
+
+  test "preserves validated dependency counts when their connection is incomplete" do
+    root = root(1)
+
+    for {connection, expected_count} <- [
+          {connection([], 101, has_next?: true, cursor: "dependency-page-2"), 101},
+          {connection([endpoint(9)], 1, has_next?: true, cursor: "dependency-page-2"), 1},
+          {connection([endpoint(9)], 2, []), 2}
+        ] do
+      child = member(2, root) |> Map.put("blockedBy", connection)
+
+      assert {:error, %{error: :structurally_invalid, candidate: selected}} =
+               GitHubGraph.fetch_selected_root(1, base_opts(selected_response(root, [child], 1)))
+
+      [member] = selected.members
+      assert member.connection_counts.blocked_by == expected_count
+      assert :connection_overflow in Enum.map(member.diagnostics, & &1.code)
+    end
+  end
+
+  test "accepts zero direct members and rejects a selected-member overflow" do
+    root = root(1)
+
+    assert {:ok, %{candidate: %{members: []}}} =
+             GitHubGraph.fetch_selected_root(1, base_opts(selected_response(root, [], 0)))
+
+    first_page =
+      selected_response(
+        root,
+        Enum.map(2..101, &member(&1, root)),
+        101,
+        has_next?: true,
+        cursor: "member-page-2"
+      )
+
+    assert {:error, %{error: :member_overflow, calls: 1, pages: 1, candidate: nil}} =
+             GitHubGraph.fetch_selected_root(1, base_opts(first_page))
   end
 
   defp base_opts(response_or_request_fun, overrides \\ []) do

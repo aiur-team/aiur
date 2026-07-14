@@ -5,6 +5,7 @@ defmodule Aiur.BuildOrder.GitHubGraph do
     Catalog,
     Dependency,
     Diagnostic,
+    Lifecycle,
     Member,
     ProviderHealth,
     ProviderResult,
@@ -31,6 +32,7 @@ defmodule Aiur.BuildOrder.GitHubGraph do
       :limit,
       :root_number,
       :root,
+      expected_total: nil,
       cursor: nil,
       seen_cursors: MapSet.new(),
       nodes: []
@@ -169,16 +171,28 @@ defmodule Aiur.BuildOrder.GitHubGraph do
   defp selected_page_result({:error, reason, state}, _root), do: {:error, reason, state}
 
   defp advance_page(paging, nodes, total, page_info, state) do
-    paging = %{paging | nodes: paging.nodes ++ nodes}
+    case remember_total(paging, total) do
+      {:ok, paging} ->
+        paging = %{paging | nodes: paging.nodes ++ nodes}
 
-    case page_status(paging, total, page_info, state) do
-      :overflow -> {:error, overflow_code(paging), state}
-      :page_budget_exhausted -> {:error, :page_budget_exhausted, state}
-      :complete -> {:ok, paging.nodes, state}
-      :next -> advance_cursor(paging, page_info, state)
-      :pagination_mismatch -> {:error, :pagination_mismatch, state}
+        case page_status(paging, total, page_info, state) do
+          :overflow -> {:error, overflow_code(paging), state}
+          :page_budget_exhausted -> {:error, :page_budget_exhausted, state}
+          :complete -> {:ok, paging.nodes, state}
+          :next -> advance_cursor(paging, page_info, state)
+          :pagination_mismatch -> {:error, :pagination_mismatch, state}
+        end
+
+      :error ->
+        {:error, :pagination_mismatch, state}
     end
   end
+
+  defp remember_total(%Paging{expected_total: nil} = paging, total),
+    do: {:ok, %{paging | expected_total: total}}
+
+  defp remember_total(%Paging{expected_total: total} = paging, total), do: {:ok, paging}
+  defp remember_total(%Paging{}, _total), do: :error
 
   defp page_status(paging, total, page_info, state) do
     cond do
@@ -226,7 +240,7 @@ defmodule Aiur.BuildOrder.GitHubGraph do
   end
 
   defp catalog_result(nodes, repository, state) do
-    roots = Enum.map(nodes, &root_summary(&1, repository))
+    roots = Enum.map(nodes, &(root_summary(&1, repository) |> validate_root_label()))
     catalog = Catalog.new(roots, ProviderHealth.new(1, :healthy, true))
 
     if Enum.any?(roots, &duplicate_root?(&1, roots)) do
@@ -237,7 +251,7 @@ defmodule Aiur.BuildOrder.GitHubGraph do
   end
 
   defp selected_result(root_node, member_nodes, repository, state) do
-    root = root_summary(root_node, repository)
+    root = root_node |> root_summary(repository) |> validate_root_label()
     members = Enum.map(member_nodes, &member(&1, repository, root.identity))
     members = validate_internal_dependencies(members, root.identity)
     selected = SelectedRoot.new(root, members, ProviderHealth.new(1, :healthy, true))
@@ -283,6 +297,7 @@ defmodule Aiur.BuildOrder.GitHubGraph do
     append_diagnostics(summary, [
       identity_diagnostic,
       parent_diagnostic,
+      lifecycle_diagnostic(Map.get(node, "state"), Map.get(node, "stateReason")),
       labels_diagnostic,
       created_diagnostic,
       updated_diagnostic
@@ -315,6 +330,7 @@ defmodule Aiur.BuildOrder.GitHubGraph do
       identity_diagnostic,
       parent_diagnostic,
       direct_parent_diagnostic(parent, root_identity),
+      lifecycle_diagnostic(Map.get(node, "state"), Map.get(node, "stateReason")),
       labels_diagnostic,
       created_diagnostic,
       updated_diagnostic,
@@ -325,21 +341,27 @@ defmodule Aiur.BuildOrder.GitHubGraph do
 
   defp dependencies(node, key, repository, configured_identity, direction) do
     with {:ok, connection} <- Map.fetch(node, key),
-         {:ok, nodes, total, page_info} <- connection(connection),
-         true <- total <= @connection_limit and not page_info.has_next? and length(nodes) == total do
-      {dependencies, malformed_endpoint?} =
-        Enum.map_reduce(nodes, false, fn endpoint, malformed? ->
-          {identity, _diagnostic} = endpoint_identity(endpoint, repository)
-          dependency = Dependency.new(configured_identity, identity, Map.get(endpoint, "url"), direction)
-          {dependency, malformed? or dependency.kind == :unknown}
-        end)
-
-      {dependencies, total, if(malformed_endpoint?, do: Diagnostic.new(:invalid_dependency), else: nil)}
+         {:ok, nodes, total, page_info} <- connection(connection) do
+      dependencies_from_connection(nodes, total, page_info, repository, configured_identity, direction)
     else
-      false -> {[], 0, Diagnostic.new(:connection_overflow)}
       {:error, _reason} -> {[], 0, Diagnostic.new(:invalid_dependency)}
     end
   end
+
+  defp dependencies_from_connection(nodes, total, page_info, repository, configured_identity, direction)
+       when total <= @connection_limit and not page_info.has_next? and length(nodes) == total do
+    {dependencies, malformed_endpoint?} =
+      Enum.map_reduce(nodes, false, fn endpoint, malformed? ->
+        {identity, _diagnostic} = endpoint_identity(endpoint, repository)
+        dependency = Dependency.new(configured_identity, identity, Map.get(endpoint, "url"), direction)
+        {dependency, malformed? or dependency.kind == :unknown}
+      end)
+
+    {dependencies, total, if(malformed_endpoint?, do: Diagnostic.new(:invalid_dependency), else: nil)}
+  end
+
+  defp dependencies_from_connection(_nodes, total, _page_info, _repository, _configured_identity, _direction),
+    do: {[], total, Diagnostic.new(:connection_overflow)}
 
   defp validate_internal_dependencies(members, root_identity) do
     identities =
@@ -448,11 +470,23 @@ defmodule Aiur.BuildOrder.GitHubGraph do
     %{record | diagnostics: existing_diagnostics ++ additions}
   end
 
+  defp validate_root_label(%{labels: labels} = root) do
+    if @root_label in labels,
+      do: root,
+      else: append_diagnostics(root, [Diagnostic.new(:missing_root_label)])
+  end
+
+  defp lifecycle_diagnostic(state, reason) do
+    if Lifecycle.valid?(Lifecycle.from_github(state, reason)),
+      do: nil,
+      else: Diagnostic.new(:invalid_lifecycle)
+  end
+
   defp duplicate_root?(root, roots), do: Enum.count(roots, &same_identity?(&1.identity, root.identity)) > 1
 
   defp duplicate_members?(members) do
-    identities = Enum.map(members, & &1.identity)
-    Enum.any?(identities, &is_nil/1) or length(identities) != MapSet.size(MapSet.new(identities))
+    identity_keys = Enum.map(members, &identity_key(&1.identity))
+    Enum.any?(identity_keys, &is_nil/1) or length(identity_keys) != MapSet.size(MapSet.new(identity_keys))
   end
 
   defp same_identity?(%TrackerIdentity{} = left, %TrackerIdentity{} = right) do

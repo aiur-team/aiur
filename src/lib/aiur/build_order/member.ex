@@ -246,6 +246,7 @@ defmodule Aiur.BuildOrder.Member do
             :invalid_identity,
             :invalid_dependency,
             :invalid_member,
+            :invalid_lifecycle,
             :invalid_title,
             :invalid_url,
             :unresolved_internal_dependency

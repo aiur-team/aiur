@@ -45,6 +45,16 @@ defmodule Aiur.BuildOrder.Lifecycle do
   def from_github(state, reason),
     do: %__MODULE__{state: normalize_state(state), state_reason: normalize_reason(reason)}
 
+  @spec valid?(term()) :: boolean()
+  def valid?(%__MODULE__{state: :open, state_reason: reason}) when reason in [:unknown, :reopened],
+    do: true
+
+  def valid?(%__MODULE__{state: :closed, state_reason: reason})
+      when reason in [:completed, :not_planned, :duplicate],
+      do: true
+
+  def valid?(_lifecycle), do: false
+
   defp normalize_state(value) when value in [:open, "OPEN", "open"], do: :open
   defp normalize_state(value) when value in [:closed, "CLOSED", "closed"], do: :closed
   defp normalize_state(_value), do: :unknown
