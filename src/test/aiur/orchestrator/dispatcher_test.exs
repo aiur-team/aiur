@@ -370,13 +370,21 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       :ok
     end
 
-    next_state = Dispatcher.do_dispatch_issue(%State{max_concurrent_agents: 1, effective_concurrent_agents: 1}, issue, nil, nil, runner: runner)
+    next_state =
+      Dispatcher.do_dispatch_issue(
+        %State{max_concurrent_agents: 1, effective_concurrent_agents: 1},
+        issue,
+        nil,
+        nil,
+        runner: runner
+      )
 
     assert_receive {:agent_runner_run, ^issue, _recipient, runner_opts}
     attempt_id = Keyword.fetch!(runner_opts, :telemetry_attempt_id)
     assert get_in(next_state.running, [issue.id, :telemetry_attempt_id]) == attempt_id
 
-    {_session_backend, _remote_control?, session_opts} = SessionLifecycle.resolve_session_options(issue, runner_opts, nil)
+    {_session_backend, _remote_control?, session_opts} =
+      SessionLifecycle.resolve_session_options(issue, runner_opts, nil)
 
     assert {:ok, session} =
              SessionLifecycle.start_agent_session(
