@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-13 19:03 PDT)
+## Live Executor state (updated 2026-07-13 19:40 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -27,8 +27,11 @@ Phase 1 has five dependency-ready Terra workers: #1086 BO-004, #1087 BO-008,
 matched the graph's ready width; it is not a program ceiling. At every readiness
 transition, set concurrency toward the full ready width when measured CPU,
 memory, file-descriptor, build-gate, serialization, and model capacity permit.
-At this snapshot, 5/5 slots and both build slots are occupied, CPU is saturated,
-and memory has ample headroom, so adding unrelated work would reduce throughput.
+After a contained restart, only those five BO tickets are routable. The load
+controller restarted at an effective width of two and admitted #1086 and #1087;
+the configured/session cap remains five and must ramp toward every ready ticket
+as measured load permits. At this snapshot load is 3.86 with 23 GiB available,
+so the controller—not an arbitrary Executor cap—is the remaining admission gate.
 
 **Current operating decisions:**
 
@@ -56,7 +59,7 @@ and memory has ample headroom, so adding unrelated work would reduce throughput.
    is active operationally but it also has no dispatch label.
 5. Maintain this handoff whenever an operator directive, execution override,
    capacity decision, discovered blocker, or validation authority changes.
-6. The prewarm base currently equals live `origin/main` at `9dca435e`. Although
+6. The prewarm base currently equals live `origin/main` at `e27e96db`. Although
    `prewarm.poll_seconds` is zero, each tracker dispatch cycle calls
    `RepoBase.refresh_async/0`; after every merge verify the base fetches,
    rebuilds, and reaches the new `main` before newly-ready dispatch begins.
@@ -87,6 +90,19 @@ and memory has ample headroom, so adding unrelated work would reduce throughput.
    Keep #1146 open until the next agent-created PR targets `main` without
    intervention; do not claim automatic wrong-base repair from configuration
    inspection alone.
+10. At 19:34 PDT a controlled restart proved that startup removes durable
+    `agent:paused` labels from active-state tickets via
+    `PauseResume.recover_startup_pause_override/2`. Deferred #1032 and #678
+    immediately consumed two Sol turns, displacing BO rework; #99, #728, and
+    #1030 were exposed to the same defect. P1 #1148 records the contradiction
+    with the documented pause contract. Run containment removed active-state
+    labels from all five deferred tickets while retaining `agent:paused`, then
+    restarted cleanly; do not restore their active-state labels during this
+    bounded feature run. The local dashboard is healthy on `127.0.0.1:4000`;
+    direct non-loopback binding correctly refused to start without basic-auth
+    credentials, and adding a Tailscale Serve listener requires host sudo. The
+    separate progress prototype remains reachable on the existing Tailscale
+    listener at port 4180.
 
 At 19:06 PDT the five event-reported percentages are BO-004 70%, BO-008 70%,
 DASH-006 70%, DASH-017 50%, and DASH-018 70% (66% ticket-average). DASH-018
