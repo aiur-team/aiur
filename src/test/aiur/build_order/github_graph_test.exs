@@ -751,9 +751,16 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     member_collision = member(3, root) |> Map.put("databaseId", 2)
     number_and_url_collision = member(2, root) |> Map.put("number", 1) |> Map.put("url", root["url"])
 
-    for members <- [[database_collision], [member(2, root), member_collision], [number_and_url_collision]] do
+    for members <- [
+          [database_collision],
+          [member(2, root), member_collision],
+          [number_and_url_collision]
+        ] do
       assert {:error, %{error: :duplicate_identity, candidate: selected}} =
-               GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, members, length(members))))
+               GitHubGraph.fetch_selected_root(
+                 identity(root),
+                 base_opts(selected_response(root, members, length(members)))
+               )
 
       assert SelectedRoot.status(selected) == :structurally_invalid
     end

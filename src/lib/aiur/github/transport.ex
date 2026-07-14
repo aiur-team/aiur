@@ -124,35 +124,32 @@ defmodule Aiur.GitHub.Transport do
           {:ok, map(), map()} | {:error, term(), map() | nil}
   def github_graphql_response(request_fun, token, query, variables) do
     body = %{"query" => query, "variables" => variables}
-
-    case request_fun.(%{method: :post, url: @graphql_url, token: token, body: body}) do
-      {:ok, %{status: 200, body: %{"errors" => errors}} = response} ->
-        if valid_graphql_errors?(errors),
-          do: {:error, Errors.graphql_error(response), response},
-          else: {:error, :invalid_graphql_response, response}
-
-      {:ok, %{status: 200, body: response} = transport_response} when is_map(response) ->
-        {:ok, response, transport_response}
-
-      {:ok, %{status: 200} = response} ->
-        {:error, :invalid_graphql_response, response}
-
-      {:ok, %{status: status} = response} when is_integer(status) and status in 100..599 ->
-        {:error, Errors.github_graph_status_error(response), response}
-
-      {:ok, %{} = response} ->
-        {:error, :invalid_graphql_response, response}
-
-      {:ok, _response} ->
-        {:error, :invalid_graphql_response, nil}
-
-      {:error, reason} ->
-        {:error, Errors.classify_error({:error, reason}), nil}
-
-      _response ->
-        {:error, :invalid_graphql_response, nil}
-    end
+    request = %{method: :post, url: @graphql_url, token: token, body: body}
+    validate_graphql_response(request_fun.(request))
   end
+
+  defp validate_graphql_response({:ok, response}), do: validate_graphql_http_response(response)
+  defp validate_graphql_response({:error, reason}), do: {:error, Errors.classify_error({:error, reason}), nil}
+  defp validate_graphql_response(_response), do: {:error, :invalid_graphql_response, nil}
+
+  defp validate_graphql_http_response(%{status: 200} = response), do: validate_graphql_success(response)
+
+  defp validate_graphql_http_response(%{status: status} = response)
+       when is_integer(status) and status in 100..599 do
+    {:error, Errors.github_graph_status_error(response), response}
+  end
+
+  defp validate_graphql_http_response(%{} = response), do: {:error, :invalid_graphql_response, response}
+  defp validate_graphql_http_response(_response), do: {:error, :invalid_graphql_response, nil}
+
+  defp validate_graphql_success(%{body: %{"errors" => errors}} = response) do
+    if valid_graphql_errors?(errors),
+      do: {:error, Errors.graphql_error(response), response},
+      else: {:error, :invalid_graphql_response, response}
+  end
+
+  defp validate_graphql_success(%{body: body} = response) when is_map(body), do: {:ok, body, response}
+  defp validate_graphql_success(response), do: {:error, :invalid_graphql_response, response}
 
   defp valid_graphql_errors?(errors) when is_list(errors) and errors != [], do: Enum.all?(errors, &is_map/1)
   defp valid_graphql_errors?(_errors), do: false

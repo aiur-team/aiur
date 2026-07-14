@@ -157,12 +157,13 @@ defmodule Aiur.BuildOrder.GitHubGraph.Settings do
   defp same_repository?(_root, _repository), do: false
 
   defp configured_options?(opts, repository, limits) do
-    with :ok <- repository_option?(opts, repository),
-         :ok <- limit_option?(opts, :root_limit, limits.root_limit),
-         :ok <- limit_option?(opts, :page_budget, limits.page_budget),
-         :ok <- limit_option?(opts, :call_budget, limits.call_budget) do
-      :ok
-    end
+    [
+      repository_option?(opts, repository),
+      limit_option?(opts, :root_limit, limits.root_limit),
+      limit_option?(opts, :page_budget, limits.page_budget),
+      limit_option?(opts, :call_budget, limits.call_budget)
+    ]
+    |> Enum.find(:ok, &(&1 != :ok))
   end
 
   defp repository_option?(opts, {owner, repository}) do
@@ -170,7 +171,8 @@ defmodule Aiur.BuildOrder.GitHubGraph.Settings do
       :error ->
         :ok
 
-      {:ok, {requested_owner, requested_repository}} when is_binary(requested_owner) and is_binary(requested_repository) ->
+      {:ok, {requested_owner, requested_repository}}
+      when is_binary(requested_owner) and is_binary(requested_repository) ->
         if String.downcase(requested_owner) == String.downcase(owner) and
              String.downcase(requested_repository) == String.downcase(repository),
            do: :ok,
