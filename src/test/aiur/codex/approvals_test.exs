@@ -216,6 +216,34 @@ defmodule Aiur.Codex.ApprovalsTest do
         Port.close(port)
       end
     end
+
+    test "returns port_closed without acknowledging a completed tool call" do
+      port = open_cat_port()
+      Port.close(port)
+      test_pid = self()
+      params = %{"tool" => "emit_event", "arguments" => %{"name" => "progress.checkin"}}
+      payload = %{"id" => 102, "method" => "item/tool/call", "params" => params}
+
+      tool_executor = fn _tool, _args ->
+        send(test_pid, :tool_executed)
+        %{"success" => true, "output" => "event published"}
+      end
+
+      assert {:error, :port_closed} =
+               Approvals.maybe_handle_approval_request(
+                 port,
+                 "item/tool/call",
+                 payload,
+                 Jason.encode!(payload),
+                 fn message -> send(test_pid, {:event, message}) end,
+                 @metadata,
+                 tool_executor,
+                 false
+               )
+
+      assert_receive :tool_executed
+      refute_receive {:event, %{event: :tool_call_completed}}
+    end
   end
 
   describe "pause containment" do

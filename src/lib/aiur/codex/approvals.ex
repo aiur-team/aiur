@@ -20,7 +20,7 @@ defmodule Aiur.Codex.Approvals do
           boolean(),
           map(),
           boolean()
-        ) :: :approved | :approval_required | :input_required | :unhandled
+        ) :: :approved | :approval_required | :input_required | :unhandled | {:error, :port_closed}
   def maybe_handle_approval_request(
         port,
         method,
@@ -62,7 +62,7 @@ defmodule Aiur.Codex.Approvals do
           (term(), term() -> term()),
           boolean(),
           boolean()
-        ) :: :approved | :approval_required | :input_required | :unhandled
+        ) :: :approved | :approval_required | :input_required | :unhandled | {:error, :port_closed}
   def maybe_handle_approval_request(port, method, %{"id" => id} = payload, payload_string, on_message, metadata, _tool_executor, _auto_approve_requests, true) do
     deny_for_pause(port, method, id, payload, payload_string, on_message, metadata)
   end
@@ -191,23 +191,23 @@ defmodule Aiur.Codex.Approvals do
           map(),
           (term(), term() -> term()),
           boolean()
-        ) :: :approved | :approval_required | :input_required | :unhandled
+        ) :: :approved | :approval_required | :input_required | :unhandled | {:error, :port_closed}
   def maybe_handle_approval_request(port, method, payload, payload_string, on_message, metadata, tool_executor, auto_approve_requests) do
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     maybe_handle_approval_request(port, method, payload, payload_string, on_message, metadata, tool_executor, auto_approve_requests, false)
   end
 
   defp approve_or_require(port, id, decision, payload, payload_string, on_message, metadata, true) do
-    Rpc.send_message(port, %{"id" => id, "result" => %{"decision" => decision}})
+    with :ok <- send_response(port, %{"id" => id, "result" => %{"decision" => decision}}) do
+      Messages.emit_message(
+        on_message,
+        :approval_auto_approved,
+        %{payload: payload, raw: payload_string, decision: decision},
+        metadata
+      )
 
-    Messages.emit_message(
-      on_message,
-      :approval_auto_approved,
-      %{payload: payload, raw: payload_string, decision: decision},
-      metadata
-    )
-
-    :approved
+      :approved
+    end
   end
 
   defp approve_or_require(_port, _id, _decision, _payload, _payload_string, _on_message, _metadata, false) do
@@ -223,32 +223,32 @@ defmodule Aiur.Codex.Approvals do
       |> ToolExecutor.execute(tool_name, arguments, Messages.tool_call_id(params, id))
       |> Messages.normalize_tool_result(context)
 
-    Rpc.send_message(port, %{"id" => id, "result" => result})
+    with :ok <- send_response(port, %{"id" => id, "result" => result}) do
+      event =
+        case result do
+          %{"success" => true} -> :tool_call_completed
+          _ when is_nil(tool_name) -> :unsupported_tool_call
+          _ -> :tool_call_failed
+        end
 
-    event =
-      case result do
-        %{"success" => true} -> :tool_call_completed
-        _ when is_nil(tool_name) -> :unsupported_tool_call
-        _ -> :tool_call_failed
-      end
-
-    Messages.emit_message(on_message, event, %{payload: payload, raw: payload_string}, metadata)
-    :approved
+      Messages.emit_message(on_message, event, %{payload: payload, raw: payload_string}, metadata)
+      :approved
+    end
   end
 
   defp maybe_auto_answer_tool_request_user_input(port, id, params, payload, payload_string, on_message, metadata, true) do
     case UserInputAnswers.approval_answers(params) do
       {:ok, answers, decision} ->
-        Rpc.send_message(port, %{"id" => id, "result" => %{"answers" => answers}})
+        with :ok <- send_response(port, %{"id" => id, "result" => %{"answers" => answers}}) do
+          Messages.emit_message(
+            on_message,
+            :approval_auto_approved,
+            %{payload: payload, raw: payload_string, decision: decision},
+            metadata
+          )
 
-        Messages.emit_message(
-          on_message,
-          :approval_auto_approved,
-          %{payload: payload, raw: payload_string, decision: decision},
-          metadata
-        )
-
-        :approved
+          :approved
+        end
 
       :error ->
         reply_with_non_interactive_tool_input_answer(port, id, params, payload, payload_string, on_message, metadata)
@@ -262,16 +262,16 @@ defmodule Aiur.Codex.Approvals do
   defp reply_with_non_interactive_tool_input_answer(port, id, params, payload, payload_string, on_message, metadata) do
     case UserInputAnswers.unavailable_answers(params) do
       {:ok, answers} ->
-        Rpc.send_message(port, %{"id" => id, "result" => %{"answers" => answers}})
+        with :ok <- send_response(port, %{"id" => id, "result" => %{"answers" => answers}}) do
+          Messages.emit_message(
+            on_message,
+            :tool_input_auto_answered,
+            %{payload: payload, raw: payload_string, answer: UserInputAnswers.non_interactive_answer()},
+            metadata
+          )
 
-        Messages.emit_message(
-          on_message,
-          :tool_input_auto_answered,
-          %{payload: payload, raw: payload_string, answer: UserInputAnswers.non_interactive_answer()},
-          metadata
-        )
-
-        :approved
+          :approved
+        end
 
       :error ->
         :input_required
@@ -279,14 +279,24 @@ defmodule Aiur.Codex.Approvals do
   end
 
   defp deny_for_pause(port, "item/tool/call", id, payload, payload_string, on_message, metadata) do
-    Rpc.send_message(port, %{"id" => id, "result" => %{"success" => false, "output" => "Agent pause is in progress; tool execution is unavailable."}})
-    Messages.emit_message(on_message, :tool_call_failed, %{payload: payload, raw: payload_string}, metadata)
-    :approved
+    with :ok <-
+           send_response(port, %{"id" => id, "result" => %{"success" => false, "output" => "Agent pause is in progress; tool execution is unavailable."}}) do
+      Messages.emit_message(on_message, :tool_call_failed, %{payload: payload, raw: payload_string}, metadata)
+      :approved
+    end
   end
 
   defp deny_for_pause(port, _method, id, payload, payload_string, on_message, metadata) do
-    Rpc.send_message(port, %{"id" => id, "result" => %{"decision" => "declined"}})
-    Messages.emit_message(on_message, :approval_required, %{payload: payload, raw: payload_string}, metadata)
-    :approved
+    with :ok <- send_response(port, %{"id" => id, "result" => %{"decision" => "declined"}}) do
+      Messages.emit_message(on_message, :approval_required, %{payload: payload, raw: payload_string}, metadata)
+      :approved
+    end
+  end
+
+  defp send_response(port, payload) do
+    Rpc.send_message(port, payload)
+    :ok
+  rescue
+    ArgumentError -> {:error, :port_closed}
   end
 end

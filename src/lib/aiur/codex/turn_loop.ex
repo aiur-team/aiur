@@ -119,6 +119,9 @@ defmodule Aiur.Codex.TurnLoop do
 
         {:error, {:approval_required, payload}}
 
+      {:error, reason} ->
+        {:error, reason}
+
       :unhandled ->
         handle_unhandled_method(session, state, method, payload, payload_string, on_message, metadata)
     end

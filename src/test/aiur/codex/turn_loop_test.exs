@@ -132,6 +132,27 @@ defmodule Aiur.Codex.TurnLoopTest do
       close_port(port)
     end
 
+    test "a closed port makes a completed tool call terminal" do
+      port = open_cat_port()
+      close_port(port)
+      payload = %{"method" => "item/tool/call", "id" => 79, "params" => %{"tool" => "emit_event", "arguments" => %{}}}
+
+      state =
+        %{
+          base_state()
+          | tool_executor: fn "emit_event", %{} ->
+              send(self(), :tool_executed)
+              %{"success" => true, "output" => "event published"}
+            end
+        }
+
+      assert {:error, :port_closed} =
+               TurnLoop.handle_method(%{port: port}, state, payload, Jason.encode!(payload), "item/tool/call")
+
+      assert_receive :tool_executed
+      refute_received {:event, :tool_call_completed}
+    end
+
     @tag :tmp_dir
     test "auto-approved tool calls spill oversized results into the session workspace", %{tmp_dir: tmp_dir} do
       {_output, 0} = System.cmd("git", ["init", "-q"], cd: tmp_dir)

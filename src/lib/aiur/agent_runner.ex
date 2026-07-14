@@ -53,10 +53,16 @@ defmodule Aiur.AgentRunner do
   # way: a single paste that the pane could not confirm (RC input contention,
   # a slow render) must not tear down an otherwise-healthy agent and crash the
   # run. Re-dispatch with a fresh pane instead of hard-failing.
+  #
+  # A closed app-server port (`:port_closed`) means the current generation was
+  # already retired while finishing an approval/tool response. Its delivered
+  # queue work is restored before this reaches the runner, so a clean exit lets
+  # the orchestrator replace the generation and drain that work exactly once.
   @doc false
   @spec transient_run_error?(term()) :: boolean()
   def transient_run_error?(:repl_gone), do: true
   def transient_run_error?(:prompt_not_delivered), do: true
+  def transient_run_error?(:port_closed), do: true
   def transient_run_error?(_reason), do: false
 
   defp run_on_worker_host(issue, codex_update_recipient, opts, worker_host) do
