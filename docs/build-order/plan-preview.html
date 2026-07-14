@@ -336,7 +336,7 @@ function buildGraph(rootEl, pack, title, cap){
 
   let html = `
   <div class="bo-header">
-    <div><h2>${title}</h2><div class="cap">${cap}</div></div>
+    <div>${title?`<h2>${title}</h2>`:""}${cap?`<div class="cap">${cap}</div>`:""}</div>
     <div class="bo-tools">
       <div class="bo-legend">
         <span class="bo-leg"><i class="bo-leg-card live"></i>agent live</span>
@@ -578,9 +578,7 @@ document.addEventListener("keydown",e=>{ if(e.key==="Escape") drawer.classList.r
      </div>`).join("");
 })();
 
-buildGraph(document.getElementById("graph-all"), "all",
-  `Build Order: aiur-dashboard-program \u2014 ${CORE_TICKETS.length} core members + ${ADHOC_TICKETS.length} ad hoc`,
-  "The approved 54-ticket graph remains the feature denominator. The Ad Hoc epic shows tickets created during execution; each receives the phase closest to its actual pickup, while deferred work stays in the TBD row. Epic lanes \u00d7 dependency waves; native blockedBy edges apply to the core graph. Hover a card to trace its chain; green cards mean an agent is live, solid grey cards are merged, and amber marks the serial critical path.");
+buildGraph(document.getElementById("graph-all"), "all", "", "");
 
 /* theme toggle */
 document.getElementById("themeBtn").addEventListener("click",()=>{
