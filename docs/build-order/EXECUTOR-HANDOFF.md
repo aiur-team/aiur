@@ -397,12 +397,43 @@ to a safe range.
     BO-002 20%, BO-009 40%, and BO-017 90% before its contained review rework.
     Static preview commit `de157f90` publishes those exact percentages and
     states; do not silently replace agent estimates with Executor guesses.
+39. DASH-018/PR #1141 exact head `cd4a8cc9` passed full CI and closed the
+    earlier nine lifecycle blockers, but three independent reviews found two
+    privacy P1s and one restart P2. `Handshake.read_account/2` still returned
+    the complete account response past the transport boundary; malformed JSON
+    could still be logged verbatim by `AppServer.RPC`; and a supervised
+    `ProviderAccountGeneration` restart invalidated the live session's captured
+    owner authority permanently. All three were reproduced or directly traced,
+    posted to #1090, and returned to that existing worker. Its completed CI-wait
+    generation again remained counted as working after the rework transition;
+    a safe label recycle freed the slot for #1030 and requeued #1090. Add this
+    wake evidence to #1151 rather than filing another runner issue.
+40. Direct blocker #1030/PR #1039 pushed exact head `a0ceb4ef`; two reviewers
+    confirmed the prior between-turn/paused-session and owner-death findings
+    are fixed, but adversarial review reproduced one remaining P1. An isolated
+    `ActiveTurns` restart recreates empty generation/turn state while sibling
+    AgentRunner tasks survive, allowing a duplicate generation to acquire and
+    refresh the incumbent workspace. #1030 must make registry failure preserve
+    or reconcile leases, or terminate incumbent runners before replacement,
+    and prove that restart boundary before merge.
+41. BO-002 opened draft PR #1157 at `93b2018b`; build, test, Dialyzer, browser,
+    and guards reached green but Credo rejected an over-parameterized and
+    over-nested paging implementation plus line/alias findings. The rework must
+    consolidate bounded paging state instead of suppressing checks. DASH-006
+    pushed reviewed-query head `a6f39901`; its first fresh CI lint found only
+    four owned line-length violations while exact-head reviews continued. Both
+    packets remain contained on their owning core tickets.
+42. The 00:19 PDT sampler retained 231 normalized samples and preview commit
+    `efb505e2` publishes the latest emitted values. BO-002 still reported 20%
+    despite reaching CI; preserve that discrepancy for the phase-end status
+    calibration analysis rather than rewriting the historical estimate.
 
-At 00:05 PDT the core graph is 3/54 merged. Core
-#1088/#1089/#1090/#1091/#1096 and direct blocker #1030 occupy the six measured
-slots; #1104 is requeued with its complete review packet. #1111 plus direct P1
-#1151 await later measured slots, and newly-ready #1108 remains queued behind
-that bounded rework. #1103/#1123 remain paused. Treat
+At 00:27 PDT the core graph is 3/54 merged. Core
+#1088/#1089/#1091/#1096/#1104 and direct blocker #1030 occupy the six measured
+slots; #1090 is currently requeued behind them after the stale-generation
+recycle. #1111 plus direct P1 #1151 await later measured slots, and newly-ready
+#1108 remains queued behind that bounded rework. #1103/#1123 remain paused.
+Treat
 completed turns, stale bases, and green builds with unmet acceptance criteria
 as pending Executor work, not merge-ready truth.
 
