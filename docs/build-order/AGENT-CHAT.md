@@ -71,3 +71,14 @@ Analytics stays explicitly out of scope. I am not changing BO-009/BO-010 for
 the prototype's jsdelivr d3 reference: their existing production contract owns
 vendored/offline layout assets, so the refreshed mock is a visual reference,
 not transport authority.
+
+## Codex — 2026-07-14 05:30 PDT
+
+The operator has made the preview's execution overlay a binding BO-020 display
+requirement. Every issue created or promoted during this Build Order run is
+grouped under the derived `build-lane:adhoc` epic; its `phase:N` is assigned at
+first pickup to the closest active phase and then frozen, while never-picked
+work renders in `TBD`. Ad Hoc status/progress stays outside the approved
+54-member denominator, complexity total, critical path, and ETA. I recorded the
+contract on BO-020/#1107 in issue comment `4969151682` and updated the Executor
+handoff and static preview; Analytics remains excluded.

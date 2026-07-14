@@ -235,12 +235,13 @@ or Terra; never dispatch Claude.
 24. The preview now carries a sixth **Ad Hoc** epic for tickets created during
     execution without changing the approved 54-ticket denominator. Current
     members are #1139, #1140, #1142, #1146, #1148, #1149, #1151, #1152,
-    #1154, #1161, and #1162;
-    all carry `build-lane:adhoc`. Assign `phase:N` only when an ad hoc ticket is
-    actually picked up, using the closest active phase; #1139, #1151, and #1162 are
-    Phase 1, while deferred/untriaged tickets remain phase-unassigned and render
-    in the preview's TBD row. Repeat this labeling and preview update for every
-    new run-created ticket.
+    #1154, #1161, #1162, and closed duplicate #1164; all carry
+    `build-lane:adhoc`. Assign `phase:N` only when an ad hoc ticket is actually
+    picked up, using the closest active phase, then freeze that assignment;
+    #1139, #1151, #1161, and #1162 are Phase 1, while deferred, untriaged, or
+    never-picked duplicate tickets remain phase-unassigned and render in the
+    preview's TBD row. Repeat this labeling and preview update for every new
+    run-created ticket.
 25. At 21:56 PDT PR #1150 passed fresh exact-head CI on current `main`, its
     abandoned-lock regression received an independent clean re-review, and the
     Executor squash-merged it as
@@ -667,11 +668,24 @@ or Terra; never dispatch Claude.
 79. #1130/DASH-026 recovered from an initial provider port exit, completed the
     guarded bootstrap, and started a Terra session. It is now productive rather
     than merely dependency-ready.
+80. The operator reaffirmed the Ad Hoc display contract: every issue created or
+    promoted during the active Build Order run belongs to the derived
+    `build-lane:adhoc` epic, and receives the phase closest to first pickup.
+    Deferred and never-picked tickets stay in the visible TBD row; closed and
+    duplicate tickets remain historical members. BO-020/#1107 now carries the
+    durable implementation clarification in issue comment `4969151682`; the
+    real page must derive this overlay from GitHub plus Aiur while keeping it
+    outside the fixed 54-member denominator, complexity total, critical path,
+    and ETA. After decision 79, #1130's live checkout was replaced by
+    scaffolding-only contents, so the Executor paused it as another occurrence
+    of P1 #1161 and recycled only its stranded provider process.
 
-At 05:19 PDT the core graph is 5/54 accepted. The fleet is at its temporary
-eight-worker ceiling, with #1091 and P1 #1161 retry-queued and host load above
-the hard ceiling during overlapping builds. Treat completed turns, stale bases,
-and green builds with unmet acceptance criteria as pending Executor work, not
+At 05:30 PDT the core graph is 5/54 accepted. The fleet is at its temporary
+eight-worker ceiling; #1091 has entered contained rework, P1 #1161 remains
+retry-queued for the next slot, and #1093/#1108/#1130 stay on workspace-race
+holds until it lands. Host load is below the hard ceiling but CPU idle is only
+7%, so there is no safe extra slot. Treat completed turns, stale bases, and
+green builds with unmet acceptance criteria as pending Executor work, not
 merge-ready truth.
 
 **Read-first map for this run:** `README.md` (pack index) →
