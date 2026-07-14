@@ -71,17 +71,16 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProvider do
 
   defp latency_for_ids(decision_ids, metrics) do
     Enum.reduce_while(decision_ids, {%{}, :ok}, fn decision_id, {snapshots, health} ->
-      case safe_metrics_call(fn -> DecisionMetrics.snapshot(decision_id, metrics) end) do
-        {:ok, snapshot} when is_map(snapshot) ->
-          {:cont, {Map.put(snapshots, decision_id, snapshot), health}}
-
-        {:error, :not_found} ->
-          {:cont, {snapshots, health}}
-
-        _unavailable ->
-          {:halt, {snapshots, :unavailable}}
-      end
+      next_latency_snapshot(decision_id, metrics, snapshots, health)
     end)
+  end
+
+  defp next_latency_snapshot(decision_id, metrics, snapshots, health) do
+    case safe_metrics_call(fn -> DecisionMetrics.snapshot(decision_id, metrics) end) do
+      {:ok, snapshot} when is_map(snapshot) -> {:cont, {Map.put(snapshots, decision_id, snapshot), health}}
+      {:error, :not_found} -> {:cont, {snapshots, health}}
+      _unavailable -> {:halt, {snapshots, :unavailable}}
+    end
   end
 
   defp safe_metrics_call(fun) do
