@@ -3,6 +3,14 @@ timeout_ms: 600000
 after_create: |
   set -e
   base_branch="${THIS_BASE_BRANCH:-main}"
+  workspace_root="$(pwd -P)"
+  git_toplevel="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+  if [ -n "$git_toplevel" ]; then
+    git_toplevel="$(CDPATH= cd "$git_toplevel" && pwd -P)"
+  fi
+  if [ "$git_toplevel" = "$workspace_root" ]; then
+    exit 0
+  fi
   logs_backup=""
   restore_logs() {
     if [ -n "$logs_backup" ] && [ -d "$logs_backup" ]; then

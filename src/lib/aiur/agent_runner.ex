@@ -58,7 +58,6 @@ defmodule Aiur.AgentRunner do
   @spec transient_run_error?(term()) :: boolean()
   def transient_run_error?(:repl_gone), do: true
   def transient_run_error?(:prompt_not_delivered), do: true
-  def transient_run_error?({:workspace_owned, _owner}), do: true
   def transient_run_error?(_reason), do: false
 
   defp run_on_worker_host(issue, codex_update_recipient, opts, worker_host) do
@@ -88,10 +87,9 @@ defmodule Aiur.AgentRunner do
           record_workspace_ownership(issue, opts, :end, :released, ownership)
         end
 
-      {:error, {:workspace_owned, owner}} = error ->
+      {:error, {:workspace_owned, owner}} ->
         record_workspace_ownership_conflict(issue, opts, owner)
-        record_workspace_setup_end(issue, opts, :failed, error)
-        {:error, error}
+        :ok
     end
   end
 
@@ -121,29 +119,7 @@ defmodule Aiur.AgentRunner do
   defp run_worker_attempt_once(ownership, workspace, issue, codex_update_recipient, opts, worker_host) do
     result =
       try do
-        case Workspace.run_before_run_hook(workspace, issue, worker_host) do
-          :ok ->
-            case Ownership.activate(ownership) do
-              {:ok, active_ownership} ->
-                record_workspace_ownership(issue, opts, :point, :active, active_ownership)
-                record_workspace_setup_end(issue, opts, :success, nil)
-                :ok = BootstrapDigest.maybe_attach_universal_subscriptions(issue)
-                :ok = BootstrapDigest.maybe_enqueue_bootstrap_digest(issue)
-                SessionLifecycle.run_session(workspace, issue, codex_update_recipient, opts, worker_host)
-
-              {:error, reason} ->
-                record_workspace_setup_end(issue, opts, :failed, reason)
-                {:error, reason}
-            end
-
-          {:error, {:workspace_hook_failed, "before_run", status, output} = reason} ->
-            record_workspace_setup_end(issue, opts, :failed, status)
-            {:before_run_failed, status, output, reason}
-
-          {:error, reason} ->
-            record_workspace_setup_end(issue, opts, :failed, reason)
-            {:error, reason}
-        end
+        run_after_before_run(ownership, workspace, issue, codex_update_recipient, opts, worker_host)
       after
         Workspace.run_after_run_hook(workspace, issue, worker_host)
       end
@@ -157,6 +133,36 @@ defmodule Aiur.AgentRunner do
 
       other ->
         other
+    end
+  end
+
+  defp run_after_before_run(ownership, workspace, issue, codex_update_recipient, opts, worker_host) do
+    case Workspace.run_before_run_hook(workspace, issue, worker_host) do
+      :ok ->
+        run_owned_session(ownership, workspace, issue, codex_update_recipient, opts, worker_host)
+
+      {:error, {:workspace_hook_failed, "before_run", status, output} = reason} ->
+        record_workspace_setup_end(issue, opts, :failed, status)
+        {:before_run_failed, status, output, reason}
+
+      {:error, reason} ->
+        record_workspace_setup_end(issue, opts, :failed, reason)
+        {:error, reason}
+    end
+  end
+
+  defp run_owned_session(ownership, workspace, issue, codex_update_recipient, opts, worker_host) do
+    case Ownership.activate(ownership) do
+      {:ok, active_ownership} ->
+        record_workspace_ownership(issue, opts, :point, :active, active_ownership)
+        record_workspace_setup_end(issue, opts, :success, nil)
+        :ok = BootstrapDigest.maybe_attach_universal_subscriptions(issue)
+        :ok = BootstrapDigest.maybe_enqueue_bootstrap_digest(issue)
+        SessionLifecycle.run_session(workspace, issue, codex_update_recipient, opts, worker_host)
+
+      {:error, reason} ->
+        record_workspace_setup_end(issue, opts, :failed, reason)
+        {:error, reason}
     end
   end
 

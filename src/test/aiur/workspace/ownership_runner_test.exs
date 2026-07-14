@@ -1,4 +1,4 @@
-defmodule Aiur.Regression.WorkspaceOwnershipTest do
+defmodule Aiur.Workspace.OwnershipRunnerTest do
   use Aiur.TestSupport
 
   alias Aiur.Workspace.Ownership

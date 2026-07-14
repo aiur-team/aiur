@@ -98,9 +98,13 @@ defmodule Aiur.Workspace.Provisioner do
         record_prewarm_point(lifecycle, :existing, :skipped)
         {:ok, workspace, false}
 
-      File.dir?(workspace) ->
+      incomplete_workspace?(workspace) ->
         record_prewarm_point(lifecycle, :incomplete, :rebuild)
         {:ok, workspace, true}
+
+      File.dir?(workspace) ->
+        record_prewarm_point(lifecycle, :existing, :skipped)
+        {:ok, workspace, false}
 
       File.exists?(workspace) ->
         File.rm_rf!(workspace)
@@ -124,8 +128,11 @@ defmodule Aiur.Workspace.Provisioner do
       Checkout.valid_workspace?(workspace) ->
         {:ok, workspace, false}
 
-      File.dir?(workspace) ->
+      incomplete_workspace?(workspace) ->
         {:ok, workspace, true}
+
+      File.dir?(workspace) ->
+        {:ok, workspace, false}
 
       File.exists?(workspace) ->
         File.rm_rf!(workspace)
@@ -166,6 +173,27 @@ defmodule Aiur.Workspace.Provisioner do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  # Event logging can create a `logs/` directory before provisioning starts.
+  # Empty directories and partial clones are incomplete for the same reason.
+  # Other existing non-Git paths retain the long-standing reuse contract: they
+  # may have been initialized by a user-provided after_create hook that does
+  # not itself create a Git checkout.
+  defp incomplete_workspace?(workspace) do
+    case File.ls(workspace) do
+      {:ok, []} ->
+        true
+
+      {:ok, ["logs"]} ->
+        true
+
+      {:ok, entries} ->
+        ".git" in entries
+
+      {:error, _reason} ->
+        true
     end
   end
 
