@@ -965,16 +965,36 @@ Terra; never dispatch Claude.
     shape, while Credo found one alias-order and one line-length issue. Coverage
     otherwise completed at 85.78%. Comment `4971733840` and a direct operator
     message returned those three contained repairs to the existing worker.
+123. DASH-006/#1088 reached all-green `959a7bc5`. One exact-head reviewer was
+    clean; the other reproduced ticket URL userinfo/query/fragment capability
+    fields and raw source `agent_id` crossing the provider boundary. Executor
+    inspection confirmed the ticket's explicit credential/account-identity
+    exclusion was unmet. The single contained P1 packet is comment
+    `4971763118`; #1088 is active on the bounded presenter regressions.
+124. BO-009/#1096 pushed byte-cap regression head `2d77d064`, passed fresh CI,
+    and passed two exact-head reviews clean. The Executor verified `main` as
+    base and ancestor, zero unresolved review comments, then squash-merged PR
+    #1158 as `b5061465`. The prewarmed base refreshed to that exact commit.
+    This moved the fixed core graph to 6/54 and unlocked BO-010/#1097; the
+    Executor added its dispatch label and a fresh Terra worker started.
+125. Four completed turns retained active tracker labels after claiming they
+    had entered CI wait, starving the newly ready ticket. The Executor moved
+    #1091 and #1109 to external-review holds and #1162 to CI wait, which released
+    capacity for #1097. #1151 twice consumed its stale green-CI Workpad instead
+    of the newer terminal packet, so comment `4965195685` was updated to make
+    the three owned repairs authoritative before a ticket-scoped recycle. This
+    is additional evidence for active #1162, not a new issue.
 
-At 09:50 PDT the core graph is 5/54 accepted. Five intended Codex workers are
-actively turning, four fresh heads are in CI, and #1088 is consuming two
-background review slots while its exact green head is audited.
+At 10:02 PDT the core graph is 6/54 accepted. Four intended Codex workers are
+actively turning, #1151 is rework-queued with a corrected Workpad, and two
+background reviewers are auditing #1109 after finishing #1096; the third slot
+is reserved for the next exact-green head.
 #1090, #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds
 until #1161 lands.
-The latest agent-emitted progress evidence is 1088=80, 1091=60, 1096=70,
-1103=80, 1109=90, 1151=90, 1161=100, and 1162=80. #1161's emitted 100% is
-preserved as calibration evidence even though exact-head review proved four
-remaining acceptance blockers. Build-gate load remains the measured capacity
+The latest agent-emitted progress evidence is 1088=80, 1091=60, 1096=100
+(merged), 1103=70, 1109=90, 1151=90, 1161=20, and 1162=80. #1097 has a live
+worker but no emitted percentage yet, so the preview names that state instead
+of inventing progress. Build-gate load remains the measured capacity
 constraint, so retain the eight-worker ceiling and prefer logs/GitHub evidence
 after a control-RPC timeout. No additional core ticket is safely
 dependency-ready outside the held/gated set. Treat completed turns, stale
