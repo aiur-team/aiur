@@ -63,6 +63,15 @@ defmodule Aiur.BuildOrder.TicketDetail.Sanitizer do
     (?:"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|&quot;[^\r\n]*?&quot;|[^\]\r\n]+)
     \s*\]
   /iux
+  @escaped_credential_header_pair_pattern ~r/
+    (?:\[|\{)\s*
+    (?:\\"|\\'|&quot;)
+    #{@sensitive_key_pattern}
+    (?:\\"|\\'|&quot;)
+    \s*,\s*
+    (?:\\"(?:\\.|[^"])*?\\"|\\'(?:\\.|[^'])*?\\'|&quot;[^\r\n]*?&quot;|[^\]\}\r\n]+)
+    \s*(?:\]|\})
+  /iux
   @curl_credential_header_pattern ~r/
     (?:-H|--header)\s+(?:"|')
     #{@sensitive_key_pattern}
@@ -70,9 +79,9 @@ defmodule Aiur.BuildOrder.TicketDetail.Sanitizer do
   /iux
   @credential_pattern ~r/\b(?:bearer|basic)\s+[^\s,;]+/iu
   @private_key_block_pattern ~r/
-    -----BEGIN(?:[ ][A-Z0-9]+)*[ ]PRIVATE[ ]KEY-----
+    -----BEGIN(?:[ ][A-Z0-9]+)*[ ]PRIVATE[ ]KEY(?:[ ]BLOCK)?-----
     .*?
-    (?:-----END(?:[ ][A-Z0-9]+)*[ ]PRIVATE[ ]KEY-----|\z)
+    (?:-----END(?:[ ][A-Z0-9]+)*[ ]PRIVATE[ ]KEY(?:[ ]BLOCK)?-----|\z)
   /isux
   @uri_userinfo_pattern ~r{\b[A-Za-z][A-Za-z0-9+.-]*://[^/\s@]+@}u
   @network_path_userinfo_pattern ~r{(?<![A-Za-z0-9+.-])//[^/\s@]+@}u
@@ -92,8 +101,30 @@ defmodule Aiur.BuildOrder.TicketDetail.Sanitizer do
     \s*:\s*
     &quot;[^\r\n]*?&quot;
   /iux
+  @credential_element_pattern ~r{
+    <\s*(?:[A-Za-z][A-Za-z0-9:_-]*:)?
+    #{@sensitive_key_pattern}
+    \b[^>]*>[^<]*<\s*/\s*[^>]+>
+    |
+    <\s*(?:[A-Za-z][A-Za-z0-9:_-]*:)?
+    #{@sensitive_key_pattern}
+    \b[^>]*\bvalue\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)[^>]*>
+    |
+    <[^>]*\b(?:name|id|key)\s*=\s*(?:"|')
+    #{@sensitive_key_pattern}
+    (?:"|')[^>]*\bvalue\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)[^>]*>
+    |
+    <[^>]*\bvalue\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)[^>]*\b(?:name|id|key)\s*=\s*(?:"|')
+    #{@sensitive_key_pattern}
+    (?:"|')[^>]*>
+    |
+    <[^>]*\b#{@sensitive_key_pattern}\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)[^>]*>
+  }iux
   @file_uri_pattern ~r{\bfile:(?://)?/[^\s"')\],\}]+}iu
-  @unc_path_pattern ~r{\\\\[^\\/\s]+\\[^\s"')\],\}]+}u
+  @unc_path_pattern ~r{
+    (?<!:)(?<![A-Za-z0-9+.-])
+    (?:\\\\|//)[^\\/\s]+(?:[\\/][^\s"')\],\}]+)+
+  }ux
   @sensitive_local_root_pattern ~r{
     (?<![A-Za-z0-9._/-])
     /(?:workspace|tmp)(?:/[A-Za-z0-9._@%+=,-]+)*
@@ -131,7 +162,9 @@ defmodule Aiur.BuildOrder.TicketDetail.Sanitizer do
     value = Regex.replace(@network_path_userinfo_pattern, value, "[REDACTED:credential]")
     value = Regex.replace(@escaped_structured_credential_pattern, value, "[REDACTED:credential]")
     value = Regex.replace(@entity_structured_credential_pattern, value, "[REDACTED:credential]")
+    value = Regex.replace(@credential_element_pattern, value, "[REDACTED:credential]")
     value = Regex.replace(@curl_credential_header_pattern, value, "[REDACTED:credential]")
+    value = Regex.replace(@escaped_credential_header_pair_pattern, value, "[REDACTED:credential]")
     value = Regex.replace(@credential_header_pair_pattern, value, "[REDACTED:credential]")
     value = Regex.replace(@structured_credential_pattern, value, "[REDACTED:credential]")
     value = Regex.replace(@credential_assignment_pattern, value, "[REDACTED:credential]")

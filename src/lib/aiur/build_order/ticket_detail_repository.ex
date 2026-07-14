@@ -9,7 +9,7 @@ defmodule Aiur.BuildOrder.TicketDetail.Repository do
   @spec configured_repository(keyword()) :: {:ok, TrackerIdentity.repository()} | {:error, Failure.t()}
   def configured_repository(opts) do
     opts
-    |> Keyword.get_lazy(:configured_repo, &GitHub.Config.configured_repo/0)
+    |> Keyword.get(:configured_repo, &GitHub.Config.configured_repo/0)
     |> configured_repository_result()
   end
 
@@ -19,8 +19,8 @@ defmodule Aiur.BuildOrder.TicketDetail.Repository do
     with {:ok, _identifier} <- Bounded.github_issue_identifier(identity.identifier),
          true <- TrackerIdentity.joinable?(identity),
          :github <- identity.kind,
-         {:ok, configured_repository} <- configured_repository(opts),
          :ok <- valid_repository_components(identity),
+         {:ok, configured_repository} <- configured_repository(opts),
          true <- identity_matches_repository?(identity, configured_repository) do
       {:ok, identity, configured_repository}
     else
@@ -60,8 +60,7 @@ defmodule Aiur.BuildOrder.TicketDetail.Repository do
   defp configured_repository_result({:ok, repository}), do: configured_repository_result(repository)
 
   defp configured_repository_result({owner, repository}) when is_binary(owner) and is_binary(repository) do
-    with {:ok, owner} <- Bounded.github_repository_component(owner),
-         {:ok, repository} <- Bounded.github_repository_component(repository) do
+    with {:ok, {owner, repository}} <- Bounded.github_repository_components(owner, repository) do
       {:ok, {owner, repository}}
     else
       _ -> {:error, %Failure{kind: :configuration}}
@@ -75,8 +74,7 @@ defmodule Aiur.BuildOrder.TicketDetail.Repository do
   end
 
   defp valid_repository_components(%TrackerIdentity{owner: owner, repository: repository}) do
-    with {:ok, _owner} <- Bounded.github_repository_component(owner),
-         {:ok, _repository} <- Bounded.github_repository_component(repository) do
+    with {:ok, {_owner, _repository}} <- Bounded.github_repository_components(owner, repository) do
       :ok
     else
       _ -> :invalid_repository_component

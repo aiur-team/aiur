@@ -57,6 +57,18 @@ defmodule Aiur.BuildOrder.Bounded do
     end
   end
 
+  @doc "Validates the owner and repository together before provider I/O."
+  @spec github_repository_components(term(), term()) ::
+          {:ok, {String.t(), String.t()}} | :error
+  def github_repository_components(owner, repository) do
+    with {:ok, owner} <- github_repository_component(owner),
+         {:ok, repository} <- github_repository_component(repository) do
+      {:ok, {owner, repository}}
+    else
+      _ -> :error
+    end
+  end
+
   @spec same_repository?(term(), term()) :: boolean()
   def same_repository?(%{owner: owner, repository: repository}, %{
         owner: other_owner,

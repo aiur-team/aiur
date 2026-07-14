@@ -151,9 +151,14 @@ defmodule Aiur.ExtensionsTest do
     # sequential module (the #780 WorkspaceAndConfigTest flake).
     on_exit(fn -> ensure_workflow_store_running() end)
     assert {:ok, %{prompt: "You are an agent for this repository."}} = Workflow.current()
+    assert :ok = WorkflowStore.subscribe()
+    first_generation = :sys.get_state(WorkflowStore).generation
 
     write_workflow_file!(Workflow.workflow_file_path(), prompt: "Second prompt")
     send(WorkflowStore, :poll)
+
+    assert_receive {:workflow_config_updated, generation}
+    assert generation > first_generation
 
     assert_eventually(fn ->
       match?({:ok, %{prompt: "Second prompt"}}, Workflow.current())

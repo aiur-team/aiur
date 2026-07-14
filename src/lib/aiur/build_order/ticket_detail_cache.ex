@@ -10,8 +10,9 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
 
   alias Aiur.BuildOrder.TicketDetail
   alias Aiur.BuildOrder.TicketDetail.{Failure, State}
-  alias Aiur.BuildOrder.TicketDetail.Repository
-  alias Aiur.BuildOrder.TicketDetailCache.{Options, Policy, TaskLifecycle}
+  alias Aiur.BuildOrder.TicketDetailCache.{Configuration, Options, Policy, TaskLifecycle}
+
+  @reset_topic "build_order:ticket_detail_cache:reset"
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -30,14 +31,23 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
   @spec subscribe(GenServer.server(), Aiur.TrackerIdentity.t()) :: :ok | {:error, Failure.t() | term()}
   def subscribe(server \\ __MODULE__, identity) do
     with {:ok, topic} <- GenServer.call(server, {:subscription_topic, identity}),
-         do: Phoenix.PubSub.subscribe(Aiur.PubSub, topic)
+         :ok <- Phoenix.PubSub.subscribe(Aiur.PubSub, topic),
+         do: Phoenix.PubSub.subscribe(Aiur.PubSub, reset_topic())
   end
 
   @spec topic(Aiur.TrackerIdentity.t()) :: String.t()
   defdelegate topic(identity), to: Policy
 
+  @spec reset_topic() :: String.t()
+  def reset_topic, do: @reset_topic
+
   @impl true
-  def init(opts), do: {:ok, Options.new(opts)}
+  def init(opts) do
+    state = Options.new(opts)
+    subscribe_to_configuration(state)
+    broadcast_reset(state)
+    {:ok, state}
+  end
 
   @impl true
   def handle_call({:request, identity}, _from, state) do
@@ -70,6 +80,12 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
 
   def handle_info({:refresh_timeout, ref, generation}, state) when is_reference(ref) and is_integer(generation) do
     {state, updates} = reconcile_then_timeout(state, ref, generation)
+    broadcast_all(updates)
+    {:noreply, state}
+  end
+
+  def handle_info({:workflow_config_updated, _generation}, state) do
+    {state, updates} = reconcile_for_message(state)
     broadcast_all(updates)
     {:noreply, state}
   end
@@ -136,22 +152,14 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
   end
 
   defp reconcile_for_message(state) do
-    case reconcile_repository(state) do
+    case Configuration.reconcile(state) do
       {:ok, _repository, state, updates} -> {state, updates}
       {:error, _failure, state, updates} -> {state, updates}
     end
   end
 
   defp reconcile_repository(state) do
-    case TicketDetail.configured_repository(detail_opts(state)) do
-      {:ok, repository} ->
-        {state, updates} = reset_if_repository_changed(state, repository)
-        {:ok, repository, state, updates}
-
-      {:error, %Failure{} = failure} ->
-        {state, updates} = reset_if_repository_changed(state, :unavailable)
-        {:error, failure, state, updates}
-    end
+    Configuration.reconcile(state)
   end
 
   defp authorize(state, identity) do
@@ -167,27 +175,25 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
     end
   end
 
-  defp reset_if_repository_changed(%{active_repository: active_repository} = state, repository) do
-    if active_repository == repository or repositories_match?(active_repository, repository) do
-      {state, []}
-    else
-      state = TaskLifecycle.cancel_all(state)
-      {state, updates} = Policy.evict_all(state)
-      {%{state | active_repository: repository}, updates}
-    end
-  end
-
-  defp repositories_match?({_, _} = left, {_, _} = right), do: Repository.same_repository?(left, right)
-  defp repositories_match?(_left, _right), do: false
-
-  defp detail_opts(%{configured_repo: nil}), do: []
-  defp detail_opts(%{configured_repo: configured_repo}), do: [configured_repo: configured_repo]
-
   defp broadcast_all(states), do: Enum.each(states, &broadcast_state/1)
 
   defp broadcast_state(snapshot) do
     if Process.whereis(Aiur.PubSub) do
       Phoenix.PubSub.broadcast(Aiur.PubSub, topic(snapshot.identity), {:ticket_detail_updated, snapshot})
+    end
+  end
+
+  defp subscribe_to_configuration(state) do
+    state.configuration_subscriber.(self())
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
+  end
+
+  defp broadcast_reset(state) do
+    if Process.whereis(Aiur.PubSub) do
+      Phoenix.PubSub.broadcast(Aiur.PubSub, reset_topic(), {:ticket_detail_cache_reset, state.reset_epoch})
     end
   end
 end

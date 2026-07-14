@@ -39,7 +39,9 @@ defmodule Aiur.BuildOrder.TicketDetailCache.Options do
       reader: Keyword.get(opts, :reader),
       task_supervisor: Keyword.get(opts, :task_supervisor, Aiur.TaskSupervisor),
       now: Keyword.get(opts, :now, &DateTime.utc_now/0),
-      clock_ms: Keyword.get(opts, :clock_ms, fn -> System.monotonic_time(:millisecond) end)
+      clock_ms: Keyword.get(opts, :clock_ms, fn -> System.monotonic_time(:millisecond) end),
+      configuration_subscriber: Keyword.get(opts, :configuration_subscriber, &Aiur.WorkflowStore.subscribe/1),
+      reset_epoch: reset_epoch(opts)
     }
   end
 
@@ -56,4 +58,17 @@ defmodule Aiur.BuildOrder.TicketDetailCache.Options do
       {_runtime_config?, opts} -> opts
     end
   end
+
+  defp reset_epoch(opts) do
+    case Keyword.get(opts, :reset_epoch, fn -> System.unique_integer([:positive, :monotonic]) end) do
+      epoch when is_integer(epoch) and epoch > 0 -> epoch
+      epoch_fun when is_function(epoch_fun, 0) -> valid_epoch_or_default(epoch_fun.())
+      _ -> System.unique_integer([:positive, :monotonic])
+    end
+  rescue
+    _error -> System.unique_integer([:positive, :monotonic])
+  end
+
+  defp valid_epoch_or_default(epoch) when is_integer(epoch) and epoch > 0, do: epoch
+  defp valid_epoch_or_default(_epoch), do: System.unique_integer([:positive, :monotonic])
 end

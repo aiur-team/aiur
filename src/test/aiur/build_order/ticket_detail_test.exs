@@ -98,6 +98,30 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
              )
   end
 
+  test "rejects repository delimiters before configuration or provider work" do
+    for {field, value} <- [
+          owner: "owner/path",
+          owner: "owner?query",
+          owner: "owner#fragment",
+          owner: " owner",
+          owner: "owner ",
+          owner: ".",
+          repository: "repo/path",
+          repository: "repo?query",
+          repository: "repo#fragment",
+          repository: "..",
+          repository: String.duplicate("r", 101)
+        ] do
+      malformed = Map.put(identity(42, "I42"), field, value)
+
+      assert {:error, %Failure{kind: :nonfetchable_repository}} =
+               TicketDetail.fetch(malformed,
+                 configured_repo: fn -> flunk("configuration reader must not be invoked") end,
+                 request_fun: fn _request -> flunk("transport must not be called") end
+               )
+    end
+  end
+
   test "rejects an unjoinable identity before transport work" do
     identity = TrackerIdentity.unjoinable(:legacy, owner: "owner", repository: "repo", identifier: 42)
 
@@ -280,6 +304,53 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
     refute description =~ "\\\\server\\share\\private.txt"
     refute description =~ "local-workspace=/workspace"
     refute description =~ "local-tmp=/tmp"
+  end
+
+  test "redacts escaped header pairs, credential elements, PGP blocks, and network shares" do
+    identity = identity(42, "I42")
+
+    body =
+      ~S([[\"Authorization\", \"escaped-header-secret\"]]) <>
+        "\n" <>
+        ~S({\"Cookie\", \"escaped-curly-secret\"}) <>
+        "\n" <>
+        "<password>xml-password-secret</password>\n" <>
+        ~s(<input name="api_key" value="html-api-key-secret">) <>
+        "\n" <>
+        ~s(<input value="html-value-first-secret" name="password">) <>
+        "\n" <>
+        ~s(<token value="xml-attribute-secret" />) <>
+        "\n" <>
+        "-----BEGIN PGP PRIVATE KEY BLOCK-----\npgp-private-key-secret\n" <>
+        "-----END PGP PRIVATE KEY BLOCK-----\n" <>
+        "//server/share/private.txt \\\\server/share\\private.txt " <>
+        "https://example.test/server/share/private.txt"
+
+    assert {:ok, %Snapshot{description: description}} =
+             TicketDetail.fetch(identity,
+               configured_repo: @configured,
+               request_fun: fn _request ->
+                 {:ok, %{status: 200, body: Map.put(issue(42, "I42"), "body", body)}}
+               end
+             )
+
+    assert description =~ "[REDACTED:credential]"
+    assert description =~ "[REDACTED:local_path]"
+    assert description =~ "https://example.test/server/share/private.txt"
+
+    for secret <- [
+          "escaped-header-secret",
+          "escaped-curly-secret",
+          "xml-password-secret",
+          "html-api-key-secret",
+          "html-value-first-secret",
+          "xml-attribute-secret",
+          "pgp-private-key-secret",
+          "//server/share/private.txt",
+          "\\\\server/share\\private.txt"
+        ] do
+      refute description =~ secret
+    end
   end
 
   test "rejects oversized raw descriptions before sanitization" do

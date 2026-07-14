@@ -97,6 +97,36 @@ defmodule Aiur.BuildOrder.TicketDetailCache.TaskLifecycle do
     |> Map.put(:inflight_by_ref, %{})
   end
 
+  @spec configuration_failed(map()) :: {map(), list()}
+  def configuration_failed(state) do
+    {state, entries, updates} =
+      Enum.reduce(state.entries, {state, %{}, []}, fn {key, entry}, {state, entries, updates} ->
+        {state, entry, changed?} = fail_entry_for_configuration(state, entry)
+        {state, Map.put(entries, key, entry), if(changed?, do: [entry | updates], else: updates)}
+      end)
+
+    state = %{state | entries: entries, inflight_by_ref: %{}}
+    {state, updates |> Enum.reverse() |> Enum.map(&Policy.state_for(&1, state))}
+  end
+
+  @spec configuration_recovered(map()) :: {map(), list()}
+  def configuration_recovered(state) do
+    {entries, restored} =
+      Enum.reduce(state.entries, {%{}, []}, fn {key, entry}, {entries, restored} ->
+        case entry do
+          %{failure: %Failure{kind: :configuration}} ->
+            entry = %{entry | failure: nil}
+            {Map.put(entries, key, entry), [entry | restored]}
+
+          _ ->
+            {Map.put(entries, key, entry), restored}
+        end
+      end)
+
+    state = %{state | entries: entries}
+    {state, restored |> Enum.reverse() |> Enum.map(&Policy.state_for(&1, state))}
+  end
+
   defp apply_entry_completion(key, ref, result, state) do
     case Map.fetch(state.entries, key) do
       {:ok,
@@ -149,6 +179,19 @@ defmodule Aiur.BuildOrder.TicketDetailCache.TaskLifecycle do
     Process.demonitor(inflight.ref, [:flush])
     terminate_task(state.task_supervisor, inflight.pid)
     state
+  end
+
+  defp fail_entry_for_configuration(state, %{inflight: nil, failure: %Failure{kind: :configuration}} = entry) do
+    {state, entry, false}
+  end
+
+  defp fail_entry_for_configuration(state, %{inflight: nil} = entry) do
+    {state, %{entry | failure: %Failure{kind: :configuration}}, true}
+  end
+
+  defp fail_entry_for_configuration(state, %{inflight: inflight} = entry) do
+    state = cancel_inflight(state, inflight)
+    {state, %{entry | inflight: nil, failure: %Failure{kind: :configuration}}, true}
   end
 
   defp terminate_task(task_supervisor, pid) do
