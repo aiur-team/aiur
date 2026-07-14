@@ -142,13 +142,13 @@ defmodule Aiur.Application do
       {Registry, keys: :duplicate, name: Aiur.Opencode.SessionWriterRegistry.Registry},
       {Registry, keys: :unique, name: Aiur.Opencode.SlotRegistry.Registry},
       {DynamicSupervisor, strategy: :one_for_one, name: Aiur.IssueLog.Supervisor},
-      # Before Task.Supervisor: children stop in reverse order, so the
+      # Before AgentRunner.Supervisor: children stop in reverse order, so the
       # reaper outlives the runner tasks/ports whose OS processes it must
       # sweep in its terminate/2 backstop.
       Aiur.ProcessReaper,
       Aiur.PauseContainment,
       Aiur.AgentResourceGuard,
-      {Task.Supervisor, name: Aiur.TaskSupervisor},
+      Aiur.AgentRunner.Supervisor,
       Aiur.WorkflowStore,
       Aiur.RepoBase,
       Aiur.Events.IdGenerator,
@@ -174,7 +174,6 @@ defmodule Aiur.Application do
       if(dashboard?, do: AiurWeb.ControlCenterCache),
       if(dashboard?, do: Aiur.HttpServer),
       Aiur.Opencode.TokenRegistry,
-      Aiur.Opencode.ActiveTurns,
       # Chat-pane machinery — UI-only, never read by a headless run.
       unless(headless?, do: Aiur.Opencode.PaneSupervisor),
       Aiur.Opencode.SessionSupervisor,

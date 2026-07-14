@@ -1,6 +1,7 @@
 defmodule Aiur.Opencode.ActiveTurnsTest do
   use ExUnit.Case, async: false
 
+  alias Aiur.{AgentRunner, Issue}
   alias Aiur.Opencode.ActiveTurns
 
   setup do
@@ -52,6 +53,57 @@ defmodule Aiur.Opencode.ActiveTurnsTest do
   end
 
   describe "cleanup" do
+    test "registry restart terminates incumbent runner tasks before accepting replacements" do
+      identifier = "AIUR-1030-registry-restart-#{System.unique_integer([:positive])}"
+      issue = %Issue{id: identifier, identifier: identifier, title: "Registry restart"}
+      test_pid = self()
+
+      {:ok, incumbent} =
+        Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
+          AgentRunner.run_generation_for_test(issue, fn ->
+            Process.flag(:trap_exit, true)
+            :ok = ActiveTurns.put(identifier, "tREGISTRY")
+            send(test_pid, {:incumbent_ready, self()})
+
+            receive do
+              {:EXIT, _supervisor, :shutdown} ->
+                send(test_pid, {:incumbent_stopping, self()})
+
+                receive do
+                  :finish_shutdown -> :ok
+                end
+            end
+          end)
+        end)
+
+      on_exit(fn ->
+        if Process.alive?(incumbent), do: Process.exit(incumbent, :kill)
+      end)
+
+      incumbent_ref = Process.monitor(incumbent)
+      assert_receive {:incumbent_ready, ^incumbent}, 2_000
+
+      registry = Process.whereis(ActiveTurns)
+      registry_ref = Process.monitor(registry)
+      Process.exit(registry, :kill)
+
+      assert_receive {:DOWN, ^registry_ref, :process, ^registry, :killed}, 2_000
+      assert_receive {:incumbent_stopping, ^incumbent}, 2_000
+      refute Process.whereis(ActiveTurns)
+
+      send(incumbent, :finish_shutdown)
+      assert_receive {:DOWN, ^incumbent_ref, :process, ^incumbent, _reason}, 2_000
+      _state = :sys.get_state(Aiur.AgentRunner.Supervisor)
+
+      replacement_registry = Process.whereis(ActiveTurns)
+      assert is_pid(replacement_registry)
+      refute replacement_registry == registry
+      refute Process.alive?(incumbent)
+
+      assert :replacement_started =
+               AgentRunner.run_generation_for_test(issue, fn -> :replacement_started end)
+    end
+
     test "cleanup handle_info deletes the entry" do
       id = "test-#{System.unique_integer()}"
       turn = "t-#{System.unique_integer()}"
