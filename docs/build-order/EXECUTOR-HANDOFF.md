@@ -228,8 +228,11 @@ to a safe range.
     incident and widens after steady state.
 23. Progress-estimate capture is committed on this branch at `b5aecac1` and
     writes only normalized percentage/timestamp/lifecycle facts to private
-    operator-local NDJSON. The latest scan retained 119 samples: 115 emitted,
-    three failed, and one attempted. After the final merge in each GitHub
+    operator-local NDJSON. The 22:00 PDT scan retained 140 samples: 133 emitted,
+    five failed, and two attempted. Its authoritative live check-ins refreshed
+    the plan preview to BO-001 50%, DASH-006 80%, BO-017 40%, and DASH-004
+    40%, while recycled DASH-017/DASH-018 remain at their last emitted 80%.
+    After the final merge in each GitHub
     `phase:N` cohort, freeze/checksum the cohort, reconstruct implementation,
     local-test, CI, review, rework, and merge tails, run a background analysis,
     and make at most one evidence-backed guidance adjustment (or record no
