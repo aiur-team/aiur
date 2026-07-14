@@ -222,10 +222,10 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
 <script>
 const RUN = {
   phase: 1,
-  updated: "2026-07-13 19:47 PDT",
+  updated: "2026-07-13 19:48 PDT",
   tickets: {
     "BO-004": {state:"working", progress:70, issue:1086},
-    "BO-008": {state:"human review", progress:90, issue:1087},
+    "BO-008": {state:"rework", progress:90, issue:1087},
     "DASH-006": {state:"working", progress:90, issue:1088},
     "DASH-017": {state:"working", progress:90, issue:1089},
     "DASH-018": {state:"working", progress:70, issue:1090}
@@ -452,9 +452,9 @@ document.addEventListener("keydown",e=>{ if(e.key==="Escape") drawer.classList.r
   const pts = T.reduce((s,t)=>s+t.cx,0);
   const phaseTickets = Object.values(RUN.tickets);
   const working = phaseTickets.filter(t=>t.state==="working");
-  const review = phaseTickets.filter(t=>t.state==="human review");
+  const review = phaseTickets.filter(t=>t.state==="human review" || t.state==="rework");
   const aggregate = Math.round(phaseTickets.reduce((sum,t)=>sum+t.progress,0)/phaseTickets.length);
-  const phaseState = `${working.length} Terra agents working${review.length ? ` · ${review.length} in human review` : ""}`;
+  const phaseState = `${working.length} Terra agents working${review.length ? ` · ${review.length} in review/rework` : ""}`;
   document.getElementById("runSnapshot").innerHTML = `
     <div class="run-primary"><span class="run-kicker">Phase ${RUN.phase} live</span><span class="run-copy">${phaseState} · ${aggregate}% average agent check-in progress</span></div>
     <div class="run-meta"><span>0 merged · ${T.length-phaseTickets.length} waiting</span><span>snapshot ${RUN.updated}</span></div>`;

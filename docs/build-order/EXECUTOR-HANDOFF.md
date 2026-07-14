@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-13 19:40 PDT)
+## Live Executor state (updated 2026-07-13 19:48 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -103,13 +103,22 @@ so the controller—not an arbitrary Executor cap—is the remaining admission g
     credentials, and adding a Tailscale Serve listener requires host sudo. The
     separate progress prototype remains reachable on the existing Tailscale
     listener at port 4180.
+11. PR #1145/#1087 reached a clean all-green head, then two independent
+    Executor reviews converged on five contained BO-008 gaps: no authenticated
+    navigation proof, a transform-only performance primitive, unsanitized
+    binary browser artifacts, no CI invocation of the failure-evidence
+    verifier, and recursive cleanup of a caller-owned artifact directory. The
+    deduplicated review is recorded at
+    `https://github.com/its-everdred/aiur/pull/1145#issuecomment-4964932068`;
+    #1087 returned to `agent:rework` rather than merging a green-but-incomplete
+    harness. Keep all fixes on #1087; do not file five follow-up tickets.
 
-At 19:06 PDT the five event-reported percentages are BO-004 70%, BO-008 70%,
-DASH-006 70%, DASH-017 50%, and DASH-018 70% (66% ticket-average). DASH-018
-opened draft PR #1141 against `main`; its worker retains ownership while lint
-is red and the test job is still running. The Executor begins independent
-review when the branch stabilizes and does not treat an in-flight draft as
-merge-ready.
+At 19:48 PDT the five latest event-reported percentages are BO-004 70%, BO-008
+90%, DASH-006 90%, DASH-017 90%, and DASH-018 70% (82% ticket-average). All
+five remain unmerged; #1087 is explicitly in review-driven rework and the
+other four workers retain their CI/fix ownership. The Executor begins
+independent review only when a branch stabilizes and never treats an in-flight
+draft or a green build with unmet acceptance criteria as merge-ready.
 
 **Read-first map for this run:** `README.md` (pack index) →
 `08-implementation-pointers.md` (verified per-ticket file/module/function
