@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-13 21:05 PDT)
+## Live Executor state (updated 2026-07-13 21:42 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -21,15 +21,17 @@ Because execution has now legitimately mutated issue lifecycle state, the old
 OPEN publication snapshot is historical evidence and must not be presented as
 a fresh executable receipt.
 
-Aiur is running against current `main` from the repository root. Phase 1 has one
-merged ticket (#1086/BO-004), one code-approved ticket completing the stale-base
-gate (#1087/BO-008), and three active Terra workers (#1088/DASH-006,
-#1089/DASH-017, and #1090/DASH-018). Direct P1 blocker #1151 uses the genuinely
-available fifth slot but is outside the 54-ticket denominator. Runtime capacity
-is 16; the initial width of five matched the graph's ready width and is not a
-program ceiling. At every readiness transition, set concurrency toward the full
-ready width when measured CPU, memory, file-descriptor, build-gate,
-serialization, and model capacity permit.
+Aiur is running against `main` from the repository root. Phase 1 has two merged
+tickets (#1086/BO-004 and #1087/BO-008), three original rework tickets
+(#1088/DASH-006, #1089/DASH-017, and #1090/DASH-018), and three recovered
+post-BO-004 workers (#1085/BO-001, #1104/BO-017, and #1111/DASH-004). #1103 is
+paused on a deleted-inode workspace generation; #1123 is paused on both the
+same workspace class and unresolved GATE-003. Direct P1 #1151 is in CI wait
+outside the approved 54-ticket denominator. The runtime ceiling was reduced
+from 16 to 6 after simultaneous cold bootstrap drove load to 43 against the
+configured 5.5 ceiling; this is temporary containment, not a program cap. Raise
+it toward the full ready width only after load and bootstrap contention return
+to a safe range.
 
 **Current operating decisions:**
 
@@ -201,13 +203,50 @@ serialization, and model capacity permit.
     code-approved and all-green, but its head predates current `main`, so the
     Executor returned it to its existing agent for a merge-based current-main
     update and fresh CI rather than bypass the stale-base gate.
+21. At 21:30 PDT #1087/BO-008 was squash-merged after its current-main head
+    passed fresh full CI and independent re-review. The resulting cold fan-out
+    admitted the five newly ready tickets #1085, #1103, #1104, #1111, and
+    #1123. It also reproduced the known workspace-bootstrap failure: #1103
+    and #1123 retained Codex processes whose `/proc/<pid>/cwd` points at a
+    deleted inode, while the host canonical path points elsewhere. #1085,
+    #1104, and #1111 were recovered only after their canonical checkouts became
+    valid and they received an Executor re-probe message. This is not a new
+    ticket: #1030/PR #1039 owns active-turn/replacement safety, and #1054/PR
+    #1060 owns deterministic log-only hook recovery. Both PRs require current-
+    main refresh, fresh exact-head CI/re-review, merge, and an Aiur rebuild/
+    restart before another broad fan-out. Never clone or replace a canonical
+    workspace underneath a mismatched live generation.
+22. The same fan-out drove host load to 43 while multiple `before_run` hooks
+    cold-compiled simultaneously; control reads temporarily timed out although
+    the BEAM and tmux session remained alive. Evidence was preserved, the
+    runtime ceiling was reduced from 16 to 6, and useful existing workers were
+    left running. Raise capacity again only from measured headroom. The 21:32
+    hourly retrospective found three recorded wakes and three concrete actions,
+    with no token-only wake evidence; cadence remains short during this active
+    incident and widens after steady state.
+23. Progress-estimate capture is committed on this branch at `b5aecac1` and
+    writes only normalized percentage/timestamp/lifecycle facts to private
+    operator-local NDJSON. The latest scan retained 119 samples: 115 emitted,
+    three failed, and one attempted. After the final merge in each GitHub
+    `phase:N` cohort, freeze/checksum the cohort, reconstruct implementation,
+    local-test, CI, review, rework, and merge tails, run a background analysis,
+    and make at most one evidence-backed guidance adjustment (or record no
+    change). Apply a changed rubric only to tickets first dispatched after that
+    version boundary; never serialize the graph for the experiment.
+24. The preview now carries a sixth **Ad Hoc** epic for tickets created during
+    execution without changing the approved 54-ticket denominator. Current
+    members are #1139, #1140, #1142, #1146, #1148, #1149, #1151, and #1152;
+    all carry `build-lane:adhoc`. Assign `phase:N` only when an ad hoc ticket is
+    actually picked up, using the closest active phase; #1139 and #1151 are
+    Phase 1, while deferred/untriaged tickets remain phase-unassigned and render
+    in the preview's TBD row. Repeat this labeling and preview update for every
+    new run-created ticket.
 
-At 21:05 PDT Phase 1 is 1/5 merged. #1087 is code-approved and waiting only on
-its current-main merge plus fresh CI; #1088, #1089, and #1090 are actively
-implementing their existing review packets; #1151 is actively fixing the
-self-comment provenance defect. The Executor begins independent review only
-when a branch stabilizes and never treats an in-flight draft, a stale branch,
-or a green build with unmet acceptance criteria as merge-ready.
+At 21:42 PDT the core graph is 2/54 merged. Six Terra workers are reported as
+working (#1085, #1088, #1089, #1090, #1104, #1111); #1103 and #1123 remain
+paused, and #1151 is in CI wait outside the core denominator. Treat completed
+turns, stale bases, and green builds with unmet acceptance criteria as pending
+Executor work, not merge-ready truth.
 
 **Read-first map for this run:** `README.md` (pack index) →
 `08-implementation-pointers.md` (verified per-ticket file/module/function
