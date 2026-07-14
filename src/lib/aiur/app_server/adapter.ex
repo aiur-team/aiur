@@ -102,7 +102,11 @@ defmodule Aiur.AppServer.Adapter do
   defp pause_latched?(session), do: Aiur.PauseContainment.paused?(Map.get(session, :containment))
 
   @spec start_port(Path.t(), String.t()) :: {:ok, port()} | {:error, :bash_not_found}
-  def start_port(workspace, command) do
+  def start_port(workspace, command), do: start_port(workspace, command, fn _port -> :ok end)
+
+  @doc false
+  @spec start_port(Path.t(), String.t(), (port() -> term())) :: {:ok, port()} | {:error, :bash_not_found}
+  def start_port(workspace, command, on_port_started) when is_function(on_port_started, 1) do
     executable = System.find_executable("bash")
 
     if is_nil(executable) do
@@ -128,6 +132,10 @@ defmodule Aiur.AppServer.Adapter do
           ]
         )
 
+      # Invoke this while the spawn primitive still owns control. Callers use
+      # it to record the local process-group lease before any handshake or
+      # session setup can expose a live descendant to an abrupt runner death.
+      on_port_started.(port)
       {:ok, port}
     end
   end

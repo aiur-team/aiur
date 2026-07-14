@@ -53,12 +53,26 @@ defmodule Aiur.Codex.AppServerPort do
 
   @spec start_port(Path.t(), String.t() | nil, String.t() | nil, String.t() | nil) ::
           {:ok, port()} | {:error, term()}
-  def start_port(workspace, nil, model, effort) do
-    Adapter.start_port(workspace, codex_command(model, effort))
+  def start_port(workspace, worker_host, model, effort),
+    do: start_port(workspace, worker_host, model, effort, fn _process_group_id -> :ok end)
+
+  @spec start_port(Path.t(), String.t() | nil, String.t() | nil, String.t() | nil, (integer() -> term())) ::
+          {:ok, port()} | {:error, term()}
+  def start_port(workspace, nil, model, effort, on_process_group_started)
+      when is_function(on_process_group_started, 1) do
+    Adapter.start_port(workspace, codex_command(model, effort), fn port ->
+      notify_process_group_started(port, nil, on_process_group_started)
+    end)
   end
 
-  def start_port(workspace, worker_host, model, effort) when is_binary(worker_host) do
-    SSH.start_port(worker_host, remote_launch_command(workspace, model, effort), line: Adapter.port_line_bytes())
+  def start_port(workspace, worker_host, model, effort, on_process_group_started)
+      when is_binary(worker_host) and is_function(on_process_group_started, 1) do
+    command = remote_launch_command(workspace, model, effort)
+
+    with {:ok, port} <- SSH.start_port(worker_host, command, line: Adapter.port_line_bytes()) do
+      notify_process_group_started(port, worker_host, on_process_group_started)
+      {:ok, port}
+    end
   end
 
   @spec port_metadata(port(), String.t() | nil) :: map()
@@ -163,6 +177,22 @@ defmodule Aiur.Codex.AppServerPort do
 
   defp maybe_put_worker_host(metadata, host) when is_binary(host), do: Map.put(metadata, :worker_host, host)
   defp maybe_put_worker_host(metadata, _worker_host), do: metadata
+
+  defp notify_process_group_started(port, worker_host, callback) do
+    case port_metadata(port, worker_host)[:agent_process_group_id] do
+      process_group_id when is_binary(process_group_id) ->
+        case Integer.parse(process_group_id) do
+          {value, ""} when value > 0 -> callback.(value)
+          _ -> :ok
+        end
+
+      process_group_id when is_integer(process_group_id) and process_group_id > 0 ->
+        callback.(process_group_id)
+
+      _ ->
+        :ok
+    end
+  end
 
   defp process_group_id(pid) do
     case System.find_executable("ps") do

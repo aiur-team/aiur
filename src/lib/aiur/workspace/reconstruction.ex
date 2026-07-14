@@ -32,7 +32,41 @@ defmodule Aiur.Workspace.Reconstruction do
   @doc false
   @spec with_log_lock(Path.t(), (-> term())) :: term()
   def with_log_lock(workspace, fun) when is_binary(workspace) and is_function(fun, 0) do
-    :global.trans({__MODULE__, Path.expand(workspace)}, fun)
+    name = {__MODULE__, Path.expand(workspace)}
+    lock_key = {__MODULE__, :log_lock_depth, name}
+
+    case Process.get(lock_key) do
+      nil ->
+        acquire_log_lock(name)
+        Process.put(lock_key, 1)
+
+        try do
+          fun.()
+        after
+          Process.delete(lock_key)
+          :ok = :global.unregister_name(name)
+        end
+
+      depth ->
+        Process.put(lock_key, depth + 1)
+
+        try do
+          fun.()
+        after
+          Process.put(lock_key, depth)
+        end
+    end
+  end
+
+  defp acquire_log_lock(name) do
+    case :global.register_name(name, self()) do
+      :yes ->
+        :ok
+
+      :no ->
+        Process.sleep(10)
+        acquire_log_lock(name)
+    end
   end
 
   defp promote(stage, stage_root, workspace) do

@@ -49,7 +49,31 @@ defmodule Aiur.Workspace.RefreshTest do
     assert File.read!(log_path) == "prior transcript\n"
   end
 
+  test "run/3 refuses incomplete Git WIP before executing before_run", %{
+    workspace: workspace,
+    test_root: test_root
+  } do
+    {_output, 0} = System.cmd("git", ["init", "--quiet", workspace], stderr_to_stdout: true)
+    notes = Path.join(workspace, "notes.txt")
+    before_run_marker = Path.join(test_root, "before-run-ran")
+    File.write!(notes, "preserve this interrupted bootstrap\n")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      workspace_root: test_root,
+      hook_before_run: "touch #{before_run_marker}"
+    )
+
+    issue_context = %{issue_id: 1, issue_identifier: "test", issue_state: nil, issue_labels: [], pr_head_ref: nil}
+
+    assert {:error, {:workspace_ambiguous, ^workspace, :invalid_git_checkout}} =
+             Refresh.run(workspace, issue_context, nil)
+
+    assert File.read!(notes) == "preserve this interrupted bootstrap\n"
+    refute File.exists?(before_run_marker)
+  end
+
   test "run/3 exit-65 on todo dispatch recreates workspace and re-runs before_run", %{workspace: workspace, test_root: test_root} do
+    init_repo!(workspace)
     sentinel = Path.join(workspace, "leftover-sentinel")
     File.write!(sentinel, "leftover")
 

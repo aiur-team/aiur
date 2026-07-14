@@ -52,11 +52,19 @@ defmodule Aiur.Codex.CodingAgent do
     model = Keyword.get(opts, :model)
     effort = Keyword.get(opts, :effort)
     resume_thread_id = Keyword.get(opts, :resume_thread_id)
+    on_process_group_started = Keyword.get(opts, :on_process_group_started, fn _process_group_id -> :ok end)
 
     identifier = Keyword.get(opts, :identifier)
 
     with {:ok, expanded_workspace} <- AppServerPort.validate_workspace_cwd(workspace, worker_host),
-         {:ok, port} <- AppServerPort.start_port(expanded_workspace, worker_host, model, effort) do
+         {:ok, port} <-
+           AppServerPort.start_port(
+             expanded_workspace,
+             worker_host,
+             model,
+             effort,
+             on_process_group_started
+           ) do
       metadata = AppServerPort.port_metadata(port, worker_host)
       containment = register_pause_containment(identifier, metadata, expanded_workspace)
 

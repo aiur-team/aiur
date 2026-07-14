@@ -87,6 +87,11 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   end
 
   defp process_group_id(_session), do: nil
+
+  defp workspace_process_group_tracker(ownership) do
+    fn process_group_id -> Ownership.track_process_group(ownership, process_group_id) end
+  end
+
   @doc false
   @spec run_session(Path.t(), Issue.t(), pid() | nil, keyword(), worker_host()) ::
           :ok | {:completed, Issue.t()} | {:error, term()}
@@ -96,6 +101,14 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     orchestrator = Keyword.get(opts, :orchestrator, Aiur.Orchestrator)
 
     {session_backend, rc?, session_opts} = resolve_session_options(issue, opts, worker_host)
+
+    session_opts =
+      Keyword.put(
+        session_opts,
+        :on_process_group_started,
+        workspace_process_group_tracker(Keyword.get(opts, :workspace_ownership))
+      )
+
     model = Keyword.fetch!(session_opts, :model)
     effort = Keyword.fetch!(session_opts, :effort)
 

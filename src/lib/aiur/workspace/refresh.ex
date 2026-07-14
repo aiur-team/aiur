@@ -12,23 +12,28 @@ defmodule Aiur.Workspace.Refresh do
       |> Context.build()
       |> then(&%{&1 | branch_name: Provisioner.resolve_branch_name(workspace, &1)})
 
-    hooks = Config.settings!().hooks
+    case refresh_workspace_readiness(workspace, worker_host) do
+      {:error, _reason} = error ->
+        error
 
-    hook_result = run_before_run_command(hooks.before_run, workspace, issue_context, worker_host)
+      _readiness ->
+        hooks = Config.settings!().hooks
+        hook_result = run_before_run_command(hooks.before_run, workspace, issue_context, worker_host)
 
-    case hook_result do
-      :ok ->
-        finalize_before_run_workspace(workspace, issue_context, worker_host)
+        case hook_result do
+          :ok ->
+            finalize_before_run_workspace(workspace, issue_context, worker_host)
 
-      {:error, reason} = error ->
-        maybe_recreate_stale_workspace(
-          error,
-          reason,
-          hooks.before_run,
-          workspace,
-          issue_context,
-          worker_host
-        )
+          {:error, reason} = error ->
+            maybe_recreate_stale_workspace(
+              error,
+              reason,
+              hooks.before_run,
+              workspace,
+              issue_context,
+              worker_host
+            )
+        end
     end
   end
 
@@ -107,15 +112,33 @@ defmodule Aiur.Workspace.Refresh do
     end
   end
 
+  defp refresh_workspace_readiness(workspace, worker_host) do
+    case Provisioner.workspace_readiness(workspace) do
+      {:error, {:workspace_ambiguous, _workspace, :invalid_git_checkout}} = error ->
+        case GitMetadata.ensure_git_metadata_writable(workspace, worker_host) do
+          :ok -> error
+          {:error, _reason} = metadata_error -> metadata_error
+        end
+
+      readiness ->
+        readiness
+    end
+  end
+
   defp run_before_run_command(nil, _workspace, _issue_context, _worker_host), do: :ok
 
   defp run_before_run_command(command, workspace, issue_context, nil) do
-    if Provisioner.incomplete_workspace?(workspace) do
-      Reconstruction.run(workspace, fn stage ->
-        Hooks.run_hook(command, stage, issue_context, "before_run", nil)
-      end)
-    else
-      Hooks.run_hook(command, workspace, issue_context, "before_run", nil)
+    case Provisioner.workspace_readiness(workspace) do
+      :bootstrap ->
+        Reconstruction.run(workspace, fn stage ->
+          Hooks.run_hook(command, stage, issue_context, "before_run", nil)
+        end)
+
+      :ready ->
+        Hooks.run_hook(command, workspace, issue_context, "before_run", nil)
+
+      {:error, _reason} = error ->
+        error
     end
   end
 

@@ -2,6 +2,7 @@ defmodule Aiur.Workspace.ReconstructionTest do
   use ExUnit.Case, async: true
 
   alias Aiur.{AgentEventLog, Workspace.Reconstruction}
+  alias Aiur.Workspace.Provisioner
 
   setup do
     root = Path.join(System.tmp_dir!(), "workspace-reconstruction-#{System.unique_integer([:positive])}")
@@ -55,5 +56,43 @@ defmodule Aiur.Workspace.ReconstructionTest do
                File.write!(Path.join(stage, "README.md"), "rebuilt\n")
                :ok
              end)
+  end
+
+  test "cold fallback serializes first-pickup event logs until the workspace is ready", %{workspace: workspace} do
+    parent = self()
+    File.rm_rf!(workspace)
+
+    fallback =
+      Task.async(fn ->
+        Provisioner.cold_fallback_workspace(workspace, fn ->
+          send(parent, :cold_fallback_recheck_entered)
+
+          receive do
+            :continue_cold_fallback -> :ok
+          end
+        end)
+      end)
+
+    assert_receive :cold_fallback_recheck_entered
+
+    writer =
+      Task.async(fn ->
+        AgentEventLog.write(workspace, nil, %{
+          event: "alert",
+          last_message: "first pickup survived fallback"
+        })
+      end)
+
+    refute Task.yield(writer, 100)
+    send(fallback.pid, :continue_cold_fallback)
+
+    assert {:ok, ^workspace, true} = Task.await(fallback)
+    assert :ok = Task.await(writer)
+
+    assert File.read!(Path.join([workspace, "logs", "agent.ndjson"])) =~
+             "first pickup survived fallback"
+
+    assert File.read!(Path.join([workspace, "logs", "agent.md"])) =~
+             "first pickup survived fallback"
   end
 end

@@ -4,6 +4,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
   alias Aiur.{Issue, TrackerIdentity}
   alias Aiur.Orchestrator.RetryEngine
   alias Aiur.Orchestrator.State
+  alias Aiur.Workspace.Ownership
 
   describe "failure_retry?/1" do
     test "returns false for non-counting delay types" do
@@ -217,9 +218,75 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
   end
 
   describe "workspace ownership contention" do
+    test "releases a contender when ownership was released before its wait row was installed" do
+      issue_id = "issue-ownership-race"
+      identifier = "repo#ownership-race-#{System.unique_integer([:positive])}"
+
+      state = %State{
+        claimed: MapSet.new([issue_id]),
+        dispatch_recovery: %{
+          workspace_ownership: %{waits: %{}, ready: MapSet.new()},
+          codex_thrash_budget: %{}
+        }
+      }
+
+      next =
+        RetryEngine.wait_for_workspace_ownership(
+          state,
+          issue_id,
+          identifier,
+          :none,
+          :waiting
+        )
+
+      refute MapSet.member?(next.claimed, issue_id)
+      assert MapSet.member?(next.dispatch_recovery.workspace_ownership.ready, issue_id)
+    end
+
+    test "re-subscribes when ownership changes hands before its wait row is installed" do
+      issue_id = "issue-ownership-handoff"
+      identifier = "repo#ownership-handoff-#{System.unique_integer([:positive])}"
+      assert {:ok, first_owner} = Ownership.claim(identifier)
+
+      on_exit(fn -> Ownership.release(first_owner) end)
+
+      # This is the runner's original subscription. Its availability notice is
+      # deliberately consumed before the orchestrator installs the row.
+      assert :waiting = Ownership.wait_for_release(identifier, self())
+      assert :ok = Ownership.release(first_owner)
+      assert_receive {:workspace_ownership_available, ^identifier}
+
+      assert {:ok, second_owner} = Ownership.claim(identifier)
+      on_exit(fn -> Ownership.release(second_owner) end)
+
+      state = %State{
+        claimed: MapSet.new([issue_id]),
+        dispatch_recovery: %{
+          workspace_ownership: %{waits: %{}, ready: MapSet.new()},
+          codex_thrash_budget: %{}
+        }
+      }
+
+      next =
+        RetryEngine.wait_for_workspace_ownership(
+          state,
+          issue_id,
+          identifier,
+          first_owner,
+          :waiting
+        )
+
+      assert MapSet.member?(next.claimed, issue_id)
+      assert :ok = Ownership.release(second_owner)
+      assert_receive {:workspace_ownership_available, ^identifier}
+    end
+
     test "parks a contender without consuming retry or thrash budget when its runner exits first" do
       issue_id = "issue-ownership"
-      identifier = "repo#ownership"
+      identifier = "repo#ownership-#{System.unique_integer([:positive])}"
+      assert {:ok, owner_lease} = Ownership.claim(identifier)
+
+      on_exit(fn -> Ownership.release(owner_lease) end)
 
       runner =
         spawn(fn ->
@@ -258,7 +325,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
           state,
           issue_id,
           identifier,
-          {:ok, %{generation: 7, phase: :active}},
+          {:ok, owner_lease},
           :waiting
         )
 
@@ -268,7 +335,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       assert MapSet.member?(waiting.claimed, issue_id)
 
       assert waiting.dispatch_recovery.workspace_ownership.waits[identifier].owner ==
-               {:ok, %{generation: 7, phase: :active}}
+               {:ok, owner_lease}
 
       assert waiting.dispatch_recovery.codex_thrash_budget == state.dispatch_recovery.codex_thrash_budget
 

@@ -1,7 +1,7 @@
 defmodule Aiur.Workspace.ProvisionerTest do
   use Aiur.TestSupport
 
-  alias Aiur.Workflow
+  alias Aiur.{Workflow, Workspace}
   alias Aiur.Workspace.Provisioner
 
   test "remote workers receive the bundled agent skill install script" do
@@ -61,15 +61,84 @@ defmodule Aiur.Workspace.ProvisionerTest do
     assert File.read!(sentinel) == "wip"
   end
 
-  test "an incomplete Git checkout is reused but still requires bootstrap" do
+  test "reports interrupted Git initialization as existing but refuses it for use" do
     workspace = Path.join(System.tmp_dir!(), "prov_unborn_#{System.unique_integer([:positive])}")
     File.mkdir_p!(workspace)
     {_output, 0} = System.cmd("git", ["init", "--quiet", workspace], stderr_to_stdout: true)
+    notes = Path.join(workspace, "notes.txt")
+    File.write!(notes, "do not discard\n")
 
     on_exit(fn -> File.rm_rf!(workspace) end)
 
     assert {:ok, ^workspace, false} = Provisioner.ensure_workspace(workspace, nil)
-    assert Provisioner.bootstrap_required?(workspace, nil, false)
+
+    assert {:error, {:workspace_ambiguous, ^workspace, :invalid_git_checkout}} =
+             Provisioner.ensure_workspace_usable(workspace, nil, false)
+
+    assert File.read!(notes) == "do not discard\n"
+  end
+
+  test "refuses unproven non-Git contents without deleting them" do
+    workspace = Path.join(System.tmp_dir!(), "prov_unproven_#{System.unique_integer([:positive])}")
+    notes = Path.join(workspace, "notes.txt")
+    File.mkdir_p!(workspace)
+    File.write!(notes, "agent WIP\n")
+
+    on_exit(fn -> File.rm_rf!(workspace) end)
+
+    assert {:error, {:workspace_ambiguous, ^workspace, :unproven_contents}} =
+             Provisioner.ensure_workspace(workspace, nil)
+
+    assert File.read!(notes) == "agent WIP\n"
+  end
+
+  test "completion proof makes an intentionally non-Git workspace reusable" do
+    workspace = Path.join(System.tmp_dir!(), "prov_ready_#{System.unique_integer([:positive])}")
+    notes = Path.join(workspace, "notes.txt")
+    File.mkdir_p!(workspace)
+    File.write!(notes, "intentional non-git workspace\n")
+
+    on_exit(fn -> File.rm_rf!(workspace) end)
+
+    assert :ok = Provisioner.mark_workspace_ready(workspace, nil)
+    assert {:ok, ^workspace, false} = Provisioner.ensure_workspace(workspace, nil)
+    refute Provisioner.bootstrap_required?(workspace, nil, false)
+    assert File.read!(notes) == "intentional non-git workspace\n"
+  end
+
+  test "partial agent-skill installation is not a non-Git completion proof" do
+    workspace = Path.join(System.tmp_dir!(), "prov_partial_skills_#{System.unique_integer([:positive])}")
+    skill = Path.join([workspace, ".claude", "skills", "using-aiur", "SKILL.md"])
+    notes = Path.join(workspace, "notes.txt")
+    File.mkdir_p!(Path.dirname(skill))
+    File.write!(skill, "partial bootstrap\\n")
+    File.write!(notes, "preserve this work\\n")
+
+    on_exit(fn -> File.rm_rf!(workspace) end)
+
+    assert {:error, {:workspace_ambiguous, ^workspace, :unproven_contents}} =
+             Provisioner.ensure_workspace(workspace, nil)
+
+    assert File.read!(skill) == "partial bootstrap\\n"
+    assert File.read!(notes) == "preserve this work\\n"
+  end
+
+  test "successful provisioning records the completion proof for a non-Git hook" do
+    test_root = Path.join(System.tmp_dir!(), "prov_completion_#{System.unique_integer([:positive])}")
+    workspace_root = Path.join(test_root, "workspaces")
+
+    on_exit(fn -> File.rm_rf!(test_root) end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "memory",
+      workspace_root: workspace_root,
+      hook_after_create: "printf initialized > README.md"
+    )
+
+    assert {:ok, workspace} = Workspace.create_for_issue("PROOF-1")
+    assert File.regular?(Provisioner.workspace_ready_marker_path(workspace))
+    assert {:ok, ^workspace} = Workspace.create_for_issue("PROOF-1")
+    assert File.read!(Path.join(workspace, "README.md")) == "initialized"
   end
 
   test "ensure_workspace/5 marks a logs-only directory for initial provisioning" do

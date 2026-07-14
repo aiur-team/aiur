@@ -11,6 +11,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.Dispatcher
+  alias Aiur.Workspace.Ownership
 
   alias Aiur.Orchestrator.{
     DispatchPolicy,
@@ -150,7 +151,21 @@ defmodule Aiur.Orchestrator.RetryEngine do
       |> Map.put(:completed, MapSet.delete(state.completed, issue_id))
       |> put_in([Access.key(:dispatch_recovery), Access.key(:workspace_ownership)], workspace_ownership)
 
-    if wait == :available, do: release_workspace_wait(waiting_state, identifier), else: waiting_state
+    # A release can occur after the runner subscribed to owner A but before
+    # this contention row is installed. Owner B can then claim before the row
+    # exists. Subscribe again only after the row is durable: this both closes
+    # the lost-notification gap and moves the waiter from A to B when ownership
+    # changed hands in that interval.
+    installed_wait =
+      if wait == :available,
+        do: :available,
+        else: Ownership.wait_for_release(identifier, self())
+
+    if installed_wait == :available do
+      release_workspace_wait(waiting_state, identifier)
+    else
+      waiting_state
+    end
   end
 
   defp cancel_pending_retry(state, issue_id) do

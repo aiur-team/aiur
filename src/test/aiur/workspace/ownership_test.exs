@@ -1,6 +1,7 @@
 defmodule Aiur.Workspace.OwnershipTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.AgentRunner.SessionLifecycle
   alias Aiur.Workspace.Ownership
 
   test "a generation excludes a competing runner until it releases" do
@@ -84,6 +85,73 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert {:error, {:workspace_owned, {:ok, %{phase: :reaping}}}} = Ownership.claim(ticket)
 
     send(reaper, :finish_reap)
+    assert_receive {:DOWN, ^guardian_monitor, :process, ^guardian, :normal}, 2_000
+    assert :none = Ownership.current(ticket)
+  end
+
+  test "brutal death during session startup reaps the group registered at spawn" do
+    ticket = "ownership-startup-#{System.unique_integer([:positive])}"
+    process_group_id = System.unique_integer([:positive])
+    parent = self()
+    {:ok, child_alive} = Agent.start_link(fn -> true end)
+
+    on_exit(fn ->
+      if Process.alive?(child_alive), do: Agent.stop(child_alive)
+    end)
+
+    group_alive? = fn group -> group == process_group_id and Agent.get(child_alive, & &1) end
+
+    reap = fn group ->
+      send(parent, {:startup_reap_started, self(), group})
+
+      receive do
+        :finish_startup_reap -> Agent.update(child_alive, fn _ -> false end)
+      end
+
+      {:ok, :reaped}
+    end
+
+    owner =
+      spawn(fn ->
+        {:ok, lease} =
+          Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
+            reap_fun: reap,
+            group_alive_fun: group_alive?
+          )
+
+        send(parent, {:startup_lease, lease})
+
+        callback = fn group ->
+          :ok = Ownership.track_process_group(lease, group)
+          send(parent, {:startup_group_registered, group})
+        end
+
+        SessionLifecycle.start_agent_session(
+          "/workspace",
+          [backend: "codex", model: nil, on_process_group_started: callback],
+          fn _workspace, opts ->
+            Keyword.fetch!(opts, :on_process_group_started).(process_group_id)
+            send(parent, :startup_session_blocked)
+
+            receive do
+              :finish_session_start -> {:ok, %{}}
+            end
+          end
+        )
+      end)
+
+    assert_receive {:startup_group_registered, ^process_group_id}, 2_000
+    assert_receive :startup_session_blocked, 2_000
+    assert_receive {:startup_lease, %{guardian: guardian}}, 2_000
+
+    guardian_monitor = Process.monitor(guardian)
+    owner_monitor = Process.monitor(owner)
+    Process.exit(owner, :kill)
+    assert_receive {:DOWN, ^owner_monitor, :process, ^owner, :killed}, 2_000
+    assert_receive {:startup_reap_started, reaper, ^process_group_id}, 2_000
+    assert {:ok, %{phase: :reaping}} = Ownership.current(ticket)
+
+    send(reaper, :finish_startup_reap)
     assert_receive {:DOWN, ^guardian_monitor, :process, ^guardian, :normal}, 2_000
     assert :none = Ownership.current(ticket)
   end
