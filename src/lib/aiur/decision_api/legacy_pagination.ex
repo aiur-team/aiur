@@ -52,7 +52,7 @@ defmodule Aiur.DecisionApi.LegacyPagination do
       |> Map.put(:limit, page_limit)
       |> maybe_put_cursor(cursor)
 
-    with {:ok, page} <- DecisionQuery.list(params, store: store) do
+    with {:ok, page} <- DecisionQuery.list(params, store: store, ordering: :current) do
       {skipped, visible} = Enum.split(page.decisions, min(offset, length(page.decisions)))
       decisions = decisions ++ Enum.take(visible, remaining)
       request = %{request | remaining_offset: offset - length(skipped)}

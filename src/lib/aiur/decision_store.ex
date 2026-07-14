@@ -540,10 +540,20 @@ defmodule Aiur.DecisionStore do
   end
 
   def handle_call({:retained_query, query}, _from, state) do
+    {ordering, query} = Map.pop(query, :ordering, :audit)
+
     reply =
       case DecisionQueryParams.parse(query) do
-        {:ok, normalized} -> RetainedSnapshot.query(state.current, state.retained_index, state.health, normalized)
-        {:error, _reason} -> {:error, :invalid_query}
+        {:ok, normalized} ->
+          RetainedSnapshot.query(
+            state.current,
+            state.retained_index,
+            state.health,
+            Map.put(normalized, :ordering, ordering)
+          )
+
+        {:error, _reason} ->
+          {:error, :invalid_query}
       end
 
     {:reply, reply, state}

@@ -43,6 +43,8 @@ defmodule Aiur.DecisionQuery do
 
   def list(params, opts) when is_map(params) and is_list(opts) do
     with {:ok, query} <- Params.parse(params) do
+      query = Map.put(query, :ordering, ordering(opts))
+
       case StoreReader.read_query(query, store(opts)) do
         {:ok, snapshot, health} -> {:ok, retained_page(snapshot, query, health)}
         {:error, :store_unavailable} -> {:ok, unavailable_page(query)}
@@ -65,6 +67,7 @@ defmodule Aiur.DecisionQuery do
   end
 
   defp store(opts), do: Keyword.get(opts, :store, @default_store)
+  defp ordering(opts), do: if(Keyword.get(opts, :ordering) == :current, do: :current, else: :audit)
 
   defp next_cursor(_key, false), do: nil
   defp next_cursor(nil, true), do: nil

@@ -3,9 +3,9 @@ defmodule Aiur.DecisionApi do
   Machine-facing application facade for canonical Decision operations.
 
   This module does not persist a parallel API representation. It reads the
-  retained `Aiur.DecisionQuery` projection, encodes it through
-  `Aiur.DecisionProjection`, and adds a current fail-closed supervisor policy
-  evaluation. Mutations remain thin delegates to their canonical store services.
+  retained `Aiur.DecisionQuery` projection, maps it through a bounded public
+  projection, and adds a current fail-closed supervisor policy evaluation.
+  Mutations remain thin delegates to their canonical store services.
   """
 
   alias Aiur.{
@@ -15,7 +15,7 @@ defmodule Aiur.DecisionApi do
     DecisionApi.LegacyPagination,
     DecisionAuthority,
     DecisionDelegation,
-    DecisionProjection,
+    DecisionApi.PublicProjection,
     DecisionQuery,
     DecisionRevision,
     DecisionStore
@@ -363,7 +363,7 @@ defmodule Aiur.DecisionApi do
     evaluation = DecisionAuthority.evaluate(decision, policy)
 
     decision
-    |> DecisionProjection.to_json_safe()
+    |> PublicProjection.encode()
     |> Map.put("supervisor_policy", %{
       "allowed" => evaluation.allowed,
       "checks" => Map.new(evaluation.checks, fn {key, value} -> {Atom.to_string(key), value} end),

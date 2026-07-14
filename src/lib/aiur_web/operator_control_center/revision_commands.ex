@@ -6,7 +6,6 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
   import Phoenix.Component, only: [assign: 3]
 
   alias Aiur.DecisionStore
-  alias AiurWeb.ControlCenterPresenter
   alias AiurWeb.Endpoint
   alias AiurWeb.OperatorControlCenter.DecisionCommands
   alias Phoenix.LiveView.Socket
@@ -51,16 +50,21 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
     detail = follow_up_detail(form)
     socket = put_follow_up_detail(socket, decision_id, detail)
 
-    if detail == "" do
-      put_follow_up_error(socket, decision_id, "Record how the follow-up was handled before closing it.")
-    else
-      result = safe_handle_follow_up(decision_id, action_id, detail)
-      socket = reload_fun.(socket)
+    cond do
+      detail == "" ->
+        put_follow_up_error(socket, decision_id, "Record how the follow-up was handled before closing it.")
 
-      case result do
-        {:ok, %{status: status}} -> put_follow_up_notice(socket, decision_id, follow_up_notice(status))
-        {:error, reason} -> put_follow_up_error(socket, decision_id, command_error(reason))
-      end
+      selected_decision(socket, decision_id) == :error ->
+        put_follow_up_error(reload_fun.(socket), decision_id, "This decision detail is no longer available.")
+
+      true ->
+        result = safe_handle_follow_up(decision_id, action_id, detail)
+        socket = reload_fun.(socket)
+
+        case result do
+          {:ok, %{status: status}} -> put_follow_up_notice(socket, decision_id, follow_up_notice(status))
+          {:error, reason} -> put_follow_up_error(socket, decision_id, command_error(reason))
+        end
     end
   end
 
@@ -97,12 +101,15 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
        when not is_nil(answer),
        do: {:ok, decision}
 
-  defp answered_decision(socket, decision_id) do
-    case ControlCenterPresenter.find_decision(socket.assigns.payload, decision_id) do
-      {:ok, %{answer: answer} = decision} when not is_nil(answer) -> {:ok, decision}
-      _result -> :error
-    end
-  end
+  defp answered_decision(_socket, _decision_id), do: :error
+
+  defp selected_decision(
+         %{assigns: %{selected_decision: %{decision_id: decision_id} = decision}},
+         decision_id
+       ),
+       do: {:ok, decision}
+
+  defp selected_decision(_socket, _decision_id), do: :error
 
   defp normalize_revision_form(form) when is_map(form) do
     Map.take(form, ["choice", "custom_response", "reason", "confirmed"])

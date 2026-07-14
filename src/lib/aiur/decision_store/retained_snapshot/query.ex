@@ -33,13 +33,16 @@ defmodule Aiur.DecisionStore.RetainedSnapshot.Query do
     }
   end
 
-  defp candidate(index, %{ticket: ticket}) when is_binary(ticket), do: RetainedIndex.ticket(index, ticket)
-  defp candidate(index, %{search: search}) when is_binary(search), do: RetainedIndex.search(index, search)
+  defp candidate(index, %{ticket: ticket} = query) when is_binary(ticket),
+    do: RetainedIndex.ticket(index, ticket, ordering(query))
 
-  defp candidate(index, %{lifecycle: lifecycle}) when lifecycle in @lifecycle_statuses,
-    do: RetainedIndex.lifecycle(index, lifecycle)
+  defp candidate(index, %{search: search} = query) when is_binary(search),
+    do: RetainedIndex.search(index, search, ordering(query))
 
-  defp candidate(index, _query), do: RetainedIndex.all(index)
+  defp candidate(index, %{lifecycle: lifecycle} = query) when lifecycle in @lifecycle_statuses,
+    do: RetainedIndex.lifecycle(index, lifecycle, ordering(query))
+
+  defp candidate(index, query), do: RetainedIndex.all(index, ordering(query))
 
   defp scan_limited?(query) do
     Enum.any?([:ticket, :search, :authority, :blocking, :kind], &(not is_nil(Map.get(query, &1))))
@@ -122,7 +125,7 @@ defmodule Aiur.DecisionStore.RetainedSnapshot.Query do
   end
 
   defp ticket_match?(_decision, nil), do: true
-  defp ticket_match?(decision, ticket), do: starts_with?(ticket_identifier(decision), ticket)
+  defp ticket_match?(decision, ticket), do: exact_match?(ticket_identifier(decision), ticket)
   defp search_match?(_decision, nil), do: true
 
   defp search_match?(decision, search) do
@@ -138,7 +141,10 @@ defmodule Aiur.DecisionStore.RetainedSnapshot.Query do
   defp lifecycle_match?(decision, lifecycle), do: decision.decision_status == lifecycle
   defp starts_with?(nil, _prefix), do: false
   defp starts_with?(value, prefix), do: String.starts_with?(String.downcase(value), String.downcase(prefix))
+  defp exact_match?(nil, _expected), do: false
+  defp exact_match?(value, expected), do: String.downcase(value) == String.downcase(expected)
   defp ticket_identifier(%Decision{ticket: ticket}), do: ticket && Map.get(ticket, :identifier)
+  defp ordering(query), do: Map.get(query, :ordering, :audit)
 
   defp total_for(nil, %{exhausted?: true, matches: matches}, %{cursor: nil}), do: matches
   defp total_for(nil, _snapshot, _query), do: nil

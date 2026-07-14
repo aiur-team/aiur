@@ -13,6 +13,7 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
           optional(:authority) => Decision.authority() | nil,
           optional(:blocking) => boolean() | nil,
           optional(:kind) => String.t() | nil,
+          optional(:ordering) => :audit | :current,
           required(:lifecycle) => Decision.decision_status() | nil,
           required(:search) => String.t() | nil,
           required(:ticket) => String.t() | nil
@@ -87,7 +88,8 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
       valid_optional_string?(Map.get(query, :kind)),
       valid_optional_string?(search),
       valid_optional_string?(ticket),
-      valid_search_ticket?(search, ticket)
+      valid_search_ticket?(search, ticket),
+      valid_ordering?(Map.get(query, :ordering, :audit))
     ]
     |> Enum.all?()
   end
@@ -105,4 +107,5 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
   defp valid_optional_string?(nil), do: true
   defp valid_optional_string?(value), do: is_binary(value) and String.valid?(value)
   defp valid_search_ticket?(search, ticket), do: is_nil(search) or is_nil(ticket)
+  defp valid_ordering?(ordering), do: ordering in [:audit, :current]
 end

@@ -144,6 +144,59 @@ defmodule AiurWeb.DashboardLiveTest do
     end
   end
 
+  defmodule StaleDetailStore do
+    use GenServer
+
+    def start_link(opts) do
+      GenServer.start_link(__MODULE__, opts, name: Keyword.fetch!(opts, :name))
+    end
+
+    @impl true
+    def init(opts) do
+      {:ok,
+       %{
+         overview: Keyword.fetch!(opts, :overview),
+         detail_status: Keyword.fetch!(opts, :detail_status),
+         report: Keyword.fetch!(opts, :report)
+       }}
+    end
+
+    @impl true
+    def handle_call({:recent_decisions, _limit}, _from, state), do: {:reply, [state.overview], state}
+
+    def handle_call({:set_detail_status, detail_status}, _from, state) do
+      {:reply, :ok, %{state | detail_status: detail_status}}
+    end
+
+    def handle_call({:retained_lookup, _decision_id}, _from, %{detail_status: :unavailable} = state) do
+      {:reply, {:error, :store_unavailable}, state}
+    end
+
+    def handle_call({:retained_lookup, _decision_id}, _from, %{detail_status: :indeterminate} = state) do
+      {:reply, {:ok, %{decision: nil, health: {:corrupt, 1, :test_partial}}}, state}
+    end
+
+    def handle_call({:recent_audit_history, _limit}, _from, state) do
+      {:reply, %{records: [], contexts: %{}, revisions: %{}}, state}
+    end
+
+    def handle_call(:retained_counts, _from, state) do
+      {:reply, {:ok, %{counts: %{total: 1, open: 1, blocking: true}, health: :writable}}, state}
+    end
+
+    def handle_call({:answer, decision_id, payload, opts}, _from, state) do
+      send(state.report, {:stale_detail_answer, decision_id, payload, opts})
+      {:reply, {:ok, %{status: :accepted}}, state}
+    end
+
+    def handle_call({:revise, decision_id, payload, opts}, _from, state) do
+      send(state.report, {:stale_detail_revision, decision_id, payload, opts})
+      {:reply, {:ok, %{status: :accepted}}, state}
+    end
+
+    def handle_call(_request, _from, state), do: {:reply, {:error, :store_unavailable}, state}
+  end
+
   defmodule QueueOrchestrator do
     use GenServer
 
@@ -776,6 +829,106 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ "This retained decision is resolved."
     assert html =~ "Resolved"
     refute html =~ "No decisions match this filter."
+  end
+
+  test "unavailable or indeterminate detail excludes the matching stale overview row and rejects answers" do
+    orchestrator_name = Module.concat(__MODULE__, :StaleAnswerOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :StaleAnswerStore)
+    detail_store_name = Module.concat(__MODULE__, :StaleAnswerDetailStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_081}}}
+      end)
+
+    overview = request_dashboard_decision(store, "stale-detail-answer")
+    start_stale_detail_store(detail_store_name, overview, :unavailable)
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: detail_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    for detail_status <- [:unavailable, :indeterminate] do
+      assert :ok = GenServer.call(detail_store_name, {:set_detail_status, detail_status})
+
+      {:ok, view, html} = live(build_conn(), "/decisions/#{overview.decision_id}")
+      assert html =~ if(detail_status == :unavailable, do: "Decision unavailable", else: "Decision presence unknown")
+      refute html =~ "Should the dashboard ship this change?"
+      refute html =~ ~s(phx-submit="answer-decision")
+
+      _html =
+        render_submit(view, "answer-decision", %{
+          "decision_id" => overview.decision_id,
+          "answer" => %{"choice" => "option:ship", "rationale" => "Must not use stale overview data"}
+        })
+
+      decision_id = overview.decision_id
+      refute_receive {:stale_detail_answer, ^decision_id, _payload, _opts}
+    end
+  end
+
+  test "unavailable or indeterminate detail excludes the matching stale overview row and rejects revisions" do
+    orchestrator_name = Module.concat(__MODULE__, :StaleRevisionOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :StaleRevisionStore)
+    detail_store_name = Module.concat(__MODULE__, :StaleRevisionDetailStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_082}}}
+      end)
+
+    requested = request_dashboard_decision(store, "stale-detail-revision")
+
+    assert {:ok, _accepted} =
+             DecisionStore.answer(
+               requested.decision_id,
+               %{
+                 "idempotency_key" => "stale-detail-answer",
+                 "expected_version" => requested.version,
+                 "option_id" => "ship"
+               },
+               [actor: %{kind: :operator, id: "test"}],
+               store
+             )
+
+    assert {:ok, overview} = DecisionStore.get(requested.decision_id, store)
+    start_stale_detail_store(detail_store_name, overview, :unavailable)
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: detail_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    for detail_status <- [:unavailable, :indeterminate] do
+      assert :ok = GenServer.call(detail_store_name, {:set_detail_status, detail_status})
+
+      {:ok, view, html} = live(build_conn(), "/decisions/#{overview.decision_id}")
+      assert html =~ if(detail_status == :unavailable, do: "Decision unavailable", else: "Decision presence unknown")
+      refute html =~ "Should the dashboard ship this change?"
+      refute html =~ ~s(phx-submit="revise-decision")
+
+      _html =
+        render_submit(view, "revise-decision", %{
+          "decision_id" => overview.decision_id,
+          "revision" => %{
+            "choice" => "custom",
+            "custom_response" => "Must not use stale overview data",
+            "reason" => "The exact retained detail is unavailable"
+          }
+        })
+
+      decision_id = overview.decision_id
+      refute_receive {:stale_detail_revision, ^decision_id, _payload, _opts}
+    end
   end
 
   test "a writable answer uses selected retained detail outside the overview window" do
@@ -2635,6 +2788,11 @@ defmodule AiurWeb.DashboardLiveTest do
   defp start_versioned_detail_store(name, overview, detail) do
     opts = [name: name, overview: overview, detail: detail, report: self()]
     start_supervised!({VersionedDetailStore, opts})
+  end
+
+  defp start_stale_detail_store(name, overview, detail_status) do
+    opts = [name: name, overview: overview, detail_status: detail_status, report: self()]
+    start_supervised!({StaleDetailStore, opts})
   end
 
   defp dashboard_decision(decision_id) do

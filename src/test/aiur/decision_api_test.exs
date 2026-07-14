@@ -2,6 +2,7 @@ defmodule Aiur.DecisionApiTest do
   use ExUnit.Case, async: false
 
   alias Aiur.{DecisionApi, DecisionDelegation, DecisionStore}
+  alias Aiur.DecisionStore.RetainedSnapshot
 
   @ticket %{identifier: "984", title: "OCC-7", url: "https://github.com/its-everdred/aiur/issues/984"}
   @source %{agent_id: "agent-1", session_id: "session-1", event_id: nil}
@@ -114,6 +115,44 @@ defmodule Aiur.DecisionApiTest do
     refute Map.has_key?(encoded_older["supervisor_policy"], "allowed_kinds")
   end
 
+  test "list and get expose only the bounded public Decision projection", %{store: store} do
+    decision = request!(store, "architecture", :supervisor_allowed, source_id: "public-boundary")
+
+    :sys.replace_state(store, fn state ->
+      unsafe = %{
+        Map.fetch!(state.current, decision.decision_id)
+        | ticket: %{
+            identifier: "984",
+            title: "OCC-7",
+            url: "https://operator:credential@example.test/issues/984?capability=private#fragment"
+          },
+          source: %{agent_id: "account@example.test", session_id: "session-private", event_id: "event-private"},
+          artifacts: [%{kind: :url, value: "https://example.test/evidence?capability=private#fragment"}],
+          provenance: %{session_id: "session-private", capability_url: "https://example.test?token=private"},
+          legacy_attention: %{session_id: "session-private"}
+      }
+
+      current = Map.put(state.current, decision.decision_id, unsafe)
+      %{state | current: current, retained_index: RetainedSnapshot.build_index(current)}
+    end)
+
+    assert {:ok, %{"decisions" => [listed]}} = DecisionApi.list(%{}, store: store, policy: @policy)
+    assert {:ok, fetched} = DecisionApi.get(decision.decision_id, store: store, policy: @policy)
+
+    for projection <- [listed, fetched] do
+      assert projection["ticket"]["url"] == nil
+      assert projection["source"] == %{"agent_id" => nil}
+      assert projection["artifacts"] == []
+      refute Map.has_key?(projection, "source_id")
+      refute Map.has_key?(projection, "content_hash")
+      refute Map.has_key?(projection, "legacy_attention")
+      refute Map.has_key?(projection["provenance"], "session_id")
+      refute inspect(projection) =~ "session-private"
+      refute inspect(projection) =~ "capability=private"
+      refute inspect(projection) =~ "account@example.test"
+    end
+  end
+
   test "v1 list preserves documented offset defaults and bounds", %{store: store} do
     oldest =
       request!(store, "architecture", :supervisor_allowed,
@@ -187,6 +226,54 @@ defmodule Aiur.DecisionApiTest do
              DecisionApi.list(filters, store: store, policy: @policy)
 
     assert encoded["decision_id"] == architecture.decision_id
+  end
+
+  test "legacy ticket filters compare the complete ticket identifier", %{store: store} do
+    ticket_ten = request!(store, "architecture", :supervisor_allowed, source_id: "ticket-ten")
+    ticket_1088 = request!(store, "architecture", :supervisor_allowed, source_id: "ticket-1088")
+
+    :sys.replace_state(store, fn state ->
+      current =
+        state.current
+        |> Map.update!(ticket_ten.decision_id, &%{&1 | ticket: %{&1.ticket | identifier: "10"}})
+        |> Map.update!(ticket_1088.decision_id, &%{&1 | ticket: %{&1.ticket | identifier: "1088"}})
+
+      %{state | current: current, retained_index: RetainedSnapshot.build_index(current)}
+    end)
+
+    assert {:ok, %{"decisions" => [encoded]}} = DecisionApi.list(%{"ticket" => "10"}, store: store, policy: @policy)
+    assert encoded["decision_id"] == ticket_ten.decision_id
+  end
+
+  test "legacy offset pages retain current created-at ordering after a Decision update", %{store: store} do
+    first =
+      request!(store, "architecture", :supervisor_allowed,
+        source_id: "legacy-updated",
+        now: ~U[2026-07-12 10:00:00Z]
+      )
+
+    middle =
+      request!(store, "architecture", :supervisor_allowed,
+        source_id: "legacy-middle",
+        now: ~U[2026-07-12 10:01:00Z]
+      )
+
+    updated =
+      request!(store, "architecture", :supervisor_allowed,
+        source_id: "legacy-updated",
+        version: 2,
+        now: ~U[2026-07-12 10:02:00Z]
+      )
+
+    assert updated.decision_id == first.decision_id
+
+    assert {:ok, %{"decisions" => [first_page]}} =
+             DecisionApi.list(%{"limit" => 1}, store: store, policy: @policy)
+
+    assert first_page["decision_id"] == updated.decision_id
+
+    assert {:ok, %{"decisions" => decisions}} = DecisionApi.list(%{}, store: store, policy: @policy)
+    assert Enum.map(decisions, & &1["decision_id"]) == [updated.decision_id, middle.decision_id]
   end
 
   test "malformed or unknown list parameters fail rather than broadening the result", %{store: store} do
@@ -647,6 +734,12 @@ defmodule Aiur.DecisionApiTest do
       "authority" => Atom.to_string(authority),
       "reversibility" => "reversible"
     }
+
+    payload =
+      case Keyword.get(opts, :version) do
+        nil -> payload
+        version -> Map.put(payload, "version", version)
+      end
 
     assert {:ok, %{decision: decision}} =
              DecisionStore.request(payload, [ticket: @ticket, source: @source, now: now], store)

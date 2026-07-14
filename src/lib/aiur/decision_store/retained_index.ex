@@ -12,6 +12,13 @@ defmodule Aiur.DecisionStore.RetainedIndex do
           tickets: %{String.t() => :gb_sets.set()},
           searches: %{String.t() => :gb_sets.set()},
           audit_keys: %{String.t() => {integer(), String.t()}},
+          current: %{
+            all: :gb_sets.set(),
+            lifecycle: %{Decision.decision_status() => :gb_sets.set()},
+            tickets: %{String.t() => :gb_sets.set()},
+            searches: %{String.t() => :gb_sets.set()},
+            keys: %{String.t() => {integer(), String.t()}}
+          },
           counts: %{open: non_neg_integer(), blocking: non_neg_integer()}
         }
 
@@ -31,17 +38,17 @@ defmodule Aiur.DecisionStore.RetainedIndex do
     |> add(decision, key)
   end
 
-  @spec all(t()) :: :gb_sets.set()
-  def all(index), do: index.all
+  @spec all(t(), :audit | :current) :: :gb_sets.set()
+  def all(index, order \\ :audit), do: entries(index, order).all
 
-  @spec lifecycle(t(), Decision.decision_status()) :: :gb_sets.set()
-  def lifecycle(index, status), do: Map.fetch!(index.lifecycle, status)
+  @spec lifecycle(t(), Decision.decision_status(), :audit | :current) :: :gb_sets.set()
+  def lifecycle(index, status, order \\ :audit), do: entries(index, order).lifecycle |> Map.fetch!(status)
 
-  @spec ticket(t(), String.t()) :: :gb_sets.set()
-  def ticket(index, value), do: bucket_entries(index.tickets, value)
+  @spec ticket(t(), String.t(), :audit | :current) :: :gb_sets.set()
+  def ticket(index, value, order \\ :audit), do: bucket_entries(entries(index, order).tickets, value)
 
-  @spec search(t(), String.t()) :: :gb_sets.set()
-  def search(index, value), do: bucket_entries(index.searches, value)
+  @spec search(t(), String.t(), :audit | :current) :: :gb_sets.set()
+  def search(index, value, order \\ :audit), do: bucket_entries(entries(index, order).searches, value)
 
   @spec canonical_counts(t()) :: %{open: non_neg_integer(), blocking: non_neg_integer(), total: non_neg_integer()}
   def canonical_counts(index), do: Map.put(index.counts, :total, :gb_sets.size(index.all))
@@ -55,6 +62,7 @@ defmodule Aiur.DecisionStore.RetainedIndex do
       tickets: %{},
       searches: %{},
       audit_keys: %{},
+      current: empty_entries(),
       counts: %{open: 0, blocking: 0}
     }
   end
@@ -70,6 +78,7 @@ defmodule Aiur.DecisionStore.RetainedIndex do
         tickets: add_buckets(index.tickets, ticket_buckets, key),
         searches: add_buckets(index.searches, search_buckets, key),
         audit_keys: Map.put(index.audit_keys, decision.decision_id, key),
+        current: add_entries(index.current, decision, current_key(decision)),
         counts: increment_counts(index.counts, decision)
     }
   end
@@ -86,11 +95,51 @@ defmodule Aiur.DecisionStore.RetainedIndex do
         tickets: remove_buckets(index.tickets, ticket_buckets, key),
         searches: remove_buckets(index.searches, search_buckets, key),
         audit_keys: Map.delete(index.audit_keys, decision.decision_id),
+        current: remove_entries(index.current, decision),
         counts: decrement_counts(index.counts, decision)
     }
   end
 
   defp remove(index, _prior), do: index
+
+  defp empty_entries do
+    %{
+      all: :gb_sets.empty(),
+      lifecycle: Map.new(@lifecycle_statuses, &{&1, :gb_sets.empty()}),
+      tickets: %{},
+      searches: %{},
+      keys: %{}
+    }
+  end
+
+  defp add_entries(entries, %Decision{} = decision, key) do
+    ticket_buckets = buckets(ticket_identifier(decision))
+    search_buckets = (buckets(decision.decision_id) ++ ticket_buckets) |> Enum.uniq()
+
+    %{
+      entries
+      | all: :gb_sets.add(key, entries.all),
+        lifecycle: Map.update!(entries.lifecycle, decision.decision_status, &:gb_sets.add(key, &1)),
+        tickets: add_buckets(entries.tickets, ticket_buckets, key),
+        searches: add_buckets(entries.searches, search_buckets, key),
+        keys: Map.put(entries.keys, decision.decision_id, key)
+    }
+  end
+
+  defp remove_entries(entries, %Decision{} = decision) do
+    key = Map.fetch!(entries.keys, decision.decision_id)
+    ticket_buckets = buckets(ticket_identifier(decision))
+    search_buckets = (buckets(decision.decision_id) ++ ticket_buckets) |> Enum.uniq()
+
+    %{
+      entries
+      | all: :gb_sets.delete_any(key, entries.all),
+        lifecycle: Map.update!(entries.lifecycle, decision.decision_status, &:gb_sets.delete_any(key, &1)),
+        tickets: remove_buckets(entries.tickets, ticket_buckets, key),
+        searches: remove_buckets(entries.searches, search_buckets, key),
+        keys: Map.delete(entries.keys, decision.decision_id)
+    }
+  end
 
   defp add_buckets(index, buckets, key) do
     Enum.reduce(buckets, index, fn bucket, index ->
@@ -142,8 +191,14 @@ defmodule Aiur.DecisionStore.RetainedIndex do
   defp decrement_counts(counts, %Decision{}), do: counts
   defp first_accepted_key(_decision, [%Decision{} = first | _history]), do: audit_key(first)
   defp first_accepted_key(decision, _history), do: audit_key(decision)
+  defp entries(index, :audit), do: index
+  defp entries(index, :current), do: index.current
 
   defp audit_key(%Decision{} = decision) do
+    {-DateTime.to_unix(decision.created_at, :microsecond), decision.decision_id}
+  end
+
+  defp current_key(%Decision{} = decision) do
     {-DateTime.to_unix(decision.created_at, :microsecond), decision.decision_id}
   end
 end
