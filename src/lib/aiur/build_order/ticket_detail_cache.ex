@@ -29,7 +29,15 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
           last_access_ms: integer(),
           last_success_ms: integer() | nil,
           last_attempt_at: DateTime.t() | nil,
-          inflight: %{generation: pos_integer(), pid: pid(), ref: reference(), timeout_ref: reference()} | nil
+          inflight:
+            %{
+              generation: pos_integer(),
+              pid: pid(),
+              ref: reference(),
+              repository: Aiur.TrackerIdentity.repository(),
+              timeout_ref: reference()
+            }
+            | nil
         }
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -87,13 +95,13 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
 
   @impl true
   def handle_call({:request, identity}, _from, state) do
-    with {:ok, identity, _configured_repo} <- TicketDetail.fetchable_identity(identity, detail_opts(state)),
+    with {:ok, identity, configured_repo} <- TicketDetail.fetchable_identity(identity, detail_opts(state)),
          {:ok, state} <- ensure_entry(state, identity),
          {entry, state} <- touch(state, identity) do
       if fresh?(entry, state) or entry.inflight do
         {:reply, {:ok, state_for(entry, state)}, state}
       else
-        {entry, state} = start_refresh(entry, state)
+        {entry, state} = start_refresh(entry, state, configured_repo)
         {:reply, {:ok, state_for(entry, state)}, state}
       end
     else
@@ -176,7 +184,7 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
     {entry, %{state | entries: Map.put(state.entries, key, entry)}}
   end
 
-  defp start_refresh(entry, state) do
+  defp start_refresh(entry, state, repository) do
     generation = state.next_generation
     now = now(state)
 
@@ -188,7 +196,13 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
           entry
           | generation: generation,
             last_attempt_at: now,
-            inflight: %{generation: generation, pid: task.pid, ref: task.ref, timeout_ref: timeout_ref}
+            inflight: %{
+              generation: generation,
+              pid: task.pid,
+              ref: task.ref,
+              repository: repository,
+              timeout_ref: timeout_ref
+            }
         }
 
         state =
@@ -243,12 +257,25 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
 
   defp apply_entry_completion(key, ref, result, state) do
     case Map.fetch(state.entries, key) do
-      {:ok, %{inflight: %{ref: ^ref, generation: generation, timeout_ref: timeout_ref}} = entry} ->
+      {:ok,
+       %{
+         inflight: %{
+           ref: ^ref,
+           generation: generation,
+           repository: repository,
+           timeout_ref: timeout_ref
+         }
+       } = entry} ->
         Process.cancel_timer(timeout_ref)
-        entry = complete_entry(entry, result, state, generation)
-        state = %{state | entries: Map.put(state.entries, key, entry)}
-        broadcast(entry, state)
-        state
+
+        if completion_repository_matches?(entry.identity, repository, state) do
+          entry = complete_entry(entry, result, state, generation)
+          state = %{state | entries: Map.put(state.entries, key, entry)}
+          broadcast(entry, state)
+          state
+        else
+          discard_entry_for_repository_change(key, entry, state)
+        end
 
       _ ->
         state
@@ -278,6 +305,24 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
   catch
     :exit, _reason -> :ok
     :error, _reason -> :ok
+  end
+
+  defp completion_repository_matches?(identity, repository, state) do
+    case TicketDetail.fetchable_identity(identity, detail_opts(state)) do
+      {:ok, _identity, configured_repository} -> same_repository?(repository, configured_repository)
+      {:error, %Failure{}} -> false
+    end
+  end
+
+  defp same_repository?({owner, repository}, {configured_owner, configured_repository}) do
+    String.downcase(owner) == String.downcase(configured_owner) and
+      String.downcase(repository) == String.downcase(configured_repository)
+  end
+
+  defp discard_entry_for_repository_change(key, entry, state) do
+    state = %{state | entries: Map.delete(state.entries, key)}
+    broadcast_state(evicted_state(entry), state)
+    state
   end
 
   defp complete_entry(

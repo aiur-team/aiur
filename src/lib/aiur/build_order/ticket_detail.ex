@@ -78,10 +78,33 @@ defmodule Aiur.BuildOrder.TicketDetail do
   @private_key_block_pattern ~r/
     -----BEGIN(?:[ ][A-Z0-9]+)*[ ]PRIVATE[ ]KEY-----
     .*?
-    -----END(?:[ ][A-Z0-9]+)*[ ]PRIVATE[ ]KEY-----
+    (?:-----END(?:[ ][A-Z0-9]+)*[ ]PRIVATE[ ]KEY-----|\z)
   /isux
   @uri_userinfo_pattern ~r{\b[A-Za-z][A-Za-z0-9+.-]*://[^/\s@]+@}u
+  @network_path_userinfo_pattern ~r{(?<![A-Za-z0-9+.-])//[^/\s@]+@}u
+  @escaped_structured_credential_pattern ~r{
+    \\"
+    #{@sensitive_key_pattern}
+    \\"
+    \s*:\s*
+    \\"
+    (?:\\.|[^"])*?
+    \\"
+  }iux
+  @entity_structured_credential_pattern ~r/
+    &quot;
+    #{@sensitive_key_pattern}
+    &quot;
+    \s*:\s*
+    &quot;[^\r\n]*?&quot;
+  /iux
   @file_uri_pattern ~r{\bfile:(?://)?/[^\s"')\],\}]+}iu
+  @unc_path_pattern ~r{\\\\[^\\/\s]+\\[^\s"')\],\}]+}u
+  @sensitive_local_root_pattern ~r{
+    (?<![A-Za-z0-9._/-])
+    /(?:workspace|tmp)(?:/[A-Za-z0-9._@%+=,-]+)*
+    (?![A-Za-z0-9._/-])
+  }ux
   @absolute_local_path_pattern ~r{
     (?<![A-Za-z0-9._/-])
     /(?!/)[A-Za-z0-9._-]+(?:/[A-Za-z0-9._@%+=,-]+)+
@@ -179,21 +202,28 @@ defmodule Aiur.BuildOrder.TicketDetail do
 
   @spec fetchable_identity(TrackerIdentity.t(), keyword()) ::
           {:ok, TrackerIdentity.t(), TrackerIdentity.repository()} | {:error, Failure.t()}
-  def fetchable_identity(identity, opts \\ []) do
-    if TrackerIdentity.joinable?(identity) and identity.kind == :github do
+  def fetchable_identity(identity, opts \\ [])
+
+  def fetchable_identity(%TrackerIdentity{} = identity, opts) do
+    with {:ok, _identifier} <- Bounded.github_issue_identifier(identity.identifier),
+         true <- TrackerIdentity.joinable?(identity),
+         :github <- identity.kind do
       configured_identity(identity, opts)
     else
-      {:error, %Failure{kind: :nonfetchable_repository}}
+      _ -> {:error, %Failure{kind: :nonfetchable_repository}}
     end
   end
+
+  def fetchable_identity(_identity, _opts), do: {:error, %Failure{kind: :nonfetchable_repository}}
 
   @spec snapshot(TrackerIdentity.t(), map(), keyword()) :: {:ok, Snapshot.t()} | {:error, Failure.t()}
   def snapshot(identity, raw_issue, opts \\ [])
 
-  def snapshot(identity, raw_issue, opts) when is_map(raw_issue) do
+  def snapshot(%TrackerIdentity{} = identity, raw_issue, opts) when is_map(raw_issue) do
     max_description_bytes = description_limit(opts)
 
-    with true <- TrackerIdentity.joinable?(identity),
+    with {:ok, _identifier} <- Bounded.github_issue_identifier(identity.identifier),
+         true <- TrackerIdentity.joinable?(identity),
          :github <- identity.kind,
          :ok <- issue_response?(raw_issue),
          :ok <- matching_response_repository?(identity, raw_issue),
@@ -385,6 +415,9 @@ defmodule Aiur.BuildOrder.TicketDetail do
   defp redact_credentials(value) do
     value = Regex.replace(@private_key_block_pattern, value, "[REDACTED:credential]")
     value = Regex.replace(@uri_userinfo_pattern, value, "[REDACTED:credential]")
+    value = Regex.replace(@network_path_userinfo_pattern, value, "[REDACTED:credential]")
+    value = Regex.replace(@escaped_structured_credential_pattern, value, "[REDACTED:credential]")
+    value = Regex.replace(@entity_structured_credential_pattern, value, "[REDACTED:credential]")
     value = Regex.replace(@curl_credential_header_pattern, value, "[REDACTED:credential]")
     value = Regex.replace(@credential_header_pair_pattern, value, "[REDACTED:credential]")
     value = Regex.replace(@structured_credential_pattern, value, "[REDACTED:credential]")
@@ -401,6 +434,8 @@ defmodule Aiur.BuildOrder.TicketDetail do
         "[REDACTED:local_path]"
       )
 
+    value = Regex.replace(@unc_path_pattern, value, "[REDACTED:local_path]")
+    value = Regex.replace(@sensitive_local_root_pattern, value, "[REDACTED:local_path]")
     value = Regex.replace(@absolute_local_path_pattern, value, "[REDACTED:local_path]")
     value = Regex.replace(~r{~/[^\s"')\],\}]+}u, value, "[REDACTED:local_path]")
     Regex.replace(~r{[A-Za-z]:\\[^\s]+}u, value, "[REDACTED:local_path]")

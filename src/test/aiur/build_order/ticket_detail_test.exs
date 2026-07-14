@@ -108,6 +108,21 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
              )
   end
 
+  test "bounds a ticket identifier before provider URL construction" do
+    identity = identity(42, "I42")
+    boundary = %{identity | identifier: String.duplicate("9", 19)}
+    oversized = %{identity | identifier: String.duplicate("9", 20)}
+
+    assert {:ok, ^boundary, @configured} =
+             TicketDetail.fetchable_identity(boundary, configured_repo: @configured)
+
+    assert {:error, %Failure{kind: :nonfetchable_repository}} =
+             TicketDetail.fetch(oversized,
+               configured_repo: @configured,
+               request_fun: fn _request -> flunk("transport must not be called") end
+             )
+  end
+
   test "does not accept same-number data for a different provider node" do
     identity = identity(42, "I42")
 
@@ -231,8 +246,15 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
     body =
       "-----BEGIN OPENSSH PRIVATE KEY-----\nprivate-key-material\n-----END OPENSSH PRIVATE KEY-----\n" <>
         "https://alice:s3cr3t@example.test/private\n" <>
+        "//alice:network-path-secret@example.test/private\n" <>
+        ~S({\"Authorization\":\"escaped-json-secret\"}) <>
+        "\n" <>
+        ~s({&quot;Cookie&quot;:&quot;entity-json-secret&quot;}) <>
+        "\n" <>
         "file:///etc/passwd file:///home/alice/.ssh/id_ed25519 /nix/store/private-package\n" <>
-        "https://example.test/nix/store/render"
+        "\\\\server\\share\\private.txt local-workspace=/workspace local-tmp=/tmp\n" <>
+        "https://example.test/nix/store/render https://example.test/workspace https://example.test/tmp\n" <>
+        "-----BEGIN OPENSSH PRIVATE KEY-----\nunterminated-key-material"
 
     assert {:ok, %Snapshot{description: description}} =
              TicketDetail.fetch(identity,
@@ -243,12 +265,21 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
     assert description =~ "[REDACTED:credential]"
     assert description =~ "[REDACTED:local_path]"
     assert description =~ "https://example.test/nix/store/render"
+    assert description =~ "https://example.test/workspace"
+    assert description =~ "https://example.test/tmp"
     refute description =~ "BEGIN OPENSSH PRIVATE KEY"
     refute description =~ "private-key-material"
+    refute description =~ "unterminated-key-material"
     refute description =~ "alice:s3cr3t"
+    refute description =~ "network-path-secret"
+    refute description =~ "escaped-json-secret"
+    refute description =~ "entity-json-secret"
     refute description =~ "file:///etc/passwd"
     refute description =~ "file:///home/alice/.ssh/id_ed25519"
     refute description =~ "/nix/store/private-package"
+    refute description =~ "\\\\server\\share\\private.txt"
+    refute description =~ "local-workspace=/workspace"
+    refute description =~ "local-tmp=/tmp"
   end
 
   test "rejects oversized raw descriptions before sanitization" do

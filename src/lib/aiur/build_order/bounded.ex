@@ -3,6 +3,7 @@ defmodule Aiur.BuildOrder.Bounded do
 
   @max_title_bytes 512
   @max_url_bytes 2048
+  @max_github_issue_identifier_bytes 19
 
   @spec title(term()) :: {:ok, String.t()} | :error
   def title(value), do: text(value, @max_title_bytes)
@@ -13,6 +14,17 @@ defmodule Aiur.BuildOrder.Bounded do
          %URI{} = uri <- URI.parse(value),
          true <- safe_github_uri?(uri) do
       {:ok, URI.to_string(uri)}
+    else
+      _ -> :error
+    end
+  end
+
+  @doc "Validates the canonical positive issue number used in a GitHub request path."
+  @spec github_issue_identifier(term()) :: {:ok, String.t()} | :error
+  def github_issue_identifier(value) do
+    with {:ok, identifier} <- text(value, @max_github_issue_identifier_bytes),
+         true <- positive_number?(identifier) do
+      {:ok, identifier}
     else
       _ -> :error
     end

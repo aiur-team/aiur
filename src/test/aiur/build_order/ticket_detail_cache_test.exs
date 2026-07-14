@@ -220,6 +220,60 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     }
   end
 
+  test "evicts an in-flight detail when the configured repository changes" do
+    parent = self()
+    identity = identity(42, "I42")
+    {:ok, clock} = Agent.start_link(fn -> 0 end)
+    {:ok, attempts} = Agent.start_link(fn -> 0 end)
+
+    {:ok, cache} =
+      start_cache(
+        freshness_ms: 1,
+        clock_ms: fn -> Agent.get(clock, & &1) end,
+        reader: fn _identity ->
+          case Agent.get_and_update(attempts, fn attempt -> {attempt + 1, attempt + 1} end) do
+            1 ->
+              {:ok, snapshot(identity, "first")}
+
+            2 ->
+              send(parent, {:reader_started, self()})
+
+              receive do
+                :finish -> {:ok, snapshot(identity, "stale repository")}
+              end
+          end
+        end
+      )
+
+    assert :ok = TicketDetailCache.subscribe(cache, identity)
+    assert {:ok, %State{generation: 1, health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert_receive {:ticket_detail_updated, %State{generation: 1, health: :healthy, detail: %Snapshot{title: "first"}}}
+
+    Agent.update(clock, fn _ -> 2 end)
+
+    assert {:ok, %State{generation: 2, health: :stale, detail: %Snapshot{title: "first"}}} =
+             TicketDetailCache.request(cache, identity)
+
+    assert_receive {:reader_started, reader_pid}
+    assert @configured == inflight_repository(cache, identity)
+
+    :sys.replace_state(cache, &Map.put(&1, :configured_repo, {"other", "repo"}))
+    send(reader_pid, :finish)
+
+    assert_receive {
+      :ticket_detail_updated,
+      %State{
+        generation: 2,
+        health: :unavailable,
+        detail: nil,
+        identity: ^identity,
+        failure: %Failure{kind: :evicted}
+      }
+    }
+
+    assert %{entries: %{}} = :sys.get_state(cache)
+  end
+
   test "publishes structured credential-sanitized detail without the raw provider body" do
     identity = identity(42, "I42")
 
@@ -244,8 +298,15 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
         "/etc/passwd /opt/aiur/private.env\n" <>
         "-----BEGIN OPENSSH PRIVATE KEY-----\nprivate-key-material\n-----END OPENSSH PRIVATE KEY-----\n" <>
         "https://alice:s3cr3t@example.test/private\n" <>
+        "//alice:network-path-secret@example.test/private\n" <>
+        ~S({\"Authorization\":\"escaped-json-secret\"}) <>
+        "\n" <>
+        ~s({&quot;Cookie&quot;:&quot;entity-json-secret&quot;}) <>
+        "\n" <>
         "file:///etc/passwd file:///home/alice/.ssh/id_ed25519 /nix/store/private-package\n" <>
-        "https://example.test/nix/store/render"
+        "\\\\server\\share\\private.txt local-workspace=/workspace local-tmp=/tmp\n" <>
+        "https://example.test/nix/store/render https://example.test/workspace https://example.test/tmp\n" <>
+        "-----BEGIN OPENSSH PRIVATE KEY-----\nunterminated-key-material"
 
     {:ok, cache} =
       start_cache(
@@ -266,6 +327,8 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     assert description =~ "[REDACTED:credential]"
     assert description =~ "[REDACTED:local_path]"
     assert description =~ "https://example.test/nix/store/render"
+    assert description =~ "https://example.test/workspace"
+    assert description =~ "https://example.test/tmp"
     refute description =~ "not-a-known-prefix-secret"
     refute description =~ "private-session-cookie"
     refute description =~ "dXNlcjpwYXNzd29yZA=="
@@ -288,9 +351,16 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     refute description =~ "/opt/aiur/private.env"
     refute description =~ "BEGIN OPENSSH PRIVATE KEY"
     refute description =~ "private-key-material"
+    refute description =~ "unterminated-key-material"
     refute description =~ "alice:s3cr3t"
+    refute description =~ "network-path-secret"
+    refute description =~ "escaped-json-secret"
+    refute description =~ "entity-json-secret"
     refute description =~ "file:///home/alice/.ssh/id_ed25519"
     refute description =~ "/nix/store/private-package"
+    refute description =~ "\\\\server\\share\\private.txt"
+    refute description =~ "local-workspace=/workspace"
+    refute description =~ "local-tmp=/tmp"
   end
 
   test "survives task-supervisor outage, preserves LKG, and recovers on a later demand" do
@@ -461,7 +531,7 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
                        failure: %Failure{kind: :timeout}
                      }
                    },
-                   200
+                   2_000
 
     refute Process.alive?(reader_pid)
     send(cache, {ref, {:ok, snapshot(identity, "late")}})
@@ -659,6 +729,15 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
       Enum.find_value(entries, fn {_key, entry} -> if entry.identity == identity, do: entry end)
 
     ref
+  end
+
+  defp inflight_repository(cache, identity) do
+    %{entries: entries} = :sys.get_state(cache)
+
+    %{inflight: %{repository: repository}} =
+      Enum.find_value(entries, fn {_key, entry} -> if entry.identity == identity, do: entry end)
+
+    repository
   end
 
   defp subscribe_and_forward(cache, identity, parent) do
