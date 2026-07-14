@@ -10,7 +10,7 @@ The isolated skill-only PR #1065 was finally reviewed at source head
 the bounded publication contract required by this pack.
 
 The Build Order planning authority for this issue body is
-[`<APPROVED_SHA>`](https://github.com/its-everdred/aiur/commit/<APPROVED_SHA>).
+[`4d8de9508206e08e314f2730cd916501a3b4cafd`](https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd).
 
 ## Why human-blocked
 
@@ -50,5 +50,5 @@ are discoverable for both supported worker backends.
 Apply `human:todo`. Do not apply `agent:todo` or Build Order membership.
 
 <!-- aiur-planning-issue
-{"schema":2,"logical_id":"SKILL-DELIVERY-001","plan_version":1,"approved_planning_commit":"<APPROVED_SHA>"}
+{"schema":2,"logical_id":"SKILL-DELIVERY-001","plan_version":1,"approved_planning_commit":"4d8de9508206e08e314f2730cd916501a3b4cafd"}
 -->

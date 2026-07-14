@@ -5,11 +5,14 @@ Validated 2026-07-13 against the consolidated single-manifest planning pack on
 
 ## Candidate status
 
-The planning baseline is mechanically valid and ready for final semantic
-review and immutable approval. Publication itself remains pending: no issue
-identity, root membership, blocker relation, label, or reconciliation comment
-is authorized until `publication.json.approved_planning_commit` is replaced by
-the reviewed 40-character commit SHA.
+The planning baseline was immutably approved at
+`4d8de9508206e08e314f2730cd916501a3b4cafd`. Publication apply is complete:
+all 56 identities, 54 root memberships, 107 blockers, exact labels, and the
+unique pending reconciliation comment were created or adopted and freshly
+re-read. The generated core-v3 and auxiliary-v2 receipts validate locally;
+their distinct post-approval receipt commit still needs to be pushed and
+finalized before the execution start gate opens. No member has an `agent:*`
+label.
 
 ## Validated boundary
 
@@ -34,8 +37,8 @@ the reviewed 40-character commit SHA.
 |---|---|
 | Vendored canonical validator | 0 errors, 0 warnings |
 | Consolidated publication validator | 0 errors, 0 warnings |
-| Vendored `/aiur-build` validator suite | 134 tests pass |
-| Publication regression suite | 133 tests pass |
+| Vendored `/aiur-build` validator suite | 139 tests pass |
+| Publication regression suite | 139 tests pass |
 | Ticket documents | All 54 manifest paths resolve and agree with structured records |
 | Hard-edge graph | 105 internal edges; acyclic; all references resolve |
 | Publication graph | 56 identities, 54 root members, 107 blockers |
@@ -47,7 +50,9 @@ The validation commands are:
 ```bash
 PYTHONDONTWRITEBYTECODE=1 python3 \
   .claude/skills/aiur-build/scripts/validate_build_order.py \
-  docs/build-order/build-order.json
+  docs/build-order/build-order.json \
+  --repository-root . \
+  --root-document docs/build-order/root-issue.md
 PYTHONDONTWRITEBYTECODE=1 python3 \
   docs/build-order/scripts/validate_publication.py
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
@@ -76,14 +81,14 @@ receipt modules; GATE-002 additionally confirms `/aiur-build`, `/aiur-run`, and
 
 ## Publication reconciliation
 
-Pending final clean semantic reviews and immutable approval. Publication must
-create or reconcile only the root, all 54 members, and SKILL-DELIVERY-001; it
-must not mutate read-only #132, #845, #1033, #1034, or #1067. After every live
-identity, title, body, label, state, parent, subissue, and blocker is re-read,
-the skill-owned materializer records both receipts and the unique immutable
-pending root comment. The read-only final verifier then performs two identical
+Apply completed against only the root, all 54 members, and
+SKILL-DELIVERY-001; read-only #132, #845, #1033, #1034, and #1067 were not
+mutated. The skill-owned materializer freshly re-read every live identity,
+title, body, label, state, parent, subissue, and blocker, then recorded both
+receipts and the unique immutable pending root comment. After the receipt
+commit is pushed, the read-only final verifier must perform two identical
 bounded live snapshots immediately before and after one distinct successful
-receipt comment is appended; malformed, conflicting, or duplicate evidence is
-rejected.
+receipt comment is appended; malformed, conflicting, or duplicate evidence
+remains a hard failure.
 
 No issue may receive an `agent:*` label during this planning run.

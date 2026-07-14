@@ -955,15 +955,12 @@ class Publisher:
             sys.executable,
             str(SKILL_SCRIPTS / "validate_build_order.py"),
             str(self.context.build_path),
+            "--repository-root", str(self.context.root),
+            "--root-document",
+            self.context.root_document.resolve().relative_to(
+                self.context.root.resolve()
+            ).as_posix(),
         ]
-        if self.context.skill_id is None:
-            canonical_command.extend([
-                "--repository-root", str(self.context.root),
-                "--root-document",
-                self.context.root_document.resolve().relative_to(
-                    self.context.root.resolve()
-                ).as_posix(),
-            ])
         self._run_checked(canonical_command, "canonical validator")
         if self.context.extra_validator is not None:
             self._run_checked([

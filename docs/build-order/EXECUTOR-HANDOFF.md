@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Current state and pre-run checklist (updated 2026-07-13)
+## Current state and pre-run checklist (updated 2026-07-13, publication pending receipt finalization)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -8,17 +8,23 @@ act as the fallback when an agent cannot finish its last mile. Everything
 below this section is the binding contract; this section is where things
 stand and what must happen, in order, before the first dispatch.
 
-**State right now:** the consolidated planning pack is mechanically complete
-and validating clean — canonical and publication validators both report 0
-errors / 0 warnings, the 134-test canonical suite passes, and the 133-test
-publication suite passes. Final clean semantic review and immutable approval
-remain pending. **No GitHub issues have been created.** Skills PR #1065 was
-reviewed at `6447f9c193d2322d63f54a58b9c54e0a72d3e98f` and squash-merged to
-`main` as `ed1846c4bc76d4657095da57951a0dbf3e914c3d`. Draft PR #1064 carries
-this pack. The live run remains limited to legacy tails #1032 and #678;
-#1081/#1083 merged to `main` as `9dca435e` and the issue is closed. Unrelated
-queued #99 and #728 have `agent:paused` overlays (#1030 was
-already paused), and the public authenticated dashboard remains live.
+**State right now:** immutable planning approval is frozen at
+`4d8de9508206e08e314f2730cd916501a3b4cafd`. The complete graph is live:
+marker-resolved root #1084, 54 direct members #1085–#1138, and parentless
+skill-delivery issue #1139. The publisher's idempotent apply verifies all 56
+identities and 107 blocker relations, both validators report 0 errors / 0
+warnings, and both the reusable-skill and publication suites pass 139 tests.
+The unique pending reconciliation comment is
+`https://github.com/its-everdred/aiur/issues/1084#issuecomment-4964359714`.
+Generated core-v3 and auxiliary-v2 receipts are valid locally, but their
+post-approval receipt commit has not yet been pushed or finalized with the
+distinct successful comment; **the start gate remains closed and no member has
+an `agent:*` label**. Skills PR #1065 was reviewed at
+`6447f9c193d2322d63f54a58b9c54e0a72d3e98f` and squash-merged to `main` as
+`ed1846c4bc76d4657095da57951a0dbf3e914c3d`. Draft PR #1064 carries the pack
+and pending receipts. Aiur, its dashboard, and all workers are currently
+stopped; preserved legacy tails #1032 and #678 remain paused for later
+resolution.
 
 **Ordered pre-run checklist:**
 
@@ -41,10 +47,13 @@ already paused), and the public authenticated dashboard remains live.
    rerun with explicit `--apply`, review/commit/push the generated core-v3 and
    auxiliary-v2 pending receipts, then use the separate receipt-bound
    `--finalize` mode. An interrupted apply resumes by rerunning the same
-   approval/green-authority command. Never replace this with hand-authored
-   `gh` issue/relationship commands. Every issue body carries the full ticket
-   contract plus a "Plan context" block linking back to this pack at the
-   approved commit.
+   approval/green-authority command. Approval, dry-run, creation, live
+   relationship reconciliation, and the pending receipts are complete at the
+   state recorded above. Next review/commit/push the generated receipts and
+   the validator correction, then run the separate receipt-bound `--finalize`
+   mode and its two-snapshot verifier. Every issue body carries the full
+   ticket contract plus a "Plan context" block linking back to this pack at
+   the approved commit.
 4. **Record GATE-001's resolution** on the live root and prove GATE-002,
    then proceed under the operator's already explicit conditional run
    authorization; no second approval prompt is required once the immutable
@@ -118,9 +127,10 @@ historical OPEN receipt as though it were a fresh publication snapshot.
 - Plan version: 1
 - Repository: `its-everdred/aiur`
 - Researched commit: `9849f32963c2a65367bce565b3f5ede3777c218f`
-- Approved planning commit: pending final clean review
-- GitHub root: resolve live by the hidden Build Order root marker; do not trust
-  a copied pending number
+- Approved planning commit: `4d8de9508206e08e314f2730cd916501a3b4cafd`
+- GitHub root: marker-resolved #1084 at pending publication; always re-resolve
+  live by the hidden Build Order root marker rather than trusting a copied
+  number
 
 Deliver the consolidated 54-ticket program: the authenticated,
 GitHub-planning-read-only Build Order feature plus the dashboard companion

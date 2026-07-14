@@ -30,8 +30,2319 @@
    "title": "Platform"
   }
  ],
- "github_root": null,
- "github_reconciliation": null,
+ "github_root": {
+  "repository": "its-everdred/aiur",
+  "number": 1084,
+  "node_id": "I_kwDOSgXtJc8AAAABIs27KA",
+  "url": "https://github.com/its-everdred/aiur/issues/1084"
+ },
+ "github_reconciliation": {
+  "receipt_schema_version": 3,
+  "checked_at": "2026-07-14T01:11:47Z",
+  "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+  "root_node_id": "I_kwDOSgXtJc8AAAABIs27KA",
+  "member_ticket_ids": [
+   "BO-001",
+   "BO-002",
+   "BO-003",
+   "BO-004",
+   "BO-017",
+   "BO-005",
+   "BO-006",
+   "BO-007",
+   "BO-008",
+   "BO-009",
+   "BO-010",
+   "BO-011",
+   "BO-016",
+   "BO-019",
+   "BO-018",
+   "BO-012",
+   "BO-013",
+   "BO-014",
+   "BO-015",
+   "BO-020",
+   "DASH-001",
+   "DASH-002",
+   "DASH-003",
+   "DASH-004",
+   "DASH-005",
+   "DASH-006",
+   "DASH-007",
+   "DASH-008",
+   "DASH-009",
+   "DASH-010",
+   "DASH-011",
+   "DASH-012",
+   "DASH-013",
+   "DASH-014",
+   "DASH-015",
+   "DASH-016",
+   "DASH-017",
+   "DASH-018",
+   "DASH-019",
+   "DASH-020",
+   "DASH-021",
+   "DASH-022",
+   "DASH-023",
+   "DASH-024",
+   "DASH-025",
+   "DASH-026",
+   "DASH-027",
+   "DASH-028",
+   "DASH-029",
+   "DASH-030",
+   "DASH-031",
+   "DASH-032",
+   "DASH-033",
+   "DASH-034"
+  ],
+  "dependency_edges": [
+   {
+    "ticket_id": "BO-001",
+    "depends_on": "BO-004"
+   },
+   {
+    "ticket_id": "BO-002",
+    "depends_on": "BO-001"
+   },
+   {
+    "ticket_id": "BO-003",
+    "depends_on": "BO-002"
+   },
+   {
+    "ticket_id": "BO-005",
+    "depends_on": "BO-017"
+   },
+   {
+    "ticket_id": "BO-006",
+    "depends_on": "BO-005"
+   },
+   {
+    "ticket_id": "BO-007",
+    "depends_on": "BO-001"
+   },
+   {
+    "ticket_id": "BO-007",
+    "depends_on": "BO-003"
+   },
+   {
+    "ticket_id": "BO-007",
+    "depends_on": "BO-005"
+   },
+   {
+    "ticket_id": "BO-009",
+    "depends_on": "BO-001"
+   },
+   {
+    "ticket_id": "BO-009",
+    "depends_on": "BO-008"
+   },
+   {
+    "ticket_id": "BO-010",
+    "depends_on": "BO-008"
+   },
+   {
+    "ticket_id": "BO-010",
+    "depends_on": "BO-009"
+   },
+   {
+    "ticket_id": "BO-011",
+    "depends_on": "BO-007"
+   },
+   {
+    "ticket_id": "BO-011",
+    "depends_on": "BO-018"
+   },
+   {
+    "ticket_id": "BO-012",
+    "depends_on": "BO-003"
+   },
+   {
+    "ticket_id": "BO-012",
+    "depends_on": "BO-007"
+   },
+   {
+    "ticket_id": "BO-012",
+    "depends_on": "BO-010"
+   },
+   {
+    "ticket_id": "BO-012",
+    "depends_on": "BO-011"
+   },
+   {
+    "ticket_id": "BO-013",
+    "depends_on": "BO-008"
+   },
+   {
+    "ticket_id": "BO-013",
+    "depends_on": "BO-012"
+   },
+   {
+    "ticket_id": "BO-014",
+    "depends_on": "BO-008"
+   },
+   {
+    "ticket_id": "BO-014",
+    "depends_on": "BO-013"
+   },
+   {
+    "ticket_id": "BO-015",
+    "depends_on": "BO-006"
+   },
+   {
+    "ticket_id": "BO-015",
+    "depends_on": "BO-014"
+   },
+   {
+    "ticket_id": "BO-015",
+    "depends_on": "BO-020"
+   },
+   {
+    "ticket_id": "BO-015",
+    "depends_on": "DASH-023"
+   },
+   {
+    "ticket_id": "BO-015",
+    "depends_on": "DASH-033"
+   },
+   {
+    "ticket_id": "BO-016",
+    "depends_on": "BO-004"
+   },
+   {
+    "ticket_id": "BO-017",
+    "depends_on": "BO-004"
+   },
+   {
+    "ticket_id": "BO-018",
+    "depends_on": "BO-008"
+   },
+   {
+    "ticket_id": "BO-018",
+    "depends_on": "BO-016"
+   },
+   {
+    "ticket_id": "BO-018",
+    "depends_on": "BO-019"
+   },
+   {
+    "ticket_id": "BO-019",
+    "depends_on": "BO-005"
+   },
+   {
+    "ticket_id": "BO-020",
+    "depends_on": "BO-003"
+   },
+   {
+    "ticket_id": "BO-020",
+    "depends_on": "BO-012"
+   },
+   {
+    "ticket_id": "DASH-001",
+    "depends_on": "BO-008"
+   },
+   {
+    "ticket_id": "DASH-002",
+    "depends_on": "BO-017"
+   },
+   {
+    "ticket_id": "DASH-003",
+    "depends_on": "BO-018"
+   },
+   {
+    "ticket_id": "DASH-003",
+    "depends_on": "DASH-001"
+   },
+   {
+    "ticket_id": "DASH-003",
+    "depends_on": "DASH-016"
+   },
+   {
+    "ticket_id": "DASH-004",
+    "depends_on": "BO-004"
+   },
+   {
+    "ticket_id": "DASH-005",
+    "depends_on": "DASH-003"
+   },
+   {
+    "ticket_id": "DASH-005",
+    "depends_on": "DASH-004"
+   },
+   {
+    "ticket_id": "DASH-007",
+    "depends_on": "DASH-001"
+   },
+   {
+    "ticket_id": "DASH-007",
+    "depends_on": "DASH-006"
+   },
+   {
+    "ticket_id": "DASH-007",
+    "depends_on": "DASH-017"
+   },
+   {
+    "ticket_id": "DASH-008",
+    "depends_on": "BO-017"
+   },
+   {
+    "ticket_id": "DASH-008",
+    "depends_on": "DASH-018"
+   },
+   {
+    "ticket_id": "DASH-009",
+    "depends_on": "DASH-008"
+   },
+   {
+    "ticket_id": "DASH-010",
+    "depends_on": "DASH-008"
+   },
+   {
+    "ticket_id": "DASH-010",
+    "depends_on": "DASH-019"
+   },
+   {
+    "ticket_id": "DASH-011",
+    "depends_on": "DASH-008"
+   },
+   {
+    "ticket_id": "DASH-012",
+    "depends_on": "DASH-018"
+   },
+   {
+    "ticket_id": "DASH-013",
+    "depends_on": "DASH-012"
+   },
+   {
+    "ticket_id": "DASH-014",
+    "depends_on": "DASH-016"
+   },
+   {
+    "ticket_id": "DASH-015",
+    "depends_on": "DASH-003"
+   },
+   {
+    "ticket_id": "DASH-015",
+    "depends_on": "DASH-013"
+   },
+   {
+    "ticket_id": "DASH-015",
+    "depends_on": "DASH-020"
+   },
+   {
+    "ticket_id": "DASH-015",
+    "depends_on": "DASH-021"
+   },
+   {
+    "ticket_id": "DASH-016",
+    "depends_on": "BO-005"
+   },
+   {
+    "ticket_id": "DASH-016",
+    "depends_on": "DASH-002"
+   },
+   {
+    "ticket_id": "DASH-019",
+    "depends_on": "BO-004"
+   },
+   {
+    "ticket_id": "DASH-020",
+    "depends_on": "DASH-012"
+   },
+   {
+    "ticket_id": "DASH-021",
+    "depends_on": "DASH-001"
+   },
+   {
+    "ticket_id": "DASH-022",
+    "depends_on": "DASH-003"
+   },
+   {
+    "ticket_id": "DASH-022",
+    "depends_on": "DASH-014"
+   },
+   {
+    "ticket_id": "DASH-023",
+    "depends_on": "BO-003"
+   },
+   {
+    "ticket_id": "DASH-023",
+    "depends_on": "BO-012"
+   },
+   {
+    "ticket_id": "DASH-023",
+    "depends_on": "DASH-021"
+   },
+   {
+    "ticket_id": "DASH-023",
+    "depends_on": "DASH-030"
+   },
+   {
+    "ticket_id": "DASH-023",
+    "depends_on": "DASH-031"
+   },
+   {
+    "ticket_id": "DASH-024",
+    "depends_on": "DASH-009"
+   },
+   {
+    "ticket_id": "DASH-025",
+    "depends_on": "DASH-024"
+   },
+   {
+    "ticket_id": "DASH-026",
+    "depends_on": "BO-017"
+   },
+   {
+    "ticket_id": "DASH-027",
+    "depends_on": "DASH-003"
+   },
+   {
+    "ticket_id": "DASH-027",
+    "depends_on": "DASH-026"
+   },
+   {
+    "ticket_id": "DASH-028",
+    "depends_on": "DASH-003"
+   },
+   {
+    "ticket_id": "DASH-029",
+    "depends_on": "BO-017"
+   },
+   {
+    "ticket_id": "DASH-029",
+    "depends_on": "DASH-008"
+   },
+   {
+    "ticket_id": "DASH-029",
+    "depends_on": "DASH-018"
+   },
+   {
+    "ticket_id": "DASH-030",
+    "depends_on": "DASH-011"
+   },
+   {
+    "ticket_id": "DASH-030",
+    "depends_on": "DASH-024"
+   },
+   {
+    "ticket_id": "DASH-031",
+    "depends_on": "DASH-003"
+   },
+   {
+    "ticket_id": "DASH-031",
+    "depends_on": "DASH-010"
+   },
+   {
+    "ticket_id": "DASH-031",
+    "depends_on": "DASH-013"
+   },
+   {
+    "ticket_id": "DASH-031",
+    "depends_on": "DASH-020"
+   },
+   {
+    "ticket_id": "DASH-031",
+    "depends_on": "DASH-021"
+   },
+   {
+    "ticket_id": "DASH-031",
+    "depends_on": "DASH-025"
+   },
+   {
+    "ticket_id": "DASH-031",
+    "depends_on": "DASH-029"
+   },
+   {
+    "ticket_id": "DASH-031",
+    "depends_on": "DASH-030"
+   },
+   {
+    "ticket_id": "DASH-032",
+    "depends_on": "DASH-002"
+   },
+   {
+    "ticket_id": "DASH-032",
+    "depends_on": "DASH-014"
+   },
+   {
+    "ticket_id": "DASH-033",
+    "depends_on": "DASH-001"
+   },
+   {
+    "ticket_id": "DASH-033",
+    "depends_on": "DASH-003"
+   },
+   {
+    "ticket_id": "DASH-033",
+    "depends_on": "DASH-005"
+   },
+   {
+    "ticket_id": "DASH-033",
+    "depends_on": "DASH-007"
+   },
+   {
+    "ticket_id": "DASH-033",
+    "depends_on": "DASH-015"
+   },
+   {
+    "ticket_id": "DASH-033",
+    "depends_on": "DASH-022"
+   },
+   {
+    "ticket_id": "DASH-033",
+    "depends_on": "DASH-027"
+   },
+   {
+    "ticket_id": "DASH-033",
+    "depends_on": "DASH-028"
+   },
+   {
+    "ticket_id": "DASH-033",
+    "depends_on": "DASH-031"
+   },
+   {
+    "ticket_id": "DASH-033",
+    "depends_on": "DASH-034"
+   },
+   {
+    "ticket_id": "DASH-034",
+    "depends_on": "DASH-003"
+   },
+   {
+    "ticket_id": "DASH-034",
+    "depends_on": "DASH-007"
+   },
+   {
+    "ticket_id": "DASH-034",
+    "depends_on": "DASH-032"
+   }
+  ],
+  "projected_labels": {
+   "its-everdred/aiur:build-order-dashboard": [
+    "build-order"
+   ],
+   "BO-001": [
+    "build-lane:plan-graph",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:1"
+   ],
+   "BO-002": [
+    "build-lane:plan-graph",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:2"
+   ],
+   "BO-003": [
+    "build-lane:plan-graph",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:3"
+   ],
+   "BO-004": [
+    "build-lane:plan-graph",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:1"
+   ],
+   "BO-017": [
+    "build-lane:runtime",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:2"
+   ],
+   "BO-005": [
+    "build-lane:runtime",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:3"
+   ],
+   "BO-006": [
+    "build-lane:runtime",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:4"
+   ],
+   "BO-007": [
+    "build-lane:plan-graph",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:4"
+   ],
+   "BO-008": [
+    "build-lane:platform",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:1"
+   ],
+   "BO-009": [
+    "build-lane:platform",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:2"
+   ],
+   "BO-010": [
+    "build-lane:platform",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:3"
+   ],
+   "BO-011": [
+    "build-lane:dashboard-ui",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:4"
+   ],
+   "BO-016": [
+    "build-lane:plan-graph",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:4"
+   ],
+   "BO-019": [
+    "build-lane:plan-graph",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:4"
+   ],
+   "BO-018": [
+    "build-lane:dashboard-ui",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:4"
+   ],
+   "BO-012": [
+    "build-lane:dashboard-ui",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:5"
+   ],
+   "BO-013": [
+    "build-lane:dashboard-ui",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:6"
+   ],
+   "BO-014": [
+    "build-lane:dashboard-ui",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:7"
+   ],
+   "BO-015": [
+    "build-lane:dashboard-ui",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:8"
+   ],
+   "BO-020": [
+    "build-lane:dashboard-ui",
+    "complexity:2",
+    "model:codex-gpt-5.6-terra",
+    "phase:6"
+   ],
+   "DASH-001": [
+    "build-lane:dashboard-ui",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:2"
+   ],
+   "DASH-002": [
+    "build-lane:runtime",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:3"
+   ],
+   "DASH-003": [
+    "build-lane:dashboard-ui",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:6"
+   ],
+   "DASH-004": [
+    "build-lane:runtime",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:2"
+   ],
+   "DASH-005": [
+    "build-lane:dashboard-ui",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:7"
+   ],
+   "DASH-006": [
+    "build-lane:runtime",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:1"
+   ],
+   "DASH-007": [
+    "build-lane:dashboard-ui",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:3"
+   ],
+   "DASH-008": [
+    "build-lane:accounting",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:3"
+   ],
+   "DASH-009": [
+    "build-lane:accounting",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:4"
+   ],
+   "DASH-010": [
+    "build-lane:accounting",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:4"
+   ],
+   "DASH-011": [
+    "build-lane:accounting",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:4"
+   ],
+   "DASH-012": [
+    "build-lane:accounting",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:2"
+   ],
+   "DASH-013": [
+    "build-lane:accounting",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:3"
+   ],
+   "DASH-014": [
+    "build-lane:runtime",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:5"
+   ],
+   "DASH-015": [
+    "build-lane:accounting",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:7"
+   ],
+   "DASH-016": [
+    "build-lane:dashboard-ui",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:4"
+   ],
+   "DASH-017": [
+    "build-lane:runtime",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:1"
+   ],
+   "DASH-018": [
+    "build-lane:accounting",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:1"
+   ],
+   "DASH-019": [
+    "build-lane:platform",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:2"
+   ],
+   "DASH-020": [
+    "build-lane:accounting",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:3"
+   ],
+   "DASH-021": [
+    "build-lane:platform",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:3"
+   ],
+   "DASH-022": [
+    "build-lane:dashboard-ui",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:7"
+   ],
+   "DASH-023": [
+    "build-lane:accounting",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:8"
+   ],
+   "DASH-024": [
+    "build-lane:accounting",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:5"
+   ],
+   "DASH-025": [
+    "build-lane:accounting",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:6"
+   ],
+   "DASH-026": [
+    "build-lane:runtime",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:3"
+   ],
+   "DASH-027": [
+    "build-lane:dashboard-ui",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:7"
+   ],
+   "DASH-028": [
+    "build-lane:dashboard-ui",
+    "complexity:2",
+    "model:codex-gpt-5.6-terra",
+    "phase:7"
+   ],
+   "DASH-029": [
+    "build-lane:accounting",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:4"
+   ],
+   "DASH-030": [
+    "build-lane:accounting",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:6"
+   ],
+   "DASH-031": [
+    "build-lane:accounting",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:7"
+   ],
+   "DASH-032": [
+    "build-lane:runtime",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:6"
+   ],
+   "DASH-033": [
+    "build-lane:dashboard-ui",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:8"
+   ],
+   "DASH-034": [
+    "build-lane:dashboard-ui",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:7"
+   ]
+  },
+  "observed_labels": {
+   "its-everdred/aiur:build-order-dashboard": [
+    "build-order"
+   ],
+   "BO-001": [
+    "build-lane:plan-graph",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:1"
+   ],
+   "BO-002": [
+    "build-lane:plan-graph",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:2"
+   ],
+   "BO-003": [
+    "build-lane:plan-graph",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:3"
+   ],
+   "BO-004": [
+    "build-lane:plan-graph",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:1"
+   ],
+   "BO-017": [
+    "build-lane:runtime",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:2"
+   ],
+   "BO-005": [
+    "build-lane:runtime",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:3"
+   ],
+   "BO-006": [
+    "build-lane:runtime",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:4"
+   ],
+   "BO-007": [
+    "build-lane:plan-graph",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:4"
+   ],
+   "BO-008": [
+    "build-lane:platform",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:1"
+   ],
+   "BO-009": [
+    "build-lane:platform",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:2"
+   ],
+   "BO-010": [
+    "build-lane:platform",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:3"
+   ],
+   "BO-011": [
+    "build-lane:dashboard-ui",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:4"
+   ],
+   "BO-016": [
+    "build-lane:plan-graph",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:4"
+   ],
+   "BO-019": [
+    "build-lane:plan-graph",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:4"
+   ],
+   "BO-018": [
+    "build-lane:dashboard-ui",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:4"
+   ],
+   "BO-012": [
+    "build-lane:dashboard-ui",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:5"
+   ],
+   "BO-013": [
+    "build-lane:dashboard-ui",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:6"
+   ],
+   "BO-014": [
+    "build-lane:dashboard-ui",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:7"
+   ],
+   "BO-015": [
+    "build-lane:dashboard-ui",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:8"
+   ],
+   "BO-020": [
+    "build-lane:dashboard-ui",
+    "complexity:2",
+    "model:codex-gpt-5.6-terra",
+    "phase:6"
+   ],
+   "DASH-001": [
+    "build-lane:dashboard-ui",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:2"
+   ],
+   "DASH-002": [
+    "build-lane:runtime",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:3"
+   ],
+   "DASH-003": [
+    "build-lane:dashboard-ui",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:6"
+   ],
+   "DASH-004": [
+    "build-lane:runtime",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:2"
+   ],
+   "DASH-005": [
+    "build-lane:dashboard-ui",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:7"
+   ],
+   "DASH-006": [
+    "build-lane:runtime",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:1"
+   ],
+   "DASH-007": [
+    "build-lane:dashboard-ui",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:3"
+   ],
+   "DASH-008": [
+    "build-lane:accounting",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:3"
+   ],
+   "DASH-009": [
+    "build-lane:accounting",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:4"
+   ],
+   "DASH-010": [
+    "build-lane:accounting",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:4"
+   ],
+   "DASH-011": [
+    "build-lane:accounting",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:4"
+   ],
+   "DASH-012": [
+    "build-lane:accounting",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:2"
+   ],
+   "DASH-013": [
+    "build-lane:accounting",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:3"
+   ],
+   "DASH-014": [
+    "build-lane:runtime",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:5"
+   ],
+   "DASH-015": [
+    "build-lane:accounting",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:7"
+   ],
+   "DASH-016": [
+    "build-lane:dashboard-ui",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:4"
+   ],
+   "DASH-017": [
+    "build-lane:runtime",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:1"
+   ],
+   "DASH-018": [
+    "build-lane:accounting",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:1"
+   ],
+   "DASH-019": [
+    "build-lane:platform",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:2"
+   ],
+   "DASH-020": [
+    "build-lane:accounting",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:3"
+   ],
+   "DASH-021": [
+    "build-lane:platform",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:3"
+   ],
+   "DASH-022": [
+    "build-lane:dashboard-ui",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:7"
+   ],
+   "DASH-023": [
+    "build-lane:accounting",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:8"
+   ],
+   "DASH-024": [
+    "build-lane:accounting",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:5"
+   ],
+   "DASH-025": [
+    "build-lane:accounting",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:6"
+   ],
+   "DASH-026": [
+    "build-lane:runtime",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:3"
+   ],
+   "DASH-027": [
+    "build-lane:dashboard-ui",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:7"
+   ],
+   "DASH-028": [
+    "build-lane:dashboard-ui",
+    "complexity:2",
+    "model:codex-gpt-5.6-terra",
+    "phase:7"
+   ],
+   "DASH-029": [
+    "build-lane:accounting",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:4"
+   ],
+   "DASH-030": [
+    "build-lane:accounting",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:6"
+   ],
+   "DASH-031": [
+    "build-lane:accounting",
+    "complexity:4",
+    "model:codex-gpt-5.6-terra",
+    "phase:7"
+   ],
+   "DASH-032": [
+    "build-lane:runtime",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:6"
+   ],
+   "DASH-033": [
+    "build-lane:dashboard-ui",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:8"
+   ],
+   "DASH-034": [
+    "build-lane:dashboard-ui",
+    "complexity:3",
+    "model:codex-gpt-5.6-terra",
+    "phase:7"
+   ]
+  },
+  "expected_issue_titles": {
+   "its-everdred/aiur:build-order-dashboard": "BO: Build Order dashboard",
+   "BO-001": "BO: BO-001 \u2014 Define Build Order domain contract",
+   "BO-002": "BO: BO-002 \u2014 Fetch complete GitHub planning graph",
+   "BO-003": "BO: BO-003 \u2014 Project atomic planning caches and LKG",
+   "BO-004": "BO: BO-004 \u2014 Define configured-repository tracker identity",
+   "BO-017": "BO: BO-017 \u2014 Propagate typed ticket event observations",
+   "BO-005": "BO: BO-005 \u2014 Project shared ticket activity",
+   "BO-006": "BO: BO-006 \u2014 Migrate AgentList to shared activity",
+   "BO-007": "BO: BO-007 \u2014 Join planning and runtime state",
+   "BO-008": "BO: BO-008 \u2014 Build browser, accessibility, and performance harness",
+   "BO-009": "BO: BO-009 \u2014 Vendor layout worker and static platform",
+   "BO-010": "BO: BO-010 \u2014 Build DOM/SVG layout adapter and fallback",
+   "BO-011": "BO: BO-011 \u2014 Adapt ticket context to Build Order",
+   "BO-016": "BO: BO-016 \u2014 Provide configured-repository ticket detail",
+   "BO-019": "BO: BO-019 \u2014 Provide bounded recent ticket history",
+   "BO-018": "BO: BO-018 \u2014 Build accessible base ticket context",
+   "BO-012": "BO: BO-012 \u2014 Ship selectable minimum graph route",
+   "BO-013": "BO: BO-013 \u2014 Harden graph interaction and accessibility",
+   "BO-014": "BO: BO-014 \u2014 Prove responsive redraw, scale, and performance",
+   "BO-015": "BO: BO-015 \u2014 Prove current-base real and synthetic acceptance",
+   "BO-020": "BO: BO-020 \u2014 Render plan phase and epic breakdowns",
+   "DASH-001": "BO: DASH-001 \u2014 Ship responsive route-aware shell",
+   "DASH-002": "BO: DASH-002 \u2014 Recover canonical current-run membership",
+   "DASH-003": "BO: DASH-003 \u2014 Render responsive Units interface",
+   "DASH-004": "BO: DASH-004 \u2014 Confirm applied unit controls",
+   "DASH-005": "BO: DASH-005 \u2014 Render applied unit controls",
+   "DASH-006": "BO: DASH-006 \u2014 Add retained Decision lookup and queries",
+   "DASH-007": "BO: DASH-007 \u2014 Align Commands presentation",
+   "DASH-008": "BO: DASH-008 \u2014 Define attributed usage envelopes",
+   "DASH-009": "BO: DASH-009 \u2014 Persist canonical usage ledger",
+   "DASH-010": "BO: DASH-010 \u2014 Normalize Claude Remote usage",
+   "DASH-011": "BO: DASH-011 \u2014 Resolve exact usage pricing",
+   "DASH-012": "BO: DASH-012 \u2014 Project canonical provider meters",
+   "DASH-013": "BO: DASH-013 \u2014 Normalize Claude account meters",
+   "DASH-014": "BO: DASH-014 \u2014 Project canonical run summary",
+   "DASH-015": "BO: DASH-015 \u2014 Render authenticated provider meters",
+   "DASH-016": "BO: DASH-016 \u2014 Project canonical Units rows and policy",
+   "DASH-017": "BO: DASH-017 \u2014 Persist trusted Decision provenance",
+   "DASH-018": "BO: DASH-018 \u2014 Own provider-account generation identity",
+   "DASH-019": "BO: DASH-019 \u2014 Authenticate Claude telemetry transport",
+   "DASH-020": "BO: DASH-020 \u2014 Normalize Codex account meters",
+   "DASH-021": "BO: DASH-021 \u2014 Enforce financial-data authentication",
+   "DASH-022": "BO: DASH-022 \u2014 Render accessible current-run summary",
+   "DASH-023": "BO: DASH-023 \u2014 Integrate selected Build Order usage",
+   "DASH-024": "BO: DASH-024 \u2014 Project durable usage aggregates",
+   "DASH-025": "BO: DASH-025 \u2014 Harden usage retention and compaction",
+   "DASH-026": "BO: DASH-026 \u2014 Project bounded live conversations",
+   "DASH-027": "BO: DASH-027 \u2014 Render accessible conversation drawer",
+   "DASH-028": "BO: DASH-028 \u2014 Render runtime capacity control",
+   "DASH-029": "BO: DASH-029 \u2014 Normalize headless usage sources",
+   "DASH-030": "BO: DASH-030 \u2014 Project grouped usage scopes",
+   "DASH-031": "BO: DASH-031 \u2014 Render authenticated usage and cost summary",
+   "DASH-032": "BO: DASH-032 \u2014 Project truthful current-run outcomes",
+   "DASH-033": "BO: DASH-033 \u2014 Prove existing-dashboard parity",
+   "DASH-034": "BO: DASH-034 \u2014 Render current-run Recent outcomes"
+  },
+  "observed_issue_titles": {
+   "its-everdred/aiur:build-order-dashboard": "BO: Build Order dashboard",
+   "BO-001": "BO: BO-001 \u2014 Define Build Order domain contract",
+   "BO-002": "BO: BO-002 \u2014 Fetch complete GitHub planning graph",
+   "BO-003": "BO: BO-003 \u2014 Project atomic planning caches and LKG",
+   "BO-004": "BO: BO-004 \u2014 Define configured-repository tracker identity",
+   "BO-017": "BO: BO-017 \u2014 Propagate typed ticket event observations",
+   "BO-005": "BO: BO-005 \u2014 Project shared ticket activity",
+   "BO-006": "BO: BO-006 \u2014 Migrate AgentList to shared activity",
+   "BO-007": "BO: BO-007 \u2014 Join planning and runtime state",
+   "BO-008": "BO: BO-008 \u2014 Build browser, accessibility, and performance harness",
+   "BO-009": "BO: BO-009 \u2014 Vendor layout worker and static platform",
+   "BO-010": "BO: BO-010 \u2014 Build DOM/SVG layout adapter and fallback",
+   "BO-011": "BO: BO-011 \u2014 Adapt ticket context to Build Order",
+   "BO-016": "BO: BO-016 \u2014 Provide configured-repository ticket detail",
+   "BO-019": "BO: BO-019 \u2014 Provide bounded recent ticket history",
+   "BO-018": "BO: BO-018 \u2014 Build accessible base ticket context",
+   "BO-012": "BO: BO-012 \u2014 Ship selectable minimum graph route",
+   "BO-013": "BO: BO-013 \u2014 Harden graph interaction and accessibility",
+   "BO-014": "BO: BO-014 \u2014 Prove responsive redraw, scale, and performance",
+   "BO-015": "BO: BO-015 \u2014 Prove current-base real and synthetic acceptance",
+   "BO-020": "BO: BO-020 \u2014 Render plan phase and epic breakdowns",
+   "DASH-001": "BO: DASH-001 \u2014 Ship responsive route-aware shell",
+   "DASH-002": "BO: DASH-002 \u2014 Recover canonical current-run membership",
+   "DASH-003": "BO: DASH-003 \u2014 Render responsive Units interface",
+   "DASH-004": "BO: DASH-004 \u2014 Confirm applied unit controls",
+   "DASH-005": "BO: DASH-005 \u2014 Render applied unit controls",
+   "DASH-006": "BO: DASH-006 \u2014 Add retained Decision lookup and queries",
+   "DASH-007": "BO: DASH-007 \u2014 Align Commands presentation",
+   "DASH-008": "BO: DASH-008 \u2014 Define attributed usage envelopes",
+   "DASH-009": "BO: DASH-009 \u2014 Persist canonical usage ledger",
+   "DASH-010": "BO: DASH-010 \u2014 Normalize Claude Remote usage",
+   "DASH-011": "BO: DASH-011 \u2014 Resolve exact usage pricing",
+   "DASH-012": "BO: DASH-012 \u2014 Project canonical provider meters",
+   "DASH-013": "BO: DASH-013 \u2014 Normalize Claude account meters",
+   "DASH-014": "BO: DASH-014 \u2014 Project canonical run summary",
+   "DASH-015": "BO: DASH-015 \u2014 Render authenticated provider meters",
+   "DASH-016": "BO: DASH-016 \u2014 Project canonical Units rows and policy",
+   "DASH-017": "BO: DASH-017 \u2014 Persist trusted Decision provenance",
+   "DASH-018": "BO: DASH-018 \u2014 Own provider-account generation identity",
+   "DASH-019": "BO: DASH-019 \u2014 Authenticate Claude telemetry transport",
+   "DASH-020": "BO: DASH-020 \u2014 Normalize Codex account meters",
+   "DASH-021": "BO: DASH-021 \u2014 Enforce financial-data authentication",
+   "DASH-022": "BO: DASH-022 \u2014 Render accessible current-run summary",
+   "DASH-023": "BO: DASH-023 \u2014 Integrate selected Build Order usage",
+   "DASH-024": "BO: DASH-024 \u2014 Project durable usage aggregates",
+   "DASH-025": "BO: DASH-025 \u2014 Harden usage retention and compaction",
+   "DASH-026": "BO: DASH-026 \u2014 Project bounded live conversations",
+   "DASH-027": "BO: DASH-027 \u2014 Render accessible conversation drawer",
+   "DASH-028": "BO: DASH-028 \u2014 Render runtime capacity control",
+   "DASH-029": "BO: DASH-029 \u2014 Normalize headless usage sources",
+   "DASH-030": "BO: DASH-030 \u2014 Project grouped usage scopes",
+   "DASH-031": "BO: DASH-031 \u2014 Render authenticated usage and cost summary",
+   "DASH-032": "BO: DASH-032 \u2014 Project truthful current-run outcomes",
+   "DASH-033": "BO: DASH-033 \u2014 Prove existing-dashboard parity",
+   "DASH-034": "BO: DASH-034 \u2014 Render current-run Recent outcomes"
+  },
+  "observed_issue_states": {
+   "its-everdred/aiur:build-order-dashboard": "OPEN",
+   "BO-001": "OPEN",
+   "BO-002": "OPEN",
+   "BO-003": "OPEN",
+   "BO-004": "OPEN",
+   "BO-017": "OPEN",
+   "BO-005": "OPEN",
+   "BO-006": "OPEN",
+   "BO-007": "OPEN",
+   "BO-008": "OPEN",
+   "BO-009": "OPEN",
+   "BO-010": "OPEN",
+   "BO-011": "OPEN",
+   "BO-016": "OPEN",
+   "BO-019": "OPEN",
+   "BO-018": "OPEN",
+   "BO-012": "OPEN",
+   "BO-013": "OPEN",
+   "BO-014": "OPEN",
+   "BO-015": "OPEN",
+   "BO-020": "OPEN",
+   "DASH-001": "OPEN",
+   "DASH-002": "OPEN",
+   "DASH-003": "OPEN",
+   "DASH-004": "OPEN",
+   "DASH-005": "OPEN",
+   "DASH-006": "OPEN",
+   "DASH-007": "OPEN",
+   "DASH-008": "OPEN",
+   "DASH-009": "OPEN",
+   "DASH-010": "OPEN",
+   "DASH-011": "OPEN",
+   "DASH-012": "OPEN",
+   "DASH-013": "OPEN",
+   "DASH-014": "OPEN",
+   "DASH-015": "OPEN",
+   "DASH-016": "OPEN",
+   "DASH-017": "OPEN",
+   "DASH-018": "OPEN",
+   "DASH-019": "OPEN",
+   "DASH-020": "OPEN",
+   "DASH-021": "OPEN",
+   "DASH-022": "OPEN",
+   "DASH-023": "OPEN",
+   "DASH-024": "OPEN",
+   "DASH-025": "OPEN",
+   "DASH-026": "OPEN",
+   "DASH-027": "OPEN",
+   "DASH-028": "OPEN",
+   "DASH-029": "OPEN",
+   "DASH-030": "OPEN",
+   "DASH-031": "OPEN",
+   "DASH-032": "OPEN",
+   "DASH-033": "OPEN",
+   "DASH-034": "OPEN"
+  },
+  "observed_body_evidence": {
+   "its-everdred/aiur:build-order-dashboard": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "its-everdred/aiur:build-order-dashboard",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "f567e9cc95a6290c0bb5491eaa5cf81c302210b7f52ae938ba7017e22c6f683c"
+   },
+   "BO-001": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "BO-001",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "fafe9f0a534088cfc3c78517ef35487f5486c849df2bad7235a713b98f448713"
+   },
+   "BO-002": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "BO-002",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "aec49bcb94c129b84b4df22b95adbe446f1e8b4697c73007d8834740b5f5bbb2"
+   },
+   "BO-003": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "BO-003",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "60f9457f1d70594214deccb9d1e2a80fe5916e05661fc338752468f3e46d5957"
+   },
+   "BO-004": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "BO-004",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "bdf14ad21b77e9fdc69339abcbc67f858bc1cdca9b266686db8a93766b1fa9d9"
+   },
+   "BO-017": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "BO-017",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "f3da98dadd57c189efad68bc3a602961fab5dd5dcad79a7cf02c2a39392b8b75"
+   },
+   "BO-005": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "BO-005",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "f85cb522dc0aece58d55ffd8665b4e4179403c86b2eaac0051888a3d4789b43f"
+   },
+   "BO-006": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "BO-006",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "8371caf598b31cb3be0e74ea80625567b4da559e2a81c19fad8875b19ed99a1c"
+   },
+   "BO-007": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "BO-007",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "957c1a11befab9da26e0d08353e3c59797a5cfb0bfc8c170e7e6e39311d026f8"
+   },
+   "BO-008": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "BO-008",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "d88145909e461d97e5bf32256eaf892cc0e2ca6fbc1c14eb5638312dc217701e"
+   },
+   "BO-009": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "BO-009",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "8f62040b2bcc553a95ffbe755dc6655afeee83bcf3c735a49fa7ae108ba58e18"
+   },
+   "BO-010": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "BO-010",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "c55ed94f980f12182c6efc0d77f97a5a2aabc5cc3f5496131230943f4f9207fd"
+   },
+   "BO-011": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "BO-011",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "0871872047d853856d5defd2c3b0dbe7e29827d1044b091d36d232b1bef03e93"
+   },
+   "BO-016": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "BO-016",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "6ef6fce654afc476235767b6573d9dfd4b7f97deb55ce9c36357f606a89614de"
+   },
+   "BO-019": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "BO-019",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "f887ba796f1dca6bac91f2546c2cd0585b07f3f562b336f29b33820f5b44005e"
+   },
+   "BO-018": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "BO-018",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "a32ed4da105af6ab4108aaaf0db2de534536bb3ef85e88c8930a383b39adfb91"
+   },
+   "BO-012": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "BO-012",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "f9c50a360fa1a872a026be58c7d98558713491dff361d3e8ba198edf2ae610c8"
+   },
+   "BO-013": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "BO-013",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "dc9df7c0fdfa33dccf4841a959fb04914b87b7c3dc57c8ebf3d48a8d0b4ee3c6"
+   },
+   "BO-014": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "BO-014",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "18398c76539a138e71c3f7b2c04a844d6f69c1d2e9b3d83f8c6c5d2a0ad4af7d"
+   },
+   "BO-015": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "BO-015",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "fd0f22f77cc7d9bccde310cf9af05ce6809695bcea7e995b90b5ee719078568d"
+   },
+   "BO-020": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "BO-020",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "05cc9284562237f24536861b15401d734017b7e69f7aa7a1aa65898c416ef50a"
+   },
+   "DASH-001": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-001",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "8684a7a1cc85d321393debf2ef3f8622b975e67122ce5c99ccb0f3e0990cbe01"
+   },
+   "DASH-002": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-002",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "64b2923b051cd5649c5c310412e43d5df174c296a7a479c4d98c048eac795392"
+   },
+   "DASH-003": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-003",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "37a4439559540cdeb6b6baeb5306ad42a4e42cdb1472cd42caa57626eca057e2"
+   },
+   "DASH-004": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-004",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "8ba298f471c892fdf6b3f7a27c6a878ba2fdbea1001590e256c59cce7266f2a2"
+   },
+   "DASH-005": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-005",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "c9c568dbccb7817c4f9332735e82348b5058be2bb43e3b948f6e1687a0ab82f8"
+   },
+   "DASH-006": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-006",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "a6af02c6d07b7d6d4c7c8872447adc42acfea6eac9556ce622887a2cf4fc22e8"
+   },
+   "DASH-007": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-007",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "5064df4927471df491c2c0e43bc287dabf3b512a2ebcc7ac5c295a63c5784859"
+   },
+   "DASH-008": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-008",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "52992e0828cdf986bc8aa0b15f7e881169114027a7af9fd2ccbad6d320e8f718"
+   },
+   "DASH-009": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-009",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "edd8c32eb2267b709e4f2d33370c4239578c7821e714aafedd4389f9bc38f5a0"
+   },
+   "DASH-010": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-010",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "d656d8b9070c75c679ab2c06e66e21fb431613bee32f7b074c48a0daf79f1f35"
+   },
+   "DASH-011": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-011",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "5e8161290faf84899bf6c2e9440345b589112e9b99185b8cfc8773f95142e57f"
+   },
+   "DASH-012": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-012",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "b450e7bd7ae67b82e05cca24e1c5d6fc7dcc7032db4c56cae08209a9fd769779"
+   },
+   "DASH-013": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-013",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "8606fa6c8bf6bf801ca4b44d54dd288baad595b57d26b08d84bb8ac76c80f7dc"
+   },
+   "DASH-014": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-014",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "70eb10ec347fc828f5c776e632a89ef7d85acb54eb8665b82af8319ec7a797a2"
+   },
+   "DASH-015": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-015",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "9309cbd3d1f6ed677ef290fc3d9567e8ed3a969bf0ec7f56fec0199499e749f6"
+   },
+   "DASH-016": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-016",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "b7d7787c278aeaf26ef039f0816a6e43a782ec2de05bd4acb2832246a197e41f"
+   },
+   "DASH-017": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-017",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "f234670ff8f47524a3a6833546cd91e2de3ec986ee9def4e7ab6f7dc045d4af5"
+   },
+   "DASH-018": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-018",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "94b2da6da7f9ff19e65b6cd31efade7ce3e1686f7b30cf5fc4b9c0b3ce2d9e65"
+   },
+   "DASH-019": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-019",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "33d5d88489216845475b58cfc080ea0fcfd7bc4148538121bd3f41ad003cc7f2"
+   },
+   "DASH-020": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-020",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "88c4f8075e09cf82b19c525f231679250e854edc3ad95cb88a728a163ff34a56"
+   },
+   "DASH-021": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-021",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "a857c4e79b862c8cbcc81951807c914952ee6dacf7aebc45f45fb74a345f1a4d"
+   },
+   "DASH-022": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-022",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "65e5e0a7fb63710939932d3ec6c43b76b915d8fcab78be9447a3f963dc0b239c"
+   },
+   "DASH-023": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-023",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "dcad69d702d2ac622142584ee90c6988ddac937459e1af3c8050cbf7573e8259"
+   },
+   "DASH-024": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-024",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "b11bbe0ed974a707be1dda3b0f5ca480479717e89fc18fbdf8af8b3df9a7fe83"
+   },
+   "DASH-025": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-025",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "df3fd57945366e9f20bf229c4a681f18dad5715251003ad760c77d068b727ce3"
+   },
+   "DASH-026": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-026",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "460e7dbaa60e565bbc6675f6434773dd41bb00a52a0b945f84cc06522ed6fcca"
+   },
+   "DASH-027": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-027",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "ccc0cd922cbd4480f01efe9c715609e431ad0b01e91e028e77446a07c0cda0c1"
+   },
+   "DASH-028": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-028",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "82998cd0c83a95c7ed46a300e08a008039e871027fb34b472a41ee7002c51b06"
+   },
+   "DASH-029": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-029",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "294db63d50f317dd33ae7f43cf115d0b79aa6c358738ac6aa8cccd1a418d05d2"
+   },
+   "DASH-030": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-030",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "770fda2c4e7cdd10abb1ee2564907412f1af75f54bd14bb9913a2d766cc97db9"
+   },
+   "DASH-031": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-031",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "5f71111fb2402a5234abb1730f1dc0dc7f11834d4a180997304ca9df04b62d2a"
+   },
+   "DASH-032": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-032",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "ee593e62885742e382b524ea12bb0d317126ae498d324edcca466627553e74c4"
+   },
+   "DASH-033": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-033",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "ea6f6e0683a257fe9a83573be137a306d2b85f85b1eb587376456db46e42c0cd"
+   },
+   "DASH-034": {
+    "marker_count": 1,
+    "marker_schema_version": 2,
+    "marker_logical_id": "DASH-034",
+    "marker_plan_version": 1,
+    "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "approved_link_count": 1,
+    "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+    "body_sha256": "b3c54770aca87c26b1c370e9b7176e08f5a124fa08e5288737312d3cb9b221a4"
+   }
+  },
+  "marker_query_matches": {
+   "its-everdred/aiur:build-order-dashboard": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1084,
+     "node_id": "I_kwDOSgXtJc8AAAABIs27KA",
+     "url": "https://github.com/its-everdred/aiur/issues/1084"
+    }
+   ],
+   "BO-001": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1085,
+     "node_id": "I_kwDOSgXtJc8AAAABIs27hA",
+     "url": "https://github.com/its-everdred/aiur/issues/1085"
+    }
+   ],
+   "BO-002": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1091,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3mJw",
+     "url": "https://github.com/its-everdred/aiur/issues/1091"
+    }
+   ],
+   "BO-003": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1092,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3mgw",
+     "url": "https://github.com/its-everdred/aiur/issues/1092"
+    }
+   ],
+   "BO-004": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1086,
+     "node_id": "I_kwDOSgXtJc8AAAABIs28cw",
+     "url": "https://github.com/its-everdred/aiur/issues/1086"
+    }
+   ],
+   "BO-017": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1104,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3q1Q",
+     "url": "https://github.com/its-everdred/aiur/issues/1104"
+    }
+   ],
+   "BO-005": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1093,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3m8A",
+     "url": "https://github.com/its-everdred/aiur/issues/1093"
+    }
+   ],
+   "BO-006": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1094,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3nTA",
+     "url": "https://github.com/its-everdred/aiur/issues/1094"
+    }
+   ],
+   "BO-007": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1095,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3nlg",
+     "url": "https://github.com/its-everdred/aiur/issues/1095"
+    }
+   ],
+   "BO-008": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1087,
+     "node_id": "I_kwDOSgXtJc8AAAABIs28tw",
+     "url": "https://github.com/its-everdred/aiur/issues/1087"
+    }
+   ],
+   "BO-009": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1096,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3oBg",
+     "url": "https://github.com/its-everdred/aiur/issues/1096"
+    }
+   ],
+   "BO-010": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1097,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3ocg",
+     "url": "https://github.com/its-everdred/aiur/issues/1097"
+    }
+   ],
+   "BO-011": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1098,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3otQ",
+     "url": "https://github.com/its-everdred/aiur/issues/1098"
+    }
+   ],
+   "BO-016": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1103,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3qXA",
+     "url": "https://github.com/its-everdred/aiur/issues/1103"
+    }
+   ],
+   "BO-019": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1106,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3rcA",
+     "url": "https://github.com/its-everdred/aiur/issues/1106"
+    }
+   ],
+   "BO-018": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1105,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3rKg",
+     "url": "https://github.com/its-everdred/aiur/issues/1105"
+    }
+   ],
+   "BO-012": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1099,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3pBQ",
+     "url": "https://github.com/its-everdred/aiur/issues/1099"
+    }
+   ],
+   "BO-013": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1100,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3pYQ",
+     "url": "https://github.com/its-everdred/aiur/issues/1100"
+    }
+   ],
+   "BO-014": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1101,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3ptg",
+     "url": "https://github.com/its-everdred/aiur/issues/1101"
+    }
+   ],
+   "BO-015": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1102,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3qFQ",
+     "url": "https://github.com/its-everdred/aiur/issues/1102"
+    }
+   ],
+   "BO-020": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1107,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3rxg",
+     "url": "https://github.com/its-everdred/aiur/issues/1107"
+    }
+   ],
+   "DASH-001": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1108,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3sGA",
+     "url": "https://github.com/its-everdred/aiur/issues/1108"
+    }
+   ],
+   "DASH-002": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1109,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3saQ",
+     "url": "https://github.com/its-everdred/aiur/issues/1109"
+    }
+   ],
+   "DASH-003": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1110,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3swQ",
+     "url": "https://github.com/its-everdred/aiur/issues/1110"
+    }
+   ],
+   "DASH-004": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1111,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3tIQ",
+     "url": "https://github.com/its-everdred/aiur/issues/1111"
+    }
+   ],
+   "DASH-005": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1112,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3tag",
+     "url": "https://github.com/its-everdred/aiur/issues/1112"
+    }
+   ],
+   "DASH-006": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1088,
+     "node_id": "I_kwDOSgXtJc8AAAABIs28-g",
+     "url": "https://github.com/its-everdred/aiur/issues/1088"
+    }
+   ],
+   "DASH-007": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1113,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3uWg",
+     "url": "https://github.com/its-everdred/aiur/issues/1113"
+    }
+   ],
+   "DASH-008": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1114,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3urw",
+     "url": "https://github.com/its-everdred/aiur/issues/1114"
+    }
+   ],
+   "DASH-009": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1115,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3vCA",
+     "url": "https://github.com/its-everdred/aiur/issues/1115"
+    }
+   ],
+   "DASH-010": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1116,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3vYw",
+     "url": "https://github.com/its-everdred/aiur/issues/1116"
+    }
+   ],
+   "DASH-011": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1117,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3vuw",
+     "url": "https://github.com/its-everdred/aiur/issues/1117"
+    }
+   ],
+   "DASH-012": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1118,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3wEQ",
+     "url": "https://github.com/its-everdred/aiur/issues/1118"
+    }
+   ],
+   "DASH-013": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1119,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3wcA",
+     "url": "https://github.com/its-everdred/aiur/issues/1119"
+    }
+   ],
+   "DASH-014": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1120,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3w4w",
+     "url": "https://github.com/its-everdred/aiur/issues/1120"
+    }
+   ],
+   "DASH-015": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1121,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3xOg",
+     "url": "https://github.com/its-everdred/aiur/issues/1121"
+    }
+   ],
+   "DASH-016": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1122,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3xgg",
+     "url": "https://github.com/its-everdred/aiur/issues/1122"
+    }
+   ],
+   "DASH-017": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1089,
+     "node_id": "I_kwDOSgXtJc8AAAABIs29Ug",
+     "url": "https://github.com/its-everdred/aiur/issues/1089"
+    }
+   ],
+   "DASH-018": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1090,
+     "node_id": "I_kwDOSgXtJc8AAAABIs29nQ",
+     "url": "https://github.com/its-everdred/aiur/issues/1090"
+    }
+   ],
+   "DASH-019": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1123,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3yDQ",
+     "url": "https://github.com/its-everdred/aiur/issues/1123"
+    }
+   ],
+   "DASH-020": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1124,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3yZw",
+     "url": "https://github.com/its-everdred/aiur/issues/1124"
+    }
+   ],
+   "DASH-021": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1125,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3zQw",
+     "url": "https://github.com/its-everdred/aiur/issues/1125"
+    }
+   ],
+   "DASH-022": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1126,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3znQ",
+     "url": "https://github.com/its-everdred/aiur/issues/1126"
+    }
+   ],
+   "DASH-023": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1127,
+     "node_id": "I_kwDOSgXtJc8AAAABIs3z6w",
+     "url": "https://github.com/its-everdred/aiur/issues/1127"
+    }
+   ],
+   "DASH-024": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1128,
+     "node_id": "I_kwDOSgXtJc8AAAABIs30Rg",
+     "url": "https://github.com/its-everdred/aiur/issues/1128"
+    }
+   ],
+   "DASH-025": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1129,
+     "node_id": "I_kwDOSgXtJc8AAAABIs30jQ",
+     "url": "https://github.com/its-everdred/aiur/issues/1129"
+    }
+   ],
+   "DASH-026": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1130,
+     "node_id": "I_kwDOSgXtJc8AAAABIs303Q",
+     "url": "https://github.com/its-everdred/aiur/issues/1130"
+    }
+   ],
+   "DASH-027": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1131,
+     "node_id": "I_kwDOSgXtJc8AAAABIs31Mg",
+     "url": "https://github.com/its-everdred/aiur/issues/1131"
+    }
+   ],
+   "DASH-028": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1132,
+     "node_id": "I_kwDOSgXtJc8AAAABIs31gw",
+     "url": "https://github.com/its-everdred/aiur/issues/1132"
+    }
+   ],
+   "DASH-029": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1133,
+     "node_id": "I_kwDOSgXtJc8AAAABIs310w",
+     "url": "https://github.com/its-everdred/aiur/issues/1133"
+    }
+   ],
+   "DASH-030": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1134,
+     "node_id": "I_kwDOSgXtJc8AAAABIs32Jw",
+     "url": "https://github.com/its-everdred/aiur/issues/1134"
+    }
+   ],
+   "DASH-031": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1135,
+     "node_id": "I_kwDOSgXtJc8AAAABIs32bg",
+     "url": "https://github.com/its-everdred/aiur/issues/1135"
+    }
+   ],
+   "DASH-032": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1136,
+     "node_id": "I_kwDOSgXtJc8AAAABIs322g",
+     "url": "https://github.com/its-everdred/aiur/issues/1136"
+    }
+   ],
+   "DASH-033": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1137,
+     "node_id": "I_kwDOSgXtJc8AAAABIs33OA",
+     "url": "https://github.com/its-everdred/aiur/issues/1137"
+    }
+   ],
+   "DASH-034": [
+    {
+     "repository": "its-everdred/aiur",
+     "number": 1138,
+     "node_id": "I_kwDOSgXtJc8AAAABIs33_g",
+     "url": "https://github.com/its-everdred/aiur/issues/1138"
+    }
+   ]
+  }
+ },
  "label_projection": {
   "build_order": "build-order",
   "workstreams": {
@@ -836,7 +3147,12 @@
    "design_evidence_refs": [
     "DESIGN-002"
    ],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1085,
+    "node_id": "I_kwDOSgXtJc8AAAABIs27hA",
+    "url": "https://github.com/its-everdred/aiur/issues/1085"
+   }
   },
   {
    "id": "BO-002",
@@ -912,7 +3228,12 @@
    "design_evidence_refs": [
     "DESIGN-002"
    ],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1091,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3mJw",
+    "url": "https://github.com/its-everdred/aiur/issues/1091"
+   }
   },
   {
    "id": "BO-003",
@@ -997,7 +3318,12 @@
    "design_evidence_refs": [
     "DESIGN-002"
    ],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1092,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3mgw",
+    "url": "https://github.com/its-everdred/aiur/issues/1092"
+   }
   },
   {
    "id": "BO-004",
@@ -1068,7 +3394,12 @@
    "design_evidence_refs": [
     "DESIGN-002"
    ],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1086,
+    "node_id": "I_kwDOSgXtJc8AAAABIs28cw",
+    "url": "https://github.com/its-everdred/aiur/issues/1086"
+   }
   },
   {
    "id": "BO-017",
@@ -1140,7 +3471,12 @@
     "DESIGN-001",
     "DESIGN-002"
    ],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1104,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3q1Q",
+    "url": "https://github.com/its-everdred/aiur/issues/1104"
+   }
   },
   {
    "id": "BO-005",
@@ -1227,7 +3563,12 @@
     "DESIGN-001",
     "DESIGN-002"
    ],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1093,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3m8A",
+    "url": "https://github.com/its-everdred/aiur/issues/1093"
+   }
   },
   {
    "id": "BO-006",
@@ -1297,7 +3638,12 @@
    "design_evidence_refs": [
     "DESIGN-002"
    ],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1094,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3nTA",
+    "url": "https://github.com/its-everdred/aiur/issues/1094"
+   }
   },
   {
    "id": "BO-007",
@@ -1377,7 +3723,12 @@
     "DESIGN-001",
     "DESIGN-002"
    ],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1095,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3nlg",
+    "url": "https://github.com/its-everdred/aiur/issues/1095"
+   }
   },
   {
    "id": "BO-008",
@@ -1452,7 +3803,12 @@
     "DESIGN-001",
     "DESIGN-002"
    ],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1087,
+    "node_id": "I_kwDOSgXtJc8AAAABIs28tw",
+    "url": "https://github.com/its-everdred/aiur/issues/1087"
+   }
   },
   {
    "id": "BO-009",
@@ -1525,7 +3881,12 @@
     "DESIGN-001",
     "DESIGN-002"
    ],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1096,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3oBg",
+    "url": "https://github.com/its-everdred/aiur/issues/1096"
+   }
   },
   {
    "id": "BO-010",
@@ -1600,7 +3961,12 @@
     "DESIGN-001",
     "DESIGN-002"
    ],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1097,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3ocg",
+    "url": "https://github.com/its-everdred/aiur/issues/1097"
+   }
   },
   {
    "id": "BO-011",
@@ -1677,7 +4043,12 @@
     "DESIGN-001",
     "DESIGN-002"
    ],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1098,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3otQ",
+    "url": "https://github.com/its-everdred/aiur/issues/1098"
+   }
   },
   {
    "id": "BO-016",
@@ -1761,7 +4132,12 @@
    "design_evidence_refs": [
     "DESIGN-001"
    ],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1103,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3qXA",
+    "url": "https://github.com/its-everdred/aiur/issues/1103"
+   }
   },
   {
    "id": "BO-019",
@@ -1845,7 +4221,12 @@
    "design_evidence_refs": [
     "DESIGN-001"
    ],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1106,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3rcA",
+    "url": "https://github.com/its-everdred/aiur/issues/1106"
+   }
   },
   {
    "id": "BO-018",
@@ -1923,7 +4304,12 @@
    "design_evidence_refs": [
     "DESIGN-001"
    ],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1105,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3rKg",
+    "url": "https://github.com/its-everdred/aiur/issues/1105"
+   }
   },
   {
    "id": "BO-012",
@@ -2016,7 +4402,12 @@
     "DESIGN-001",
     "DESIGN-002"
    ],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1099,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3pBQ",
+    "url": "https://github.com/its-everdred/aiur/issues/1099"
+   }
   },
   {
    "id": "BO-013",
@@ -2095,7 +4486,12 @@
     "DESIGN-001",
     "DESIGN-002"
    ],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1100,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3pYQ",
+    "url": "https://github.com/its-everdred/aiur/issues/1100"
+   }
   },
   {
    "id": "BO-014",
@@ -2175,7 +4571,12 @@
     "DESIGN-001",
     "DESIGN-002"
    ],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1101,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3ptg",
+    "url": "https://github.com/its-everdred/aiur/issues/1101"
+   }
   },
   {
    "id": "BO-015",
@@ -2254,7 +4655,12 @@
     "DESIGN-001",
     "DESIGN-002"
    ],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1102,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3qFQ",
+    "url": "https://github.com/its-everdred/aiur/issues/1102"
+   }
   },
   {
    "id": "BO-020",
@@ -2330,7 +4736,12 @@
    "design_evidence_refs": [
     "DESIGN-002"
    ],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1107,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3rxg",
+    "url": "https://github.com/its-everdred/aiur/issues/1107"
+   }
   },
   {
    "id": "DASH-001",
@@ -2408,7 +4819,12 @@
    "design_evidence_refs": [
     "DESIGN-002"
    ],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1108,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3sGA",
+    "url": "https://github.com/its-everdred/aiur/issues/1108"
+   }
   },
   {
    "id": "DASH-002",
@@ -2497,7 +4913,12 @@
    },
    "decision_refs": [],
    "design_evidence_refs": [],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1109,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3saQ",
+    "url": "https://github.com/its-everdred/aiur/issues/1109"
+   }
   },
   {
    "id": "DASH-003",
@@ -2519,7 +4940,7 @@
    "non_goals": [
     "Define catalog membership/predicates, implement pause/resume or capacity writes, ingest usage, redesign Commands, or build the Build Order graph.",
     "Reimplement BO-018 base ticket context, parse workspace logs during render, or invent completed/progress/model data.",
-    "Copy the prototype's client-side cap behavior, fake remote-control links, 9–12px essential text, or visual-only status encoding."
+    "Copy the prototype's client-side cap behavior, fake remote-control links, 9\u201312px essential text, or visual-only status encoding."
    ],
    "phase_hint": 6,
    "complexity_points": 3,
@@ -2581,7 +5002,12 @@
    "design_evidence_refs": [
     "DESIGN-002"
    ],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1110,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3swQ",
+    "url": "https://github.com/its-everdred/aiur/issues/1110"
+   }
   },
   {
    "id": "DASH-004",
@@ -2643,7 +5069,7 @@
    "conflict_exceptions": [],
    "acceptance": {
     "agent_gate": [
-     "Protocol tests cover accepted→applied, structured rejection, timeout, worker crash, daemon restart, backend generation replacement, duplicate request/ack, out-of-order ack, superseding intent, concurrent completion, and unsupported/request-only backends.",
+     "Protocol tests cover accepted\u2192applied, structured rejection, timeout, worker crash, daemon restart, backend generation replacement, duplicate request/ack, out-of-order ack, superseding intent, concurrent completion, and unsupported/request-only backends.",
      "Orchestrator tests prove no state is presented as applied before correlated worker evidence and unrelated pause/waiting reasons survive.",
      "Security tests prove audit payloads contain no raw command transport, credential, workspace, account, or capability data."
     ],
@@ -2656,7 +5082,12 @@
    },
    "decision_refs": [],
    "design_evidence_refs": [],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1111,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3tIQ",
+    "url": "https://github.com/its-everdred/aiur/issues/1111"
+   }
   },
   {
    "id": "DASH-005",
@@ -2742,7 +5173,12 @@
    "design_evidence_refs": [
     "DESIGN-002"
    ],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1112,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3tag",
+    "url": "https://github.com/its-everdred/aiur/issues/1112"
+   }
   },
   {
    "id": "DASH-006",
@@ -2816,7 +5252,12 @@
    },
    "decision_refs": [],
    "design_evidence_refs": [],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1088,
+    "node_id": "I_kwDOSgXtJc8AAAABIs28-g",
+    "url": "https://github.com/its-everdred/aiur/issues/1088"
+   }
   },
   {
    "id": "DASH-007",
@@ -2906,7 +5347,12 @@
    "design_evidence_refs": [
     "DESIGN-002"
    ],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1113,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3uWg",
+    "url": "https://github.com/its-everdred/aiur/issues/1113"
+   }
   },
   {
    "id": "DASH-008",
@@ -2990,7 +5436,12 @@
    },
    "decision_refs": [],
    "design_evidence_refs": [],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1114,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3urw",
+    "url": "https://github.com/its-everdred/aiur/issues/1114"
+   }
   },
   {
    "id": "DASH-009",
@@ -3083,7 +5534,12 @@
    },
    "decision_refs": [],
    "design_evidence_refs": [],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1115,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3vCA",
+    "url": "https://github.com/its-everdred/aiur/issues/1115"
+   }
   },
   {
    "id": "DASH-010",
@@ -3160,7 +5616,12 @@
    },
    "decision_refs": [],
    "design_evidence_refs": [],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1116,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3vYw",
+    "url": "https://github.com/its-everdred/aiur/issues/1116"
+   }
   },
   {
    "id": "DASH-011",
@@ -3238,7 +5699,12 @@
    },
    "decision_refs": [],
    "design_evidence_refs": [],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1117,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3vuw",
+    "url": "https://github.com/its-everdred/aiur/issues/1117"
+   }
   },
   {
    "id": "DASH-012",
@@ -3326,7 +5792,12 @@
    },
    "decision_refs": [],
    "design_evidence_refs": [],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1118,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3wEQ",
+    "url": "https://github.com/its-everdred/aiur/issues/1118"
+   }
   },
   {
    "id": "DASH-013",
@@ -3343,7 +5814,7 @@
     "Support subscription and API-key modes without assuming they expose the same facts. Renderable session/weekly windows require actual structured values; API mode reports only real rate/credit/spend controls.",
     "Preserve sparse updates, per-window last-known-good state, full-snapshot removals, and account-generation isolation exactly as DASH-012 defines. Report trusted Claude auth/session lifecycle changes through DASH-018 and use its returned generation without persisting raw account identity.",
     "Implement the Aiur adapter only against the gate-pinned existing protocol. This ticket never implements or tests unlanded sibling changes and never infers sibling write authority.",
-    "Expose partial/temporarily unavailable/error coverage during protocol failure, but final ticket acceptance requires the supported Claude account modes available in the user's configured integration; “all Claude meters unsupported” is not completion.",
+    "Expose partial/temporarily unavailable/error coverage during protocol failure, but final ticket acceptance requires the supported Claude account modes available in the user's configured integration; \u201call Claude meters unsupported\u201d is not completion.",
     "Redact email, account/organization/workspace IDs, credentials, API/OAuth material, raw responses, headers, endpoint/capability URLs, and unrelated attributes at the adapter boundary."
    ],
    "non_goals": [
@@ -3403,7 +5874,12 @@
    },
    "decision_refs": [],
    "design_evidence_refs": [],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1119,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3wcA",
+    "url": "https://github.com/its-everdred/aiur/issues/1119"
+   }
   },
   {
    "id": "DASH-014",
@@ -3478,7 +5954,12 @@
    },
    "decision_refs": [],
    "design_evidence_refs": [],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1120,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3w4w",
+    "url": "https://github.com/its-everdred/aiur/issues/1120"
+   }
   },
   {
    "id": "DASH-015",
@@ -3566,7 +6047,12 @@
    },
    "decision_refs": [],
    "design_evidence_refs": [],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1121,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3xOg",
+    "url": "https://github.com/its-everdred/aiur/issues/1121"
+   }
   },
   {
    "id": "DASH-016",
@@ -3647,7 +6133,12 @@
    "design_evidence_refs": [
     "DESIGN-002"
    ],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1122,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3xgg",
+    "url": "https://github.com/its-everdred/aiur/issues/1122"
+   }
   },
   {
    "id": "DASH-017",
@@ -3721,7 +6212,12 @@
    },
    "decision_refs": [],
    "design_evidence_refs": [],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1089,
+    "node_id": "I_kwDOSgXtJc8AAAABIs29Ug",
+    "url": "https://github.com/its-everdred/aiur/issues/1089"
+   }
   },
   {
    "id": "DASH-018",
@@ -3802,7 +6298,12 @@
    },
    "decision_refs": [],
    "design_evidence_refs": [],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1090,
+    "node_id": "I_kwDOSgXtJc8AAAABIs29nQ",
+    "url": "https://github.com/its-everdred/aiur/issues/1090"
+   }
   },
   {
    "id": "DASH-019",
@@ -3897,7 +6398,12 @@
    },
    "decision_refs": [],
    "design_evidence_refs": [],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1123,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3yDQ",
+    "url": "https://github.com/its-everdred/aiur/issues/1123"
+   }
   },
   {
    "id": "DASH-020",
@@ -3974,7 +6480,12 @@
    },
    "decision_refs": [],
    "design_evidence_refs": [],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1124,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3yZw",
+    "url": "https://github.com/its-everdred/aiur/issues/1124"
+   }
   },
   {
    "id": "DASH-021",
@@ -4061,7 +6572,12 @@
    },
    "decision_refs": [],
    "design_evidence_refs": [],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1125,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3zQw",
+    "url": "https://github.com/its-everdred/aiur/issues/1125"
+   }
   },
   {
    "id": "DASH-022",
@@ -4150,7 +6666,12 @@
    "design_evidence_refs": [
     "DESIGN-002"
    ],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1126,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3znQ",
+    "url": "https://github.com/its-everdred/aiur/issues/1126"
+   }
   },
   {
    "id": "DASH-023",
@@ -4244,7 +6765,12 @@
    },
    "decision_refs": [],
    "design_evidence_refs": [],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1127,
+    "node_id": "I_kwDOSgXtJc8AAAABIs3z6w",
+    "url": "https://github.com/its-everdred/aiur/issues/1127"
+   }
   },
   {
    "id": "DASH-024",
@@ -4333,7 +6859,12 @@
    },
    "decision_refs": [],
    "design_evidence_refs": [],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1128,
+    "node_id": "I_kwDOSgXtJc8AAAABIs30Rg",
+    "url": "https://github.com/its-everdred/aiur/issues/1128"
+   }
   },
   {
    "id": "DASH-025",
@@ -4424,7 +6955,12 @@
    },
    "decision_refs": [],
    "design_evidence_refs": [],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1129,
+    "node_id": "I_kwDOSgXtJc8AAAABIs30jQ",
+    "url": "https://github.com/its-everdred/aiur/issues/1129"
+   }
   },
   {
    "id": "DASH-026",
@@ -4517,7 +7053,12 @@
    },
    "decision_refs": [],
    "design_evidence_refs": [],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1130,
+    "node_id": "I_kwDOSgXtJc8AAAABIs303Q",
+    "url": "https://github.com/its-everdred/aiur/issues/1130"
+   }
   },
   {
    "id": "DASH-027",
@@ -4610,7 +7151,12 @@
    "design_evidence_refs": [
     "DESIGN-002"
    ],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1131,
+    "node_id": "I_kwDOSgXtJc8AAAABIs31Mg",
+    "url": "https://github.com/its-everdred/aiur/issues/1131"
+   }
   },
   {
    "id": "DASH-028",
@@ -4698,7 +7244,12 @@
    "design_evidence_refs": [
     "DESIGN-002"
    ],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1132,
+    "node_id": "I_kwDOSgXtJc8AAAABIs31gw",
+    "url": "https://github.com/its-everdred/aiur/issues/1132"
+   }
   },
   {
    "id": "DASH-029",
@@ -4780,7 +7331,12 @@
    },
    "decision_refs": [],
    "design_evidence_refs": [],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1133,
+    "node_id": "I_kwDOSgXtJc8AAAABIs310w",
+    "url": "https://github.com/its-everdred/aiur/issues/1133"
+   }
   },
   {
    "id": "DASH-030",
@@ -4860,7 +7416,12 @@
    },
    "decision_refs": [],
    "design_evidence_refs": [],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1134,
+    "node_id": "I_kwDOSgXtJc8AAAABIs32Jw",
+    "url": "https://github.com/its-everdred/aiur/issues/1134"
+   }
   },
   {
    "id": "DASH-031",
@@ -4958,7 +7519,12 @@
    },
    "decision_refs": [],
    "design_evidence_refs": [],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1135,
+    "node_id": "I_kwDOSgXtJc8AAAABIs32bg",
+    "url": "https://github.com/its-everdred/aiur/issues/1135"
+   }
   },
   {
    "id": "DASH-032",
@@ -5041,7 +7607,12 @@
    },
    "decision_refs": [],
    "design_evidence_refs": [],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1136,
+    "node_id": "I_kwDOSgXtJc8AAAABIs322g",
+    "url": "https://github.com/its-everdred/aiur/issues/1136"
+   }
   },
   {
    "id": "DASH-033",
@@ -5133,7 +7704,12 @@
    "design_evidence_refs": [
     "DESIGN-002"
    ],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1137,
+    "node_id": "I_kwDOSgXtJc8AAAABIs33OA",
+    "url": "https://github.com/its-everdred/aiur/issues/1137"
+   }
   },
   {
    "id": "DASH-034",
@@ -5226,7 +7802,12 @@
    "design_evidence_refs": [
     "DESIGN-002"
    ],
-   "github": null
+   "github": {
+    "repository": "its-everdred/aiur",
+    "number": 1138,
+    "node_id": "I_kwDOSgXtJc8AAAABIs33_g",
+    "url": "https://github.com/its-everdred/aiur/issues/1138"
+   }
   }
  ],
  "epic_acceptance": {

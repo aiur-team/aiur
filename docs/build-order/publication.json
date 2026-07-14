@@ -2,12 +2,14 @@
   "schema_version": 1,
   "plan_version": 1,
   "repository": "its-everdred/aiur",
-  "approved_planning_commit": null,
+  "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
   "trusted_repository_ref": "refs/heads/build-order-research",
   "root_issue": {
     "logical_id": "its-everdred/aiur:build-order-dashboard",
     "document": "root-issue.md",
-    "required_labels": ["build-order"],
+    "required_labels": [
+      "build-order"
+    ],
     "forbidden_labels": [],
     "forbidden_label_prefixes": [
       "agent:",
@@ -21,8 +23,12 @@
   "skill_issue": {
     "logical_id": "SKILL-DELIVERY-001",
     "document": "skill-delivery.md",
-    "required_labels": ["human:todo"],
-    "forbidden_labels": ["build-order"],
+    "required_labels": [
+      "human:todo"
+    ],
+    "forbidden_labels": [
+      "build-order"
+    ],
     "forbidden_label_prefixes": [
       "agent:",
       "model:",
@@ -48,5 +54,90 @@
     "its-everdred/aiur#1034",
     "its-everdred/aiur#1067"
   ],
-  "github_reconciliation": null
+  "github_reconciliation": {
+    "receipt_schema_version": 2,
+    "checked_at": "2026-07-14T01:11:47Z",
+    "issue_mappings": {
+      "its-everdred/aiur:build-order-dashboard": {
+        "repository": "its-everdred/aiur",
+        "number": 1084,
+        "node_id": "I_kwDOSgXtJc8AAAABIs27KA",
+        "url": "https://github.com/its-everdred/aiur/issues/1084"
+      },
+      "SKILL-DELIVERY-001": {
+        "repository": "its-everdred/aiur",
+        "number": 1139,
+        "node_id": "I_kwDOSgXtJc8AAAABIs34Uw",
+        "url": "https://github.com/its-everdred/aiur/issues/1139"
+      }
+    },
+    "external_blocker_relations": [
+      {
+        "blocked_ticket_id": "BO-004",
+        "blocker_issue_id": "SKILL-DELIVERY-001"
+      },
+      {
+        "blocked_ticket_id": "BO-008",
+        "blocker_issue_id": "SKILL-DELIVERY-001"
+      }
+    ],
+    "observed_labels": {
+      "its-everdred/aiur:build-order-dashboard": [
+        "build-order"
+      ],
+      "SKILL-DELIVERY-001": [
+        "human:todo"
+      ]
+    },
+    "observed_parent_issues": {
+      "its-everdred/aiur:build-order-dashboard": null,
+      "SKILL-DELIVERY-001": null
+    },
+    "observed_body_evidence": {
+      "SKILL-DELIVERY-001": {
+        "marker_count": 1,
+        "marker_schema_version": 2,
+        "marker_logical_id": "SKILL-DELIVERY-001",
+        "marker_plan_version": 1,
+        "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+        "approved_link_count": 1,
+        "approved_link": "https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd",
+        "body_sha256": "b3e2394ea3b1640356d697712843ccd08e940e3c9e039bd5a4d2720bbcb65866"
+      }
+    },
+    "expected_issue_titles": {
+      "SKILL-DELIVERY-001": "Land bounded Executor planning skills"
+    },
+    "observed_issue_titles": {
+      "SKILL-DELIVERY-001": "Land bounded Executor planning skills"
+    },
+    "observed_issue_states": {
+      "SKILL-DELIVERY-001": "OPEN"
+    },
+    "marker_query_matches": {
+      "SKILL-DELIVERY-001": [
+        {
+          "repository": "its-everdred/aiur",
+          "number": 1139,
+          "node_id": "I_kwDOSgXtJc8AAAABIs34Uw",
+          "url": "https://github.com/its-everdred/aiur/issues/1139"
+        }
+      ]
+    },
+    "root_reconciliation_comment_matches": [
+      {
+        "marker_count": 1,
+        "marker": "aiur-build-order-reconciliation",
+        "marker_schema_version": 1,
+        "logical_id": "its-everdred/aiur:build-order-dashboard",
+        "plan_version": 1,
+        "approved_planning_commit": "4d8de9508206e08e314f2730cd916501a3b4cafd",
+        "state": "pending",
+        "receipt_commit": null,
+        "receipt_url": null,
+        "url": "https://github.com/its-everdred/aiur/issues/1084#issuecomment-4964359714",
+        "body_sha256": "15d505d33c64ac68dc7220a096402d666f58208bf483bf7f6d53803e69dcb93b"
+      }
+    ]
+  }
 }

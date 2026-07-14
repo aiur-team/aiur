@@ -830,6 +830,28 @@ class ClientSafetyTests(unittest.TestCase):
 
 
 class ApprovedRenderingTests(unittest.TestCase):
+    def test_extended_pack_validator_receives_immutable_root_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as name:
+            ctx = context(Path(name))
+            publisher = Publisher(FakeClient({}), ctx)
+            commands: list[tuple[list[str], str]] = []
+            with patch.object(
+                Publisher, "_run_checked",
+                side_effect=lambda command, label: commands.append((command, label)),
+            ):
+                publisher._run_validators()
+
+            self.assertEqual(1, len(commands))
+            command, label = commands[0]
+            self.assertEqual("canonical validator", label)
+            self.assertEqual(
+                [
+                    "--repository-root", str(ctx.root),
+                    "--root-document", "root-issue.md",
+                ],
+                command[-4:],
+            )
+
     def test_repository_pack_exports_all_exact_bodies_and_titles(self) -> None:
         root = Path(__file__).resolve().parents[4]
         result = subprocess_result = None
