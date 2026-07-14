@@ -115,10 +115,13 @@ defmodule Aiur.BuildOrder.GitHubGraph.Settings do
   def requested_root(_root, _repository), do: {:error, :invalid_requested_root}
 
   defp valid_limits?(%{root_limit: roots, page_budget: pages, call_budget: calls}) do
-    is_integer(roots) and roots in 1..@member_limit and
-      is_integer(pages) and pages in 1..@max_page_budget and
-      is_integer(calls) and calls in 1..@max_call_budget
+    valid_limit?(roots, @member_limit) and
+      valid_limit?(pages, @max_page_budget) and
+      valid_limit?(calls, @max_call_budget)
   end
+
+  defp valid_limit?(value, maximum) when is_integer(value) and value > 0 and value <= maximum, do: true
+  defp valid_limit?(_value, _maximum), do: false
 
   defp page_size(limits, limit) do
     slots = min(limits.page_budget, limits.call_budget)
