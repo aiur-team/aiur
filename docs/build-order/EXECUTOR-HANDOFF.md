@@ -623,6 +623,13 @@ to a safe range.
     from the pre-review lifecycle) for the end-of-phase estimate-calibration
     analysis. Current claims are #1088 70%, #1089 60%, #1090 80%, #1091 20%,
     #1096 60%, #1103 70%, #1161 20%, and #1162 30%.
+69. #1091 independently filed #1164 for sandbox-local PID reuse leaving stale
+    shared build-gate leases. The evidence is valid but is already contained by
+    Ad Hoc P1 #1154's namespace-safe ownership, stale-metadata reclamation, and
+    real turn-sandbox coverage criteria. The Executor retitled and labeled
+    #1164 into the Ad Hoc ledger, then closed it as a duplicate without a phase
+    because it was never picked up. Keep the reproduction as evidence; never
+    dispatch #1164 or count it as additional executable scope.
 
 At 03:58 PDT the core graph is 4/54 accepted. The recovered fleet is at its
 temporary eight-worker ceiling: #1088/#1089/#1090/#1091/#1096/#1103 plus Phase
