@@ -9,14 +9,14 @@ defmodule Aiur.Codex.AccountGeneration do
 
   @account_updated_auth_modes ~w(apikey chatgpt chatgptAuthTokens headers agentIdentity personalAccessToken bedrockApiKey)
 
-  @type binding_context :: %{binding: reference(), authority: reference(), context: reference()}
+  @type binding_context :: %{binding: reference(), authority: reference(), context: reference(), topic: String.t() | nil}
 
   @spec new_binding(GenServer.server()) :: binding_context()
   def new_binding(server \\ ProviderAccountGeneration) do
     binding =
       case ProviderAccountGeneration.issue_binding(server, :codex, :app_server) do
         {:ok, binding} -> binding
-        {:error, _reason} -> %{binding: make_ref(), authority: make_ref()}
+        {:error, _reason} -> %{binding: make_ref(), authority: make_ref(), topic: nil}
       end
 
     context = make_ref()
@@ -28,6 +28,7 @@ defmodule Aiur.Codex.AccountGeneration do
   def handle_notification(session, @account_updated, payload) when is_map(session) and is_map(payload) do
     case account_updated_auth_mode(payload) do
       {:ok, auth_mode} -> bind_account(session, auth_mode)
+      :logout -> lose_continuity(session, :logout)
       :error -> lose_continuity(session, :unsupported_auth_mode)
     end
 
@@ -88,13 +89,13 @@ defmodule Aiur.Codex.AccountGeneration do
   end
 
   defp recover_and_bind(%{account_generation_context: context}, server, auth_mode) when is_reference(context) do
-    with {:ok, %{binding: binding, authority: authority}} <- current_binding_context(context),
+    with {:ok, %{binding: binding, authority: authority, topic: topic}} <- current_binding_context(context),
          :ok <-
            ProviderAccountGeneration.recover_binding(
              server,
              :codex,
              :app_server,
-             %{binding: binding, authority: authority}
+             %{binding: binding, authority: authority, topic: topic}
            ) do
       ProviderAccountGeneration.bind(server, :codex, :app_server, binding,
         source: :codex_app_server,
@@ -163,8 +164,12 @@ defmodule Aiur.Codex.AccountGeneration do
 
   defp current_binding_context(context) do
     case Process.get(context_key(context)) do
-      %{binding: binding, authority: authority} -> {:ok, %{binding: binding, authority: authority}}
-      _ -> :error
+      %{binding: binding, authority: authority, topic: topic}
+      when is_reference(binding) and is_reference(authority) and is_binary(topic) ->
+        {:ok, %{binding: binding, authority: authority, topic: topic}}
+
+      _ ->
+        :error
     end
   end
 
@@ -174,6 +179,8 @@ defmodule Aiur.Codex.AccountGeneration do
   defp clear_binding_context(_session), do: :ok
 
   defp context_key(context), do: {__MODULE__, :binding_context, context}
+
+  defp account_updated_auth_mode(%{"params" => %{"authMode" => nil}}), do: :logout
 
   defp account_updated_auth_mode(%{"params" => %{"authMode" => auth_mode}}) when auth_mode in @account_updated_auth_modes,
     do: {:ok, auth_mode}

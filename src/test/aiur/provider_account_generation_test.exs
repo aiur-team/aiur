@@ -159,7 +159,8 @@ defmodule Aiur.ProviderAccountGenerationTest do
     assert {:error, :owner_unavailable} =
              ProviderAccountGeneration.recover_binding(owner, :codex, :app_server, %{
                binding: binding.binding,
-               authority: make_ref()
+               authority: make_ref(),
+               topic: binding.topic
              })
 
     assert {:ok, %{generation: generation}} =

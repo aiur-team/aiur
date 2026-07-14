@@ -80,6 +80,17 @@ defmodule Aiur.Codex.AccountGenerationTest do
              ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
   end
 
+  test "a nullable account update logs out and keeps its reason distinct", %{owner: owner, session: session} do
+    assert {:redacted, _} =
+             AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "chatgpt"}})
+
+    assert {:redacted, _} =
+             AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => nil}})
+
+    assert %{generation: nil, reason: :logout} =
+             ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
+  end
+
   test "token refresh and quota updates do not rotate a known binding", %{owner: owner, session: session} do
     assert {:redacted, _} =
              AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "chatgpt"}})
@@ -154,12 +165,12 @@ defmodule Aiur.Codex.AccountGenerationTest do
       account_generation_server: name
     }
 
+    assert :ok = ProviderAccountGeneration.subscribe(owner, :codex, :app_server, session.account_generation_binding)
+
     assert {:redacted, _} =
              AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "chatgpt"}})
 
-    original_generation =
-      ProviderAccountGeneration.lookup(name, :codex, :app_server, session.account_generation_binding)
-      |> Map.fetch!(:generation)
+    assert_receive {:provider_account_generation_changed, %{change: :bound, generation: original_generation}}
 
     assert is_binary(original_generation)
 
@@ -187,6 +198,7 @@ defmodule Aiur.Codex.AccountGenerationTest do
 
     assert is_binary(recovered_generation)
     refute recovered_generation == original_generation
+    assert_receive {:provider_account_generation_changed, %{change: :bound, generation: ^recovered_generation}}
   end
 
   defp sequence_mint do
