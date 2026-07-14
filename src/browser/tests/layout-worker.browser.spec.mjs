@@ -983,3 +983,95 @@ test('worker and client bound aggregate route geometry without delaying bounded 
     await context.close()
   }
 })
+
+test('worker and client reject legal geometry that exceeds the response byte cap', async ({ browser }) => {
+  const urls = await layoutAssetUrls()
+  const context = await browser.newContext({ httpCredentials: dashboardCredentials })
+  const page = await context.newPage()
+  const pageErrors = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
+
+  const byteOverflowEngine = `self.onmessage = ({ data }) => {
+    if (data.cmd === 'register') { self.postMessage({ id: data.id, data: {} }); return; }
+    const point = { x: 4094.999, y: 4094.999 };
+    const section = { startPoint: point, bendPoints: Array.from({ length: 6 }, () => point), endPoint: point };
+    self.postMessage({ id: data.id, data: {
+      children: data.graph.children.map((node) => ({ id: node.id, x: point.x, y: point.y })),
+      edges: data.graph.edges.map((edge) => ({ id: edge.id, sections: [section] }))
+    } });
+  };`
+
+  try {
+    await context.route(urls.engine, (route) => route.fulfill({ contentType: 'application/javascript', body: byteOverflowEngine }))
+    await openFixture(page)
+
+    const result = await page.evaluate(async (payload) => {
+      const { createLayoutWorkerClient } = await import(payload.urls.client)
+      const workerUrl = `${payload.urls.worker}?engine=${encodeURIComponent(payload.urls.engine)}`
+      const maximumRequest = {
+        ...payload.request,
+        requestId: 'request_20_100',
+        generation: 20,
+        constraints: { lanes: [{ index: 0 }], phases: [{ index: 0 }] },
+        nodes: Array.from({ length: 100 }, (_, index) => ({ id: `node_${index}`, width: 1, height: 1, lane: 0, phase: 0 })),
+        edges: Array.from({ length: 1_000 }, (_, index) => ({ id: `edge_${index}`, source: 'node_0', target: 'node_1' }))
+      }
+      const directWorkerRequest = (candidate) => new Promise((resolve, reject) => {
+        const worker = new Worker(workerUrl)
+        worker.addEventListener('message', (event) => {
+          worker.terminate()
+          resolve(event.data)
+        }, { once: true })
+        worker.addEventListener('error', (event) => {
+          worker.terminate()
+          reject(new Error(event.message || 'direct worker failed'))
+        }, { once: true })
+        worker.postMessage(candidate)
+      })
+      const workerOverflow = await directWorkerRequest(maximumRequest)
+      const byteCapPoint = { x: 4095.999, y: 4095.999 }
+      const byteCapSection = {
+        startPoint: byteCapPoint,
+        bendPoints: Array.from({ length: 6 }, () => byteCapPoint),
+        endPoint: byteCapPoint
+      }
+      const oversizedResponseFor = (candidate) => ({
+        type: 'result',
+        version: 1,
+        requestId: candidate.requestId,
+        generation: candidate.generation,
+        nodes: candidate.nodes.map((node) => ({ id: node.id, x: byteCapPoint.x, y: byteCapPoint.y, width: node.width, height: node.height })),
+        edges: candidate.edges.map((edge) => ({ id: edge.id, sections: [byteCapSection] })),
+        diagnostics: []
+      })
+
+      class ByteOverflowWorker {
+        constructor() { this.listeners = new Map() }
+        addEventListener(name, callback) { this.listeners.set(name, callback) }
+        postMessage(candidate) {
+          queueMicrotask(() => this.listeners.get('message')?.({ data: oversizedResponseFor(candidate) }))
+        }
+        terminate() {}
+      }
+
+      const oversizedResponse = oversizedResponseFor(maximumRequest)
+      const client = createLayoutWorkerClient({ workerUrl: payload.urls.worker, engineUrl: payload.urls.engine, WorkerConstructor: ByteOverflowWorker })
+      const clientOverflow = await client.layout(maximumRequest)
+      client.dispose()
+      return {
+        workerOverflow,
+        clientOverflow,
+        responseBytes: new TextEncoder().encode(JSON.stringify(oversizedResponse)).byteLength,
+        routePoints: oversizedResponse.edges.length * (oversizedResponse.edges[0].sections[0].bendPoints.length + 2)
+      }
+    }, { urls, request: layoutRequest(2, { generation: 20 }) })
+
+    expect(result.routePoints).toBe(8_000)
+    expect(result.responseBytes).toBeGreaterThan(256 * 1024)
+    expect(result.workerOverflow).toMatchObject({ type: 'error', error: { code: 'layout_overflow' } })
+    expect(result.clientOverflow).toMatchObject({ type: 'error', error: { code: 'malformed_response' } })
+    expect(pageErrors).toEqual([])
+  } finally {
+    await context.close()
+  }
+})
