@@ -11,7 +11,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
   require Logger
 
   alias Aiur.Events.{CommentFilter, GithubKeys, Publisher, Sanitizer}
-  alias Aiur.GitHub.Client
+  alias Aiur.GitHub.{AgentCommentOrigins, Client}
 
   @type target :: String.t() | integer()
   @default_max_concurrency 4
@@ -296,7 +296,13 @@ defmodule Aiur.Events.GithubCommentsPoller do
   end
 
   defp publish_comment(topic, payload, actor, publish_opts) do
-    sanitized = Sanitizer.github_payload(payload, actor)
+    target = Keyword.fetch!(publish_opts, :issue_number)
+    origin = AgentCommentOrigins.origin(target, Map.get(payload, :comment, %{}))
+
+    sanitized =
+      payload
+      |> Map.put(:comment_origin, Atom.to_string(origin))
+      |> Sanitizer.github_payload(actor)
 
     publish_opts =
       publish_opts

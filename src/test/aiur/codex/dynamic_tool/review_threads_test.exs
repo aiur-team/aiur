@@ -98,6 +98,41 @@ defmodule Aiur.Codex.DynamicTool.ReviewThreadsTest do
       assert Jason.decode!(response["output"]) == %{"verified" => true}
     end
 
+    test "records the exact verified comment before returning success" do
+      test_pid = self()
+
+      response =
+        ReviewThreads.execute(
+          "aiur_reply_review_thread",
+          %{"review_thread_id" => "PRRT_origin", "body" => "Fixed."},
+          review_thread_replier: fn _id, _body, _opts ->
+            {:ok, %{verified: true, verification: %{"latest_comment" => %{"id" => 701}}}}
+          end,
+          agent_comment_origin_recorder: fn comment ->
+            send(test_pid, {:recorded_origin, comment})
+            :ok
+          end
+        )
+
+      assert response["success"] == true
+      assert_received {:recorded_origin, %{"id" => 701}}
+    end
+
+    test "returns a failure when a verified reply cannot be recorded" do
+      response =
+        ReviewThreads.execute(
+          "aiur_reply_review_thread",
+          %{"review_thread_id" => "PRRT_origin", "body" => "Fixed."},
+          review_thread_replier: fn _id, _body, _opts ->
+            {:ok, %{verified: true, verification: %{"latest_comment" => %{"id" => 701}}}}
+          end,
+          agent_comment_origin_recorder: fn _comment -> {:error, :disk_full} end
+        )
+
+      assert response["success"] == false
+      assert Jason.decode!(response["output"])["error"]["reason"] == "agent_comment_origin_not_recorded"
+    end
+
     test "review_thread_reply_not_verified renders failure" do
       response =
         ReviewThreads.execute(

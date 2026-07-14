@@ -59,6 +59,17 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
     end
   end
 
+  describe "actionable_trusted_comment_event?/1" do
+    test "ignores only a recorded agent-origin comment" do
+      agent_event = %{author_trusted?: true, comment_origin: "agent", comment: %{"body" => "Fixed."}}
+      human_event = %{author_trusted?: true, comment_origin: "external", comment: %{"body" => "Please rework this."}}
+
+      assert CommentWake.trusted_comment_event?(agent_event)
+      refute CommentWake.actionable_trusted_comment_event?(agent_event)
+      assert CommentWake.actionable_trusted_comment_event?(human_event)
+    end
+  end
+
   describe "benign_review_pass_comment?/1" do
     test "recognizes bot review passed comment (lowercase)" do
       event = %{comment: %{"body" => "[codex] review passed"}}

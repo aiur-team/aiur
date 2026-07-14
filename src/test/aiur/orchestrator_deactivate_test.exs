@@ -422,6 +422,59 @@ defmodule Aiur.OrchestratorDeactivateTest do
       end
     end
 
+    test "an agent-origin reply leaves CI wait pollable until one later failure is delivered" do
+      identifier = "ci-agent-reply-#{System.unique_integer([:positive])}"
+      topic = "ticket.#{identifier}.ci.failed"
+      issue = %Issue{id: identifier, identifier: identifier, state: "ci-wait", title: "CI gate"}
+      :ok = Exchange.subscribe(topic)
+
+      try do
+        state =
+          EventTopics.route(empty_orchestrator_state(), %{
+            topic: "ticket.#{identifier}.pr.review_comment",
+            author_trusted?: true,
+            comment_origin: "agent",
+            comment: %{"body" => "Resolved in the latest commit."}
+          })
+
+        assert state == empty_orchestrator_state()
+
+        poller = fn [^identifier], _opts ->
+          {:ok,
+           %{
+             results: [
+               %{
+                 target: identifier,
+                 decision: :failed,
+                 head_sha: "failed-after-agent-reply",
+                 pr_number: 830,
+                 failures: [%{name: "lint", result: "failure", excerpt: "lint failed"}]
+               }
+             ],
+             errors: []
+           }}
+        end
+
+        state =
+          CiLifecycle.poll_github_ci(state,
+            ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
+            ci_poller: poller
+          )
+
+        assert_receive {:event, %{topic: ^topic}}, 500
+
+        _state =
+          CiLifecycle.poll_github_ci(state,
+            ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
+            ci_poller: poller
+          )
+
+        refute_receive {:event, %{topic: ^topic}}, 200
+      after
+        if Process.whereis(Exchange), do: Exchange.unsubscribe(topic)
+      end
+    end
+
     test "CI failure subscribes an absent runner before publishing its wake event" do
       identifier = "ci-no-runner-#{System.unique_integer([:positive])}"
       issue = %Issue{id: identifier, identifier: identifier, state: "ci-wait", title: "Recover CI"}

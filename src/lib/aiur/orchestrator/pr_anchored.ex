@@ -21,8 +21,7 @@ defmodule Aiur.Orchestrator.PrAnchored do
           pos_integer()
         ) :: State.t()
   def maybe_route_pr_anchored_or_legacy(%State{} = state, issue_number, source, event, attempt) do
-    if pr_anchored_routing_enabled?() and CommentWake.trusted_comment_event?(event) and
-         not CommentWake.benign_review_pass_comment?(event) do
+    if pr_anchored_routing_enabled?() and CommentWake.actionable_trusted_comment_event?(event) do
       case resolve_pr_anchored_unit(issue_number, event) do
         {:ok, %Issue{} = pr_issue} ->
           dispatch_pr_anchored_unit(state, pr_issue, source, event)

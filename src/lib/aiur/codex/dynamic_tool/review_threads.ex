@@ -84,7 +84,8 @@ defmodule Aiur.Codex.DynamicTool.ReviewThreads do
       Keyword.get(opts, :review_thread_replier, &GitHubClient.reply_to_review_thread/3)
 
     with {:ok, review_thread_id, body} <- normalize_reply_review_thread_arguments(arguments),
-         {:ok, response} <- review_thread_replier.(review_thread_id, body, []) do
+         {:ok, response} <- review_thread_replier.(review_thread_id, body, []),
+         :ok <- record_verified_reply_origin(response, opts) do
       Response.build(true, Response.encode_payload(response))
     else
       {:error, reason} ->
@@ -138,4 +139,29 @@ defmodule Aiur.Codex.DynamicTool.ReviewThreads do
 
   def normalize_resolve_review_thread_arguments(_arguments),
     do: {:error, :invalid_review_thread_resolution_arguments}
+
+  defp record_verified_reply_origin(response, opts) do
+    case Keyword.get(opts, :agent_comment_origin_recorder) do
+      recorder when is_function(recorder, 1) ->
+        with {:ok, latest_comment} <- latest_verified_comment(response),
+             :ok <- recorder.(latest_comment) do
+          :ok
+        else
+          {:error, reason} -> {:error, {:agent_comment_origin_not_recorded, reason}}
+          other -> {:error, {:agent_comment_origin_not_recorded, other}}
+        end
+
+      _no_ticket_bound_recorder ->
+        :ok
+    end
+  end
+
+  defp latest_verified_comment(response) when is_map(response) do
+    verification = Map.get(response, :verification) || Map.get(response, "verification") || %{}
+    latest_comment = Map.get(verification, "latest_comment") || Map.get(verification, :latest_comment)
+
+    if is_map(latest_comment), do: {:ok, latest_comment}, else: {:error, :verified_comment_missing}
+  end
+
+  defp latest_verified_comment(_response), do: {:error, :verified_comment_missing}
 end

@@ -411,8 +411,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
 
   defp eligible_external_event?(kind, event)
        when kind in ["issue.commented", "pr.review_comment"] do
-    CommentWake.trusted_comment_event?(event) and
-      not CommentWake.benign_review_pass_comment?(event)
+    CommentWake.actionable_trusted_comment_event?(event)
   end
 
   defp eligible_external_event?(_kind, _event), do: true

@@ -66,6 +66,18 @@ defmodule Aiur.Orchestrator.CommentWake do
   end
 
   @doc false
+  @spec agent_authored_comment?(map()) :: boolean()
+  def agent_authored_comment?(event) when is_map(event) do
+    Map.get(event, :comment_origin) == "agent" or Map.get(event, "comment_origin") == "agent"
+  end
+
+  @doc false
+  @spec actionable_trusted_comment_event?(map()) :: boolean()
+  def actionable_trusted_comment_event?(event) when is_map(event) do
+    trusted_comment_event?(event) and not agent_authored_comment?(event) and not benign_review_pass_comment?(event)
+  end
+
+  @doc false
   @spec benign_review_pass_comment?(map()) :: boolean()
   def benign_review_pass_comment?(event) when is_map(event) do
     event
@@ -308,6 +320,9 @@ defmodule Aiur.Orchestrator.CommentWake do
     cond do
       not trusted_comment_event?(event) ->
         {:skip, :untrusted_author}
+
+      agent_authored_comment?(event) ->
+        {:skip, :agent_authored_comment}
 
       benign_review_pass_comment?(event) ->
         {:skip, :benign_review_pass_comment}

@@ -104,8 +104,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicy do
     do: Enum.any?(events, &trusted_comment_event_digest?/1)
 
   defp trusted_comment_event_digest?(event) when is_map(event) do
-    comment_event_topic?(event) and CommentWake.trusted_comment_event?(event) and
-      not CommentWake.benign_review_pass_comment?(event)
+    comment_event_topic?(event) and CommentWake.actionable_trusted_comment_event?(event)
   end
 
   defp trusted_comment_event_digest?(_event), do: false

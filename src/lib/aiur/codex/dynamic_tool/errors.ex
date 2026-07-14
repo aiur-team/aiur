@@ -57,6 +57,16 @@ defmodule Aiur.Codex.DynamicTool.Errors do
     }
   end
 
+  def payload({:agent_comment_origin_not_recorded, detail}) do
+    %{
+      "error" => %{
+        "message" => "GitHub review reply was verified but its agent origin could not be recorded.",
+        "reason" => "agent_comment_origin_not_recorded",
+        "detail" => Response.jsonable(detail)
+      }
+    }
+  end
+
   def payload({:review_thread_resolution_not_permitted, detail}) do
     %{
       "error" => %{

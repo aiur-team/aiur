@@ -2,6 +2,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
   use Aiur.TestSupport
 
   alias Aiur.Events.{Exchange, GithubCommentsPoller, Publisher}
+  alias Aiur.GitHub.AgentCommentOrigins
   alias Aiur.GitHub.CodeOwners
   alias Aiur.Workflow
 
@@ -197,6 +198,56 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
                     }},
                    500
 
+    stop_codeowners(codeowners)
+  end
+
+  test "marks a recorded agent review reply while leaving shared-login trust intact" do
+    comment_id = System.unique_integer([:positive])
+    :ok = AgentCommentOrigins.record("42", %{"id" => comment_id})
+    :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+    codeowners = ensure_codeowners!("* @its-everdred\n")
+
+    request_fun = fn %{url: url} ->
+      cond do
+        String.contains?(url, "/issues/42/comments?") ->
+          {:ok, %{status: 200, body: []}}
+
+        String.contains?(url, "/pulls?") ->
+          {:ok, %{status: 200, body: [%{"number" => 77}]}}
+
+        String.contains?(url, "/issues/77/comments?") ->
+          {:ok, %{status: 200, body: []}}
+
+        String.contains?(url, "/graphql") ->
+          review_threads_response([
+            %{
+              "id" => "PRRT_agent_origin",
+              "isResolved" => false,
+              "path" => "lib/app.ex",
+              "line" => 12,
+              "comments" => %{"nodes" => [review_thread_comment(comment_id, "its-everdred", "agent reply")]}
+            }
+          ])
+      end
+    end
+
+    assert {:ok, %{count: 1}} =
+             GithubCommentsPoller.poll(["42"],
+               since: "2026-06-25T00:00:00Z",
+               repo: "owner/repo",
+               request_fun: request_fun
+             )
+
+    assert_receive {:event,
+                    %{
+                      topic: "ticket.42.pr.review_comment",
+                      author_trusted?: true,
+                      comment_origin: "agent",
+                      comment: %{"id" => ^comment_id}
+                    }},
+                   500
+
+    assert AgentCommentOrigins.origin("42", %{"id" => comment_id + 1}) == :external
     stop_codeowners(codeowners)
   end
 

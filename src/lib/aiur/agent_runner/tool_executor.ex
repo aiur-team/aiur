@@ -12,7 +12,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   alias Aiur.{Alerts, DecisionAttention, DecisionStore, Issue}
   alias Aiur.Codex.DynamicTool
   alias Aiur.Events.{Publisher, SubscriptionStore}
-  alias Aiur.GitHub.IssueDependencies
+  alias Aiur.GitHub.{AgentCommentOrigins, IssueDependencies}
   alias Aiur.Orchestrator
   alias Aiur.Protocol.MapAccess
 
@@ -38,6 +38,8 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
   @spec build(Issue.t(), Path.t() | nil, String.t() | nil, map(), keyword()) :: (String.t(), map() -> map())
   def build(issue, workspace, worker_host, app_session \\ %{}, opts \\ []) do
+    origin_recorder = Keyword.get(opts, :agent_comment_origin_recorder, &AgentCommentOrigins.record/2)
+
     event_handlers = %{
       decision_requester: Keyword.get(opts, :decision_requester, &DecisionStore.request/2),
       decision_lifecycle_recorder: Keyword.get(opts, :decision_lifecycle_recorder, &DecisionStore.agent_lifecycle/3),
@@ -47,38 +49,47 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     }
 
     fn tool, arguments ->
+      dynamic_tool_opts =
+        [
+          agent_comment_origin_recorder: fn comment ->
+            origin_recorder.(issue_number_of(issue), comment)
+          end
+        ] ++ Keyword.take(opts, [:review_thread_replier, :review_thread_resolver])
+
       DynamicTool.execute(
         tool,
         arguments,
-        alert_emitter: fn name, message, reason, needs_attention, severity ->
-          # Agent-emitted alerts are always per-ticket — namespace under
-          # `ticket.<id>.agent.<name>` so subscribers can bind by ticket
-          # (and so the alert log lines a single ticket together).
-          # Names that already start with `ticket.` or `system.` pass
-          # through unchanged so orchestrator-side callsites (which
-          # pre-build the full topic) aren't double-prefixed.
-          topic = prefix_with_ticket_namespace(name, issue)
+        [
+          alert_emitter: fn name, message, reason, needs_attention, severity ->
+            # Agent-emitted alerts are always per-ticket — namespace under
+            # `ticket.<id>.agent.<name>` so subscribers can bind by ticket
+            # (and so the alert log lines a single ticket together).
+            # Names that already start with `ticket.` or `system.` pass
+            # through unchanged so orchestrator-side callsites (which
+            # pre-build the full topic) aren't double-prefixed.
+            topic = prefix_with_ticket_namespace(name, issue)
 
-          Alerts.emit_custom(topic, message,
-            issue: issue,
-            workspace: workspace,
-            worker_host: worker_host,
-            reason: reason,
-            needs_attention: needs_attention,
-            severity: severity
-          )
-        end,
-        event_publisher: fn name, message, payload ->
-          emit_agent_event(issue, workspace, worker_host, app_session, event_handlers, name, message, payload)
-        end,
-        subscriber: fn pattern -> subscribe_for_issue(issue, pattern) end,
-        unsubscriber: fn pattern -> unsubscribe_for_issue(issue, pattern) end,
-        blocker_declarer: fn blocker_number ->
-          declare_blocker_for_issue(issue, blocker_number)
-        end,
-        unblocker: fn blocker_number ->
-          unblock_for_issue(issue, blocker_number)
-        end
+            Alerts.emit_custom(topic, message,
+              issue: issue,
+              workspace: workspace,
+              worker_host: worker_host,
+              reason: reason,
+              needs_attention: needs_attention,
+              severity: severity
+            )
+          end,
+          event_publisher: fn name, message, payload ->
+            emit_agent_event(issue, workspace, worker_host, app_session, event_handlers, name, message, payload)
+          end,
+          subscriber: fn pattern -> subscribe_for_issue(issue, pattern) end,
+          unsubscriber: fn pattern -> unsubscribe_for_issue(issue, pattern) end,
+          blocker_declarer: fn blocker_number ->
+            declare_blocker_for_issue(issue, blocker_number)
+          end,
+          unblocker: fn blocker_number ->
+            unblock_for_issue(issue, blocker_number)
+          end
+        ] ++ dynamic_tool_opts
       )
     end
   end

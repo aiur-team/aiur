@@ -33,6 +33,25 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert response["success"] == false
       assert Jason.decode!(response["output"])["error"]["message"] =~ "expects an object"
     end
+
+    test "binds a verified review reply origin to the current ticket" do
+      test_pid = self()
+      issue = %Issue{id: "42", identifier: "42"}
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{},
+          review_thread_replier: fn _id, _body, _opts ->
+            {:ok, %{verified: true, verification: %{"latest_comment" => %{"id" => 702}}}}
+          end,
+          agent_comment_origin_recorder: fn ticket, comment ->
+            send(test_pid, {:recorded_origin, ticket, comment})
+            :ok
+          end
+        )
+
+      assert executor.("aiur_reply_review_thread", %{"review_thread_id" => "PRRT_origin", "body" => "Fixed."})["success"] == true
+      assert_received {:recorded_origin, "42", %{"id" => 702}}
+    end
   end
 
   describe "declare_blocker_for_issue via blocker_declarer closure" do
