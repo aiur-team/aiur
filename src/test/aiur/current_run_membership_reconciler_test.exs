@@ -101,14 +101,19 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
     snapshot = %{running: [], retrying: [], idle: [row("I-recovered", [])]}
 
     on_exit(fn ->
-      if pid = Process.whereis(store_name), do: GenServer.stop(pid)
-      if pid = Process.whereis(reconciler_name), do: GenServer.stop(pid)
+      assert pid = Process.whereis(store_name)
+      GenServer.stop(pid)
+      assert pid = Process.whereis(reconciler_name)
+      GenServer.stop(pid)
       File.rm_rf!(dir)
     end)
 
     {:ok, first_store} = Store.start_link(name: store_name, state_dir: dir, run_id: "reconciler-restart-run")
+    # ExUnit executes on_exit after the test worker ends; make the test own
+    # teardown explicitly instead of racing that worker's linked children.
+    Process.unlink(first_store)
 
-    {:ok, _reconciler} =
+    {:ok, reconciler} =
       Reconciler.start_link(
         name: reconciler_name,
         snapshot_fun: fn -> snapshot end,
@@ -118,13 +123,17 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
         reconciliation_fun: fn _status -> :ok end
       )
 
+    Process.unlink(reconciler)
     assert_receive {:reconciled, "I-recovered", :queued}
     GenServer.stop(first_store)
 
-    {:ok, _recovered_store} =
+    {:ok, recovered_store} =
       Store.start_link(name: store_name, state_dir: dir, run_id: "reconciler-restart-run")
 
+    Process.unlink(recovered_store)
     assert_receive {:reconciled, "I-recovered", :queued}
+    assert Process.alive?(reconciler)
+    assert Process.alive?(recovered_store)
   end
 
   test "an unavailable source marks reconciliation freshness unavailable" do
@@ -132,10 +141,11 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
     reconciler_name = Module.concat(__MODULE__, "Unavailable#{System.unique_integer([:positive])}")
 
     on_exit(fn ->
-      if pid = Process.whereis(reconciler_name), do: GenServer.stop(pid)
+      assert pid = Process.whereis(reconciler_name)
+      GenServer.stop(pid)
     end)
 
-    {:ok, _reconciler} =
+    {:ok, reconciler} =
       Reconciler.start_link(
         name: reconciler_name,
         snapshot_fun: fn -> :unavailable end,
@@ -145,7 +155,9 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
         reconciliation_fun: fn status -> send(parent, {:reconciliation, status}) end
       )
 
+    Process.unlink(reconciler)
     assert_receive {:reconciliation, :unavailable}
+    assert Process.alive?(reconciler)
   end
 
   test "a rejected current snapshot observation marks reconciliation freshness unavailable" do
@@ -154,10 +166,11 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
     snapshot = %{running: [row("I-rejected", [])], retrying: [], idle: []}
 
     on_exit(fn ->
-      if pid = Process.whereis(reconciler_name), do: GenServer.stop(pid)
+      assert pid = Process.whereis(reconciler_name)
+      GenServer.stop(pid)
     end)
 
-    {:ok, _reconciler} =
+    {:ok, reconciler} =
       Reconciler.start_link(
         name: reconciler_name,
         snapshot_fun: fn -> snapshot end,
@@ -168,7 +181,9 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
         reconciliation_fun: fn status -> send(parent, {:reconciliation, status}) end
       )
 
+    Process.unlink(reconciler)
     assert_receive {:reconciliation, :unavailable}
+    assert Process.alive?(reconciler)
   end
 
   defp row(provider_id, overrides) do

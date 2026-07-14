@@ -98,9 +98,11 @@ defmodule Aiur.Orchestrator.IssueSync do
     disappearing_idle_issue_ids =
       previous_issues
       |> Map.keys()
-      |> Enum.reject(&Map.has_key?(current_issues, &1))
-      |> Enum.reject(&Map.has_key?(state.running, &1))
-      |> Enum.reject(&Map.has_key?(state.retry_attempts, &1))
+      |> Enum.reject(fn issue_id ->
+        Map.has_key?(current_issues, issue_id) or
+          Map.has_key?(state.running, issue_id) or
+          Map.has_key?(state.retry_attempts, issue_id)
+      end)
 
     record_refreshed_terminal_membership(
       disappearing_idle_issue_ids,
