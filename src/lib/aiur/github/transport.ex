@@ -60,7 +60,7 @@ defmodule Aiur.GitHub.Transport do
         etag -> [{"If-None-Match", etag} | github_headers(token, req)]
       end
 
-    Req.get(url, headers: headers, connect_options: [timeout: 30_000])
+    Req.get(url, request_options(headers))
   end
 
   def default_request_fun(%{method: :post, url: url, token: token, body: body} = req) do
@@ -81,6 +81,12 @@ defmodule Aiur.GitHub.Transport do
 
   def default_request_fun(%{method: :delete, url: url, token: token} = req) do
     Req.delete(url, headers: github_headers(token, req), connect_options: [timeout: 30_000])
+  end
+
+  defp request_options(headers) do
+    options = Application.get_env(:aiur, :github_transport_test_options, [])
+    options = if is_list(options) and Keyword.keyword?(options), do: options, else: []
+    Keyword.merge(options, headers: headers, connect_options: [timeout: 30_000])
   end
 
   @spec github_headers(String.t(), map()) :: [{String.t(), String.t()}]

@@ -1,7 +1,7 @@
 defmodule Aiur.BuildOrder.TicketDetailCacheTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.{BuildOrder.Lifecycle, TrackerIdentity}
+  alias Aiur.{BuildOrder.Lifecycle, BuildOrder.TicketDetail, TrackerIdentity}
   alias Aiur.BuildOrder.TicketDetail.{Failure, Snapshot, State}
   alias Aiur.BuildOrder.TicketDetailCache
 
@@ -168,6 +168,36 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     }
   end
 
+  test "publishes credential-sanitized detail without the raw provider body" do
+    identity = identity(42, "I42")
+
+    body =
+      "Authorization: Bearer not-a-known-prefix-secret\n" <>
+        "Cookie: private-session-cookie\n" <>
+        "inline Basic dXNlcjpwYXNzd29yZA=="
+
+    {:ok, cache} =
+      start_cache(
+        reader: fn requested_identity ->
+          TicketDetail.fetch(requested_identity,
+            configured_repo: @configured,
+            request_fun: fn _request ->
+              {:ok, %{status: 200, body: detail_issue(requested_identity, body)}}
+            end
+          )
+        end
+      )
+
+    assert :ok = TicketDetailCache.subscribe(cache, identity)
+    assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, identity)
+
+    assert_receive {:ticket_detail_updated, %State{detail: %Snapshot{description: description}}}
+    assert description =~ "[REDACTED:credential]"
+    refute description =~ "not-a-known-prefix-secret"
+    refute description =~ "private-session-cookie"
+    refute description =~ "dXNlcjpwYXNzd29yZA=="
+  end
+
   test "ignores a delayed completion from an older generation" do
     parent = self()
     identity = identity(42, "I42")
@@ -269,6 +299,21 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
       created_at: ~U[2026-07-01 10:00:00Z],
       updated_at: ~U[2026-07-02 11:00:00Z],
       observed_at: ~U[2026-07-14 09:00:00Z]
+    }
+  end
+
+  defp detail_issue(identity, body) do
+    %{
+      "node_id" => identity.provider_id,
+      "number" => String.to_integer(identity.identifier),
+      "title" => "Configured ticket",
+      "body" => body,
+      "html_url" => "https://github.com/owner/repo/issues/#{identity.identifier}",
+      "repository_url" => "https://api.github.com/repos/owner/repo",
+      "state" => "open",
+      "state_reason" => nil,
+      "created_at" => "2026-07-01T10:00:00Z",
+      "updated_at" => "2026-07-02T11:00:00Z"
     }
   end
 

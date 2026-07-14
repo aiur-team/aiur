@@ -10,9 +10,22 @@ defmodule Aiur.BuildOrder.TicketDetail do
 
   alias Aiur.BuildOrder.{Bounded, Lifecycle}
   alias Aiur.{GitHub, SecretRedactor, TrackerIdentity}
-  alias Aiur.GitHub.{Issues, Transport}
+  alias Aiur.GitHub.Issues
 
   @default_max_description_bytes 16_384
+  @credential_header_pattern ~r{
+    ^\s*
+    (?:
+      authorization
+      | proxy-authorization
+      | cookie
+      | set-cookie
+      | [a-z0-9_-]*(?:token|secret|api[-_]?key|credential)[a-z0-9_-]*
+    )
+    \s*:
+    \s*[^\r\n]*
+  }imux
+  @credential_pattern ~r/\b(?:bearer|basic)\s+[^\s,;]+/iu
 
   defmodule Failure do
     @moduledoc false
@@ -81,17 +94,22 @@ defmodule Aiur.BuildOrder.TicketDetail do
   @spec fetch(TrackerIdentity.t(), keyword()) :: result()
   def fetch(identity, opts \\ []) do
     with {:ok, identity, configured_repository} <- fetchable_identity(identity, opts),
-         {:ok, raw_issue} <-
-           Issues.fetch_issue_raw(identity.identifier,
-             repository: configured_repository,
-             request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-           ),
+         {:ok, raw_issue} <- fetch_issue(identity, configured_repository, opts),
          {:ok, snapshot} <- snapshot(identity, raw_issue, opts) do
       {:ok, snapshot}
     else
       {:error, %Failure{} = failure} -> {:error, failure}
       {:error, reason} -> {:error, failure_from(reason)}
     end
+  end
+
+  defp fetch_issue(identity, configured_repository, opts) do
+    issue_opts =
+      opts
+      |> Keyword.take([:request_fun])
+      |> Keyword.put(:repository, configured_repository)
+
+    Issues.fetch_issue_raw(identity.identifier, issue_opts)
   end
 
   @spec fetchable_identity(TrackerIdentity.t(), keyword()) ::
@@ -260,12 +278,18 @@ defmodule Aiur.BuildOrder.TicketDetail do
         |> String.replace("\r", "\n")
         |> String.replace(~r/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u, "")
         |> SecretRedactor.redact()
+        |> redact_credentials()
         |> redact_local_paths()
 
       if byte_size(sanitized) <= limit, do: {:ok, sanitized}, else: :error
     else
       :error
     end
+  end
+
+  defp redact_credentials(value) do
+    value = Regex.replace(@credential_header_pattern, value, "[REDACTED:credential]")
+    Regex.replace(@credential_pattern, value, "[REDACTED:credential]")
   end
 
   defp redact_local_paths(value) do

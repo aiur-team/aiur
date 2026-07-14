@@ -1,10 +1,12 @@
 defmodule Aiur.BuildOrder.TicketDetailTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Aiur.{BuildOrder.TicketDetail, TrackerIdentity}
   alias Aiur.BuildOrder.TicketDetail.{Failure, Snapshot}
 
   @configured {"owner", "repo"}
+  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @transport_test_options_key :github_transport_test_options
 
   test "loads a complete bounded snapshot for the configured identity" do
     identity = identity(42, "I42")
@@ -28,6 +30,44 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
     assert snapshot.created_at == ~U[2026-07-01 10:00:00Z]
     assert snapshot.updated_at == ~U[2026-07-02 11:00:00Z]
     assert snapshot.observed_at == observed_at
+  end
+
+  test "uses configured credentials through the default request path" do
+    identity = identity(42, "I42")
+    previous_token = System.get_env("GITHUB_TOKEN")
+    previous_cached_token = :persistent_term.get(@token_cache_key, :unset)
+    previous_request_options = Application.get_env(:aiur, @transport_test_options_key, :unset)
+    :persistent_term.erase(@token_cache_key)
+    System.put_env("GITHUB_TOKEN", "configured-detail-token")
+    Application.put_env(:aiur, @transport_test_options_key, plug: {Req.Test, __MODULE__})
+
+    on_exit(fn ->
+      case previous_token do
+        nil -> System.delete_env("GITHUB_TOKEN")
+        token -> System.put_env("GITHUB_TOKEN", token)
+      end
+
+      case previous_cached_token do
+        :unset -> :persistent_term.erase(@token_cache_key)
+        token -> :persistent_term.put(@token_cache_key, token)
+      end
+
+      case previous_request_options do
+        :unset -> Application.delete_env(:aiur, @transport_test_options_key)
+        options -> Application.put_env(:aiur, @transport_test_options_key, options)
+      end
+    end)
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      assert conn.request_path == "/repos/owner/repo/issues/42"
+      assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer configured-detail-token"]
+      Req.Test.json(conn, issue(42, "I42"))
+    end)
+
+    assert {:ok, %Snapshot{title: "Configured ticket"}} =
+             TicketDetail.fetch(identity,
+               configured_repo: @configured
+             )
   end
 
   test "rejects another repository before the request function is invoked" do
@@ -116,6 +156,26 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
     assert description =~ "[REDACTED:local_path]"
     refute description =~ "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
     refute description =~ "/home/alice/private.txt"
+  end
+
+  test "redacts sensitive headers and generic credentials before snapshot storage" do
+    identity = identity(42, "I42")
+
+    body =
+      "Authorization: Bearer not-a-known-prefix-secret\n" <>
+        "X-Api-Key: unrecognized-api-key\n" <>
+        "inline Basic dXNlcjpwYXNzd29yZA=="
+
+    assert {:ok, %Snapshot{description: description}} =
+             TicketDetail.fetch(identity,
+               configured_repo: @configured,
+               request_fun: fn _request -> {:ok, %{status: 200, body: Map.put(issue(42, "I42"), "body", body)}} end
+             )
+
+    assert description =~ "[REDACTED:credential]"
+    refute description =~ "not-a-known-prefix-secret"
+    refute description =~ "unrecognized-api-key"
+    refute description =~ "dXNlcjpwYXNzd29yZA=="
   end
 
   test "maps not-found and rate-limit errors without response content" do
