@@ -97,6 +97,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     # Only a resumable, local backend with a persisted handle qualifies; any
     # miss degrades silently to a clean start.
     resume_thread_id = SessionResume.load_resume_thread_id(session_backend, worker_host, issue.identifier)
+    lifecycle_attempt_id = Keyword.get(opts, :telemetry_attempt_id)
 
     session_opts =
       [
@@ -105,12 +106,11 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
         effort: effort,
         worker_host: worker_host,
         remote_control: rc?,
-        identifier: issue.identifier
+        identifier: issue.identifier,
+        attempt_id: lifecycle_attempt_id
       ]
       |> maybe_put_rc_name(rc?, issue)
       |> SessionResume.maybe_put_resume_thread_id(resume_thread_id)
-
-    lifecycle_attempt_id = Keyword.get(opts, :telemetry_attempt_id)
 
     Lifecycle.record(issue.identifier, lifecycle_attempt_id, :agent_spinup, :start, %{
       operation_id: "session",
@@ -316,10 +316,11 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   @spec start_agent_session(Path.t(), keyword(), fun()) :: {:ok, map()} | {:error, term()}
   def start_agent_session(workspace, opts, start_fun \\ &CodingAgent.start_session/2) do
     backend = Keyword.fetch!(opts, :backend)
+    adapter_opts = Keyword.delete(opts, :attempt_id)
 
-    case start_fun.(workspace, opts) do
+    case start_fun.(workspace, adapter_opts) do
       {:ok, session} ->
-        {:ok, Map.put(session, :backend, backend)}
+        {:ok, tag_session(session, backend, opts)}
 
       {:error, :remote_control_requires_dashboard} = error ->
         error
@@ -338,12 +339,22 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     Logger.warning("#{backend} start_session failed (#{inspect(reason)}); falling back to #{fallback}")
 
     fallback_opts = opts |> Keyword.put(:backend, fallback) |> Keyword.delete(:remote_control)
+    adapter_opts = Keyword.delete(fallback_opts, :attempt_id)
 
-    case start_fun.(workspace, fallback_opts) do
-      {:ok, session} -> {:ok, Map.put(session, :backend, fallback)}
+    case start_fun.(workspace, adapter_opts) do
+      {:ok, session} -> {:ok, tag_session(session, fallback, fallback_opts)}
       {:error, _} = error -> error
     end
   end
+
+  defp tag_session(session, backend, opts) do
+    session
+    |> Map.put(:backend, backend)
+    |> maybe_put_attempt_id(Keyword.get(opts, :attempt_id))
+  end
+
+  defp maybe_put_attempt_id(session, attempt_id) when is_binary(attempt_id), do: Map.put(session, :attempt_id, attempt_id)
+  defp maybe_put_attempt_id(session, _attempt_id), do: session
 
   @doc false
   @spec session_workspace(map()) :: Path.t() | nil

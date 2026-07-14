@@ -104,6 +104,27 @@ defmodule Aiur.DecisionAnswerTest do
              normalize(payload, supervisor_basis: basis)
   end
 
+  test "round trips integer confidence endpoints exactly" do
+    payload = %{
+      "idempotency_key" => "supervisor-boundary",
+      "expected_version" => 2,
+      "option_id" => "ship",
+      "rationale" => "The policy permits this choice."
+    }
+
+    for confidence <- [0, 100] do
+      basis = put_in(supervisor_basis(), [:confidence], confidence)
+      opts = [actor: %{kind: :supervisor, id: "supervising-agent"}, supervisor_basis: basis]
+
+      assert {:ok, answer} = normalize(payload, opts)
+      assert answer.supervisor_basis.confidence == confidence
+
+      raw = answer |> DecisionAnswer.to_json_safe() |> Jason.encode!() |> Jason.decode!()
+      assert raw["supervisor_basis"]["confidence"] == confidence
+      assert {:ok, ^answer} = DecisionAnswer.from_json_safe(raw)
+    end
+  end
+
   test "supervisor basis participates in answer idempotency content" do
     payload = %{
       "idempotency_key" => "supervisor-submit-1",

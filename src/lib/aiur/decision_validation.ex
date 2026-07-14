@@ -16,12 +16,14 @@ defmodule Aiur.DecisionValidation do
   artifacts, authority, urgency, blocking, reversibility, kind,
   recommendation, consequence_of_delay, and trusted legacy-attention
   provenance when present) — never source/decision_id/version/created_at.
+  Optional runtime provenance is instead protected by the typed Decision event
+  envelope, preserving the request hash shape for rollback-compatible reads.
   `Aiur.DecisionStore` (which owns
   replay/version/dedup state) decides whether a request is a fresh
   Decision, an accepted enrichment, or a duplicate.
   """
 
-  alias Aiur.{Config, Decision, DecisionArtifact, SecretRedactor}
+  alias Aiur.{Config, Decision, DecisionArtifact, DecisionProvenance, SecretRedactor}
 
   @question_max 2000
   @short_summary_max 500
@@ -50,6 +52,8 @@ defmodule Aiur.DecisionValidation do
 
     * `:ticket` (required) — trusted `%{identifier:, title:, url:}`.
     * `:source` — trusted `%{agent_id:, session_id:, event_id:}`.
+    * `:provenance` — optional trusted runtime/session facts, captured at the
+      supplied acceptance time and never read from the payload.
     * `:now` — acceptance time, defaults to `DateTime.utc_now/0`.
     * `:safe_roots` — allowed local-artifact roots, defaults to the
       configured workspace root and log root.
@@ -59,11 +63,13 @@ defmodule Aiur.DecisionValidation do
     ticket = Keyword.fetch!(opts, :ticket)
     source = Keyword.get(opts, :source, %{})
     now = Keyword.get(opts, :now, DateTime.utc_now())
+    provenance = Keyword.get(opts, :provenance)
     safe_roots = Keyword.get(opts, :safe_roots, default_safe_roots())
 
     with {:ok, normalized_ticket} <- normalize_ticket(ticket),
          {:ok, legacy_attention} <-
            normalize_legacy_attention(Keyword.get(opts, :legacy_attention), normalized_ticket),
+         {:ok, provenance} <- DecisionProvenance.normalize(provenance, now),
          {:ok, question} <- fetch_required_string(payload, :question, 1, @question_max, :question),
          {:ok, authority} <-
            fetch_enum_with_default(payload, :authority, Decision.authorities(), @default_authority, :authority),
@@ -123,6 +129,7 @@ defmodule Aiur.DecisionValidation do
         created_at: now,
         source_created_at: source_created_at,
         legacy_attention: legacy_attention,
+        provenance: provenance,
         content_hash: content_hash(content)
       }
 
