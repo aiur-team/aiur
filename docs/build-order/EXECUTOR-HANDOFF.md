@@ -796,6 +796,14 @@ dispatch Claude.
     accepted as its own executable member. Both findings were returned to the
     existing ticket in issue comment `4970344090`; #1091 is back in rework and
     no follow-up ticket was created.
+97. BO-009/#1096 reached green current-main head `f703f85f`, but dual exact-
+    head review found a missing EPL source-availability notice, a reproducible
+    sparse-array validation bypass in both the worker and client, unchecked
+    duplicate/extra engine-result identities, and incomplete U3/U4 boundary and
+    denied-subresource coverage. Both reviewers reproduced the sparse-array
+    defect, including a normal worker result for the malformed input. The
+    consolidated contained packet is issue comment `4970450763`; #1096 is back
+    in rework and no follow-up ticket was created.
 
 At 07:25 PDT the core graph is 5/54 accepted. Six Codex workers are productive;
 #1088 and #1162 are cycling completed generations into the remaining two slots.
