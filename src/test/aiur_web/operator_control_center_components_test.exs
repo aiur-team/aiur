@@ -4,6 +4,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
   alias AiurWeb.OperatorControlCenter.{
+    BuildOrderGraph,
     DecisionAction,
     DecisionDetail,
     DecisionInbox,
@@ -15,6 +16,42 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     LifecycleComponents,
     Overview
   }
+
+  test "renders semantic graph cards and preserves every dependency state in the fallback summary" do
+    html =
+      render_component(&BuildOrderGraph.build_order_graph/1, %{
+        id: "build-order-graph",
+        root_id: "root-1",
+        provider_generation: 4,
+        dom_generation: 8,
+        layout_assets: %{client: "/client.js", worker: "/worker.js", engine: "/engine.js"},
+        nodes: [
+          %{id: "BO-010", title: "DOM and SVG layout", summary: "Keep cards semantic.", lane: 0, phase: 3},
+          %{id: "BO-012", title: "Graph markup", lane: 1, phase: 4}
+        ],
+        edges: [
+          %{id: "edge-cleared", source: "BO-010", target: "BO-012", state: :cleared},
+          %{id: "edge-blocking", source: "BO-012", target: "BO-010", state: :blocking},
+          %{id: "edge-terminal", source: "BO-010", target: "BO-404", state: :terminal_unsatisfied},
+          %{id: "edge-unknown", source: "BO-404", target: "BO-010", state: :unknown},
+          %{id: "edge-cycle", source: "BO-012", target: "BO-012", state: :cyclic}
+        ]
+      })
+
+    assert html =~ ~s(phx-hook="DomSvgLayout")
+    assert html =~ ~s(data-layout-root-id="root-1")
+    assert html =~ ~s(data-layout-provider-generation="4")
+    assert html =~ ~s(data-layout-dom-generation="8")
+    assert html =~ ~s(data-layout-node-id="BO-010")
+    assert html =~ ~s(data-layout-card-header)
+    assert html =~ ~s(aria-hidden="true")
+    assert html =~ "Cleared"
+    assert html =~ "Blocking"
+    assert html =~ "Terminal unsatisfied"
+    assert html =~ "Unknown"
+    assert html =~ "Cyclic"
+    assert html =~ "Using readable document-flow layout."
+  end
 
   test "renders delivery failure and supersession as explicit lifecycle overrides" do
     failed = render_component(&LifecycleComponents.lifecycle_stepper/1, %{lifecycle: :delivery_failed})

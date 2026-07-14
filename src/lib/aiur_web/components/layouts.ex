@@ -107,6 +107,37 @@ defmodule AiurWeb.Layouts do
               }
             };
 
+            Hooks.DomSvgLayout = {
+              mounted: function () {
+                var context = this;
+                context.__domSvgLayoutDestroyed = false;
+
+                import("/aiur-dom-svg-layout-adapter.js")
+                  .then(function (adapter) {
+                    if (context.__domSvgLayoutDestroyed) return;
+
+                    context.__domSvgLayoutHook = adapter.createDomSvgLayoutHook();
+                    context.__domSvgLayoutHook.mounted.call(context);
+                  })
+                  .catch(function () {
+                    context.el.classList.remove("is-layout-ready");
+                    context.el.classList.add("is-layout-fallback");
+                    context.el.dataset.layoutHealth = "fallback";
+                  });
+              },
+              beforeUpdate: function () {
+                this.__domSvgLayoutHook?.beforeUpdate.call(this);
+              },
+              updated: function () {
+                this.__domSvgLayoutHook?.updated.call(this);
+              },
+              destroyed: function () {
+                this.__domSvgLayoutDestroyed = true;
+                this.__domSvgLayoutHook?.destroyed.call(this);
+                this.__domSvgLayoutHook = null;
+              }
+            };
+
             var liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
               hooks: Hooks,
               params: {_csrf_token: csrfToken}

@@ -11,6 +11,9 @@ defmodule AiurWeb.StaticAssetController do
   @spec dashboard_css(Conn.t(), map()) :: Conn.t()
   def dashboard_css(conn, _params), do: serve(conn, "/dashboard.css")
 
+  @spec dom_svg_layout_adapter(Conn.t(), map()) :: Conn.t()
+  def dom_svg_layout_adapter(conn, _params), do: serve(conn, "/aiur-dom-svg-layout-adapter.js")
+
   @spec aiur_logo(Conn.t(), map()) :: Conn.t()
   def aiur_logo(conn, _params), do: serve(conn, "/aiur-logo.png")
 

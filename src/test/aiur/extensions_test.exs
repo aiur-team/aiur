@@ -882,6 +882,7 @@ defmodule Aiur.ExtensionsTest do
 
     html = html_response(get(build_conn(), "/"), 200)
     assert html =~ "/dashboard.css"
+    assert html =~ "/aiur-dom-svg-layout-adapter.js"
     assert html =~ "/vendor/phoenix_html/phoenix_html.js"
     assert html =~ "/vendor/phoenix/phoenix.js"
     assert html =~ "/vendor/phoenix_live_view/phoenix_live_view.js"
@@ -894,6 +895,9 @@ defmodule Aiur.ExtensionsTest do
     assert dashboard_css =~ "[data-phx-main].phx-connected .status-badge-live"
     assert dashboard_css =~ "[data-phx-main].phx-connected .status-badge-offline"
     assert dashboard_css =~ ".live-button[data-live=\"false\"]"
+
+    adapter = response(get(build_conn(), "/aiur-dom-svg-layout-adapter.js"), 200)
+    assert adapter =~ "createDomSvgLayoutHook"
 
     logo = get(build_conn(), "/aiur-logo.png")
     assert response(logo, 200) == File.read!(Path.expand("../../../website/public/assets/aiur-logo.png", __DIR__))

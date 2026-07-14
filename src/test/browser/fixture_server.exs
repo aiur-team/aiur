@@ -15,10 +15,12 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
         <style>
           :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
           body { margin: 0; }
-          main { display: grid; gap: 1rem; padding: 1rem; }
+          main { display: grid; min-width: 0; gap: 1rem; padding: 1rem; }
+          main > *, nav, .controls { min-width: 0; }
           nav, .controls { display: flex; flex-wrap: wrap; gap: .5rem; }
+          nav button, .controls button { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
           button:focus-visible, [tabindex="0"]:focus-visible { outline: 3px solid currentColor; outline-offset: 3px; }
-          #graph-viewport { border: 1px solid currentColor; min-height: 8rem; overflow: auto; padding: 1rem; }
+          #graph-viewport { border: 1px solid currentColor; min-width: 0; min-height: 8rem; overflow: auto; padding: 1rem; }
           #graph-content { min-width: 36rem; }
           @media (prefers-reduced-motion: no-preference) { #graph-content { transition: transform 120ms ease; } }
         </style>
@@ -26,6 +28,7 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
         <script defer src="/assets/phoenix.js"></script>
         <script defer src="/assets/phoenix_live_view.js"></script>
         <script defer src="/assets/browser_harness.js"></script>
+        <link rel="stylesheet" href="/dashboard.css" />
         <script>
           window.addEventListener("DOMContentLoaded", function () {
             var csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content");
@@ -49,6 +52,7 @@ defmodule Aiur.BrowserHarness.FixtureLive do
   use Phoenix.LiveView, layout: {Aiur.BrowserHarness.FixtureLayout, :app}
 
   alias Aiur.BrowserHarness.Fixtures
+  alias AiurWeb.OperatorControlCenter.BuildOrderGraph
 
   @impl true
   def mount(_params, %{"fixture_access" => access}, socket) do
@@ -62,7 +66,9 @@ defmodule Aiur.BrowserHarness.FixtureLive do
      |> assign(:interaction, "Awaiting input")
      |> assign(:view, :overview)
      |> assign(:reduced_motion, false)
-     |> assign(:worker_ready, false)}
+     |> assign(:worker_ready, false)
+     |> assign(:graph_generation, 1)
+     |> assign(:graph_layout_mode, :worker)}
   end
 
   @impl true
@@ -90,8 +96,14 @@ defmodule Aiur.BrowserHarness.FixtureLive do
   end
 
   def handle_event("live-update", _params, socket) do
-    {:noreply, assign(socket, :fixture, Fixtures.live_updates().next)}
+    {:noreply,
+     socket
+     |> assign(:fixture, Fixtures.live_updates().next)
+     |> update(:graph_generation, &(&1 + 1))}
   end
+
+  def handle_event("layout-mode", %{"mode" => "fallback"}, socket), do: {:noreply, assign(socket, :graph_layout_mode, :fallback)}
+  def handle_event("layout-mode", %{"mode" => "worker"}, socket), do: {:noreply, assign(socket, :graph_layout_mode, :worker)}
 
   @impl true
   def render(assigns) do
@@ -123,6 +135,8 @@ defmodule Aiur.BrowserHarness.FixtureLive do
           <button id="touch-input" type="button" phx-click="input" phx-value-kind="touch">Touch input</button>
           <button id="theme-light" type="button" phx-click="set-theme" phx-value-theme="light">Light theme</button>
           <button id="theme-dark" type="button" phx-click="set-theme" phx-value-theme="dark">Dark theme</button>
+          <button id="force-layout-fallback" type="button" phx-click="layout-mode" phx-value-mode="fallback">Force layout fallback</button>
+          <button id="restore-layout-worker" type="button" phx-click="layout-mode" phx-value-mode="worker">Restore layout worker</button>
         </div>
       </section>
 
@@ -133,14 +147,56 @@ defmodule Aiur.BrowserHarness.FixtureLive do
       </section>
 
       <section id="graph-viewport" tabindex="0" aria-label="Synthetic graph viewport" data-reduced-motion={to_string(@reduced_motion)}>
+        <p>View: {@view}</p>
+        <p id="fixture-counts">nodes: {@counts.nodes}, edges: {@counts.edges}, roots: {@counts.roots}</p>
         <div id="graph-content">
-          <p>View: {@view}</p>
-          <p id="fixture-counts">nodes: {@counts.nodes}, edges: {@counts.edges}, roots: {@counts.roots}</p>
+          <BuildOrderGraph.build_order_graph
+            id="fixture-build-order-graph"
+            root_id="fixture-build-order-root"
+            provider_generation={@graph_generation}
+            dom_generation={@graph_generation}
+            nodes={graph_nodes(@fixture)}
+            edges={graph_edges(@fixture)}
+            layout_assets={layout_assets(@graph_layout_mode)}
+          />
         </div>
       </section>
     </main>
     """
   end
+
+  defp graph_nodes(fixture) do
+    Enum.map(fixture.nodes, fn node ->
+      ordinal = node.ordinal || 1
+
+      %{
+        id: node.id,
+        title: "Fixture #{ordinal}",
+        summary: "Semantic card #{ordinal}",
+        lane: rem(ordinal - 1, 2),
+        phase: rem(div(ordinal - 1, 2), 4)
+      }
+    end)
+  end
+
+  defp graph_edges(fixture) do
+    states = [:cleared, :blocking, :terminal_unsatisfied, :unknown, :cyclic]
+
+    edges =
+      fixture.edges
+      |> Enum.with_index()
+      |> Enum.map(fn {_edge, index} ->
+        source = Enum.at(fixture.nodes, rem(index, 2)).id
+        target = Enum.at(fixture.nodes, index + 1).id
+
+        %{id: "fixture-edge-#{index + 1}", source: source, target: target, state: Enum.at(states, rem(index, length(states)))}
+      end)
+
+    [%{id: "fixture-missing-endpoint", source: "missing:fixture-node", target: "fixture-node-001", state: :unknown} | edges]
+  end
+
+  defp layout_assets(:fallback), do: %{client: "", worker: "", engine: ""}
+  defp layout_assets(:worker), do: nil
 end
 
 defmodule Aiur.BrowserHarness.FixtureAuth do

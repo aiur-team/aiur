@@ -26,5 +26,40 @@
     }
   };
 
-  window.BrowserHarnessHooks = { BrowserHarness };
+  const DomSvgLayout = {
+    mounted() {
+      const context = this;
+      context.__domSvgLayoutDestroyed = false;
+
+      import("/aiur-dom-svg-layout-adapter.js")
+        .then((adapter) => {
+          if (context.__domSvgLayoutDestroyed) return;
+
+          const options = typeof window.__aiurBrowserLayoutClientFactory === "function"
+            ? { clientFactory: window.__aiurBrowserLayoutClientFactory }
+            : {};
+
+          context.__domSvgLayoutHook = adapter.createDomSvgLayoutHook(options);
+          context.__domSvgLayoutHook.mounted.call(context);
+        })
+        .catch(() => {
+          context.el.classList.remove("is-layout-ready");
+          context.el.classList.add("is-layout-fallback");
+          context.el.dataset.layoutHealth = "fallback";
+        });
+    },
+    beforeUpdate() {
+      this.__domSvgLayoutHook?.beforeUpdate.call(this);
+    },
+    updated() {
+      this.__domSvgLayoutHook?.updated.call(this);
+    },
+    destroyed() {
+      this.__domSvgLayoutDestroyed = true;
+      this.__domSvgLayoutHook?.destroyed.call(this);
+      this.__domSvgLayoutHook = null;
+    }
+  };
+
+  window.BrowserHarnessHooks = { BrowserHarness, DomSvgLayout };
 })();

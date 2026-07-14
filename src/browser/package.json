@@ -10,7 +10,7 @@
     "test": "npm run check:elk && npm run fixture:preflight && npm run test:harness && npm run test:smoke && npm run test:layout",
     "test:smoke": "node scripts/run-browser-tests.mjs tests/liveview-smoke.spec.mjs",
     "test:harness": "node scripts/run-browser-tests.mjs tests/harness-failures.spec.mjs",
-    "test:layout": "npm run fixture:preflight && node scripts/run-browser-tests.mjs tests/layout-worker.browser.spec.mjs",
+    "test:layout": "npm run fixture:preflight && node scripts/run-browser-tests.mjs tests/layout-worker.browser.spec.mjs tests/dom-svg-layout-adapter.browser.spec.mjs",
     "verify:failure-artifacts": "npm run fixture:preflight && node scripts/verify-failure-artifacts.mjs",
     "vendor:elk": "node scripts/vendor-elk.mjs"
   },
