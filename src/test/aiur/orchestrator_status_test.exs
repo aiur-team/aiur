@@ -1964,6 +1964,7 @@ defmodule Aiur.OrchestratorStatusTest do
   test "orchestrator enqueues operator messages and pause requests for the running agent task" do
     orchestrator_name = Module.concat(__MODULE__, :OperatorMessageOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    freeze_poll_cycle(pid)
     :ok = ActiveTurns.put("MT-CHAT", "turn-chat")
 
     on_exit(fn ->
@@ -2031,7 +2032,9 @@ defmodule Aiur.OrchestratorStatusTest do
 
     assert is_integer(interrupt_request_id)
 
-    assert :empty = Orchestrator.claim_next_checkpoint_queue_item(orchestrator_name, "MT-CHAT")
+    checkpoint_result = Orchestrator.claim_next_checkpoint_queue_item(orchestrator_name, "MT-CHAT")
+    assert Process.alive?(pid)
+    assert :empty = checkpoint_result
 
     assert {:ok,
             %{
