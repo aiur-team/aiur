@@ -5,6 +5,7 @@ defmodule Aiur.Codex.AccountGeneration do
 
   @account_updated "account/updated"
   @token_refresh "account/chatgptAuthTokens/refresh"
+  @rate_limits_updated "account/rateLimits/updated"
 
   @account_read_auth_modes %{
     "amazonBedrock" => "bedrockApiKey",
@@ -14,8 +15,13 @@ defmodule Aiur.Codex.AccountGeneration do
 
   @account_updated_auth_modes ~w(apikey chatgpt chatgptAuthTokens headers agentIdentity personalAccessToken bedrockApiKey)
 
-  @spec new_binding() :: reference()
-  def new_binding, do: make_ref()
+  @spec new_binding(GenServer.server()) :: ProviderAccountGeneration.lifecycle_binding()
+  def new_binding(server \\ ProviderAccountGeneration) do
+    case ProviderAccountGeneration.issue_binding(server, :codex, :app_server) do
+      {:ok, binding} -> binding
+      {:error, _reason} -> %{binding: make_ref(), authority: make_ref()}
+    end
+  end
 
   @spec handle_notification(map(), String.t(), map()) :: :ignore | {:redacted, map()}
   def handle_notification(session, @account_updated, payload) when is_map(session) and is_map(payload) do
@@ -30,6 +36,14 @@ defmodule Aiur.Codex.AccountGeneration do
   def handle_notification(session, @token_refresh, payload) when is_map(session) and is_map(payload) do
     confirm_account_binding(session)
     {:redacted, redacted_message(@token_refresh)}
+  end
+
+  def handle_notification(_session, @rate_limits_updated, _payload),
+    do: {:redacted, redacted_message(@rate_limits_updated)}
+
+  def handle_notification(session, <<"account/", _rest::binary>> = method, _payload) when is_map(session) do
+    lose_continuity(session, :untrusted_lifecycle)
+    {:redacted, redacted_message(method)}
   end
 
   def handle_notification(_session, _method, _payload), do: :ignore
@@ -54,10 +68,11 @@ defmodule Aiur.Codex.AccountGeneration do
   end
 
   defp bind_account(session, auth_mode) do
-    with {:ok, server, binding} <- binding_context(session) do
+    with {:ok, server, binding, authority} <- binding_context(session) do
       ProviderAccountGeneration.bind(server, :codex, :app_server, binding,
         source: :codex_app_server,
-        auth_mode: auth_mode
+        auth_mode: auth_mode,
+        authority: authority
       )
     end
 
@@ -65,18 +80,22 @@ defmodule Aiur.Codex.AccountGeneration do
   end
 
   defp confirm_account_binding(session) do
-    with {:ok, server, binding} <- binding_context(session) do
-      ProviderAccountGeneration.confirm(server, :codex, :app_server, binding, source: :codex_app_server)
+    with {:ok, server, binding, authority} <- binding_context(session) do
+      ProviderAccountGeneration.confirm(server, :codex, :app_server, binding,
+        source: :codex_app_server,
+        authority: authority
+      )
     end
 
     :ok
   end
 
   defp lose_continuity(session, reason) do
-    with {:ok, server, binding} <- binding_context(session) do
+    with {:ok, server, binding, authority} <- binding_context(session) do
       ProviderAccountGeneration.invalidate(server, :codex, :app_server, binding,
         source: :codex_app_server,
-        reason: reason
+        reason: reason,
+        authority: authority
       )
     end
 
@@ -84,9 +103,12 @@ defmodule Aiur.Codex.AccountGeneration do
   end
 
   defp binding_context(session) do
-    case Map.get(session, :account_generation_binding) do
-      binding when is_reference(binding) -> {:ok, Map.get(session, :account_generation_server, ProviderAccountGeneration), binding}
-      _ -> :error
+    case {Map.get(session, :account_generation_binding), Map.get(session, :account_generation_authority)} do
+      {binding, authority} when is_reference(binding) and is_reference(authority) ->
+        {:ok, Map.get(session, :account_generation_server, ProviderAccountGeneration), binding, authority}
+
+      _ ->
+        :error
     end
   end
 

@@ -6,7 +6,14 @@ defmodule Aiur.Codex.AccountGenerationTest do
 
   setup do
     owner = start_owner(mint: sequence_mint(), clock: fn -> ~U[2026-07-13 12:00:00Z] end)
-    session = %{account_generation_binding: AccountGeneration.new_binding(), account_generation_server: owner}
+    account_generation = AccountGeneration.new_binding(owner)
+
+    session = %{
+      account_generation_binding: account_generation.binding,
+      account_generation_authority: account_generation.authority,
+      account_generation_server: owner
+    }
+
     %{owner: owner, session: session}
   end
 
@@ -52,7 +59,8 @@ defmodule Aiur.Codex.AccountGenerationTest do
     assert {:redacted, _} =
              AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "chatgpt"}})
 
-    assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding) == first
+    repeated = ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
+    assert repeated == first
 
     assert {:redacted, _} =
              AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "apikey"}})
@@ -83,12 +91,32 @@ defmodule Aiur.Codex.AccountGenerationTest do
     assert {:redacted, %{raw: nil}} =
              AccountGeneration.handle_notification(session, "account/chatgptAuthTokens/refresh", %{"params" => %{}})
 
-    assert :ignore =
+    assert {:redacted, %{payload: %{"method" => "account/rateLimits/updated", "params" => %{}}, raw: nil}} =
              AccountGeneration.handle_notification(session, "account/rateLimits/updated", %{
                "params" => %{"rateLimits" => %{"primary" => %{"usedPercent" => 100}}}
              })
 
     assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding) == first
+  end
+
+  test "unrecognized account notifications invalidate and redact provider payloads", %{owner: owner, session: session} do
+    assert :ok =
+             AccountGeneration.seed_from_account_read(session, %{
+               "account" => %{"type" => "chatgpt", "email" => "person@example.test"}
+             })
+
+    assert {:redacted, details} =
+             AccountGeneration.handle_notification(session, "account/futureLifecycle", %{
+               "params" => %{"email" => "person@example.test", "credential" => "super-secret"}
+             })
+
+    assert details == %{payload: %{"method" => "account/futureLifecycle", "params" => %{}}, raw: nil}
+
+    assert %{generation: nil, reason: :untrusted_lifecycle} =
+             ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
+
+    refute inspect(details) =~ "person@example.test"
+    refute inspect(:sys.get_state(owner)) =~ "person@example.test"
   end
 
   test "process teardown loses continuity and owner outages do not prevent cleanup", %{owner: owner, session: session} do

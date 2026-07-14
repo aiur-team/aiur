@@ -2,7 +2,7 @@ defmodule Aiur.Codex.CodingAgentTest do
   use ExUnit.Case, async: true
 
   alias Aiur.AppServer.Rpc, as: AppServerRpc
-  alias Aiur.Codex.{AccountGeneration, CodingAgent, Frames, Handshake}
+  alias Aiur.Codex.{CodingAgent, Frames, Handshake}
   alias Aiur.Codex.Rpc, as: CodexRpc
   alias Aiur.ProviderAccountGeneration
 
@@ -60,7 +60,7 @@ defmodule Aiur.Codex.CodingAgentTest do
                CodingAgent.stop_session(%{
                  port: port,
                  account_generation_server: owner,
-                 account_generation_binding: AccountGeneration.new_binding()
+                 account_generation_binding: make_ref()
                })
 
       assert :undefined = :erlang.port_info(port)

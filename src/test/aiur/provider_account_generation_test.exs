@@ -11,7 +11,7 @@ defmodule Aiur.ProviderAccountGenerationTest do
   end
 
   test "starts unknown and mints one opaque generation for a trusted binding", %{owner: owner} do
-    binding = make_ref()
+    binding = issued_binding(owner)
 
     assert unknown = ProviderAccountGeneration.lookup(owner, :codex, :app_server, binding)
     assert unknown.generation == nil
@@ -45,9 +45,9 @@ defmodule Aiur.ProviderAccountGenerationTest do
     refute_received :minted
   end
 
-  test "isolates provider and backend bindings", %{owner: owner} do
-    codex_binding = make_ref()
-    claude_binding = make_ref()
+  test "keeps Claude unknown until a trusted Claude lifecycle owner exists", %{owner: owner} do
+    codex_binding = issued_binding(owner, :codex)
+    claude_binding = issued_binding(owner, :claude)
 
     assert {:ok, codex} =
              ProviderAccountGeneration.bind(owner, :codex, :app_server, codex_binding, source: :codex_app_server)
@@ -55,13 +55,15 @@ defmodule Aiur.ProviderAccountGenerationTest do
     assert {:ok, claude} =
              ProviderAccountGeneration.bind(owner, :claude, :app_server, claude_binding, source: :claude_app_server)
 
-    assert codex.generation != claude.generation
+    assert is_binary(codex.generation)
+    assert claude.generation == nil
+    assert claude.reason == :owner_unavailable
     assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, claude_binding).generation == nil
     assert ProviderAccountGeneration.lookup(owner, :claude, :app_server, codex_binding).generation == nil
   end
 
   test "two consumer fixtures share a generation and cannot join across an account rotation", %{owner: owner} do
-    binding = make_ref()
+    binding = issued_binding(owner)
 
     assert {:ok, old} =
              ProviderAccountGeneration.bind(owner, :codex, :app_server, binding, source: :codex_app_server)
@@ -79,8 +81,8 @@ defmodule Aiur.ProviderAccountGenerationTest do
   end
 
   test "stable duplicate auth observations retain one generation and a proven replacement carries it", %{owner: owner} do
-    first_binding = make_ref()
-    replacement_binding = make_ref()
+    first_binding = issued_binding(owner)
+    replacement_binding = issued_binding(owner)
 
     assert {:ok, first} =
              ProviderAccountGeneration.bind(owner, :codex, :app_server, first_binding,
@@ -109,7 +111,7 @@ defmodule Aiur.ProviderAccountGenerationTest do
   end
 
   test "a mode change rotates one binding only after trusted evidence changes", %{owner: owner} do
-    binding = make_ref()
+    binding = issued_binding(owner)
 
     assert {:ok, first} =
              ProviderAccountGeneration.bind(owner, :codex, :app_server, binding,
@@ -126,9 +128,63 @@ defmodule Aiur.ProviderAccountGenerationTest do
     refute replacement.generation == first.generation
   end
 
+  test "a consumer with only a lookup binding cannot mutate a trusted lifecycle generation", %{owner: owner} do
+    binding = issued_binding(owner)
+
+    assert {:ok, original} =
+             ProviderAccountGeneration.bind(owner, :codex, :app_server, binding,
+               source: :codex_app_server,
+               auth_mode: "chatgpt"
+             )
+
+    parent = self()
+
+    spawn(fn ->
+      result =
+        ProviderAccountGeneration.replace(owner, :codex, :app_server, binding.binding,
+          source: :codex_app_server,
+          auth_mode: "apikey"
+        )
+
+      send(parent, {:consumer_replace, result})
+    end)
+
+    assert_receive {:consumer_replace, {:ok, %{generation: nil, reason: :owner_unavailable}}}
+    assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, binding) == original
+  end
+
+  test "a caller-supplied source cannot mint an unissued binding", %{owner: owner} do
+    assert {:ok, %{generation: nil, reason: :owner_unavailable}} =
+             ProviderAccountGeneration.bind(owner, :codex, :app_server, make_ref(),
+               source: :codex_app_server,
+               auth_mode: "chatgpt"
+             )
+  end
+
+  test "a replacement cannot consume another binding without its authority", %{owner: owner} do
+    victim = issued_binding(owner)
+    replacement = issued_binding(owner)
+
+    assert {:ok, original} =
+             ProviderAccountGeneration.bind(owner, :codex, :app_server, victim,
+               source: :codex_app_server,
+               auth_mode: "chatgpt"
+             )
+
+    assert {:ok, %{generation: nil, reason: :owner_unavailable}} =
+             ProviderAccountGeneration.bind(owner, :codex, :app_server, replacement,
+               source: :codex_app_server,
+               continuity: :proven,
+               previous_binding: victim.binding
+             )
+
+    assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, victim) == original
+    assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, replacement).generation == nil
+  end
+
   test "unproven replacement invalidates its old binding before exposing the new one", %{owner: owner} do
-    old_binding = make_ref()
-    new_binding = make_ref()
+    old_binding = issued_binding(owner)
+    new_binding = issued_binding(owner)
 
     assert :ok = ProviderAccountGeneration.subscribe(owner, :codex, :app_server, old_binding)
 
@@ -153,7 +209,7 @@ defmodule Aiur.ProviderAccountGenerationTest do
 
   test "invalidation preserves the known reason for later lookup", %{owner: owner} do
     for reason <- [:logout, :credential_replaced, :continuity_lost] do
-      binding = make_ref()
+      binding = issued_binding(owner)
 
       assert {:ok, _bound} =
                ProviderAccountGeneration.bind(owner, :codex, :app_server, binding, source: :codex_app_server)
@@ -169,8 +225,8 @@ defmodule Aiur.ProviderAccountGenerationTest do
   end
 
   test "subscription topics are exact-binding capabilities", %{owner: owner} do
-    first_binding = make_ref()
-    second_binding = make_ref()
+    first_binding = issued_binding(owner)
+    second_binding = issued_binding(owner)
 
     assert :ok = ProviderAccountGeneration.subscribe(owner, :codex, :app_server, first_binding)
 
@@ -187,7 +243,7 @@ defmodule Aiur.ProviderAccountGenerationTest do
   end
 
   test "an owning process dying invalidates and publishes its former binding", %{owner: owner} do
-    binding = make_ref()
+    binding = issued_binding(owner)
     parent = self()
 
     assert :ok = ProviderAccountGeneration.subscribe(owner, :codex, :app_server, binding)
@@ -223,7 +279,7 @@ defmodule Aiur.ProviderAccountGenerationTest do
   end
 
   test "events and owner state retain no identity payload", %{owner: owner} do
-    binding = make_ref()
+    binding = issued_binding(owner)
     raw_identity = "person@example.test credential=super-secret"
 
     assert :ok = ProviderAccountGeneration.subscribe(owner, :codex, :app_server, binding)
@@ -243,7 +299,7 @@ defmodule Aiur.ProviderAccountGenerationTest do
              ProviderAccountGeneration.bind(owner, :codex, :app_server, "not-a-local-binding", source: :browser)
 
     assert {:ok, %{reason: :owner_unavailable}} =
-             ProviderAccountGeneration.bind(owner, :codex, :app_server, make_ref(),
+             ProviderAccountGeneration.bind(owner, :codex, :app_server, issued_binding(owner),
                source: :codex_app_server,
                auth_mode: "made-up"
              )
@@ -252,7 +308,7 @@ defmodule Aiur.ProviderAccountGenerationTest do
   test "accepts only the finite trusted auth-mode vocabulary", %{owner: owner} do
     for auth_mode <- ~w(apikey chatgpt chatgptAuthTokens headers agentIdentity personalAccessToken bedrockApiKey) do
       assert {:ok, %{generation: generation}} =
-               ProviderAccountGeneration.bind(owner, :codex, :app_server, make_ref(),
+               ProviderAccountGeneration.bind(owner, :codex, :app_server, issued_binding(owner),
                  source: :codex_app_server,
                  auth_mode: auth_mode
                )
@@ -265,10 +321,10 @@ defmodule Aiur.ProviderAccountGenerationTest do
     owner = start_owner(clock: fn -> @clock end)
 
     assert {:ok, first} =
-             ProviderAccountGeneration.bind(owner, :codex, :app_server, make_ref(), source: :codex_app_server)
+             ProviderAccountGeneration.bind(owner, :codex, :app_server, issued_binding(owner), source: :codex_app_server)
 
     assert {:ok, second} =
-             ProviderAccountGeneration.bind(owner, :claude, :app_server, make_ref(), source: :claude_app_server)
+             ProviderAccountGeneration.bind(owner, :codex, :app_server, issued_binding(owner), source: :codex_app_server)
 
     assert first.generation != second.generation
     assert String.match?(first.generation, ~r/^[A-Za-z0-9_-]{43}$/)
@@ -282,6 +338,11 @@ defmodule Aiur.ProviderAccountGenerationTest do
 
   defp meter_generation(owner, binding) do
     ProviderAccountGeneration.lookup(owner, :codex, :app_server, binding).generation
+  end
+
+  defp issued_binding(owner, provider \\ :codex) do
+    assert {:ok, binding} = ProviderAccountGeneration.issue_binding(owner, provider, :app_server)
+    binding
   end
 
   defp start_owner(opts) do

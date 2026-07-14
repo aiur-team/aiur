@@ -13,16 +13,18 @@ defmodule Aiur.ProviderAccountGeneration do
   @pubsub Aiur.PubSub
   @schema_version 1
 
-  @trusted_sources %{
-    codex: [:codex_app_server],
-    claude: [:claude_app_server]
-  }
+  # DASH-019 will register the Claude process lifecycle owner. Until then a
+  # Claude binding stays explicit unknown rather than accepting a substitute
+  # writer that has not established trusted account continuity.
+  @trusted_sources %{codex: [:codex_app_server]}
 
   @supported_auth_modes ~w(apikey chatgpt chatgptAuthTokens headers agentIdentity personalAccessToken bedrockApiKey)
 
   @type provider :: :codex | :claude
   @type backend :: :app_server
   @type binding :: reference()
+  @type authority :: reference()
+  @type lifecycle_binding :: %{binding: binding(), authority: authority()}
   @type snapshot :: %{
           schema_version: pos_integer(),
           provider: provider(),
@@ -49,40 +51,51 @@ defmodule Aiur.ProviderAccountGeneration do
   @spec lookup(provider(), backend(), binding()) :: snapshot()
   def lookup(provider, backend, binding), do: lookup(__MODULE__, provider, backend, binding)
 
-  @spec lookup(GenServer.server(), provider(), backend(), binding()) :: snapshot()
+  @spec lookup(GenServer.server(), provider(), backend(), binding() | lifecycle_binding()) :: snapshot()
   def lookup(server, provider, backend, binding) do
+    {binding, _opts} = unwrap_binding(binding, %{})
     safe_call(server, {:lookup, provider, backend, binding}, unavailable_snapshot(provider, backend))
+  end
+
+  @doc false
+  @spec issue_binding(GenServer.server(), provider(), backend()) :: {:ok, lifecycle_binding()} | {:error, :owner_unavailable}
+  def issue_binding(server, provider, backend) do
+    safe_call(server, {:issue_binding, provider, backend}, {:error, :owner_unavailable})
   end
 
   @spec bind(provider(), backend(), binding(), keyword()) :: {:ok, snapshot()}
   def bind(provider, backend, binding, opts \\ []), do: bind(__MODULE__, provider, backend, binding, opts)
 
-  @spec bind(GenServer.server(), provider(), backend(), binding(), keyword()) :: {:ok, snapshot()}
+  @spec bind(GenServer.server(), provider(), backend(), binding() | lifecycle_binding(), keyword()) :: {:ok, snapshot()}
   def bind(server, provider, backend, binding, opts) when is_list(opts) do
+    {binding, opts} = unwrap_binding(binding, Map.new(opts))
     safe_call(server, {:bind, provider, backend, binding, Map.new(opts)}, {:ok, unavailable_snapshot(provider, backend)})
   end
 
   @spec replace(provider(), backend(), binding(), keyword()) :: {:ok, snapshot()}
   def replace(provider, backend, binding, opts \\ []), do: replace(__MODULE__, provider, backend, binding, opts)
 
-  @spec replace(GenServer.server(), provider(), backend(), binding(), keyword()) :: {:ok, snapshot()}
+  @spec replace(GenServer.server(), provider(), backend(), binding() | lifecycle_binding(), keyword()) :: {:ok, snapshot()}
   def replace(server, provider, backend, binding, opts) when is_list(opts) do
+    {binding, opts} = unwrap_binding(binding, Map.new(opts))
     safe_call(server, {:replace, provider, backend, binding, Map.new(opts)}, {:ok, unavailable_snapshot(provider, backend)})
   end
 
   @spec confirm(provider(), backend(), binding(), keyword()) :: {:ok, snapshot()}
   def confirm(provider, backend, binding, opts \\ []), do: confirm(__MODULE__, provider, backend, binding, opts)
 
-  @spec confirm(GenServer.server(), provider(), backend(), binding(), keyword()) :: {:ok, snapshot()}
+  @spec confirm(GenServer.server(), provider(), backend(), binding() | lifecycle_binding(), keyword()) :: {:ok, snapshot()}
   def confirm(server, provider, backend, binding, opts) when is_list(opts) do
+    {binding, opts} = unwrap_binding(binding, Map.new(opts))
     safe_call(server, {:confirm, provider, backend, binding, Map.new(opts)}, {:ok, unavailable_snapshot(provider, backend)})
   end
 
   @spec invalidate(provider(), backend(), binding(), keyword()) :: {:ok, snapshot()}
   def invalidate(provider, backend, binding, opts \\ []), do: invalidate(__MODULE__, provider, backend, binding, opts)
 
-  @spec invalidate(GenServer.server(), provider(), backend(), binding(), keyword()) :: {:ok, snapshot()}
+  @spec invalidate(GenServer.server(), provider(), backend(), binding() | lifecycle_binding(), keyword()) :: {:ok, snapshot()}
   def invalidate(server, provider, backend, binding, opts) when is_list(opts) do
+    {binding, opts} = unwrap_binding(binding, Map.new(opts))
     safe_call(server, {:invalidate, provider, backend, binding, Map.new(opts)}, {:ok, unavailable_snapshot(provider, backend)})
   end
 
@@ -90,8 +103,10 @@ defmodule Aiur.ProviderAccountGeneration do
   @spec subscribe(provider(), backend(), binding()) :: :ok | {:error, term()}
   def subscribe(provider, backend, binding), do: subscribe(__MODULE__, provider, backend, binding)
 
-  @spec subscribe(GenServer.server(), provider(), backend(), binding()) :: :ok | {:error, term()}
+  @spec subscribe(GenServer.server(), provider(), backend(), binding() | lifecycle_binding()) :: :ok | {:error, term()}
   def subscribe(server, provider, backend, binding) do
+    {binding, _opts} = unwrap_binding(binding, %{})
+
     case safe_call(server, {:subscription_topic, provider, backend, binding}, {:error, :owner_unavailable}) do
       {:ok, topic} ->
         case Process.whereis(@pubsub) do
@@ -120,6 +135,18 @@ defmodule Aiur.ProviderAccountGeneration do
     {:reply, lookup_entry(state.entries, provider, backend, binding), state}
   end
 
+  def handle_call({:issue_binding, provider, backend}, _from, state) do
+    if valid_scope?(provider, backend) do
+      binding = make_ref()
+      authority = make_ref()
+      {entry, state} = ensure_entry(state, provider, backend, binding)
+      state = put_entry(state, entry_key(provider, backend, binding), %{entry | authority: authority})
+      {:reply, {:ok, %{binding: binding, authority: authority}}, state}
+    else
+      {:reply, {:error, :owner_unavailable}, state}
+    end
+  end
+
   def handle_call({:subscription_topic, provider, backend, binding}, _from, state) do
     if valid_scope?(provider, backend) and is_reference(binding) do
       {entry, state} = ensure_entry(state, provider, backend, binding)
@@ -130,7 +157,7 @@ defmodule Aiur.ProviderAccountGeneration do
   end
 
   def handle_call({:bind, provider, backend, binding, opts}, from, state) do
-    if valid_observation?(provider, backend, binding, opts) do
+    if valid_observation?(provider, backend, binding, opts) and authorized_transition?(state.entries, provider, backend, binding, opts) do
       {snapshot, changes, state} = bind_entry(state, provider, backend, binding, opts, caller_pid(from))
       broadcast_changes(changes)
       {:reply, {:ok, snapshot}, state}
@@ -140,7 +167,7 @@ defmodule Aiur.ProviderAccountGeneration do
   end
 
   def handle_call({:confirm, provider, backend, binding, opts}, _from, state) do
-    if valid_observation?(provider, backend, binding, opts) do
+    if valid_observation?(provider, backend, binding, opts) and authorized_binding?(state.entries, provider, backend, binding, Map.get(opts, :authority)) do
       {:reply, {:ok, lookup_entry(state.entries, provider, backend, binding)}, state}
     else
       {:reply, {:ok, unavailable_snapshot(provider, backend)}, state}
@@ -148,7 +175,7 @@ defmodule Aiur.ProviderAccountGeneration do
   end
 
   def handle_call({:replace, provider, backend, binding, opts}, from, state) do
-    if valid_observation?(provider, backend, binding, opts) do
+    if valid_observation?(provider, backend, binding, opts) and authorized_binding?(state.entries, provider, backend, binding, Map.get(opts, :authority)) do
       {snapshot, changes, state} = replace_entry(state, provider, backend, binding, opts, caller_pid(from))
       broadcast_changes(changes)
       {:reply, {:ok, snapshot}, state}
@@ -157,9 +184,12 @@ defmodule Aiur.ProviderAccountGeneration do
     end
   end
 
-  def handle_call({:invalidate, provider, backend, binding, opts}, _from, state) do
-    if valid_observation?(provider, backend, binding, opts) and valid_invalidation_reason?(Map.get(opts, :reason)) do
-      {snapshot, change, topic, state} = invalidate_entry(state, provider, backend, binding, opts)
+  def handle_call({:invalidate, provider, backend, binding, opts}, from, state) do
+    if valid_observation?(provider, backend, binding, opts) and valid_invalidation_reason?(Map.get(opts, :reason)) and
+         authorized_binding?(state.entries, provider, backend, binding, Map.get(opts, :authority)) do
+      {snapshot, change, topic, state} =
+        invalidate_entry(state, provider, backend, binding, opts, caller_pid(from))
+
       changes = maybe_add_change([], change, topic, snapshot)
       broadcast_changes(changes)
       {:reply, {:ok, snapshot}, state}
@@ -199,7 +229,7 @@ defmodule Aiur.ProviderAccountGeneration do
         continue_known_entry(state, key, provider, backend, previous_binding, opts, owner_pid)
 
       is_reference(previous_binding) and previous_binding != binding ->
-        {changes, state} = invalidate_previous_binding(state, provider, backend, previous_binding, opts)
+        {changes, state} = invalidate_previous_binding(state, provider, backend, previous_binding, opts, owner_pid)
         {snapshot, new_changes, state} = create_known_entry(state, key, provider, backend, opts, owner_pid, :bound)
         {snapshot, changes ++ new_changes, state}
 
@@ -214,7 +244,14 @@ defmodule Aiur.ProviderAccountGeneration do
     case Map.get(state.entries, previous_key) do
       %{snapshot: %{generation: generation}} when is_binary(generation) ->
         {previous_unknown, old_change, old_topic, state} =
-          invalidate_entry(state, provider, backend, previous_binding, %{source: Map.fetch!(opts, :source), reason: :continuity_lost})
+          invalidate_entry(
+            state,
+            provider,
+            backend,
+            previous_binding,
+            %{source: Map.fetch!(opts, :source), reason: :continuity_lost},
+            owner_pid
+          )
 
         {snapshot, new_changes, state} =
           create_known_entry(state, key, provider, backend, opts, owner_pid, :continued, generation)
@@ -270,23 +307,36 @@ defmodule Aiur.ProviderAccountGeneration do
     {snapshot, [{entry.topic, snapshot, change}], state}
   end
 
-  defp invalidate_previous_binding(state, provider, backend, previous_binding, opts) do
+  defp invalidate_previous_binding(state, provider, backend, previous_binding, opts, owner_pid) do
     {snapshot, change, topic, state} =
-      invalidate_entry(state, provider, backend, previous_binding, %{
-        source: Map.fetch!(opts, :source),
-        reason: :continuity_lost
-      })
+      invalidate_entry(
+        state,
+        provider,
+        backend,
+        previous_binding,
+        %{
+          source: Map.fetch!(opts, :source),
+          reason: :continuity_lost
+        },
+        owner_pid
+      )
 
     {maybe_add_change([], change, topic, snapshot), state}
   end
 
-  defp invalidate_entry(state, provider, backend, binding, opts) do
+  defp invalidate_entry(state, provider, backend, binding, opts, owner_pid) do
     key = entry_key(provider, backend, binding)
     {entry, state} = ensure_entry(state, provider, backend, binding)
 
     snapshot = unknown_snapshot(provider, backend, Map.fetch!(opts, :source), Map.fetch!(opts, :reason), state.clock.())
     change = if is_binary(entry.snapshot.generation), do: :invalidated, else: nil
-    entry = %{entry | snapshot: snapshot, auth_mode: nil}
+
+    entry =
+      entry
+      |> Map.put(:snapshot, snapshot)
+      |> Map.put(:auth_mode, nil)
+      |> monitor_owner(owner_pid)
+
     state = put_entry(state, key, entry)
     {snapshot, change, entry.topic, state}
   end
@@ -318,6 +368,7 @@ defmodule Aiur.ProviderAccountGeneration do
           snapshot: unknown_snapshot(provider, backend, :unavailable, :never_observed, nil),
           topic: state.topic_mint.(),
           auth_mode: nil,
+          authority: nil,
           monitor: nil
         }
 
@@ -339,6 +390,31 @@ defmodule Aiur.ProviderAccountGeneration do
 
   defp entry_key(provider, backend, binding), do: {provider, backend, binding}
 
+  # The server issues this authority alongside a new binding. Lifecycle
+  # adapters retain it privately; lookup and subscription consumers receive
+  # only snapshots, so a source atom cannot authorize a mutation by itself.
+  defp authorized_binding?(entries, provider, backend, binding, authority) do
+    case Map.get(entries, entry_key(provider, backend, binding)) do
+      %{authority: ^authority} when is_reference(authority) -> true
+      _ -> false
+    end
+  end
+
+  defp authorized_transition?(entries, provider, backend, binding, opts) do
+    authorized_binding?(entries, provider, backend, binding, Map.get(opts, :authority)) and
+      authorized_previous_binding?(entries, provider, backend, opts)
+  end
+
+  defp authorized_previous_binding?(entries, provider, backend, opts) do
+    case Map.get(opts, :previous_binding) do
+      previous_binding when is_reference(previous_binding) ->
+        authorized_binding?(entries, provider, backend, previous_binding, Map.get(opts, :previous_authority))
+
+      _ ->
+        true
+    end
+  end
+
   defp monitor_owner(entry, owner_pid) when is_pid(owner_pid) do
     case entry.monitor do
       {_monitor, ^owner_pid} ->
@@ -353,7 +429,27 @@ defmodule Aiur.ProviderAccountGeneration do
     end
   end
 
+  defp monitor_owner(entry, _owner_pid), do: entry
+
   defp caller_pid({pid, _tag}) when is_pid(pid), do: pid
+
+  defp unwrap_binding(%{binding: binding, authority: authority}, opts) when is_reference(binding) and is_reference(authority) do
+    {binding,
+     opts
+     |> Map.put_new(:authority, authority)
+     |> unwrap_previous_binding()}
+  end
+
+  defp unwrap_binding(binding, opts), do: {binding, unwrap_previous_binding(opts)}
+
+  defp unwrap_previous_binding(%{previous_binding: %{binding: binding, authority: authority}} = opts)
+       when is_reference(binding) and is_reference(authority) do
+    opts
+    |> Map.put(:previous_binding, binding)
+    |> Map.put_new(:previous_authority, authority)
+  end
+
+  defp unwrap_previous_binding(opts), do: opts
 
   defp known_snapshot(provider, backend, generation, source, observed_at) do
     %{

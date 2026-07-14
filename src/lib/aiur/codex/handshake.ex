@@ -126,8 +126,8 @@ defmodule Aiur.Codex.Handshake do
   end
 
   # `codexHome` is required by Codex's real initialize response. Small fake
-  # app-server fixtures and older wrappers omit it, so avoid sending them a
-  # request they cannot consume without changing their startup protocol.
+  # app-server fixtures and older wrappers omit it, so avoid optional account
+  # reads they cannot consume without changing their startup protocol.
   defp supports_rate_limits?(%{"codexHome" => home}) when is_binary(home), do: true
   defp supports_rate_limits?(_response), do: false
 

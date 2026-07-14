@@ -161,7 +161,8 @@ defmodule Aiur.Codex.TurnLoopTest do
 
       owner = start_owner(clock: fn -> ~U[2026-07-13 12:00:00Z] end)
 
-      binding = AccountGeneration.new_binding()
+      account_generation = AccountGeneration.new_binding(owner)
+      binding = account_generation.binding
       secret = "person@example.test credential=super-secret"
 
       state = %{
@@ -177,7 +178,12 @@ defmodule Aiur.Codex.TurnLoopTest do
 
       assert {:continue, _state} =
                TurnLoop.handle_method(
-                 %{port: port, account_generation_binding: binding, account_generation_server: owner},
+                 %{
+                   port: port,
+                   account_generation_binding: binding,
+                   account_generation_authority: account_generation.authority,
+                   account_generation_server: owner
+                 },
                  state,
                  payload,
                  Jason.encode!(payload),
@@ -191,6 +197,49 @@ defmodule Aiur.Codex.TurnLoopTest do
       refute Map.has_key?(message, :usage)
       refute inspect(message) =~ secret
       assert is_binary(ProviderAccountGeneration.lookup(owner, :codex, :app_server, binding).generation)
+      close_port(port)
+    end
+
+    test "unknown account notifications cannot publish raw lifecycle payloads" do
+      port = open_cat_port()
+      owner = start_owner(clock: fn -> ~U[2026-07-13 12:00:00Z] end)
+      account_generation = AccountGeneration.new_binding(owner)
+      binding = account_generation.binding
+      secret = "person@example.test credential=super-secret"
+
+      state = %{
+        base_state()
+        | on_message: fn message -> send(self(), {:full_event, message}) end
+      }
+
+      payload = %{
+        "method" => "account/futureLifecycle",
+        "params" => %{"email" => secret, "credential" => secret}
+      }
+
+      assert {:continue, _state} =
+               TurnLoop.handle_method(
+                 %{
+                   port: port,
+                   account_generation_binding: binding,
+                   account_generation_authority: account_generation.authority,
+                   account_generation_server: owner
+                 },
+                 state,
+                 payload,
+                 Jason.encode!(payload),
+                 payload["method"]
+               )
+
+      assert_receive {:full_event, message}
+      assert message.event == :notification
+      assert message.raw == nil
+      assert message.payload == %{"method" => "account/futureLifecycle", "params" => %{}}
+      refute inspect(message) =~ secret
+
+      assert %{generation: nil, reason: :untrusted_lifecycle} =
+               ProviderAccountGeneration.lookup(owner, :codex, :app_server, binding)
+
       close_port(port)
     end
   end

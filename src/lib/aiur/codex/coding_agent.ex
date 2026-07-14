@@ -63,10 +63,13 @@ defmodule Aiur.Codex.CodingAgent do
       metadata = AppServerPort.port_metadata(port, worker_host)
       containment = register_pause_containment(identifier, metadata, expanded_workspace)
 
+      account_generation = AccountGeneration.new_binding(account_generation_server)
+
       lifecycle_session = %{
         port: port,
         metadata: metadata,
-        account_generation_binding: AccountGeneration.new_binding(),
+        account_generation_binding: account_generation.binding,
+        account_generation_authority: account_generation.authority,
         account_generation_server: account_generation_server
       }
 
@@ -86,7 +89,7 @@ defmodule Aiur.Codex.CodingAgent do
       )
 
       with {:ok, session_policies} <- session_policies(expanded_workspace, worker_host),
-           {:ok, thread_id, resumed?, rate_limits_supported?} <-
+           {:ok, thread_id, resumed?, supports_account_reads?} <-
              Handshake.establish_with_rate_limits(
                port,
                expanded_workspace,
@@ -94,8 +97,8 @@ defmodule Aiur.Codex.CodingAgent do
                resume_thread_id,
                handshake_opts
              ) do
-        maybe_observe_rate_limits(port, rate_limits_supported?, handshake_opts)
-        maybe_seed_account(port, lifecycle_session, handshake_opts)
+        maybe_observe_rate_limits(port, supports_account_reads?, handshake_opts)
+        maybe_seed_account(port, lifecycle_session, supports_account_reads?, handshake_opts)
 
         {:ok,
          lifecycle_session
@@ -116,6 +119,7 @@ defmodule Aiur.Codex.CodingAgent do
          })}
       else
         {:error, reason} ->
+          AccountGeneration.process_stopped(lifecycle_session)
           cleanup_session_port(port, containment)
           {:error, reason}
       end
@@ -164,12 +168,14 @@ defmodule Aiur.Codex.CodingAgent do
   defp maybe_observe_rate_limits(port, true, handshake_opts), do: observe_rate_limits(port, handshake_opts)
   defp maybe_observe_rate_limits(_port, false, _handshake_opts), do: :ok
 
-  defp maybe_seed_account(port, lifecycle_session, handshake_opts) do
+  defp maybe_seed_account(port, lifecycle_session, true, handshake_opts) do
     case Handshake.read_account(port, handshake_opts) do
       {:ok, account_response} -> AccountGeneration.seed_from_account_read(lifecycle_session, account_response)
       {:error, _reason} -> Logger.debug("Codex account/read unavailable")
     end
   end
+
+  defp maybe_seed_account(_port, _lifecycle_session, false, _handshake_opts), do: :ok
 
   @impl Aiur.AppServer.Adapter
   @doc false
