@@ -89,6 +89,50 @@ defmodule AiurWeb.DashboardLiveTest do
     end
   end
 
+  defmodule VersionedDetailStore do
+    use GenServer
+
+    def start_link(opts) do
+      GenServer.start_link(__MODULE__, opts, name: Keyword.fetch!(opts, :name))
+    end
+
+    @impl true
+    def init(opts) do
+      {:ok,
+       %{
+         overview: Keyword.fetch!(opts, :overview),
+         detail: Keyword.fetch!(opts, :detail),
+         report: Keyword.fetch!(opts, :report)
+       }}
+    end
+
+    @impl true
+    def handle_call({:recent_decisions, _limit}, _from, state), do: {:reply, [state.overview], state}
+
+    def handle_call({:retained_lookup, decision_id}, _from, %{detail: %{decision_id: decision_id} = detail} = state) do
+      {:reply, {:ok, %{decision: detail, health: :writable}}, state}
+    end
+
+    def handle_call({:retained_lookup, _decision_id}, _from, state) do
+      {:reply, {:ok, %{decision: nil, health: :writable}}, state}
+    end
+
+    def handle_call(:retained_counts, _from, state) do
+      counts = %{total: 1, open: 1, blocking: if(state.detail.blocking, do: 1, else: 0)}
+      {:reply, {:ok, %{counts: counts, health: :writable}}, state}
+    end
+
+    def handle_call({:answer, decision_id, payload, opts}, _from, state) do
+      send(state.report, {:versioned_detail_answer, decision_id, payload, opts})
+      {:reply, {:ok, %{status: :accepted}}, state}
+    end
+
+    def handle_call({:revise, decision_id, payload, opts}, _from, state) do
+      send(state.report, {:versioned_detail_revision, decision_id, payload, opts})
+      {:reply, {:ok, %{status: :accepted}}, state}
+    end
+  end
+
   defmodule QueueOrchestrator do
     use GenServer
 
@@ -857,6 +901,127 @@ defmodule AiurWeb.DashboardLiveTest do
       })
 
     assert html =~ "Revision recorded"
+  end
+
+  test "an answer uses the rendered retained version when the overview has an older same-ID row" do
+    orchestrator_name = Module.concat(__MODULE__, :VersionedAnswerOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :VersionedAnswerStore)
+    detail_store_name = Module.concat(__MODULE__, :VersionedAnswerDetailStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_076}}}
+      end)
+
+    overview = request_dashboard_decision(store, "versioned-answer")
+
+    detail =
+      replace_dashboard_decision(store, overview,
+        question: "Destroy the active release?",
+        reversibility: "irreversible",
+        option_label: "Destroy the active release"
+      )
+
+    start_versioned_detail_store(detail_store_name, overview, detail)
+
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: detail_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    {:ok, view, html} = live(build_conn(), "/decisions/#{detail.decision_id}")
+    assert html =~ "Destroy the active release?"
+    assert html =~ "Destroy the active release"
+    assert html =~ "I understand this decision is irreversible or destructive."
+    refute html =~ "Should the dashboard ship this change?"
+
+    html =
+      render_submit(view, "answer-decision", %{
+        "decision_id" => detail.decision_id,
+        "answer" => %{
+          "choice" => "option:ship",
+          "confirmed" => "true",
+          "rationale" => "The current retained detail is destructive"
+        }
+      })
+
+    assert html =~ "Answer recorded"
+
+    assert_receive {:versioned_detail_answer, decision_id, payload, _opts}
+    assert decision_id == detail.decision_id
+    assert payload["expected_version"] == detail.version
+  end
+
+  test "a revision uses the rendered retained version when the overview has an older same-ID row" do
+    orchestrator_name = Module.concat(__MODULE__, :VersionedRevisionOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :VersionedRevisionStore)
+    detail_store_name = Module.concat(__MODULE__, :VersionedRevisionDetailStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_077}}}
+      end)
+
+    overview = request_dashboard_decision(store, "versioned-revision")
+
+    assert {:ok, _accepted} =
+             DecisionStore.answer(
+               overview.decision_id,
+               %{
+                 "idempotency_key" => "versioned-revision-original",
+                 "expected_version" => overview.version,
+                 "option_id" => "ship"
+               },
+               [actor: %{kind: :operator, id: "test"}],
+               store
+             )
+
+    detail =
+      replace_dashboard_decision(store, overview,
+        question: "Destroy the active release after review?",
+        reversibility: "irreversible",
+        option_label: "Destroy the reviewed release"
+      )
+
+    start_versioned_detail_store(detail_store_name, overview, detail)
+
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: detail_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    {:ok, view, html} = live(build_conn(), "/decisions/#{detail.decision_id}")
+    assert html =~ "Destroy the active release after review?"
+    assert html =~ "Destroy the reviewed release"
+    assert html =~ "I understand this revised direction is irreversible or destructive."
+    refute html =~ "Should the dashboard ship this change?"
+
+    html =
+      render_submit(view, "revise-decision", %{
+        "decision_id" => detail.decision_id,
+        "revision" => %{
+          "choice" => "option:ship",
+          "confirmed" => "true",
+          "reason" => "The retained version changes the operation"
+        }
+      })
+
+    assert html =~ "Revision recorded"
+
+    assert_receive {:versioned_detail_revision, decision_id, payload, _opts}
+    assert decision_id == detail.decision_id
+    assert payload["expected_version"] == detail.version
+    assert payload["expected_action_id"] == detail.active_action_id
   end
 
   test "a direct Decision route resolves once for each LiveView parameter pass" do
@@ -2241,6 +2406,37 @@ defmodule AiurWeb.DashboardLiveTest do
         now: DateTime.add(decision.created_at, index, :second)
       )
     end
+  end
+
+  defp replace_dashboard_decision(store, decision, attrs) do
+    assert {:ok, %{decision: replacement}} =
+             DecisionStore.request(
+               %{
+                 "source_id" => decision.source_id,
+                 "version" => decision.version + 1,
+                 "question" => Keyword.fetch!(attrs, :question),
+                 "blocking" => true,
+                 "urgency" => "critical",
+                 "reversibility" => Keyword.fetch!(attrs, :reversibility),
+                 "options" => [
+                   %{
+                     "id" => "ship",
+                     "label" => Keyword.fetch!(attrs, :option_label),
+                     "description" => "The option ID is intentionally reused with a different meaning"
+                   }
+                 ],
+                 "recommendation" => %{"option_id" => "ship", "reason" => "Current retained evidence"}
+               },
+               [ticket: decision.ticket, source: decision.source],
+               store
+             )
+
+    replacement
+  end
+
+  defp start_versioned_detail_store(name, overview, detail) do
+    opts = [name: name, overview: overview, detail: detail, report: self()]
+    start_supervised!({VersionedDetailStore, opts})
   end
 
   defp dashboard_decision(decision_id) do
