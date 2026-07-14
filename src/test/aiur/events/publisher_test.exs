@@ -2,6 +2,7 @@ defmodule Aiur.Events.PublisherTest do
   use Aiur.TestSupport
 
   alias Aiur.Events.{Exchange, IdGenerator, Publisher}
+  alias Aiur.TrackerIdentity
   alias Aiur.Workflow
 
   setup do
@@ -39,6 +40,80 @@ defmodule Aiur.Events.PublisherTest do
       assert is_integer(id)
       assert count >= 1
       assert_receive {:event, %{id: ^id, sha: "abc", topic: "ticket.42.branch.push"}}, 500
+    end
+
+    test "attaches a joinable observation only when a trusted identity is supplied" do
+      {:ok, identity} =
+        TrackerIdentity.from_github(
+          %{"node_id" => "I_kwDOExample", "number" => 42},
+          {"owner", "repo"},
+          {"owner", "repo"}
+        )
+
+      :ok = Exchange.subscribe("ticket.42.agent.progress")
+
+      assert {:ok, id, _count} =
+               Publisher.publish("ticket.42.agent.progress", %{"percent" => 40},
+                 identity: identity,
+                 observation_source: %{kind: :agent_event, name: "progress"},
+                 observation_provenance: %{run_id: "run-1", session_id: "session-1"},
+                 occurred_at: "2026-07-13T12:00:00Z",
+                 observed_at: "2026-07-13T12:00:01Z"
+               )
+
+      assert_receive {:event, %{id: ^id, ticket_observation: observation}}, 500
+      assert observation.status == :joinable
+      assert observation.tracker_identity == identity
+      assert observation.attributes == %{percent: 40}
+
+      assert {:ok, _legacy_id, _count} = Publisher.publish("ticket.42.agent.progress", %{"percent" => 40})
+      assert_receive {:event, %{ticket_observation: %{status: :unattributed}}}, 500
+    end
+
+    test "sets observed_at at the publisher ingestion boundary" do
+      observed_at = ~U[2026-07-13 12:00:01Z]
+      :ok = Exchange.subscribe("ticket.42.agent.progress")
+
+      assert {:ok, _id, _count} =
+               Publisher.publish("ticket.42.agent.progress", %{}, observation_clock: fn -> observed_at end)
+
+      assert_receive {:event, %{ticket_observation: %{observed_at: ^observed_at}}}, 500
+    end
+
+    test "does not allow callers to override the publisher observation clock" do
+      observed_at = ~U[2026-07-13 12:00:01Z]
+      caller_observed_at = ~U[2026-07-13 11:59:01Z]
+      :ok = Exchange.subscribe("ticket.42.agent.progress")
+
+      assert {:ok, _id, _count} =
+               Publisher.publish("ticket.42.agent.progress", %{},
+                 observed_at: caller_observed_at,
+                 observation_clock: fn -> observed_at end
+               )
+
+      assert_receive {:event, %{ticket_observation: %{observed_at: ^observed_at}}}, 500
+    end
+
+    test "reserves both ticket_observation payload key forms" do
+      :ok = Exchange.subscribe("ticket.42.agent.progress")
+
+      payload = %{
+        "ticket_observation" => %{status: "forged_string"},
+        "percent" => 40,
+        ticket_observation: %{status: "forged_atom"}
+      }
+
+      assert {:ok, _id, _count} = Publisher.publish("ticket.42.agent.progress", payload)
+
+      assert_receive {:event, event}, 500
+      refute Map.has_key?(event, "ticket_observation")
+      assert event.ticket_observation.status == :unattributed
+
+      encoded = Jason.encode!(event)
+      decoded = Jason.decode!(encoded)
+      assert decoded["ticket_observation"]["status"] == "unattributed"
+      refute encoded =~ "forged_atom"
+      refute encoded =~ "forged_string"
     end
 
     test "drops events whose actor is the bot_account" do

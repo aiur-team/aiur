@@ -9,7 +9,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   require Logger
 
   alias Aiur.AgentRunner.SessionLifecycle
-  alias Aiur.{Alerts, DecisionAttention, DecisionStore, Issue}
+  alias Aiur.{Alerts, Boot, DecisionAttention, DecisionStore, Issue}
   alias Aiur.Codex.DynamicTool
   alias Aiur.Events.{Publisher, SubscriptionStore}
   alias Aiur.GitHub.IssueDependencies
@@ -38,12 +38,23 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
   @spec build(Issue.t(), Path.t() | nil, String.t() | nil, map(), keyword()) :: (String.t(), map() -> map())
   def build(issue, workspace, worker_host, app_session \\ %{}, opts \\ []) do
+    attempt_id = Keyword.get(opts, :attempt_id)
+
     event_handlers = %{
       decision_requester: Keyword.get(opts, :decision_requester, &DecisionStore.request/2),
       decision_lifecycle_recorder: Keyword.get(opts, :decision_lifecycle_recorder, &DecisionStore.agent_lifecycle/3),
       attention_enricher: Keyword.get(opts, :attention_enricher, &DecisionStore.enrich_attention/2),
       attention_opener: Keyword.get(opts, :attention_opener, &DecisionAttention.open_with_decision/6),
       attention_resolver: Keyword.get(opts, :attention_resolver, &DecisionAttention.resolve/2)
+    }
+
+    event_context = %{
+      app_session: app_session,
+      attempt_id: attempt_id,
+      event_handlers: event_handlers,
+      issue: issue,
+      worker_host: worker_host,
+      workspace: workspace
     }
 
     fn tool, arguments ->
@@ -65,11 +76,15 @@ defmodule Aiur.AgentRunner.ToolExecutor do
             worker_host: worker_host,
             reason: reason,
             needs_attention: needs_attention,
-            severity: severity
+            severity: severity,
+            observation_identity: Issue.tracker_identity(issue),
+            observation_source: %{kind: :agent_alert, name: name},
+            observation_provenance: observation_provenance(app_session, attempt_id),
+            occurred_at: DateTime.utc_now()
           )
         end,
         event_publisher: fn name, message, payload ->
-          emit_agent_event(issue, workspace, worker_host, app_session, event_handlers, name, message, payload)
+          emit_agent_event(event_context, name, message, payload)
         end,
         subscriber: fn pattern -> subscribe_for_issue(issue, pattern) end,
         unsubscriber: fn pattern -> unsubscribe_for_issue(issue, pattern) end,
@@ -173,16 +188,27 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   # service — everything else keeps the existing generic publish path
   # below unchanged. `Publisher.publish/3` itself also rejects this topic
   # family, so this is the sole production ingress, not just a preference.
-  defp emit_agent_event(issue, _workspace, _worker_host, app_session, handlers, "decision.requested", message, payload) do
+  defp emit_agent_event(
+         %{app_session: app_session, event_handlers: handlers, issue: issue},
+         "decision.requested",
+         message,
+         payload
+       ) do
     request_decision(issue, app_session, handlers, message, payload)
   end
 
-  defp emit_agent_event(issue, _workspace, _worker_host, app_session, handlers, name, message, payload)
+  defp emit_agent_event(
+         %{app_session: app_session, event_handlers: handlers, issue: issue},
+         name,
+         message,
+         payload
+       )
        when name in ["decision.acknowledged", "decision.resolved"] do
     record_decision_lifecycle(issue, app_session, handlers.decision_lifecycle_recorder, name, message, payload)
   end
 
-  defp emit_agent_event(issue, workspace, worker_host, app_session, handlers, name, message, payload) do
+  defp emit_agent_event(event_context, name, message, payload) do
+    %{app_session: app_session, attempt_id: attempt_id, event_handlers: handlers, issue: issue} = event_context
     identifier = issue_identifier(issue)
 
     topic =
@@ -200,8 +226,8 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     decision_projection =
       prepare_decision_attention(
         issue,
-        workspace,
-        worker_host,
+        event_context.workspace,
+        event_context.worker_host,
         app_session,
         handlers.attention_opener,
         name,
@@ -211,7 +237,14 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
     log_decision_projection_failure(decision_projection, topic)
 
-    case Publisher.publish(topic, event_payload) do
+    case Publisher.publish(
+           topic,
+           event_payload,
+           identity: Issue.tracker_identity(issue),
+           observation_source: %{kind: :agent_event, name: name},
+           observation_provenance: observation_provenance(app_session, attempt_id),
+           occurred_at: DateTime.utc_now()
+         ) do
       {:ok, id, _subscribers} ->
         sync_decision_resolution(issue, name, payload, handlers.attention_resolver)
 
@@ -527,6 +560,15 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       agent_id: SessionLifecycle.session_backend(app_session),
       session_id: Map.get(app_session, :thread_id),
       event_id: stringify_invocation_id(invocation_id())
+    }
+  end
+
+  defp observation_provenance(app_session, attempt_id) do
+    %{
+      run_id: Boot.run_id(),
+      attempt: attempt_id,
+      session_id: Map.get(app_session, :thread_id),
+      source_event_id: stringify_invocation_id(invocation_id())
     }
   end
 
