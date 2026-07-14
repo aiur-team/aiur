@@ -92,6 +92,10 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     fn process_group_id -> Ownership.track_process_group(ownership, process_group_id) end
   end
 
+  defp workspace_provider_tracker(ownership) do
+    fn provider -> Ownership.track_provider(ownership, provider) end
+  end
+
   @doc false
   @spec run_session(Path.t(), Issue.t(), pid() | nil, keyword(), worker_host()) ::
           :ok | {:completed, Issue.t()} | {:error, term()}
@@ -103,11 +107,12 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     {session_backend, rc?, session_opts} = resolve_session_options(issue, opts, worker_host)
 
     session_opts =
-      Keyword.put(
-        session_opts,
+      session_opts
+      |> Keyword.put(
         :on_process_group_started,
         workspace_process_group_tracker(Keyword.get(opts, :workspace_ownership))
       )
+      |> Keyword.put(:on_provider_started, workspace_provider_tracker(Keyword.get(opts, :workspace_ownership)))
 
     model = Keyword.fetch!(session_opts, :model)
     effort = Keyword.fetch!(session_opts, :effort)
@@ -127,9 +132,16 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
       remote: is_binary(worker_host)
     })
 
+    # Claim a provisional provider before opening a port or tmux pane. If this
+    # runner dies in the tiny interval before backend metadata arrives, the
+    # guardian remains fail-closed rather than replacing the live provider's
+    # workspace underneath it.
+    :ok = Ownership.expect_provider(Keyword.get(opts, :workspace_ownership))
+
     case start_agent_session(workspace, session_opts) do
       {:ok, session} ->
         :ok = Ownership.track_process_group(Keyword.get(opts, :workspace_ownership), process_group_id(session))
+        :ok = Ownership.track_provider(Keyword.get(opts, :workspace_ownership), session_provider(session, worker_host))
 
         Lifecycle.record(issue.identifier, lifecycle_attempt_id, :agent_spinup, :end, %{
           operation_id: "session",
@@ -181,6 +193,32 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
         error
     end
   end
+
+  defp session_provider(session, worker_host) do
+    metadata = Map.get(session, :metadata, %{})
+
+    %{}
+    |> maybe_put_provider_pid(metadata[:codex_app_server_pid] || metadata[:claude_app_server_pid])
+    |> maybe_put_provider_pid(Map.get(session, :os_pid))
+    |> maybe_put_provider_group(process_group_id(session))
+    |> maybe_put_remote_provider(worker_host)
+  end
+
+  defp maybe_put_provider_pid(provider, pid) when is_integer(pid) and pid > 0,
+    do: Map.put(provider, :root_pid, pid)
+
+  defp maybe_put_provider_pid(provider, pid) when is_binary(pid) do
+    case Integer.parse(pid) do
+      {value, ""} when value > 0 -> Map.put(provider, :root_pid, value)
+      _ -> provider
+    end
+  end
+
+  defp maybe_put_provider_pid(provider, _pid), do: provider
+  defp maybe_put_provider_group(provider, pid) when is_integer(pid) and pid > 0, do: Map.put(provider, :process_group_id, pid)
+  defp maybe_put_provider_group(provider, _pid), do: provider
+  defp maybe_put_remote_provider(provider, worker_host) when is_binary(worker_host), do: Map.put(provider, :remote, true)
+  defp maybe_put_remote_provider(provider, _worker_host), do: provider
 
   @doc false
   @spec resolve_session_options(Issue.t(), keyword(), worker_host()) ::

@@ -155,6 +155,17 @@ defmodule Aiur.Workspace.ProvisionerTest do
     assert File.read!(log_path) == "preserve this transcript\n"
   end
 
+  test "refuses a logs-only workspace whose logs node is not a safe directory" do
+    workspace = Path.join(System.tmp_dir!(), "prov_invalid_logs_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(workspace)
+    File.write!(Path.join(workspace, "logs"), "not a directory")
+
+    on_exit(fn -> File.rm_rf!(workspace) end)
+
+    assert {:error, {:workspace_ambiguous, ^workspace, :unproven_contents}} =
+             Provisioner.ensure_workspace(workspace, nil, nil, "aiur/invalid-logs", nil)
+  end
+
   test "ensure_workspace/2 on a stale plain file replaces it and returns created? true" do
     test_root = Path.join(System.tmp_dir!(), "prov_stale_#{System.unique_integer([:positive])}")
     workspace_root = Path.join(test_root, "workspaces")

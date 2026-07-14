@@ -420,9 +420,16 @@ defmodule Aiur.Workspace.Provisioner do
   defp empty_or_logs_only_workspace(workspace) do
     case File.ls(workspace) do
       {:ok, []} -> :bootstrap
-      {:ok, ["logs"]} -> :bootstrap
+      {:ok, ["logs"]} -> logs_only_bootstrap_status(workspace)
       {:ok, _entries} -> {:error, {:workspace_ambiguous, workspace, :unproven_contents}}
       {:error, reason} -> {:error, {:workspace_unreadable, workspace, reason}}
+    end
+  end
+
+  defp logs_only_bootstrap_status(workspace) do
+    case safe_logs_tree?(Path.join(workspace, "logs")) do
+      :ok -> :bootstrap
+      {:error, _reason} -> {:error, {:workspace_ambiguous, workspace, :unproven_contents}}
     end
   end
 
@@ -434,7 +441,7 @@ defmodule Aiur.Workspace.Provisioner do
       {:ok, %File.Stat{type: :directory}} ->
         case File.ls(workspace) do
           {:ok, []} -> :empty_or_logs_only
-          {:ok, ["logs"]} -> :empty_or_logs_only
+          {:ok, ["logs"]} -> cold_logs_only_status(workspace)
           {:ok, _entries} -> {:error, {:workspace_cold_fallback_ambiguous, workspace}}
           {:error, reason} -> {:error, {:workspace_unreadable, workspace, reason}}
         end
@@ -444,6 +451,44 @@ defmodule Aiur.Workspace.Provisioner do
 
       {:error, reason} ->
         {:error, {:workspace_unreadable, workspace, reason}}
+    end
+  end
+
+  defp cold_logs_only_status(workspace) do
+    case safe_logs_tree?(Path.join(workspace, "logs")) do
+      :ok -> :empty_or_logs_only
+      {:error, _reason} -> {:error, {:workspace_cold_fallback_ambiguous, workspace}}
+    end
+  end
+
+  # Logs are the only pre-provisioning subtree created by the event writer.
+  # A symlink or special node makes the interrupted bootstrap ambiguous rather
+  # than letting reconstruction follow an unverified path during promotion.
+  defp safe_logs_tree?(path) do
+    with {:ok, %File.Stat{type: :directory}} <- File.lstat(path),
+         {:ok, entries} <- File.ls(path) do
+      safe_logs_entries?(entries, path)
+    else
+      {:ok, _stat} -> {:error, :logs_not_directory}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp safe_logs_entries?(entries, path) do
+    Enum.reduce_while(entries, :ok, fn entry, :ok ->
+      case safe_logs_entry?(Path.join(path, entry)) do
+        :ok -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp safe_logs_entry?(path) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :regular}} -> :ok
+      {:ok, %File.Stat{type: :directory}} -> safe_logs_tree?(path)
+      {:ok, _stat} -> {:error, :unsafe_log_entry}
+      {:error, reason} -> {:error, reason}
     end
   end
 

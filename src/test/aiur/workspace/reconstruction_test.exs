@@ -58,6 +58,22 @@ defmodule Aiur.Workspace.ReconstructionTest do
              end)
   end
 
+  test "preserves the complete safe logs subtree during promotion", %{workspace: workspace} do
+    trace = Path.join([workspace, "logs", "provider", "custom.trace"])
+    File.mkdir_p!(Path.dirname(trace))
+    File.write!(trace, "before\n")
+
+    assert :ok =
+             Reconstruction.run(workspace, fn stage ->
+               staged_trace = Path.join([stage, "logs", "provider", "custom.trace"])
+               File.mkdir_p!(Path.dirname(staged_trace))
+               File.write!(staged_trace, "after\n")
+               :ok
+             end)
+
+    assert File.read!(Path.join([workspace, "logs", "provider", "custom.trace"])) == "before\nafter\n"
+  end
+
   test "cold fallback serializes first-pickup event logs until the workspace is ready", %{workspace: workspace} do
     parent = self()
     File.rm_rf!(workspace)

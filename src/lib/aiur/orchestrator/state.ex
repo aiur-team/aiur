@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.State do
   alias Aiur.Orchestrator.{PauseResume, StatusReport}
 
   @default_dispatch_recovery %{
-    workspace_ownership: %{waits: %{}, ready: MapSet.new()},
+    workspace_ownership: %{waits: %{}, ready: %{}},
     codex_thrash_budget: %{}
   }
 
@@ -38,7 +38,7 @@ defmodule Aiur.Orchestrator.State do
           completed: MapSet.t(),
           claimed: MapSet.t(),
           dispatch_recovery: %{
-            workspace_ownership: %{waits: map(), ready: MapSet.t()},
+            workspace_ownership: %{waits: map(), ready: map()},
             codex_thrash_budget: map()
           },
           retry_attempts: map(),

@@ -121,51 +121,55 @@ defmodule Aiur.Orchestrator.RetryEngine do
   @spec wait_for_workspace_ownership(State.t(), String.t(), String.t(), term(), :waiting | :available) :: State.t()
   def wait_for_workspace_ownership(%State{} = state, issue_id, identifier, owner, wait)
       when is_binary(issue_id) and is_binary(identifier) and wait in [:waiting, :available] do
-    running_entry = Map.get(state.running, issue_id)
+    context = workspace_wait_context(state, issue_id)
+    demonitor_workspace_runner(context.running)
+    waiting_state = install_workspace_wait(state, issue_id, identifier, owner, context)
+    maybe_release_installed_wait(waiting_state, identifier, wait)
+  end
+
+  defp workspace_wait_context(state, issue_id) do
+    %{running: Map.get(state.running, issue_id), retry: Map.get(state.retry_attempts, issue_id, %{})}
+  end
+
+  defp demonitor_workspace_runner(%{ref: ref}) when is_reference(ref), do: Process.demonitor(ref, [:flush])
+  defp demonitor_workspace_runner(_running), do: :ok
+
+  defp install_workspace_wait(state, issue_id, identifier, owner, context) do
     workspace_ownership = state.dispatch_recovery.workspace_ownership
+    envelope = workspace_wait_envelope(issue_id, identifier, owner, context)
+    workspace_ownership = %{workspace_ownership | waits: Map.put(workspace_ownership.waits, identifier, envelope)}
 
-    if is_reference(Map.get(running_entry || %{}, :ref)) do
-      Process.demonitor(running_entry.ref, [:flush])
-    end
+    state
+    |> cancel_pending_retry(issue_id)
+    |> Map.put(:running, Map.delete(state.running, issue_id))
+    |> Map.put(:claimed, MapSet.put(state.claimed, issue_id))
+    |> Map.put(:completed, MapSet.delete(state.completed, issue_id))
+    |> put_in([Access.key(:dispatch_recovery), Access.key(:workspace_ownership)], workspace_ownership)
+  end
 
-    # The runner's contention message and its Task :DOWN originate from
-    # different processes, so either may arrive first. Clear a continuation
-    # retry left by an early :DOWN as well as the live entry; contention is an
-    # orchestrator precondition, never a successful agent completion.
-    workspace_ownership = %{
-      workspace_ownership
-      | waits:
-          Map.put(workspace_ownership.waits, identifier, %{
-            issue_id: issue_id,
-            identifier: identifier,
-            owner: owner,
-            worker_host: Map.get(running_entry || %{}, :worker_host)
-          })
+  # A contention report can arrive after the runner's :DOWN. Retain the whole
+  # redispatch envelope from either source so a wakeup does not drop the SSH
+  # host, retry attempt, or tracker identity.
+  defp workspace_wait_envelope(issue_id, identifier, owner, %{running: running, retry: retry}) do
+    %{
+      issue_id: issue_id,
+      identifier: identifier,
+      owner: owner,
+      worker_host: value_from(running, retry, :worker_host),
+      retry_attempt: Map.get(running || %{}, :retry_attempt) || Map.get(retry, :attempt),
+      workspace_path: value_from(running, retry, :workspace_path),
+      tracker_identity: value_from(running, retry, :tracker_identity)
     }
+  end
 
-    waiting_state =
-      state
-      |> cancel_pending_retry(issue_id)
-      |> Map.put(:running, Map.delete(state.running, issue_id))
-      |> Map.put(:claimed, MapSet.put(state.claimed, issue_id))
-      |> Map.put(:completed, MapSet.delete(state.completed, issue_id))
-      |> put_in([Access.key(:dispatch_recovery), Access.key(:workspace_ownership)], workspace_ownership)
+  defp value_from(running, retry, key), do: Map.get(running || %{}, key) || Map.get(retry, key)
 
-    # A release can occur after the runner subscribed to owner A but before
-    # this contention row is installed. Owner B can then claim before the row
-    # exists. Subscribe again only after the row is durable: this both closes
-    # the lost-notification gap and moves the waiter from A to B when ownership
-    # changed hands in that interval.
-    installed_wait =
-      if wait == :available,
-        do: :available,
-        else: Ownership.wait_for_release(identifier, self())
+  defp maybe_release_installed_wait(state, identifier, :available), do: release_workspace_wait(state, identifier)
 
-    if installed_wait == :available do
-      release_workspace_wait(waiting_state, identifier)
-    else
-      waiting_state
-    end
+  defp maybe_release_installed_wait(state, identifier, :waiting) do
+    if Ownership.wait_for_release(identifier, self()) == :available,
+      do: release_workspace_wait(state, identifier),
+      else: state
   end
 
   defp cancel_pending_retry(state, issue_id) do
@@ -191,11 +195,11 @@ defmodule Aiur.Orchestrator.RetryEngine do
       {nil, _workspace_waits} ->
         state
 
-      {%{issue_id: issue_id}, workspace_waits} ->
+      {%{issue_id: issue_id} = envelope, workspace_waits} ->
         workspace_ownership = %{
           workspace_ownership
           | waits: workspace_waits,
-            ready: MapSet.put(workspace_ownership.ready, issue_id)
+            ready: Map.put(workspace_ownership.ready, issue_id, envelope)
         }
 
         %{

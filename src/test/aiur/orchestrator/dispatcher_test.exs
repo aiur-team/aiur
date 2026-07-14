@@ -25,7 +25,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
   defp dispatch_recovery(codex_thrash_budget) do
     %{
-      workspace_ownership: %{waits: %{}, ready: MapSet.new()},
+      workspace_ownership: %{waits: %{}, ready: %{}},
       codex_thrash_budget: codex_thrash_budget
     }
   end
@@ -198,6 +198,36 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   end
 
   describe "dispatch attempt provenance" do
+    test "consumes the ownership wakeup envelope when redispatching" do
+      issue = %Issue{id: "ownership-envelope", identifier: "repo#ownership-envelope", state: "todo", selected_backend: "codex"}
+      test_pid = self()
+      write_workflow_file!(Workflow.workflow_file_path(), worker_ssh_hosts: ["worker-a"])
+
+      runner = fn dispatched_issue, recipient, opts ->
+        send(test_pid, {:agent_runner_run, dispatched_issue, recipient, opts})
+        :ok
+      end
+
+      state = %State{
+        max_concurrent_agents: 1,
+        effective_concurrent_agents: 1,
+        dispatch_recovery: %{
+          workspace_ownership: %{
+            waits: %{},
+            ready: %{issue.id => %{issue_id: issue.id, worker_host: "worker-a", retry_attempt: 3, tracker_identity: "repo#ownership-envelope"}}
+          },
+          codex_thrash_budget: %{}
+        }
+      }
+
+      next_state = Dispatcher.do_dispatch_issue(state, issue, nil, nil, runner: runner)
+
+      assert_receive {:agent_runner_run, ^issue, _recipient, runner_opts}
+      assert Keyword.fetch!(runner_opts, :worker_host) == "worker-a"
+      assert Keyword.fetch!(runner_opts, :attempt) == 3
+      assert next_state.dispatch_recovery.workspace_ownership.ready == %{}
+    end
+
     test "telemetry-disabled dispatch options reach accepted Decision provenance" do
       identifier = "dispatcher-decision-#{System.unique_integer([:positive])}"
       issue = %Issue{id: identifier, identifier: identifier, state: "todo", selected_backend: "codex"}

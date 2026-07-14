@@ -225,7 +225,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       state = %State{
         claimed: MapSet.new([issue_id]),
         dispatch_recovery: %{
-          workspace_ownership: %{waits: %{}, ready: MapSet.new()},
+          workspace_ownership: %{waits: %{}, ready: %{}},
           codex_thrash_budget: %{}
         }
       }
@@ -240,7 +240,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
         )
 
       refute MapSet.member?(next.claimed, issue_id)
-      assert MapSet.member?(next.dispatch_recovery.workspace_ownership.ready, issue_id)
+      assert Map.has_key?(next.dispatch_recovery.workspace_ownership.ready, issue_id)
     end
 
     test "re-subscribes when ownership changes hands before its wait row is installed" do
@@ -262,7 +262,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       state = %State{
         claimed: MapSet.new([issue_id]),
         dispatch_recovery: %{
-          workspace_ownership: %{waits: %{}, ready: MapSet.new()},
+          workspace_ownership: %{waits: %{}, ready: %{}},
           codex_thrash_budget: %{}
         }
       }
@@ -306,7 +306,8 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
             pid: runner,
             ref: ref,
             identifier: identifier,
-            worker_host: "worker-a"
+            worker_host: "worker-a",
+            workspace_path: "/workspaces/ownership"
           }
         },
         completed: MapSet.new([issue_id]),
@@ -315,7 +316,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
           issue_id => %{timer_ref: timer_ref, retry_token: retry_token, attempt: 1}
         },
         dispatch_recovery: %{
-          workspace_ownership: %{waits: %{}, ready: MapSet.new()},
+          workspace_ownership: %{waits: %{}, ready: %{}},
           codex_thrash_budget: %{issue_id => %{window_start_ms: 0, count: 4}}
         }
       }
@@ -341,7 +342,10 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
 
       ready = RetryEngine.release_workspace_wait(waiting, identifier)
       refute MapSet.member?(ready.claimed, issue_id)
-      assert MapSet.member?(ready.dispatch_recovery.workspace_ownership.ready, issue_id)
+      assert Map.has_key?(ready.dispatch_recovery.workspace_ownership.ready, issue_id)
+      assert ready.dispatch_recovery.workspace_ownership.ready[issue_id].worker_host == "worker-a"
+      assert ready.dispatch_recovery.workspace_ownership.ready[issue_id].retry_attempt == 1
+      assert ready.dispatch_recovery.workspace_ownership.ready[issue_id].workspace_path == "/workspaces/ownership"
       assert ready.dispatch_recovery.codex_thrash_budget == state.dispatch_recovery.codex_thrash_budget
 
       Process.exit(runner, :kill)

@@ -33,9 +33,10 @@ defmodule Aiur.Claude.CodingAgent do
   def start_session(workspace, opts \\ []) do
     model = Keyword.get(opts, :model)
     identifier = Keyword.get(opts, :identifier)
+    on_provider_started = Keyword.get(opts, :on_provider_started, fn _provider -> :ok end)
 
     with :ok <- validate_workspace_cwd(workspace),
-         {:ok, port} <- start_port(workspace) do
+         {:ok, port} <- start_port(workspace, on_provider_started) do
       metadata = port_metadata(port)
 
       Aiur.ProcessReaper.register(:agent, {:os_pid, metadata[:claude_app_server_pid]},
@@ -137,8 +138,17 @@ defmodule Aiur.Claude.CodingAgent do
     end
   end
 
-  defp start_port(workspace) do
-    Adapter.start_port(workspace, Aiur.Claude.Config.command())
+  defp start_port(workspace, on_provider_started) do
+    Adapter.start_port(workspace, Aiur.Claude.Config.command(), fn port ->
+      on_provider_started.(provider_metadata(port))
+    end)
+  end
+
+  defp provider_metadata(port) do
+    case :erlang.port_info(port, :os_pid) do
+      {:os_pid, os_pid} -> %{root_pid: os_pid}
+      _ -> %{}
+    end
   end
 
   defp port_metadata(port) when is_port(port) do

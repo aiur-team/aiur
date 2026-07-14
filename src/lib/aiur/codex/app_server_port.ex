@@ -56,6 +56,23 @@ defmodule Aiur.Codex.AppServerPort do
   def start_port(workspace, worker_host, model, effort),
     do: start_port(workspace, worker_host, model, effort, fn _process_group_id -> :ok end)
 
+  @doc false
+  @spec start_port(
+          Path.t(),
+          String.t() | nil,
+          String.t() | nil,
+          String.t() | nil,
+          (integer() -> term()),
+          (map() -> term())
+        ) :: {:ok, port()} | {:error, term()}
+  def start_port(workspace, worker_host, model, effort, on_process_group_started, on_provider_started)
+      when is_function(on_process_group_started, 1) and is_function(on_provider_started, 1) do
+    open_port(workspace, worker_host, model, effort, fn port ->
+      notify_provider_started(port, worker_host, on_provider_started)
+      notify_process_group_started(port, worker_host, on_process_group_started)
+    end)
+  end
+
   @spec start_port(Path.t(), String.t() | nil, String.t() | nil, String.t() | nil, (integer() -> term())) ::
           {:ok, port()} | {:error, term()}
   def start_port(workspace, nil, model, effort, on_process_group_started)
@@ -71,6 +88,20 @@ defmodule Aiur.Codex.AppServerPort do
 
     with {:ok, port} <- SSH.start_port(worker_host, command, line: Adapter.port_line_bytes()) do
       notify_process_group_started(port, worker_host, on_process_group_started)
+      {:ok, port}
+    end
+  end
+
+  defp open_port(workspace, nil, model, effort, on_port_started) when is_function(on_port_started, 1) do
+    Adapter.start_port(workspace, codex_command(model, effort), on_port_started)
+  end
+
+  defp open_port(workspace, worker_host, model, effort, on_port_started)
+       when is_binary(worker_host) and is_function(on_port_started, 1) do
+    command = remote_launch_command(workspace, model, effort)
+
+    with {:ok, port} <- SSH.start_port(worker_host, command, line: Adapter.port_line_bytes()) do
+      on_port_started.(port)
       {:ok, port}
     end
   end
@@ -193,6 +224,40 @@ defmodule Aiur.Codex.AppServerPort do
         :ok
     end
   end
+
+  defp notify_provider_started(port, worker_host, callback) do
+    metadata = port_metadata(port, worker_host)
+
+    provider =
+      %{}
+      |> maybe_put_provider_pid(metadata[:codex_app_server_pid])
+      |> maybe_put_provider_group(metadata[:agent_process_group_id])
+      |> maybe_put_remote(worker_host)
+
+    callback.(provider)
+  end
+
+  defp maybe_put_provider_pid(provider, pid) when is_binary(pid) do
+    case Integer.parse(pid) do
+      {value, ""} when value > 0 -> Map.put(provider, :root_pid, value)
+      _ -> provider
+    end
+  end
+
+  defp maybe_put_provider_pid(provider, pid) when is_integer(pid) and pid > 0, do: Map.put(provider, :root_pid, pid)
+  defp maybe_put_provider_pid(provider, _pid), do: provider
+
+  defp maybe_put_provider_group(provider, pid) when is_binary(pid) do
+    case Integer.parse(pid) do
+      {value, ""} when value > 0 -> Map.put(provider, :process_group_id, value)
+      _ -> provider
+    end
+  end
+
+  defp maybe_put_provider_group(provider, pid) when is_integer(pid) and pid > 0, do: Map.put(provider, :process_group_id, pid)
+  defp maybe_put_provider_group(provider, _pid), do: provider
+  defp maybe_put_remote(provider, worker_host) when is_binary(worker_host), do: Map.put(provider, :remote, true)
+  defp maybe_put_remote(provider, _worker_host), do: provider
 
   defp process_group_id(pid) do
     case System.find_executable("ps") do

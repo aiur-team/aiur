@@ -1,12 +1,6 @@
 defmodule Aiur.Workspace.Reconstruction do
   @moduledoc false
 
-  # AgentEventLog writes both projections for every event. Keep the paths
-  # explicit so promotion can merge the prior stream ahead of anything a hook
-  # wrote in its staging checkout without treating the live workspace as a
-  # scratch directory.
-  @agent_log_files ["agent.ndjson", "agent.md"]
-
   @spec run(Path.t(), (Path.t() -> :ok | {:error, term()})) :: :ok | {:error, term()}
   def run(workspace, prepare) when is_binary(workspace) and is_function(prepare, 1) do
     stage_root = sibling_path(workspace, "stage")
@@ -113,7 +107,7 @@ defmodule Aiur.Workspace.Reconstruction do
   end
 
   defp finish_promotion(backup, workspace) do
-    case merge_agent_logs(backup, workspace) do
+    case merge_logs(backup, workspace) do
       :ok ->
         File.rm_rf!(backup)
         :ok
@@ -134,39 +128,58 @@ defmodule Aiur.Workspace.Reconstruction do
     :ok
   end
 
-  defp merge_agent_logs(previous_workspace, workspace) do
-    Enum.reduce_while(@agent_log_files, :ok, fn filename, :ok ->
-      case merge_agent_log(previous_workspace, workspace, filename) do
+  # Promotion preserves the complete safe logs subtree, not just the two
+  # AgentEventLog files. Providers can leave diagnostic traces beside them;
+  # dropping those files makes interrupted-workspace recovery lossy.
+  defp merge_logs(previous_workspace, workspace) do
+    previous_logs = Path.join(previous_workspace, "logs")
+
+    case File.lstat(previous_logs) do
+      {:error, :enoent} -> :ok
+      {:ok, %File.Stat{type: :directory}} -> merge_log_tree(previous_logs, Path.join(workspace, "logs"))
+      {:ok, _stat} -> {:error, :unsafe_log_tree}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp merge_log_tree(previous, destination) do
+    with {:ok, entries} <- File.ls(previous),
+         :ok <- File.mkdir_p(destination) do
+      merge_log_entries(entries, previous, destination)
+    end
+  end
+
+  defp merge_log_entries(entries, previous, destination) do
+    Enum.reduce_while(entries, :ok, fn entry, :ok ->
+      case merge_log_entry(Path.join(previous, entry), Path.join(destination, entry)) do
         :ok -> {:cont, :ok}
         {:error, _reason} = error -> {:halt, error}
       end
     end)
   end
 
-  defp merge_agent_log(previous_workspace, workspace, filename) do
-    previous = Path.join([previous_workspace, "logs", filename])
-
-    if File.regular?(previous) do
-      append_previous_agent_log(previous, workspace, filename)
-    else
-      :ok
+  defp merge_log_entry(source, target) do
+    case File.lstat(source) do
+      {:ok, %File.Stat{type: :regular}} -> append_previous_log(source, target)
+      {:ok, %File.Stat{type: :directory}} -> merge_log_tree(source, target)
+      {:ok, _stat} -> {:error, :unsafe_log_entry}
+      {:error, reason} -> {:error, reason}
     end
   end
 
-  defp append_previous_agent_log(previous, workspace, filename) do
-    destination = Path.join([workspace, "logs", filename])
-
+  defp append_previous_log(previous, destination) do
     with {:ok, previous_contents} <- File.read(previous),
-         {:ok, staged_contents} <- read_optional_file(destination),
+         {:ok, staged_contents} <- read_optional_regular_file(destination),
          :ok <- File.mkdir_p(Path.dirname(destination)) do
       File.write(destination, previous_contents <> staged_contents)
     end
   end
 
-  defp read_optional_file(path) do
-    case File.read(path) do
-      {:ok, contents} -> {:ok, contents}
+  defp read_optional_regular_file(path) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :regular}} -> File.read(path)
       {:error, :enoent} -> {:ok, ""}
+      {:ok, _stat} -> {:error, :unsafe_log_destination}
       {:error, reason} -> {:error, reason}
     end
   end

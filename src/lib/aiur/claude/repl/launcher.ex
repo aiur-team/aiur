@@ -103,6 +103,11 @@ defmodule Aiur.Claude.Repl.Launcher do
     end
   end
 
+  defp notify_provider_started(%{opts: opts}, os_pid) do
+    callback = Keyword.get(opts, :on_provider_started, fn _provider -> :ok end)
+    callback.(if(is_integer(os_pid) and os_pid > 0, do: %{root_pid: os_pid}, else: %{}))
+  end
+
   defp finish_start(%{tmux: tmux, opts: opts} = ctx, pane_id) do
     timeout = Keyword.get(opts, :ready_timeout_ms, @ready_timeout_ms)
 
@@ -113,6 +118,8 @@ defmodule Aiur.Claude.Repl.Launcher do
             {:ok, pid} -> pid
             _ -> nil
           end
+
+        notify_provider_started(ctx, os_pid)
 
         Aiur.Perf.event(:repl_agent_ready,
           workspace: ctx.workspace,

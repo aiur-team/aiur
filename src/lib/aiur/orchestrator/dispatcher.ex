@@ -236,22 +236,26 @@ defmodule Aiur.Orchestrator.Dispatcher do
     runner = Keyword.get(opts, :runner, &AgentRunner.run/3)
     workspace_ownership = state.dispatch_recovery.workspace_ownership
 
-    if MapSet.member?(workspace_ownership.ready, selected_issue.id) do
-      workspace_ownership = %{
-        workspace_ownership
-        | ready: MapSet.delete(workspace_ownership.ready, selected_issue.id)
-      }
+    case Map.pop(workspace_ownership.ready, selected_issue.id) do
+      {nil, _ready} ->
+        case check_thrash_budget(state, selected_issue.id, System.monotonic_time(:millisecond)) do
+          {:trip, tripped_state} ->
+            trip_thrash_breaker(tripped_state, selected_issue)
 
-      state = put_in(state.dispatch_recovery.workspace_ownership, workspace_ownership)
-      dispatch_to_worker(state, selected_issue, attempt, preferred_worker_host, runner)
-    else
-      case check_thrash_budget(state, selected_issue.id, System.monotonic_time(:millisecond)) do
-        {:trip, tripped_state} ->
-          trip_thrash_breaker(tripped_state, selected_issue)
+          {:ok, budgeted_state} ->
+            dispatch_to_worker(budgeted_state, selected_issue, attempt, preferred_worker_host, runner)
+        end
 
-        {:ok, budgeted_state} ->
-          dispatch_to_worker(budgeted_state, selected_issue, attempt, preferred_worker_host, runner)
-      end
+      {envelope, ready} ->
+        workspace_ownership = %{
+          workspace_ownership
+          | ready: ready
+        }
+
+        state = put_in(state.dispatch_recovery.workspace_ownership, workspace_ownership)
+        envelope_attempt = Map.get(envelope, :retry_attempt, attempt) || attempt
+        envelope_host = Map.get(envelope, :worker_host, preferred_worker_host) || preferred_worker_host
+        dispatch_to_worker(state, selected_issue, envelope_attempt, envelope_host, runner)
     end
   end
 

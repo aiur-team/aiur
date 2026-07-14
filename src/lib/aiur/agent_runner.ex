@@ -83,8 +83,19 @@ defmodule Aiur.AgentRunner do
         try do
           run_owned_worker_attempt(ownership, issue, codex_update_recipient, opts, worker_host, lifecycle)
         after
-          :ok = Ownership.release(ownership)
-          record_workspace_ownership(issue, opts, :end, :released, ownership)
+          # The release request is intentionally distinct from the terminal
+          # ownership boundary. A guardian may still be reaping a provider;
+          # declaring the workspace free before registry removal would make
+          # lifecycle telemetry lie about the generation that owns the cwd.
+          record_workspace_ownership(issue, opts, :point, :release_requested, ownership)
+
+          case Ownership.release_and_wait(ownership) do
+            {:ok, released_ownership} ->
+              record_workspace_ownership(issue, opts, :end, :released, released_ownership)
+
+            {:error, reason} ->
+              Logger.warning("workspace ownership remains contained after release request issue=#{issue.identifier} reason=#{inspect(reason)}")
+          end
         end
 
       {:error, {:workspace_owned, owner}} ->
