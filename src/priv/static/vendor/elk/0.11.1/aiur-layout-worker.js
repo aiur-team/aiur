@@ -83,8 +83,14 @@ function validRequestIdentity(requestId, generation) {
     requestGeneration(requestId) === generation
 }
 
-function denseArray(value) {
-  return Array.isArray(value) && Object.keys(value).length === value.length
+function denseArray(value, maximumLength) {
+  if (!Array.isArray(value) || value.length > maximumLength) return false
+
+  for (let index = 0; index < value.length; index += 1) {
+    if (!Object.hasOwn(value, index)) return false
+  }
+
+  return Reflect.ownKeys(value).filter((key) => Object.prototype.propertyIsEnumerable.call(value, key)).length === value.length
 }
 
 function safeIdentity(value) {
@@ -135,7 +141,7 @@ function validateRequest(value) {
     throw protocolError("invalid_request")
   }
 
-  if (!denseArray(value.nodes) || value.nodes.length > MAX_NODES || !denseArray(value.edges) || value.edges.length > MAX_EDGES) {
+  if (!denseArray(value.nodes, MAX_NODES) || !denseArray(value.edges, MAX_EDGES)) {
     throw protocolError("invalid_request")
   }
 
@@ -179,7 +185,7 @@ function validateConstraints(value) {
 }
 
 function validateConstraintList(value) {
-  if (!denseArray(value)) throw protocolError("invalid_request")
+  if (!denseArray(value, MAX_CONSTRAINTS)) throw protocolError("invalid_request")
 
   const indexes = value.map((entry) => {
     if (!isPlainRecord(entry) || !hasOnlyKeys(entry, new Set(["index"])) || !Number.isInteger(entry.index) || entry.index < 0 || entry.index >= MAX_CONSTRAINTS) {
@@ -397,7 +403,10 @@ function orderedEdges(edges) {
 }
 
 function normalizeLayout(request, result) {
-  if (!isPlainRecord(result) || !denseArray(result.children) || !denseArray(result.edges)) throw protocolError("invalid_engine_output")
+  if (!isPlainRecord(result) || !denseArray(result.children, MAX_NODES) || !denseArray(result.edges, MAX_EDGES)) throw protocolError("invalid_engine_output")
+
+  validateResultIdentities(result.children, request.nodes)
+  validateResultIdentities(result.edges, request.edges)
 
   const resultNodes = new Map(result.children.map((node) => [node.id, node]))
   const resultEdges = new Map(result.edges.map((edge) => [edge.id, edge]))
@@ -419,6 +428,21 @@ function normalizeLayout(request, result) {
   }
 }
 
+function validateResultIdentities(resultEntries, requestEntries) {
+  if (resultEntries.length !== requestEntries.length) throw protocolError("invalid_engine_output")
+
+  const expectedIds = new Set(requestEntries.map(({ id }) => id))
+  const resultIds = new Set()
+
+  for (const entry of resultEntries) {
+    if (!isPlainRecord(entry) || !expectedIds.has(entry.id) || resultIds.has(entry.id)) {
+      throw protocolError("invalid_engine_output")
+    }
+
+    resultIds.add(entry.id)
+  }
+}
+
 function normalizeNode(node, result) {
   if (!isPlainRecord(result)) throw protocolError("invalid_engine_output")
 
@@ -435,7 +459,7 @@ function normalizeEdge(edge, result) {
   if (!isPlainRecord(result)) throw protocolError("invalid_engine_output")
 
   const sections = result.sections ?? []
-  if (!denseArray(sections) || sections.length > MAX_SECTIONS) throw protocolError("invalid_engine_output")
+  if (!denseArray(sections, MAX_SECTIONS)) throw protocolError("invalid_engine_output")
 
   return { id: edge.id, sections: sections.map(normalizeSection) }
 }
@@ -446,7 +470,7 @@ function normalizeSection(section) {
   }
 
   const bendPoints = section.bendPoints ?? []
-  if (!denseArray(bendPoints) || bendPoints.length > MAX_POINTS) throw protocolError("invalid_engine_output")
+  if (!denseArray(bendPoints, MAX_POINTS)) throw protocolError("invalid_engine_output")
 
   return {
     startPoint: normalizePoint(section.startPoint),

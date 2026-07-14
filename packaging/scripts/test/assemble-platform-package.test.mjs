@@ -91,6 +91,7 @@ test("platform copy retains the locally vendored layout runtime and evidence", (
   expect(check.status).toBe(0);
   expect(check.stdout).toContain("priv/static/vendor/elk/0.11.1");
   expect(existsSync(path.join(packagedRelease, "lib", "aiur-0.1.1", "priv", "static", "vendor", "elk", "0.11.1", "manifest.json"))).toBe(true);
+  expect(existsSync(path.join(packagedRelease, "lib", "aiur-0.1.1", "priv", "static", "vendor", "elk", "0.11.1", "SOURCE.md"))).toBe(true);
 });
 
 test("release integrity check rejects a tampered layout asset", () => {

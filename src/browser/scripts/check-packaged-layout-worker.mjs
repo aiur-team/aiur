@@ -46,6 +46,12 @@ function readAssets(vendor) {
   }
 
   if (manifest.assets.worker.engineUrl !== manifest.assets.engine.url) fail('worker does not reference the packaged engine URL')
+
+  const sourceAvailability = readFileSync(path.join(vendor, 'SOURCE.md'), 'utf8')
+  for (const value of ['EPL-2.0', 'https://github.com/kieler/elkjs', '0.11.1', '572e73323791d05f09b0815ff639af2b67f202ab', 'https://github.com/kieler/elkjs/archive/572e73323791d05f09b0815ff639af2b67f202ab.tar.gz']) {
+    if (!sourceAvailability.includes(value)) fail(`packaged source-availability notice is missing ${value}`)
+  }
+
   return { assets, manifest }
 }
 

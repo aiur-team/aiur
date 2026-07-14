@@ -45,8 +45,13 @@ for (const [name, expected] of Object.entries(expectedAssets)) {
   if (readFileSync(assetPath).byteLength !== asset.bytes) fail(`release ${name} asset does not match its recorded byte size`)
 }
 
-for (const file of ['LICENSE.md', 'PROVENANCE.md']) {
+for (const file of ['LICENSE.md', 'PROVENANCE.md', 'SOURCE.md']) {
   if (!existsSync(path.join(vendor, file))) fail(`release is missing ${file}`)
+}
+
+const sourceAvailability = readFileSync(path.join(vendor, 'SOURCE.md'), 'utf8')
+for (const value of ['EPL-2.0', 'https://github.com/kieler/elkjs', '0.11.1', '572e73323791d05f09b0815ff639af2b67f202ab', 'https://github.com/kieler/elkjs/archive/572e73323791d05f09b0815ff639af2b67f202ab.tar.gz']) {
+  if (!sourceAvailability.includes(value)) fail(`release source-availability notice is missing ${value}`)
 }
 
 if (readdirSync(vendor).some((file) => file.endsWith('.map'))) fail('release vendor directory contains a source map')

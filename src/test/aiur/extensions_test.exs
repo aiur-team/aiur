@@ -925,7 +925,7 @@ defmodule Aiur.ExtensionsTest do
 
     assert response(get(build_conn(), "/vendor/layout/worker-v1/not-a-digest/aiur-layout-worker.js"), 404) == "Not Found"
 
-    for private_asset <- ["LICENSE.md", "PROVENANCE.md"] do
+    for private_asset <- ["LICENSE.md", "PROVENANCE.md", "SOURCE.md"] do
       private_asset_url = String.replace(layout_urls.worker, "aiur-layout-worker.js", private_asset)
       assert response(get(build_conn(), private_asset_url), 404) == "Not Found"
     end

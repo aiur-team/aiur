@@ -23,15 +23,17 @@ const lineEndingPaths = [
   'src/priv/static/vendor/elk/0.11.1/aiur-layout-client.js',
   'src/priv/static/vendor/elk/0.11.1/LICENSE.md',
   'src/priv/static/vendor/elk/0.11.1/manifest.json',
-  'src/priv/static/vendor/elk/0.11.1/PROVENANCE.md'
+  'src/priv/static/vendor/elk/0.11.1/PROVENANCE.md',
+  'src/priv/static/vendor/elk/0.11.1/SOURCE.md'
 ]
 
 const sha256 = (body) => createHash('sha256').update(body).digest('hex')
 
 async function main() {
-  const [manifestText, provenance, lockfileText, generatedFiles] = await Promise.all([
+  const [manifestText, provenance, sourceAvailability, lockfileText, generatedFiles] = await Promise.all([
     readFile(path.join(vendorRoot, 'manifest.json'), 'utf8'),
     readFile(path.join(vendorRoot, 'PROVENANCE.md'), 'utf8'),
+    readFile(path.join(vendorRoot, 'SOURCE.md'), 'utf8'),
     readFile(path.join(browserRoot, 'package-lock.json'), 'utf8'),
     readdir(vendorRoot)
   ])
@@ -70,10 +72,15 @@ async function main() {
   verifyAsset(manifest.assets?.worker, worker, 'worker-v1', 'aiur-layout-worker.js')
   verifyAsset(manifest.assets?.client, client, 'client-v1', 'aiur-layout-client.js')
   assert(manifest.assets.worker.engineUrl === manifest.assets.engine.url, 'worker must import the manifest engine URL')
-  await verifyLineEndingContract([sourceWorker, sourceClient, engine, license, worker, client, Buffer.from(manifestText), Buffer.from(provenance)])
+  await verifyLineEndingContract([sourceWorker, sourceClient, engine, license, worker, client, Buffer.from(manifestText), Buffer.from(provenance), Buffer.from(sourceAvailability)])
 
   for (const value of [manifest.engine.integrity, manifest.assets.engine.sha256, manifest.assets.worker.sha256, manifest.assets.client.sha256]) {
     assert(provenance.includes(value), 'provenance must record every integrity value')
+  }
+
+  assert(provenance.includes('SOURCE.md'), 'provenance must point to the source-availability notice')
+  for (const value of ['EPL-2.0', 'https://github.com/kieler/elkjs', '0.11.1', '572e73323791d05f09b0815ff639af2b67f202ab', 'https://github.com/kieler/elkjs/archive/572e73323791d05f09b0815ff639af2b67f202ab.tar.gz']) {
+    assert(sourceAvailability.includes(value), `source-availability notice must record ${value}`)
   }
 }
 
@@ -87,7 +94,8 @@ async function verifyLineEndingContract(javascriptAssets) {
     'src/priv/static/vendor/elk/0.11.1/aiur-layout-client.js text eol=lf',
     'src/priv/static/vendor/elk/0.11.1/LICENSE.md -text',
     'src/priv/static/vendor/elk/0.11.1/manifest.json text eol=lf',
-    'src/priv/static/vendor/elk/0.11.1/PROVENANCE.md text eol=lf'
+    'src/priv/static/vendor/elk/0.11.1/PROVENANCE.md text eol=lf',
+    'src/priv/static/vendor/elk/0.11.1/SOURCE.md text eol=lf'
   ]
 
   for (const rule of requiredRules) assert(attributes.includes(rule), `missing EOL preservation rule: ${rule}`)

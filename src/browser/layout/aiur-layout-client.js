@@ -200,7 +200,7 @@ function normalizeRequest(value) {
   const allowed = new Set(["type", "version", "requestId", "generation", "nodes", "edges", "constraints", "options"])
   if (!hasOnlyKeys(value, allowed) || value.type !== "layout" || value.version !== LAYOUT_PROTOCOL_VERSION) return null
   if (!validRequestIdentity(value.requestId, value.generation)) return null
-  if (!denseArray(value.nodes) || value.nodes.length > MAX_NODES || !denseArray(value.edges) || value.edges.length > MAX_EDGES) return null
+  if (!denseArray(value.nodes, MAX_NODES) || !denseArray(value.edges, MAX_EDGES)) return null
 
   const constraints = normalizeConstraints(value.constraints ?? {})
   if (!constraints) return null
@@ -240,7 +240,7 @@ function normalizeConstraints(value) {
 }
 
 function normalizeConstraintList(value) {
-  if (!denseArray(value)) return null
+  if (!denseArray(value, MAX_CONSTRAINTS)) return null
 
   const entries = value.map((entry) => {
     if (!isRecord(entry) || !hasOnlyKeys(entry, new Set(["index"])) || !Number.isInteger(entry.index) || entry.index < 0 || entry.index >= MAX_CONSTRAINTS) return null
@@ -294,7 +294,7 @@ function validResponse(value, entry) {
 
 function validResult(value, request) {
   if (!hasOnlyKeys(value, new Set(["type", "version", "requestId", "generation", "nodes", "edges", "diagnostics"]))) return false
-  if (!denseArray(value.nodes) || value.nodes.length > MAX_NODES || !denseArray(value.edges) || value.edges.length > MAX_EDGES || !denseArray(value.diagnostics) || value.diagnostics.length > MAX_DIAGNOSTICS) return false
+  if (!denseArray(value.nodes, MAX_NODES) || !denseArray(value.edges, MAX_EDGES) || !denseArray(value.diagnostics, MAX_DIAGNOSTICS)) return false
   if (!value.nodes.every(validResultNode) || !value.edges.every(validResultEdge) || !value.diagnostics.every(validDiagnostic)) return false
 
   if (!sameIds(value.nodes, request.nodes) || !sameIds(value.edges, request.edges)) return false
@@ -312,12 +312,12 @@ function validResultNode(value) {
 
 function validResultEdge(value) {
   return isRecord(value) && hasOnlyKeys(value, new Set(["id", "sections"])) && validId(value.id, "edge_") &&
-    denseArray(value.sections) && value.sections.length <= MAX_SECTIONS && value.sections.every(validSection)
+    denseArray(value.sections, MAX_SECTIONS) && value.sections.every(validSection)
 }
 
 function validSection(value) {
   return isRecord(value) && hasOnlyKeys(value, new Set(["startPoint", "bendPoints", "endPoint"])) &&
-    validPoint(value.startPoint) && denseArray(value.bendPoints) && value.bendPoints.length <= MAX_POINTS &&
+    validPoint(value.startPoint) && denseArray(value.bendPoints, MAX_POINTS) &&
     value.bendPoints.every(validPoint) && validPoint(value.endPoint)
 }
 
@@ -393,8 +393,14 @@ function validRequestIdentity(requestId, generation) {
     requestGeneration(requestId) === generation
 }
 
-function denseArray(value) {
-  return Array.isArray(value) && Object.keys(value).length === value.length
+function denseArray(value, maximumLength) {
+  if (!Array.isArray(value) || value.length > maximumLength) return false
+
+  for (let index = 0; index < value.length; index += 1) {
+    if (!Object.hasOwn(value, index)) return false
+  }
+
+  return Reflect.ownKeys(value).filter((key) => Object.prototype.propertyIsEnumerable.call(value, key)).length === value.length
 }
 
 function isRecord(value) {

@@ -620,3 +620,231 @@ test('worker protocol keeps failures and stale identities structured', async ({ 
     await context.close()
   }
 })
+
+test('worker validates direct boundary and client response matrices before geometry is trusted', async ({ browser }) => {
+  const urls = await layoutAssetUrls()
+  const context = await browser.newContext({ httpCredentials: dashboardCredentials })
+  const page = await context.newPage()
+
+  try {
+    await openFixture(page)
+
+    const result = await page.evaluate(async (payload) => {
+      const { createLayoutWorkerClient } = await import(payload.urls.client)
+      const workerUrl = `${payload.urls.worker}?engine=${encodeURIComponent(payload.urls.engine)}`
+      const request = payload.request
+      const directWorkerRequest = (candidate) => new Promise((resolve, reject) => {
+        const worker = new Worker(workerUrl)
+        worker.addEventListener('message', (event) => {
+          worker.terminate()
+          resolve(event.data)
+        }, { once: true })
+        worker.addEventListener('error', (event) => {
+          worker.terminate()
+          reject(new Error(event.message || 'direct worker failed'))
+        }, { once: true })
+        worker.postMessage(candidate)
+      })
+      const balancedHole = (values) => {
+        const copy = [...values]
+        const missing = copy[0]
+        delete copy[0]
+        copy.extra = missing
+        return copy
+      }
+      const tooManyEdges = Array.from({ length: 1_001 }, (_, index) => ({ id: `edge_${index}`, source: 'node_0', target: 'node_1' }))
+      const constraintLimitPlusOne = {
+        lanes: Array.from({ length: 100 }, (_, index) => ({ index })),
+        phases: [{ index: 0 }]
+      }
+      const optionLimitPlusOne = {
+        direction: 'RIGHT',
+        edgeRouting: 'ORTHOGONAL',
+        nodeNodeSpacing: 1,
+        layerSpacing: 1,
+        randomSeed: 1,
+        thoroughness: 1,
+        considerModelOrder: true,
+        favorStraightEdges: true,
+        unknown: true
+      }
+      const directCases = {
+        unsupportedVersion: { ...request, version: 2 },
+        tooManyNodes: { ...request, nodes: Array.from({ length: 101 }, (_, index) => ({ id: `node_${index}`, width: 1, height: 1 })), edges: [] },
+        tooManyEdges: { ...request, edges: tooManyEdges },
+        tooManyConstraints: { ...request, constraints: constraintLimitPlusOne, nodes: request.nodes.map((node) => ({ ...node, phase: 0 })) },
+        tooManyOptions: { ...request, options: optionLimitPlusOne },
+        nonFiniteDimension: { ...request, nodes: [{ ...request.nodes[0], width: Infinity }, request.nodes[1]] },
+        outOfRangeDimension: { ...request, nodes: [{ ...request.nodes[0], height: 4_097 }, request.nodes[1]] },
+        balancedNodeHole: { ...request, nodes: balancedHole(request.nodes) },
+        balancedEdgeHole: { ...request, edges: balancedHole(request.edges) },
+        balancedLaneHole: { ...request, constraints: { ...request.constraints, lanes: balancedHole(request.constraints.lanes) } },
+        balancedPhaseHole: { ...request, constraints: { ...request.constraints, phases: balancedHole(request.constraints.phases) } }
+      }
+      const direct = Object.fromEntries(await Promise.all(Object.entries(directCases).map(async ([name, candidate]) => [name, await directWorkerRequest(candidate)])))
+
+      let invalidPosts = 0
+      class RecordingWorker {
+        addEventListener() {}
+        postMessage() { invalidPosts += 1 }
+        terminate() {}
+      }
+
+      const preflight = Object.fromEntries(await Promise.all(Object.entries(directCases).map(async ([name, candidate]) => [
+        name,
+        await createLayoutWorkerClient({ workerUrl: payload.urls.worker, engineUrl: payload.urls.engine, WorkerConstructor: RecordingWorker }).layout(candidate)
+      ])))
+
+      const validResult = (candidate) => ({
+        type: 'result',
+        version: 1,
+        requestId: candidate.requestId,
+        generation: candidate.generation,
+        nodes: candidate.nodes.map((node) => ({ id: node.id, x: 1, y: 1, width: node.width, height: node.height })),
+        edges: candidate.edges.map((edge) => ({ id: edge.id, sections: [] })),
+        diagnostics: []
+      })
+      const responseWith = async (mutate) => {
+        class ContractViolatingWorker {
+          constructor() { this.listeners = new Map() }
+          addEventListener(name, callback) { this.listeners.set(name, callback) }
+          postMessage(candidate) {
+            const response = validResult(candidate)
+            mutate(response)
+            queueMicrotask(() => this.listeners.get('message')?.({ data: response }))
+          }
+          terminate() {}
+        }
+
+        return createLayoutWorkerClient({ workerUrl: payload.urls.worker, engineUrl: payload.urls.engine, WorkerConstructor: ContractViolatingWorker }).layout(request)
+      }
+      const section = { startPoint: { x: 1, y: 1 }, bendPoints: [], endPoint: { x: 2, y: 2 } }
+      const malformedResponses = Object.fromEntries(await Promise.all([
+        ['duplicateNode', (response) => { response.nodes = [response.nodes[0], { ...response.nodes[0] }] }],
+        ['missingNode', (response) => { response.nodes = response.nodes.slice(0, 1) }],
+        ['extraNode', (response) => { response.nodes.push({ ...response.nodes[0], id: 'node_99' }) }],
+        ['duplicateEdge', (response) => { response.edges = [response.edges[0], { ...response.edges[0] }] }],
+        ['missingEdge', (response) => { response.edges = [] }],
+        ['extraEdge', (response) => { response.edges.push({ ...response.edges[0], id: 'edge_99' }) }],
+        ['nonFiniteCoordinate', (response) => { response.nodes[0].x = NaN }],
+        ['outOfRangeCoordinate', (response) => { response.nodes[0].y = 4_097 }],
+        ['excessSections', (response) => { response.edges[0].sections = Array.from({ length: 17 }, () => section) }],
+        ['excessPoints', (response) => { response.edges[0].sections = [{ ...section, bendPoints: Array.from({ length: 65 }, () => ({ x: 1, y: 1 })) }] }],
+        ['excessDiagnostics', (response) => { response.diagnostics = Array.from({ length: 11 }, () => ({ code: 'external_stubs', count: 1 })) }],
+        ['balancedResultNodeHole', (response) => { response.nodes = balancedHole(response.nodes) }],
+        ['balancedResultEdgeHole', (response) => { response.edges = balancedHole(response.edges) }],
+        ['balancedDiagnosticsHole', (response) => { response.diagnostics = balancedHole([{ code: 'external_stubs', count: 1 }]) }],
+        ['balancedSectionHole', (response) => { response.edges[0].sections = balancedHole([section]) }],
+        ['balancedPointHole', (response) => { response.edges[0].sections = [{ ...section, bendPoints: balancedHole([{ x: 1, y: 1 }]) }] }]
+      ].map(async ([name, mutate]) => [name, await responseWith(mutate)])))
+
+      return { direct, preflight, invalidPosts, malformedResponses }
+    }, { urls, request: layoutRequest(2, { generation: 14 }) })
+
+    expect(result.direct.unsupportedVersion).toMatchObject({ type: 'error', error: { code: 'unsupported_version' } })
+    for (const [name, response] of Object.entries(result.direct)) {
+      if (name === 'unsupportedVersion') continue
+      expect(response).toMatchObject({ type: 'error', error: { code: 'invalid_request' } })
+    }
+    for (const response of Object.values(result.preflight)) {
+      expect(response).toMatchObject({ type: 'error', error: { code: 'invalid_request' } })
+    }
+    expect(result.invalidPosts).toBe(0)
+    for (const response of Object.values(result.malformedResponses)) {
+      expect(response).toMatchObject({ type: 'error', error: { code: 'malformed_response' } })
+    }
+  } finally {
+    await context.close()
+  }
+})
+
+test('worker rejects malformed engine identities and denied subresources with recoverable safe envelopes', async ({ browser }) => {
+  const urls = await layoutAssetUrls()
+  const context = await browser.newContext({ httpCredentials: dashboardCredentials })
+  const page = await context.newPage()
+  const pageErrors = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
+
+  const malformedEngine = `self.onmessage = ({ data }) => {
+    if (data.cmd === 'register') { self.postMessage({ id: data.id, data: {} }); return; }
+    const children = data.graph.children.map((node, index) => ({ id: node.id, x: index, y: index }));
+    const edges = data.graph.edges.map((edge) => ({ id: edge.id, sections: [] }));
+    switch (data.graph.layoutOptions['elk.randomSeed']) {
+      case '11': children[1] = { ...children[0] }; break;
+      case '12': children.pop(); break;
+      case '13': children.push({ id: 'node_99', x: 1, y: 1 }); break;
+      case '14': edges.push({ ...edges[0] }); break;
+      case '15': edges.pop(); break;
+      case '16': edges.push({ id: 'edge_99', sections: [] }); break;
+    }
+    self.postMessage({ id: data.id, data: { children, edges } });
+  };`
+
+  try {
+    await context.route(urls.engine, (route) => route.fulfill({ contentType: 'application/javascript', body: malformedEngine }))
+    await openFixture(page)
+
+    const malformed = await page.evaluate(async (payload) => {
+      const directWorkerRequest = (request) => new Promise((resolve, reject) => {
+        const worker = new Worker(`${payload.urls.worker}?engine=${encodeURIComponent(payload.urls.engine)}`)
+        worker.addEventListener('message', (event) => {
+          worker.terminate()
+          resolve(event.data)
+        }, { once: true })
+        worker.addEventListener('error', (event) => {
+          worker.terminate()
+          reject(new Error(event.message || 'direct worker failed'))
+        }, { once: true })
+        worker.postMessage(request)
+      })
+
+      return Promise.all([11, 12, 13, 14, 15, 16].map(async (seed) => directWorkerRequest({
+        ...payload.request,
+        requestId: `request_${seed}_2`,
+        generation: seed,
+        options: { ...payload.request.options, randomSeed: seed }
+      })))
+    }, { urls, request: layoutRequest(2, { generation: 10 }) })
+
+    expect(malformed).toHaveLength(6)
+    expect(malformed.every((response) => response.error?.code === 'invalid_engine_output')).toBe(true)
+    expect(pageErrors).toEqual([])
+  } finally {
+    await context.close()
+  }
+
+  const recoveryContext = await browser.newContext({ httpCredentials: dashboardCredentials })
+  const recoveryPage = await recoveryContext.newPage()
+  const recoveryErrors = []
+  recoveryPage.on('pageerror', (error) => recoveryErrors.push(error.message))
+
+  try {
+    await openFixture(recoveryPage)
+
+    const result = await recoveryPage.evaluate(async (payload) => {
+      const { createLayoutWorkerClient } = await import(payload.urls.client)
+      const deniedDigest = '0'.repeat(64)
+      const deniedWorkerUrl = payload.urls.worker.replace(/[a-f0-9]{64}/, deniedDigest)
+      const deniedEngineUrl = payload.urls.engine.replace(/[a-f0-9]{64}/, deniedDigest)
+      const deniedWorker = createLayoutWorkerClient({ workerUrl: deniedWorkerUrl, engineUrl: payload.urls.engine })
+      const deniedEngine = createLayoutWorkerClient({ workerUrl: payload.urls.worker, engineUrl: deniedEngineUrl })
+      const workerResponse = await deniedWorker.layout(payload.request)
+      const engineResponse = await deniedEngine.layout(payload.request)
+      deniedWorker.dispose()
+      deniedEngine.dispose()
+
+      const recovered = createLayoutWorkerClient({ workerUrl: payload.urls.worker, engineUrl: payload.urls.engine })
+      const recovery = await recovered.layout(payload.request)
+      recovered.dispose()
+      return { workerResponse, engineResponse, recovery }
+    }, { urls, request: layoutRequest(2, { generation: 17 }) })
+
+    expect(result.workerResponse).toMatchObject({ type: 'error', requestId: 'request_17_2', generation: 17, error: { code: 'worker_failed' } })
+    expect(result.engineResponse).toMatchObject({ type: 'error', requestId: 'request_17_2', generation: 17, error: { code: 'engine_failed' } })
+    expect(result.recovery).toMatchObject({ type: 'result', requestId: 'request_17_2', generation: 17 })
+    expect(JSON.stringify([result.workerResponse, result.engineResponse]).length).toBeLessThan(512)
+    expect(recoveryErrors).toEqual([])
+  } finally {
+    await recoveryContext.close()
+  }
+})
