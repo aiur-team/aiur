@@ -265,19 +265,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
   def handle_retry_issue(%State{} = state, issue_id, attempt, metadata) do
     case Orchestrator.ensure_tracker_preflight(state) do
       {:ok, state} ->
-        case Tracker.fetch_candidate_issues() do
-          {:ok, issues} ->
-            case fetch_retry_issue(issues, issue_id, &Tracker.fetch_issue_states_by_ids/1) do
-              {:ok, issue} ->
-                handle_retry_issue_lookup(issue, state, issue_id, attempt, metadata)
-
-              {:error, reason} ->
-                {:noreply, handle_retry_poll_failure(state, issue_id, attempt, metadata, reason)}
-            end
-
-          {:error, reason} ->
-            {:noreply, handle_retry_poll_failure(state, issue_id, attempt, metadata, reason)}
-        end
+        handle_retry_tracker_poll(state, issue_id, attempt, metadata)
 
       {:error, reason, state} ->
         formatted = format_retry_preflight_error(reason)
@@ -285,6 +273,16 @@ defmodule Aiur.Orchestrator.RetryEngine do
         Logger.warning("Retry poll skipped for issue_id=#{issue_id} issue_identifier=#{metadata[:identifier] || issue_id}: #{formatted}")
 
         {:noreply, handle_retry_poll_failure(state, issue_id, attempt, metadata, formatted)}
+    end
+  end
+
+  defp handle_retry_tracker_poll(state, issue_id, attempt, metadata) do
+    with {:ok, issues} <- Tracker.fetch_candidate_issues(),
+         {:ok, issue} <- fetch_retry_issue(issues, issue_id, &Tracker.fetch_issue_states_by_ids/1) do
+      handle_retry_issue_lookup(issue, state, issue_id, attempt, metadata)
+    else
+      {:error, reason} ->
+        {:noreply, handle_retry_poll_failure(state, issue_id, attempt, metadata, reason)}
     end
   end
 

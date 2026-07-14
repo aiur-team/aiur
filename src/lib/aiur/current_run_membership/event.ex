@@ -16,7 +16,8 @@ defmodule Aiur.CurrentRunMembership.Event do
             observed_at: nil,
             checksum: nil
 
-  @type lifecycle :: :queued | :retrying | :allocated | :running | :paused | :waiting | :replaced | :completed | :cancelled
+  @type lifecycle ::
+          :queued | :retrying | :allocated | :running | :paused | :waiting | :replaced | :completed | :cancelled
   @type source :: :status_report | :tracker
 
   @type t :: %__MODULE__{

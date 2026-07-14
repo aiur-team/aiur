@@ -14,14 +14,21 @@ defmodule Aiur.CurrentRunMembership.Event.Codec do
     with :ok <- valid_run_id(run_id),
          :ok <- valid_identity(identity),
          :ok <- valid_lifecycle(lifecycle),
-         :ok <- valid_source(source),
-         :ok <- valid_observed_at(observed_at) do
-      :ok
+         :ok <- valid_source(source) do
+      valid_observed_at(observed_at)
     end
   end
 
   @spec from_record(term()) ::
-          {:ok, %{run_id: String.t(), identity: TrackerIdentity.t(), lifecycle: atom(), source: atom(), observed_at: DateTime.t(), checksum: String.t()}}
+          {:ok,
+           %{
+             run_id: String.t(),
+             identity: TrackerIdentity.t(),
+             lifecycle: atom(),
+             source: atom(),
+             observed_at: DateTime.t(),
+             checksum: String.t()
+           }}
           | {:error, atom()}
   def from_record(record) when is_map(record) do
     with @record_keys <- record |> Map.keys() |> Enum.sort(),

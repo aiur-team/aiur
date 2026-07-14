@@ -1,8 +1,8 @@
 defmodule Aiur.CurrentRunMembership.Reconciler.Snapshot do
   @moduledoc false
 
-  alias Aiur.TrackerIdentity
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.TrackerIdentity
 
   @waiting_reasons [
     :waiting_for_human,

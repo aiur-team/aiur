@@ -1,9 +1,9 @@
 defmodule Aiur.CurrentRunMembership.CheckpointTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.TrackerIdentity
   alias Aiur.CurrentRunMembership.{Event, Projection}
   alias Aiur.CurrentRunMembership.Store.Checkpoint
+  alias Aiur.TrackerIdentity
 
   @run_id "checkpoint-codec-test"
   @observed_at ~U[2026-07-14 12:00:00Z]

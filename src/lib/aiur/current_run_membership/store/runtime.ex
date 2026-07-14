@@ -12,8 +12,11 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
   @spec handle_observation(Event.t(), map()) :: {:reply, term(), map()}
   def handle_observation(event, state) do
     case Projection.apply(state.projection, event) do
-      {:accepted, projection} -> persist(event, projection, state)
-      {:ignored, reason, _projection} -> {:reply, {:ok, %{status: reason, generation: state.projection.generation}}, state}
+      {:accepted, projection} ->
+        persist(event, projection, state)
+
+      {:ignored, reason, _projection} ->
+        {:reply, {:ok, %{status: reason, generation: state.projection.generation}}, state}
     end
   end
 
@@ -94,7 +97,12 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
 
   defp persist_appended_event(event, projection, state) do
     state = %{state | journal_event_count: state.journal_event_count + 1}
-    if state.journal_event_count >= state.checkpoint_interval, do: persist_checkpoint(event, projection, state), else: finish_journal_append(event, projection, state)
+
+    if state.journal_event_count >= state.checkpoint_interval do
+      persist_checkpoint(event, projection, state)
+    else
+      finish_journal_append(event, projection, state)
+    end
   end
 
   defp finish_journal_append(event, projection, state) do
@@ -109,8 +117,11 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
          :ok <- FileOps.sync_recovery_entry(state.sync_fun) do
       finish_checkpoint(event, %{state | projection: projection, health: persisted_health(state.health)})
     else
-      {:error, :checkpoint_entry_sync_failed, reason} -> persist_failed(%{state | writable?: false}, {:checkpoint_entry_sync_failed, reason})
-      {:error, reason} -> persist_failed(%{state | writable?: false}, {:checkpoint_failed, reason})
+      {:error, :checkpoint_entry_sync_failed, reason} ->
+        persist_failed(%{state | writable?: false}, {:checkpoint_entry_sync_failed, reason})
+
+      {:error, reason} ->
+        persist_failed(%{state | writable?: false}, {:checkpoint_failed, reason})
     end
   end
 

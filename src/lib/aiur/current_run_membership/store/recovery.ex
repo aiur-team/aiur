@@ -68,7 +68,10 @@ defmodule Aiur.CurrentRunMembership.Store.Recovery do
     checkpoint = Checkpoint.load(paths.checkpoint_path, run_id)
     marker = Marker.load(paths.degraded_path, run_id)
     {projection, checkpoint_health, writable?} = checkpoint_projection(checkpoint, run_id)
-    {projection, journal_health, journal_writable?, journal_event_count} = replay_journal(paths.journal_path, run_id, projection)
+
+    {projection, journal_health, journal_writable?, journal_event_count} =
+      replay_journal(paths.journal_path, run_id, projection)
+
     health = boot_health(marker, checkpoint_health, journal_health)
 
     state = %{
@@ -124,9 +127,14 @@ defmodule Aiur.CurrentRunMembership.Store.Recovery do
     end
 
     case DecisionLog.replay(path, validator) do
-      {:ok, events, nil} -> {replay_events(projection, events), :healthy, true, length(events)}
-      {:ok, events, {:corrupt, line, reason}} -> {replay_events(projection, events), {:degraded, {:journal_corrupt, line, reason}}, false, length(events)}
-      {:error, reason} -> {projection, {:unavailable, {:journal_unreadable, reason}}, false, 0}
+      {:ok, events, nil} ->
+        {replay_events(projection, events), :healthy, true, length(events)}
+
+      {:ok, events, {:corrupt, line, reason}} ->
+        {replay_events(projection, events), {:degraded, {:journal_corrupt, line, reason}}, false, length(events)}
+
+      {:error, reason} ->
+        {projection, {:unavailable, {:journal_unreadable, reason}}, false, 0}
     end
   end
 
@@ -150,10 +158,17 @@ defmodule Aiur.CurrentRunMembership.Store.Recovery do
     degrade_and_quarantine(state, state.checkpoint_path, {:checkpoint_corrupt, reason})
   end
 
-  defp maybe_quarantine_recovery_artifacts(state, _checkpoint, {:degraded, {:journal_corrupt, _line, _reason}} = health) do
+  defp maybe_quarantine_recovery_artifacts(
+         state,
+         _checkpoint,
+         {:degraded, {:journal_corrupt, _line, _reason}} = health
+       ) do
     case checkpoint_validated_journal_prefix(state) do
-      :ok -> degrade_and_quarantine(state, state.journal_path, elem(health, 1))
-      {:error, reason} -> %{state | health: {:unavailable, {:journal_prefix_checkpoint_failed, reason}}, writable?: false}
+      :ok ->
+        degrade_and_quarantine(state, state.journal_path, elem(health, 1))
+
+      {:error, reason} ->
+        %{state | health: {:unavailable, {:journal_prefix_checkpoint_failed, reason}}, writable?: false}
     end
   end
 
@@ -174,8 +189,11 @@ defmodule Aiur.CurrentRunMembership.Store.Recovery do
     case state.degraded_marker_fun.(state.degraded_path, state.run_id, reason, state.sync_fun) do
       :ok ->
         case state.quarantine_fun.(path) do
-          :ok -> %{state | health: {:degraded, reason}, writable?: false}
-          {:error, quarantine_reason} -> %{state | health: {:unavailable, {:quarantine_failed, quarantine_reason}}, writable?: false}
+          :ok ->
+            %{state | health: {:degraded, reason}, writable?: false}
+
+          {:error, quarantine_reason} ->
+            %{state | health: {:unavailable, {:quarantine_failed, quarantine_reason}}, writable?: false}
         end
 
       {:error, marker_reason} ->
