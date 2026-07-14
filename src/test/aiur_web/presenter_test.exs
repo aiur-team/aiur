@@ -2,7 +2,7 @@ defmodule AiurWeb.PresenterTest do
   use Aiur.TestSupport
 
   alias Aiur.Events.SubscriptionStore
-  alias Aiur.Issue
+  alias Aiur.{Issue, TrackerIdentity}
   alias Aiur.Orchestrator
   alias Aiur.RecentMerge
   alias AiurWeb.Presenter
@@ -33,6 +33,19 @@ defmodule AiurWeb.PresenterTest do
     }
   end
 
+  defp tracker_identity(identifier) do
+    %TrackerIdentity{
+      version: 1,
+      status: :joinable,
+      kind: :github,
+      owner: "owner",
+      repository: "repo",
+      provider_id: "I_kwDO#{identifier}",
+      identifier: identifier,
+      reason: nil
+    }
+  end
+
   test "projects explicit waiting reasons, staleness, CI/PR, and idle rows" do
     orchestrator_name = Module.concat(__MODULE__, :FleetOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
@@ -45,13 +58,23 @@ defmodule AiurWeb.PresenterTest do
       "issue-ci-wait"
       |> running_entry("MT-700", :paused, "ci-wait")
       |> Map.put(:paused_reason, :ci_wait)
+      |> put_in([:issue, Access.key(:tracker_identity)], tracker_identity("MT-700"))
+
+    retry_identity = tracker_identity("MT-701")
+    idle_identity = tracker_identity("MT-702")
 
     :sys.replace_state(pid, fn state ->
       %{
         state
         | running: %{"issue-ci-wait" => ci_wait_entry},
           retry_attempts: %{
-            "mt-701" => %{attempt: 1, timer_ref: nil, due_at_ms: System.monotonic_time(:millisecond) + 5_000, identifier: "MT-701"}
+            "mt-701" => %{
+              attempt: 1,
+              timer_ref: nil,
+              due_at_ms: System.monotonic_time(:millisecond) + 5_000,
+              identifier: "MT-701",
+              tracker_identity: retry_identity
+            }
           },
           ci_lifecycle: %{
             state.ci_lifecycle
@@ -62,8 +85,20 @@ defmodule AiurWeb.PresenterTest do
           },
           last_polled_issues: %{
             "issue-ci-wait" => %Issue{id: "issue-ci-wait", identifier: "MT-700", state: "ci-wait"},
-            "mt-701" => %Issue{id: "mt-701", identifier: "MT-701", state: "rework", title: "Retrying"},
-            "issue-idle" => %Issue{id: "issue-idle", identifier: "MT-702", state: "human-review", title: "Idle review"}
+            "mt-701" => %Issue{
+              id: "mt-701",
+              identifier: "MT-701",
+              state: "rework",
+              title: "Retrying",
+              tracker_identity: retry_identity
+            },
+            "issue-idle" => %Issue{
+              id: "issue-idle",
+              identifier: "MT-702",
+              state: "human-review",
+              title: "Idle review",
+              tracker_identity: idle_identity
+            }
           }
       }
     end)
@@ -84,6 +119,7 @@ defmodule AiurWeb.PresenterTest do
     assert running_row.review == :not_started
     assert running_row.open_decision_count == 0
     assert is_integer(running_row.stale_for_seconds)
+    assert running_row.tracker_identity == tracker_identity("MT-700")
 
     assert [retry_row] = payload.retrying
     assert retry_row.state == "rework"
@@ -91,12 +127,44 @@ defmodule AiurWeb.PresenterTest do
     assert retry_row.open_decision_count == 0
     assert retry_row.ci == nil
     assert retry_row.review == :not_started
+    assert retry_row.tracker_identity == retry_identity
 
     assert [idle_row] = payload.idle
     assert idle_row.issue_identifier == "MT-702"
     assert idle_row.waiting_reason == :waiting_for_review
     assert idle_row.ci == %{decision: :passed, pr_number: 56, head_sha: "def456"}
     assert idle_row.review == :awaiting
+    assert idle_row.tracker_identity == idle_identity
+  end
+
+  test "omits identity from an ambiguous identifier route" do
+    orchestrator_name = Module.concat(__MODULE__, :AmbiguousIdentityOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    identifier = "MT-AMBIGUOUS"
+    first_identity = %{tracker_identity(identifier) | provider_id: "I_kwDOFirst"}
+    second_identity = %{tracker_identity(identifier) | provider_id: "I_kwDOSecond"}
+
+    first =
+      "issue-first"
+      |> running_entry(identifier, :working)
+      |> put_in([:issue, Access.key(:tracker_identity)], first_identity)
+
+    second =
+      "issue-second"
+      |> running_entry(identifier, :working)
+      |> put_in([:issue, Access.key(:tracker_identity)], second_identity)
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-first" => first, "issue-second" => second}}
+    end)
+
+    assert {:ok, payload} = Presenter.issue_payload(identifier, orchestrator_name, 1_000)
+    refute Map.has_key?(payload, :tracker_identity)
   end
 
   test "open_decision_count reuses the existing SubscriptionStore open-attentions count" do

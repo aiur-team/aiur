@@ -29,7 +29,9 @@ defmodule Aiur.GitHub.Config do
   Unlike `repo/0`, this never falls back to the current checkout's git remote;
   callers using it are establishing a trusted cross-repository identity.
   """
-  @spec configured_repo() :: {:ok, {String.t(), String.t()}} | {:error, :missing_configured_repository | :invalid_configured_repository}
+  @spec configured_repo() ::
+          {:ok, {String.t(), String.t()}}
+          | {:error, :missing_configured_repository | :invalid_configured_repository}
   def configured_repo do
     case section_value("repo") do
       value when is_binary(value) -> parse_configured_repo(value)

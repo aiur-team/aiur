@@ -1,11 +1,22 @@
 defmodule Aiur.OrchestratorStatusTest do
   use Aiur.TestSupport
 
-  alias Aiur.{AgentQueueStore, AgentPubSub, Issue, TrackerIdentity}
+  alias Aiur.{AgentPubSub, AgentQueueStore, Issue, TrackerIdentity}
   alias Aiur.Codex.CodingAgent, as: CodexCodingAgent
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Opencode.ActiveTurns
-  alias Aiur.Orchestrator.{CiLifecycle, HumanReview, OperatorMessages, PauseResume, Reconciler, State, StatusReport, WorkspaceCleanup}
+
+  alias Aiur.Orchestrator.{
+    CiLifecycle,
+    HumanReview,
+    OperatorMessages,
+    PauseResume,
+    Reconciler,
+    State,
+    StatusReport,
+    WorkspaceCleanup
+  }
+
   alias Aiur.SessionHandle
 
   defmodule StartupCleanupLinearClient do
@@ -1572,9 +1583,24 @@ defmodule Aiur.OrchestratorStatusTest do
             }
           },
           last_polled_issues: %{
-            "issue-running" => %Issue{id: "issue-running", identifier: "MT-701", state: "in-progress", tracker_identity: running_identity},
-            "issue-retrying" => %Issue{id: "issue-retrying", identifier: "MT-702", state: "in-progress"},
-            "issue-idle" => %Issue{id: "issue-idle", identifier: "MT-703", state: "todo", tracker_identity: idle_identity}
+            "issue-running" => %Issue{
+              id: "issue-running",
+              identifier: "MT-701",
+              state: "in-progress",
+              tracker_identity: running_identity
+            },
+            "issue-retrying" => %Issue{
+              id: "issue-retrying",
+              identifier: "MT-702",
+              state: "in-progress",
+              tracker_identity: retry_identity
+            },
+            "issue-idle" => %Issue{
+              id: "issue-idle",
+              identifier: "MT-703",
+              state: "todo",
+              tracker_identity: idle_identity
+            }
           }
       }
     end)
@@ -1590,11 +1616,82 @@ defmodule Aiur.OrchestratorStatusTest do
     assert %{tracker_identity: ^retry_identity} =
              Enum.find(Orchestrator.status(orchestrator_name, 1_000), &(&1.identifier == "MT-702"))
 
+    assert %{tracker_identity: ^idle_identity} =
+             Enum.find(Orchestrator.status(orchestrator_name, 1_000), &(&1.identifier == "MT-703"))
+
     :ok = AgentPubSub.subscribe_running()
     :ok = StatusReport.notify_dashboard(:sys.get_state(pid))
     assert_receive {:running_changed, summaries}
-    assert %{tracker_identity: ^running_identity} = Enum.find(summaries, &(&1.identifier == "MT-701"))
-    assert %{tracker_identity: ^retry_identity} = Enum.find(summaries, &(&1.identifier == "MT-702"))
+
+    assert %{tracker_identity: ^running_identity} =
+             Enum.find(summaries, &(&1.identifier == "MT-701"))
+
+    assert %{tracker_identity: ^retry_identity} =
+             Enum.find(summaries, &(&1.identifier == "MT-702"))
+
+    assert %{tracker_identity: ^idle_identity} =
+             Enum.find(summaries, &(&1.identifier == "MT-703"))
+  end
+
+  test "status snapshots do not overwrite current identity from a same-number retry" do
+    orchestrator_name = Module.concat(__MODULE__, :IdentityCollisionOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    retry_identity = tracker_identity("42")
+
+    current_identity =
+      TrackerIdentity.unjoinable(:repository_mismatch,
+        owner: "owner",
+        repository: "repo",
+        identifier: 42
+      )
+
+    legacy_identity = TrackerIdentity.unjoinable(:legacy, identifier: 42)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | retry_attempts: %{
+            "issue-retrying" => %{
+              attempt: 1,
+              timer_ref: nil,
+              due_at_ms: System.monotonic_time(:millisecond) + 5_000,
+              identifier: "42",
+              tracker_identity: retry_identity
+            }
+          },
+          last_polled_issues: %{
+            "issue-retrying" => %Issue{
+              id: "issue-retrying",
+              identifier: "42",
+              state: "in-progress",
+              tracker_identity: current_identity
+            },
+            "legacy-42" => %Issue{
+              id: "legacy-42",
+              identifier: "42",
+              state: "todo",
+              tracker_identity: legacy_identity
+            }
+          }
+      }
+    end)
+
+    snapshot = Orchestrator.snapshot(orchestrator_name, 1_000)
+    assert [%{tracker_identity: ^current_identity}] = snapshot.retrying
+    assert [%{issue_id: "legacy-42", tracker_identity: ^legacy_identity}] = snapshot.idle
+
+    statuses = Orchestrator.status(orchestrator_name, 1_000)
+
+    assert %{tracker_identity: ^current_identity} =
+             Enum.find(statuses, &(&1.issue_id == "issue-retrying"))
+
+    assert %{tracker_identity: ^legacy_identity} =
+             Enum.find(statuses, &(&1.issue_id == "legacy-42"))
   end
 
   test "orchestrator snapshot includes idle rows and explicit waiting reasons" do

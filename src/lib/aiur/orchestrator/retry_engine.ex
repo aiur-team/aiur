@@ -471,6 +471,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
          attempt,
          Map.merge(metadata, %{
            identifier: issue.identifier,
+           tracker_identity: Issue.tracker_identity(issue),
            error: "no available orchestrator slots",
            delay_type: :capacity_wait
          })
@@ -506,7 +507,11 @@ defmodule Aiur.Orchestrator.RetryEngine do
   end
 
   defp pick_retry_tracker_identity(previous_retry, metadata) do
-    metadata[:tracker_identity] || Map.get(previous_retry, :tracker_identity)
+    if Map.has_key?(metadata, :tracker_identity) do
+      Map.get(metadata, :tracker_identity)
+    else
+      Map.get(previous_retry, :tracker_identity)
+    end
   end
 
   defp find_issue_by_id(issues, issue_id) when is_binary(issue_id) do

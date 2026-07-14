@@ -80,8 +80,11 @@ defmodule Aiur.TrackerIdentity do
   def unjoinable(reason, opts \\ []) when is_atom(reason) and is_list(opts) do
     {owner, repository} =
       case {Keyword.get(opts, :owner), Keyword.get(opts, :repository)} do
-        {owner, repository} when is_binary(owner) and is_binary(repository) -> {String.trim(owner), String.trim(repository)}
-        _ -> {nil, nil}
+        {owner, repository} when is_binary(owner) and is_binary(repository) ->
+          {String.trim(owner), String.trim(repository)}
+
+        _ ->
+          {nil, nil}
       end
 
     %__MODULE__{
@@ -144,40 +147,73 @@ defmodule Aiur.TrackerIdentity do
   end
 
   defp ensure_response_repository(issue, configured) do
-    case response_repository(issue) do
-      :absent -> :ok
-      {:ok, response} -> ensure_same_repository(configured, response)
-      :error -> {:error, :repository_mismatch}
+    case response_repositories(issue) do
+      :absent ->
+        :ok
+
+      {:ok, responses} ->
+        Enum.reduce_while(responses, :ok, &ensure_response_match(&1, configured, &2))
+
+      :error ->
+        {:error, :repository_mismatch}
     end
   end
 
-  defp response_repository(%{"repository_url" => url}) when is_binary(url) do
-    case URI.parse(url) do
-      %URI{scheme: "https", host: "api.github.com", path: "/repos/" <> path} ->
-        case String.split(path, "/", trim: true) do
-          [owner, repository] ->
-            case normalize_repository({owner, repository}, :repository_mismatch) do
-              {:ok, response} -> {:ok, response}
-              {:error, _reason} -> :error
-            end
+  defp ensure_response_match(response, configured, :ok) do
+    case ensure_same_repository(configured, response) do
+      :ok -> {:cont, :ok}
+      {:error, _reason} -> {:halt, {:error, :repository_mismatch}}
+    end
+  end
 
-          _ ->
-            :error
+  defp response_repositories(issue) do
+    [response_repository_url(issue), response_repository_object(issue)]
+    |> Enum.reduce_while({:ok, []}, fn
+      :absent, {:ok, responses} -> {:cont, {:ok, responses}}
+      {:ok, response}, {:ok, responses} -> {:cont, {:ok, [response | responses]}}
+      :error, _responses -> {:halt, :error}
+    end)
+    |> case do
+      {:ok, []} -> :absent
+      {:ok, responses} -> {:ok, responses}
+      :error -> :error
+    end
+  end
+
+  defp response_repository_url(issue) do
+    case Map.fetch(issue, "repository_url") do
+      :error -> :absent
+      {:ok, url} -> parse_response_repository_url(url)
+    end
+  end
+
+  defp parse_response_repository_url(url) when is_binary(url) do
+    with %URI{scheme: "https", host: "api.github.com", path: "/repos/" <> path} <- URI.parse(url),
+         [owner, repository] <- String.split(path, "/", trim: true),
+         {:ok, response} <- normalize_repository({owner, repository}, :repository_mismatch) do
+      {:ok, response}
+    else
+      _ -> :error
+    end
+  end
+
+  defp parse_response_repository_url(_url), do: :error
+
+  defp response_repository_object(issue) do
+    case Map.fetch(issue, "repository") do
+      :error ->
+        :absent
+
+      {:ok, %{"owner" => %{"login" => owner}, "name" => repository}} ->
+        case normalize_repository({owner, repository}, :repository_mismatch) do
+          {:ok, response} -> {:ok, response}
+          {:error, _reason} -> :error
         end
 
-      _ ->
+      {:ok, _repository} ->
         :error
     end
   end
-
-  defp response_repository(%{"repository" => %{"owner" => %{"login" => owner}, "name" => repository}}) do
-    case normalize_repository({owner, repository}, :repository_mismatch) do
-      {:ok, response} -> {:ok, response}
-      {:error, _reason} -> :error
-    end
-  end
-
-  defp response_repository(_issue), do: :absent
 
   defp same_repository?({configured_owner, configured_repository}, {requested_owner, requested_repository}) do
     String.downcase(configured_owner) == String.downcase(requested_owner) and

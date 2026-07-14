@@ -118,6 +118,21 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
   end
 
   describe "schedule_issue_retry/4" do
+    test "stores identity supplied for a newly scheduled retry" do
+      identity = tracker_identity("repo#new")
+
+      next =
+        RetryEngine.schedule_issue_retry(%State{}, "issue-new", 1, %{
+          identifier: "repo#new",
+          tracker_identity: identity,
+          delay_type: :continuation
+        })
+
+      retry = next.retry_attempts["issue-new"]
+      assert retry.tracker_identity == identity
+      Process.cancel_timer(retry.timer_ref)
+    end
+
     test "retains the prior identity across a retry/session reschedule" do
       identity = tracker_identity("repo#2")
 
@@ -139,6 +154,27 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
 
       retry = next.retry_attempts["issue-2"]
       assert retry.tracker_identity == identity
+      Process.cancel_timer(retry.timer_ref)
+    end
+
+    test "clears the prior identity when a reschedule explicitly supplies nil" do
+      identity = tracker_identity("repo#3")
+
+      state = %State{
+        retry_attempts: %{
+          "issue-3" => %{attempt: 1, timer_ref: nil, tracker_identity: identity}
+        }
+      }
+
+      next =
+        RetryEngine.schedule_issue_retry(state, "issue-3", 1, %{
+          identifier: "repo#3",
+          tracker_identity: nil,
+          delay_type: :continuation
+        })
+
+      retry = next.retry_attempts["issue-3"]
+      assert retry.tracker_identity == nil
       Process.cancel_timer(retry.timer_ref)
     end
   end

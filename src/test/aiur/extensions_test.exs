@@ -647,6 +647,48 @@ defmodule Aiur.ExtensionsTest do
            } = json_response(get(build_conn(), "/api/v1/MT-IDLE"), 200)
   end
 
+  test "observability API preserves tracker identity in status and issue snapshots" do
+    identity = %Aiur.TrackerIdentity{
+      version: 1,
+      status: :joinable,
+      kind: :github,
+      owner: "owner",
+      repository: "repo",
+      provider_id: "I_kwDOHTTP",
+      identifier: "MT-HTTP"
+    }
+
+    snapshot =
+      update_in(static_snapshot(), [:running], fn [running] ->
+        [Map.put(running, :tracker_identity, identity)]
+      end)
+
+    orchestrator_name = Module.concat(__MODULE__, :TrackerIdentityObservabilityApiOrchestrator)
+    {:ok, _pid} = StaticOrchestrator.start_link(name: orchestrator_name, snapshot: snapshot)
+    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
+
+    assert %{
+             "running" => [
+               %{
+                 "tracker_identity" => %{
+                   "version" => 1,
+                   "status" => "joinable",
+                   "kind" => "github",
+                   "owner" => "owner",
+                   "repository" => "repo",
+                   "provider_id" => "I_kwDOHTTP",
+                   "identifier" => "MT-HTTP"
+                 }
+               }
+             ]
+           } = json_response(get(build_conn(), "/api/v1/state"), 200)
+
+    assert %{
+             "tracker_identity" => %{"provider_id" => "I_kwDOHTTP"},
+             "running" => %{"tracker_identity" => %{"provider_id" => "I_kwDOHTTP"}}
+           } = json_response(get(build_conn(), "/api/v1/MT-HTTP"), 200)
+  end
+
   test "read-only dashboard blocks agent-write endpoints but keeps reads working" do
     snapshot = static_snapshot()
     orchestrator_name = Module.concat(__MODULE__, :ReadOnlyOrchestrator)

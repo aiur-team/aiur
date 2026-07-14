@@ -31,10 +31,36 @@ defmodule Aiur.TrackerIdentityTest do
   end
 
   test "rejects request and response repositories that differ from configuration" do
-    issue = %{"node_id" => "I_kwDOExample", "number" => 42, "repository_url" => "https://api.github.com/repos/other/repo"}
+    issue = %{
+      "node_id" => "I_kwDOExample",
+      "number" => 42,
+      "repository_url" => "https://api.github.com/repos/other/repo"
+    }
 
     assert {:error, :repository_mismatch} = TrackerIdentity.from_github(issue, @configured, @configured)
-    assert {:error, :repository_mismatch} = TrackerIdentity.from_github(Map.delete(issue, "repository_url"), @configured, {"other", "repo"})
+
+    assert {:error, :repository_mismatch} =
+             TrackerIdentity.from_github(
+               Map.delete(issue, "repository_url"),
+               @configured,
+               {"other", "repo"}
+             )
+  end
+
+  test "rejects malformed or conflicting response repository locators" do
+    base = %{"node_id" => "I_kwDOExample", "number" => 42}
+
+    for issue <- [
+          Map.put(base, "repository_url", 42),
+          Map.put(base, "repository", %{"owner" => "owner", "name" => "repo"}),
+          Map.merge(base, %{
+            "repository_url" => "https://api.github.com/repos/owner/repo",
+            "repository" => %{"owner" => %{"login" => "other"}, "name" => "repo"}
+          })
+        ] do
+      assert {:error, :repository_mismatch} =
+               TrackerIdentity.from_github(issue, @configured, @configured)
+    end
   end
 
   test "rejects missing or malformed provider identity without deriving one from locators" do
@@ -52,14 +78,25 @@ defmodule Aiur.TrackerIdentityTest do
             "active_workflow" => "owner/repo"
           }
         ] do
-      refute match?({:ok, _}, TrackerIdentity.from_github(issue, @configured, @configured))
+      refute match?(
+               {:ok, _},
+               TrackerIdentity.from_github(issue, @configured, @configured)
+             )
     end
   end
 
   test "legacy and explicitly unjoinable identities never join" do
     legacy = TrackerIdentity.unjoinable(:legacy)
     mismatch = TrackerIdentity.unjoinable(:repository_mismatch, owner: "owner", repository: "repo", identifier: 42)
-    malformed = %TrackerIdentity{status: :joinable, kind: :github, owner: "", repository: "repo", provider_id: "number-42", identifier: "42"}
+
+    malformed = %TrackerIdentity{
+      status: :joinable,
+      kind: :github,
+      owner: "",
+      repository: "repo",
+      provider_id: "number-42",
+      identifier: "42"
+    }
 
     refute TrackerIdentity.joinable?(nil)
     assert Issue.tracker_identity(%Issue{id: "linear-id", identifier: "LIN-42"}) == nil

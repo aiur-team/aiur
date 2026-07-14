@@ -165,14 +165,24 @@ defmodule AiurWeb.Presenter do
   def issue_payload(issue_identifier, orchestrator, snapshot_timeout_ms) when is_binary(issue_identifier) do
     case Orchestrator.snapshot(orchestrator, snapshot_timeout_ms) do
       %{} = snapshot ->
-        running = Enum.find(snapshot.running, &(&1.identifier == issue_identifier))
-        retry = Enum.find(snapshot.retrying, &(&1.identifier == issue_identifier))
-        idle = Enum.find(Map.get(snapshot, :idle, []), &(&1.identifier == issue_identifier))
+        running_matches = Enum.filter(snapshot.running, &(&1.identifier == issue_identifier))
+        retry_matches = Enum.filter(snapshot.retrying, &(&1.identifier == issue_identifier))
+        idle_matches = Enum.filter(Map.get(snapshot, :idle, []), &(&1.identifier == issue_identifier))
+        entries = running_matches ++ retry_matches ++ idle_matches
 
-        if is_nil(running) and is_nil(retry) and is_nil(idle) do
-          {:error, :issue_not_found}
-        else
-          {:ok, issue_payload_body(issue_identifier, running, retry, idle)}
+        case entries do
+          [] ->
+            {:error, :issue_not_found}
+
+          _ ->
+            {:ok,
+             issue_payload_body(
+               issue_identifier,
+               List.first(running_matches),
+               List.first(retry_matches),
+               List.first(idle_matches),
+               consistent_tracker_identity(entries)
+             )}
         end
 
       _ ->
@@ -191,7 +201,7 @@ defmodule AiurWeb.Presenter do
     end
   end
 
-  defp issue_payload_body(issue_identifier, running, retry, idle) do
+  defp issue_payload_body(issue_identifier, running, retry, idle, tracker_identity) do
     %{
       issue_identifier: issue_identifier,
       issue_id: issue_id_from_entries(running, retry, idle),
@@ -217,11 +227,19 @@ defmodule AiurWeb.Presenter do
       last_error: retry_error(retry),
       tracked: %{}
     }
+    |> maybe_put_tracker_identity(tracker_identity)
     |> maybe_put_idle_payload(idle)
   end
 
   defp issue_id_from_entries(running, retry, idle),
     do: (running && running.issue_id) || (retry && retry.issue_id) || (idle && idle.issue_id)
+
+  defp consistent_tracker_identity(entries) do
+    case entries |> Enum.map(&Map.get(&1, :tracker_identity)) |> Enum.uniq() do
+      [identity] when not is_nil(identity) -> identity
+      _ -> nil
+    end
+  end
 
   defp restart_count(retry), do: max(retry_attempt(retry) - 1, 0)
   defp retry_attempt(nil), do: 0
@@ -288,6 +306,7 @@ defmodule AiurWeb.Presenter do
         total_tokens: entry.agent_total_tokens
       }
     }
+    |> maybe_put_tracker_identity(entry)
   end
 
   defp retry_entry_payload(entry) do
@@ -311,6 +330,7 @@ defmodule AiurWeb.Presenter do
       ci: ci_payload(Map.get(entry, :ci_result)),
       review: review_status(Map.get(entry, :state))
     }
+    |> maybe_put_tracker_identity(entry)
   end
 
   defp idle_entry_payload(entry) do
@@ -330,6 +350,22 @@ defmodule AiurWeb.Presenter do
       ci: ci_payload(Map.get(entry, :ci_result)),
       review: review_status(entry.state)
     }
+    |> maybe_put_tracker_identity(entry)
+  end
+
+  defp maybe_put_tracker_identity(payload, entry_or_identity) do
+    identity =
+      case entry_or_identity do
+        %{tracker_identity: tracker_identity} -> tracker_identity
+        %Aiur.TrackerIdentity{} = tracker_identity -> tracker_identity
+        %{} -> nil
+        tracker_identity -> tracker_identity
+      end
+
+    case identity do
+      nil -> payload
+      identity -> Map.put(payload, :tracker_identity, identity)
+    end
   end
 
   # CI/PR data comes from the existing GithubCIPoller poll cadence in
@@ -384,6 +420,7 @@ defmodule AiurWeb.Presenter do
         total_tokens: running.agent_total_tokens
       }
     }
+    |> maybe_put_tracker_identity(running)
   end
 
   defp retry_issue_payload(retry) do
@@ -399,6 +436,7 @@ defmodule AiurWeb.Presenter do
       ci: ci_payload(Map.get(retry, :ci_result)),
       review: review_status(Map.get(retry, :state))
     }
+    |> maybe_put_tracker_identity(retry)
   end
 
   defp workspace_path(issue_identifier, running, retry) do

@@ -157,7 +157,14 @@ defmodule Aiur.GitHub.IssuesTest do
 
       assert issue.id == "10"
 
-      assert %{status: :joinable, kind: :github, owner: "owner", repository: "repo", provider_id: "I_kwDOIssue10", identifier: "10"} =
+      assert %{
+               status: :joinable,
+               kind: :github,
+               owner: "owner",
+               repository: "repo",
+               provider_id: "I_kwDOIssue10",
+               identifier: "10"
+             } =
                issue.tracker_identity
 
       assert issue.title == "Test issue"
@@ -194,6 +201,19 @@ defmodule Aiur.GitHub.IssuesTest do
       issue = %{"number" => 16, "node_id" => "I_kwDOIssue16", "labels" => []}
 
       assert %{status: :unjoinable, reason: :missing_configured_repository} =
+               Issues.normalize_issue(issue, "owner", "repo", "sym").tracker_identity
+    end
+
+    test "marks malformed configured repositories explicitly nonjoinable" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo/extra",
+        tracker_label_prefix: "sym"
+      )
+
+      issue = %{"number" => 17, "node_id" => "I_kwDOIssue17", "labels" => []}
+
+      assert %{status: :unjoinable, reason: :invalid_configured_repository} =
                Issues.normalize_issue(issue, "owner", "repo", "sym").tracker_identity
     end
 
