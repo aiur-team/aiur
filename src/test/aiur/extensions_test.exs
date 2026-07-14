@@ -938,6 +938,27 @@ defmodule Aiur.ExtensionsTest do
       response(get(build_conn(), "/vendor/phoenix_live_view/phoenix_live_view.js"), 200)
 
     assert live_view_js =~ "var LiveView = (() => {"
+
+    layout_urls = AiurWeb.StaticAssets.layout_asset_urls()
+
+    assert layout_urls.engine =~ ~r/^\/vendor\/layout\/elk-0\.11\.1\/[a-f0-9]{64}\/elk-worker\.min\.js$/
+    assert layout_urls.worker =~ ~r/^\/vendor\/layout\/worker-v1\/[a-f0-9]{64}\/aiur-layout-worker\.js$/
+    assert layout_urls.client =~ ~r/^\/vendor\/layout\/client-v1\/[a-f0-9]{64}\/aiur-layout-client\.js$/
+
+    for url <- Map.values(layout_urls) do
+      conn = get(build_conn(), url)
+      assert response(conn, 200) != ""
+      assert Plug.Conn.get_resp_header(conn, "content-type") == ["application/javascript; charset=utf-8"]
+      assert Plug.Conn.get_resp_header(conn, "cache-control") == ["private, max-age=31536000, immutable"]
+    end
+
+    assert response(get(build_conn(), "/vendor/layout/worker-v1/not-a-digest/aiur-layout-worker.js"), 404) == "Not Found"
+
+    for private_asset <- ["LICENSE.md", "PROVENANCE.md", "SOURCE.md"] do
+      private_asset_url = String.replace(layout_urls.worker, "aiur-layout-worker.js", private_asset)
+      assert response(get(build_conn(), private_asset_url), 404) == "Not Found"
+    end
+
     assert html =~ "AgentLogPanel"
     assert html =~ "hooks: Hooks"
   end
