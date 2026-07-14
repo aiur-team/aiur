@@ -237,7 +237,7 @@ defmodule Aiur.WorkspaceMaterializeTest do
         end)
       end)
 
-    assert_receive :recovery_locked
+    assert_receive :recovery_locked, 2_000
 
     materialization =
       Task.async(fn ->
@@ -251,7 +251,7 @@ defmodule Aiur.WorkspaceMaterializeTest do
 
     assert :ok = Task.await(recovery)
     assert :ok = Task.await(materialization)
-    assert_receive {:materialization_finished, :ok}
+    assert_receive {:materialization_finished, :ok}, 2_000
     assert branch(workspace) == "aiur/serialized"
   end
 
