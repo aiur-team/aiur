@@ -222,12 +222,12 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
 <script>
 const RUN = {
   phase: 1,
-  updated: "2026-07-13 19:06 PDT",
+  updated: "2026-07-13 19:47 PDT",
   tickets: {
     "BO-004": {state:"working", progress:70, issue:1086},
-    "BO-008": {state:"working", progress:70, issue:1087},
-    "DASH-006": {state:"working", progress:70, issue:1088},
-    "DASH-017": {state:"working", progress:50, issue:1089},
+    "BO-008": {state:"human review", progress:90, issue:1087},
+    "DASH-006": {state:"working", progress:90, issue:1088},
+    "DASH-017": {state:"working", progress:90, issue:1089},
     "DASH-018": {state:"working", progress:70, issue:1090}
   }
 };
@@ -450,15 +450,18 @@ document.addEventListener("keydown",e=>{ if(e.key==="Escape") drawer.classList.r
 (function(){
   const T = DATA.tickets;
   const pts = T.reduce((s,t)=>s+t.cx,0);
-  const active = Object.values(RUN.tickets).filter(t=>t.state==="working");
-  const aggregate = Math.round(active.reduce((sum,t)=>sum+t.progress,0)/active.length);
+  const phaseTickets = Object.values(RUN.tickets);
+  const working = phaseTickets.filter(t=>t.state==="working");
+  const review = phaseTickets.filter(t=>t.state==="human review");
+  const aggregate = Math.round(phaseTickets.reduce((sum,t)=>sum+t.progress,0)/phaseTickets.length);
+  const phaseState = `${working.length} Terra agents working${review.length ? ` · ${review.length} in human review` : ""}`;
   document.getElementById("runSnapshot").innerHTML = `
-    <div class="run-primary"><span class="run-kicker">Phase ${RUN.phase} live</span><span class="run-copy">${active.length} Terra agents working · ${aggregate}% average agent check-in progress</span></div>
-    <div class="run-meta"><span>0 merged · ${T.length-active.length} waiting</span><span>snapshot ${RUN.updated}</span></div>`;
+    <div class="run-primary"><span class="run-kicker">Phase ${RUN.phase} live</span><span class="run-copy">${phaseState} · ${aggregate}% average agent check-in progress</span></div>
+    <div class="run-meta"><span>0 merged · ${T.length-phaseTickets.length} waiting</span><span>snapshot ${RUN.updated}</span></div>`;
   document.getElementById("kpis").innerHTML = [
-    ["good", active.length, "active now — Phase 1"],
+    ["good", phaseTickets.length, "working or in review — Phase 1"],
     ["acc", aggregate+"%", "average agent check-in progress"],
-    ["", T.length-active.length, "waiting behind active work"],
+    ["", T.length-phaseTickets.length, "waiting behind Phase 1"],
     ["sup", pts, "complexity points across 5 epics"],
     ["attn", DATA.critical_path.length, "tickets on the serial critical path"],
     ["", DATA.edge_count, "hard blocker edges in the graph"],
