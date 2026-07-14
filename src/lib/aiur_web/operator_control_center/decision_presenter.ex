@@ -200,8 +200,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
     end)
   end
 
-  defp safe_artifacts(_artifacts), do: []
-
   defp safe_url_artifact(value) do
     case URI.parse(value) do
       %URI{scheme: "https", host: host, userinfo: userinfo, query: query, fragment: fragment}
