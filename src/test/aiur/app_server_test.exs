@@ -1,6 +1,9 @@
 defmodule Aiur.AppServerTest do
   use Aiur.TestSupport
 
+  alias Aiur.AgentRunner.MessageHandler
+  alias Aiur.GitHub.AgentCommentOrigins
+
   test "app server rejects the workspace root and paths outside workspace root" do
     test_root =
       Path.join(
@@ -548,7 +551,7 @@ defmodule Aiur.AppServerTest do
       }
 
       handler =
-        Aiur.AgentRunner.MessageHandler.build(nil, issue, nil, nil, "codex", nil,
+        MessageHandler.build(nil, issue, nil, nil, "codex", nil,
           agent_comment_origin_recorder: fn _ticket, _command, _output, _exit_code ->
             {:error, :disk_full}
           end
@@ -557,7 +560,7 @@ defmodule Aiur.AppServerTest do
       assert {:error, {:agent_comment_origin_not_recorded, :disk_full}} =
                AppServer.run(workspace, "Post top-level comment", issue, on_message: handler)
 
-      assert Aiur.GitHub.AgentCommentOrigins.origin(issue.identifier, %{"id" => 71_151}) == :agent
+      assert AgentCommentOrigins.origin(issue.identifier, %{"id" => 71_151}) == :agent
     after
       File.rm_rf(test_root)
 
