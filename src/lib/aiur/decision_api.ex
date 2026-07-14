@@ -13,9 +13,9 @@ defmodule Aiur.DecisionApi do
     Decision,
     DecisionAnswer,
     DecisionApi.LegacyPagination,
+    DecisionApi.PublicProjection,
     DecisionAuthority,
     DecisionDelegation,
-    DecisionApi.PublicProjection,
     DecisionQuery,
     DecisionRevision,
     DecisionStore

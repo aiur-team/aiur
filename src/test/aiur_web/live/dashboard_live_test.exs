@@ -238,6 +238,17 @@ defmodule AiurWeb.DashboardLiveTest do
     def handle_call(:health, _from, state), do: {:reply, :writable, state}
     def handle_call({:get, decision_id}, _from, %{decision: %{decision_id: decision_id} = decision} = state), do: {:reply, {:ok, decision}, state}
     def handle_call({:get, _decision_id}, _from, state), do: {:reply, {:error, :not_found}, state}
+
+    def handle_call(
+          {:retained_lookup, decision_id},
+          _from,
+          %{decision: %{decision_id: decision_id} = decision} = state
+        ),
+        do: {:reply, {:ok, %{decision: decision, health: :writable}}, state}
+
+    def handle_call({:retained_lookup, _decision_id}, _from, state),
+      do: {:reply, {:ok, %{decision: nil, health: :writable}}, state}
+
     def handle_call(:list, _from, state), do: {:reply, [state.decision], state}
     def handle_call({:recent_decisions, _limit}, _from, state), do: {:reply, [state.decision], state}
     def handle_call(:all_history, _from, state), do: {:reply, %{state.decision.decision_id => [state.decision]}, state}
@@ -272,6 +283,17 @@ defmodule AiurWeb.DashboardLiveTest do
     def handle_call(:health, _from, state), do: {:reply, :writable, state}
     def handle_call({:get, decision_id}, _from, %{decision: %{decision_id: decision_id} = decision} = state), do: {:reply, {:ok, decision}, state}
     def handle_call({:get, _decision_id}, _from, state), do: {:reply, {:error, :not_found}, state}
+
+    def handle_call(
+          {:retained_lookup, decision_id},
+          _from,
+          %{decision: %{decision_id: decision_id} = decision} = state
+        ),
+        do: {:reply, {:ok, %{decision: decision, health: :writable}}, state}
+
+    def handle_call({:retained_lookup, _decision_id}, _from, state),
+      do: {:reply, {:ok, %{decision: nil, health: :writable}}, state}
+
     def handle_call(:list, _from, state), do: {:reply, [state.decision], state}
     def handle_call({:recent_decisions, _limit}, _from, state), do: {:reply, [state.decision], state}
     def handle_call(:all_history, _from, state), do: {:reply, %{state.decision.decision_id => [state.decision]}, state}

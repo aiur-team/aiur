@@ -54,10 +54,7 @@ defmodule Aiur.DecisionApi.PublicProjection do
     }
   end
 
-  defp ticket(_ticket), do: %{"identifier" => nil, "title" => nil, "url" => nil}
-
   defp source(source) when is_map(source), do: %{"agent_id" => safe_agent_id(value(source, :agent_id))}
-  defp source(_source), do: %{"agent_id" => nil}
 
   defp context(context) when is_map(context) do
     %{
@@ -65,8 +62,6 @@ defmodule Aiur.DecisionApi.PublicProjection do
       "long_context_markdown" => value(context, :long_context_markdown)
     }
   end
-
-  defp context(_context), do: %{"short_summary" => nil, "long_context_markdown" => nil}
 
   defp option(option) when is_map(option) do
     %{
@@ -93,8 +88,6 @@ defmodule Aiur.DecisionApi.PublicProjection do
       _artifact -> []
     end)
   end
-
-  defp artifacts(_artifacts), do: []
 
   defp artifact(artifact) do
     case {value(artifact, :kind), value(artifact, :value)} do
@@ -147,8 +140,6 @@ defmodule Aiur.DecisionApi.PublicProjection do
     end)
   end
 
-  defp revision_outcomes(_outcomes), do: %{}
-
   defp revision_follow_ups(follow_ups) when is_map(follow_ups) do
     Map.new(follow_ups, fn {action_id, follow_up} ->
       {action_id,
@@ -162,8 +153,6 @@ defmodule Aiur.DecisionApi.PublicProjection do
        }}
     end)
   end
-
-  defp revision_follow_ups(_follow_ups), do: %{}
 
   defp dispatch_attempt(attempt) when is_map(attempt) do
     %{
@@ -192,8 +181,6 @@ defmodule Aiur.DecisionApi.PublicProjection do
       "occurred_at" => fact |> value(:occurred_at) |> timestamp()
     }
   end
-
-  defp lifecycle_fact(_fact), do: nil
 
   defp actor(actor) when is_map(actor), do: %{"kind" => actor |> value(:kind) |> atom_name()}
   defp actor(_actor), do: nil
