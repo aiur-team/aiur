@@ -122,6 +122,28 @@ defmodule Aiur.Codex.AppServerPort do
     |> maybe_put_worker_host(worker_host)
   end
 
+  @doc false
+  @spec process_group_for_pid(integer() | String.t() | nil) :: integer() | nil
+  def process_group_for_pid(pid) when is_integer(pid) and pid > 0, do: process_group_for_pid(Integer.to_string(pid))
+
+  def process_group_for_pid(pid) when is_binary(pid) do
+    case process_group_id(pid) do
+      value when is_binary(value) ->
+        case Integer.parse(value) do
+          {group, ""} when group > 0 -> group
+          _ -> nil
+        end
+
+      value when is_integer(value) and value > 0 ->
+        value
+
+      _ ->
+        nil
+    end
+  end
+
+  def process_group_for_pid(_pid), do: nil
+
   @spec stop_port(port()) :: :ok
   def stop_port(port) when is_port(port) do
     case :erlang.port_info(port) do

@@ -144,7 +144,7 @@ defmodule Aiur.Workspace.Reconstruction do
 
   defp merge_log_tree(previous, destination) do
     with {:ok, entries} <- File.ls(previous),
-         :ok <- File.mkdir_p(destination) do
+         :ok <- ensure_safe_log_directory(destination) do
       merge_log_entries(entries, previous, destination)
     end
   end
@@ -170,8 +170,32 @@ defmodule Aiur.Workspace.Reconstruction do
   defp append_previous_log(previous, destination) do
     with {:ok, previous_contents} <- File.read(previous),
          {:ok, staged_contents} <- read_optional_regular_file(destination),
-         :ok <- File.mkdir_p(Path.dirname(destination)) do
+         :ok <- ensure_safe_log_directory(Path.dirname(destination)) do
       File.write(destination, previous_contents <> staged_contents)
+    end
+  end
+
+  # Never follow a staged symlink while merging live diagnostics. Each parent
+  # is lstat-checked before creation so a hook cannot redirect recovery writes
+  # outside its staged checkout.
+  defp ensure_safe_log_directory(path) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :directory}} -> :ok
+      {:ok, _stat} -> {:error, :unsafe_log_destination}
+      {:error, :enoent} -> create_safe_log_directory(path)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp create_safe_log_directory(path) do
+    parent = Path.dirname(path)
+
+    with :ok <- ensure_safe_log_directory(parent),
+         :ok <- File.mkdir(path) do
+      :ok
+    else
+      {:error, :eexist} -> ensure_safe_log_directory(path)
+      {:error, reason} -> {:error, reason}
     end
   end
 

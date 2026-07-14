@@ -199,7 +199,10 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   defp release_guardian(state) do
     final_lease = %{state.lease | phase: :released}
     Registry.unregister(state.registry, state.lease.ticket)
-    Enum.each(state.waiters, &send(&1, {:workspace_ownership_available, state.lease.ticket}))
+
+    Enum.each(state.waiters, fn waiter ->
+      send(waiter, {:workspace_ownership_available, state.lease.ticket, self(), state.lease.generation})
+    end)
 
     Enum.each(state.release_waiters, fn
       {from, ref, :release} -> reply(from, ref, :ok)

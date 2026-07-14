@@ -45,22 +45,25 @@ defmodule Aiur.Workspace.Ownership do
   def activate(_lease, _registry), do: {:error, :workspace_ownership_lost}
 
   @doc false
-  @spec expect_provider(lease()) :: :ok
+  @spec expect_provider(lease() | nil) :: :ok | {:error, :workspace_ownership_lost}
   def expect_provider(%{guardian: guardian, generation: generation}) when is_pid(guardian), do: call(guardian, {:expect_provider, generation})
-  def expect_provider(_lease), do: :ok
+  def expect_provider(nil), do: :ok
+  def expect_provider(_lease), do: {:error, :workspace_ownership_lost}
 
   @doc false
-  @spec track_provider(lease(), map()) :: :ok
+  @spec track_provider(lease() | nil, map()) :: :ok | {:error, :workspace_ownership_lost}
   def track_provider(%{guardian: guardian, generation: generation}, provider) when is_pid(guardian) and is_map(provider),
     do: call(guardian, {:track_provider, generation, provider})
 
-  def track_provider(_lease, _provider), do: :ok
+  def track_provider(nil, _provider), do: :ok
+  def track_provider(_lease, _provider), do: {:error, :workspace_ownership_lost}
 
   @spec track_process_group(lease(), integer()) :: :ok
   def track_process_group(lease, process_group_id) when is_integer(process_group_id) and process_group_id > 0,
     do: track_provider(lease, %{process_group_id: process_group_id})
 
-  def track_process_group(_lease, _process_group_id), do: :ok
+  def track_process_group(nil, _process_group_id), do: :ok
+  def track_process_group(_lease, _process_group_id), do: {:error, :workspace_ownership_lost}
 
   @spec release(lease(), registry()) :: :ok
   def release(lease, registry \\ @registry)
@@ -110,7 +113,9 @@ defmodule Aiur.Workspace.Ownership do
     end
   end
 
-  defp timeout_result({:activate, _generation}), do: {:error, :workspace_ownership_lost}
+  defp timeout_result({operation, _generation}) when operation in [:activate, :expect_provider, :track_provider],
+    do: {:error, :workspace_ownership_lost}
+
   defp timeout_result({:release_and_wait, _generation}), do: {:error, :workspace_ownership_lost}
   defp timeout_result(_message), do: :ok
 end

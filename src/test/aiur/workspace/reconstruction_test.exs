@@ -74,6 +74,22 @@ defmodule Aiur.Workspace.ReconstructionTest do
     assert File.read!(Path.join([workspace, "logs", "provider", "custom.trace"])) == "before\nafter\n"
   end
 
+  test "rejects a staged logs symlink instead of following it during promotion", %{root: root, workspace: workspace} do
+    source_log = Path.join([workspace, "logs", "agent.md"])
+    outside = Path.join(root, "outside")
+    File.mkdir_p!(Path.dirname(source_log))
+    File.mkdir_p!(outside)
+    File.write!(source_log, "preserve\n")
+
+    assert {:error, {:workspace_log_merge_failed, :unsafe_log_destination}} =
+             Reconstruction.run(workspace, fn stage ->
+               assert :ok = File.ln_s(outside, Path.join(stage, "logs"))
+               :ok
+             end)
+
+    assert File.read!(source_log) == "preserve\n"
+  end
+
   test "cold fallback serializes first-pickup event logs until the workspace is ready", %{workspace: workspace} do
     parent = self()
     File.rm_rf!(workspace)

@@ -60,8 +60,12 @@ defmodule Aiur.Workspace.Ownership.Waiter do
 
   defp await_release(subscription) do
     receive do
-      {:workspace_ownership_available, ticket} when ticket == subscription.ticket ->
+      {:workspace_ownership_available, ticket, guardian, generation}
+      when ticket == subscription.ticket and guardian == subscription.guardian and generation == subscription.generation ->
         send(subscription.recipient, {:workspace_ownership_available, ticket})
+
+      {:workspace_ownership_available, ticket, _guardian, _generation} when ticket == subscription.ticket ->
+        resubscribe(subscription)
 
       {:DOWN, monitor, :process, guardian, _reason}
       when monitor == subscription.monitor and guardian == subscription.guardian ->

@@ -14,6 +14,7 @@ defmodule Aiur.Claude.CodingAgent do
   alias Aiur.AgentRunner.ToolExecutor
   alias Aiur.AppServer.{Adapter, Messages, OperatorDelivery, Rpc, TurnState}
   alias Aiur.Claude.NotificationPolicy
+  alias Aiur.Codex.AppServerPort
   alias Aiur.Codex.DynamicTool
   alias Aiur.Config
 
@@ -146,10 +147,19 @@ defmodule Aiur.Claude.CodingAgent do
 
   defp provider_metadata(port) do
     case :erlang.port_info(port, :os_pid) do
-      {:os_pid, os_pid} -> %{root_pid: os_pid}
-      _ -> %{}
+      {:os_pid, os_pid} ->
+        %{root_pid: os_pid}
+        |> maybe_put_process_group(AppServerPort.process_group_for_pid(os_pid))
+
+      _ ->
+        %{}
     end
   end
+
+  defp maybe_put_process_group(provider, group) when is_integer(group) and group > 0,
+    do: Map.put(provider, :process_group_id, group)
+
+  defp maybe_put_process_group(provider, _group), do: provider
 
   defp port_metadata(port) when is_port(port) do
     case :erlang.port_info(port, :os_pid) do

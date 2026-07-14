@@ -12,6 +12,7 @@ defmodule Aiur.Claude.Repl.Launcher do
   alias Aiur.Claude.Repl.Command
   alias Aiur.Claude.Repl.RcAttach
   alias Aiur.Claude.Repl.Reaper
+  alias Aiur.Codex.AppServerPort
   alias Aiur.{ProcessReaper, Tmux}
 
   @ready_prompt "❯"
@@ -105,8 +106,22 @@ defmodule Aiur.Claude.Repl.Launcher do
 
   defp notify_provider_started(%{opts: opts}, os_pid) do
     callback = Keyword.get(opts, :on_provider_started, fn _provider -> :ok end)
-    callback.(if(is_integer(os_pid) and os_pid > 0, do: %{root_pid: os_pid}, else: %{}))
+
+    provider =
+      if is_integer(os_pid) and os_pid > 0 do
+        %{root_pid: os_pid}
+        |> maybe_put_process_group(AppServerPort.process_group_for_pid(os_pid))
+      else
+        %{}
+      end
+
+    callback.(provider)
   end
+
+  defp maybe_put_process_group(provider, group) when is_integer(group) and group > 0,
+    do: Map.put(provider, :process_group_id, group)
+
+  defp maybe_put_process_group(provider, _group), do: provider
 
   defp finish_start(%{tmux: tmux, opts: opts} = ctx, pane_id) do
     timeout = Keyword.get(opts, :ready_timeout_ms, @ready_timeout_ms)
