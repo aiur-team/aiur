@@ -930,19 +930,56 @@ Terra; never dispatch Claude.
     hour: three produced concrete recovery/routing actions and one was a known
     scheduler-saturation RPC timeout. No no-action pattern repeated, so the
     adaptive 2–20 minute event-first cadence remains unchanged.
+117. After the operator reset the Codex allowance at 09:28 PDT, the daemon
+    immediately resumed account/token notifications at 8% of the weekly
+    window. Every actionable provider wrote fresh events; all configured and
+    replacement workers remain Codex Sol/Terra and no Claude worker was
+    started. Completed rows were left quiet only when CI or Executor review was
+    the real gate.
+118. BO-009/#1096 dual review converged on one contained P2: no regression
+    independently crossed the 256 KiB response ceiling without first crossing
+    8,000 route points. The packet is in comment `4971590452`; a replacement
+    pushed test-only head `2d77d064`, with worker/client byte-only assertions,
+    and returned to fresh CI without a follow-up ticket.
+119. Workspace-safety #1161 was green at `abd8e040`, but its two exact-head
+    reviews plus one targeted falsification pass proved four P1 races: a
+    release-before-contention lost wakeup, ambiguous invalid/non-Git workspace
+    handling that can skip bootstrap or delete WIP, process-group containment
+    registered after startup can block, and cold fallback deletion outside the
+    log lock. The bounded packets are comments `4971636979` and `4971683201`.
+    The stale completed generation did not consume the first message, so the
+    Executor deactivated only that ticket, then started a fresh Terra rework
+    generation; the daemon and every sibling worker remained live.
+120. BO-016/#1103 reached green head `416161c4`, but dual review reproduced
+    common password/private-key forms and absolute `/etc`/`/opt` paths escaping
+    the ticket-detail snapshot/PubSub sanitizer. Both P1 sanitizer regressions
+    remain inside #1103 via comment `4971685901`; its completed generation was
+    deactivated and a fresh Terra rework generation is active.
+121. DASH-002/#1109 disproved its single queue test failure as owned, repaired
+    it, and pushed `9aa45db0`; completed-worker recovery #1162 incorporated the
+    observed closed-port tool-reply failure and pushed `f3e0d32b`. Both are in
+    fresh event-driven CI. BO-002/#1091 pushed `5f75e8b7` and is repairing the
+    fresh lint result without widening scope.
+122. Ad Hoc #1151's long local coverage run reproduced its terminal CI exactly:
+    one GitHub-client assertion still expected the pre-repair GraphQL error
+    shape, while Credo found one alias-order and one line-length issue. Coverage
+    otherwise completed at 85.78%. Comment `4971733840` and a direct operator
+    message returned those three contained repairs to the existing worker.
 
-At 09:21 PDT the core graph is 5/54 accepted. Two intended Codex workers are
-actively turning, five fresh heads are in CI, and #1096 is consuming two
-background review slots without consuming an Aiur provider slot.
+At 09:50 PDT the core graph is 5/54 accepted. Five intended Codex workers are
+actively turning, four fresh heads are in CI, and #1088 is consuming two
+background review slots while its exact green head is audited.
 #1090, #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds
 until #1161 lands.
-The latest agent-emitted progress evidence is 1088=80, 1091=70, 1096=90,
-1103=90, 1109=40, 1151=70, 1161=80, and 1162=80. Host load remains
-scheduler-saturated by productive Mix gates, so retain the eight-worker ceiling
-and prefer logs/GitHub evidence after a control-RPC timeout. No additional core
-ticket is safely dependency-ready outside the held/gated set. Treat completed
-turns, stale bases, and green builds with unmet acceptance criteria as pending
-Executor work, not merge-ready truth.
+The latest agent-emitted progress evidence is 1088=80, 1091=60, 1096=70,
+1103=80, 1109=90, 1151=90, 1161=100, and 1162=80. #1161's emitted 100% is
+preserved as calibration evidence even though exact-head review proved four
+remaining acceptance blockers. Build-gate load remains the measured capacity
+constraint, so retain the eight-worker ceiling and prefer logs/GitHub evidence
+after a control-RPC timeout. No additional core ticket is safely
+dependency-ready outside the held/gated set. Treat completed turns, stale
+bases, and green builds with unmet acceptance criteria as pending Executor
+work, not merge-ready truth.
 
 **Read-first map for this run:** `README.md` (pack index) →
 `08-implementation-pointers.md` (verified per-ticket file/module/function
