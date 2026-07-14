@@ -225,6 +225,44 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
     refute description =~ "/root/.ssh/id_ed25519"
   end
 
+  test "redacts structural credentials and local paths before detail reaches a snapshot" do
+    identity = identity(42, "I42")
+
+    body =
+      "-----BEGIN OPENSSH PRIVATE KEY-----\nprivate-key-material\n-----END OPENSSH PRIVATE KEY-----\n" <>
+        "https://alice:s3cr3t@example.test/private\n" <>
+        "file:///etc/passwd file:///home/alice/.ssh/id_ed25519 /nix/store/private-package\n" <>
+        "https://example.test/nix/store/render"
+
+    assert {:ok, %Snapshot{description: description}} =
+             TicketDetail.fetch(identity,
+               configured_repo: @configured,
+               request_fun: fn _request -> {:ok, %{status: 200, body: Map.put(issue(42, "I42"), "body", body)}} end
+             )
+
+    assert description =~ "[REDACTED:credential]"
+    assert description =~ "[REDACTED:local_path]"
+    assert description =~ "https://example.test/nix/store/render"
+    refute description =~ "BEGIN OPENSSH PRIVATE KEY"
+    refute description =~ "private-key-material"
+    refute description =~ "alice:s3cr3t"
+    refute description =~ "file:///etc/passwd"
+    refute description =~ "file:///home/alice/.ssh/id_ed25519"
+    refute description =~ "/nix/store/private-package"
+  end
+
+  test "rejects oversized raw descriptions before sanitization" do
+    identity = identity(42, "I42")
+    body = "Authorization: Bearer " <> String.duplicate("x", 64)
+
+    assert {:error, %Failure{kind: :validation}} =
+             TicketDetail.fetch(identity,
+               configured_repo: @configured,
+               max_description_bytes: 32,
+               request_fun: fn _request -> {:ok, %{status: 200, body: Map.put(issue(42, "I42"), "body", body)}} end
+             )
+  end
+
   test "redacts structured sensitive headers, assignments, and generic credentials before snapshot storage" do
     identity = identity(42, "I42")
 

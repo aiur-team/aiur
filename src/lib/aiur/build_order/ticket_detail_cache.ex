@@ -263,7 +263,7 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
       key ->
         case Map.get(state.entries, key) do
           %{inflight: %{ref: ^ref, generation: ^generation, pid: pid}} ->
-            _ = Task.Supervisor.terminate_child(state.task_supervisor, pid)
+            terminate_task(state.task_supervisor, pid)
             Process.demonitor(ref, [:flush])
             apply_completion(ref, {:error, %Failure{kind: :timeout}}, state)
 
@@ -271,6 +271,13 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
             state
         end
     end
+  end
+
+  defp terminate_task(task_supervisor, pid) do
+    Task.Supervisor.terminate_child(task_supervisor, pid)
+  catch
+    :exit, _reason -> :ok
+    :error, _reason -> :ok
   end
 
   defp complete_entry(

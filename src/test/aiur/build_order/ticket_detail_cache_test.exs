@@ -241,7 +241,11 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
         "\n" <>
         ~s([["private-key", "pair-private-key"]]) <>
         " /root/.ssh/id_ed25519 /var/lib/aiur/private.db /workspace/project/secret.txt " <>
-        "/etc/passwd /opt/aiur/private.env"
+        "/etc/passwd /opt/aiur/private.env\n" <>
+        "-----BEGIN OPENSSH PRIVATE KEY-----\nprivate-key-material\n-----END OPENSSH PRIVATE KEY-----\n" <>
+        "https://alice:s3cr3t@example.test/private\n" <>
+        "file:///etc/passwd file:///home/alice/.ssh/id_ed25519 /nix/store/private-package\n" <>
+        "https://example.test/nix/store/render"
 
     {:ok, cache} =
       start_cache(
@@ -260,6 +264,8 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
 
     assert_receive {:ticket_detail_updated, %State{detail: %Snapshot{description: description}}}
     assert description =~ "[REDACTED:credential]"
+    assert description =~ "[REDACTED:local_path]"
+    assert description =~ "https://example.test/nix/store/render"
     refute description =~ "not-a-known-prefix-secret"
     refute description =~ "private-session-cookie"
     refute description =~ "dXNlcjpwYXNzd29yZA=="
@@ -280,6 +286,11 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     refute description =~ "/workspace/project/secret.txt"
     refute description =~ "/etc/passwd"
     refute description =~ "/opt/aiur/private.env"
+    refute description =~ "BEGIN OPENSSH PRIVATE KEY"
+    refute description =~ "private-key-material"
+    refute description =~ "alice:s3cr3t"
+    refute description =~ "file:///home/alice/.ssh/id_ed25519"
+    refute description =~ "/nix/store/private-package"
   end
 
   test "survives task-supervisor outage, preserves LKG, and recovers on a later demand" do
@@ -454,6 +465,64 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
 
     refute Process.alive?(reader_pid)
     send(cache, {ref, {:ok, snapshot(identity, "late")}})
+    refute_receive {:ticket_detail_updated, %State{detail: %Snapshot{title: "late"}}}
+  end
+
+  test "keeps last-known-good detail when a timeout races a task-supervisor restart" do
+    parent = self()
+    identity = identity(42, "I42")
+    {:ok, clock} = Agent.start_link(fn -> 0 end)
+    {:ok, attempts} = Agent.start_link(fn -> 0 end)
+    {:ok, task_supervisor} = Task.Supervisor.start_link()
+
+    {:ok, cache} =
+      start_cache(
+        freshness_ms: 1,
+        task_supervisor: task_supervisor,
+        clock_ms: fn -> Agent.get(clock, & &1) end,
+        reader: fn _identity ->
+          case Agent.get_and_update(attempts, fn attempt -> {attempt + 1, attempt + 1} end) do
+            1 ->
+              {:ok, snapshot(identity, "first")}
+
+            2 ->
+              send(parent, {:reader_started, self()})
+
+              receive do
+                :finish -> {:ok, snapshot(identity, "late")}
+              end
+          end
+        end
+      )
+
+    assert :ok = TicketDetailCache.subscribe(cache, identity)
+    assert {:ok, %State{generation: 1, health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert_receive {:ticket_detail_updated, %State{generation: 1, health: :healthy, detail: %Snapshot{title: "first"}}}
+
+    Agent.update(clock, fn _ -> 2 end)
+
+    assert {:ok, %State{generation: 2, health: :stale, detail: %Snapshot{title: "first"}}} =
+             TicketDetailCache.request(cache, identity)
+
+    assert_receive {:reader_started, reader_pid}
+    ref = inflight_ref(cache, identity)
+    {:ok, stale_supervisor} = Task.Supervisor.start_link()
+    :ok = GenServer.stop(stale_supervisor)
+    :sys.replace_state(cache, &Map.put(&1, :task_supervisor, stale_supervisor))
+    send(cache, {:refresh_timeout, ref, 2})
+
+    assert_receive {
+      :ticket_detail_updated,
+      %State{
+        generation: 2,
+        health: :stale,
+        detail: %Snapshot{title: "first"},
+        failure: %Failure{kind: :timeout}
+      }
+    }
+
+    assert Process.alive?(cache)
+    send(reader_pid, :finish)
     refute_receive {:ticket_detail_updated, %State{detail: %Snapshot{title: "late"}}}
   end
 

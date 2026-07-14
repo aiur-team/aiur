@@ -75,6 +75,17 @@ defmodule Aiur.BuildOrder.TicketDetail do
     \s*:\s*.*?(?:"|')
   /iux
   @credential_pattern ~r/\b(?:bearer|basic)\s+[^\s,;]+/iu
+  @private_key_block_pattern ~r/
+    -----BEGIN(?:[ ][A-Z0-9]+)*[ ]PRIVATE[ ]KEY-----
+    .*?
+    -----END(?:[ ][A-Z0-9]+)*[ ]PRIVATE[ ]KEY-----
+  /isux
+  @uri_userinfo_pattern ~r{\b[A-Za-z][A-Za-z0-9+.-]*://[^/\s@]+@}u
+  @file_uri_pattern ~r{\bfile:(?://)?/[^\s"')\],\}]+}iu
+  @absolute_local_path_pattern ~r{
+    (?<![A-Za-z0-9._/-])
+    /(?!/)[A-Za-z0-9._-]+(?:/[A-Za-z0-9._@%+=,-]+)+
+  }ux
 
   defmodule Failure do
     @moduledoc false
@@ -355,7 +366,7 @@ defmodule Aiur.BuildOrder.TicketDetail do
   end
 
   defp sanitize(value, limit) when is_binary(value) and is_integer(limit) and limit > 0 do
-    if String.valid?(value) do
+    if byte_size(value) <= limit and String.valid?(value) do
       sanitized =
         value
         |> String.replace("\r\n", "\n")
@@ -372,6 +383,8 @@ defmodule Aiur.BuildOrder.TicketDetail do
   end
 
   defp redact_credentials(value) do
+    value = Regex.replace(@private_key_block_pattern, value, "[REDACTED:credential]")
+    value = Regex.replace(@uri_userinfo_pattern, value, "[REDACTED:credential]")
     value = Regex.replace(@curl_credential_header_pattern, value, "[REDACTED:credential]")
     value = Regex.replace(@credential_header_pair_pattern, value, "[REDACTED:credential]")
     value = Regex.replace(@structured_credential_pattern, value, "[REDACTED:credential]")
@@ -383,16 +396,13 @@ defmodule Aiur.BuildOrder.TicketDetail do
   defp redact_local_paths(value) do
     value =
       Regex.replace(
-        ~r{
-          (?<![A-Za-z0-9._/-])
-          (?:~|/)
-          (?:Users|home|private|tmp|root|var|workspace|etc|opt|usr|srv|run|mnt|media|Volumes|proc|sys|dev)
-          /[^\s"')\],\}]+
-        }ux,
+        @file_uri_pattern,
         value,
         "[REDACTED:local_path]"
       )
 
+    value = Regex.replace(@absolute_local_path_pattern, value, "[REDACTED:local_path]")
+    value = Regex.replace(~r{~/[^\s"')\],\}]+}u, value, "[REDACTED:local_path]")
     Regex.replace(~r{[A-Za-z]:\\[^\s]+}u, value, "[REDACTED:local_path]")
   end
 
