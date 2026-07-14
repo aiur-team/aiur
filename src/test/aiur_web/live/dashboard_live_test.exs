@@ -117,8 +117,19 @@ defmodule AiurWeb.DashboardLiveTest do
       {:reply, {:ok, %{decision: nil, health: :writable}}, state}
     end
 
+    def handle_call({:replace_detail, detail}, _from, state) do
+      {:reply, :ok, %{state | detail: detail}}
+    end
+
     def handle_call(:retained_counts, _from, state) do
-      counts = %{total: 1, open: 1, blocking: if(state.detail.blocking, do: 1, else: 0)}
+      open? = state.detail.decision_status == :open
+
+      counts = %{
+        total: 1,
+        open: if(open?, do: 1, else: 0),
+        blocking: if(open? and state.detail.blocking, do: 1, else: 0)
+      }
+
       {:reply, {:ok, %{counts: counts, health: :writable}}, state}
     end
 
@@ -730,6 +741,43 @@ defmodule AiurWeb.DashboardLiveTest do
     refute html =~ "Decision not found"
   end
 
+  test "a selected retained Decision remains visible when the stale URL filter excludes its lifecycle" do
+    orchestrator_name = Module.concat(__MODULE__, :ResolvedSelectionOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :ResolvedSelectionStore)
+    detail_store_name = Module.concat(__MODULE__, :ResolvedSelectionDetailStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_078}}}
+      end)
+
+    overview = request_dashboard_decision(store, "resolved-selected-filter")
+
+    resolved =
+      store
+      |> replace_dashboard_decision(overview,
+        question: "This retained decision is resolved.",
+        reversibility: "reversible",
+        option_label: "No further action"
+      )
+      |> Map.put(:decision_status, :resolved)
+
+    start_versioned_detail_store(detail_store_name, overview, resolved)
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: detail_store_name,
+      control_center_cache: false
+    )
+
+    {:ok, _view, html} = live(build_conn(), "/decisions/#{resolved.decision_id}?filter=open")
+    assert html =~ "This retained decision is resolved."
+    assert html =~ "Resolved"
+    refute html =~ "No decisions match this filter."
+  end
+
   test "a writable answer uses selected retained detail outside the overview window" do
     orchestrator_name = Module.concat(__MODULE__, :OutsideWindowAnswerOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :OutsideWindowAnswerStore)
@@ -1022,6 +1070,156 @@ defmodule AiurWeb.DashboardLiveTest do
     assert decision_id == detail.decision_id
     assert payload["expected_version"] == detail.version
     assert payload["expected_action_id"] == detail.active_action_id
+  end
+
+  test "a retained version refresh clears an answer draft and confirmation" do
+    orchestrator_name = Module.concat(__MODULE__, :AnswerRefreshOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :AnswerRefreshStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_079}}}
+      end)
+
+    initial = request_dashboard_decision(store, "answer-refresh", "irreversible")
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false,
+      control_center_reload_timer: fn pid, message, _delay -> send(pid, message) end,
+      dashboard_writable: true
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/decisions/#{initial.decision_id}")
+
+    draft_html =
+      render_change(view, "decision-action-change", %{
+        "decision_id" => initial.decision_id,
+        "answer" => %{
+          "choice" => "option:ship",
+          "confirmed" => "true",
+          "rationale" => "Draft from the old retained version"
+        }
+      })
+
+    assert draft_html =~ "Draft from the old retained version"
+    assert draft_html =~ ~s(name="answer[confirmed]" value="true" checked)
+
+    refreshed =
+      replace_dashboard_decision(store, initial,
+        question: "Destroy the refreshed answer target?",
+        reversibility: "irreversible",
+        option_label: "Destroy the refreshed target"
+      )
+
+    assert eventually(fn -> render(view) =~ "Destroy the refreshed answer target?" end, 80)
+    refreshed_html = render(view)
+    assert refreshed_html =~ "Destroy the refreshed answer target?"
+    refute refreshed_html =~ "Draft from the old retained version"
+    refute refreshed_html =~ ~s(name="answer[confirmed]" value="true" checked)
+
+    html =
+      render_submit(view, "answer-decision", %{
+        "decision_id" => refreshed.decision_id,
+        "answer" => %{
+          "choice" => "option:ship",
+          "confirmed" => "true",
+          "rationale" => "Confirmed after the retained refresh"
+        }
+      })
+
+    assert html =~ "Answer recorded"
+
+    assert eventually(fn ->
+             {:ok, current} = DecisionStore.get(refreshed.decision_id, store)
+             not is_nil(current.answer)
+           end)
+  end
+
+  test "a retained version refresh clears a revision draft and confirmation" do
+    orchestrator_name = Module.concat(__MODULE__, :RevisionRefreshOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :RevisionRefreshStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_080}}}
+      end)
+
+    overview = request_dashboard_decision(store, "revision-refresh", "irreversible")
+
+    assert {:ok, _accepted} =
+             DecisionStore.answer(
+               overview.decision_id,
+               %{
+                 "idempotency_key" => "revision-refresh-original",
+                 "expected_version" => overview.version,
+                 "option_id" => "ship"
+               },
+               [actor: %{kind: :operator, id: "test"}],
+               store
+             )
+
+    {:ok, initial} = DecisionStore.get(overview.decision_id, store)
+
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false,
+      control_center_reload_timer: fn pid, message, _delay -> send(pid, message) end,
+      dashboard_writable: true
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/decisions/#{initial.decision_id}")
+
+    draft_html =
+      render_change(view, "decision-revision-change", %{
+        "decision_id" => initial.decision_id,
+        "revision" => %{
+          "choice" => "option:ship",
+          "confirmed" => "true",
+          "reason" => "Draft from the old active action"
+        }
+      })
+
+    assert draft_html =~ "Draft from the old active action"
+    assert draft_html =~ ~s(name="revision[confirmed]" value="true" checked)
+
+    refreshed =
+      store
+      |> replace_dashboard_decision(initial,
+        question: "Destroy the refreshed revision target?",
+        reversibility: "irreversible",
+        option_label: "Destroy the refreshed revision target"
+      )
+
+    assert eventually(fn -> render(view) =~ "Destroy the refreshed revision target?" end, 80)
+    refreshed_html = render(view)
+    assert refreshed_html =~ "Destroy the refreshed revision target?"
+    refute refreshed_html =~ "Draft from the old active action"
+    refute refreshed_html =~ ~s(name="revision[confirmed]" value="true" checked)
+
+    html =
+      render_submit(view, "revise-decision", %{
+        "decision_id" => refreshed.decision_id,
+        "revision" => %{
+          "choice" => "option:ship",
+          "confirmed" => "true",
+          "reason" => "Confirmed after the retained refresh"
+        }
+      })
+
+    assert html =~ "Revision recorded"
+
+    assert eventually(fn ->
+             {:ok, current} = DecisionStore.get(refreshed.decision_id, store)
+             current.revision_sequence == 1
+           end)
   end
 
   test "a direct Decision route resolves once for each LiveView parameter pass" do

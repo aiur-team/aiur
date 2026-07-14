@@ -44,6 +44,21 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProviderTest do
 
   test "detail and retained rows share presentation, lifecycle, latency, and sanitization", %{store: store} do
     secret = "ghp_" <> String.duplicate("a", 36)
+    captured_at = ~U[2026-07-14 14:30:00Z]
+
+    provenance = %{
+      schema_version: 1,
+      agent_family: "codex",
+      backend: "openai",
+      requested_model: "gpt-5",
+      resolved_model: "gpt-5.6",
+      session_id: "session-private",
+      attempt_id: "attempt-1088",
+      source: "agent_runner",
+      captured_at: captured_at
+    }
+
+    safe_artifact = %{kind: :path, value: "/safe/artifacts/evidence.log"}
 
     assert {:ok, %{decision: decision}} =
              DecisionStore.request(
@@ -73,7 +88,14 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProviderTest do
                 capability_url: "https://github.com/its-everdred/aiur?capability=private",
                 credential: secret,
                 prompt: "raw system prompt"
-              })
+              }),
+            artifacts: [
+              safe_artifact,
+              %{kind: :url, value: "https://github.com/its-everdred/aiur/evidence"},
+              %{kind: :url, value: "https://github.com/its-everdred/aiur/evidence?capability=private"},
+              %{kind: :url, value: "https://github.com/its-everdred/aiur/evidence#capability=private"}
+            ],
+            provenance: provenance
         }
       end)
     end)
@@ -89,9 +111,20 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProviderTest do
     assert detail.question == SecretRedactor.redact("Can #{secret} be rendered?")
     refute Map.has_key?(detail.source, :session_id)
     refute Map.has_key?(detail.source, :event_id)
+    assert detail.artifacts == [safe_artifact, %{kind: :url, value: "https://github.com/its-everdred/aiur/evidence"}]
 
-    assert {:ok, %{decisions: [row]}} = DecisionProvider.list(%{"limit" => 1}, decision_store: store, decision_metrics: make_ref())
+    assert detail.provenance ==
+             Map.drop(provenance, [:session_id])
+
+    assert {:ok, %{decisions: [row]}} =
+             DecisionProvider.list(%{"limit" => 1},
+               decision_store: store,
+               decision_metrics: make_ref()
+             )
+
     assert row.source == detail.source
+    assert row.artifacts == detail.artifacts
+    assert row.provenance == detail.provenance
 
     for private_value <- [
           "session-private",
@@ -100,6 +133,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProviderTest do
           "invocation-private",
           "raw system prompt",
           "https://github.com/its-everdred/aiur?capability=private",
+          "evidence?capability=private",
+          "evidence#capability=private",
           secret
         ] do
       refute inspect(detail) =~ private_value

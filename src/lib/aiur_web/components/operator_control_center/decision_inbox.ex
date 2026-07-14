@@ -28,7 +28,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
 
   @spec decision_inbox(map()) :: Phoenix.LiveView.Rendered.t()
   def decision_inbox(assigns) do
-    decisions = assigns.decisions |> include_selected(assigns.selected_decision) |> filtered(assigns.filter)
+    decisions = visible_decisions(assigns.decisions, assigns.selected_decision, assigns.filter)
 
     assigns =
       assigns
@@ -112,13 +112,15 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
   defp filtered(decisions, :superseded), do: Enum.filter(decisions, &Map.get(&1, :superseded?, false))
   defp filtered(decisions, _filter), do: decisions
 
-  defp include_selected(decisions, nil), do: decisions
+  defp visible_decisions(decisions, nil, filter), do: filtered(decisions, filter)
 
-  defp include_selected(decisions, selected) do
-    case Enum.find_index(decisions, &(&1.decision_id == selected.decision_id)) do
-      nil -> [selected | decisions]
-      index -> List.replace_at(decisions, index, selected)
-    end
+  defp visible_decisions(decisions, selected, filter) do
+    filtered =
+      decisions
+      |> Enum.reject(&(&1.decision_id == selected.decision_id))
+      |> filtered(filter)
+
+    [selected | filtered]
   end
 
   defp open?(decision), do: decision.decision_status == :open

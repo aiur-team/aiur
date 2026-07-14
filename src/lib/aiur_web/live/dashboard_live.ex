@@ -282,6 +282,7 @@ defmodule AiurWeb.DashboardLive do
       end
 
     socket
+    |> clear_stale_action_state(selected)
     |> assign(:selected_decision_id, decision_id)
     |> assign(:selected_decision, selected)
     |> assign(:selected_decision_status, status)
@@ -303,6 +304,27 @@ defmodule AiurWeb.DashboardLive do
 
   defp partial_detail?(%{status: :partial}), do: true
   defp partial_detail?(_health), do: false
+
+  defp clear_stale_action_state(socket, nil), do: socket
+
+  defp clear_stale_action_state(socket, %{decision_id: decision_id} = selected) do
+    identity = decision_identity(selected)
+
+    case Map.get(socket.assigns.decision_actions, decision_id) do
+      nil ->
+        socket
+
+      %{decision_identity: ^identity} ->
+        socket
+
+      _state ->
+        assign(socket, :decision_actions, Map.delete(socket.assigns.decision_actions, decision_id))
+    end
+  end
+
+  defp decision_identity(decision) do
+    {Map.get(decision, :version), Map.get(decision, :active_action_id)}
+  end
 
   defp unavailable_retained_counts do
     %{

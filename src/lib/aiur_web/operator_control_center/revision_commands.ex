@@ -16,7 +16,7 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
   @spec change(Socket.t(), String.t(), map()) :: Socket.t()
   def change(socket, decision_id, form) do
     case answered_decision(socket, decision_id) do
-      {:ok, _decision} -> put_revision_form(socket, decision_id, form)
+      {:ok, decision} -> put_revision_form(socket, decision_id, form, decision)
       :error -> socket
     end
   end
@@ -24,11 +24,15 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
   @spec revise(Socket.t(), String.t(), map(), reload_fun()) :: Socket.t()
   def revise(socket, decision_id, form, reload_fun) when is_function(reload_fun, 1) do
     form = normalize_revision_form(form)
-    socket = put_revision_form(socket, decision_id, form)
 
     case answered_decision(socket, decision_id) do
-      {:ok, decision} -> submit_revision(socket, decision, form, reload_fun)
-      :error -> put_revision_error(reload_fun.(socket), decision_id, "This decision no longer has an active answer.")
+      {:ok, decision} ->
+        socket
+        |> put_revision_form(decision_id, form, decision)
+        |> submit_revision(decision, form, reload_fun)
+
+      :error ->
+        put_revision_error(reload_fun.(socket), decision_id, "This decision no longer has an active answer.")
     end
   end
 
@@ -172,9 +176,10 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
     end
   end
 
-  defp put_revision_form(socket, decision_id, form) do
+  defp put_revision_form(socket, decision_id, form, decision) do
     update_state(socket, decision_id, fn state ->
       state
+      |> Map.put(:decision_identity, decision_identity(decision))
       |> Map.put(:revision_form, normalize_revision_form(form))
       |> Map.delete(:revision_error)
       |> Map.delete(:revision_notice)
@@ -221,6 +226,10 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
 
   defp put_state(socket, decision_id, state) do
     assign(socket, :decision_actions, Map.put(socket.assigns.decision_actions, decision_id, state))
+  end
+
+  defp decision_identity(decision) do
+    {Map.get(decision, :version), Map.get(decision, :active_action_id)}
   end
 
   defp revision_notice(%{status: :duplicate}),

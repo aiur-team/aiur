@@ -15,7 +15,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   @spec change(Socket.t(), String.t(), map()) :: Socket.t()
   def change(socket, decision_id, form) do
     case selected_open_decision(socket, decision_id) do
-      {:ok, _decision} -> put_form(socket, decision_id, form)
+      {:ok, decision} -> put_form(socket, decision_id, form, decision)
       :error -> socket
     end
   end
@@ -23,10 +23,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   @spec record_answer(Socket.t(), String.t(), map(), reload_fun()) :: Socket.t()
   def record_answer(socket, decision_id, form, reload_fun) when is_function(reload_fun, 1) do
     form = normalize_form(form)
-    socket = put_form(socket, decision_id, form)
 
     case selected_open_decision(socket, decision_id) do
-      {:ok, decision} -> submit_answer(socket, decision, form, reload_fun)
+      {:ok, decision} -> socket |> put_form(decision_id, form, decision) |> submit_answer(decision, form, reload_fun)
       :error -> put_error(reload_fun.(socket), decision_id, "This decision is no longer open.")
     end
   end
@@ -173,9 +172,10 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
     end
   end
 
-  defp put_form(socket, decision_id, form) do
+  defp put_form(socket, decision_id, form, decision) do
     update_state(socket, decision_id, fn state ->
       state
+      |> Map.put(:decision_identity, decision_identity(decision))
       |> Map.put(:form, normalize_form(form))
       |> Map.delete(:error)
       |> Map.delete(:notice)
@@ -203,6 +203,10 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
 
   defp put_state(socket, decision_id, state) do
     assign(socket, :decision_actions, Map.put(socket.assigns.decision_actions, decision_id, state))
+  end
+
+  defp decision_identity(decision) do
+    {Map.get(decision, :version), Map.get(decision, :active_action_id)}
   end
 
   defp answer_notice(%{status: :duplicate}),

@@ -65,7 +65,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
       options: Enum.map(decision.options, &option_row/1),
       recommendation: decision.recommendation,
       consequence_of_delay: decision.consequence_of_delay,
-      artifacts: decision.artifacts,
+      artifacts: safe_artifacts(decision.artifacts),
       created_at: decision.created_at,
       source_created_at: decision.source_created_at,
       decision_status: decision.decision_status,
@@ -192,8 +192,38 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
     end)
   end
 
+  defp safe_artifacts(artifacts) when is_list(artifacts) do
+    Enum.flat_map(artifacts, fn
+      %{kind: :path, value: value} when is_binary(value) -> [%{kind: :path, value: value}]
+      %{kind: :url, value: value} when is_binary(value) -> safe_url_artifact(value)
+      _artifact -> []
+    end)
+  end
+
+  defp safe_artifacts(_artifacts), do: []
+
+  defp safe_url_artifact(value) do
+    case URI.parse(value) do
+      %URI{scheme: "https", host: host, userinfo: userinfo, query: query, fragment: fragment}
+      when is_binary(host) and userinfo in [nil, ""] and query in [nil, ""] and fragment in [nil, ""] ->
+        [%{kind: :url, value: value}]
+
+      _uri ->
+        []
+    end
+  end
+
   defp safe_provenance(provenance) when is_map(provenance) do
-    Map.take(provenance, [:backend, :requested_model, :resolved_model, :attempt_id])
+    Map.take(provenance, [
+      :schema_version,
+      :agent_family,
+      :backend,
+      :requested_model,
+      :resolved_model,
+      :attempt_id,
+      :source,
+      :captured_at
+    ])
   end
 
   defp safe_provenance(_provenance), do: nil
