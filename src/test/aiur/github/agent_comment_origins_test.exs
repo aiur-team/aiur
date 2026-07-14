@@ -31,4 +31,50 @@ defmodule Aiur.GitHub.AgentCommentOriginsTest do
   test "rejects a verified reply without a stable comment ID" do
     assert {:error, :missing_comment_id} = AgentCommentOrigins.record("42", %{})
   end
+
+  test "serializes concurrent writes without dropping either ticket origin" do
+    parent = self()
+
+    start_record = fn ticket, comment_id ->
+      Task.async(fn ->
+        send(parent, {:record_task_ready, self()})
+
+        receive do
+          :record ->
+            AgentCommentOrigins.record(ticket, %{"id" => comment_id},
+              after_load: fn _ticket, _origins ->
+                send(parent, {:origin_store_loaded, self()})
+
+                receive do
+                  :continue -> :ok
+                end
+              end
+            )
+        end
+      end)
+    end
+
+    first = start_record.("42", 7001)
+    second = start_record.("43", 7002)
+
+    assert_receive {:record_task_ready, first_pid}
+    assert_receive {:record_task_ready, second_pid}
+    send(first_pid, :record)
+    send(second_pid, :record)
+
+    assert_receive {:origin_store_loaded, loaded_first}
+    refute_receive {:origin_store_loaded, _other}, 100
+    send(loaded_first, :continue)
+
+    # `:global` retries a contended lock with randomized backoff. The first
+    # writer has returned before this point, but the second may wait briefly
+    # before it acquires the resource and reaches its test hook.
+    assert_receive {:origin_store_loaded, loaded_second}, 2_000
+    send(loaded_second, :continue)
+
+    assert :ok = Task.await(first)
+    assert :ok = Task.await(second)
+    assert AgentCommentOrigins.origin("42", %{"id" => 7001}) == :agent
+    assert AgentCommentOrigins.origin("43", %{"id" => 7002}) == :agent
+  end
 end

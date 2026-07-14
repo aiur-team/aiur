@@ -13,6 +13,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.{Issue, Tracker}
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, PrAnchored, State}
+  alias Aiur.Orchestrator.OperatorMessages.DeliveryPolicy
   alias Aiur.RunTelemetry.Lifecycle
 
   @comment_rework_retry_delay_ms 2_000
@@ -139,16 +140,52 @@ defmodule Aiur.Orchestrator.CommentWake do
   end
 
   defp reactivate_if_deactivated(state, running_entry, issue_number, source, event) do
-    if State.deactivated_running_entry?(running_entry) do
-      transition_and_revalidate_comment_reactivation(
-        state,
-        running_entry,
-        issue_number,
-        source,
-        event
-      )
-    else
-      state
+    cond do
+      State.deactivated_running_entry?(running_entry) ->
+        transition_and_revalidate_comment_reactivation(
+          state,
+          running_entry,
+          issue_number,
+          source,
+          event
+        )
+
+      DeliveryPolicy.completed_turn_replacement_required?(running_entry) ->
+        transition_and_replace_completed_turn(state, running_entry, issue_number, source, event)
+
+      true ->
+        state
+    end
+  end
+
+  # A worker can retain its `:working` control status after the app-server has
+  # ended its turn. Treat the next actionable review comment as a rework wake,
+  # not a notification to that inert generation: queue the feedback, then let
+  # the normal completed-runner replacement path start a fresh worker.
+  defp transition_and_replace_completed_turn(state, running_entry, issue_number, source, event) do
+    issue_key = rework_issue_key(running_entry, issue_number)
+
+    case transition_comment_issue_to_rework(
+           issue_key,
+           issue_number,
+           source,
+           event,
+           Map.get(running_entry, :telemetry_attempt_id)
+         ) do
+      :ok ->
+        Logger.info("#{source} replacing stale completed turn: #{comment_reactivation_context(running_entry, issue_number)}")
+
+        Orchestrator.enqueue_event_digest_item(state, to_string(issue_number), [event], event)
+
+      {:skip, reason} ->
+        Logger.info("#{source} ignored for stale completed turn: #{comment_reactivation_context(running_entry, issue_number)} reason=#{inspect(reason)}")
+
+        state
+
+      {:error, reason} ->
+        Logger.warning("#{source} stale completed-turn replacement skipped; state update failed: #{comment_reactivation_context(running_entry, issue_number)} reason=#{inspect(reason)}")
+
+        state
     end
   end
 

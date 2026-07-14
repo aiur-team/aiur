@@ -90,7 +90,21 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicyTest do
            ]
   end
 
+  test "identifies a completed turn only after its active turn closes" do
+    identifier = "completed-turn-#{System.unique_integer([:positive])}"
+    turn_id = "turn-#{System.unique_integer([:positive])}"
+    completed_entry = %{running_entry(identifier, :working) | last_codex_event: :turn_completed}
+
+    assert DeliveryPolicy.completed_turn_replacement_required?(completed_entry)
+
+    :ok = ActiveTurns.put(identifier, turn_id)
+    on_exit(fn -> ActiveTurns.mark_closed(identifier, turn_id, :test_cleanup) end)
+
+    refute DeliveryPolicy.completed_turn_replacement_required?(completed_entry)
+    refute DeliveryPolicy.completed_turn_replacement_required?(%{completed_entry | last_codex_event: :turn_started})
+  end
+
   defp running_entry(identifier, status) do
-    %{identifier: identifier, control: %{status: status}}
+    %{identifier: identifier, control: %{status: status}, last_codex_event: nil}
   end
 end

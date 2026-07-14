@@ -8,7 +8,7 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
   to apply the normal trust and benign-review rules and are never returned.
   """
 
-  alias Aiur.GitHub.{CodeOwners, Config, Transport}
+  alias Aiur.GitHub.{AgentCommentOrigins, CodeOwners, Config, Transport}
   alias Aiur.Orchestrator.CommentWake
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.TicketBranch
@@ -27,6 +27,7 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
       ticket_set = tickets |> Enum.map(&to_string/1) |> MapSet.new()
       trusted_author_fun = Keyword.get(opts, :trusted_author_fun, &default_trusted_author?(&1, owner))
+      comment_origin_resolver = Keyword.get(opts, :comment_origin_resolver, &AgentCommentOrigins.origin/2)
 
       case fetch_all(pulls_url(owner, name), request_fun, token, opts) do
         {:ok, pulls} ->
@@ -42,6 +43,7 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
               request_fun,
               token,
               trusted_author_fun,
+              comment_origin_resolver,
               opts
             )
 
@@ -200,7 +202,7 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
     }
   end
 
-  defp comment_events(owner, name, ticket_set, matched, request_fun, token, trusted_author_fun, opts) do
+  defp comment_events(owner, name, ticket_set, matched, request_fun, token, trusted_author_fun, comment_origin_resolver, opts) do
     ticket_requests =
       Enum.map(ticket_set, fn ticket ->
         {comments_url(owner, name, ticket), :ticket_comments, ticket, "issue.commented"}
@@ -221,7 +223,7 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
     |> Enum.reduce({[], []}, fn {url, endpoint, ticket, topic_suffix}, {events, warnings} ->
       case fetch_all(url, request_fun, token, opts) do
         {:ok, comments} ->
-          normalized = Enum.flat_map(comments, &comment_event(&1, ticket, topic_suffix, trusted_author_fun))
+          normalized = Enum.flat_map(comments, &comment_event(&1, ticket, topic_suffix, trusted_author_fun, comment_origin_resolver))
           {events ++ normalized, warnings}
 
         {:error, reason} ->
@@ -230,7 +232,7 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
     end)
   end
 
-  defp comment_event(comment, ticket, topic_suffix, trusted_author_fun) when is_map(comment) do
+  defp comment_event(comment, ticket, topic_suffix, trusted_author_fun, comment_origin_resolver) when is_map(comment) do
     author = get_in(comment, ["user", "login"])
     trusted? = author_allowed?(trusted_author_fun, author)
 
@@ -240,17 +242,26 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
       source: :github,
       author: author,
       author_trusted?: trusted?,
+      comment_origin: comment_origin(ticket, comment, comment_origin_resolver),
       comment: comment
     }
 
-    if trusted? and actionable_comment?(comment) and not CommentWake.benign_review_pass_comment?(candidate) do
+    if actionable_comment?(comment) and CommentWake.actionable_trusted_comment_event?(candidate) do
       [%{candidate | comment: comment_payload(comment)}]
     else
       []
     end
   end
 
-  defp comment_event(_comment, _ticket, _topic_suffix, _trusted_author_fun), do: []
+  defp comment_event(_comment, _ticket, _topic_suffix, _trusted_author_fun, _comment_origin_resolver), do: []
+
+  defp comment_origin(ticket, comment, resolver) do
+    case resolver.(ticket, comment) do
+      :agent -> "agent"
+      "agent" -> "agent"
+      _ -> "external"
+    end
+  end
 
   defp comment_payload(comment) do
     submitted_at = Map.get(comment, "submitted_at")

@@ -2506,6 +2506,132 @@ defmodule Aiur.OrchestratorStatusTest do
     refute Map.has_key?(after_stale_down.retry_attempts, "issue-completed")
   end
 
+  test "a completed app-server turn replaces its stale working runner on Executor message" do
+    orchestrator_name = Module.concat(__MODULE__, :StaleWorkingOperatorMessageOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    freeze_poll_cycle(pid)
+    parent = self()
+    {:ok, old_worker} = supervised_operator_message_probe(parent)
+    old_ref = Process.monitor(old_worker)
+
+    issue = %Issue{
+      id: "issue-stale-working",
+      identifier: "MT-STALE-WORKING",
+      state: "rework",
+      title: "Completed turn needs rearm"
+    }
+
+    release_file = configure_completed_revalidation!([issue])
+
+    on_exit(fn ->
+      File.touch(release_file)
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+      if Process.alive?(old_worker), do: Process.exit(old_worker, :kill)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      entry =
+        "issue-stale-working"
+        |> running_entry("MT-STALE-WORKING", :working, old_worker)
+        |> Map.put(:ref, old_ref)
+        |> Map.put(:issue, issue)
+        |> Map.put(:last_codex_event, :turn_completed)
+
+      %{
+        state
+        | session_max_concurrent_agents: 1,
+          running: %{issue.id => entry},
+          claimed: MapSet.put(state.claimed, issue.id)
+      }
+    end)
+
+    assert {:ok, item_id} =
+             Orchestrator.send_operator_message(orchestrator_name, issue.identifier, %{
+               kind: :text,
+               body: "Please address the review feedback."
+             })
+
+    refute Process.alive?(old_worker)
+
+    state = :sys.get_state(pid)
+    replacement = Map.fetch!(state.running, issue.id)
+
+    assert is_pid(replacement.pid)
+    assert Process.alive?(replacement.pid)
+    assert replacement.pid != old_worker
+    assert replacement.control.status == :working
+    assert state.queue_store.pending_ids_by_target[issue.identifier] == [item_id]
+  end
+
+  test "a trusted review event replaces its stale working runner after a completed app-server turn" do
+    orchestrator_name = Module.concat(__MODULE__, :StaleWorkingEventDigestOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    freeze_poll_cycle(pid)
+    parent = self()
+    {:ok, old_worker} = supervised_operator_message_probe(parent)
+    old_ref = Process.monitor(old_worker)
+
+    issue = %Issue{
+      id: "issue-stale-review-event",
+      identifier: "MT-STALE-REVIEW-EVENT",
+      state: "rework",
+      title: "Completed turn needs review-event rearm"
+    }
+
+    release_file = configure_completed_revalidation!([issue])
+    previous_recipient = Application.get_env(:aiur, :memory_tracker_recipient)
+    Application.put_env(:aiur, :memory_tracker_recipient, self())
+
+    on_exit(fn ->
+      File.touch(release_file)
+      restore_application_env(:memory_tracker_recipient, previous_recipient)
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+      if Process.alive?(old_worker), do: Process.exit(old_worker, :kill)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      entry =
+        "issue-stale-review-event"
+        |> running_entry("MT-STALE-REVIEW-EVENT", :working, old_worker)
+        |> Map.put(:ref, old_ref)
+        |> Map.put(:issue, issue)
+        |> Map.put(:last_codex_event, :turn_completed)
+
+      %{
+        state
+        | session_max_concurrent_agents: 1,
+          running: %{issue.id => entry},
+          claimed: MapSet.put(state.claimed, issue.id)
+      }
+    end)
+
+    send(pid, {
+      :event,
+      %{
+        id: 8_151,
+        topic: "ticket.#{issue.identifier}.pr.review_comment",
+        source: :github,
+        author_trusted?: true,
+        comment_origin: "external",
+        comment: %{body: "Please address the review feedback."}
+      }
+    })
+
+    issue_id = issue.id
+    assert_receive {:memory_tracker_state_update, ^issue_id, "rework"}
+
+    refute Process.alive?(old_worker)
+
+    state = :sys.get_state(pid)
+    replacement = Map.fetch!(state.running, issue.id)
+
+    assert is_pid(replacement.pid)
+    assert Process.alive?(replacement.pid)
+    assert replacement.pid != old_worker
+    assert replacement.control.status == :working
+    assert [_item_id] = state.queue_store.pending_ids_by_target[issue.identifier]
+  end
+
   test "explicit resume replaces a completed runner instead of waking its returned task" do
     orchestrator_name = Module.concat(__MODULE__, :CompletedResumeOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)

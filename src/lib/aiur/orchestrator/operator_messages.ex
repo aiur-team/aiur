@@ -136,7 +136,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
         DeliveryPolicy.notify_running_queue_update(running_entry, item)
     end
 
-    next_state
+    maybe_replace_completed_runner(next_state, running_entry)
   end
 
   # The orchestrator may queue a terminal CI event synchronously before it
@@ -502,8 +502,16 @@ defmodule Aiur.Orchestrator.OperatorMessages do
 
   defp maybe_replace_completed_runner(state, running_entry) do
     case Map.get(running_entry, :issue) do
-      %Aiur.Issue{} = issue -> PauseResume.replace_completed_issue(state, running_entry, issue)
-      _ -> state
+      %Aiur.Issue{} = issue ->
+        running_entry =
+          if DeliveryPolicy.completed_turn_replacement_required?(running_entry),
+            do: Map.put(running_entry, :completed_provenance, true),
+            else: running_entry
+
+        PauseResume.replace_completed_issue(state, running_entry, issue)
+
+      _ ->
+        state
     end
   end
 

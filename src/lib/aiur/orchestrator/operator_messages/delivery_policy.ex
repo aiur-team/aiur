@@ -72,6 +72,12 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicy do
   end
 
   @doc false
+  @spec completed_turn_replacement_required?(map() | nil) :: boolean()
+  def completed_turn_replacement_required?(running_entry) do
+    State.active_running_entry?(running_entry) and completed_turn_event?(running_entry) and no_active_turn?(running_entry)
+  end
+
+  @doc false
   @spec comment_event_topic?(map()) :: boolean()
   def comment_event_topic?(event) when is_map(event) do
     topic = Map.get(event, :topic) || Map.get(event, "topic")
@@ -113,6 +119,9 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicy do
     State.sleeping_running_entry?(running_entry) or
       (State.active_running_entry?(running_entry) and no_active_turn?(running_entry))
   end
+
+  defp completed_turn_event?(%{last_codex_event: event}) when event in [:turn_completed, "turn_completed"], do: true
+  defp completed_turn_event?(_running_entry), do: false
 
   defp no_active_turn?(%{identifier: identifier}) when is_binary(identifier),
     do: ActiveTurns.active_turn_ids(identifier) == []

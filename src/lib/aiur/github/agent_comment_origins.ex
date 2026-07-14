@@ -9,14 +9,18 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
   @max_origins_per_ticket 100
 
   @spec record(String.t() | integer(), map()) :: :ok | {:error, term()}
-  def record(ticket, verified_comment) when is_map(verified_comment) do
+  def record(ticket, verified_comment), do: record(ticket, verified_comment, [])
+
+  @doc false
+  @spec record(String.t() | integer(), map(), keyword()) :: :ok | {:error, term()}
+  def record(ticket, verified_comment, opts) when is_map(verified_comment) and is_list(opts) do
     with {:ok, ticket} <- normalize_ticket(ticket),
          {:ok, comment_id} <- comment_id(verified_comment) do
-      persist(ticket, comment_id)
+      persist(ticket, comment_id, opts)
     end
   end
 
-  def record(_ticket, _verified_comment), do: {:error, :invalid_verified_comment}
+  def record(_ticket, _verified_comment, _opts), do: {:error, :invalid_verified_comment}
 
   @spec origin(String.t() | integer(), map()) :: :agent | :external
   def origin(ticket, comment) when is_map(comment) do
@@ -40,11 +44,12 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
       Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.agent-comment-origins.json")
   end
 
-  defp persist(ticket, comment_id) do
+  defp persist(ticket, comment_id, opts) do
     path = path_for()
 
-    :global.trans({__MODULE__, path}, fn ->
+    :global.trans({{__MODULE__, path}, self()}, fn ->
       with {:ok, origins} <- load_origins(path) do
+        run_after_load_hook(Keyword.get(opts, :after_load), ticket, origins)
         ids = [comment_id | Map.get(origins, ticket, [])] |> Enum.uniq() |> Enum.take(@max_origins_per_ticket)
         JsonStore.write!(path, %{"origins" => Map.put(origins, ticket, ids)})
         :ok
@@ -55,6 +60,9 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
   catch
     kind, reason -> {:error, {:persistence_failed, {kind, reason}}}
   end
+
+  defp run_after_load_hook(hook, ticket, origins) when is_function(hook, 2), do: hook.(ticket, origins)
+  defp run_after_load_hook(_hook, _ticket, _origins), do: :ok
 
   defp load_origins(path \\ path_for()) do
     case JsonStore.read(path, %{}) do

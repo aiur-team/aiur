@@ -85,6 +85,29 @@ defmodule Aiur.RunTelemetry.GitHubEnricherTest do
     refute inspect(result) =~ "secret-token"
   end
 
+  test "excludes a recorded agent-origin shared-login comment from telemetry" do
+    request_fun = fn %{url: url} ->
+      body =
+        if String.contains?(url, "/pulls?state=all") do
+          []
+        else
+          [comment(107, "owner", "Resolved in the latest commit.")]
+        end
+
+      {:ok, %{status: 200, body: body, headers: %{}}}
+    end
+
+    result =
+      GitHubEnricher.enrich("owner/repo", ["930"],
+        request_fun: request_fun,
+        trusted_author_fun: &(&1 == "owner"),
+        comment_origin_resolver: fn "930", %{"id" => 107} -> :agent end
+      )
+
+    assert result.events == []
+    assert result.warnings == []
+  end
+
   test "pagination and malformed response failures remain sanitized" do
     assert %{events: [], warnings: [%{type: :github_enrichment_invalid_repo}]} =
              GitHubEnricher.enrich("owner/repo", :invalid_tickets)
