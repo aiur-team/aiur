@@ -19,7 +19,7 @@ defmodule Aiur.BuildOrder.Activity do
     }
   end
 
-  defp atom_or_unknown(value) when is_atom(value), do: value
+  defp atom_or_unknown(value) when is_atom(value) and not is_nil(value), do: value
   defp atom_or_unknown(_value), do: :unknown
   defp progress(value) when is_integer(value) and value in 0..100, do: value
   defp progress(_value), do: :unknown
@@ -169,6 +169,18 @@ defmodule Aiur.BuildOrder.Member do
   end
 
   def new(_attributes), do: new(%{})
+
+  @spec structurally_valid?(term()) :: boolean()
+  def structurally_valid?(%__MODULE__{identity: identity, diagnostics: diagnostics})
+      when is_list(diagnostics) do
+    TrackerIdentity.joinable?(identity) and
+      Enum.all?(diagnostics, fn
+        %Diagnostic{code: code} -> code not in [:invalid_identity, :invalid_dependency]
+        _other -> false
+      end)
+  end
+
+  def structurally_valid?(_member), do: false
 
   defp title(value) do
     case Bounded.title(value) do

@@ -59,7 +59,9 @@ defmodule Aiur.BuildOrder.SelectedRoot do
   defp provider_health(_provider), do: %ProviderHealth{}
 
   defp split_members(members) do
-    {valid, invalid} = Enum.split_with(members, &match?(%Member{}, &1))
+    {valid, invalid} =
+      Enum.split_with(members, &(match?(%Member{}, &1) and Member.structurally_valid?(&1)))
+
     {valid, invalid != []}
   end
 

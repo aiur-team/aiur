@@ -42,6 +42,11 @@ defmodule Aiur.BuildOrder.LifecycleTest do
     assert EdgeState.classify(Lifecycle.from_github("OPEN", nil), @healthy) == :blocking
   end
 
+  test "normalizes absent activity fields to explicit unknown values" do
+    assert %Activity{execution_state: :unknown, agent_stage: :unknown, progress: 100} =
+             Activity.new(nil, nil, 100)
+  end
+
   test "applies the documented readiness precedence" do
     assert Readiness.from_edges([]) == :ready
     assert Readiness.from_edges([:cleared, :blocking]) == :blocking

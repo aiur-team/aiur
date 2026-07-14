@@ -106,6 +106,25 @@ defmodule Aiur.BuildOrder.CatalogTest do
     assert SelectedRoot.status(selected) == :structurally_invalid
   end
 
+  test "a structurally invalid member fails the selected graph closed on its own" do
+    missing_identity = Member.new(%{title: "Missing identity", url: issue_url(2)})
+
+    malformed_dependency =
+      Member.new(%{
+        identity: identity(3),
+        title: "Malformed dependency",
+        url: issue_url(3),
+        dependencies: [:malformed]
+      })
+
+    for member <- [missing_identity, malformed_dependency] do
+      selected = SelectedRoot.new(root(1), [member], ProviderHealth.new(1, :healthy, true))
+
+      refute SelectedRoot.structurally_valid?(selected)
+      assert SelectedRoot.status(selected) == :structurally_invalid
+    end
+  end
+
   test "keeps same-repository endpoints native and foreign endpoints nonfetchable" do
     native = Dependency.new(identity(1), identity(2), issue_url(2))
     foreign = foreign_identity(2)
