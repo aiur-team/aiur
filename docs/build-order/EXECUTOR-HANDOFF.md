@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 12:01 PDT)
+## Live Executor state (updated 2026-07-14 12:40 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -20,16 +20,15 @@ program is 6/54 merged with 48 remaining.
 The runtime session ceiling is 15 workers, governed by Aiur's effective-slot
 controller and shared build gates. The operator target is 10–15+ useful agents
 whenever dependency width and measured CPU/memory/provider/review capacity
-permit. Ten useful lanes are currently staffed: seven Aiur implementation or
-rework workers on core #1091/#1097/#1103 and Ad Hoc
-#1151/#1154/#1161/#1162, plus three independent review agents split across
-green current-main core heads #1088 and #1109. BO-002/#1091 is decomposing its
-oversized GitHub graph module and repairing two exact-response validation gaps.
-BO-010/#1097 is repairing its owned browser-harness failure. BO-016/#1103 and
-completed-turn #1162 are applying newly consolidated dual-review packets.
-Build-gate P1 #1154 is in the current Ad Hoc wave because namespace-local lease
-IDs directly blocked core verification. P2 token-accounting issue #1171 is
-explicitly paused/deferred and does not count as an unused in-boundary lane.
+permit. Seven dependency-ready Aiur implementation or rework lanes are
+currently active: core #1091/#1097/#1103/#1109 and Ad Hoc
+#1154/#1161/#1162. Core #1088 and Ad Hoc #1151 released their provider slots
+while fresh CI runs. Dual review of #1162 finished and its three-finding packet
+is already an active rework lane; external review capacity is intentionally
+idle only until the next exact head is green. Build-gate P1 #1154 is in the
+current Ad Hoc wave because namespace-local lease IDs directly blocked core
+verification. P2 token-accounting issue #1171 is explicitly paused/deferred
+and does not count as an unused in-boundary lane.
 #1090,
 #1093, #1108, #1111, #1123, and #1130 remain
 protected behind #1161's workspace-replacement fix. Unrelated #855 stays
@@ -1145,13 +1144,39 @@ Terra; never dispatch Claude.
     #1088 and #1109, while six additional core tickets remain intentionally
     held behind #1161. Deferred P2 #1171 is not valid filler. Recompute and
     dispatch the six-ticket fan-out immediately after #1161 merges.
+150. Fresh dual exact-head review packets remain contained on their owning
+    tickets: seven findings on workspace-safety #1161 (`4973059824`), five on
+    BO-010/#1097 (`4973109191`), four on BO-016/#1103 (`4973175264`), and three
+    on completed-turn recovery #1162 (`4973245148`). #1162's packet includes
+    two P1 cross-turn lifecycle defects plus the 355-line TurnState
+    decomposition gate; it was moved directly from human review to active
+    rework without creating a follow-up.
+151. Fresh CI on BO-002/#1091 head `8820e379` found three branch-owned Credo
+    findings and four Dialyzer opaque/type findings; comment `4973230664`
+    routed the exact packet. DASH-002/#1109 head `25e30ce0` found nine
+    overlong lines, two alias-order findings, a redundant `with` clause, and
+    one nesting finding; comment `4973231235` routed that packet. Both
+    workers were returned to rework immediately rather than wasting capacity
+    waiting for the other jobs on already-failed heads.
+152. The 12:26 PDT hourly monitoring retrospective recorded one action wake
+    and one isolated no-action review poll, with no repeated waste pattern.
+    The next wake routed review/CI packets, recovered completed workers, and
+    refreshed the preview, so the adaptive cadence remained unchanged.
+153. At 12:40 PDT an exact utilization audit corrected completed/CI-wait rows
+    out of the live count. Seven Aiur workers are genuinely active, #1088 and
+    #1151 are correctly slot-free in CI wait, and external reviewer slots are
+    free after #1162 convergence because no other exact head is green yet.
+    This is the maximum useful width of the present dependency graph: six more
+    core tickets remain protected behind #1161 and must be dispatched
+    immediately when it merges; never keep completed or CI-wait agents alive
+    merely to make the count appear larger.
 
-At 12:01 PDT the core graph is 6/54 accepted. Every currently dependency-ready
-implementation/rework lane is active or in dual exact-head review. The
-configured ceiling is 15; seven Aiur workers and three review agents provide
-ten useful lanes, and the remaining shortfall is the finite ready graph, shared
-build capacity, and the #1161 workspace gate rather than an intentional low
-cap.
+At 12:40 PDT the core graph is 6/54 accepted. Every currently
+dependency-ready implementation/rework lane is active or in CI; the configured
+ceiling is 15 and seven Aiur workers are doing useful work. Reviewer capacity
+is reserved for the next green exact head. The remaining shortfall is the
+finite ready graph, shared build capacity, and the #1161 workspace gate rather
+than an intentional low cap.
 #1090, #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds
 until #1161 lands.
 The most recent phase preview remains the percentage authority until its next
