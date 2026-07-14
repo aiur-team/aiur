@@ -8,9 +8,9 @@ defmodule Aiur.Orchestrator.CommentWake do
   require Logger
   import Bitwise, only: [<<<: 2]
 
+  alias Aiur.{AgentQueueStore, Issue, Tracker}
   alias Aiur.Alerts
   alias Aiur.Events.UniversalSubscriptions
-  alias Aiur.{AgentQueueStore, Issue, Tracker}
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{CiLifecycle, Dispatcher, DispatchPolicy, PrAnchored, State}
   alias Aiur.Orchestrator.OperatorMessages.DeliveryPolicy

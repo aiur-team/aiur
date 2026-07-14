@@ -101,7 +101,7 @@ defmodule Aiur.GitHub.AgentCommentOriginsTest do
     output = ~s({"id":70061}\n)
 
     assert :ok = AgentCommentOrigins.record_gh_pr_comment("42", command, output, 0)
-    assert AgentCommentOrigins.origin("42", %{"id" => 70061}) == :agent
+    assert AgentCommentOrigins.origin("42", %{"id" => 70_061}) == :agent
   end
 
   test "records a gh api comment response that returns only its ID" do

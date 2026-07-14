@@ -163,16 +163,7 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
           }
 
           Process.put(lock_marker, true)
-
-          case persist_pending_public_comment(pending) do
-            :ok ->
-              Process.put(pending_key, pending)
-              :ok
-
-            {:error, _reason} = error ->
-              release_public_comment_lock(pending)
-              error
-          end
+          persist_public_comment_lock(pending, pending_key)
 
         false ->
           {:error, :public_comment_origin_lock_unavailable}
@@ -194,6 +185,18 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
   end
 
   defp pop_pending_public_comment(_operation_id, _command), do: nil
+
+  defp persist_public_comment_lock(pending, pending_key) do
+    case persist_pending_public_comment(pending) do
+      :ok ->
+        Process.put(pending_key, pending)
+        :ok
+
+      {:error, _reason} = error ->
+        release_public_comment_lock(pending)
+        error
+    end
+  end
 
   defp pop_pending_public_comment_by_command(command) when is_binary(command) do
     pending =
@@ -354,17 +357,7 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
   defp clear_pending_public_comment(pending) do
     with_lock(pending.path, fn ->
       with {:ok, state} <- load_state(pending.path) do
-        pending_operations =
-          state.pending
-          |> Map.get(pending.ticket, [])
-          |> Enum.reject(&(&1 == pending.operation_id))
-
-        updated_pending =
-          if pending_operations == [] do
-            Map.delete(state.pending, pending.ticket)
-          else
-            Map.put(state.pending, pending.ticket, pending_operations)
-          end
+        updated_pending = drop_pending_operation(state.pending, pending.ticket, pending.operation_id)
 
         write_state(pending.path, %{state | pending: updated_pending})
         :ok
@@ -374,6 +367,13 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
     error -> {:error, {:persistence_failed, Exception.message(error)}}
   catch
     kind, reason -> {:error, {:persistence_failed, {kind, reason}}}
+  end
+
+  defp drop_pending_operation(pending, ticket, operation_id) do
+    case pending |> Map.get(ticket, []) |> Enum.reject(&(&1 == operation_id)) do
+      [] -> Map.delete(pending, ticket)
+      pending_operations -> Map.put(pending, ticket, pending_operations)
+    end
   end
 
   defp load_state(path) do
