@@ -1,9 +1,9 @@
 defmodule Aiur.AgentRunner.MessageHandlerTest do
   use ExUnit.Case, async: false
 
+  alias Aiur.AgentEvents
   alias Aiur.{AgentPubSub, Issue}
   alias Aiur.AgentRunner.MessageHandler
-  alias Aiur.AgentEvents
   alias Aiur.GitHub.AgentCommentOrigins
 
   setup do

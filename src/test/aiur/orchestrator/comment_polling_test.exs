@@ -3,6 +3,8 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
 
   alias Aiur.Orchestrator.{CommentPolling, State}
 
+  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+
   setup do
     previous_token = System.get_env("GITHUB_TOKEN")
     System.put_env("GITHUB_TOKEN", "test-gh-token")
@@ -53,6 +55,40 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
   end
 
   describe "poll_github_comments/2" do
+    test "skips target discovery when GitHub credentials are unavailable" do
+      previous_token = System.get_env("GITHUB_TOKEN")
+      previous_cached_token = :persistent_term.get(@token_cache_key, :unset)
+      parent = self()
+
+      try do
+        System.delete_env("GITHUB_TOKEN")
+        :persistent_term.erase(@token_cache_key)
+
+        result =
+          CommentPolling.poll_github_comments(base_state(),
+            review_issue_fetcher: fn _states ->
+              send(parent, :unexpected_review_issue_fetch)
+              {:ok, []}
+            end,
+            watch_pull_request_fetcher: fn _label ->
+              send(parent, :unexpected_watch_pull_request_fetch)
+              {:ok, []}
+            end
+          )
+
+        assert result == base_state()
+        refute_received :unexpected_review_issue_fetch
+        refute_received :unexpected_watch_pull_request_fetch
+      after
+        restore_env("GITHUB_TOKEN", previous_token)
+
+        case previous_cached_token do
+          :unset -> :persistent_term.erase(@token_cache_key)
+          token -> :persistent_term.put(@token_cache_key, token)
+        end
+      end
+    end
+
     test "makes no GitHub call and returns state unchanged with empty target set" do
       state = base_state()
       # review_issue_fetcher returns empty list so no targets are built

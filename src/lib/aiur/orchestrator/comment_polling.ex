@@ -8,6 +8,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
   alias Aiur.{Alerts, Config}
   alias Aiur.Events.{GithubCommentsPoller, GithubFirehose}
+  alias Aiur.GitHub.Transport
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.CommentPolling.TargetSelection
   alias Aiur.Orchestrator.State
@@ -128,8 +129,15 @@ defmodule Aiur.Orchestrator.CommentPolling do
   @spec poll_github_comments(State.t(), keyword()) :: State.t()
   def poll_github_comments(%State{} = state, opts \\ []) do
     case Config.tracker_kind() do
-      "github" -> do_poll_github_comments(state, opts)
+      "github" -> poll_github_comments_with_credentials(state, opts)
       _ -> state
+    end
+  end
+
+  defp poll_github_comments_with_credentials(%State{} = state, opts) do
+    case Transport.require_token(opts) do
+      {:ok, _token} -> do_poll_github_comments(state, opts)
+      {:error, :missing_github_token} -> state
     end
   end
 

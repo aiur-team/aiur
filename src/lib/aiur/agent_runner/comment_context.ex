@@ -222,28 +222,29 @@ defmodule Aiur.AgentRunner.CommentContext do
   defp comment_context_event(topic, identifier, comment, origin_resolver) do
     author = comment_author(comment)
 
-    with {:ok, comment_origin} <- comment_origin(identifier, comment, origin_resolver) do
-      payload =
-        %{
-          comment: comment,
-          source: :github,
-          author: author,
-          author_trusted?: Map.get(comment, :authoritative, false),
-          comment_origin: comment_origin
-        }
-        |> Sanitizer.scrub()
+    case comment_origin(identifier, comment, origin_resolver) do
+      {:ok, comment_origin} ->
+        payload =
+          %{
+            comment: comment,
+            source: :github,
+            author: author,
+            author_trusted?: Map.get(comment, :authoritative, false),
+            comment_origin: comment_origin
+          }
+          |> Sanitizer.scrub()
 
-      summary = get_in(payload, [:comment, "body"]) || get_in(payload, [:comment, :body]) || ""
+        summary = get_in(payload, [:comment, "body"]) || get_in(payload, [:comment, :body]) || ""
 
-      [
-        Map.merge(payload, %{
-          id: comment_event_id(comment),
-          topic: topic,
-          summary: summary,
-          message: summary
-        })
-      ]
-    else
+        [
+          Map.merge(payload, %{
+            id: comment_event_id(comment),
+            topic: topic,
+            summary: summary,
+            message: summary
+          })
+        ]
+
       {:error, reason} ->
         Logger.warning(
           "comment_context deferred unresolved comment origin: " <>
@@ -274,19 +275,20 @@ defmodule Aiur.AgentRunner.CommentContext do
 
   defp agent_authored_comment_context_event?(_event), do: false
 
+  @origin_results %{
+    {:ok, :agent} => "agent",
+    {:ok, "agent"} => "agent",
+    {:ok, :external} => "external",
+    {:ok, "external"} => "external",
+    :agent => "agent",
+    "agent" => "agent",
+    :external => "external",
+    "external" => "external"
+  }
+
   defp comment_origin(identifier, comment, resolver) when is_function(resolver, 2) do
-    case resolver.(identifier, comment) do
-      {:ok, :agent} -> {:ok, "agent"}
-      {:ok, "agent"} -> {:ok, "agent"}
-      {:ok, :external} -> {:ok, "external"}
-      {:ok, "external"} -> {:ok, "external"}
-      :agent -> {:ok, "agent"}
-      "agent" -> {:ok, "agent"}
-      :external -> {:ok, "external"}
-      "external" -> {:ok, "external"}
-      {:error, reason} -> {:error, reason}
-      other -> {:error, {:invalid_origin_resolver_result, other}}
-    end
+    resolver.(identifier, comment)
+    |> normalize_origin_result()
   rescue
     error ->
       Logger.warning(
@@ -298,6 +300,15 @@ defmodule Aiur.AgentRunner.CommentContext do
   end
 
   defp comment_origin(_identifier, _comment, _resolver), do: {:error, :invalid_origin_resolver}
+
+  defp normalize_origin_result({:error, reason}), do: {:error, reason}
+
+  defp normalize_origin_result(result) do
+    case Map.fetch(@origin_results, result) do
+      {:ok, origin} -> {:ok, origin}
+      :error -> {:error, {:invalid_origin_resolver_result, result}}
+    end
+  end
 
   defp comment_body(comment) when is_map(comment) do
     Map.get(comment, "body") || Map.get(comment, :body) || ""

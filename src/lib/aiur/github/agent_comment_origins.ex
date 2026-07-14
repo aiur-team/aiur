@@ -186,27 +186,32 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
   def origin(_ticket, _comment), do: {:error, :missing_comment_id}
 
   defp begin_pending(ticket, operation_id, kind, command) do
-    with {:ok, path} <- path_for(),
-         {:ok, ticket} <- normalize_ticket(ticket) do
-      Store.with_ticket_lock(path, ticket, fn ->
-        with {:ok, state} <- load_state(path, ticket) do
-          if Enum.any?(state.pending, &(&1.operation_id == operation_id)) do
-            {:error, :public_comment_operation_already_pending}
-          else
-            pending = Pending.new(operation_id, kind, command)
-
-            with :ok <- write_state(path, ticket, %{state | pending: [pending | state.pending]}) do
-              put_pending(operation_id, %{operation_id: operation_id, ticket: ticket, command: command})
-              :ok
-            end
-          end
-        end
-      end)
-    end
+    with_ticket_state(ticket, fn path, ticket, state ->
+      begin_pending_state(path, ticket, state, operation_id, kind, command)
+    end)
   rescue
     error -> {:error, {:persistence_failed, Exception.message(error)}}
   catch
     kind, reason -> {:error, {:persistence_failed, {kind, reason}}}
+  end
+
+  defp begin_pending_state(path, ticket, state, operation_id, kind, command) do
+    case Enum.any?(state.pending, &(&1.operation_id == operation_id)) do
+      true ->
+        {:error, :public_comment_operation_already_pending}
+
+      false ->
+        pending = Pending.new(operation_id, kind, command)
+
+        case write_state(path, ticket, %{state | pending: [pending | state.pending]}) do
+          :ok ->
+            put_pending(operation_id, %{operation_id: operation_id, ticket: ticket, command: command})
+            :ok
+
+          error ->
+            error
+        end
+    end
   end
 
   defp complete_comment(_ticket, nil, _output, _exit_code, _recorder), do: :ignored
@@ -289,17 +294,10 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
   end
 
   defp record_ids(ticket, comment_ids) when is_list(comment_ids) do
-    with {:ok, path} <- path_for(),
-         {:ok, ticket} <- normalize_ticket(ticket) do
-      Store.with_ticket_lock(path, ticket, fn ->
-        with {:ok, state} <- load_state(path, ticket) do
-          origins = (comment_ids ++ state.origins) |> Enum.uniq() |> Enum.take(@max_origins_per_ticket)
-          write_state(path, ticket, %{state | origins: origins})
-        end
-      end)
-    else
-      {:error, _reason} = error -> error
-    end
+    with_ticket_state(ticket, fn path, ticket, state ->
+      origins = (comment_ids ++ state.origins) |> Enum.uniq() |> Enum.take(@max_origins_per_ticket)
+      write_state(path, ticket, %{state | origins: origins})
+    end)
   rescue
     error -> {:error, {:persistence_failed, Exception.message(error)}}
   catch
@@ -307,15 +305,10 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
   end
 
   defp clear_pending(ticket, operation_id) do
-    with {:ok, path} <- path_for(),
-         {:ok, ticket} <- normalize_ticket(ticket) do
-      Store.with_ticket_lock(path, ticket, fn ->
-        with {:ok, state} <- load_state(path, ticket) do
-          pending = Enum.reject(state.pending, &(&1.operation_id == operation_id))
-          write_state(path, ticket, %{state | pending: pending})
-        end
-      end)
-    end
+    with_ticket_state(ticket, fn path, ticket, state ->
+      pending = Enum.reject(state.pending, &(&1.operation_id == operation_id))
+      write_state(path, ticket, %{state | pending: pending})
+    end)
   rescue
     error -> {:error, {:persistence_failed, Exception.message(error)}}
   catch
@@ -323,23 +316,13 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
   end
 
   defp remember_pending_comment(ticket, operation_id, comment, error) do
-    with {:ok, path} <- path_for(),
-         {:ok, ticket} <- normalize_ticket(ticket),
-         {:ok, comment_id} <- comment_id(comment) do
-      Store.with_ticket_lock(path, ticket, fn ->
-        with {:ok, state} <- load_state(path, ticket) do
-          pending =
-            Enum.map(state.pending, fn
-              %{operation_id: ^operation_id} = operation ->
-                %{operation | observed_ids: Enum.uniq([comment_id | operation.observed_ids])}
+    with {:ok, comment_id} <- comment_id(comment) do
+      with_ticket_state(ticket, fn path, ticket, state ->
+        pending = remember_pending_comment_ids(state.pending, operation_id, comment_id)
 
-              operation ->
-                operation
-            end)
-
-          with :ok <- write_state(path, ticket, %{state | pending: pending}) do
-            error
-          end
+        case write_state(path, ticket, %{state | pending: pending}) do
+          :ok -> error
+          write_error -> write_error
         end
       end)
     end
@@ -394,14 +377,10 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
   defp pop_pending(_operation_id), do: nil
 
   defp durable_pending(ticket, operation_id) when is_binary(operation_id) do
-    with {:ok, path} <- path_for(),
-         {:ok, ticket} <- normalize_ticket(ticket) do
-      Store.with_ticket_lock(path, ticket, fn ->
-        with {:ok, state} <- load_state(path, ticket) do
-          Enum.find(state.pending, &(&1.operation_id == operation_id))
-        end
-      end)
-    end
+    with_ticket_state(ticket, fn _path, _ticket, state ->
+      Enum.find(state.pending, &(&1.operation_id == operation_id))
+    end)
+    |> pending_or_nil()
   rescue
     _error -> nil
   catch
@@ -409,6 +388,31 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
   end
 
   defp durable_pending(_ticket, _operation_id), do: nil
+
+  defp with_ticket_state(ticket, operation) do
+    with {:ok, path} <- path_for(),
+         {:ok, ticket} <- normalize_ticket(ticket) do
+      Store.with_ticket_lock(path, ticket, fn ->
+        case load_state(path, ticket) do
+          {:ok, state} -> operation.(path, ticket, state)
+          error -> error
+        end
+      end)
+    end
+  end
+
+  defp remember_pending_comment_ids(pending, operation_id, comment_id) do
+    Enum.map(pending, fn
+      %{operation_id: ^operation_id} = operation ->
+        %{operation | observed_ids: Enum.uniq([comment_id | operation.observed_ids])}
+
+      operation ->
+        operation
+    end)
+  end
+
+  defp pending_or_nil(%{} = pending), do: pending
+  defp pending_or_nil(_result), do: nil
 
   defp pending_key(operation_id), do: {@pending_key, operation_id}
 

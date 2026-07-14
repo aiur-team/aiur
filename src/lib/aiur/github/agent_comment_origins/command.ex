@@ -79,22 +79,23 @@ defmodule Aiur.GitHub.AgentCommentOrigins.Command do
   defp outside_quotes(command) do
     command
     |> String.graphemes()
-    |> Enum.reduce({:plain, false, []}, fn character, {mode, escaped?, acc} ->
-      case {mode, escaped?, character} do
-        {:plain, true, _character} -> {:plain, false, [" " | acc]}
-        {:double, true, _character} -> {:double, false, [" " | acc]}
-        {:plain, false, "\\"} -> {:plain, true, [" " | acc]}
-        {:double, false, "\\"} -> {:double, true, [" " | acc]}
-        {:plain, false, "'"} -> {:single, false, [" " | acc]}
-        {:single, false, "'"} -> {:plain, false, [" " | acc]}
-        {:plain, false, "\""} -> {:double, false, [" " | acc]}
-        {:double, false, "\""} -> {:plain, false, [" " | acc]}
-        {:plain, false, character} -> {:plain, false, [character | acc]}
-        {mode, false, _character} -> {mode, false, [" " | acc]}
-      end
-    end)
+    |> Enum.reduce({:plain, false, []}, &outside_quote_character/2)
     |> then(fn {_mode, _escaped?, characters} -> characters |> Enum.reverse() |> Enum.join() end)
   end
+
+  defp outside_quote_character(_character, {:plain, true, acc}), do: {:plain, false, [" " | acc]}
+  defp outside_quote_character(_character, {:double, true, acc}), do: {:double, false, [" " | acc]}
+  defp outside_quote_character("\\", {:plain, false, acc}), do: {:plain, true, [" " | acc]}
+  defp outside_quote_character("\\", {:double, false, acc}), do: {:double, true, [" " | acc]}
+  defp outside_quote_character("'", {:plain, false, acc}), do: {:single, false, [" " | acc]}
+  defp outside_quote_character("'", {:single, false, acc}), do: {:plain, false, [" " | acc]}
+  defp outside_quote_character("\"", {:plain, false, acc}), do: {:double, false, [" " | acc]}
+  defp outside_quote_character("\"", {:double, false, acc}), do: {:plain, false, [" " | acc]}
+
+  defp outside_quote_character(character, {:plain, false, acc}),
+    do: {:plain, false, [character | acc]}
+
+  defp outside_quote_character(_character, {mode, false, acc}), do: {mode, false, [" " | acc]}
 
   defp output_ids(output) do
     case Jason.decode(String.trim(output)) do

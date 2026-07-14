@@ -268,23 +268,24 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
     author = get_in(comment, ["user", "login"])
     trusted? = author_allowed?(trusted_author_fun, author)
 
-    with {:ok, origin} <- comment_origin(ticket, comment, comment_origin_resolver) do
-      candidate = %{
-        id: "comment:#{Map.get(comment, "id")}",
-        topic: "ticket.#{ticket}.#{topic_suffix}",
-        source: :github,
-        author: author,
-        author_trusted?: trusted?,
-        comment_origin: origin,
-        comment: comment
-      }
+    case comment_origin(ticket, comment, comment_origin_resolver) do
+      {:ok, origin} ->
+        candidate = %{
+          id: "comment:#{Map.get(comment, "id")}",
+          topic: "ticket.#{ticket}.#{topic_suffix}",
+          source: :github,
+          author: author,
+          author_trusted?: trusted?,
+          comment_origin: origin,
+          comment: comment
+        }
 
-      if actionable_comment?(comment) and CommentWake.actionable_trusted_comment_event?(candidate) do
-        [%{candidate | comment: comment_payload(comment)}]
-      else
-        []
-      end
-    else
+        if actionable_comment?(comment) and CommentWake.actionable_trusted_comment_event?(candidate) do
+          [%{candidate | comment: comment_payload(comment)}]
+        else
+          []
+        end
+
       {:error, reason} ->
         Logger.warning("github_enricher deferred unresolved comment origin: ticket=#{ticket} reason=#{inspect(reason)}")
         []
@@ -293,18 +294,28 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
 
   defp comment_event(_comment, _ticket, _topic_suffix, _trusted_author_fun, _comment_origin_resolver), do: []
 
+  @origin_results %{
+    {:ok, :agent} => "agent",
+    {:ok, "agent"} => "agent",
+    {:ok, :external} => "external",
+    {:ok, "external"} => "external",
+    :agent => "agent",
+    "agent" => "agent",
+    :external => "external",
+    "external" => "external"
+  }
+
   defp comment_origin(ticket, comment, resolver) do
-    case resolver.(ticket, comment) do
-      {:ok, :agent} -> {:ok, "agent"}
-      {:ok, "agent"} -> {:ok, "agent"}
-      {:ok, :external} -> {:ok, "external"}
-      {:ok, "external"} -> {:ok, "external"}
-      :agent -> {:ok, "agent"}
-      "agent" -> {:ok, "agent"}
-      :external -> {:ok, "external"}
-      "external" -> {:ok, "external"}
-      {:error, reason} -> {:error, reason}
-      other -> {:error, {:invalid_origin_resolver_result, other}}
+    resolver.(ticket, comment)
+    |> normalize_origin_result()
+  end
+
+  defp normalize_origin_result({:error, reason}), do: {:error, reason}
+
+  defp normalize_origin_result(result) do
+    case Map.fetch(@origin_results, result) do
+      {:ok, origin} -> {:ok, origin}
+      :error -> {:error, {:invalid_origin_resolver_result, result}}
     end
   end
 
