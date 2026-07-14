@@ -203,13 +203,9 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
       false ->
         pending = Pending.new(operation_id, kind, command)
 
-        case write_state(path, ticket, %{state | pending: [pending | state.pending]}) do
-          :ok ->
-            put_pending(operation_id, %{operation_id: operation_id, ticket: ticket, command: command})
-            :ok
-
-          error ->
-            error
+        with :ok <- write_state(path, ticket, %{state | pending: [pending | state.pending]}) do
+          put_pending(operation_id, %{operation_id: operation_id, ticket: ticket, command: command})
+          :ok
         end
     end
   end
@@ -320,10 +316,7 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
       with_ticket_state(ticket, fn path, ticket, state ->
         pending = remember_pending_comment_ids(state.pending, operation_id, comment_id)
 
-        case write_state(path, ticket, %{state | pending: pending}) do
-          :ok -> error
-          write_error -> write_error
-        end
+        with :ok <- write_state(path, ticket, %{state | pending: pending}), do: error
       end)
     end
   rescue
@@ -393,10 +386,7 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
     with {:ok, path} <- path_for(),
          {:ok, ticket} <- normalize_ticket(ticket) do
       Store.with_ticket_lock(path, ticket, fn ->
-        case load_state(path, ticket) do
-          {:ok, state} -> operation.(path, ticket, state)
-          error -> error
-        end
+        with {:ok, state} <- load_state(path, ticket), do: operation.(path, ticket, state)
       end)
     end
   end
