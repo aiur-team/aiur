@@ -78,6 +78,12 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
     end
   end
 
+  defp selected_open_decision(
+         %{assigns: %{selected_decision: %{decision_id: decision_id, decision_status: :open} = decision}},
+         decision_id
+       ),
+       do: {:ok, decision}
+
   defp selected_open_decision(socket, decision_id) do
     case ControlCenterPresenter.find_decision(socket.assigns.payload, decision_id) do
       {:ok, %{decision_status: :open} = decision} -> {:ok, decision}

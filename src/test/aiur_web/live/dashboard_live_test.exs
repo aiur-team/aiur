@@ -686,6 +686,163 @@ defmodule AiurWeb.DashboardLiveTest do
     refute html =~ "Decision not found"
   end
 
+  test "a writable answer uses selected retained detail outside the overview window" do
+    orchestrator_name = Module.concat(__MODULE__, :OutsideWindowAnswerOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :OutsideWindowAnswerStore)
+
+    store = start_decision_store(decision_store_name, fn _decision, _opts -> {:ok, %{status: :accepted, item: %{id: 5_072}}} end)
+    decision = request_dashboard_decision(store, "outside-window-answer", "reversible", now: ~U[2026-07-13 08:00:00Z])
+    add_newer_dashboard_decisions(store, decision, "outside-window-answer-newer")
+
+    refute Enum.any?(DecisionStore.recent_decisions(50, store), &(&1.decision_id == decision.decision_id))
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    {:ok, view, html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+    assert html =~ "Answer this decision"
+
+    html =
+      render_submit(view, "answer-decision", %{
+        "decision_id" => decision.decision_id,
+        "answer" => %{"choice" => "option:ship", "rationale" => "The retained detail remains authoritative"}
+      })
+
+    assert html =~ "Answer recorded"
+
+    assert eventually(fn ->
+             {:ok, current} = DecisionStore.get(decision.decision_id, store)
+             not is_nil(current.answer)
+           end)
+  end
+
+  test "a writable revision uses selected retained detail outside the overview window" do
+    orchestrator_name = Module.concat(__MODULE__, :OutsideWindowRevisionOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :OutsideWindowRevisionStore)
+
+    store = start_decision_store(decision_store_name, fn _decision, _opts -> {:ok, %{status: :accepted, item: %{id: 5_073}}} end)
+    decision = request_dashboard_decision(store, "outside-window-revision", "reversible", now: ~U[2026-07-13 08:00:00Z])
+
+    assert {:ok, _accepted} =
+             DecisionStore.answer(
+               decision.decision_id,
+               %{"idempotency_key" => "outside-window-original", "expected_version" => decision.version, "option_id" => "ship"},
+               [actor: %{kind: :operator, id: "test"}],
+               store
+             )
+
+    add_newer_dashboard_decisions(store, decision, "outside-window-revision-newer")
+    refute Enum.any?(DecisionStore.recent_decisions(50, store), &(&1.decision_id == decision.decision_id))
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    {:ok, view, html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+    assert html =~ "Revise decision"
+
+    html =
+      render_submit(view, "revise-decision", %{
+        "decision_id" => decision.decision_id,
+        "revision" => %{
+          "choice" => "custom",
+          "custom_response" => "Hold for the retained evidence",
+          "reason" => "The overview window advanced"
+        }
+      })
+
+    assert html =~ "Revision recorded"
+
+    assert eventually(fn ->
+             {:ok, current} = DecisionStore.get(decision.decision_id, store)
+             current.revision_sequence == 1
+           end)
+  end
+
+  test "an answer keeps the selected retained detail when a concurrent overview refresh omits it" do
+    orchestrator_name = Module.concat(__MODULE__, :StalePayloadAnswerOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :StalePayloadAnswerStore)
+
+    store = start_decision_store(decision_store_name, fn _decision, _opts -> {:ok, %{status: :accepted, item: %{id: 5_074}}} end)
+    decision = request_dashboard_decision(store, "stale-payload-answer", "reversible", now: ~U[2026-07-13 08:00:00Z])
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+    add_newer_dashboard_decisions(store, decision, "stale-payload-answer-newer")
+    refute Enum.any?(DecisionStore.recent_decisions(50, store), &(&1.decision_id == decision.decision_id))
+    assert reload_view(view) =~ "Answer this decision"
+
+    html =
+      render_submit(view, "answer-decision", %{
+        "decision_id" => decision.decision_id,
+        "answer" => %{"choice" => "option:ship", "rationale" => "The direct selection remains current"}
+      })
+
+    assert html =~ "Answer recorded"
+  end
+
+  test "a revision keeps the selected retained detail when a concurrent overview refresh omits it" do
+    orchestrator_name = Module.concat(__MODULE__, :StalePayloadRevisionOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :StalePayloadRevisionStore)
+
+    store = start_decision_store(decision_store_name, fn _decision, _opts -> {:ok, %{status: :accepted, item: %{id: 5_075}}} end)
+    decision = request_dashboard_decision(store, "stale-payload-revision", "reversible", now: ~U[2026-07-13 08:00:00Z])
+
+    assert {:ok, _accepted} =
+             DecisionStore.answer(
+               decision.decision_id,
+               %{"idempotency_key" => "stale-payload-original", "expected_version" => decision.version, "option_id" => "ship"},
+               [actor: %{kind: :operator, id: "test"}],
+               store
+             )
+
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+    add_newer_dashboard_decisions(store, decision, "stale-payload-revision-newer")
+    refute Enum.any?(DecisionStore.recent_decisions(50, store), &(&1.decision_id == decision.decision_id))
+    assert reload_view(view) =~ "Revise decision"
+
+    html =
+      render_submit(view, "revise-decision", %{
+        "decision_id" => decision.decision_id,
+        "revision" => %{
+          "choice" => "custom",
+          "custom_response" => "Retain the safer correction",
+          "reason" => "The overview changed while this detail stayed selected"
+        }
+      })
+
+    assert html =~ "Revision recorded"
+  end
+
   test "a direct Decision route resolves once for each LiveView parameter pass" do
     orchestrator_name = Module.concat(__MODULE__, :DirectRouteOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :DirectRouteStore)
@@ -2057,6 +2214,17 @@ defmodule AiurWeb.DashboardLiveTest do
              )
 
     decision
+  end
+
+  defp add_newer_dashboard_decisions(store, decision, source_prefix) do
+    for index <- 1..50 do
+      request_dashboard_decision(
+        store,
+        "#{source_prefix}-#{index}",
+        "reversible",
+        now: DateTime.add(decision.created_at, index, :second)
+      )
+    end
   end
 
   defp dashboard_decision(decision_id) do

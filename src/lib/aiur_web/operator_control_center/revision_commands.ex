@@ -86,6 +86,13 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
     end
   end
 
+  defp answered_decision(
+         %{assigns: %{selected_decision: %{decision_id: decision_id, answer: answer} = decision}},
+         decision_id
+       )
+       when not is_nil(answer),
+       do: {:ok, decision}
+
   defp answered_decision(socket, decision_id) do
     case ControlCenterPresenter.find_decision(socket.assigns.payload, decision_id) do
       {:ok, %{answer: answer} = decision} when not is_nil(answer) -> {:ok, decision}
