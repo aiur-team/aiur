@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-13 22:22 PDT)
+## Live Executor state (updated 2026-07-13 22:25 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -228,10 +228,10 @@ to a safe range.
     incident and widens after steady state.
 23. Progress-estimate capture is committed on this branch at `b5aecac1` and
     writes only normalized percentage/timestamp/lifecycle facts to private
-    operator-local NDJSON. The 22:00 PDT scan retained 140 samples: 133 emitted,
-    five failed, and two attempted. Its authoritative live check-ins refreshed
-    the plan preview to BO-001 50%, DASH-006 80%, BO-017 40%, and DASH-004
-    40%, while recycled DASH-017/DASH-018 remain at their last emitted 80%.
+    operator-local NDJSON. The 22:25 PDT scan retained 149 samples. Its latest
+    authoritative check-ins refreshed BO-001, DASH-006, and DASH-017 to 70%;
+    DASH-018 remains at its last emitted 80%, while BO-017 and DASH-004 remain
+    at 40%. Verified merges override stale estimates to 100%.
     After the final merge in each GitHub
     `phase:N` cohort, freeze/checksum the cohort, reconstruct implementation,
     local-test, CI, review, rework, and merge tails, run a background analysis,
