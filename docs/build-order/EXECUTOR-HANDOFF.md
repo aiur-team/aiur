@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 14:20 PDT)
+## Live Executor state (updated 2026-07-14 14:42 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -17,7 +17,7 @@ repository root against `main`; current accepted `main` is
 Executor rule, and the hard ten-minute capacity audit. The core
 program is 6/54 merged with 48 remaining.
 
-The recorded and live runtime session ceiling is 15 workers, governed by
+The recorded runtime session ceiling is 15 workers, governed by
 Aiur's effective-slot controller and shared build gates. The operator target is
 10–15+ useful agents whenever dependency width and measured
 CPU/memory/provider/review capacity permit. The temporary ceiling of 10 was
@@ -1274,21 +1274,44 @@ Terra; never dispatch Claude.
     `codex/app_server_port.ex:137`; comment `4974085019` routed that exact
     current-head repair. The old findings are evidence only until a fresh green
     head receives two new independent reviews.
+171. At 14:34 PDT both exact-head review pairs converged. DASH-006/#1088 received
+    one contained four-P1 packet in comment `4974202839`; shared build-gate
+    #1154 received the confirmed Mix-descendant lease defect plus five bounded
+    portability/recovery corrections in comment `4974203190`. Both moved from
+    human review to rework on their existing tickets; no new scope was filed.
+172. Paused-label startup fix #1148 reached green exact head `a259c616` and moved
+    from a stale completed worker row into dual independent review. BO-016/#1103
+    remains green at `bd26e982`; its first reviewer found four contained P1
+    configuration, sanitization, hot-reload, and restart-notification failures,
+    while the second exact-head review is still active. Do not route or merge
+    BO-016 until that pair converges.
+173. #1151 head `bb52e230` ended terminal red with two missing specs, one
+    provenance-recovery assertion failure, and an `exact_compare` Dialyzer
+    warning that crashes the formatter. Comment `4974227556` returned the exact
+    packet; the worker is now in a fresh rework turn. #1091 and #1161 were also
+    explicitly recycled after completed turns failed to consume their routed
+    packets.
+174. At 14:41 PDT seven Aiur workers were genuinely turning (#1088, #1091,
+    #1109, #1146, #1151, #1154, #1161), #1162 was in fresh CI, and three
+    independent review lanes were staffed. The one-minute load reached 35 on
+    12 cores with about 21 GiB still available, so no further ticket was
+    admitted even though the ceiling remained 15. This is the required
+    measured-machine bottleneck, not an arbitrary agent cap.
 
-At 14:20 PDT the core graph is 6/54 accepted. Every currently
+At 14:42 PDT the core graph is 6/54 accepted. Every currently
 dependency-ready implementation/rework lane is active, in terminal-CI handoff,
 or staffed for exact review. The configured and live ceiling is 15. Five
-workers were actively turning at the latest verified snapshot, #1091 remained
-in fresh CI, #1161 was being rearmed for its one Dialyzer repair, and three
-independent review lanes were staffed. The remaining shortfall is the #1161
+workers were actively turning at the previous snapshot; seven are now
+genuinely turning, #1162 is in fresh CI, and three independent review lanes are
+staffed. The remaining shortfall is the #1161
 workspace gate, current CI/review tails, and measured build pressure rather than
 an intentional low cap.
 #1090, #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds
 until #1161 lands.
-The most recent phase preview remains the percentage authority until its next
-meaningful refresh; do not replace emitted estimates with guesses during
-review/rework. Host load remains volatile but was about 15 with roughly 21 GiB
-available at the 14:19 snapshot; prefer logs/GitHub evidence after a control-RPC
+The 14:42 phase preview uses the latest successfully emitted agent percentages;
+do not replace those estimates with guesses during review/rework. Host load
+remains volatile and reached 35 with roughly 21 GiB available at the 14:41
+snapshot; prefer logs/GitHub evidence after a control-RPC
 timeout. No additional core ticket is safely
 dependency-ready outside the held/gated set. Treat completed turns, stale
 bases, and green builds with unmet acceptance criteria as pending Executor
