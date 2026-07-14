@@ -31,7 +31,8 @@ defmodule Aiur.Codex.Handshake do
           {:ok, String.t(), boolean(), boolean()} | {:error, term()}
   def establish_with_rate_limits(port, workspace, session_policies, resume_thread_id, opts \\ []) do
     with {:ok, initialize_response} <- initialize(port, opts),
-         {:ok, thread_id, resumed?} <- start_or_resume_thread(port, workspace, session_policies, resume_thread_id, opts) do
+         {:ok, thread_id, resumed?} <-
+           start_or_resume_thread(port, workspace, session_policies, resume_thread_id, opts) do
       {:ok, thread_id, resumed?, supports_rate_limits?(initialize_response)}
     end
   end

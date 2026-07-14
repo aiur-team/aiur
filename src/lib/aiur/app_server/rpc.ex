@@ -38,7 +38,14 @@ defmodule Aiur.AppServer.Rpc do
         handle_response(port, request_id, complete_line, timeout_ms, backend_label, on_notification)
 
       {^port, {:data, {:noeol, chunk}}} ->
-        with_timeout_response(port, request_id, timeout_ms, pending_line <> to_string(chunk), backend_label, on_notification)
+        with_timeout_response(
+          port,
+          request_id,
+          timeout_ms,
+          pending_line <> to_string(chunk),
+          backend_label,
+          on_notification
+        )
 
       {^port, {:exit_status, status}} ->
         {:error, {:port_exit, status}}
