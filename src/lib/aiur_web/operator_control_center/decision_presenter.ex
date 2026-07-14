@@ -161,8 +161,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
     }
   end
 
-  defp safe_ticket(_ticket), do: %{identifier: nil, title: nil, url: nil}
-
   defp safe_ticket_url(value) when is_binary(value) do
     case URI.parse(value) do
       %URI{scheme: scheme, host: host, userinfo: userinfo, query: query, fragment: fragment}
@@ -178,7 +176,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
   defp safe_ticket_url(_value), do: nil
 
   defp safe_source(source) when is_map(source), do: %{agent_id: safe_agent_id(Map.get(source, :agent_id))}
-  defp safe_source(_source), do: %{agent_id: nil}
 
   defp safe_agent_id(value) when is_binary(value) do
     if byte_size(value) <= @identity_max and
