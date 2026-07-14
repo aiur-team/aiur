@@ -448,6 +448,43 @@ make all
 `make e2e` runs a live end-to-end test against real Linear + Codex; it creates and tears
 down disposable resources and requires `LINEAR_API_KEY`.
 
+### Browser harness
+
+The deterministic browser, accessibility, and measurement harness lives in
+`src/browser/`. It starts a loopback-only synthetic LiveView fixture on an
+isolated port; it never uses a globally installed browser, production data, or
+external services.
+
+```bash
+cd src/browser
+npm ci
+npx playwright install chromium # one-time local browser download
+npm test
+```
+
+`npm test` runs the harness primitives followed by the LiveView smoke. The
+fixture requires a synthetic, HttpOnly session path for read-only or writable
+access; it never accepts or exposes production credentials. Failures retain
+sanitized Playwright traces and screenshots beneath `src/browser/.artifacts-run-*`;
+video and other unverified binary formats are deleted before CI upload.
+Successful runs remove only their run-owned artifact child. Set
+`AIUR_BROWSER_SCREENSHOTS=1` to retain configured smoke screenshots. To prove
+the failure-evidence path locally, run:
+
+```bash
+AIUR_BROWSER_KEEP_ARTIFACTS=1 npm run verify:failure-artifacts
+```
+
+That command deliberately fails one assertion, verifies a trace and screenshot
+were captured, proves a parent-process sentinel is absent from trace, URL, DOM,
+and screenshot evidence, and verifies port release before printing the retained
+temporary artifact directory for inspection. The CI job runs that proof and
+caches the downloaded Playwright browser using `src/browser/package-lock.json`
+as its cache key.
+Playwright Test 1.61.1 (Apache-2.0) and `@axe-core/playwright` 4.11.3
+(MPL-2.0) are pinned in that lockfile. The smoke's broad harness liveness check
+is not a product-performance budget; BO-014 owns those thresholds.
+
 ## Project layout
 
 - `lib/` — application code
