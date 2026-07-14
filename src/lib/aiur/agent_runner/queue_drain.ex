@@ -51,7 +51,8 @@ defmodule Aiur.AgentRunner.QueueDrain do
           issue,
           message_handler,
           orchestrator,
-          codex_update_recipient
+          codex_update_recipient,
+          opts
         )
 
       {:pause_agent, request_id} when is_integer(request_id) ->
@@ -139,7 +140,8 @@ defmodule Aiur.AgentRunner.QueueDrain do
           issue,
           message_handler,
           orchestrator,
-          codex_update_recipient
+          codex_update_recipient,
+          opts
         )
 
       {:pause_agent, request_id} when is_integer(request_id) ->
@@ -191,7 +193,8 @@ defmodule Aiur.AgentRunner.QueueDrain do
           issue,
           message_handler,
           orchestrator,
-          codex_update_recipient
+          codex_update_recipient,
+          opts
         )
     end
   end

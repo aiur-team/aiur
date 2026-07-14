@@ -167,6 +167,47 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
   end
 
   describe "drain_operator_messages/6" do
+    test "correlated pause and resume preserve drain options" do
+      parent = self()
+      identifier = "QD-control-#{System.unique_integer([:positive])}"
+      worker_issue_id = "gid-#{identifier}"
+      issue = %Issue{id: worker_issue_id, identifier: identifier}
+      item = %{category: :operator_message, id: 1, body: %{text: "queued message"}}
+      {:ok, orchestrator} = FakeQueueOrchestrator.start_link(item, parent)
+
+      task =
+        Task.async(fn ->
+          receive do
+            :start ->
+              QueueDrain.drain_operator_messages(
+                %{backend: "codex", thread_id: "queue-thread"},
+                issue,
+                fn _message -> :ok end,
+                orchestrator,
+                parent,
+                telemetry_attempt_id: 8,
+                run_turn: fn _session, _text, _issue, opts ->
+                  send(parent, {:queue_drain_opts, opts})
+                  {:ok, %{session_id: "queued-session"}}
+                end
+              )
+          end
+        end)
+
+      send(task.pid, {:pause_agent, 51, 101})
+      send(task.pid, :start)
+
+      assert_receive {:worker_control_state, ^worker_issue_id, :paused, %{request_id: 51, generation: 101}}
+
+      send(task.pid, {:resume_agent, 52, 101})
+
+      assert_receive {:worker_control_state, ^worker_issue_id, :working, %{request_id: 52, generation: 101}}
+      assert_receive {:queue_drain_opts, opts}, 1_000
+      assert is_function(opts[:tool_executor], 2)
+      assert_receive {:queue_item_consumed, ^identifier}
+      assert :ok = Task.await(task, 1_000)
+    end
+
     test "queued turns preserve lifecycle attempts in emitted observations" do
       identifier = "QD-observation-#{System.unique_integer([:positive])}"
 
