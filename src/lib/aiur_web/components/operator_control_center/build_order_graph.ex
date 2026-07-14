@@ -34,6 +34,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
       data-layout-client-url={@layout_assets.client}
       data-layout-worker-url={@layout_assets.worker}
       data-layout-engine-url={@layout_assets.engine}
+      data-layout-adapter-url="/aiur-dom-svg-layout-adapter.js"
       data-layout-health="fallback"
       aria-labelledby={"#{@id}-title"}
     >
@@ -78,7 +79,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
             data-layout-edge-target={edge.target}
             data-layout-edge-state={edge.state}
           >
-            <strong>{edge.source}</strong> blocks <strong>{edge.target}</strong>
+            <strong>{edge.source}</strong> {edge_relation(edge.state)} <strong>{edge.target}</strong>
             <span class="bo-layout-edge-state">{edge_label(edge.state)}</span>
           </li>
         </ul>
@@ -142,4 +143,10 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
   defp edge_state(_value), do: "unknown"
 
   defp edge_label(state), do: state |> String.replace("_", " ") |> String.capitalize()
+
+  defp edge_relation("cleared"), do: "is clear of"
+  defp edge_relation("blocking"), do: "blocks"
+  defp edge_relation("terminal_unsatisfied"), do: "leaves terminally unsatisfied"
+  defp edge_relation("unknown"), do: "has an unknown dependency relation to"
+  defp edge_relation("cyclic"), do: "is cyclic with"
 end

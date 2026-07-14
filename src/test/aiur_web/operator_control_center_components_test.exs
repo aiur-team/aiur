@@ -42,6 +42,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ ~s(data-layout-root-id="root-1")
     assert html =~ ~s(data-layout-provider-generation="4")
     assert html =~ ~s(data-layout-dom-generation="8")
+    assert html =~ ~s(data-layout-adapter-url="/aiur-dom-svg-layout-adapter.js")
     assert html =~ ~s(data-layout-node-id="BO-010")
     assert html =~ ~s(data-layout-card-header)
     assert html =~ ~s(aria-hidden="true")
@@ -50,6 +51,10 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ "Terminal unsatisfied"
     assert html =~ "Unknown"
     assert html =~ "Cyclic"
+    assert html =~ "is clear of"
+    assert html =~ "leaves terminally unsatisfied"
+    assert html =~ "has an unknown dependency relation to"
+    assert html =~ "is cyclic with"
     assert html =~ "Using readable document-flow layout."
   end
 

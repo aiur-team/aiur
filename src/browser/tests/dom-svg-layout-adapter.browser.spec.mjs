@@ -95,6 +95,51 @@ test('adapter falls back on worker timeout/error responses without removing sema
   }
 })
 
+test('production adapter falls back on client startup and malformed geometry while preserving semantic content', async ({ browser }) => {
+  const startupContext = await browser.newContext({ httpCredentials: dashboardCredentials })
+  await startupContext.addInitScript(() => {
+    window.__aiurBrowserLayoutClientFactory = () => Promise.reject(new Error('worker_start_failed'))
+  })
+  const startupPage = await startupContext.newPage()
+
+  const malformedContext = await browser.newContext({ httpCredentials: dashboardCredentials })
+  await malformedContext.addInitScript(() => {
+    window.__aiurBrowserLayoutClientFactory = () => ({
+      dispose() {},
+      layout(request) {
+        return Promise.resolve({
+          type: 'result',
+          version: 1,
+          requestId: request.requestId,
+          generation: request.generation,
+          nodes: [],
+          edges: []
+        })
+      }
+    })
+  })
+  const malformedPage = await malformedContext.newPage()
+
+  try {
+    await openFixture(startupPage)
+    const startupRoot = startupPage.locator('#fixture-build-order-graph')
+    await expect(startupRoot).toHaveAttribute('data-layout-health', 'fallback')
+    await expect(startupRoot).toHaveAttribute('data-layout-failure', 'worker_start_failed')
+    await expect(startupRoot.locator('[data-layout-node]')).toHaveCount(20)
+    await expect(startupRoot.getByRole('heading', { name: 'Dependency summary' })).toBeVisible()
+
+    await openFixture(malformedPage)
+    const malformedRoot = malformedPage.locator('#fixture-build-order-graph')
+    await expect(malformedRoot).toHaveAttribute('data-layout-health', 'fallback')
+    await expect(malformedRoot).toHaveAttribute('data-layout-failure', 'malformed_geometry')
+    await expect(malformedRoot.locator('[data-layout-node]')).toHaveCount(20)
+    await expect(malformedRoot.getByRole('heading', { name: 'Dependency summary' })).toBeVisible()
+  } finally {
+    await startupContext.close()
+    await malformedContext.close()
+  }
+})
+
 test('adapter validation rejects stale and malformed geometry before it can render', async ({ browser }) => {
   const context = await browser.newContext({ httpCredentials: dashboardCredentials })
   const page = await context.newPage()
@@ -103,7 +148,8 @@ test('adapter validation rejects stale and malformed geometry before it can rend
     await openFixture(page)
 
     const result = await page.evaluate(async () => {
-      const { matchesLayoutContext, validateLayoutResult } = await import('/aiur-dom-svg-layout-adapter.js')
+      const { measureLayout } = await import('/aiur-dom-svg-layout/measurement.js')
+      const { matchesLayoutContext, validateLayoutResult } = await import('/aiur-dom-svg-layout/protocol.js')
       const request = {
         requestId: 'request_3_1',
         generation: 3,
@@ -116,24 +162,51 @@ test('adapter validation rejects stale and malformed geometry before it can rend
       const valid = {
         type: 'result', version: 1, requestId: 'request_3_1', generation: 3, nodes: [{ id: 'node_0', x: 20, y: 30, width: 100, height: 40 }], edges: []
       }
+      const extentRequest = { ...request, nodes: [{ id: 'node_0', width: 4096, height: 40 }] }
+      const extentOverflow = {
+        ...valid,
+        nodes: [{ id: 'node_0', x: 4096, y: 30, width: 4096, height: 40 }]
+      }
+      const root = document.querySelector('#fixture-build-order-graph')
+      root.querySelector('[data-layout-card-header]').remove()
+      const measurementInvalid = measureLayout(root, { clientEpoch: 1, layoutGeneration: 1, measurementVersion: 1 }) === null
 
       return {
         valid: validateLayoutResult(valid, request),
         malformed: validateLayoutResult({ ...valid, nodes: [{ ...valid.nodes[0], x: 0 }] }, request),
         wrongGeneration: validateLayoutResult({ ...valid, generation: 4 }, request),
         wrongVersion: validateLayoutResult({ ...valid, version: 2 }, request),
+        extentOverflow: validateLayoutResult(extentOverflow, extentRequest),
         matching: matchesLayoutContext(context, { ...context }),
-        stale: matchesLayoutContext({ ...context, domGeneration: 3 }, context)
+        rootMismatch: matchesLayoutContext({ ...context, rootId: 'replacement-root' }, context),
+        providerMismatch: matchesLayoutContext({ ...context, providerGeneration: 2 }, context),
+        stale: matchesLayoutContext({ ...context, domGeneration: 3 }, context),
+        measurementMismatch: matchesLayoutContext({ ...context, measurementVersion: 4 }, context),
+        viewportMismatch: matchesLayoutContext({ ...context, viewportWidth: 801 }, context),
+        measurementInvalid
       }
     })
 
-    expect(result).toEqual({ valid: true, malformed: false, wrongGeneration: false, wrongVersion: false, matching: true, stale: false })
+    expect(result).toEqual({
+      valid: true,
+      malformed: false,
+      wrongGeneration: false,
+      wrongVersion: false,
+      extentOverflow: false,
+      matching: true,
+      rootMismatch: false,
+      providerMismatch: false,
+      stale: false,
+      measurementMismatch: false,
+      viewportMismatch: false,
+      measurementInvalid: true
+    })
   } finally {
     await context.close()
   }
 })
 
-test('adapter discards an old worker response after a LiveView graph update', async ({ browser }) => {
+test('adapter discards late worker responses after root replacement and a LiveView graph update', async ({ browser }) => {
   const context = await browser.newContext({ httpCredentials: dashboardCredentials })
   await context.addInitScript(() => {
     window.__aiurLayoutRequests = []
@@ -166,19 +239,185 @@ test('adapter discards an old worker response after a LiveView graph update', as
 
     await expect.poll(() => page.evaluate(() => window.__aiurLayoutRequests.length)).toBeGreaterThan(0)
     const initialRequestCount = await page.evaluate(() => window.__aiurLayoutRequests.length)
-    await page.locator('#live-update').click()
-    await expect.poll(() => page.evaluate(() => window.__aiurLayoutRequests.length)).toBeGreaterThan(initialRequestCount)
-
     await page.evaluate(() => {
+      document.querySelector('#fixture-build-order-graph').dataset.layoutRootId = 'replacement-root'
       const first = window.__aiurLayoutRequests[0]
       first.resolve(window.__aiurLayoutResponseFor(first.request))
     })
     await expect(root).toHaveAttribute('data-layout-discarded-response', 'stale')
+    await page.evaluate(() => {
+      document.querySelector('#fixture-build-order-graph').dataset.layoutRootId = 'fixture-build-order-root'
+    })
+    await page.locator('#live-update').click()
+    await expect.poll(() => page.evaluate(() => window.__aiurLayoutRequests.length)).toBeGreaterThan(initialRequestCount)
 
     await page.evaluate(() => {
       window.__aiurLayoutAutoResolve = true
       window.__aiurLayoutRequests.slice(1).forEach(({ request, resolve }) => resolve(window.__aiurLayoutResponseFor(request)))
     })
+    await expect(root).toHaveAttribute('data-layout-health', 'ready')
+  } finally {
+    await context.close()
+  }
+})
+
+test('production hook remeasures font, theme, text zoom, and resize changes before redrawing geometry', async ({ browser }) => {
+  const context = await browser.newContext({ httpCredentials: dashboardCredentials })
+  await context.addInitScript(() => {
+    window.__aiurLayoutRequests = []
+    window.__aiurLayoutLifecycle = []
+    window.__aiurLayoutLifecycleEvents = []
+    window.__aiurTestFonts = new EventTarget()
+    window.__aiurTestFonts.ready = Promise.resolve()
+    document.addEventListener('aiur:layout-lifecycle', ({ detail }) => window.__aiurLayoutLifecycleEvents.push(detail))
+    window.__aiurLayoutResponseFor = (request) => ({
+      type: 'result',
+      version: 1,
+      requestId: request.requestId,
+      generation: request.generation,
+      nodes: request.nodes.map((node, index) => ({ ...node, x: (index % 5) * 700 + 1, y: Math.floor(index / 5) * 200 + 1 })),
+      edges: request.edges.map((edge) => ({
+        id: edge.id,
+        sections: [{
+          startPoint: { x: 1, y: request.nodes[0].height },
+          bendPoints: [],
+          endPoint: { x: 2, y: request.nodes[0].height + 1 }
+        }]
+      }))
+    })
+    window.__aiurBrowserLayoutHookOptions = () => ({
+      document: { documentElement: document.documentElement, fonts: window.__aiurTestFonts },
+      clientFactory: () => ({
+        dispose() {},
+        layout(request) {
+          window.__aiurLayoutRequests.push(JSON.parse(JSON.stringify(request)))
+          return Promise.resolve(window.__aiurLayoutResponseFor(request))
+        }
+      }),
+      onLifecycle(event, detail) {
+        window.__aiurLayoutLifecycle.push({ event, source: detail.source })
+      }
+    })
+  })
+
+  const page = await context.newPage()
+
+  try {
+    await openFixture(page)
+    const root = page.locator('#fixture-build-order-graph')
+    const firstPath = root.locator('[data-layout-edge-path]').first()
+    await expect(root).toHaveAttribute('data-layout-health', 'ready')
+    const before = await page.evaluate(() => ({
+      count: window.__aiurLayoutRequests.length,
+      height: window.__aiurLayoutRequests.at(-1).nodes[0].height,
+      sources: window.__aiurLayoutLifecycle.filter(({ event }) => event === 'remeasure').map(({ source }) => source)
+    }))
+    const beforePath = await firstPath.getAttribute('d')
+
+    await page.evaluate(() => {
+      document.documentElement.dataset.theme = 'dark'
+      document.documentElement.style.fontSize = '200%'
+      document.querySelector('[data-layout-node]').style.fontSize = '32px'
+      window.__aiurTestFonts.dispatchEvent(new Event('loadingdone'))
+      window.dispatchEvent(new Event('resize'))
+    })
+
+    await expect.poll(() => page.evaluate(() => window.__aiurLayoutRequests.length)).toBeGreaterThan(before.count)
+    await expect.poll(() => page.evaluate(() => window.__aiurLayoutRequests.at(-1).nodes[0].height)).toBeGreaterThan(before.height)
+    await expect.poll(() => firstPath.getAttribute('d')).not.toBe(beforePath)
+
+    const sources = await page.evaluate(() => window.__aiurLayoutLifecycle.filter(({ event }) => event === 'remeasure').map(({ source }) => source))
+    expect(sources).toEqual(expect.arrayContaining([...before.sources, 'font', 'resize', 'theme']))
+    const observedSources = await page.evaluate(() => window.__aiurLayoutLifecycleEvents.filter(({ event }) => event === 'remeasure').map(({ source }) => source))
+    expect(observedSources).toEqual(expect.arrayContaining(['font', 'resize', 'theme']))
+  } finally {
+    await context.close()
+  }
+})
+
+test('production hook disposes workers and observers across LiveView teardown, remount, and reconnect', async ({ browser }) => {
+  const context = await browser.newContext({ httpCredentials: dashboardCredentials })
+  await context.addInitScript(() => {
+    window.__aiurLayoutRequests = 0
+    window.__aiurLayoutDisposals = 0
+    window.__aiurLayoutObserverDisconnects = 0
+    window.__aiurLayoutObserverCallbacks = []
+    window.__aiurLayoutThemeObserverDisconnects = 0
+    window.__aiurLayoutThemeObserverCallbacks = []
+    window.__aiurLayoutLifecycle = []
+    window.__aiurTestFonts = new EventTarget()
+    window.__aiurTestFonts.ready = Promise.resolve()
+    window.__aiurBrowserLayoutHookOptions = () => ({
+      document: { documentElement: document.documentElement, fonts: window.__aiurTestFonts },
+      clientFactory: () => ({
+        dispose() { window.__aiurLayoutDisposals += 1 },
+        layout(request) {
+          window.__aiurLayoutRequests += 1
+          return Promise.resolve({
+            type: 'result',
+            version: 1,
+            requestId: request.requestId,
+            generation: request.generation,
+            nodes: request.nodes.map((node, index) => ({ ...node, x: (index % 5) * 700 + 1, y: Math.floor(index / 5) * 200 + 1 })),
+            edges: request.edges.map((edge) => ({ id: edge.id, sections: [{ startPoint: { x: 1, y: 1 }, bendPoints: [], endPoint: { x: 2, y: 2 } }] }))
+          })
+        }
+      }),
+      createResizeObserver(callback) {
+        window.__aiurLayoutObserverCallbacks.push(callback)
+        return {
+          observe() {},
+          disconnect() { window.__aiurLayoutObserverDisconnects += 1 }
+        }
+      },
+      createMutationObserver(callback) {
+        window.__aiurLayoutThemeObserverCallbacks.push(callback)
+        return {
+          observe() {},
+          disconnect() { window.__aiurLayoutThemeObserverDisconnects += 1 }
+        }
+      },
+      onLifecycle(event) { window.__aiurLayoutLifecycle.push(event) }
+    })
+  })
+
+  const page = await context.newPage()
+
+  try {
+    await openFixture(page)
+    const root = page.locator('#fixture-build-order-graph')
+    await expect(root).toHaveAttribute('data-layout-health', 'ready')
+    const beforeTeardown = await page.evaluate(() => ({
+      requests: window.__aiurLayoutRequests,
+      disconnects: window.__aiurLayoutObserverDisconnects,
+      themeDisconnects: window.__aiurLayoutThemeObserverDisconnects
+    }))
+
+    await page.locator('#unmount-graph').click()
+    await expect(page.locator('#graph-unmounted')).toBeVisible()
+    await expect(root).toHaveCount(0)
+    await expect.poll(() => page.evaluate(() => window.__aiurLayoutDisposals)).toBe(1)
+
+    await page.evaluate(() => {
+      window.__aiurLayoutObserverCallbacks.forEach((callback) => callback([]))
+      window.__aiurLayoutThemeObserverCallbacks.forEach((callback) => callback([]))
+      window.__aiurTestFonts.dispatchEvent(new Event('loadingdone'))
+      window.dispatchEvent(new Event('resize'))
+    })
+    await page.waitForTimeout(100)
+    expect(await page.evaluate(() => window.__aiurLayoutRequests)).toBe(beforeTeardown.requests)
+    expect(await page.evaluate(() => window.__aiurLayoutObserverDisconnects)).toBeGreaterThan(beforeTeardown.disconnects)
+    expect(await page.evaluate(() => window.__aiurLayoutThemeObserverDisconnects)).toBeGreaterThan(beforeTeardown.themeDisconnects)
+    expect(await page.evaluate(() => window.__aiurLayoutLifecycle)).toContain('destroyed')
+
+    await page.locator('#remount-graph').click()
+    await expect(root).toHaveAttribute('data-layout-health', 'ready')
+    await expect(root).toHaveAttribute('data-layout-hook-count', '1')
+
+    await page.evaluate(() => window.liveSocket.disconnect())
+    await expect(page.locator('#worker-status')).toHaveAttribute('data-live-status', 'disconnected')
+    await page.evaluate(() => window.liveSocket.connect())
+    await expect(page.locator('#worker-status')).toHaveAttribute('data-live-status', 'reconnected')
     await expect(root).toHaveAttribute('data-layout-health', 'ready')
   } finally {
     await context.close()

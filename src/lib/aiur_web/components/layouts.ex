@@ -30,6 +30,7 @@ defmodule AiurWeb.Layouts do
         <script defer src="/vendor/phoenix_html/phoenix_html.js"></script>
         <script defer src="/vendor/phoenix/phoenix.js"></script>
         <script defer src="/vendor/phoenix_live_view/phoenix_live_view.js"></script>
+        <script defer src="/aiur-dom-svg-layout-loader.js"></script>
         <script>
           window.addEventListener("DOMContentLoaded", function () {
             var csrfToken = document
@@ -107,36 +108,9 @@ defmodule AiurWeb.Layouts do
               }
             };
 
-            Hooks.DomSvgLayout = {
-              mounted: function () {
-                var context = this;
-                context.__domSvgLayoutDestroyed = false;
-
-                import("/aiur-dom-svg-layout-adapter.js")
-                  .then(function (adapter) {
-                    if (context.__domSvgLayoutDestroyed) return;
-
-                    context.__domSvgLayoutHook = adapter.createDomSvgLayoutHook();
-                    context.__domSvgLayoutHook.mounted.call(context);
-                  })
-                  .catch(function () {
-                    context.el.classList.remove("is-layout-ready");
-                    context.el.classList.add("is-layout-fallback");
-                    context.el.dataset.layoutHealth = "fallback";
-                  });
-              },
-              beforeUpdate: function () {
-                this.__domSvgLayoutHook?.beforeUpdate.call(this);
-              },
-              updated: function () {
-                this.__domSvgLayoutHook?.updated.call(this);
-              },
-              destroyed: function () {
-                this.__domSvgLayoutDestroyed = true;
-                this.__domSvgLayoutHook?.destroyed.call(this);
-                this.__domSvgLayoutHook = null;
-              }
-            };
+            if (window.AiurDomSvgLayout) {
+              Hooks.DomSvgLayout = window.AiurDomSvgLayout.createLiveViewHook();
+            }
 
             var liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
               hooks: Hooks,

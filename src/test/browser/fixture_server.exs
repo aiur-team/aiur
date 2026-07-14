@@ -27,6 +27,7 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
         <script defer src="/assets/phoenix_html.js"></script>
         <script defer src="/assets/phoenix.js"></script>
         <script defer src="/assets/phoenix_live_view.js"></script>
+        <script defer src="/aiur-dom-svg-layout-loader.js"></script>
         <script defer src="/assets/browser_harness.js"></script>
         <link rel="stylesheet" href="/dashboard.css" />
         <script>
@@ -68,6 +69,7 @@ defmodule Aiur.BrowserHarness.FixtureLive do
      |> assign(:reduced_motion, false)
      |> assign(:worker_ready, false)
      |> assign(:graph_generation, 1)
+     |> assign(:graph_mounted, true)
      |> assign(:graph_layout_mode, :worker)}
   end
 
@@ -104,6 +106,14 @@ defmodule Aiur.BrowserHarness.FixtureLive do
 
   def handle_event("layout-mode", %{"mode" => "fallback"}, socket), do: {:noreply, assign(socket, :graph_layout_mode, :fallback)}
   def handle_event("layout-mode", %{"mode" => "worker"}, socket), do: {:noreply, assign(socket, :graph_layout_mode, :worker)}
+  def handle_event("unmount-graph", _params, socket), do: {:noreply, assign(socket, :graph_mounted, false)}
+
+  def handle_event("remount-graph", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:graph_mounted, true)
+     |> update(:graph_generation, &(&1 + 1))}
+  end
 
   @impl true
   def render(assigns) do
@@ -137,6 +147,8 @@ defmodule Aiur.BrowserHarness.FixtureLive do
           <button id="theme-dark" type="button" phx-click="set-theme" phx-value-theme="dark">Dark theme</button>
           <button id="force-layout-fallback" type="button" phx-click="layout-mode" phx-value-mode="fallback">Force layout fallback</button>
           <button id="restore-layout-worker" type="button" phx-click="layout-mode" phx-value-mode="worker">Restore layout worker</button>
+          <button id="unmount-graph" type="button" phx-click="unmount-graph">Unmount graph</button>
+          <button id="remount-graph" type="button" phx-click="remount-graph">Remount graph</button>
         </div>
       </section>
 
@@ -151,6 +163,7 @@ defmodule Aiur.BrowserHarness.FixtureLive do
         <p id="fixture-counts">nodes: {@counts.nodes}, edges: {@counts.edges}, roots: {@counts.roots}</p>
         <div id="graph-content">
           <BuildOrderGraph.build_order_graph
+            :if={@graph_mounted}
             id="fixture-build-order-graph"
             root_id="fixture-build-order-root"
             provider_generation={@graph_generation}
@@ -159,6 +172,7 @@ defmodule Aiur.BrowserHarness.FixtureLive do
             edges={graph_edges(@fixture)}
             layout_assets={layout_assets(@graph_layout_mode)}
           />
+          <p :if={!@graph_mounted} id="graph-unmounted" role="status">Graph unmounted</p>
         </div>
       </section>
     </main>
