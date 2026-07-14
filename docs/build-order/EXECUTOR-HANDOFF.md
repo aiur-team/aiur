@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-13 23:36 PDT)
+## Live Executor state (updated 2026-07-13 23:51 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -362,6 +362,21 @@ to a safe range.
     unchanged rather than tuning from one sample. The next independent hourly
     review is due around 00:36 PDT; immediate event/attention wakes remain in
     force.
+36. DASH-017/#1089 exposed a real compatibility conflict: schema 2 makes the
+    trusted-provenance binding non-strippable but is rejected by the current
+    rollback reader, while schema-1 supplemental fields can all be deleted and
+    mistaken for legacy unknown provenance. The Executor kept both acceptance
+    contracts and authorized a hash-covered, namespaced string wrapper around
+    the already durably reserved integer event identity for newly written
+    `requested`/`enriched` snapshots. The persisted Decision envelope uses the
+    marked identity so the current reader can require the provenance binding;
+    the original reserved integer remains the `Publisher.publish_persisted`
+    ID and subscription cursor so global monotonicity is unchanged. The worker
+    must prove exact old-reader/new-record replay, complete three-field deletion
+    rejection, malformed-marker/tamper rejection, legacy integer/string replay,
+    and numeric publisher-cursor behavior. The durable decision is at
+    `https://github.com/its-everdred/aiur/issues/1089#issuecomment-4966200021`;
+    do not substitute a two-phase rollout or weaken complete anti-stripping.
 
 At 23:28 PDT the core graph is 3/54 merged. Core
 #1089/#1090/#1091/#1096/#1104 are active, #1030 is in contained rework, and
