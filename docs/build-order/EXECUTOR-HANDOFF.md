@@ -463,12 +463,34 @@ to a safe range.
     60% checkpoint and resumed critical-path BO-002 in the same sixth slot.
     Preview state reflects that swap without changing either ticket's emitted
     percentage.
+47. DASH-017/#1089 reached exact head `77fa5ed7`; all required CI passed, two
+    independent reviews were clean, current `main` was an ancestor, and the
+    Executor squash-merged it as `cdd2d7e395fde7048197429bb55aa58c9819a064`.
+    A third adversarial review completed just after the squash and traced a
+    directly in-scope acceptance gap: ordinary non-debug dispatches do not
+    mint `telemetry_attempt_id`, so persisted Decision provenance loses its
+    attempt identity outside telemetry-enabled runs. The trace was confirmed
+    on landed source. #1089 was reopened in place for the narrow correction;
+    no follow-up issue was created and accepted progress remains 4/54 until
+    the correction is reviewed, green, and merged.
+48. A deliberate runtime pause reserves an agent slot by design; only CI-wait
+    pauses release capacity. #1108's brief replacement generation was parked
+    to restore BO-002 priority and ended in a contained controlled
+    `agent:error`; its durable `agent:paused` override remains until recovery.
+    When load fell to 10.5 on 12 cores and only one build slot was active, the
+    Executor raised the runtime ceiling from 6 to 7. The reserved #1108 pause
+    plus six productive Codex workers now consume that ceiling without adding
+    a seventh coding workload.
+49. The 01:13 PDT progress capture retained 271 normalized samples. Latest
+    emitted core estimates are DASH-006 70%, DASH-017 70%, DASH-018 80%,
+    BO-002 30%, BO-009 80%, and DASH-004 50%. Preview state uses those emitted
+    estimates and keeps landed-but-reopened DASH-017 out of the accepted count.
 
-At 00:56 PDT the core graph is 4/54 merged. Core
-#1088/#1089/#1090/#1091/#1096 and direct blocker #1030 occupy the six measured
-slots. #1111 is intentionally paused behind the critical-path review rework;
-direct P1 #1151 and newly-ready #1108 remain queued behind that bounded
-rework. #1103/#1123 remain paused.
+At 01:14 PDT the core graph is 4/54 accepted. Core
+#1088/#1089/#1090/#1091/#1096/#1111 occupy six productive slots; direct
+blocker #1030 is in fresh green CI/review and Ad Hoc #1151 is in CI/review
+outside those coding slots. #1108 remains tracker-paused after its contained
+controlled error. #1103/#1123 remain paused.
 Treat
 completed turns, stale bases, and green builds with unmet acceptance criteria
 as pending Executor work, not merge-ready truth.
