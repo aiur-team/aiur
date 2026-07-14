@@ -6,7 +6,6 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
   decomposition and must pass unmodified through every extraction wave.
   """
 
-  alias Aiur.{AgentQueue, AgentQueueStore}
   alias Aiur.Events.SubscriptionStore
 
   defmodule HermeticReworkGitHubClient do
@@ -180,50 +179,6 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
 
       refute_receive {:memory_tracker_state_update, ^identifier, "rework"}, 100
       refute MapSet.member?(next.claimed, identifier)
-    end
-
-    test "trusted feedback supersedes stale CI re-wake guidance before completed-runner replacement" do
-      issue_id = "life-ci-rewake"
-      identifier = "74145"
-      memory_tracker!([%Issue{id: issue_id, identifier: identifier, state: "ci-wait", title: "Await CI"}])
-
-      stale_rewake = %{
-        id: System.unique_integer([:positive]),
-        topic: "ticket.#{identifier}.ci.rewake",
-        source: :runtime,
-        message: "Check CI once; if it is still pending, return to agent:ci-wait."
-      }
-
-      {queue_store, stale_item} =
-        AgentQueue.coordination_event(identifier, :events_digest, %{
-          summary: stale_rewake.message,
-          events: [stale_rewake]
-        })
-        |> then(&AgentQueueStore.enqueue(AgentQueueStore.new(), &1))
-
-      {queue_store, _delivered_stale_item} = AgentQueueStore.claim_next_deliverable(queue_store, identifier)
-
-      entry =
-        running_entry(issue_id, identifier, :working)
-        |> Map.put(:pid, nil)
-        |> Map.put(:last_codex_event, :turn_completed)
-        |> Map.put(:issue, %Issue{id: issue_id, identifier: identifier, state: "ci-wait", title: "Await CI"})
-
-      state =
-        base_state(
-          running: %{issue_id => entry},
-          claimed: MapSet.new([issue_id]),
-          queue_store: queue_store
-        )
-
-      feedback = comment_event(identifier, "pr.review_comment")
-
-      assert {:noreply, next} = Orchestrator.handle_info({:event, feedback}, state)
-
-      assert_receive {:memory_tracker_state_update, ^issue_id, "rework"}, 2_000
-      assert AgentQueueStore.get(next.queue_store, stale_item.id).status == :superseded
-
-      assert [%{body: %{events: [^feedback]}}] = AgentQueueStore.list_pending(next.queue_store, identifier)
     end
 
     test "transient tracker failure retries the wake without consuming the event" do

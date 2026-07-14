@@ -1,6 +1,7 @@
 defmodule Aiur.Orchestrator.CommentWakeTest do
-  use ExUnit.Case, async: true
+  use Aiur.TestSupport
 
+  alias Aiur.{AgentQueue, AgentQueueStore}
   alias Aiur.Orchestrator.{CommentWake, State}
 
   defp base_state do
@@ -121,5 +122,105 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       result = CommentWake.mark_pr_merged_issue_done(state, "nonexistent-123")
       assert result == state
     end
+  end
+
+  describe "CI re-wake handoffs" do
+    test "trusted feedback supersedes stale guidance before completed-runner replacement" do
+      issue_id = "comment-wake-ci-rewake"
+      identifier = "comment-wake-#{System.unique_integer([:positive])}"
+      configure_memory_tracker([%Issue{id: issue_id, identifier: identifier, state: "ci-wait", title: "Await CI"}])
+
+      stale_rewake = %{
+        id: System.unique_integer([:positive]),
+        topic: "ticket.#{identifier}.ci.rewake",
+        source: :runtime,
+        message: "Check CI once; if it is still pending, return to agent:ci-wait."
+      }
+
+      {queue_store, stale_item} =
+        AgentQueue.coordination_event(identifier, :events_digest, %{
+          summary: stale_rewake.message,
+          events: [stale_rewake]
+        })
+        |> then(&AgentQueueStore.enqueue(AgentQueueStore.new(), &1))
+
+      {queue_store, _delivered_stale_item} = AgentQueueStore.claim_next_deliverable(queue_store, identifier)
+
+      entry =
+        lifecycle_running_entry(issue_id, identifier)
+        |> Map.put(:pid, nil)
+        |> Map.put(:last_codex_event, :turn_completed)
+        |> Map.put(:issue, %Issue{id: issue_id, identifier: identifier, state: "ci-wait", title: "Await CI"})
+
+      state =
+        lifecycle_state(
+          running: %{issue_id => entry},
+          claimed: MapSet.new([issue_id]),
+          queue_store: queue_store
+        )
+
+      feedback = trusted_comment_event(identifier)
+
+      assert {:noreply, next} = Orchestrator.handle_info({:event, feedback}, state)
+
+      assert_receive {:memory_tracker_state_update, ^issue_id, "rework"}, 2_000
+      assert AgentQueueStore.get(next.queue_store, stale_item.id).status == :superseded
+
+      assert [%{body: %{events: [^feedback]}}] = AgentQueueStore.list_pending(next.queue_store, identifier)
+    end
+  end
+
+  defp lifecycle_state(attrs) do
+    struct!(
+      State,
+      Keyword.merge(
+        [
+          running: %{},
+          claimed: MapSet.new(),
+          retry_attempts: %{},
+          max_concurrent_agents: 6,
+          session_max_concurrent_agents: nil,
+          codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0}
+        ],
+        attrs
+      )
+    )
+  end
+
+  defp configure_memory_tracker(issues) do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "memory",
+      tracker_active_states: ["todo", "in-progress", "human-review", "rework", "merging"],
+      tracker_terminal_states: ["done", "cancelled", "canceled"]
+    )
+
+    Application.put_env(:aiur, :memory_tracker_recipient, self())
+    Application.put_env(:aiur, :memory_tracker_issues, issues)
+  end
+
+  defp lifecycle_running_entry(issue_id, identifier) do
+    %{
+      pid: self(),
+      ref: make_ref(),
+      identifier: identifier,
+      issue: %Issue{id: issue_id, identifier: identifier, state: "In Progress", title: nil},
+      control: %{can_interrupt: true, safe_checkpoints: [:notification], status: :working},
+      session_id: "thread-#{identifier}",
+      agent_input_tokens: 0,
+      agent_output_tokens: 0,
+      agent_total_tokens: 0,
+      started_at: DateTime.utc_now()
+    }
+  end
+
+  defp trusted_comment_event(identifier) do
+    %{
+      id: System.unique_integer([:positive]),
+      topic: "ticket.#{identifier}.pr.review_comment",
+      source: :github,
+      author_trusted?: true,
+      message: "please rework",
+      comment: %{"body" => "please rework"}
+    }
   end
 end
