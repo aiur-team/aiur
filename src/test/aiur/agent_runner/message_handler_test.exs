@@ -5,6 +5,13 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
   alias Aiur.AgentRunner.MessageHandler
 
   describe "build/6" do
+    test "treats nil lifecycle options as an empty option list" do
+      issue = %Issue{id: "gid-mh-nil", identifier: "MH-nil"}
+      handler = MessageHandler.build(nil, issue, nil, nil, "codex", nil, nil)
+
+      assert :ok = handler.(%{event: :agent_message, body: "test"})
+    end
+
     test "returns a closure that forwards codex_worker_update to recipient" do
       issue = %Issue{id: "gid-mh-01", identifier: "MH-01"}
       handler = MessageHandler.build(self(), issue, nil, nil, "codex")

@@ -297,6 +297,60 @@ defmodule Aiur.Events.SubscriptionStoreTest do
       SubscriptionStore.set_enqueue_fn(nil)
     end
 
+    test "queues agent-origin events outside comment topics", %{identifier: id} do
+      test_pid = self()
+
+      SubscriptionStore.set_enqueue_fn(fn _id, event ->
+        send(test_pid, {:enqueued, event})
+        :ok
+      end)
+
+      :ok = SubscriptionStore.attach(id)
+      [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
+
+      send(pid, {
+        :event,
+        %{
+          id: 1_502,
+          topic: "ticket.555.branch.push",
+          author_trusted?: true,
+          comment_origin: "agent"
+        }
+      })
+
+      assert_receive {:enqueued, %{id: 1_502}}, 500
+      assert SubscriptionStore.snapshot(id).last_seen_event_id == 1_502
+
+      SubscriptionStore.set_enqueue_fn(nil)
+    end
+
+    test "queues trusted external comments", %{identifier: id} do
+      test_pid = self()
+
+      SubscriptionStore.set_enqueue_fn(fn _id, event ->
+        send(test_pid, {:enqueued, event})
+        :ok
+      end)
+
+      :ok = SubscriptionStore.attach(id)
+      [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
+
+      send(pid, {
+        :event,
+        %{
+          id: 1_503,
+          topic: "ticket.555.issue.commented",
+          author_trusted?: true,
+          comment_origin: "external"
+        }
+      })
+
+      assert_receive {:enqueued, %{id: 1_503}}, 500
+      assert SubscriptionStore.snapshot(id).last_seen_event_id == 1_503
+
+      SubscriptionStore.set_enqueue_fn(nil)
+    end
+
     test "events with id <= last_seen_event_id are dropped on handle_info", %{identifier: id} do
       test_pid = self()
 

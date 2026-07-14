@@ -85,6 +85,36 @@ defmodule Aiur.GitHub.AgentCommentOriginsTest do
     assert AgentCommentOrigins.origin("42", %{"id" => 7007}) == :agent
   end
 
+  test "does not record unrelated or unsuccessful GitHub commands" do
+    assert :ignored =
+             AgentCommentOrigins.record_gh_pr_comment(
+               "42",
+               "gh pr view 1153",
+               "https://github.com/its-everdred/aiur/pull/1153#issuecomment-7008\n",
+               0
+             )
+
+    assert :ignored =
+             AgentCommentOrigins.record_gh_pr_comment(
+               "42",
+               "gh pr comment 1153 --body 'Resolved the review.'",
+               "https://github.com/its-everdred/aiur/pull/1153#issuecomment-7008\n",
+               1
+             )
+
+    assert AgentCommentOrigins.origin("42", %{"id" => 7008}) == :external
+  end
+
+  test "surfaces a successful PR comment response with no durable identity" do
+    assert {:error, :gh_pr_comment_id_missing} =
+             AgentCommentOrigins.record_gh_pr_comment(
+               "42",
+               "gh pr comment 1153 --body 'Resolved the review.'",
+               "comment sent\n",
+               0
+             )
+  end
+
   test "rejects a verified reply without a stable comment ID" do
     assert {:error, :missing_comment_id} = AgentCommentOrigins.record("42", %{})
   end

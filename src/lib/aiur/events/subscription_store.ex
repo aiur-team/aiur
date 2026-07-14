@@ -408,8 +408,6 @@ defmodule Aiur.Events.SubscriptionStore do
     CommentWake.agent_authored_comment?(event) and comment_event_topic?(event_topic(event))
   end
 
-  defp agent_authored_comment_event?(_event), do: false
-
   defp comment_event_topic?(topic) when is_binary(topic) do
     String.ends_with?(topic, ".issue.commented") or
       String.ends_with?(topic, ".pr.review_comment")

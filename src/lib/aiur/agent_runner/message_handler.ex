@@ -19,6 +19,10 @@ defmodule Aiur.AgentRunner.MessageHandler do
   @doc false
   @spec build(pid() | nil, Issue.t(), Path.t() | nil, String.t() | nil, String.t(), String.t() | nil, keyword()) ::
           (map() -> :ok)
+  def build(recipient, issue, workspace, worker_host, backend, turn_id, nil) do
+    build(recipient, issue, workspace, worker_host, backend, turn_id, [])
+  end
+
   def build(recipient, issue, workspace, worker_host, backend, turn_id, lifecycle_opts)
       when is_list(lifecycle_opts) do
     lifecycle_opts =
