@@ -172,8 +172,9 @@ defmodule Aiur.AppServer.ProviderTurnLedger do
   defp active_turn?(%{"status" => status}) when is_binary(status), do: status == "inProgress"
   defp active_turn?(_turn), do: true
 
+  @spec put_active_turn_ids(map(), MapSet.t()) :: map()
   defp put_active_turn_ids(state, active_turn_ids) do
-    %{state | active_turn_ids: active_turn_ids, outstanding_turns: MapSet.size(active_turn_ids)}
+    %{state | active_turn_ids: active_turn_ids, outstanding_turns: Enum.count(active_turn_ids)}
   end
 
   defp persist_guards(%{provider_turn_store: store} = state) when is_pid(store) do
