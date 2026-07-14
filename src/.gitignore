@@ -13,6 +13,11 @@
 # Temporary files, for example, from tests.
 /tmp/
 
+# Isolated Playwright harness dependencies and evidence.
+/browser/node_modules/
+/browser/.artifacts/
+/browser/.artifacts-run-*/
+
 # Generated browser assets.
 /priv/static/assets/
 
