@@ -126,6 +126,8 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
           "https://user@api.github.com/repos/owner/repo",
           "https://api.github.com:443/repos/owner/repo",
           "https://api.github.com:444/repos/owner/repo",
+          "https://api.github.com/not-repos/owner/repo",
+          "https://api.github.com/repos/owner/repo/extra",
           "https://api.github.com/repos/owner/repo?private=1",
           "https://api.github.com/repos/owner/repo#fragment"
         ] do

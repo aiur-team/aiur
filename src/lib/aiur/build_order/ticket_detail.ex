@@ -297,15 +297,15 @@ defmodule Aiur.BuildOrder.TicketDetail do
        when is_binary(repository_url) do
     with %URI{
            scheme: "https",
-           authority: "api.github.com",
            host: "api.github.com",
            port: 443,
            userinfo: nil,
            query: nil,
            fragment: nil,
-           path: "/repos/" <> path
+           path: path
          } <- URI.parse(repository_url),
-         [response_owner, response_repository] <- String.split(path, "/", trim: true),
+         true <- String.starts_with?(repository_url, "https://api.github.com/"),
+         ["repos", response_owner, response_repository] <- String.split(path || "", "/", trim: true),
          true <- String.downcase(response_owner) == String.downcase(owner),
          true <- String.downcase(response_repository) == String.downcase(repository) do
       :ok
