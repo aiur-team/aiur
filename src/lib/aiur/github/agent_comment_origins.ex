@@ -8,7 +8,13 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
 
   @max_origins_per_ticket 100
 
-  @type pending_public_comment :: %{path: Path.t(), command: String.t(), lock_marker: term()}
+  @type pending_public_comment :: %{
+          path: Path.t(),
+          ticket: String.t(),
+          command: String.t(),
+          operation_id: String.t(),
+          lock_marker: term()
+        }
 
   @doc false
   @spec with_lock((-> term())) :: term() | {:error, term()}
@@ -49,7 +55,8 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
   def begin_gh_pr_comment(ticket, command, operation_id)
       when is_binary(command) and is_binary(operation_id) and operation_id != "" do
     with true <- agent_comment_command?(command),
-         {:ok, path} <- path_for() do
+         {:ok, path} <- path_for(),
+         {:ok, ticket} <- normalize_ticket(ticket) do
       begin_public_comment_lock(ticket, command, operation_id, path)
     else
       false -> :ignored
@@ -58,6 +65,29 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
   end
 
   def begin_gh_pr_comment(_ticket, _command, _operation_id), do: :ignored
+
+  @doc false
+  @spec bind_gh_pr_comment_operation(String.t(), String.t(), String.t()) :: :ok | :ignored
+  def bind_gh_pr_comment_operation(approved_operation_id, command, execution_operation_id)
+      when is_binary(approved_operation_id) and is_binary(command) and is_binary(execution_operation_id) do
+    case pop_pending_public_comment(approved_operation_id, nil) do
+      %{} = pending ->
+        put_pending_public_comment(pending)
+        :ok
+
+      nil ->
+        case pop_pending_public_comment(execution_operation_id, command) do
+          %{} = pending ->
+            put_pending_public_comment(pending)
+            :ok
+
+          nil ->
+            :ignored
+        end
+    end
+  end
+
+  def bind_gh_pr_comment_operation(_approved_operation_id, _command, _execution_operation_id), do: :ignored
 
   @doc false
   @spec complete_gh_pr_comment(
@@ -70,12 +100,13 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
         ) :: term()
   def complete_gh_pr_comment(ticket, operation_id, command, output, exit_code, recorder)
       when is_binary(output) and is_function(recorder, 4) do
-    case pop_pending_public_comment(operation_id) do
+    case pop_pending_public_comment(operation_id, command) do
       %{} = pending ->
-        try do
-          recorder.(ticket, pending.command, output, exit_code)
-        after
-          release_public_comment_lock(pending)
+        result = recorder.(ticket, pending.command, output, exit_code)
+
+        case finalize_pending_public_comment(pending, result) do
+          :ok -> result
+          {:error, _reason} = error -> error
         end
 
       nil when is_binary(command) ->
@@ -114,7 +145,7 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
     end
   end
 
-  defp begin_public_comment_lock(_ticket, command, operation_id, path) do
+  defp begin_public_comment_lock(ticket, command, operation_id, path) do
     lock_marker = {__MODULE__, path}
     pending_key = pending_public_comment_key(operation_id)
 
@@ -123,9 +154,25 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
     else
       case :global.set_lock({lock_marker, self()}, [node()]) do
         true ->
+          pending = %{
+            path: path,
+            ticket: ticket,
+            command: command,
+            operation_id: operation_id,
+            lock_marker: lock_marker
+          }
+
           Process.put(lock_marker, true)
-          Process.put(pending_key, %{path: path, command: command, lock_marker: lock_marker})
-          :ok
+
+          case persist_pending_public_comment(pending) do
+            :ok ->
+              Process.put(pending_key, pending)
+              :ok
+
+            {:error, _reason} = error ->
+              release_public_comment_lock(pending)
+              error
+          end
 
         false ->
           {:error, :public_comment_origin_lock_unavailable}
@@ -133,14 +180,49 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
     end
   end
 
-  defp pop_pending_public_comment(operation_id) when is_binary(operation_id) do
+  defp pop_pending_public_comment(operation_id, command) when is_binary(operation_id) do
     pending_key = pending_public_comment_key(operation_id)
-    pending = Process.get(pending_key)
-    Process.delete(pending_key)
-    pending
+
+    case Process.get(pending_key) do
+      %{} = pending ->
+        Process.delete(pending_key)
+        pending
+
+      nil ->
+        pop_pending_public_comment_by_command(command)
+    end
   end
 
-  defp pop_pending_public_comment(_operation_id), do: nil
+  defp pop_pending_public_comment(_operation_id, _command), do: nil
+
+  defp pop_pending_public_comment_by_command(command) when is_binary(command) do
+    pending =
+      Process.get()
+      |> Enum.find_value(fn
+        {{__MODULE__, :pending_public_comment, _operation_id} = pending_key, %{} = pending}
+        when pending.command == command ->
+          {pending_key, pending}
+
+        _entry ->
+          nil
+      end)
+
+    case pending do
+      {pending_key, pending} ->
+        Process.delete(pending_key)
+        pending
+
+      nil ->
+        nil
+    end
+  end
+
+  defp pop_pending_public_comment_by_command(_command), do: nil
+
+  defp put_pending_public_comment(%{operation_id: operation_id} = pending) do
+    Process.put(pending_public_comment_key(operation_id), pending)
+    :ok
+  end
 
   defp pending_public_comment_key(operation_id), do: {__MODULE__, :pending_public_comment, operation_id}
 
@@ -148,6 +230,28 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
     Process.delete(lock_marker)
     :global.del_lock({lock_marker, self()}, [node()])
     :ok
+  end
+
+  defp finalize_pending_public_comment(pending, result) when result in [:ok, :ignored] do
+    case clear_pending_public_comment(pending) do
+      :ok ->
+        release_public_comment_lock(pending)
+        :ok
+
+      {:error, _reason} = error ->
+        put_pending_public_comment(pending)
+        error
+    end
+  end
+
+  defp finalize_pending_public_comment(pending, {:error, _reason} = error) do
+    put_pending_public_comment(pending)
+    error
+  end
+
+  defp finalize_pending_public_comment(pending, other) do
+    put_pending_public_comment(pending)
+    {:error, {:invalid_origin_recorder_result, other}}
   end
 
   @spec record(String.t() | integer(), map()) :: :ok | {:error, term()}
@@ -170,8 +274,22 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
     with {:ok, path} <- path_for(),
          {:ok, ticket} <- normalize_ticket(ticket),
          {:ok, comment_id} <- comment_id(comment),
-         {:ok, origins} <- with_lock(path, fn -> load_origins(path) end) do
-      if comment_id in Map.get(origins, ticket, []), do: :agent, else: :external
+         {:ok, state} <- with_lock(path, fn -> load_state(path) end) do
+      cond do
+        comment_id in Map.get(state.origins, ticket, []) ->
+          :agent
+
+        Map.has_key?(state.pending, ticket) ->
+          Logger.warning(
+            "Agent comment origin quarantined pending durable recovery: " <>
+              "ticket=#{ticket} comment_id=#{comment_id} pending_operations=#{inspect(Map.get(state.pending, ticket))}"
+          )
+
+          :agent
+
+        true ->
+          :external
+      end
     else
       {:error, reason} ->
         Logger.warning("Agent comment origin lookup failed: ticket=#{inspect(ticket)} reason=#{inspect(reason)}")
@@ -187,10 +305,11 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
 
   defp persist(path, ticket, comment_id, opts) do
     with_lock(path, fn ->
-      with {:ok, origins} <- load_origins(path) do
+      with {:ok, state} <- load_state(path) do
+        origins = state.origins
         run_after_load_hook(Keyword.get(opts, :after_load), ticket, origins)
         ids = [comment_id | Map.get(origins, ticket, [])] |> Enum.uniq() |> Enum.take(@max_origins_per_ticket)
-        JsonStore.write!(path, %{"origins" => Map.put(origins, ticket, ids)})
+        write_state(path, %{state | origins: Map.put(origins, ticket, ids)})
         :ok
       end
     end)
@@ -212,12 +331,70 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
     end
   end
 
-  defp load_origins(path) do
+  defp persist_pending_public_comment(pending) do
+    with_lock(pending.path, fn ->
+      with {:ok, state} <- load_state(pending.path) do
+        pending_operations = Map.get(state.pending, pending.ticket, [])
+
+        updated_pending =
+          pending_operations
+          |> Enum.reject(&(&1 == pending.operation_id))
+          |> then(&[pending.operation_id | &1])
+
+        write_state(pending.path, %{state | pending: Map.put(state.pending, pending.ticket, updated_pending)})
+        :ok
+      end
+    end)
+  rescue
+    error -> {:error, {:persistence_failed, Exception.message(error)}}
+  catch
+    kind, reason -> {:error, {:persistence_failed, {kind, reason}}}
+  end
+
+  defp clear_pending_public_comment(pending) do
+    with_lock(pending.path, fn ->
+      with {:ok, state} <- load_state(pending.path) do
+        pending_operations =
+          state.pending
+          |> Map.get(pending.ticket, [])
+          |> Enum.reject(&(&1 == pending.operation_id))
+
+        updated_pending =
+          if pending_operations == [] do
+            Map.delete(state.pending, pending.ticket)
+          else
+            Map.put(state.pending, pending.ticket, pending_operations)
+          end
+
+        write_state(pending.path, %{state | pending: updated_pending})
+        :ok
+      end
+    end)
+  rescue
+    error -> {:error, {:persistence_failed, Exception.message(error)}}
+  catch
+    kind, reason -> {:error, {:persistence_failed, {kind, reason}}}
+  end
+
+  defp load_state(path) do
     case JsonStore.read(path, %{}) do
-      {:ok, %{} = persisted} -> {:ok, normalize_origins(Map.get(persisted, "origins", %{}))}
-      {:ok, _other} -> {:error, :invalid_store_shape}
-      {:error, reason} -> {:error, {:store_read_failed, reason}}
+      {:ok, %{} = persisted} ->
+        {:ok,
+         %{
+           origins: normalize_origins(Map.get(persisted, "origins", %{})),
+           pending: normalize_pending(Map.get(persisted, "pending", %{}))
+         }}
+
+      {:ok, _other} ->
+        {:error, :invalid_store_shape}
+
+      {:error, reason} ->
+        {:error, {:store_read_failed, reason}}
     end
+  end
+
+  defp write_state(path, %{origins: origins, pending: pending}) do
+    JsonStore.write!(path, %{"origins" => origins, "pending" => pending})
   end
 
   defp normalize_origins(origins) when is_map(origins) do
@@ -237,6 +414,19 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
   end
 
   defp normalize_origins(_origins), do: %{}
+
+  defp normalize_pending(pending) when is_map(pending) do
+    Enum.reduce(pending, %{}, fn
+      {ticket, operations}, acc when is_binary(ticket) and is_list(operations) ->
+        operations = operations |> Enum.filter(&(is_binary(&1) and &1 != "")) |> Enum.uniq()
+        if operations == [], do: acc, else: Map.put(acc, ticket, operations)
+
+      _entry, acc ->
+        acc
+    end)
+  end
+
+  defp normalize_pending(_pending), do: %{}
 
   defp normalize_ticket(ticket) when is_integer(ticket), do: {:ok, Integer.to_string(ticket)}
 
@@ -275,7 +465,7 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
 
   defp gh_api_comment_post?(command) do
     Regex.match?(~r/(?:\A|[^[:alnum:]_])gh\s+api(?:\s|\z)/, command) and
-      Regex.match?(~r{/issues/\d+/comments(?:\s|\z)}, command) and
+      Regex.match?(~r{/issues/\d+/comments(?=\s|\z|["'])}, command) and
       Regex.match?(~r/(?:--method|-X)\s*=?\s*POST\b/i, command)
   end
 

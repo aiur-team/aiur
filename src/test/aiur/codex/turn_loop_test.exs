@@ -133,6 +133,28 @@ defmodule Aiur.Codex.TurnLoopTest do
       close_port(port)
     end
 
+    test "propagates an origin-recording failure from a command completion" do
+      port = open_cat_port()
+
+      payload = %{
+        "method" => "item/completed",
+        "params" => %{
+          "item" => %{
+            "type" => "commandExecution",
+            "command" => "gh pr comment 1153 --body 'Resolved.'"
+          }
+        }
+      }
+
+      state =
+        %{base_state() | on_message: fn _message -> {:error, {:agent_comment_origin_not_recorded, :disk_full}} end}
+
+      assert {:error, {:agent_comment_origin_not_recorded, :disk_full}} =
+               TurnLoop.handle_method(%{port: port}, state, payload, Jason.encode!(payload), payload["method"])
+
+      close_port(port)
+    end
+
     test "input-required requests return an input error" do
       port = open_cat_port()
       payload = %{"method" => "turn/input_required", "params" => %{"requiresInput" => true}}

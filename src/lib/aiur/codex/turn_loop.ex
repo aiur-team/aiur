@@ -119,6 +119,9 @@ defmodule Aiur.Codex.TurnLoop do
 
         {:error, {:approval_required, payload}}
 
+      {:error, reason} ->
+        {:error, reason}
+
       :unhandled ->
         handle_unhandled_method(session, state, method, payload, payload_string, on_message, metadata)
     end
@@ -133,8 +136,10 @@ defmodule Aiur.Codex.TurnLoop do
       Messages.emit_message(on_message, :turn_input_required, %{payload: payload, raw: payload_string}, metadata)
       {:error, {:turn_input_required, payload}}
     else
-      Messages.emit_message(on_message, :notification, %{payload: payload, raw: payload_string}, metadata)
-      handle_notification_outcome(session, state, method, payload)
+      case Messages.emit_message(on_message, :notification, %{payload: payload, raw: payload_string}, metadata) do
+        {:error, reason} -> {:error, reason}
+        _other -> handle_notification_outcome(session, state, method, payload)
+      end
     end
   end
 

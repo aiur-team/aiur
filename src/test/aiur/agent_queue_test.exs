@@ -348,6 +348,39 @@ defmodule Aiur.AgentQueueTest do
     assert superseded.status == :superseded
   end
 
+  test "supersedes matching pending and delivered CI re-wake digests" do
+    identifier = "MT-ci-rewake"
+
+    ci_rewake =
+      AgentQueue.coordination_event(identifier, :events_digest, %{
+        summary: "CI fallback",
+        events: [%{topic: "ticket.#{identifier}.ci.rewake"}]
+      })
+
+    human_feedback =
+      AgentQueue.coordination_event(identifier, :events_digest, %{
+        summary: "Trusted review feedback",
+        events: [%{topic: "ticket.#{identifier}.pr.review_comment"}]
+      })
+
+    {store, pending_rewake} = AgentQueueStore.enqueue(AgentQueueStore.new(), ci_rewake)
+    {store, delivered_rewake} = AgentQueueStore.enqueue(store, ci_rewake)
+    {store, _claimed} = AgentQueueStore.claim_next_deliverable(store, identifier)
+    {store, feedback} = AgentQueueStore.enqueue(store, human_feedback)
+
+    {store, superseded} =
+      AgentQueueStore.supersede_matching(store, identifier, fn item ->
+        Enum.any?(item.body.events, &(Map.get(&1, :topic) == "ticket.#{identifier}.ci.rewake"))
+      end)
+
+    assert Enum.map(superseded, & &1.id) |> Enum.sort() ==
+             [pending_rewake.id, delivered_rewake.id] |> Enum.sort()
+
+    assert AgentQueueStore.get(store, pending_rewake.id).status == :superseded
+    assert AgentQueueStore.get(store, delivered_rewake.id).status == :superseded
+    assert AgentQueueStore.get(store, feedback.id).status == :pending
+  end
+
   test "restore pending returns delivered item to visible queue" do
     store = AgentQueueStore.new()
     {store, item} = AgentQueue.operator_message("MT-880", "abc") |> then(&AgentQueueStore.enqueue(store, &1))

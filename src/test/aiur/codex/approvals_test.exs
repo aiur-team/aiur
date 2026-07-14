@@ -47,6 +47,75 @@ defmodule Aiur.Codex.ApprovalsTest do
                  false
                )
     end
+
+    test "publishes the pre-execution event before accepting the command" do
+      port = open_cat_port()
+      test_pid = self()
+
+      try do
+        payload = %{
+          "id" => "r-preapprove",
+          "method" => "item/commandExecution/requestApproval",
+          "params" => %{"command" => "gh pr comment 1153 --body 'Resolved.'"}
+        }
+
+        on_message = fn
+          %{event: :command_execution_preapproved} = message ->
+            send(test_pid, {:preapproved, message})
+            :ok
+
+          _message ->
+            :ok
+        end
+
+        assert :approved =
+                 Approvals.maybe_handle_approval_request(
+                   port,
+                   "item/commandExecution/requestApproval",
+                   payload,
+                   Jason.encode!(payload),
+                   on_message,
+                   @metadata,
+                   fn _tool, _args -> %{} end,
+                   true
+                 )
+
+        assert_receive {:preapproved, %{payload: ^payload}}
+        frame = read_one_frame(port)
+        assert frame["result"]["decision"] == "acceptForSession"
+      after
+        Port.close(port)
+      end
+    end
+
+    test "declines and returns an error when pre-execution tracking fails" do
+      port = open_cat_port()
+
+      try do
+        payload = %{
+          "id" => "r-preapprove-failed",
+          "method" => "item/commandExecution/requestApproval",
+          "params" => %{"command" => "gh pr comment 1153 --body 'Resolved.'"}
+        }
+
+        assert {:error, {:command_execution_preapproval_failed, {:agent_comment_origin_not_recorded, :disk_full}}} =
+                 Approvals.maybe_handle_approval_request(
+                   port,
+                   "item/commandExecution/requestApproval",
+                   payload,
+                   Jason.encode!(payload),
+                   fn _message -> {:error, {:agent_comment_origin_not_recorded, :disk_full}} end,
+                   @metadata,
+                   fn _tool, _args -> %{} end,
+                   true
+                 )
+
+        frame = read_one_frame(port)
+        assert frame["result"]["decision"] == "declined"
+      after
+        Port.close(port)
+      end
+    end
   end
 
   describe "maybe_handle_approval_request/8 — item/fileChange/requestApproval" do

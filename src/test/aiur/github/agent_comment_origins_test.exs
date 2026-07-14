@@ -96,6 +96,14 @@ defmodule Aiur.GitHub.AgentCommentOriginsTest do
     assert AgentCommentOrigins.origin("42", %{"id" => 7006}) == :agent
   end
 
+  test "records a PR conversation comment posted through a quoted gh api path" do
+    command = "gh api \"repos/its-everdred/aiur/issues/1153/comments\" --method POST -f body='Resolved the review.'"
+    output = ~s({"id":70061}\n)
+
+    assert :ok = AgentCommentOrigins.record_gh_pr_comment("42", command, output, 0)
+    assert AgentCommentOrigins.origin("42", %{"id" => 70061}) == :agent
+  end
+
   test "records a gh api comment response that returns only its ID" do
     command = "gh api -XPOST repos/its-everdred/aiur/issues/1153/comments -f body='Resolved the review.'"
     output = ~s({"id":7007}\n)

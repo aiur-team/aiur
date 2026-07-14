@@ -212,6 +212,33 @@ defmodule Aiur.AgentQueueStore do
     end
   end
 
+  @doc false
+  @spec supersede_matching(t(), String.t(), (AgentQueueItem.t() -> as_boolean(term()))) ::
+          {t(), [AgentQueueItem.t()]}
+  def supersede_matching(%__MODULE__{} = store, target_issue_identifier, matcher)
+      when is_binary(target_issue_identifier) and is_function(matcher, 1) do
+    store.items
+    |> Map.values()
+    |> Enum.reduce({store, []}, fn
+      %AgentQueueItem{
+        target_issue_identifier: ^target_issue_identifier,
+        status: status
+      } = item,
+      {current_store, superseded}
+      when status in [:pending, :delivered] ->
+        if matcher.(item) do
+          {next_store, updated} = mark_superseded(current_store, item.id)
+          {next_store, [updated | superseded]}
+        else
+          {current_store, superseded}
+        end
+
+      _item, acc ->
+        acc
+    end)
+    |> then(fn {next_store, superseded} -> {next_store, Enum.reverse(superseded)} end)
+  end
+
   @spec get(t(), integer()) :: AgentQueueItem.t() | nil
   def get(%__MODULE__{} = store, item_id) when is_integer(item_id), do: Map.get(store.items, item_id)
 

@@ -10,9 +10,9 @@ defmodule Aiur.Orchestrator.CommentWake do
 
   alias Aiur.Alerts
   alias Aiur.Events.UniversalSubscriptions
-  alias Aiur.{Issue, Tracker}
+  alias Aiur.{AgentQueueStore, Issue, Tracker}
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, PrAnchored, State}
+  alias Aiur.Orchestrator.{CiLifecycle, Dispatcher, DispatchPolicy, PrAnchored, State}
   alias Aiur.Orchestrator.OperatorMessages.DeliveryPolicy
   alias Aiur.RunTelemetry.Lifecycle
 
@@ -106,7 +106,9 @@ defmodule Aiur.Orchestrator.CommentWake do
   def maybe_transition_idle_issue_to_rework(state, issue_number, source, event, attempt) do
     case transition_comment_issue_to_rework(issue_number, issue_number, source, event, nil) do
       :ok ->
-        seed_idle_comment_wake_event(state, issue_number, event)
+        state
+        |> invalidate_ci_rewake_handoffs(issue_number, issue_number)
+        |> seed_idle_comment_wake_event(issue_number, event)
 
       {:skip, reason} ->
         Logger.info("#{source} ignored for idle issue: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
@@ -184,7 +186,9 @@ defmodule Aiur.Orchestrator.CommentWake do
       :ok ->
         Logger.info("#{source} replacing stale completed turn: #{comment_reactivation_context(running_entry, issue_number)}")
 
-        Orchestrator.enqueue_event_digest_item(state, to_string(issue_number), [event], event)
+        state
+        |> invalidate_ci_rewake_handoffs(issue_number, issue_key)
+        |> Orchestrator.enqueue_event_digest_item(to_string(issue_number), [event], event)
 
       {:skip, reason} ->
         Logger.info("#{source} ignored for stale completed turn: #{comment_reactivation_context(running_entry, issue_number)} reason=#{inspect(reason)}")
@@ -346,7 +350,9 @@ defmodule Aiur.Orchestrator.CommentWake do
            Map.get(running_entry, :telemetry_attempt_id)
          ) do
       :ok ->
-        revalidate_comment_reactivation(state, running_entry, issue_number, source)
+        state
+        |> invalidate_ci_rewake_handoffs(issue_number, issue_key)
+        |> revalidate_comment_reactivation(running_entry, issue_number, source)
 
       {:skip, reason} ->
         context = comment_reactivation_context(running_entry, issue_number)
@@ -391,6 +397,43 @@ defmodule Aiur.Orchestrator.CommentWake do
         end
     end
   end
+
+  # CI fallback guidance is only useful while the ticket is still awaiting a
+  # terminal CI result. A newer trusted review comment has already moved the
+  # ticket to rework, so leaving either pending or delivered `ci.rewake`
+  # guidance in the queue can make a replacement runner return to CI wait.
+  defp invalidate_ci_rewake_handoffs(%State{} = state, issue_identifier, issue_id) do
+    {queue_store, superseded} =
+      AgentQueueStore.supersede_matching(
+        state.queue_store,
+        to_string(issue_identifier),
+        &ci_rewake_handoff?/1
+      )
+
+    if superseded != [] do
+      Logger.info(
+        "Trusted comment superseded stale CI re-wake handoff: " <>
+          "issue_identifier=#{issue_identifier} queue_item_ids=#{inspect(Enum.map(superseded, & &1.id))}"
+      )
+    end
+
+    state
+    |> Map.put(:queue_store, queue_store)
+    |> CiLifecycle.cancel_ci_wait_rewake(to_string(issue_id))
+  end
+
+  defp ci_rewake_handoff?(%{event_type: :events_digest, body: %{events: events}}) when is_list(events) do
+    Enum.any?(events, fn
+      event when is_map(event) ->
+        topic = Map.get(event, :topic) || Map.get(event, "topic") || ""
+        String.ends_with?(to_string(topic), ".ci.rewake")
+
+      _event ->
+        false
+    end)
+  end
+
+  defp ci_rewake_handoff?(_item), do: false
 
   defp comment_body(event) do
     comment = Map.get(event, :comment) || Map.get(event, "comment") || %{}

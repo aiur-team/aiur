@@ -20,7 +20,7 @@ defmodule Aiur.Codex.Approvals do
           boolean(),
           map(),
           boolean()
-        ) :: :approved | :approval_required | :input_required | :unhandled
+        ) :: :approved | :approval_required | :input_required | :unhandled | {:error, term()}
   def maybe_handle_approval_request(
         port,
         method,
@@ -62,7 +62,7 @@ defmodule Aiur.Codex.Approvals do
           (term(), term() -> term()),
           boolean(),
           boolean()
-        ) :: :approved | :approval_required | :input_required | :unhandled
+        ) :: :approved | :approval_required | :input_required | :unhandled | {:error, term()}
   def maybe_handle_approval_request(port, method, %{"id" => id} = payload, payload_string, on_message, metadata, _tool_executor, _auto_approve_requests, true) do
     deny_for_pause(port, method, id, payload, payload_string, on_message, metadata)
   end
@@ -86,7 +86,16 @@ defmodule Aiur.Codex.Approvals do
         auto_approve_requests,
         false
       ) do
-    approve_or_require(port, id, "acceptForSession", payload, payload_string, on_message, metadata, auto_approve_requests)
+    approve_command_or_require(
+      port,
+      id,
+      "acceptForSession",
+      payload,
+      payload_string,
+      on_message,
+      metadata,
+      auto_approve_requests
+    )
   end
 
   def maybe_handle_approval_request(
@@ -191,7 +200,7 @@ defmodule Aiur.Codex.Approvals do
           map(),
           (term(), term() -> term()),
           boolean()
-        ) :: :approved | :approval_required | :input_required | :unhandled
+        ) :: :approved | :approval_required | :input_required | :unhandled | {:error, term()}
   def maybe_handle_approval_request(port, method, payload, payload_string, on_message, metadata, tool_executor, auto_approve_requests) do
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     maybe_handle_approval_request(port, method, payload, payload_string, on_message, metadata, tool_executor, auto_approve_requests, false)
@@ -211,6 +220,42 @@ defmodule Aiur.Codex.Approvals do
   end
 
   defp approve_or_require(_port, _id, _decision, _payload, _payload_string, _on_message, _metadata, false) do
+    :approval_required
+  end
+
+  # A `gh pr comment` becomes externally visible immediately after Codex
+  # receives this approval response. Notify the agent runner first so it can
+  # acquire durable provenance before the mutation is allowed to start.
+  defp approve_command_or_require(port, id, decision, payload, payload_string, on_message, metadata, true) do
+    case Messages.emit_message(
+           on_message,
+           :command_execution_preapproved,
+           %{payload: payload, raw: payload_string, decision: decision},
+           metadata
+         ) do
+      :ok ->
+        Rpc.send_message(port, %{"id" => id, "result" => %{"decision" => decision}})
+
+        Messages.emit_message(
+          on_message,
+          :approval_auto_approved,
+          %{payload: payload, raw: payload_string, decision: decision},
+          metadata
+        )
+
+        :approved
+
+      {:error, reason} ->
+        Rpc.send_message(port, %{"id" => id, "result" => %{"decision" => "declined"}})
+        {:error, {:command_execution_preapproval_failed, reason}}
+
+      other ->
+        Rpc.send_message(port, %{"id" => id, "result" => %{"decision" => "declined"}})
+        {:error, {:command_execution_preapproval_failed, other}}
+    end
+  end
+
+  defp approve_command_or_require(_port, _id, _decision, _payload, _payload_string, _on_message, _metadata, false) do
     :approval_required
   end
 

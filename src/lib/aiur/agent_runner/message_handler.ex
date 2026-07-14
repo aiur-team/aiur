@@ -83,8 +83,29 @@ defmodule Aiur.AgentRunner.MessageHandler do
 
   defp observe_agent_comment_origin(%Issue{identifier: identifier}, backend, message, recorder)
        when is_binary(identifier) and is_function(recorder, 4) do
-    case public_comment_start(message, backend) do
+    case public_comment_preapproval(message, backend) do
       {:ok, command, operation_id} ->
+        complete_origin_observation(
+          identifier,
+          AgentCommentOrigins.begin_gh_pr_comment(identifier, command, operation_id)
+        )
+
+      :skip ->
+        observe_started_or_completed_agent_comment_origin(identifier, backend, message, recorder)
+    end
+  end
+
+  defp observe_agent_comment_origin(_issue, _backend, _message, _recorder), do: :ok
+
+  defp observe_started_or_completed_agent_comment_origin(identifier, backend, message, recorder) do
+    case public_comment_start(message, backend) do
+      {:ok, command, operation_id, approved_operation_id} ->
+        complete_origin_observation(
+          identifier,
+          AgentCommentOrigins.bind_gh_pr_comment_operation(approved_operation_id, command, operation_id)
+        )
+
+      {:fallback, command, operation_id} ->
         complete_origin_observation(
           identifier,
           AgentCommentOrigins.begin_gh_pr_comment(identifier, command, operation_id)
@@ -94,8 +115,6 @@ defmodule Aiur.AgentRunner.MessageHandler do
         observe_completed_agent_comment_origin(identifier, backend, message, recorder)
     end
   end
-
-  defp observe_agent_comment_origin(_issue, _backend, _message, _recorder), do: :ok
 
   defp observe_completed_agent_comment_origin(identifier, backend, message, recorder) do
     case transcript_event_from(message, backend, nil) do
@@ -150,6 +169,20 @@ defmodule Aiur.AgentRunner.MessageHandler do
     {:error, {:agent_comment_origin_not_recorded, other}}
   end
 
+  defp public_comment_preapproval(message, "codex") do
+    with "command_execution_preapproved" <- event_kind(message),
+         "item/commandExecution/requestApproval" <- MapAccess.notification_method(message),
+         params when is_map(params) <- notification_params(message),
+         command when is_binary(command) and command != "" <- get(params, :command),
+         operation_id when is_binary(operation_id) and operation_id != "" <- request_operation_id(message) do
+      {:ok, command, operation_id}
+    else
+      _ -> :skip
+    end
+  end
+
+  defp public_comment_preapproval(_message, _backend), do: :skip
+
   defp public_comment_start(message, backend) when backend in ["claude", "claude-repl"] do
     with "item/created" <- MapAccess.notification_method(message),
          item when is_map(item) <- MapAccess.notification_item(message),
@@ -159,7 +192,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
          command when is_binary(command) and command != "" <- get(input, :command),
          operation_id when is_binary(operation_id) and operation_id != "" <-
            get(item, :tool_use_id) || get(item, :id) do
-      {:ok, command, operation_id}
+      {:fallback, command, operation_id}
     else
       _ -> :skip
     end
@@ -170,14 +203,38 @@ defmodule Aiur.AgentRunner.MessageHandler do
          item when is_map(item) <- MapAccess.notification_item(message),
          "commandExecution" <- get(item, :type),
          command when is_binary(command) and command != "" <- get(item, :command),
-         operation_id when is_binary(operation_id) and operation_id != "" <- get(item, :id) do
-      {:ok, command, operation_id}
+         operation_id when is_binary(operation_id) and operation_id != "" <- get(item, :id),
+         approved_operation_id when is_binary(approved_operation_id) and approved_operation_id != "" <-
+           get(item, :approval_id) || get(item, :approvalId) || operation_id do
+      {:ok, command, operation_id, approved_operation_id}
     else
       _ -> :skip
     end
   end
 
   defp public_comment_start(_message, _backend), do: :skip
+
+  defp notification_params(message) do
+    with payload when is_map(payload) <- get(message, :payload),
+         params when is_map(params) <- get(payload, :params) do
+      params
+    else
+      _ -> nil
+    end
+  end
+
+  defp request_operation_id(message) do
+    with payload when is_map(payload) <- get(message, :payload),
+         id <- get(payload, :id) do
+      normalize_operation_id(id)
+    else
+      _ -> nil
+    end
+  end
+
+  defp normalize_operation_id(id) when is_binary(id) and id != "", do: id
+  defp normalize_operation_id(id) when is_integer(id), do: Integer.to_string(id)
+  defp normalize_operation_id(_id), do: nil
 
   defp maybe_broadcast_transcript(%Issue{identifier: identifier}, message, backend, turn_id)
        when is_binary(identifier) do

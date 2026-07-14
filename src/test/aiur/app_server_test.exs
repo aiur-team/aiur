@@ -481,6 +481,94 @@ defmodule Aiur.AppServerTest do
     end
   end
 
+  test "app server fails closed when a visible top-level comment cannot record its origin" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-app-server-comment-origin-failure-#{System.unique_integer([:positive])}"
+      )
+
+    origin_path = Path.join(test_root, "agent-comment-origins.json")
+    previous_origin_path = Application.get_env(:aiur, :agent_comment_origins_path)
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-1151")
+      codex_binary = Path.join(test_root, "fake-codex")
+      File.mkdir_p!(workspace)
+      Application.put_env(:aiur, :agent_comment_origins_path, origin_path)
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      count=0
+      while IFS= read -r _line; do
+        count=$((count + 1))
+
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-origin"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-origin"}}}'
+            printf '%s\\n' '{"id":"approve-origin","method":"item/commandExecution/requestApproval","params":{"command":"gh pr comment 1153 --body Resolved","cwd":"/tmp"}}'
+            ;;
+          5)
+            printf '%s\\n' '{"method":"item/started","params":{"item":{"id":"execution-origin","type":"commandExecution","command":"gh pr comment 1153 --body Resolved"}}}'
+            printf '%s\\n' '{"method":"item/completed","params":{"item":{"id":"execution-origin","type":"commandExecution","command":"gh pr comment 1153 --body Resolved","aggregatedOutput":"https://github.com/owner/repo/pull/1153#issuecomment-71151\\n","exitCode":0}}}'
+            sleep 1
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        command: "#{codex_binary} app-server",
+        codex_approval_policy: "never"
+      )
+
+      issue = %Issue{
+        id: "issue-comment-origin-failure",
+        identifier: "MT-1151",
+        title: "Fail closed on agent comments",
+        description: "Provenance must be persisted before trusted comment processing.",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-1151",
+        labels: ["backend"]
+      }
+
+      handler =
+        Aiur.AgentRunner.MessageHandler.build(nil, issue, nil, nil, "codex", nil,
+          agent_comment_origin_recorder: fn _ticket, _command, _output, _exit_code ->
+            {:error, :disk_full}
+          end
+        )
+
+      assert {:error, {:agent_comment_origin_not_recorded, :disk_full}} =
+               AppServer.run(workspace, "Post top-level comment", issue, on_message: handler)
+
+      assert Aiur.GitHub.AgentCommentOrigins.origin(issue.identifier, %{"id" => 71_151}) == :agent
+    after
+      File.rm_rf(test_root)
+
+      if previous_origin_path do
+        Application.put_env(:aiur, :agent_comment_origins_path, previous_origin_path)
+      else
+        Application.delete_env(:aiur, :agent_comment_origins_path)
+      end
+    end
+  end
+
   test "app server auto-approves MCP tool approval prompts when approval policy is never" do
     test_root =
       Path.join(
