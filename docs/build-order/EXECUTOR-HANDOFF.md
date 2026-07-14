@@ -594,15 +594,42 @@ to a safe range.
     `agent:in-progress`, so startup restored it as a reserved paused row. The
     Executor moved it to `agent:human-review`; it is deactivated, consumes no
     worker or reserved capacity, and must not re-enter the Build Order run.
+65. At 03:43 PDT the nine-worker fleet crossed into a duplicate-build cascade:
+    host load reached 65, the control RPC timed out, #1161 had three copies of
+    the same focused tests, #1162 had two, #1096 had overlapping Dialyzer/PLT
+    jobs, and paused #1123 still had compilers alive. The Executor terminated
+    only redundant Mix children, then stopped Aiur cleanly when workers
+    immediately respawned them. All workspaces and uncommitted ticket work were
+    preserved. Aiur restarted from the repository root with dashboard auth
+    intact and a temporary `--max-agents 8` ceiling. Treat eight as the current
+    measured-safe envelope, not a permanent product limit; raise it again only
+    after the load/build-gate evidence supports doing so.
+66. The restart reproduced Ad Hoc #1148: startup stripped `agent:paused` from
+    #1103, #1108, and #1123. The fresh #1103 generation sees its valid preserved
+    checkout and is productively handling its existing CI contract, so it may
+    continue. The Executor restored the suppressing label on #1108 (still a
+    logs-only workspace) and #1123 (GATE-003 still unratified). Reapply those
+    holds after every restart until #1148 lands; do not create another ticket.
+67. Two independent exact-head reviews rejected #1090/PR #1141 at green head
+    `01a084fc`. The bounded five-part contract is recorded on issue comment
+    `4968360572`: quarantine only a matching late sensitive response, sanitize
+    account payload/method handling end to end, prevent cross-process stale
+    session resurrection, bound generation retention, and restore the
+    repository module-size contract. #1090 is unpaused and implementing that
+    exact scope; it needs fresh CI and two new exact-head reviews after push.
+68. Preview percentages at 03:58 PDT use each worker's latest durable
+    `progress.checkin` claim rather than Executor intuition. This intentionally
+    preserves stale or optimistic claims (for example #1090 still reports 80%
+    from the pre-review lifecycle) for the end-of-phase estimate-calibration
+    analysis. Current claims are #1088 70%, #1089 60%, #1090 80%, #1091 20%,
+    #1096 60%, #1103 70%, #1161 20%, and #1162 30%.
 
-At 03:29 PDT the core graph is 4/54 accepted. The recovered adaptive fleet is
-at seven active Build Order workers with no reserved paused slots:
-#1088/#1089/#1090/#1091/#1096 plus Phase 1 Ad Hoc #1161/#1162. The soft
-envelope continues to grow toward 16 while measured load remains below the
-configured target. #1103 has a persisted PR and exact lint/Dialyzer rework
-contract; #1111, #1108, and #1151 are the next eligible tickets. DASH-019/#1123
-remains intentionally held. Every live provider is Codex Sol or Terra; do not
-dispatch Claude.
+At 03:58 PDT the core graph is 4/54 accepted. The recovered fleet is at its
+temporary eight-worker ceiling: #1088/#1089/#1090/#1091/#1096/#1103 plus Phase
+1 Ad Hoc #1161/#1162. #1111 and #1151 are the next eligible tickets after one
+active worker drains; #1108 remains provisioning-paused and DASH-019/#1123
+remains gate-paused. Host load is near the configured target but below the hard
+ceiling. Every live provider is Codex Sol or Terra; do not dispatch Claude.
 Treat
 completed turns, stale bases, and green builds with unmet acceptance criteria
 as pending Executor work, not merge-ready truth.
