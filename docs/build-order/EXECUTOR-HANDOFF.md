@@ -514,12 +514,27 @@ to a safe range.
     emitted estimates are DASH-006 80%, DASH-017 90%, DASH-018 100%, BO-002
     80%, BO-009 80%, and DASH-004 70%. DASH-018's reported 100% remains visible
     beside blocking review rework as intentional phase-end calibration data.
+54. At 01:42 PDT Aiur's applekid `GITHUB_TOKEN` exhausted its REST allowance;
+    new/rework generation preflight failed closed until the authoritative
+    01:50:50 PDT reset. Operator `gh` keyring auth remained healthy, but the
+    Executor did not silently switch worker identity or restart onto a
+    different account. Existing local work continued, clean committed heads
+    were already pushed, and the six queued/rearmed Codex workers resumed
+    automatically after reset. Treat this as a bounded provider window, not a
+    reason to file another execution issue.
+55. The 01:47 PDT hourly retrospective found an action-dense hour—one merge,
+    exact-head review/rework routing, stale-generation recovery, analytics and
+    handoff maintenance, and rate-limit diagnosis—but repeated 30–60 second
+    reviewer/status polls with no changes were low-value token burn. The wake
+    history had not been fed, so the adjustment is now binding: record every
+    monitoring outcome and prefer shell/event waits during CI/review tails
+    while retaining the operator's five-minute status reports.
 
-At 01:36 PDT the core graph is 4/54 accepted. Core
-#1030/#1088/#1089/#1090/#1091/#1111 and Ad Hoc #1151 occupy the current
-counted generations; BO-009 awaits the next released coding slot while its
-review runs. #1108 remains tracker-paused after its contained controlled
-error. #1103/#1123 remain paused.
+At 01:53 PDT the core graph is 4/54 accepted. Core
+#1088/#1090/#1091/#1096/#1111 and Ad Hoc #1151 are productive Codex workers;
+DASH-017 remains paused with bounded test rework queued, and direct blocker
+#1030 is deactivated pending the next free slot. #1108 remains tracker-paused
+after its contained controlled error. #1103/#1123 remain paused.
 Treat
 completed turns, stale bases, and green builds with unmet acceptance criteria
 as pending Executor work, not merge-ready truth.
