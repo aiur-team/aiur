@@ -47,7 +47,7 @@ defmodule Aiur.Workspace.Ownership do
   @doc false
   @spec expect_provider(lease() | nil) :: :ok | {:error, :workspace_ownership_lost}
   def expect_provider(%{guardian: guardian, generation: generation}) when is_pid(guardian), do: call(guardian, {:expect_provider, generation})
-  def expect_provider(nil), do: :ok
+  def expect_provider(nil), do: {:error, :workspace_ownership_lost}
   def expect_provider(_lease), do: {:error, :workspace_ownership_lost}
 
   @doc false
@@ -55,14 +55,14 @@ defmodule Aiur.Workspace.Ownership do
   def track_provider(%{guardian: guardian, generation: generation}, provider) when is_pid(guardian) and is_map(provider),
     do: call(guardian, {:track_provider, generation, provider})
 
-  def track_provider(nil, _provider), do: :ok
+  def track_provider(nil, _provider), do: {:error, :workspace_ownership_lost}
   def track_provider(_lease, _provider), do: {:error, :workspace_ownership_lost}
 
-  @spec track_process_group(lease(), integer()) :: :ok
+  @spec track_process_group(lease() | nil, integer()) :: :ok | {:error, :workspace_ownership_lost}
   def track_process_group(lease, process_group_id) when is_integer(process_group_id) and process_group_id > 0,
     do: track_provider(lease, %{process_group_id: process_group_id})
 
-  def track_process_group(nil, _process_group_id), do: :ok
+  def track_process_group(nil, _process_group_id), do: {:error, :workspace_ownership_lost}
   def track_process_group(_lease, _process_group_id), do: {:error, :workspace_ownership_lost}
 
   @spec release(lease(), registry()) :: :ok
@@ -78,7 +78,8 @@ defmodule Aiur.Workspace.Ownership do
   def release_and_wait(_lease), do: {:error, :workspace_ownership_lost}
 
   @doc false
-  @spec wait_for_release(String.t(), pid(), registry()) :: :waiting | :available
+  @spec wait_for_release(String.t(), pid(), registry()) ::
+          {:waiting, pid(), pos_integer()} | :available
   def wait_for_release(ticket, recipient, registry \\ @registry) when is_binary(ticket) and is_pid(recipient),
     do: Waiter.wait(ticket, recipient, registry)
 

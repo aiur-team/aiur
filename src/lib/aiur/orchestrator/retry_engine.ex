@@ -118,14 +118,16 @@ defmodule Aiur.Orchestrator.RetryEngine do
   end
 
   @doc false
-  @spec wait_for_workspace_ownership(State.t(), String.t(), String.t(), term(), :waiting | :available) :: State.t()
+  @spec wait_for_workspace_ownership(State.t(), String.t(), String.t(), term(), term()) :: State.t()
   def wait_for_workspace_ownership(%State{} = state, issue_id, identifier, owner, wait)
-      when is_binary(issue_id) and is_binary(identifier) and wait in [:waiting, :available] do
+      when is_binary(issue_id) and is_binary(identifier) do
     context = workspace_wait_context(state, issue_id)
     demonitor_workspace_runner(context.running)
     waiting_state = install_workspace_wait(state, issue_id, identifier, owner, context)
-    maybe_release_installed_wait(waiting_state, identifier, wait)
+    synchronize_workspace_wait(waiting_state, identifier, wait)
   end
+
+  def wait_for_workspace_ownership(state, _issue_id, _identifier, _owner, _wait), do: state
 
   defp workspace_wait_context(state, issue_id) do
     %{running: Map.get(state.running, issue_id), retry: Map.get(state.retry_attempts, issue_id, %{})}
@@ -164,12 +166,22 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   defp value_from(running, retry, key), do: Map.get(running || %{}, key) || Map.get(retry, key)
 
-  defp maybe_release_installed_wait(state, identifier, :available), do: release_workspace_wait(state, identifier)
+  # The runner's initial subscription can release before its contention notice
+  # reaches the orchestrator. Subscribe again only after the row exists, then
+  # store the acknowledged guardian generation that is allowed to release it.
+  defp synchronize_workspace_wait(state, identifier, :available), do: release_workspace_wait(state, identifier)
 
-  defp maybe_release_installed_wait(state, identifier, :waiting) do
-    if Ownership.wait_for_release(identifier, self()) == :available,
-      do: release_workspace_wait(state, identifier),
-      else: state
+  defp synchronize_workspace_wait(state, identifier, _wait) do
+    case Ownership.wait_for_release(identifier, self()) do
+      :available -> release_workspace_wait(state, identifier)
+      {:waiting, guardian, generation} -> bind_workspace_wait(state, identifier, guardian, generation)
+    end
+  end
+
+  defp bind_workspace_wait(state, identifier, guardian, generation) do
+    update_in(state.dispatch_recovery.workspace_ownership.waits, fn waits ->
+      Map.update(waits, identifier, nil, &Map.merge(&1, %{guardian: guardian, generation: generation}))
+    end)
   end
 
   defp cancel_pending_retry(state, issue_id) do
@@ -207,6 +219,18 @@ defmodule Aiur.Orchestrator.RetryEngine do
           | claimed: MapSet.delete(state.claimed, issue_id),
             dispatch_recovery: %{state.dispatch_recovery | workspace_ownership: workspace_ownership}
         }
+    end
+  end
+
+  @doc false
+  @spec release_workspace_wait(State.t(), String.t(), pid(), pos_integer()) :: State.t()
+  def release_workspace_wait(%State{} = state, identifier, guardian, generation)
+      when is_binary(identifier) and is_pid(guardian) and is_integer(generation) and generation > 0 do
+    waits = state.dispatch_recovery.workspace_ownership.waits
+
+    case Map.get(waits, identifier) do
+      %{guardian: ^guardian, generation: ^generation} -> release_workspace_wait(state, identifier)
+      _ -> state
     end
   end
 

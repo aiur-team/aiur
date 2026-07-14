@@ -6,6 +6,7 @@ defmodule Aiur.AppServer.Adapter do
   require Logger
 
   alias Aiur.{AgentEnvironment, Config}
+  alias Aiur.Claude.RemoteControl
   alias Aiur.AppServer.{Messages, TurnLoop}
   alias Aiur.Codex.DynamicTool
 
@@ -135,8 +136,31 @@ defmodule Aiur.AppServer.Adapter do
       # Invoke this while the spawn primitive still owns control. Callers use
       # it to record the local process-group lease before any handshake or
       # session setup can expose a live descendant to an abrupt runner death.
-      on_port_started.(port)
-      {:ok, port}
+      case on_port_started.(port) do
+        :ok ->
+          {:ok, port}
+
+        {:error, _reason} = error ->
+          terminate_uncontained_port(port)
+          error
+
+        _other ->
+          terminate_uncontained_port(port)
+          {:error, :workspace_ownership_lost}
+      end
+    end
+  end
+
+  defp terminate_uncontained_port(port) do
+    case :erlang.port_info(port, :os_pid) do
+      {:os_pid, os_pid} -> RemoteControl.graceful_kill_tree(os_pid)
+      _ -> :ok
+    end
+
+    try do
+      Port.close(port)
+    rescue
+      ArgumentError -> :ok
     end
   end
 

@@ -82,6 +82,7 @@ defmodule Aiur.AppServer.AdapterTest do
     assert {:ok, port} =
              Adapter.start_port(File.cwd!(), "sleep 600", fn spawned_port ->
                send(parent, {:port_registered_at_spawn, spawned_port})
+               :ok
              end)
 
     try do

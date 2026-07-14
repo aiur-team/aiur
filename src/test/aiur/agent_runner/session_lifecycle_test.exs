@@ -119,5 +119,12 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
         assert :ok = Ownership.release(active_lease)
       end
     end
+
+    test "refuses a session when its workspace lease is absent" do
+      session = %{backend: "claude", metadata: %{claude_app_server_pid: "424242"}}
+
+      assert {:error, :workspace_ownership_lost} =
+               SessionLifecycle.track_session_containment(nil, session, nil)
+    end
   end
 end

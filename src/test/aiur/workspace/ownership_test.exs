@@ -21,6 +21,47 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert :none = Ownership.current(ticket)
   end
 
+  test "guardian telemetry follows actual containment phases through final release" do
+    ticket = "ownership-telemetry-#{System.unique_integer([:positive])}"
+    parent = self()
+    process_group_id = System.unique_integer([:positive])
+    {:ok, group_alive} = Agent.start_link(fn -> true end)
+
+    on_exit(fn ->
+      if Process.alive?(group_alive), do: Agent.stop(group_alive)
+    end)
+
+    assert {:ok, lease} =
+             Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
+               group_alive_fun: fn group -> group == process_group_id and Agent.get(group_alive, & &1) end,
+               reap_fun: fn group ->
+                 send(parent, {:telemetry_reap, self(), group})
+
+                 receive do
+                   :finish_telemetry_reap -> Agent.update(group_alive, fn _ -> false end)
+                 end
+               end,
+               telemetry_fun: fn ownership, boundary, outcome ->
+                 send(parent, {:ownership_telemetry, boundary, outcome, ownership})
+               end
+             )
+
+    assert_receive {:ownership_telemetry, :start, :claimed, %{phase: :provisioning}}
+    assert {:ok, active_lease} = Ownership.activate(lease)
+    assert_receive {:ownership_telemetry, :point, :active, %{phase: :active}}
+    assert :ok = Ownership.track_process_group(active_lease, process_group_id)
+
+    release = Task.async(fn -> Ownership.release_and_wait(active_lease) end)
+
+    assert_receive {:ownership_telemetry, :point, :reaping, %{phase: :reaping}}
+    assert_receive {:telemetry_reap, reaper, ^process_group_id}
+    assert {:ok, %{phase: :reaping}} = Ownership.current(ticket)
+    send(reaper, :finish_telemetry_reap)
+    assert {:ok, %{phase: :released}} = Task.await(release, 2_000)
+    assert_receive {:ownership_telemetry, :end, :released, %{phase: :released}}
+    assert :none = Ownership.current(ticket)
+  end
+
   test "a crashed runner releases its generation automatically" do
     ticket = "ownership-crash-#{System.unique_integer([:positive])}"
     parent = self()
@@ -89,7 +130,7 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert :none = Ownership.current(ticket)
   end
 
-  test "a waiter is acknowledged against its exact guardian and receives a later release" do
+  test "a waiter returns and delivers its exact guardian generation" do
     ticket = "ownership-waiter-#{System.unique_integer([:positive])}"
     parent = self()
 
@@ -100,19 +141,23 @@ defmodule Aiur.Workspace.OwnershipTest do
       end)
 
     assert_receive {:claimed, {:ok, lease}}, 2_000
-    assert :waiting = Ownership.wait_for_release(ticket, self())
+    assert {:waiting, guardian, generation} = Ownership.wait_for_release(ticket, self())
+    assert guardian == lease.guardian
+    assert generation == lease.generation
 
     Process.exit(owner, :kill)
     assert_eventually(fn -> Ownership.current(ticket) == :none end)
     assert {:ok, replacement} = Ownership.claim(ticket)
     assert replacement.generation > lease.generation
-    assert_receive {:workspace_ownership_available, ^ticket}, 2_000
+    assert_receive {:workspace_ownership_available, ^ticket, ^guardian, ^generation}, 2_000
 
     # The prior guardian's notification cannot be reused for a replacement
     # generation. A fresh subscriber acknowledges B before waiting for B.
-    assert :waiting = Ownership.wait_for_release(ticket, self())
+    assert {:waiting, replacement_guardian, replacement_generation} = Ownership.wait_for_release(ticket, self())
+    assert replacement_guardian == replacement.guardian
+    assert replacement_generation == replacement.generation
     assert :ok = Ownership.release(replacement)
-    assert_receive {:workspace_ownership_available, ^ticket}, 2_000
+    assert_receive {:workspace_ownership_available, ^ticket, ^replacement_guardian, ^replacement_generation}, 2_000
   end
 
   test "brutal death before provider metadata stays fail-closed" do
@@ -131,6 +176,20 @@ defmodule Aiur.Workspace.OwnershipTest do
     Process.exit(owner, :kill)
     assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end)
     assert {:error, {:workspace_owned, {:ok, %{phase: :reaping}}}} = Ownership.claim(ticket)
+  end
+
+  test "rejects stale provider registration instead of acknowledging a lost lease" do
+    ticket = "ownership-stale-provider-#{System.unique_integer([:positive])}"
+    assert {:ok, lease} = Ownership.claim(ticket)
+
+    stale = %{lease | generation: lease.generation + 1}
+
+    assert {:error, :workspace_ownership_lost} = Ownership.expect_provider(stale)
+    assert {:error, :workspace_ownership_lost} = Ownership.track_provider(stale, %{root_pid: 42})
+    assert {:error, :workspace_ownership_lost} = Ownership.expect_provider(nil)
+    assert {:error, :workspace_ownership_lost} = Ownership.track_provider(nil, %{root_pid: 42})
+
+    assert :ok = Ownership.release(lease)
   end
 
   test "remote ownership recovers after bounded reaping when its owner dies" do
@@ -193,6 +252,51 @@ defmodule Aiur.Workspace.OwnershipTest do
     send(reaper, :finish_root_reap)
     assert_eventually(fn -> Ownership.current(ticket) == :none end)
     refute Process.alive?(guardian)
+  end
+
+  test "non-Codex containment reaps a recorded child after its root already died" do
+    ticket = "ownership-recorded-child-#{System.unique_integer([:positive])}"
+    root_pid = System.unique_integer([:positive])
+    child_pid = System.unique_integer([:positive])
+    parent = self()
+    {:ok, alive} = Agent.start_link(fn -> %{root_pid => false, child_pid => true} end)
+
+    on_exit(fn ->
+      if Process.alive?(alive), do: Agent.stop(alive)
+    end)
+
+    process_alive? = fn pid -> Agent.get(alive, &Map.fetch!(&1, pid)) end
+
+    process_reap = fn pid ->
+      send(parent, {:recorded_process_reap, self(), pid})
+
+      receive do
+        :finish_recorded_reap -> Agent.update(alive, &Map.put(&1, pid, false))
+      end
+
+      :ok
+    end
+
+    owner =
+      spawn(fn ->
+        {:ok, lease} =
+          Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
+            process_alive_fun: process_alive?,
+            process_reap_fun: process_reap
+          )
+
+        :ok = Ownership.track_provider(lease, %{root_pid: root_pid, descendant_pids: [child_pid]})
+        send(parent, {:recorded_child_tracked, lease})
+        Process.sleep(:infinity)
+      end)
+
+    assert_receive {:recorded_child_tracked, _lease}, 2_000
+    Process.exit(owner, :kill)
+    assert_receive {:recorded_process_reap, reaper, ^child_pid}, 2_000
+    assert {:ok, %{phase: :reaping}} = Ownership.current(ticket)
+
+    send(reaper, :finish_recorded_reap)
+    assert_eventually(fn -> Ownership.current(ticket) == :none end)
   end
 
   test "release_and_wait returns only after final registry removal" do

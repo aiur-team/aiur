@@ -150,6 +150,7 @@ defmodule Aiur.Claude.CodingAgent do
       {:os_pid, os_pid} ->
         %{root_pid: os_pid}
         |> maybe_put_process_group(AppServerPort.process_group_for_pid(os_pid))
+        |> Map.put(:descendant_pids, Aiur.Claude.RemoteControl.process_tree(os_pid))
 
       _ ->
         %{}

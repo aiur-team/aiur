@@ -24,9 +24,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
 
     case Registry.register(registry, ticket, lease) do
       {:ok, _value} ->
-        send(owner, {:workspace_guardian_claimed, self(), {:ok, lease}})
-
-        loop(%{
+        state = %{
           owner_ref: Process.monitor(owner),
           owner_dead?: false,
           registry: registry,
@@ -39,12 +37,19 @@ defmodule Aiur.Workspace.Ownership.Guardian do
           group_alive_fun: Keyword.get(opts, :group_alive_fun, &RemoteControl.process_group_alive?/1),
           root_reap_fun: Keyword.get(opts, :root_reap_fun, &RemoteControl.graceful_kill_tree/1),
           root_alive_fun: Keyword.get(opts, :root_alive_fun, &RemoteControl.process_alive?/1),
+          process_reap_fun: Keyword.get(opts, :process_reap_fun, &RemoteControl.graceful_kill/1),
+          process_alive_fun: Keyword.get(opts, :process_alive_fun, &RemoteControl.process_alive?/1),
+          telemetry_fun: Keyword.get(opts, :telemetry_fun, fn _lease, _boundary, _outcome -> :ok end),
           reaping?: false,
           remote_reap_attempts: 0,
           remote_reap_retry_ms: Keyword.get(opts, :remote_reap_retry_ms, @remote_reap_retry_ms),
           remote_reap_max_attempts: Keyword.get(opts, :remote_reap_max_attempts, @remote_reap_max_attempts),
           release_requested?: false
-        })
+        }
+
+        emit_telemetry(state, :start, :claimed)
+        send(owner, {:workspace_guardian_claimed, self(), {:ok, lease}})
+        loop(state)
 
       {:error, {:already_registered, _pid}} ->
         result = {:error, {:workspace_owned, Ownership.current(ticket, registry)}}
@@ -60,28 +65,29 @@ defmodule Aiur.Workspace.Ownership.Guardian do
         loop(next)
 
       {:workspace_guardian_call, from, ref, {:expect_provider, generation}} ->
-        next = if generation == state.lease.generation, do: %{state | provider_expected?: true}, else: state
-        reply(from, ref, :ok)
+        {reply_value, next} = expect_provider(state, generation)
+        reply(from, ref, reply_value)
         loop(next)
 
       {:workspace_guardian_call, from, ref, {:track_provider, generation, provider}} ->
-        next = track_provider(state, generation, provider)
-        reply(from, ref, :ok)
-        continue_after_provider_update(next)
+        {reply_value, next} = track_provider(state, generation, provider)
+        reply(from, ref, reply_value)
+
+        if reply_value == :ok,
+          do: continue_after_provider_update(next),
+          else: loop(next)
 
       {:workspace_guardian_call, from, ref, {:track_process_group, generation, process_group_id}} ->
-        next = track_provider(state, generation, %{process_group_id: process_group_id})
-        reply(from, ref, :ok)
-        continue_after_provider_update(next)
+        {reply_value, next} = track_provider(state, generation, %{process_group_id: process_group_id})
+        reply(from, ref, reply_value)
+
+        if reply_value == :ok,
+          do: continue_after_provider_update(next),
+          else: loop(next)
 
       {:workspace_guardian_call, from, ref, {:release, generation}} ->
         if generation == state.lease.generation,
-          do:
-            maybe_release_or_reap(%{
-              state
-              | release_requested?: true,
-                release_waiters: [{from, ref, :release} | state.release_waiters]
-            }),
+          do: maybe_release_or_reap(request_release(state, {from, ref, :release})),
           else:
             (
               reply(from, ref, :ok)
@@ -90,11 +96,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
 
       {:workspace_guardian_call, from, ref, {:release_and_wait, generation}} ->
         if generation == state.lease.generation do
-          maybe_release_or_reap(%{
-            state
-            | release_requested?: true,
-              release_waiters: [{from, ref, :await} | state.release_waiters]
-          })
+          maybe_release_or_reap(request_release(state, {from, ref, :await}))
         else
           reply(from, ref, {:error, :workspace_ownership_lost})
           loop(state)
@@ -129,19 +131,45 @@ defmodule Aiur.Workspace.Ownership.Guardian do
 
   defp activate(state, generation) when generation == state.lease.generation do
     case Registry.update_value(state.registry, state.lease.ticket, &Map.put(&1, :phase, :active)) do
-      {%{generation: ^generation} = lease, _previous} -> {{:ok, lease}, %{state | lease: lease}}
-      _ -> {{:error, :workspace_ownership_lost}, state}
+      {%{generation: ^generation} = lease, _previous} ->
+        next = %{state | lease: lease}
+        emit_telemetry(next, :point, :active)
+        {{:ok, lease}, next}
+
+      _ ->
+        {{:error, :workspace_ownership_lost}, state}
     end
   end
 
   defp activate(state, _generation), do: {{:error, :workspace_ownership_lost}, state}
 
-  defp track_provider(state, generation, provider) when generation == state.lease.generation and is_map(provider) do
-    provider = Map.merge(state.provider || %{}, Map.take(provider, [:process_group_id, :root_pid, :remote]))
-    %{state | provider_expected?: true, provider: provider}
+  defp expect_provider(%{lease: %{generation: generation, phase: phase}} = state, generation)
+       when phase in [:provisioning, :active],
+       do: {:ok, %{state | provider_expected?: true}}
+
+  defp expect_provider(state, _generation), do: {{:error, :workspace_ownership_lost}, state}
+
+  defp track_provider(%{lease: %{generation: generation, phase: phase}} = state, generation, provider)
+       when phase in [:provisioning, :active] and is_map(provider) do
+    provider = Map.merge(state.provider || %{}, Map.take(provider, [:process_group_id, :root_pid, :remote, :descendant_pids]))
+
+    if valid_provider?(provider) do
+      {:ok, %{state | provider_expected?: true, provider: provider}}
+    else
+      {{:error, :workspace_ownership_lost}, state}
+    end
   end
 
-  defp track_provider(state, _generation, _provider), do: state
+  defp track_provider(state, _generation, _provider), do: {{:error, :workspace_ownership_lost}, state}
+
+  defp valid_provider?(%{remote: true}), do: true
+  defp valid_provider?(%{process_group_id: process_group_id}) when is_integer(process_group_id) and process_group_id > 0, do: true
+  defp valid_provider?(%{root_pid: root_pid}) when is_integer(root_pid) and root_pid > 0, do: true
+
+  defp valid_provider?(%{descendant_pids: pids}) when is_list(pids),
+    do: Enum.any?(pids, &(is_integer(&1) and &1 > 0))
+
+  defp valid_provider?(_provider), do: false
 
   # A live provider with no verified containment is deliberately fail-closed.
   # The owner may have died between OS spawn and metadata inspection; releasing
@@ -175,7 +203,16 @@ defmodule Aiur.Workspace.Ownership.Guardian do
 
   defp maybe_release_or_reap(%{provider: %{root_pid: root_pid}} = state)
        when is_integer(root_pid) and root_pid > 0 do
-    if state.root_alive_fun.(root_pid), do: start_reap(state, :root, root_pid), else: release_guardian(state)
+    case Map.get(state.provider, :descendant_pids) do
+      process_ids when is_list(process_ids) ->
+        case live_provider_processes(state) do
+          [] -> release_guardian(state)
+          live_process_ids -> start_reap(state, :processes, live_process_ids)
+        end
+
+      _ ->
+        if state.root_alive_fun.(root_pid), do: start_reap(state, :root, root_pid), else: release_guardian(state)
+    end
   end
 
   defp maybe_release_or_reap(state), do: loop(update_phase(state, :reaping))
@@ -183,10 +220,10 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   defp start_reap(state, kind, identifier) do
     state = update_phase(state, :reaping)
     guardian = self()
-    reap_fun = if kind == :group, do: state.reap_fun, else: state.root_reap_fun
+    reap_fun = reap_fun_for(state, kind)
 
     spawn(fn ->
-      _ = safe_reap(reap_fun, identifier)
+      reap_identifier(reap_fun, identifier)
       send(guardian, {:workspace_guardian_reaped, kind, identifier})
     end)
 
@@ -195,6 +232,10 @@ defmodule Aiur.Workspace.Ownership.Guardian do
 
   defp continue_after_reap(state, :group, group) do
     if state.group_alive_fun.(group), do: schedule_reap_retry(state), else: release_guardian(state)
+  end
+
+  defp continue_after_reap(state, :processes, _process_ids) do
+    if live_provider_processes(state) == [], do: release_guardian(state), else: schedule_reap_retry(state)
   end
 
   defp continue_after_reap(state, :root, root_pid) do
@@ -221,6 +262,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   defp release_guardian(state) do
     final_lease = %{state.lease | phase: :released}
     Registry.unregister(state.registry, state.lease.ticket)
+    emit_telemetry(%{state | lease: final_lease}, :end, :released)
 
     Enum.each(state.waiters, fn waiter ->
       send(waiter, {:workspace_ownership_available, state.lease.ticket, self(), state.lease.generation})
@@ -236,9 +278,28 @@ defmodule Aiur.Workspace.Ownership.Guardian do
 
   defp update_phase(state, phase) do
     case Registry.update_value(state.registry, state.lease.ticket, &Map.put(&1, :phase, phase)) do
-      {%{} = lease, _previous} -> %{state | lease: lease}
-      _ -> state
+      {%{} = lease, _previous} ->
+        next = %{state | lease: lease}
+
+        if phase == :reaping and state.lease.phase != :reaping do
+          emit_telemetry(next, :point, :reaping)
+        end
+
+        next
+
+      _ ->
+        state
     end
+  end
+
+  defp request_release(state, waiter) do
+    %{state | release_requested?: true, release_waiters: [waiter | state.release_waiters]}
+  end
+
+  defp emit_telemetry(state, boundary, outcome) do
+    state.telemetry_fun.(state.lease, boundary, outcome)
+  rescue
+    _ -> :ok
   end
 
   defp safe_reap(reap_fun, identifier) do
@@ -246,6 +307,27 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   rescue
     _ -> {:error, :reap_failed}
   end
+
+  defp reap_fun_for(state, :group), do: state.reap_fun
+  defp reap_fun_for(state, :root), do: state.root_reap_fun
+  defp reap_fun_for(state, :processes), do: state.process_reap_fun
+
+  defp reap_identifier(reap_fun, process_ids) when is_list(process_ids),
+    do: Enum.each(process_ids, &safe_reap(reap_fun, &1))
+
+  defp reap_identifier(reap_fun, identifier), do: safe_reap(reap_fun, identifier)
+
+  defp live_provider_processes(%{provider: provider} = state) do
+    provider
+    |> Map.get(:descendant_pids, [])
+    |> Kernel.++(root_process(provider))
+    |> Enum.uniq()
+    |> Enum.filter(&(is_integer(&1) and &1 > 0))
+    |> Enum.filter(&state.process_alive_fun.(&1))
+  end
+
+  defp root_process(%{root_pid: root_pid}) when is_integer(root_pid) and root_pid > 0, do: [root_pid]
+  defp root_process(_provider), do: []
 
   defp reply(pid, ref, result), do: send(pid, {:workspace_guardian_reply, ref, result})
 end

@@ -3,7 +3,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   require Logger
   alias Aiur.{AgentPubSub, CodingAgent, Config, Issue, Tracker}
   alias Aiur.AgentRunner.{SessionResume, TurnLoop}
-  alias Aiur.Claude.DisplayTailer
+  alias Aiur.Claude.{DisplayTailer, RemoteControl}
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Workspace.Ownership
   @type worker_host :: String.t() | nil
@@ -136,53 +136,64 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     # runner dies in the tiny interval before backend metadata arrives, the
     # guardian remains fail-closed rather than replacing the live provider's
     # workspace underneath it.
-    :ok = Ownership.expect_provider(Keyword.get(opts, :workspace_ownership))
+    case Ownership.expect_provider(Keyword.get(opts, :workspace_ownership)) do
+      :ok ->
+        case start_agent_session(workspace, session_opts) do
+          {:ok, session} ->
+            case track_session_containment(Keyword.get(opts, :workspace_ownership), session, worker_host) do
+              :ok ->
+                Lifecycle.record(issue.identifier, lifecycle_attempt_id, :agent_spinup, :end, %{
+                  operation_id: "session",
+                  backend: session_backend,
+                  outcome: :success
+                })
 
-    case start_agent_session(workspace, session_opts) do
-      {:ok, session} ->
-        case track_session_containment(Keyword.get(opts, :workspace_ownership), session, worker_host) do
-          :ok ->
+                # Persist the live session handle so the next aiur restart can resume it.
+                SessionResume.persist_session_handle(session, issue.identifier, worker_host)
+
+                SessionResume.log_resume_outcome(issue, session, Keyword.get(session_opts, :resume_thread_id))
+
+                report_repl_session(codex_update_recipient, issue, session)
+                report_pause_containment(codex_update_recipient, issue, session)
+
+                display_tailer = maybe_start_display_tailer(session, issue, rc?)
+
+                # A resumed thread already carries the original task + full prior turn
+                # history, so its first turn must continue rather than replay the
+                # heavyweight cold-start prompt — mirroring the in-process turn N+1 flow.
+                opts = Keyword.put(opts, :resumed, SessionResume.session_resumed?(session))
+
+                try do
+                  TurnLoop.run_turns(
+                    session,
+                    workspace,
+                    issue,
+                    codex_update_recipient,
+                    opts,
+                    issue_state_fetcher,
+                    orchestrator,
+                    worker_host,
+                    1,
+                    max_turns
+                  )
+                after
+                  stop_display_tailer(display_tailer)
+                  CodingAgent.stop_session(session)
+                end
+
+              {:error, _reason} = error ->
+                CodingAgent.stop_session(session)
+                error
+            end
+
+          {:error, reason} = error ->
             Lifecycle.record(issue.identifier, lifecycle_attempt_id, :agent_spinup, :end, %{
               operation_id: "session",
               backend: session_backend,
-              outcome: :success
+              outcome: :failed,
+              reason_class: Lifecycle.reason_class(reason)
             })
 
-            # Persist the live session handle so the next aiur restart can resume it.
-            SessionResume.persist_session_handle(session, issue.identifier, worker_host)
-
-            SessionResume.log_resume_outcome(issue, session, Keyword.get(session_opts, :resume_thread_id))
-
-            report_repl_session(codex_update_recipient, issue, session)
-            report_pause_containment(codex_update_recipient, issue, session)
-
-            display_tailer = maybe_start_display_tailer(session, issue, rc?)
-
-            # A resumed thread already carries the original task + full prior turn
-            # history, so its first turn must continue rather than replay the
-            # heavyweight cold-start prompt — mirroring the in-process turn N+1 flow.
-            opts = Keyword.put(opts, :resumed, SessionResume.session_resumed?(session))
-
-            try do
-              TurnLoop.run_turns(
-                session,
-                workspace,
-                issue,
-                codex_update_recipient,
-                opts,
-                issue_state_fetcher,
-                orchestrator,
-                worker_host,
-                1,
-                max_turns
-              )
-            after
-              stop_display_tailer(display_tailer)
-              CodingAgent.stop_session(session)
-            end
-
-          {:error, _reason} = error ->
-            CodingAgent.stop_session(session)
             error
         end
 
@@ -223,6 +234,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     |> maybe_put_provider_pid(Map.get(session, :os_pid))
     |> maybe_put_provider_group(process_group_id(session))
     |> maybe_put_remote_provider(worker_host)
+    |> maybe_put_provider_processes(worker_host)
   end
 
   defp maybe_put_provider_pid(provider, pid) when is_integer(pid) and pid > 0,
@@ -240,6 +252,13 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   defp maybe_put_provider_group(provider, _pid), do: provider
   defp maybe_put_remote_provider(provider, worker_host) when is_binary(worker_host), do: Map.put(provider, :remote, true)
   defp maybe_put_remote_provider(provider, _worker_host), do: provider
+
+  defp maybe_put_provider_processes(provider, worker_host) when is_binary(worker_host), do: provider
+
+  defp maybe_put_provider_processes(%{root_pid: root_pid} = provider, _worker_host),
+    do: Map.put(provider, :descendant_pids, RemoteControl.process_tree(root_pid))
+
+  defp maybe_put_provider_processes(provider, _worker_host), do: provider
 
   @doc false
   @spec resolve_session_options(Issue.t(), keyword(), worker_host()) ::

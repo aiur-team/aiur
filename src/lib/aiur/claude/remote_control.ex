@@ -254,6 +254,13 @@ defmodule Aiur.Claude.RemoteControl do
   end
 
   @doc false
+  @spec process_tree(integer() | nil) :: [pos_integer()]
+  def process_tree(os_pid) when is_integer(os_pid) and os_pid > 0,
+    do: [os_pid | collect_descendants(os_pid)] |> Enum.uniq()
+
+  def process_tree(_os_pid), do: []
+
+  @doc false
   @spec process_group_alive?(nil | integer()) :: boolean()
   def process_group_alive?(process_group_id) when is_integer(process_group_id) and process_group_id > 0 do
     match?({_, 0}, System.cmd("kill", ["-0", "--", "-#{process_group_id}"], stderr_to_stdout: true))

@@ -1,6 +1,8 @@
 defmodule Aiur.Workspace.Reconstruction do
   @moduledoc false
 
+  alias Aiur.PathSafety
+
   @log_copy_chunk_size 64 * 1024
 
   @doc false
@@ -141,40 +143,47 @@ defmodule Aiur.Workspace.Reconstruction do
     previous_logs = Path.join(previous_workspace, "logs")
 
     case File.lstat(previous_logs) do
-      {:error, :enoent} -> :ok
-      {:ok, %File.Stat{type: :directory}} -> merge_log_tree(previous_logs, Path.join(workspace, "logs"))
-      {:ok, _stat} -> {:error, :unsafe_log_tree}
-      {:error, reason} -> {:error, reason}
+      {:error, :enoent} ->
+        :ok
+
+      {:ok, %File.Stat{type: :directory}} ->
+        merge_log_tree(previous_logs, Path.join(workspace, "logs"), workspace)
+
+      {:ok, _stat} ->
+        {:error, :unsafe_log_tree}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
-  defp merge_log_tree(previous, destination) do
+  defp merge_log_tree(previous, destination, workspace) do
     with {:ok, entries} <- File.ls(previous),
-         :ok <- ensure_safe_log_directory(destination) do
-      merge_log_entries(entries, previous, destination)
+         :ok <- ensure_safe_log_directory(destination, workspace) do
+      merge_log_entries(entries, previous, destination, workspace)
     end
   end
 
-  defp merge_log_entries(entries, previous, destination) do
+  defp merge_log_entries(entries, previous, destination, workspace) do
     Enum.reduce_while(entries, :ok, fn entry, :ok ->
-      case merge_log_entry(Path.join(previous, entry), Path.join(destination, entry)) do
+      case merge_log_entry(Path.join(previous, entry), Path.join(destination, entry), workspace) do
         :ok -> {:cont, :ok}
         {:error, _reason} = error -> {:halt, error}
       end
     end)
   end
 
-  defp merge_log_entry(source, target) do
+  defp merge_log_entry(source, target, workspace) do
     case File.lstat(source) do
-      {:ok, %File.Stat{type: :regular}} -> append_previous_log(source, target)
-      {:ok, %File.Stat{type: :directory}} -> merge_log_tree(source, target)
+      {:ok, %File.Stat{type: :regular}} -> append_previous_log(source, target, workspace)
+      {:ok, %File.Stat{type: :directory}} -> merge_log_tree(source, target, workspace)
       {:ok, _stat} -> {:error, :unsafe_log_entry}
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp append_previous_log(previous, destination) do
-    with :ok <- ensure_safe_log_directory(Path.dirname(destination)) do
+  defp append_previous_log(previous, destination, workspace) do
+    with :ok <- ensure_safe_log_directory(Path.dirname(destination), workspace) do
       atomically_merge_log_files(previous, destination)
     end
   end
@@ -249,23 +258,37 @@ defmodule Aiur.Workspace.Reconstruction do
   # Never follow a staged symlink while merging live diagnostics. Each parent
   # is lstat-checked before creation so a hook cannot redirect recovery writes
   # outside its staged checkout.
-  defp ensure_safe_log_directory(path) do
-    case File.lstat(path) do
-      {:ok, %File.Stat{type: :directory}} -> :ok
-      {:ok, _stat} -> {:error, :unsafe_log_destination}
-      {:error, :enoent} -> create_safe_log_directory(path)
+  defp ensure_safe_log_directory(path, workspace) do
+    with :ok <- ensure_log_destination_contained(workspace, path) do
+      case File.lstat(path) do
+        {:ok, %File.Stat{type: :directory}} -> :ok
+        {:ok, _stat} -> {:error, :unsafe_log_destination}
+        {:error, :enoent} -> create_safe_log_directory(path, workspace)
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  defp create_safe_log_directory(path, workspace) do
+    parent = Path.dirname(path)
+
+    with :ok <- ensure_safe_log_directory(parent, workspace),
+         :ok <- File.mkdir(path) do
+      :ok
+    else
+      {:error, :eexist} -> ensure_safe_log_directory(path, workspace)
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp create_safe_log_directory(path) do
-    parent = Path.dirname(path)
-
-    with :ok <- ensure_safe_log_directory(parent),
-         :ok <- File.mkdir(path) do
+  defp ensure_log_destination_contained(workspace, destination) do
+    with {:ok, %File.Stat{type: :directory}} <- File.lstat(workspace),
+         {:ok, _containment} <- PathSafety.contained?(workspace, destination) do
       :ok
     else
-      {:error, :eexist} -> ensure_safe_log_directory(path)
+      {:ok, _stat} -> {:error, :unsafe_log_destination}
+      {:error, :outside_root} -> {:error, :unsafe_log_destination}
+      {:error, :unreadable} -> {:error, :unsafe_log_destination}
       {:error, reason} -> {:error, reason}
     end
   end

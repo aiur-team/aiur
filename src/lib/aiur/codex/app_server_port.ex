@@ -68,8 +68,9 @@ defmodule Aiur.Codex.AppServerPort do
   def start_port(workspace, worker_host, model, effort, on_process_group_started, on_provider_started)
       when is_function(on_process_group_started, 1) and is_function(on_provider_started, 1) do
     open_port(workspace, worker_host, model, effort, fn port ->
-      notify_provider_started(port, worker_host, on_provider_started)
-      notify_process_group_started(port, worker_host, on_process_group_started)
+      with :ok <- notify_provider_started(port, worker_host, on_provider_started) do
+        notify_process_group_started(port, worker_host, on_process_group_started)
+      end
     end)
   end
 
@@ -101,9 +102,22 @@ defmodule Aiur.Codex.AppServerPort do
     command = remote_launch_command(workspace, model, effort)
 
     with {:ok, port} <- SSH.start_port(worker_host, command, line: Adapter.port_line_bytes()) do
-      on_port_started.(port)
-      {:ok, port}
+      case on_port_started.(port) do
+        :ok -> {:ok, port}
+        {:error, _reason} = error -> close_uncontained_remote_port(port, error)
+        _other -> close_uncontained_remote_port(port, {:error, :workspace_ownership_lost})
+      end
     end
+  end
+
+  defp close_uncontained_remote_port(port, error) do
+    try do
+      Port.close(port)
+    rescue
+      ArgumentError -> :ok
+    end
+
+    error
   end
 
   @spec port_metadata(port(), String.t() | nil) :: map()
@@ -252,6 +266,7 @@ defmodule Aiur.Codex.AppServerPort do
       |> maybe_put_provider_pid(metadata[:codex_app_server_pid])
       |> maybe_put_provider_group(metadata[:agent_process_group_id])
       |> maybe_put_remote(worker_host)
+      |> maybe_put_provider_processes(worker_host)
 
     callback.(provider)
   end
@@ -277,6 +292,13 @@ defmodule Aiur.Codex.AppServerPort do
   defp maybe_put_provider_group(provider, _pid), do: provider
   defp maybe_put_remote(provider, worker_host) when is_binary(worker_host), do: Map.put(provider, :remote, true)
   defp maybe_put_remote(provider, _worker_host), do: provider
+
+  defp maybe_put_provider_processes(provider, worker_host) when is_binary(worker_host), do: provider
+
+  defp maybe_put_provider_processes(%{root_pid: root_pid} = provider, _worker_host),
+    do: Map.put(provider, :descendant_pids, RemoteControl.process_tree(root_pid))
+
+  defp maybe_put_provider_processes(provider, _worker_host), do: provider
 
   defp process_group_id(pid) do
     case System.find_executable("ps") do

@@ -70,7 +70,10 @@ defmodule Aiur.Claude.Repl.LauncherTest do
           window_name: "aiur-repl-test",
           ready_timeout_ms: 0,
           projects_dir: "/nonexistent",
-          on_provider_started: fn provider -> send(parent, {:provider_started, provider}) end
+          on_provider_started: fn provider ->
+            send(parent, {:provider_started, provider})
+            :ok
+          end
         )
       end)
 

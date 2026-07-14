@@ -97,8 +97,11 @@ defmodule Aiur.Claude.Repl.Launcher do
     case Tmux.new_hidden_window(ctx.tmux, ctx.window_name, command) do
       {:ok, pane_id} ->
         os_pid = pane_pid(ctx.tmux, pane_id)
-        notify_provider_started(ctx, os_pid)
-        finish_start(ctx, pane_id, os_pid)
+
+        case notify_provider_started(ctx, os_pid) do
+          :ok -> finish_start(ctx, pane_id, os_pid)
+          {:error, _reason} = error -> cleanup_uncontained_pane(ctx.tmux, pane_id, error)
+        end
 
       {:error, _reason} = err ->
         err
@@ -110,12 +113,19 @@ defmodule Aiur.Claude.Repl.Launcher do
 
     provider =
       if is_integer(os_pid) and os_pid > 0 do
-        %{root_pid: os_pid}
+        %{root_pid: os_pid, descendant_pids: RemoteControl.process_tree(os_pid)}
       else
         %{}
       end
 
     callback.(provider)
+  end
+
+  defp cleanup_uncontained_pane(tmux, pane_id, error) do
+    case Tmux.kill_pane(tmux, pane_id) do
+      :ok -> error
+      {:error, reason} -> {:error, {:repl_cleanup_failed, reason}}
+    end
   end
 
   defp pane_pid(tmux, pane_id) do

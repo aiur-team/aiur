@@ -76,10 +76,12 @@ defmodule Aiur.AgentRunner do
 
     lifecycle = %{ticket: issue.identifier, attempt_id: attempt_id}
 
-    case Ownership.claim(issue.identifier) do
-      {:ok, ownership} ->
-        record_workspace_ownership(issue, opts, :start, :claimed, ownership)
+    telemetry_fun = fn ownership, boundary, outcome ->
+      record_workspace_ownership(issue, opts, boundary, outcome, ownership)
+    end
 
+    case Ownership.claim(issue.identifier, Aiur.Workspace.Ownership.Registry, telemetry_fun: telemetry_fun) do
+      {:ok, ownership} ->
         try do
           run_owned_worker_attempt(ownership, issue, codex_update_recipient, opts, worker_host, lifecycle)
         after
@@ -87,11 +89,9 @@ defmodule Aiur.AgentRunner do
           # ownership boundary. A guardian may still be reaping a provider;
           # declaring the workspace free before registry removal would make
           # lifecycle telemetry lie about the generation that owns the cwd.
-          record_workspace_ownership(issue, opts, :point, :release_requested, ownership)
-
           case Ownership.release_and_wait(ownership) do
-            {:ok, released_ownership} ->
-              record_workspace_ownership(issue, opts, :end, :released, released_ownership)
+            {:ok, _released_ownership} ->
+              :ok
 
             {:error, reason} ->
               Logger.warning("workspace ownership remains contained after release request issue=#{issue.identifier} reason=#{inspect(reason)}")
@@ -175,7 +175,6 @@ defmodule Aiur.AgentRunner do
   defp run_owned_session(ownership, workspace, issue, codex_update_recipient, opts, worker_host) do
     case Ownership.activate(ownership) do
       {:ok, active_ownership} ->
-        record_workspace_ownership(issue, opts, :point, :active, active_ownership)
         record_workspace_setup_end(issue, opts, :success, nil)
         :ok = BootstrapDigest.maybe_attach_universal_subscriptions(issue)
         :ok = BootstrapDigest.maybe_enqueue_bootstrap_digest(issue)

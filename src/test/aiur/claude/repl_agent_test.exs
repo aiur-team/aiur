@@ -54,13 +54,13 @@ defmodule Aiur.Claude.ReplAgentTest do
     refute String.contains?(cmd, "--remote-control")
     respond(tmux, "%99\n")
 
-    # 2. await_ready captures the pane until the prompt glyph shows.
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %99"}, 1_000
-    respond(tmux, "Welcome\n❯\n")
-
-    # 3. pane_pid resolves the OS pid.
+    # 2. pane_pid resolves the OS pid before the containment callback.
     assert_receive {:tmux_mock_out, "display-message -p -t %99 \#{pane_pid}"}, 1_000
     respond(tmux, "4242\n")
+
+    # 3. await_ready captures the pane until the prompt glyph shows.
+    assert_receive {:tmux_mock_out, "capture-pane -p -t %99"}, 1_000
+    respond(tmux, "Welcome\n❯\n")
 
     assert {:ok, session} = Task.await(task, 2_000)
     assert session.backend == "claude-repl"
@@ -126,11 +126,11 @@ defmodule Aiur.Claude.ReplAgentTest do
     assert String.contains?(cmd, "--resume '#{sid}'")
     respond(tmux, "%55\n")
 
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %55"}, 1_000
-    respond(tmux, "❯\n")
-
     assert_receive {:tmux_mock_out, "display-message -p -t %55 \#{pane_pid}"}, 1_000
     respond(tmux, "4242\n")
+
+    assert_receive {:tmux_mock_out, "capture-pane -p -t %55"}, 1_000
+    respond(tmux, "❯\n")
 
     assert {:ok, session} = Task.await(task, 2_000)
     assert session.resumed == true
@@ -155,11 +155,11 @@ defmodule Aiur.Claude.ReplAgentTest do
     refute String.contains?(cmd, "--resume")
     respond(tmux, "%56\n")
 
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %56"}, 1_000
-    respond(tmux, "❯\n")
-
     assert_receive {:tmux_mock_out, "display-message -p -t %56 \#{pane_pid}"}, 1_000
     respond(tmux, "4242\n")
+
+    assert_receive {:tmux_mock_out, "capture-pane -p -t %56"}, 1_000
+    respond(tmux, "❯\n")
 
     assert {:ok, session} = Task.await(task, 2_000)
     assert session.resumed == false
@@ -199,11 +199,11 @@ defmodule Aiur.Claude.ReplAgentTest do
     assert String.contains?(cmd, "--resume '#{sid}'")
     respond(tmux, "%71\n")
 
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %71"}, 1_000
-    respond(tmux, "❯\n")
-
     assert_receive {:tmux_mock_out, "display-message -p -t %71 \#{pane_pid}"}, 1_000
     respond(tmux, "10\n")
+
+    assert_receive {:tmux_mock_out, "capture-pane -p -t %71"}, 1_000
+    respond(tmux, "❯\n")
 
     # RC sessions scan the pane once ready for the `/remote-control … URL` banner.
     assert_receive {:tmux_mock_out, "capture-pane -p -t %71"}, 1_000
@@ -235,11 +235,11 @@ defmodule Aiur.Claude.ReplAgentTest do
     assert String.contains?(cmd, "--remote-control 'aiur-rc-test'")
     respond(tmux, "%7\n")
 
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %7"}, 1_000
-    respond(tmux, "❯\n")
-
     assert_receive {:tmux_mock_out, "display-message -p -t %7 \#{pane_pid}"}, 1_000
     respond(tmux, "10\n")
+
+    assert_receive {:tmux_mock_out, "capture-pane -p -t %7"}, 1_000
+    respond(tmux, "❯\n")
 
     # RC sessions scan the pane once ready for the `/remote-control … URL` banner.
     assert_receive {:tmux_mock_out, "capture-pane -p -t %7"}, 1_000
@@ -277,11 +277,11 @@ defmodule Aiur.Claude.ReplAgentTest do
     assert String.contains?(cmd, "--remote-control 'aiur-rc-test'")
     respond(tmux, "%7\n")
 
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %7"}, 1_000
-    respond(tmux, "❯\n")
-
     assert_receive {:tmux_mock_out, "display-message -p -t %7 \#{pane_pid}"}, 1_000
     respond(tmux, "10\n")
+
+    assert_receive {:tmux_mock_out, "capture-pane -p -t %7"}, 1_000
+    respond(tmux, "❯\n")
 
     # RC evidence scan: no banner URL, but the footer shows `/rc active`.
     assert_receive {:tmux_mock_out, "capture-pane -p -t %7"}, 1_000
@@ -331,12 +331,12 @@ defmodule Aiur.Claude.ReplAgentTest do
     assert String.contains?(cmd, "--remote-control 'aiur-rc-test'")
     respond(tmux, "%8\n")
 
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %8"}, 1_000
-    respond(tmux, "❯\n")
-
     assert_receive {:tmux_mock_out, "display-message -p -t %8 \#{pane_pid}"}, 1_000
     # A safe, certainly-dead pid so the degradation's graceful_kill is a no-op.
     respond(tmux, "2147480000\n")
+
+    assert_receive {:tmux_mock_out, "capture-pane -p -t %8"}, 1_000
+    respond(tmux, "❯\n")
 
     # RC banner scan finds no `claude.ai/code/session_…` URL.
     assert_receive {:tmux_mock_out, "capture-pane -p -t %8"}, 1_000

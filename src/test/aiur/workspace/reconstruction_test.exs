@@ -109,6 +109,26 @@ defmodule Aiur.Workspace.ReconstructionTest do
     assert File.read!(source_log) == "preserve\n"
   end
 
+  test "rejects a nested staged log directory symlink instead of writing through it", %{root: root, workspace: workspace} do
+    source_log = Path.join([workspace, "logs", "provider", "custom.trace"])
+    outside = Path.join(root, "outside")
+    outside_log = Path.join(outside, "custom.trace")
+    File.mkdir_p!(Path.dirname(source_log))
+    File.mkdir_p!(outside)
+    File.write!(source_log, "preserve\n")
+
+    assert {:error, {:workspace_log_merge_failed, :unsafe_log_destination}} =
+             Reconstruction.run(workspace, fn stage ->
+               staged_logs = Path.join(stage, "logs")
+               File.mkdir_p!(staged_logs)
+               assert :ok = File.ln_s(outside, Path.join(staged_logs, "provider"))
+               :ok
+             end)
+
+    assert File.read!(source_log) == "preserve\n"
+    refute File.exists?(outside_log)
+  end
+
   test "cold fallback serializes first-pickup event logs until the workspace is ready", %{workspace: workspace} do
     parent = self()
     File.rm_rf!(workspace)

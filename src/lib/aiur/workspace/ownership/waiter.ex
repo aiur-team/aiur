@@ -5,7 +5,7 @@ defmodule Aiur.Workspace.Ownership.Waiter do
 
   @subscribe_timeout_ms 100
 
-  @spec wait(String.t(), pid(), pid() | atom()) :: :waiting | :available
+  @spec wait(String.t(), pid(), pid() | atom()) :: {:waiting, pid(), pos_integer()} | :available
   def wait(ticket, recipient, registry) do
     caller = self()
     waiter = spawn(fn -> subscribe(ticket, recipient, registry, caller, true) end)
@@ -44,7 +44,7 @@ defmodule Aiur.Workspace.Ownership.Waiter do
       {:workspace_guardian_reply, ^ref, {:waiting, ^generation}} ->
         if exact_guardian?(subscription) do
           notify_waiting(subscription)
-          await_release(subscription)
+          await_release(%{subscription | initial?: false})
         else
           resubscribe(subscription)
         end
@@ -62,7 +62,7 @@ defmodule Aiur.Workspace.Ownership.Waiter do
     receive do
       {:workspace_ownership_available, ticket, guardian, generation}
       when ticket == subscription.ticket and guardian == subscription.guardian and generation == subscription.generation ->
-        send(subscription.recipient, {:workspace_ownership_available, ticket})
+        send(subscription.recipient, {:workspace_ownership_available, ticket, guardian, generation})
 
       {:workspace_ownership_available, ticket, _guardian, _generation} when ticket == subscription.ticket ->
         resubscribe(subscription)
@@ -78,7 +78,9 @@ defmodule Aiur.Workspace.Ownership.Waiter do
     match?({:ok, %{guardian: ^guardian, generation: ^generation}}, Ownership.current(ticket, registry))
   end
 
-  defp notify_waiting(%{initial?: true, caller: caller}), do: send(caller, {:workspace_waiter_ready, self(), :waiting})
+  defp notify_waiting(%{initial?: true, caller: caller, guardian: guardian, generation: generation}),
+    do: send(caller, {:workspace_waiter_ready, self(), {:waiting, guardian, generation}})
+
   defp notify_waiting(_subscription), do: :ok
 
   defp resubscribe(subscription) do
@@ -88,5 +90,6 @@ defmodule Aiur.Workspace.Ownership.Waiter do
 
   defp notify_available(_ticket, _recipient, caller, true), do: send(caller, {:workspace_waiter_ready, self(), :available})
 
-  defp notify_available(ticket, recipient, _caller, false), do: send(recipient, {:workspace_ownership_available, ticket})
+  defp notify_available(ticket, recipient, _caller, false),
+    do: send(recipient, {:workspace_ownership_available, ticket, :none, nil})
 end

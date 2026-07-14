@@ -252,9 +252,9 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
 
       # This is the runner's original subscription. Its availability notice is
       # deliberately consumed before the orchestrator installs the row.
-      assert :waiting = Ownership.wait_for_release(identifier, self())
+      assert {:waiting, _guardian, _generation} = Ownership.wait_for_release(identifier, self())
       assert :ok = Ownership.release(first_owner)
-      assert_receive {:workspace_ownership_available, ^identifier}
+      assert_receive {:workspace_ownership_available, ^identifier, _guardian, _generation}
 
       assert {:ok, second_owner} = Ownership.claim(identifier)
       on_exit(fn -> Ownership.release(second_owner) end)
@@ -278,7 +278,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
 
       assert MapSet.member?(next.claimed, issue_id)
       assert :ok = Ownership.release(second_owner)
-      assert_receive {:workspace_ownership_available, ^identifier}
+      assert_receive {:workspace_ownership_available, ^identifier, _guardian, _generation}
     end
 
     test "parks a contender without consuming retry or thrash budget when its runner exits first" do
@@ -351,6 +351,59 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       Process.exit(runner, :kill)
       assert_receive {:DOWN, ^exit_ref, :process, ^runner, :killed}, 2_000
       refute_receive :unexpected_retry
+    end
+
+    test "rejects a stale guardian release and preserves a DOWN-first retry envelope" do
+      issue_id = "issue-ownership-down-first"
+      identifier = "repo#ownership-down-first-#{System.unique_integer([:positive])}"
+      assert {:ok, owner_lease} = Ownership.claim(identifier)
+      on_exit(fn -> Ownership.release(owner_lease) end)
+
+      state = %State{
+        running: %{
+          issue_id => %{
+            ref: make_ref(),
+            identifier: identifier,
+            started_at: DateTime.utc_now(),
+            retry_attempt: 2,
+            worker_host: "worker-a",
+            workspace_path: "/workspaces/ownership"
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        dispatch_recovery: %{workspace_ownership: %{waits: %{}, ready: %{}}, codex_thrash_budget: %{}}
+      }
+
+      ref = state.running[issue_id].ref
+      assert {:noreply, after_down} = RetryEngine.handle_agent_down(state, ref, :killed)
+      assert %{attempt: 3, worker_host: "worker-a"} = after_down.retry_attempts[issue_id]
+
+      waiting =
+        RetryEngine.wait_for_workspace_ownership(
+          after_down,
+          issue_id,
+          identifier,
+          {:ok, owner_lease},
+          {:waiting, owner_lease.guardian, owner_lease.generation}
+        )
+
+      assert %{retry_attempt: 3, worker_host: "worker-a"} =
+               waiting.dispatch_recovery.workspace_ownership.waits[identifier]
+
+      stale = RetryEngine.release_workspace_wait(waiting, identifier, self(), owner_lease.generation - 1)
+      assert MapSet.member?(stale.claimed, issue_id)
+      assert stale.dispatch_recovery.workspace_ownership.ready == %{}
+
+      ready =
+        RetryEngine.release_workspace_wait(
+          waiting,
+          identifier,
+          owner_lease.guardian,
+          owner_lease.generation
+        )
+
+      refute MapSet.member?(ready.claimed, issue_id)
+      assert %{retry_attempt: 3, worker_host: "worker-a"} = ready.dispatch_recovery.workspace_ownership.ready[issue_id]
     end
   end
 
