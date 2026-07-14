@@ -83,10 +83,80 @@ defmodule Aiur.GitHub.TransportTest do
     assert {:error, {:github_graphql_errors, [%{"message" => "bad"}]}} =
              Transport.github_graphql(graph_error, "token", "query", %{})
 
+    exhausted_graph_error = fn _ ->
+      {:ok,
+       %{
+         status: 200,
+         headers: [{"x-ratelimit-remaining", "0"}, {"retry-after", "7"}],
+         body: %{"errors" => [%{"message" => "rate limit exceeded"}]}
+       }}
+    end
+
+    assert {:error, {:github_graphql_errors, [%{"message" => "rate limit exceeded"}]}} =
+             Transport.github_graphql(exhausted_graph_error, "token", "query", %{})
+
     http_error = fn _ -> {:ok, %{status: 401, body: %{"message" => "Bad credentials"}}} end
 
     assert {:error, {:github, :auth, %{status: 401, message: "Bad credentials"}}} =
              Transport.github_graphql(http_error, "token", "query", %{})
+  end
+
+  test "returns GraphQL response headers for bounded provider observation" do
+    request_fun = fn _request ->
+      {:ok,
+       %{
+         status: 200,
+         headers: [{"x-ratelimit-remaining", "99"}],
+         body: %{"data" => %{"repository" => %{}}}
+       }}
+    end
+
+    assert {:ok, %{"data" => %{"repository" => %{}}}, %{headers: headers}} =
+             Transport.github_graphql_response(request_fun, "token", "query", %{})
+
+    assert Transport.header(headers, "x-ratelimit-remaining") == "99"
+  end
+
+  test "rejects malformed HTTP-200 GraphQL envelopes" do
+    for response <- [
+          %{status: 200, body: "unexpected scalar"},
+          %{status: 200, body: []},
+          %{status: 200, body: nil},
+          %{status: 200},
+          %{status: 200, body: %{"errors" => "unexpected scalar"}},
+          %{status: 200, body: %{"data" => %{"repository" => %{}}, "errors" => "unexpected scalar"}},
+          %{status: 200, body: %{"errors" => nil}},
+          %{status: 200, body: %{"errors" => %{}}},
+          %{status: 200, body: %{"errors" => ["unexpected scalar"]}},
+          %{status: 200, body: %{"errors" => []}}
+        ] do
+      request_fun = fn _request -> {:ok, response} end
+
+      assert {:error, :invalid_graphql_response, ^response} =
+               Transport.github_graphql_response(request_fun, "token", "query", %{})
+
+      assert {:error, :invalid_graphql_response} =
+               Transport.github_graphql(request_fun, "token", "query", %{})
+    end
+  end
+
+  test "rejects invalid status shapes and unexpected GraphQL transport results" do
+    for {result, response} <- [
+          {{:ok, %{status: "200", body: %{}}}, %{status: "200", body: %{}}},
+          {{:ok, %{status: nil, body: %{}}}, %{status: nil, body: %{}}},
+          {{:ok, %{status: 700, body: %{}}}, %{status: 700, body: %{}}},
+          {{:ok, %{}}, %{}},
+          {{:ok, "unexpected"}, nil},
+          {:unexpected, nil}
+        ] do
+      request_fun = fn _request -> result end
+
+      assert {:error, :invalid_graphql_response, ^response} =
+               Transport.github_graphql_response(request_fun, "token", "query", %{})
+
+      assert {:error, :invalid_graphql_response} =
+               Transport.github_graphql(request_fun, "token", "query", %{})
+    end
   end
 
   test "fetches JSON lists and classifies failures" do
@@ -114,6 +184,7 @@ defmodule Aiur.GitHub.TransportTest do
     assert Transport.poll_interval(headers) == 15
     assert Transport.poll_interval([]) == 60
     assert Transport.header(%{"etag" => ["abc"]}, "ETag") == "abc"
+    assert Transport.header(nil, "etag") == nil
   end
 
   test "conditionally puts query params" do
