@@ -108,32 +108,50 @@ defmodule AiurWeb.StaticAssets do
   defp verify_layout_assets(assets) do
     @layout_asset_definitions
     |> Enum.reduce_while({:ok, %{}}, fn {_key, definition}, {:ok, verified_assets} ->
-      case Map.get(assets, definition.name) do
-        asset when is_map(asset) ->
-          if valid_layout_asset?(asset, definition) do
-            {:cont, {:ok, Map.put(verified_assets, definition.name, asset)}}
-          else
-            {:halt, :error}
-          end
+      asset = Map.get(assets, definition.name)
 
-        _ ->
-          {:halt, :error}
+      if valid_layout_asset?(asset, definition) do
+        {:cont, {:ok, Map.put(verified_assets, definition.name, asset)}}
+      else
+        {:halt, :error}
       end
     end)
   end
 
-  defp valid_layout_asset?(asset, %{name: name, revision: revision, file: file}) do
-    expected_keys = ["file", "sha256", "bytes", "contentType", "url"]
-    expected_keys = if name == "worker", do: ["engineUrl" | expected_keys], else: expected_keys
-
-    MapSet.new(Map.keys(asset)) == MapSet.new(expected_keys) and
-      asset["file"] == file and
-      asset["contentType"] == "application/javascript" and
-      is_integer(asset["bytes"]) and asset["bytes"] > 0 and
-      is_binary(asset["sha256"]) and Regex.match?(~r/^[a-f0-9]{64}$/, asset["sha256"]) and
-      asset["url"] == "/vendor/layout/#{revision}/#{asset["sha256"]}/#{file}" and
-      (name != "worker" or is_binary(asset["engineUrl"]))
+  defp valid_layout_asset?(asset, definition) when is_map(asset) do
+    Enum.all?([
+      expected_asset_keys?(asset, definition),
+      matches_asset_file?(asset, definition),
+      valid_asset_metadata?(asset),
+      content_addressed_asset_url?(asset, definition),
+      valid_worker_engine_url?(asset, definition)
+    ])
   end
+
+  defp valid_layout_asset?(_asset, _definition), do: false
+
+  defp expected_asset_keys?(asset, %{name: "worker"}) do
+    MapSet.new(Map.keys(asset)) == MapSet.new(["engineUrl", "file", "sha256", "bytes", "contentType", "url"])
+  end
+
+  defp expected_asset_keys?(asset, _definition) do
+    MapSet.new(Map.keys(asset)) == MapSet.new(["file", "sha256", "bytes", "contentType", "url"])
+  end
+
+  defp matches_asset_file?(asset, %{file: file}), do: asset["file"] == file
+
+  defp valid_asset_metadata?(asset) do
+    asset["contentType"] == "application/javascript" and
+      is_integer(asset["bytes"]) and asset["bytes"] > 0 and
+      is_binary(asset["sha256"]) and Regex.match?(~r/^[a-f0-9]{64}$/, asset["sha256"])
+  end
+
+  defp content_addressed_asset_url?(asset, %{revision: revision, file: file}) do
+    asset["url"] == "/vendor/layout/#{revision}/#{asset["sha256"]}/#{file}"
+  end
+
+  defp valid_worker_engine_url?(asset, %{name: "worker"}), do: is_binary(asset["engineUrl"])
+  defp valid_worker_engine_url?(_asset, _definition), do: true
 
   defp sha256(body), do: :crypto.hash(:sha256, body) |> Base.encode16(case: :lower)
 end
