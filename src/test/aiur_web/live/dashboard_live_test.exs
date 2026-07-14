@@ -690,7 +690,11 @@ defmodule AiurWeb.DashboardLiveTest do
     orchestrator_name = Module.concat(__MODULE__, :OutsideWindowAnswerOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :OutsideWindowAnswerStore)
 
-    store = start_decision_store(decision_store_name, fn _decision, _opts -> {:ok, %{status: :accepted, item: %{id: 5_072}}} end)
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_072}}}
+      end)
+
     decision = request_dashboard_decision(store, "outside-window-answer", "reversible", now: ~U[2026-07-13 08:00:00Z])
     add_newer_dashboard_decisions(store, decision, "outside-window-answer-newer")
 
@@ -726,7 +730,11 @@ defmodule AiurWeb.DashboardLiveTest do
     orchestrator_name = Module.concat(__MODULE__, :OutsideWindowRevisionOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :OutsideWindowRevisionStore)
 
-    store = start_decision_store(decision_store_name, fn _decision, _opts -> {:ok, %{status: :accepted, item: %{id: 5_073}}} end)
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_073}}}
+      end)
+
     decision = request_dashboard_decision(store, "outside-window-revision", "reversible", now: ~U[2026-07-13 08:00:00Z])
 
     assert {:ok, _accepted} =
@@ -774,7 +782,11 @@ defmodule AiurWeb.DashboardLiveTest do
     orchestrator_name = Module.concat(__MODULE__, :StalePayloadAnswerOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :StalePayloadAnswerStore)
 
-    store = start_decision_store(decision_store_name, fn _decision, _opts -> {:ok, %{status: :accepted, item: %{id: 5_074}}} end)
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_074}}}
+      end)
+
     decision = request_dashboard_decision(store, "stale-payload-answer", "reversible", now: ~U[2026-07-13 08:00:00Z])
     start_counting_orchestrator(orchestrator_name)
 
@@ -804,7 +816,11 @@ defmodule AiurWeb.DashboardLiveTest do
     orchestrator_name = Module.concat(__MODULE__, :StalePayloadRevisionOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :StalePayloadRevisionStore)
 
-    store = start_decision_store(decision_store_name, fn _decision, _opts -> {:ok, %{status: :accepted, item: %{id: 5_075}}} end)
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_075}}}
+      end)
+
     decision = request_dashboard_decision(store, "stale-payload-revision", "reversible", now: ~U[2026-07-13 08:00:00Z])
 
     assert {:ok, _accepted} =
