@@ -362,7 +362,20 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
     end
 
     test "releases a torn-down entry and schedules retry when dispatch unexpectedly no-ops" do
-      state = fallback_state([])
+      identity = %Aiur.TrackerIdentity{
+        version: 1,
+        status: :joinable,
+        kind: :github,
+        owner: "owner",
+        repository: "repo",
+        provider_id: "I_kwDORetry",
+        identifier: "repo#1"
+      }
+
+      state =
+        fallback_state([])
+        |> update_in([Access.key(:running), "1", :issue], &%{&1 | tracker_identity: identity})
+
       test_pid = self()
 
       result =
@@ -385,7 +398,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
 
       refute Map.has_key?(result.running, "1")
       assert Map.has_key?(result.retry_attempts, "1")
-      assert_received {:retry, "1", _, %{worker_host: "worker-2"}}
+      assert_received {:retry, "1", _, %{worker_host: "worker-2", tracker_identity: ^identity}}
 
       assert RateLimitFallback.reconcile(
                result,

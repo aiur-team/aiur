@@ -3,7 +3,7 @@ defmodule Aiur.Init.Prewarm.Failure do
   Warm-base build failure reporting for `aiur init`.
 
   This module classifies clone/auth/build failures, prints class-specific
-  operator guidance, and emits the ready-to-paste handoff prompt with captured
+  Executor guidance, and emits the ready-to-paste handoff prompt with captured
   failure output embedded.
   """
 
@@ -11,7 +11,7 @@ defmodule Aiur.Init.Prewarm.Failure do
 
   # A warm-base build that fails at runtime (private-repo clone auth, network, or
   # a broken base_build command) used to print a single "retries next run" line
-  # with no path forward. Classify the failure, give the operator concrete
+  # with no path forward. Classify the failure, give the Executor concrete
   # self-resolution steps for that class, and hand them a ready-to-paste prompt —
   # embedding the actual captured failure output — so a coding agent can fix it.
   @doc false
@@ -130,7 +130,7 @@ defmodule Aiur.Init.Prewarm.Failure do
     Likely causes and what to do:
     - GitHub auth: cloning a private repo needs a valid GITHUB_TOKEN in .env whose
       account has read access (classic token `repo` scope, or fine-grained
-      Contents: Read). If the token is missing or expired, tell the operator
+      Contents: Read). If the token is missing or expired, tell the Executor
       exactly what to set — do not invent a secret.
     - Toolchain/build: if the repo cloned but base_build failed, detect this repo's
       real install + build command and write it into .aiur/config as
@@ -140,7 +140,7 @@ defmodule Aiur.Init.Prewarm.Failure do
 
     Then run the fix in a clean checkout, confirm it exits 0, run it a second time
     unchanged to confirm it is a near no-op, and report the final command (or the
-    secret the operator must set).
+    secret the Executor must set).
     """
   end
 

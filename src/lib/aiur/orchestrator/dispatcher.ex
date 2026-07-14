@@ -541,6 +541,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
         RetryEngine.schedule_issue_retry(state, issue.id, next_attempt, %{
           identifier: issue.identifier,
+          tracker_identity: Issue.tracker_identity(issue),
           error: "failed to spawn agent: #{inspect(reason)}",
           worker_host: worker_host
         })

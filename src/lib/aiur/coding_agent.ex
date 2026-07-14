@@ -109,7 +109,7 @@ defmodule Aiur.CodingAgent do
       "claude-repl" => %{
         adapter: Aiur.Claude.ReplAgent,
         transcript: Aiur.Claude.Transcript,
-        # Operator messages are typed straight into the live pane and the
+        # Executor messages are typed straight into the live pane and the
         # agent's native input queue folds them in, so there is no
         # checkpoint to hold at — `safe_checkpoints` stays empty and
         # delivery is immediate. Interrupt is the explicit out-of-band
@@ -403,7 +403,7 @@ defmodule Aiur.CodingAgent do
   @spec transcript_module(backend()) :: module()
   def transcript_module(backend), do: fetch_backend!(backend).transcript
 
-  @doc "Delivery-policy default: whether the backend supports operator interrupts."
+  @doc "Delivery-policy default: whether the backend supports Executor interrupts."
   @spec can_interrupt?(backend()) :: boolean()
   def can_interrupt?(backend), do: fetch_backend!(backend).can_interrupt
 
@@ -522,7 +522,7 @@ defmodule Aiur.CodingAgent do
   end
 
   @doc """
-  The canonical operator-facing label that forces remote control on for an
+  The canonical Executor-facing label that forces remote control on for an
   issue (`model:remote`). Added/removed by the AgentList `r` key to
   promote/demote a running agent; it is the durable source of truth for
   remote-ness across re-dispatches.
@@ -531,7 +531,7 @@ defmodule Aiur.CodingAgent do
   def remote_control_alias_label, do: "model:remote"
 
   @doc """
-  Whether the backend takes operator messages immediately (pass-through to
+  Whether the backend takes Executor messages immediately (pass-through to
   the live process) instead of holding them at a `:checkpoint`. True only
   for the persistent-REPL backend, whose native input queue accepts a
   message mid-turn. Unknown backends are not immediate-delivery.

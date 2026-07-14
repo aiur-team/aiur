@@ -197,7 +197,8 @@ defmodule Aiur.Orchestrator.State do
 
   @spec active_running_entry?(term()) :: boolean()
   def active_running_entry?(entry) when is_map(entry) do
-    not (paused_running_entry?(entry) or deactivated_running_entry?(entry))
+    not (completed_running_entry?(entry) or paused_running_entry?(entry) or
+           deactivated_running_entry?(entry))
   end
 
   def active_running_entry?(_entry), do: false
@@ -215,6 +216,20 @@ defmodule Aiur.Orchestrator.State do
   end
 
   def sleeping_running_entry?(_entry), do: false
+
+  @spec completed_running_entry?(term()) :: boolean()
+  def completed_running_entry?(entry) when is_map(entry) do
+    get_in(entry, [:control, :status]) == :completed
+  end
+
+  def completed_running_entry?(_entry), do: false
+
+  @spec completed_provenance?(term()) :: boolean()
+  def completed_provenance?(entry) when is_map(entry) do
+    completed_running_entry?(entry) or Map.get(entry, :completed_provenance) == true
+  end
+
+  def completed_provenance?(_entry), do: false
 
   @spec deactivated_running_entry?(term()) :: boolean()
   def deactivated_running_entry?(entry) when is_map(entry) do
@@ -264,7 +279,7 @@ defmodule Aiur.Orchestrator.State do
   def shift_started_at_by_pause_if(entry, _previous, _now), do: entry
 
   # A duration-capped pause is owned by `reset_duration_clock_if_capped/4`
-  # (operator resume -> fresh budget, automated resume -> preserve overrun),
+  # (Executor resume -> fresh budget, automated resume -> preserve overrun),
   # so the thaw must only un-freeze the pause clock (clear `paused_at`) and
   # must NOT credit the paused interval back into `started_at`. Crediting it
   # would advance `started_at` toward now and silently reset the overrun on

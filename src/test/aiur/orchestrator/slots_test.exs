@@ -26,6 +26,7 @@ defmodule Aiur.Orchestrator.SlotsTest do
           "active" => running_entry(:working),
           "sleeping" => running_entry(:sleeping),
           "paused" => running_entry(:paused),
+          "completed" => running_entry(:completed),
           "deactivated" => running_entry(:deactivated)
         }
       }
@@ -76,6 +77,7 @@ defmodule Aiur.Orchestrator.SlotsTest do
         "active-a" => running_entry(:working, "worker-a"),
         "sleeping-a" => running_entry(:sleeping, "worker-a"),
         "paused-a" => running_entry(:paused, "worker-a"),
+        "completed-a" => running_entry(:completed, "worker-a"),
         "active-b" => running_entry(:working, "worker-b")
       }
 

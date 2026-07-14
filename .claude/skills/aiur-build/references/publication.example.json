@@ -1,0 +1,11 @@
+{
+  "trusted_repository_ref": "refs/heads/build-order-research",
+  "root_document": "docs/build-orders/example/root-issue.md",
+  "mutation_repositories": [
+    "owner/repository"
+  ],
+  "reference_only_issue_urls": [
+    "https://github.com/owner/repository/issues/123"
+  ],
+  "tracker_lifecycle_label_prefix": "agent"
+}

@@ -63,7 +63,7 @@ defmodule Aiur.Orchestrator.Interrupts do
   # Out-of-band interrupt: send Ctrl+C straight to the REPL pane so Claude
   # cuts its active turn and its native queue drains the waiting message.
   # Only the persistent-REPL backend exposes a pane to interrupt; every
-  # other backend folds operator input at a turn boundary instead, so they
+  # other backend folds Executor input at a turn boundary instead, so they
   # report `:interrupt_not_supported`.
   @doc false
   @spec interrupt_agent_reply(State.t(), String.t()) :: term()
@@ -80,7 +80,7 @@ defmodule Aiur.Orchestrator.Interrupts do
     end
   end
 
-  # Operator pressed Ctrl+C on the agent's opencode pane. The action is
+  # Executor pressed Ctrl+C on the agent's opencode pane. The action is
   # derived from the agent's live state, matching the Claude/Codex mental
   # model: a queued message drains right away, an idle agent pauses, and a
   # second press on an already-paused agent closes the pane (the caller
@@ -129,7 +129,7 @@ defmodule Aiur.Orchestrator.Interrupts do
 
   # The agent is mid-turn. opencode owns the interrupt: the bridge forwards its
   # native interrupt key (Esc) to the pane, which drains opencode's queued
-  # operator message and continues the turn. Aiur mutates no state — it does
+  # Executor message and continues the turn. Aiur mutates no state — it does
   # not flip control status or send a pause message — and the bridge keeps the
   # pane open on this reply.
   defp perform_pane_interrupt(:send_interrupt, state, _entry, _issue_identifier, _pane_id),

@@ -47,35 +47,50 @@ defmodule Aiur.Orchestrator.RetryEngine do
         {:noreply, state}
 
       issue_id ->
-        {running_entry, state} = State.pop_running_entry(state, issue_id)
+        running_entry = Map.fetch!(running, issue_id)
         state = TokenAccounting.record_session_completion_totals(state, running_entry)
         session_id = State.running_entry_session_id(running_entry)
 
         state =
-          case reason do
-            :normal ->
+          case {reason, State.completed_running_entry?(running_entry)} do
+            {:normal, true} ->
+              Logger.info("Completed agent task exited normally for issue_id=#{issue_id} session_id=#{session_id}; parking replaceable entry")
+
+              park_completed_entry(state, issue_id, running_entry)
+
+            {:normal, false} ->
               Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
+
+              {_running_entry, state} = State.pop_running_entry(state, issue_id)
 
               state
               |> complete_issue(issue_id)
               |> schedule_issue_retry(issue_id, 1, %{
                 identifier: running_entry.identifier,
+                tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
                 delay_type: :continuation,
                 worker_host: Map.get(running_entry, :worker_host),
                 workspace_path: Map.get(running_entry, :workspace_path)
               })
 
-            _ ->
+            {_reason, false} ->
               Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
 
+              {_running_entry, state} = State.pop_running_entry(state, issue_id)
               next_attempt = next_retry_attempt_from_running(running_entry)
 
               schedule_issue_retry(state, issue_id, next_attempt, %{
                 identifier: running_entry.identifier,
+                tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
                 error: "agent exited: #{inspect(reason)}",
                 worker_host: Map.get(running_entry, :worker_host),
                 workspace_path: Map.get(running_entry, :workspace_path)
               })
+
+            {_reason, true} ->
+              Logger.warning("Completed agent task exited abnormally for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; preserving completed boundary")
+
+              park_completed_entry(state, issue_id, running_entry)
           end
 
         Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
@@ -83,6 +98,22 @@ defmodule Aiur.Orchestrator.RetryEngine do
         StatusReport.notify_dashboard(state)
         {:noreply, state}
     end
+  end
+
+  defp park_completed_entry(state, issue_id, running_entry) do
+    parked_entry =
+      running_entry
+      |> Map.put(:pid, nil)
+      |> Map.put(:ref, nil)
+      |> Map.put(:completion_totals_recorded, true)
+
+    %{
+      state
+      | running: Map.put(state.running, issue_id, parked_entry),
+        completed: MapSet.put(state.completed, issue_id),
+        claimed: MapSet.put(state.claimed, issue_id),
+        retry_attempts: Map.delete(state.retry_attempts, issue_id)
+    }
   end
 
   @doc false
@@ -122,6 +153,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
     error = pick_retry_error(previous_retry, metadata)
     worker_host = pick_retry_worker_host(previous_retry, metadata)
     workspace_path = pick_retry_workspace_path(previous_retry, metadata)
+    tracker_identity = pick_retry_tracker_identity(previous_retry, metadata)
     old_timer = Map.get(previous_retry, :timer_ref)
     retry_poll_failures = pick_retry_poll_failures(previous_retry, metadata)
 
@@ -135,14 +167,14 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
       Alerts.emit_system("ticket.#{identifier}.agent.retry_exhausted",
         issue: identifier,
-        reason: "Agent retry attempts were exhausted; the ticket needs operator review.",
+        reason: "Agent retry attempts were exhausted; the ticket needs Executor review.",
         needs_attention: true,
         severity: "warning"
       )
 
       move_exhausted_issue_to_error_state(issue_id, identifier)
 
-      # Release the claim so a later label-driven re-dispatch (operator moves the
+      # Release the claim so a later label-driven re-dispatch (Executor moves the
       # ticket from `error` back to an active state) is picked up without a full
       # daemon restart (#699). The crash path pops `running` but deliberately
       # holds the claim across retries; on give-up that hold must end, otherwise
@@ -194,7 +226,8 @@ defmodule Aiur.Orchestrator.RetryEngine do
               error: error,
               retry_poll_failures: retry_poll_failures,
               worker_host: worker_host,
-              workspace_path: workspace_path
+              workspace_path: workspace_path,
+              tracker_identity: tracker_identity
             })
       }
     end
@@ -215,7 +248,8 @@ defmodule Aiur.Orchestrator.RetryEngine do
           error: Map.get(retry_entry, :error),
           retry_poll_failures: Map.get(retry_entry, :retry_poll_failures),
           worker_host: Map.get(retry_entry, :worker_host),
-          workspace_path: Map.get(retry_entry, :workspace_path)
+          workspace_path: Map.get(retry_entry, :workspace_path),
+          tracker_identity: Map.get(retry_entry, :tracker_identity)
         }
 
         {:ok, attempt, metadata, %{state | retry_attempts: Map.delete(state.retry_attempts, issue_id)}}
@@ -300,7 +334,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
     end
   end
 
-  # On genuine retry exhaustion, surface the ticket in an operator-visible
+  # On genuine retry exhaustion, surface the ticket in an Executor-visible
   # state instead of silently leaving it in `rework` with no live agent (#699).
   # `error` ("agent hit an error") is a valid state in neither the active nor
   # the terminal set, so it does not get auto-redispatched. Best-effort: a
@@ -437,6 +471,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
          attempt,
          Map.merge(metadata, %{
            identifier: issue.identifier,
+           tracker_identity: Issue.tracker_identity(issue),
            error: "no available orchestrator slots",
            delay_type: :capacity_wait
          })
@@ -469,6 +504,14 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   defp pick_retry_workspace_path(previous_retry, metadata) do
     metadata[:workspace_path] || Map.get(previous_retry, :workspace_path)
+  end
+
+  defp pick_retry_tracker_identity(previous_retry, metadata) do
+    if Map.has_key?(metadata, :tracker_identity) do
+      Map.get(metadata, :tracker_identity)
+    else
+      Map.get(previous_retry, :tracker_identity)
+    end
   end
 
   defp find_issue_by_id(issues, issue_id) when is_binary(issue_id) do

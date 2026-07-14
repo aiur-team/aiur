@@ -1,6 +1,6 @@
 defmodule AiurWeb.ControlCenterCache do
   @moduledoc """
-  Serializes and briefly caches the expensive Operator Control Center payload.
+  Serializes and briefly caches the expensive Executor Control Center payload.
 
   Every connected dashboard receives the same PubSub notifications. Without a
   shared cache, one event fans out into one Orchestrator and provider read per

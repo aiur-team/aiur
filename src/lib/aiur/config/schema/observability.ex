@@ -6,7 +6,7 @@ defmodule Aiur.Config.Schema.Observability do
   @primary_key false
   embedded_schema do
     field(:dashboard_enabled, :boolean, default: true)
-    # Read-only by default: the dashboard's agent-write paths (operator chat,
+    # Read-only by default: the dashboard's agent-write paths (Executor chat,
     # pause) are disabled until a deliberate dashboard parity pass. Flip to
     # `true` to re-enable them. See issue #371.
     field(:dashboard_writable, :boolean, default: false)

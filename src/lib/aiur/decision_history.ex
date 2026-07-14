@@ -1,6 +1,6 @@
 defmodule Aiur.DecisionHistory do
   @moduledoc """
-  Read-only operator history projected from `Aiur.DecisionStore` records.
+  Read-only Executor history projected from `Aiur.DecisionStore` records.
 
   The store remains the only source of truth. This module gives dashboard and
   API consumers one newest-first shape while preserving uncertainty:
@@ -86,7 +86,7 @@ defmodule Aiur.DecisionHistory do
     |> Enum.take(limit(opts))
   end
 
-  @doc "Projects one canonical history record into the operator-facing shape."
+  @doc "Projects one canonical history record into the Executor-facing shape."
   @spec project_record(map()) :: map()
   def project_record(%DecisionEvent{} = event), do: project_event(event, %{}, %{})
 
@@ -291,7 +291,7 @@ defmodule Aiur.DecisionHistory do
 
   defp normalize_actor_type(_type), do: :unknown
 
-  defp actor_type_label(:human_operator), do: "Human operator"
+  defp actor_type_label(:human_operator), do: "Executor"
   defp actor_type_label(:supervising_agent), do: "Supervising agent"
   defp actor_type_label(:ticket_agent), do: "Ticket agent"
   defp actor_type_label(:system), do: "System"
