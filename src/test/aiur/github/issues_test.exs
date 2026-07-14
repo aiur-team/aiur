@@ -136,6 +136,23 @@ defmodule Aiur.GitHub.IssuesTest do
       request_fun = fn _ -> {:ok, %{status: 404, body: %{"message" => "Not Found"}}} end
       assert {:error, _} = Issues.fetch_issue_raw(999, request_fun: request_fun)
     end
+
+    test "uses an explicit validated repository instead of the configured fallback" do
+      request_fun = fn %{url: url} ->
+        assert url == "https://api.github.com/repos/explicit/repository/issues/5"
+        {:ok, %{status: 200, body: %{}}}
+      end
+
+      assert {:ok, %{}} = Issues.fetch_issue_raw(5, repository: {"explicit", "repository"}, request_fun: request_fun)
+    end
+
+    test "rejects an invalid explicit repository before transport" do
+      assert {:error, :invalid_github_repository} =
+               Issues.fetch_issue_raw(5,
+                 repository: {"owner/repo", "repository"},
+                 request_fun: fn _request -> flunk("transport must not be called") end
+               )
+    end
   end
 
   describe "normalize_issue/4" do

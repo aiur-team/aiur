@@ -24,18 +24,37 @@ defmodule Aiur.GitHub.Issues do
 
   @spec fetch_issue_raw(integer() | String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def fetch_issue_raw(issue_number, opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token() do
+    with {:ok, {owner, repo}} <- raw_repository(opts),
+         {:ok, token} <- Transport.require_token(opts) do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}"
 
       case request_fun.(%{method: :get, url: url, token: token}) do
         {:ok, %{status: 200, body: body}} when is_map(body) -> {:ok, body}
+        {:ok, %{status: 200}} -> {:error, :invalid_github_issue_response}
         {:ok, %{status: _status} = response} -> {:error, Errors.github_status_error(response)}
         {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
       end
     end
   end
+
+  defp raw_repository(opts) do
+    case Keyword.fetch(opts, :repository) do
+      {:ok, {owner, repo}} when is_binary(owner) and is_binary(repo) ->
+        if valid_repository_part?(owner) and valid_repository_part?(repo),
+          do: {:ok, {owner, repo}},
+          else: {:error, :invalid_github_repository}
+
+      {:ok, _invalid_repository} ->
+        {:error, :invalid_github_repository}
+
+      :error ->
+        Transport.parse_repo()
+    end
+  end
+
+  defp valid_repository_part?(value) when is_binary(value), do: String.trim(value) != "" and not String.contains?(value, "/")
+  defp valid_repository_part?(_value), do: false
 
   @spec fetch_issues_for_each_label(
           [String.t()],

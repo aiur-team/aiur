@@ -174,6 +174,16 @@ defmodule Aiur.BuildOrder.CatalogTest do
     assert {:ok, ^valid} = Catalog.select(catalog, relocated)
   end
 
+  test "catalog projections remain body-free and contain no detail-cache contract" do
+    root = root(1)
+    catalog = Catalog.new([root], ProviderHealth.new(1, :healthy, true))
+
+    refute Map.has_key?(root, :description)
+    refute Map.has_key?(root, :detail)
+    refute Map.has_key?(catalog, :ticket_detail)
+    refute Map.has_key?(catalog, :subscription)
+  end
+
   test "record constructors reject untyped inputs without raising" do
     assert %{identity: nil, diagnostics: diagnostics} = RootSummary.new(:invalid)
     assert :invalid_identity in Enum.map(diagnostics, & &1.code)
