@@ -180,6 +180,19 @@ button{font-family:inherit}
 .sum-tbl .ids b{color:var(--attn-ink);font-weight:700}
 .bar-cell{display:flex;align-items:center;gap:.5rem}
 .bar-cell i{height:8px;border-radius:4px;background:var(--accent);opacity:.75;display:inline-block}
+
+/* phase-progress loading bars (mirrors the OCC build-order summary phase progress) */
+.prog-head{font-family:var(--mono);font-size:.66rem;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);margin:0 0 8px}
+.prog-head b{color:var(--muted);font-weight:700}
+.bo-prog{display:flex;align-items:flex-end;gap:.7rem;margin:0 0 26px}
+.bo-prog-seg{min-width:0;display:flex;flex-direction:column;gap:.32rem}
+.bo-prog-top{display:flex;align-items:baseline;justify-content:space-between;gap:.4rem}
+.bo-prog-top .p{font-family:var(--mono);font-size:.72rem;font-weight:700;color:var(--fg)}
+.bo-prog-top .pt{font-family:var(--mono);font-size:.66rem;color:var(--muted)}
+.bo-meter{height:.5rem;border-radius:999px;background:var(--surface-3);overflow:hidden;border:1px solid var(--hairline)}
+.bo-meter>i{display:block;height:100%;border-radius:999px;transition:width .5s ease}
+@media(max-width:640px){.bo-prog{flex-wrap:wrap}.bo-prog-seg{flex:1 1 calc(33% - .5rem)}}
+
 footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-family:var(--mono);font-size:.64rem;color:var(--faint);line-height:1.7}
 @media (prefers-reduced-motion: reduce){*{transition:none!important}}
 </style>
@@ -202,6 +215,9 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
   <div class="run-snapshot" id="runSnapshot" role="status" aria-live="polite"></div>
 
   <div class="kpis" id="kpis"></div>
+
+  <div class="prog-head">Phase progress <b>· complexity-weighted completion per dependency wave</b></div>
+  <div class="bo-prog" id="phaseProg" aria-label="Phase progress"></div>
 
   <section class="bo-card" id="graph-all"></section>
 
@@ -466,6 +482,26 @@ document.addEventListener("keydown",e=>{ if(e.key==="Escape") drawer.classList.r
     ["attn", DATA.critical_path.length, "tickets on the serial critical path"],
     ["", DATA.edge_count, "hard blocker edges in the graph"],
   ].map(([c,n,l])=>`<div class="kpi ${c}"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
+})();
+
+/* phase-progress loading bars — complexity-weighted % complete per dependency wave,
+   red→green hue (mirrors the OCC prototype's build-order summary phase progress) */
+(function(){
+  const T = DATA.tickets;
+  const phases = [...new Set(T.map(t=>t.phase))].sort((a,b)=>a-b);
+  const hue = p => Math.round(Math.max(0,Math.min(100,p))/100*125);
+  const segs = phases.map(ph=>{
+    const tix = T.filter(t=>t.phase===ph);
+    const pts = tix.reduce((s,t)=>s+t.cx,0);
+    const done = tix.reduce((s,t)=>s + t.cx*((RUN.tickets[t.id]?.progress||0)/100), 0);
+    const pct = pts ? Math.round(done/pts*100) : 0;
+    return {ph, pts, pct};
+  });
+  document.getElementById("phaseProg").innerHTML = segs.map(s=>
+    `<div class="bo-prog-seg" style="flex:${s.pts} 1 84px" title="Wave ${s.ph} · ${s.pct}% complexity-weighted completion (${s.pts} pts)">
+       <div class="bo-prog-top"><span class="p">W${s.ph}</span><span class="pt">${s.pct}%</span></div>
+       <div class="bo-meter" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${s.pct}" aria-label="Wave ${s.ph} progress"><i style="width:${s.pct}%;background:hsl(${hue(s.pct)} 70% 46%)"></i></div>
+     </div>`).join("");
 })();
 
 buildGraph(document.getElementById("graph-all"), "all",
