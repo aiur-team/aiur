@@ -235,13 +235,21 @@ defmodule Aiur.Orchestrator.Dispatcher do
   defp dispatch_after_workspace_wait_or_thrash_check(state, selected_issue, attempt, preferred_worker_host, opts) do
     runner = Keyword.get(opts, :runner, &AgentRunner.run/3)
 
-    if MapSet.member?(state.workspace_wait_ready, selected_issue.id) do
-      state = %{state | workspace_wait_ready: MapSet.delete(state.workspace_wait_ready, selected_issue.id)}
+    if MapSet.member?(state.workspace_ownership.ready, selected_issue.id) do
+      workspace_ownership = %{
+        state.workspace_ownership
+        | ready: MapSet.delete(state.workspace_ownership.ready, selected_issue.id)
+      }
+
+      state = %{state | workspace_ownership: workspace_ownership}
       dispatch_to_worker(state, selected_issue, attempt, preferred_worker_host, runner)
     else
       case check_thrash_budget(state, selected_issue.id, System.monotonic_time(:millisecond)) do
-        {:trip, tripped_state} -> trip_thrash_breaker(tripped_state, selected_issue)
-        {:ok, budgeted_state} -> dispatch_to_worker(budgeted_state, selected_issue, attempt, preferred_worker_host, runner)
+        {:trip, tripped_state} ->
+          trip_thrash_breaker(tripped_state, selected_issue)
+
+        {:ok, budgeted_state} ->
+          dispatch_to_worker(budgeted_state, selected_issue, attempt, preferred_worker_host, runner)
       end
     end
   end

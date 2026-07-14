@@ -30,7 +30,8 @@ defmodule Aiur.Workspace.Ownership do
   def claim(ticket, registry \\ @registry), do: claim(ticket, registry, [])
 
   @doc false
-  @spec claim(String.t(), registry(), keyword()) :: {:ok, lease()} | {:error, {:workspace_owned, {:ok, lease()} | :none}}
+  @spec claim(String.t(), registry(), keyword()) ::
+          {:ok, lease()} | {:error, {:workspace_owned, {:ok, lease()} | :none}}
   def claim(ticket, registry, opts) when is_binary(ticket) and is_list(opts) do
     generation = System.unique_integer([:positive, :monotonic])
     owner = self()

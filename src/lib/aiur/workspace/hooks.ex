@@ -13,24 +13,18 @@ defmodule Aiur.Workspace.Hooks do
   def run_after_create(workspace, issue_context, created?, worker_host) do
     hooks = Config.settings!().hooks
 
-    case created? do
-      true ->
-        case hooks.after_create do
-          nil ->
-            :ok
+    case {created?, hooks.after_create} do
+      {true, nil} ->
+        :ok
 
-          command ->
-            Reconstruction.run(workspace, fn stage ->
-              run_hook(command, stage, issue_context, "after_create", worker_host)
-            end)
-        end
+      {true, command} ->
+        Reconstruction.run(workspace, fn stage ->
+          run_hook(command, stage, issue_context, "after_create", worker_host)
+        end)
 
       # Materialized from the warm base — aiur already populated + branched the
       # workspace, so the cold-clone after_create hook must NOT run.
-      :materialized ->
-        :ok
-
-      false ->
+      _ ->
         :ok
     end
   end

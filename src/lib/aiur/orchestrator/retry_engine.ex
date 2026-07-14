@@ -130,21 +130,24 @@ defmodule Aiur.Orchestrator.RetryEngine do
     # different processes, so either may arrive first. Clear a continuation
     # retry left by an early :DOWN as well as the live entry; contention is an
     # orchestrator precondition, never a successful agent completion.
+    workspace_ownership = %{
+      state.workspace_ownership
+      | waits:
+          Map.put(state.workspace_ownership.waits, identifier, %{
+            issue_id: issue_id,
+            identifier: identifier,
+            owner: owner,
+            worker_host: Map.get(running_entry || %{}, :worker_host)
+          })
+    }
+
     waiting_state =
       state
       |> cancel_pending_retry(issue_id)
       |> Map.put(:running, Map.delete(state.running, issue_id))
       |> Map.put(:claimed, MapSet.put(state.claimed, issue_id))
       |> Map.put(:completed, MapSet.delete(state.completed, issue_id))
-      |> Map.put(
-        :workspace_waits,
-        Map.put(state.workspace_waits, identifier, %{
-          issue_id: issue_id,
-          identifier: identifier,
-          owner: owner,
-          worker_host: Map.get(running_entry || %{}, :worker_host)
-        })
-      )
+      |> Map.put(:workspace_ownership, workspace_ownership)
 
     if wait == :available, do: release_workspace_wait(waiting_state, identifier), else: waiting_state
   end
@@ -166,16 +169,21 @@ defmodule Aiur.Orchestrator.RetryEngine do
   @doc false
   @spec release_workspace_wait(State.t(), String.t()) :: State.t()
   def release_workspace_wait(%State{} = state, identifier) when is_binary(identifier) do
-    case Map.pop(state.workspace_waits, identifier) do
+    case Map.pop(state.workspace_ownership.waits, identifier) do
       {nil, _workspace_waits} ->
         state
 
       {%{issue_id: issue_id}, workspace_waits} ->
+        workspace_ownership = %{
+          state.workspace_ownership
+          | waits: workspace_waits,
+            ready: MapSet.put(state.workspace_ownership.ready, issue_id)
+        }
+
         %{
           state
-          | workspace_waits: workspace_waits,
-            claimed: MapSet.delete(state.claimed, issue_id),
-            workspace_wait_ready: MapSet.put(state.workspace_wait_ready, issue_id)
+          | claimed: MapSet.delete(state.claimed, issue_id),
+            workspace_ownership: workspace_ownership
         }
     end
   end

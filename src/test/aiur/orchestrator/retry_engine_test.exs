@@ -229,6 +229,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
         end)
 
       ref = Process.monitor(runner)
+      exit_ref = Process.monitor(runner)
       retry_token = make_ref()
       timer_ref = Process.send_after(self(), :unexpected_retry, 60_000)
 
@@ -262,16 +263,19 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       refute Map.has_key?(waiting.retry_attempts, issue_id)
       refute MapSet.member?(waiting.completed, issue_id)
       assert MapSet.member?(waiting.claimed, issue_id)
-      assert waiting.workspace_waits[identifier].owner == {:ok, %{generation: 7, phase: :active}}
+
+      assert waiting.workspace_ownership.waits[identifier].owner ==
+               {:ok, %{generation: 7, phase: :active}}
+
       assert waiting.codex_thrash_budget == state.codex_thrash_budget
 
       ready = RetryEngine.release_workspace_wait(waiting, identifier)
       refute MapSet.member?(ready.claimed, issue_id)
-      assert MapSet.member?(ready.workspace_wait_ready, issue_id)
+      assert MapSet.member?(ready.workspace_ownership.ready, issue_id)
       assert ready.codex_thrash_budget == state.codex_thrash_budget
 
       Process.exit(runner, :kill)
-      assert_receive {:DOWN, ^ref, :process, ^runner, :killed}, 2_000
+      assert_receive {:DOWN, ^exit_ref, :process, ^runner, :killed}, 2_000
       refute_receive :unexpected_retry
     end
   end

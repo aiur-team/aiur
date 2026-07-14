@@ -18,11 +18,13 @@ defmodule Aiur.AgentEventLog do
 
   require Logger
 
+  alias Aiur.Workspace.Reconstruction
+
   @spec write(String.t() | nil, String.t() | nil, map()) :: :ok
   def write(_workspace, worker_host, _message) when is_binary(worker_host), do: :ok
 
   def write(workspace, nil, message) when is_binary(workspace) and is_map(message) do
-    Aiur.Workspace.Reconstruction.with_log_lock(workspace, fn ->
+    Reconstruction.with_log_lock(workspace, fn ->
       log_dir = Path.join(workspace, "logs")
       ndjson_path = Path.join(log_dir, "agent.ndjson")
       markdown_path = Path.join(log_dir, "agent.md")

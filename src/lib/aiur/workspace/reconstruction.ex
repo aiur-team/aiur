@@ -39,22 +39,27 @@ defmodule Aiur.Workspace.Reconstruction do
       backup = sibling_path(workspace, "previous")
       File.rm_rf!(backup)
 
-      case move_current_workspace(workspace, backup) do
-        :ok ->
-          case File.rename(stage, workspace) do
-            :ok ->
-              finish_promotion(backup, workspace)
-
-            {:error, reason} ->
-              restore_current_workspace(backup, workspace)
-              File.rm_rf!(stage)
-              {:error, {:workspace_promotion_failed, reason}}
-          end
-
-        {:error, reason} ->
-          {:error, {:workspace_backup_failed, reason}}
-      end
+      promote_stage(stage, workspace, backup)
     end)
+  end
+
+  defp promote_stage(stage, workspace, backup) do
+    case move_current_workspace(workspace, backup) do
+      :ok -> rename_staged_workspace(stage, workspace, backup)
+      {:error, reason} -> {:error, {:workspace_backup_failed, reason}}
+    end
+  end
+
+  defp rename_staged_workspace(stage, workspace, backup) do
+    case File.rename(stage, workspace) do
+      :ok ->
+        finish_promotion(backup, workspace)
+
+      {:error, reason} ->
+        restore_current_workspace(backup, workspace)
+        File.rm_rf!(stage)
+        {:error, {:workspace_promotion_failed, reason}}
+    end
   end
 
   defp move_current_workspace(workspace, backup) do
@@ -105,16 +110,19 @@ defmodule Aiur.Workspace.Reconstruction do
     previous = Path.join([previous_workspace, "logs", filename])
 
     if File.regular?(previous) do
-      destination = Path.join([workspace, "logs", filename])
-
-      with {:ok, previous_contents} <- File.read(previous),
-           {:ok, staged_contents} <- read_optional_file(destination),
-           :ok <- File.mkdir_p(Path.dirname(destination)),
-           :ok <- File.write(destination, previous_contents <> staged_contents) do
-        :ok
-      end
+      append_previous_agent_log(previous, workspace, filename)
     else
       :ok
+    end
+  end
+
+  defp append_previous_agent_log(previous, workspace, filename) do
+    destination = Path.join([workspace, "logs", filename])
+
+    with {:ok, previous_contents} <- File.read(previous),
+         {:ok, staged_contents} <- read_optional_file(destination),
+         :ok <- File.mkdir_p(Path.dirname(destination)) do
+      File.write(destination, previous_contents <> staged_contents)
     end
   end
 
