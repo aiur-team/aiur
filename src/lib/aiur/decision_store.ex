@@ -253,6 +253,7 @@ defmodule Aiur.DecisionStore do
   @spec recent_audit_history(non_neg_integer(), GenServer.server()) :: %{
           records: [Decision.t() | DecisionEvent.t()],
           contexts: map(),
+          actions: map(),
           revisions: map()
         }
   def recent_audit_history(limit \\ @recent_audit_limit, server \\ __MODULE__)
@@ -1043,7 +1044,7 @@ defmodule Aiur.DecisionStore do
         }
         |> repair_projection()
 
-      if next_state.writable?, do: notify_lifecycle(updated, event)
+      if next_state.writable?, do: notify_lifecycle(updated, event, event_id)
       {:reply, {:ok, %{status: :accepted, decision: updated}}, next_state}
     else
       {:error, :not_durable} -> {:reply, {:error, :event_id_not_durable}, state}
@@ -1407,11 +1408,13 @@ defmodule Aiur.DecisionStore do
     end
   end
 
-  defp notify_lifecycle(decision, event) do
+  defp notify_lifecycle(decision, event), do: notify_lifecycle(decision, event, event.event_id)
+
+  defp notify_lifecycle(decision, event, cursor_event_id) do
     topic = "ticket.#{decision.ticket.identifier}.agent.decision.#{lifecycle_slug(event.type)}"
 
     try do
-      Publisher.publish_persisted(topic, DecisionEvent.to_json_safe(event), event.event_id)
+      Publisher.publish_persisted(topic, DecisionEvent.to_json_safe(event), cursor_event_id)
     rescue
       error -> Logger.warning("aiur_decision_store phase=lifecycle_publisher_failed error=#{Exception.message(error)}")
     end
@@ -2628,12 +2631,12 @@ defmodule Aiur.DecisionStore do
   end
 
   defp recent_audit_payload(state, records) do
-    Enum.reduce(records, %{records: records, contexts: %{}, revisions: %{}}, fn record, payload ->
+    Enum.reduce(records, %{records: records, contexts: %{}, actions: %{}, revisions: %{}}, fn record, payload ->
       case audit_identity(record) do
         {decision_id, version} ->
           payload
           |> put_audit_context(state, decision_id, version)
-          |> put_audit_revision(state, decision_id, audit_action_id(record))
+          |> put_audit_action(state, decision_id, audit_action_id(record))
 
         nil ->
           payload
@@ -2644,7 +2647,13 @@ defmodule Aiur.DecisionStore do
   defp put_audit_context(payload, state, decision_id, version) do
     case request_version(state, decision_id, version) || Map.get(state.current, decision_id) do
       %Decision{} = decision ->
-        context = %{version: decision.version, ticket: decision.ticket, question: decision.question}
+        context = %{
+          version: decision.version,
+          ticket: decision.ticket,
+          question: decision.question,
+          provenance: decision.provenance
+        }
+
         contexts = Map.update(payload.contexts, decision_id, %{version => context}, &Map.put(&1, version, context))
         %{payload | contexts: contexts}
 
@@ -2653,23 +2662,33 @@ defmodule Aiur.DecisionStore do
     end
   end
 
-  defp put_audit_revision(payload, _state, _decision_id, nil), do: payload
+  defp put_audit_action(payload, _state, _decision_id, nil), do: payload
 
-  defp put_audit_revision(payload, state, decision_id, action_id) do
-    revision =
+  defp put_audit_action(payload, state, decision_id, action_id) do
+    action =
       state.current
       |> Map.get(decision_id)
       |> case do
+        %Decision{answer: %DecisionAnswer{action_id: ^action_id} = answer} -> answer
         %Decision{revisions: revisions} -> Enum.find(revisions, &(&1.action_id == action_id))
         _other -> nil
       end
 
-    case revision do
-      %DecisionRevision{} ->
+    case action do
+      %DecisionAnswer{} = answer ->
+        actions =
+          Map.update(payload.actions, decision_id, %{action_id => answer}, &Map.put(&1, action_id, answer))
+
+        %{payload | actions: actions}
+
+      %DecisionRevision{} = revision ->
+        actions =
+          Map.update(payload.actions, decision_id, %{action_id => revision}, &Map.put(&1, action_id, revision))
+
         revisions =
           Map.update(payload.revisions, decision_id, %{action_id => revision}, &Map.put(&1, action_id, revision))
 
-        %{payload | revisions: revisions}
+        %{payload | actions: actions, revisions: revisions}
 
       _other ->
         payload
