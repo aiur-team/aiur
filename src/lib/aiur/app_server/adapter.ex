@@ -6,7 +6,7 @@ defmodule Aiur.AppServer.Adapter do
   require Logger
 
   alias Aiur.{AgentEnvironment, Config}
-  alias Aiur.AppServer.{Messages, TurnLoop}
+  alias Aiur.AppServer.{Messages, TurnLoop, TurnState}
   alias Aiur.Codex.DynamicTool
 
   @port_line_bytes 1_048_576
@@ -88,6 +88,7 @@ defmodule Aiur.AppServer.Adapter do
             },
             backend.loop_state_extras(session)
           )
+          |> TurnState.initialize_turn_tracking()
 
         loop_result = TurnLoop.receive_loop(session, state)
         handle_turn_result(backend, issue, session_id, thread_id, turn_id, metadata, on_message, loop_result)

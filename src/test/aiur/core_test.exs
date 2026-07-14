@@ -2079,6 +2079,205 @@ defmodule Aiur.CoreTest do
     end
   end
 
+  test "completed Codex runner replacement drains queued rework once" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-completed-codex-replacement-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      template_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex.trace")
+      rework_started = Path.join(test_root, "rework.started")
+      rework_release = Path.join(test_root, "rework.release")
+      after_run_done = Path.join(test_root, "after-run.done")
+
+      File.mkdir_p!(template_repo)
+      File.write!(Path.join(template_repo, "README.md"), "# test")
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file="$SYMP_TEST_CODEX_TRACE"
+      turn_start_count=0
+
+      while IFS= read -r line; do
+        printf 'JSON:%s\\n' "$line" >> "$trace_file"
+
+        case "$line" in
+          *'"method":"initialize"'*)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          *'"method":"initialized"'*)
+            ;;
+          *'"method":"thread/start"'*)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-replacement"}}}'
+            ;;
+          *'"method":"turn/start"'*)
+            turn_start_count=$((turn_start_count + 1))
+            request_id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
+
+            case "$turn_start_count" in
+              1)
+                printf '{"id":%s,"result":{"turn":{"id":"turn-replacement-main","status":"inProgress"}}}\\n' "$request_id"
+                printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-replacement-main","status":"completed"}}}'
+                ;;
+              2)
+                printf '{"id":%s,"result":{"turn":{"id":"turn-replacement-rework","status":"inProgress"}}}\\n' "$request_id"
+                touch "#{rework_started}"
+                while [ ! -f "#{rework_release}" ]; do sleep 0.01; done
+                printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-replacement-rework","status":"completed"}}}'
+                ;;
+            esac
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+      System.put_env("SYMP_TEST_CODEX_TRACE", trace_file)
+
+      issue = %Issue{
+        id: "issue-completed-codex-replacement",
+        identifier: "MT-CODEX-REPLACEMENT",
+        title: "Drain rework on replacement",
+        description: "The completed Codex worker must be replaceable",
+        state: "rework",
+        url: "https://example.org/issues/MT-CODEX-REPLACEMENT",
+        labels: [],
+        selected_backend: "codex"
+      }
+
+      Application.put_env(:aiur, :memory_tracker_issues, [issue])
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        tracker_active_states: ["in-progress", "rework"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"],
+        workspace_root: workspace_root,
+        hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
+        hook_after_run: "touch #{after_run_done}",
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 1
+      )
+
+      orchestrator_name = Module.concat(__MODULE__, :CompletedCodexReplacementOrchestrator)
+      {:ok, orchestrator_pid} = Orchestrator.start_link(name: orchestrator_name)
+      {:ok, old_worker} = Task.Supervisor.start_child(Aiur.TaskSupervisor, fn -> Process.sleep(:infinity) end)
+      old_ref = Process.monitor(old_worker)
+
+      on_exit(fn ->
+        File.touch(rework_release)
+        System.delete_env("SYMP_TEST_CODEX_TRACE")
+        if Process.alive?(orchestrator_pid), do: Process.exit(orchestrator_pid, :normal)
+        if Process.alive?(old_worker), do: Process.exit(old_worker, :kill)
+      end)
+
+      :sys.replace_state(orchestrator_pid, fn state ->
+        if is_reference(state.tick_timer_ref), do: Process.cancel_timer(state.tick_timer_ref)
+
+        old_entry = %{
+          pid: old_worker,
+          ref: old_ref,
+          identifier: issue.identifier,
+          issue: issue,
+          worker_host: nil,
+          workspace_path: nil,
+          session_id: "old-generation",
+          last_codex_message: nil,
+          last_codex_timestamp: nil,
+          last_codex_event: nil,
+          codex_app_server_pid: nil,
+          codex_process_group_id: nil,
+          repl_pane_id: nil,
+          repl_os_pid: nil,
+          headless_os_pid: nil,
+          agent_input_tokens: 0,
+          agent_output_tokens: 0,
+          agent_total_tokens: 0,
+          agent_last_reported_input_tokens: 0,
+          agent_last_reported_output_tokens: 0,
+          agent_last_reported_total_tokens: 0,
+          turn_count: 1,
+          control: %{can_interrupt: true, safe_checkpoints: [:notification], status: :working},
+          retry_attempt: 0,
+          started_at: DateTime.utc_now()
+        }
+
+        %{
+          state
+          | session_max_concurrent_agents: 1,
+            running: %{issue.id => old_entry},
+            claimed: MapSet.put(state.claimed, issue.id),
+            tick_timer_ref: nil,
+            tick_token: make_ref(),
+            next_poll_due_at_ms: nil,
+            poll_check_in_progress: false
+        }
+      end)
+
+      send(orchestrator_pid, {:worker_control_state, issue.id, :completed})
+
+      assert %{active: 0} = Orchestrator.max_concurrent_agents(orchestrator_name)
+
+      assert {:ok, item_id} =
+               Orchestrator.send_operator_message(orchestrator_name, issue.identifier, %{
+                 kind: :text,
+                 body: "repair from replacement"
+               })
+
+      refute Process.alive?(old_worker)
+
+      replacement = :sys.get_state(orchestrator_pid).running[issue.id]
+      assert is_pid(replacement.pid)
+      assert Process.alive?(replacement.pid)
+      assert replacement.pid != old_worker
+      assert is_reference(replacement.ref)
+      assert replacement.ref != old_ref
+
+      assert wait_for_path(rework_started, 15_000)
+
+      in_flight = :sys.get_state(orchestrator_pid)
+      assert in_flight.running[issue.id].pid == replacement.pid
+      assert in_flight.queue_store.items[item_id].status == :delivered
+      assert in_flight.queue_store.items[item_id].delivery_attempts == 1
+
+      send(orchestrator_pid, {:DOWN, old_ref, :process, old_worker, :normal})
+      assert :sys.get_state(orchestrator_pid).running[issue.id].pid == replacement.pid
+
+      File.touch!(rework_release)
+      assert wait_for_path(after_run_done, 15_000)
+
+      finished = :sys.get_state(orchestrator_pid)
+      assert finished.queue_store.items[item_id].status == :consumed
+      assert finished.queue_store.items[item_id].delivery_attempts == 1
+      assert Map.get(finished.queue_store.pending_ids_by_target, issue.identifier, []) == []
+
+      turn_texts =
+        trace_file
+        |> File.read!()
+        |> String.split("\n", trim: true)
+        |> Enum.filter(&String.starts_with?(&1, "JSON:"))
+        |> Enum.map(&String.trim_leading(&1, "JSON:"))
+        |> Enum.map(&Jason.decode!/1)
+        |> Enum.filter(&(&1["method"] == "turn/start"))
+        |> Enum.map(fn payload ->
+          get_in(payload, ["params", "input"])
+          |> Enum.map_join("\n", &Map.get(&1, "text", ""))
+        end)
+
+      assert length(turn_texts) == 2
+      assert Enum.at(turn_texts, 0) =~ "You are an agent for this repository."
+      assert Enum.at(turn_texts, 1) == "repair from replacement"
+    after
+      File.touch(Path.join(test_root, "rework.release"))
+      System.delete_env("SYMP_TEST_CODEX_TRACE")
+      File.rm_rf(test_root)
+    end
+  end
+
   test "agent runner interrupts an active turn and drains the operator message as the next turn" do
     test_root =
       Path.join(

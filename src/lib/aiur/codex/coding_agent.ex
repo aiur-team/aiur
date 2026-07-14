@@ -151,7 +151,14 @@ defmodule Aiur.Codex.CodingAgent do
   def backend_label, do: "Codex"
   @impl Aiur.AppServer.Adapter
   @doc false
-  def loop_state_extras(session), do: %{auto_approve_requests: session.auto_approve_requests, turn_started?: false}
+  def loop_state_extras(session) do
+    %{
+      active_turn_ids: MapSet.new(),
+      auto_approve_requests: session.auto_approve_requests,
+      turn_started?: false
+    }
+  end
+
   @impl Aiur.AppServer.Adapter
   @doc false
   def handle_interrupt_error(state, error), do: Interrupts.handle_interrupt_error(state, error)

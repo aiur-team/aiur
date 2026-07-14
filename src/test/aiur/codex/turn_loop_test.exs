@@ -15,6 +15,49 @@ defmodule Aiur.Codex.TurnLoopTest do
       close_port(port)
     end
 
+    test "turn/completed retires exact provider IDs idempotently" do
+      port = open_cat_port()
+      state = %{base_state() | active_turn_ids: MapSet.new(["turn-1", "turn-2"]), outstanding_turns: 2}
+      parent_completed = turn_completed_payload("turn-1")
+
+      assert {:continue, state} =
+               TurnLoop.handle_method(
+                 %{port: port},
+                 state,
+                 parent_completed,
+                 Jason.encode!(parent_completed),
+                 "turn/completed"
+               )
+
+      assert state.active_turn_ids == MapSet.new(["turn-2"])
+      assert state.outstanding_turns == 1
+
+      assert {:continue, duplicate_state} =
+               TurnLoop.handle_method(
+                 %{port: port},
+                 state,
+                 parent_completed,
+                 Jason.encode!(parent_completed),
+                 "turn/completed"
+               )
+
+      assert duplicate_state.active_turn_ids == MapSet.new(["turn-2"])
+      assert duplicate_state.outstanding_turns == 1
+
+      child_completed = turn_completed_payload("turn-2")
+
+      assert {:ok, :turn_completed} =
+               TurnLoop.handle_method(
+                 %{port: port},
+                 duplicate_state,
+                 child_completed,
+                 Jason.encode!(child_completed),
+                 "turn/completed"
+               )
+
+      close_port(port)
+    end
+
     test "turn/completed with interrupted status uses interrupted routing" do
       port = open_cat_port()
       payload = %{"method" => "turn/completed", "params" => %{"turn" => %{"status" => "interrupted"}}}
@@ -187,7 +230,11 @@ defmodule Aiur.Codex.TurnLoopTest do
 
     test "turn started marks the state and processes a notification checkpoint" do
       port = open_cat_port()
-      payload = %{"method" => "turn/started", "params" => %{}}
+
+      payload = %{
+        "method" => "turn/started",
+        "params" => %{"turn" => %{"id" => "turn-2", "status" => "inProgress"}}
+      }
 
       state =
         base_state(fn checkpoint ->
@@ -195,9 +242,11 @@ defmodule Aiur.Codex.TurnLoopTest do
           :noop
         end)
 
-      assert {:continue, %{turn_started?: true}} =
+      assert {:continue, %{turn_started?: true} = next_state} =
                TurnLoop.handle_method(%{port: port}, state, payload, Jason.encode!(payload), "turn/started")
 
+      assert next_state.active_turn_ids == MapSet.new(["turn-1", "turn-2"])
+      assert next_state.outstanding_turns == 2
       assert_received {:checkpoint, %{kind: :notification, method: "turn/started"}}
       close_port(port)
     end
@@ -212,7 +261,12 @@ defmodule Aiur.Codex.TurnLoopTest do
       assert {:ok, :turn_completed} =
                TurnLoop.handle_method(
                  %{port: port},
-                 %{base_state() | turn_started?: true},
+                 %{
+                   base_state()
+                   | turn_started?: true,
+                     active_turn_ids: MapSet.new(["turn-1", "turn-2"]),
+                     outstanding_turns: 2
+                 },
                  payload,
                  Jason.encode!(payload),
                  payload["method"]
@@ -266,7 +320,15 @@ defmodule Aiur.Codex.TurnLoopTest do
       pause_request_id: nil,
       current_turn_id: "turn-1",
       turn_started?: false,
+      active_turn_ids: MapSet.new(["turn-1"]),
       backend: CodingAgent
+    }
+  end
+
+  defp turn_completed_payload(turn_id) do
+    %{
+      "method" => "turn/completed",
+      "params" => %{"turn" => %{"id" => turn_id, "status" => "completed"}}
     }
   end
 

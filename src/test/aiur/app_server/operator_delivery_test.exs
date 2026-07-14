@@ -84,6 +84,50 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
     assert_receive {:message, %{event: :operator_turn_started}}
   end
 
+  test "claimed Codex responses track unique active provider turns" do
+    pending = %{
+      98 => %{on_success: fn _ -> :ok end, on_failure: fn _ -> :ok end},
+      99 => %{on_success: fn _ -> :ok end, on_failure: fn _ -> :ok end}
+    }
+
+    state =
+      state(%{
+        active_turn_ids: MapSet.new(["turn-1"]),
+        pending_operator_requests: pending
+      })
+
+    payload = %{"result" => %{"turn" => %{"id" => "turn-2", "status" => "inProgress"}}}
+
+    assert {:continue, state} =
+             OperatorDelivery.handle_pending_operator_response(session(), state, payload, "{}", 98)
+
+    assert {:continue, state} =
+             OperatorDelivery.handle_pending_operator_response(session(), state, payload, "{}", 99)
+
+    assert state.active_turn_ids == MapSet.new(["turn-1", "turn-2"])
+    assert state.outstanding_turns == 2
+  end
+
+  test "claimed terminal Codex response does not create active work" do
+    pending = %{
+      99 => %{on_success: fn _ -> :ok end, on_failure: fn _ -> :ok end}
+    }
+
+    state =
+      state(%{
+        active_turn_ids: MapSet.new(["turn-1"]),
+        pending_operator_requests: pending
+      })
+
+    payload = %{"result" => %{"turn" => %{"id" => "turn-2", "status" => "completed"}}}
+
+    assert {:continue, state} =
+             OperatorDelivery.handle_pending_operator_response(session(), state, payload, "{}", 99)
+
+    assert state.active_turn_ids == MapSet.new(["turn-1"])
+    assert state.outstanding_turns == 1
+  end
+
   defp session(overrides \\ %{}) do
     Map.merge(%{port: self(), parent: self(), send_operator_result: {:ok, 99}}, overrides)
   end

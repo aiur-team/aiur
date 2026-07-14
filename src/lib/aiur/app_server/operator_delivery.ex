@@ -67,7 +67,7 @@ defmodule Aiur.AppServer.OperatorDelivery do
   defp handle_claimed_operator_response(
          session,
          state,
-         %{"result" => %{"turn" => %{"id" => turn_id}}} = payload,
+         %{"result" => %{"turn" => %{"id" => turn_id} = turn}} = payload,
          payload_string,
          request_id,
          on_success,
@@ -87,12 +87,12 @@ defmodule Aiur.AppServer.OperatorDelivery do
       state.backend.metadata_from_message(session.port, payload)
     )
 
-    {:continue,
-     %{
-       state
-       | pending_operator_requests: pending_operator_requests,
-         outstanding_turns: state.outstanding_turns + 1
-     }}
+    next_state =
+      state
+      |> Map.put(:pending_operator_requests, pending_operator_requests)
+      |> TurnState.register_provider_turn(turn)
+
+    {:continue, next_state}
   end
 
   defp handle_claimed_operator_response(
