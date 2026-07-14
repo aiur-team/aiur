@@ -14,9 +14,14 @@ from unittest.mock import patch
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPT_DIR))
+SKILL_PUBLICATION = Path(__file__).resolve().parents[4] / ".claude/skills/aiur-build/scripts/publication"
+sys.path.insert(0, str(SKILL_PUBLICATION))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from publication_comment import render_successful_comment  # noqa: E402
+from publication_comment import (  # noqa: E402
+    render_pending_comment,
+    render_successful_comment,
+)
 from publication_common import Report  # noqa: E402
 from publication_live_graph import (  # noqa: E402
     LiveGraphError,
@@ -54,10 +59,19 @@ class LiveGraphVerifierTests(unittest.TestCase):
         )
         self.expected = _expected_graph(self.authority)
         receipt_url = f"https://github.com/example/repo/commit/{RECEIPT}"
-        self.comment_body = render_successful_comment(
+        self.pending_body = render_pending_comment(
+            self.authority.root_id, 1, self.authority.approved_commit,
+            self.authority.repository,
+        )
+        self.successful_body = render_successful_comment(
             self.authority.root_id, 1, self.authority.approved_commit,
             self.authority.repository, RECEIPT, receipt_url,
         )
+        self.successful_url = self.expected.comment_url.rsplit("-", 1)[0] + "-100"
+        self.expected_comment_bodies = {
+            "pending": self.pending_body,
+            "successful": self.successful_body,
+        }
         self.snapshot = self._clean_snapshot()
 
     def _clean_snapshot(self):
@@ -77,16 +91,20 @@ class LiveGraphVerifierTests(unittest.TestCase):
                 "subissues": item.subissues,
                 "blocked_by": item.blocked_by,
             }
-        digest = hashlib.sha256(self.comment_body.encode("utf-8")).hexdigest()
+        digest = hashlib.sha256(self.pending_body.encode("utf-8")).hexdigest()
         return {
             "issues": issues,
             "marker_matches": copy.deepcopy(self.expected.marker_matches),
-            "comment": {
-                "url": self.expected.comment_url,
-                "body": self.comment_body,
-                "body_sha256": digest,
-                "marker_comment_urls": (self.expected.comment_url,),
-                "expected_body_sha256": digest,
+            "comments": {
+                "pending": {
+                    "url": self.expected.comment_url,
+                    "body": self.pending_body,
+                    "body_sha256": digest,
+                },
+                "reconciliation": tuple(sorted((
+                    (self.expected.comment_url, self.pending_body, 1),
+                    (self.successful_url, self.successful_body, 1),
+                ))),
             },
         }
 
@@ -99,12 +117,12 @@ class LiveGraphVerifierTests(unittest.TestCase):
             side_effect=[copy.deepcopy(first), copy.deepcopy(second)],
         ) as capture:
             verify_live_graph(
-                self.authority, RECEIPT, self.comment_body, report,
+                self.authority, RECEIPT, self.expected_comment_bodies, report,
             )
         self.assertEqual(2, capture.call_count)
         self.assertIs(
-            capture.call_args_list[0].args[3],
-            capture.call_args_list[1].args[3],
+            capture.call_args_list[0].args[2],
+            capture.call_args_list[1].args[2],
         )
         return report
 
@@ -209,10 +227,54 @@ class LiveGraphVerifierTests(unittest.TestCase):
         self.assertIn("DASH-001.mapping", "\n".join(self.verify(mapping).errors))
 
         comment = copy.deepcopy(self.snapshot)
-        comment["comment"]["body"] = "stale successful comment"
+        comment["comments"]["pending"]["body"] = "stale pending comment"
         self.assertIn(
-            "reconciliation comment", "\n".join(self.verify(comment).errors)
+            "reconciliation evidence", "\n".join(self.verify(comment).errors)
         )
+
+    def test_malformed_duplicate_and_conflicting_success_evidence_fail(self) -> None:
+        cases = []
+        malformed = copy.deepcopy(self.snapshot)
+        malformed["comments"]["reconciliation"] = (
+            *malformed["comments"]["reconciliation"],
+            (self.successful_url.rsplit("-", 1)[0] + "-101", "malformed", 1),
+        )
+        cases.append(malformed)
+        duplicate = copy.deepcopy(self.snapshot)
+        duplicate["comments"]["reconciliation"] = (
+            *duplicate["comments"]["reconciliation"],
+            (
+                self.successful_url.rsplit("-", 1)[0] + "-101",
+                self.successful_body,
+                1,
+            ),
+        )
+        cases.append(duplicate)
+        conflicting = copy.deepcopy(self.snapshot)
+        entries = list(conflicting["comments"]["reconciliation"])
+        successful_index = next(
+            index for index, entry in enumerate(entries)
+            if entry[0] == self.successful_url
+        )
+        entry = entries[successful_index]
+        entries[successful_index] = (
+            entry[0], entry[1].replace(RECEIPT, "c" * 40), 1,
+        )
+        conflicting["comments"]["reconciliation"] = tuple(entries)
+        cases.append(conflicting)
+        for index, snapshot in enumerate(cases):
+            with self.subTest(case=index):
+                self.assertIn(
+                    "successful reconciliation", "\n".join(self.verify(snapshot).errors)
+                )
+
+    def test_pending_verifier_requires_only_immutable_pending_comment(self) -> None:
+        pending = copy.deepcopy(self.snapshot)
+        pending["comments"]["reconciliation"] = (
+            (self.expected.comment_url, self.pending_body, 1),
+        )
+        self.expected_comment_bodies = {"pending": self.pending_body}
+        self.assertEqual([], self.verify(pending).errors)
 
     def test_mid_query_change_fails_even_when_each_snapshot_is_well_formed(self) -> None:
         second = copy.deepcopy(self.snapshot)
@@ -255,21 +317,24 @@ class LiveGraphVerifierTests(unittest.TestCase):
             if "state=all" in endpoint:
                 return rows
             if "/comments?" in endpoint:
-                return [{"html_url": self.expected.comment_url, "body": self.comment_body}]
+                return [
+                    {"html_url": self.expected.comment_url, "body": self.pending_body},
+                    {"html_url": self.successful_url, "body": self.successful_body},
+                ]
             return []
 
         def single(endpoint: str, *, allow_404: bool = False, budget=None):
             if endpoint.endswith("/parent"):
                 return None
             if "/issues/comments/" in endpoint:
-                return {"html_url": self.expected.comment_url, "body": self.comment_body}
+                return {"html_url": self.expected.comment_url, "body": self.pending_body}
             raise AssertionError(endpoint)
 
         with patch("publication_live_graph._github_pages", side_effect=pages), patch(
             "publication_live_graph._github_json", side_effect=single,
         ):
             snapshot = _capture_snapshot(
-                self.authority, self.expected, self.comment_body,
+                self.authority, self.expected,
             )
         self.assertEqual(2, len(snapshot["marker_matches"]["DASH-001"]))
         self.assertIn(
@@ -285,12 +350,12 @@ class LiveGraphVerifierTests(unittest.TestCase):
         row["pull_request"] = {}
         with patch("publication_live_graph._github_pages", return_value=rows):
             with self.assertRaisesRegex(LiveGraphError, "resolves to a pull request"):
-                _capture_snapshot(self.authority, self.expected, self.comment_body)
+                _capture_snapshot(self.authority, self.expected)
 
     def test_malformed_issue_page_entries_are_not_filtered(self) -> None:
         with patch("publication_live_graph._github_pages", return_value=[None]):
             with self.assertRaisesRegex(LiveGraphError, "non-object entry"):
-                _capture_snapshot(self.authority, self.expected, self.comment_body)
+                _capture_snapshot(self.authority, self.expected)
 
     def test_paginated_reads_enforce_page_and_total_bounds(self) -> None:
         with patch("publication_live_graph._github_json", return_value=[{}] * 101):

@@ -1,4 +1,4 @@
-# BO-009 — Vendor layout worker and static platform
+# BO: BO-009 — Vendor layout worker and static platform
 
 **Kind:** executable
 

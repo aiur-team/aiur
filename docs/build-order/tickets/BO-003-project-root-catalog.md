@@ -1,4 +1,4 @@
-# BO-003 — Project atomic planning caches and LKG
+# BO: BO-003 — Project atomic planning caches and LKG
 
 **Kind:** executable
 

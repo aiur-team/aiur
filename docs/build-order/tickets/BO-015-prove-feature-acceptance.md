@@ -1,4 +1,4 @@
-# BO-015 — Prove current-base real and synthetic acceptance
+# BO: BO-015 — Prove current-base real and synthetic acceptance
 
 **Kind:** capstone
 

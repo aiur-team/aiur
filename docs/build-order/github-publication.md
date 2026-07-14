@@ -16,7 +16,8 @@ label, implement a ticket, or merge either planning branch.
 
 ## Publication operator
 
-Use `scripts/publication_operator.py`; do not reproduce the 56-issue and
+Use the skill-owned `.claude/skills/aiur-build/scripts/publish_build_order.py`;
+the pack-local `scripts/publication_operator.py` is compatibility-only. Do not reproduce the 56-issue and
 107-edge ceremony with ad hoc `gh` commands. Its default mode is a bounded,
 read-only rehearsal. Both authority arguments are assertions: the approval is
 the exact commit reviewed as immutable planning scope, and the green authority
@@ -32,13 +33,15 @@ APPROVED_SHA=<exact-newly-reviewed-40-character-commit>
 GREEN_SHA=<exact-current-green-tip-of-build-order-research>
 
 # Default is --dry-run and performs no mutation.
-python3 docs/build-order/scripts/publication_operator.py \
+python3 .claude/skills/aiur-build/scripts/publish_build_order.py \
+  --build docs/build-order/build-order.json \
   --approved-sha "$APPROVED_SHA" \
   --green-authority-sha "$GREEN_SHA"
 
 # Explicit publication stage. This stops with a pending comment and local
 # receipt files; it never commits, pushes, or marks publication successful.
-python3 docs/build-order/scripts/publication_operator.py --apply \
+python3 .claude/skills/aiur-build/scripts/publish_build_order.py --apply \
+  --build docs/build-order/build-order.json \
   --approved-sha "$APPROVED_SHA" \
   --green-authority-sha "$GREEN_SHA"
 ```
@@ -52,6 +55,11 @@ parent, child, blocker, routing label, or comment stops the run. The only label
 definitions it is allowed to create are `build-order`, the five approved
 `build-lane:*` labels, and `phase:7`/`phase:8`; all other required definitions
 must already exist.
+
+Every feature issue title and the root title is rendered from its approved H1
+and starts with the literal `BO:` prefix (`BO: BO-001 — …`,
+`BO: DASH-001 — …`). The separate skill-delivery prerequisite remains
+unprefixed.
 
 The trusted branch is rechecked immediately before the first mutation and at
 bounded mutation checkpoints. Restore the same frozen authority and rerun if a
@@ -67,7 +75,8 @@ review path. Finalization is deliberately separate:
 RECEIPT_SHA=<exact-pushed-receipt-commit>
 RECEIPT_URL="https://github.com/its-everdred/aiur/commit/$RECEIPT_SHA"
 
-python3 docs/build-order/scripts/publication_operator.py --finalize \
+python3 .claude/skills/aiur-build/scripts/publish_build_order.py --finalize \
+  --build docs/build-order/build-order.json \
   --approved-sha "$APPROVED_SHA" \
   --green-authority-sha "$RECEIPT_SHA" \
   --receipt-commit "$RECEIPT_SHA" \
@@ -75,12 +84,14 @@ python3 docs/build-order/scripts/publication_operator.py --finalize \
 ```
 
 Finalization runs the existing receipt-bound pending verifier (two complete
-fresh snapshots plus branch/commit authority), edits only that same pending
-comment to the canonical successful body, then runs the successful verifier.
+fresh snapshots plus branch/commit authority), preserves that pending comment
+as immutable authorization, appends one distinct canonical successful receipt,
+then runs the successful verifier.
 The immutable receipt commit exclusively selects the comment identity; mutable
 checkout receipt fields cannot redirect it. Finalization is idempotent: after a
-crash or transient failure following the edit, rerunning verifies an already
-canonical successful comment without editing it again. It does not create
+crash or transient failure following creation, rerunning reuses and verifies
+the already canonical successful comment without creating another. It rejects
+malformed, conflicting, or duplicate reconciliation evidence. It does not create
 issues, labels, membership, or dependencies.
 
 ## Materialization set
@@ -151,19 +162,19 @@ Once the root exists, create one uniquely marked
 `aiur-build-order-reconciliation` comment whose visible and marker state is
 `pending`. Requery the marker search and require exactly one comment match;
 record its URL, parsed pending marker, and canonical body SHA-256. After all
-relationships requery successfully, commit and push that receipt, then edit the
-same comment URL to the canonical `successful` body with the exact immutable
-receipt commit and link. Run the read-only `scripts/publication_comment.py`
-verifier once against the pending comment immediately before the edit and
-again against the successful comment immediately afterward; the comment edit
-is the only finalization mutation. The verifier does not trust a caller-authored
+relationships requery successfully, commit and push that receipt, then append
+one distinct canonical `successful` comment with the exact immutable receipt
+commit and link. Run the read-only `scripts/publication_comment.py`
+verifier once against the pending-only evidence immediately before creation and
+again against the pending-plus-successful evidence immediately afterward; the
+successful comment creation is the only finalization mutation. The verifier does not trust a caller-authored
 query file or observation object. It derives the complete expected graph and
 exact pending-comment URL from the immutable receipt, queries GitHub itself,
 and performs two complete bounded reads. The two snapshots must be identical
 and must exactly match all 56 mappings, titles, independently rendered body
 hashes, full label sets, `OPEN` states, unlocked state, all-state marker result
-sets, native parents, subissues, all 107 `blockedBy` edges, and the one exact
-comment. The root has exactly 54 BO/DASH children and no parent; each member has
+sets, native parents, subissues, all 107 `blockedBy` edges, the exact immutable
+pending comment, and one distinct exact successful comment. The root has exactly 54 BO/DASH children and no parent; each member has
 that root as parent; the skill issue is parentless; every non-root has no
 subissues. Closed and PR-shaped marker matches remain visible to the collision
 check. Every GitHub read, including branch/compare authority, pins `github.com`,
@@ -197,19 +208,19 @@ replacement-parent mutation as a shortcut.
 
 Receipt/branch authority is checked before and after the two live snapshots.
 Deletion, force-push, or authority drift during the query therefore fails
-closed rather than racing the final comment edit.
+closed rather than racing successful receipt creation.
 
 Verify the receipt-bound live comment directly:
 
 ```bash
-# Immediately before the only finalization mutation:
+# Immediately before the only finalization mutation (pending only):
 python3 docs/build-order/scripts/publication_comment.py --state pending \
   its-everdred/aiur:build-order-dashboard 1 \
   <APPROVED_SHA> <RECEIPT_SHA> <RECEIPT_URL> \
   https://github.com/its-everdred/aiur/issues/<ROOT_NUMBER> \
   its-everdred/aiur
 
-# Immediately after the pending-to-successful edit:
+# Immediately after the successful receipt is appended (pending + successful):
 python3 docs/build-order/scripts/publication_comment.py \
   its-everdred/aiur:build-order-dashboard 1 \
   <APPROVED_SHA> <RECEIPT_SHA> <RECEIPT_URL> \

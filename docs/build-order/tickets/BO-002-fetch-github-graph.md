@@ -1,4 +1,4 @@
-# BO-002 — Fetch complete GitHub planning graph
+# BO: BO-002 — Fetch complete GitHub planning graph
 
 **Kind:** executable
 

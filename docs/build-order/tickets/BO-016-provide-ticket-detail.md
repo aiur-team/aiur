@@ -1,4 +1,4 @@
-# BO-016 — Provide configured-repository ticket detail
+# BO: BO-016 — Provide configured-repository ticket detail
 
 **Kind:** executable
 

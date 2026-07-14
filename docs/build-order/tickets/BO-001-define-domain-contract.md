@@ -1,4 +1,4 @@
-# BO-001 — Define Build Order domain contract
+# BO: BO-001 — Define Build Order domain contract
 
 **Kind:** executable
 

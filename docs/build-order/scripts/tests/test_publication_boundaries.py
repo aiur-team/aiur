@@ -7,6 +7,8 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPT_DIR))
+SKILL_PUBLICATION = Path(__file__).resolve().parents[4] / ".claude/skills/aiur-build/scripts/publication"
+sys.path.insert(0, str(SKILL_PUBLICATION))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from publication_fixtures import Fixture, build_order, publication  # noqa: E402

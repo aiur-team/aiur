@@ -1,4 +1,4 @@
-# BO-006 — Migrate AgentList to shared activity
+# BO: BO-006 — Migrate AgentList to shared activity
 
 **Kind:** executable
 

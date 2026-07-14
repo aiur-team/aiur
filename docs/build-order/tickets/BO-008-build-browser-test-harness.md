@@ -1,4 +1,4 @@
-# BO-008 — Build browser, accessibility, and performance harness
+# BO: BO-008 — Build browser, accessibility, and performance harness
 
 **Kind:** executable
 

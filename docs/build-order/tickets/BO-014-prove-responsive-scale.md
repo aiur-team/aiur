@@ -1,4 +1,4 @@
-# BO-014 — Prove responsive redraw, scale, and performance
+# BO: BO-014 — Prove responsive redraw, scale, and performance
 
 **Kind:** executable
 

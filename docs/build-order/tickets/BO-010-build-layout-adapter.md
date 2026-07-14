@@ -1,4 +1,4 @@
-# BO-010 — Build DOM/SVG layout adapter and fallback
+# BO: BO-010 — Build DOM/SVG layout adapter and fallback
 
 **Kind:** executable
 

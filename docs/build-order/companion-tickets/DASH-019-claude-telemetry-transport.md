@@ -1,4 +1,4 @@
-# DASH-019 — Authenticate Claude telemetry transport
+# BO: DASH-019 — Authenticate Claude telemetry transport
 
 **Kind:** executable
 

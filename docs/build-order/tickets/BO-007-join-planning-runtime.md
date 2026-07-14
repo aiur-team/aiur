@@ -1,4 +1,4 @@
-# BO-007 — Join planning and runtime state
+# BO: BO-007 — Join planning and runtime state
 
 **Kind:** executable
 

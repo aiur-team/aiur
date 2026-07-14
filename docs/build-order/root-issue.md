@@ -1,4 +1,4 @@
-# Build Order dashboard
+# BO: Build Order dashboard
 
 Deliver a truthful, selectable dependency view of one bounded GitHub-rooted
 feature while Aiur executes it. GitHub owns current membership, ticket facts,

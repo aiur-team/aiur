@@ -211,6 +211,32 @@ Planning is complete when a relevant pass adds neither and all gates pass.
 
 Only when explicitly authorized:
 
+Use the skill-owned publisher as the public entry point. It consumes the same
+canonical `build-order.json`, sibling `publication.json`, approved root
+template, and ticket documents enforced above; dry-run is the default and the
+two mutation stages remain explicit:
+
+```bash
+python3 <loaded-skill-directory>/scripts/publish_build_order.py \
+  --build docs/build-orders/<slug>/build-order.json \
+  --approved-sha <APPROVED_SHA> \
+  --green-authority-sha <GREEN_AUTHORITY_SHA>
+
+# only after the dry-run is reviewed and publication is explicitly authorized
+python3 <loaded-skill-directory>/scripts/publish_build_order.py --apply \
+  --build docs/build-orders/<slug>/build-order.json \
+  --approved-sha <APPROVED_SHA> \
+  --green-authority-sha <GREEN_AUTHORITY_SHA>
+```
+
+The default driver owns canonical root/ticket creation, approved H1/body
+rendering, marker deduplication, projected labels, native root membership,
+`depends_on` edges, bounded requery, and the core receipt. A pack may provide
+`scripts/publication_adapter.py` protocol version 1 only to declare extensions
+such as an additional non-member issue, external blocker edges, a bounded label
+creation allowlist, or reconciliation-comment policy. An adapter must export
+`publication_extension()` data; it must not replace the mutation driver.
+
 1. requery GitHub, deduplicate existing work, and freeze every reference-only
    issue that the user did not authorize for mutation or reuse; treat a closed
    logical-marker match as a conflict and never reopen it without separate

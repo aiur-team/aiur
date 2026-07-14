@@ -1,4 +1,4 @@
-# BO-017 — Propagate typed ticket event observations
+# BO: BO-017 — Propagate typed ticket event observations
 
 **Kind:** executable
 

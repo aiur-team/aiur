@@ -12,8 +12,10 @@ from unittest.mock import patch
 
 
 SCRIPTS = Path(__file__).resolve().parents[1]
-if str(SCRIPTS) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS))
+SKILL_PUBLICATION = Path(__file__).resolve().parents[4] / ".claude/skills/aiur-build/scripts/publication"
+for path in (SCRIPTS, SKILL_PUBLICATION):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
 from publication_operator import (  # noqa: E402
     AUTHORITY_CHECKPOINT_MUTATIONS,
@@ -105,6 +107,12 @@ def context(tmp: Path) -> Context:
         trusted_ref="refs/heads/build-order-research", plan_version=1,
         root_id=ROOT, skill_id=SKILL, build=build, publication=publication,
         specs=specs, approved_evidence=evidence, expected_edges=edges,
+        core_edges={edge for edge in edges if edge[1] != SKILL},
+        creatable_labels=CREATABLE_LABELS,
+        reconciliation_comment=True,
+        root_document=tmp / "root-issue.md",
+        additional_document=tmp / "skill-delivery.md",
+        extra_validator=None,
     )
 
 
@@ -155,18 +163,28 @@ def dry_responses(ctx: Context, issues: list[dict[str, Any]], labels: list[Any] 
 def relationship_responses(
     ctx: Context, mappings: dict[str, dict[str, Any]],
 ) -> dict[tuple[str, str], Any]:
+    def relation(logical_id: str) -> dict[str, Any]:
+        mapping = mappings[logical_id]
+        return {
+            "number": mapping["number"],
+            "node_id": mapping["node_id"],
+            "html_url": (
+                f"https://github.com/{REPOSITORY}/issues/{mapping['number']}"
+            ),
+        }
+
     responses: dict[tuple[str, str], Any] = {}
     root_number = mappings[ROOT]["number"]
     for key, mapping in mappings.items():
         number = mapping["number"]
         if ctx.specs[key].kind == "ticket":
-            responses[("GET", f"repos/{REPOSITORY}/issues/{number}/parent")] = {"number": root_number}
+            responses[("GET", f"repos/{REPOSITORY}/issues/{number}/parent")] = relation(ROOT)
         responses[("GET", f"repos/{REPOSITORY}/issues/{number}/sub_issues?per_page=100&page=1")] = (
-            [{"number": value["number"]} for candidate, value in mappings.items() if ctx.specs[candidate].kind == "ticket"]
+            [relation(candidate) for candidate in mappings if ctx.specs[candidate].kind == "ticket"]
             if key == ROOT else []
         )
         responses[("GET", f"repos/{REPOSITORY}/issues/{number}/dependencies/blocked_by?per_page=100&page=1")] = [
-            {"number": mappings[blocker]["number"]}
+            relation(blocker)
             for blocked, blocker in ctx.expected_edges if blocked == key
         ]
     return responses
@@ -332,13 +350,21 @@ class ReconciliationTests(unittest.TestCase):
     def test_different_existing_parent_fails_before_mutation(self) -> None:
         ticket_id = next(key for key, value in self.ctx.specs.items() if value.kind == "ticket")
         mappings = {
-            key: {"number": index + 1, "_database_id": index + 100}
+            key: {
+                "number": index + 1,
+                "node_id": f"NODE_{index + 1}",
+                "_database_id": index + 100,
+            }
             for index, key in enumerate(self.ctx.specs)
         }
         root_number = mappings[ROOT]["number"]
         ticket_number = mappings[ticket_id]["number"]
         responses = relationship_responses(self.ctx, mappings)
-        responses[("GET", f"repos/{REPOSITORY}/issues/{ticket_number}/parent")] = {"number": 9999}
+        responses[("GET", f"repos/{REPOSITORY}/issues/{ticket_number}/parent")] = {
+            "number": 9999,
+            "node_id": "NODE_9999",
+            "html_url": f"https://github.com/{REPOSITORY}/issues/9999",
+        }
         client = FakeClient(responses)
         with self.assertRaisesRegex(PublicationError, "outside this publication"):
             AuthorityFreePublisher(client, self.ctx)._ensure_relationships(mappings)
@@ -346,13 +372,24 @@ class ReconciliationTests(unittest.TestCase):
 
     def test_unexpected_blocker_is_never_removed(self) -> None:
         mappings = {
-            key: {"number": index + 1, "_database_id": index + 100}
+            key: {
+                "number": index + 1,
+                "node_id": f"NODE_{index + 1}",
+                "_database_id": index + 100,
+            }
             for index, key in enumerate(self.ctx.specs)
         }
         responses = relationship_responses(self.ctx, mappings)
         # Root has no expected blockers; injecting one must stop, never delete.
         responses[("GET", f"repos/{REPOSITORY}/issues/{mappings[ROOT]['number']}/dependencies/blocked_by?per_page=100&page=1")] = [
-            {"number": mappings[SKILL]["number"]}
+            {
+                "number": mappings[SKILL]["number"],
+                "node_id": mappings[SKILL]["node_id"],
+                "html_url": (
+                    f"https://github.com/{REPOSITORY}/issues/"
+                    f"{mappings[SKILL]['number']}"
+                ),
+            }
         ]
         client = FakeClient(responses)
         with self.assertRaisesRegex(PublicationError, "unexpected existing blockers"):
@@ -403,6 +440,7 @@ class ReconciliationTests(unittest.TestCase):
             raw_issues.append(raw)
             mappings[logical_id] = {
                 "number": number,
+                "node_id": raw["node_id"],
                 "_database_id": raw["id"],
             }
         root_number = mappings[ROOT]["number"]
@@ -432,6 +470,97 @@ class ReconciliationTests(unittest.TestCase):
         self.assertEqual(result["blocked_by_edges"], 107)
         self.assertTrue(all(call[0] == "GET" for call in client.calls))
 
+    def test_foreign_same_number_relationships_fail_before_mutation(self) -> None:
+        mappings = {
+            key: {
+                "number": index + 1,
+                "node_id": f"NODE_{index + 1}",
+                "_database_id": index + 100,
+            }
+            for index, key in enumerate(self.ctx.specs)
+        }
+        root_number = mappings[ROOT]["number"]
+        ticket_id = next(
+            key for key, value in self.ctx.specs.items() if value.kind == "ticket"
+        )
+        ticket_number = mappings[ticket_id]["number"]
+        blocker_edge = next(iter(self.ctx.expected_edges))
+        blocked_id, blocker_id = blocker_edge
+        blocked_number = mappings[blocked_id]["number"]
+        blocker_number = mappings[blocker_id]["number"]
+
+        cases = []
+        parent = relationship_responses(self.ctx, mappings)
+        parent[("GET", f"repos/{REPOSITORY}/issues/{ticket_number}/parent")] = {
+            "number": root_number,
+            "node_id": "FOREIGN_PARENT",
+            "html_url": f"https://github.com/foreign/repo/issues/{root_number}",
+        }
+        cases.append(("parent", parent))
+
+        subissue = relationship_responses(self.ctx, mappings)
+        root_children = (
+            f"repos/{REPOSITORY}/issues/{root_number}/sub_issues?per_page=100&page=1"
+        )
+        root_children_key = ("GET", root_children)
+        subissue[root_children_key][0] = {
+            "number": subissue[root_children_key][0]["number"],
+            "node_id": "FOREIGN_SUBISSUE",
+            "html_url": (
+                "https://github.com/foreign/repo/issues/"
+                f"{subissue[root_children_key][0]['number']}"
+            ),
+        }
+        cases.append(("subissues", subissue))
+
+        blocker = relationship_responses(self.ctx, mappings)
+        blocker_path = (
+            f"repos/{REPOSITORY}/issues/{blocked_number}"
+            "/dependencies/blocked_by?per_page=100&page=1"
+        )
+        blocker_key = ("GET", blocker_path)
+        expected_index = next(
+            index for index, item in enumerate(blocker[blocker_key])
+            if item["number"] == blocker_number
+        )
+        blocker[blocker_key][expected_index] = {
+            "number": blocker_number,
+            "node_id": "FOREIGN_BLOCKER",
+            "html_url": f"https://github.com/foreign/repo/issues/{blocker_number}",
+        }
+        cases.append(("blockers", blocker))
+
+        for label, responses in cases:
+            with self.subTest(relation=label):
+                client = FakeClient(responses)
+                with self.assertRaisesRegex(PublicationError, "trusted repository"):
+                    AuthorityFreePublisher(client, self.ctx)._ensure_relationships(
+                        mappings
+                    )
+                self.assertTrue(all(call[0] == "GET" for call in client.calls))
+
+    def test_local_relationship_node_mismatch_fails_before_mutation(self) -> None:
+        mappings = {
+            key: {
+                "number": index + 1,
+                "node_id": f"NODE_{index + 1}",
+                "_database_id": index + 100,
+            }
+            for index, key in enumerate(self.ctx.specs)
+        }
+        ticket_id = next(
+            key for key, value in self.ctx.specs.items() if value.kind == "ticket"
+        )
+        ticket_number = mappings[ticket_id]["number"]
+        responses = relationship_responses(self.ctx, mappings)
+        responses[("GET", f"repos/{REPOSITORY}/issues/{ticket_number}/parent")][
+            "node_id"
+        ] = "WRONG_NODE"
+        client = FakeClient(responses)
+        with self.assertRaisesRegex(PublicationError, "node identity"):
+            AuthorityFreePublisher(client, self.ctx)._ensure_relationships(mappings)
+        self.assertTrue(all(call[0] == "GET" for call in client.calls))
+
 
 class FinalizationTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -455,7 +584,12 @@ class FinalizationTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp.cleanup()
 
-    def _comment(self, state: str) -> dict[str, Any]:
+    def _comment(self, state: str, comment_id: int | None = None) -> dict[str, Any]:
+        comment_id = 44 if comment_id is None else comment_id
+        comment_url = (
+            f"https://github.com/{REPOSITORY}/issues/1"
+            f"#issuecomment-{comment_id}"
+        )
         body = (
             render_pending_comment(ROOT, 1, APPROVED, REPOSITORY)
             if state == "pending"
@@ -463,7 +597,39 @@ class FinalizationTests(unittest.TestCase):
                 ROOT, 1, APPROVED, REPOSITORY, RECEIPT, self.receipt_url,
             )
         )
-        return {"id": 44, "html_url": self.comment_url, "body": body}
+        return {"id": comment_id, "html_url": comment_url, "body": body}
+
+    def _client(
+        self, comments: list[dict[str, Any]], *, drift_after_scans: int | None = None,
+    ) -> Client:
+        pending_path = f"repos/{REPOSITORY}/issues/comments/44"
+        comments_path = f"repos/{REPOSITORY}/issues/1/comments?per_page=100&page=1"
+        create_path = f"repos/{REPOSITORY}/issues/1/comments"
+
+        class CommentClient(FakeClient):
+            scans = 0
+
+            def request(inner, method: str, path: str, payload=None, *, allow_404=False):
+                inner.calls.append((method, path, payload))
+                if method == "GET" and path == pending_path:
+                    return copy.deepcopy(comments[0])
+                if method == "GET" and path == comments_path:
+                    inner.scans += 1
+                    if drift_after_scans is not None and inner.scans > drift_after_scans:
+                        drifted = copy.deepcopy(comments)
+                        drifted[0]["body"] = (
+                            "Operator revoked finalization.\n\n" + drifted[0]["body"]
+                        )
+                        return drifted
+                    return copy.deepcopy(comments)
+                if method == "POST" and path == create_path:
+                    successful = self._comment("successful", 45)
+                    self.assertEqual(payload, {"body": successful["body"]})
+                    comments.append(successful)
+                    return copy.deepcopy(successful)
+                raise AssertionError((method, path))
+
+        return CommentClient({})
 
     def _publisher(
         self, client: Client, *, fail_successful_once: bool = False,
@@ -487,7 +653,7 @@ class FinalizationTests(unittest.TestCase):
                 inner.verifications.append(state)
                 if state == "successful" and inner.fail_successful_once:
                     inner.fail_successful_once = False
-                    raise PublicationError("simulated post-PATCH verifier failure")
+                    raise PublicationError("simulated post-create verifier failure")
 
         return FinalizePublisher(client, self.ctx)
 
@@ -496,7 +662,7 @@ class FinalizationTests(unittest.TestCase):
         "publication_operator.run_authority_git",
         return_value=subprocess.CompletedProcess([], 0, "", ""),
     )
-    def test_mutable_checkout_receipt_cannot_redirect_patch(
+    def test_mutable_checkout_receipt_cannot_redirect_successful_create(
         self, _git: Any, _commit: Any,
     ) -> None:
         self.ctx.publication["github_reconciliation"] = {
@@ -504,24 +670,20 @@ class FinalizationTests(unittest.TestCase):
                 "url": f"https://github.com/{REPOSITORY}/issues/99#issuecomment-999",
             }],
         }
-        pending = self._comment("pending")
-        successful = self._comment("successful")
-
-        class CommentClient(FakeClient):
-            def request(inner, method: str, path: str, payload=None, *, allow_404=False):
-                inner.calls.append((method, path, payload))
-                if method == "GET":
-                    return copy.deepcopy(pending)
-                if method == "PATCH":
-                    self.assertEqual(path, f"repos/{REPOSITORY}/issues/comments/44")
-                    self.assertEqual(payload, {"body": successful["body"]})
-                    return copy.deepcopy(successful)
-                raise AssertionError((method, path))
-
-        client = CommentClient({})
+        comments = [self._comment("pending")]
+        client = self._client(comments)
         result = self._publisher(client).finalize(RECEIPT, self.receipt_url)
-        self.assertEqual(result["comment"], self.comment_url)
+        self.assertEqual(result["pending_comment"], self.comment_url)
+        self.assertEqual(
+            result["successful_comment"],
+            f"https://github.com/{REPOSITORY}/issues/1#issuecomment-45",
+        )
         self.assertNotIn("comments/999", [call[1] for call in client.calls])
+        self.assertEqual(
+            [call[1] for call in client.calls if call[0] == "POST"],
+            [f"repos/{REPOSITORY}/issues/1/comments"],
+        )
+        self.assertFalse(any(call[0] == "PATCH" for call in client.calls))
 
     @patch("publication_operator.exact_commit", return_value=True)
     @patch(
@@ -531,13 +693,13 @@ class FinalizationTests(unittest.TestCase):
     def test_already_successful_finalization_is_idempotent(
         self, _git: Any, _commit: Any,
     ) -> None:
-        successful = self._comment("successful")
-        client = FakeClient({
-            ("GET", f"repos/{REPOSITORY}/issues/comments/44"): successful,
-        })
+        pending = self._comment("pending")
+        successful = self._comment("successful", 45)
+        client = self._client([pending, successful])
         publisher = self._publisher(client)
         result = publisher.finalize(RECEIPT, self.receipt_url)
         self.assertEqual(result["mode"], "finalized")
+        self.assertEqual(result["successful_comment"], successful["html_url"])
         self.assertEqual(publisher.verifications, ["successful"])
         self.assertTrue(all(call[0] == "GET" for call in client.calls))
 
@@ -546,63 +708,66 @@ class FinalizationTests(unittest.TestCase):
         "publication_operator.run_authority_git",
         return_value=subprocess.CompletedProcess([], 0, "", ""),
     )
-    def test_crash_after_patch_resumes_from_successful_comment(
+    def test_crash_after_create_resumes_from_successful_comment(
         self, _git: Any, _commit: Any,
     ) -> None:
-        state = self._comment("pending")
-
-        class StatefulCommentClient(FakeClient):
-            def request(inner, method: str, path: str, payload=None, *, allow_404=False):
-                inner.calls.append((method, path, payload))
-                if method == "GET":
-                    return copy.deepcopy(state)
-                if method == "PATCH":
-                    state["body"] = payload["body"]
-                    return copy.deepcopy(state)
-                raise AssertionError((method, path))
-
-        client = StatefulCommentClient({})
+        comments = [self._comment("pending")]
+        client = self._client(comments)
         first = self._publisher(client, fail_successful_once=True)
-        with self.assertRaisesRegex(PublicationError, "simulated post-PATCH"):
+        with self.assertRaisesRegex(PublicationError, "simulated post-create"):
             first.finalize(RECEIPT, self.receipt_url)
         second = self._publisher(client)
         result = second.finalize(RECEIPT, self.receipt_url)
         self.assertEqual(result["mode"], "finalized")
         self.assertEqual(second.verifications, ["successful"])
-        self.assertEqual(sum(call[0] == "PATCH" for call in client.calls), 1)
+        self.assertEqual(sum(call[0] == "POST" for call in client.calls), 1)
 
     @patch("publication_operator.exact_commit", return_value=True)
     @patch(
         "publication_operator.run_authority_git",
         return_value=subprocess.CompletedProcess([], 0, "", ""),
     )
-    def test_visible_pending_drift_before_patch_fails_without_mutation(
+    def test_visible_pending_drift_before_create_fails_without_mutation(
         self, _git: Any, _commit: Any,
     ) -> None:
-        pending = self._comment("pending")
-        drifted = copy.deepcopy(pending)
-        drifted["body"] = "Operator revoked finalization.\n\n" + drifted["body"]
-
-        class DriftingCommentClient(FakeClient):
-            get_count = 0
-
-            def request(inner, method: str, path: str, payload=None, *, allow_404=False):
-                inner.calls.append((method, path, payload))
-                if method == "GET":
-                    inner.get_count += 1
-                    return copy.deepcopy(pending if inner.get_count == 1 else drifted)
-                if method == "PATCH":
-                    raise AssertionError("finalization must not overwrite visible comment drift")
-                raise AssertionError((method, path))
-
-        client = DriftingCommentClient({})
+        client = self._client([self._comment("pending")], drift_after_scans=1)
         publisher = self._publisher(client)
         with self.assertRaisesRegex(
-            PublicationError, "pending comment changed before finalization",
+            PublicationError, "malformed or conflicting",
         ):
             publisher.finalize(RECEIPT, self.receipt_url)
         self.assertEqual(publisher.verifications, ["pending"])
         self.assertTrue(all(call[0] == "GET" for call in client.calls))
+
+    @patch("publication_operator.exact_commit", return_value=True)
+    @patch(
+        "publication_operator.run_authority_git",
+        return_value=subprocess.CompletedProcess([], 0, "", ""),
+    )
+    def test_malformed_conflicting_and_duplicate_evidence_fail_without_mutation(
+        self, _git: Any, _commit: Any,
+    ) -> None:
+        pending = self._comment("pending")
+        malformed = {
+            "id": 45,
+            "html_url": f"https://github.com/{REPOSITORY}/issues/1#issuecomment-45",
+            "body": "<!-- aiur-build-order-reconciliation\nnot-json\n-->",
+        }
+        conflicting = self._comment("successful", 45)
+        conflicting["body"] = conflicting["body"].replace(RECEIPT, "d" * 40)
+        duplicate = [
+            self._comment("successful", 45), self._comment("successful", 46),
+        ]
+        for label, evidence, message in (
+            ("malformed", [malformed], "malformed or conflicting"),
+            ("conflicting", [conflicting], "malformed or conflicting"),
+            ("duplicate", duplicate, "duplicate successful"),
+        ):
+            with self.subTest(case=label):
+                client = self._client([copy.deepcopy(pending), *copy.deepcopy(evidence)])
+                with self.assertRaisesRegex(PublicationError, message):
+                    self._publisher(client).finalize(RECEIPT, self.receipt_url)
+                self.assertTrue(all(call[0] == "GET" for call in client.calls))
 
 
 class AuthorityCheckpointTests(unittest.TestCase):
@@ -703,6 +868,8 @@ class ApprovedRenderingTests(unittest.TestCase):
             base = Path(name)
             ctx.build_path = base / "build-order.json"
             ctx.publication_path = base / "publication.json"
+            ctx.root_document = base / "root-issue.md"
+            ctx.additional_document = base / "skill-delivery.md"
             ctx.build_path.write_text(json.dumps(ctx.build), encoding="utf-8")
             ctx.publication_path.write_text(json.dumps(ctx.publication), encoding="utf-8")
             issues: dict[str, dict[str, Any]] = {}

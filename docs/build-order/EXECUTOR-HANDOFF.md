@@ -34,7 +34,8 @@ already paused), and the public authenticated dashboard remains live.
    `6447f9c193d2322d63f54a58b9c54e0a72d3e98f` and squash-merged `main` commit
    `ed1846c4bc76d4657095da57951a0dbf3e914c3d`. Verify `/aiur-build`,
    `/aiur-run`, and `/aiur-monitor` are discoverable afterward (GATE-002).
-3. **Finalize and publish** with `scripts/publication_operator.py` exactly as
+3. **Finalize and publish** with the skill-owned
+   `.claude/skills/aiur-build/scripts/publish_build_order.py` exactly as
    sequenced in `github-publication.md`: approve the exact latest planning SHA
    (any branch change invalidates an older approval), run the default dry-run,
    rerun with explicit `--apply`, review/commit/push the generated core-v3 and
@@ -72,8 +73,9 @@ keep it staffed continuously.
 ## Start gate
 
 This handoff becomes executable only after the live Build Order root contains a
-uniquely marked `aiur-build-order-reconciliation` comment linking a successful
-immutable post-publication receipt whose exact commit contains both valid
+uniquely marked immutable pending `aiur-build-order-reconciliation` comment and
+one distinct canonical successful comment linking a post-publication receipt
+whose exact commit contains both valid
 reconciliations, both external gates below are recorded as resolved, and the
 operator's current conditional run authorization remains in force. No second
 approval prompt is required after those conditions pass. Re-run the trusted
@@ -81,7 +83,8 @@ final-comment verifier;
 neither caller-supplied identity or query JSON, Git object substitution,
 imported foreign history, nor a merely local/API-visible commit is a start
 gate. The verifier anchors the repository to the configured GitHub origin,
-fetches the exact receipt-recorded comment ID, and proves approval plus receipt
+fetches the exact receipt-recorded pending comment ID, rejects malformed or
+duplicate reconciliation evidence, and proves approval plus receipt
 remain ancestors of the unchanged tip of the frozen branch while separately
 proving approval is an ancestor of receipt. It rejects legacy graft entries in
 both the worktree and common Git directories, and all authority API reads pin

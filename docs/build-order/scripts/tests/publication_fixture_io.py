@@ -58,7 +58,7 @@ class FixtureBase:
         self.publication_path.write_text(json.dumps(publication_data), encoding="utf-8")
         repository = publication_data.get("repository", "example/repo")
         plan_version = publication_data.get("plan_version", 1)
-        for key, title in (("root_issue", "Test root"), ("skill_issue", "Test skill")):
+        for key, title in (("root_issue", "BO: Test root"), ("skill_issue", "Test skill")):
             issue = publication_data.get(key)
             if not isinstance(issue, dict):
                 continue
@@ -224,7 +224,7 @@ def _ticket_text(ticket: dict[str, object]) -> str:
         f"**Requirements:** {', '.join(requirements)}\n\n" if requirements else ""
     )
     return (
-        f"# {ticket['id']} — {ticket.get('title')}\n\n"
+        f"# BO: {ticket['id']} — {ticket.get('title')}\n\n"
         "**Kind:** executable\n\n"
         f"**Complexity:** {ticket.get('complexity_points')} — Test\n\n"
         f"**Depends on:** {dependency_text}\n\n"

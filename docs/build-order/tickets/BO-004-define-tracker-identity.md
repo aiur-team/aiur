@@ -1,4 +1,4 @@
-# BO-004 — Define configured-repository tracker identity
+# BO: BO-004 — Define configured-repository tracker identity
 
 **Kind:** executable
 

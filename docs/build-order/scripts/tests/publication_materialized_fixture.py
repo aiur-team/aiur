@@ -73,16 +73,16 @@ def materialized_pack() -> tuple[dict, dict]:
         },
         "observed_body_evidence": body_evidence([ROOT_ID, *ticket_ids]),
         "expected_issue_titles": {
-            ROOT_ID: "Test root",
+            ROOT_ID: "BO: Test root",
             **{
-                ticket["id"]: f"{ticket['id']} — {ticket['title']}"
+                ticket["id"]: f"BO: {ticket['id']} — {ticket['title']}"
                 for ticket in build["tickets"]
             },
         },
         "observed_issue_titles": {
-            ROOT_ID: "Test root",
+            ROOT_ID: "BO: Test root",
             **{
-                ticket["id"]: f"{ticket['id']} — {ticket['title']}"
+                ticket["id"]: f"BO: {ticket['id']} — {ticket['title']}"
                 for ticket in build["tickets"]
             },
         },

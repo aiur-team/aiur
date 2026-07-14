@@ -1,4 +1,4 @@
-# BO-012 — Ship selectable minimum graph route
+# BO: BO-012 — Ship selectable minimum graph route
 
 **Kind:** executable
 

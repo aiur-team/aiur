@@ -1,4 +1,4 @@
-# BO-013 — Harden graph interaction and accessibility
+# BO: BO-013 — Harden graph interaction and accessibility
 
 **Kind:** executable
 

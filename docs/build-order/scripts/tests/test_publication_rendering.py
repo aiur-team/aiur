@@ -14,6 +14,8 @@ from unittest.mock import patch
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPT_DIR))
+SKILL_PUBLICATION = Path(__file__).resolve().parents[4] / ".claude/skills/aiur-build/scripts/publication"
+sys.path.insert(0, str(SKILL_PUBLICATION))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from publication_comment import (  # noqa: E402
@@ -134,9 +136,9 @@ class IssueRenderingTests(unittest.TestCase):
         )
         self.assertEqual([], report.errors)
         assert titles is not None
-        self.assertEqual("Test root", titles[ROOT_ID])
-        self.assertEqual("BO-001 — Build Order ticket 1", titles["BO-001"])
-        self.assertEqual("DASH-001 — First companion", titles["DASH-001"])
+        self.assertEqual("BO: Test root", titles[ROOT_ID])
+        self.assertEqual("BO: BO-001 — Build Order ticket 1", titles["BO-001"])
+        self.assertEqual("BO: DASH-001 — First companion", titles["DASH-001"])
         self.assertEqual("Test skill", titles["SKILL-DELIVERY-001"])
         self.assertEqual(46, len(titles))
 
@@ -447,7 +449,7 @@ class FinalCommentTests(unittest.TestCase):
         receipt_url = (
             f"https://github.com/{self.repository}/commit/{self.receipt}"
         )
-        comment_url = self.root_comment_url
+        comment_url = self.root_comment_url.rsplit("-", 1)[0] + "-999"
         body = render_successful_comment(
             self.root_id, self.plan_version, self.approved, self.repository,
             self.receipt, receipt_url,
@@ -461,24 +463,29 @@ class FinalCommentTests(unittest.TestCase):
     ):
         baseline_receipt, baseline_url, _, _, _ = self.values()
         report = Report()
-        def verify(authority, _receipt, expected_body, live_report):
+        def verify(authority, _receipt, expected_bodies, live_report):
             if not isinstance(matches, list) or len(matches) != 1:
                 live_report.error(
-                    "live GitHub reconciliation comment must contain exactly one "
-                    "comment match"
+                    "live GitHub reconciliation evidence must contain exactly one "
+                    "successful comment"
                 )
                 return False
             item = matches[0]
             if not isinstance(item, dict):
                 live_report.error("live GitHub reconciliation comment is malformed")
                 return False
-            if item.get("url") != authority.root_comment_url:
+            success_url = item.get("url")
+            prefix = authority.root_issue_url + "#issuecomment-"
+            if (
+                not isinstance(success_url, str) or not success_url.startswith(prefix)
+                or success_url == authority.root_comment_url
+            ):
                 live_report.error(
-                    "live GitHub comment must equal the exact pending comment URL "
-                    "recorded in the immutable receipt"
+                    "live GitHub successful receipt must be a distinct canonical "
+                    "comment on the trusted root issue"
                 )
             body = item.get("body")
-            if body != expected_body:
+            if body != expected_bodies["successful"]:
                 if isinstance(body, str) and body.count(
                     "<!-- aiur-build-order-reconciliation"
                 ) != 1:
@@ -518,11 +525,11 @@ class FinalCommentTests(unittest.TestCase):
         report = self.report([{"url": url, "body": body}])
         self.assertEqual([], report.errors)
 
-    def test_other_comment_on_same_root_cannot_replace_pending_comment(self) -> None:
+    def test_successful_comment_must_remain_on_trusted_root(self) -> None:
         _, _, _, url, body = self.values()
-        wrong_url = url.rsplit("-", 1)[0] + "-999"
+        wrong_url = "https://github.com/attacker/fork/issues/1#issuecomment-999"
         self.assertIn(
-            "must equal the exact pending comment URL recorded in the immutable receipt",
+            "must be a distinct canonical comment on the trusted root issue",
             "\n".join(
                 self.report([{"url": wrong_url, "body": body}]).errors
             ),
@@ -532,7 +539,8 @@ class FinalCommentTests(unittest.TestCase):
         _, _, _, url, body = self.values()
         item = {"url": url, "body": body}
         self.assertIn(
-            "exactly one comment match", "\n".join(self.report([item, dict(item)]).errors)
+            "exactly one successful comment",
+            "\n".join(self.report([item, dict(item)]).errors),
         )
 
     def test_pending_state_and_duplicate_marker_fail_final_verification(self) -> None:

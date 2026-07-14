@@ -80,8 +80,10 @@ Pending final clean semantic reviews and immutable approval. Publication must
 create or reconcile only the root, all 54 members, and SKILL-DELIVERY-001; it
 must not mutate read-only #132, #845, #1033, #1034, or #1067. After every live
 identity, title, body, label, state, parent, subissue, and blocker is re-read,
-the materializer records both receipts and the unique pending root comment.
-The read-only final verifier then performs two identical bounded live snapshots
-immediately before and after the one pending-to-successful comment edit.
+the skill-owned materializer records both receipts and the unique immutable
+pending root comment. The read-only final verifier then performs two identical
+bounded live snapshots immediately before and after one distinct successful
+receipt comment is appended; malformed, conflicting, or duplicate evidence is
+rejected.
 
 No issue may receive an `agent:*` label during this planning run.
