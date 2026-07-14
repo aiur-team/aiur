@@ -118,19 +118,35 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
              )
   end
 
-  test "does not accept a response repository or lifecycle that disagrees with a complete snapshot" do
+  test "does not accept noncanonical response repository or lifecycle data in a complete snapshot" do
     identity = identity(42, "I42")
 
-    for {issue, expected_failure} <- [
-          {Map.put(issue(42, "I42"), "repository_url", "https://api.github.com/repos/other/repo"), :provider_identity_mismatch},
-          {Map.put(issue(42, "I42"), "state", "invented"), :validation}
+    for repository_url <- [
+          "https://api.github.com/repos/other/repo",
+          "https://user@api.github.com/repos/owner/repo",
+          "https://api.github.com:443/repos/owner/repo",
+          "https://api.github.com:444/repos/owner/repo",
+          "https://api.github.com/repos/owner/repo?private=1",
+          "https://api.github.com/repos/owner/repo#fragment"
         ] do
-      assert {:error, %Failure{kind: ^expected_failure}} =
+      response = Map.put(issue(42, "I42"), "repository_url", repository_url)
+
+      assert {:error, %Failure{kind: :provider_identity_mismatch}} =
                TicketDetail.fetch(identity,
                  configured_repo: @configured,
-                 request_fun: fn _request -> {:ok, %{status: 200, body: issue}} end
+                 request_fun: fn _request -> {:ok, %{status: 200, body: response}} end
                )
     end
+
+    invalid_lifecycle = Map.put(issue(42, "I42"), "state", "invented")
+
+    assert {:error, %Failure{kind: :validation}} =
+             TicketDetail.fetch(identity,
+               configured_repo: @configured,
+               request_fun: fn _request ->
+                 {:ok, %{status: 200, body: invalid_lifecycle}}
+               end
+             )
   end
 
   test "rejects pull-request payloads from the issue endpoint" do
@@ -165,10 +181,12 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
              )
   end
 
-  test "redacts credentials and local paths before detail reaches a snapshot" do
+  test "redacts credentials and common local paths before detail reaches a snapshot" do
     identity = identity(42, "I42")
 
-    body = "token ghp_abcdefghijklmnopqrstuvwxyz0123456789 and /home/alice/private.txt"
+    body =
+      "token ghp_abcdefghijklmnopqrstuvwxyz0123456789 and /home/alice/private.txt " <>
+        "/root/.ssh/id_ed25519 /var/lib/aiur/private.db /workspace/project/secret.txt"
 
     assert {:ok, %Snapshot{description: description}} =
              TicketDetail.fetch(identity,
@@ -180,9 +198,29 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
     assert description =~ "[REDACTED:local_path]"
     refute description =~ "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
     refute description =~ "/home/alice/private.txt"
+    refute description =~ "/root/.ssh/id_ed25519"
+    refute description =~ "/var/lib/aiur/private.db"
+    refute description =~ "/workspace/project/secret.txt"
   end
 
-  test "redacts structured sensitive headers and generic credentials before snapshot storage" do
+  test "preserves ordinary URL and path text while redacting local paths" do
+    identity = identity(42, "I42")
+    body = "https://example.test/root/path and docs/root/path and error:/root/.ssh/id_ed25519"
+
+    assert {:ok, %Snapshot{description: description}} =
+             TicketDetail.fetch(identity,
+               configured_repo: @configured,
+               request_fun: fn _request ->
+                 {:ok, %{status: 200, body: Map.put(issue(42, "I42"), "body", body)}}
+               end
+             )
+
+    assert description =~ "https://example.test/root/path"
+    assert description =~ "docs/root/path"
+    refute description =~ "/root/.ssh/id_ed25519"
+  end
+
+  test "redacts structured sensitive headers, assignments, and generic credentials before snapshot storage" do
     identity = identity(42, "I42")
 
     body =
@@ -192,7 +230,11 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
         ~s({"Authorization":"Bearer json-secret","headers":{"X-Api-Key":"json-key"}}) <>
         "\n" <>
         "curl --header 'Cookie: curl-cookie' https://example.test\n" <>
-        ~s([{"Proxy-Authorization", "Basic header-list-secret"}])
+        ~s([{"Proxy-Authorization", "Basic header-list-secret"}]) <>
+        "\nGITHUB_TOKEN=assignment-token\napi_key = assignment-api-key\n" <>
+        ~s([["Authorization", "bracket-pair-secret"]]) <>
+        "\n" <>
+        ~s([[&quot;Cookie&quot;, &quot;entity-pair-secret&quot;]])
 
     assert {:ok, %Snapshot{description: description}} =
              TicketDetail.fetch(identity,
@@ -208,6 +250,10 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
     refute description =~ "json-key"
     refute description =~ "curl-cookie"
     refute description =~ "header-list-secret"
+    refute description =~ "assignment-token"
+    refute description =~ "assignment-api-key"
+    refute description =~ "bracket-pair-secret"
+    refute description =~ "entity-pair-secret"
   end
 
   test "maps not-found and rate-limit errors without response content" do

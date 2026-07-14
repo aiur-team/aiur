@@ -230,7 +230,12 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
         ~s({"Authorization":"Bearer json-secret"}) <>
         "\n" <>
         "curl -H 'X-Api-Key: curl-key' https://example.test\n" <>
-        ~s([{"Cookie", "header-list-cookie"}])
+        ~s([{"Cookie", "header-list-cookie"}]) <>
+        "\nGITHUB_TOKEN=assignment-token\n" <>
+        ~s([["Authorization", "bracket-pair-secret"]]) <>
+        "\n" <>
+        ~s([[&quot;Cookie&quot;, &quot;entity-pair-secret&quot;]]) <>
+        " /root/.ssh/id_ed25519 /var/lib/aiur/private.db /workspace/project/secret.txt"
 
     {:ok, cache} =
       start_cache(
@@ -255,6 +260,99 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     refute description =~ "json-secret"
     refute description =~ "curl-key"
     refute description =~ "header-list-cookie"
+    refute description =~ "assignment-token"
+    refute description =~ "bracket-pair-secret"
+    refute description =~ "entity-pair-secret"
+    refute description =~ "/root/.ssh/id_ed25519"
+    refute description =~ "/var/lib/aiur/private.db"
+    refute description =~ "/workspace/project/secret.txt"
+  end
+
+  test "survives task-supervisor outage, preserves LKG, and recovers on a later demand" do
+    identity = identity(42, "I42")
+    {:ok, clock} = Agent.start_link(fn -> 0 end)
+    {:ok, attempts} = Agent.start_link(fn -> 0 end)
+    {:ok, failed_supervisor} = Task.Supervisor.start_link()
+
+    {:ok, cache} =
+      start_cache(
+        freshness_ms: 1,
+        task_supervisor: failed_supervisor,
+        clock_ms: fn -> Agent.get(clock, & &1) end,
+        reader: fn _identity ->
+          attempt = Agent.get_and_update(attempts, fn value -> {value + 1, value + 1} end)
+          {:ok, snapshot(identity, if(attempt == 1, do: "first", else: "recovered"))}
+        end
+      )
+
+    assert :ok = TicketDetailCache.subscribe(cache, identity)
+    assert {:ok, %State{generation: 1, health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert_receive {:ticket_detail_updated, %State{generation: 1, health: :healthy, detail: %Snapshot{title: "first"}}}
+
+    :ok = GenServer.stop(failed_supervisor)
+    Agent.update(clock, fn _ -> 2 end)
+
+    assert {:ok, %State{generation: 2, health: :stale, detail: %Snapshot{title: "first"}}} =
+             TicketDetailCache.request(cache, identity)
+
+    assert_receive {:ticket_detail_updated, outage_state}
+
+    assert %State{
+             generation: 2,
+             health: :stale,
+             detail: %Snapshot{title: "first"},
+             failure: %Failure{kind: :transport}
+           } = outage_state
+
+    assert Process.alive?(cache)
+    {:ok, recovered_supervisor} = Task.Supervisor.start_link()
+    :sys.replace_state(cache, &Map.put(&1, :task_supervisor, recovered_supervisor))
+
+    assert {:ok, %State{generation: 3, health: :stale, detail: %Snapshot{title: "first"}}} =
+             TicketDetailCache.request(cache, identity)
+
+    assert_receive {:ticket_detail_updated,
+                    %State{
+                      generation: 3,
+                      health: :healthy,
+                      detail: %Snapshot{title: "recovered"}
+                    }}
+  end
+
+  test "survives rejected task startup and recovers after a healthy supervisor is configured" do
+    identity = identity(42, "I42")
+    {:ok, rejecting_supervisor} = Task.Supervisor.start_link(max_children: 0)
+
+    {:ok, cache} =
+      start_cache(
+        task_supervisor: rejecting_supervisor,
+        reader: fn _identity -> {:ok, snapshot(identity, "recovered")} end
+      )
+
+    assert :ok = TicketDetailCache.subscribe(cache, identity)
+
+    assert {:ok, %State{generation: 1, health: :unavailable, failure: %Failure{kind: :transport}}} =
+             TicketDetailCache.request(cache, identity)
+
+    assert_receive {:ticket_detail_updated,
+                    %State{
+                      generation: 1,
+                      health: :unavailable,
+                      failure: %Failure{kind: :transport}
+                    }}
+
+    assert Process.alive?(cache)
+    {:ok, healthy_supervisor} = Task.Supervisor.start_link()
+    :sys.replace_state(cache, &Map.put(&1, :task_supervisor, healthy_supervisor))
+
+    assert {:ok, %State{generation: 2, health: :unavailable}} = TicketDetailCache.request(cache, identity)
+
+    assert_receive {:ticket_detail_updated,
+                    %State{
+                      generation: 2,
+                      health: :healthy,
+                      detail: %Snapshot{title: "recovered"}
+                    }}
   end
 
   test "times out cold demand, terminates its task, and ignores late completion" do
@@ -263,7 +361,7 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
 
     {:ok, cache} =
       start_cache(
-        refresh_timeout_ms: 20,
+        refresh_timeout_ms: 30_000,
         reader: fn _identity ->
           send(parent, {:reader_started, self()})
 
@@ -277,6 +375,7 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     assert {:ok, %State{generation: 1, health: :unavailable}} = TicketDetailCache.request(cache, identity)
     assert_receive {:reader_started, reader_pid}
     ref = inflight_ref(cache, identity)
+    send(cache, {:refresh_timeout, ref, 1})
 
     assert_receive {:ticket_detail_updated, state}
     assert %State{generation: 1, health: :unavailable, failure: %Failure{kind: :timeout}} = state
@@ -298,7 +397,7 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     {:ok, cache} =
       start_cache(
         freshness_ms: 1,
-        refresh_timeout_ms: 20,
+        refresh_timeout_ms: 30_000,
         clock_ms: fn -> Agent.get(clock, & &1) end,
         reader: fn _identity ->
           case Agent.get_and_update(attempts, fn attempt -> {attempt + 1, attempt + 1} end) do
@@ -326,11 +425,18 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
 
     assert_receive {:reader_started, reader_pid}
     ref = inflight_ref(cache, identity)
+    send(cache, {:refresh_timeout, ref, 2})
 
     assert_receive {
-      :ticket_detail_updated,
-      %State{generation: 2, health: :stale, detail: %Snapshot{title: "first"}, failure: %Failure{kind: :timeout}}
-    }
+                     :ticket_detail_updated,
+                     %State{
+                       generation: 2,
+                       health: :stale,
+                       detail: %Snapshot{title: "first"},
+                       failure: %Failure{kind: :timeout}
+                     }
+                   },
+                   200
 
     refute Process.alive?(reader_pid)
     send(cache, {ref, {:ok, snapshot(identity, "late")}})

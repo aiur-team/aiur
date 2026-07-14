@@ -178,22 +178,52 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
 
   defp start_refresh(entry, state) do
     generation = state.next_generation
-    task = Task.Supervisor.async_nolink(state.task_supervisor, fn -> read(state, entry.identity) end)
-    timeout_ref = Process.send_after(self(), {:refresh_timeout, task.ref, generation}, state.refresh_timeout_ms)
     now = now(state)
 
-    entry = %{
-      entry
-      | generation: generation,
-        last_attempt_at: now,
-        inflight: %{generation: generation, pid: task.pid, ref: task.ref, timeout_ref: timeout_ref}
-    }
+    case start_task(state, entry.identity) do
+      {:ok, task} ->
+        timeout_ref = Process.send_after(self(), {:refresh_timeout, task.ref, generation}, state.refresh_timeout_ms)
 
-    state =
-      %{state | next_generation: generation + 1, entries: Map.put(state.entries, cache_key(entry.identity), entry)}
-      |> put_in([:inflight_by_ref, task.ref], cache_key(entry.identity))
+        entry = %{
+          entry
+          | generation: generation,
+            last_attempt_at: now,
+            inflight: %{generation: generation, pid: task.pid, ref: task.ref, timeout_ref: timeout_ref}
+        }
 
-    {entry, state}
+        state =
+          %{state | next_generation: generation + 1, entries: Map.put(state.entries, cache_key(entry.identity), entry)}
+          |> put_in([:inflight_by_ref, task.ref], cache_key(entry.identity))
+
+        {entry, state}
+
+      :error ->
+        entry = %{
+          entry
+          | generation: generation,
+            last_attempt_at: now,
+            failure: %Failure{kind: :transport},
+            inflight: nil
+        }
+
+        state = %{
+          state
+          | next_generation: generation + 1,
+            entries: Map.put(state.entries, cache_key(entry.identity), entry)
+        }
+
+        broadcast(entry, state)
+        {entry, state}
+    end
+  end
+
+  defp start_task(state, identity) do
+    try do
+      {:ok, Task.Supervisor.async_nolink(state.task_supervisor, fn -> read(state, identity) end)}
+    catch
+      :exit, _reason -> :error
+      :error, _reason -> :error
+    end
   end
 
   defp read(%{reader: reader}, identity) when is_function(reader, 1), do: reader.(identity)

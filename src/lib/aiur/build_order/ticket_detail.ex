@@ -53,6 +53,34 @@ defmodule Aiur.BuildOrder.TicketDetail do
       (?:"|')\s*,\s*(?:"(?:\\.|[^"])*"|'(?:\\.|[^'])*')\s*\}
     )
   /iux
+  @credential_assignment_pattern ~r/
+    (?:"|'|&quot;)?
+    (?:
+      authorization
+      | proxy-authorization
+      | cookie
+      | set-cookie
+      | [a-z0-9_-]{0,100}(?:token|secret|api[-_]?key|credential)[a-z0-9_-]{0,100}
+    )
+    (?:"|'|&quot;)?
+    \s*=\s*
+    (?:"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|&quot;[^\r\n]*?&quot;|[^\s,;\]\}\r\n]+)
+  /iux
+  @credential_header_pair_pattern ~r/
+    \[\s*
+    (?:"|'|&quot;)?
+    (?:
+      authorization
+      | proxy-authorization
+      | cookie
+      | set-cookie
+      | [a-z0-9_-]{0,100}(?:token|secret|api[-_]?key|credential)[a-z0-9_-]{0,100}
+    )
+    (?:"|'|&quot;)?
+    \s*,\s*
+    (?:"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|&quot;[^\r\n]*?&quot;|[^\]\r\n]+)
+    \s*\]
+  /iux
   @curl_credential_header_pattern ~r/
     (?:-H|--header)\s+(?:"|')
     (?:
@@ -267,7 +295,16 @@ defmodule Aiur.BuildOrder.TicketDetail do
          %TrackerIdentity{owner: owner, repository: repository}
        )
        when is_binary(repository_url) do
-    with %URI{scheme: "https", host: "api.github.com", path: "/repos/" <> path} <- URI.parse(repository_url),
+    with %URI{
+           scheme: "https",
+           authority: "api.github.com",
+           host: "api.github.com",
+           port: 443,
+           userinfo: nil,
+           query: nil,
+           fragment: nil,
+           path: "/repos/" <> path
+         } <- URI.parse(repository_url),
          [response_owner, response_repository] <- String.split(path, "/", trim: true),
          true <- String.downcase(response_owner) == String.downcase(owner),
          true <- String.downcase(response_repository) == String.downcase(repository) do
@@ -354,13 +391,21 @@ defmodule Aiur.BuildOrder.TicketDetail do
 
   defp redact_credentials(value) do
     value = Regex.replace(@curl_credential_header_pattern, value, "[REDACTED:credential]")
+    value = Regex.replace(@credential_header_pair_pattern, value, "[REDACTED:credential]")
     value = Regex.replace(@structured_credential_pattern, value, "[REDACTED:credential]")
+    value = Regex.replace(@credential_assignment_pattern, value, "[REDACTED:credential]")
     value = Regex.replace(@credential_header_pattern, value, "[REDACTED:credential]")
     Regex.replace(@credential_pattern, value, "[REDACTED:credential]")
   end
 
   defp redact_local_paths(value) do
-    value = Regex.replace(~r{(?:~|/)(?:Users|home|private|tmp)/[^\s]+}u, value, "[REDACTED:local_path]")
+    value =
+      Regex.replace(
+        ~r{(?<![A-Za-z0-9._-])(?:~|/)(?:Users|home|private|tmp|root|var/lib|workspace)/[^\s"')\],\}]+}u,
+        value,
+        "[REDACTED:local_path]"
+      )
+
     Regex.replace(~r{[A-Za-z]:\\[^\s]+}u, value, "[REDACTED:local_path]")
   end
 
