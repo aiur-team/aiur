@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 06:39 PDT)
+## Live Executor state (updated 2026-07-14 08:34 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -16,14 +16,15 @@ repository root against `main`; current accepted `main` is
 `4f49e0a1d3c88054905b2edbaa6a3a1ffa2b7a10`, including DASH-017/#1089. The core
 program is 5/54 merged with 49 remaining.
 
-The measured runtime envelope is eight workers. #1088/DASH-006,
-#1096/BO-009, and #1109/DASH-002 have fresh implementation/CI work;
-#1091/BO-002 and #1103/BO-016 are receiving contained exact-head review rework.
-#1151 is fixing its CI regression, #1162 is fixing its dual-review P1, and P1
-#1161 is fixing its second dual-review packet. #1093, #1108, #1111, and #1130 remain
-protected behind #1161's workspace-replacement fix; #1123 remains GATE-003
-held. Do not add a ninth worker. All providers are Codex Sol or Terra; never
-dispatch Claude.
+The measured runtime envelope is an eight-worker ceiling governed by Aiur's
+effective-slot controller. Six quota-paused Codex workers (#1088, #1091,
+#1096, #1103, #1151, and #1161) were explicitly resumed after the operator's
+08:31 PDT quota reset and are confirmed productive. #1162 owns one newly
+routed dual-review P1 and has taken the seventh effective slot; #1109 remains
+in dual exact-head review. #1090, #1093, #1108, #1111, #1123, and #1130 remain
+protected behind #1161's workspace-replacement fix. Unrelated #855 stays
+paused and consumes no provider capacity. All providers are Codex Sol or
+Terra; never dispatch Claude.
 
 **Current operating decisions:**
 
@@ -826,9 +827,49 @@ dispatch Claude.
     Executor made the failure packet durable in issue comment `4970685110`,
     recycled only the completed provider generation, and preserved the daemon,
     branch, and protected regression tests.
+102. Dual review of Ad Hoc #1151 found seven merge-blocking provenance and
+    lifecycle defects, including atom/string origin mismatch, post-hoc or
+    ignored comment receipts, missing Claude split-call provenance, lossy
+    thread deduplication, origin-blind publisher replay, GraphQL partial-
+    success identity loss, and latest-comment substitution. The packet is in
+    issue comment `4970767103`. A replacement then consumed a stale workpad
+    instead of that newer comment; the Executor promoted the packet into the
+    workpad and restored one authoritative `agent:rework` state. Keep every
+    finding on #1151.
+103. BO-002's real-provider probe initially rejected the live graph because
+    closed external gate #1139 still appeared as a native blocker of #1086 and
+    #1087 even though it is not one of root #1084's 54 members. The Executor
+    removed only those two obsolete `blockedBy` edges; root membership did not
+    change. The repeated probe is complete with 54 members, 105 unique
+    normalized edges, 210 source endpoints, zero diagnostics, and three
+    calls/pages.
+104. BO-002/#1091 dual exact-head review found two contained pagination and
+    error-taxonomy blockers: accepting `hasNextPage: true` at the advertised
+    total before an empty terminal page, and misclassifying invalid caller
+    input as provider schema failure without a provider call. Both are routed
+    in issue comment `4970887555`; #1091 is in rework.
+105. BO-009/#1096 dual exact-head review found three contained platform-boundary
+    blockers: a rejected engine-start promise that never recovers for the same
+    client, a roughly 15.5 MB aggregate response admitted by per-section caps,
+    and a 64-point contract that permits 66 total points with endpoints. The
+    packet is in issue comment `4970900330`; #1096 is in rework.
+106. At 08:25 PDT Codex reported account-wide `usageLimitExceeded` with
+    `willRetry: false`; Aiur correctly paused every Codex worker without retry
+    churn. After the operator reset the quota at 08:31, the Executor resumed
+    only the six intended paused Build Order/Ad Hoc workers and confirmed all
+    six turning. Unrelated #855 remains paused, and no Claude fallback was
+    used. A reset does not currently wake these paused workers automatically;
+    retain explicit targeted resume as the recovery step for this run.
+107. Ad Hoc #1162 reached green exact head `9b69a5b3`, but two independent
+    reviews reproduced the reverse-order pause race: when the `-32600` no-
+    active-turn response arrives before idle, the accepted pause is cleared
+    and later reported as ordinary completion. The consolidated packet is in
+    issue comment `4970988944`; preserve pause across both response/idle event
+    orders and prove the Adapter plus real AgentRunner boundaries on #1162.
 
-At 08:05 PDT the core graph is 5/54 accepted. Five Codex workers are productive;
-#1091 and #1096 are in fresh CI, while #1151 is in dual exact-head review.
+At 08:34 PDT the core graph is 5/54 accepted. Seven Codex workers are productive;
+#1162 has taken the seventh effective slot, while #1109 is in dual exact-head
+review.
 #1090, #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds
 until #1161 lands.
 The latest emitted progress evidence is 1088=30, 1091=70, 1096=80,
