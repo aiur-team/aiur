@@ -93,21 +93,34 @@ The Executor continuously:
 
 ## Capacity policy
 
-The objective is progress against the bounded outcome, not the highest agent
-or ticket count.
+The objective is the fastest safe convergence on the bounded outcome. Achieve
+that by continuously maximizing useful parallelism, not by chasing an agent
+count detached from ready work.
 
-- Treat `set max-agents` as the session safety ceiling. When
+- Treat `set max-agents` as the session safety ceiling, not a steady-state
+  target below known capacity. When
   `agent.target_load_average` is enabled, let Aiur's AIMD controller adjust the
-  effective slots beneath that ceiling; raise the ceiling deliberately only
-  when ready critical-path work and host/review headroom remain.
+  effective slots beneath the recorded maximum ceiling. Keep that ceiling high
+  enough to admit every ready independent lane.
 - Manually ramp the ceiling as the primary controller only when AIMD is
-  disabled. Lower it for pressure, provider throttling, or review backlog that
-  load average does not capture.
-- Lower the cap when CPU saturation, memory pressure, file-descriptor errors,
-  repeated build contention, provider throttling, or declining review quality
-  appears.
+  disabled. Target sustained CPU utilization first, then memory, build
+  serialization, provider quota, review capacity, or dependency width as the
+  next limiting resource.
+- Lower the cap only when measured CPU saturation reduces throughput, memory or
+  file descriptors approach unsafe bounds, build contention stops useful
+  progress, providers throttle, or review quality declines. Record the exact
+  restoration threshold and re-raise the cap immediately when it clears; a
+  temporary reduction must not silently become the new normal.
 - Keep independent lanes occupied. Do not fill slots with tickets that are
   blocked, conflict on a contract/write surface, or cannot merge safely.
+- Count independent background review/rework lanes in the utilization plan.
+  CI-wait and human-review tickets do not consume implementation slots, but
+  their available reviewer lanes must be staffed.
+- At every observation, compare active useful work with the run's target and
+  maximum. If below target, name the exact blocker—dependency width, held
+  workspace, CI, review, quota, CPU, memory, or serialization—and work the
+  highest-fan-out unblocker. After each merge or gate transition, recompute and
+  dispatch the entire newly ready batch immediately.
 - Prefer runtime overrides to editing committed configuration during a run.
 - Record material cap changes and their observed reason.
 
