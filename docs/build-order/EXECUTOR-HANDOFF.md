@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-13 23:06 PDT)
+## Live Executor state (updated 2026-07-13 23:17 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -22,8 +22,9 @@ OPEN publication snapshot is historical evidence and must not be presented as
 a fresh executable receipt.
 
 Aiur is running against `main` from the repository root. Current `main` is
-`b24e0d7248ace9b53f98802042aae700e73d3316`, which includes the independently
-re-reviewed hourly Executor-retrospective helper from PR #1150. Phase 1 has
+`a83a7e7230ffdc7b266baa287f2abd7b9dee39eb`, which includes the independently
+re-reviewed hourly Executor-retrospective helper from PR #1150 and the merged
+dogfood workspace-bootstrap fix from PR #1060. Phase 1 has
 two merged tickets (#1086/BO-004 and #1087/BO-008), three original rework tickets
 (#1088/DASH-006, #1089/DASH-017, and #1090/DASH-018), and three recovered
 post-BO-004 workers (#1085/BO-001, #1104/BO-017, and #1111/DASH-004). #1103 is
@@ -316,11 +317,24 @@ to a safe range.
     fast-forwarded without disturbing its local dogfood config. Main-advancement
     directives were queued to active branches before their next push, including
     #1054's bounded linked-worktree candidate.
+32. At 23:12 PDT direct workspace blocker #1054/PR #1060 was squash-merged as
+    `a83a7e7230ffdc7b266baa287f2abd7b9dee39eb` after exact head `22bc8422`
+    passed fresh full CI, a focused clean re-review, and the current-main
+    ancestry gate. The Executor preserved the root's local-only dogfood config,
+    fast-forwarded `main`, rebuilt the release, and restarted Aiur at runtime
+    cap 6. Startup again removed pause overrides, so #855/#1103/#1123 were
+    immediately restored to `agent:paused`. New worker settings prove the
+    restarted release uses the canonical issue workspace, Codex 5.6 Sol/Terra,
+    and the local `/home/orangekid/.aiur/build-gate` writable-root containment;
+    do not commit that machine path into portable defaults. Admission is
+    ramping rather than cold-starting the full queue simultaneously: #1030,
+    #1088, #1089, and #1090 were active at the 23:17 snapshot, with the next
+    useful ticket filling the remaining safe slot as load permits.
 
-At 22:51 PDT the core graph is 3/54 merged. Direct workspace blocker #1054 and
-core #1089/#1090/#1111 are actively working; #1030 is in contained rework,
-#1088 is requeued with its review packet, #1104 is in fresh CI/review, and
-direct P1 #1151 awaits measured capacity. #1103/#1123 remain paused. Treat
+At 23:17 PDT the core graph is 3/54 merged. Core #1088/#1089/#1090 are active,
+#1030 is in contained rework, #1104/#1111 and direct P1 #1151 await the next
+measured slots, and newly-ready #1091/#1096/#1108 remain queued behind that
+bounded rework. #1103/#1123 remain paused. Treat
 completed turns, stale bases, and green builds with unmet acceptance criteria
 as pending Executor work, not merge-ready truth.
 
