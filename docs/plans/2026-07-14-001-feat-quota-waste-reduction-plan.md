@@ -198,7 +198,7 @@ that re-run planning, and on stuck/long sessions at top reasoning effort. See or
 
 ---
 
-- [ ] U5. **Complexity-scaled turn caps** (origin T4)
+- [x] U5. **Complexity-scaled turn caps** (origin T4)
 
 **Goal:** Cap turns per complexity tier so trivial tickets stop sooner.
 
