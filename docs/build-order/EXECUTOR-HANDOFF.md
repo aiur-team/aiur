@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-15 06:30 PDT)
+## Live Executor state (updated 2026-07-15 07:48 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -14,12 +14,15 @@ truth and supersedes stale pre-run wording later in the document.
 receipt gate remains operator-overridden for this run. Aiur is deliberately
 stopped while the Executor and bounded background workers close the active
 stability PRs; do not restart feature dispatch until that stability lane is
-green. Current accepted `main` is `f8f3075d`, including the new `develop`
-integration configuration, paused-label startup fix #1148, BO-009/#1096,
-BO-002/#1091, quota-waste reduction PR #1176, DASH-002/#1109, the
-binding maximum-useful-concurrency Executor rule, and the hard ten-minute
-capacity audit. The core
-program is 8/54 merged with 46 remaining.
+green. Current accepted `main` is `65912898`; exact `origin/develop` is
+synchronized to the same commit. The completed direct-takeover stability set
+now includes configured-base recovery #1146, provider-turn completion #1162,
+and terminal GitHub CI verdict handling #1151. Workspace containment #1161
+and sandbox-safe build-gate leases #1154 are integrating that newest `main`
+and must produce new exact-head CI before either can merge. A read-only audit
+is classifying the five already-open Build Order PRs for preserve, transplant,
+or clean restart; no feature branch is being mutated before the stability lane
+is green. The core program is 8/54 merged with 46 remaining.
 
 ### Binding integration and promotion policy
 
