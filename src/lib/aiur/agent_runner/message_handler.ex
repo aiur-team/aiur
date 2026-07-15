@@ -180,12 +180,26 @@ defmodule Aiur.AgentRunner.MessageHandler do
   def send_control_state(_recipient, _issue, _status), do: :ok
 
   @doc false
-  @spec send_control_state(pid() | nil, Issue.t(), :paused, map()) :: :ok
-  def send_control_state(recipient, %Issue{id: issue_id}, :paused, pause_payload)
-      when is_pid(recipient) and is_binary(issue_id) and is_map(pause_payload) do
-    send(recipient, {:worker_control_state, issue_id, :paused, pause_payload})
+  @spec send_control_state(pid() | nil, Issue.t(), :completed | :paused | :working, map()) :: :ok
+  def send_control_state(recipient, %Issue{id: issue_id}, status, payload)
+      when is_pid(recipient) and is_binary(issue_id) and status in [:completed, :paused, :working] and
+             is_map(payload) do
+    send(recipient, {:worker_control_state, issue_id, status, normalize_control_payload(status, payload)})
     :ok
   end
 
-  def send_control_state(_recipient, _issue, :paused, _pause_payload), do: :ok
+  def send_control_state(_recipient, _issue, _status, _payload), do: :ok
+
+  defp normalize_control_payload(status, %{control: %{request_id: request_id, generation: generation} = control} = payload)
+       when is_integer(request_id) and is_integer(generation) do
+    payload
+    |> Map.delete(:control)
+    |> Map.merge(control)
+    |> maybe_put_control_pause_kind(status)
+  end
+
+  defp normalize_control_payload(status, payload), do: maybe_put_control_pause_kind(payload, status)
+
+  defp maybe_put_control_pause_kind(payload, :paused), do: Map.put_new(payload, :kind, :operator_pause)
+  defp maybe_put_control_pause_kind(payload, _status), do: payload
 end

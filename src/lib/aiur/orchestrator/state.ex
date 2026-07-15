@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.State do
   """
 
   alias Aiur.{AgentQueueStore, Issue}
-  alias Aiur.Orchestrator.{PauseResume, StatusReport}
+  alias Aiur.Orchestrator.{ControlLifecycle, PauseResume, StatusReport}
 
   @default_dispatch_recovery %{
     workspace_ownership: %{waits: %{}, ready: %{}},
@@ -54,9 +54,13 @@ defmodule Aiur.Orchestrator.State do
           github_comment_issue_updated_at: map(),
           github_command_scan_since: String.t() | nil,
           github_connectivity: map(),
-          github_poll_delays: map()
+          github_poll_delays: map(),
+          control_lifecycle: ControlLifecycle.t()
         }
 
+  # The Orchestrator is the single owner of the correlated control lifecycle;
+  # keeping that aggregate here avoids a second process/state authority.
+  # credo:disable-for-next-line Credo.Check.Warning.StructFieldAmount
   defstruct [
     :poll_interval_ms,
     :max_concurrent_agents,
@@ -94,7 +98,8 @@ defmodule Aiur.Orchestrator.State do
     github_comment_issue_updated_at: %{},
     github_command_scan_since: nil,
     github_connectivity: %{},
-    github_poll_delays: %{}
+    github_poll_delays: %{},
+    control_lifecycle: %ControlLifecycle{}
   ]
 
   @spec handle_worker_runtime_info(t(), String.t(), map()) :: {:noreply, t()}

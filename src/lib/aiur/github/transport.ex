@@ -60,7 +60,7 @@ defmodule Aiur.GitHub.Transport do
         etag -> [{"If-None-Match", etag} | github_headers(token, req)]
       end
 
-    Req.get(url, headers: headers, connect_options: [timeout: 30_000])
+    Req.get(url, request_options(headers, req))
   end
 
   def default_request_fun(%{method: :post, url: url, token: token, body: body} = req) do
@@ -81,6 +81,39 @@ defmodule Aiur.GitHub.Transport do
 
   def default_request_fun(%{method: :delete, url: url, token: token} = req) do
     Req.delete(url, headers: github_headers(token, req), connect_options: [timeout: 30_000])
+  end
+
+  defp request_options(headers, req) do
+    options = Application.get_env(:aiur, :github_transport_test_options, [])
+    options = if is_list(options) and Keyword.keyword?(options), do: options, else: []
+
+    options
+    |> Keyword.merge(headers: headers, connect_options: [timeout: 30_000])
+    |> maybe_bound_response(req)
+  end
+
+  defp maybe_bound_response(options, %{max_response_bytes: limit})
+       when is_integer(limit) and limit > 0 do
+    Keyword.put(options, :into, bounded_response_collector(limit))
+  end
+
+  defp maybe_bound_response(options, _req), do: options
+
+  defp bounded_response_collector(limit) do
+    fn {:data, data}, {request, response} ->
+      body = [response.body, data] |> IO.iodata_to_binary()
+
+      if byte_size(body) <= limit do
+        {:cont, {request, %{response | body: body}}}
+      else
+        response =
+          response
+          |> Map.put(:body, "")
+          |> Req.Response.put_private(:aiur_response_too_large, true)
+
+        {:halt, {request, response}}
+      end
+    end
   end
 
   @spec github_headers(String.t(), map()) :: [{String.t(), String.t()}]

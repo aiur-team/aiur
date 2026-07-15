@@ -162,9 +162,10 @@ defmodule Aiur.AppServer.TurnStateTest do
 
   test "continue_after_turn_interrupted routes pause and operator-message actions" do
     payload = %{"method" => "turn/completed"}
+    control = %{request_id: 7, generation: 3}
 
-    assert {:paused, %{request_id: 7, turn_id: "turn-1", details: ^payload}} =
-             TurnState.continue_after_turn_interrupted(state(%{pause_request_id: 7}), payload)
+    assert {:paused, %{control: ^control, turn_id: "turn-1", details: ^payload}} =
+             TurnState.continue_after_turn_interrupted(state(%{pause_request_id: control}), payload)
 
     assert {:ok, :turn_interrupted_for_operator_message} =
              TurnState.continue_after_turn_interrupted(

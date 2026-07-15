@@ -716,6 +716,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host, opts) do
     runner = Keyword.get(opts, :runner, &AgentRunner.run/3)
+    worker_generation = System.unique_integer([:positive, :monotonic])
     lifecycle_attempt_id = TelemetryLifecycle.new_attempt_id(dispatch_attempt_ticket(issue))
 
     if TelemetryLifecycle.enabled?() do
@@ -733,7 +734,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
              prior_work: Keyword.get(opts, :prior_work, false),
              telemetry_attempt_id: lifecycle_attempt_id,
              worker_host: worker_host,
-             orchestrator: recipient
+             orchestrator: recipient,
+             worker_generation: worker_generation
            )
          end) do
       {:ok, pid} ->
@@ -766,7 +768,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
             agent_last_reported_total_tokens: 0,
             turn_count: 0,
             completed_turn_count: 0,
-            control: default_running_control(issue),
+            control: default_running_control(issue, worker_generation),
             telemetry_attempt_id: lifecycle_attempt_id,
             retry_attempt: RetryEngine.normalize_retry_attempt(attempt),
             prior_work: Keyword.get(opts, :prior_work, false),
@@ -824,13 +826,16 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end
   end
 
-  defp default_running_control(%Issue{} = issue) do
+  defp default_running_control(%Issue{} = issue, worker_generation) when is_integer(worker_generation) do
     backend = CodingAgent.backend_for(issue)
 
     %{
       can_interrupt: CodingAgent.can_interrupt?(backend),
       safe_checkpoints: CodingAgent.safe_checkpoints(backend),
       immediate_delivery: CodingAgent.immediate_delivery?(backend),
+      application_confirmation: CodingAgent.control_application_confirmation(backend),
+      generation: worker_generation,
+      version: 0,
       status: :working
     }
   end

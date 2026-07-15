@@ -286,6 +286,11 @@ defmodule Aiur.IssueLog do
     {:noreply, push_history(state, {:alert, event})}
   end
 
+  def handle_info({:control_lifecycle, %{request_id: _request_id, status: _status} = event}, state) do
+    write_line(state.file, "[control] " <> Jason.encode!(event) <> "\n")
+    {:noreply, push_history(state, %{role: :system, body: "control lifecycle", payload: event, turn_id: nil})}
+  end
+
   def handle_info({:aiur_event, kind, event}, state)
       when kind in [:emit, :emit_alert, :consumed, :self] do
     write_line(state.file, format_event_marker(kind, event))

@@ -123,7 +123,7 @@ esac
 # The agent handled the keypress (interrupted its REPL turn or paused). Leave
 # the pane open so the Executor stays in the conversation.
 case "$response" in
-  *interrupted* | *paused*)
+  *interrupted* | *pause_requested* | *paused*)
     log_ctrlc "action=keep_open response=${response}"
     exit 0
     ;;
