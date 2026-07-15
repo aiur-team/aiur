@@ -231,7 +231,8 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       state = %State{
         claimed: MapSet.new([issue_id]),
         dispatch_recovery: %{
-          workspace_ownership: %{waits: %{}, ready: %{}}
+          workspace_ownership: %{waits: %{}, ready: %{}},
+          codex_thrash_budget: %{}
         }
       }
 
@@ -267,7 +268,8 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       state = %State{
         claimed: MapSet.new([issue_id]),
         dispatch_recovery: %{
-          workspace_ownership: %{waits: %{}, ready: %{}}
+          workspace_ownership: %{waits: %{}, ready: %{}},
+          codex_thrash_budget: %{}
         }
       }
 
@@ -321,9 +323,9 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
           issue_id => %{timer_ref: timer_ref, retry_token: retry_token, attempt: 1}
         },
         dispatch_recovery: %{
-          workspace_ownership: %{waits: %{}, ready: %{}}
-        },
-        codex_thrash_budget: %{issue_id => %{window_start_ms: 0, count: 4}}
+          workspace_ownership: %{waits: %{}, ready: %{}},
+          codex_thrash_budget: %{issue_id => %{window_start_ms: 0, count: 4}}
+        }
       }
 
       waiting =
@@ -344,7 +346,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
                {:ok, owner_lease}
 
       assert waiting.dispatch_recovery.workspace_ownership.waits[identifier].prior_work
-      assert waiting.codex_thrash_budget == state.codex_thrash_budget
+      assert waiting.dispatch_recovery.codex_thrash_budget == state.dispatch_recovery.codex_thrash_budget
 
       ready = RetryEngine.release_workspace_wait(waiting, identifier)
       refute MapSet.member?(ready.claimed, issue_id)
@@ -353,7 +355,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       assert ready.dispatch_recovery.workspace_ownership.ready[issue_id].retry_attempt == 1
       assert ready.dispatch_recovery.workspace_ownership.ready[issue_id].prior_work
       assert ready.dispatch_recovery.workspace_ownership.ready[issue_id].workspace_path == "/workspaces/ownership"
-      assert ready.codex_thrash_budget == state.codex_thrash_budget
+      assert ready.dispatch_recovery.codex_thrash_budget == state.dispatch_recovery.codex_thrash_budget
 
       Process.exit(runner, :kill)
       assert_receive {:DOWN, ^exit_ref, :process, ^runner, :killed}, 2_000
@@ -378,7 +380,10 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
           }
         },
         claimed: MapSet.new([issue_id]),
-        dispatch_recovery: %{workspace_ownership: %{waits: %{}, ready: %{}}}
+        dispatch_recovery: %{
+          workspace_ownership: %{waits: %{}, ready: %{}},
+          codex_thrash_budget: %{}
+        }
       }
 
       ref = state.running[issue_id].ref

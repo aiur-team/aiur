@@ -55,6 +55,10 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
 
   defp run(state, now_ms), do: Dispatcher.check_thrash_budget(state, @issue_id, now_ms)
 
+  defp thrash_budget(state), do: state.dispatch_recovery.codex_thrash_budget
+
+  defp with_thrash_budget(state, budget), do: put_in(state.dispatch_recovery.codex_thrash_budget, budget)
+
   # Each dispatch sits in its own lapsed window, so the per-window breaker never
   # trips — exactly the #1091 shape (85 cold dispatches, none circuit-broken).
   defp dispatch_n(state, n) do
@@ -77,7 +81,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
     state = dispatch_n(%Orchestrator.State{}, 10)
 
     assert {:trip, tripped} = run(state, 11 * (@window_ms + 1))
-    assert %{lifetime: 10, tripped: :lifetime} = tripped.codex_thrash_budget[@issue_id]
+    assert %{lifetime: 10, tripped: :lifetime} = thrash_budget(tripped)[@issue_id]
 
     assert {:trip, repeated} = run(tripped, 12 * (@window_ms + 1))
     assert repeated == tripped
@@ -106,11 +110,11 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
     {:ok, state} = run(%Orchestrator.State{}, -576_460_751_248)
     state = Dispatcher.reset_thrash_budget(state, @issue_id)
 
-    assert %{lifetime: 1} = state.codex_thrash_budget[@issue_id]
-    refute Map.has_key?(state.codex_thrash_budget[@issue_id], :window_start_ms)
+    assert %{lifetime: 1} = thrash_budget(state)[@issue_id]
+    refute Map.has_key?(thrash_budget(state)[@issue_id], :window_start_ms)
 
     assert {:ok, state} = run(state, -576_460_751_000)
-    assert %{count: 1, lifetime: 2, window_start_ms: -576_460_751_000} = state.codex_thrash_budget[@issue_id]
+    assert %{count: 1, lifetime: 2, window_start_ms: -576_460_751_000} = thrash_budget(state)[@issue_id]
   end
 
   @tag config: @enabled
@@ -121,7 +125,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
 
     assert DispatchBudgetStore.path_for() == stable_path
     assert {:trip, restarted_state} = run(%Orchestrator.State{}, 11 * (@window_ms + 1))
-    assert %{lifetime: 10, tripped: :lifetime} = restarted_state.codex_thrash_budget[@issue_id]
+    assert %{lifetime: 10, tripped: :lifetime} = thrash_budget(restarted_state)[@issue_id]
   end
 
   @tag config: @enabled
@@ -131,7 +135,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
     File.write!(path, "{not-json")
 
     assert {:trip, state} = run(%Orchestrator.State{}, 0)
-    assert %{lifetime: 10, tripped: :lifetime} = state.codex_thrash_budget[@issue_id]
+    assert %{lifetime: 10, tripped: :lifetime} = thrash_budget(state)[@issue_id]
   end
 
   @tag config: @enabled
@@ -141,37 +145,35 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
     Application.put_env(:aiur, :dispatch_budget_store_path, unreadable_path)
 
     assert {:trip, state} = run(%Orchestrator.State{}, 0)
-    assert %{lifetime: 10, tripped: :lifetime} = state.codex_thrash_budget[@issue_id]
+    assert %{lifetime: 10, tripped: :lifetime} = thrash_budget(state)[@issue_id]
   end
 
   @tag config: @enabled
   test "redispatch preflight rejects the next dispatch when the lifetime latch is exhausted" do
     issue = %Issue{id: @issue_id, identifier: "repo#lifetime", selected_backend: "claude"}
 
-    state = %Orchestrator.State{
-      codex_thrash_budget: %{
+    state =
+      with_thrash_budget(%Orchestrator.State{}, %{
         @issue_id => %{window_start_ms: 0, count: 1, lifetime: 10}
-      }
-    }
+      })
 
     assert {:error, :thrash_circuit_open} =
              Dispatcher.redispatch_ready?(state, issue, nil, now_ms: @window_ms + 1)
 
-    assert get_in(state.codex_thrash_budget, [@issue_id, :lifetime]) == 10
+    assert get_in(thrash_budget(state), [@issue_id, :lifetime]) == 10
   end
 
   @tag config: @enabled
   test "stateful redispatch admission returns the committed lifetime trip" do
     issue = %Issue{id: @issue_id, identifier: "repo#lifetime", selected_backend: "claude"}
 
-    state = %Orchestrator.State{
-      codex_thrash_budget: %{
+    state =
+      with_thrash_budget(%Orchestrator.State{}, %{
         @issue_id => %{window_start_ms: 0, count: 1, lifetime: 10}
-      }
-    }
+      })
 
     trip = fn tripped_state, _issue ->
-      update_in(tripped_state.codex_thrash_budget[@issue_id], &Map.put(&1, :trip_observed, true))
+      update_in(tripped_state.dispatch_recovery.codex_thrash_budget[@issue_id], &Map.put(&1, :trip_observed, true))
     end
 
     assert {:error, :thrash_circuit_open, rejected_state} =
@@ -181,7 +183,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
              )
 
     assert %{tripped: :lifetime, trip_observed: true} =
-             rejected_state.codex_thrash_budget[@issue_id]
+             thrash_budget(rejected_state)[@issue_id]
   end
 
   @tag config: @enabled
@@ -198,7 +200,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
       end)
 
     assert_receive {:durable_latch, "repo#lifetime", "error"}
-    assert state.codex_thrash_budget[@issue_id].durable_latch_applied == true
+    assert thrash_budget(state)[@issue_id].durable_latch_applied == true
 
     assert Dispatcher.persist_lifetime_trip(state, issue, fn _, _ ->
              flunk("durable latch must not be applied twice")
