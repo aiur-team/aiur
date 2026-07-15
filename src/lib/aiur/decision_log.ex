@@ -149,22 +149,41 @@ defmodule Aiur.DecisionLog do
   """
   @spec replay(Path.t(), (map() -> {:ok, term()} | {:error, term()})) ::
           {:ok, [term()], corruption() | nil} | {:error, term()}
-  def replay(path, validator) when is_binary(path) and is_function(validator, 1) do
+  def replay(path, validator), do: replay(path, validator, [])
+
+  @spec replay(Path.t(), (map() -> {:ok, term()} | {:error, term()}), keyword()) ::
+          {:ok, [term()], corruption() | nil} | {:error, term()}
+  def replay(path, validator, opts) when is_binary(path) and is_function(validator, 1) and is_list(opts) do
     with :ok <- reject_symlink(path),
+         :ok <- validate_file_size(path, Keyword.get(opts, :max_file_bytes)),
          {:ok, content} <- read_or_empty(path) do
       {clean_content, truncated?} = drop_incomplete_tail(content)
-      finish_replay(path, clean_content, truncated?, validator)
+      finish_replay(path, clean_content, truncated?, validator, Keyword.get(opts, :max_record_bytes))
     end
   end
 
-  defp finish_replay(_path, clean_content, false, validator), do: decode_lines(clean_content, validator)
+  defp finish_replay(_path, clean_content, false, validator, max_record_bytes),
+    do: decode_lines(clean_content, validator, max_record_bytes)
 
-  defp finish_replay(path, clean_content, true, validator) do
+  defp finish_replay(path, clean_content, true, validator, max_record_bytes) do
     case truncate_and_sync(path, byte_size(clean_content)) do
-      :ok -> decode_lines(clean_content, validator)
+      :ok -> decode_lines(clean_content, validator, max_record_bytes)
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp validate_file_size(_path, nil), do: :ok
+
+  defp validate_file_size(path, max_file_bytes) when is_integer(max_file_bytes) and max_file_bytes > 0 do
+    case File.lstat(path) do
+      {:error, :enoent} -> :ok
+      {:ok, %File.Stat{size: size}} when size <= max_file_bytes -> :ok
+      {:ok, %File.Stat{}} -> {:error, :recovery_file_too_large}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp validate_file_size(_path, _max_file_bytes), do: {:error, :invalid_replay_limit}
 
   defp reject_symlink(path) do
     case File.lstat(path) do
@@ -210,20 +229,30 @@ defmodule Aiur.DecisionLog do
     end
   end
 
-  defp decode_lines(content, validator) do
+  defp decode_lines(content, validator, max_record_bytes) do
     content
-    |> String.split("\n", trim: true)
-    |> decode_lines(validator, 1, [])
+    |> String.split("\n")
+    |> drop_terminal_delimiter()
+    |> decode_lines(validator, max_record_bytes, 1, [])
   end
 
-  defp decode_lines([], _validator, _line_number, acc), do: {:ok, Enum.reverse(acc), nil}
+  defp drop_terminal_delimiter(lines) do
+    if List.last(lines) == "", do: List.delete_at(lines, -1), else: lines
+  end
 
-  defp decode_lines([line | rest], validator, line_number, acc) do
-    with {:ok, decoded} <- Jason.decode(line),
+  defp decode_lines([], _validator, _max_record_bytes, _line_number, acc), do: {:ok, Enum.reverse(acc), nil}
+
+  defp decode_lines([line | rest], validator, max_record_bytes, line_number, acc) do
+    with :ok <- validate_record_size(line, max_record_bytes),
+         {:ok, decoded} <- Jason.decode(line),
          {:ok, validated} <- validator.(decoded) do
-      decode_lines(rest, validator, line_number + 1, [validated | acc])
+      decode_lines(rest, validator, max_record_bytes, line_number + 1, [validated | acc])
     else
       {:error, reason} -> {:ok, Enum.reverse(acc), {:corrupt, line_number, reason}}
     end
   end
+
+  defp validate_record_size(_line, nil), do: :ok
+  defp validate_record_size(line, max_record_bytes) when byte_size(line) <= max_record_bytes, do: :ok
+  defp validate_record_size(_line, _max_record_bytes), do: {:error, :record_too_large}
 end
