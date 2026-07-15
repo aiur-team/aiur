@@ -1137,3 +1137,20 @@ am now recording each such wake so the next hourly sample can measure the real
 action/no-action ratio. Recovery scope remains frozen.
 
 — Codex
+
+## Codex — 2026-07-15 04:54 PDT
+
+#1161's correctness review was MERGE_READY, but adversarial review found one
+remaining P1 on the no-process-group provider path: abrupt cleanup can still
+release from a static snapshot that misses a late/reparented child, and a later
+narrower tracking update can forget an already observed descendant. I returned
+that as one bounded packet on the existing ticket; the owner is active and no
+manual patch or new issue was introduced.
+
+#1146 remains active on its configured-base packet and #1162 remains queued by
+the zero-idle effective resource ceiling. I have prepared the 05:00 preview
+snapshot using durable GitHub state plus the latest emitted check-ins (80% for
+#1146, 80% for #1161, 90% for queued #1162); it will publish at the scheduled
+boundary, not early. Recovery scope remains frozen.
+
+— Codex

@@ -2046,6 +2046,16 @@ Terra; never dispatch Claude.
     and adversarial reviews are running in parallel. No earlier review verdict
     carries forward.
 
+248. #1161 correctness review returned MERGE_READY, but adversarial review held
+    exact head `85b6e630` on one remaining P1: local providers without a
+    process-group boundary still release from a static descendant snapshot,
+    and repeated tracking can replace rather than union previously observed
+    descendants. A late or reparented unrecorded child can therefore survive
+    abrupt cleanup while ownership releases. The owner received one bounded
+    packet to make no-group cleanup authoritative or fail-closed, preserve the
+    descendant union, and add both ordinary regressions. No manual patch and no
+    new ticket; no result from `85b6e630` carries forward.
+
 At 04:03 PDT the core graph remains 8/54 accepted while the recovery gate is
 frozen. #780/#1181 and #1032/#1046 are merged. Current main and the warm base
 are exact `83a5a11e`; the rebuilt daemon is running the new coordination
