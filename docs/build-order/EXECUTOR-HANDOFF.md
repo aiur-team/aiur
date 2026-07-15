@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-15 12:31 PDT)
+## Live Executor state (updated 2026-07-15 15:10 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -22,7 +22,88 @@ allowlist passed. Its only full-suite failures were the already-classified
 ProviderLifecycle and BuildGate base timing flakes. Executor convergence PR
 #1183 merged to `main`; generic develop-push CI fix #1184 then merged as
 `main@e058917b`, and that exact main tip is verified inside
-`develop@c099f36b`. Aiur is deliberately stopped.
+`develop@c099f36b`. Planning PR #1064 then merged into `develop` as
+`a58b309a`; its execution receipt, issue graph, prewarm gate, and configured
+`develop` base all validated before dispatch.
+
+Aiur remains running headlessly in diagnostic mode so the dashboard stays
+available, but its Codex providers are quota-paused until the recorded weekly
+reset and must not be resumed early. DASH-001/#1108 merged to `develop` as
+`f8b52beb`, BO-005/#1093 as `c7c4d7a8`, and DASH-008/#1114 as `e4955d80`; all
+three issues were manually marked `agent:done` and closed because a PR into the
+non-default `develop` branch does not apply its closing keyword. BO-003/#1092
+then merged through direct Executor PR #1190 as `93d3a049` and was likewise
+marked done and closed. Its exact final head passed browser, packaged-layout,
+build, strict-lint, Dialyzer, and guard CI plus 72/72 integrated affected tests
+and bounded exact-head review. The pre-dispatch drain is complete at
+`develop@93d3a049`; later Build Order dispatch may resume only after the live
+daemon is rebuilt from this tip and the Codex account is no longer quota-paused.
+
+Exact-head reviews are convergence gates, not open-ended review cycles. PR
+#1187 fixed the two reproduced activity-ordering defects and deterministic
+lint/Dialyzer failures, then merged under the documented suite-flake rule after
+its browser/build/lint/Dialyzer/layout gates passed. PR #1189 fixed exact-money
+scale rejection, opaque invalid-UTF-8 serialization, and deterministic lint
+debt. After one clean merge of #1187's new `develop` tip, its browser/build/
+lint/Dialyzer/layout gates all passed and it merged without waiting for a
+second redundant full-suite run; its preceding exact code head had only the
+known ProviderLifecycle suite race. Do not reopen either accepted ticket or
+add a fresh stylistic review cycle.
+
+BO-003's first repository-wide run completed at 85.08% coverage with 5,590
+tests; its only failures were the unrelated DecisionMetrics fixture and
+ProgressCheckin timeout already seen on the integration branch. Deterministic
+new cases now cover invalid configuration and delayed completions, same-repo
+generation fencing without notification, cold rate-limit retry across
+release/re-demand, missing Task.Supervisor recovery, bounded pending admission,
+reset-first PubSub subscriptions, subscriber churn, and health-only partial
+candidate failure. The Executor also reconciles configuration before accepting
+task result/DOWN/timeout or due-timer work, retains inactive retry metadata,
+and re-arms it on renewed demand. Finish the current bounded exact-delta review,
+then integrated current `develop` exactly once after #1187/#1189 landed. The
+automatic merge preserved the combined child order
+`Task.Supervisor -> WorkflowStore -> RepoBase -> TicketDetailCache ->
+GraphProjection -> Events -> CurrentRunMembership.Store -> TicketActivity ->
+Orchestrator -> CurrentRunMembership.Reconciler`; an independent read-only
+preflight and the 72-test integrated gate found no remaining interaction risk.
+
+The first dispatch exposed a machine-local writable-root mismatch during the
+build-gate preflight. The Executor corrected only the active local config,
+preserved the workers' workspaces, reset the four infrastructure-only dispatch
+counts, and successfully resumed all four tickets. Do not record the local
+path in committed documentation.
+
+At 13:41 PDT BO-005/#1093 completed a normal turn, but its immediate recursive
+turn inherited a late `progress.checkin` dynamic-tool response and failed with
+`turn_start_failed`. Aiur preserved the dirty workspace, resumed the same Codex
+thread after its ten-second bounded retry, and the worker advanced from 60% to
+70%; this is recovery rather than current gridlock. The failure resembles the
+closed queued-after-completion class in #552. Watch for a second occurrence on
+this run; if it repeats or loses work, treat the existing fix as regressed and
+prioritize a contained stability repair. A single self-healed occurrence does
+not justify interrupting BO-005 or expanding Build Order scope.
+
+Restart diagnostics also found P1 issue #1185: a valid persisted workspace-
+ownership receipt could fail `binary_to_term(..., [:safe])` in a fresh VM
+because its finite v1 atoms had not yet been loaded. PR #1186 targets `main`,
+preloads only that closed vocabulary, and passed exact-head review plus every
+CI gate except the same unrelated ProviderLifecycle and BuildGate concurrency
+flakes on both the original run and unchanged rerun. The Executor applied the
+documented flaky-suite/admin rule and squash-merged #1186 to `main` as
+`8c3ef518`; current `main` was then merged into `develop` as `6ada3318`. Rebuild
+before the next safe daemon restart. Do not restart merely to consume the fix
+while takeover workers have uncommitted work.
+
+At 13:46 PDT the configured Codex account reached 100% of its weekly window;
+Aiur correctly recorded the reset time, paused all four workers without
+spending retry budget, and preserved every dirty workspace. The operator's
+no-Claude directive remains binding. Aiur and its dashboard stay alive but its
+four provider workers remain paused. Three Codex background takeovers produced
+PRs #1187, #1188, and #1189; the Executor directly took BO-003 in the root
+slot. Each branch refreshes from current `develop` exactly once at final
+handoff, runs scoped validation, and opens its feature PR into `develop`. Do
+not resume the Aiur providers until the Codex account is available and no
+duplicate takeover writer owns a workspace.
 
 DEC-015 in `11-execution-amendment.md` is now the binding execution overlay.
 It preserves the 54-member/105-edge baseline, applies current-`develop`
@@ -45,11 +126,10 @@ https://github.com/its-everdred/aiur/issues/1084#issuecomment-4984606240;
 GATE-003 and GATE-004 remain ticket-specific blockers.
 
 All restart prerequisites through the live execution receipt, `develop` push
-CI, lifecycle reconciliation, and BO-016 reopen are complete. Do not restart
-Aiur until PR #1064 is merged and the prewarm image is rebuilt from the
-resulting exact `develop` tip. The first safe fan-out is
-BO-003, BO-005, DASH-001, and DASH-008 with one writer per supervision/ingress
-seam. All workers remain Codex Sol/Terra; never dispatch Claude.
+CI, lifecycle reconciliation, BO-016 reopen, PR #1064 integration, and exact-
+tip prewarm are complete. The first safe fan-out is live with one writer per
+supervision/ingress seam. All workers remain Codex Sol/Terra; never dispatch
+Claude.
 
 ### Binding integration and promotion policy
 
@@ -82,10 +162,10 @@ dual-review instruction later in this handoff.
   restart when semantic drift or conflict repair costs more than reimplementing
   the ticket from its contract.
 
-### Binding execution sequence before Aiur restarts
+### Completed pre-restart execution sequence
 
-Do not restart Aiur merely because a worker slot is available. The operator's
-current sequence is strict:
+This sequence is complete and explains the gate that authorized the current
+run. Do not repeat it merely because a worker slot is available:
 
 1. The Executor directly owns every already-started stability PR with bounded
    background workers. Merge reusable fixes into `main`, then synchronize exact
