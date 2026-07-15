@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 17:10 PDT)
+## Live Executor state (updated 2026-07-14 17:55 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -1373,19 +1373,51 @@ Terra; never dispatch Claude.
     that the warm marker is rebuilt if the warm base refresh does run; reopen
     #567 only if a newly materialized workspace actually branches from the
     stale commit.
+182. The operator is merging a bounded set of token-optimization changes and
+    will explicitly signal when that merge window is complete. Keep the current
+    daemon and durable worker fleet running until that signal; do not rebuild or
+    restart speculatively. After the signal, fetch the new accepted `main`,
+    refresh every stale active head, rebuild the real `aiurdev` release, restart
+    from the repository root, and prove each preserved worker resumes before
+    admitting newly ready work.
+183. #1151 could not consume its own current-main directive because it is the
+    live reproduction of the wake bug, so the Executor used the authorized
+    isolated-worktree last-mile fallback. Current `main` was merged, the
+    GraphQL transport overlap was resolved without losing strict response
+    validation, and focused gates passed (120 tests before push; then 40
+    provenance/wake tests and 87 transport/reply/client tests). The pushed head
+    is `c52a50c0`. Two independent reviews still rejected merge: normal Claude
+    tickets are disabled, the Claude hook fails behind dashboard auth, Codex's
+    no-approval path lacks an acknowledged pre-execution barrier, unresolved
+    pending writes can expire open, stale approval aliases survive completion,
+    and common/silent wrappers bypass durable identity. The deduplicated rework
+    contract is issue comment `4975623171`; no duplicate issue was filed.
+184. Two other P1 repairs are green and clean on current main but remain behind
+    the exact-head review gate: build-gate #1154 at `273a5059` has two
+    independent reviews in flight, and completed-turn accounting #1162 at
+    `24f0c80c` has its first independent review in flight. Do not merge either
+    merely because CI is green; start #1162's second review as soon as one
+    #1154 reviewer frees a lane.
+185. At the 17:51 audit, accepted `main` was still `af941452`; eight Sol/Terra
+    app-server sessions remained alive. The host had about 21 GiB available but
+    load near 38 on 12 cores, with the daemon and several Mix gates consuming
+    the usable CPU. Keep `max-agents` at 15 but do not force another worker into
+    active compilation while CPU is saturated; BO-003 stays the one genuinely
+    dependency-ready core ticket and should be admitted immediately after the
+    restart/review pressure clears.
 
-At 17:10 PDT the core graph is 7/54 accepted. Eight Codex worker sessions are
-live; #1151 and #1103 are priority-queued behind measured CPU/build pressure,
-not an intentional low cap. #1093, #1108, #1111, #1123, and #1130 stay on
-workspace-race holds until #1161 lands. The 17:09 phase preview uses the latest
-successfully emitted agent percentages;
+At 17:55 PDT the core graph is 7/54 accepted. Eight Codex worker sessions are
+live; #1103 is priority-queued behind measured CPU/build pressure, while #1151
+is in explicit review-driven rework awaiting the post-optimization restart.
+#1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds until #1161
+lands. The 17:55 phase preview preserves the latest successfully emitted core
+percentages and advances only review/CI states backed by GitHub evidence;
 do not replace those estimates with guesses during review/rework. Host load
-remains volatile and reached 35 with roughly 21 GiB available at the 14:41
-snapshot; prefer logs/GitHub evidence after a control-RPC
-timeout. No additional core ticket is safely
-dependency-ready outside the held/gated set. Treat completed turns, stale
-bases, and green builds with unmet acceptance criteria as pending Executor
-work, not merge-ready truth.
+remains volatile and was about 38 with roughly 21 GiB available at the 17:34
+snapshot; prefer logs/GitHub evidence after a control-RPC timeout. BO-003 is
+the only additional core ticket safely dependency-ready outside the held/gated
+set. Treat completed turns, stale bases, and green builds with unmet acceptance
+criteria as pending Executor work, not merge-ready truth.
 
 **Read-first map for this run:** `README.md` (pack index) →
 `08-implementation-pointers.md` (verified per-ticket file/module/function
