@@ -341,7 +341,7 @@ defmodule Aiur.Workspace.OwnershipTest do
       spawn(fn ->
         {:ok, lease} =
           Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
-            group_alive_fun: fn ^process_group_id -> true end,
+            group_alive_fun: fn ^process_group_id -> Agent.get(child_alive, & &1) end,
             process_alive_fun: fn ^child_pid -> Agent.get(child_alive, & &1) end,
             process_identity_fun: fn
               ^process_group_id -> :gone
@@ -375,6 +375,118 @@ defmodule Aiur.Workspace.OwnershipTest do
 
     send(reaper, :finish_recorded_descendant_reap)
     assert_eventually(fn -> Ownership.current(ticket) == :none end)
+  end
+
+  test "retains a group with an unrecorded late descendant after reaping recorded descendants" do
+    ticket = "ownership-late-group-descendant-#{System.unique_integer([:positive])}"
+    process_group_id = System.unique_integer([:positive])
+    recorded_child_pid = System.unique_integer([:positive])
+    late_child_pid = System.unique_integer([:positive])
+    parent = self()
+    {:ok, alive} = Agent.start_link(fn -> %{recorded_child_pid => true, late_child_pid => true} end)
+    {:ok, group_identity} = Agent.start_link(fn -> :original end)
+
+    on_exit(fn ->
+      if Process.alive?(alive), do: Agent.stop(alive)
+      if Process.alive?(group_identity), do: Agent.stop(group_identity)
+    end)
+
+    process_identity_fun = fn
+      ^process_group_id ->
+        case Agent.get(group_identity, & &1) do
+          :gone -> :gone
+          identity -> {:ok, identity}
+        end
+
+      ^recorded_child_pid ->
+        {:ok, :recorded_child}
+    end
+
+    assert {:ok, lease} =
+             Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
+               group_alive_fun: fn ^process_group_id -> Agent.get(alive, &Map.fetch!(&1, late_child_pid)) end,
+               process_alive_fun: fn ^recorded_child_pid -> Agent.get(alive, &Map.fetch!(&1, recorded_child_pid)) end,
+               process_identity_fun: process_identity_fun,
+               process_reap_fun: fn pid, identity ->
+                 send(parent, {:late_group_recorded_reap, self(), pid, identity})
+
+                 receive do
+                   :finish_late_group_recorded_reap -> Agent.update(alive, &Map.put(&1, recorded_child_pid, false))
+                 end
+               end
+             )
+
+    :ok =
+      Ownership.track_provider(lease, %{
+        process_group_id: process_group_id,
+        descendant_pids: [recorded_child_pid]
+      })
+
+    Agent.update(group_identity, fn _ -> :gone end)
+    release = Task.async(fn -> Ownership.release_and_wait(lease) end)
+
+    assert_receive {:late_group_recorded_reap, reaper, ^recorded_child_pid, {:known, :recorded_child}}, 500
+    send(reaper, :finish_late_group_recorded_reap)
+
+    refute Task.yield(release, 100)
+    assert {:ok, %{phase: :reaping}} = Ownership.current(ticket)
+
+    Agent.update(alive, &Map.put(&1, late_child_pid, false))
+    assert {:ok, %{phase: :released}} = Task.await(release, 2_500)
+  end
+
+  test "reaps escaped recorded descendants after groups are gone or reused" do
+    for group_state <- [:gone, :replacement] do
+      ticket = "ownership-escaped-child-#{group_state}-#{System.unique_integer([:positive])}"
+      process_group_id = System.unique_integer([:positive])
+      child_pid = System.unique_integer([:positive])
+      parent = self()
+      {:ok, child_alive} = Agent.start_link(fn -> true end)
+      {:ok, group_identity} = Agent.start_link(fn -> :original end)
+
+      on_exit(fn ->
+        if Process.alive?(child_alive), do: Agent.stop(child_alive)
+        if Process.alive?(group_identity), do: Agent.stop(group_identity)
+      end)
+
+      process_identity_fun = fn
+        ^process_group_id ->
+          case Agent.get(group_identity, & &1) do
+            :gone -> :gone
+            identity -> {:ok, identity}
+          end
+
+        ^child_pid ->
+          {:ok, :escaped_child}
+      end
+
+      assert {:ok, lease} =
+               Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
+                 group_alive_fun: fn ^process_group_id -> false end,
+                 process_alive_fun: fn ^child_pid -> Agent.get(child_alive, & &1) end,
+                 process_identity_fun: process_identity_fun,
+                 process_reap_fun: fn pid, identity ->
+                   send(parent, {:escaped_child_reap, self(), pid, identity})
+
+                   receive do
+                     :finish_escaped_child_reap -> Agent.update(child_alive, fn _ -> false end)
+                   end
+                 end
+               )
+
+      :ok =
+        Ownership.track_provider(lease, %{
+          process_group_id: process_group_id,
+          descendant_pids: [child_pid]
+        })
+
+      Agent.update(group_identity, fn _ -> group_state end)
+      release = Task.async(fn -> Ownership.release_and_wait(lease) end)
+
+      assert_receive {:escaped_child_reap, reaper, ^child_pid, {:known, :escaped_child}}, 500
+      send(reaper, :finish_escaped_child_reap)
+      assert {:ok, %{phase: :released}} = Task.await(release, 2_000)
+    end
   end
 
   test "does not reap a process group after its identifier is reused" do
