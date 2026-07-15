@@ -47,7 +47,12 @@ export function clearVisualLayout(element) {
   const cards = element.querySelector("[data-layout-cards]")
   cards?.style.removeProperty("min-width")
   cards?.style.removeProperty("min-height")
-  element.querySelector("[data-layout-edges]")?.replaceChildren()
+
+  const svg = element.querySelector("[data-layout-edges]")
+  svg?.replaceChildren()
+  svg?.removeAttribute("viewBox")
+  svg?.removeAttribute("width")
+  svg?.removeAttribute("height")
 }
 
 export function setLayoutHealth(element, health, durationMs, reason) {

@@ -162,7 +162,12 @@ export class DomSvgLayoutAdapter {
         return client
       })
       .catch((error) => {
-        if (!this.destroyed && clientEpoch === this.clientEpoch) this.fallback(errorCode(error, "worker_start_failed"))
+        if (!this.destroyed && clientEpoch === this.clientEpoch) {
+          this.clientPromise = null
+          this.clientAssetKey = null
+          this.fallback(errorCode(error, "worker_start_failed"))
+        }
+
         return null
       })
   }

@@ -3,6 +3,7 @@ import {
   MAX_NODES,
   assetPaths,
   boundedText,
+  contextDimension,
   constraintIndexes,
   edgeState,
   measuredDimension,
@@ -103,10 +104,10 @@ export function readRootContext(element, measurementVersion) {
   const providerGeneration = positiveInteger(element.dataset.layoutProviderGeneration)
   const domGeneration = positiveInteger(element.dataset.layoutDomGeneration)
   const rect = element.getBoundingClientRect()
-  const viewportWidth = measuredDimension(rect.width)
-  const viewportHeight = measuredDimension(rect.height)
-  const windowWidth = measuredDimension(window.innerWidth)
-  const windowHeight = measuredDimension(window.innerHeight)
+  const windowWidth = contextDimension(window.innerWidth)
+  const windowHeight = contextDimension(window.innerHeight)
+  const viewportWidth = contextDimension(Math.min(rect.width, window.innerWidth))
+  const viewportHeight = contextDimension(Math.min(rect.height, window.innerHeight))
 
   if (!rootId || providerGeneration === null || domGeneration === null || !viewportWidth || !viewportHeight || !windowWidth || !windowHeight) return null
 

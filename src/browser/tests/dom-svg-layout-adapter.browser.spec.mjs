@@ -25,6 +25,23 @@ test('DOM/SVG adapter keeps cards semantic while applying worker geometry and st
 
     const semanticOrder = await root.locator('[data-layout-node]').evaluateAll((cards) => cards.map((card) => card.dataset.layoutNodeId))
     expect(semanticOrder.slice(0, 4)).toEqual(['fixture-node-001', 'fixture-node-009', 'fixture-node-017', 'fixture-node-003'])
+
+    const statePatterns = await root.evaluate((element) => Object.fromEntries(
+      ['cleared', 'blocking', 'terminal_unsatisfied', 'unknown', 'cyclic'].map((state) => {
+        const path = element.querySelector(`.bo-layout-edge.is-${state}`)
+        return [state, getComputedStyle(path).strokeDasharray]
+      })
+    ))
+    expect(new Set(Object.values(statePatterns)).size).toBe(5)
+    await page.emulateMedia({ forcedColors: 'active' })
+    const forcedColorPatterns = await root.evaluate((element) => Object.fromEntries(
+      ['cleared', 'blocking', 'terminal_unsatisfied', 'unknown', 'cyclic'].map((state) => {
+        const path = element.querySelector(`.bo-layout-edge.is-${state}`)
+        return [state, getComputedStyle(path).strokeDasharray]
+      })
+    ))
+    expect(new Set(Object.values(forcedColorPatterns)).size).toBe(5)
+    await page.emulateMedia({ forcedColors: 'none' })
     await captureConfiguredScreenshot(page, testInfo)
 
     const hookInstance = await root.getAttribute('data-layout-hook-instance')
@@ -55,9 +72,31 @@ test('adapter retains deterministic document-flow fallback when the worker is un
     await expect(root.getByRole('heading', { name: 'Dependency summary' })).toBeVisible()
     await expect(root.locator('[data-layout-dependency-summary] .bo-layout-edge-state', { hasText: 'Unknown' }).first()).toBeVisible()
     await expect(root.locator('svg[aria-hidden="true"] path')).toHaveCount(0)
+    await expect(root.locator('svg[aria-hidden="true"]')).not.toHaveAttribute('viewBox')
+    await expect(root.locator('svg[aria-hidden="true"]')).not.toHaveAttribute('width')
+    await expect(root.locator('svg[aria-hidden="true"]')).not.toHaveAttribute('height')
 
     await page.locator('#restore-layout-worker').click()
     await expect(root).toHaveAttribute('data-layout-health', 'ready')
+  } finally {
+    await context.close()
+  }
+})
+
+test('loader preserves the semantic fallback when its adapter module cannot load', async ({ browser }) => {
+  const context = await browser.newContext({ httpCredentials: dashboardCredentials })
+  const page = await context.newPage()
+  await page.route('**/aiur-dom-svg-layout-adapter.js', (route) => route.abort())
+
+  try {
+    await openFixture(page)
+    const root = page.locator('#fixture-build-order-graph')
+
+    await expect(root).toHaveAttribute('data-layout-health', 'fallback')
+    await expect(root).toHaveClass(/is-layout-fallback/)
+    await expect(root.locator('[data-layout-node]')).toHaveCount(20)
+    await expect(root.getByRole('heading', { name: 'Dependency summary' })).toBeVisible()
+    await expect(root.locator('[data-layout-dependency-summary] li')).toHaveCount(20)
   } finally {
     await context.close()
   }
@@ -98,7 +137,28 @@ test('adapter falls back on worker timeout/error responses without removing sema
 test('production adapter falls back on client startup and malformed geometry while preserving semantic content', async ({ browser }) => {
   const startupContext = await browser.newContext({ httpCredentials: dashboardCredentials })
   await startupContext.addInitScript(() => {
-    window.__aiurBrowserLayoutClientFactory = () => Promise.reject(new Error('worker_start_failed'))
+    window.__aiurClientStartupAttempts = 0
+    window.__aiurBrowserLayoutClientFactory = () => {
+      window.__aiurClientStartupAttempts += 1
+      if (window.__aiurClientStartupAttempts === 1) return Promise.reject(new Error('worker_start_failed'))
+
+      return {
+        dispose() {},
+        layout(request) {
+          return Promise.resolve({
+            type: 'result',
+            version: 1,
+            requestId: request.requestId,
+            generation: request.generation,
+            nodes: request.nodes.map((node, index) => ({ ...node, x: index * 10, y: index * 10 })),
+            edges: request.edges.map((edge) => ({
+              id: edge.id,
+              sections: [{ startPoint: { x: 0, y: 0 }, bendPoints: [], endPoint: { x: 10, y: 10 } }]
+            }))
+          })
+        }
+      }
+    }
   })
   const startupPage = await startupContext.newPage()
 
@@ -127,6 +187,9 @@ test('production adapter falls back on client startup and malformed geometry whi
     await expect(startupRoot).toHaveAttribute('data-layout-failure', 'worker_start_failed')
     await expect(startupRoot.locator('[data-layout-node]')).toHaveCount(20)
     await expect(startupRoot.getByRole('heading', { name: 'Dependency summary' })).toBeVisible()
+    await startupPage.locator('#live-update').click()
+    await expect(startupRoot).toHaveAttribute('data-layout-health', 'ready')
+    expect(await startupPage.evaluate(() => window.__aiurClientStartupAttempts)).toBe(2)
 
     await openFixture(malformedPage)
     const malformedRoot = malformedPage.locator('#fixture-build-order-graph')
@@ -200,6 +263,90 @@ test('adapter validation rejects stale and malformed geometry before it can rend
       measurementMismatch: false,
       viewportMismatch: false,
       measurementInvalid: true
+    })
+  } finally {
+    await context.close()
+  }
+})
+
+test('adapter accepts bounded maximum graph inputs beyond a 4096px document context', async ({ browser }) => {
+  const context = await browser.newContext({ httpCredentials: dashboardCredentials })
+  const page = await context.newPage()
+
+  try {
+    await openFixture(page)
+
+    const result = await page.evaluate(async () => {
+      const { measureLayout, readRootContext } = await import('/aiur-dom-svg-layout/measurement.js')
+      const root = document.createElement('section')
+      root.dataset.layoutRootId = 'maximum-fixture-root'
+      root.dataset.layoutProviderGeneration = '1'
+      root.dataset.layoutDomGeneration = '1'
+      root.getBoundingClientRect = () => ({ width: 5_000, height: 8_000 })
+
+      const cards = document.createElement('div')
+      cards.dataset.layoutCards = ''
+      root.append(cards)
+
+      for (let index = 0; index < 100; index += 1) {
+        const card = document.createElement('article')
+        card.dataset.layoutNode = ''
+        card.dataset.layoutNodeId = `node-${index}`
+        card.dataset.layoutLane = String(index % 10)
+        card.dataset.layoutPhase = String(index % 10)
+        card.getBoundingClientRect = () => ({ width: 160, height: 64 })
+
+        const header = document.createElement('header')
+        header.dataset.layoutCardHeader = ''
+        header.getBoundingClientRect = () => ({ width: 160, height: 24 })
+        card.append(header)
+        cards.append(card)
+      }
+
+      for (let index = 0; index < 1_000; index += 1) {
+        const edge = document.createElement('li')
+        edge.dataset.layoutEdge = ''
+        edge.dataset.layoutEdgeSource = `node-${index % 100}`
+        edge.dataset.layoutEdgeTarget = `node-${(index + 1) % 100}`
+        edge.dataset.layoutEdgeState = 'blocking'
+        root.append(edge)
+      }
+
+      const widthDescriptor = Object.getOwnPropertyDescriptor(window, 'innerWidth')
+      const heightDescriptor = Object.getOwnPropertyDescriptor(window, 'innerHeight')
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: 5_000 })
+      Object.defineProperty(window, 'innerHeight', { configurable: true, value: 6_000 })
+
+      try {
+        const measured = measureLayout(root, { clientEpoch: 1, layoutGeneration: 1, measurementVersion: 1 })
+        const documentContext = readRootContext(root, 1)
+        root.getBoundingClientRect = () => ({ width: 1_000_000, height: 1_000_000 })
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1_000_000 })
+        Object.defineProperty(window, 'innerHeight', { configurable: true, value: 1_000_000 })
+        const contextAtLimit = readRootContext(root, 1)
+        root.getBoundingClientRect = () => ({ width: 1_000_001, height: 1_000_001 })
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1_000_001 })
+        Object.defineProperty(window, 'innerHeight', { configurable: true, value: 1_000_001 })
+
+        return {
+          documentContext,
+          contextAtLimit,
+          contextOverflow: readRootContext(root, 1),
+          nodeCount: measured?.request.nodes.length,
+          edgeCount: measured?.request.edges.length
+        }
+      } finally {
+        Object.defineProperty(window, 'innerWidth', widthDescriptor)
+        Object.defineProperty(window, 'innerHeight', heightDescriptor)
+      }
+    })
+
+    expect(result).toMatchObject({
+      documentContext: { viewportWidth: 5_000, viewportHeight: 6_000, windowWidth: 5_000, windowHeight: 6_000 },
+      contextAtLimit: { viewportWidth: 1_000_000, viewportHeight: 1_000_000, windowWidth: 1_000_000, windowHeight: 1_000_000 },
+      contextOverflow: null,
+      nodeCount: 100,
+      edgeCount: 1_000
     })
   } finally {
     await context.close()

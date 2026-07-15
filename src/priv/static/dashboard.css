@@ -282,6 +282,7 @@ textarea:focus-visible,
 
 .bo-layout-edge.is-cleared {
   stroke: var(--good);
+  stroke-dasharray: none;
 }
 
 .bo-layout-edge-marker.is-cleared {
@@ -290,6 +291,7 @@ textarea:focus-visible,
 
 .bo-layout-edge.is-blocking {
   stroke: var(--blocking);
+  stroke-dasharray: 11 4;
 }
 
 .bo-layout-edge-marker.is-blocking {

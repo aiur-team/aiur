@@ -1,4 +1,5 @@
 export const MAX_DIMENSION = 4_096
+export const MAX_CONTEXT_DIMENSION = 1_000_000
 export const MAX_NODES = 100
 export const MAX_EDGES = 1_000
 export const MAX_SECTIONS = 16
@@ -93,6 +94,11 @@ export function validMeasurement(rect) {
 export function measuredDimension(value) {
   const rounded = Math.round(Number(value))
   return Number.isFinite(rounded) && rounded >= 1 && rounded <= MAX_DIMENSION ? rounded : null
+}
+
+export function contextDimension(value) {
+  const rounded = Math.round(Number(value))
+  return Number.isFinite(rounded) && rounded >= 1 && rounded <= MAX_CONTEXT_DIMENSION ? rounded : null
 }
 
 export function boundedText(value) {

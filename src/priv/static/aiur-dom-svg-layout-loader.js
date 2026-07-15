@@ -35,7 +35,9 @@
           context.__domSvgLayoutHook = adapter.createDomSvgLayoutHook(optionsFactory(context))
           context.__domSvgLayoutHook.mounted.call(context)
         })
-        .catch(() => fallback(context.el))
+        .catch(() => {
+          if (!context.__domSvgLayoutDestroyed) fallback(context.el)
+        })
     },
     beforeUpdate() {
       this.__domSvgLayoutHook?.beforeUpdate.call(this)
