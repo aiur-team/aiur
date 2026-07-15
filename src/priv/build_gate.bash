@@ -891,7 +891,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     local command_pid_file="" command_ready_file="" command_status_file="" command_status_ack_file=""
     local holder_ready_file="" holder_started_file=""
     local command_pgid holder_pid parent_pid python_binary retained status
-    local deadline handshake_deadline holder_deadline slot slot_lock slot_owner slot_fd lock_result owner_pid owner_pgid token result pacing_result
+    local deadline handshake_deadline holder_deadline holder_timeout_seconds slot slot_lock slot_owner slot_fd lock_result owner_pid owner_pgid token result pacing_result
     local available_memory_mb memory_deferred=0 memory_unavailable_logged=0
 
     # Keep descriptor allocation local to this subshell and independent of an
@@ -1136,14 +1136,16 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
           fi
 
           parent_pid=${BASHPID:-$$}
-          holder_deadline=$((SECONDS + timeout_seconds))
+          holder_timeout_seconds=$timeout_seconds
+          ((holder_timeout_seconds < 5)) && holder_timeout_seconds=5
+          holder_deadline=$((SECONDS + holder_timeout_seconds))
           handshake_deadline=$((SECONDS + 2))
           ((handshake_deadline > holder_deadline)) && handshake_deadline=$holder_deadline
 
           aiur_build_gate_hold_linux_lease \
             "$python_binary" "$holder_ready_file" "$holder_started_file" \
             "$command_pid_file" "$command_ready_file" "$command_status_file" "$command_status_ack_file" \
-            "$slot_owner" "$token" "$parent_pid" "$owner_pgid" "$slot_fd" "$timeout_seconds" \
+            "$slot_owner" "$token" "$parent_pid" "$owner_pgid" "$slot_fd" "$holder_timeout_seconds" \
             "$executable" "$@" &
           holder_pid=$!
 
