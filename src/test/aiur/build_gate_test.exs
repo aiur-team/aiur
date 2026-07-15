@@ -329,6 +329,42 @@ defmodule Aiur.BuildGateTest do
   end
 
   @tag @linux_only
+  test "cancellation after direct Mix exit reaps retained descendants before releasing capacity", context do
+    gated_context =
+      Map.merge(context, %{
+        descendant_sleep_seconds: 30,
+        status_read_delay_seconds: 5,
+        started_path: ""
+      })
+
+    {port, root_pid} = start_gated_port("mix test", gated_context)
+    wait_for_file!(context.descendant_path)
+    wait_for_file!(context.descendant_path <> ".pid")
+    wait_for_file!(context.mix_pid_path)
+
+    mix_pid = context.mix_pid_path |> File.read!() |> String.trim() |> String.to_integer()
+
+    descendant_pid =
+      context.descendant_path
+      |> Kernel.<>(".pid")
+      |> File.read!()
+      |> String.trim()
+      |> String.to_integer()
+
+    assert_process_gone!(mix_pid)
+
+    System.cmd("kill", ["-TERM", "--", "-#{root_pid}"], stderr_to_stdout: true)
+    assert_receive {^port, {:exit_status, _status}}, 7_000
+    assert_process_gone!(descendant_pid)
+
+    assert {_output, 0} =
+             run_bash(
+               "mix compile",
+               Map.merge(context, %{started_path: "", timeout_seconds: 2})
+             )
+  end
+
+  @tag @linux_only
   test "pause containment reaps Mix before the detached holder releases capacity", context do
     gated_context =
       Map.merge(context, %{
@@ -483,6 +519,85 @@ defmodule Aiur.BuildGateTest do
     refute File.exists?(Path.join(context.gate_dir, "locks/slot-1.lock"))
   end
 
+  test "Darwin phase pacing does not require Python", context do
+    File.write!(Path.join(context.gate_dir, "phase-next-start"), "0\n")
+
+    command = ~S"""
+    type() {
+      if [[ ${1:-} == -P && ${2:-} == python3 ]]; then
+        return 1
+      fi
+
+      builtin type "$@"
+    }
+    uname() { printf 'Darwin\n'; }
+    mix compile
+    """
+
+    assert {output, 0} =
+             run_bash(
+               command,
+               Map.merge(context, %{stagger_seconds: 1, started_path: ""})
+             )
+
+    assert output =~ "aiur_build_gate acquired slot=1"
+    assert File.read!(context.log_path) == "compile\n"
+  end
+
+  @tag @linux_only
+  test "a descheduled parent receives the durable holder status", context do
+    started_at = System.monotonic_time(:millisecond)
+
+    assert {output, 0} =
+             run_bash(
+               "mix compile",
+               Map.merge(context, %{status_read_delay_seconds: 2, started_path: ""})
+             )
+
+    assert System.monotonic_time(:millisecond) - started_at >= 1_500
+    assert output =~ "aiur_build_gate released slot=1 status=0"
+  end
+
+  @tag @linux_only
+  test "substituted FIFO holder metadata fails closed without blocking", context do
+    mktemp = System.find_executable("mktemp") || flunk("mktemp is required")
+    write_controlled_mktemp!(Path.join(context.bin_dir, "mktemp"), mktemp)
+    started_at = System.monotonic_time(:millisecond)
+
+    assert {output, 125} =
+             run_bash(
+               "mix compile",
+               Map.merge(context, %{
+                 handshake_fifo_fragment: ".holder-started-v2.",
+                 started_path: ""
+               })
+             )
+
+    assert System.monotonic_time(:millisecond) - started_at < 3_500
+    assert output =~ "aiur_build_gate gate_error reason=lease_holder_start_failed"
+    refute File.exists?(context.log_path)
+  end
+
+  @tag @linux_only
+  test "substituted FIFO status handoff fails closed without blocking", context do
+    mktemp = System.find_executable("mktemp") || flunk("mktemp is required")
+    write_controlled_mktemp!(Path.join(context.bin_dir, "mktemp"), mktemp)
+    started_at = System.monotonic_time(:millisecond)
+
+    assert {output, 125} =
+             run_bash(
+               "mix compile",
+               Map.merge(context, %{
+                 handshake_fifo_fragment: ".status-v2.",
+                 started_path: ""
+               })
+             )
+
+    assert System.monotonic_time(:millisecond) - started_at < 3_500
+    assert output =~ "aiur_build_gate gate_error reason=lease_holder_status_failed"
+    assert File.read!(context.log_path) == "compile\n"
+  end
+
   @tag @linux_only
   test "a ps failure under errexit leaves no Linux queue debris", context do
     assert {output, 0} =
@@ -521,6 +636,27 @@ defmodule Aiur.BuildGateTest do
       assert reason in [:eacces, :eperm, :erofs]
       assert recovery =~ "repair"
     end
+  end
+
+  test "preflight rejects a lock namespace overlapping any effective writable root", context do
+    writable_root = Path.dirname(context.gate_dir)
+    assert {:ok, canonical_root} = Aiur.PathSafety.canonicalize(writable_root)
+
+    assert {:error, {:build_gate_unavailable, details}} =
+             BuildGate.prepare_writable_root(
+               gate_dir: context.gate_dir,
+               lock_dir: context.lock_dir,
+               writable_roots: [writable_root],
+               slots: 2
+             )
+
+    assert %{
+             operation: :separate_lock_namespace,
+             path: lock_dir,
+             reason: {:overlaps_writable_root, ^canonical_root}
+           } = details
+
+    assert lock_dir == context.lock_dir
   end
 
   test "an unavailable gate directory fails closed without running Mix", context do
@@ -1039,6 +1175,8 @@ defmodule Aiur.BuildGateTest do
       {"AIUR_BUILD_GATE_DIAGNOSTIC_PGID", Integer.to_string(Map.get(context, :diagnostic_pgid, 0))},
       {"AIUR_BUILD_GATE_HOLDER_FAIL_AFTER_POPEN", if(Map.get(context, :holder_fail_after_popen, false), do: "1", else: "0")},
       {"AIUR_BUILD_GATE_HOLDER_START_DELAY_SECONDS", to_string(Map.get(context, :holder_start_delay_seconds, 0))},
+      {"AIUR_TEST_STATUS_READ_DELAY_SECONDS", to_string(Map.get(context, :status_read_delay_seconds, 0))},
+      {"AIUR_TEST_HANDSHAKE_FIFO_FRAGMENT", Map.get(context, :handshake_fifo_fragment, "")},
       {"AIUR_TEST_DELAY_OWNER_MV", if(Map.get(context, :delay_owner_publication, false), do: "1", else: "0")},
       {"AIUR_TEST_FAIL_FINAL_OWNER_MV", if(Map.get(context, :fail_final_owner_publication, false), do: "1", else: "0")},
       {"AIUR_TEST_MV_COUNT", Path.join(gate_dir, "mv-count")},
@@ -1230,6 +1368,7 @@ defmodule Aiur.BuildGateTest do
 
     if ((FAKE_MIX_DESCENDANT_SLEEP > 0)); then
       (
+        printf '%s\\n' "$$" > "${FAKE_MIX_DESCENDANT}.pid"
         printf 'started\\n' > "$FAKE_MIX_DESCENDANT"
         sleep "$FAKE_MIX_DESCENDANT_SLEEP"
         printf 'done\\n' > "${FAKE_MIX_DESCENDANT}.done"
@@ -1277,6 +1416,23 @@ defmodule Aiur.BuildGateTest do
     fi
 
     exit "$status"
+    """)
+
+    File.chmod!(path, 0o755)
+  end
+
+  defp write_controlled_mktemp!(path, real_mktemp) do
+    File.write!(path, """
+    #!/usr/bin/env bash
+    created=$("#{real_mktemp}" "$@") || exit $?
+
+    if [[ -n ${AIUR_TEST_HANDSHAKE_FIFO_FRAGMENT:-} ]] &&
+      [[ $created == *"$AIUR_TEST_HANDSHAKE_FIFO_FRAGMENT"* ]]; then
+      rm -f "$created" || exit $?
+      mkfifo "$created" || exit $?
+    fi
+
+    printf '%s\\n' "$created"
     """)
 
     File.chmod!(path, 0o755)

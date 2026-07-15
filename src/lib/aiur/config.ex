@@ -576,7 +576,9 @@ defmodule Aiur.Config do
 
       true ->
         with {:ok, additional_roots} <- additional_writable_roots(opts),
-             {:ok, gate_dir} <- BuildGate.prepare_writable_root(gate_opts) do
+             {:ok, effective_roots} <- policy_writable_roots(turn_sandbox_policy),
+             {:ok, gate_dir} <-
+               BuildGate.prepare_writable_root(Keyword.put(gate_opts, :writable_roots, effective_roots)) do
           sandbox_opts = Keyword.put(opts, :additional_writable_roots, additional_roots ++ [gate_dir])
           Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, sandbox_opts)
         end
@@ -585,6 +587,13 @@ defmodule Aiur.Config do
 
   defp workspace_write_policy?(policy) do
     (Map.get(policy, "type") || Map.get(policy, :type)) == "workspaceWrite"
+  end
+
+  defp policy_writable_roots(policy) do
+    case Map.get(policy, "writableRoots") || Map.get(policy, :writableRoots) || [] do
+      roots when is_list(roots) -> {:ok, roots}
+      roots -> {:error, {:unsafe_turn_sandbox_policy, {:invalid_writable_roots, roots}}}
+    end
   end
 
   defp additional_writable_roots(opts) do

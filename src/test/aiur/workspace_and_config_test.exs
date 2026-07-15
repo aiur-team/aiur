@@ -2878,6 +2878,27 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert File.regular?(Path.join(Aiur.BuildGate.lock_dir(gate_dir), "slot-2.lock"))
     assert File.regular?(Path.join(Aiur.BuildGate.lock_dir(gate_dir), "phase-start.lock"))
 
+    write_workflow_file!(Workflow.workflow_file_path(),
+      workspace_root: workspace,
+      max_concurrent_builds: 2,
+      codex_turn_sandbox_policy: %{
+        type: "workspaceWrite",
+        writableRoots: [test_root]
+      }
+    )
+
+    assert {:ok, unsafe_root} = Aiur.PathSafety.canonicalize(test_root)
+
+    assert {:error,
+            {:build_gate_unavailable,
+             %{
+               operation: :separate_lock_namespace,
+               path: unsafe_lock_dir,
+               reason: {:overlaps_writable_root, ^unsafe_root}
+             }}} = Config.codex_runtime_settings(workspace)
+
+    assert unsafe_lock_dir == Aiur.BuildGate.lock_dir(gate_dir)
+
     invalid_gate_path = Path.join(test_root, "not-a-directory")
     File.write!(invalid_gate_path, "regular file")
     Application.put_env(:aiur, :build_gate_dir_override, invalid_gate_path)

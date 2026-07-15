@@ -23,32 +23,37 @@ def main() -> int:
         command_pid_path,
         command_ready_path,
         status_path,
+        status_ack_path,
         owner_path,
         token,
         parent_pid,
+        agent_pgid,
         lease_fd,
+        timeout_seconds,
         *command,
     ) = sys.argv[1:]
 
     parent_pid_int = int(parent_pid)
+    agent_pgid_int = int(agent_pgid)
+    deadline = time.monotonic() + max(1, int(timeout_seconds))
     process = None
 
     try:
-        detach_from_agent_group()
         become_subreaper()
         install_signal_handlers()
         wait_start_delay()
         raise_if_cancelled()
-        touch_exclusive(started_path)
-        wait_until_ready(ready_path, parent_pid_int)
+        write_reserved_regular(started_path, "started\n")
+        wait_until_ready(ready_path, "ready\n", parent_pid_int, deadline)
 
         process = subprocess.Popen(command, close_fds=True, start_new_session=True)
-        write_exclusive(command_pid_path, f"{process.pid}\n")
+        write_reserved_regular(command_pid_path, f"{process.pid}\n")
+
+        wait_until_ready(command_ready_path, "ready\n", parent_pid_int, deadline)
 
         if os.environ.get("AIUR_BUILD_GATE_HOLDER_FAIL_AFTER_POPEN") == "1":
             raise RuntimeError("injected post-Popen holder failure")
 
-        wait_until_ready(command_ready_path, parent_pid_int)
         detach_standard_streams(int(lease_fd))
 
         result = wait_for_command(process, parent_pid_int)
@@ -56,18 +61,32 @@ def main() -> int:
             result = 128 - result
 
         retained = reap_exited_children()
-        write_atomic(status_path, f"{result} {int(retained)}\n")
-        reap_remaining_children()
+        write_reserved_regular(status_path, f"{result} {int(retained)}\n")
+        wait_for_status_ack(status_ack_path, token, parent_pid_int, deadline)
+        reap_remaining_children(agent_pgid_int)
         remove_owned_metadata(owner_path, token)
-        wait_for_status_ack(status_path)
-        cleanup_paths(ready_path, started_path, command_pid_path, command_ready_path, status_path)
+        cleanup_paths(
+            ready_path,
+            started_path,
+            command_pid_path,
+            command_ready_path,
+            status_path,
+            status_ack_path,
+        )
         return 0
     except BaseException:
         if process is not None:
             terminate_process_tree(process.pid)
 
         remove_owned_metadata(owner_path, token)
-        cleanup_paths(ready_path, started_path, command_pid_path, command_ready_path, status_path)
+        cleanup_paths(
+            ready_path,
+            started_path,
+            command_pid_path,
+            command_ready_path,
+            status_path,
+            status_ack_path,
+        )
         return 125
 
 
@@ -97,10 +116,6 @@ def read_regular(path: str) -> int:
     finally:
         if descriptor is not None:
             os.close(descriptor)
-
-
-def detach_from_agent_group() -> None:
-    os.setsid()
 
 
 def become_subreaper() -> None:
@@ -139,22 +154,57 @@ def wait_start_delay() -> None:
         time.sleep(min(POLL_SECONDS, deadline - time.monotonic()))
 
 
-def touch_exclusive(path: str) -> None:
-    with open(path, "x", encoding="utf-8"):
-        pass
+def open_regular(path: str, flags: int) -> int:
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+
+    descriptor = os.open(path, flags | os.O_NONBLOCK)
+    metadata = os.fstat(descriptor)
+    if not stat.S_ISREG(metadata.st_mode):
+        os.close(descriptor)
+        raise OSError(errno.EINVAL, "build-gate metadata is not a regular file")
+
+    return descriptor
 
 
-def write_exclusive(path: str, contents: str) -> None:
-    with open(path, "x", encoding="utf-8") as file:
-        file.write(contents)
+def read_regular_bytes(path: str) -> bytes:
+    descriptor = open_regular(path, os.O_RDONLY)
+    try:
+        contents = os.read(descriptor, 4096)
+        if len(contents) == 4096:
+            raise OSError(errno.EFBIG, "build-gate metadata is too large")
+        return contents
+    finally:
+        os.close(descriptor)
 
 
-def wait_until_ready(path: str, parent_pid: int) -> None:
-    while not os.path.exists(path):
+def write_reserved_regular(path: str, contents: str) -> None:
+    descriptor = open_regular(path, os.O_WRONLY)
+    try:
+        encoded = contents.encode("utf-8")
+        os.ftruncate(descriptor, 0)
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        while encoded:
+            written = os.write(descriptor, encoded)
+            encoded = encoded[written:]
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def wait_until_ready(path: str, expected: str, parent_pid: int, deadline: float) -> None:
+    expected_bytes = expected.encode("utf-8")
+    while True:
         raise_if_cancelled()
 
         if not pid_alive(parent_pid):
             raise SystemExit(125)
+
+        if time.monotonic() >= deadline:
+            raise TimeoutError("build-gate handshake deadline expired")
+
+        if read_regular_bytes(path) == expected_bytes:
+            return
 
         time.sleep(POLL_SECONDS)
 
@@ -265,6 +315,19 @@ def pid_alive(pid: int) -> bool:
         return True
 
 
+def process_group_alive(pgid: int) -> bool:
+    if pgid <= 0:
+        return True
+
+    try:
+        os.killpg(pgid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
 def detach_standard_streams(lease_fd: int) -> None:
     devnull = os.open(os.devnull, os.O_RDWR)
 
@@ -297,14 +360,13 @@ def reap_exited_children() -> bool:
             return True
 
 
-def write_atomic(path: str, contents: str) -> None:
-    candidate = f"{path}.{os.getpid()}"
-    write_exclusive(candidate, contents)
-    os.replace(candidate, path)
-
-
-def reap_remaining_children() -> None:
+def reap_remaining_children(agent_pgid: int) -> None:
     while True:
+        raise_if_cancelled()
+
+        if not process_group_alive(agent_pgid):
+            raise InterruptedError("agent process group exited while descendants retained the lease")
+
         try:
             child_pid, _child_status = os.waitpid(-1, os.WNOHANG)
         except ChildProcessError:
@@ -338,9 +400,19 @@ def remove_owned_metadata(path: str, token: str) -> None:
             os.close(descriptor)
 
 
-def wait_for_status_ack(path: str) -> None:
-    for _ in range(100):
-        if not os.path.exists(path):
+def wait_for_status_ack(path: str, token: str, parent_pid: int, deadline: float) -> None:
+    expected = f"ack={token}\n".encode("utf-8")
+
+    while True:
+        raise_if_cancelled()
+
+        if not pid_alive(parent_pid):
+            raise SystemExit(125)
+
+        if time.monotonic() >= deadline:
+            raise TimeoutError("build-gate status acknowledgement deadline expired")
+
+        if read_regular_bytes(path) == expected:
             return
 
         time.sleep(POLL_SECONDS)
@@ -361,5 +433,12 @@ def remove_if_present(path: str) -> None:
 if __name__ == "__main__":
     if len(sys.argv) == 3 and sys.argv[1] == "--read-regular":
         sys.exit(read_regular(sys.argv[2]))
+
+    if len(sys.argv) == 4 and sys.argv[1] == "--write-reserved-regular":
+        try:
+            write_reserved_regular(sys.argv[2], sys.argv[3] + "\n")
+            sys.exit(0)
+        except OSError:
+            sys.exit(125)
 
     sys.exit(main())

@@ -75,6 +75,13 @@ defmodule Aiur.BuildGate do
     |> Path.join("build_gate.bash")
   end
 
+  defp holder_path do
+    :aiur
+    |> :code.priv_dir()
+    |> to_string()
+    |> Path.join("build_gate_holder.py")
+  end
+
   @doc "Whether any local build admission mode requires the shared gate."
   @spec enabled?(keyword()) :: boolean()
   def enabled?(opts \\ []) do
@@ -93,12 +100,18 @@ defmodule Aiur.BuildGate do
     gate_dir = opts |> Keyword.get(:gate_dir, gate_dir()) |> Path.expand()
     lock_dir = opts |> Keyword.get(:lock_dir, lock_dir(gate_dir)) |> Path.expand()
     slots = Keyword.get_lazy(opts, :slots, &Config.max_concurrent_builds/0)
+    writable_roots = Keyword.get(opts, :writable_roots, [])
 
     with :ok <- prepare_directory(gate_dir),
          {:ok, canonical_gate_dir} <- canonicalize_gate_dir(gate_dir),
          :ok <- probe_writable(canonical_gate_dir),
          {:ok, canonical_lock_dir} <- prepare_lock_namespace(lock_dir, slots),
-         :ok <- validate_lock_namespace(canonical_gate_dir, canonical_lock_dir) do
+         {:ok, canonical_writable_roots} <- canonicalize_writable_roots(writable_roots),
+         :ok <-
+           validate_lock_namespace(
+             canonical_lock_dir,
+             [canonical_gate_dir | canonical_writable_roots]
+           ) do
       {:ok, canonical_gate_dir}
     end
   end
@@ -239,21 +252,24 @@ defmodule Aiur.BuildGate do
   end
 
   defp maybe_metadata_issue(issues, path) do
-    case File.lstat(path) do
-      {:ok, %File.Stat{type: :regular}} -> read_metadata_issue(issues, path)
-      {:ok, %File.Stat{type: type}} -> [status_issue(:metadata_not_regular, path, type) | issues]
-      {:error, :enoent} -> issues
-      {:error, reason} -> [status_issue(:metadata_unreadable, path, reason) | issues]
-    end
+    read_metadata_issue(issues, path)
   end
 
   defp read_metadata_issue(issues, path) do
-    case File.read(path) do
-      {:ok, "version=2\n" <> _rest} -> issues
-      {:error, :enoent} -> issues
-      {:ok, _contents} -> [status_issue(:invalid_metadata, path) | issues]
-      {:error, reason} -> [status_issue(:metadata_unreadable, path, reason) | issues]
+    case System.find_executable("python3") do
+      nil ->
+        [status_issue(:metadata_unreadable, path, :safe_reader_unavailable) | issues]
+
+      python ->
+        case System.cmd(python, [holder_path(), "--read-regular", path], stderr_to_stdout: true) do
+          {"version=2\n" <> _rest, 0} -> issues
+          {_contents, 1} -> issues
+          {_contents, 125} -> [status_issue(:metadata_not_regular, path) | issues]
+          {_contents, status} -> [status_issue(:metadata_unreadable, path, {:reader_status, status}) | issues]
+        end
     end
+  rescue
+    error -> [status_issue(:metadata_unreadable, path, Exception.message(error)) | issues]
   end
 
   defp regular_or_missing(path) do
@@ -444,12 +460,29 @@ defmodule Aiur.BuildGate do
     end
   end
 
-  defp validate_lock_namespace(gate_dir, lock_dir) do
-    if lock_dir == gate_dir or String.starts_with?(lock_dir <> "/", gate_dir <> "/") do
-      unavailable(lock_dir, :separate_lock_namespace, :inside_writable_gate_root)
-    else
-      :ok
+  defp canonicalize_writable_roots(roots) when is_list(roots) do
+    Enum.reduce_while(roots, {:ok, []}, fn root, {:ok, canonical_roots} ->
+      case root |> Path.expand() |> PathSafety.canonicalize() do
+        {:ok, canonical_root} -> {:cont, {:ok, [canonical_root | canonical_roots]}}
+        {:error, reason} -> {:halt, unavailable(root, :canonicalize_writable_root, reason)}
+      end
+    end)
+  end
+
+  defp canonicalize_writable_roots(roots),
+    do: unavailable(inspect(roots), :canonicalize_writable_roots, :invalid_writable_roots)
+
+  defp validate_lock_namespace(lock_dir, writable_roots) do
+    case Enum.find(writable_roots, &paths_overlap?(&1, lock_dir)) do
+      nil -> :ok
+      writable_root -> unavailable(lock_dir, :separate_lock_namespace, {:overlaps_writable_root, writable_root})
     end
+  end
+
+  defp paths_overlap?(left, right) do
+    left == right or
+      String.starts_with?(left <> "/", right <> "/") or
+      String.starts_with?(right <> "/", left <> "/")
   end
 
   defp canonicalize_gate_dir(gate_dir) do
