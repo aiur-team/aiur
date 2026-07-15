@@ -35,11 +35,10 @@ defmodule Aiur.BuildOrder.GraphProjectionStructuralTest do
     projection = start_projection()
     finish(await_reader(:catalog), {:ok, ProviderResult.complete(candidate)})
 
-    assert_receive {
-                     :projection_event,
-                     {:graph_projection_generation, %Snapshot{scope: :catalog, data: ^candidate, health: %{state: :healthy}}}
-                   },
-                   2_000
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{} = published}}, 2_000
+    assert published.scope == :catalog
+    assert published.data == candidate
+    assert published.health.state == :healthy
 
     snapshot = GraphProjection.catalog(projection)
     assert snapshot.data.entries == [malformed, valid]

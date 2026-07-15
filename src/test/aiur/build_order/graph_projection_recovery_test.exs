@@ -98,9 +98,12 @@ defmodule Aiur.BuildOrder.GraphProjectionRecoveryTest do
       {:error, ProviderResult.failed(:rate_limited, rate_limit: %{retry_after: 12})}
     )
 
+    scope = {:selected, identity}
+    failure = :rate_limited
+
     assert_receive {
                      :projection_event,
-                     {:graph_projection_health, %Snapshot{scope: {:selected, ^identity}, health: %{failure: :rate_limited}}}
+                     {:graph_projection_health, %Snapshot{scope: ^scope, health: %{failure: ^failure}}}
                    },
                    2_000
 

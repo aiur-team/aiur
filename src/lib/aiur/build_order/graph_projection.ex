@@ -842,9 +842,8 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
   defp subscribe_scope(topic_fun) do
     with :ok <- Phoenix.PubSub.subscribe(Aiur.PubSub, @reset_topic),
-         {:ok, topic} <- topic_fun.(),
-         :ok <- Phoenix.PubSub.subscribe(Aiur.PubSub, topic) do
-      :ok
+         {:ok, topic} <- topic_fun.() do
+      Phoenix.PubSub.subscribe(Aiur.PubSub, topic)
     end
   end
 
