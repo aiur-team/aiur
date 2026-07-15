@@ -316,14 +316,26 @@ defmodule Aiur.Orchestrator.PushRouting do
   # Executors can see
   # the cap is blocking the resume, and stamp a hint on the entry so a
   # future reconcile tick (when a slot opens up) can drain the queue.
-  defp attempt_auto_resume(state, entry, identifier, blocker_identifier, topic, unblock_key, pause_generation) do
+  defp attempt_auto_resume(state, _entry, identifier, blocker_identifier, topic, unblock_key, pause_generation) do
     Logger.info("Auto-resume on blocker unblocked: blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}")
+
+    state =
+      stamp_pending_auto_resume(
+        state,
+        identifier,
+        blocker_identifier,
+        topic,
+        unblock_key,
+        pause_generation
+      )
+
+    entry = State.find_running_by_identifier(state.running, identifier)
 
     # operator?: false — an automated blocker resume must preserve a
     # duration-capped agent's cumulative overrun (no fresh budget).
     case Orchestrator.resume_paused_issue(state, entry, false) do
       {{:ok, :resumed}, next_state} ->
-        finish_blocker_resume(next_state, identifier, unblock_key)
+        next_state
 
       {{:error, :max_concurrent_agents_reached}, next_state} ->
         Logger.warning("Auto-resume deferred (cap full): blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}; entry remains paused with pending_auto_resume hint")
@@ -408,8 +420,7 @@ defmodule Aiur.Orchestrator.PushRouting do
         case Orchestrator.resume_paused_issue(state, entry, false) do
           {{:ok, :resumed}, next_state} ->
             Logger.info("Auto-resume drained: blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}")
-
-            finish_blocker_resume(next_state, identifier, Map.get(hint, :unblock_key, topic))
+            next_state
 
           {{:error, _reason}, next_state} ->
             # Cap still full or another error — keep the hint for the
@@ -459,6 +470,50 @@ defmodule Aiur.Orchestrator.PushRouting do
     |> update_running_entry(identifier, fn entry ->
       entry |> Map.delete(:pending_auto_resume) |> Map.delete(:blocker_pause)
     end)
+  end
+
+  @doc false
+  @spec finalize_applied_resume(State.t(), term()) :: State.t()
+  def finalize_applied_resume(%State{} = state, issue_id) do
+    case Map.get(state.running, issue_id) do
+      %{identifier: identifier, pending_auto_resume: %{unblock_key: unblock_key} = hint}
+      when is_binary(identifier) and is_binary(unblock_key) ->
+        state
+        |> finish_blocker_resume(identifier, unblock_key)
+        |> maybe_acknowledge_applied_unblock(hint)
+
+      running_entry when is_map(running_entry) ->
+        updated =
+          running_entry
+          |> Map.delete(:pending_auto_resume)
+          |> Map.delete(:blocker_pause)
+
+        %{state | running: Map.put(state.running, issue_id, updated)}
+
+      _ ->
+        state
+    end
+  end
+
+  defp maybe_acknowledge_applied_unblock(state, %{blocker_identifier: blocker_identifier}) do
+    case BranchRefStore.ready_unblock(blocker_identifier) do
+      %{ref: ref, sha: sha} ->
+        topic = "ticket.#{blocker_identifier}.agent.unblocked"
+        unblock_key = topic <> ":" <> sha
+        recipients = relevant_recipient_identifiers(state, blocker_identifier, topic)
+        acknowledge_if_consumed(state, recipients, unblock_key, blocker_identifier, ref, sha)
+        state
+
+      nil ->
+        state
+    end
+  end
+
+  defp acknowledge_if_consumed(state, recipients, unblock_key, blocker_identifier, ref, sha) do
+    if recipients_consumed?(state, recipients, unblock_key) and
+         BranchRefStore.acknowledge_unblock(ref, sha) == :error do
+      Logger.warning("Final unblock acknowledgement remains pending after persistence failure: blocker=#{blocker_identifier} ref=#{ref} sha=#{sha}")
+    end
   end
 
   defp prepare_agent_pause(entry, event) do

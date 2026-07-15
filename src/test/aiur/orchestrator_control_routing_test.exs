@@ -114,6 +114,42 @@ defmodule Aiur.OrchestratorControlRoutingTest do
       refute Map.has_key?(resumed_state.running[issue_id], :pending_pause_reason)
     end
 
+    test "a new pause supersedes an accepted resume before its worker evidence" do
+      issue_id = unique_id("control-pause-pending-resume")
+
+      entry =
+        running_entry(issue_id,
+          control: %{
+            status: :paused,
+            can_interrupt: true,
+            safe_checkpoints: [:notification],
+            application_confirmation: :confirmed,
+            generation: 101,
+            version: 1
+          },
+          paused_reason: :operator_pause
+        )
+
+      state = base_state(running: %{issue_id => entry})
+      assert {:reply, {:ok, 73}, resume_pending_state} = PauseResume.request_control_call(state, issue_id, :resume, 73)
+      assert_receive {:resume_agent, 73, 101}
+
+      assert {{:ok, :already_paused}, paused_state} =
+               PauseResume.request_pause(resume_pending_state, entry, entry.issue, :ci_wait)
+
+      assert paused_state.running[issue_id].control.status == :paused
+      assert paused_state.running[issue_id].paused_reason == :ci_wait
+
+      assert %{status: :rejected, rejection: %{class: :superseded}} =
+               paused_state.control_lifecycle.records[73]
+
+      assert {:noreply, ^paused_state} =
+               Orchestrator.handle_info(
+                 {:worker_control_state, issue_id, :working, %{request_id: 73, generation: 101}},
+                 paused_state
+               )
+    end
+
     test "a newer request publishes the older pending request as superseded" do
       issue_id = unique_id("control-superseded-event")
       state = base_state(running: %{issue_id => running_entry(issue_id)})

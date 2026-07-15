@@ -163,15 +163,17 @@ defmodule Aiur.Codex.TurnLoopTest do
       on_exit(fn -> ProviderTurnLedger.stop_store(store) end)
       port = open_cat_port()
 
+      control = %{request_id: 56, generation: 9}
+
       state =
         store
         |> stored_turn_state("turn-old")
         |> TurnState.record_accepted_provider_turn(%{"id" => "turn-accepted", "status" => "inProgress"})
-        |> Map.put(:pause_request_id, 56)
+        |> Map.put(:pause_request_id, control)
 
       payload = %{"method" => "turn/cancelled", "params" => %{"reason" => "operator pause"}}
 
-      assert {:paused, %{request_id: 56}} =
+      assert {:paused, %{control: ^control}} =
                TurnLoop.handle_method(%{port: port}, state, payload, Jason.encode!(payload), "turn/cancelled")
 
       resumed = stored_turn_state(store, "turn-new")
@@ -794,10 +796,12 @@ defmodule Aiur.Codex.TurnLoopTest do
       port = open_cat_port()
       idle = %{"method" => "thread/status/changed", "params" => %{"status" => %{"type" => "idle"}}}
 
+      control = %{request_id: 7, generation: 3}
+
       state = %{
         base_state()
         | turn_started?: true,
-          pause_request_id: 7,
+          pause_request_id: control,
           pending_interrupt_request_id: 42,
           interrupt_action: :pause
       }
@@ -812,7 +816,7 @@ defmodule Aiur.Codex.TurnLoopTest do
 
       interrupted = turn_completed_payload("turn-1", "interrupted")
 
-      assert {:paused, %{request_id: 7, turn_id: "turn-1", details: ^interrupted}} =
+      assert {:paused, %{control: ^control, turn_id: "turn-1", details: ^interrupted}} =
                TurnLoop.handle_method(
                  %{port: port},
                  idle_state,

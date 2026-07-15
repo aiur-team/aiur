@@ -58,6 +58,9 @@ defmodule Aiur.Orchestrator.State do
           control_lifecycle: ControlLifecycle.t()
         }
 
+  # The Orchestrator is the single owner of the correlated control lifecycle;
+  # keeping that aggregate here avoids a second process/state authority.
+  # credo:disable-for-next-line Credo.Check.Warning.StructFieldAmount
   defstruct [
     :poll_interval_ms,
     :max_concurrent_agents,

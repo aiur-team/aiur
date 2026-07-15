@@ -11,6 +11,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.OperatorMessages
+  alias Aiur.Orchestrator.PushRouting
   alias Aiur.Orchestrator.Reconciler
   alias Aiur.Orchestrator.RemoteControlMode
   alias Aiur.Orchestrator.RetryEngine
@@ -285,15 +286,50 @@ defmodule Aiur.Orchestrator.PauseResume do
       when is_map(running_entry) and is_atom(pause_reason) do
     {state, running_entry, issue_id, identifier} = prepare_pause_request(state, running_entry, issue)
 
-    case matching_pending_pause(state, running_entry, pause_reason) do
-      %{request_id: request_id} ->
-        {{:ok, request_id}, state}
+    cond do
+      State.paused_running_entry?(running_entry) ->
+        adopt_existing_pause(state, running_entry, pause_reason)
 
-      nil when is_binary(identifier) ->
+      pending = matching_pending_pause(state, running_entry, pause_reason) ->
+        {{:ok, pending.request_id}, state}
+
+      is_binary(identifier) ->
         submit_pause_request(state, running_entry, issue_id, identifier, pause_reason)
 
-      nil ->
+      true ->
         {{:error, :invalid_identifier}, state}
+    end
+  end
+
+  defp adopt_existing_pause(state, running_entry, pause_reason) do
+    state = supersede_pending_resume(state, running_entry)
+    running_entry = Map.put(running_entry, :paused_reason, pause_reason)
+    state = transition_control_status(state, running_entry, :paused, Atom.to_string(pause_reason))
+    {{:ok, :already_paused}, state}
+  end
+
+  defp supersede_pending_resume(state, running_entry) do
+    issue_id = issue_id(running_entry, Map.get(running_entry, :issue))
+
+    case ControlLifecycle.current_pending(state.control_lifecycle, issue_id) do
+      %{action: :resume, request_id: request_id} ->
+        case ControlLifecycle.reject(
+               state.control_lifecycle,
+               request_id,
+               :superseded,
+               now: DateTime.utc_now()
+             ) do
+          {:ok, rejected, lifecycle} ->
+            state = %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle()
+            publish_control_lifecycle(Map.get(running_entry, :identifier), rejected)
+            state
+
+          {:ignored, lifecycle} ->
+            %{state | control_lifecycle: lifecycle}
+        end
+
+      _ ->
+        state
     end
   end
 
@@ -505,7 +541,8 @@ defmodule Aiur.Orchestrator.PauseResume do
          :input_required,
          :label_override,
          :operator_pause,
-         :pause_containment
+         :pause_containment,
+         :blocker_dependency
        ] do
       Map.delete(running_entry, :paused_reason)
     else
@@ -538,6 +575,7 @@ defmodule Aiur.Orchestrator.PauseResume do
     operator? = requester == :operator
 
     state
+    |> PushRouting.finalize_applied_resume(issue_id)
     |> update_in([Access.key(:running)], &reset_last_codex_timestamp(&1, issue_id, now))
     |> update_in([Access.key(:running)], &reset_duration_clock_if_capped(&1, issue_id, now, operator?))
     |> then(fn state -> if operator?, do: Dispatcher.reset_thrash_budget(state, issue_id), else: state end)
