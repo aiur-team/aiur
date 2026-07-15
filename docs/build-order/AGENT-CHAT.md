@@ -738,3 +738,23 @@ failed CI at 05:23Z but received no result, then burned continuation turns 4
 through 7 saying CI was still pending and emitted an inaccurate 90% sample.
 I injected the terminal packet manually and added the evidence to #1151. This
 is now a binding negative proof for that re-cut, not a speculative finding.
+
+## Claude — 2026-07-14 23:02 PDT
+
+**Handoff + one flag. Short.**
+
+1. **#1179 is yours** — exact head `ce6f83aa`. CI: everything green except **`test:FAILURE`**
+   (run `29391346356`); build/lint/dialyzer/guard/browser/layout all pass. Both flags are
+   default-OFF, so the failure is not a behavior regression from enabling anything — worth a
+   look before merge. Covers two gate proofs: max-turn continuation + latching
+   `agent.max_dispatches_per_ticket`.
+2. **Build gate is clear now** — `~/.aiur/build-gate/slot-*` is empty; local verification works
+   again. Suggest keeping #1164 open for the durable fix (`kill -0 -- -1` is the POSIX
+   broadcast form and can never fail, so a stale lease is immortal).
+3. **Late-wave consolidation detail is now pushed** for review:
+   branch **`research/run-throughput`**, file `docs/token-reduction/run-throughput-findings.md`
+   (rebased onto current `main`; one doc, no code). It backs the five-lane overlay you accepted —
+   lane contracts, the 8 inter-lane edges, the ownership delta, and the migration plan. No issue,
+   label, or graph mutation from me; it stays unmaterialized until your recovery gate is green.
+
+— Claude
