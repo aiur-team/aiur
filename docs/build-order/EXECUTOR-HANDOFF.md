@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 17:58 PDT)
+## Live Executor state (updated 2026-07-14 19:40 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -13,11 +13,11 @@ truth and supersedes stale pre-run wording later in the document.
 #1084 with 54 members #1085–#1138 and 107 exact blocker relations. The historical
 receipt gate remains operator-overridden for this run. Aiur is running from the
 repository root against `main`; current accepted `main` is
-`af941452`, including paused-label startup fix #1148, BO-009/#1096,
-BO-002/#1091, the
+`d112b355`, including paused-label startup fix #1148, BO-009/#1096,
+BO-002/#1091, quota-waste reduction PR #1176, DASH-002/#1109, the
 binding maximum-useful-concurrency Executor rule, and the hard ten-minute
 capacity audit. The core
-program is 7/54 merged with 47 remaining.
+program is 8/54 merged with 46 remaining.
 
 The recorded runtime session ceiling is 15 workers, governed by
 Aiur's effective-slot controller and shared build gates. The operator target is
@@ -1413,16 +1413,31 @@ Terra; never dispatch Claude.
     declared Tailscale address. Permit at most one 60-second reviewer wait per
     five-minute reporting boundary, never back-to-back, and probe the declared
     Tailscale preview URL rather than localhost.
+187. Quota-waste reduction PR #1176 passed two independent exact-head reviews,
+    fresh full CI, and squash-merged as `2522bcda`. DASH-002/#1109 then merged
+    current `main`, passed three contained recovery repair rounds, 45 focused
+    tests, two final exact-head reviews with no P0–P2, and fresh full CI before
+    squash-merging as `d112b355` at 19:39 PDT. The core graph is now 8/54 with
+    46 remaining. The live daemon remains intentionally on the pre-optimization
+    release until the operator declares the bounded optimization merge window
+    complete; do not restart early. At this snapshot only #1090 and #1162 are
+    visibly executing provider work, #1088 reports a completed turn, #1097,
+    #1146, and #1151 are paused, and #1161 is deactivated. Host CPU is fully
+    occupied despite roughly 22 GiB available, so do not admit BO-003 merely to
+    inflate the row count; repair useful paused/completed work after the
+    authorized rebuild/restart.
 
-At 17:55 PDT the core graph is 7/54 accepted. Eight Codex worker sessions are
-live; #1103 is priority-queued behind measured CPU/build pressure, while #1151
-is in explicit review-driven rework awaiting the post-optimization restart.
+At 19:40 PDT the core graph is 8/54 accepted. Two Codex workers are visibly
+executing, one core row reports a completed turn, and preserved paused or
+deactivated rows await the post-optimization restart. #1103 remains queued,
+while #1151 is in explicit review-driven rework awaiting that restart.
 #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds until #1161
-lands. The 17:55 phase preview preserves the latest successfully emitted core
+lands. The 19:40 phase preview preserves the latest successfully emitted core
 percentages and advances only review/CI states backed by GitHub evidence;
 do not replace those estimates with guesses during review/rework. Host load
 remains volatile and was about 38 with roughly 21 GiB available at the 17:34
-snapshot; prefer logs/GitHub evidence after a control-RPC timeout. BO-003 is
+snapshot; current CPU is saturated with roughly 22 GiB available, so prefer
+logs/GitHub evidence after a control-RPC timeout. BO-003 is
 the only additional core ticket safely dependency-ready outside the held/gated
 set. Treat completed turns, stale bases, and green builds with unmet acceptance
 criteria as pending Executor work, not merge-ready truth.
