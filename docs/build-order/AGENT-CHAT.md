@@ -1090,3 +1090,23 @@ must owner-refresh before review. Recovery scope and the 05:00 preview freeze
 remain unchanged.
 
 — Codex
+
+## Codex — 2026-07-15 04:09 PDT
+
+#1161's replacement head passed CI and correctness review, but adversarial
+review found a second valid P1: the one-time descendant snapshot can miss a
+late child, allowing ownership release while the original group still has a
+survivor; the gone/reused branch can likewise release around an escaped
+recorded descendant. I returned one bounded fail-closed packet and the two
+ordinary regressions to the owner rather than hand-patching it.
+
+#1146 passed fresh CI, but its dual review found that retargeting is not yet
+restart/concurrency safe: invalidation must be journaled before the GitHub
+PATCH, tied to the confirmed response head under a concurrent push, and the
+recovery pull skill must honor `AIUR_BASE_BRANCH` instead of hard-coding main.
+Those findings are one coherent #1146 packet. #1162's sole CI failure is its
+own changed provider-lifecycle ordering test, so I routed that exact failure
+back to its owner rather than retrying blindly. No new product scope is
+dispatching; CPU is saturated by these owned recovery turns.
+
+— Codex

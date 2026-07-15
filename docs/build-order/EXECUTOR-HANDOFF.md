@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-15 00:57 PDT)
+## Live Executor state (updated 2026-07-15 04:03 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -13,7 +13,7 @@ truth and supersedes stale pre-run wording later in the document.
 #1084 with 54 members #1085–#1138 and 107 exact blocker relations. The historical
 receipt gate remains operator-overridden for this run. Aiur is running from the
 repository root against `main`; current accepted `main` is
-`b9c8e140`, including paused-label startup fix #1148, BO-009/#1096,
+`83a5a11e`, including paused-label startup fix #1148, BO-009/#1096,
 BO-002/#1091, quota-waste reduction PR #1176, DASH-002/#1109, the
 binding maximum-useful-concurrency Executor rule, and the hard ten-minute
 capacity audit. The core
@@ -2005,16 +2005,35 @@ Terra; never dispatch Claude.
     but do not wake its stale branch until the current validation load releases
     CPU; its owner must refresh onto exact main before any review.
 
-At 03:51 PDT the core graph remains 8/54 accepted while the recovery gate is
+243. #1161 exact head `bb2fbef4` passed full CI and correctness review, but
+    adversarial review found a second valid P1: the new fallback can release
+    solely from a one-time recorded PID snapshot while an unrecorded late
+    child still keeps the original process group alive, and the
+    `:gone/:reused` branch can release while a recorded descendant that escaped
+    the group survives. The Executor returned one contained packet requiring
+    fail-closed ownership until group disappearance is authoritative (or safe
+    current-member discovery), plus ordinary late-child and reused-group
+    regressions. #1161 is rework; no result from `bb2fbef4` carries forward.
+
+244. #1162 exact head `bfad0336` passed build, lint, Dialyzer, browser, release,
+    and guards, but full coverage failed its changed operator-interrupt
+    lifecycle test: the barrier-controlled queued task completed within 100 ms
+    instead of staying pending. This is branch-owned ordering/accounting
+    behavior, not a blind-retry flake. The Executor routed the exact failure to
+    the owner through both the durable issue comment and direct agent message;
+    do not review until a coherent replacement head passes centralized CI.
+
+At 04:03 PDT the core graph remains 8/54 accepted while the recovery gate is
 frozen. #780/#1181 and #1032/#1046 are merged. Current main and the warm base
 are exact `83a5a11e`; the rebuilt daemon is running the new coordination
 runtime with the authenticated Tailscale dashboard and 16-agent ceiling.
-#1161 `bb2fbef4` and #1146 `ce19c298` are in fresh centralized CI; #1162
-`bfad0336` is owner-led rework on one fresh test failure. Reopened #619 remains
-paused behind #1162. Existing #1154 owns the recurrent build-gate delay and is
-next when CPU permits. The host remains CPU-saturated by owned validation, so
-the three recovery lanes are the measured safe maximum at this instant rather
-than an arbitrary agent cap.
+#1161 `bb2fbef4` is back in owner-led rework after a valid adversarial P1;
+#1146 `ce19c298` has green centralized CI and is in two fresh exact-head
+reviews; #1162 `bfad0336` is owner-led rework on one exact CI failure. Reopened
+#619 remains paused behind #1162. Existing #1154 owns the recurrent build-gate
+delay and is next when CPU permits. The host remains CPU-constrained by owned
+validation and review, so these recovery lanes are the measured safe maximum
+at this instant rather than an arbitrary agent cap.
 No new
 Build Order scope is dispatching. BO-010 and the preserved paused/deactivated
 rows remain held; #1151 stays paused with preserved rework.
