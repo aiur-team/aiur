@@ -1,33 +1,22 @@
 defmodule Aiur.Codex.AccountGeneration do
   @moduledoc false
 
-  alias Aiur.ProviderAccountGeneration
+  alias Aiur.{ModelAvailability, ProviderAccountGeneration}
+  alias Aiur.Codex.AccountGeneration.Context
 
   @account_updated "account/updated"
   @token_refresh "account/chatgptAuthTokens/refresh"
   @rate_limits_updated "account/rateLimits/updated"
 
+  @authentication_changed "provider_account/authentication_changed"
+  @authentication_refreshed "provider_account/authentication_refreshed"
+  @rate_limits_changed "provider_account/rate_limits_changed"
+  @unknown_lifecycle "provider_account/unknown_lifecycle"
+
   @account_updated_auth_modes ~w(apikey chatgpt chatgptAuthTokens headers agentIdentity personalAccessToken bedrockApiKey)
 
-  @type binding_context :: %{
-          binding: reference(),
-          authority: reference(),
-          context: reference(),
-          topic: String.t()
-        }
-
-  @spec new_binding(GenServer.server()) :: binding_context()
-  def new_binding(server \\ ProviderAccountGeneration) do
-    binding =
-      case ProviderAccountGeneration.issue_binding(server, :codex, :app_server) do
-        {:ok, binding} -> binding
-        {:error, _reason} -> %{binding: make_ref(), authority: make_ref(), topic: mint_topic()}
-      end
-
-    context = make_ref()
-    Process.put(context_key(context), binding)
-    Map.put(binding, :context, context)
-  end
+  @spec new_binding(GenServer.server()) :: map()
+  def new_binding(server \\ ProviderAccountGeneration), do: Context.new_binding(server)
 
   @spec handle_notification(map(), String.t(), map()) :: :ignore | {:redacted, map()}
   def handle_notification(session, @account_updated, payload) when is_map(session) and is_map(payload) do
@@ -45,8 +34,10 @@ defmodule Aiur.Codex.AccountGeneration do
     {:redacted, redacted_message(@token_refresh)}
   end
 
-  def handle_notification(_session, @rate_limits_updated, _payload),
-    do: {:redacted, redacted_message(@rate_limits_updated)}
+  def handle_notification(session, @rate_limits_updated, payload) when is_map(session) and is_map(payload) do
+    observe_rate_limits(session, payload)
+    {:redacted, redacted_message(@rate_limits_updated)}
+  end
 
   def handle_notification(session, <<"account/", _rest::binary>> = method, _payload) when is_map(session) do
     lose_continuity(session, :untrusted_lifecycle)
@@ -72,7 +63,7 @@ defmodule Aiur.Codex.AccountGeneration do
   @spec process_stopped(map()) :: :ok
   def process_stopped(session) when is_map(session) do
     retire_binding(session, :continuity_lost)
-    clear_binding_context(session)
+    Context.clear(session)
     :ok
   end
 
@@ -106,7 +97,7 @@ defmodule Aiur.Codex.AccountGeneration do
   end
 
   defp with_recovered_binding(session, transition) when is_function(transition, 3) do
-    with {:ok, server, binding, authority, topic} <- binding_context(session),
+    with {:ok, server, binding, authority, topic} <- Context.fetch(session),
          :ok <- recover_retained_binding(server, binding, authority, topic) do
       transition.(server, binding, authority)
     end
@@ -136,68 +127,6 @@ defmodule Aiur.Codex.AccountGeneration do
 
   defp recover_retained_binding(_server, _binding, _authority, _topic), do: :ok
 
-  defp binding_context(session) do
-    case Map.fetch(session, :account_generation_context) do
-      {:ok, context} when is_reference(context) ->
-        case current_binding_context(context) do
-          {:ok, _binding} = binding -> binding_context_from(binding, session)
-          :cleared -> :error
-          :error -> fallback_binding_context(session)
-        end
-
-      _ ->
-        fallback_binding_context(session)
-    end
-  end
-
-  defp fallback_binding_context(session) do
-    binding_context_from(
-      %{
-        binding: Map.get(session, :account_generation_binding),
-        authority: Map.get(session, :account_generation_authority),
-        topic: Map.get(session, :account_generation_topic)
-      },
-      session
-    )
-  end
-
-  defp binding_context_from({:ok, binding}, session), do: binding_context_from(binding, session)
-
-  defp binding_context_from(%{binding: binding, authority: authority} = context, session) do
-    case {binding, authority} do
-      {binding, authority} when is_reference(binding) and is_reference(authority) ->
-        server = Map.get(session, :account_generation_server, ProviderAccountGeneration)
-        topic = Map.get(context, :topic)
-        {:ok, server, binding, authority, topic}
-
-      _ ->
-        :error
-    end
-  end
-
-  defp current_binding_context(context) do
-    case Process.get(context_key(context)) do
-      %{binding: binding, authority: authority, topic: topic}
-      when is_reference(binding) and is_reference(authority) and is_binary(topic) ->
-        {:ok, %{binding: binding, authority: authority, topic: topic}}
-
-      :cleared ->
-        :cleared
-
-      _ ->
-        :error
-    end
-  end
-
-  defp clear_binding_context(%{account_generation_context: context}) when is_reference(context),
-    do: Process.put(context_key(context), :cleared)
-
-  defp clear_binding_context(_session), do: :ok
-
-  defp context_key(context), do: {__MODULE__, :binding_context, context}
-
-  defp mint_topic, do: Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
-
   defp account_updated_auth_mode(%{"params" => %{"authMode" => nil}}), do: :logout
 
   defp account_updated_auth_mode(%{"params" => %{"authMode" => auth_mode}}) when auth_mode in @account_updated_auth_modes,
@@ -205,8 +134,17 @@ defmodule Aiur.Codex.AccountGeneration do
 
   defp account_updated_auth_mode(_payload), do: :error
 
+  defp observe_rate_limits(session, %{"params" => %{"rateLimits" => rate_limits}}) when is_map(rate_limits) do
+    observer = Map.get(session, :rate_limit_observer, &ModelAvailability.observe/2)
+    observer.("codex", rate_limits)
+  end
+
+  defp observe_rate_limits(_session, _payload), do: :ok
+
   defp redacted_message(method), do: %{payload: %{"method" => redacted_method(method), "params" => %{}}, raw: nil}
 
-  defp redacted_method(method) when method in [@account_updated, @token_refresh, @rate_limits_updated], do: method
-  defp redacted_method(<<"account/", _rest::binary>>), do: "account/unknown"
+  defp redacted_method(@account_updated), do: @authentication_changed
+  defp redacted_method(@token_refresh), do: @authentication_refreshed
+  defp redacted_method(@rate_limits_updated), do: @rate_limits_changed
+  defp redacted_method(<<"account/", _rest::binary>>), do: @unknown_lifecycle
 end

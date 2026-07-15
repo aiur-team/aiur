@@ -31,10 +31,13 @@ defmodule Aiur.AppServer.Rpc.SensitiveResponses do
         false
 
       :malformed ->
-        Enum.any?(ids(), fn {retained_port, _request_id} -> retained_port == port end)
+        malformed_sensitive_response?(port, data)
     end
   end
 
+  defp response_id(%{"id" => request_id, "result" => _result}) when is_integer(request_id), do: {:ok, request_id}
+  defp response_id(%{"id" => request_id, "error" => _error}) when is_integer(request_id), do: {:ok, request_id}
+  defp response_id(%{"method" => _method}), do: :not_a_response
   defp response_id(%{"id" => request_id}) when is_integer(request_id), do: {:ok, request_id}
   defp response_id(%{"id" => _request_id}), do: :malformed
   defp response_id(%{}), do: :not_a_response
@@ -47,6 +50,29 @@ defmodule Aiur.AppServer.Rpc.SensitiveResponses do
   end
 
   defp response_id(_data), do: :malformed
+
+  defp malformed_sensitive_response?(port, data) when is_map(data) do
+    Enum.any?(ids(), fn {retained_port, _request_id} -> retained_port == port end)
+  end
+
+  defp malformed_sensitive_response?(port, data) when is_binary(data) do
+    case Enum.find(ids(), fn
+           {^port, request_id} ->
+             String.match?(data, ~r/"(?:i|\\u0069)(?:d|\\u0064)"\s*:\s*#{request_id}(?=\s*[,}])/)
+
+           _retained ->
+             false
+         end) do
+      {^port, request_id} ->
+        ids() |> MapSet.delete({port, request_id}) |> put_ids()
+        true
+
+      nil ->
+        false
+    end
+  end
+
+  defp malformed_sensitive_response?(_port, _data), do: false
 
   defp ids, do: Process.get(@key, MapSet.new())
 

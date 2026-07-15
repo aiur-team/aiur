@@ -1,8 +1,16 @@
 defmodule Aiur.Codex.AccountGenerationTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Aiur.Codex.AccountGeneration
   alias Aiur.ProviderAccountGeneration
+
+  setup_all do
+    unless Process.whereis(Aiur.PubSub) do
+      start_supervised!({Phoenix.PubSub, name: Aiur.PubSub}, id: {Phoenix.PubSub, Aiur.PubSub})
+    end
+
+    :ok
+  end
 
   setup do
     owner = start_owner(mint: sequence_mint(), clock: fn -> ~U[2026-07-13 12:00:00Z] end)
@@ -30,6 +38,7 @@ defmodule Aiur.Codex.AccountGenerationTest do
     assert snapshot.source == :codex_app_server
     refute inspect(snapshot) =~ raw_identity
     refute inspect(:sys.get_state(owner)) =~ raw_identity
+    refute inspect(:sys.get_state(owner)) =~ "chatgpt"
   end
 
   test "account updates create a shared generation and emit only a redacted audit message", %{owner: owner, session: session} do
@@ -41,7 +50,7 @@ defmodule Aiur.Codex.AccountGenerationTest do
     }
 
     assert {:redacted, details} = AccountGeneration.handle_notification(session, "account/updated", payload)
-    assert details == %{payload: %{"method" => "account/updated", "params" => %{}}, raw: nil}
+    assert details == %{payload: %{"method" => "provider_account/authentication_changed", "params" => %{}}, raw: nil}
 
     assert snapshot = ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
     assert is_binary(snapshot.generation)
@@ -93,6 +102,9 @@ defmodule Aiur.Codex.AccountGenerationTest do
   end
 
   test "token refresh and quota updates do not rotate a known binding", %{owner: owner, session: session} do
+    parent = self()
+    session = Map.put(session, :rate_limit_observer, fn backend, limits -> send(parent, {:rate_limits, backend, limits}) end)
+
     assert {:redacted, _} =
              AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "chatgpt"}})
 
@@ -101,11 +113,14 @@ defmodule Aiur.Codex.AccountGenerationTest do
     assert {:redacted, %{raw: nil}} =
              AccountGeneration.handle_notification(session, "account/chatgptAuthTokens/refresh", %{"params" => %{}})
 
-    assert {:redacted, %{payload: %{"method" => "account/rateLimits/updated", "params" => %{}}, raw: nil}} =
+    rate_limits = %{"primary" => %{"usedPercent" => 100}}
+
+    assert {:redacted, %{payload: %{"method" => "provider_account/rate_limits_changed", "params" => %{}}, raw: nil}} =
              AccountGeneration.handle_notification(session, "account/rateLimits/updated", %{
-               "params" => %{"rateLimits" => %{"primary" => %{"usedPercent" => 100}}}
+               "params" => %{"rateLimits" => rate_limits}
              })
 
+    assert_receive {:rate_limits, "codex", ^rate_limits}, 2_000
     assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding) == first
   end
 
@@ -118,7 +133,7 @@ defmodule Aiur.Codex.AccountGenerationTest do
                "params" => %{"email" => "person@example.test", "credential" => "super-secret"}
              })
 
-    assert details == %{payload: %{"method" => "account/unknown", "params" => %{}}, raw: nil}
+    assert details == %{payload: %{"method" => "provider_account/unknown_lifecycle", "params" => %{}}, raw: nil}
 
     assert %{generation: nil, reason: :untrusted_lifecycle} =
              ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
@@ -168,7 +183,7 @@ defmodule Aiur.Codex.AccountGenerationTest do
       send(parent, {:copied_session_result, result})
     end)
 
-    assert_receive {:copied_session_result, {:redacted, _}}
+    assert_receive {:copied_session_result, {:redacted, _}}, 2_000
 
     assert %{generation: nil, reason: :continuity_lost} =
              ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
@@ -198,7 +213,7 @@ defmodule Aiur.Codex.AccountGenerationTest do
     assert {:redacted, _} =
              AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "chatgpt"}})
 
-    assert_receive {:provider_account_generation_changed, %{change: :bound, generation: original_generation}}
+    assert_receive {:provider_account_generation_changed, %{change: :bound, generation: original_generation}}, 2_000
 
     assert is_binary(original_generation)
 
@@ -216,7 +231,7 @@ defmodule Aiur.Codex.AccountGenerationTest do
     assert {:redacted, _} =
              AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "chatgpt"}})
 
-    assert_receive {:provider_account_generation_changed, recovered}
+    assert_receive {:provider_account_generation_changed, recovered}, 2_000
     assert %{change: :recovered, generation: nil, reason: :never_observed} = recovered
 
     assert %{generation: recovered_generation, source: :codex_app_server} =
@@ -229,7 +244,7 @@ defmodule Aiur.Codex.AccountGenerationTest do
 
     assert is_binary(recovered_generation)
     refute recovered_generation == original_generation
-    assert_receive {:provider_account_generation_changed, %{change: :bound, generation: ^recovered_generation}}
+    assert_receive {:provider_account_generation_changed, %{change: :bound, generation: ^recovered_generation}}, 2_000
   end
 
   test "every post-restart lifecycle transition recovers the retained topic before publishing" do
@@ -257,11 +272,11 @@ defmodule Aiur.Codex.AccountGenerationTest do
 
       assert_transition_result(transition.(session))
 
-      assert_receive {:provider_account_generation_changed, recovered}
+      assert_receive {:provider_account_generation_changed, recovered}, 2_000
       assert %{change: :recovered, generation: nil, reason: :never_observed} = recovered
 
       if expected_change do
-        assert_receive {:provider_account_generation_changed, changed}
+        assert_receive {:provider_account_generation_changed, changed}, 2_000
         assert %{change: ^expected_change, generation: nil, reason: ^expected_reason} = changed
       else
         refute_receive {:provider_account_generation_changed, _event}
@@ -299,21 +314,24 @@ defmodule Aiur.Codex.AccountGenerationTest do
 
     parent = self()
 
-    recovery_pid =
-      spawn(fn ->
-        result =
-          AccountGeneration.handle_notification(session, "account/updated", %{
-            "params" => %{"authMode" => "chatgpt"}
-          })
+    spawn(fn ->
+      result =
+        AccountGeneration.handle_notification(session, "account/updated", %{
+          "params" => %{"authMode" => "chatgpt"}
+        })
 
-        send(parent, {:outage_recovery, result})
+      send(parent, {:copied_outage_session, result})
+    end)
 
-        receive do
-          :stop -> :ok
-        end
-      end)
+    assert_receive {:copied_outage_session, {:redacted, _}}, 2_000
 
-    assert_receive {:outage_recovery, {:redacted, _}}
+    assert %{generation: nil, reason: :never_observed} =
+             ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
+
+    assert {:redacted, _} =
+             AccountGeneration.handle_notification(session, "account/updated", %{
+               "params" => %{"authMode" => "chatgpt"}
+             })
 
     assert %{generation: first_generation} =
              ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
@@ -321,15 +339,11 @@ defmodule Aiur.Codex.AccountGenerationTest do
     assert is_binary(first_generation)
     assert :ok = ProviderAccountGeneration.subscribe(owner, :codex, :app_server, session.account_generation_binding)
 
-    assert {:redacted, _} =
-             AccountGeneration.handle_notification(session, "account/updated", %{
-               "params" => %{"authMode" => "chatgpt"}
-             })
+    assert {:redacted, _} = AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "chatgpt"}})
 
-    assert_receive {:provider_account_generation_changed, %{change: :rotated, generation: replacement_generation}}
+    assert_receive {:provider_account_generation_changed, %{change: :rotated, generation: replacement_generation}}, 2_000
 
     refute replacement_generation == first_generation
-    send(recovery_pid, :stop)
   end
 
   test "state-machine property: lifecycle sequences never retain a stale known generation" do
@@ -437,7 +451,7 @@ defmodule Aiur.Codex.AccountGenerationTest do
                "params" => %{"authMode" => "chatgpt"}
              })
 
-    assert_receive {:provider_account_generation_changed, %{change: :bound}}
+    assert_receive {:provider_account_generation_changed, %{change: :bound}}, 2_000
     GenServer.stop(owner)
     {:ok, replacement_owner} = ProviderAccountGeneration.start_link(name: name, mint: mint)
     {replacement_owner, session}

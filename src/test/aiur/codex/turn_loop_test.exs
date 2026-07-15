@@ -298,6 +298,7 @@ defmodule Aiur.Codex.TurnLoopTest do
                    port: port,
                    account_generation_binding: binding,
                    account_generation_authority: account_generation.authority,
+                   account_generation_context: account_generation.context,
                    account_generation_server: owner
                  },
                  state,
@@ -306,10 +307,10 @@ defmodule Aiur.Codex.TurnLoopTest do
                  payload["method"]
                )
 
-      assert_receive {:full_event, message}
+      assert_receive {:full_event, message}, 2_000
       assert message.event == :notification
       assert message.raw == nil
-      assert message.payload == %{"method" => "account/updated", "params" => %{}}
+      assert message.payload == %{"method" => "provider_account/authentication_changed", "params" => %{}}
       refute Map.has_key?(message, :usage)
       refute inspect(message) =~ secret
 
@@ -341,6 +342,7 @@ defmodule Aiur.Codex.TurnLoopTest do
                    port: port,
                    account_generation_binding: binding,
                    account_generation_authority: account_generation.authority,
+                   account_generation_context: account_generation.context,
                    account_generation_server: owner
                  },
                  state,
@@ -349,10 +351,10 @@ defmodule Aiur.Codex.TurnLoopTest do
                  payload["method"]
                )
 
-      assert_receive {:full_event, message}
+      assert_receive {:full_event, message}, 2_000
       assert message.event == :notification
       assert message.raw == nil
-      assert message.payload == %{"method" => "account/unknown", "params" => %{}}
+      assert message.payload == %{"method" => "provider_account/unknown_lifecycle", "params" => %{}}
       refute inspect(message) =~ secret
 
       assert %{generation: nil, reason: :untrusted_lifecycle} =
@@ -382,6 +384,7 @@ defmodule Aiur.Codex.TurnLoopTest do
               port: port,
               account_generation_binding: account_generation.binding,
               account_generation_authority: account_generation.authority,
+              account_generation_context: account_generation.context,
               account_generation_server: owner
             },
             state,
@@ -392,8 +395,8 @@ defmodule Aiur.Codex.TurnLoopTest do
         end)
 
       assert {:continue, _state} = result
-      assert_receive {:full_event, message}
-      assert message.payload == %{"method" => "account/unknown", "params" => %{}}
+      assert_receive {:full_event, message}, 2_000
+      assert message.payload == %{"method" => "provider_account/unknown_lifecycle", "params" => %{}}
       refute inspect(message) =~ secret
       refute inspect(result) =~ secret
       refute log =~ secret
@@ -426,6 +429,7 @@ defmodule Aiur.Codex.TurnLoopTest do
               port: port,
               account_generation_binding: account_generation.binding,
               account_generation_authority: account_generation.authority,
+              account_generation_context: account_generation.context,
               account_generation_server: owner
             },
             state,
@@ -436,9 +440,9 @@ defmodule Aiur.Codex.TurnLoopTest do
         end)
 
       assert {:continue, _state} = result
-      assert_receive {:full_event, message}
+      assert_receive {:full_event, message}, 2_000
       assert message.event == :notification
-      assert message.payload == %{"method" => "account/unknown", "params" => %{}}
+      assert message.payload == %{"method" => "provider_account/unknown_lifecycle", "params" => %{}}
       refute inspect(message) =~ secret
       refute inspect(result) =~ secret
       refute log =~ secret

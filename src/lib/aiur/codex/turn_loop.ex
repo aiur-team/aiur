@@ -3,10 +3,8 @@ defmodule Aiur.Codex.TurnLoop do
   Codex-specific app-server method routing for turn events and notifications.
   """
 
-  require Logger
-
   alias Aiur.AppServer.{Messages, OperatorDelivery, Rpc, TurnState}
-  alias Aiur.Codex.{AccountGeneration, Approvals, NotificationPolicy, TurnEvents}
+  alias Aiur.Codex.{Approvals, NotificationPolicy, Notifications, TurnEvents}
 
   @spec handle_method(map(), map(), map(), String.t(), String.t()) :: term()
   def handle_method(
@@ -88,7 +86,7 @@ defmodule Aiur.Codex.TurnLoop do
         _payload_string,
         _method
       ) do
-    handle_account_method(session, state, method, payload)
+    Notifications.handle_account(session, state, method, payload)
   end
 
   def handle_method(session, state, %{"method" => method} = payload, payload_string, _method)
@@ -175,7 +173,7 @@ defmodule Aiur.Codex.TurnLoop do
         {:error, {:approval_required, payload}}
 
       :unhandled ->
-        handle_unhandled_method(
+        Notifications.handle_unhandled(
           session,
           state,
           method,
@@ -190,134 +188,5 @@ defmodule Aiur.Codex.TurnLoop do
   defp pause_latched?(session, state) do
     is_integer(state.pause_request_id) or
       Aiur.PauseContainment.paused?(Map.get(session, :containment))
-  end
-
-  defp handle_unhandled_method(
-         session,
-         state,
-         method,
-         payload,
-         payload_string,
-         on_message,
-         metadata
-       ) do
-    if NotificationPolicy.needs_input?(method, payload) do
-      Messages.emit_message(
-        on_message,
-        :turn_input_required,
-        %{payload: payload, raw: payload_string},
-        metadata
-      )
-
-      {:error, {:turn_input_required, payload}}
-    else
-      case emit_notification(on_message, session, method, payload, payload_string, metadata) do
-        {:account, safe_method} ->
-          handle_account_notification_outcome(session, state, safe_method)
-
-        :ordinary ->
-          handle_notification_outcome(session, state, method, payload)
-      end
-    end
-  end
-
-  defp emit_notification(on_message, session, method, payload, payload_string, metadata) do
-    case AccountGeneration.handle_notification(session, method, payload) do
-      {:redacted, details} ->
-        Messages.emit_message(
-          on_message,
-          :notification,
-          details,
-          TurnEvents.metadata_from_message(session.port, details.payload)
-        )
-
-        {:account, details.payload["method"]}
-
-      :ignore ->
-        Messages.emit_message(
-          on_message,
-          :notification,
-          %{payload: payload, raw: payload_string},
-          metadata
-        )
-
-        :ordinary
-    end
-  end
-
-  defp handle_account_notification_outcome(session, state, safe_method) do
-    checkpoint = NotificationPolicy.checkpoint_for_method(safe_method)
-    {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, checkpoint)}
-  end
-
-  defp handle_account_method(session, state, method, payload) do
-    case AccountGeneration.handle_notification(session, method, payload) do
-      {:redacted, details} ->
-        Messages.emit_message(
-          state.on_message,
-          :notification,
-          details,
-          TurnEvents.metadata_from_message(session.port, details.payload)
-        )
-
-        handle_account_notification_outcome(session, state, details.payload["method"])
-
-      :ignore ->
-        {:continue, state}
-    end
-  end
-
-  # Surface error-class notifications at info level with the full payload
-  # so the Executor log shows the actual codex failure (API rate limit,
-  # auth error, bwrap sandbox refusal, etc.) instead of an opaque
-  # `Codex notification: "error"` line that requires combing through
-  # 1000s of lines of debug-tier `Ignoring message while waiting for
-  # response` detail to reconstruct.
-  #
-  # When codex reports it will not retry (e.g. usageLimitExceeded with
-  # willRetry:false) end the turn as a hard failure instead of :continue.
-  # :continue lets the turn finish "normally", after which the
-  # orchestrator respawns it every ~1s, uncapped; a hard failure routes
-  # through the orchestrator's max_retry_attempts cap and backoff.
-  defp handle_notification_outcome(session, state, method, payload) do
-    cond do
-      NotificationPolicy.codex_quota_exhausted?(method, payload) ->
-        Logger.warning("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; codex account usage quota exhausted — pausing agent instead of burning retries")
-
-        {:paused, NotificationPolicy.usage_limit_pause(payload, method)}
-
-      NotificationPolicy.codex_error_method?(method) and
-          NotificationPolicy.unretryable_codex_error?(payload) ->
-        Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; willRetry=false, ending turn as unretryable")
-
-        {:error, {:turn_unretryable, NotificationPolicy.codex_error_reason(payload, method)}}
-
-      NotificationPolicy.turn_started_method?(method) ->
-        checkpoint = NotificationPolicy.checkpoint_for_method(method)
-
-        next_state =
-          session
-          |> OperatorDelivery.maybe_process_safe_checkpoint(
-            %{state | turn_started?: true},
-            checkpoint
-          )
-
-        {:continue, next_state}
-
-      state.turn_started? and NotificationPolicy.thread_idle_status?(method, payload) ->
-        Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; treating idle status as turn completion")
-
-        TurnState.continue_after_turn_completion(state)
-
-      NotificationPolicy.codex_error_method?(method) ->
-        Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}")
-        checkpoint = NotificationPolicy.checkpoint_for_method(method)
-        {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, checkpoint)}
-
-      true ->
-        Logger.debug("Codex notification: #{inspect(method)}")
-        checkpoint = NotificationPolicy.checkpoint_for_method(method)
-        {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, checkpoint)}
-    end
   end
 end

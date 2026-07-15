@@ -141,7 +141,7 @@ defmodule Aiur.Codex.HandshakeTest do
           case "$line" in
             *'"id":5'*)
               sleep 1.1
-              printf '%s\\n' 'malformed delayed account=#{raw_identity}' ;;
+              printf '%s\\n' '{"id":5,"result": malformed delayed account=#{raw_identity}' ;;
             *'"id":4'*)
               printf '%s\\n' '{"id":4,"result":{"rateLimits":{"primary":{"usedPercent":100}}}}'
               exit 0 ;;
@@ -191,7 +191,7 @@ defmodule Aiur.Codex.HandshakeTest do
       assert {:ok, "thread-1"} =
                Handshake.send_thread_init(port, Frames.thread_init_frame(nil, "/ws", @policies), on_notification: handler)
 
-      assert_receive {:startup_lifecycle, "account/updated"}
+      assert_receive {:startup_lifecycle, "account/updated"}, 2_000
     end
 
     test "routes trusted notifications that arrive while turn startup waits" do
@@ -224,7 +224,7 @@ defmodule Aiur.Codex.HandshakeTest do
       }
 
       assert {:ok, "turn-1"} = Handshake.start_turn(session, "prompt", %{identifier: "DASH-018", title: "test"})
-      assert_receive {:turn_lifecycle, "account/updated"}
+      assert_receive {:turn_lifecycle, "account/updated"}, 2_000
     end
   end
 

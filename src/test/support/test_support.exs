@@ -289,6 +289,9 @@ defmodule Aiur.TestSupport do
           tracker_label_prefix: nil,
           tracker_bot_account: nil,
           tracker_trusted_accounts: [],
+          tracker_planning_root_limit: 100,
+          tracker_planning_page_budget: 4,
+          tracker_planning_call_budget: 4,
           max_vertical_panes: 3,
           pre_warmed_sessions: 3,
           agent_kind: "codex",
@@ -488,13 +491,19 @@ defmodule Aiur.TestSupport do
     label_prefix = Keyword.get(config, :tracker_label_prefix)
     bot_account = Keyword.get(config, :tracker_bot_account)
     trusted_accounts = Keyword.get(config, :tracker_trusted_accounts, [])
+    planning_root_limit = Keyword.get(config, :tracker_planning_root_limit)
+    planning_page_budget = Keyword.get(config, :tracker_planning_page_budget)
+    planning_call_budget = Keyword.get(config, :tracker_planning_call_budget)
 
     [
       "  github:",
       repo && "    repo: #{yaml_value(repo)}",
       label_prefix && "    label_prefix: #{yaml_value(label_prefix)}",
       bot_account && "    bot_account: #{yaml_value(bot_account)}",
-      trusted_accounts != [] && "    trusted_accounts: #{yaml_value(trusted_accounts)}"
+      trusted_accounts != [] && "    trusted_accounts: #{yaml_value(trusted_accounts)}",
+      "    planning_root_limit: #{yaml_value(planning_root_limit)}",
+      "    planning_page_budget: #{yaml_value(planning_page_budget)}",
+      "    planning_call_budget: #{yaml_value(planning_call_budget)}"
     ]
     |> Enum.reject(&(&1 in [nil, false, ""]))
     |> Enum.join("\n")

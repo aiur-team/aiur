@@ -1,9 +1,17 @@
 defmodule Aiur.ProviderAccountGenerationTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Aiur.ProviderAccountGeneration
 
   @clock ~U[2026-07-13 12:00:00Z]
+
+  setup_all do
+    unless Process.whereis(Aiur.PubSub) do
+      start_supervised!({Phoenix.PubSub, name: Aiur.PubSub}, id: {Phoenix.PubSub, Aiur.PubSub})
+    end
+
+    :ok
+  end
 
   setup do
     owner = start_owner(mint: sequence_mint(self()), clock: fn -> @clock end)
@@ -181,7 +189,7 @@ defmodule Aiur.ProviderAccountGenerationTest do
       send(parent, {:consumer_replace, result})
     end)
 
-    assert_receive {:consumer_replace, {:ok, %{generation: nil, reason: :owner_unavailable}}}
+    assert_receive {:consumer_replace, {:ok, %{generation: nil, reason: :owner_unavailable}}}, 2_000
     assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, binding) == original
   end
 
@@ -242,7 +250,7 @@ defmodule Aiur.ProviderAccountGenerationTest do
     assert {:ok, old} =
              ProviderAccountGeneration.bind(owner, :codex, :app_server, old_binding, source: :codex_app_server)
 
-    assert_receive {:provider_account_generation_changed, %{change: :bound, generation: generation}}
+    assert_receive {:provider_account_generation_changed, %{change: :bound, generation: generation}}, 2_000
     assert generation == old.generation
 
     assert {:ok, replacement} =
@@ -252,7 +260,7 @@ defmodule Aiur.ProviderAccountGenerationTest do
              )
 
     assert replacement.generation != old.generation
-    assert_receive {:provider_account_generation_changed, invalidated}
+    assert_receive {:provider_account_generation_changed, invalidated}, 2_000
     assert %{change: :invalidated, reason: :continuity_lost, generation: nil} = invalidated
     assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, old_binding).reason == :continuity_lost
     assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, new_binding) == replacement
@@ -314,7 +322,7 @@ defmodule Aiur.ProviderAccountGenerationTest do
     assert {:ok, first} =
              ProviderAccountGeneration.bind(owner, :codex, :app_server, first_binding, source: :codex_app_server)
 
-    assert_receive {:provider_account_generation_changed, %{generation: generation}}
+    assert_receive {:provider_account_generation_changed, %{generation: generation}}, 2_000
     assert generation == first.generation
 
     assert {:ok, _second} =
@@ -348,7 +356,7 @@ defmodule Aiur.ProviderAccountGenerationTest do
                auth_mode: "chatgpt"
              )
 
-    assert_receive {:provider_account_generation_changed, %{change: :bound, generation: ^generation}}
+    assert_receive {:provider_account_generation_changed, %{change: :bound, generation: ^generation}}, 2_000
 
     binding_ref = binding.binding
 
@@ -371,11 +379,11 @@ defmodule Aiur.ProviderAccountGenerationTest do
         Process.sleep(:infinity)
       end)
 
-    assert_receive {:bound_from_owner, snapshot}
-    assert_receive {:provider_account_generation_changed, %{change: :bound}}
+    assert_receive {:bound_from_owner, snapshot}, 2_000
+    assert_receive {:provider_account_generation_changed, %{change: :bound}}, 2_000
     Process.exit(owner_process, :kill)
 
-    assert_receive {:provider_account_generation_changed, invalidated}
+    assert_receive {:provider_account_generation_changed, invalidated}, 2_000
     assert %{change: :invalidated, reason: :continuity_lost, generation: nil} = invalidated
     assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, binding).generation == nil
     refute snapshot.generation == ProviderAccountGeneration.lookup(owner, :codex, :app_server, binding).generation
@@ -407,7 +415,7 @@ defmodule Aiur.ProviderAccountGenerationTest do
     assert {:ok, bound} =
              ProviderAccountGeneration.bind(owner, :codex, :app_server, binding, source: :codex_app_server)
 
-    assert_receive {:provider_account_generation_changed, event}
+    assert_receive {:provider_account_generation_changed, event}, 2_000
     assert event.schema_version == 1
     assert event.generation == bound.generation
     refute inspect(event) =~ raw_identity

@@ -31,7 +31,7 @@ defmodule Aiur.ProviderAccountGeneration.Lifecycle do
     entry_key = Registry.key(provider, backend, binding)
     {entry, state} = Registry.ensure(state, provider, backend, binding)
     {snapshot, change} = Snapshot.invalidated(entry.snapshot, provider, backend, Map.fetch!(opts, :source), Map.fetch!(opts, :reason), state.clock.())
-    updated = entry |> Map.put(:snapshot, snapshot) |> Map.put(:auth_mode, nil) |> Monitor.owner(owner_pid)
+    updated = entry |> Map.put(:snapshot, snapshot) |> Monitor.owner(owner_pid)
     {snapshot, change, updated.topic, Registry.put(state, entry_key, updated)}
   end
 
@@ -75,13 +75,13 @@ defmodule Aiur.ProviderAccountGeneration.Lifecycle do
     binding = elem(entry_key, 2)
     {entry, state} = Registry.ensure(state, provider, backend, binding)
     snapshot = Snapshot.known(provider, backend, generation || state.mint.(), Map.fetch!(opts, :source), state.clock.())
-    updated = entry |> Map.put(:snapshot, snapshot) |> Map.put(:auth_mode, Map.get(opts, :auth_mode)) |> Monitor.owner(owner_pid)
+    updated = entry |> Map.put(:snapshot, snapshot) |> Monitor.owner(owner_pid)
     {snapshot, [{updated.topic, snapshot, change}], Registry.put(state, entry_key, updated)}
   end
 
   defp replace_known(state, entry_key, provider, backend, opts, owner_pid, entry, change) do
     snapshot = Snapshot.known(provider, backend, state.mint.(), Map.fetch!(opts, :source), state.clock.())
-    updated = entry |> Map.put(:snapshot, snapshot) |> Map.put(:auth_mode, Map.get(opts, :auth_mode)) |> Monitor.owner(owner_pid)
+    updated = entry |> Map.put(:snapshot, snapshot) |> Monitor.owner(owner_pid)
     {snapshot, [{updated.topic, snapshot, change}], Registry.put(state, entry_key, updated)}
   end
 

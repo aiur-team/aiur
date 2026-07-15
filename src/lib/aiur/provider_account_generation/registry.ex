@@ -108,7 +108,6 @@ defmodule Aiur.ProviderAccountGeneration.Registry do
     %{
       snapshot: Snapshot.unknown(provider, backend, :unavailable, :never_observed, nil),
       topic: topic,
-      auth_mode: nil,
       authority: authority,
       monitor: nil
     }
