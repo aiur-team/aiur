@@ -1037,8 +1037,8 @@ defmodule Aiur.Claude.ReplAgentTest do
     assert is_binary(payload.turn_id)
   end
 
-  # Never append a record after the C-c: the pause-confirm deadline expires
-  # and the turn still parks as paused (never {:error, :turn_timeout}).
+  # Never append a record after the C-c: without terminal evidence, the turn
+  # must not report a confirmed pause.
   defp pump_pause_no_turn_end(tmux, task) do
     receive do
       {:tmux_mock_out, "display-message" <> _} ->
@@ -1057,7 +1057,7 @@ defmodule Aiur.Claude.ReplAgentTest do
     end
   end
 
-  test "pause-confirm deadline expiry still parks the agent as paused", %{tmux: tmux} do
+  test "pause-confirm deadline expiry returns an unconfirmed-pause error", %{tmux: tmux} do
     path = temp_transcript()
     on_exit(fn -> File.rm(path) end)
     session = turn_session(tmux, path)
@@ -1074,10 +1074,10 @@ defmodule Aiur.Claude.ReplAgentTest do
 
     send(task.pid, {:pause_agent, 7})
 
-    assert {:paused, %{request_id: 7}} = pump_pause_no_turn_end(tmux, task)
+    assert {:error, :pause_confirmation_timeout} = pump_pause_no_turn_end(tmux, task)
   end
 
-  # A failed C-c (tmux error) must not crash the turn — park as paused.
+  # A failed C-c (tmux error) is not evidence that the REPL stopped.
   defp pump_pause_interrupt_fails(tmux, task) do
     receive do
       {:tmux_mock_out, "display-message" <> _} ->
@@ -1096,7 +1096,7 @@ defmodule Aiur.Claude.ReplAgentTest do
     end
   end
 
-  test "a failed interrupt send still parks the agent as paused", %{tmux: tmux} do
+  test "a failed interrupt send returns an unconfirmed-pause error", %{tmux: tmux} do
     path = temp_transcript()
     on_exit(fn -> File.rm(path) end)
     session = turn_session(tmux, path)
@@ -1113,7 +1113,7 @@ defmodule Aiur.Claude.ReplAgentTest do
 
     send(task.pid, {:pause_agent, 9})
 
-    assert {:paused, %{request_id: 9}} = pump_pause_interrupt_fails(tmux, task)
+    assert {:error, {:pause_interrupt_failed, _reason}} = pump_pause_interrupt_fails(tmux, task)
   end
 
   # ----------------------------------------------------------------- interrupt/1

@@ -112,6 +112,12 @@ defmodule Aiur.AgentPubSub do
     do_broadcast(AgentEvents.agent_topic(identifier), {:alert, event})
   end
 
+  @doc "Publishes a normalized, redacted per-unit control lifecycle projection."
+  @spec broadcast_control_lifecycle(AgentEvents.agent_identifier(), map()) :: :ok
+  def broadcast_control_lifecycle(identifier, payload) when is_binary(identifier) and is_map(payload) do
+    do_broadcast(AgentEvents.agent_topic(identifier), {:control_lifecycle, payload})
+  end
+
   @spec broadcast_running_change([AgentEvents.agent_summary()]) :: :ok
   def broadcast_running_change(summaries) when is_list(summaries) do
     do_broadcast(AgentEvents.running_topic(), {:running_changed, summaries})

@@ -606,13 +606,21 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   @spec send_running_control_message(State.t(), String.t(), (integer() -> term())) ::
           {:ok, integer()} | {:error, atom()}
   def send_running_control_message(state, issue_identifier, build_message) do
+    request_id = :erlang.unique_integer([:positive])
+    send_running_control_message(state, issue_identifier, request_id, build_message)
+  end
+
+  @doc false
+  @spec send_running_control_message(State.t(), String.t(), integer(), (integer() -> term())) ::
+          {:ok, integer()} | {:error, atom()}
+  def send_running_control_message(state, issue_identifier, request_id, build_message)
+      when is_integer(request_id) and request_id > 0 and is_function(build_message, 1) do
     case State.find_running_by_identifier(state.running, issue_identifier) do
       nil ->
         {:error, :no_running_agent}
 
       %{pid: pid} when is_pid(pid) ->
         if Process.alive?(pid) do
-          request_id = :erlang.unique_integer([:positive])
           send(pid, build_message.(request_id))
           {:ok, request_id}
         else

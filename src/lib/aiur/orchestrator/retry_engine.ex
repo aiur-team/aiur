@@ -7,13 +7,15 @@ defmodule Aiur.Orchestrator.RetryEngine do
   require Logger
   import Bitwise, only: [<<<: 2]
 
-  alias Aiur.{Alerts, Config, CurrentRunMembership, Issue, Tracker, TrackerIdentity}
+  alias Aiur.{AgentPubSub, Alerts, Config, CurrentRunMembership, Issue, Tracker, TrackerIdentity}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Workspace.Ownership
 
   alias Aiur.Orchestrator.{
+    ControlLifecycle,
+    ControlLifecycleStore,
     DispatchPolicy,
     MembershipLifecycle,
     Reconciler,
@@ -50,6 +52,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
       issue_id ->
         running_entry = Map.fetch!(running, issue_id)
+        state = expire_pending_control(state, running_entry, issue_id)
         state = TokenAccounting.record_session_completion_totals(state, running_entry)
         session_id = State.running_entry_session_id(running_entry)
 
@@ -101,6 +104,24 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
         StatusReport.notify_dashboard(state)
         {:noreply, state}
+    end
+  end
+
+  defp expire_pending_control(state, running_entry, issue_id) do
+    case ControlLifecycle.current_pending(state.control_lifecycle, issue_id) do
+      nil ->
+        state
+
+      pending ->
+        case ControlLifecycle.expire(state.control_lifecycle, pending.request_id, :worker_unavailable, now: DateTime.utc_now()) do
+          {:ok, expired, lifecycle} ->
+            :ok = ControlLifecycleStore.save(lifecycle)
+            AgentPubSub.broadcast_control_lifecycle(Map.get(running_entry, :identifier), ControlLifecycle.event_payload(expired))
+            %{state | control_lifecycle: lifecycle}
+
+          {:ignored, lifecycle} ->
+            %{state | control_lifecycle: lifecycle}
+        end
     end
   end
 

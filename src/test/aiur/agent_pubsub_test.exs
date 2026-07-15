@@ -69,6 +69,17 @@ defmodule Aiur.AgentPubSubTest do
     end
   end
 
+  describe "control lifecycle round-trip" do
+    test "subscribers receive the normalized lifecycle projection on the agent topic" do
+      :ok = AgentPubSub.subscribe_agent("MT-CONTROL")
+      payload = %{request_id: "pause-1", action: :pause, status: :accepted}
+
+      assert :ok = AgentPubSub.broadcast_control_lifecycle("MT-CONTROL", payload)
+
+      assert_receive {:control_lifecycle, ^payload}
+    end
+  end
+
   describe "running and status topics" do
     test "running_changed reaches subscribers" do
       :ok = AgentPubSub.subscribe_running()

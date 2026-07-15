@@ -69,15 +69,12 @@ defmodule Aiur.Codex.TurnLoop do
 
     _ = TurnState.retire_provider_work(state)
 
-    if is_integer(state.pause_request_id) do
-      {:paused,
-       %{
-         request_id: state.pause_request_id,
-         turn_id: state.current_turn_id,
-         details: params
-       }}
-    else
-      {:error, {:turn_cancelled, params}}
+    case state.pause_request_id do
+      nil ->
+        {:error, {:turn_cancelled, params}}
+
+      request_id ->
+        {:paused, TurnState.pause_result_payload(request_id, state.current_turn_id, params)}
     end
   end
 
@@ -193,8 +190,7 @@ defmodule Aiur.Codex.TurnLoop do
   end
 
   defp pause_latched?(session, state) do
-    is_integer(state.pause_request_id) or
-      Aiur.PauseContainment.paused?(Map.get(session, :containment))
+    not is_nil(state.pause_request_id) or Aiur.PauseContainment.paused?(Map.get(session, :containment))
   end
 
   defp tool_call_scope(%{issue_identifier: issue_identifier}, _session)

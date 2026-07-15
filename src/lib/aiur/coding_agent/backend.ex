@@ -72,6 +72,7 @@ defmodule Aiur.CodingAgent.Backend do
           required(:family) => String.t(),
           required(:can_interrupt) => boolean(),
           required(:safe_checkpoints) => [atom()],
+          optional(:control_application_confirmation) => :confirmed | :request_only | :unsupported,
           required(:remote_control) => boolean(),
           required(:resumable) => boolean(),
           required(:models) => [String.t()],

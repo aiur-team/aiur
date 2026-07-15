@@ -223,6 +223,13 @@ defmodule Aiur.CodingAgentTest do
       assert CodingAgent.safe_checkpoints("claude-repl") == []
     end
 
+    test "control confirmation is declared by each supported backend" do
+      assert CodingAgent.control_application_confirmation("codex") == :confirmed
+      assert CodingAgent.control_application_confirmation("claude") == :confirmed
+      assert CodingAgent.control_application_confirmation("claude-repl") == :confirmed
+      assert CodingAgent.control_application_confirmation("unknown") == :unsupported
+    end
+
     test "effort vocabulary comes from the registry" do
       assert CodingAgent.efforts("codex") == ["none", "low", "medium", "high", "xhigh", "max"]
       assert CodingAgent.efforts("claude") == []

@@ -209,7 +209,7 @@ defmodule Aiur.Claude.Repl.TranscriptTurnTest do
              drain_pane_pid(tmux, task)
   end
 
-  test "pause_agent parks as {:paused, payload} with session_id/thread_id/turn_id even when pause-confirm expires",
+  test "pause_agent returns an error when pause confirmation expires",
        %{tmux: tmux} do
     path = temp_transcript()
     on_exit(fn -> File.rm(path) end)
@@ -225,11 +225,7 @@ defmodule Aiur.Claude.Repl.TranscriptTurnTest do
 
     send(task.pid, {:pause_agent, 77})
 
-    # No completion record appended — pause-confirm expires
-    assert {:paused, payload} = pump_until_pause(tmux, task)
-    assert payload.request_id == 77
-    assert is_binary(payload.session_id)
-    assert is_binary(payload.thread_id)
-    assert is_binary(payload.turn_id)
+    # No completion record appended — pause remains unconfirmed.
+    assert {:error, :pause_confirmation_timeout} = pump_until_pause(tmux, task)
   end
 end
