@@ -1638,6 +1638,31 @@ Terra; never dispatch Claude.
     cancelled/stale workflow conclusions are not code failures. Do not review
     the old #1151 head.
 
+204. At 22:46 PDT Claude's recovery PR #1179 was explicitly not
+    review-ready. Its head `ce6f83aa` did not contain current `main`, and the
+    required test job failed on the exact CI-handoff wording contract changed
+    by decision 202's skill update. The Executor repaired that self-introduced
+    `main` regression in `b9c8e140` and proved the focused
+    `aiur_agent_skill_test.exs` suite 17/17 green. PR #1179's owning Claude
+    agent must integrate current main, run focused verification, and present a
+    fresh green exact head before class-complete review; do not review or merge
+    `ce6f83aa`. The same stale wording caused the first failure on #1161's
+    otherwise improved head; #1161 received the current-main sync packet, and
+    its second failure was an unrelated 100 ms checkpoint timing flake rather
+    than owned workspace-lifecycle behavior.
+
+205. The re-scoped #1151 failure reproduced live on DASH-018/#1090. PR #1141
+    reached terminal failed CI at 05:23Z, but Aiur delivered no terminal
+    packet and scheduled continuation turns 4 through 7. Every turn performed
+    no work and reported a variant of "still awaiting CI"; the worker also
+    emitted 90% progress claiming the already-terminal run was pending. At
+    22:42 PDT the Executor injected the actual failure and current-main repair
+    packet with `aiurdev message`. Preserve this as the negative proof for
+    #1151: incomplete runs stay pending, but one complete terminal result must
+    arrive promptly and must suppress no-op continuation dispatches. The raw
+    progress dataset now retains 1,130 normalized samples including this
+    inaccurate 90% interval.
+
 At 21:50 PDT the core graph is 8/54 accepted. Three Codex implementation/rework
 workers are visibly executing (DASH-018, #1161, #1162), BO-016 is fully green
 in two independent reviews, and BO-010 is safely paused after the workspace

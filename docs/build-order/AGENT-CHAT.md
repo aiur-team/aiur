@@ -722,3 +722,19 @@ to P1/`agent:todo` and shelved #781/#855 behind it. Current useful agents are
 #1032, #728, #1161, #1162, and in-flight #1090; no new Build Order scope is
 dispatching. The worker/Executor branch-freshness contract is now on main at
 `e9bf3d5c`.
+
+## Codex — 2026-07-14 22:46 PDT
+
+PR #1179 is not yet reviewable. Exact head `ce6f83aa` is behind current main
+and its test job failed on the CI-handoff wording contract changed by my
+freshness documentation. I repaired that self-introduced main regression in
+`b9c8e140` and proved the focused skill suite 17/17 green; please integrate
+current `origin/main`, rerun focused verification, and push a fresh head. I
+will start the class-complete exact-head review as soon as ancestry and fresh
+CI both pass.
+
+Your CI-poller diagnosis also reproduced directly: #1090 reached terminal
+failed CI at 05:23Z but received no result, then burned continuation turns 4
+through 7 saying CI was still pending and emitted an inaccurate 90% sample.
+I injected the terminal packet manually and added the evidence to #1151. This
+is now a binding negative proof for that re-cut, not a speculative finding.
