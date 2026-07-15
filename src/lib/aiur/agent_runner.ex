@@ -30,7 +30,7 @@ defmodule Aiur.AgentRunner do
         :ok
 
       {:error, reason} ->
-        if transient_run_error?(reason) do
+        if transient_run_error?(reason, CodingAgent.backend_for(issue)) do
           Logger.warning("Agent run interrupted by transient condition for #{issue_context(issue)}: #{inspect(reason)}; exiting cleanly to re-dispatch with a fresh session")
           :ok
         else
@@ -54,8 +54,8 @@ defmodule Aiur.AgentRunner do
   # a slow render) must not tear down an otherwise-healthy agent and crash the
   # run. Re-dispatch with a fresh pane instead of hard-failing.
   #
-  # A closed app-server port (`:port_closed`) means the current generation was
-  # already retired while finishing an approval/tool response. Its delivered
+  # A retired Codex app-server port (`:port_closed` or `{:port_exit, status}`)
+  # means the current generation cannot finish its response. Its delivered
   # queue work is restored before this reaches the runner, so a clean exit lets
   # the orchestrator replace the generation and drain that work exactly once.
   @doc false
@@ -63,7 +63,14 @@ defmodule Aiur.AgentRunner do
   def transient_run_error?(:repl_gone), do: true
   def transient_run_error?(:prompt_not_delivered), do: true
   def transient_run_error?(:port_closed), do: true
+  def transient_run_error?({:port_exit, status}) when is_integer(status), do: true
   def transient_run_error?(_reason), do: false
+
+  @doc false
+  @spec transient_run_error?(term(), String.t()) :: boolean()
+  def transient_run_error?({:port_exit, status}, "codex") when is_integer(status), do: true
+  def transient_run_error?({:port_exit, status}, _backend) when is_integer(status), do: false
+  def transient_run_error?(reason, _backend), do: transient_run_error?(reason)
 
   defp run_on_worker_host(issue, codex_update_recipient, opts, worker_host) do
     Logger.info("Starting worker attempt for #{issue_context(issue)} worker_host=#{worker_host_for_log(worker_host)}")

@@ -82,10 +82,20 @@ defmodule Aiur.AppServer.TurnState do
 
   def complete_all_provider_turns(state), do: continue_after_turn_completion(state)
 
+  @doc false
+  @spec retire_provider_work(map()) :: map()
+  def retire_provider_work(%{accepted_turn_ids: %MapSet{}} = state) do
+    ProviderTurnLedger.retire_all(state)
+  end
+
+  def retire_provider_work(state) do
+    %{state | outstanding_turns: max(state.outstanding_turns - 1, 0)}
+  end
+
   @spec continue_after_turn_interrupted(map(), map()) ::
           {:paused, map()} | {:ok, :turn_interrupted_for_operator_message} | {:error, term()}
   def continue_after_turn_interrupted(state, payload) do
-    next_state = state |> retire_all_provider_work() |> Map.put(:pending_interrupt_request_id, nil)
+    next_state = state |> retire_provider_work() |> Map.put(:pending_interrupt_request_id, nil)
     fail_pending_operator_requests(next_state.pending_operator_requests, {:turn_interrupted, payload})
 
     cond do
@@ -153,14 +163,6 @@ defmodule Aiur.AppServer.TurnState do
   end
 
   defp continue_after_interrupt_handshake({:waiting, state}), do: {:continue, state}
-
-  defp retire_all_provider_work(%{accepted_turn_ids: %MapSet{}} = state) do
-    ProviderTurnLedger.retire_all(state)
-  end
-
-  defp retire_all_provider_work(state) do
-    %{state | outstanding_turns: max(state.outstanding_turns - 1, 0)}
-  end
 
   defp active_provider_turn?(%{"status" => status}) when is_binary(status), do: status == "inProgress"
   defp active_provider_turn?(_turn), do: true

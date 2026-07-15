@@ -5,7 +5,7 @@ defmodule Aiur.Codex.InterruptsTest do
 
   describe "handle_interrupt_error/2" do
     test "preserves a pause when no-active-turn arrives before idle" do
-      error = %{"code" => -32_600}
+      error = %{"code" => -32_600, "message" => "no active turn to interrupt"}
 
       state = %{
         active_turn_ids: MapSet.new(["turn-1"]),
@@ -27,7 +27,7 @@ defmodule Aiur.Codex.InterruptsTest do
 
     test "preserves a deferred-idle pause when the interrupt finds no active turn" do
       parent = self()
-      error = %{"code" => -32_600}
+      error = %{"code" => -32_600, "data" => %{"message" => "no active turn"}}
 
       state = %{
         active_turn_ids: MapSet.new(["turn-1"]),
@@ -70,6 +70,13 @@ defmodule Aiur.Codex.InterruptsTest do
 
       assert {:error, {:turn_interrupt_failed, ^error}} =
                Interrupts.handle_interrupt_error(%{pending_interrupt_request_id: 789}, error)
+    end
+
+    test "hard-fails an unrelated -32600 response" do
+      error = %{"code" => -32_600, "message" => "invalid request payload"}
+
+      assert {:error, {:turn_interrupt_failed, ^error}} =
+               Interrupts.handle_interrupt_error(%{pending_interrupt_request_id: 790}, error)
     end
   end
 end

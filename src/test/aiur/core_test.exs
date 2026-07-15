@@ -2125,6 +2125,9 @@ defmodule Aiur.CoreTest do
       codex_binary = Path.join(test_root, "fake-codex")
       trace_file = Path.join(test_root, "codex.trace")
       rework_started = Path.join(test_root, "rework.started")
+      port_exit_once = Path.join(test_root, "port-exit.once")
+      port_exit_release = Path.join(test_root, "port-exit.release")
+      rework_replayed = Path.join(test_root, "rework.replayed")
       rework_release = Path.join(test_root, "rework.release")
 
       File.mkdir_p!(template_repo)
@@ -2147,22 +2150,30 @@ defmodule Aiur.CoreTest do
           *'"method":"thread/start"'*)
             printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-replacement"}}}'
             ;;
+          *'"method":"thread/resume"'*)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-replacement"}}}'
+            ;;
           *'"method":"turn/start"'*)
             turn_start_count=$((turn_start_count + 1))
             request_id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
 
-            case "$turn_start_count" in
-              1)
-                printf '{"id":%s,"result":{"turn":{"id":"turn-replacement-main","status":"inProgress"}}}\\n' "$request_id"
-                printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-replacement-main","status":"completed"}}}'
-                ;;
-              2)
-                printf '{"id":%s,"result":{"turn":{"id":"turn-replacement-rework","status":"inProgress"}}}\\n' "$request_id"
+            if printf '%s' "$line" | grep -q 'repair from replacement'; then
+              printf '{"id":%s,"result":{"turn":{"id":"turn-replacement-rework","status":"inProgress"}}}\\n' "$request_id"
+
+              if [ ! -f "#{port_exit_once}" ]; then
+                touch "#{port_exit_once}"
                 touch "#{rework_started}"
+                while [ ! -f "#{port_exit_release}" ]; do sleep 0.01; done
+                exit 9
+              else
+                touch "#{rework_replayed}"
                 while [ ! -f "#{rework_release}" ]; do sleep 0.01; done
                 printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-replacement-rework","status":"completed"}}}'
-                ;;
-            esac
+              fi
+            else
+              printf '{"id":%s,"result":{"turn":{"id":"turn-replacement-main","status":"inProgress"}}}\\n' "$request_id"
+              printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-replacement-main","status":"completed"}}}'
+            fi
             ;;
         esac
       done
@@ -2206,6 +2217,7 @@ defmodule Aiur.CoreTest do
       old_ref = Process.monitor(old_worker)
 
       on_exit(fn ->
+        File.touch(port_exit_release)
         File.touch(rework_release)
         System.delete_env("SYMP_TEST_CODEX_TRACE")
         if Process.alive?(orchestrator_pid), do: Process.exit(orchestrator_pid, :normal)
@@ -2286,14 +2298,32 @@ defmodule Aiur.CoreTest do
       send(orchestrator_pid, {:DOWN, old_ref, :process, old_worker, :normal})
       assert :sys.get_state(orchestrator_pid).running[issue.id].pid == replacement.pid
 
-      File.touch!(rework_release)
+      File.touch!(port_exit_release)
 
       assert_receive {:DOWN, ^completion_ref, :process, ^replacement_pid, :normal},
                      15_000
 
+      assert wait_for_path(rework_replayed, 15_000)
+
+      replay_generation = :sys.get_state(orchestrator_pid).running[issue.id]
+      assert is_pid(replay_generation.pid)
+      assert Process.alive?(replay_generation.pid)
+      assert replay_generation.pid != replacement_pid
+      replay_pid = replay_generation.pid
+      replay_ref = Process.monitor(replay_pid)
+
+      replay_in_flight = :sys.get_state(orchestrator_pid)
+      assert replay_in_flight.queue_store.items[item_id].status == :delivered
+      assert replay_in_flight.queue_store.items[item_id].delivery_attempts == 2
+
+      File.touch!(rework_release)
+
+      assert_receive {:DOWN, ^replay_ref, :process, ^replay_pid, :normal},
+                     15_000
+
       finished = :sys.get_state(orchestrator_pid)
       assert finished.queue_store.items[item_id].status == :consumed
-      assert finished.queue_store.items[item_id].delivery_attempts == 1
+      assert finished.queue_store.items[item_id].delivery_attempts == 2
       assert Map.get(finished.queue_store.pending_ids_by_target, issue.identifier, []) == []
 
       turn_texts =
@@ -2309,10 +2339,13 @@ defmodule Aiur.CoreTest do
           |> Enum.map_join("\n", &Map.get(&1, "text", ""))
         end)
 
-      assert length(turn_texts) == 2
+      assert length(turn_texts) == 4
       assert Enum.at(turn_texts, 0) =~ "You are an agent for this repository."
       assert Enum.at(turn_texts, 1) == "repair from replacement"
+      assert Enum.at(turn_texts, 2) =~ "Continuation guidance"
+      assert Enum.at(turn_texts, 3) == "repair from replacement"
     after
+      File.touch(Path.join(test_root, "port-exit.release"))
       File.touch(Path.join(test_root, "rework.release"))
       System.delete_env("SYMP_TEST_CODEX_TRACE")
       Application.delete_env(:aiur, :memory_tracker_issues)

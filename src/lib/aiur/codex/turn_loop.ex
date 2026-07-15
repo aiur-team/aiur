@@ -27,6 +27,7 @@ defmodule Aiur.Codex.TurnLoop do
   def handle_method(session, state, %{"method" => "turn/cancelled", "params" => params} = payload, payload_string, _method) do
     emit_turn_event(state.on_message, :turn_cancelled, payload, payload_string, session.port, params)
     TurnState.fail_pending_operator_requests(state.pending_operator_requests, {:turn_cancelled, params})
+    _ = TurnState.retire_provider_work(state)
 
     if is_integer(state.pause_request_id) do
       {:paused,
@@ -81,7 +82,12 @@ defmodule Aiur.Codex.TurnLoop do
     on_message = state.on_message
 
     metadata = TurnEvents.metadata_from_message(port, payload)
-    execution_context = %{workspace: Map.get(session, :workspace), response_id: Map.get(payload, "id")}
+
+    execution_context = %{
+      workspace: Map.get(session, :workspace),
+      response_id: Map.get(payload, "id"),
+      tool_call_scope: tool_call_scope(state, session)
+    }
 
     case Approvals.maybe_handle_approval_request(
            port,
@@ -158,6 +164,8 @@ defmodule Aiur.Codex.TurnLoop do
       NotificationPolicy.codex_quota_exhausted?(method, payload) ->
         Logger.warning("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; codex account usage quota exhausted — pausing agent instead of burning retries")
 
+        _ = TurnState.retire_provider_work(state)
+
         {:paused, NotificationPolicy.usage_limit_pause(payload, method)}
 
       NotificationPolicy.codex_error_method?(method) and NotificationPolicy.unretryable_codex_error?(payload) ->
@@ -206,4 +214,10 @@ defmodule Aiur.Codex.TurnLoop do
     Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; treating idle status as turn completion")
     TurnState.complete_all_provider_turns(state)
   end
+
+  defp tool_call_scope(%{issue_identifier: issue_identifier}, _session)
+       when is_binary(issue_identifier),
+       do: issue_identifier
+
+  defp tool_call_scope(_state, _session), do: nil
 end

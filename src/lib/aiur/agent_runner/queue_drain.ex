@@ -549,6 +549,10 @@ defmodule Aiur.AgentRunner.QueueDrain do
         :ok = Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)
         error
 
+      {:error, {:port_exit, _status}} = error when backend == "codex" ->
+        :ok = Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)
+        error
+
       {:error, reason} = error ->
         :ok = Aiur.Orchestrator.fail_delivered_queue_items(orchestrator, issue.identifier, reason)
 

@@ -62,6 +62,47 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
     assert turn_start_count(paths.trace) == 2
   end
 
+  test "cancelled pause retires the old provider turn before the resumed real turn" do
+    marker = Path.join(System.tmp_dir!(), "aiur-cancelled-pause-#{System.unique_integer([:positive])}")
+    paths = prepare_case("cancelled-pause", cancelled_pause_script(marker))
+    issue = issue("MT-CANCELLED-PAUSE")
+    issue_id = issue.id
+    parent = self()
+    opts = two_turn_opts(issue)
+
+    on_exit(fn -> File.rm(marker) end)
+
+    task = Task.async(fn -> AgentRunner.run(issue, parent, opts) end)
+
+    assert wait_for_path(marker)
+    send(task.pid, {:pause_agent, 71})
+    assert_receive {:worker_control_state, ^issue_id, :paused, %{request_id: 71}}, 5_000
+
+    send(task.pid, {:resume_agent, 72})
+    assert Task.await(task, 15_000) == :ok
+    assert turn_start_count(paths.trace) == 2
+  end
+
+  test "quota pause retires the failed provider turn before the resumed real turn" do
+    marker = Path.join(System.tmp_dir!(), "aiur-quota-pause-#{System.unique_integer([:positive])}")
+    paths = prepare_case("quota-pause", quota_pause_script(marker))
+    issue = issue("MT-QUOTA-PAUSE")
+    issue_id = issue.id
+    parent = self()
+    opts = two_turn_opts(issue)
+
+    on_exit(fn -> File.rm(marker) end)
+
+    task = Task.async(fn -> AgentRunner.run(issue, parent, opts) end)
+
+    assert wait_for_path(marker)
+    assert_receive {:worker_control_state, ^issue_id, :paused, %{kind: :usage_limit_exhausted}}, 5_000
+
+    send(task.pid, {:resume_agent, 81})
+    assert Task.await(task, 15_000) == :ok
+    assert turn_start_count(paths.trace) == 2
+  end
+
   defp prepare_case(name, script) do
     root = Path.join(System.tmp_dir!(), "aiur-provider-lifecycle-#{name}-#{System.unique_integer([:positive])}")
     source = Path.join(root, "source")
@@ -161,6 +202,45 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
               printf '%s\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
               touch "#{marker}"
               while [ ! -f "#{release}" ]; do sleep 0.01; done
+              printf '%s\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-new","status":"completed"}}}'
+            fi
+            ;;
+    """)
+  end
+
+  defp cancelled_pause_script(marker) do
+    shell_script("""
+          *'\"method\":\"turn/start\"'*)
+            turn_start_count=$((turn_start_count + 1))
+            request_id=$(request_id "$line")
+            if [ "$turn_start_count" -eq 1 ]; then
+              printf '{"id":%s,"result":{"turn":{"id":"turn-old","status":"inProgress"}}}\n' "$request_id"
+              printf '%s\n' '{"method":"turn/started","params":{"turn":{"id":"turn-old","status":"inProgress"}}}'
+              touch "#{marker}"
+            else
+              printf '{"id":%s,"result":{"turn":{"id":"turn-new","status":"inProgress"}}}\n' "$request_id"
+              printf '%s\n' '{"method":"turn/started","params":{"turn":{"id":"turn-old","status":"inProgress"}}}'
+              printf '%s\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-new","status":"completed"}}}'
+            fi
+            ;;
+          *'\"method\":\"turn/interrupt\"'*)
+            printf '%s\n' '{"method":"turn/cancelled","params":{"reason":"operator pause"}}'
+            ;;
+    """)
+  end
+
+  defp quota_pause_script(marker) do
+    shell_script("""
+          *'\"method\":\"turn/start\"'*)
+            turn_start_count=$((turn_start_count + 1))
+            request_id=$(request_id "$line")
+            if [ "$turn_start_count" -eq 1 ]; then
+              printf '{"id":%s,"result":{"turn":{"id":"turn-old","status":"inProgress"}}}\n' "$request_id"
+              printf '%s\n' '{"method":"error","params":{"willRetry":false,"codexErrorInfo":"usageLimitExceeded","message":"You have hit your usage limit."}}'
+              touch "#{marker}"
+            else
+              printf '{"id":%s,"result":{"turn":{"id":"turn-new","status":"inProgress"}}}\n' "$request_id"
+              printf '%s\n' '{"method":"turn/started","params":{"turn":{"id":"turn-old","status":"inProgress"}}}'
               printf '%s\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-new","status":"completed"}}}'
             fi
             ;;

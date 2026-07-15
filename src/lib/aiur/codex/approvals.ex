@@ -4,7 +4,7 @@ defmodule Aiur.Codex.Approvals do
   """
 
   alias Aiur.AgentRunner.ToolExecutor
-  alias Aiur.AppServer.Messages
+  alias Aiur.AppServer.{Messages, ToolCallLedger}
   alias Aiur.Codex.{Rpc, UserInputAnswers}
 
   # credo:disable-for-this-file Credo.Check.Refactor.FunctionArity
@@ -217,11 +217,20 @@ defmodule Aiur.Codex.Approvals do
   defp handle_tool_call(port, id, params, payload, payload_string, on_message, metadata, tool_executor, context) do
     tool_name = Messages.tool_call_name(params)
     arguments = Messages.tool_call_arguments(params)
+    call_id = Messages.tool_call_id(params, nil)
+    invocation_id = call_id || id
 
     result =
-      tool_executor
-      |> ToolExecutor.execute(tool_name, arguments, Messages.tool_call_id(params, id))
-      |> Messages.normalize_tool_result(context)
+      ToolCallLedger.execute(
+        tool_call_scope(context),
+        call_id,
+        fn ->
+          tool_executor
+          |> ToolExecutor.execute(tool_name, arguments, invocation_id)
+          |> Messages.normalize_tool_result(context)
+        end,
+        tool_call_ledger(context)
+      )
 
     with :ok <- send_response(port, %{"id" => id, "result" => result}) do
       event =
@@ -299,4 +308,10 @@ defmodule Aiur.Codex.Approvals do
   rescue
     ArgumentError -> {:error, :port_closed}
   end
+
+  defp tool_call_scope(%{tool_call_scope: scope}), do: scope
+  defp tool_call_scope(_context), do: nil
+
+  defp tool_call_ledger(%{tool_call_ledger: server}), do: server
+  defp tool_call_ledger(_context), do: ToolCallLedger
 end

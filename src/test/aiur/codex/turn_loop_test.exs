@@ -1,6 +1,7 @@
 defmodule Aiur.Codex.TurnLoopTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.AppServer.{ProviderTurnLedger, TurnState}
   alias Aiur.Codex.{CodingAgent, TurnLoop}
 
   describe "handle_method/5 terminal turn events" do
@@ -113,6 +114,31 @@ defmodule Aiur.Codex.TurnLoopTest do
                TurnLoop.handle_method(%{port: port}, base_state(), payload, Jason.encode!(payload), "turn/cancelled")
 
       assert_received {:event, :turn_cancelled}
+      close_port(port)
+    end
+
+    test "turn/cancelled retires active and accepted IDs before the resumed turn" do
+      {:ok, store} = ProviderTurnLedger.start_store()
+      on_exit(fn -> ProviderTurnLedger.stop_store(store) end)
+      port = open_cat_port()
+
+      state =
+        store
+        |> stored_turn_state("turn-old")
+        |> TurnState.record_accepted_provider_turn(%{"id" => "turn-accepted", "status" => "inProgress"})
+        |> Map.put(:pause_request_id, 56)
+
+      payload = %{"method" => "turn/cancelled", "params" => %{"reason" => "operator pause"}}
+
+      assert {:paused, %{request_id: 56}} =
+               TurnLoop.handle_method(%{port: port}, state, payload, Jason.encode!(payload), "turn/cancelled")
+
+      resumed = stored_turn_state(store, "turn-new")
+      resumed = TurnState.register_provider_turn(resumed, %{"id" => "turn-old", "status" => "inProgress"})
+      resumed = TurnState.register_provider_turn(resumed, %{"id" => "turn-accepted", "status" => "inProgress"})
+
+      assert resumed.active_turn_ids == MapSet.new(["turn-new"])
+      assert {:ok, :turn_completed} = TurnState.continue_after_turn_completion(resumed, turn_completed_payload("turn-new"))
       close_port(port)
     end
   end
@@ -236,6 +262,31 @@ defmodule Aiur.Codex.TurnLoopTest do
       assert {:paused, %{kind: :usage_limit_exhausted, reset_hint: "11:43 PM"}} =
                TurnLoop.handle_method(%{port: port}, base_state(), payload, Jason.encode!(payload), "error")
 
+      close_port(port)
+    end
+
+    test "quota exhaustion retires the failed provider turn before resume" do
+      {:ok, store} = ProviderTurnLedger.start_store()
+      on_exit(fn -> ProviderTurnLedger.stop_store(store) end)
+      port = open_cat_port()
+
+      payload = %{
+        "method" => "error",
+        "params" => %{
+          "willRetry" => false,
+          "codexErrorInfo" => "usageLimitExceeded",
+          "message" => "You've hit your usage limit."
+        }
+      }
+
+      assert {:paused, %{kind: :usage_limit_exhausted}} =
+               TurnLoop.handle_method(%{port: port}, stored_turn_state(store, "turn-old"), payload, Jason.encode!(payload), "error")
+
+      resumed = stored_turn_state(store, "turn-new")
+      resumed = TurnState.register_provider_turn(resumed, %{"id" => "turn-old", "status" => "inProgress"})
+
+      assert resumed.active_turn_ids == MapSet.new(["turn-new"])
+      assert {:ok, :turn_completed} = TurnState.continue_after_turn_completion(resumed, turn_completed_payload("turn-new"))
       close_port(port)
     end
 
@@ -407,6 +458,7 @@ defmodule Aiur.Codex.TurnLoopTest do
       interrupt_action: nil,
       pause_request_id: nil,
       current_turn_id: "turn-1",
+      issue_identifier: "ISSUE-1",
       turn_started?: false,
       active_turn_ids: MapSet.new(["turn-1"]),
       accepted_turn_ids: MapSet.new(),
@@ -416,6 +468,13 @@ defmodule Aiur.Codex.TurnLoopTest do
       interrupt_idle_seen?: false,
       backend: CodingAgent
     }
+  end
+
+  defp stored_turn_state(store, turn_id) do
+    base_state()
+    |> Map.merge(ProviderTurnLedger.start_turn(store))
+    |> Map.put(:current_turn_id, turn_id)
+    |> TurnState.initialize_turn_tracking()
   end
 
   defp turn_completed_payload(turn_id, status \\ "completed") do

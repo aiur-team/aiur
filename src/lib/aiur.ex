@@ -148,6 +148,7 @@ defmodule Aiur.Application do
       Aiur.ProcessReaper,
       Aiur.PauseContainment,
       Aiur.AgentResourceGuard,
+      Aiur.AppServer.ToolCallLedger,
       {Task.Supervisor, name: Aiur.TaskSupervisor},
       Aiur.WorkflowStore,
       Aiur.RepoBase,

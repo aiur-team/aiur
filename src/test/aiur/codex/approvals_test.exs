@@ -217,32 +217,59 @@ defmodule Aiur.Codex.ApprovalsTest do
       end
     end
 
-    test "returns port_closed without acknowledging a completed tool call" do
-      port = open_cat_port()
-      Port.close(port)
-      test_pid = self()
-      params = %{"tool" => "emit_event", "arguments" => %{"name" => "progress.checkin"}}
+    test "replays a completed tool result without duplicating its mutation after a closed port" do
+      retired_port = open_cat_port()
+      Port.close(retired_port)
+      replacement_port = open_cat_port()
+      ledger = start_supervised!({Aiur.AppServer.ToolCallLedger, name: nil})
+      scope = {:closed_port_replay, System.unique_integer([:positive])}
+      {:ok, executions} = Agent.start_link(fn -> 0 end)
+      params = %{"tool" => "emit_event", "callId" => "call-closed-port", "arguments" => %{"name" => "progress.checkin"}}
       payload = %{"id" => 102, "method" => "item/tool/call", "params" => params}
 
       tool_executor = fn _tool, _args ->
-        send(test_pid, :tool_executed)
+        Agent.update(executions, &(&1 + 1))
         %{"success" => true, "output" => "event published"}
       end
 
-      assert {:error, :port_closed} =
-               Approvals.maybe_handle_approval_request(
-                 port,
-                 "item/tool/call",
-                 payload,
-                 Jason.encode!(payload),
-                 fn message -> send(test_pid, {:event, message}) end,
-                 @metadata,
-                 tool_executor,
-                 false
-               )
+      try do
+        assert {:error, :port_closed} =
+                 Approvals.maybe_handle_approval_request(
+                   retired_port,
+                   "item/tool/call",
+                   payload,
+                   Jason.encode!(payload),
+                   fn _message -> :ok end,
+                   @metadata,
+                   tool_executor,
+                   false,
+                   %{tool_call_scope: scope, tool_call_ledger: ledger, response_id: 102},
+                   false
+                 )
 
-      assert_receive :tool_executed
-      refute_receive {:event, %{event: :tool_call_completed}}
+        assert :approved =
+                 Approvals.maybe_handle_approval_request(
+                   replacement_port,
+                   "item/tool/call",
+                   payload,
+                   Jason.encode!(payload),
+                   fn _message -> :ok end,
+                   @metadata,
+                   tool_executor,
+                   false,
+                   %{tool_call_scope: scope, tool_call_ledger: ledger, response_id: 102},
+                   false
+                 )
+
+        assert read_one_frame(replacement_port) == %{
+                 "id" => 102,
+                 "result" => %{"success" => true, "output" => "event published"}
+               }
+
+        assert Agent.get(executions, & &1) == 1
+      after
+        Port.close(replacement_port)
+      end
     end
   end
 

@@ -240,6 +240,9 @@ defmodule Aiur.AgentRunnerTest do
 
     test "a retired app-server port is transient so a fresh generation can replace it" do
       assert AgentRunner.transient_run_error?(:port_closed)
+      assert AgentRunner.transient_run_error?({:port_exit, 9})
+      assert AgentRunner.transient_run_error?({:port_exit, 9}, "codex")
+      refute AgentRunner.transient_run_error?({:port_exit, 9}, "claude")
     end
 
     test "a genuine agent failure is NOT transient so it still surfaces as a hard error" do

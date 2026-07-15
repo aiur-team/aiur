@@ -224,25 +224,25 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
       assert_receive {:queue_item_consumed, ^identifier}
     end
 
-    test "closed-port tool results restore the queued message for a replacement to drain once" do
+    test "provider exits restore the queued message for a replacement to drain once" do
       identifier = "QD-port-closed-#{System.unique_integer([:positive])}"
       issue = %Issue{identifier: identifier}
       item = %{category: :operator_message, id: 2, body: %{text: "retry on replacement"}}
       {:ok, orchestrator} = FakeQueueOrchestrator.start_link(item, self())
 
-      assert {:error, :port_closed} =
+      assert {:error, {:port_exit, 9}} =
                QueueDrain.drain_operator_messages(
                  %{backend: "codex", thread_id: "retired-thread"},
                  issue,
                  fn _message -> :ok end,
                  orchestrator,
                  nil,
-                 run_turn: fn _session, _text, _issue, _opts -> {:error, :port_closed} end
+                 run_turn: fn _session, _text, _issue, _opts -> {:error, {:port_exit, 9}} end
                )
 
       assert_receive {:queue_item_restored, ^identifier}
       refute_receive {:queue_item_consumed, ^identifier}
-      refute_receive {:queue_item_failed, ^identifier, :port_closed}
+      refute_receive {:queue_item_failed, ^identifier, {:port_exit, 9}}
 
       test_pid = self()
 
@@ -262,6 +262,26 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
       assert_receive {:replacement_turn, "replacement-thread", "retry on replacement"}
       refute_receive {:replacement_turn, "replacement-thread", "retry on replacement"}
       assert_receive {:queue_item_consumed, ^identifier}
+      refute_receive {:queue_item_restored, ^identifier}
+    end
+
+    test "Claude provider exits retain the existing failed-delivery behavior" do
+      identifier = "QD-claude-port-exit-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      item = %{category: :operator_message, id: 3, body: %{text: "do not replay"}}
+      {:ok, orchestrator} = FakeQueueOrchestrator.start_link(item, self())
+
+      assert {:error, {:port_exit, 9}} =
+               QueueDrain.drain_operator_messages(
+                 %{backend: "claude", thread_id: "claude-thread"},
+                 issue,
+                 fn _message -> :ok end,
+                 orchestrator,
+                 nil,
+                 run_turn: fn _session, _text, _issue, _opts -> {:error, {:port_exit, 9}} end
+               )
+
+      assert_receive {:queue_item_failed, ^identifier, {:port_exit, 9}}
       refute_receive {:queue_item_restored, ^identifier}
     end
   end

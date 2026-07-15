@@ -94,6 +94,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
     record_implementation_end(issue, lifecycle_attempt_id, operation_id, turn_number, result)
 
     TurnStreams.close(issue, aiur_turn_id, turn_done_reason(result))
+    backend = SessionLifecycle.session_backend(app_session)
 
     case result do
       {:ok, turn_session} ->
@@ -145,6 +146,15 @@ defmodule Aiur.AgentRunner.TurnLoop do
         wait_for_resume(turn_context, app_session, message_handler)
 
       {:error, :port_closed} = error ->
+        best_effort_queue_bookkeeping(
+          Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier),
+          :restore,
+          issue
+        )
+
+        error
+
+      {:error, {:port_exit, _status}} = error when backend == "codex" ->
         best_effort_queue_bookkeeping(
           Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier),
           :restore,
