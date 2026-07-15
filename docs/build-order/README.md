@@ -10,6 +10,17 @@
 Read this file first. This branch contains reviewed planning evidence and issue
 contracts. It does not implement Build Order, launch Aiur, or dispatch work.
 
+## Integration branch policy
+
+Build Order is integrated on lowercase `develop`, not piecemeal on `main`.
+Core BO/DASH and planning PRs target `develop`; reusable stability fixes target
+`main`, after which current `main` must be merged into `develop` before more
+feature work proceeds. Intermediate feature PRs use a speed-focused gate of
+current-`develop` ancestry, scoped acceptance, and green CI. The exhaustive
+cross-feature review, full suite, real CLI/dashboard/TUI proof, and operator
+sign-off happen once on the complete `develop` head before any promotion to
+`main`. See [EXECUTOR-HANDOFF.md](EXECUTOR-HANDOFF.md) for the binding runbook.
+
 ## Status
 
 - Plan version: 1
@@ -23,9 +34,10 @@ contracts. It does not implement Build Order, launch Aiur, or dispatch work.
 - GitHub materialization: mechanically valid; two clean semantic passes and
   final reconciliation remain pending
 - Dispatch: prohibited in this planning run; never add `agent:todo`
-- Execution gates: the integration baseline is resolved (`origin/main` at
-  `9849f32963c2a65367bce565b3f5ede3777c218f`); the bounded Executor skill
-  installation gate remains unresolved; see `build-order.json`
+- Execution gates: the researched baseline remains pinned at
+  `9849f32963c2a65367bce565b3f5ede3777c218f`; live feature integration now uses
+  `origin/develop`, which must always contain current `origin/main`; see
+  `EXECUTOR-HANDOFF.md` and `build-order.json`
 - Merge: do not merge this planning branch or the isolated skill branch while
   the current dashboard run is active
 

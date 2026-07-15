@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-15 04:03 PDT)
+## Live Executor state (updated 2026-07-15 06:30 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -11,13 +11,46 @@ truth and supersedes stale pre-run wording later in the document.
 **State right now:** planning approval remains frozen at
 `4d8de9508206e08e314f2730cd916501a3b4cafd`; the complete graph is live at root
 #1084 with 54 members #1085–#1138 and 107 exact blocker relations. The historical
-receipt gate remains operator-overridden for this run. Aiur is running from the
-repository root against `main`; current accepted `main` is
-`83a5a11e`, including paused-label startup fix #1148, BO-009/#1096,
+receipt gate remains operator-overridden for this run. Aiur is deliberately
+stopped while the Executor and bounded background workers close the active
+stability PRs; do not restart feature dispatch until that stability lane is
+green. Current accepted `main` is `f8f3075d`, including the new `develop`
+integration configuration, paused-label startup fix #1148, BO-009/#1096,
 BO-002/#1091, quota-waste reduction PR #1176, DASH-002/#1109, the
 binding maximum-useful-concurrency Executor rule, and the hard ten-minute
 capacity audit. The core
 program is 8/54 merged with 46 remaining.
+
+### Binding integration and promotion policy
+
+This section supersedes every historical `main`-as-feature-base or repeated
+dual-review instruction later in this handoff.
+
+- Lowercase `develop` is the Build Order staging branch. It was created from
+  exact `main` and both pointed at `f8f3075d` when this policy was established.
+  Every core BO/DASH implementation PR and planning PR #1064 targets `develop`.
+- Generic stability, daemon, workspace, CI-lifecycle, and other reusable fixes
+  target `main`. After every such merge, merge current `main` into `develop`
+  before reviewing, dispatching, or merging more Build Order work. The hard
+  freshness invariant is `origin/main` is an ancestor of `origin/develop`.
+- `.aiur/config` sets `tracker.base_branch: develop`. Restarted Aiur workers,
+  prewarm state, workspace hooks, PR creation, freshness checks, and CI must all
+  use that configured integration branch. A PR aimed at another branch is not
+  merge-ready.
+- Optimize intermediate feature throughput: a Build Order PR into `develop`
+  needs current-`develop` ancestry, its scoped acceptance evidence, and green
+  CI. Fix clear material correctness/security/contract failures, but do not run
+  serial nit-picking or repeated dual-review cycles on otherwise accepted
+  intermediate work.
+- `develop` is not promoted piecemeal. When the entire bounded feature is
+  integrated, run one comprehensive cross-feature review, full repository CI,
+  and the required real CLI/dashboard/TUI acceptance on the exact `develop`
+  head. Resolve material findings there, then stop for operator sign-off before
+  opening or merging a `develop` → `main` promotion PR.
+- Existing paused/stale feature branches may be preserved, refreshed, or
+  restarted from current `develop` at Executor discretion. Prefer a clean
+  restart when semantic drift or conflict repair costs more than reimplementing
+  the ticket from its contract.
 
 The recorded runtime session ceiling is 15 workers, governed by
 Aiur's effective-slot controller and shared build gates. The operator target is
@@ -74,10 +107,11 @@ Terra; never dispatch Claude.
    is active operationally but it also has no dispatch label.
 5. Maintain this handoff whenever an operator directive, execution override,
    capacity decision, discovered blocker, or validation authority changes.
-6. The prewarm base currently equals live `origin/main` at `0f8a3e13`. Although
+6. Before feature dispatch resumes, rebuild the prewarm base from live
+   `origin/develop`. Although
    `prewarm.poll_seconds` is zero, each tracker dispatch cycle calls
    `RepoBase.refresh_async/0`; after every merge verify the base fetches,
-   rebuilds, and reaches the new `main` before newly-ready dispatch begins.
+   rebuilds, and reaches the new `develop` before newly-ready dispatch begins.
 7. At 19:13 PDT the adaptive watcher caught #1088's operator-decision alert:
    PR #1144 had opened against legacy `v2`, producing 429 unrelated files.
    The Executor auto-retargeted it through the REST API to authorized `main`,

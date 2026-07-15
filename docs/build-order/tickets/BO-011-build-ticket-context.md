@@ -27,8 +27,8 @@
 ## Outcome
 
 Build Order composes BO-018's accessible base ticket context with BO-007's
-truthful adjacency/edge diagnostics and concrete read-only GitHub, Chat, and
-Commands destination capabilities, so one root-scoped selection remains
+truthful adjacency/edge diagnostics and concrete read-only Issue, Pull request,
+Chat, and Commands destination capabilities, so one root-scoped selection remains
 truthful, focused, and non-mutating.
 
 ## Context and evidence
@@ -67,8 +67,10 @@ not own the base context component.
   Clear or reconcile it deterministically on root/generation change, focus the
   replacement heading after relationship navigation, and restore focus to the
   originating graph card when context closes.
-- Bind normalized CTA capabilities concretely: GitHub only for the selected
-  configured-repository issue's safe canonical URL; Chat only for an exact
+- Bind normalized CTA capabilities concretely: Issue only for the selected
+  configured-repository issue's safe canonical URL; Pull request only for a
+  BO-016 linked reference with the same configured-repository identity and
+  current snapshot generation; Chat only for an exact
   active/readable selected-member chat route; Commands only for an exact
   selected-member readable command/Decision destination. Missing/stale/
   unauthorized destinations render unavailable with reason. Navigation is not
@@ -135,9 +137,10 @@ providers/base component or the graph presenter.
 - Selection tests cover root and generation changes, removed members, delayed
   stale detail completion, relationship replacement/back, LiveView reconnect,
   heading focus, Escape/close, and origin focus restoration.
-- Destination tests prove exact GitHub/Chat/Commands available and unavailable
-  cases, stale/missing/unauthorized reasons, other-repository nonfetchable
-  diagnostics, and optional safe outbound external GitHub link semantics.
+- Destination tests prove exact Issue/Pull request/Chat/Commands available and
+  unavailable cases, no-linked-PR truth, stale/missing/unauthorized reasons,
+  other-repository nonfetchable diagnostics, and optional safe outbound
+  external GitHub link semantics.
 - Integration tests prove opening context never hydrates every graph member or
   parses logs, and BO-007/018 values are neither recomputed nor rewritten.
 - Security tests prove only validated navigation links render and no GitHub,
@@ -172,7 +175,8 @@ providers/base component or the graph presenter.
 ## Surfaces
 
 - Reads: BO-007 selected-node relationship/capability model; BO-018 accessible
-  base context/CTA model; concrete GitHub/Chat/Commands route capabilities.
+  base context/CTA model; concrete Issue/Pull request/Chat/Commands route
+  capabilities.
 - Writes: Build Order TicketContext adapter; root-scoped selection/focus and
   read-only graph-policy tests.
 - Contracts: Build Order relationship context adapter; truthful destination

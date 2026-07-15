@@ -28,7 +28,7 @@
 
 An accessible, root-independent base context renders configured-repository
 description, progress/latest evidence, a bounded Logs timeline, and normalized
-read-only GitHub/Chat/Commands destination CTAs without Build Order
+read-only Issue/Pull request/Chat/Commands destination CTAs without Build Order
 relationships or mutation handlers.
 
 ## Context and evidence
@@ -47,10 +47,13 @@ later decides which concrete Build Order destinations/relationships apply.
 - Render bounded title/description, canonical configured-repository identity,
   GitHub lifecycle, detail/history health/freshness, progress with provenance,
   latest safe evidence, and a semantic `Logs` timeline with truncation/state.
-- Define a normalized navigation-only CTA model for `GitHub`, `Chat`, and
-  `Commands`: label, safe href/route, availability, disabled/unavailable reason,
-  and destination kind. This component renders supplied capabilities but never
-  determines Build Order eligibility or claims an action succeeded.
+- Define a normalized navigation-only CTA model for `Issue`, `Pull request`,
+  `Chat`, and `Commands`: label, safe href/route, availability,
+  disabled/unavailable reason, and destination kind. `Issue` and `Pull request`
+  are distinct, explicit controls; before a PR is linked, render a truthful
+  non-actionable `Pull request not opened` state. This component renders
+  supplied capabilities but never determines Build Order eligibility or claims
+  an action succeeded.
 - Own generic semantic dialog/region labelling, heading focus entry, focus trap,
   Escape/close callback, responsive reflow, loading/error/status text, forced
   colors, reduced motion, and 200% text zoom through BO-008.
@@ -105,8 +108,9 @@ for BO-011 rather than forking provider or markup ownership.
 - Presenter/component tests cover every detail/history/lifecycle state, bounded
   description, progress provenance, latest evidence, 0/1/50/100 Logs entries,
   truncation, stale/missing/restart, and configured-repository identity.
-- CTA tests cover available/unavailable GitHub/Chat/Commands, explicit reasons,
-  safe/unsafe links, unknown kinds, and proof navigation never invokes an action.
+- CTA tests cover available/unavailable Issue/Pull request/Chat/Commands,
+  zero/one/many linked-PR inputs, explicit reasons, safe/unsafe links, unknown
+  kinds, and proof navigation never invokes an action.
 - BO-008 browser tests cover keyboard/touch, focus entry/trap/Escape/close,
   semantic headings/status/list, responsive reflow, forced colors, reduced
   motion, theme, and 200% zoom.
@@ -140,8 +144,9 @@ for BO-011 rather than forking provider or markup ownership.
   snapshots; normalized navigation-only destination capabilities.
 - Writes: accessible base TicketContext presenter/component; description,
   progress/latest, Logs, CTA, focus, security, and browser tests.
-- Contracts: root-independent base context; normalized GitHub/Chat/Commands CTA
-  model; generic focus lifecycle; no-mutation boundary.
+- Contracts: root-independent base context; normalized
+  Issue/Pull request/Chat/Commands CTA model; generic focus lifecycle;
+  no-mutation boundary.
 
 ## Sibling boundaries and open gates
 
