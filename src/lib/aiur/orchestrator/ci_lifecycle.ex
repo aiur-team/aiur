@@ -232,7 +232,8 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     :ok =
       CIApprovalStore.save(
         state.ci_lifecycle.approved_heads,
-        state.ci_lifecycle.test_failure_heads
+        state.ci_lifecycle.test_failure_heads,
+        Map.get(state.ci_lifecycle, :base_repair_invalidations, %{})
       )
 
     state
@@ -307,7 +308,14 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     issues_by_target = ci_issues_by_target(issues)
     targets = Map.keys(issues_by_target)
 
-    case poller.(targets, opts) do
+    poll_opts =
+      Keyword.put(
+        opts,
+        :base_repair_invalidations,
+        Map.get(state.ci_lifecycle, :base_repair_invalidations, %{})
+      )
+
+    case poller.(targets, poll_opts) do
       {:ok, %{results: results, errors: errors}} when is_list(results) and is_list(errors) ->
         state =
           state
@@ -364,6 +372,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     case Map.get(issues_by_target, Map.get(result, :target)) do
       %Issue{} = issue ->
         state
+        |> reconcile_base_repair_invalidation(issue, result)
         |> stash_last_ci_result(issue, result)
         |> apply_ci_poll_result(issue, result)
 
@@ -405,6 +414,57 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       pr_number: Map.get(result, :pr_number),
       head_sha: Map.get(result, :head_sha)
     }
+  end
+
+  defp reconcile_base_repair_invalidation(
+         %State{} = state,
+         %Issue{} = issue,
+         %{base_repair_invalidation: %{head_sha: head_sha, repaired_at: repaired_at}}
+       )
+       when is_binary(head_sha) and is_integer(repaired_at) do
+    update_base_repair_invalidation(state, issue, %{head_sha: head_sha, repaired_at: repaired_at})
+  end
+
+  defp reconcile_base_repair_invalidation(%State{} = state, %Issue{} = issue, result) do
+    target = ci_target_for_issue(issue)
+    invalidations = Map.get(state.ci_lifecycle, :base_repair_invalidations, %{})
+
+    case Map.get(invalidations, target) do
+      %{head_sha: invalidated_head} when is_binary(invalidated_head) ->
+        observed_head = Map.get(result, :head_sha)
+
+        if Map.get(result, :base_repair_revalidated, false) or
+             (is_binary(observed_head) and observed_head != invalidated_head) do
+          update_base_repair_invalidation(state, issue, nil)
+        else
+          state
+        end
+
+      _ ->
+        state
+    end
+  end
+
+  defp update_base_repair_invalidation(%State{} = state, %Issue{} = issue, invalidation) do
+    case ci_target_for_issue(issue) do
+      target when is_binary(target) ->
+        invalidations = Map.get(state.ci_lifecycle, :base_repair_invalidations, %{})
+
+        next_invalidations =
+          if is_map(invalidation),
+            do: Map.put(invalidations, target, invalidation),
+            else: Map.delete(invalidations, target)
+
+        if next_invalidations == invalidations do
+          state
+        else
+          ci_lifecycle = Map.put(state.ci_lifecycle, :base_repair_invalidations, next_invalidations)
+          persist_ci_lifecycle_state(%{state | ci_lifecycle: ci_lifecycle})
+        end
+
+      _ ->
+        state
+    end
   end
 
   defp all_ci_targets_failed?([], _errors), do: false
@@ -590,6 +650,10 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     approved_heads = Map.take(state.ci_lifecycle.approved_heads, targets)
     test_failure_heads = Map.take(state.ci_lifecycle.test_failure_heads, targets)
     poll_cache = state.ci_lifecycle |> Map.get(:poll_cache, %{}) |> Map.take(targets)
+
+    # Base repair invalidations intentionally survive while their ticket is in
+    # rework (and therefore absent from this CI-only target list). The marker is
+    # cleared only when that ticket returns with a new head or post-repair CI.
 
     if approved_heads == state.ci_lifecycle.approved_heads and
          test_failure_heads == state.ci_lifecycle.test_failure_heads and

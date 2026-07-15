@@ -77,7 +77,8 @@ defmodule Aiur.Claude.Repl.Launcher do
         ctx.rc?,
         ctx.rc_name,
         settings_path,
-        resume_id
+        resume_id,
+        Keyword.take(ctx.opts, [:base_branch])
       )
 
     Aiur.Perf.event(:repl_agent_spawn,

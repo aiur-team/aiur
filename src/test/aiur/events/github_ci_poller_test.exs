@@ -401,6 +401,109 @@ defmodule Aiur.Events.GithubCIPollerTest do
     assert excerpt =~ "baseRefName"
   end
 
+  test "keeps a repaired unchanged head invalid across later polls until fresh CI exists" do
+    repair_time = DateTime.to_unix(~U[2026-07-14 23:00:00Z])
+    {:ok, base} = Agent.start_link(fn -> "v2" end)
+    {:ok, fresh_ci?} = Agent.start_link(fn -> false end)
+
+    request_fun = fn request ->
+      cond do
+        request.method == :get and String.contains?(request.url, "/pulls?") ->
+          {:ok,
+           %{
+             status: 200,
+             body: [
+               %{
+                 "number" => 1144,
+                 "draft" => true,
+                 "head" => %{"sha" => "unchanged-head"},
+                 "base" => %{"ref" => Agent.get(base, & &1)}
+               }
+             ]
+           }}
+
+        request.method == :patch ->
+          Agent.update(base, fn _ -> "main" end)
+          {:ok, %{status: 200, body: %{"base" => %{"ref" => "main"}}}}
+
+        String.contains?(request.url, "/check-runs?") ->
+          started_at =
+            if Agent.get(fresh_ci?, & &1),
+              do: "2026-07-14T23:01:00Z",
+              else: "2026-07-14T22:00:00Z"
+
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "check_runs" => [
+                 %{
+                   "name" => "test",
+                   "status" => "completed",
+                   "conclusion" => "success",
+                   "started_at" => started_at
+                 }
+               ]
+             }
+           }}
+
+        String.ends_with?(request.url, "/status") ->
+          {:ok, %{status: 200, body: %{"state" => "pending", "statuses" => []}}}
+      end
+    end
+
+    assert {:ok,
+            %{
+              results: [
+                %{
+                  decision: :failed,
+                  base_repair_invalidation: %{head_sha: "unchanged-head", repaired_at: ^repair_time}
+                } = repaired
+              ]
+            }} =
+             GithubCIPoller.poll(["1146"],
+               request_fun: request_fun,
+               base_branch: "main",
+               system_time_fun: fn -> repair_time end
+             )
+
+    invalidations = %{"1146" => repaired.base_repair_invalidation}
+
+    assert {:ok,
+            %{
+              results: [
+                %{
+                  decision: :pending,
+                  head_sha: "unchanged-head",
+                  pending_reason: :base_repair_ci_revalidation_required
+                }
+              ]
+            }} =
+             GithubCIPoller.poll(["1146"],
+               request_fun: request_fun,
+               base_branch: "main",
+               base_repair_invalidations: invalidations
+             )
+
+    Agent.update(fresh_ci?, fn _ -> true end)
+
+    assert {:ok,
+            %{
+              results: [
+                %{
+                  decision: :passed,
+                  head_sha: "unchanged-head",
+                  base_repair_revalidated: true
+                }
+              ]
+            }} =
+             GithubCIPoller.poll(["1146"],
+               request_fun: request_fun,
+               base_branch: "main",
+               base_repair_invalidations: invalidations
+             )
+  end
+
   test "returns actionable CI failure when automatic wrong-base repair fails" do
     parent = self()
 

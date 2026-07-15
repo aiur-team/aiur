@@ -105,7 +105,7 @@ defmodule Aiur.Events.GithubCIPoller do
           poll_open_pull_request_ci(target, pr_number, head_sha, opts)
 
         {:ok, :repaired} ->
-          base_branch_repaired(target, pr_number, head_sha, expected_base)
+          base_branch_repaired(target, pr_number, head_sha, expected_base, opts)
 
         {:error, reason} ->
           base_branch_failure(target, pr_number, head_sha, expected_base, reason)
@@ -159,20 +159,21 @@ defmodule Aiur.Events.GithubCIPoller do
 
     case Client.ensure_pull_request_base(current_pr, expected_base, opts) do
       {:ok, :unchanged} ->
-        current_head_result(target, pr_number, current_pr, observed_head_sha, check_runs, commit_status)
+        current_head_result(target, pr_number, current_pr, observed_head_sha, check_runs, commit_status, opts)
 
       {:ok, :repaired} ->
-        base_branch_repaired(target, pr_number, observed_head_sha, expected_base)
+        base_branch_repaired(target, pr_number, observed_head_sha, expected_base, opts)
 
       {:error, reason} ->
         base_branch_failure(target, pr_number, observed_head_sha, expected_base, reason)
     end
   end
 
-  defp current_head_result(target, pr_number, current_pr, observed_head_sha, check_runs, commit_status) do
+  defp current_head_result(target, pr_number, current_pr, observed_head_sha, check_runs, commit_status, opts) do
     case head_sha(current_pr) do
       {:ok, ^observed_head_sha} ->
         evaluate(check_runs, commit_status)
+        |> enforce_base_repair_invalidation(target, observed_head_sha, check_runs, commit_status, opts)
         |> Map.merge(%{target: target, pr_number: pr_number, head_sha: observed_head_sha})
 
       {:ok, current_head_sha} ->
@@ -213,6 +214,62 @@ defmodule Aiur.Events.GithubCIPoller do
 
     %{decision: decision, failures: failed_checks}
   end
+
+  defp enforce_base_repair_invalidation(result, target, head_sha, check_runs, commit_status, opts) do
+    invalidations = Keyword.get(opts, :base_repair_invalidations, %{})
+
+    case Map.get(invalidations, to_string(target)) do
+      %{head_sha: ^head_sha, repaired_at: repaired_at} when is_integer(repaired_at) ->
+        if result.decision in [:passed, :failed] and post_repair_ci?(check_runs, commit_status, repaired_at) do
+          Map.put(result, :base_repair_revalidated, true)
+        else
+          result
+          |> Map.put(:decision, :pending)
+          |> Map.put(:failures, [])
+          |> Map.put(:pending_reason, :base_repair_ci_revalidation_required)
+        end
+
+      _ ->
+        result
+    end
+  end
+
+  defp post_repair_ci?(check_runs, commit_status, repaired_at) do
+    check_evidence = Enum.map(check_runs, &ci_evidence_timestamp/1)
+
+    status_evidence =
+      commit_status
+      |> Map.get("statuses", [])
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(&ci_evidence_timestamp/1)
+
+    evidence = check_evidence ++ status_evidence
+    evidence != [] and Enum.all?(evidence, &(is_integer(&1) and &1 >= repaired_at))
+  end
+
+  defp ci_evidence_timestamp(evidence) when is_map(evidence) do
+    [
+      Map.get(evidence, "started_at"),
+      Map.get(evidence, "created_at"),
+      get_in(evidence, ["check_suite", "created_at"]),
+      Map.get(evidence, "updated_at"),
+      Map.get(evidence, "completed_at")
+    ]
+    |> Enum.find_value(&timestamp_seconds/1)
+  end
+
+  defp ci_evidence_timestamp(_evidence), do: nil
+
+  defp timestamp_seconds(value) when is_integer(value) and value >= 0, do: value
+
+  defp timestamp_seconds(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> DateTime.to_unix(datetime)
+      _ -> nil
+    end
+  end
+
+  defp timestamp_seconds(_value), do: nil
 
   defp failed_check_runs(check_runs) do
     Enum.flat_map(check_runs, fn check_run ->
@@ -317,7 +374,9 @@ defmodule Aiur.Events.GithubCIPoller do
     }
   end
 
-  defp base_branch_repaired(target, pr_number, head_sha, expected_base) do
+  defp base_branch_repaired(target, pr_number, head_sha, expected_base, opts) do
+    repaired_at = system_time_seconds(opts)
+
     Logger.warning(
       "GithubCIPoller repaired pull request base: issue=#{target} pr=#{pr_number} " <>
         "expected_base=#{inspect(expected_base)} action=ci_revalidation_required"
@@ -328,6 +387,7 @@ defmodule Aiur.Events.GithubCIPoller do
       pr_number: pr_number,
       head_sha: head_sha,
       decision: :failed,
+      base_repair_invalidation: %{head_sha: head_sha, repaired_at: repaired_at},
       failures: [
         %{
           name: "pull request base branch",
@@ -340,6 +400,12 @@ defmodule Aiur.Events.GithubCIPoller do
         }
       ]
     }
+  end
+
+  defp system_time_seconds(opts) do
+    opts
+    |> Keyword.get(:system_time_fun, fn -> System.system_time(:second) end)
+    |> then(& &1.())
   end
 
   defp base_branch_failure_message(
