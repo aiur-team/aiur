@@ -129,6 +129,20 @@ comments should reach agent event digests even when CODEOWNERS team expansion is
 unavailable. Keep it separate from `github.bot_account`: bot-account authors are
 filtered as self-loops, while trusted accounts are allowed human Executors.
 
+Build Order planning reads use finite `github.planning_root_limit`,
+`github.planning_page_budget`, and `github.planning_call_budget` safeguards.
+They default to `100`, `4`, and `4`; all values must be positive and may not
+exceed those hard limits, so a provider generation never silently truncates.
+
+The optional root-level `build_order` section configures one supervised,
+in-memory cache for configured-repository ticket detail. It defaults to a
+30-second freshness window, 32 retained identities, and 16,384 sanitized
+description bytes. `ticket_detail_freshness_ms` accepts `1..300000`,
+`ticket_detail_max_entries` accepts `1..100`, and
+`ticket_detail_max_description_bytes` accepts `1..16384`. Restarting Aiur
+clears the cache; detail remains unavailable until a new on-demand read
+succeeds.
+
 Copy one of the starter pairs (config + prompt template) and edit it for your project:
 
 - [examples/workflows/linear-codex.aiurconfig](examples/workflows/linear-codex.aiurconfig)

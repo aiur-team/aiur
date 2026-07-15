@@ -32,10 +32,33 @@ defmodule Aiur.BuildOrder.Bounded do
 
   @spec github_issue_repository(term()) :: {:ok, %{owner: String.t(), repository: String.t()}} | :error
   def github_issue_repository(value) do
+    with {:ok, reference} <- github_issue_reference(value) do
+      {:ok, Map.take(reference, [:owner, :repository])}
+    end
+  end
+
+  @spec github_issue_url_for(term(), term()) :: {:ok, String.t()} | :error
+  def github_issue_url_for(value, %{owner: owner, repository: repository, identifier: identifier}) do
+    with {:ok, url} <- github_url(value),
+         {:ok, reference} <- github_issue_reference(url),
+         true <- reference.kind == "issues",
+         true <- same_repository?(reference, %{owner: owner, repository: repository}),
+         true <- reference.identifier == identifier do
+      {:ok, url}
+    else
+      _ -> :error
+    end
+  end
+
+  def github_issue_url_for(_value, _identity), do: :error
+
+  @spec github_issue_reference(term()) ::
+          {:ok, %{owner: String.t(), repository: String.t(), kind: String.t(), identifier: String.t()}} | :error
+  def github_issue_reference(value) do
     with {:ok, url} <- github_url(value),
          %URI{path: path} <- URI.parse(url),
-         [owner, repository, _kind, _number] <- String.split(path, "/", trim: true) do
-      {:ok, %{owner: owner, repository: repository}}
+         [owner, repository, kind, number] <- String.split(path, "/", trim: true) do
+      {:ok, %{owner: owner, repository: repository, kind: kind, identifier: number}}
     else
       _ -> :error
     end

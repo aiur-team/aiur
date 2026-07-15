@@ -4,7 +4,7 @@ defmodule Aiur.GitHub.Issues do
   """
 
   require Logger
-  alias Aiur.{Config, GitHub, Issue, TrackerIdentity}
+  alias Aiur.{BuildOrder.Bounded, Config, GitHub, Issue, TrackerIdentity}
   alias Aiur.GitHub.{Errors, Labels, StatePolicy, Transport}
 
   @spec fetch_candidate_issues(keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
@@ -40,20 +40,25 @@ defmodule Aiur.GitHub.Issues do
 
   defp raw_repository(opts) do
     case Keyword.fetch(opts, :repository) do
-      {:ok, {owner, repo}} when is_binary(owner) and is_binary(repo) ->
-        if valid_repository_part?(owner) and valid_repository_part?(repo),
-          do: {:ok, {owner, repo}},
-          else: {:error, :invalid_github_repository}
+      {:ok, {owner, repo}} ->
+        repository_components(owner, repo)
 
       {:ok, _invalid_repository} ->
         {:error, :invalid_github_repository}
 
       :error ->
-        Transport.parse_repo()
+        with {:ok, {owner, repo}} <- Transport.parse_repo() do
+          repository_components(owner, repo)
+        end
     end
   end
 
-  defp valid_repository_part?(value), do: String.trim(value) != "" and not String.contains?(value, "/")
+  defp repository_components(owner, repo) do
+    case Bounded.github_repository_components(owner, repo) do
+      {:ok, repository} -> {:ok, repository}
+      :error -> {:error, :invalid_github_repository}
+    end
+  end
 
   @spec fetch_issues_for_each_label(
           [String.t()],

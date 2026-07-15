@@ -147,11 +147,19 @@ defmodule Aiur.GitHub.IssuesTest do
     end
 
     test "rejects an invalid explicit repository before transport" do
-      assert {:error, :invalid_github_repository} =
-               Issues.fetch_issue_raw(5,
-                 repository: {"owner/repo", "repository"},
-                 request_fun: fn _request -> flunk("transport must not be called") end
-               )
+      for repository <- [
+            {"owner/repo", "repository"},
+            {"owner?query", "repository"},
+            {"owner", "repository#fragment"},
+            {"owner name", "repository"},
+            {"..", "repository"}
+          ] do
+        assert {:error, :invalid_github_repository} =
+                 Issues.fetch_issue_raw(5,
+                   repository: repository,
+                   request_fun: fn _request -> flunk("transport must not be called") end
+                 )
+      end
     end
   end
 

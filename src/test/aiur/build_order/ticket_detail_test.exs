@@ -8,6 +8,11 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
   @transport_test_options_key :github_transport_test_options
 
+  setup_all do
+    {:ok, _apps} = Application.ensure_all_started(:req)
+    :ok
+  end
+
   test "loads a complete bounded snapshot for the configured identity" do
     identity = identity(42, "I42")
     observed_at = ~U[2026-07-14 09:00:00Z]
@@ -413,6 +418,36 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
     refute description =~ "bracket-pair-secret"
     refute description =~ "entity-pair-secret"
     refute description =~ "pair-private-key"
+  end
+
+  test "redacts command credential flags, CDATA credentials, and singleton local paths" do
+    identity = identity(42, "I42")
+
+    body =
+      "mysql --password supersecret\n" <>
+        "deploy --api-key anothersecret\n" <>
+        "<password><![CDATA[xml-secret]]></password>\n" <>
+        "/etc /home /root /etc/passwd /home/alice /root/.ssh/id_ed25519\n" <>
+        "https://example.test/etc docs/etc"
+
+    assert {:ok, %Snapshot{description: description}} =
+             TicketDetail.fetch(identity,
+               configured_repo: @configured,
+               request_fun: fn _request ->
+                 {:ok, %{status: 200, body: Map.put(issue(42, "I42"), "body", body)}}
+               end
+             )
+
+    assert description =~ "[REDACTED:credential]"
+    assert description =~ "[REDACTED:local_path]"
+    assert description =~ "https://example.test/etc"
+    assert description =~ "docs/etc"
+
+    for secret <- ["supersecret", "anothersecret", "xml-secret"] do
+      refute description =~ secret
+    end
+
+    refute Regex.match?(~r{(?<![A-Za-z0-9._/-])/(?:etc|home|root)(?![A-Za-z0-9._/-])}u, description)
   end
 
   test "maps not-found and rate-limit errors without response content" do
