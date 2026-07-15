@@ -370,7 +370,82 @@ defmodule Aiur.OrchestratorDeactivateTest do
     test "approval store fails closed for valid JSON with malformed lifecycle fields" do
       File.write!(CIApprovalStore.path_for(), ~s({"approved_heads":null,"test_failure_heads":["not-a-map"]}))
 
-      assert CIApprovalStore.load() == %{approved_heads: %{}, test_failure_heads: %{}}
+      assert CIApprovalStore.load() == %{
+               approved_heads: %{},
+               test_failure_heads: %{},
+               base_repair_invalidations: %{}
+             }
+    end
+
+    test "persists base repair invalidation and supplies it to later CI polls" do
+      identifier = "ci-base-repair"
+      issue = %Issue{id: identifier, identifier: identifier, state: "ci-wait", title: "Retarget CI"}
+
+      invalidation = %{
+        head_sha: "repaired-head",
+        repaired_at: 1_784_070_000,
+        repair_state: :repaired
+      }
+
+      state =
+        CiLifecycle.poll_github_ci(empty_orchestrator_state(),
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
+          ci_poller: fn [^identifier], opts ->
+            assert Keyword.get(opts, :base_repair_invalidations) == %{}
+
+            {:ok,
+             %{
+               results: [
+                 %{
+                   target: identifier,
+                   decision: :failed,
+                   head_sha: "repaired-head",
+                   pr_number: 1174,
+                   base_repair_invalidation: invalidation,
+                   failures: [%{name: "pull request base branch", result: "repaired"}]
+                 }
+               ],
+               errors: []
+             }}
+          end
+        )
+
+      assert state.ci_lifecycle.base_repair_invalidations == %{identifier => invalidation}
+
+      assert %{
+               base_repair_invalidations: %{^identifier => ^invalidation}
+             } = persisted = CIApprovalStore.load()
+
+      restarted_state = %{
+        empty_orchestrator_state()
+        | ci_lifecycle:
+            persisted
+            |> Map.put(:poll_cache, %{})
+            |> Map.put(:rewakes, %{})
+      }
+
+      state =
+        CiLifecycle.poll_github_ci(restarted_state,
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
+          ci_poller: fn [^identifier], opts ->
+            assert Keyword.fetch!(opts, :base_repair_invalidations) == %{identifier => invalidation}
+
+            {:ok,
+             %{
+               results: [
+                 %{
+                   target: identifier,
+                   decision: :pending,
+                   head_sha: "repaired-head",
+                   pending_reason: :base_repair_ci_revalidation_required
+                 }
+               ],
+               errors: []
+             }}
+          end
+        )
+
+      assert state.ci_lifecycle.base_repair_invalidations == %{identifier => invalidation}
     end
 
     test "failing CI changes the ticket to rework before publishing a sanitized wake event" do
@@ -698,7 +773,12 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert state.ci_lifecycle.approved_heads == %{}
       assert state.ci_lifecycle.test_failure_heads == %{}
       assert state.ci_lifecycle.poll_cache == %{}
-      assert CIApprovalStore.load() == %{approved_heads: %{}, test_failure_heads: %{}}
+
+      assert CIApprovalStore.load() == %{
+               approved_heads: %{},
+               test_failure_heads: %{},
+               base_repair_invalidations: %{}
+             }
     end
 
     test "CI failure topic parser accepts only ticket-local failure events" do

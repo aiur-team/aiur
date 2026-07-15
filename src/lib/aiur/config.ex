@@ -22,6 +22,8 @@ defmodule Aiur.Config do
   {% endif %}
   """
 
+  @default_base_branch "main"
+
   @type codex_runtime_settings :: %{
           approval_policy: String.t(),
           thread_sandbox: String.t(),
@@ -73,6 +75,15 @@ defmodule Aiur.Config do
   @spec tracker_kind() :: String.t() | nil
   def tracker_kind do
     settings!().tracker.kind
+  end
+
+  @doc "The configured tracker integration branch, defaulting to `main`."
+  @spec base_branch() :: String.t()
+  def base_branch do
+    case settings() do
+      {:ok, %{tracker: %{base_branch: name}}} when is_binary(name) and name != "" -> name
+      _ -> @default_base_branch
+    end
   end
 
   @spec agent_kind() :: String.t()

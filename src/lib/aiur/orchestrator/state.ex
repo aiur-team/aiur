@@ -25,6 +25,7 @@ defmodule Aiur.Orchestrator.State do
           ci_lifecycle: %{
             approved_heads: map(),
             test_failure_heads: map(),
+            base_repair_invalidations: map(),
             poll_cache: map(),
             rewakes: map()
           },
@@ -61,7 +62,13 @@ defmodule Aiur.Orchestrator.State do
     load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil},
     queue_store: AgentQueueStore.new(),
     last_polled_issues: %{},
-    ci_lifecycle: %{approved_heads: %{}, test_failure_heads: %{}, poll_cache: %{}, rewakes: %{}},
+    ci_lifecycle: %{
+      approved_heads: %{},
+      test_failure_heads: %{},
+      base_repair_invalidations: %{},
+      poll_cache: %{},
+      rewakes: %{}
+    },
     todo_over_capacity_alert_active: false,
     running: %{},
     completed: MapSet.new(),
