@@ -116,10 +116,7 @@ defmodule AiurWeb.DashboardLive do
         search -> %{search: String.slice(search, 0, 200)}
       end
 
-    {:noreply,
-     push_patch(socket,
-       to: decision_path(socket.assigns.selected_decision_id, :all, query)
-     )}
+    {:noreply, push_patch(socket, to: DecisionPath.inbox(:all, query))}
   end
 
   def handle_event("search-commands", _params, socket), do: {:noreply, socket}

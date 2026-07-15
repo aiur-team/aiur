@@ -853,6 +853,14 @@ defmodule AiurWeb.DashboardLiveTest do
     |> render_click()
 
     assert_patch(view, "/decisions?filter=blocking")
+
+    view
+    |> element("#decision-#{decision.decision_id} .decision-card-head")
+    |> render_click()
+
+    assert_patch(view, "/decisions/#{decision.decision_id}?filter=blocking")
+    render_submit(view, "search-commands", %{"search" => decision.decision_id})
+    assert_patch(view, "/decisions?search=#{decision.decision_id}")
   end
 
   test "All Commands uses bounded retained pages with shareable search and safe cursor failure" do
@@ -883,10 +891,11 @@ defmodule AiurWeb.DashboardLiveTest do
 
     assert html =~ "Search retained Commands"
     assert html =~ "Next page"
-    refute html =~ oldest.decision_id
+    refute has_element?(view, "#decision-#{oldest.decision_id}")
 
     page_two = view |> element(".command-pagination a", "Next page") |> render_click()
     assert page_two =~ oldest.decision_id
+    assert has_element?(view, "#decision-#{oldest.decision_id}")
     assert String.starts_with?(assert_patch(view), "/decisions?cursor=")
 
     search_html = render_submit(view, "search-commands", %{"search" => oldest.decision_id})
