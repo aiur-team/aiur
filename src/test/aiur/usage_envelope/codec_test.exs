@@ -13,6 +13,9 @@ defmodule Aiur.UsageEnvelope.CodecTest do
     assert record["cost"]["source_representation"] == "minor"
     assert {:ok, decoded} = Codec.decode(record)
     assert decoded == envelope
+
+    assert {:ok, json_decoded} = record |> Jason.encode!() |> Jason.decode!() |> Codec.decode()
+    assert json_decoded == envelope
   end
 
   test "rejects forged derived dates and unexpected content-bearing fields" do
