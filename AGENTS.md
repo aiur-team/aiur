@@ -7,6 +7,26 @@ operational practices that aren't in the main README.
 Engineering norms (code structure, testing, error handling, and the CI gate)
 live in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
+## Orientation
+
+Aiur's intended operating modes are documented in
+[README.md § Who drives Aiur?](README.md#who-drives-aiur). In short: every run has an
+**Executor** — the operator of the run — and that is either the human driving the CLI
+directly, or the human's coding agent operating Aiur on their behalf while they stay in
+conversation with it. Both are first-class. `README.md § What Aiur is not` records the
+misreadings this distinction commonly produces.
+
+The Executor skills live at [`.claude/skills/aiur-run`](.claude/skills/aiur-run/SKILL.md)
+(operate a run end to end) and
+[`.claude/skills/aiur-monitor`](.claude/skills/aiur-monitor/SKILL.md) (status and alert
+feed). [`.claude/skills/aiur-intro`](.claude/skills/aiur-intro/SKILL.md) answers "what is
+Aiur / how do I install it" and routes a new user to a mode.
+[`.claude/skills/using-aiur`](.claude/skills/using-aiur/SKILL.md) is the manual for an
+agent working a ticket *inside* a run — a different job from operating one.
+
+If you are evaluating Aiur rather than working in it, read the operating modes before
+forming a verdict; the feature list does not imply them.
+
 ## Layout
 
 - `.aiur/` — the Aiur config folder: `.aiur/config` (pure YAML), `.aiur/hooks`, and
