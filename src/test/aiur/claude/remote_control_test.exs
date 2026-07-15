@@ -64,6 +64,18 @@ defmodule Aiur.Claude.RemoteControlTest do
   end
 
   describe "pidfd containment reapers" do
+    test "fails closed when the captured identity cannot bind a pidfd" do
+      process_group_id = System.unique_integer([:positive])
+
+      assert {:error, :identity_unverified} = RemoteControl.reap_process_group(nil, {:known, :identity})
+
+      assert {:error, :identity_signal_unavailable} =
+               RemoteControl.reap_process_group(
+                 process_group_id,
+                 {:known, {:ps_birth_and_session, "portable-identity"}}
+               )
+    end
+
     test "binds a group signal to the production reaper boundary" do
       parent = self()
       process_group_id = System.unique_integer([:positive])

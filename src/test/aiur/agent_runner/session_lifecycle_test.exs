@@ -125,6 +125,39 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
         assert :ok = Ownership.release(retry_lease)
       end
     end
+
+    test "retains an uncertain startup until cleanup is explicitly proven" do
+      ticket = "uncertain-provider-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: ticket, selected_backend: "codex"}
+      assert {:ok, lease} = Ownership.claim(ticket)
+      assert {:ok, active_lease} = Ownership.activate(lease)
+
+      uncertain_error = {:provider_spawn_failed, :metadata_unavailable}
+      start_fun = fn _workspace, _opts -> {:error, uncertain_error} end
+
+      assert {:error, ^uncertain_error} =
+               SessionLifecycle.run_session(
+                 "/workspaces/#{ticket}",
+                 issue,
+                 nil,
+                 [workspace_ownership: active_lease, session_start_fun: start_fun],
+                 nil
+               )
+
+      release = Task.async(fn -> Ownership.release_and_wait(active_lease) end)
+
+      assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end)
+      refute Task.yield(release, 50)
+
+      # This direct cleanup proof is deliberately test-only: an uncertain
+      # production start must retain the lease rather than replace a live cwd.
+      assert :ok = Ownership.cancel_provider_expectation(active_lease)
+      assert :ok = Ownership.release(active_lease)
+      assert {:ok, %{phase: :released}} = Task.await(release, 2_000)
+
+      assert {:ok, retry_lease} = Ownership.claim(ticket)
+      assert :ok = Ownership.release(retry_lease)
+    end
   end
 
   describe "session accessors" do
@@ -160,6 +193,16 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
 
       assert {:error, :workspace_ownership_lost} =
                SessionLifecycle.track_session_containment(nil, session, nil)
+    end
+  end
+
+  defp assert_eventually(fun, attempts \\ 40) do
+    if fun.() do
+      :ok
+    else
+      assert attempts > 0
+      Process.sleep(25)
+      assert_eventually(fun, attempts - 1)
     end
   end
 end
