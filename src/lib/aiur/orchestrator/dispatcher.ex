@@ -174,13 +174,20 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   @spec dispatch_issue(State.t(), term(), term(), term()) :: State.t()
   def dispatch_issue(%State{} = state, issue, attempt \\ nil, preferred_worker_host \\ nil) do
+    dispatch_issue(state, issue, attempt, preferred_worker_host, [])
+  end
+
+  @doc false
+  @spec dispatch_issue(State.t(), term(), term(), term(), keyword()) :: State.t()
+  def dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host, opts)
+      when is_list(opts) do
     case revalidate_issue_for_dispatch(
            issue,
            &Tracker.fetch_issue_states_by_ids/1,
            DispatchPolicy.terminal_state_set()
          ) do
       {:ok, %Issue{} = refreshed_issue} ->
-        do_dispatch_issue(state, refreshed_issue, attempt, preferred_worker_host)
+        do_dispatch_issue(state, refreshed_issue, attempt, preferred_worker_host, opts)
 
       {:skip, :missing} ->
         Logger.info("Skipping dispatch; issue no longer active or visible: #{State.issue_context(issue)}")
@@ -269,10 +276,12 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp redispatch_thrash_budget(state, issue_id, now_ms) do
-    if next_thrash_budget_entry(state, issue_id, now_ms).count >
-         Config.codex_thrash_max_per_window(),
-       do: {:error, :thrash_circuit_open},
-       else: :ok
+    previous = Map.get(state.codex_thrash_budget, issue_id)
+    entry = next_thrash_budget_entry(state, issue_id, now_ms)
+
+    if active_trip?(previous, now_ms) or not is_nil(budget_trip_reason(entry)),
+      do: {:error, :thrash_circuit_open},
+      else: :ok
   end
 
   # A backend swap replaces the issue's existing host slot. Exclude that entry
@@ -301,15 +310,58 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @spec check_thrash_budget(State.t(), String.t(), integer()) ::
           {:ok, State.t()} | {:trip, State.t()}
   def check_thrash_budget(%State{} = state, issue_id, now_ms) do
-    entry = next_thrash_budget_entry(state, issue_id, now_ms)
+    previous = Map.get(state.codex_thrash_budget, issue_id)
 
-    state = %{state | codex_thrash_budget: Map.put(state.codex_thrash_budget, issue_id, entry)}
-
-    if entry.count > Config.codex_thrash_max_per_window() or lifetime_exhausted?(entry) do
+    if active_trip?(previous, now_ms) do
       {:trip, state}
     else
-      {:ok, state}
+      admit_next_thrash_budget(state, issue_id, previous, now_ms)
     end
+  end
+
+  defp admit_next_thrash_budget(state, issue_id, previous, now_ms) do
+    entry = next_thrash_budget_entry(state, issue_id, now_ms)
+
+    case budget_trip_reason(entry) do
+      nil ->
+        state = %{state | codex_thrash_budget: Map.put(state.codex_thrash_budget, issue_id, entry)}
+        {:ok, state}
+
+      reason ->
+        tripped = trip_budget_entry(previous, entry, reason)
+        state = %{state | codex_thrash_budget: Map.put(state.codex_thrash_budget, issue_id, tripped)}
+        {:trip, state}
+    end
+  end
+
+  defp budget_trip_reason(entry) do
+    cond do
+      entry.count > Config.codex_thrash_max_per_window() -> :window
+      lifetime_exhausted?(entry) -> :lifetime
+      true -> nil
+    end
+  end
+
+  defp active_trip?(%{tripped: :lifetime}, _now_ms), do: true
+
+  defp active_trip?(%{tripped: :window, window_start_ms: start}, now_ms) do
+    now_ms - start < Config.codex_thrash_window_seconds() * 1_000
+  end
+
+  defp active_trip?(_entry, _now_ms), do: false
+
+  defp trip_budget_entry(previous, candidate, reason) do
+    spent =
+      previous ||
+        %{
+          window_start_ms: candidate.window_start_ms,
+          count: max(candidate.count - 1, 0),
+          lifetime: max(candidate.lifetime - 1, 0)
+        }
+
+    spent
+    |> Map.put(:tripped, reason)
+    |> Map.put(:alert_emitted, false)
   end
 
   # The window counter resets on every lapsed window, so a ticket that churns
@@ -350,7 +402,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   def reset_thrash_budget(%State{} = state, issue_id) do
     case Map.get(state.codex_thrash_budget, issue_id) do
       %{lifetime: lifetime} when is_integer(lifetime) and lifetime > 0 ->
-        entry = %{window_start_ms: 0, count: 0, lifetime: lifetime}
+        entry = %{lifetime: lifetime}
         %{state | codex_thrash_budget: Map.put(state.codex_thrash_budget, issue_id, entry)}
 
       _ ->
@@ -498,18 +550,55 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp trip_thrash_breaker(%State{} = state, issue) do
-    count = get_in(state.codex_thrash_budget, [issue.id, :count]) || 0
+    state = persist_lifetime_trip(state, issue, &Tracker.update_issue_state/2)
+    entry = Map.get(state.codex_thrash_budget, issue.id, %{})
 
-    Logger.warning("Codex thrash detected: issue_id=#{issue.id} issue_identifier=#{issue.identifier} restarts=#{count} window_seconds=#{Config.codex_thrash_window_seconds()}; skipping dispatch")
+    if Map.get(entry, :alert_emitted, false) do
+      state
+    else
+      count = Map.get(entry, :count, 0)
+      lifetime = Map.get(entry, :lifetime, 0)
+      reason = Map.get(entry, :tripped, :window)
+      lifetime_max = Config.agent_max_dispatches_per_ticket()
 
-    Alerts.emit_system("ticket.#{issue.identifier}.agent.thrash_circuit_open",
-      issue: issue.identifier,
-      reason: "Codex restart loop exceeded the configured thrash limit; dispatch was skipped.",
-      needs_attention: true,
-      severity: "warning"
-    )
+      Logger.warning(
+        "Codex thrash detected: issue_id=#{issue.id} issue_identifier=#{issue.identifier} reason=#{reason} restarts=#{count} lifetime=#{lifetime} lifetime_max=#{lifetime_max} window_seconds=#{Config.codex_thrash_window_seconds()}; skipping dispatch"
+      )
 
-    state
+      Alerts.emit_system("ticket.#{issue.identifier}.agent.thrash_circuit_open",
+        issue: issue.identifier,
+        reason: "Codex dispatch circuit opened (#{reason}); window restarts=#{count}, lifetime dispatches=#{lifetime}/#{lifetime_max}.",
+        needs_attention: true,
+        severity: "warning"
+      )
+
+      updated_entry = Map.put(entry, :alert_emitted, true)
+      %{state | codex_thrash_budget: Map.put(state.codex_thrash_budget, issue.id, updated_entry)}
+    end
+  end
+
+  @doc false
+  @spec persist_lifetime_trip(State.t(), Issue.t(), (String.t(), String.t() -> :ok | {:error, term()})) ::
+          State.t()
+  def persist_lifetime_trip(%State{} = state, %Issue{} = issue, update_state_fun)
+      when is_function(update_state_fun, 2) do
+    entry = Map.get(state.codex_thrash_budget, issue.id, %{})
+
+    if entry[:tripped] == :lifetime and entry[:durable_latch_applied] != true and
+         is_binary(issue.identifier) do
+      case update_state_fun.(issue.identifier, "error") do
+        :ok ->
+          updated_entry = Map.put(entry, :durable_latch_applied, true)
+          %{state | codex_thrash_budget: Map.put(state.codex_thrash_budget, issue.id, updated_entry)}
+
+        {:error, reason} ->
+          Logger.error("Unable to persist lifetime dispatch latch: issue_id=#{issue.id} issue_identifier=#{issue.identifier} reason=#{inspect(reason)}")
+
+          state
+      end
+    else
+      state
+    end
   end
 
   defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host, opts) do
@@ -566,6 +655,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
             control: default_running_control(issue),
             telemetry_attempt_id: lifecycle_attempt_id,
             retry_attempt: RetryEngine.normalize_retry_attempt(attempt),
+            prior_work: Keyword.get(opts, :prior_work, false),
             started_at: DateTime.utc_now()
           })
 
@@ -584,6 +674,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
           identifier: issue.identifier,
           tracker_identity: Issue.tracker_identity(issue),
           error: "failed to spawn agent: #{inspect(reason)}",
+          prior_work: Keyword.get(opts, :prior_work, false),
           worker_host: worker_host
         })
     end

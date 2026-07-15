@@ -54,7 +54,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
       running_entry when is_map(running_entry) ->
         if on?,
           do: promote_to_remote(state, running_entry, opts),
-          else: demote_from_remote(state, running_entry)
+          else: demote_from_remote(state, running_entry, opts)
 
       _ ->
         {{:error, :not_running}, state}
@@ -88,27 +88,36 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
         {{:error, :remote_control_requires_dashboard}, state}
 
       true ->
-        # Trust the workspace before tearing down the current agent. If trust
-        # fails RC can't attach, so abort with the current agent intact rather
-        # than stranding the issue with no running agent.
-        case RemoteControl.ensure_workspace_trusted(workspace, remote_control_trust_opts()) do
+        label = CodingAgent.remote_control_alias_label()
+        relabeled = add_issue_label(issue, label)
+
+        case redispatch_ready(state, relabeled, opts) do
           :ok ->
-            do_promote_to_remote(state, running_entry, issue)
+            promote_trusted_workspace(state, running_entry, relabeled, label, workspace)
 
           {:error, reason} ->
-            Logger.error("Remote Control promote trust failed: #{rc_log_context(running_entry)} workspace=#{workspace} reason=#{inspect(reason)}")
-
-            {{:error, {:rc_trust_failed, reason}}, state}
+            {{:error, reason}, state}
         end
     end
   end
 
-  defp do_promote_to_remote(state, running_entry, issue) do
-    label = CodingAgent.remote_control_alias_label()
+  # Trust the workspace before tearing down the current agent. If trust fails
+  # RC cannot attach, so abort with the current agent intact.
+  defp promote_trusted_workspace(state, running_entry, relabeled, label, workspace) do
+    case RemoteControl.ensure_workspace_trusted(workspace, remote_control_trust_opts()) do
+      :ok ->
+        do_promote_to_remote(state, running_entry, relabeled, label)
 
+      {:error, reason} ->
+        Logger.error("Remote Control promote trust failed: #{rc_log_context(running_entry)} workspace=#{workspace} reason=#{inspect(reason)}")
+
+        {{:error, {:rc_trust_failed, reason}}, state}
+    end
+  end
+
+  defp do_promote_to_remote(state, running_entry, relabeled, label) do
     case Tracker.add_label(Map.get(running_entry, :identifier), label) do
       :ok ->
-        relabeled = add_issue_label(issue, label)
         state = teardown_for_redispatch(state, running_entry)
 
         Logger.info("Remote Control promote; re-dispatching with model:remote: #{rc_log_context(running_entry)}")
@@ -124,7 +133,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
 
   # Demote a remote-control agent back to the default backend: remove the
   # label, stop the current REPL agent, and re-dispatch. `r` is a true toggle.
-  defp demote_from_remote(state, running_entry) do
+  defp demote_from_remote(state, running_entry, opts) do
     issue = Map.get(running_entry, :issue)
 
     cond do
@@ -137,26 +146,41 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
 
       true ->
         label = CodingAgent.remote_control_alias_label()
+        relabeled = remove_issue_label(issue, label)
 
-        case Tracker.remove_label(Map.get(running_entry, :identifier), label) do
+        case redispatch_ready(state, relabeled, opts) do
           :ok ->
-            relabeled = remove_issue_label(issue, label)
-            state = teardown_for_redispatch(state, running_entry)
-
-            Logger.info("Remote Control demote; re-dispatching as default backend: #{rc_log_context(running_entry)}")
-
-            {{:ok, :off}, redispatch_prior_work(state, relabeled)}
+            remove_remote_label_and_redispatch(state, running_entry, relabeled, label)
 
           {:error, reason} ->
-            Logger.error("Remote Control demote label-remove failed: #{rc_log_context(running_entry)} reason=#{inspect(reason)}")
-
-            {{:error, {:rc_label_failed, reason}}, state}
+            {{:error, reason}, state}
         end
+    end
+  end
+
+  defp remove_remote_label_and_redispatch(state, running_entry, relabeled, label) do
+    case Tracker.remove_label(Map.get(running_entry, :identifier), label) do
+      :ok ->
+        state = teardown_for_redispatch(state, running_entry)
+
+        Logger.info("Remote Control demote; re-dispatching as default backend: #{rc_log_context(running_entry)}")
+
+        {{:ok, :off}, redispatch_prior_work(state, relabeled)}
+
+      {:error, reason} ->
+        Logger.error("Remote Control demote label-remove failed: #{rc_log_context(running_entry)} reason=#{inspect(reason)}")
+
+        {{:error, {:rc_label_failed, reason}}, state}
     end
   end
 
   defp redispatch_prior_work(state, issue) do
     Dispatcher.do_dispatch_issue(state, issue, nil, nil, prior_work: Config.agent_prior_work_continuation?())
+  end
+
+  defp redispatch_ready(state, issue, opts) do
+    ready = Keyword.get(opts, :dispatch_ready_fun, &Dispatcher.redispatch_ready?/3)
+    ready.(state, issue, nil)
   end
 
   # Stop the current agent cleanly so the same issue can be re-dispatched under

@@ -252,6 +252,29 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
   end
 
   describe "handle_retry_issue_lookup/6" do
+    test "preserves prior-work continuation through an active retry dispatch" do
+      issue = %Issue{id: "issue-active", identifier: "27", title: "Active retry", state: "In Progress"}
+      state = %State{max_concurrent_agents: 1, effective_concurrent_agents: 1}
+      parent = self()
+
+      assert {:noreply, ^state} =
+               RetryEngine.handle_retry_issue_lookup(
+                 issue,
+                 state,
+                 issue.id,
+                 2,
+                 %{worker_host: nil, prior_work: true},
+                 terminal_states: MapSet.new(["done"]),
+                 dispatch_fun: fn current_state, ^issue, 2, nil, dispatch_opts ->
+                   send(parent, {:retry_dispatch_opts, dispatch_opts})
+                   current_state
+                 end
+               )
+
+      assert_receive {:retry_dispatch_opts, dispatch_opts}
+      assert dispatch_opts[:prior_work] == true
+    end
+
     test "fetches and records a terminal retry ticket when active candidates omit it" do
       terminal = %Issue{
         id: "issue-terminal",

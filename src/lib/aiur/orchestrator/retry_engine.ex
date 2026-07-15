@@ -70,6 +70,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
                 identifier: running_entry.identifier,
                 tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
                 delay_type: :continuation,
+                prior_work: Config.agent_prior_work_continuation?(),
                 worker_host: Map.get(running_entry, :worker_host),
                 workspace_path: Map.get(running_entry, :workspace_path)
               })
@@ -84,6 +85,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
                 identifier: running_entry.identifier,
                 tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
                 error: "agent exited: #{inspect(reason)}",
+                prior_work: Config.agent_prior_work_continuation?(),
                 worker_host: Map.get(running_entry, :worker_host),
                 workspace_path: Map.get(running_entry, :workspace_path)
               })
@@ -155,6 +157,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
     worker_host = pick_retry_worker_host(previous_retry, metadata)
     workspace_path = pick_retry_workspace_path(previous_retry, metadata)
     tracker_identity = pick_retry_tracker_identity(previous_retry, metadata)
+    prior_work? = pick_retry_prior_work(previous_retry, metadata)
     old_timer = Map.get(previous_retry, :timer_ref)
     retry_poll_failures = pick_retry_poll_failures(previous_retry, metadata)
 
@@ -226,6 +229,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
               identifier: identifier,
               error: error,
               retry_poll_failures: retry_poll_failures,
+              prior_work: prior_work?,
               worker_host: worker_host,
               workspace_path: workspace_path,
               tracker_identity: tracker_identity,
@@ -250,6 +254,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
           identifier: Map.get(retry_entry, :identifier),
           error: Map.get(retry_entry, :error),
           retry_poll_failures: Map.get(retry_entry, :retry_poll_failures),
+          prior_work: Map.get(retry_entry, :prior_work, false),
           worker_host: Map.get(retry_entry, :worker_host),
           workspace_path: Map.get(retry_entry, :workspace_path),
           tracker_identity: Map.get(retry_entry, :tracker_identity),
@@ -489,7 +494,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
         )
 
       Orchestrator.retry_candidate_issue?(issue, terminal_states) ->
-        handle_active_retry(state, issue, attempt, metadata)
+        handle_active_retry(state, issue, attempt, metadata, opts)
 
       true ->
         Logger.debug("Issue left active states, removing claim issue_id=#{issue_id} issue_identifier=#{issue.identifier}")
@@ -624,11 +629,14 @@ defmodule Aiur.Orchestrator.RetryEngine do
     {:noreply, schedule_terminal_verification_retry(state, issue, issue_id, attempt, metadata)}
   end
 
-  defp handle_active_retry(state, issue, attempt, metadata) do
+  defp handle_active_retry(state, issue, attempt, metadata, opts) do
     if Orchestrator.retry_candidate_issue?(issue, DispatchPolicy.terminal_state_set()) and
          Slots.dispatch_slots_available?(issue, state) and
          Slots.worker_slots_available?(state, metadata[:worker_host]) do
-      {:noreply, Dispatcher.dispatch_issue(state, issue, attempt, metadata[:worker_host])}
+      dispatch = Keyword.get(opts, :dispatch_fun, &Dispatcher.dispatch_issue/5)
+      prior_work? = Keyword.get(opts, :prior_work?, metadata[:prior_work] == true)
+
+      {:noreply, dispatch.(state, issue, attempt, metadata[:worker_host], prior_work: prior_work?)}
     else
       Logger.debug("No available slots for retrying #{State.issue_context(issue)}; retrying again")
 
@@ -720,6 +728,10 @@ defmodule Aiur.Orchestrator.RetryEngine do
     else
       Map.get(previous_retry, :tracker_identity)
     end
+  end
+
+  defp pick_retry_prior_work(previous_retry, metadata) do
+    Map.get(metadata, :prior_work, Map.get(previous_retry, :prior_work, false)) == true
   end
 
   defp find_issue_by_id(issues, issue_id) when is_binary(issue_id) do

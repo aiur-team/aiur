@@ -391,6 +391,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
         identifier: issue.identifier,
         tracker_identity: Issue.tracker_identity(issue),
         error: "backend redispatch did not start",
+        prior_work: Config.agent_prior_work_continuation?(),
         worker_host: worker_host,
         workspace_path: Map.get(running_entry, :workspace_path)
       })
