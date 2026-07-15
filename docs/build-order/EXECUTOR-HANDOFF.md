@@ -1621,6 +1621,23 @@ Terra; never dispatch Claude.
     head containing current main with fresh CI. The manual refreshes recorded
     in decision 201 predate this directive and are not precedent.
 
+203. At 22:26 PDT the anti-thrash audit promoted two existing defects from
+    deferred/hygiene status because live evidence made them direct recovery
+    blockers. #1140 now owns the tracked `.aiur-hex/cache.ets` bootstrap loop:
+    #781 and #855 each resumed, immediately failed `before_run` on the mutated
+    tracked cache, and re-paused; both remain `agent:rework + agent:paused`
+    until #1140 lands and the daemon is rebuilt. Claude's #1091 forensic pass
+    also found the shared build gate held by the impossible host identity
+    `pid=2/pgid=1` and showed that the `kill -0 -- -1` broadcast check prevents
+    lease reclamation; preserve and verify the slot evidence, clear only the
+    proven stale lease, and reopen existing #1164 rather than filing a
+    duplicate. Finally, re-scope #1151 away from its large stale self-comment
+    branch: measured partial-CI early failure is the dominant CI-wait eviction
+    cause, so its owning agent must re-cut current main and make the poller wait
+    for every check to become terminal before emitting one aggregate failure;
+    cancelled/stale workflow conclusions are not code failures. Do not review
+    the old #1151 head.
+
 At 21:50 PDT the core graph is 8/54 accepted. Three Codex implementation/rework
 workers are visibly executing (DASH-018, #1161, #1162), BO-016 is fully green
 in two independent reviews, and BO-010 is safely paused after the workspace
