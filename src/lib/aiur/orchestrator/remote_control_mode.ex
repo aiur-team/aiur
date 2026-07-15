@@ -9,7 +9,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
   alias Aiur.HttpServer
   alias Aiur.Issue
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{Dispatcher, State, StatusReport}
+  alias Aiur.Orchestrator.{Dispatcher, RetryEngine, State, StatusReport}
   alias Aiur.Tracker
   require Logger
 
@@ -128,7 +128,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
 
         Logger.info("Remote Control promote; re-dispatching with model:remote: #{rc_log_context(running_entry)}")
 
-        {{:ok, :on}, redispatch_prior_work(state, relabeled, opts)}
+        {{:ok, :on}, redispatch_prior_work(state, relabeled, running_entry, opts)}
 
       {:error, reason} ->
         Logger.error("Remote Control promote label-add failed: #{rc_log_context(running_entry)} reason=#{inspect(reason)}")
@@ -175,7 +175,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
 
         Logger.info("Remote Control demote; re-dispatching as default backend: #{rc_log_context(running_entry)}")
 
-        {{:ok, :off}, redispatch_prior_work(state, relabeled, opts)}
+        {{:ok, :off}, redispatch_prior_work(state, relabeled, running_entry, opts)}
 
       {:error, reason} ->
         Logger.error("Remote Control demote label-remove failed: #{rc_log_context(running_entry)} reason=#{inspect(reason)}")
@@ -184,10 +184,36 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
     end
   end
 
-  defp redispatch_prior_work(state, issue, opts) do
+  defp redispatch_prior_work(state, issue, running_entry, opts) do
     dispatch = Keyword.get(opts, :dispatch_fun, &Dispatcher.do_dispatch_issue/5)
-    dispatch.(state, issue, nil, nil, prior_work: Config.agent_prior_work_continuation?())
+
+    state =
+      dispatch.(state, issue, nil, nil, prior_work: Config.agent_prior_work_continuation?())
+
+    ensure_redispatch_started(state, running_entry, issue, opts)
   end
+
+  defp ensure_redispatch_started(state, running_entry, issue, opts) do
+    if live_running_entry?(Map.get(state.running, issue.id)) or
+         Map.has_key?(state.retry_attempts, issue.id) do
+      state
+    else
+      schedule_retry = Keyword.get(opts, :schedule_retry_fun, &RetryEngine.schedule_issue_retry/4)
+      next_attempt = RetryEngine.next_retry_attempt_from_running(running_entry)
+
+      schedule_retry.(state, issue.id, next_attempt, %{
+        identifier: issue.identifier,
+        tracker_identity: Issue.tracker_identity(issue),
+        error: "remote-control redispatch did not start",
+        prior_work: Config.agent_prior_work_continuation?(),
+        worker_host: Map.get(running_entry, :worker_host),
+        workspace_path: Map.get(running_entry, :workspace_path)
+      })
+    end
+  end
+
+  defp live_running_entry?(%{pid: pid}) when is_pid(pid), do: true
+  defp live_running_entry?(_entry), do: false
 
   defp redispatch_admission(state, issue, opts) do
     ready = Keyword.get(opts, :dispatch_ready_fun, &Dispatcher.admit_redispatch/3)
