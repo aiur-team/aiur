@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 20:20 PDT)
+## Live Executor state (updated 2026-07-14 20:25 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -1483,13 +1483,24 @@ Terra; never dispatch Claude.
     that immediate replacement with its prior Terra routing snapshot, which is
     still operator-compliant but may encounter the same capacity gate; retain
     the Sol label for the next clean generation and do not discard BO-003 WIP.
+193. BO-003's inherited Terra replacement also hit capacity. A full completed-
+    generation deallocation exposed `agent:error`; the Executor removed that
+    terminal marker, restored the ticket through `agent:todo`, and Aiur started
+    a verified Sol app-server at 20:24 with the plan/workpad intact. DASH-006
+    was then cleanly recycled because its completed generation would not wake;
+    the old daemon removed and began reprovisioning its workspace, which had no
+    source WIP but had not restored a valid git checkout after twenty seconds.
+    The Executor immediately applied `agent:paused` while preserving
+    `agent:rework`. Do not resume #1088 until #1161 lands and the authorized
+    restart runs the repaired workspace lifecycle. #1161's lint repair head
+    `b5c14d71` has every fresh CI gate green except the still-running full test.
 
-At 20:20 PDT the core graph is 8/54 accepted. Four Codex workers are visibly
+At 20:25 PDT the core graph is 8/54 accepted. Three Codex workers are visibly
 executing, one core row reports a completed turn, and preserved paused or
 deactivated rows await the post-optimization restart. #1103 remains queued,
 while #1151 is in explicit review-driven rework awaiting that restart.
 #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds until #1161
-lands. The 20:20 phase preview preserves the latest successfully emitted core
+lands. The 20:25 phase preview preserves the latest successfully emitted core
 percentages and advances only review/CI states backed by GitHub evidence;
 do not replace those estimates with guesses during review/rework. Host load
 remains volatile and was about 38 with roughly 21 GiB available at the 17:34
