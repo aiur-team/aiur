@@ -133,7 +133,7 @@ defmodule Aiur.BuildOrder.CatalogTest do
     assert %{kind: :native, identity: %{provider_id: "I2"}} = native
     assert native.identity == identity(2)
 
-    assert %{kind: :external, identity: nil, url: "https://github.com/other/repo/issues/2"} =
+    assert %{kind: :external, identity: ^foreign, url: "https://github.com/other/repo/issues/2"} =
              external
 
     assert Enum.map(external.diagnostics, & &1.code) == [:external_dependency]
@@ -141,10 +141,10 @@ defmodule Aiur.BuildOrder.CatalogTest do
     mismatched_native =
       Dependency.new(identity(1), identity(2), "https://github.com/other/repo/issues/2")
 
-    assert %{kind: :external, identity: nil, url: "https://github.com/other/repo/issues/2"} =
+    assert %{kind: :native, identity: %{provider_id: "I2"}, url: nil} =
              mismatched_native
 
-    assert Enum.map(mismatched_native.diagnostics, & &1.code) == [:external_dependency]
+    assert Enum.map(mismatched_native.diagnostics, & &1.code) == [:invalid_url]
 
     unsafe = Dependency.new(identity(1), foreign, "https://token@github.com/other/repo/issues/2")
     assert unsafe.url == nil
@@ -172,6 +172,15 @@ defmodule Aiur.BuildOrder.CatalogTest do
     catalog = Catalog.new([valid], ProviderHealth.new(1, :healthy, true))
 
     assert {:ok, ^valid} = Catalog.select(catalog, relocated)
+  end
+
+  test "catalog lookup case-folds canonical GitHub repository identity" do
+    valid = root(1)
+    mixed_case = %{valid.identity | owner: "Owner", repository: "Repo"}
+    catalog = Catalog.new([valid], ProviderHealth.new(1, :healthy, true))
+
+    assert TrackerIdentity.joinable?(mixed_case)
+    assert {:ok, ^valid} = Catalog.select(catalog, mixed_case)
   end
 
   test "record constructors reject untyped inputs without raising" do
