@@ -207,26 +207,31 @@ defmodule Aiur.Workspace.Ownership.Guardian do
     end
   end
 
-  defp maybe_release_or_reap(%{provider: %{root_pid: root_pid}} = state)
-       when is_integer(root_pid) and root_pid > 0 do
-    case Map.get(state.provider, :descendant_pids) do
-      process_ids when is_list(process_ids) ->
-        case live_provider_processes(state) do
-          %{live: [], unverified?: false} -> release_guardian(state)
-          %{live: [], unverified?: true} -> schedule_reap_retry(state)
-          %{live: live_process_ids} -> start_reap(state, :processes, live_process_ids)
-        end
+  defp maybe_release_or_reap(%{provider: %{root_pid: root_pid, descendant_pids: process_ids}} = state)
+       when is_integer(root_pid) and root_pid > 0 and is_list(process_ids),
+       do: maybe_reap_descendants(state)
 
-      _ ->
-        case provider_identity_state(state, :root, root_pid, state.root_alive_fun) do
-          :live -> start_reap(state, :root, root_pid)
-          status when status in [:gone, :reused] -> release_guardian(state)
-          :unknown -> schedule_reap_retry(state)
-        end
+  defp maybe_release_or_reap(%{provider: %{root_pid: root_pid}} = state)
+       when is_integer(root_pid) and root_pid > 0,
+       do: maybe_reap_root(state, root_pid)
+
+  defp maybe_release_or_reap(state), do: loop(update_phase(state, :reaping))
+
+  defp maybe_reap_descendants(state) do
+    case live_provider_processes(state) do
+      %{live: [], unverified?: false} -> release_guardian(state)
+      %{live: [], unverified?: true} -> schedule_reap_retry(state)
+      %{live: live_process_ids} -> start_reap(state, :processes, live_process_ids)
     end
   end
 
-  defp maybe_release_or_reap(state), do: loop(update_phase(state, :reaping))
+  defp maybe_reap_root(state, root_pid) do
+    case provider_identity_state(state, :root, root_pid, state.root_alive_fun) do
+      :live -> start_reap(state, :root, root_pid)
+      status when status in [:gone, :reused] -> release_guardian(state)
+      :unknown -> schedule_reap_retry(state)
+    end
+  end
 
   defp start_reap(state, kind, identifier) do
     state = update_phase(state, :reaping)
@@ -377,23 +382,27 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   end
 
   defp provider_identity_state(state, kind, identifier, alive_fun) do
-    expected = state.provider |> Map.get(:process_identities, %{}) |> Map.get({kind, identifier})
+    expected_identity = state.provider |> Map.get(:process_identities, %{}) |> Map.get({kind, identifier})
 
-    case expected do
-      {:known, identity} ->
-        case capture_process_identity(state.process_identity_fun, identifier) do
-          {:known, ^identity} -> if safely_alive?(alive_fun, identifier), do: :live, else: :gone
-          {:known, _other_identity} -> :reused
-          :gone -> if safely_alive?(alive_fun, identifier), do: :unknown, else: :gone
-          :unknown -> :unknown
-        end
+    compare_provider_identity(expected_identity, state.process_identity_fun, alive_fun, identifier)
+  end
 
-      :gone ->
-        if safely_alive?(alive_fun, identifier), do: :unknown, else: :gone
-
-      _ ->
-        :unknown
+  defp compare_provider_identity({:known, expected}, process_identity_fun, alive_fun, identifier) do
+    case capture_process_identity(process_identity_fun, identifier) do
+      {:known, ^expected} -> liveness_state(alive_fun, identifier, :live)
+      {:known, _other_identity} -> :reused
+      :gone -> liveness_state(alive_fun, identifier, :unknown)
+      :unknown -> :unknown
     end
+  end
+
+  defp compare_provider_identity(:gone, _process_identity_fun, alive_fun, identifier),
+    do: liveness_state(alive_fun, identifier, :unknown)
+
+  defp compare_provider_identity(_expected, _process_identity_fun, _alive_fun, _identifier), do: :unknown
+
+  defp liveness_state(alive_fun, identifier, alive_state) do
+    if safely_alive?(alive_fun, identifier), do: alive_state, else: :gone
   end
 
   defp safely_alive?(alive_fun, identifier) do

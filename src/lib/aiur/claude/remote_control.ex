@@ -306,18 +306,19 @@ defmodule Aiur.Claude.RemoteControl do
         |> binary_part(closing_paren + 1, byte_size(stat) - closing_paren - 1)
         |> String.split()
         |> then(fn fields -> {Enum.at(fields, 3), Enum.at(fields, 19)} end)
-        |> case do
-          {session, start_time} when is_binary(session) and is_binary(start_time) and byte_size(session) > 0 and byte_size(start_time) > 0 ->
-            {:ok, {:procfs_birth_and_session, start_time, session}}
-
-          _ ->
-            :unknown
-        end
+        |> procfs_fields_identity()
 
       nil ->
         :unknown
     end
   end
+
+  defp procfs_fields_identity({session, start_time})
+       when is_binary(session) and is_binary(start_time) and byte_size(session) > 0 and
+              byte_size(start_time) > 0,
+       do: {:ok, {:procfs_birth_and_session, start_time, session}}
+
+  defp procfs_fields_identity(_fields), do: :unknown
 
   defp ps_process_identity(os_pid) do
     case System.find_executable("ps") do
@@ -325,20 +326,22 @@ defmodule Aiur.Claude.RemoteControl do
         :unknown
 
       ps ->
-        case System.cmd(ps, ["-o", "lstart=", "-o", "sess=", "-p", Integer.to_string(os_pid)], stderr_to_stdout: true) do
-          {output, 0} ->
-            case String.trim(output) do
-              "" -> :gone
-              identity -> {:ok, {:ps_birth_and_session, identity}}
-            end
-
-          _ ->
-            :gone
-        end
+        ps
+        |> System.cmd(["-o", "lstart=", "-o", "sess=", "-p", Integer.to_string(os_pid)], stderr_to_stdout: true)
+        |> ps_process_result()
     end
   rescue
     _ -> :unknown
   end
+
+  defp ps_process_result({output, 0}) do
+    case String.trim(output) do
+      "" -> :gone
+      identity -> {:ok, {:ps_birth_and_session, identity}}
+    end
+  end
+
+  defp ps_process_result(_result), do: :gone
 
   @doc false
   @spec graceful_kill_process_group(nil | integer()) :: {:ok, :gone | :reaped} | {:error, :group_alive}
