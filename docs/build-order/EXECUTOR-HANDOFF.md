@@ -2085,6 +2085,22 @@ Terra; never dispatch Claude.
     guards are green; the full test job is still running. Wait for terminal CI
     before starting its two exact-head reviews.
 
+253. #1162 `95b5c1c7` repeated the identical centralized failure: its changed
+    provider-lifecycle test still lets the queued task complete within 100 ms.
+    The entire replacement delta only moved marker/release files into a
+    per-test directory; production code did not change, so barrier-path
+    reshaping did not repair the cause. The Executor returned that unchanged
+    diagnostic, prohibited weakening the assertion, and started one
+    independent read-only root-cause diagnosis in parallel with owner rework.
+
+254. #1146's stale completed turn returned old head `ce19c298` to CI wait and
+    claimed a push despite a clean workspace, unchanged local/remote SHA, and
+    no new CI. It did not consume the durable dual-review packet. The Executor
+    restored `agent:rework`; two direct-message attempts failed while the
+    control plane was saturated, reproducing #619/#1162 rather than creating a
+    new issue. Leave the packet durable and let effective capacity wake its
+    owner; old green CI remains invalid.
+
 At 04:03 PDT the core graph remains 8/54 accepted while the recovery gate is
 frozen. #780/#1181 and #1032/#1046 are merged. Current main and the warm base
 are exact `83a5a11e`; the rebuilt daemon is running the new coordination
