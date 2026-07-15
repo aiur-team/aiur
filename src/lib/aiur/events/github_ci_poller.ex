@@ -104,6 +104,13 @@ defmodule Aiur.Events.GithubCIPoller do
         {:ok, :unchanged} ->
           poll_open_pull_request_ci(target, pr_number, head_sha, opts)
 
+        {:ok, {:unchanged, recovered_invalidation}} ->
+          opts = put_base_repair_invalidation(opts, target, recovered_invalidation)
+
+          target
+          |> poll_open_pull_request_ci(pr_number, head_sha, opts)
+          |> Map.put(:base_repair_invalidation, recovered_invalidation)
+
         {:ok, {:repaired, invalidation}} ->
           base_branch_repaired(target, pr_number, invalidation, expected_base)
 
@@ -161,6 +168,20 @@ defmodule Aiur.Events.GithubCIPoller do
       case ensure_pull_request_base(target, current_pr, current_head_sha, expected_base, opts) do
         {:ok, :unchanged} ->
           current_head_result(target, pr_number, current_pr, observed_head_sha, check_runs, commit_status, opts)
+
+        {:ok, {:unchanged, recovered_invalidation}} ->
+          opts = put_base_repair_invalidation(opts, target, recovered_invalidation)
+
+          target
+          |> current_head_result(
+            pr_number,
+            current_pr,
+            observed_head_sha,
+            check_runs,
+            commit_status,
+            opts
+          )
+          |> Map.put(:base_repair_invalidation, recovered_invalidation)
 
         {:ok, {:repaired, invalidation}} ->
           base_branch_repaired(target, pr_number, invalidation, expected_base)
@@ -230,12 +251,11 @@ defmodule Aiur.Events.GithubCIPoller do
     invalidations = Keyword.get(opts, :base_repair_invalidations, %{})
 
     case Map.get(invalidations, to_string(target)) do
-      %{repair_state: :repairing, repaired_at: repaired_at} when is_integer(repaired_at) ->
-        apply_base_repair_invalidation(result, check_runs, commit_status, repaired_at)
+      %{repair_state: :repairing} ->
+        require_base_repair_recovery(result)
 
-      %{"repair_state" => "repairing", "repaired_at" => repaired_at}
-      when is_integer(repaired_at) ->
-        apply_base_repair_invalidation(result, check_runs, commit_status, repaired_at)
+      %{"repair_state" => "repairing"} ->
+        require_base_repair_recovery(result)
 
       %{head_sha: ^head_sha, repaired_at: repaired_at} when is_integer(repaired_at) ->
         apply_base_repair_invalidation(result, check_runs, commit_status, repaired_at)
@@ -247,6 +267,17 @@ defmodule Aiur.Events.GithubCIPoller do
       _ ->
         result
     end
+  end
+
+  # A pre-PATCH marker has no trustworthy completion timestamp. It can never
+  # validate CI directly: the next poll first observes the repaired base, then
+  # journals a confirmed marker whose timestamp is safely after that
+  # observation.
+  defp require_base_repair_recovery(result) do
+    result
+    |> Map.put(:decision, :pending)
+    |> Map.put(:failures, [])
+    |> Map.put(:pending_reason, :base_repair_confirmation_required)
   end
 
   defp apply_base_repair_invalidation(result, check_runs, commit_status, repaired_at) do
@@ -270,18 +301,18 @@ defmodule Aiur.Events.GithubCIPoller do
       |> Enum.map(&ci_evidence_timestamp/1)
 
     evidence = check_evidence ++ status_evidence
-    evidence != [] and Enum.all?(evidence, &(is_integer(&1) and &1 >= repaired_at))
+    evidence != [] and Enum.all?(evidence, &(is_integer(&1) and &1 > repaired_at))
   end
 
   defp ci_evidence_timestamp(evidence) when is_map(evidence) do
     [
-      Map.get(evidence, "started_at"),
-      Map.get(evidence, "created_at"),
       get_in(evidence, ["check_suite", "created_at"]),
-      Map.get(evidence, "updated_at"),
-      Map.get(evidence, "completed_at")
+      Map.get(evidence, "created_at"),
+      Map.get(evidence, "started_at")
     ]
-    |> Enum.find_value(&timestamp_seconds/1)
+    |> Enum.map(&timestamp_seconds/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.min(fn -> nil end)
   end
 
   defp ci_evidence_timestamp(_evidence), do: nil
@@ -380,11 +411,11 @@ defmodule Aiur.Events.GithubCIPoller do
   end
 
   defp ensure_pull_request_base(target, pr, head_sha, expected_base, opts) do
-    repaired_at = system_time_seconds(opts)
+    repair_started_at = system_time_seconds(opts)
 
     repairing = %{
       head_sha: head_sha,
-      repaired_at: repaired_at,
+      repaired_at: repair_started_at,
       repair_state: :repairing
     }
 
@@ -395,12 +426,12 @@ defmodule Aiur.Events.GithubCIPoller do
 
     case Client.ensure_pull_request_base(pr, expected_base, ensure_opts) do
       {:ok, :unchanged} ->
-        {:ok, :unchanged}
+        recover_interrupted_base_repair(target, pr, head_sha, expected_base, opts)
 
       {:ok, {:repaired, confirmed_head_sha}} ->
         confirmed = %{
           head_sha: confirmed_head_sha,
-          repaired_at: repaired_at,
+          repaired_at: system_time_seconds(opts),
           repair_state: :repaired
         }
 
@@ -423,6 +454,51 @@ defmodule Aiur.Events.GithubCIPoller do
       {:error, reason} ->
         {:error, reason, nil}
     end
+  end
+
+  defp recover_interrupted_base_repair(target, pr, head_sha, expected_base, opts) do
+    case base_repair_invalidation(opts, target) do
+      %{repair_state: :repairing} = repairing ->
+        persist_recovered_base_repair(target, pr, head_sha, expected_base, repairing, opts)
+
+      %{"repair_state" => "repairing"} = repairing ->
+        persist_recovered_base_repair(target, pr, head_sha, expected_base, repairing, opts)
+
+      _ ->
+        {:ok, :unchanged}
+    end
+  end
+
+  defp persist_recovered_base_repair(target, pr, head_sha, expected_base, repairing, opts) do
+    recovered = %{
+      head_sha: head_sha,
+      repaired_at: system_time_seconds(opts),
+      repair_state: :repaired
+    }
+
+    case journal_base_repair(target, recovered, opts) do
+      :ok ->
+        {:ok, {:unchanged, recovered}}
+
+      {:error, reason} ->
+        {:error,
+         repair_error(
+           pr,
+           expected_base,
+           {:repair_confirmation_journal_failed, head_sha, reason}
+         ), repairing}
+    end
+  end
+
+  defp base_repair_invalidation(opts, target) do
+    opts
+    |> Keyword.get(:base_repair_invalidations, %{})
+    |> Map.get(to_string(target))
+  end
+
+  defp put_base_repair_invalidation(opts, target, invalidation) do
+    invalidations = Keyword.get(opts, :base_repair_invalidations, %{})
+    Keyword.put(opts, :base_repair_invalidations, Map.put(invalidations, to_string(target), invalidation))
   end
 
   defp journal_base_repair(target, invalidation, opts) do

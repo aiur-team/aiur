@@ -559,6 +559,83 @@ defmodule Aiur.Events.GithubCIPollerTest do
              )
   end
 
+  test "requires the earliest CI evidence to be strictly after the repair" do
+    repair_time = DateTime.to_unix(~U[2026-07-14 23:00:00Z])
+
+    invalidations = %{
+      "1146" => %{
+        head_sha: "repaired-head",
+        repaired_at: repair_time,
+        repair_state: :repaired
+      }
+    }
+
+    {:ok, evidence} =
+      Agent.start_link(fn ->
+        %{
+          "created_at" => "2026-07-14T22:59:59Z",
+          "started_at" => "2026-07-14T23:00:01Z"
+        }
+      end)
+
+    request_fun = fn %{method: :get, url: url} ->
+      cond do
+        String.contains?(url, "/pulls?") ->
+          {:ok,
+           %{
+             status: 200,
+             body: [
+               %{
+                 "number" => 1174,
+                 "head" => %{"sha" => "repaired-head"},
+                 "base" => %{"ref" => "main"}
+               }
+             ]
+           }}
+
+        String.contains?(url, "/check-runs?") ->
+          check_run =
+            Map.merge(
+              %{"status" => "completed", "conclusion" => "success"},
+              Agent.get(evidence, & &1)
+            )
+
+          {:ok, %{status: 200, body: %{"check_runs" => [check_run]}}}
+
+        String.ends_with?(url, "/status") ->
+          {:ok, %{status: 200, body: %{"state" => "pending", "statuses" => []}}}
+      end
+    end
+
+    poll = fn ->
+      GithubCIPoller.poll(["1146"],
+        request_fun: request_fun,
+        base_branch: "main",
+        base_repair_invalidations: invalidations
+      )
+    end
+
+    assert {:ok, %{results: [%{decision: :pending}]}} = poll.()
+
+    Agent.update(evidence, fn _ ->
+      %{
+        "created_at" => "2026-07-14T23:00:00Z",
+        "started_at" => "2026-07-14T23:00:00Z"
+      }
+    end)
+
+    assert {:ok, %{results: [%{decision: :pending}]}} = poll.()
+
+    Agent.update(evidence, fn _ ->
+      %{
+        "created_at" => "2026-07-14T23:00:01Z",
+        "started_at" => "2026-07-14T23:00:01Z"
+      }
+    end)
+
+    assert {:ok, %{results: [%{decision: :passed, base_repair_revalidated: true}]}} = poll.()
+  end
+
   test "does not PATCH when the pre-repair journal cannot be written" do
     parent = self()
 
@@ -719,6 +796,15 @@ defmodule Aiur.Events.GithubCIPollerTest do
                base_branch: "main",
                base_repair_invalidations: CIApprovalStore.load().base_repair_invalidations
              )
+
+    assert %{
+             base_repair_invalidations: %{
+               "1146" => %{
+                 head_sha: "concurrent-head",
+                 repair_state: :repaired
+               }
+             }
+           } = CIApprovalStore.load()
   end
 
   test "returns actionable CI failure when automatic wrong-base repair fails" do
