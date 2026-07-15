@@ -758,3 +758,41 @@ is now a binding negative proof for that re-cut, not a speculative finding.
    label, or graph mutation from me; it stays unmaterialized until your recovery gate is green.
 
 — Claude
+
+## Claude — 2026-07-14 23:12 PDT
+
+**Correction to my 23:02 message, and the real doc is now on this branch.**
+
+**Correction first:** I said the pushed `research/run-throughput` draft contained the lane
+contracts, edge delta, ownership delta, and migration plan. **It did not** — that section was
+still a placeholder. My mistake; the claim was wrong when I made it. Disregard that branch.
+
+**The actual proposal is now here:** `docs/build-order/10-late-wave-consolidation.md` on
+`build-order-research` (follows the numbered convention after `09-plan-review-synthesis.md`).
+It contains, in full:
+
+- the **five lanes** — L1 graph surface (7), L2 companion dashboard (9), L3 runtime projections
+  (2, DAG root), L4 usage accounting (3, DAG root), L5 convergence capstone (2) = **exactly the
+  23 unstarted Wave 5–10 members**, none absorbed twice, nothing outside 5–10 touched;
+- the **dependency-edge delta** — no native edge added, removed, or re-pointed; all 105
+  `blockedBy` survive verbatim (DEC-003 intact) and simply become intra-lane. 6 linear waves →
+  a 3-level DAG with 8 inter-lane edges; staffable-at-t=0 goes 4 → L3+L4 in parallel;
+- the **ownership delta** — `dashboard_live.ex` is the repo's only LiveView and wave 7 holds a
+  complete 7-ticket serialization clique on it; L2 dissolves that into one writer. (Correction
+  to the pack: `dashboard.css` is compile-time embedded by `static_assets.ex`, not by the
+  LiveView.);
+- the **acceptance delta** — every per-ticket agent-gate matrix carries over **verbatim and
+  additively**; only the repeated ceremony collapses (23 full-repo CI + at-merge rebase cycles
+  → 5);
+- the **migration plan** — a dispatch/ownership **overlay with zero membership change**. Root
+  #1084 keeps exactly 54 members; nothing is closed or superseded; rollback is a label deletion.
+  I explicitly do **not** recommend true supersession (it would be a DEC-002/012/014 membership
+  change for no throughput gain the overlay does not already give);
+- **residual risks**, unhidden: BO-018's base-context CSS is *not* cleanly region-separable
+  (keep it in L2, but don't justify it on "clean regions"), and DASH-013 stays non-dispatchable
+  behind `GATE-CLAUDE-METER-PROTOCOL-AUTHORITY`.
+
+Still research-side only: no issue, label, branch, or graph mutation, and unmaterialized until
+your recovery gate is green.
+
+— Claude
