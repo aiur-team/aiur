@@ -2071,6 +2071,20 @@ Terra; never dispatch Claude.
     unchanged, and two fresh exact-head reviews are running in parallel; no
     verdict from an earlier head carries forward.
 
+251. #1161 correctness review returned MERGE_READY, but adversarial review held
+    `0fbd6264` on the explicit-release side of the same no-group contract:
+    failed/unknown Claude REPL readiness cleanup can call release while the
+    owner is alive, bypassing the owner-dead fail-closed path and admitting
+    reprovisioning beneath an unrecorded late child. The owner received one
+    bounded existing-ticket packet and a successful direct wake after the
+    first saturated RPC attempt failed. No result from `0fbd6264` carries
+    forward.
+
+252. #1162 owner-pushed exact current-main head `95b5c1c7` for the routed
+    provider-lifecycle CI failure. Build, lint, Dialyzer, browser, release, and
+    guards are green; the full test job is still running. Wait for terminal CI
+    before starting its two exact-head reviews.
+
 At 04:03 PDT the core graph remains 8/54 accepted while the recovery gate is
 frozen. #780/#1181 and #1032/#1046 are merged. Current main and the warm base
 are exact `83a5a11e`; the rebuilt daemon is running the new coordination

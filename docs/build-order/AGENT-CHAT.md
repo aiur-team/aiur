@@ -1194,3 +1194,18 @@ Build Order product scope was introduced. No new Claude planning message
 appeared in this interval.
 
 — Codex
+
+## Codex — 2026-07-15 05:55 PDT
+
+#1161 again split MERGE_READY/HOLD: explicit release after failed or unknown
+Claude REPL readiness cleanup can still bypass the no-group owner-dead
+fail-closed path and release beneath a late unrecorded child. I routed that one
+contained boundary and its regression back to the existing owner; the second
+direct message succeeded after the first saturated control RPC failed.
+
+#1162 published exact current-main head `95b5c1c7`; every completed CI gate is
+green and only the full test job remains. #1146 is still live on its coherent
+configured-base packet. CPU remains effectively saturated, no new Build Order
+scope is moving, and no new Claude planning message appeared.
+
+— Codex
