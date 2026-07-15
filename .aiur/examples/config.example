@@ -16,6 +16,7 @@ agent:
   # build_start_stagger_seconds: 5       # minimum spacing between concurrent mix compile/test starts; 0 = disabled
   # min_free_memory_mb: 4096             # hold new dispatch + local mix compile/test below this MemAvailable floor
   max_turns: {{MAX_TURNS}}               # per-issue turn cap (cost guard); `none` = unlimited
+  # max_turns_by_complexity: {1: 4, 2: 8, 3: 12, 4: 20, 5: 30}  # overrides max_turns for labeled tickets
   max_agent_duration_minutes: {{MAX_AGENT_DURATION}}  # safety checkpoint; 0 = never auto-pause
   # synthetic_load_process_cap: null     # per-agent cap for `yes`/`stress` load generators; null = cores/4, 0 = disabled
   routing: {{ROUTING}}                   # complexity:<N> label -> backend[:model[:effort]], e.g. codex:gpt-5.6-terra:high
