@@ -56,6 +56,7 @@ defmodule Aiur.BuildOrder.TicketDetail.Normalizer do
 
   @spec failure_from(term()) :: Failure.t()
   def failure_from({:github, :auth, _detail}), do: %Failure{kind: :auth}
+  def failure_from({:github, :permission, _detail}), do: %Failure{kind: :permission}
 
   def failure_from({:github, :rate_limited, detail}),
     do: %Failure{kind: :rate_limited, retry_after: bounded_retry_after(detail[:retry_after])}

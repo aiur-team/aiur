@@ -12,7 +12,11 @@ defmodule Aiur.GitHub.IssueRelationships do
     repository(owner: $owner, name: $repository) {
       issue(number: $number) {
         id
-        closedByPullRequestsReferences(first: $limit) {
+        closedByPullRequestsReferences(
+          first: $limit
+          includeClosedPrs: true
+          orderByState: true
+        ) {
           nodes {
             number
             url
@@ -44,19 +48,7 @@ defmodule Aiur.GitHub.IssueRelationships do
          true <- number > 0,
          {:ok, token} <- relationship_token(opts),
          request_fun <- relationship_request_fun(opts),
-         {:ok, response} <-
-           Transport.github_graphql(
-             request_fun,
-             token,
-             @linked_pull_requests_query,
-             %{
-               "owner" => owner,
-               "repository" => repository,
-               "number" => number,
-               "limit" => DestinationNormalizer.max_pull_requests()
-             },
-             max_response_bytes: @max_response_bytes
-           ) do
+         {:ok, response} <- fetch_relationship_response(request_fun, token, owner, repository, number) do
       normalize_response(response, provider_id)
     else
       false -> {:error, :invalid_github_issue_relationships_response}
@@ -67,6 +59,26 @@ defmodule Aiur.GitHub.IssueRelationships do
 
   def fetch_linked_pull_requests(_identity, _repository, _opts),
     do: {:error, :invalid_github_issue_relationships_response}
+
+  defp fetch_relationship_response(request_fun, token, owner, repository, number) do
+    variables = %{
+      "owner" => owner,
+      "repository" => repository,
+      "number" => number,
+      "limit" => DestinationNormalizer.max_pull_requests()
+    }
+
+    case Transport.github_graphql_response(
+           request_fun,
+           token,
+           @linked_pull_requests_query,
+           variables,
+           max_response_bytes: @max_response_bytes
+         ) do
+      {:ok, response, _transport_response} -> {:ok, response}
+      {:error, reason, _transport_response} -> {:error, reason}
+    end
+  end
 
   defp relationship_token(opts) do
     if Keyword.has_key?(opts, :relationship_request_fun) do

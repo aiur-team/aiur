@@ -59,6 +59,8 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
         body: %{"query" => query, "variables" => variables}
       } = request ->
         assert query =~ "closedByPullRequestsReferences"
+        assert query =~ "includeClosedPrs: true"
+        assert query =~ "orderByState: true"
         assert variables == %{"limit" => 20, "number" => 42, "owner" => "owner", "repository" => "repo"}
         assert request.max_response_bytes == 32_768
 
@@ -98,6 +100,42 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
                configured_repo: @configured,
                request_fun: request_fun
              )
+  end
+
+  test "preserves typed GraphQL relationship failures" do
+    identity = identity(42, "I42")
+
+    for %{error: graphql_error, headers: headers, failure: expected_failure} <- [
+          %{
+            error: %{"type" => "RATE_LIMITED", "message" => "rate limit exceeded"},
+            headers: [{"retry-after", "17"}],
+            failure: %Failure{kind: :rate_limited, retry_after: 17}
+          },
+          %{
+            error: %{"type" => "FORBIDDEN", "message" => "resource not accessible"},
+            headers: [],
+            failure: %Failure{kind: :permission}
+          }
+        ] do
+      request_fun = fn
+        %{method: :get} ->
+          {:ok, %{status: 200, body: issue(42, "I42")}}
+
+        %{method: :post} ->
+          {:ok,
+           %{
+             status: 200,
+             headers: headers,
+             body: %{"errors" => [graphql_error]}
+           }}
+      end
+
+      assert {:error, ^expected_failure} =
+               TicketDetail.fetch(identity,
+                 configured_repo: @configured,
+                 request_fun: request_fun
+               )
+    end
   end
 
   test "rejects foreign or malformed linked pull-request destinations" do
