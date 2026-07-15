@@ -3511,7 +3511,7 @@ defmodule Aiur.CoreTest do
 
       expected_turn_sandbox_policy = %{
         "type" => "workspaceWrite",
-        "writableRoots" => [canonical_workspace],
+        "writableRoots" => [canonical_workspace, Aiur.BuildGate.gate_dir()],
         "readOnlyAccess" => %{"type" => "fullAccess"},
         "networkAccess" => true,
         "excludeTmpdirEnvVar" => false,
@@ -3729,6 +3729,10 @@ defmodule Aiur.CoreTest do
       expected_writable_roots =
         [Path.expand(workspace), workspace_cache]
         |> then(fn roots -> if canonical_workspace in roots, do: roots, else: roots ++ [canonical_workspace] end)
+        |> then(fn roots ->
+          gate_dir = Aiur.BuildGate.gate_dir()
+          if gate_dir in roots, do: roots, else: roots ++ [gate_dir]
+        end)
 
       expected_turn_policy = %{
         "type" => "workspaceWrite",
