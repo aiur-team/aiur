@@ -32,6 +32,30 @@ defmodule Aiur.AppServer.ProviderTurnLedgerTest do
     assert second_state.outstanding_turns == 1
   end
 
+  test "aggregate completion consumes the anonymous fallback before the next turn" do
+    {:ok, store} = ProviderTurnLedger.start_store()
+    on_exit(fn -> ProviderTurnLedger.stop_store(store) end)
+
+    ProviderTurnLedger.complete_all(state(store, "turn-1"))
+    second_state = ProviderTurnLedger.complete(state(store, "turn-2"), %{})
+
+    assert second_state.active_turn_ids == MapSet.new(["turn-2"])
+    assert second_state.anonymous_completion_consumed?
+    assert second_state.outstanding_turns == 1
+  end
+
+  test "aggregate retirement consumes the anonymous fallback before the next turn" do
+    {:ok, store} = ProviderTurnLedger.start_store()
+    on_exit(fn -> ProviderTurnLedger.stop_store(store) end)
+
+    ProviderTurnLedger.retire_all(state(store, "turn-1"))
+    second_state = ProviderTurnLedger.complete(state(store, "turn-2"), %{})
+
+    assert second_state.active_turn_ids == MapSet.new(["turn-2"])
+    assert second_state.anonymous_completion_consumed?
+    assert second_state.outstanding_turns == 1
+  end
+
   test "the store exits with an abnormally retired session owner" do
     parent = self()
 

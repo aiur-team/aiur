@@ -106,6 +106,7 @@ defmodule Aiur.AppServer.ProviderTurnLedger do
     %{
       state
       | accepted_turn_ids: MapSet.new(),
+        anonymous_completion_consumed?: true,
         retired_turn_ids:
           state.retired_turn_ids
           |> MapSet.union(state.active_turn_ids)
@@ -121,6 +122,7 @@ defmodule Aiur.AppServer.ProviderTurnLedger do
       state
       | active_turn_ids: MapSet.new(),
         accepted_turn_ids: MapSet.new(),
+        anonymous_completion_consumed?: true,
         retired_turn_ids:
           state.retired_turn_ids
           |> MapSet.union(state.active_turn_ids)

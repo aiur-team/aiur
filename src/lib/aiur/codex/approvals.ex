@@ -4,7 +4,7 @@ defmodule Aiur.Codex.Approvals do
   """
 
   alias Aiur.AgentRunner.ToolExecutor
-  alias Aiur.AppServer.{Messages, ToolCallLedger}
+  alias Aiur.AppServer.{Messages, ToolCallIdentity, ToolCallLedger}
   alias Aiur.Codex.{Rpc, UserInputAnswers}
 
   # credo:disable-for-this-file Credo.Check.Refactor.FunctionArity
@@ -221,16 +221,9 @@ defmodule Aiur.Codex.Approvals do
     invocation_id = call_id || id
 
     result =
-      ToolCallLedger.execute(
-        tool_call_scope(context),
-        call_id,
-        fn ->
-          tool_executor
-          |> ToolExecutor.execute(tool_name, arguments, invocation_id)
-          |> Messages.normalize_tool_result(context)
-        end,
-        tool_call_ledger(context)
-      )
+      context
+      |> execute_tool_call(params, tool_name, arguments, invocation_id, tool_executor)
+      |> normalize_ledger_outcome()
 
     with :ok <- send_response(port, %{"id" => id, "result" => result}) do
       event =
@@ -311,6 +304,52 @@ defmodule Aiur.Codex.Approvals do
 
   defp tool_call_scope(%{tool_call_scope: scope}), do: scope
   defp tool_call_scope(_context), do: nil
+
+  defp execute_tool_call(context, params, tool_name, arguments, invocation_id, tool_executor) do
+    execute = fn ->
+      tool_executor
+      |> ToolExecutor.execute(tool_name, arguments, invocation_id)
+      |> Messages.normalize_tool_result(context)
+    end
+
+    case ToolCallIdentity.resolve(
+           tool_call_scope(context),
+           params,
+           tool_name,
+           arguments,
+           tool_call_thread_id(context)
+         ) do
+      :untracked ->
+        execute.()
+
+      {:ok, identity, fingerprint} ->
+        ToolCallLedger.execute(identity, fingerprint, execute, tool_call_ledger(context))
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp normalize_ledger_outcome({:error, :conflicting_invocation}) do
+    %{"success" => false, "output" => "Refusing conflicting reuse of a dynamic tool call identity."}
+  end
+
+  defp normalize_ledger_outcome({:error, :outcome_uncertain}) do
+    %{"success" => false, "output" => "Dynamic tool outcome is uncertain; refusing to execute it again."}
+  end
+
+  defp normalize_ledger_outcome({:error, :missing_thread_identity}) do
+    %{"success" => false, "output" => "Dynamic tool call is missing a stable provider thread identity."}
+  end
+
+  defp normalize_ledger_outcome({:error, reason}) do
+    %{"success" => false, "output" => "Dynamic tool ledger unavailable: #{inspect(reason)}"}
+  end
+
+  defp normalize_ledger_outcome(result), do: result
+
+  defp tool_call_thread_id(%{tool_call_thread_id: thread_id}), do: thread_id
+  defp tool_call_thread_id(_context), do: nil
 
   defp tool_call_ledger(%{tool_call_ledger: server}), do: server
   defp tool_call_ledger(_context), do: ToolCallLedger

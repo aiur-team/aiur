@@ -86,7 +86,8 @@ defmodule Aiur.Codex.TurnLoop do
     execution_context = %{
       workspace: Map.get(session, :workspace),
       response_id: Map.get(payload, "id"),
-      tool_call_scope: tool_call_scope(state, session)
+      tool_call_scope: tool_call_scope(state, session),
+      tool_call_thread_id: Map.get(session, :thread_id)
     }
 
     case Approvals.maybe_handle_approval_request(

@@ -62,44 +62,117 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
     assert turn_start_count(paths.trace) == 2
   end
 
+  test "idle completion consumes the anonymous fallback before the next real turn" do
+    {marker, release} = lifecycle_barrier("idle-boundary")
+    paths = prepare_case("idle-boundary", idle_boundary_script(marker, release))
+    issue = issue("MT-IDLE-BOUNDARY")
+    opts = two_turn_opts(issue)
+
+    task = Task.async(fn -> AgentRunner.run(issue, nil, opts) end)
+
+    assert wait_for_path(marker)
+    assert Task.yield(task, 100) == nil
+
+    File.touch!(release)
+    assert Task.await(task, 15_000) == :ok
+    assert turn_start_count(paths.trace) == 2
+  end
+
   test "cancelled pause retires the old provider turn before the resumed real turn" do
-    marker = Path.join(System.tmp_dir!(), "aiur-cancelled-pause-#{System.unique_integer([:positive])}")
-    paths = prepare_case("cancelled-pause", cancelled_pause_script(marker))
+    pause_marker = Path.join(System.tmp_dir!(), "aiur-cancelled-pause-#{System.unique_integer([:positive])}")
+    {late_marker, release} = lifecycle_barrier("cancelled-pause-late")
+    paths = prepare_case("cancelled-pause", cancelled_pause_script(pause_marker, late_marker, release))
     issue = issue("MT-CANCELLED-PAUSE")
     issue_id = issue.id
     parent = self()
     opts = two_turn_opts(issue)
 
-    on_exit(fn -> File.rm(marker) end)
+    on_exit(fn -> File.rm(pause_marker) end)
 
     task = Task.async(fn -> AgentRunner.run(issue, parent, opts) end)
 
-    assert wait_for_path(marker)
+    assert wait_for_path(pause_marker)
     send(task.pid, {:pause_agent, 71})
     assert_receive {:worker_control_state, ^issue_id, :paused, %{request_id: 71}}, 5_000
 
     send(task.pid, {:resume_agent, 72})
+    assert wait_for_path(late_marker)
+    assert Task.yield(task, 100) == nil
+
+    File.touch!(release)
     assert Task.await(task, 15_000) == :ok
     assert turn_start_count(paths.trace) == 2
   end
 
   test "quota pause retires the failed provider turn before the resumed real turn" do
-    marker = Path.join(System.tmp_dir!(), "aiur-quota-pause-#{System.unique_integer([:positive])}")
-    paths = prepare_case("quota-pause", quota_pause_script(marker))
+    pause_marker = Path.join(System.tmp_dir!(), "aiur-quota-pause-#{System.unique_integer([:positive])}")
+    {late_marker, release} = lifecycle_barrier("quota-pause-late")
+    paths = prepare_case("quota-pause", quota_pause_script(pause_marker, late_marker, release))
     issue = issue("MT-QUOTA-PAUSE")
     issue_id = issue.id
     parent = self()
     opts = two_turn_opts(issue)
 
-    on_exit(fn -> File.rm(marker) end)
+    on_exit(fn -> File.rm(pause_marker) end)
 
     task = Task.async(fn -> AgentRunner.run(issue, parent, opts) end)
 
-    assert wait_for_path(marker)
+    assert wait_for_path(pause_marker)
     assert_receive {:worker_control_state, ^issue_id, :paused, %{kind: :usage_limit_exhausted}}, 5_000
 
     send(task.pid, {:resume_agent, 81})
+    assert wait_for_path(late_marker)
+    assert Task.yield(task, 100) == nil
+
+    File.touch!(release)
     assert Task.await(task, 15_000) == :ok
+    assert turn_start_count(paths.trace) == 2
+  end
+
+  test "operator interrupt consumes the anonymous fallback before its queued turn" do
+    ready = Path.join(System.tmp_dir!(), "aiur-operator-interrupt-#{System.unique_integer([:positive])}")
+    {late_marker, release} = lifecycle_barrier("operator-interrupt-late")
+    paths = prepare_case("operator-interrupt", operator_interrupt_script(ready, late_marker, release))
+    orchestrator_name = Module.concat(__MODULE__, :OperatorInterruptOrchestrator)
+    {:ok, orchestrator_pid} = Orchestrator.start_link(name: orchestrator_name)
+    issue = issue("MT-OPERATOR-INTERRUPT")
+
+    on_exit(fn ->
+      File.rm(ready)
+      if Process.alive?(orchestrator_pid), do: Process.exit(orchestrator_pid, :normal)
+    end)
+
+    task =
+      Task.async(fn ->
+        AgentRunner.run(issue, nil,
+          orchestrator: orchestrator_name,
+          max_turns: 1,
+          issue_state_fetcher: fn [_issue_id] -> {:ok, [%{issue | state: "Done"}]} end
+        )
+      end)
+
+    assert wait_for_path(ready)
+
+    parent = self()
+
+    :sys.replace_state(orchestrator_pid, fn state ->
+      {queue_store, item} =
+        Aiur.AgentQueue.operator_message(issue.identifier, "rework after interrupt")
+        |> then(&Aiur.AgentQueueStore.enqueue(state.queue_store, &1))
+
+      send(parent, {:queued_interrupt_item, item})
+      %{state | queue_store: queue_store}
+    end)
+
+    assert_receive {:queued_interrupt_item, item}
+
+    send(task.pid, {:agent_queue_updated, issue.identifier, item.id, true})
+    assert wait_for_path(late_marker)
+    assert Task.yield(task, 100) == nil
+
+    File.touch!(release)
+    assert Task.await(task, 15_000) == :ok
+    assert :empty == OperatorMessages.claim_next_queue_item(orchestrator_name, issue.identifier)
     assert turn_start_count(paths.trace) == 2
   end
 
@@ -208,7 +281,7 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
     """)
   end
 
-  defp cancelled_pause_script(marker) do
+  defp idle_boundary_script(marker, release) do
     shell_script("""
           *'\"method\":\"turn/start\"'*)
             turn_start_count=$((turn_start_count + 1))
@@ -216,10 +289,33 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
             if [ "$turn_start_count" -eq 1 ]; then
               printf '{"id":%s,"result":{"turn":{"id":"turn-old","status":"inProgress"}}}\n' "$request_id"
               printf '%s\n' '{"method":"turn/started","params":{"turn":{"id":"turn-old","status":"inProgress"}}}'
+              printf '%s\n' '{"method":"thread/status/changed","params":{"status":{"type":"idle"}}}'
+            else
+              printf '{"id":%s,"result":{"turn":{"id":"turn-new","status":"inProgress"}}}\n' "$request_id"
+              printf '%s\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
               touch "#{marker}"
+              while [ ! -f "#{release}" ]; do sleep 0.01; done
+              printf '%s\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-new","status":"completed"}}}'
+            fi
+            ;;
+    """)
+  end
+
+  defp cancelled_pause_script(pause_marker, late_marker, release) do
+    shell_script("""
+          *'\"method\":\"turn/start\"'*)
+            turn_start_count=$((turn_start_count + 1))
+            request_id=$(request_id "$line")
+            if [ "$turn_start_count" -eq 1 ]; then
+              printf '{"id":%s,"result":{"turn":{"id":"turn-old","status":"inProgress"}}}\n' "$request_id"
+              printf '%s\n' '{"method":"turn/started","params":{"turn":{"id":"turn-old","status":"inProgress"}}}'
+              touch "#{pause_marker}"
             else
               printf '{"id":%s,"result":{"turn":{"id":"turn-new","status":"inProgress"}}}\n' "$request_id"
               printf '%s\n' '{"method":"turn/started","params":{"turn":{"id":"turn-old","status":"inProgress"}}}'
+              printf '%s\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
+              touch "#{late_marker}"
+              while [ ! -f "#{release}" ]; do sleep 0.01; done
               printf '%s\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-new","status":"completed"}}}'
             fi
             ;;
@@ -229,7 +325,7 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
     """)
   end
 
-  defp quota_pause_script(marker) do
+  defp quota_pause_script(pause_marker, late_marker, release) do
     shell_script("""
           *'\"method\":\"turn/start\"'*)
             turn_start_count=$((turn_start_count + 1))
@@ -237,12 +333,40 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
             if [ "$turn_start_count" -eq 1 ]; then
               printf '{"id":%s,"result":{"turn":{"id":"turn-old","status":"inProgress"}}}\n' "$request_id"
               printf '%s\n' '{"method":"error","params":{"willRetry":false,"codexErrorInfo":"usageLimitExceeded","message":"You have hit your usage limit."}}'
-              touch "#{marker}"
+              touch "#{pause_marker}"
             else
               printf '{"id":%s,"result":{"turn":{"id":"turn-new","status":"inProgress"}}}\n' "$request_id"
               printf '%s\n' '{"method":"turn/started","params":{"turn":{"id":"turn-old","status":"inProgress"}}}'
+              printf '%s\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
+              touch "#{late_marker}"
+              while [ ! -f "#{release}" ]; do sleep 0.01; done
               printf '%s\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-new","status":"completed"}}}'
             fi
+            ;;
+    """)
+  end
+
+  defp operator_interrupt_script(ready, late_marker, release) do
+    shell_script("""
+          *'\"method\":\"turn/start\"'*)
+            turn_start_count=$((turn_start_count + 1))
+            request_id=$(request_id "$line")
+            if [ "$turn_start_count" -eq 1 ]; then
+              printf '{"id":%s,"result":{"turn":{"id":"turn-old","status":"inProgress"}}}\n' "$request_id"
+              printf '%s\n' '{"method":"turn/started","params":{"turn":{"id":"turn-old","status":"inProgress"}}}'
+              touch "#{ready}"
+            else
+              printf '{"id":%s,"result":{"turn":{"id":"turn-new","status":"inProgress"}}}\n' "$request_id"
+              printf '%s\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
+              touch "#{late_marker}"
+              while [ ! -f "#{release}" ]; do sleep 0.01; done
+              printf '%s\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-new","status":"completed"}}}'
+            fi
+            ;;
+          *'\"method\":\"turn/interrupt\"'*)
+            request_id=$(request_id "$line")
+            printf '{"id":%s,"result":{}}\n' "$request_id"
+            printf '%s\n' '{"method":"thread/status/changed","params":{"status":{"type":"idle"}}}'
             ;;
     """)
   end
@@ -291,5 +415,17 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
       Process.sleep(25)
       wait_for_path(path, attempts - 1)
     end
+  end
+
+  defp lifecycle_barrier(name) do
+    marker = Path.join(System.tmp_dir!(), "aiur-#{name}-#{System.unique_integer([:positive])}")
+    release = marker <> ".release"
+
+    on_exit(fn ->
+      File.rm(marker)
+      File.rm(release)
+    end)
+
+    {marker, release}
   end
 end
