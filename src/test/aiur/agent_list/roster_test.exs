@@ -35,7 +35,27 @@ defmodule Aiur.AgentList.RosterTest do
     assert shrunk.selection_index == 0
   end
 
-  test "fold compacts per-id maps while preserving visible deactivated rows" do
+  test "fold preserves the selected row while work-state sorting changes" do
+    working = %{identifier: "1", status: :running, work_state: :working}
+    paused = %{identifier: "2", status: :running, work_state: :paused}
+
+    previous = %{
+      state()
+      | summaries: [working, paused],
+        selection_focus: :agents,
+        selection_index: 1
+    }
+
+    {resorted, _slot_ids, _retain_ids} =
+      Roster.fold(previous, [
+        %{working | work_state: :paused},
+        %{paused | work_state: :working}
+      ])
+
+    assert Enum.at(resorted.summaries, resorted.selection_index).identifier == "2"
+  end
+
+  test "fold drops identifier activity caches and keeps visible local row state" do
     existing = %{
       state()
       | latest_event_by_id: %{"work" => :latest, "done" => :done_latest, "gone" => :gone},
@@ -51,13 +71,13 @@ defmodule Aiur.AgentList.RosterTest do
 
     {new_state, _slot_ids, _retain_ids} = Roster.fold(existing, summaries)
 
-    assert new_state.latest_event_by_id == %{"work" => :latest, "done" => :done_latest}
-    assert new_state.phase_by_identifier == %{"work" => :work, "done" => :review}
-    assert Map.keys(new_state.progress_by_id) |> Enum.sort() == ["done", "work"]
+    assert new_state.latest_event_by_id == %{}
+    assert new_state.phase_by_identifier == %{}
+    assert new_state.progress_by_id == %{}
     assert new_state.agents_with_content == MapSet.new(["work", "done"])
   end
 
-  test "fold seeds deactivated progress at 100 only when needed" do
+  test "fold never invents completion progress for deactivated rows" do
     existing = %{
       state()
       | progress_by_id: %{
@@ -73,8 +93,7 @@ defmodule Aiur.AgentList.RosterTest do
 
     {new_state, _slot_ids, _retain_ids} = Roster.fold(existing, summaries)
 
-    assert [{100, _}, {50, 1}] = new_state.progress_by_id["missing"]
-    assert [{100, 2}, {50, 1}] = new_state.progress_by_id["already"]
+    assert new_state.progress_by_id == %{}
   end
 
   test "fold rebuilds open attention counts to zero when store has no data" do

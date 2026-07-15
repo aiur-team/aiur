@@ -40,6 +40,10 @@ defmodule Aiur.AgentList.Renderer do
         |> Map.put(:agents_with_content, Map.get(state, :agents_with_content, MapSet.new()))
         |> Map.put(:progress_by_id, Map.get(state, :progress_by_id, %{}))
         |> Map.put(:phase_by_identifier, Map.get(state, :phase_by_identifier, %{}))
+        |> Map.put(
+          :activity_status_by_identifier,
+          Map.get(state, :activity_status_by_identifier, %{})
+        )
         |> Map.put(:now_ms, Map.get(state, :now_ms, System.monotonic_time(:millisecond)))
         |> Map.put(:prewarm_active?, Map.get(state, :prewarm_active?, false))
         |> Map.put(:prewarm_phase, Map.get(state, :prewarm_phase))
