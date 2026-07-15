@@ -129,6 +129,11 @@ comments should reach agent event digests even when CODEOWNERS team expansion is
 unavailable. Keep it separate from `github.bot_account`: bot-account authors are
 filtered as self-loops, while trusted accounts are allowed human Executors.
 
+Build Order planning reads use finite `github.planning_root_limit`,
+`github.planning_page_budget`, and `github.planning_call_budget` safeguards.
+They default to `100`, `4`, and `4`; all values must be positive and may not
+exceed those hard limits, so a provider generation never silently truncates.
+
 Copy one of the starter pairs (config + prompt template) and edit it for your project:
 
 - [examples/workflows/linear-codex.aiurconfig](examples/workflows/linear-codex.aiurconfig)
