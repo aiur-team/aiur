@@ -611,3 +611,91 @@ code on an agent's behalf. I will route update/re-cut work back to the owning
 ticket; exact-head review starts only after that agent presents a head that
 contains current `main` and has fresh CI. The manual updates already made to
 #1055/#1057/#1046/#1144 predated this directive and are not precedent.
+
+## Claude — 2026-07-14 22:34 PDT
+
+🚨 **Three live defects, verified on the host just now. Two are quick wins; one changes what
+#1151 should be fixing.** Forensic post-mortem of #1091 (85 dispatches / ~420M quota-units).
+
+**Headline: #1091's feature was DONE IN 53 MINUTES.** `agent:in-progress` 06:20 → first commit
+`93b2018b` 07:13 → PR #1157 opened 07:14. The other **16.5 hours and ~84 dispatches were the
+acceptance loop** — the agent never restarted work (28 commits build monotonically on that
+first head). **17/85 dispatches (20%) were productive; 57/85 (67%) produced no commit at all;
+11/28 commits (39%) carry zero acceptance value** (7 pure `git merge origin/main`, 4
+lint/Dialyzer-only). ~68 unproductive dispatches × ~4.9M units ≈ **~330M wasted on one ticket.**
+
+### 1. 🔴 The shared build gate is DEAD RIGHT NOW — every agent's local verification is a silent no-op
+
+`~/.aiur/build-gate/slot-1` is held by **`pid=2 / pgid=1`** — sandbox-local PIDs written into a
+host-shared lease (on the host, pid 2 = `kthreadd`, pgid 1 = `systemd`). The lease's stuck
+command is a real agent's scoped `mix test --max-cases 4 test/aiur/config_test.exs …`.
+
+The reclaim guard (`src/priv/build_gate.bash:96-125`) calls
+`aiur_build_gate_process_group_alive 1` → **`kill -0 -- -1`**, which is the POSIX **broadcast**
+form: it signals every process the caller may signal and therefore **can never fail**. I ran it
+on the host just now — **it succeeds.** So `reclaim_stale_slot` returns 1 forever and the slot
+is **immortal**: every agent `mix compile` / `mix test` / credo / dialyzer **queues and exits
+without executing** (124, no Mix output).
+
+**Consequence:** agents have been pushing heads they *cannot locally verify* since ~11:14,
+making 6-minute centralized CI the only linter. **This is the upstream cause of the
+lint/dialyzer CI-nit rounds** — including #1091's tail (19:38 lint+dialyzer → 21:28 credo+dialyzer
+→ 21:59 dialyzer `pattern_match` in `settings.ex` → 22:25 **the same** dialyzer `pattern_match`,
+same file, 3rd consecutive round).
+
+⚠️ The agent **filed this itself as #1164 at 11:14 — it was closed as a duplicate at 11:16:45
+without being fixed**, with the instruction to rerun "when the shared gate admits it." It never
+will. **Recommend: clear `~/.aiur/build-gate/slot-*` now, and reopen #1164** (fix: reject
+implausible owners — pid<10, pgid==1 — and never use the `-- -1` broadcast form; validate a
+host-side boot_id/token or `/proc/<pid>` start-time instead).
+
+### 2. 🔴 #1151 is chasing the wrong root cause — and it's in your recovery set
+
+The real CI-wait eviction mechanism is **partial-CI early failure** in
+`src/lib/aiur/events/github_ci_poller.ex:150-157`. The `cond` orders
+`failed_checks != [] -> :failed` **above** `incomplete_check_runs?(check_runs) -> :pending`, so
+the moment the *fastest* job (credo/format, ~30-150s) goes red the poller emits `:failed`
+carrying **only the jobs that have finished** — dialyzer/test/browser are still running and
+simply absent from the packet. That fragments **one** CI verdict into **N** per-job round trips.
+
+Measured: **#1091 12/24 ci-wait episodes exited in 39–142s** vs legitimate terminal exits at
+**261–491s**; **#1151 itself 20/31 (65%), exits 31–149s**; **#1109 11/23 (48%)**.
+
+**Self-comment writes explain 0/12 spurious evictions on #1091 and only 2/20 on #1151 itself
+(~10%).** #1151 has burned **182M units / 34–39 rework flips** hunting a mechanism responsible
+for a tenth of what it targets. Suggest re-scoping #1151 (or adding) to the poller ordering.
+
+**Bonus defect, same file (`:18-20`):** `@failed_conclusions` includes **`cancelled`** and
+**`stale`** — a concurrency-cancelled run is classified as a *code* failure and evicts the ticket.
+
+**Fix (low effort, high impact):** move the three `incomplete_* -> :pending` clauses **above**
+`failed_checks != [] -> :failed` so `:failed` is emitted only once every check run is terminal,
+in **one** packet containing **all** failures; and drop `cancelled`/`stale` from failure
+conclusions.
+
+### 3. 🟠 Review is class-serialized (relevant to decision-197's dual review)
+
+~9 review rounds on #1091 each returned 1–3 **new** findings — and **all nine are one class**:
+make the untrusted-provider-input boundary total/fail-closed + canonicalize identity. (09:23
+root-vs-requested identity → 12:18 nullable GraphQL nodes crash `Map.get` → 13:21 `RATE_LIMITED`
+misclassified → 14:30 malformed 200 envelopes → 15:22 count/cursor contradiction → 16:11
+`Map.get` vs `Map.fetch` on required `parent` → 17:43 endpoint locator identity → 18:46
+case-insensitive `same_identity?` (**a repeat of 09:23's theme**) → 20:36 configured authority
+bypassable.) Each round re-read the **full cumulative 4,021-line diff** at `terra:xhigh` × 2
+reviewers ≈ **~60K lines of diff re-read**; `review_pause: 88` on this ticket alone.
+
+**Not asking you to relax the gate** — asking for **class-completeness within a round**: when a
+reviewer finds an instance, require it to enumerate *every* instance of that class in the diff
+("every `Map.get` on provider JSON; every identity comparison") before returning. One
+class-complete sweep at round 1 finds all nine.
+
+**Combined estimate:** terminal+batched CI verdicts, a working local gate, and class-complete
+review collapse ~9 review rounds + 4 CI-nit rounds + 12 partial evictions + 7 merge turns →
+**~3–4**, i.e. **85 → ~8–12 dispatches** and **~420M → ~60M units** on a ticket like this.
+
+Also FYI (no action): every dispatch re-reads a ~76KB cold-start set (22.3KB `using-aiur/` +
+18.8KB `AGENTS.md` + a monotonically-growing 33.8KB issue thread) — ×85 ≈ **1.6–2.1M tokens of
+pure re-onboarding**. That's what my prior-work continuation fix attacks.
+
+I've mutated nothing. Items 1 and 2 are yours (host + issue scope); I'm building the
+continuation/staleness/watchdog fixes. — Claude
